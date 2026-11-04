@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -188,10 +187,9 @@ func (r *FirestoreRepo) handleRef(handleLower string) *firestore.DocumentRef {
 	return r.client.Collection(handlesCollection).Doc(handleLower)
 }
 
-// GetProfile: 1 read.
+// GetProfile reads users/{uid}.
 func (r *FirestoreRepo) GetProfile(ctx context.Context, uid string) (Profile, error) {
 	snap, err := r.userRef(uid).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return Profile{}, ErrNotFound
@@ -205,11 +203,10 @@ func (r *FirestoreRepo) GetProfile(ctx context.Context, uid string) (Profile, er
 	return d.toProfile(uid), nil
 }
 
-// ProfileInTx implements TxProfiles: 1 read through the caller's transaction, never cached, status unfiltered. The
+// ProfileInTx implements TxProfiles: one read through the caller's transaction, never cached, status unfiltered. The
 // errors carry no uid (the caller scrubs Firestore's own text, which names the document path).
 func (r *FirestoreRepo) ProfileInTx(ctx context.Context, tx *firestore.Transaction, uid string) (Profile, error) {
 	snap, err := tx.Get(r.userRef(uid))
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return Profile{}, ErrNotFound
@@ -225,10 +222,9 @@ func (r *FirestoreRepo) ProfileInTx(ctx context.Context, tx *firestore.Transacti
 
 var _ TxProfiles = (*FirestoreRepo)(nil)
 
-// ResolveHandle: 1 read.
+// ResolveHandle reads handles/{handleLower}.
 func (r *FirestoreRepo) ResolveHandle(ctx context.Context, handleLower string) (string, error) {
 	snap, err := r.handleRef(handleLower).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return "", ErrNotFound
@@ -243,7 +239,7 @@ func (r *FirestoreRepo) ResolveHandle(ctx context.Context, handleLower string) (
 }
 
 // ResolveHandles: one GetAll on handles/{lower} for every id in handleLowers (the service caps it at
-// MaxResolveHandles); reads = len(handleLowers), a missing handle is billed as one read too. Handles with no
+// MaxResolveHandles). Handles with no
 // document are absent from the result (not an error).
 func (r *FirestoreRepo) ResolveHandles(ctx context.Context, handleLowers []string) (map[string]string, error) {
 	out := make(map[string]string, len(handleLowers))
@@ -255,7 +251,6 @@ func (r *FirestoreRepo) ResolveHandles(ctx context.Context, handleLowers []strin
 		refs[i] = r.handleRef(h)
 	}
 	snaps, err := r.client.GetAll(ctx, refs)
-	budget.FromContext(ctx).AddReads(int64(len(handleLowers)))
 	if err != nil {
 		return nil, fmt.Errorf("identity: resolve %d handles: %w", len(handleLowers), err)
 	}
@@ -272,16 +267,14 @@ func (r *FirestoreRepo) ResolveHandles(ctx context.Context, handleLowers []strin
 	return out, nil
 }
 
-// CreateProfile: worst case reads 2 (users, handles), writes 3 (users, handles, graph); a replay
-// (users/{uid} already exists) is reads 1, writes 0 (proto comment). authorize adds no Firestore ops.
+// CreateProfile writes users, handles and the graph doc in one transaction; a replay (users/{uid} already exists)
+// writes nothing. authorize adds no Firestore operations.
 func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) error) (Profile, bool, error) {
 	var result Profile
 	replay := false
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		counter := budget.FromContext(ctx)
 
 		userSnap, err := tx.Get(r.userRef(uid))
-		counter.AddReads(1)
 		switch {
 		case err == nil:
 			var d userDoc
@@ -302,7 +295,6 @@ func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLo
 		}
 
 		handleSnap, herr := tx.Get(r.handleRef(handleLower))
-		counter.AddReads(1)
 		// handleOwnedByCaller is the "shouldn't happen" benign race noted below: handles/{h} already
 		// exists and already points at uid, even though users/{uid} itself doesn't exist yet. Previously
 		// this fell through to b.Create() on the handle doc regardless, which fails with AlreadyExists and
@@ -328,7 +320,7 @@ func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLo
 			CreatedAt:   now,
 			UpdatedAt:   now,
 		}
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		b.Create(r.userRef(uid), doc)
 		if !handleOwnedByCaller {
 			b.Create(r.handleRef(handleLower), handleDoc{UID: uid, CreatedAt: now})
@@ -348,15 +340,13 @@ func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLo
 	return result, replay, nil
 }
 
-// UpdateProfile: 1 read, 1 write (whole document, in one transaction; the extras are in userDoc, so they survive it), or
-// 1 read and 0 writes when mutate leaves the profile exactly as it was read (L-4: a save of unchanged values must
+// UpdateProfile reads and rewrites the whole document in one transaction (the extras are in userDoc, so they survive
+// it), or writes nothing when mutate leaves the profile exactly as it was read (L-4: a save of unchanged values must
 // not rewrite the document, so the service moves UpdatedAt only when something changed).
 func (r *FirestoreRepo) UpdateProfile(ctx context.Context, uid string, mutate func(*Profile)) (Profile, error) {
 	var result Profile
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(r.userRef(uid))
-		counter.AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				return ErrNotFound
@@ -375,7 +365,7 @@ func (r *FirestoreRepo) UpdateProfile(ctx context.Context, uid string, mutate fu
 			return nil
 		}
 
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		b.Set(r.userRef(uid), profileToDoc(profile))
 		if b.Err() != nil {
 			return b.Err()
@@ -389,7 +379,7 @@ func (r *FirestoreRepo) UpdateProfile(ctx context.Context, uid string, mutate fu
 	return result, nil
 }
 
-// ClearIfPinned implements Pins: 1 read (users/{uid}, fresh, inside the transaction), at most 1 write.
+// ClearIfPinned implements Pins: it reads users/{uid} fresh inside the transaction and writes at most once.
 // The write is a field-level Update of pinnedPostId to "" and happens only when the stored pin is exactly postID, so a
 // newer pin is never touched and a purged users doc is never recreated (a missing doc is "nothing to clear"). It is
 // not flag-gated: the clean-up must run whatever profile_extras says.
@@ -397,9 +387,7 @@ func (r *FirestoreRepo) ClearIfPinned(ctx context.Context, uid, postID string) (
 	cleared := false
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
 		cleared = false
-		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(r.userRef(uid))
-		counter.AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				return nil
@@ -415,7 +403,7 @@ func (r *FirestoreRepo) ClearIfPinned(ctx context.Context, uid, postID string) (
 		if postID == "" || d.PinnedPostID != postID {
 			return nil
 		}
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		b.Update(r.userRef(uid), []firestore.Update{{Path: "pinnedPostId", Value: ""}})
 		if b.Err() != nil {
 			return b.Err()
@@ -431,7 +419,7 @@ func (r *FirestoreRepo) ClearIfPinned(ctx context.Context, uid, postID string) (
 
 var _ Pins = (*FirestoreRepo)(nil)
 
-// ProfileImageURLs returns, from one fresh read of users/{uid} that bypasses every cache (1 read), the image URLs the
+// ProfileImageURLs returns, from one fresh read of users/{uid} that bypasses every cache, the image URLs the
 // profile holds right now: the avatar, its thumbnail, the banner and its thumbnail, empty ones omitted. found is false
 // when the document does not exist (not an error). It is what the media module's profile_media_retired step checks
 // before it retires an image: a job never acts on a message's word alone. It implements
@@ -452,17 +440,15 @@ func (r *FirestoreRepo) ProfileImageURLs(ctx context.Context, uid string) (urls 
 	return urls, true, nil
 }
 
-// ChangeHandle: 2 reads (users, new handle) worst case, matching the proto doc comment; see api.go's Repo
+// ChangeHandle reads users and the new handle doc; see api.go's Repo
 // interface doc comment for the full no-op/case-only/cooldown/idempotent-retry decision table (M4). Every
 // check runs against userSnap/handleSnap read fresh in *this* transaction — never a value the caller
 // (service.go) cached earlier, which could be stale relative to a change another Cloud Run instance just
 // committed.
 func (r *FirestoreRepo) ChangeHandle(ctx context.Context, uid, newHandle, newHandleLower string, now time.Time, cooldown time.Duration) (profile Profile, invalidateOldHandleLower string, err error) {
 	_, err = store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		counter := budget.FromContext(ctx)
 
 		userSnap, err := tx.Get(r.userRef(uid))
-		counter.AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				return ErrNotFound
@@ -477,7 +463,7 @@ func (r *FirestoreRepo) ChangeHandle(ctx context.Context, uid, newHandle, newHan
 		if d.HandleLower == newHandleLower {
 			if d.Handle == newHandle {
 				// True no-op: already exactly this handle (e.g. an idempotent retry that reaches this
-				// instance after the change already committed elsewhere). 0 writes.
+				// instance after the change already committed elsewhere). Nothing is written.
 				profile = d.toProfile(uid)
 				return nil
 			}
@@ -486,7 +472,7 @@ func (r *FirestoreRepo) ChangeHandle(ctx context.Context, uid, newHandle, newHan
 			d.Handle = newHandle
 			d.SnapshotVersion++ // the handle's case is part of the author snapshot posts carry (P2)
 			d.UpdatedAt = now
-			b := store.NewFirestoreTxBatch(tx, counter)
+			b := store.NewFirestoreTxBatch(tx)
 			b.Set(r.userRef(uid), d)
 			if b.Err() != nil {
 				return b.Err()
@@ -502,7 +488,6 @@ func (r *FirestoreRepo) ChangeHandle(ctx context.Context, uid, newHandle, newHan
 		}
 
 		handleSnap, herr := tx.Get(r.handleRef(newHandleLower))
-		counter.AddReads(1)
 		// handleOwnedByCaller: handles/{new} already points at uid (e.g. a retried ChangeHandle whose
 		// earlier attempt got far enough to write the new handle doc before the caller saw a response) —
 		// treat as a successful idempotent retry rather than ErrHandleTaken.
@@ -528,7 +513,7 @@ func (r *FirestoreRepo) ChangeHandle(ctx context.Context, uid, newHandle, newHan
 		d.SnapshotVersion++ // posts carry the handle in their author snapshot
 		d.UpdatedAt = now
 
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		if handleOwnedByCaller {
 			b.Set(r.handleRef(newHandleLower), handleDoc{UID: uid, CreatedAt: now})
 		} else {
@@ -551,7 +536,7 @@ func (r *FirestoreRepo) ChangeHandle(ctx context.Context, uid, newHandle, newHan
 
 // AddPostsCount, AddFollowersCount and AddFollowingCount implement Counters: an atomic
 // FieldValue.Increment appended to a batch/transaction another module already opened (unit-of-work seam).
-// 0 extra reads; 1 write each, counted by the caller's own Batch.
+// The caller's own Batch carries the write; no extra read.
 
 func (r *FirestoreRepo) AddPostsCount(b store.Batch, uid string, delta int64) {
 	b.Update(r.userRef(uid), []firestore.Update{{Path: "postsCount", Value: firestore.Increment(delta)}})
@@ -582,7 +567,7 @@ func (r *FirestoreRepo) AddCounts(b store.Batch, uid string, followingDelta, fol
 	b.Update(r.userRef(uid), updates)
 }
 
-// GetProfiles batch-reads uids via one GetAll (the read-budget rule: "batch known IDs with GetAll after checking the cache").
+// GetProfiles batch-reads uids via one GetAll (batch known IDs after checking the cache).
 // Callers are responsible for capping len(uids) at 50 (identity.Directory's
 // caller, graph, only ever passes misses from its own cache-first pass). Missing docs are silently omitted,
 // not an error (Firestore's GetAll returns a non-existent snapshot for them, never a NotFound error).
@@ -596,7 +581,6 @@ func (r *FirestoreRepo) GetProfiles(ctx context.Context, uids []string) (map[str
 		refs[i] = r.userRef(uid)
 	}
 	snaps, err := r.client.GetAll(ctx, refs)
-	budget.FromContext(ctx).AddReads(int64(len(uids)))
 	if err != nil {
 		return nil, fmt.Errorf("identity: get profiles: %w", err)
 	}
@@ -614,18 +598,16 @@ func (r *FirestoreRepo) GetProfiles(ctx context.Context, uids []string) (map[str
 }
 
 // unreadNotificationCountCap bounds UnreadNotificationCount's query (rule 5: "every query has a Limit") so
-// a very prolific account's unread count can never cost more than the 1 read documented below — Firestore
-// bills a count() aggregation as 1 read per ~1,000 matched docs, so without a cap a heavy notification
-// volume would silently cost more. The client shows "99+" once this cap is hit.
+// a very prolific account's unread count stays one bounded aggregation however much notification volume it has.
+// The client shows "99+" once this cap is hit.
 const unreadNotificationCountCap = 100
 
-// UnreadNotificationCount: 1 read (an aggregation query, capped at unreadNotificationCountCap matches).
+// UnreadNotificationCount is one aggregation query, capped at unreadNotificationCountCap matches.
 func (r *FirestoreRepo) UnreadNotificationCount(ctx context.Context, uid string, since time.Time) (int64, error) {
 	q := r.client.Collection(usersCollection).Doc(uid).Collection(notificationsSubcollection).
 		Where("createdAt", ">", since).
 		Limit(unreadNotificationCountCap)
 	res, err := q.NewAggregationQuery().WithCount("count").Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		return 0, fmt.Errorf("identity: count notifications for %s: %w", uid, err)
 	}
@@ -638,7 +620,7 @@ func (r *FirestoreRepo) UnreadNotificationCount(ctx context.Context, uid string,
 	return out.Count, nil
 }
 
-// MarkNotificationsSeen sets users/{uid}.notificationsSeenAt = at: 0 reads, 1 write. identity
+// MarkNotificationsSeen sets users/{uid}.notificationsSeenAt = at, with no read. identity
 // owns the field, so the notifications module reaches it through this method (notifications.SeenStore) instead of
 // writing users/* itself. A field-level Update never clobbers a concurrent profile edit; a missing profile is
 // ErrNotFound.
@@ -650,6 +632,5 @@ func (r *FirestoreRepo) MarkNotificationsSeen(ctx context.Context, uid string, a
 		}
 		return fmt.Errorf("identity: mark notifications seen for %s: %w", uid, err)
 	}
-	budget.FromContext(ctx).AddWrites(1)
 	return nil
 }

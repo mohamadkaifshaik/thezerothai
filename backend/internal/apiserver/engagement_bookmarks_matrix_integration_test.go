@@ -7,7 +7,7 @@ package apiserver
 // (including a user dropped from the allowlist), the late retry of a NO-OP key in both directions, the same post added
 // ten times concurrently under different keys, the cap boundary at the default 1,000, the 24 h new-account quota window,
 // the caller-bound cursor (a scheduled-list token, an expired token), NOT_FOUND byte identity against GetPost on the
-// wire, the budget of Add / Remove on a COLD chain (a second chain, not the one that seeded the data) and the viewer
+// wire, Add / Remove and their replays on a COLD chain (a second chain, not the one that seeded the data) and the viewer
 // state with FEATURE_ENGAGEMENT off. Helpers come from engagement_bookmarks_chain_integration_test.go and
 // engagement_bookmarks_list_integration_test.go.
 
@@ -158,7 +158,7 @@ func TestBookmarksW213_FlagModesWithRealData(t *testing.T) {
 				if lerr != nil || fmt.Sprint(postIDs(before)) != fmt.Sprint([]string{p1}) {
 					t.Errorf("%s: List = %v, %v; want [P1] whatever the cohort (a dropped user keeps what they saved)", name, postIDs(before), lerr)
 				}
-				// Add: only the cohort. A refusal costs no more than the account-status read and writes nothing.
+				// Add: only the cohort. A refusal writes nothing.
 				_, aerr := r.add(u, contractKey("bm-add"), p2)
 				if tc.enabled(u) {
 					if aerr != nil {
@@ -191,7 +191,7 @@ func TestBookmarksW213_FlagModesWithRealData(t *testing.T) {
 }
 
 // A late retry of a NO-OP key must neither undo nor redo a newer toggle (the note: no-op paths store the
-// idempotency doc, 1 write). The existing lifecycle test replays a key that really removed something; these use keys
+// idempotency doc). The existing lifecycle test replays a key that really removed something; these use keys
 // that changed nothing.
 func TestBookmarksW213_LateRetryOfNoOpKeys(t *testing.T) {
 	w := newBMChain(t, nil)
@@ -320,7 +320,7 @@ func TestBookmarksW213_SamePostDifferentKeysConcurrently(t *testing.T) {
 }
 
 // The cap at the default BOOKMARKS_MAX_PER_USER (1,000), through the chain: with 999 saved the 1,000th add succeeds, the
-// 1,001st is LIMIT_REACHED limit=bookmarks with 0 writes, an existing bookmark still answers success, and one Remove
+// 1,001st is LIMIT_REACHED limit=bookmarks and writes nothing, an existing bookmark still answers success, and one Remove
 // makes room again. The 999 are seeded straight into userLikes.bookmarks (the array length is the exact cap check)
 // so the test does not need 999 requests.
 func TestBookmarksW213_CapBoundaryAtTheDefault(t *testing.T) {
@@ -426,7 +426,7 @@ func TestBookmarksW213_NewAccountWindowIs24Hours(t *testing.T) {
 }
 
 // ListBookmarks tokens are caller- and list-bound and expire after 24 h; each failure is INVALID_ARGUMENT VALIDATION
-// page_token at 0 Firestore reads. The scheduled list's token (same uid, other list) is the cross-list case.
+// page_token. The scheduled list's token (same uid, other list) is the cross-list case.
 func TestBookmarksW213_CursorAuthz(t *testing.T) {
 	ctx := context.Background()
 	var key []byte
@@ -488,7 +488,7 @@ func TestBookmarksW213_CursorAuthz(t *testing.T) {
 }
 
 // No request field can name another user's bookmarks: the path comes from the token. B cannot remove, read or see the
-// state of A's bookmark, and a post_id that looks like a Firestore path is a plain VALIDATION failure at 0 writes.
+// state of A's bookmark, and a post_id that looks like a Firestore path is a plain VALIDATION failure and writes nothing.
 func TestBookmarksW213_NoPathReachesAnotherUsersBookmarks(t *testing.T) {
 	ctx := context.Background()
 	w := newBMChain(t, nil)
@@ -668,10 +668,10 @@ func TestBookmarksW213_NotFoundBytesMatchGetPost(t *testing.T) {
 	}
 }
 
-// The documented budgets on a COLD chain (a second chain that did not seed the data): Add 7 reads / 4 writes, Add replay
-// 5 reads, Remove 2 reads / 2 writes / 1 delete, Remove replay 2 reads, and +2 reads for a REPOST id. Each measured call
-// runs on its own fresh chain so no instance cache (account status, posts, graph, userLikes, profile) is warm.
-func TestBookmarksW213_ColdChainBudgets(t *testing.T) {
+// Add, Add's replay, Remove, Remove's replay and a REPOST id on COLD chains (a second chain that did not seed the data).
+// Each call runs on its own fresh chain so no instance cache (account status, posts, graph, userLikes, profile) is
+// warm: the replays must come from the stored idempotency record, not from memory.
+func TestBookmarksW213_ColdChainAddRemoveReplays(t *testing.T) {
 	cfg := func(c *config.Config) {
 		bookmarksOn(c)
 		c.RateLimit.LikesPerUserPerMinute = 1_000_000
@@ -679,44 +679,45 @@ func TestBookmarksW213_ColdChainBudgets(t *testing.T) {
 	}
 	w := newBMChain(t, cfg)
 	a, v := w.user(t), w.user(t)
-	pid := w.post(t, a, "budget")
+	pid := w.post(t, a, "cold chain")
 	rp, err := w.eng.RepostPost(context.Background(), authed(a.token, &engagementv1.RepostPostRequest{IdempotencyKey: contractKey("bm-rp"), PostId: pid}))
 	if err != nil {
 		t.Fatalf("RepostPost: %v", err)
 	}
 	repostID := rp.Msg.GetRepostPostId()
-	exact := func(name string, c interface{ Reads() int64 }, wantReads int64) {
-		t.Helper()
-	}
 
 	addKey, rmKey := contractKey("bm-add"), contractKey("bm-rm")
 	r1 := newBMChain(t, cfg)
-	if _, err := r1.add(v, addKey, pid); err != nil {
-		t.Fatal(err)
+	if st, err := r1.add(v, addKey, pid); err != nil || !st.GetBookmarked() {
+		t.Fatalf("Add cold = %v, %v", st, err)
 	}
-	c := r1.lineBudget(t, rpcAddBookmark)
-	exact("Add cold", c, 7)
+	if got := r1.lastOutcome(rpcAddBookmark); got != "done" {
+		t.Errorf("Add cold outcome = %q, want done", got)
+	}
 
 	r2 := newBMChain(t, cfg)
-	if _, err := r2.add(v, addKey, pid); err != nil {
-		t.Fatal(err)
+	if st, err := r2.add(v, addKey, pid); err != nil || !st.GetBookmarked() {
+		t.Fatalf("Add replay cold = %v, %v", st, err)
 	}
-	c = r2.lineBudget(t, rpcAddBookmark)
-	exact("Add replay cold", c, 5)
+	if got := r2.lastOutcome(rpcAddBookmark); got != "replay" {
+		t.Errorf("Add replay cold outcome = %q, want replay", got)
+	}
 
 	r3 := newBMChain(t, cfg)
-	if _, err := r3.remove(v, rmKey, pid); err != nil {
-		t.Fatal(err)
+	if st, err := r3.remove(v, rmKey, pid); err != nil || st.GetBookmarked() {
+		t.Fatalf("Remove cold = %v, %v", st, err)
 	}
-	c = r3.lineBudget(t, rpcRemoveBookmark)
-	exact("Remove cold", c, 2)
+	if r3.bookmarkDocExists(t, v.uid, pid) {
+		t.Error("the bookmark survived a cold Remove")
+	}
 
 	r4 := newBMChain(t, cfg)
-	if _, err := r4.remove(v, rmKey, pid); err != nil {
-		t.Fatal(err)
+	if st, err := r4.remove(v, rmKey, pid); err != nil || st.GetBookmarked() {
+		t.Fatalf("Remove replay cold = %v, %v", st, err)
 	}
-	c = r4.lineBudget(t, rpcRemoveBookmark)
-	exact("Remove replay cold", c, 2)
+	if r4.bookmarkDocExists(t, v.uid, pid) {
+		t.Error("a cold Remove replay brought the bookmark back")
+	}
 
 	r5 := newBMChain(t, cfg)
 	if st, err := r5.add(v, contractKey("bm-add"), repostID); err != nil || st.GetPostId() != pid {
@@ -811,7 +812,7 @@ func TestBookmarksW213_EngagementOffShowsOnlyBookmarkedState(t *testing.T) {
 }
 
 // Input edges of the three RPCs on the wire: idempotency_key 15 / 16 / 64 / 65 characters and non-ASCII, post_id of 0 /
-// 18 / 19 / 20 digits, emoji and RTL; a refusal is INVALID_ARGUMENT VALIDATION with the field named, at 0 writes. A
+// 18 / 19 / 20 digits, emoji and RTL; a refusal is INVALID_ARGUMENT VALIDATION with the field named and writes nothing. A
 // negative or oversized page_size is clamped (20 / 50), never an error.
 func TestBookmarksW213_InputEdges(t *testing.T) {
 	w := newBMChain(t, nil)

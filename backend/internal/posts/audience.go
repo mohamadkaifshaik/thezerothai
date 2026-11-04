@@ -22,8 +22,8 @@ import (
 // Undo is never gated: UnlikePost, UndoRepost and RemoveBookmark resolve through engagement's resolveForCounts and
 // must stay outside Audience (plan Part B rule 4).
 //
-// Reads: +0 on every path. The set comes from identity.ProtectedAuthors.Current, a detached instance-cached loader
-// (protected_set_reads), and is consulted only for an author who is neither the viewer nor followed.
+// The set comes from identity.ProtectedAuthors.Current, a detached instance-cached loader,
+// consulted only for an author who is neither the viewer nor followed.
 type Audience struct {
 	authors   identity.ProtectedAuthors // nil: no loader wired, nobody is protected (the earlier state)
 	blockedBy func(ctx context.Context, snap graph.Snapshot, viewer, other string) (bool, error)
@@ -234,7 +234,7 @@ func (a *Audience) ProtectedAuthor(ctx context.Context, viewer, author string, f
 
 // RefuseShare is the D5 write rule for RepostPost and CreatePost(quote_of_post_id): p is the post the caller may
 // already see (Viewable passed). A protected author's post can be shared only by that author; an approved caller
-// gets FAILED_PRECONDITION PROTECTED_ACCOUNT with 0 writes. A set error is UNAVAILABLE.
+// gets FAILED_PRECONDITION PROTECTED_ACCOUNT and nothing is written. A set error is UNAVAILABLE.
 func (a *Audience) RefuseShare(ctx context.Context, caller string, p *Post) error {
 	if !a.Enabled() || p.AuthorID == caller {
 		return nil
@@ -324,7 +324,7 @@ func NewSnapshotAudience(a identity.ProtectedAuthors) *Audience {
 }
 
 // VisibleAuthor reports whether viewer may see posts by author (CanSee), asking the loader only when the author is
-// neither the viewer nor followed. Reads: +0 (the loader is detached and instance-cached). A set error is UNAVAILABLE:
+// neither the viewer nor followed. The loader is detached and instance-cached. A set error is UNAVAILABLE:
 // never read it as "visible".
 func (a *Audience) VisibleAuthor(ctx context.Context, viewer, author string, snap graph.Snapshot) (bool, error) {
 	return a.visibleAuthor(ctx, viewer, author, snap)

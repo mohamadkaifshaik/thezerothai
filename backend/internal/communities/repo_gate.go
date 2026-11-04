@@ -9,11 +9,10 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// MemberInTx reads the member doc inside the caller's transaction (1 read, charged as 1 whether or not it exists): never cached, so a
+// MemberInTx reads the member doc inside the caller's transaction: never cached, so a
 // ban made on another instance a second ago is seen. A missing doc (or one with another state) is MemberNone with a nil error: the
 // NotFound of tx.Get must never leave this method, because CreatePost reads a NotFound from its own transaction as a vanished parent.
 // It implements TxMemberReader for PostGate.
@@ -22,7 +21,6 @@ func (r *FirestoreRepo) MemberInTx(ctx context.Context, tx *firestore.Transactio
 		return MemberNone, errors.New("communities: repo has no firestore client")
 	}
 	snap, err := tx.Get(r.memberRef(communityID, uid))
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return MemberNone, nil

@@ -4,9 +4,9 @@ package apiserver
 
 // Wire contract of the bookmark flag gate over the real Build chain: GetMe.enabled_features
 // lists "bookmarks" only for the allowlisted caller; with the flag off all three RPCs answer FAILED_PRECONDITION +
-// FEATURE_DISABLED (metadata feature=bookmarks) with 0 Firestore reads; in allowlist mode a caller outside the list is
+// FEATURE_DISABLED (metadata feature=bookmarks) without reaching Firestore; in allowlist mode a caller outside the list is
 // refused AddBookmark only, while Remove and List pass the gate (a passed gate shows as INVALID_ARGUMENT from Add and Remove,
-// whose placeholder post id fails validation with 0 reads, and as a plain success from List, an empty list for a user with no bookmarks). Helpers come from
+// whose placeholder post id fails validation, and as a plain success from List, an empty list for a user with no bookmarks). Helpers come from
 // posts_contract_test.go and posts_restricted_test.go.
 
 import (

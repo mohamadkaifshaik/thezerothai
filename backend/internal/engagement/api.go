@@ -52,17 +52,17 @@ type Result struct {
 
 // Service is the Connect handler's dependency.
 type Service interface {
-	// Like likes a post for uid. Reads: 1 in the transaction (quotas) + the visibility check (post, author users,
-	// caller graph; +2 for a REPOST id). Writes 4 (like doc, likeCount, userLikes, quota); replay 0 writes.
+	// Like likes a post for uid. The transaction writes the like doc, likeCount, userLikes and the quota; a replay
+	// writes nothing. The visibility check (post, author, caller graph) runs first.
 	Like(ctx context.Context, uid, idempotencyKey, postID string) (Result, error)
-	// Unlike removes uid's like. Reads <= 1 (+1 for a REPOST id): the post for the returned counts, cache first.
-	// Writes 2 + 1 delete (likeCount, userLikes; the like doc); a no-op writes 0.
+	// Unlike removes uid's like. The post for the returned counts comes cache first. It updates likeCount and
+	// userLikes and deletes the like doc; a no-op writes nothing.
 	Unlike(ctx context.Context, uid, idempotencyKey, postID string) (Result, error)
-	// Repost reposts a post for uid. Reads as Like; writes 6 (reposts doc, REPOST post, repostCount, postsCount,
-	// userLikes, quota); replay +1 read, 0 writes.
+	// Repost reposts a post for uid. It reads as Like and writes the reposts doc, the REPOST post, repostCount,
+	// postsCount, userLikes and the quota; a replay writes nothing.
 	Repost(ctx context.Context, uid, idempotencyKey, postID string) (Result, error)
-	// UndoRepost removes uid's repost of the ORIGINAL postID. Reads 1 (reposts doc) + the original (cache first);
-	// writes 3 + 2 deletes; a no-op writes 0.
+	// UndoRepost removes uid's repost of the ORIGINAL postID. It reads the reposts doc and the original (cache
+	// first); a no-op writes nothing.
 	UndoRepost(ctx context.Context, uid, idempotencyKey, postID string) (Result, error)
 }
 
@@ -79,9 +79,9 @@ type UserLikes struct {
 
 // Repo is the storage seam service.go depends on; repo_firestore.go implements it, tests use a fake.
 type Repo interface {
-	// LoadUserLikes reads userLikes/{uid} (1 read). A missing doc is an empty UserLikes, not an error.
+	// LoadUserLikes reads userLikes/{uid}. A missing doc is an empty UserLikes, not an error.
 	LoadUserLikes(ctx context.Context, uid string) (UserLikes, error)
-	// Like runs the like transaction. replayed is true when the like already existed (0 writes).
+	// Like runs the like transaction. replayed is true when the like already existed (nothing is written).
 	Like(ctx context.Context, p LikeParams) (replayed bool, err error)
 	// Unlike removes the like. removed is false for a no-op. A post that is gone is handled inside (the counter
 	// is dropped and the delete is retried alone).
@@ -90,7 +90,7 @@ type Repo interface {
 	Repost(ctx context.Context, p RepostParams) (RepostResult, error)
 	// UndoRepost deletes the repost of originalID, if any.
 	UndoRepost(ctx context.Context, uid, originalID string) (UndoResult, error)
-	// TrimLikes removes ids from userLikes.recent (best effort, 1 write).
+	// TrimLikes removes ids from userLikes.recent (best effort).
 	TrimLikes(ctx context.Context, uid string, recent, reposts []string) error
 }
 
@@ -119,7 +119,7 @@ type RepostResult struct {
 
 // UndoResult is the outcome of Repo.UndoRepost.
 type UndoResult struct {
-	// Removed is false when there was no repost (a no-op, 0 writes).
+	// Removed is false when there was no repost (a no-op, nothing is written).
 	Removed bool
 	// RepostPostID is the REPOST post doc that was deleted.
 	RepostPostID string
@@ -181,20 +181,21 @@ type BookmarkState struct {
 // its own service changes no caller. It reads posts only through posts.Engagement.Viewable, emits no event and
 // notifies nobody; a bookmark is private to the caller.
 type Bookmarks interface {
-	// AddBookmark bookmarks postID (a REPOST id: its original) for uid. Reads cold: the visibility check 3 (+2 for a
-	// REPOST id, +1 on blockedBy overflow; 0 warm) + idempotency + quotas + userLikes = 6, 7 with the interceptor's own
-	// read (3 warm); a replay stops after the idempotency read (5 cold / 1 warm). Writes 4 (bookmark,
-	// idempotency doc, quotas, userLikes); an existing bookmark writes 1 (the idempotency doc, so a late retry replays); a replay, the cap and the quota write 0.
+	// AddBookmark bookmarks postID (a REPOST id: its original) for uid. It runs the visibility check, then reads
+	// idempotency, quotas and userLikes; a replay stops after the idempotency read. It writes the bookmark, the
+	// idempotency doc, quotas and userLikes; an existing bookmark writes only the idempotency doc (so a late retry
+	// replays); a replay, the cap and the quota write nothing.
 	AddBookmark(ctx context.Context, uid, idempotencyKey, postID string) (BookmarkState, error)
-	// RemoveBookmark removes uid's bookmark of postID. No visibility check and no quota. Reads 1 (idempotency);
-	// writes 2 (idempotency doc, userLikes) + 1 delete; a missing bookmark writes 1 (the idempotency doc); a replay writes 0.
+	// RemoveBookmark removes uid's bookmark of postID. No visibility check and no quota. It reads the
+	// idempotency doc, writes it and userLikes, and deletes the bookmark; a missing bookmark writes only the
+	// idempotency doc; a replay writes nothing.
 	RemoveBookmark(ctx context.Context, uid, idempotencyKey, postID string) (BookmarkState, error)
 	// ListBookmarks returns one page of uid's bookmarks, newest first, as live posts. pageSize 0 is
 	// 20, clamped to 50; pageToken is empty for the first page. A foreign, expired or tampered token is VALIDATION
-	// page_token with 0 reads. Reads cold: the bookmark query 1 + len(page) (an empty list: 1), GetMany <= len(page)
-	// (0 for cached posts), the caller's graph snapshot 1 and userLikes 1, each only when a row is left to render
-	// (cached 60 s); 41 at page 20 and 101 at page 50, 43 / 103 with the interceptor's own read. Writes 0; a page that
-	// prunes missing posts writes 1 (userLikes) and deletes 1 per pruned row.
+	// page_token, rejected before any lookup. It reads the bookmark rows, then GetMany for posts that are not
+	// cached, plus the caller's graph snapshot and userLikes, each only when a row is left to render (cached 60 s).
+	// It writes nothing, except that a page that prunes missing posts updates userLikes and deletes one row per
+	// pruned post.
 	ListBookmarks(ctx context.Context, uid string, pageSize int32, pageToken string) (BookmarkPage, error)
 }
 
@@ -226,7 +227,7 @@ const (
 	BookmarkWritten BookmarkOutcome = iota
 	// BookmarkReplayed means the idempotency doc already existed: the stored state is returned, nothing was written.
 	BookmarkReplayed
-	// BookmarkUnchanged means the state already held (Add of an existing bookmark, Remove of a missing one): 1 write (the idempotency doc).
+	// BookmarkUnchanged means the state already held (Add of an existing bookmark, Remove of a missing one): only the idempotency doc is written.
 	BookmarkUnchanged
 )
 
@@ -264,11 +265,11 @@ type BookmarkRepo interface {
 	// Remove runs the RemoveBookmark transaction. It returns ErrIdempotencyKeyReused like Add.
 	Remove(ctx context.Context, p RemoveBookmarkParams) (BookmarkResult, error)
 	// ListPage returns uid's bookmarks strictly after `after` (nil = from the newest), newest first by
-	// (createdAt, post id), at most limit (clamped to 1..MaxListPage). Reads: len(result), minimum 1; the same query as
-	// the export (ExportBookmarksPage).
+	// (createdAt, post id), at most limit (clamped to 1..MaxListPage). It is the same query as the export
+	// (ExportBookmarksPage).
 	ListPage(ctx context.Context, uid string, after *posts.Position, limit int) ([]ExportedBookmark, error)
 	// Prune deletes the bookmark docs of ids (posts that no longer exist) and removes the ids from
-	// userLikes.bookmarks, in one batch: 0 reads, 1 write (the field-level userLikes update) and 1 delete per id.
+	// userLikes.bookmarks, in one batch: a field-level userLikes update and a delete per id.
 	// Blind: a doc another request already pruned is deleted again without error. At most MaxListPage ids.
 	Prune(ctx context.Context, uid string, ids []string) error
 }
@@ -283,11 +284,10 @@ const MaxListPage = limits.MaxPageSize
 type LikesList interface {
 	// ListLikedPosts returns one page of uid's own likes, most recently liked first, as live posts.
 	// pageSize 0 is 20, clamped to 1..50; pageToken is empty for the first page. A foreign, expired or tampered token
-	// is VALIDATION page_token with 0 reads. The ids come from userLikes.recent (the last MaxRecentLikes likes) through
-	// the 60 s instance cache. Reads cold: userLikes 1, GetMany <= len(page) (0 for cached posts), the caller's graph
-	// snapshot 1 (only when a row of someone else is live), the viewer state 0 (same userLikes state): 22 at page 20
-	// and 52 at page 50, 23 / 53 with the interceptor's own read; an empty array 1 (2 with the interceptor). Writes 0,
-	// and nothing is pruned: a row whose post is gone is only dropped from the page.
+	// is VALIDATION page_token, rejected before any lookup. The ids come from userLikes.recent (the last MaxRecentLikes likes) through
+	// the 60 s instance cache. It reads userLikes, GetMany for posts that are not cached, and the caller's graph
+	// snapshot (only when a row of someone else is live); the viewer state reuses the same userLikes state. It
+	// writes nothing, and nothing is pruned: a row whose post is gone is only dropped from the page.
 	ListLikedPosts(ctx context.Context, uid string, pageSize int32, pageToken string) (LikesPage, error)
 }
 
@@ -312,12 +312,12 @@ type Polls interface {
 	// VotePoll records uid's one vote in the poll of postID (a REPOST id: its original), or changes it until the poll closes.
 	// expectedChoice is VotePollRequest.expected_choice: 0 = "I hold no vote", 1..4 = the choice the caller believes it holds, as index + 1;
 	// a different choice is a change only when it names the stored vote (the A2.2 table), else ALREADY_VOTED. The voter blocking the author is
-	// TARGET_BLOCKED (A1), after the closed and range checks. A change reads the vote doc first (+1, 9 worst, 4 typical) and writes 4 in one batch
-	// (vote doc, post counters, userLikes x2); a replay, ALREADY_VOTED, LIMIT_REACHED and every refusal write 0. First-vote numbers below. Reads cold: the visibility check
-	// 3 (post, author users, caller graph; +2 for a REPOST id, +1 on blockedBy overflow; 0 warm) + userLikes 1 for the response's
-	// viewer flags = 4, 5 with the interceptor's own read (the "8" counts the REPOST and overflow worst case); a replay
-	// or ALREADY_VOTED reads the vote doc too (+1). Writes 3 in one batch (vote doc, the post's poll.counts.<i> and poll.total in
-	// one Update, userLikes.pollVotes) + 1 TTL delete later; a replay, ALREADY_VOTED and every refusal write 0.
+	// TARGET_BLOCKED (A1), after the closed and range checks. A change reads the vote doc first and writes in one batch
+	// (vote doc, post counters, userLikes twice); a replay, ALREADY_VOTED, LIMIT_REACHED and every refusal write
+	// nothing. A first vote runs the visibility check (post, author users, caller graph) and reads userLikes for
+	// the response's viewer flags; a replay or ALREADY_VOTED reads the vote doc too. A first vote writes in one batch
+	// (vote doc, the post's poll.counts.<i> and poll.total in one Update, userLikes.pollVotes); the vote doc is
+	// removed later by its TTL.
 	VotePoll(ctx context.Context, uid, idempotencyKey, postID string, choiceIndex, expectedChoice int32) (PollVote, error)
 }
 
@@ -390,13 +390,13 @@ type PollRepo interface {
 	// Vote commits the vote batch (no read). AlreadyExists is VoteExists; a missing post is VotePostGone; exhausted contention is an
 	// error wrapping store.ErrContended.
 	Vote(ctx context.Context, p VoteParams) (VoteOutcome, error)
-	// GetVote reads pollVotes/{postId}_{uid} (1 read). found is false for a missing document.
+	// GetVote reads pollVotes/{postId}_{uid} found is false for a missing document.
 	GetVote(ctx context.Context, uid, postID string) (state VoteState, found bool, err error)
-	// ChangeVote commits one vote change as a blind batch (0 reads, 4 writes): the vote doc is updated under a
+	// ChangeVote commits one vote change as a blind batch (no reads): the vote doc is updated under a
 	// LastUpdateTime precondition equal to p.Version, the post counters move by StagePollChange, and userLikes.pollVotes loses the entry of From
 	// and gains the entry of To (two writes to one document in one commit). A failed precondition is ChangeStale; exhausted contention is an
 	// error wrapping store.ErrContended.
 	ChangeVote(ctx context.Context, p ChangeParams) (ChangeOutcome, error)
-	// TrimPollVotes removes entries from userLikes.pollVotes (field-level, best effort, 1 write, no read).
+	// TrimPollVotes removes entries from userLikes.pollVotes (field-level, best effort, no read).
 	TrimPollVotes(ctx context.Context, uid string, drop []string) error
 }

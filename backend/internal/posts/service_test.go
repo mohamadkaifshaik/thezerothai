@@ -7,12 +7,10 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// fakeRepo is an in-memory Repo that charges reads the way FirestoreRepo does (GetAll: one per id; a query: one
-// per result, minimum 1), so the unit tests assert the same budget numbers the emulator tests do.
+// fakeRepo is an in-memory Repo; the call counters and last-argument fields let the unit tests assert what reached
+// the repository.
 type fakeRepo struct {
 	docs map[string]*Post
 
@@ -69,7 +67,6 @@ func newFakeRepo(ps ...*Post) *fakeRepo {
 func (r *fakeRepo) GetAll(ctx context.Context, ids []string) (map[string]*Post, error) {
 	r.getAllCalls++
 	r.lastGetAllIDs = append([]string(nil), ids...)
-	budget.FromContext(ctx).AddReads(int64(len(ids)))
 	if r.getAllErr != nil {
 		return nil, r.getAllErr
 	}
@@ -85,11 +82,6 @@ func (r *fakeRepo) GetAll(ctx context.Context, ids []string) (map[string]*Post, 
 func (r *fakeRepo) query(ctx context.Context, w Window, limit int) ([]*Post, error) {
 	r.queryCalls++
 	r.lastWindow, r.lastLimit = w, limit
-	n := int64(len(r.queryResult))
-	if n == 0 {
-		n = 1
-	}
-	budget.FromContext(ctx).AddReads(n)
 	if r.beforeReturn != nil {
 		r.beforeReturn() // models a write landing while the query is in flight
 	}
@@ -141,13 +133,6 @@ func newSvc(repo Repo) (*service, *Cache) {
 	return New(Deps{Repo: repo, Cache: c}).(*service), c
 }
 
-func reads(t *testing.T, fn func(ctx context.Context)) int64 {
-	t.Helper()
-	ctx, counter := budget.WithCounter(context.Background())
-	fn(ctx)
-	return counter.Reads()
-}
-
 func TestGet(t *testing.T) {
 	p := post("0000000000000000001", "a")
 	repo := newFakeRepo(p)
@@ -178,7 +163,7 @@ func TestGet(t *testing.T) {
 	}
 }
 
-// TestGetMany_TwelveOfTwentyCached is the acceptance: 20 ids with 12 cached = 8 reads in one GetAll.
+// TestGetMany_TwelveOfTwentyCached is the acceptance: 20 ids with 12 cached fetch only the other 8, in one GetAll.
 func TestGetMany_TwelveOfTwentyCached(t *testing.T) {
 	var all []*Post
 	var ids []string
@@ -193,19 +178,19 @@ func TestGetMany_TwelveOfTwentyCached(t *testing.T) {
 		cache.SetPost(p)
 	}
 
-	var got map[string]*Post
-	var err error
-	r := reads(t, func(ctx context.Context) { got, err = svc.GetMany(ctx, ids) })
+	got, err := svc.GetMany(context.Background(), ids)
 	if err != nil || len(got) != 20 {
 		t.Fatalf("GetMany: len=%d err=%v", len(got), err)
 	}
 	if repo.getAllCalls != 1 || len(repo.lastGetAllIDs) != 8 {
-		t.Fatalf("reads=%d getAllCalls=%d fetched=%d, want 8, 1, 8", r, repo.getAllCalls, len(repo.lastGetAllIDs))
+		t.Fatalf("getAllCalls=%d fetched=%d, want 1, 8", repo.getAllCalls, len(repo.lastGetAllIDs))
 	}
-	// Everything is cached now: a repeat costs nothing and makes no GetAll.
-	r = reads(t, func(ctx context.Context) { _, _ = svc.GetMany(ctx, ids) })
+	// Everything is cached now: a repeat makes no GetAll.
+	if _, err := svc.GetMany(context.Background(), ids); err != nil {
+		t.Fatalf("repeat GetMany: %v", err)
+	}
 	if repo.getAllCalls != 1 {
-		t.Fatalf("repeat: reads=%d getAllCalls=%d, want 0, 1", r, repo.getAllCalls)
+		t.Fatalf("repeat: getAllCalls=%d, want 1", repo.getAllCalls)
 	}
 }
 
@@ -252,15 +237,13 @@ func TestGetMany_EdgeCases(t *testing.T) {
 	})
 }
 
-// TestByAuthors_ThreeAuthorsNoMatches is the acceptance: 3 authors with 0 matching posts = 1 read.
+// TestByAuthors_ThreeAuthorsNoMatches is the acceptance: 3 authors with 0 matching posts run one query.
 func TestByAuthors_ThreeAuthorsNoMatches(t *testing.T) {
 	repo := newFakeRepo()
 	svc, _ := newSvc(repo)
-	var got []*Post
-	var err error
-	r := reads(t, func(ctx context.Context) { got, err = svc.ByAuthors(ctx, []string{"a", "b", "c"}, Window{}, 10) })
-	if err != nil || len(got) != 0 {
-		t.Fatalf("got=%v err=%v reads=%d, want empty, nil, 1", got, err, r)
+	got, err := svc.ByAuthors(context.Background(), []string{"a", "b", "c"}, Window{}, 10)
+	if err != nil || len(got) != 0 || repo.queryCalls != 1 {
+		t.Fatalf("got=%v err=%v queryCalls=%d, want empty, nil, 1", got, err, repo.queryCalls)
 	}
 }
 
@@ -294,9 +277,7 @@ func TestByAuthors(t *testing.T) {
 			repo := newFakeRepo()
 			repo.queryResult = res
 			svc, cache := newSvc(repo)
-			var got []*Post
-			var err error
-			r := reads(t, func(ctx context.Context) { got, err = svc.ByAuthors(ctx, tc.authors, tc.window, tc.limit) })
+			got, err := svc.ByAuthors(context.Background(), tc.authors, tc.window, tc.limit)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
 			}
@@ -305,7 +286,7 @@ func TestByAuthors(t *testing.T) {
 			}
 			if tc.wantCalls == 0 {
 				if len(got) != 0 {
-					t.Fatalf("no query must cost 0 reads and return nothing: reads=%d got=%v", r, got)
+					t.Fatalf("no query must return nothing: got=%v", got)
 				}
 				return
 			}
@@ -316,7 +297,7 @@ func TestByAuthors(t *testing.T) {
 				t.Fatalf("window = %+v, want %+v", repo.lastWindow, tc.window)
 			}
 			if len(got) != len(res) {
-				t.Fatalf("reads=%d got=%d, want %d each", r, len(got), len(res))
+				t.Fatalf("got=%d, want %d", len(got), len(res))
 			}
 			for _, p := range res {
 				if cp, ok := cache.GetPost(p.ID); !ok || cp != p {
@@ -364,15 +345,13 @@ func TestByAuthor(t *testing.T) {
 			repo := newFakeRepo()
 			repo.queryResult = res
 			svc, _ := newSvc(repo)
-			var got []*Post
-			var err error
-			r := reads(t, func(ctx context.Context) { got, err = svc.ByAuthor(ctx, tc.author, tc.replies, tc.window, 0) })
+			got, err := svc.ByAuthor(context.Background(), tc.author, tc.replies, tc.window, 0)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
 			}
 			if tc.wantErr {
 				if repo.queryCalls != 0 {
-					t.Fatalf("a rejected call must not query: calls=%d reads=%d", repo.queryCalls, r)
+					t.Fatalf("a rejected call must not query: calls=%d", repo.queryCalls)
 				}
 				return
 			}
@@ -380,17 +359,16 @@ func TestByAuthor(t *testing.T) {
 				t.Fatalf("author=%q replies=%v limit=%d", repo.lastAuthor, repo.lastReplies, repo.lastLimit)
 			}
 			if len(got) != 1 {
-				t.Fatalf("reads=%d got=%d", r, len(got))
+				t.Fatalf("got=%d, want 1", len(got))
 			}
 		})
 	}
 
-	t.Run("empty result costs one read", func(t *testing.T) {
+	t.Run("empty result", func(t *testing.T) {
 		svc, _ := newSvc(newFakeRepo())
-		var got []*Post
-		r := reads(t, func(ctx context.Context) { got, _ = svc.ByAuthor(ctx, "a", false, Window{}, 10) })
+		got, _ := svc.ByAuthor(context.Background(), "a", false, Window{}, 10)
 		if len(got) != 0 {
-			t.Fatalf("reads=%d got=%d, want 1, 0", r, len(got))
+			t.Fatalf("got=%d, want 0", len(got))
 		}
 	})
 	t.Run("a repo error is returned", func(t *testing.T) {

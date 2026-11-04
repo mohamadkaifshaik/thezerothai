@@ -972,7 +972,7 @@ func TestLike_ReplayAfterUnlikeReLikes(t *testing.T) {
 
 // A RepostPost replay while the repost still exists returns the same repostPostId, with no new REPOST, counter
 // move, notification or second call to the stored-key path (the repo's 0-write replay is asserted against the
-// emulator in TestRepo_RepostReplayBudget).
+// emulator in TestRepo_Rule4Replays).
 func TestRepost_ReplayWhileRepostExistsIsTheSameId(t *testing.T) {
 	e := newEnv(t)
 	e.repo.repostRes = RepostResult{Post: &posts.Post{ID: pidRep, AuthorID: "viewer"}}

@@ -197,8 +197,8 @@ func wireError(t *testing.T, err error, code connect.Code) *commonv1.ErrorDetail
 
 // TestPosts_SuspendedAndDeletingCallers_AreRestrictedOnEveryRPC (audit item 5): through the
 // real chain, a SUSPENDED or DELETING caller gets PERMISSION_DENIED + ACCOUNT_RESTRICTED from CreatePost,
-// DeletePost, GetPost and both timelines. The account-status interceptor answers before any handler, so each call
-// costs at most that interceptor's single users/{uid} read and creates nothing.
+// DeletePost, GetPost and both timelines. The account-status interceptor answers before any handler, so no call
+// creates anything.
 func TestPosts_SuspendedAndDeletingCallers_AreRestrictedOnEveryRPC(t *testing.T) {
 	ctx := context.Background()
 	setup := newChain(t, nil)

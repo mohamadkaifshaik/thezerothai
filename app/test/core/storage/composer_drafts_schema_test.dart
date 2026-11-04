@@ -5,6 +5,8 @@ import 'package:dzeroth/features/posts/data/drafts_repository.dart';
 import 'package:dzeroth/features/posts/domain/composer_draft.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/legacy_profile_cache.dart';
+
 // Relative to the real clock, whole seconds (the column stores seconds).
 final kBase = DateTime.fromMillisecondsSinceEpoch(
   DateTime.now().millisecondsSinceEpoch ~/ 1000 * 1000,
@@ -38,6 +40,7 @@ void main() {
           raw.execute(
             "INSERT INTO messaging_state_entries VALUES ('inbox','s','o',0,3)",
           );
+          raw.execute(kLegacyProfileCacheTableSql);
           raw.execute('PRAGMA user_version = 8');
         },
       );
@@ -86,6 +89,7 @@ void main() {
           "created_at, updated_at) VALUES ('a', 'u1', 'kept one', $s, $s), "
           "('b', 'u2', 'kept two', $s, $s)",
         );
+        raw.execute(kLegacyProfileCacheTableSql);
         raw.execute('PRAGMA user_version = 9');
       },
     );
@@ -124,7 +128,10 @@ void main() {
     'a v8 database reaches v11 with the columns once (no duplicate)',
     () async {
       final executor = NativeDatabase.memory(
-        setup: (raw) => raw.execute('PRAGMA user_version = 8'),
+        setup: (raw) {
+          raw.execute(kLegacyProfileCacheTableSql);
+          raw.execute('PRAGMA user_version = 8');
+        },
       );
       final db = AppDatabase.forTesting(executor);
       addTearDown(db.close);
@@ -150,10 +157,10 @@ void main() {
     },
   );
 
-  test('a fresh database is at schema version 12', () async {
+  test('a fresh database is at schema version 13', () async {
     final db = AppDatabase.forTesting(NativeDatabase.memory());
     addTearDown(db.close);
-    expect(db.schemaVersion, 12);
+    expect(db.schemaVersion, 13);
   });
 
   test('migrates a v10 database to v11: same rows and send-key values, key '
@@ -183,6 +190,7 @@ void main() {
           "('b', 'u2', 'two', '', 'everyone', 0, 0, $s, $s, NULL, NULL, "
           "NULL, NULL)",
         );
+        raw.execute(kLegacyProfileCacheTableSql);
         raw.execute('PRAGMA user_version = 10');
       },
     );
@@ -267,6 +275,7 @@ void main() {
           "INSERT INTO composer_draft_entries (draft_id, uid, draft_text, "
           "created_at, updated_at) VALUES ('a', 'u1', 'kept', $s, $s)",
         );
+        raw.execute(kLegacyProfileCacheTableSql);
         raw.execute('PRAGMA user_version = 11');
       },
     );
@@ -299,6 +308,7 @@ void main() {
           "INSERT INTO composer_draft_entries (draft_id, uid, draft_text, "
           "created_at, updated_at) VALUES ('a', 'u1', 'kept', $s, $s)",
         );
+        raw.execute(kLegacyProfileCacheTableSql);
         raw.execute('PRAGMA user_version = 9');
       },
     );

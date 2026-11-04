@@ -6,12 +6,11 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // GetThread and a reply a community moderator hid: the drop is for every viewer but the reply's author,
-// costs no read, never touches the root slot and never changes who may reply.
+// makes no extra repo or graph call, never touches the root slot and never changes who may reply.
 func TestGetThread_CommunityHiddenReply(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -35,7 +34,7 @@ func TestGetThread_CommunityHiddenReply(t *testing.T) {
 			for _, id := range tc.hide {
 				e.repo.docs[id].CommunityHidden = true
 			}
-			th, _, err := e.thread(ThreadInput{PostID: tc.focal})
+			th, err := e.thread(ThreadInput{PostID: tc.focal})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -64,14 +63,18 @@ func TestGetThread_CommunityHiddenReply(t *testing.T) {
 			}
 		})
 	}
-	// +0 reads: the same thread with and without a hidden reply costs the same
+	// The same thread with and without a hidden reply makes the same repo and graph calls.
 	for _, focal := range []string{rRoot, rReply6} {
 		plain, hidden := newThreadEnv(), newThreadEnv()
 		hidden.repo.docs[rReply1].CommunityHidden = true
-		_, c0, err0 := plain.thread(ThreadInput{PostID: focal})
-		_, c1, err1 := hidden.thread(ThreadInput{PostID: focal})
+		_, err0 := plain.thread(ThreadInput{PostID: focal})
+		_, err1 := hidden.thread(ThreadInput{PostID: focal})
 		if err0 != nil || err1 != nil {
-			t.Errorf("focal %s: reads %d vs %d, writes %d/%d, errs %v %v, want equal reads and 0 writes", focal, c0.Reads(), c1.Reads(), c0.Writes(), c1.Writes(), err0, err1)
+			t.Fatalf("focal %s: errs %v %v", focal, err0, err1)
+		}
+		if plain.repo.getAllCalls != hidden.repo.getAllCalls || plain.repo.conversationCalls != hidden.repo.conversationCalls || plain.graph.calls != hidden.graph.calls {
+			t.Errorf("focal %s: getAll %d vs %d, conversation %d vs %d, graph %d vs %d, want equal", focal,
+				plain.repo.getAllCalls, hidden.repo.getAllCalls, plain.repo.conversationCalls, hidden.repo.conversationCalls, plain.graph.calls, hidden.graph.calls)
 		}
 	}
 }
@@ -82,7 +85,6 @@ func TestGetThread_CommunityHiddenReply_LogsCause(t *testing.T) {
 	e.repo.docs[rReply1].CommunityHidden = true
 	e.repo.docs[rReply6].CommunityHidden = true
 	ctx, info := logger.WithRequestInfo(googleCtx(context.Background(), testUID))
-	ctx, _ = budget.WithCounter(ctx)
 	if _, err := e.svc.GetThread(ctx, testUID, ThreadInput{PostID: rRoot}); err != nil {
 		t.Fatal(err)
 	}

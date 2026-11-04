@@ -157,61 +157,6 @@ func (e *dmChain) messageCount(t *testing.T, a, b dmUser) int {
 	return len(docs)
 }
 
-// The budget table of the SendMessage doc comment through the whole chain, on a cold instance: an accepted conversation
-// costs 5 reads (interceptor, caller graph, recipient graph, recipient profile, conversation) and 3 writes; the next
-// request message 4 writes; a new conversation 7 reads (+ the recipient's status fresh, quotas) and 5 writes.
-func TestMessagingChain_BudgetTable(t *testing.T) {
-	setup := newDMChain(t, nil)
-	a, b, c, d := setup.user(t), setup.user(t), setup.user(t), setup.user(t)
-	setup.mutual(t, a, b)
-	// An existing accepted conversation, so the measured send is the plain 3-write one.
-	setup.mustSend(t, a, b, "first")
-
-	measure := func(label string, run func(e *dmChain)) {
-		t.Helper()
-		e := newDMChain(t, nil) // a cold instance: no cache is warm
-		run(e)
-		got := e.lineBudget(t, rpcSendMessage)
-		t.Logf("MSGBUDGET case=%q reads=%d writes=%d deletes=%d", label, got.Reads(), got.Writes(), got.Deletes())
-	}
-	measure("accepted conversation, cold", func(e *dmChain) {
-		if _, err := e.send(a, b, contractKey("dm"), "second"); err != nil {
-			t.Fatal(err)
-		}
-	})
-	measure("new conversation (mutual), cold", func(e *dmChain) {
-		setup.mutual(t, a, c)
-		if _, err := e.send(a, c, contractKey("dm"), "hello"); err != nil {
-			t.Fatal(err)
-		}
-	})
-	measure("new conversation (request), cold", func(e *dmChain) {
-		if _, err := e.send(a, d, contractKey("dm"), "request"); err != nil {
-			t.Fatal(err)
-		}
-	})
-	measure("request, 2nd message", func(e *dmChain) {
-		if _, err := e.send(a, d, contractKey("dm"), "request again"); err != nil {
-			t.Fatal(err)
-		}
-	})
-	measure("reply that accepts a request", func(e *dmChain) {
-		if _, err := e.send(d, a, contractKey("dm"), "ok"); err != nil {
-			t.Fatal(err)
-		}
-	})
-	// Warm: the same instance, caches filled by the previous send: the planning figure is far below the worst case.
-	warm := newDMChain(t, nil)
-	if _, err := warm.send(a, b, contractKey("dm"), "warm up"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := warm.send(a, b, contractKey("dm"), "warm"); err != nil {
-		t.Fatal(err)
-	}
-	got := warm.lineBudget(t, rpcSendMessage)
-	t.Logf("MSGBUDGET case=%q reads=%d writes=%d deletes=%d", "accepted conversation, warm", got.Reads(), got.Writes(), got.Deletes())
-}
-
 // Mutual follows land in B's Inbox (unread 1); non-mutuals in B's Requests (unread 1, nothing in the Inbox), the sender's
 // own entry is in her Inbox either way; the 4th request message is LIMIT_REACHED request_unanswered.
 func TestMessagingChain_MutualRequestAndTheFourthMessage(t *testing.T) {
@@ -337,7 +282,7 @@ func TestMessagingChain_MutedSenderIsSilent(t *testing.T) {
 	}
 }
 
-// The same key twice is one message and 0 writes the second time; the same key with other text is VALIDATION on
+// The same key twice is one message and writes nothing the second time; the same key with other text is VALIDATION on
 // idempotency_key; a different sender may reuse the key.
 func TestMessagingChain_ReplayAndKeyReuse(t *testing.T) {
 	e := newDMChain(t, nil)

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 const reportCID = "0000000000000000901"
@@ -20,23 +19,23 @@ func TestReportableCommunity_Table(t *testing.T) {
 	made := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 	rules := []Rule{{Title: "Be kind", Text: "No insults."}}
 	tests := []struct {
-		name       string
-		community  *Community
-		caller     string
-		ownerState identity.AccountStatus
-		wantErr    error
-		wantHandle string
-		wantOwner  string
-		wantReads  int64
+		name        string
+		community   *Community
+		caller      string
+		ownerState  identity.AccountStatus
+		wantErr     error
+		wantHandle  string
+		wantOwner   string
+		wantLookups int // owner profile lookups
 	}{
-		{"active community", &Community{Status: StatusActive, OwnerID: ownerUID}, "stranger", identity.AccountStatusActive, nil, "owner1-handle", ownerUID, 2},
-		{"moderators may report", &Community{Status: StatusActive, OwnerID: ownerUID, ModeratorIDs: []string{modUID}}, modUID, identity.AccountStatusActive, nil, "owner1-handle", ownerUID, 2},
-		{"archived community has no owner and no profile read", &Community{Status: StatusArchived}, "stranger", identity.AccountStatusActive, nil, "", "", 1},
-		{"suspended community is not found", &Community{Status: StatusSuspended, OwnerID: ownerUID}, "stranger", identity.AccountStatusActive, ErrNotFound, "", "", 1},
-		{"suspended community is not found for its owner either", &Community{Status: StatusSuspended, OwnerID: ownerUID}, ownerUID, identity.AccountStatusActive, ErrNotFound, "", "", 1},
-		{"missing community", nil, "stranger", identity.AccountStatusActive, ErrNotFound, "", "", 1},
-		{"own community", &Community{Status: StatusActive, OwnerID: ownerUID}, ownerUID, identity.AccountStatusActive, ErrOwnCommunity, "", "", 1},
-		{"owner being deleted has no handle", &Community{Status: StatusActive, OwnerID: ownerUID}, "stranger", identity.AccountStatusDeleting, nil, "", ownerUID, 2},
+		{"active community", &Community{Status: StatusActive, OwnerID: ownerUID}, "stranger", identity.AccountStatusActive, nil, "owner1-handle", ownerUID, 1},
+		{"moderators may report", &Community{Status: StatusActive, OwnerID: ownerUID, ModeratorIDs: []string{modUID}}, modUID, identity.AccountStatusActive, nil, "owner1-handle", ownerUID, 1},
+		{"archived community has no owner and no profile read", &Community{Status: StatusArchived}, "stranger", identity.AccountStatusActive, nil, "", "", 0},
+		{"suspended community is not found", &Community{Status: StatusSuspended, OwnerID: ownerUID}, "stranger", identity.AccountStatusActive, ErrNotFound, "", "", 0},
+		{"suspended community is not found for its owner either", &Community{Status: StatusSuspended, OwnerID: ownerUID}, ownerUID, identity.AccountStatusActive, ErrNotFound, "", "", 0},
+		{"missing community", nil, "stranger", identity.AccountStatusActive, ErrNotFound, "", "", 0},
+		{"own community", &Community{Status: StatusActive, OwnerID: ownerUID}, ownerUID, identity.AccountStatusActive, ErrOwnCommunity, "", "", 0},
+		{"owner being deleted has no handle", &Community{Status: StatusActive, OwnerID: ownerUID}, "stranger", identity.AccountStatusDeleting, nil, "", ownerUID, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -51,10 +50,12 @@ func TestReportableCommunity_Table(t *testing.T) {
 				c.ID, c.Name, c.Description, c.Rules, c.CreatedAt = reportCID, "Cats", "All cats", rules, made
 				f.seed(c)
 			}
-			ctx, _ := budget.WithCounter(context.Background())
-			got, err := f.svc.ReportableCommunity(ctx, tt.caller, reportCID)
+			got, err := f.svc.ReportableCommunity(context.Background(), tt.caller, reportCID)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tt.wantErr)
+			}
+			if f.dir.asked != tt.wantLookups {
+				t.Errorf("owner profile lookups = %d, want %d", f.dir.asked, tt.wantLookups)
 			}
 			if tt.wantErr != nil {
 				return
@@ -66,7 +67,7 @@ func TestReportableCommunity_Table(t *testing.T) {
 	}
 }
 
-// A second report within the cache window costs 0 community reads (staleness bound 60 s), and a malformed id is NotFound with 0 reads.
+// A second report within the cache window is served from the cache (staleness bound 60 s), and a malformed id is NotFound without touching the repo.
 func TestReportableCommunity_WarmAndMalformed(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
@@ -77,11 +78,11 @@ func TestReportableCommunity_WarmAndMalformed(t *testing.T) {
 		}
 	}
 	if f.repo.gets != 1 {
-		t.Errorf("community reads = %d, want 1 (the second call is a cache hit)", f.repo.gets)
+		t.Errorf("community fetches = %d, want 1 (the second call is a cache hit)", f.repo.gets)
 	}
 	before := f.repo.gets
 	if _, err := f.svc.ReportableCommunity(context.Background(), "stranger", "12"); !errors.Is(err, ErrNotFound) || f.repo.gets != before {
-		t.Errorf("malformed id: err = %v, reads +%d", err, f.repo.gets-before)
+		t.Errorf("malformed id: err = %v, fetches +%d", err, f.repo.gets-before)
 	}
 }
 

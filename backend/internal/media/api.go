@@ -214,18 +214,17 @@ type Result struct {
 
 // Service is the Connect handler's dependency.
 type Service interface {
-	// CreateUpload reserves len(items) media ids and signs their PUT URLs. Firestore: reads 2 (idempotency,
-	// quotas), writes 2 + len(items) (idempotency, quotas, one media doc each); replay: 1 read, 0 writes. GCS: 0.
-	// A BANNER is exactly one item with its own byte caps (1 MiB / 128 KiB) and a 3:1 declared shape; same
-	// reads and writes (2 / 3), and the Server additionally needs profile_extras on for the caller (0 reads when off).
+	// CreateUpload reserves len(items) media ids and signs their PUT URLs. It writes the idempotency record, the
+	// quota and one media doc per item; a replay writes nothing. It makes no GCS call.
+	// A BANNER is exactly one item with its own byte caps (1 MiB / 128 KiB) and a 3:1 declared shape, and the Server
+	// additionally needs profile_extras on for the caller (checked before any read when off).
 	// A GIF is POST only, exactly one item, full <= 2 MiB, declared edges <= GIF_MAX_EDGE, with a still
-	// thumbnail named by UploadItem.ThumbContentType (JPEG or WebP); the Server needs gif on for the caller (0 reads when
-	// off). Same Firestore cost (2 reads / 3 writes; replay 1 / 0), GCS 0 here, the client's 2 PUTs are 2 Class A.
+	// thumbnail named by UploadItem.ThumbContentType (JPEG or WebP); the Server needs gif on for the caller (checked before any read when
+	// off). It writes the same records and makes no GCS call here; the client makes the two PUTs.
 	CreateUpload(ctx context.Context, uid string, in CreateUploadInput) ([]UploadTarget, error)
-	// FinalizeUpload verifies, screens and publishes the uploaded objects. Idempotent per item. Firestore: reads
-	// 2*len(items) + 1 (media docs, the Vision counter cached 60 s, +1 per item whose upload is missing, whose
-	// screening fails or whose finalize race is lost), plus the interceptor read; writes 2*len(items) + 1 (per item one
-	// screening claim and one resolve, or claim and release after a failed attempt; plus the Vision counter).
+	// FinalizeUpload verifies, screens and publishes the uploaded objects. Idempotent per item. It reads the
+	// media docs and the Vision counter (cached 60 s), and writes per item one screening claim and one resolve, or a
+	// claim and a release after a failed attempt, plus the Vision counter.
 	// Vision units: 1 per image, 2 with VISION_SCREEN_THUMB and always 2 for a BANNER, spent by one call per image at a
 	// time (M-3): calls on one instance share a single flight and all get its result; across instances a
 	// screeningUntil claim (30 s) on the PENDING document makes the loser answer the retryable MEDIA_NOT_READY after one
@@ -251,10 +250,10 @@ type CreateUploadInput struct {
 // Reader is what other modules' adapters use to turn media ids into published refs.
 type Reader interface {
 	// ResolveAvatar returns the READY (or READY_UNSCREENED) AVATAR media id owned by uid. ErrNotReady otherwise,
-	// a retired image included. Reads: 1.
+	// a retired image included.
 	ResolveAvatar(ctx context.Context, uid, mediaID string) (Ref, error)
 	// ResolveBanner returns the READY (or READY_UNSCREENED) BANNER media id owned by uid (Ref.URL is the 1500 px image, Ref.ThumbURL the 600 px one).
 	// ErrNotReady for every other case: missing, someone else's,
-	// another purpose, PENDING, REJECTED or retired. Reads: 1.
+	// another purpose, PENDING, REJECTED or retired.
 	ResolveBanner(ctx context.Context, uid, mediaID string) (Ref, error)
 }

@@ -10,7 +10,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // TestGetCommunityTimeline_Stub: the stub gates on FEATURE_COMMUNITIES first, then FEATURE_POSTS, both FEATURE_DISABLED with 0
@@ -33,7 +32,7 @@ func TestGetCommunityTimeline_Stub(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			ctx, _ := budget.WithCounter(ctxFor(c.uid))
+			ctx := ctxFor(c.uid)
 			s := NewServer(Deps{Flags: c.flags})
 			_, err := s.GetCommunityTimeline(ctx, connect.NewRequest(&timelinev1.GetCommunityTimelineRequest{}))
 			if c.wantFeature == "" {

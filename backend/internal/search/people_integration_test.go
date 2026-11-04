@@ -21,7 +21,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/search"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -102,13 +101,13 @@ func TestSearchPeople_Integration(t *testing.T) {
 	reg := flags.NewRegistry(flags.Spec{Name: search.FlagSearch, Mode: flags.On}, flags.Spec{Name: search.FlagTrends, Mode: flags.On})
 	srv := search.NewServer(search.New(reg, search.WithPeople(search.PeopleDeps{Directory: dir, Graph: graphSvc, PrefixEntries: 100})))
 
-	call := func(uid, query string, limit int32) (*searchv1.SearchPeopleResponse, *budget.Counter, error) {
-		cctx, counter := budget.WithCounter(authn.WithClaims(ctx, authn.Claims{UID: uid}))
+	call := func(uid, query string, limit int32) (*searchv1.SearchPeopleResponse, error) {
+		cctx := authn.WithClaims(ctx, authn.Claims{UID: uid})
 		resp, err := srv.SearchPeople(cctx, connect.NewRequest(&searchv1.SearchPeopleRequest{Query: query, Limit: limit}))
 		if err != nil {
-			return nil, counter, err
+			return nil, err
 		}
-		return resp.Msg, counter, nil
+		return resp.Msg, nil
 	}
 	handlesOf := func(r *searchv1.SearchPeopleResponse) string {
 		var hs []string
@@ -118,9 +117,8 @@ func TestSearchPeople_Integration(t *testing.T) {
 		return strings.Join(hs, ",")
 	}
 
-	// Cold, limit 5: the query returns the first 5 handles in order (sam, sam_a, samantha, sambo, samprivate); the
-	// graph snapshot is read once. Reads = 5 + 1 = 6 (7 with the interceptor).
-	resp, _, err := call(viewer, "@SAM", 5)
+	// Cold, limit 5: the query returns the first 5 handles in order (sam, sam_a, samantha, sambo, samprivate).
+	resp, err := call(viewer, "@SAM", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,14 +142,13 @@ func TestSearchPeople_Integration(t *testing.T) {
 		}
 	}
 
-	// Warm entry, warm snapshot: 0 reads.
-	_, _, err = call(viewer, "sam", 5)
-	if err != nil {
-		t.Fatal(err)
+	// Warm entry, warm snapshot: the same answer.
+	if again, err := call(viewer, "sam", 5); err != nil || handlesOf(again) != "sam,sam_a,samantha,sambo,samprivate" {
+		t.Fatalf("warm: %v, %v", handlesOf(again), err)
 	}
 
-	// Warm entry, another viewer's cold snapshot: 1 read.
-	resp, _, err = call(other, "sam", 5)
+	// Warm entry, another viewer's cold snapshot.
+	resp, err = call(other, "sam", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +157,7 @@ func TestSearchPeople_Integration(t *testing.T) {
 	}
 
 	// Limit 20 over the whole prefix: filters on real documents. samsuspended is gone, samurai blocked the viewer.
-	resp, _, err = call(viewer, "sam", 20)
+	resp, err = call(viewer, "sam", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,8 +170,8 @@ func TestSearchPeople_Integration(t *testing.T) {
 		}
 	}
 
-	// A prefix with more than 20 matches is cut at the limit: 20 reads for the query, 21 with the graph (22 documented).
-	resp, _, err = call("uid-nobody", "zed", 20)
+	// A prefix with more than 20 matches is cut at the limit.
+	resp, err = call("uid-nobody", "zed", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,14 +179,10 @@ func TestSearchPeople_Integration(t *testing.T) {
 		t.Errorf("zed rows = %d, want 20", len(resp.GetUsers()))
 	}
 
-	// No match: the query bills its minimum 1 and no graph read follows.
-	resp, _, err = call(viewer, "qq", 5)
+	// No match: an empty answer. (Validation and unsupported queries are checked in people_test.go against the fake
+	// directory and graph call tallies.)
+	resp, err = call(viewer, "qq", 5)
 	if err != nil || len(resp.GetUsers()) != 0 {
 		t.Fatalf("no match: %v %v", resp, err)
-	}
-
-	// Validation and unsupported queries read nothing.
-	for _, q := range []string{"a", "@", "", "#go", "go lang", strings.Repeat("z", 16)} {
-		_, _, _ = call(viewer, q, 5)
 	}
 }

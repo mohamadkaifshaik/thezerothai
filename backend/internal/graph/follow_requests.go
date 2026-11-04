@@ -27,11 +27,10 @@ func requestsBinding(callerUID string) string { return callerUID + "|follow-requ
 // Rows are hydrated through identity.Directory; requesters who are not ACTIVE, whom the caller blocks or who block the
 // caller are dropped (a short page keeps its token), and each row carries the caller's relationship to the requester
 // from the snapshot already held. The cursor is graph's list cursor, bound to `caller|follow-requests`; a foreign,
-// expired or tampered token is VALIDATION page_token at 0 reads.
+// expired or tampered token is VALIDATION page_token, rejected before any lookup.
 //
-// Firestore: reads 42 cold at page 20 / 102 at page 50 (interceptor 1, caller graph 1, query <= page, hydration <= page),
-// 21 / 51 warm (the interceptor's profile and the caller snapshot cached); 0 reads beyond the interceptor on a flag
-// refusal or a bad token. Writes 0.
+// It reads the caller graph, the request query (at most one page) and the hydration of that page, and writes nothing;
+// a flag refusal or a bad token does no Firestore access.
 func (s *service) ListFollowRequests(ctx context.Context, callerUID string, pageSize int32, pageToken string) (_ Page, err error) {
 	defer begin(ctx, "list_follow_requests")(&err)
 	if err := s.followRequestsGate(ctx, callerUID); err != nil {
@@ -60,11 +59,11 @@ func (s *service) ListFollowRequests(ctx context.Context, callerUID string, page
 // response is the caller's Relationship to the requester from the caller's snapshot ("Follow back" is offered when it
 // is NONE).
 //
-// Firestore: reads 3 cold / 2 warm (interceptor, the request fresh, the requester's graph fresh); the requester's status
-// (Directory, only for an accept of a request that exists) and the caller's snapshot are cache-first, so List then
-// Respond adds nothing, and a truly cold standalone accept pays up to 2 more. A replay (the request is gone) reads 2
-// cold / 1 warm. Writes: accept 4 + 1 delete, decline 1 + 1 delete, requester not ACTIVE or drift 1 + 1 delete, requester
-// at the 5,000 cap or a replay 0.
+// It reads the request fresh and the requester's graph fresh; the requester's status (Directory, only for an accept
+// of a request that exists) and the caller's snapshot are cache-first, so List then Respond adds no lookups. A replay
+// (the request is gone) skips the requester's graph. An accept writes the edge and the counters and deletes the
+// request, a decline removes the request and the requester's `requested` entry, a requester that is not ACTIVE or has
+// drifted only has the request deleted, and a requester at the 5,000 cap or a replay writes nothing.
 func (s *service) RespondToFollowRequest(ctx context.Context, callerUID, idempotencyKey, requesterUID string, accept bool) (_ Relationship, err error) {
 	defer begin(ctx, "respond_follow_request")(&err)
 	if err := s.followRequestsGate(ctx, callerUID); err != nil {
@@ -121,7 +120,7 @@ func (s *service) RespondToFollowRequest(ctx context.Context, callerUID, idempot
 
 // PendingFollowRequests implements identity.FollowRequestCounter: the number of requests addressed to uid,
 // capped at 1,000. Not flag-gated: GetMe asks only for a protected caller, and identity caches the answer 30 s.
-// Firestore: 1 read, 0 writes.
+// It is one count query and writes nothing.
 func (s *service) PendingFollowRequests(ctx context.Context, uid string) (int64, error) {
 	n, err := s.repo.CountRequests(ctx, uid)
 	if err != nil {
@@ -133,7 +132,7 @@ func (s *service) PendingFollowRequests(ctx context.Context, uid string) (int64,
 // refuseProtectedList is the rule for ListFollowers and ListFollowing: the lists of a protected account are
 // visible to that account and to the viewers who follow it; anyone else gets FAILED_PRECONDITION PROTECTED_ACCOUNT before
 // any page read. It runs on the caller's snapshot already held and asks the protected set only for a viewer who is
-// neither the target nor a follower (0 reads: the set is a detached instance cache). The answer comes from the set
+// neither the target nor a follower (no read: the set is a detached instance cache). The answer comes from the set
 // (identity.ProtectedAuthors), never from the profile's isPrivate, and not from FEATURE_PRIVATE_ACCOUNTS: ramping that
 // flag down never un-hides a list. A set that cannot be loaded is UNAVAILABLE, never "everyone is public".
 func (s *service) refuseProtectedList(ctx context.Context, callerUID, targetUID string, snap Snapshot) error {

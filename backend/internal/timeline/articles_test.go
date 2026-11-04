@@ -36,7 +36,7 @@ func TestArticlesTabPagesOriginalPublications(t *testing.T) {
 			calls := 0
 			for {
 				calls++
-				res, _, err := r.tabPage("me", "bob", pbArticles, 20, "", page)
+				res, err := r.tabPage("me", "bob", pbArticles, 20, "", page)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -78,13 +78,13 @@ func TestArticlesTabUsesCanonicalModerationAndProtectedVisibility(t *testing.T) 
 	hidden := r.posts.add("bob", r.ms(-20*time.Second))
 	hidden.Article = &posts.ArticlePreview{ArticleID: "hidden"}
 	hidden.Moderation = posts.ModerationTakenDown
-	res, _, err := r.tabPage("me", "bob", pbArticles, 20, "", "")
+	res, err := r.tabPage("me", "bob", pbArticles, 20, "", "")
 	if err != nil || len(res.Posts) != 1 || res.Posts[0].Post.PostId != visible.ID {
 		t.Fatalf("moderation leaked: %#v %v", res, err)
 	}
 	protected.protect("bob")
 	r.posts.queries = nil
-	res, _, err = r.tabPage("me", "bob", pbArticles, 20, "", "")
+	res, err = r.tabPage("me", "bob", pbArticles, 20, "", "")
 	if err != nil || !res.AuthorProtected || len(res.Posts) != 0 || len(r.posts.queries) != 0 {
 		t.Fatalf("protected article leaked: %#v %v", res, err)
 	}

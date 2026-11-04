@@ -11,7 +11,7 @@ package e2e
 //     E2E_POSTS_ID_TOKEN_B (two pre-provisioned smoke accounts with profiles, on the FEATURE_POSTS and
 //     FEATURE_GRAPH allowlists).
 //
-// Budget: about 20 requests per run (well under the < 100-request prod smoke cap). The test always leaves
+// Request count: about 20 requests per run (well under the < 100-request prod smoke cap). The test always leaves
 // no follow edge and no live post behind, so it is re-runnable.
 
 import (

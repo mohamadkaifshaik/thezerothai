@@ -14,8 +14,8 @@ import (
 )
 
 // M-1, over fakeRepo: the kill switch hides the website next to the pin, and the
-// exact string "" (a clear) is accepted from any authenticated caller whatever the flag. The Firestore-backed budgets
-// (1 read / 1 write for a clear) are in profile_extras_integration_test.go and the wire contract in the apiserver chain
+// exact string "" (a clear) is accepted from any authenticated caller whatever the flag. The Firestore-backed paths
+// (the clear) are in profile_extras_integration_test.go and the wire contract in the apiserver chain
 // test.
 
 const (

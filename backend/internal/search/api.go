@@ -32,7 +32,7 @@ type FlagChecker interface {
 
 // Service is the Connect handler's dependency. Each method takes the caller's uid from the token (never
 // from the request), checks its flag before any Firestore access (FEATURE_DISABLED with metadata feature=search or
-// trends, 0 reads) and then applies the rules. Worst-case Firestore reads and writes per method are in the RPC doc
+// trends) and then applies the rules. The RPC rules are in the doc
 // comments of proto/dzeroth/search/v1 and on the implementing methods.
 type Service interface {
 	// People answers SearchPeople (flag "search"): handle-prefix matches, at most limit rows, no pagination.

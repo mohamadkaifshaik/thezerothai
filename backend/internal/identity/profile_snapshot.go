@@ -18,7 +18,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -93,7 +92,7 @@ func (s *service) snapshotsOn(uid string) bool {
 	return s.snap != nil && s.snap.flags.Enabled(uid, ProfileSnapshotFlag)
 }
 
-// reserveSnapshotEdit spends one of the caller's daily snapshot edits (1 read, 1 write on quotas/{uid}).
+// reserveSnapshotEdit spends one of the caller's daily snapshot edits (a read and a write on quotas/{uid}).
 func (s *service) reserveSnapshotEdit(ctx context.Context, uid string) error {
 	if s.snap.quota == nil {
 		return nil
@@ -124,16 +123,15 @@ func NewSnapshotQuota(client *firestore.Client) *FirestoreSnapshotQuota {
 	return &FirestoreSnapshotQuota{client: client}
 }
 
-// Reserve: 1 read, 1 write (a rejected reservation writes nothing).
+// Reserve spends one edit from the daily quota (a rejected reservation writes nothing).
 func (q *FirestoreSnapshotQuota) Reserve(ctx context.Context, uid string, perDay int64) error {
 	qs := quota.New(q.client)
 	_, err := store.RunTransaction(ctx, q.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		counter := budget.FromContext(ctx)
 		rec, err := qs.Get(ctx, tx, uid)
 		if err != nil {
 			return fmt.Errorf("identity: snapshot quota: %w", err)
 		}
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		if err := quota.CheckAndReserve(b, qs.Ref(uid), rec, quota.SnapshotEdits, perDay); err != nil {
 			return err
 		}
@@ -142,8 +140,8 @@ func (q *FirestoreSnapshotQuota) Reserve(ctx context.Context, uid string, perDay
 	return err
 }
 
-// runProfileSnapshot handles one {profile_snapshot_refresh} delivery: 1 read (users/{uid}) plus the posts
-// module's refresh (<= SnapshotRefreshPosts reads and writes, one atomic batch). The message only names the uid:
+// runProfileSnapshot handles one {profile_snapshot_refresh} delivery: it reads users/{uid}, then the posts
+// module refreshes at most SnapshotRefreshPosts posts in one atomic batch. The message only names the uid:
 // the job always writes the profile's CURRENT fields and version, so a stale or replayed message is harmless.
 func (l *Lifecycle) runProfileSnapshot(ctx context.Context, msg JobMessage, res jobResult) jobResult {
 	if l.snapshots == nil || l.flags == nil || !l.flags.Enabled(msg.UID, ProfileSnapshotFlag) {

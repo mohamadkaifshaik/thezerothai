@@ -14,14 +14,11 @@ import (
 
 // TestReplyAudience_Integration against the Firestore emulator:
 //   - the field is stored as `replyPolicy` (absent for EVERYONE), inherited by replies and copied into embeds;
-//   - setting a policy costs exactly what a plain create costs (delta 0, asserted equal, not <= a ceiling);
-//   - the extra reads of a reply in a restricted conversation match the planned cost table from cold caches, and a
-//     warm instance pays +0;
-//   - a refusal writes nothing, stores nothing under the idempotency key and reads exactly the allowed path minus
-//     the transaction's two reads.
+//   - a reply in a restricted conversation is enforced from cold caches and from a warm instance alike;
+//   - a refusal writes nothing and stores nothing under the idempotency key.
 //
-// Every measurement runs on a fresh instance (new caches) over the same database, because a warm cache would hide
-// the documented cold cost.
+// Every check runs on a fresh instance (new caches) over the same database, because a warm cache would hide a
+// missing cold-path lookup.
 func TestReplyAudience_Integration(t *testing.T) {
 	client := newTestClient(t)
 	seed := newCreateInstance(t, client, time.Nanosecond)
@@ -90,7 +87,7 @@ func TestReplyAudience_Integration(t *testing.T) {
 	}
 	convs := []*conv{{name: "EVERYONE", root: plain}, {name: "MENTIONED_ONLY", root: mentioned}, {name: "FOLLOWING", root: following}}
 	for i, cv := range convs {
-		r, _, err := seed.reply(t, "uid-bob", key(10+i), "bob replies", cv.root.ID)
+		r, err := seed.reply(t, "uid-bob", key(10+i), "bob replies", cv.root.ID)
 		if err != nil {
 			t.Fatalf("%s: seed reply: %v", cv.name, err)
 		}
@@ -105,7 +102,7 @@ func TestReplyAudience_Integration(t *testing.T) {
 	}
 	// replyFresh runs one reply on a fresh, cold instance.
 	replyFresh := func(uid, key, parent string) error {
-		_, _, err := fresh().reply(t, uid, key, "fresh instance", parent)
+		_, err := fresh().reply(t, uid, key, "fresh instance", parent)
 		return err
 	}
 
@@ -123,10 +120,10 @@ func TestReplyAudience_Integration(t *testing.T) {
 	// --- warm instance: a second reply to the same parent is allowed too ---
 	for i, cv := range convs {
 		in := fresh()
-		if _, _, err := in.reply(t, "uid-bob", key(40+2*i), "first", cv.reply.ID); err != nil {
+		if _, err := in.reply(t, "uid-bob", key(40+2*i), "first", cv.reply.ID); err != nil {
 			t.Fatalf("%s first warm reply: %v", cv.name, err)
 		}
-		if _, _, err := in.reply(t, "uid-bob", key(41+2*i), "second", cv.reply.ID); err != nil {
+		if _, err := in.reply(t, "uid-bob", key(41+2*i), "second", cv.reply.ID); err != nil {
 			t.Fatalf("%s second warm reply: %v", cv.name, err)
 		}
 	}
@@ -142,7 +139,7 @@ func TestReplyAudience_Integration(t *testing.T) {
 		postsBefore := countDocs(t, client, postsCollection)
 		replies := replyCount(t, seed, tc.parent)
 		in := fresh()
-		_, _, err := in.reply(t, "uid-dave", key(50), "nope", tc.parent)
+		_, err := in.reply(t, "uid-dave", key(50), "nope", tc.parent)
 		wantReplyNotAllowed(t, err, tc.policy)
 		if got := countDocs(t, client, "idempotency"); got != before {
 			t.Fatalf("%s: idempotency docs %d -> %d, a refusal must store nothing under the key", tc.name, before, got)
@@ -190,7 +187,7 @@ func TestReplyAudience_Integration(t *testing.T) {
 	// --- GetPost hint: bob may reply to every root ---
 	for _, r := range []*Post{plain, mentioned, following} {
 		in := fresh()
-		_, p, err := in.get("uid-bob", r.ID)
+		p, err := in.get("uid-bob", r.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -201,7 +198,7 @@ func TestReplyAudience_Integration(t *testing.T) {
 
 	// --- GetThread: the hint in an EVERYONE and a FOLLOWING conversation ---
 	for _, c := range []*conv{convs[0], convs[2]} {
-		th, _, err := fresh().thread(t, "uid-bob", ThreadInput{PostID: c.reply.ID, PageSize: 1})
+		th, err := fresh().thread(t, "uid-bob", ThreadInput{PostID: c.reply.ID, PageSize: 1})
 		if err != nil {
 			t.Fatal(err)
 		}

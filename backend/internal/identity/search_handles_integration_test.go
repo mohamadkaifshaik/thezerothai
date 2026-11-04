@@ -10,7 +10,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // TestSearchHandles_Integration (acceptance, real repo): handleLower order with the exact match first,
@@ -62,24 +61,22 @@ func TestSearchHandles_Integration(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
-		prefix    string
-		limit     int
-		want      []string
-		wantReads int64
+		name   string
+		prefix string
+		limit  int
+		want   []string
 	}{
-		{"ab: handleLower order", "ab", 20, []string{"ab_c", "abc", "abcd", "abd"}, 4},
-		{"abc: exact match first", "abc", 20, []string{"abc", "abcd"}, 2},
-		{"upper case prefix", "AB", 20, []string{"ab_c", "abc", "abcd", "abd"}, 4},
-		{"z: succ is {; z_9 < zed < zzz < zzzz", "z", 20, []string{"z_9", "zed", "zzz", "zzzz"}, 4},
-		{"zzz: succ of the last char only", "zzz", 20, []string{"zzz", "zzzz"}, 2},
-		{"ab_: succ of _ is a backtick", "ab_", 20, []string{"ab_c"}, 1},
-		{"no match bills 1", "qq", 20, nil, 1},
+		{"ab: handleLower order", "ab", 20, []string{"ab_c", "abc", "abcd", "abd"}},
+		{"abc: exact match first", "abc", 20, []string{"abc", "abcd"}},
+		{"upper case prefix", "AB", 20, []string{"ab_c", "abc", "abcd", "abd"}},
+		{"z: succ is {; z_9 < zed < zzz < zzzz", "z", 20, []string{"z_9", "zed", "zzz", "zzzz"}},
+		{"zzz: succ of the last char only", "zzz", 20, []string{"zzz", "zzzz"}},
+		{"ab_: succ of _ is a backtick", "ab_", 20, []string{"ab_c"}},
+		{"no match", "qq", 20, nil},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cctx, _ := budget.WithCounter(ctx)
-			got, err := dir.SearchHandles(cctx, tc.prefix, tc.limit)
+			got, err := dir.SearchHandles(ctx, tc.prefix, tc.limit)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -90,13 +87,12 @@ func TestSearchHandles_Integration(t *testing.T) {
 	}
 
 	t.Run("limit 50 is clamped to 20", func(t *testing.T) {
-		cctx, counter := budget.WithCounter(ctx)
-		got, err := dir.SearchHandles(cctx, "many", 50)
+		got, err := dir.SearchHandles(ctx, "many", 50)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(got) != 20 {
-			t.Fatalf("len = %d, reads = %d; want 20 and 20", len(got), counter.Reads())
+			t.Fatalf("len = %d; want 20", len(got))
 		}
 	})
 
@@ -107,11 +103,10 @@ func TestSearchHandles_Integration(t *testing.T) {
 		}
 	})
 
-	t.Run("empty prefix: 0 reads", func(t *testing.T) {
-		cctx, counter := budget.WithCounter(ctx)
-		got, err := dir.SearchHandles(cctx, "", 5)
+	t.Run("empty prefix: nothing", func(t *testing.T) {
+		got, err := dir.SearchHandles(ctx, "", 5)
 		if err != nil || len(got) != 0 {
-			t.Fatalf("got %v, err %v, reads %d", got, err, counter.Reads())
+			t.Fatalf("got %v, err %v", got, err)
 		}
 	})
 }

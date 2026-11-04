@@ -20,7 +20,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -35,7 +34,7 @@ type BookmarkPurger interface {
 	// page, so repeating the call is self-resuming.
 	PurgeBookmarksPage(ctx context.Context, uid string) (deleted int, err error)
 	// ClearBookmarkSet removes the `bookmarks` field of userLikes/{uid} with a field-level Update (never a whole-doc
-	// write, and it never recreates a document the engagement step already deleted). 0 reads; 1 write, or none when
+	// write, and it never recreates a document the engagement step already deleted). It writes once, or not at all when
 	// the document is gone.
 	ClearBookmarkSet(ctx context.Context, uid string) error
 }
@@ -63,7 +62,6 @@ type ExportedBookmark struct {
 func (r *FirestoreRepo) PurgeBookmarksPage(ctx context.Context, uid string) (int, error) {
 	col := r.client.Collection(usersCollection).Doc(uid).Collection(bookmarksCollection)
 	docs, err := col.Select().Limit(bookmarkPage).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return 0, fmt.Errorf("engagement: purge bookmarks %s: query: %w", logger.HashUID(uid), err)
 	}
@@ -74,7 +72,7 @@ func (r *FirestoreRepo) PurgeBookmarksPage(ctx context.Context, uid string) (int
 	for i, d := range docs {
 		ids[i] = d.Ref.ID
 	}
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	for _, d := range docs {
 		b.Delete(d.Ref)
 	}
@@ -90,7 +88,6 @@ func (r *FirestoreRepo) ClearBookmarkSet(ctx context.Context, uid string) error 
 	_, err := r.userLikesRef(uid).Update(ctx, []firestore.Update{{Path: "bookmarks", Value: firestore.Delete}})
 	switch status.Code(err) {
 	case codes.OK:
-		budget.FromContext(ctx).AddWrites(1)
 		return nil
 	case codes.NotFound:
 		return nil // the engagement step deleted userLikes already: nothing to clear, nothing recreated
@@ -114,7 +111,6 @@ func (r *FirestoreRepo) pageBookmarks(ctx context.Context, op, uid string, after
 		q = q.StartAfter(after.CreatedAt, col.Doc(after.ID))
 	}
 	docs, err := q.Limit(limit).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		// The query error names the collection path and the StartAfter document (a post id): redact both (I-4).
 		return nil, logger.RedactErrPosts(fmt.Errorf("engagement: %s bookmarks %s: query: %w", op, logger.HashUID(uid), err), []string{afterID(after)}, uid)
@@ -148,7 +144,7 @@ type BookmarkCheckpoint struct {
 
 // BookmarkEraser is the `bookmarks` account-deletion step: it deletes every users/{uid}/bookmarks
 // document, one page of at most 500 per call, then clears userLikes.bookmarks. An account at the cap (1,000) takes 3
-// invocations at most (500 + 500 + the empty page), 1,000 reads + 1,000 deletes in all.
+// invocations at most (500 + 500 + the empty page).
 type BookmarkEraser struct {
 	repo BookmarkPurger
 }
@@ -157,9 +153,9 @@ type BookmarkEraser struct {
 func NewBookmarkEraser(repo BookmarkPurger) *BookmarkEraser { return &BookmarkEraser{repo: repo} }
 
 // PurgeUser deletes one page. done is true when the page was short, which includes the empty page of an account that
-// never bookmarked anything or whose documents a previous run already deleted (idempotent re-run: 1 read, and a
-// no-op Update when userLikes is gone). Reads: one per document (minimum 1); deletes: one per document; writes: 0, or
-// 1 for the userLikes field clear on the last page.
+// never bookmarked anything or whose documents a previous run already deleted (idempotent re-run: a
+// no-op Update when userLikes is gone). It deletes the documents of the page and, on the last page, clears the
+// userLikes field.
 func (e *BookmarkEraser) PurgeUser(ctx context.Context, uid string, cp BookmarkCheckpoint) (BookmarkCheckpoint, bool, error) {
 	n, err := e.repo.PurgeBookmarksPage(ctx, uid)
 	if err != nil {

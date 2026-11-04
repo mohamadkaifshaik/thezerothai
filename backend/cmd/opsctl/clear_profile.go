@@ -11,7 +11,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
@@ -46,7 +45,7 @@ func parseClearArgs(a modArgs) ([]identity.ProfileField, error) {
 
 // clearProfileFields is `opsctl clear-profile-fields`: the narrow lever between doing nothing
 // and suspend-user for a malicious profile link, location, bio or image. It clears the named fields of users/{uid} with
-// one field-level update (never a Set), skips fields that are already empty (so a rerun writes 0), and bumps no
+// one field-level update (never a Set), skips fields that are already empty (so a rerun writes nothing), and bumps no
 // snapshotVersion. --dry-run prints the stored values and the plan and writes nothing. --report R (checked first: R must
 // be about this user) resolves R as PROFILE_CLEARED after the write; a report that is already RESOLVED only warns.
 // A DELETING account is refused (the deletion job's checkpoints must not race an operator write) and a missing one is an
@@ -57,9 +56,6 @@ func parseClearArgs(a modArgs) ([]identity.ProfileField, error) {
 // shell (this project's value; unset is off, which changes nothing and prints the objects for deleting by hand); an
 // invalid value is refused before any write. A retire failure after the clear does not undo it and does not skip the
 // report: the report is resolved, the failure is printed with the objects, and the exit code is 1.
-//
-// Cost: 1 read and at most 1 write; --report adds 1 read to check it, then the resolve (1 read, 1 write); each retired
-// image adds 2 reads, 1 write and 2 Class A operations.
 func clearProfileFields(ctx context.Context, b *backends, project, uid string, fields []identity.ProfileField, a modArgs, out io.Writer, now func() time.Time) error {
 	if b.profiles == nil {
 		return errors.New("clear-profile-fields: no profile writer configured")
@@ -67,7 +63,6 @@ func clearProfileFields(ctx context.Context, b *backends, project, uid string, f
 	if b.retireErr != nil && slicesHaveImage(fields) {
 		return usageErr(b.retireErr.Error() + " (fix the variable before clearing an image)")
 	}
-	ctx, counter := budget.WithCounter(ctx)
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	if a.report != "" {
@@ -114,7 +109,6 @@ func clearProfileFields(ctx context.Context, b *backends, project, uid string, f
 			return err
 		}
 	}
-	fmt.Fprintf(out, "cost: reads=%d writes=%d\n", counter.Reads(), counter.Writes())
 	return retireErr
 }
 

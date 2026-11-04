@@ -17,7 +17,7 @@ import (
 
 func (e *itEnv) rowState(svc *service, uid string, req *messagingv1.ListConversationsRequest, convID string) (messagingv1.ConversationState, messagingv1.Folder, bool) {
 	e.t.Helper()
-	resp, _ := e.mustList(svc, uid, req)
+	resp := e.mustList(svc, uid, req)
 	for _, c := range resp.Conversations {
 		if c.Id == convID {
 			return c.State, c.Folder, true
@@ -35,7 +35,7 @@ func TestRequestPending_SenderRowReadsRequest(t *testing.T) {
 	id := ConversationID(alice, bob)
 	for i := range 3 {
 		e.tick(time.Minute)
-		_, _, err := e.send(alice, toUser(skey(300+i), bob, fmt.Sprintf("request %d", i)))
+		_, err := e.send(alice, toUser(skey(300+i), bob, fmt.Sprintf("request %d", i)))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -46,7 +46,7 @@ func TestRequestPending_SenderRowReadsRequest(t *testing.T) {
 			t.Fatal("the recipient's dmRequests entry carries requestPending")
 		}
 	}
-	first, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
+	first := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
 	if len(first.Conversations) != 1 || first.Conversations[0].State != messagingv1.ConversationState_CONVERSATION_STATE_REQUEST ||
 		first.Conversations[0].Folder != messagingv1.Folder_FOLDER_INBOX {
 		t.Fatalf("first page = %+v, want one REQUEST row in INBOX", first.Conversations)
@@ -68,15 +68,15 @@ func TestRequestPending_AcceptClearsAndMovesChangedAt(t *testing.T) {
 	id := e.request(2)
 	svc := e.listSvc()
 	e.tick(time.Minute)
-	first, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
+	first := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
 	if len(first.Conversations) != 1 || first.Conversations[0].State != messagingv1.ConversationState_CONVERSATION_STATE_REQUEST {
 		t.Fatalf("before accept: %+v", first.Conversations)
 	}
 	e.tick(time.Minute)
-	if _, err := e.accept(e.newService(), bob, id); err != nil {
+	if err := e.accept(e.newService(), bob, id); err != nil {
 		t.Fatal(err)
 	}
-	ref, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
+	ref := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox, SinceToken: first.SinceToken})
 	if len(ref.Conversations) != 1 || ref.Conversations[0].Id != id || ref.Conversations[0].State != messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED ||
 		ref.Conversations[0].Folder != messagingv1.Folder_FOLDER_INBOX {
 		t.Fatalf("since refresh after accept = %+v, want the row as ACCEPTED in INBOX", ref.Conversations)
@@ -89,9 +89,9 @@ func TestRequestPending_ReplyClears(t *testing.T) {
 	id := e.request(1)
 	svc := e.listSvc()
 	e.tick(time.Minute)
-	first, _ := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
+	first := e.mustList(svc, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
 	e.tick(time.Minute)
-	if _, _, err := e.send(bob, toUser(skey(1), alice, "yes?")); err != nil {
+	if _, err := e.send(bob, toUser(skey(1), alice, "yes?")); err != nil {
 		t.Fatal(err)
 	}
 	if ent, _ := e.entry(alice, dmInboxCollection, id); ent.RequestPending {
@@ -103,19 +103,19 @@ func TestRequestPending_ReplyClears(t *testing.T) {
 	}
 }
 
-// Given A deleted the conversation for themselves before B accepts, then Accept succeeds with 4 reads, 2 writes and 1 delete
+// Given A deleted the conversation for themselves before B accepts, then Accept succeeds
 // and A has no dmInbox entry afterwards (no ghost doc).
 func TestRequestPending_AcceptAfterRequesterDeleted(t *testing.T) {
 	e := newIT(t, nil)
 	id := e.request(1)
-	if _, err := e.del(e.newService(), alice, id); err != nil {
+	if err := e.del(e.newService(), alice, id); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := e.entry(alice, dmInboxCollection, id); ok {
 		t.Fatal("setup: alice's entry survived her delete")
 	}
 	e.tick(time.Minute)
-	_, err := e.accept(e.newService(), bob, id)
+	err := e.accept(e.newService(), bob, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestRequestPending_AcceptAfterRequesterDeleted(t *testing.T) {
 func TestRequestPending_RecipientDeleteKeepsRequest(t *testing.T) {
 	e := newIT(t, nil)
 	id := e.request(3)
-	if _, err := e.del(e.newService(), bob, id); err != nil {
+	if err := e.del(e.newService(), bob, id); err != nil {
 		t.Fatal(err)
 	}
 	st, folder, ok := e.rowState(e.listSvc(), alice, &messagingv1.ListConversationsRequest{Folder: inbox}, id)
@@ -139,7 +139,7 @@ func TestRequestPending_RecipientDeleteKeepsRequest(t *testing.T) {
 		t.Fatalf("alice's row = %v %v %v, want REQUEST in INBOX", st, folder, ok)
 	}
 	e.tick(time.Minute)
-	if _, _, err := e.send(alice, toUser(skey(900), bob, "again")); err == nil {
+	if _, err := e.send(alice, toUser(skey(900), bob, "again")); err == nil {
 		t.Error("the cap did not apply after the recipient deleted the request")
 	}
 }
@@ -182,10 +182,10 @@ func TestRequestPending_AcceptRacesThirdMessage(t *testing.T) {
 	var wg sync.WaitGroup
 	var acceptErr, sendErr error
 	wg.Add(2)
-	go func() { defer wg.Done(); _, acceptErr = e.accept(e.newService(), bob, id) }()
+	go func() { defer wg.Done(); acceptErr = e.accept(e.newService(), bob, id) }()
 	go func() {
 		defer wg.Done()
-		_, _, sendErr = e.sendOn(e.newService(), alice, toUser(skey(777), bob, "third"))
+		_, sendErr = e.sendOn(e.newService(), alice, toUser(skey(777), bob, "third"))
 	}()
 	wg.Wait()
 	if acceptErr != nil || sendErr != nil {

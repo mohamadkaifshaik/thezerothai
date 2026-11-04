@@ -94,7 +94,7 @@ func callerUID(ctx context.Context) (string, error) {
 	return uid, nil
 }
 
-// CreateProfile: worst case Firestore reads 2, writes 3; replay reads 1, writes 0 and no Auth call. One Firebase Auth
+// CreateProfile: a replay writes nothing and makes no Auth call. One Firebase Auth
 // users.get of the token's own uid, only on a real sign-up (amendment M2: a deleted or disabled Auth user is
 // refused with PERMISSION_DENIED, an Auth outage with UNAVAILABLE; nothing is written).
 func (s *Server) CreateProfile(ctx context.Context, req *connect.Request[identityv1.CreateProfileRequest]) (*connect.Response[identityv1.CreateProfileResponse], error) {
@@ -191,7 +191,7 @@ func (s *Server) ChangeHandle(ctx context.Context, req *connect.Request[identity
 }
 
 // DeleteAccount, RequestAccountExport and GetAccountExport sit behind FEATURE_ACCOUNT_LIFECYCLE.
-// Flag off for the caller: FAILED_PRECONDITION + FEATURE_DISABLED before any Firestore access (0 reads). They stay
+// Flag off for the caller: FAILED_PRECONDITION + FEATURE_DISABLED before any Firestore access. They stay
 // in the charge-only set and account_ops_daily (apiserver/ratelimit_config.go), so a rejected call still counts
 // against the daily cap. The job handlers behind them are never gated (Q9).
 

@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 func (e *repoEnv) seedPoll(t *testing.T, id string, counts map[string]int64, total int64) {
@@ -40,9 +38,9 @@ func (e *repoEnv) pollCounts(t *testing.T, id string) (int64, map[string]int64) 
 	return p["total"].(int64), out
 }
 
-// The vote batch: 3 writes and 0 reads, the counters move by field path, userLikes is merged field-level (the other lists survive),
-// a second Vote is VoteExists with 0 writes (a concurrent loser too), and a deleted post is VotePostGone.
-func TestRepoVote_BatchBudgetAndOutcomes(t *testing.T) {
+// The vote batch: the counters move by field path, userLikes is merged field-level (the other lists survive),
+// a second Vote is VoteExists and changes nothing (a concurrent loser too), and a deleted post is VotePostGone.
+func TestRepoVote_BatchAndOutcomes(t *testing.T) {
 	e := newRepoEnv(t)
 	const pid, uid = "0000000000000000021", "voter"
 	e.seedPoll(t, pid, map[string]int64{"0": 4, "1": 0, "2": 0}, 4)
@@ -52,7 +50,7 @@ func TestRepoVote_BatchBudgetAndOutcomes(t *testing.T) {
 	closes := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 	exp := closes.Add(48 * time.Hour)
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	out, err := e.repo.Vote(ctx, VoteParams{UID: uid, PostID: pid, Choice: 1, ExpireAt: exp, ClosesAt: closes})
 	if err != nil || out != VoteWritten {
 		t.Fatalf("Vote = %v, %v", out, err)
@@ -71,7 +69,7 @@ func TestRepoVote_BatchBudgetAndOutcomes(t *testing.T) {
 		t.Errorf("expireAt = %v, want %v", got, exp)
 	}
 
-	ctx, _ = budget.WithCounter(context.Background())
+	ctx = context.Background()
 	if out, err = e.repo.Vote(ctx, VoteParams{UID: uid, PostID: pid, Choice: 2, ExpireAt: exp}); err != nil || out != VoteExists {
 		t.Fatalf("second Vote = %v, %v, want VoteExists", out, err)
 	}
@@ -79,7 +77,7 @@ func TestRepoVote_BatchBudgetAndOutcomes(t *testing.T) {
 		t.Errorf("a second vote moved the counters: %d %v", total, counts)
 	}
 
-	ctx, _ = budget.WithCounter(context.Background())
+	ctx = context.Background()
 	state, found, err := e.repo.GetVote(ctx, uid, pid)
 	if err != nil || !found || state.Choice != 1 || state.Changes != 0 || state.UpdateTime.IsZero() {
 		t.Errorf("GetVote = %+v,%v,%v", state, found, err)
@@ -104,7 +102,7 @@ func TestRepoTrimPollVotes(t *testing.T) {
 	if _, err := e.client.Doc("userLikes/u").Set(context.Background(), map[string]any{"recent": []string{"x"}, "pollVotes": []string{"a:0", "b:1", "c:2"}}); err != nil {
 		t.Fatal(err)
 	}
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if err := e.repo.TrimPollVotes(ctx, "u", []string{"a:0", "b:1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -132,13 +130,13 @@ func (e *repoEnv) seedVotes(t *testing.T, uid string, n int) {
 	}
 }
 
-// 120 votes: one page, 120 reads and 120 deletes; another user's votes, the counters and the posts stay.
+// 120 votes: one page; another user's votes, the counters and the posts stay.
 func TestPollVoteEraser_120Votes(t *testing.T) {
 	e := newRepoEnv(t)
 	e.seedVotes(t, "gone", 120)
 	e.seedVotes(t, "keeper", 3)
 	e.seedPoll(t, "0000000000000000023", map[string]int64{"0": 9}, 9)
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	cp, done, err := NewPollVoteEraser(e.repo).PurgeUser(ctx, "gone", PollVoteCheckpoint{})
 	if err != nil || !done || cp.Deleted != 120 {
 		t.Fatalf("PurgeUser = %+v %v %v", cp, done, err)
@@ -152,10 +150,13 @@ func TestPollVoteEraser_120Votes(t *testing.T) {
 	if total, _ := e.pollCounts(t, "0000000000000000023"); total != 9 {
 		t.Errorf("the poll's anonymous total changed to %d (F6: counts stay)", total)
 	}
-	// Re-run: 1 read, nothing to do.
-	ctx, _ = budget.WithCounter(context.Background())
+	// Re-run: nothing to do, and the other user's votes are still there.
+	ctx = context.Background()
 	if _, done, err := NewPollVoteEraser(e.repo).PurgeUser(ctx, "gone", PollVoteCheckpoint{}); err != nil || !done {
 		t.Errorf("re-run done=%v err=%v", done, err)
+	}
+	if n := countWhere(t, e.client, "pollVotes", "uid", "keeper"); n != 3 {
+		t.Errorf("after the re-run another user's votes: %d, want 3", n)
 	}
 }
 
@@ -200,7 +201,7 @@ func TestPollVoteExporter_120Votes(t *testing.T) {
 	e := newRepoEnv(t)
 	e.seedVotes(t, "me", 120)
 	e.seedVotes(t, "other", 5)
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	var buf bytes.Buffer
 	if err := NewPollVoteExporter(e.repo).ExportUser(ctx, "me", &buf); err != nil {
 		t.Fatal(err)
@@ -228,9 +229,9 @@ func TestPollVoteExporter_120Votes(t *testing.T) {
 	}
 }
 
-// ChangeVote: ONE batch, 0 reads, 4 writes, including TWO writes to userLikes/{uid} in the same commit (ArrayRemove of
+// ChangeVote: ONE batch, including TWO writes to userLikes/{uid} in the same commit (ArrayRemove of
 // the old entry, ArrayUnion of the new one). This test is the evidence that the emulator accepts that shape; dev Firestore is a separate check.
-func TestRepoChangeVote_BatchBudgetAndEffects(t *testing.T) {
+func TestRepoChangeVote_BatchAndEffects(t *testing.T) {
 	e := newRepoEnv(t)
 	const pid, other, uid = "0000000000000000031", "0000000000000000032", "voter"
 	e.seedPoll(t, pid, map[string]int64{"0": 4, "1": 0, "2": 0}, 4)
@@ -249,7 +250,7 @@ func TestRepoChangeVote_BatchBudgetAndEffects(t *testing.T) {
 		t.Fatal(err, found)
 	}
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	out, err := e.repo.ChangeVote(ctx, ChangeParams{UID: uid, PostID: pid, From: 0, To: 2, Version: st.UpdateTime, ClosesAt: closes, ExpireAt: exp})
 	if err != nil || out != ChangeWritten {
 		t.Fatalf("ChangeVote = %v, %v", out, err)
@@ -366,7 +367,7 @@ func TestPollVoteExporter_ChangedAtFromFirestore(t *testing.T) {
 // The prune never recreates a userLikes document (a race with the account-deletion eraser), and a missing one is success.
 func TestRepoTrimPollVotes_NeverRecreates(t *testing.T) {
 	e := newRepoEnv(t)
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if err := e.repo.TrimPollVotes(ctx, "erased", []string{"a:0:1"}); err != nil {
 		t.Fatalf("trim of a missing document: %v", err)
 	}
@@ -376,7 +377,7 @@ func TestRepoTrimPollVotes_NeverRecreates(t *testing.T) {
 }
 
 // The daily sweep: documents with a due day in the window are cleaned, an open poll's vote and the other lists survive,
-// a document with only future days is not even read, a document without due days is not read, and the budget holds.
+// a document with only future days and a document without due days are not returned and stay as they were.
 func TestRepoSweepPollVotes(t *testing.T) {
 	e := newRepoEnv(t)
 	ctx := context.Background()
@@ -401,8 +402,7 @@ func TestRepoSweepPollVotes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bctx, _ := budget.WithCounter(ctx)
-	res, err := e.repo.SweepPollVotes(bctx, now, ttl)
+	res, err := e.repo.SweepPollVotes(ctx, now, ttl)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,10 +428,26 @@ func TestRepoSweepPollVotes(t *testing.T) {
 		t.Error("onlygone still has pollVotesDueDays")
 	}
 
-	// A second run finds nothing due (tomorrow's entry is not due yet): 1 read, 0 writes. The empty query bills 1.
-	bctx, _ = budget.WithCounter(ctx)
-	if res, err = e.repo.SweepPollVotes(bctx, now, ttl); err != nil || res.Pruned != 0 {
+	// The documents outside the window were not touched.
+	if f, _ := e.client.Doc("userLikes/onlyfuture").Get(ctx); f != nil {
+		if v, _ := f.DataAt("pollVotes"); fmt.Sprint(v) != fmt.Sprint([]string{open}) {
+			t.Errorf("onlyfuture pollVotes = %v, want [open]", v)
+		}
+	}
+	if l, _ := e.client.Doc("userLikes/legacy").Get(ctx); l != nil {
+		if v, _ := l.DataAt("pollVotes"); fmt.Sprint(v) != "[0000000000000000034:1]" {
+			t.Errorf("legacy pollVotes = %v, want the entry untouched", v)
+		}
+	}
+
+	// A second run finds nothing due (tomorrow's entry is not due yet) and changes nothing.
+	if res, err = e.repo.SweepPollVotes(ctx, now, ttl); err != nil || res.Pruned != 0 {
 		t.Fatalf("second run = %+v, %v", res, err)
+	}
+	if d2, _ := e.client.Doc("userLikes/dormant").Get(ctx); d2 != nil {
+		if v, _ := d2.DataAt("pollVotes"); fmt.Sprint(v) != fmt.Sprint([]string{later, open}) {
+			t.Errorf("dormant pollVotes after the second run = %v", v)
+		}
 	}
 }
 

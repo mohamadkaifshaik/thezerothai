@@ -14,7 +14,7 @@ const labelCID = "1000000000000000042"
 
 // The community label on Home, profile and list timelines is decided only by posts.ToView: a community post carries
 // it, a hidden one (communityHidden) and every post while communities is globally off do not, and viewer_reply_permission stays what the
-// timelines can say with 0 reads (never NOT_ALLOWED from the community rule).
+// timelines can say without a lookup (never NOT_ALLOWED from the community rule).
 func TestTimelines_CommunityLabel(t *testing.T) {
 	t.Parallel()
 	reg := func(m flags.Mode) *flags.Registry {
@@ -78,7 +78,7 @@ func TestTimelines_CommunityLabel(t *testing.T) {
 					t.Fatalf("community = %v", c)
 				}
 				if got := views[0].GetViewerReplyPermission(); got == postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED {
-					t.Fatalf("a timeline row must not decide the members-only rule (0 reads), got %v", got)
+					t.Fatalf("a timeline row must not decide the members-only rule, got %v", got)
 				}
 			})
 		}

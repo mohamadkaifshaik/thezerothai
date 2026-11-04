@@ -18,7 +18,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -78,7 +77,7 @@ type Doc struct {
 	// the claim write itself. At MediaMaxScreenAttempts the next FinalizeUpload REJECTS the document without a Vision call.
 	ScreenAttempts int64 `firestore:"screenAttempts,omitempty"`
 	// ScreenAssessed counts the claimed attempts that produced a valid assessment and did not end the document.
-	// ReleaseScreening increments it in the release write it already makes (+0 writes). Retries = ScreenAttempts - ScreenAssessed.
+	// ReleaseScreening increments it in the release write it already makes. Retries = ScreenAttempts - ScreenAssessed.
 	ScreenAssessed int64 `firestore:"screenAssessed,omitempty"`
 	// RetiredAt is set by the profile_media_retired step once the document's replaced or removed
 	// AVATAR or BANNER objects have been tagged for deletion (customTime = RetiredAt; the bucket lifecycle rule deletes
@@ -133,31 +132,30 @@ type Repo interface {
 	// CreateUploads runs the CreateUpload transaction. ErrKeyReused / the quota package's RESOURCE_EXHAUSTED
 	// apierr are returned as documented there.
 	CreateUploads(ctx context.Context, p CreateUploadsParams) (CreateUploadsResult, error)
-	// GetMany reads media/{id} for every id in one GetAll; missing ids are absent. Reads: len(ids).
+	// GetMany reads media/{id} for every id in one GetAll; missing ids are absent.
 	GetMany(ctx context.Context, ids []string) (map[string]*Doc, error)
 	// ClaimScreening stamps screeningUntil = until and increments screenAttempts on a PENDING document, conditional on its UpdateTime (ErrConflict
 	// when another call changed it first, so exactly one of several concurrent callers wins), and returns the new
-	// UpdateTime the winner must use for Resolve and ReleaseScreening. Writes: 1.
+	// UpdateTime the winner must use for Resolve and ReleaseScreening.
 	ClaimScreening(ctx context.Context, id string, updateTime, until time.Time) (time.Time, error)
 	// ReleaseScreening removes the claim ClaimScreening made, conditional on the UpdateTime it returned (ErrConflict
 	// when the document moved on, which is fine: the claim is gone either way). When assessed, the same write also increments
-	// screenAssessed (the attempt produced a valid assessment and consumed one of MEDIA_MAX_SCREEN_ATTEMPTS). Writes: 1.
+	// screenAssessed (the attempt produced a valid assessment and consumed one of MEDIA_MAX_SCREEN_ATTEMPTS).
 	ReleaseScreening(ctx context.Context, id string, updateTime time.Time, assessed bool) error
 	// Resolve moves a PENDING document to its final state, conditional on its UpdateTime (ErrConflict when
-	// another call changed it first) and clears any screening claim. Writes: 1.
+	// another call changed it first) and clears any screening claim.
 	Resolve(ctx context.Context, id string, updateTime time.Time, r Resolution) error
-	// VisionUsed returns the units counted for month ("200601"); 0 when the counter does not exist. Reads: 1.
+	// VisionUsed returns the units counted for month ("200601"); 0 when the counter does not exist.
 	VisionUsed(ctx context.Context, month string) (int64, error)
-	// AddVisionUnits adds n units to the month's counter. Writes: 1.
+	// AddVisionUnits adds n units to the month's counter.
 	AddVisionUnits(ctx context.Context, month string, n int64) error
 	// Retire marks a published document retired: retiredAt and expireAt are written together by one field-level Update
 	// (never a Set), conditional on the document's UpdateTime (ErrConflict when it changed since it was read, or is gone).
-	// Writes: 1.
 	Retire(ctx context.Context, id string, updateTime, retiredAt, expireAt time.Time) error
 	// ListByOwner returns up to limit of uid's media documents (any order), resuming after the document id
-	// `after` ("" = from the start). Reads: len(result), minimum 1.
+	// `after` ("" = from the start).
 	ListByOwner(ctx context.Context, uid, after string, limit int) ([]*Doc, error)
-	// DeleteDocs deletes the documents in one batch (<= 500). Deletes: len(ids).
+	// DeleteDocs deletes the documents in one batch (<= 500).
 	DeleteDocs(ctx context.Context, ids []string) error
 }
 
@@ -239,7 +237,7 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	if err != nil {
 		return CreateUploadsResult{}, fmt.Errorf("media: quota lookup: %w", err)
 	}
-	b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+	b := store.NewFirestoreTxBatch(tx)
 	if err := quota.CheckAndReserveN(b, r.w.Quotas.Ref(p.UID), qrec, quota.Uploads, p.QuotaLimit, int64(len(p.Docs))); err != nil {
 		return CreateUploadsResult{}, err
 	}
@@ -271,7 +269,6 @@ func (r *FirestoreRepo) GetMany(ctx context.Context, ids []string) (map[string]*
 		refs[i] = r.ref(id)
 	}
 	snaps, err := r.client.GetAll(ctx, refs)
-	budget.FromContext(ctx).AddReads(int64(len(ids)))
 	if err != nil {
 		return nil, fmt.Errorf("media: get %d media docs: %w", len(ids), err)
 	}
@@ -297,12 +294,11 @@ func decode(s *firestore.DocumentSnapshot) (*Doc, error) {
 	return &d, nil
 }
 
-// updateAt is the one UpdateTime-preconditioned field-level Update of a media document: 1 write, never a Set (a write
+// updateAt is the one UpdateTime-preconditioned field-level Update of a media document: never a Set (a write
 // after the account eraser cannot recreate the document). A failed precondition and a missing document are both
 // ErrConflict: the document is not in the state the caller read. what names the caller in the wrapped error.
 func (r *FirestoreRepo) updateAt(ctx context.Context, id string, updates []firestore.Update, updateTime time.Time, what string) (time.Time, error) {
 	wr, err := r.ref(id).Update(ctx, updates, firestore.LastUpdateTime(updateTime))
-	budget.FromContext(ctx).AddWrites(1)
 	switch status.Code(err) {
 	case codes.OK:
 		return wr.UpdateTime, nil
@@ -365,7 +361,6 @@ func orDelete(s string) any {
 // VisionUsed implements Repo.
 func (r *FirestoreRepo) VisionUsed(ctx context.Context, month string) (int64, error) {
 	snap, err := r.visionRef(month).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if status.Code(err) == codes.NotFound {
 		return 0, nil
 	}
@@ -387,7 +382,6 @@ func (r *FirestoreRepo) AddVisionUnits(ctx context.Context, month string, n int6
 		"units":     firestore.Increment(n),
 		"updatedAt": firestore.ServerTimestamp,
 	}, firestore.MergeAll)
-	budget.FromContext(ctx).AddWrites(1)
 	if err != nil {
 		return fmt.Errorf("media: add vision units: %w", err)
 	}
@@ -401,11 +395,6 @@ func (r *FirestoreRepo) ListByOwner(ctx context.Context, uid, after string, limi
 		q = q.StartAfter(r.ref(after))
 	}
 	snaps, err := q.Limit(limit).Documents(ctx).GetAll()
-	reads := int64(len(snaps))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
 		return nil, fmt.Errorf("media: list by owner: %w", err)
 	}
@@ -425,7 +414,7 @@ func (r *FirestoreRepo) DeleteDocs(ctx context.Context, ids []string) error {
 	if len(ids) == 0 {
 		return nil
 	}
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	for _, id := range ids {
 		b.Delete(r.ref(id))
 	}

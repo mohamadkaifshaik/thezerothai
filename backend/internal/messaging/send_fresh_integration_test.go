@@ -108,7 +108,7 @@ func TestSend_StaleRecipientCacheCannotOutliveABlock(t *testing.T) {
 			msgsBefore, eventsBefore := len(e.msgs(convID)), len(e.events.got)
 			// The cache (fakeSocial) keeps the old value; only the stored document changes.
 			e.writeGraphDoc(bob, graph.Snapshot{Following: map[string]bool{alice: true}, Blocked: map[string]bool{alice: true}})
-			_, _, err := e.send(alice, toUser(skey(2), bob, "after the block"))
+			_, err := e.send(alice, toUser(skey(2), bob, "after the block"))
 			wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
 			if existing {
 				if n := len(e.msgs(convID)); n != msgsBefore {
@@ -169,7 +169,7 @@ func TestSend_BlockAnswersBeforeTheRequestCap(t *testing.T) {
 		e.must(alice, toUser(skey(i), bob, "request"))
 	}
 	e.writeGraphDoc(bob, graph.Snapshot{Blocked: map[string]bool{alice: true}})
-	_, _, err := e.send(alice, toUser(skey(4), bob, "capped and blocked"))
+	_, err := e.send(alice, toUser(skey(4), bob, "capped and blocked"))
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
 }
 
@@ -181,7 +181,7 @@ func TestSend_ConcurrentBlockNeverLeavesAMessage(t *testing.T) {
 	e.svc.d.TxSocial = &raceSocial{inner: e.txSocial, write: func() {
 		e.writeGraphDoc(bob, graph.Snapshot{Following: map[string]bool{alice: true}, Blocked: map[string]bool{alice: true}})
 	}}
-	_, _, err := e.send(alice, toUser(skey(1), bob, "racing the block"))
+	_, err := e.send(alice, toUser(skey(1), bob, "racing the block"))
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
 	wantNothingWritten(t, e, ConversationID(alice, bob))
 }
@@ -194,7 +194,7 @@ func TestSend_RecipientDeletedMidSendWritesNothing(t *testing.T) {
 	e.svc.d.TxProfiles = &raceProfiles{inner: e.txProfs, write: func() {
 		e.writeUserDoc(bob, "bob", time.Now().Add(-30*24*time.Hour), "DELETING")
 	}}
-	_, _, err := e.send(alice, toUser(skey(1), bob, "hi"))
+	_, err := e.send(alice, toUser(skey(1), bob, "hi"))
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
 	wantNothingWritten(t, e, ConversationID(alice, bob))
 	if q, err := e.fs.Collection("quotas").Doc(alice).Get(context.Background()); err == nil && q.Exists() {
@@ -208,14 +208,14 @@ func TestSend_SuspendedRecipientRefusesNewConversationOnly(t *testing.T) {
 	e := newIT(t, nil)
 	e.mutual(alice, bob)
 	e.writeUserDoc(bob, "bob", time.Now().Add(-30*24*time.Hour), "SUSPENDED")
-	_, _, err := e.send(alice, toUser(skey(1), bob, "hi"))
+	_, err := e.send(alice, toUser(skey(1), bob, "hi"))
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
 	wantNothingWritten(t, e, ConversationID(alice, bob))
 
 	e.writeUserDoc(bob, "bob", time.Now().Add(-30*24*time.Hour), "ACTIVE")
 	e.must(alice, toUser(skey(2), bob, "now it works"))
 	e.writeUserDoc(bob, "bob", time.Now().Add(-30*24*time.Hour), "SUSPENDED")
-	if _, _, err := e.send(alice, toUser(skey(3), bob, "existing conversation")); err != nil {
+	if _, err := e.send(alice, toUser(skey(3), bob, "existing conversation")); err != nil {
 		t.Errorf("an existing conversation re-checked the recipient's status: %v", err)
 	}
 }

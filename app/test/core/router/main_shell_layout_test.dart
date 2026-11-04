@@ -309,11 +309,10 @@ void main() {
     });
 
     group('compose button rule (D2)', () {
-      testWidgets('hidden on Home, where the inline composer is', (
-        tester,
-      ) async {
+      testWidgets('shown on Home too; the inline composer is an alternate '
+          'entry', (tester) async {
         await pump(tester, location: '/home');
-        expect(find.byType(FloatingActionButton), findsNothing);
+        expect(find.byType(FloatingActionButton), findsOneWidget);
       });
 
       testWidgets('hidden on Notifications and Settings', (tester) async {

@@ -15,14 +15,9 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
-
-// Reads in these tests are the Scheduler's own: the account-status interceptor's profile read (1, cached) is not
-// part of the service, so every number is the documented budget minus 1 (SchedulePost proto: 9 worst = interceptor 1
-// + scheduled doc 1 + pending count 1 + window count 1 + quotas 1 + media <= 4).
 
 const schedUID = "uid-alice"
 
@@ -71,10 +66,8 @@ func (e *schedSvcEnv) validIn(mut ...func(*ScheduleInput)) ScheduleInput {
 	return in
 }
 
-func (e *schedSvcEnv) schedule(in ScheduleInput) (*ScheduledPost, *budget.Counter, error) {
-	ctx, c := budget.WithCounter(googleCtx(context.Background(), schedUID))
-	p, err := e.svc.Schedule(ctx, schedUID, in)
-	return p, c, err
+func (e *schedSvcEnv) schedule(in ScheduleInput) (*ScheduledPost, error) {
+	return e.svc.Schedule(googleCtx(context.Background(), schedUID), schedUID, in)
 }
 
 func (e *schedSvcEnv) pendingAt(n int, at time.Time) *ScheduledPost {
@@ -93,10 +86,6 @@ func mediaIDs(n int) []string {
 	return out
 }
 
-func wantReads(t *testing.T, c *budget.Counter, reads, writes int64) {
-	t.Helper()
-}
-
 func TestSchedule_StoresTheDocumentedItem(t *testing.T) {
 	e := newSchedSvcEnv()
 	in := e.validIn(func(i *ScheduleInput) {
@@ -105,7 +94,7 @@ func TestSchedule_StoresTheDocumentedItem(t *testing.T) {
 		i.ReplyPolicy = int32(postsv1.ReplyPolicy_REPLY_POLICY_MENTIONED_ONLY)
 		i.PaidPartnership, i.MadeWithAI = true, true
 	})
-	p, c, err := e.schedule(in)
+	p, err := e.schedule(in)
 	if err != nil {
 		t.Fatalf("Schedule: %v", err)
 	}
@@ -129,8 +118,6 @@ func TestSchedule_StoresTheDocumentedItem(t *testing.T) {
 	if e.repo.lastCreate.QuotaLimit != 50 {
 		t.Errorf("quota limit = %d, want 50 for an established account", e.repo.lastCreate.QuotaLimit)
 	}
-	// scheduled doc 1 + pending count 1 + quotas 1 + window count 1 (both in the transaction); writes: doc + quotas.schedules.
-	wantReads(t, c, 4, 2)
 	if e.repo.lastPendingLimit != 26 || e.repo.lastCreate.WindowCap != 3 {
 		t.Errorf("pending limit %d, window cap %d, want 26 and 3 (the repository counts WindowCap+1)", e.repo.lastPendingLimit, e.repo.lastCreate.WindowCap)
 	}
@@ -139,10 +126,10 @@ func TestSchedule_StoresTheDocumentedItem(t *testing.T) {
 	}
 }
 
-func TestSchedule_MediaIsPassedThroughAndCostsOneReadEach(t *testing.T) {
+func TestSchedule_MediaIsPassedThrough(t *testing.T) {
 	e := newSchedSvcEnv()
 	ids := mediaIDs(4)
-	p, c, err := e.schedule(e.validIn(func(i *ScheduleInput) {
+	p, err := e.schedule(e.validIn(func(i *ScheduleInput) {
 		i.MediaIDs, i.MediaAltTexts, i.Text = ids, []string{"a", "", "c", "d"}, ""
 	}))
 	if err != nil {
@@ -151,10 +138,9 @@ func TestSchedule_MediaIsPassedThroughAndCostsOneReadEach(t *testing.T) {
 	if len(p.Draft.Media) != 4 || p.Draft.Media[0].AltText != "a" || p.Draft.Media[2].AltText != "c" || p.Draft.Text != "" {
 		t.Errorf("draft media = %+v text %q", p.Draft.Media, p.Draft.Text)
 	}
-	wantReads(t, c, 8, 2) // the documented 9 worst minus the interceptor's read
 }
 
-func TestSchedule_FlagsFirstWithNoReads(t *testing.T) {
+func TestSchedule_FlagsComeBeforeAnyLookup(t *testing.T) {
 	tests := []struct {
 		name        string
 		mut         func(*ScheduleInput)
@@ -176,20 +162,19 @@ func TestSchedule_FlagsFirstWithNoReads(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newSchedSvcEnv()
-			_, c, err := e.schedule(e.validIn(tt.mut))
+			_, err := e.schedule(e.validIn(tt.mut))
 			ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
 			if ae.Metadata["feature"] != tt.wantFeature {
 				t.Errorf("feature = %q, want %q", ae.Metadata["feature"], tt.wantFeature)
 			}
-			wantReads(t, c, 0, 0)
-			if e.repo.gets+e.repo.creates != 0 {
+			if e.repo.gets+e.repo.pendingCounts+e.repo.creates != 0 {
 				t.Error("the repository was touched")
 			}
 		})
 	}
 }
 
-func TestSchedule_ShapeErrorsNeedNoReads(t *testing.T) {
+func TestSchedule_ShapeErrorsComeBeforeAnyLookup(t *testing.T) {
 	longText := strings.Repeat("a", 281)
 	tests := []struct {
 		name      string
@@ -218,9 +203,9 @@ func TestSchedule_ShapeErrorsNeedNoReads(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newSchedSvcEnv()
-			ctx, c := budget.WithCounter(googleCtx(context.Background(), schedUID))
+			ctx := googleCtx(context.Background(), schedUID)
 			if tt.anonymous {
-				ctx, c = budget.WithCounter(authn.WithClaims(context.Background(), authn.Claims{UID: schedUID, SignInProvider: authn.SignInProviderAnonymous}))
+				ctx = authn.WithClaims(context.Background(), authn.Claims{UID: schedUID, SignInProvider: authn.SignInProviderAnonymous})
 			}
 			_, err := e.svc.Schedule(ctx, schedUID, e.validIn(tt.mut))
 			code, rsn := tt.wantCode, tt.wantRsn
@@ -231,9 +216,8 @@ func TestSchedule_ShapeErrorsNeedNoReads(t *testing.T) {
 			if tt.field != "" && ae.Metadata["field"] != tt.field {
 				t.Errorf("field = %q, want %q", ae.Metadata["field"], tt.field)
 			}
-			wantReads(t, c, 0, 0)
-			if e.repo.gets != 0 {
-				t.Error("the replay lookup ran before the shape checks")
+			if e.repo.gets+e.repo.pendingCounts+e.repo.creates != 0 {
+				t.Error("the repository was reached before the shape checks")
 			}
 		})
 	}
@@ -241,20 +225,19 @@ func TestSchedule_ShapeErrorsNeedNoReads(t *testing.T) {
 
 func TestSchedule_ImageOnlyPostIsValid(t *testing.T) {
 	e := newSchedSvcEnv()
-	if _, _, err := e.schedule(e.validIn(func(i *ScheduleInput) { i.Text, i.MediaIDs = "", mediaIDs(1) })); err != nil {
+	if _, err := e.schedule(e.validIn(func(i *ScheduleInput) { i.Text, i.MediaIDs = "", mediaIDs(1) })); err != nil {
 		t.Fatalf("image-only post: %v", err)
 	}
 }
 
-func TestSchedule_ReplayReturnsTheStoredItemForFree(t *testing.T) {
+func TestSchedule_ReplayReturnsTheStoredItem(t *testing.T) {
 	e := newSchedSvcEnv()
 	in := e.validIn()
-	first, _, err := e.schedule(in)
+	first, err := e.schedule(in)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, info := logger.WithRequestInfo(googleCtx(context.Background(), schedUID))
-	ctx, c := budget.WithCounter(ctx)
 	again, err := e.svc.Schedule(ctx, schedUID, in)
 	if err != nil {
 		t.Fatalf("replay: %v", err)
@@ -262,7 +245,6 @@ func TestSchedule_ReplayReturnsTheStoredItemForFree(t *testing.T) {
 	if again.ID != first.ID || e.repo.creates != 1 || e.repo.schedules[schedUID] != 1 {
 		t.Errorf("replay created again: id %s/%s creates %d quota %d", again.ID, first.ID, e.repo.creates, e.repo.schedules[schedUID])
 	}
-	wantReads(t, c, 1, 0) // the documented replay 2 minus the interceptor's read
 	if v, _ := info.Get("outcome"); v != "replay" {
 		t.Errorf("outcome = %v, want replay", v)
 	}
@@ -293,16 +275,15 @@ func TestSchedule_ReplayWinsOverTheLeadTimeAndTheCaps(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newSchedSvcEnv()
 			in := e.validIn()
-			first, _, err := e.schedule(in)
+			first, err := e.schedule(in)
 			if err != nil {
 				t.Fatal(err)
 			}
 			tt.after(e)
-			again, c, err := e.schedule(in)
+			again, err := e.schedule(in)
 			if err != nil || again.ID != first.ID {
 				t.Fatalf("replay = %+v, %v; want the stored item", again, err)
 			}
-			wantReads(t, c, 1, 0)
 			if e.repo.pendingCounts != 1 || e.repo.windowEvals != 1 || e.repo.creates != 1 {
 				t.Errorf("the replay ran counts or a create: pending %d window %d creates %d", e.repo.pendingCounts, e.repo.windowEvals, e.repo.creates)
 			}
@@ -315,13 +296,13 @@ func TestSchedule_ReplayOfATerminalItemCarriesNoDraft(t *testing.T) {
 		t.Run(string(st), func(t *testing.T) {
 			e := newSchedSvcEnv()
 			in := e.validIn()
-			p, _, err := e.schedule(in)
+			p, err := e.schedule(in)
 			if err != nil {
 				t.Fatal(err)
 			}
 			doc := e.repo.stored(schedUID, p.ID)
 			doc.Status, doc.Draft = st, nil
-			again, _, err := e.schedule(in)
+			again, err := e.schedule(in)
 			if err != nil || again.Status != st || again.Draft != nil {
 				t.Fatalf("replay = %+v, %v; want %s without a draft", again, err, st)
 			}
@@ -356,20 +337,18 @@ func TestSchedule_EffectiveRequestDecidesReplayOrReuse(t *testing.T) {
 			if tt.first == nil {
 				tt.first = func(*ScheduleInput) {}
 			}
-			first, _, err := e.schedule(e.validIn(tt.first))
+			first, err := e.schedule(e.validIn(tt.first))
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, c, err := e.schedule(e.validIn(tt.first, tt.second))
+			_, err = e.schedule(e.validIn(tt.first, tt.second))
 			if tt.wantReplay {
 				if err != nil {
 					t.Fatalf("want a replay, got %v", err)
 				}
-				wantReads(t, c, 1, 0)
 				return
 			}
 			_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
-			wantReads(t, c, 1, 0)
 			if e.repo.stored(schedUID, first.ID).Draft.Text != "hello later" {
 				t.Error("the stored item changed")
 			}
@@ -397,7 +376,7 @@ func TestSchedule_PublishAtBounds(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newSchedSvcEnv()
 			e.clock = now
-			_, c, err := e.schedule(e.validIn(func(i *ScheduleInput) { i.PublishAt = tt.at }))
+			_, err := e.schedule(e.validIn(func(i *ScheduleInput) { i.PublishAt = tt.at }))
 			if tt.ok {
 				if err != nil {
 					t.Fatalf("want ok, got %v", err)
@@ -409,9 +388,8 @@ func TestSchedule_PublishAtBounds(t *testing.T) {
 				t.Errorf("field = %q, want publish_at", ae.Metadata["field"])
 			}
 			// Only the replay lookup ran: no counts, no transaction.
-			wantReads(t, c, 1, 0)
-			if e.repo.pendingCounts != 0 || e.repo.creates != 0 {
-				t.Error("a bounds failure reached the caps or the transaction")
+			if e.repo.gets != 1 || e.repo.pendingCounts != 0 || e.repo.creates != 0 {
+				t.Errorf("lookups %d pending counts %d creates %d, want 1, 0, 0: a bounds failure must stop after the replay lookup", e.repo.gets, e.repo.pendingCounts, e.repo.creates)
 			}
 		})
 	}
@@ -442,7 +420,7 @@ func TestSchedule_PendingCap(t *testing.T) {
 			// FAILED, PUBLISHED and another user's items never count.
 			e.repo.docs[schedUID] = append(e.repo.docs[schedUID], newSched(t, schedUID, 500, ScheduledFailed), newSched(t, schedUID, 501, ScheduledPublished))
 			e.repo.docs["uid-bob"] = []*ScheduledPost{newSched(t, "uid-bob", 502, ScheduledPending)}
-			_, c, err := e.schedule(e.validIn())
+			_, err := e.schedule(e.validIn())
 			if tt.ok {
 				if err != nil {
 					t.Fatalf("want ok, got %v", err)
@@ -453,18 +431,18 @@ func TestSchedule_PendingCap(t *testing.T) {
 			if ae.Metadata["limit"] != "scheduled_pending" {
 				t.Errorf("limit = %q", ae.Metadata["limit"])
 			}
-			wantReads(t, c, 2, 0) // replay lookup + pending count (documented 3 with the interceptor)
-			if e.repo.lastPendingLimit != tt.max+1 || e.repo.windowEvals != 0 || e.repo.creates != 0 {
-				t.Errorf("limit %d windowEvals %d creates %d", e.repo.lastPendingLimit, e.repo.windowEvals, e.repo.creates)
+			// The replay lookup and the pending count ran; the window and the transaction did not.
+			if e.repo.gets != 1 || e.repo.pendingCounts != 1 || e.repo.lastPendingLimit != tt.max+1 || e.repo.windowEvals != 0 || e.repo.creates != 0 {
+				t.Errorf("lookups %d pending counts %d limit %d windowEvals %d creates %d", e.repo.gets, e.repo.pendingCounts, e.repo.lastPendingLimit, e.repo.windowEvals, e.repo.creates)
 			}
 		})
 	}
 }
 
 // The window tests below run against fakeSchedRepo, which models the repository's contract (ErrScheduledWindowFull,
-// ErrScheduledExists, the order of the checks, the reads). They prove what the SERVICE does with that contract: it passes
+// ErrScheduledExists, the order of the checks). They prove what the SERVICE does with that contract: it passes
 // WindowCap and the stored minute, maps ErrScheduledWindowFull to LIMIT_REACHED(scheduled_window) and ErrScheduledExists
-// to a replay, and charges the reads. They say nothing about whether the cap is exact: the evidence for that is the
+// to a replay. They say nothing about whether the cap is exact: the evidence for that is the
 // emulator tests (TestSchedulerIT_ConcurrentWindowCap, TestScheduled_Integration_WindowCap* and WindowFullByTheSameKey).
 func TestSchedule_WindowCap(t *testing.T) {
 	target := schedClock.Add(time.Hour) // the request's publish_at
@@ -492,7 +470,7 @@ func TestSchedule_WindowCap(t *testing.T) {
 			failed := e.pendingAt(90, at(0))
 			failed.Status = ScheduledFailed
 			e.repo.docs[schedUID] = append(e.repo.docs[schedUID], failed)
-			_, c, err := e.schedule(e.validIn())
+			_, err := e.schedule(e.validIn())
 			if tt.ok {
 				if err != nil {
 					t.Fatalf("want ok, got %v", err)
@@ -503,12 +481,9 @@ func TestSchedule_WindowCap(t *testing.T) {
 			if ae.Metadata["limit"] != "scheduled_window" {
 				t.Errorf("limit = %q", ae.Metadata["limit"])
 			}
-			// replay lookup + pending count (outside), quotas + window count + the document of this id (inside the
-			// transaction; the rejection path checks whether a concurrent duplicate committed it): the documented 6 with
-			// the interceptor.
-			wantReads(t, c, 5, 0)
-			if e.repo.creates != 1 || e.repo.windowEvals != 1 {
-				t.Errorf("transactions %d window counts %d, want 1 and 1: the window is decided inside the transaction", e.repo.creates, e.repo.windowEvals)
+			// The replay lookup and the pending count run outside the transaction; the window is decided inside it.
+			if e.repo.gets != 1 || e.repo.pendingCounts != 1 || e.repo.creates != 1 || e.repo.windowEvals != 1 {
+				t.Errorf("lookups %d pending counts %d transactions %d window counts %d, want 1 each: the window is decided inside the transaction", e.repo.gets, e.repo.pendingCounts, e.repo.creates, e.repo.windowEvals)
 			}
 			// The rejection wrote nothing: the seeded items and the FAILED one are all there is, and no quota was charged.
 			if got := len(e.repo.docs[schedUID]); got != len(tt.items)+1 || e.repo.schedules[schedUID] != 0 {
@@ -520,7 +495,7 @@ func TestSchedule_WindowCap(t *testing.T) {
 
 // TestSchedule_WindowFullAfterARetryIsLimitReached: when the repository retried the transaction (the fake models a
 // concurrent winner committing during attempt 1) and the second attempt found the window full, the service answers
-// LIMIT_REACHED(scheduled_window), writes nothing, and the reads of both attempts are charged. That the real closure
+// LIMIT_REACHED(scheduled_window) and writes nothing. That the real closure
 // counts again on every attempt is proven by TestScheduled_Integration_WindowCapIsEvaluatedPerAttempt, not here.
 func TestSchedule_WindowFullAfterARetryIsLimitReached(t *testing.T) {
 	e := newSchedSvcEnv()
@@ -528,7 +503,7 @@ func TestSchedule_WindowFullAfterARetryIsLimitReached(t *testing.T) {
 	e.repo.docs[schedUID] = append(e.repo.docs[schedUID], e.pendingAt(0, at), e.pendingAt(1, at.Add(time.Minute)))
 	e.repo.attemptWinners = map[int]*ScheduledPost{1: e.pendingAt(2, at)}
 
-	_, c, err := e.schedule(e.validIn())
+	_, err := e.schedule(e.validIn())
 	ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
 	if ae.Metadata["limit"] != "scheduled_window" {
 		t.Errorf("limit = %q, want scheduled_window", ae.Metadata["limit"])
@@ -536,8 +511,6 @@ func TestSchedule_WindowFullAfterARetryIsLimitReached(t *testing.T) {
 	if e.repo.windowEvals != 2 {
 		t.Errorf("window counts = %d, want 2: the second attempt must count again", e.repo.windowEvals)
 	}
-	// get 1 + pending 1 + attempt 1 (quotas, window) 2 + attempt 2 (quotas, window, the document of this id) 3 = 7, 0 writes.
-	wantReads(t, c, 7, 0)
 	if got := len(e.repo.docs[schedUID]); got != 3 || e.repo.schedules[schedUID] != 0 {
 		t.Errorf("documents = %d (2 seeded + the winner), schedules = %d: the loser must write nothing", got, e.repo.schedules[schedUID])
 	}
@@ -548,10 +521,9 @@ func TestSchedule_WindowFullAfterARetryIsLimitReached(t *testing.T) {
 	e.svc.schedule.WindowCap = 4
 	e.repo.docs[schedUID] = append(e.repo.docs[schedUID], e.pendingAt(0, at), e.pendingAt(1, at.Add(time.Minute)))
 	e.repo.attemptWinners = map[int]*ScheduledPost{1: e.pendingAt(2, at)}
-	if _, c, err = e.schedule(e.validIn()); err != nil {
+	if _, err = e.schedule(e.validIn()); err != nil {
 		t.Fatalf("with room for the retry: %v", err)
 	}
-	wantReads(t, c, 6, 2)
 	if e.repo.windowEvals != 2 || len(e.repo.docs[schedUID]) != 4 {
 		t.Errorf("window counts %d documents %d, want 2 and 4", e.repo.windowEvals, len(e.repo.docs[schedUID]))
 	}
@@ -559,12 +531,12 @@ func TestSchedule_WindowFullAfterARetryIsLimitReached(t *testing.T) {
 
 // TestSchedule_ExistsFromAFullWindowAnswersAReplay: when the repository reports ErrScheduledExists for a full window (a
 // duplicate of a call that just committed; the fake models the winner's commit), the service answers from the winner's
-// document, not LIMIT_REACHED, and charges the winner's document read. The repository side is proven by
+// document, not LIMIT_REACHED, after reading that document again. The repository side is proven by
 // TestScheduled_Integration_WindowFullByTheSameKey.
 func TestSchedule_ExistsFromAFullWindowAnswersAReplay(t *testing.T) {
 	e := newSchedSvcEnv()
 	in := e.validIn()
-	winner, _, err := newSchedSvcEnv().schedule(in) // what the winning call stored
+	winner, err := newSchedSvcEnv().schedule(in) // what the winning call stored
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,12 +544,14 @@ func TestSchedule_ExistsFromAFullWindowAnswersAReplay(t *testing.T) {
 	e.repo.docs[schedUID] = append(e.repo.docs[schedUID], e.pendingAt(0, at), e.pendingAt(1, at)) // cap 3: one more fits
 	e.repo.attemptWinners = map[int]*ScheduledPost{1: winner}                                     // commits during attempt 1
 
-	got, c, err := e.schedule(in)
+	got, err := e.schedule(in)
 	if err != nil || got.ID != winner.ID {
 		t.Fatalf("got %+v, %v; want the winner's item", got, err)
 	}
-	// get 1 + pending 1 + attempt 1 (quotas, window) 2 + attempt 2 (quotas, window, own document) 3 + the winner's document 1.
-	wantReads(t, c, 8, 0)
+	// The replay lookup, then the winner's document once the repository reported ErrScheduledExists.
+	if e.repo.gets != 2 {
+		t.Errorf("document lookups = %d, want 2", e.repo.gets)
+	}
 }
 
 // TestSchedule_WindowFullIsReportedWhenBothCapsAreHit: the service maps a window-full answer even when the daily cap is
@@ -590,7 +564,7 @@ func TestSchedule_WindowFullIsReportedWhenBothCapsAreHit(t *testing.T) {
 		e.repo.docs[schedUID] = append(e.repo.docs[schedUID], e.pendingAt(n, at))
 	}
 	e.repo.schedules[schedUID] = 50 // the daily cap is spent too
-	_, _, err := e.schedule(e.validIn())
+	_, err := e.schedule(e.validIn())
 	ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
 	if ae.Metadata["limit"] != "scheduled_window" {
 		t.Errorf("limit = %q, want scheduled_window", ae.Metadata["limit"])
@@ -603,7 +577,7 @@ func TestSchedule_WindowFullIsReportedWhenBothCapsAreHit(t *testing.T) {
 func TestSchedule_RepoRefusalOfAWindowCapBelowOneIsInternal(t *testing.T) {
 	e := newSchedSvcEnv()
 	e.svc.schedule.WindowCap = 0
-	_, _, err := e.schedule(e.validIn())
+	_, err := e.schedule(e.validIn())
 	if err == nil || errors.As(err, new(*apierr.Error)) {
 		t.Fatalf("err = %v, want an unshaped internal error", err)
 	}
@@ -626,7 +600,7 @@ func TestSchedule_DailyQuotaTiers(t *testing.T) {
 		{"new account, 9 used", time.Hour, 9, 0, 10, true},
 		{"new account, 10 used", time.Hour, 10, 0, 10, false},
 		{"just past the window is established", 24*time.Hour + time.Second, 10, 0, 50, true},
-		{"cap with four images still reads 1 for the quota", 72 * time.Hour, 50, 4, 50, false},
+		{"cap with four images is decided before the media load", 72 * time.Hour, 50, 4, 50, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -635,7 +609,8 @@ func TestSchedule_DailyQuotaTiers(t *testing.T) {
 			prof.CreatedAt = e.clock.Add(-tt.created)
 			e.dir.profiles[schedUID] = prof
 			e.repo.schedules[schedUID] = tt.used
-			_, c, err := e.schedule(e.validIn(func(i *ScheduleInput) {
+			e.repo.mediaNotReady = tt.media > 0 // the daily cap is decided before the media load, so this never surfaces
+			_, err := e.schedule(e.validIn(func(i *ScheduleInput) {
 				if tt.media > 0 {
 					i.MediaIDs = mediaIDs(tt.media)
 				}
@@ -653,7 +628,6 @@ func TestSchedule_DailyQuotaTiers(t *testing.T) {
 			if ae.Metadata["quota"] != "schedules" || ae.RetryAfter <= 0 {
 				t.Errorf("meta %v retry-after %v", ae.Metadata, ae.RetryAfter)
 			}
-			wantReads(t, c, 4, 0) // replay lookup, pending, window, quotas: the documented 5 minus the interceptor; no media reads
 		})
 	}
 }
@@ -661,9 +635,8 @@ func TestSchedule_DailyQuotaTiers(t *testing.T) {
 func TestSchedule_MediaNotReady(t *testing.T) {
 	e := newSchedSvcEnv()
 	e.repo.mediaNotReady = true
-	_, c, err := e.schedule(e.validIn(func(i *ScheduleInput) { i.MediaIDs = mediaIDs(2) }))
+	_, err := e.schedule(e.validIn(func(i *ScheduleInput) { i.MediaIDs = mediaIDs(2) }))
 	_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY)
-	wantReads(t, c, 6, 0)
 	if len(e.repo.docs[schedUID]) != 0 || e.repo.schedules[schedUID] != 0 {
 		t.Error("something was stored")
 	}
@@ -673,29 +646,32 @@ func TestSchedule_ConcurrentDuplicateAnswersFromTheWinner(t *testing.T) {
 	in := func(e *schedSvcEnv) ScheduleInput { return e.validIn() }
 	t.Run("same request: a replay", func(t *testing.T) {
 		e := newSchedSvcEnv()
-		winner, _, err := newSchedSvcEnv().schedule(in(e)) // what the winning call would have stored
+		winner, err := newSchedSvcEnv().schedule(in(e)) // what the winning call would have stored
 		if err != nil {
 			t.Fatal(err)
 		}
 		e.repo.raceDoc = winner
-		got, c, err := e.schedule(in(e))
+		got, err := e.schedule(in(e))
 		if err != nil || got.ID != winner.ID {
 			t.Fatalf("got %+v, %v; want the winner's item", got, err)
 		}
-		wantReads(t, c, 5, 0) // get, pending, window, quotas, the winner's doc again (documented: 9 worst + 1)
+		// The replay lookup, then the winner's document once the repository reported ErrScheduledExists.
+		if e.repo.gets != 2 {
+			t.Errorf("document lookups = %d, want 2", e.repo.gets)
+		}
 	})
 	t.Run("different request: key reused", func(t *testing.T) {
 		e := newSchedSvcEnv()
-		winner, _, _ := newSchedSvcEnv().schedule(in(e))
+		winner, _ := newSchedSvcEnv().schedule(in(e))
 		winner.RequestHash = "another-body"
 		e.repo.raceDoc = winner
-		_, _, err := e.schedule(in(e))
+		_, err := e.schedule(in(e))
 		_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 	})
 	t.Run("the winner vanished: an internal error, not a loop", func(t *testing.T) {
 		e := newSchedSvcEnv()
 		e.repo.createErr = ErrScheduledExists
-		_, _, err := e.schedule(in(e))
+		_, err := e.schedule(in(e))
 		if err == nil || errors.As(err, new(*apierr.Error)) {
 			t.Fatalf("err = %v, want an unshaped internal error", err)
 		}
@@ -705,7 +681,7 @@ func TestSchedule_ConcurrentDuplicateAnswersFromTheWinner(t *testing.T) {
 func TestSchedule_ProfileRequired(t *testing.T) {
 	e := newSchedSvcEnv()
 	delete(e.dir.profiles, schedUID)
-	_, _, err := e.schedule(e.validIn())
+	_, err := e.schedule(e.validIn())
 	_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED)
 	if e.repo.creates != 0 {
 		t.Error("created without a profile")
@@ -730,7 +706,7 @@ func TestSchedule_UnexpectedErrorsAreScrubbed(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newSchedSvcEnv()
 			tt.set(e)
-			_, _, err := e.schedule(e.validIn())
+			_, err := e.schedule(e.validIn())
 			if err == nil {
 				t.Fatal("want an error")
 			}
@@ -799,10 +775,8 @@ func TestListScheduled(t *testing.T) {
 			e.repo.docs[schedUID] = append(e.repo.docs[schedUID], newSched(t, schedUID, i, ScheduledPending))
 		}
 	}
-	list := func(e *schedSvcEnv, uid string, size int, tok string) (ScheduledPage, *budget.Counter, error) {
-		ctx, c := budget.WithCounter(googleCtx(context.Background(), uid))
-		p, err := e.svc.ListScheduled(ctx, uid, size, tok)
-		return p, c, err
+	list := func(e *schedSvcEnv, uid string, size int, tok string) (ScheduledPage, error) {
+		return e.svc.ListScheduled(googleCtx(context.Background(), uid), uid, size, tok)
 	}
 
 	t.Run("PENDING and FAILED only, publish_at ascending, own items only", func(t *testing.T) {
@@ -812,7 +786,7 @@ func TestListScheduled(t *testing.T) {
 			newSched(t, schedUID, 4, ScheduledPublished), newSched(t, schedUID, 5, ScheduledCancelled),
 		}
 		e.repo.docs["uid-bob"] = []*ScheduledPost{newSched(t, "uid-bob", 0, ScheduledPending)}
-		page, c, err := list(e, schedUID, 0, "")
+		page, err := list(e, schedUID, 0, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -829,29 +803,25 @@ func TestListScheduled(t *testing.T) {
 		if page.NextPageToken != "" {
 			t.Error("a short page must not carry a token")
 		}
-		wantReads(t, c, 3, 0)
 	})
-	t.Run("empty list costs one read", func(t *testing.T) {
+	t.Run("an empty list is an empty page", func(t *testing.T) {
 		e := newSchedSvcEnv()
-		_, c, err := list(e, schedUID, 0, "")
-		if err != nil {
-			t.Fatal(err)
+		page, err := list(e, schedUID, 0, "")
+		if err != nil || len(page.Items) != 0 || page.NextPageToken != "" {
+			t.Fatalf("page = %+v, %v; want empty with no token", page, err)
 		}
-		wantReads(t, c, 1, 0)
 	})
 	t.Run("page size 0 is 20, over 50 is 50", func(t *testing.T) {
 		e := newSchedSvcEnv()
 		seed(e, 60)
-		page, c, err := list(e, schedUID, 0, "")
+		page, err := list(e, schedUID, 0, "")
 		if err != nil || len(page.Items) != 20 || page.NextPageToken == "" {
 			t.Fatalf("default page = %d items, token %q, %v", len(page.Items), page.NextPageToken, err)
 		}
-		wantReads(t, c, 20, 0) // documented 21 with the interceptor
-		page, c, err = list(e, schedUID, 500, "")
+		page, err = list(e, schedUID, 500, "")
 		if err != nil || len(page.Items) != 50 {
 			t.Fatalf("max page = %d items, %v", len(page.Items), err)
 		}
-		wantReads(t, c, 50, 0)
 	})
 	t.Run("pagination walks every item once", func(t *testing.T) {
 		e := newSchedSvcEnv()
@@ -862,7 +832,7 @@ func TestListScheduled(t *testing.T) {
 			if pages > 4 {
 				t.Fatal("pagination does not terminate")
 			}
-			page, _, err := list(e, schedUID, 3, tok)
+			page, err := list(e, schedUID, 3, tok)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -883,7 +853,7 @@ func TestListScheduled(t *testing.T) {
 	t.Run("a token is bound to its caller and to the key", func(t *testing.T) {
 		e := newSchedSvcEnv()
 		seed(e, 5)
-		page, _, err := list(e, schedUID, 2, "")
+		page, err := list(e, schedUID, 2, "")
 		if err != nil || page.NextPageToken == "" {
 			t.Fatal(err)
 		}
@@ -893,18 +863,21 @@ func TestListScheduled(t *testing.T) {
 				uid = schedUID
 			}
 			e.repo.docs["uid-bob"] = []*ScheduledPost{newSched(t, "uid-bob", 0, ScheduledPending)}
-			_, c, err := list(e, uid, 2, tok)
+			callsBefore := e.repo.calls
+			_, err := list(e, uid, 2, tok)
 			ae := wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 			if ae.Metadata["field"] != "page_token" {
 				t.Errorf("%s: field = %q", name, ae.Metadata["field"])
 			}
-			wantReads(t, c, 0, 0)
+			if e.repo.calls != callsBefore {
+				t.Errorf("%s: a rejected token queried the store", name)
+			}
 		}
 	})
 	t.Run("a store failure is internal and scrubbed", func(t *testing.T) {
 		e := newSchedSvcEnv()
 		e.repo.err = fmt.Errorf("documents/users/%s/scheduled: %w", schedUID, errBoom)
-		_, _, err := list(e, schedUID, 0, "")
+		_, err := list(e, schedUID, 0, "")
 		if err == nil || errors.As(err, new(*apierr.Error)) || strings.Contains(logger.CauseChain(err), schedUID) {
 			t.Fatalf("err = %v", err)
 		}
@@ -913,23 +886,21 @@ func TestListScheduled(t *testing.T) {
 
 func TestCancelScheduled(t *testing.T) {
 	id := func(n int) string { v, _ := ScheduledID(schedUID, schedKeyFor(n)); return v }
-	cancel := func(e *schedSvcEnv, uid, key, sid string) (*ScheduledPost, *budget.Counter, error) {
-		ctx, c := budget.WithCounter(googleCtx(context.Background(), uid))
-		p, err := e.svc.CancelScheduled(ctx, uid, key, sid)
-		return p, c, err
+	cancel := func(e *schedSvcEnv, uid, key, sid string) (*ScheduledPost, error) {
+		return e.svc.CancelScheduled(googleCtx(context.Background(), uid), uid, key, sid)
 	}
 
 	tests := []struct {
 		name        string
 		from        ScheduledStatus
 		wantStatus  ScheduledStatus
-		wantWrites  int64
+		wantWrite   bool // the document is rewritten
 		wantOutcome string
 	}{
-		{"PENDING is cancelled", ScheduledPending, ScheduledCancelled, 1, "cancelled"},
-		{"FAILED is dismissed (founder decision)", ScheduledFailed, ScheduledCancelled, 1, "cancelled"},
-		{"PUBLISHED is too late, unchanged", ScheduledPublished, ScheduledPublished, 0, "unchanged"},
-		{"CANCELLED stays cancelled", ScheduledCancelled, ScheduledCancelled, 0, "unchanged"},
+		{"PENDING is cancelled", ScheduledPending, ScheduledCancelled, true, "cancelled"},
+		{"FAILED is dismissed (founder decision)", ScheduledFailed, ScheduledCancelled, true, "cancelled"},
+		{"PUBLISHED is too late, unchanged", ScheduledPublished, ScheduledPublished, false, "unchanged"},
+		{"CANCELLED stays cancelled", ScheduledCancelled, ScheduledCancelled, false, "unchanged"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -939,7 +910,6 @@ func TestCancelScheduled(t *testing.T) {
 			}
 			e := newSchedSvcEnv(p)
 			ctx, info := logger.WithRequestInfo(googleCtx(context.Background(), schedUID))
-			ctx, c := budget.WithCounter(ctx)
 			got, err := e.svc.CancelScheduled(ctx, schedUID, schedKeyFor(77), id(1))
 			if err != nil {
 				t.Fatal(err)
@@ -950,41 +920,45 @@ func TestCancelScheduled(t *testing.T) {
 			if tt.from == ScheduledPublished && got.PostID == "" {
 				t.Error("the post id of a PUBLISHED item must be returned")
 			}
-			wantReads(t, c, 1, tt.wantWrites) // documented 2 worst / 1 typical, the interceptor's read excluded
 			if v, _ := info.Get("outcome"); v != tt.wantOutcome {
 				t.Errorf("outcome = %v, want %s", v, tt.wantOutcome)
 			}
-			if tt.wantWrites == 1 {
-				stored := e.repo.stored(schedUID, id(1))
+			stored := e.repo.stored(schedUID, id(1))
+			if tt.wantWrite {
 				if stored.Draft != nil || stored.ExpireAt == nil || !stored.ExpireAt.Equal(e.clock.Add(168*time.Hour)) {
 					t.Errorf("stored = %+v, want the draft cleared and expireAt = now + TERMINAL_TTL", stored)
 				}
+			} else if stored.Status != tt.from || stored.ExpireAt != nil {
+				t.Errorf("stored = %+v, want the %s item untouched", stored, tt.from)
 			}
 		})
 	}
 
-	t.Run("a second cancel is a no-op with 0 writes", func(t *testing.T) {
+	t.Run("a second cancel is a no-op", func(t *testing.T) {
 		e := newSchedSvcEnv(newSched(t, schedUID, 1, ScheduledPending))
-		if _, _, err := cancel(e, schedUID, schedKeyFor(1), id(1)); err != nil {
+		if _, err := cancel(e, schedUID, schedKeyFor(1), id(1)); err != nil {
 			t.Fatal(err)
 		}
-		got, c, err := cancel(e, schedUID, schedKeyFor(1), id(1))
+		ctx, info := logger.WithRequestInfo(googleCtx(context.Background(), schedUID))
+		got, err := e.svc.CancelScheduled(ctx, schedUID, schedKeyFor(1), id(1))
 		if err != nil || got.Status != ScheduledCancelled {
 			t.Fatalf("second cancel = %+v, %v", got, err)
 		}
-		wantReads(t, c, 1, 0)
+		if v, _ := info.Get("outcome"); v != "unchanged" {
+			t.Errorf("outcome = %v, want unchanged", v)
+		}
 	})
 	t.Run("unknown id is NOT_FOUND", func(t *testing.T) {
 		e := newSchedSvcEnv()
-		_, _, err := cancel(e, schedUID, schedKeyFor(1), strings.Repeat("a", 32))
+		_, err := cancel(e, schedUID, schedKeyFor(1), strings.Repeat("a", 32))
 		_ = wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 	})
 	t.Run("another user's id is NOT_FOUND and the item is untouched", func(t *testing.T) {
 		bobs := newSched(t, "uid-bob", 1, ScheduledPending)
 		e := newSchedSvcEnv(bobs)
-		_, _, err := cancel(e, schedUID, schedKeyFor(1), bobs.ID)
+		_, err := cancel(e, schedUID, schedKeyFor(1), bobs.ID)
 		ae := wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
-		_, _, err2 := cancel(e, schedUID, schedKeyFor(1), strings.Repeat("b", 32))
+		_, err2 := cancel(e, schedUID, schedKeyFor(1), strings.Repeat("b", 32))
 		ae2 := wantAPIError(t, err2, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 		if ae.Message != ae2.Message {
 			t.Errorf("messages differ (an existence oracle): %q vs %q", ae.Message, ae2.Message)
@@ -993,7 +967,7 @@ func TestCancelScheduled(t *testing.T) {
 			t.Errorf("bob's item changed: %+v", got)
 		}
 	})
-	t.Run("malformed ids and keys are VALIDATION with no reads", func(t *testing.T) {
+	t.Run("malformed ids and keys are VALIDATION before the repository", func(t *testing.T) {
 		e := newSchedSvcEnv(newSched(t, schedUID, 1, ScheduledPending))
 		for _, tc := range []struct{ name, key, sid, field string }{
 			{"upper-case id", schedKeyFor(1), strings.ToUpper(id(1)), "scheduled_id"},
@@ -1006,21 +980,20 @@ func TestCancelScheduled(t *testing.T) {
 			{"empty key", "", id(1), "idempotency_key"},
 			{"key with a slash", "0123456789/abcdef", id(1), "idempotency_key"},
 		} {
-			_, c, err := cancel(e, schedUID, tc.key, tc.sid)
+			_, err := cancel(e, schedUID, tc.key, tc.sid)
 			ae := wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 			if ae.Metadata["field"] != tc.field {
 				t.Errorf("%s: field = %q, want %q", tc.name, ae.Metadata["field"], tc.field)
 			}
-			wantReads(t, c, 0, 0)
 		}
-		if e.repo.cancels != 0 {
+		if e.repo.cancels != 0 || e.repo.gets != 0 {
 			t.Error("the repository was reached")
 		}
 	})
 	t.Run("a store failure is internal and scrubbed", func(t *testing.T) {
 		e := newSchedSvcEnv()
 		e.repo.cancelErr = fmt.Errorf("documents/users/%s/scheduled/x: %w", schedUID, errBoom)
-		_, _, err := cancel(e, schedUID, schedKeyFor(1), id(1))
+		_, err := cancel(e, schedUID, schedKeyFor(1), id(1))
 		if err == nil || errors.As(err, new(*apierr.Error)) || strings.Contains(logger.CauseChain(err), schedUID) {
 			t.Fatalf("err = %v", err)
 		}
@@ -1028,7 +1001,7 @@ func TestCancelScheduled(t *testing.T) {
 	t.Run("the TTL passed on is SCHEDULED_TERMINAL_TTL", func(t *testing.T) {
 		e := newSchedSvcEnv(newSched(t, schedUID, 1, ScheduledPending))
 		e.svc.schedule.TerminalTTL = 24 * time.Hour
-		if _, _, err := cancel(e, schedUID, schedKeyFor(1), id(1)); err != nil {
+		if _, err := cancel(e, schedUID, schedKeyFor(1), id(1)); err != nil {
 			t.Fatal(err)
 		}
 		if e.repo.lastCancelTTL != 24*time.Hour {

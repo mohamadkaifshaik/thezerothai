@@ -7,8 +7,8 @@ package apiserver
 //   - for an unapproved viewer, GetPost, LikePost, AddBookmark, ReportContent, a reply to and a quote of the protected
 //     author's post answer exactly what the same RPC answers for a deleted post: HTTP status, content type and body (the
 //     comparator of TestW320_TabNotFoundBytesMatchGetProfile);
-//   - an approved follower reads the post at the unchanged 4 cold reads, and reposting or quoting it is
-//     PROTECTED_ACCOUNT with 0 writes; the author may quote their own post;
+//   - an approved follower reads the post, and reposting or quoting it is
+//     PROTECTED_ACCOUNT and writes nothing; the author may quote their own post;
 //   - a quote made while the author was public is stripped for an unapproved viewer (no text, no media, post_id and the
 //     author's handle kept);
 //   - undo is never gated: UnlikePost and RemoveBookmark of a post the caller liked and bookmarked while it was public
@@ -121,7 +121,7 @@ func TestW329a_ProtectedPostsThroughTheChain(t *testing.T) {
 		})
 	}
 
-	t.Run("GetPost budget: stranger refusal and follower read, cold, interceptor included", func(t *testing.T) {
+	t.Run("GetPost: stranger refusal and follower read, cold", func(t *testing.T) {
 		cold := newW320Chain(t, w329aOn)
 		st, _, b := cold.rawRPC(t, stranger.token, rpcGet, body(rpcGet, pid, 2))
 		if st != http.StatusNotFound {
@@ -182,7 +182,7 @@ func TestW329a_ProtectedPostsThroughTheChain(t *testing.T) {
 		}
 	})
 
-	t.Run("the quoter's own copy of P's post costs at most 4 cold (+1 graph read)", func(t *testing.T) {
+	t.Run("the quoter's own copy of P's post, cold", func(t *testing.T) {
 		cold := newW320Chain(t, w329aOn)
 		st, _, b := cold.rawRPC(t, quoter.token, rpcGet, body(rpcGet, quoteID, 5))
 		if st != http.StatusOK {

@@ -4,7 +4,7 @@ package apiserver
 
 // Part B backend tests: communities over the real Build chain on the emulators. The package tests below the interceptors pin the
 // repositories and the feed; what only the chain can prove is pinned here: flag gates and the creators list at the interceptor's one read,
-// acceptance 3 end to end, a suspension in the middle of a pagination, the COMMUNITY report with its evidence and budget, the F14
+// acceptance 3 end to end, a suspension in the middle of a pagination, the COMMUNITY report with its evidence, the F14
 // reply-hint edge with a real block, and the removal-log overflow reset on the wire.
 //
 // Caches: the community document is cached 60 s per instance and the platform levers (opsctl) write Firestore directly, so every read
@@ -184,8 +184,7 @@ func TestW536_TakedownThenRefreshListsRemovedIDs(t *testing.T) {
 }
 
 // A community moderator's HideCommunityPost over the wire: the post stays on the author's profile and in GetPost without its label,
-// a refresh on another instance lists it in removed_ids, a RESTORE brings the label back on a cold open, and the budget is the documented
-// one (5 reads cold, 3 writes, +1 on the moderator's first action).
+// a refresh on another instance lists it in removed_ids, and a RESTORE brings the label back on a cold open.
 func TestW536_ModeratorHideLeavesTheProfileRowUnlabelledAndListsRemovedIDs(t *testing.T) {
 	ctx := context.Background()
 	a := newW536(t, nil)
@@ -208,7 +207,7 @@ func TestW536_ModeratorHideLeavesTheProfileRowUnlabelledAndListsRemovedIDs(t *te
 		t.Fatalf("member hide: %v", d)
 	}
 
-	hide := newW536(t, nil) // a cold instance: the documented cold budget
+	hide := newW536(t, nil) // a cold instance
 	if _, err := hide.cm.HideCommunityPost(ctx, authed(mod.token, &communitiesv1.HideCommunityPostRequest{IdempotencyKey: contractKey("hide"), CommunityId: cid, PostId: ids[1]})); err != nil {
 		t.Fatalf("hide: %v", err)
 	}
@@ -381,7 +380,7 @@ func TestW536_CommunityReportThroughTheChain(t *testing.T) {
 		return r.Msg, nil
 	}
 
-	// Cold: interceptor 1, community 1, owner's users 1, report doc 1, quotas 1 = 5 reads, 2 writes.
+	// Cold instance.
 	e := newW536(t, nil)
 	res, err := report(e, r1, cid)
 	if err != nil || res.GetAlreadyReported() {
@@ -649,8 +648,7 @@ func TestW536_RemovalsOverflowResetsTheSinceToken(t *testing.T) {
 		t.Fatalf("full array: removed=%d err=%v, want all 50 and no reset", len(r.GetRemovedIds()), err)
 	}
 
-	// The 51st drops the oldest: removalsTruncatedAt is set, the old token is rejected like an expired one before any post is read (2 reads:
-	// the interceptor and the community), and a cold open still works.
+	// The 51st drops the oldest: removalsTruncatedAt is set, the old token is rejected like an expired one before any post is read, and a cold open still works.
 	if n, err := crepo.Append(ctx, cid, ids[50:], now.Add(time.Second), 0); err != nil || n != 1 {
 		t.Fatalf("Append 51st = %d, %v", n, err)
 	}

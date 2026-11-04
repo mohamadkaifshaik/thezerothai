@@ -3,8 +3,6 @@ package communities
 import (
 	"context"
 	"sort"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // listingState is the fakeRepo's directory and member-page data (guarded by fakeRepo.mu).
@@ -35,7 +33,6 @@ func (r *fakeRepo) ListByMemberCount(ctx context.Context, limit int) ([]Communit
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	budget.FromContext(ctx).AddReads(int64(max(len(out), 1)))
 	return out, nil
 }
 
@@ -59,7 +56,6 @@ func (r *fakeRepo) ListMembers(ctx context.Context, q MembersQuery) ([]MemberRow
 	if len(rows) > q.Limit {
 		rows = rows[:q.Limit]
 	}
-	budget.FromContext(ctx).AddReads(int64(max(len(rows), 1)))
 	return rows, nil
 }
 

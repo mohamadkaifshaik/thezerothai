@@ -4,9 +4,9 @@ package apiserver
 
 // The pin rule and the pending request count through the real Build chain on the emulators, FEATURE_PRIVATE_ACCOUNTS on:
 //   - GetProfile of a protected P: a stranger gets the whole header and no pinned_post_id; P and an approved follower get the
-//     pin; the read count is the same as before Part B (3 cold for a viewer, 1 for the owner);
-//   - GetMe pending_follow_request_count: a protected caller pays +1 read (one count()) on a cold instance, a public caller
-//     pays nothing and gets 0, a second call inside 30 s reads nothing, and the count moves after a Follow request (the
+//     pin;
+//   - GetMe pending_follow_request_count: a protected caller gets the count on a cold instance, a public caller
+//     gets 0, a second call inside 30 s is served from the cache, and the count moves after a Follow request (the
 //     follow_request notification evicts it) and after an accept (Forget);
 //   - a protected set that cannot be loaded: the stranger gets the header without the pin and a WARN pin_omitted
 //     reason=set_unavailable, the owner and a follower still get the pin (an isolated project whose set document is garbage).
@@ -77,12 +77,11 @@ func TestW326b_PinOmittedForUnapprovedViewers(t *testing.T) {
 		name    string
 		viewer  bmUser
 		wantPin bool
-		reads   int64 // cold instance: interceptor + target users + viewer graph (the owner's profile is one doc)
 	}{
-		{"stranger", bmUser{}, false, 3}, // an empty viewer means a fresh account that never asked (its own profile is warm)
-		{"pending requester", stranger, false, 3},
-		{"approved follower", follower, true, 3},
-		{"the account itself", p, true, 1},
+		{"stranger", bmUser{}, false}, // an empty viewer means a fresh account that never asked (its own profile is warm)
+		{"pending requester", stranger, false},
+		{"approved follower", follower, true},
+		{"the account itself", p, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -128,12 +127,12 @@ func TestW326b_GetMePendingFollowRequestCount(t *testing.T) {
 		t.Errorf("public caller count = %d, want 0", me.GetPendingFollowRequestCount())
 	}
 
-	// A protected caller on a cold instance pays exactly one more read (one count(), 2 matches, minimum 1).
+	// A protected caller on a cold instance gets the pending request count.
 	cold := newW320Chain(t, w326bOn)
 	if me := cold.w326bGetMe(t, p); me.GetPendingFollowRequestCount() != 2 {
 		t.Fatalf("protected caller count = %d, want 2", me.GetPendingFollowRequestCount())
 	}
-	// The second call, inside 30 s, costs nothing and says so.
+	// The second call, inside 30 s, is served from the cache and says so.
 	if me := cold.w326bGetMe(t, p); me.GetPendingFollowRequestCount() != 2 {
 		t.Fatalf("second call count = %d, want 2", me.GetPendingFollowRequestCount())
 	}

@@ -119,14 +119,14 @@ func (e *retireIntEnv) objectExists(t *testing.T, name string) bool {
 	return false
 }
 
-// TestIntegration_RetireBudgetAndRedelivery: the media side of the step is 1 read (media/{id}) and 1 write (the
-// document), 2 customTime patches; a redelivery after completion is 1 read, 0 writes and no GCS call.
-func TestIntegration_RetireBudgetAndRedelivery(t *testing.T) {
+// TestIntegration_RetireAndRedelivery: the step marks the media document retired and patches customTime twice; a redelivery
+// after completion is a duplicate and makes no GCS call.
+func TestIntegration_RetireAndRedelivery(t *testing.T) {
 	e := newRetireIntEnv(t, config.ProfileMediaRetireAll)
 	id := e.seed(t, uidA, PurposeBanner, false)
 	at := retireNow.Add(-30 * time.Minute)
 
-	ctx, _ := counted()
+	ctx := context.Background()
 	out, err := e.jobs.Retire(ctx, e.msg(uidA, PurposeBanner, id, at))
 	if err != nil || out != "retired" {
 		t.Fatalf("Retire = %q, %v", out, err)
@@ -138,7 +138,7 @@ func TestIntegration_RetireBudgetAndRedelivery(t *testing.T) {
 		t.Errorf("users reads = %d, want 1 (the fresh users/{uid} read)", e.users.reads)
 	}
 
-	ctx, _ = counted()
+	ctx = context.Background()
 	out, err = e.jobs.Retire(ctx, e.msg(uidA, PurposeBanner, id, at))
 	if err != nil || out != "duplicate" {
 		t.Fatalf("redelivery = %q, %v", out, err)
@@ -147,9 +147,9 @@ func TestIntegration_RetireBudgetAndRedelivery(t *testing.T) {
 		t.Errorf("a redelivery made %d patches in total (want still 2)", len(e.tagger.calls))
 	}
 
-	// A refused message costs the same 1 read and 0 writes.
+	// A refused message writes nothing.
 	other := e.seed(t, uidB, PurposeBanner, false)
-	ctx, _ = counted()
+	ctx = context.Background()
 	if out, err = e.jobs.Retire(ctx, e.msg(uidA, PurposeBanner, other, at)); err != nil || out != "refused" {
 		t.Fatalf("another owner's image = %q, %v", out, err)
 	}
@@ -347,7 +347,7 @@ func TestIntegration_EraserCoversRetiredImagesInsideTheGrace(t *testing.T) {
 		t.Errorf("retired export entries = %d, want 2", retired)
 	}
 
-	ctx2, _ := counted()
+	ctx2 := context.Background()
 	_, done, err := p.PurgeUser(ctx2, uidA, Checkpoint{})
 	if err != nil || !done {
 		t.Fatalf("PurgeUser done=%v err=%v", done, err)
@@ -396,7 +396,7 @@ func TestIntegration_RetireSuffixedAvatarAndBanner(t *testing.T) {
 				Kind: JobKindProfileMediaRetired, UID: uidA, Purpose: string(purpose), ChangedAt: at,
 				OldURL: "https://cdn.test/media/" + publicObject(id, sfx, "webp"), OldThumbURL: "https://cdn.test/media/" + publicThumbObject(id, sfx, "webp"),
 			}
-			ctx, _ := counted()
+			ctx := context.Background()
 			out, err := e.jobs.Retire(ctx, m)
 			if err != nil || out != "retired" {
 				t.Fatalf("Retire = %q, %v", out, err)

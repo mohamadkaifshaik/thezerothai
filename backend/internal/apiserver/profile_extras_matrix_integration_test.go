@@ -183,9 +183,9 @@ func TestW320_SharedProfileTextOverTheWire(t *testing.T) {
 }
 
 // TestW320_UpdateProfileDailyCapAndNoOpWrites: L-4 through the production chain. (a) A request that changes nothing
-// costs 1 read and 0 writes (a changed one 1 and 1), UpdatedAt does not move, and the request log names no changed
-// field. (b) The (cap+1)-th UpdateProfile of the day is RESOURCE_EXHAUSTED RATE_LIMITED limit=profile_update_daily at 0
-// reads and 0 writes, another user and GetMe are untouched, and a no-op call counts against the cap like any other.
+// writes nothing, UpdatedAt does not move, and the request log names no changed
+// field. (b) The (cap+1)-th UpdateProfile of the day is RESOURCE_EXHAUSTED RATE_LIMITED limit=profile_update_daily and
+// writes nothing, another user and GetMe are untouched, and a no-op call counts against the cap like any other.
 func TestW320_UpdateProfileDailyCapAndNoOpWrites(t *testing.T) {
 	const dailyCap = 4
 	w := newW320Chain(t, func(c *config.Config) {
@@ -203,7 +203,6 @@ func TestW320_UpdateProfileDailyCapAndNoOpWrites(t *testing.T) {
 	if _, err := w.w320Update(u, &identityv1.UpdateProfileRequest{Bio: w320Str("  first bio  "), Location: w320Str("Pune")}); err != nil {
 		t.Fatal(err)
 	}
-	_ = w.lineBudget(t, rpcUpdateProfile)
 	if v, has := w.line(t, rpcUpdateProfile)["profile_fields_changed"]; has {
 		t.Errorf("a no-op logged profile_fields_changed = %v", v)
 	}

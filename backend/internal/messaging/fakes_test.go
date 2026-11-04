@@ -56,7 +56,7 @@ type fakeRepo struct {
 	entryErr  error
 
 	// accepts and deletes record the calls; lifeErr is returned by both when set; writes and deletedDocs count the
-	// documents the fake wrote and deleted (the budget the real repo reports).
+	// documents the fake wrote and deleted.
 	accepts     []AcceptParams
 	deletes     []DeleteParams
 	lifeErr     error

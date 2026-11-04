@@ -6,9 +6,8 @@ package apiserver
 // toggle, the real PrivacyListener publishing to the jobs topic, and the real /internal/pubsub/jobs push endpoint
 // (FEATURE_PRIVATE_ACCOUNTS on):
 //   - P protects, 130 users request (two pages of the job), P unprotects: one privacy_public message is published, its
-//     delivery accepts every request (edges, both counters, I-R and I-X, one follow_accepted event each), at the documented
-//     budget;
-//   - a redelivery is a no-op (done, 0 writes, nothing doubled);
+//     delivery accepts every request (edges, both counters, I-R and I-X, one follow_accepted event each);
+//   - a redelivery is a no-op (done, nothing doubled);
 //   - a re-protect before the delivery makes the job accept nothing; a forged message for a protected account (no
 //     unprotect behind it) accepts nothing; a malformed or invalid message is acked and dropped.
 // The re-protect in the middle of a run (between two pages) is graph's TestPrivacyPublic_Integration_ReprotectedMidRun:
@@ -167,7 +166,7 @@ func TestW328b_PrivacyPublicThroughTheChain(t *testing.T) {
 	}
 	line = e.w328bLastJob(t)
 	if line["outcome"] != "done" {
-		t.Errorf("redelivery line = %v / writes %v / deletes %v / reads %v, want done / 0 / 0 / 2", line["outcome"], line["fs_writes"], line["fs_deletes"], line["fs_reads"])
+		t.Errorf("redelivery line outcome = %v, want done", line["outcome"])
 	}
 	if got := e.w328bUserField(t, p.uid, "followersCount"); got != n {
 		t.Errorf("after the redelivery P.followersCount = %d, want %d", got, n)
@@ -178,7 +177,7 @@ func TestW328b_PrivacyPublicThroughTheChain(t *testing.T) {
 		t.Fatalf("forged delivery = %d", code)
 	}
 	if line = e.w328bLastJob(t); line["outcome"] != "stopped:protected" {
-		t.Errorf("forged line = %v writes %v, want stopped:protected / 0", line["outcome"], line["fs_writes"])
+		t.Errorf("forged line outcome = %v, want stopped:protected", line["outcome"])
 	}
 	if requested, _ := w328Invariants(t, e.fs, reqs[0].uid, other.uid); !requested {
 		t.Error("a forged message accepted a request of a protected account")
@@ -195,7 +194,7 @@ func TestW328b_PrivacyPublicThroughTheChain(t *testing.T) {
 		t.Fatalf("late delivery = %d", code)
 	}
 	if line = e.w328bLastJob(t); line["outcome"] != "stopped:protected" {
-		t.Errorf("late line = %v reads %v writes %v, want stopped:protected / 1 / 0", line["outcome"], line["fs_reads"], line["fs_writes"])
+		t.Errorf("late line outcome = %v, want stopped:protected", line["outcome"])
 	}
 	if requested, edge := w328Invariants(t, e.fs, reqs[0].uid, other.uid); !requested || edge {
 		t.Errorf("after a re-protect the request must stay: request=%v edge=%v", requested, edge)

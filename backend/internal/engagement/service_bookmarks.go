@@ -105,8 +105,8 @@ func noteBookmarkOutcome(ctx context.Context, o BookmarkOutcome) {
 	}
 }
 
-// addBookmark implements Bookmarks.AddBookmark. Before the transaction: the visibility check (3 reads
-// cold, 0 warm, +2 for a REPOST id) and the caller's profile for the new-account quota (cache first, 0 extra reads
+// addBookmark implements Bookmarks.AddBookmark. Before the transaction: the visibility check
+// (which also covers a REPOST id) and the caller's profile for the new-account quota (cache first, so no extra read
 // behind the account-status interceptor). In the transaction: idempotency, quotas, userLikes.
 func (s *service) addBookmark(ctx context.Context, uid, key, postID string) (_ BookmarkState, err error) {
 	logger.SetRequestField(ctx, fieldOp, "add_bookmark")

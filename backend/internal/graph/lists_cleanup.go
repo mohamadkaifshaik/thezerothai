@@ -8,8 +8,6 @@ import (
 	"cloud.google.com/go/firestore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // RemoveOwnArrayEntries implements Repo (refinement): one ArrayRemove on the caller's OWN
@@ -21,7 +19,7 @@ import (
 // the deleted user's graph doc; that is NOT guaranteed to be gone (under --skip-start-gate
 // path users/B can be deleted while graph/B, with blockedBy[A], remains). Purge steps 4/5 are idempotent
 // and finish the counterpart whenever they run. A missing graph doc (purged concurrently) is a no-op.
-// Reads 0, writes 1 (0 when uids is empty or the doc is gone).
+// It reads nothing and writes once (not at all when uids is empty or the doc is gone).
 func (r *FirestoreRepo) RemoveOwnArrayEntries(ctx context.Context, callerUID, kind string, uids []string, now time.Time) error {
 	if len(uids) == 0 {
 		return nil
@@ -43,6 +41,5 @@ func (r *FirestoreRepo) RemoveOwnArrayEntries(ctx context.Context, callerUID, ki
 		}
 		return fmt.Errorf("graph: remove own array entries: %w", err)
 	}
-	budget.FromContext(ctx).AddWrites(1)
 	return nil
 }

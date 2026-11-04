@@ -9,8 +9,6 @@ import (
 	"cloud.google.com/go/firestore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // fakeRunner re-runs the body `runs` times like the SDK retrying Aborted attempts, returning the last body's result
@@ -30,51 +28,38 @@ func (f fakeRunner) RunTransaction(ctx context.Context, fn func(context.Context,
 	return f.finalErr
 }
 
-// TestRunTransaction_RetriesDoNotInflateWrites: a transaction retried after Aborted counts every attempt's reads
-// (they happened) but only the committed attempt's writes and deletes.
-func TestRunTransaction_RetriesDoNotInflateWrites(t *testing.T) {
+// TestRunTransaction_Attempts: attempts is the number of times the body ran, so a transaction the SDK retried after
+// Aborted reports every run, and a failing commit still reports the runs that happened.
+func TestRunTransaction_Attempts(t *testing.T) {
 	tests := []struct {
-		name                 string
-		runs                 int
-		finalErr             error
-		wantReads            int64
-		wantWrites, wantDels int64
-		wantAttempts         int
+		name         string
+		runs         int
+		finalErr     error
+		wantAttempts int
 	}{
-		{"single attempt commits", 1, nil, 2, 3, 1, 1},
-		{"six concurrent callers: five aborted attempts", 6, nil, 12, 3, 1, 6},
-		{"commit fails: reads count, nothing was written", 3, errors.New("commit failed"), 6, 0, 0, 3},
+		{"single attempt commits", 1, nil, 1},
+		{"six concurrent callers: five aborted attempts", 6, nil, 6},
+		{"commit fails: every attempt still counted", 3, errors.New("commit failed"), 3},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, c := budget.WithCounter(context.Background())
-			attempts, err := RunTransaction(ctx, fakeRunner{runs: tt.runs, finalErr: tt.finalErr}, func(ctx context.Context, _ *firestore.Transaction) error {
-				counter := budget.FromContext(ctx)
-				counter.AddReads(2)
-				counter.AddWrites(3)
-				counter.AddDeletes(1)
+			attempts, err := RunTransaction(context.Background(), fakeRunner{runs: tt.runs, finalErr: tt.finalErr}, func(context.Context, *firestore.Transaction) error {
 				return nil
 			})
 			if (err != nil) != (tt.finalErr != nil) || attempts != tt.wantAttempts {
 				t.Fatalf("attempts %d, err %v", attempts, err)
 			}
-			if c.Reads() != tt.wantReads || c.Writes() != tt.wantWrites || c.Deletes() != tt.wantDels {
-				t.Errorf("reads/writes/deletes = %d/%d/%d, want %d/%d/%d", c.Reads(), c.Writes(), c.Deletes(), tt.wantReads, tt.wantWrites, tt.wantDels)
-			}
 		})
 	}
 }
 
-func TestRunTransaction_BodyErrorCountsNoWrites(t *testing.T) {
-	ctx, c := budget.WithCounter(context.Background())
+func TestRunTransaction_BodyErrorIsReturned(t *testing.T) {
 	boom := errors.New("boom")
-	_, err := RunTransaction(ctx, fakeRunner{runs: 1}, func(ctx context.Context, _ *firestore.Transaction) error {
-		budget.FromContext(ctx).AddReads(1)
-		budget.FromContext(ctx).AddWrites(1)
+	_, err := RunTransaction(context.Background(), fakeRunner{runs: 1}, func(context.Context, *firestore.Transaction) error {
 		return boom
 	})
-	if !errors.Is(err, boom) || c.Reads() != 1 || c.Writes() != 0 {
-		t.Errorf("err %v reads %d writes %d", err, c.Reads(), c.Writes())
+	if !errors.Is(err, boom) {
+		t.Errorf("err %v, want %v", err, boom)
 	}
 }
 

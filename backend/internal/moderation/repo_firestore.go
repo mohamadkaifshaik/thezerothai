@@ -25,7 +25,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -83,12 +82,12 @@ func NewFirestoreRepo(client *firestore.Client, quotas *quota.Store) *FirestoreR
 // Repo is the storage seam service.go depends on; unit tests use an in-memory fake.
 type Repo interface {
 	// Create writes the report and charges the quota in one transaction, unless the report doc exists and is OPEN
-	// (a repeat: Existing=true, 0 writes, no charge). A RESOLVED report is reopened in the same transaction
+	// (a repeat: Existing=true, nothing written, no charge). A RESOLVED report is reopened in the same transaction
 	// (Reopened=true: status OPEN, reason/note/evidence replaced, the resolution fields and expireAt
-	// removed, quota charged), so a reporter who sees the problem again is not silently dropped. Reads 2 (report,
-	// quotas; 1 on a repeat), writes 2; a MESSAGE report adds 1 write (the evidence child): 3.
+	// removed, quota charged), so a reporter who sees the problem again is not silently dropped. It reads the report and the
+	// quotas (only the report on a repeat); a MESSAGE report also writes the evidence child.
 	Create(ctx context.Context, p CreateParams) (CreateResult, error)
-	// IsOpen reports whether report id exists and is OPEN (1 read, 0 writes). The service uses it to answer a
+	// IsOpen reports whether report id exists and is OPEN. The service uses it to answer a
 	// replay from a reporter whose quota is spent with AlreadyReported instead of QUOTA_EXCEEDED (rule 4).
 	IsOpen(ctx context.Context, id string) (bool, error)
 }
@@ -236,9 +235,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 	var res CreateResult
 	attempts, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
 		res = CreateResult{}
-		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(r.ref(p.Report.ID))
-		counter.AddReads(1)
 		reopen := false
 		switch {
 		case err == nil:
@@ -258,7 +255,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 		if err != nil {
 			return fmt.Errorf("moderation: quota lookup: %w", err)
 		}
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		if err := quota.CheckAndReserve(b, r.quotas.Ref(p.Report.ReporterID), qrec, quota.Reports, p.QuotaLimit); err != nil {
 			return err
 		}
@@ -269,7 +266,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 			b.Create(r.ref(p.Report.ID), toDoc(p.Report))
 		}
 		// The private text of a MESSAGE report goes to a child document with its own TTL (a full Set, so a reopen
-		// replaces the old copy and a leftover of a TTL-deleted parent cannot make the write fail). +1 write.
+		// replaces the old copy and a leftover of a TTL-deleted parent cannot make the write fail).
 		if p.Report.TargetType == TargetMessage && p.Report.Evidence != nil {
 			b.Set(r.evidenceRef(p.Report.ID), evidenceChild{Text: p.Report.Evidence.Text,
 				ExpireAt: p.Report.CreatedAt.Add(MessageEvidenceRetention).UTC()})
@@ -288,7 +285,6 @@ func (r *FirestoreRepo) IsOpen(ctx context.Context, id string) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, txTimeout)
 	defer cancel()
 	snap, err := r.ref(id).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return false, nil
@@ -335,11 +331,6 @@ func (r *FirestoreRepo) List(ctx context.Context, st Status, limit int) ([]Repor
 	docs, err := r.client.Collection(reportsCollection).Where("status", "==", string(st)).
 		OrderBy("createdAt", firestore.Asc).OrderBy(firestore.DocumentID, firestore.Asc).
 		Limit(limit).Documents(ctx).GetAll()
-	reads := int64(len(docs))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
 		return nil, fmt.Errorf("moderation: list reports: %w", err)
 	}
@@ -360,7 +351,6 @@ func (r *FirestoreRepo) Get(ctx context.Context, id string) (Report, error) {
 		return Report{}, ErrNotFound
 	}
 	s, err := r.ref(id).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return Report{}, ErrNotFound
@@ -372,10 +362,9 @@ func (r *FirestoreRepo) Get(ctx context.Context, id string) (Report, error) {
 		return Report{}, fmt.Errorf("moderation: decode report %s: %w", id, err)
 	}
 	rep := d.toReport(id)
-	// A MESSAGE report's text is in the child document (+1 read); gone = its TTL ran.
+	// A MESSAGE report's text is in the child document; gone = its TTL ran.
 	if rep.TargetType == TargetMessage && rep.Evidence != nil {
 		cs, err := r.evidenceRef(id).Get(ctx)
-		budget.FromContext(ctx).AddReads(1)
 		switch {
 		case err == nil:
 			var c evidenceChild
@@ -392,8 +381,8 @@ func (r *FirestoreRepo) Get(ctx context.Context, id string) (Report, error) {
 	return rep, nil
 }
 
-// Resolve implements Ops: one transaction, 1 read, 1 write (0 when already resolved, 1 read). A MESSAGE report adds 1 read
-// (its evidence child) and, when the child outlives resolvedAt + Retention, 1 write that shortens it to that instant.
+// Resolve implements Ops: one transaction that writes nothing when the report is already resolved. A MESSAGE report also
+// reads its evidence child and, when the child outlives resolvedAt + Retention, shortens it to that instant.
 func (r *FirestoreRepo) Resolve(ctx context.Context, id string, res Resolution, note string, now time.Time) (Report, error) {
 	if !res.Valid() {
 		return Report{}, fmt.Errorf("moderation: invalid resolution %q", res)
@@ -403,9 +392,7 @@ func (r *FirestoreRepo) Resolve(ctx context.Context, id string, res Resolution, 
 	}
 	var out Report
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		counter := budget.FromContext(ctx)
 		s, err := tx.Get(r.ref(id))
-		counter.AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				return ErrNotFound
@@ -424,7 +411,6 @@ func (r *FirestoreRepo) Resolve(ctx context.Context, id string, res Resolution, 
 		var child *evidenceChild
 		if TargetType(d.TargetType) == TargetMessage {
 			cs, err := tx.Get(r.evidenceRef(id))
-			counter.AddReads(1)
 			switch {
 			case err == nil:
 				var c evidenceChild
@@ -438,7 +424,7 @@ func (r *FirestoreRepo) Resolve(ctx context.Context, id string, res Resolution, 
 		}
 		exp := now.Add(Retention).UTC()
 		at := now.UTC()
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		b.Update(r.ref(id), []firestore.Update{
 			{Path: "status", Value: string(StatusResolved)},
 			{Path: "resolvedAt", Value: at},
@@ -463,22 +449,17 @@ func (r *FirestoreRepo) Resolve(ctx context.Context, id string, res Resolution, 
 }
 
 // PurgeReporter implements Eraser. One call anonymises one page (<= 500) in one batch; updated documents leave
-// the query, so a crash or a concurrent run converges. Reads: one per report returned (1 for an empty page).
+// the query, so a crash or a concurrent run converges.
 func (r *FirestoreRepo) PurgeReporter(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	docs, err := r.client.Collection(reportsCollection).Where("reporterId", "==", uid).
 		Select("status").Limit(opsPage).Documents(ctx).GetAll()
-	reads := int64(len(docs))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
 		return cp, false, fmt.Errorf("moderation: purge %s: query: %w", logger.HashUID(uid), err)
 	}
 	if len(docs) == 0 {
 		return cp, true, nil
 	}
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	for _, s := range docs {
 		updates := []firestore.Update{{Path: "reporterId", Value: ""}}
 		// A resolved report is retained only as safety evidence about the target; the deleted reporter's
@@ -511,8 +492,7 @@ type exportedReport struct {
 	CreatedAt  time.Time `json:"createdAt"`
 }
 
-// ExportUser implements Exporter: {"userId": ..., "reports": [...]} in pages of opsPage. Reads: one per report,
-// minimum 1.
+// ExportUser implements Exporter: {"userId": ..., "reports": [...]} in pages of opsPage.
 func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer) error {
 	if _, err := fmt.Fprintf(w, `{"userId":%q,"reports":[`, uid); err != nil {
 		return fmt.Errorf("moderation: write export: %w", err)
@@ -527,11 +507,6 @@ func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer)
 			q = q.StartAfter(last)
 		}
 		docs, err := q.Documents(ctx).GetAll()
-		reads := int64(len(docs))
-		if reads == 0 {
-			reads = 1
-		}
-		budget.FromContext(ctx).AddReads(reads)
 		if err != nil {
 			return fmt.Errorf("moderation: export %s: query: %w", logger.HashUID(uid), err)
 		}

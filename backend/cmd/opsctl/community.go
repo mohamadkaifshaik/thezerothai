@@ -11,7 +11,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 const communityUsage = `  opsctl community suspend CID --project P [--report R] [--note N] [--dry-run]   (NOT_FOUND to everyone on every read, posting refused, within 60 s on every server; the owner still sees it)
@@ -57,18 +56,15 @@ func parseCommunityArgs(sub, cid string, a modArgs) error {
 // within 60 s. Client caches (a screen already open) follow their own refresh. Nothing in opsctl can evict a server's cache; the printed
 // line says so.
 //
-// Cost (an ops path): suspend and restore are 1 read and, when the status changes, 1 write (a repeat writes 0; a missing community
-// refuses with 0 writes). archive is 3 reads and 2 writes (a repeat 1 read, 0 writes). --dry-run is 1 read and no write. --report R
-// (suspend only; checked first: R must be a COMMUNITY report of exactly this community) resolves R as TAKEDOWN after the write, also when
-// the community was already suspended; it adds 1 read to check and the resolve (1 read, 1 write). The cost line is printed last.
+// Suspend and restore change the status only when it differs (a repeat writes nothing; a missing community refuses without writing).
+// --dry-run only reads. --report R (suspend only; checked first: R must be a COMMUNITY report of exactly this community)
+// resolves R as TAKEDOWN after the write, also when the community was already suspended.
 // Output holds no name, description or owner: the id appears only as community_hash (the keyed logger.HashCommunity; a marker without CURSOR_HMAC_KEY), in a fixed-shape audit
 // line that is the moderation trail because the community document records no platform actor.
 func communityCommand(ctx context.Context, b *backends, project, sub, cid string, a modArgs, out io.Writer, now func() time.Time) error {
 	if b.communities == nil {
 		return errors.New("community: no communities platform configured")
 	}
-	ctx, counter := budget.WithCounter(ctx)
-	defer func() { fmt.Fprintf(out, "cost: reads=%d writes=%d\n", counter.Reads(), counter.Writes()) }()
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	if a.report != "" {

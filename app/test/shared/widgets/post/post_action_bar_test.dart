@@ -8,6 +8,8 @@ import 'package:dzeroth/shared/widgets/post/post_media.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/media_pager.dart';
+
 Widget _host(Widget child, {double width = 360}) => MaterialApp(
   theme: appDarkTheme,
   home: Scaffold(
@@ -53,8 +55,8 @@ void main() {
       });
     }
 
-    testWidgets('spread (open post): every action across the width, in order, '
-        'Share flush right, larger glyphs', (tester) async {
+    testWidgets('spread (open post): every action across the width, in order '
+        '(Share, then Bookmark last), larger glyphs', (tester) async {
       await tester.pumpWidget(
         _host(
           PostActionBar(
@@ -75,15 +77,29 @@ void main() {
         Icons.chat_bubble_outline,
         Icons.repeat,
         Icons.favorite_border,
-        Icons.bookmark_border,
         Icons.ios_share,
+        Icons.bookmark_border,
       ];
       final xs = [for (final i in icons) tester.getCenter(find.byIcon(i)).dx];
       for (var i = 1; i < xs.length; i++) {
         expect(xs[i], greaterThan(xs[i - 1]));
       }
+      // The bar spreads its buttons edge to edge: the first button's box
+      // starts at the left edge and the last one (Bookmark) ends at the right.
       final bar = tester.getRect(find.byType(PostActionBar));
-      expect(tester.getTopRight(find.byIcon(Icons.ios_share)).dx, bar.right);
+      Rect box(IconData icon) => tester.getRect(
+        find.ancestor(
+          of: find.byIcon(icon),
+          matching: find.byType(InkResponse),
+        ),
+      );
+      expect(box(Icons.chat_bubble_outline).left, closeTo(bar.left, 0.5));
+      expect(box(Icons.bookmark_border).right, closeTo(bar.right, 0.5));
+      // Share is no longer the last button: Bookmark follows it.
+      expect(
+        box(Icons.ios_share).right,
+        lessThanOrEqualTo(box(Icons.bookmark_border).left),
+      );
       expect(
         tester.getSize(find.byIcon(Icons.repeat)).width,
         AppFocalPost.actionIcon,
@@ -108,8 +124,8 @@ void main() {
       expect(find.byIcon(Icons.ios_share), findsNothing);
     });
 
-    testWidgets('shows compact counts; counted actions are evenly spaced and '
-        'Share is right-aligned', (tester) async {
+    testWidgets('shows compact counts; counted actions and Share are evenly '
+        'spaced slots, Share is not pushed to the right edge', (tester) async {
       await tester.pumpWidget(
         _host(
           PostActionBar(
@@ -129,18 +145,22 @@ void main() {
         Icons.chat_bubble_outline,
         Icons.repeat,
         Icons.favorite_border,
+        Icons.ios_share,
       ].map((icon) => tester.getTopLeft(find.byIcon(icon)).dx).toList();
-      // Equal slots: the 3 counted actions share the width left of Share.
-      expect(lefts[1] - lefts[0], closeTo(lefts[2] - lefts[1], 1));
+      // Equal slots: Share takes the fourth, in the same left-aligned place.
       final bar = tester.getRect(find.byType(PostActionBar));
+      final slot = bar.width / 4;
+      for (var i = 0; i < 4; i++) {
+        expect(lefts[i], closeTo(bar.left + i * slot, 1));
+      }
       final share = tester.getRect(find.byIcon(Icons.ios_share));
-      // Share's icon is flush with the right edge (the card's padding).
-      expect(bar.right - share.right, closeTo(0, 1));
+      expect(bar.right - share.right, closeTo(slot - 16, 1));
       expect(share.width, 16);
     });
 
-    testWidgets('Bookmark appears only with a callback; right-aligned, '
-        'outline then filled accent, labelled and selected', (tester) async {
+    testWidgets('Bookmark appears only with a callback; takes the slot after '
+        'the other actions, outline then filled accent, labelled and '
+        'selected', (tester) async {
       final handle = tester.ensureSemantics();
       var taps = 0;
       await tester.pumpWidget(
@@ -156,9 +176,15 @@ void main() {
           ),
         ),
       );
+      // Like and Bookmark: two equal slots, Bookmark in the second (not flush
+      // right with a gap in between, as when it was right-aligned).
       final bar = tester.getRect(find.byType(PostActionBar));
       final icon = tester.getRect(find.byIcon(Icons.bookmark_border));
-      expect(bar.right - icon.right, closeTo(0, 1));
+      expect(icon.left - bar.left, closeTo(bar.width / 2, 1));
+      expect(
+        tester.getTopLeft(find.byIcon(Icons.favorite_border)).dx,
+        closeTo(bar.left, 1),
+      );
       expect(icon.width, 16);
       final off = tester.getSemantics(find.bySemanticsLabel('Bookmark'));
       expect(off.rect.size.shortestSide, greaterThanOrEqualTo(48));
@@ -183,12 +209,12 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('Bookmark sits before Share when both are offered', (
-      tester,
-    ) async {
+    testWidgets('Share sits before Bookmark, each in its own slot after the '
+        'counted actions', (tester) async {
       await tester.pumpWidget(
         _host(
           PostActionBar(
+            showDisabled: false,
             actions: PostActions(
               onLike: () {},
               onBookmark: () {},
@@ -200,10 +226,14 @@ void main() {
       final bookmark = tester.getRect(find.byIcon(Icons.bookmark_border));
       final share = tester.getRect(find.byIcon(Icons.ios_share));
       final like = tester.getRect(find.byIcon(Icons.favorite_border));
-      expect(like.right, lessThan(bookmark.left));
-      expect(bookmark.right, lessThan(share.left));
+      expect(like.right, lessThan(share.left));
+      expect(share.right, lessThan(bookmark.left));
+      // Three equal slots (Like, Share, Bookmark), left-aligned in each.
       final bar = tester.getRect(find.byType(PostActionBar));
-      expect(bar.right - share.right, closeTo(0, 1));
+      final slot = bar.width / 3;
+      expect(like.left, closeTo(bar.left, 1));
+      expect(share.left, closeTo(bar.left + slot, 1));
+      expect(bookmark.left, closeTo(bar.left + 2 * slot, 1));
     });
 
     testWidgets('liked and reposted use the like / repost colours and are '
@@ -310,9 +340,8 @@ void main() {
       expect(aspect.aspectRatio, closeTo(4 / 5, 0.001));
     });
 
-    testWidgets('alt text becomes the semantics label; fallback is Image', (
-      tester,
-    ) async {
+    testWidgets('alt text becomes the semantics label on its own page; '
+        'fallback is Image', (tester) async {
       final handle = tester.ensureSemantics();
       await tester.pumpWidget(
         _host(
@@ -324,18 +353,48 @@ void main() {
           ),
         ),
       );
+      // Only the visible page is in the tree, so the second image's label
+      // appears once the first has been swiped away.
+      expect(currentMediaPage(tester), 0);
       expect(find.bySemanticsLabel('a cat'), findsOneWidget);
+      expect(find.bySemanticsLabel('Image'), findsNothing);
+
+      await swipeToNextMediaPage(tester);
+      expect(currentMediaPage(tester), 1);
       expect(find.bySemanticsLabel('Image'), findsOneWidget);
+      expect(find.bySemanticsLabel('a cat'), findsNothing);
       handle.dispose();
     });
 
+    // One image is a plain tile; 2-4 are pages of a 16:9 viewport (six
+    // given, four shown).
     for (final count in [1, 2, 3, 4, 6]) {
-      testWidgets('$count images lay out without overflow', (tester) async {
-        await tester.pumpWidget(
-          _host(PostMedia(media: [for (var i = 0; i < count; i++) ref()])),
-        );
-        expect(tester.takeException(), isNull);
-      });
+      testWidgets(
+        '$count images lay out without overflow, as '
+        '${count == 1 ? 'a single tile' : '${count > 4 ? 4 : count} pages'}',
+        (tester) async {
+          await tester.pumpWidget(
+            _host(PostMedia(media: [for (var i = 0; i < count; i++) ref()])),
+          );
+          expect(tester.takeException(), isNull);
+          expect(
+            mediaPageCount(tester),
+            count == 1 ? isNull : (count > 4 ? 4 : count),
+          );
+          if (count > 1) {
+            expect(currentMediaPage(tester), 0);
+            expect(
+              tester.widget<AspectRatio>(find.byType(AspectRatio)).aspectRatio,
+              closeTo(16 / 9, 0.001),
+            );
+            for (var page = 1; page < (count > 4 ? 4 : count); page++) {
+              await swipeToNextMediaPage(tester);
+              expect(currentMediaPage(tester), page);
+              expect(tester.takeException(), isNull);
+            }
+          }
+        },
+      );
     }
 
     testWidgets('empty list renders nothing', (tester) async {
@@ -360,9 +419,19 @@ void main() {
     testWidgets('lists show the thumbnail, never the full image', (
       tester,
     ) async {
-      await tester.pumpWidget(_host(PostMedia(media: [full, full])));
-      expect(shownUrls(tester), everyElement('https://m.test/thumb.webp'));
-      expect(shownUrls(tester), hasLength(2));
+      final second = common.MediaRef(
+        url: 'https://m.test/full2.webp',
+        thumbUrl: 'https://m.test/thumb2.webp',
+        width: 4,
+        height: 3,
+      );
+      await tester.pumpWidget(_host(PostMedia(media: [full, second])));
+      // Only the visible page is built: its thumbnail, nothing else.
+      expect(shownUrls(tester), ['https://m.test/thumb.webp']);
+
+      await swipeToNextMediaPage(tester);
+      expect(currentMediaPage(tester), 1);
+      expect(shownUrls(tester), ['https://m.test/thumb2.webp']);
     });
 
     testWidgets('review #110 M2: a list tile with no thumbnail is a '

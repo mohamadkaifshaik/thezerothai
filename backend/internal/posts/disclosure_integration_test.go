@@ -6,34 +6,30 @@ import (
 	"context"
 	"testing"
 	"time"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // TestCreate_Integration_Disclosure: the labels land on the post doc under their documented
-// names, only when set (absent = false, no backfill) and the call stays inside the CreatePost budget (delta 0).
+// names, only when set (absent = false, no backfill).
 func TestCreate_Integration_Disclosure(t *testing.T) {
 	client := newTestClient(t)
 	in := newCreateInstance(t, client, time.Nanosecond)
 	in.signUp(t, "uid-alice", "alice")
 
-	create := func(key, text string, pp, ai bool) (*Post, *budget.Counter) {
+	create := func(key, text string, pp, ai bool) *Post {
 		t.Helper()
 		if _, err := in.svc.directory.GetProfiles(context.Background(), []string{"uid-alice"}); err != nil {
 			t.Fatal(err)
 		}
-		ctx, c := budget.WithCounter(googleCtx(context.Background(), "uid-alice"))
-		p, err := in.svc.Create(ctx, "uid-alice", CreateInput{
+		p, err := in.svc.Create(googleCtx(context.Background(), "uid-alice"), "uid-alice", CreateInput{
 			IdempotencyKey: key, Text: text, PaidPartnership: pp, MadeWithAI: ai, DisclosureEnabled: true})
 		if err != nil {
 			t.Fatal(err)
 		}
-		return p, c
+		return p
 	}
 
-	both, _ := create(key(1), "labelled", true, true)
-	plain, _ := create(key(2), "plain", false, false)
-	// Delta 0: the labelled create costs exactly what the plain one does, not merely "within a ceiling".
+	both := create(key(1), "labelled", true, true)
+	plain := create(key(2), "plain", false, false)
 
 	raw := func(id string) map[string]any {
 		t.Helper()

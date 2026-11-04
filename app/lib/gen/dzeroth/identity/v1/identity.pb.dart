@@ -789,7 +789,7 @@ class GetMeResponse extends $pb.GeneratedMessage {
   void clearUnreadConversationCount() => $_clearField(7);
 
   /// The caller's pinned Home tabs in order, after the fixed Following tab (founder decision F5): at most
-  /// HOME_TABS_MAX_PINNED (5). Read from users/{uid}.homeTabs, the document this RPC already reads: 0 extra reads.
+  /// HOME_TABS_MAX_PINNED (5). Read from users/{uid}.homeTabs, the document this RPC already reads.
   /// Tabs of a kind whose flag is off for the caller (LIST: FEATURE_LISTS; COMMUNITY: FEATURE_COMMUNITIES)
   /// are omitted here but kept in storage, so they come back with the flag. A tab may name a list that was deleted or
   /// made private since, or a community that was suspended: the client learns it from GetListTimeline's or
@@ -1771,10 +1771,8 @@ class IdentityServiceApi {
 
   /// Creates the caller's profile after Firebase sign-up. Idempotent by uid: a replay returns the existing profile.
   /// Transaction: read users/{uid} + handles/{h}; create users, handles, graph.
-  /// Firestore: reads 2/2, writes 3/3.
   /// Needs a verified identity (Google, Apple or a password account with a verified email),
-  /// else FAILED_PRECONDITION + EMAIL_NOT_VERIFIED at 0 reads. Its reads are charged to the caller IP's key but never
-  /// rejected by it (charge-only).
+  /// else FAILED_PRECONDITION + EMAIL_NOT_VERIFIED.
   $async.Future<CreateProfileResponse> createProfile(
           $pb.ClientContext? ctx, CreateProfileRequest request) =>
       _client.invoke<CreateProfileResponse>(ctx, 'IdentityService',
@@ -1784,11 +1782,10 @@ class IdentityServiceApi {
   /// at 100 calls/uid/IST day per instance (RATE_LIMITED, metadata["limit"] = "check_handle_daily").
   /// Only the per-minute bucket and check_handle_daily can reject.
   /// Needs a verified identity: a password account whose email is unverified, and any sign-in other than Google,
-  /// Apple or verified password, gets FAILED_PRECONDITION + EMAIL_NOT_VERIFIED at 0 reads
-  /// (before any rate limiter). The client shows the "verify your email" banner and refreshes the ID token.
+  /// Apple or verified password, gets FAILED_PRECONDITION + EMAIL_NOT_VERIFIED before any lookup
+  /// (and before any rate limiter). The client shows the "verify your email" banner and refreshes the ID token.
   /// "Taken" is reported even when the handle's owner blocked the caller (accepted residual).
   /// Free handles are negatively cached 10 s per instance (a just-freed handle may read "taken" for <= 60 s).
-  /// Firestore: reads 1/0-1, writes 0.
   $async.Future<CheckHandleAvailabilityResponse> checkHandleAvailability(
           $pb.ClientContext? ctx, CheckHandleAvailabilityRequest request) =>
       _client.invoke<CheckHandleAvailabilityResponse>(
@@ -1799,16 +1796,14 @@ class IdentityServiceApi {
           CheckHandleAvailabilityResponse());
 
   /// The caller's own profile + account state. users/{uid} instance-cached 60 s (updated in place on own writes);
-  /// unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (1 read per
-  /// 1,000 matches, cached 30 s). enabled_features comes from server env config: 0 reads.
+  /// unread count = count() aggregation on notifications with createdAt > users.notificationsSeenAt (cached 30 s).
+  /// enabled_features comes from server env config, with no lookup.
   /// pending_follow_request_count: for a protected caller only, a count() aggregation on followRequests
-  /// where followeeId == caller (1 read per 1,000 matches, min 1), cached 30 s; 0 reads for every other caller. A
+  /// where followeeId == caller, cached 30 s; every other caller gets 0 without a lookup. A
   /// failed count leaves it 0 and GetMe still answers.
   /// unread_conversation_count: only when FEATURE_MESSAGING is on for the caller, a count() aggregation
-  /// on users/{uid}/dmInbox where unreadCount > 0, Limit 100 (1 read, min 1), cached 30 s; 0 reads otherwise.
-  /// home_tabs: from users/{uid}, already read: 0 reads.
-  /// Firestore: reads 2/1 (+1 for a protected caller, cached 30 s; +1 count() of unread conversations with messaging
-  /// on, cached 30 s), writes 0.
+  /// on users/{uid}/dmInbox where unreadCount > 0, Limit 100, cached 30 s; no lookup otherwise.
+  /// home_tabs: from users/{uid}, already read, so no lookup.
   $async.Future<GetMeResponse> getMe(
           $pb.ClientContext? ctx, GetMeRequest request) =>
       _client.invoke<GetMeResponse>(
@@ -1822,7 +1817,6 @@ class IdentityServiceApi {
   /// reads: the follow bit comes from the caller's cached graph).
   /// Reads: handles (if by handle) + users + caller graph; all instance-cached 60 s; a handle that doesn't exist is
   /// negatively cached 10 s.
-  /// Firestore: reads 3/0-1 (+1 if the caller's blockedBy overflowed), writes 0.
   $async.Future<GetProfileResponse> getProfile(
           $pb.ClientContext? ctx, GetProfileRequest request) =>
       _client.invoke<GetProfileResponse>(
@@ -1833,38 +1827,35 @@ class IdentityServiceApi {
   /// async <= 100 post writes, limited to 5 snapshot-affecting edits/user/day.
   /// Private accounts: is_private=true needs FEATURE_PRIVATE_ACCOUNTS (wire name
   /// "private_accounts") on for the caller, else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
-  /// "private_accounts", 0 writes, checked before any read; a request that sets it with other fields is refused whole
+  /// "private_accounts", writing nothing, checked before any read; a request that sets it with other fields is refused whole
   /// while the flag is off for the caller. is_private=false is accepted from any caller whatever the flag, globally off
   /// included. A changed is_private runs one transaction that reads users, the protected-author set and quotas fresh
-  /// and writes isPrivate, the set (add or remove the uid) and quotas.privacyToggles: reads 4 cold / 3 warm, writes 3.
+  /// and writes isPrivate, the set (add or remove the uid) and quotas.privacyToggles.
   /// A value equal to the stored one writes nothing and is not charged. QUOTA_PRIVACY_TOGGLES_PER_DAY, 4 per IST day,
   /// both directions counted => RESOURCE_EXHAUSTED + QUOTA_EXCEEDED, metadata["quota"] = "privacy_toggles"; protecting
   /// while PROTECTED_AUTHORS_MAX (20,000) accounts are protected => FAILED_PRECONDITION + LIMIT_REACHED,
-  /// metadata["limit"] = "private_accounts"; both 0 writes. No post is rewritten (there is no visibility job): every
+  /// metadata["limit"] = "private_accounts"; both write nothing. No post is rewritten (there is no visibility job): every
   /// read path applies the new setting at once on the instance that committed it and within 60 s on the others.
   /// Existing followers stay. After an unprotect commit the server publishes one privacy_public job (the jobs topic)
-  /// that accepts every pending follow request (2 reads, 3 writes and 1 delete per request, + 1 write per page of 100),
-  /// so the request path adds 0 reads and 0 writes for it; a failed publish is logged at ERROR. A toggle enqueues no
+  /// that accepts every pending follow request (in pages of 100),
+  /// so the request path does none of that work; a failed publish is logged at ERROR. A toggle enqueues no
   /// author-snapshot job and spends no snapshot-affecting edit.
   /// Profile extras: setting banner_media_id, location, website or pinned_post_id
   /// (any non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS (wire name "profile_extras") on for the
-  /// caller; otherwise FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "profile_extras", 0 writes, checked
+  /// caller; otherwise FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "profile_extras", writing nothing, checked
   /// before validation. A request from outside the cohort that mixes a clear with a set is refused whole. The exact
   /// string "" is a clear (banner removed, location or website emptied, pin removed) and is accepted from any
-  /// authenticated caller whatever the flag, globally off included: 1 read and 1 write like a bio edit. While the flag
+  /// authenticated caller whatever the flag, globally off included, and is handled like a bio edit. While the flag
   /// is globally off the response omits website and pinned_post_id (Profile). DEGRADED_MODE=readonly still refuses the
   /// write. The display_name, bio and avatar path is unchanged. A banner, location, website or pin change does not enqueue the author-snapshot job
   /// and spends no snapshot-affecting edit (none of them is in AuthorSnapshot). Field rules are on the request fields.
-  /// Firestore: reads 2 cold / 1 warm (users + avatar media), +1 per banner resolve (the media doc), +1 per pin check
-  /// (the post, cache-first: 1 cold / 0 warm); 4 worst cold with a banner and a pin, planning 2;
-  /// writes 1 (0 when the request changes nothing, L-4; + async jobs above). Per-uid daily call cap
+  /// A request that changes nothing writes nothing. Per-uid daily call cap
   /// PROFILE_UPDATES_PER_DAY, 100 calls/uid/IST day per instance (300 with 3) => RATE_LIMITED,
-  /// metadata["limit"] = "profile_update_daily", retry_after = time to IST midnight, 0 reads.
+  /// metadata["limit"] = "profile_update_daily", retry_after = time to IST midnight, before any lookup.
   /// Replaced and removed images: a commit that replaced or removed the avatar or the banner
-  /// hands the old image to a best-effort retire step after the commit. On this request path that is 0 extra reads (the
-  /// old URLs come from the document the transaction read), 0 extra writes and at most 2 Pub/Sub publishes, one per image,
-  /// so the budget above is unchanged; a failed hand-over is logged at ERROR and the image stays until account deletion.
-  /// The async job (kind profile_media_retired on the jobs topic) costs 2 reads, 1 write and 2 Class A operations per
+  /// hands the old image to a best-effort retire step after the commit (the old URLs come from the document the
+  /// transaction read, and at most 2 Pub/Sub publishes go out, one per image); a failed hand-over is logged at ERROR and the image stays until account deletion.
+  /// The async job (kind profile_media_retired on the jobs topic) runs once per
   /// image, and deletes the old public objects 24-48 h later through a bucket lifecycle rule, only while
   /// PROFILE_MEDIA_RETIRE allows it (off by default; banner, or all for avatars too). A retired image can never be set
   /// again: it answers MEDIA_NOT_READY like any unusable id.
@@ -1875,7 +1866,6 @@ class IdentityServiceApi {
 
   /// Rename. Transaction: read users + handles/{new}; create handles/{new}, delete handles/{old}, update users.
   /// Cooldown 7 days (config HANDLE_CHANGE_COOLDOWN). Enqueues the author-snapshot refresh job.
-  /// Firestore: reads 2/2, writes 2/2 + deletes 1/1 (+ async snapshot job).
   $async.Future<ChangeHandleResponse> changeHandle(
           $pb.ClientContext? ctx, ChangeHandleRequest request) =>
       _client.invoke<ChangeHandleResponse>(ctx, 'IdentityService',
@@ -1883,20 +1873,19 @@ class IdentityServiceApi {
 
   /// Irreversible account deletion of the caller's own account. The uid always comes from the ID token; the
   /// request has no uid field and must never get one. Requires a recent sign-in: ID token auth_time older than
-  /// ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min) or missing => FAILED_PRECONDITION + ERROR_REASON_REAUTH_REQUIRED, 0 writes.
+  /// ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min) or missing => FAILED_PRECONDITION + ERROR_REASON_REAUTH_REQUIRED, writing nothing.
   /// ACTIVE and SUSPENDED callers may both delete: this is the only RPC the account-status interceptor
   /// lets a SUSPENDED or DELETING caller through to.
   /// Sync part: one transaction reads users/{uid} fresh and sets status = DELETING, updatedAt, deletionRequestedAt and
   /// deletionJob{seq: 0} (no job doc); after the commit it publishes {kind: account_delete, uid, seq: 0} to the
   /// `jobs` Pub/Sub topic. A failed publish still returns success: a replay or the daily backstop re-publishes.
-  /// Replay: a caller already DELETING (same or new idempotency_key) gets the stored deletion_requested_at, 0 writes,
+  /// Replay: a caller already DELETING (same or new idempotency_key) gets the stored deletion_requested_at and writes nothing,
   /// and the current job seq is re-published (deduped by the job).
   /// The job (`/internal/pubsub/jobs`, self-chaining, <= 20 s of work per delivery) disables the Firebase Auth user and
   /// revokes refresh tokens on its first delivery, waits until 120 s after deletionRequestedAt, then
   /// deletes posts, the social graph, later-slice data, exports, handle and quotas in batches of <= 500, then the
   /// Firebase Auth user, and users/{uid} last. Reference account (300 posts, 100 following, 100 followers) completes in
   /// about 3-5 minutes. Existing ID tokens stay valid up to 1 h but are rejected by the interceptor.
-  /// Firestore (sync part): reads 2/1 (interceptor + users), writes 1/1; replay reads 2/1, writes 0.
   /// Bounded by account_ops_daily:
   /// 20 calls/uid/IST day per instance shared with RequestAccountExport and GetAccountExport (RATE_LIMITED,
   /// metadata["limit"] = "account_ops_daily"). DEGRADED_MODE=readonly rejects it; a
@@ -1911,7 +1900,6 @@ class IdentityServiceApi {
   /// returns the same export and status. After the commit it publishes {kind: account_export, export_id} to the `jobs`
   /// topic; one delivery writes a single JSON file (account, profile, graph, posts; never who blocked you) to the
   /// private `<project>-exports` bucket and sets READY, usually within a minute.
-  /// Firestore: reads 2/1 (interceptor + quotas), writes 2/2 (exports doc + quotas); replay reads 3/2, writes 0.
   /// Bounded by account_ops_daily (see DeleteAccount). DEGRADED_MODE=readonly
   /// rejects it.
   $async.Future<RequestAccountExportResponse> requestAccountExport(
@@ -1922,7 +1910,6 @@ class IdentityServiceApi {
   /// Export status; when READY returns a fresh 15-minute signed GET URL (signed per call, never stored or logged).
   /// NOT_FOUND, byte-identical in every case, when the export doesn't exist, belongs to another user, or is past
   /// expires_at (even if the TTL or bucket lifecycle has not deleted it yet).
-  /// Firestore: reads 2/1 (interceptor + exports, read fresh), writes 0.
   /// Bounded by account_ops_daily (see DeleteAccount).
   $async.Future<GetAccountExportResponse> getAccountExport(
           $pb.ClientContext? ctx, GetAccountExportRequest request) =>

@@ -119,7 +119,7 @@ func TestPublishScheduledRoute_PublishesADueItemEndToEnd(t *testing.T) {
 	}
 	second := env.logs.messageLines("scheduled_sweep")
 	if len(second) != 2 || second[1]["due"] != float64(0) {
-		t.Errorf("second line = %v, want nothing due for 1 read", second)
+		t.Errorf("second line = %v, want nothing due", second)
 	}
 }
 
@@ -148,7 +148,7 @@ func TestPublishScheduledRoute_NoOpWhenTheFeatureIsOffOrDegraded(t *testing.T) {
 			}
 			lines := env.logs.messageLines("scheduled_sweep")
 			if len(lines) != 1 || lines[0]["outcome"] != tc.outcome {
-				t.Errorf("lines = %v, want one %s line with 0 reads and 0 writes", lines, tc.outcome)
+				t.Errorf("lines = %v, want one %s line", lines, tc.outcome)
 			}
 		})
 	}

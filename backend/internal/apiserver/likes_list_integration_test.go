@@ -13,7 +13,6 @@ package apiserver
 //   - forged tokens: expired, wrong version, negative index, non-post anchors, a token of the same kind sealed for
 //     another uid, a token that is good for its owner;
 //   - owner-only: two users with overlapping likes each get only their own, in their own order.
-// The exact budgets (23 / 53 / 2) are asserted by the file and are measured again in the budget table.
 
 import (
 	"context"
@@ -140,7 +139,7 @@ func TestW320_LikesDropMatrixWithEmbeddedAuthors(t *testing.T) {
 			t.Errorf("%s = %d, want %d", k, got, want)
 		}
 	}
-	// 11 ids on the page: interceptor 1 + userLikes 1 + GetMany 11 + graph 1 = 14 reads cold, no write, no prune.
+	// 11 ids on the page, cold: no write, no prune.
 	if after := userLikesRecent(t, w, v.uid); len(after) != len(all) {
 		t.Errorf("userLikes.recent has %d ids after the list, want all %d kept in storage", len(after), len(all))
 	}
@@ -315,7 +314,7 @@ func (e *bmChain) w320Trim(t *testing.T, uid, id string) {
 
 // TestW320_LikesForgedTokens: tokens made by hand with the real key. A good one for its owner opens (control); an expired
 // one (25 h), one of another version, one with a negative index or non-post anchors, and one sealed for another uid or
-// another list are VALIDATION field=page_token with exactly 0 reads (the interceptor is warm).
+// another list are VALIDATION field=page_token and nothing is listed.
 func TestW320_LikesForgedTokens(t *testing.T) {
 	w, r := listChains(t, w320LikesChain)
 	author, a, b := w.user(t), w.user(t), w.user(t)

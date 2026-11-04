@@ -16,7 +16,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -24,7 +23,7 @@ import (
 // opsPage is the page size of the purge and export queries, and the batch bound (Firestore's 500 writes).
 const opsPage = 500
 
-// planCountCap bounds the dry-run count aggregation (a count query is billed 1 read per 1,000 index entries).
+// planCountCap bounds the dry-run count aggregation.
 const planCountCap = 100_000
 
 var (
@@ -47,7 +46,6 @@ func (r *FirestoreRepo) authorQuery(uid string) firestore.Query {
 // PurgeUser implements Eraser. One call deletes one page (the newest <= 500 remaining posts) in one atomic
 // batch. Deleted docs drop out of the next page, so the purge is self-resuming after a crash and the checkpoint
 // only carries the running count. There are no counter updates: the user doc is deleted anyway.
-// Reads: one per post returned (1 for an empty page); deletes: one per post.
 func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	if cp.Phase >= 2 {
 		return r.purgeRemovals(ctx, uid, cp)
@@ -56,18 +54,13 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 		return r.purgeCopies(ctx, uid, cp)
 	}
 	docs, err := r.authorQuery(uid).Select().Limit(opsPage).Documents(ctx).GetAll()
-	reads := int64(len(docs))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
 		return cp, false, fmt.Errorf("posts: purge %s: query: %w", logger.HashUID(uid), err)
 	}
 	if len(docs) == 0 {
 		return Checkpoint{Deleted: cp.Deleted, Phase: 1}, false, nil
 	}
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	for _, d := range docs {
 		b.Delete(d.Ref)
 	}
@@ -85,8 +78,8 @@ func (r *FirestoreRepo) PurgeUser(ctx context.Context, uid string, cp Checkpoint
 
 // purgeCopies is phase 1 of PurgeUser: the deleted user's text also lives inside other users'
 // REPOST docs (removed, with their reposts docs and the reposter's postsCount) and QUOTE docs (embed replaced by
-// a tombstone). One page of at most CleanupPage per call (Q-C, single equality, no index change). Reads one per
-// doc (minimum 1); writes <= 3 per doc.
+// a tombstone). One page of at most CleanupPage per call (Q-C, single equality, no index change). Each doc
+// takes at most 3 writes, so a page stays under the batch limit.
 func (r *FirestoreRepo) purgeCopies(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	if r.w.Counters == nil || r.links == nil {
 		return cp, false, fmt.Errorf("posts: purge %s: repo has no Counters or RepostLinks configured", logger.HashUID(uid))
@@ -145,18 +138,17 @@ func (r *FirestoreRepo) purgeCopies(ctx context.Context, uid string, cp Checkpoi
 
 // purgeRemovals is phase 2 of PurgeUser (amendment 2026-10-18 (b)): postRemovals entries carry the author's uid
 // (pseudonymous link), so they are deleted with the account: authorId == uid, one equality filter served by the
-// single-field index, Limit(opsPage), no ordering. Deleted docs drop out of the next page (self-resuming). Reads
-// one per entry (minimum 1); deletes one per entry. Normally 0 or a handful of entries (only moderated posts).
+// single-field index, Limit(opsPage), no ordering. Deleted docs drop out of the next page (self-resuming).
+// Normally 0 or a handful of entries (only moderated posts).
 func (r *FirestoreRepo) purgeRemovals(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	docs, err := r.client.Collection(removalsCollection).Where("authorId", "==", uid).Select().Limit(opsPage).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddReads(int64(max(len(docs), 1)))
 	if err != nil {
 		return cp, false, fmt.Errorf("posts: purge %s: removals query: %w", logger.HashUID(uid), err)
 	}
 	if len(docs) == 0 {
 		return cp, true, nil
 	}
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	for _, d := range docs {
 		b.Delete(d.Ref)
 	}
@@ -167,8 +159,7 @@ func (r *FirestoreRepo) purgeRemovals(ctx context.Context, uid string, cp Checkp
 	return cp, len(docs) < opsPage, nil
 }
 
-// PlanPurge counts the user's posts without writing anything (opsctl purge-posts --dry-run). Reads: one per
-// 1,000 counted index entries, minimum 1.
+// PlanPurge counts the user's posts without writing anything (opsctl purge-posts --dry-run).
 func (r *FirestoreRepo) PlanPurge(ctx context.Context, uid string) (PurgePlan, error) {
 	q := r.client.Collection(postsCollection).Where("authorId", "==", uid).Limit(planCountCap)
 	res, err := q.NewAggregationQuery().WithCount("n").Get(ctx)
@@ -181,10 +172,7 @@ func (r *FirestoreRepo) PlanPurge(ctx context.Context, uid string) (PurgePlan, e
 	if err := res.DataTo(&out); err != nil {
 		return PurgePlan{}, fmt.Errorf("posts: plan purge decode: %w", err)
 	}
-	n := out.N
-	reads := n/1000 + 1
-	budget.FromContext(ctx).AddReads(reads)
-	return PurgePlan{Posts: n}, nil
+	return PurgePlan{Posts: out.N}, nil
 }
 
 // exportedPost is one post in the manual export ("Deletes & privacy"): id, text, createdAt, hashtags and
@@ -221,7 +209,7 @@ type exportedPoll struct {
 }
 
 // ExportUser implements Exporter: it streams {"userId": ..., "posts": [...]} to w, newest first, in pages of
-// opsPage (memory stays bounded). Reads: one per post, minimum 1.
+// opsPage (memory stays bounded).
 func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer) error {
 	if _, err := fmt.Fprintf(w, `{"userId":%q,"posts":[`, uid); err != nil {
 		return fmt.Errorf("posts: write export: %w", err)
@@ -235,11 +223,6 @@ func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer)
 			q = q.StartAfter(last)
 		}
 		docs, err := q.Documents(ctx).GetAll()
-		reads := int64(len(docs))
-		if reads == 0 {
-			reads = 1
-		}
-		budget.FromContext(ctx).AddReads(reads)
 		if err != nil {
 			return fmt.Errorf("posts: export %s: query: %w", logger.HashUID(uid), err)
 		}

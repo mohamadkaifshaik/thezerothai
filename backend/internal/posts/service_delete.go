@@ -41,12 +41,6 @@ func postNotFound() error {
 }
 
 // Delete implements Service.
-//
-// Firestore, worst case: reads 1 (the post; 0 when cached; the interceptor's profile read is extra), writes 1
-// (users.postsCount -1) + 1 delete (Exists precondition) and, for a post with images, one Pub/Sub publish of the
-// post_delete job (the objects and media/* docs are removed there: len(media) reads + 1 post read, len(media)
-// deletes, asynchronously). Every other case, including another user's post, an
-// unknown id and an already-deleted one, is success with 1 read at most and 0 writes.
 func (s *service) Delete(ctx context.Context, uid, idempotencyKey, postID string) (err error) {
 	logger.SetRequestField(ctx, fieldOp, "delete")
 	defer func() {
@@ -121,15 +115,6 @@ func (s *service) publishPostDelete(ctx context.Context, uid string, p *Post) {
 }
 
 // GetForViewer implements Service.
-//
-// Firestore, worst case: post 1 + author users 1 + caller graph 1 cold (the caller's own users read belongs to
-// the account-status interceptor) = 3 here, 4 per request; +1 author graph when the caller's blockedBy
-// overflowed. Another user's QUOTE or REPOST adds nothing when the author check already read the caller graph
-// (the same cached snapshot) and, on a blockedBy overflow, 1 read for the embedded author's graph, so the
-// overflow worst case is +2. The caller's own QUOTE or REPOST is exempt from the embed check (D13, same as a
-// direct post): no graph read at all, except that with a protected-set loader wired the caller's own copy of someone
-// else's post reads the caller graph (+1 cold: the follow state toward the copied author decides the
-// copy). The protected-set refresh is detached and never charged here. 0 warm; writes 0.
 func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_ *Post, err error) {
 	logger.SetRequestField(ctx, fieldOp, "get")
 	defer func() {
@@ -217,7 +202,7 @@ func (s *service) audienceErr(err error, uids ...string) error {
 }
 
 // blockedBy reports whether other blocks the caller: the caller's blockedBy set, or, once that set overflowed its
-// cap, other's own graph doc (1 extra read).
+// cap, other's own graph doc.
 func (s *service) blockedBy(ctx context.Context, snap graph.Snapshot, callerUID, other string) (bool, error) {
 	if snap.BlockedBy[other] {
 		return true, nil

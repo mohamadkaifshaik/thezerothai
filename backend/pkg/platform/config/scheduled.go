@@ -14,7 +14,7 @@ const MaxScheduledSweepLimit = 50
 // PerAuthorPerRun); the Schedule/List/Cancel service and the sweep read the rest.
 type ScheduledConfig struct {
 	// MaxPending is the most PENDING items one user holds (SCHEDULED_MAX_PENDING, default 25). The pending count()
-	// runs with Limit(MaxPending+1), so it still costs 1 read. Soft: the count runs outside the transaction.
+	// runs with Limit(MaxPending+1),. Soft: the count runs outside the transaction.
 	MaxPending int
 	// Horizon is how far ahead publish_at may be (SCHEDULED_HORIZON, default 1440h = 60 days).
 	Horizon time.Duration
@@ -23,9 +23,6 @@ type ScheduledConfig struct {
 	// PerAuthorPerRun is the most items of one author a sweep run publishes (SCHEDULED_PER_AUTHOR_PER_RUN,
 	// default 3) and also the cap on PENDING items within +/-4 min of a new publish_at (the window cap, review L-3).
 	PerAuthorPerRun int
-	// AuthorReadsWarn is the reads one author's items may spend in one run before a scheduled_author_reads warning
-	// (SCHEDULED_AUTHOR_READS_WARN, default 40, review L-4).
-	AuthorReadsWarn int
 	// SweepLimit is the Limit of the due query (SCHEDULED_SWEEP_LIMIT, default 50, clamped to
 	// MaxScheduledSweepLimit); SweepMaxPages the pages per run (SCHEDULED_SWEEP_MAX_PAGES, default 2);
 	// SweepConcurrency the author workers at once (SCHEDULED_SWEEP_CONCURRENCY, default 4).
@@ -58,7 +55,6 @@ func loadScheduled() (ScheduledConfig, error) {
 	}{
 		{&c.MaxPending, "SCHEDULED_MAX_PENDING", 25, 1, 50},
 		{&c.PerAuthorPerRun, "SCHEDULED_PER_AUTHOR_PER_RUN", 3, 1, 10},
-		{&c.AuthorReadsWarn, "SCHEDULED_AUTHOR_READS_WARN", 40, 1, 1000},
 		{&c.SweepLimit, "SCHEDULED_SWEEP_LIMIT", MaxScheduledSweepLimit, 1, 1000},
 		{&c.SweepMaxPages, "SCHEDULED_SWEEP_MAX_PAGES", 2, 1, 10},
 		{&c.SweepConcurrency, "SCHEDULED_SWEEP_CONCURRENCY", 4, 1, 4},

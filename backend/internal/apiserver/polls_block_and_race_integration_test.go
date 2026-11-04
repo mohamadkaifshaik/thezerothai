@@ -5,7 +5,7 @@ package apiserver
 // The tests the review (security-w6-36-poll-changes.md L-1) and the 60 x 3 race ask for that the
 // developer's / files do not hold. Names start with TestW641_ so one -run regex selects them.
 //   - L-1: the author blocks a voter who had voted; replay, change and stale shapes, by post id and by REPOST id, answer the bytes of a
-//     missing post (0 writes), and nothing changes;
+//     missing post (nothing written), and nothing changes;
 //   - the 60 voters x 3 choices race in two arms, asserting store invariants only (no exact winner count, no timing).
 
 import (

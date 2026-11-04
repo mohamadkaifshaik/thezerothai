@@ -11,27 +11,22 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// UpdateProfile's profile extras and the pin clean-up step against the Firestore emulator, with the
-// budget assertions of the ticket: 3 reads / 1 write worst (the transaction's read of users/{uid}, the banner's media
-// doc, the pinned post), 0 / 0 when the flag is off, and 1 / 1 for ClearIfPinned.
+// UpdateProfile's profile extras and the pin clean-up step against the Firestore emulator.
 
-// chargedBanners resolves like media.Library.ResolveBanner would: it charges the 1 read of the media doc.
-type chargedBanners struct{}
+// fixedBanners resolves like media.Library.ResolveBanner would: it answers a fixed banner.
+type fixedBanners struct{}
 
-func (chargedBanners) ResolveBanner(ctx context.Context, _, _ string) (identity.BannerRef, error) {
-	budget.FromContext(ctx).AddReads(1)
+func (fixedBanners) ResolveBanner(ctx context.Context, _, _ string) (identity.BannerRef, error) {
 	return identity.BannerRef{URL: "https://m/b.webp", ThumbURL: "https://m/b_t.webp"}, nil
 }
 
-// chargedPins checks like posts.PinChecker would cold: it charges the 1 read of the post.
-type chargedPins struct{}
+// allowAllPins checks like posts.PinChecker would cold: it allows every pin.
+type allowAllPins struct{}
 
-func (chargedPins) CanPin(ctx context.Context, _, _ string) (bool, error) {
-	budget.FromContext(ctx).AddReads(1)
+func (allowAllPins) CanPin(ctx context.Context, _, _ string) (bool, error) {
 	return true, nil
 }
 
@@ -48,8 +43,8 @@ func newExtrasService(t *testing.T, mode flags.Mode) (*firestore.Client, identit
 	repo := identity.NewFirestoreRepo(client, graph.NewFirestoreRepo(client))
 	reg := flags.NewRegistry(flags.Spec{Name: identity.ProfileExtrasFlag, Mode: mode})
 	svc := identity.New(repo, identity.NewCache(time.Minute), 7*24*time.Hour,
-		identity.WithBannerResolver(chargedBanners{}), identity.WithPinChecker(chargedPins{}), identity.WithExtrasFlags(reg))
-	ctx, _ := budget.WithCounter(context.Background())
+		identity.WithBannerResolver(fixedBanners{}), identity.WithPinChecker(allowAllPins{}), identity.WithExtrasFlags(reg))
+	ctx := context.Background()
 	if _, err := svc.CreateProfile(ctx, itUID, validKeyForIntegration, "Alice", "Alice A."); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
@@ -65,12 +60,12 @@ func userData(t *testing.T, client *firestore.Client, uid string) map[string]any
 	return snap.Data()
 }
 
-func TestUpdateProfile_Integration_ExtrasBudget(t *testing.T) {
+func TestUpdateProfile_Integration_Extras(t *testing.T) {
 	client, svc, _ := newExtrasService(t, flags.On)
 	before := userData(t, client, itUID)
 
 	banner, loc, site, pin := itBannerID, "Pune", "https://example.com", itPin
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	got, err := svc.UpdateProfile(ctx, itUID, identity.UpdateProfileParams{
 		IdempotencyKey: validKeyForIntegration, BannerMediaID: &banner, Location: &loc, Website: &site, PinnedPostID: &pin,
 	})
@@ -80,8 +75,6 @@ func TestUpdateProfile_Integration_ExtrasBudget(t *testing.T) {
 	if got.BannerURL != "https://m/b.webp" || got.Location != "Pune" || got.Website != "https://example.com" || got.PinnedPostID != itPin {
 		t.Fatalf("unexpected profile: %+v", got)
 	}
-	// The ticket's worst case: 3 reads (users/{uid} in the transaction, the banner's media doc, the pinned post), 1 write.
-
 	// The stored document: the five absent-by-default fields, under the names the data model and the index
 	// overrides use, and nothing else changed (no snapshot bump: the extras are not in the author snapshot).
 	after := userData(t, client, itUID)
@@ -106,7 +99,7 @@ func TestUpdateProfile_Integration_ExtrasBudget(t *testing.T) {
 
 	// A later bio edit rewrites the whole document and must keep the extras.
 	bio := "hello"
-	ctx2, _ := budget.WithCounter(context.Background())
+	ctx2 := context.Background()
 	if _, err := svc.UpdateProfile(ctx2, itUID, identity.UpdateProfileParams{IdempotencyKey: validKeyForIntegration, Bio: &bio}); err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +107,7 @@ func TestUpdateProfile_Integration_ExtrasBudget(t *testing.T) {
 		t.Errorf("a bio edit dropped an extra: %v", kept)
 	}
 	// ... and so must a handle change.
-	ctx3, _ := budget.WithCounter(context.Background())
+	ctx3 := context.Background()
 	if _, err := svc.ChangeHandle(ctx3, itUID, validKeyForIntegration, "alice_two"); err != nil {
 		t.Fatal(err)
 	}
@@ -122,9 +115,9 @@ func TestUpdateProfile_Integration_ExtrasBudget(t *testing.T) {
 		t.Errorf("a handle change dropped an extra: %v", kept)
 	}
 
-	// Clearing every extra resolves nothing: 1 read, 1 write; the fields become empty or absent.
+	// Clearing every extra resolves nothing; the fields become empty or absent.
 	emptyStr := ""
-	ctx4, _ := budget.WithCounter(context.Background())
+	ctx4 := context.Background()
 	cleared, err := svc.UpdateProfile(ctx4, itUID, identity.UpdateProfileParams{
 		IdempotencyKey: validKeyForIntegration, BannerMediaID: &emptyStr, Location: &emptyStr, Website: &emptyStr, PinnedPostID: &emptyStr,
 	})
@@ -142,11 +135,11 @@ func TestUpdateProfile_Integration_ExtrasBudget(t *testing.T) {
 	}
 }
 
-func TestUpdateProfile_Integration_ExtrasFlagOffCostsNothing(t *testing.T) {
+func TestUpdateProfile_Integration_ExtrasFlagOffRefusesAndWritesNothing(t *testing.T) {
 	client, svc, _ := newExtrasService(t, flags.Off)
 	before := userData(t, client, itUID)
 	loc := "Pune"
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	_, err := svc.UpdateProfile(ctx, itUID, identity.UpdateProfileParams{IdempotencyKey: validKeyForIntegration, Location: &loc})
 	if err == nil {
 		t.Fatal("expected FEATURE_DISABLED")
@@ -159,13 +152,13 @@ func TestUpdateProfile_Integration_ExtrasFlagOffCostsNothing(t *testing.T) {
 func TestClearIfPinned_Integration(t *testing.T) {
 	client, svc, repo := newExtrasService(t, flags.On)
 	pin := itPin
-	ctx0, _ := budget.WithCounter(context.Background())
+	ctx0 := context.Background()
 	if _, err := svc.UpdateProfile(ctx0, itUID, identity.UpdateProfileParams{IdempotencyKey: validKeyForIntegration, PinnedPostID: &pin}); err != nil {
 		t.Fatal(err)
 	}
 
-	t.Run("a different post leaves the pin alone: 1 read, 0 writes", func(t *testing.T) {
-		ctx, _ := budget.WithCounter(context.Background())
+	t.Run("a different post leaves the pin alone", func(t *testing.T) {
+		ctx := context.Background()
 		cleared, err := repo.ClearIfPinned(ctx, itUID, itNewerPin)
 		if err != nil || cleared {
 			t.Fatalf("ClearIfPinned = %v, %v", cleared, err)
@@ -175,9 +168,9 @@ func TestClearIfPinned_Integration(t *testing.T) {
 		}
 	})
 
-	t.Run("the pinned post: 1 read, 1 write, field-level", func(t *testing.T) {
+	t.Run("the pinned post is cleared, field-level", func(t *testing.T) {
 		before := userData(t, client, itUID)
-		ctx, _ := budget.WithCounter(context.Background())
+		ctx := context.Background()
 		cleared, err := repo.ClearIfPinned(ctx, itUID, itPin)
 		if err != nil || !cleared {
 			t.Fatalf("ClearIfPinned = %v, %v", cleared, err)
@@ -193,8 +186,8 @@ func TestClearIfPinned_Integration(t *testing.T) {
 		}
 	})
 
-	t.Run("a redelivery after the clear is a noop: 1 read, 0 writes", func(t *testing.T) {
-		ctx, _ := budget.WithCounter(context.Background())
+	t.Run("a redelivery after the clear is a noop", func(t *testing.T) {
+		ctx := context.Background()
 		cleared, err := repo.ClearIfPinned(ctx, itUID, itPin)
 		if err != nil || cleared {
 			t.Fatalf("ClearIfPinned = %v, %v", cleared, err)
@@ -203,11 +196,11 @@ func TestClearIfPinned_Integration(t *testing.T) {
 
 	t.Run("a newer pin survives the clean-up of the older post", func(t *testing.T) {
 		newer := itNewerPin
-		ctx0, _ := budget.WithCounter(context.Background())
+		ctx0 := context.Background()
 		if _, err := svc.UpdateProfile(ctx0, itUID, identity.UpdateProfileParams{IdempotencyKey: validKeyForIntegration, PinnedPostID: &newer}); err != nil {
 			t.Fatal(err)
 		}
-		ctx, _ := budget.WithCounter(context.Background())
+		ctx := context.Background()
 		if cleared, err := repo.ClearIfPinned(ctx, itUID, itPin); err != nil || cleared {
 			t.Fatalf("ClearIfPinned(old post) = %v, %v", cleared, err)
 		}
@@ -220,7 +213,7 @@ func TestClearIfPinned_Integration(t *testing.T) {
 		if _, err := client.Collection("users").Doc("gone-1").Get(context.Background()); err == nil {
 			t.Fatal("setup: gone-1 exists")
 		}
-		ctx, _ := budget.WithCounter(context.Background())
+		ctx := context.Background()
 		cleared, err := repo.ClearIfPinned(ctx, "gone-1", itPin)
 		if err != nil || cleared {
 			t.Fatalf("ClearIfPinned = %v, %v", cleared, err)
@@ -231,10 +224,9 @@ func TestClearIfPinned_Integration(t *testing.T) {
 	})
 
 	t.Run("an empty post id never clears anything", func(t *testing.T) {
-		ctx, counter := budget.WithCounter(context.Background())
-		cleared, err := repo.ClearIfPinned(ctx, itUID, "")
+		cleared, err := repo.ClearIfPinned(context.Background(), itUID, "")
 		if err != nil || cleared {
-			t.Fatalf("ClearIfPinned = %v, %v (writes %d)", cleared, err, counter.Writes())
+			t.Fatalf("ClearIfPinned = %v, %v", cleared, err)
 		}
 	})
 }

@@ -545,6 +545,13 @@ module "firebase" {
   ios_bundle_id        = var.ios_bundle_id
   hosting_site_id      = var.hosting_site_id
 
+  # The debug signing key the dev Firebase Android app already lists (set by
+  # hand). Declared so an apply keeps it: without it Terraform removes the
+  # key and Google sign-in stops working on debug builds. Fingerprints are
+  # not secret.
+  android_sha1_hashes   = ["052eaf6cbad3268095eaa12f529ea6d36fe8d4b6"]
+  android_sha256_hashes = ["cdb0dd6327ee7302fc56163440afafb964cf3d36d107d9f5f07c254cbb1beed6"]
+
   # dev.dzeroth.com serves the dev web app. DNS is at Squarespace (manual); see the
   # custom_domain_dns_records output.
   custom_domains = {

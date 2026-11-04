@@ -19,7 +19,7 @@
 //
 // Ids: community_id is a 64-bit Snowflake rendered as a 19-digit decimal string, like a post id (rule 1). It is
 // time-ordered and therefore guessable, so authorization never relies on it. A community_id that is not 19 digits =>
-// INVALID_ARGUMENT + VALIDATION, metadata["field"] = "community_id", 0 reads.
+// INVALID_ARGUMENT + VALIDATION, metadata["field"] = "community_id", before any lookup.
 //
 // Visibility (F6): every community is PUBLIC (CommunityVisibility holds PUBLIC only). Any signed-in user reads a
 // community, its feed, its members and the directory; only members post into it and reply in its conversations (F8).
@@ -31,7 +31,7 @@
 // - ARCHIVED: read-only and out of the directory, but readable by everyone. A community is archived when its owner
 //   deletes the account and no ACTIVE moderator can take over (owner_id is cleared), or by `opsctl community archive`
 //   on the owner's request. Every write to it except LeaveCommunity (posting and replying included) => FAILED_PRECONDITION
-//   + COMMUNITY_STATE, metadata["reason"] = "community_archived", 0 writes.
+//   + COMMUNITY_STATE, metadata["reason"] = "community_archived", and nothing is written.
 // - SUSPENDED (opsctl only): ONE NOT_FOUND "community not found" on every RPC here, in CreatePost and in
 //   GetCommunityTimeline, to everyone, byte-identical to a community id that never existed. The only exceptions are
 //   GetCommunity and ListMyCommunities, which show a SUSPENDED community to its owner (status SUSPENDED), so the owner
@@ -64,19 +64,18 @@
 // - Replies keep the existing reply rules (a block either way => NOT_FOUND) before the members-only check.
 //
 // Flag FEATURE_COMMUNITIES (wire name "communities", default off): every RPC here needs it on for the
-// caller, else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", 0 reads beyond the
-// account-status interceptor. Clients learn it from IdentityService.GetMe enabled_features. Creation (F1) is not a
+// caller, else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", before any lookup. Clients learn it from IdentityService.GetMe enabled_features. Creation (F1) is not a
 // flag: CreateCommunity also needs the caller in the COMMUNITY_CREATORS config (at most 10 uids); clients learn it
 // from ListMyCommunitiesResponse.can_create.
 //
 // Idempotency (rule 4): all seven mutations (CreateCommunity, UpdateCommunity, JoinCommunity,
 // LeaveCommunity, HideCommunityPost, RestoreCommunityPost, SetMemberRole) take idempotency_key (16-64 characters of
-// [A-Za-z0-9_-], else VALIDATION "idempotency_key", 0 reads) and store the standard TTL'd
+// [A-Za-z0-9_-], else VALIDATION "idempotency_key", before any lookup) and store the standard TTL'd
 // idempotency/{sha256(uid|rpc|key)} document (24 h) in the same transaction as their effect. A retry with the same key
-// returns the stored outcome with 0 writes, whatever happened since; the record holds ids only, so a replay re-reads
+// returns the stored outcome and writes nothing, whatever happened since; the record holds ids only, so a replay re-reads
 // the community for its current header. The same key with a different request body => INVALID_ARGUMENT +
 // IDEMPOTENCY_KEY_REUSED. A mutation that changes nothing (Join by a member, Leave by a non-member, a repeated hide or
-// ban) still stores the idempotency document (1 write), so a late retry can never undo a newer change.
+// ban) still stores the idempotency document, so a late retry can never undo a newer change.
 //
 // Text rules, after NFC and trim:
 // - name: 1-30 code points, single line (no control or bidi formatting characters, at least one visible character;
@@ -84,11 +83,11 @@
 // - description: 0-160 code points, the bio rules;
 // - rules: at most COMMUNITY_MAX_RULES (10); each title 1-60 code points, single line; each text 0-300 code points, the
 //   bio rules.
-// Otherwise VALIDATION "name" / "description" / "rules", 0 reads beyond the interceptor.
+// Otherwise VALIDATION "name" / "description" / "rules", before any lookup.
 //
 // Errors (clients branch on ErrorDetail.reason, then its metadata):
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in community_id | name | description | rules | post_id |
-//   user_id | action | filter | page_token | idempotency_key; 0 reads beyond the interceptor unless stated.
+//   user_id | action | filter | page_token | idempotency_key; before any lookup unless stated.
 // - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities" (above).
 // - NOT_FOUND "community not found": one message for every cause in Status above. Two other NOT_FOUNDs keep the bytes
 //   of their own RPCs: a post or reply that is missing, not in this community, or removed by the platform (Hide and
@@ -103,20 +102,20 @@
 //     on the owner or on a moderator: a ban, or a hide or restore of a post or reply whose author is the owner or
 //     another moderator now;
 //   - "not_creator": CreateCommunity, and UpdateCommunity while creation is allowlisted, by a caller outside
-//     COMMUNITY_CREATORS (0 reads beyond the interceptor). On UpdateCommunity it is checked before the owner, so it
+//     COMMUNITY_CREATORS (before any lookup). On UpdateCommunity it is checked before the owner, so it
 //     wins over "not_owner" for every caller outside the list.
 //   Do not retry. Show a fixed message per reason.
 // - FAILED_PRECONDITION + COMMUNITY_STATE, metadata["reason"]:
 //   - "owner": the owner leaves (the owner cannot leave);
 //   - "moderator": the owner bans a moderator (remove the role first);
 //   - "community_archived": a write to an ARCHIVED community (Status above).
-//   0 writes.
-// - FAILED_PRECONDITION + PROTECTED_ACCOUNT: a protected caller posts into a community (CreatePost, F6), 0 reads.
+//   Nothing is written.
+// - FAILED_PRECONDITION + PROTECTED_ACCOUNT: a protected caller posts into a community (CreatePost, F6), before any lookup.
 // - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"]:
 //   - "communities_owned": COMMUNITIES_MAX_OWNED, 2 owned communities per creator, lifetime, exact;
 //   - "communities_joined": COMMUNITIES_MAX_JOINED, 50 joined communities per user, exact;
 //   - "community_moderators": COMMUNITY_MAX_MODERATORS, 10 per community.
-//   0 writes.
+//   Nothing is written.
 // - RESOURCE_EXHAUSTED + QUOTA_EXCEEDED, metadata["quota"]:
 //   - "community_joins": QUOTA_COMMUNITY_JOINS_PER_DAY, 20 per IST day, 5 for accounts younger than 24 h;
 //   - "community_posts": QUOTA_COMMUNITY_POSTS_PER_DAY, CreatePost into a community, 50 per IST day, 10 for new accounts,
@@ -131,9 +130,6 @@
 //     SetMemberRole) and "community_posts_per_community_daily" (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY 20 per uid and
 //     community, CreatePost);
 // - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
-//
-// Firestore budgets below are per RPC. Worst-case reads include the account-status
-// interceptor. The worst here is 103.
 
 package communitiesv1
 
@@ -621,9 +617,9 @@ func (x *CommunityRuleList) GetRules() []*CommunityRule {
 	return nil
 }
 
-// A community's header, built from the community doc and the caller's role at 0 extra reads, so every surface returns
+// A community's header, built from the community doc and the caller's role without an extra lookup, so every surface returns
 // the same shape: GetCommunity, ListCommunities, ListMyCommunities, the mutations and the GetCommunityTimeline header.
-// Rules, the owner and the moderators cost more (profile reads, egress) and come only with GetCommunity (and the rules
+// Rules, the owner and the moderators need profile lookups and come only with GetCommunity (and the rules
 // with CreateCommunity and UpdateCommunity).
 type Community struct {
 	state protoimpl.MessageState `protogen:"open.v1"`

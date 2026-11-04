@@ -10,12 +10,12 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// TestResolveHandles_Integration_Budget (acceptance, on the real repo): 10 handles with 6 resolved before
-// cost exactly 4 reads in one GetAll; a repeat costs 0; an unknown handle costs 1 and is then free for 10 s.
-func TestResolveHandles_Integration_Budget(t *testing.T) {
+// TestResolveHandles_Integration (acceptance, on the real repo): 10 handles with 6 resolved before are answered with only the
+// other 4 fetched; a repeat fetches nothing; an unknown handle is remembered as free for 10 s. Fetching is proved by deleting the
+// handle documents behind the cache: whatever is still answered came from the cache.
+func TestResolveHandles_Integration(t *testing.T) {
 	client := newTestClient(t)
 	graphRepo := graph.NewFirestoreRepo(client)
 	repo := identity.NewFirestoreRepo(client, graphRepo)
@@ -39,7 +39,12 @@ func TestResolveHandles_Integration_Budget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
+	for _, h := range warm {
+		if _, err := client.Collection("handles").Doc(h).Delete(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
 	got, err := dir2.ResolveHandles(ctx, handles)
 	if err != nil || len(got) != 10 {
 		t.Fatalf("ResolveHandles: len=%d err=%v", len(got), err)
@@ -50,16 +55,26 @@ func TestResolveHandles_Integration_Budget(t *testing.T) {
 		}
 	}
 
-	ctx, _ = budget.WithCounter(context.Background())
-	if _, err := dir2.ResolveHandles(ctx, handles); err != nil {
-		t.Fatal(err)
+	// Now every handle is cached: deleting all the documents changes nothing.
+	for _, h := range handles {
+		if _, err := client.Collection("handles").Doc(h).Delete(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if again, err := dir2.ResolveHandles(ctx, handles); err != nil || len(again) != 10 {
+		t.Fatalf("repeat: len=%d err=%v, want all 10 from the cache", len(again), err)
 	}
 
-	ctx, _ = budget.WithCounter(context.Background())
+	// svc cached mention0 at CreateProfile, so it still answers; the unknown handle is absent.
 	got, err = dir.ResolveHandles(ctx, []string{"nosuchperson", handles[0]})
 	if err != nil || len(got) != 1 {
 		t.Fatalf("unknown handle: got=%v err=%v", got, err)
 	}
-	ctx, _ = budget.WithCounter(context.Background())
-	_, _ = dir.ResolveHandles(ctx, []string{"nosuchperson"})
+	// The handle gets claimed behind this instance's back: for 10 s the negative entry still answers "free".
+	if _, _, err := repo.CreateProfile(ctx, "uid-new", "NoSuchPerson", "nosuchperson", "New", time.Now().UTC(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = dir.ResolveHandles(ctx, []string{"nosuchperson"}); err != nil || len(got) != 0 {
+		t.Fatalf("remembered-free handle: got=%v err=%v, want none from the negative cache", got, err)
+	}
 }

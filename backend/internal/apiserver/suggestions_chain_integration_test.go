@@ -157,9 +157,9 @@ func TestListSuggestedUsers_ChainReadCapAndWire(t *testing.T) {
 		t.Errorf("rows after Follow = %d, want 5 (the cached tail refills)", len(after.Msg.GetUsers()))
 	}
 	last := env.logs.requestLines(rpc)
-	// Follow evicted the caller's profile (the interceptor's read, 1) and graph snapshot (the warm hit's re-filter loads it
-	// again, L-1, 1): a cache hit with at most those two reads, no edge query and no hydration.
+	// Follow evicted the caller's profile and graph snapshot, which the warm hit reloads: still a cache hit, with no edge
+	// query and no hydration.
 	if got := last[len(last)-1]; got["suggestions_cache_hit"] != true {
-		t.Errorf("after Follow: suggestions_cache_hit=%v fs_reads=%v, want a cache hit and <= 2 reads", got["suggestions_cache_hit"], got["fs_reads"])
+		t.Errorf("after Follow: suggestions_cache_hit=%v, want a cache hit", got["suggestions_cache_hit"])
 	}
 }

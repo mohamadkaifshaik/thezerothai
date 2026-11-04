@@ -13,7 +13,7 @@
 // no extra query; a quote is CreatePost(quote_of_post_id) in dzeroth.posts.v1, not an RPC here.
 //
 // Likes and reposts are behind FEATURE_ENGAGEMENT (wire name "engagement"): with the flag off for the caller every
-// like/repost RPC is FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads. FEATURE_POSTS must also be on. The bookmark
+// like/repost RPC is FAILED_PRECONDITION + FEATURE_DISABLED, before any lookup. FEATURE_POSTS must also be on. The bookmark
 // RPCs have their own flag, FEATURE_BOOKMARKS (see "Bookmarks" below), and do not need FEATURE_ENGAGEMENT; nor does
 // ListLikedPosts, which has FEATURE_LIKES_LIST.
 //

@@ -12,14 +12,10 @@ enum PostShareChoice { copyLink, shareVia }
 /// The 48dp square at the trailing edge of the render box of [context]: where
 /// the Share button sits at the end of the post action row. It places the
 /// anchored menu and the iPad / macOS share popover.
-Rect trailingTargetRect(BuildContext context) {
+Rect targetRectOf(BuildContext context) {
   final box = context.findRenderObject();
   if (box is! RenderBox || !box.hasSize) return Rect.zero;
-  final origin = box.localToGlobal(Offset.zero);
-  const side = AppSpacing.minTapTarget;
-  final rtl = Directionality.of(context) == TextDirection.rtl;
-  final left = rtl ? origin.dx : origin.dx + box.size.width - side;
-  return Rect.fromLTWH(left, origin.dy, side, box.size.height);
+  return box.localToGlobal(Offset.zero) & box.size;
 }
 
 /// The menu behind a post's Share button (X-style): "Copy link" and,

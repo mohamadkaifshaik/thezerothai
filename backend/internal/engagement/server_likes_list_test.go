@@ -14,7 +14,6 @@ import (
 	engagementv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -82,7 +81,7 @@ func TestListLikedPosts_FlagMatrix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, _ := budget.WithCounter(uidCtx(tt.uid))
+			ctx := uidCtx(tt.uid)
 			sl := &stubLikes{}
 			err := listLikedPosts(NewServer(&stubSvc{}, flags.NewRegistry(tt.reg...), WithLikesList(sl)), ctx)
 			if wantCalls := map[bool]int{true: 1, false: 0}[tt.pass]; len(sl.calls) != wantCalls {

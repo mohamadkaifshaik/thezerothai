@@ -40,7 +40,7 @@ class _Host extends StatelessWidget {
           context,
           url: _url,
           nativeShare: share,
-          anchor: trailingTargetRect(context),
+          anchor: targetRectOf(context),
         ),
         child: const Text('open'),
       ),
@@ -218,11 +218,14 @@ void main() {
       ) async {
         final share = _FakeNativeShare();
         await open(tester, share, width: width);
+        // The popover anchors at the button that opened the menu, wherever
+        // it sits.
+        final button = tester.getRect(find.widgetWithText(TextButton, 'open'));
         await tester.tap(find.text('Share via...'));
         await tester.pumpAndSettle();
 
         expect(share.calls.single.url, _url);
-        expect(share.calls.single.anchor!.width, closeTo(48, 0.5));
+        expect(share.calls.single.anchor, button);
       });
 
       testWidgets('Share via... hidden when unsupported', (tester) async {

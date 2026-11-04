@@ -19,7 +19,6 @@ import (
 	"log/slog"
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -42,7 +41,7 @@ type postDeleteMessage struct {
 	PostID string `json:"postId"`
 }
 
-// PostGone reports, from a fresh read, whether the post no longer exists (1 read). Implemented by an apiserver
+// PostGone reports, from a fresh read, whether the post no longer exists. Implemented by an apiserver
 // adapter over the posts repo; it is the same shape media.PostGone has.
 type PostGone interface {
 	PostGone(ctx context.Context, postID string) (bool, error)
@@ -66,9 +65,9 @@ func NewJobs(repo *FirestoreRepo, cleanup posts.Cleanup, gone PostGone, pub JobP
 	return &Jobs{repo: repo, cleanup: cleanup, posts: gone, pub: pub}
 }
 
-// Handle implements identity.JobHandler. Reads: 1 (the post) + 1 per query page (an empty query bills 1): 4 for a
-// post with no dependants. Writes: 0; deletes: likes (1 each) and reposts (2 each), REPOST reposter postsCount
-// -1 and quote tombstones as writes.
+// Handle implements identity.JobHandler. It reads the post, then pages through its
+// dependants: likes and reposts are deleted, the REPOST reposter's postsCount is decremented and quote tombstones
+// are written.
 func (j *Jobs) Handle(ctx context.Context, data []byte) (string, error) {
 	var m postDeleteMessage
 	if err := json.Unmarshal(data, &m); err != nil {
@@ -144,18 +143,13 @@ steps:
 // full reports whether the page was full (more may remain). Blind deletes in one batch; reads len(page), minimum 1.
 func (r *FirestoreRepo) deleteLikesOf(ctx context.Context, postID string, limit int) (n int, full bool, err error) {
 	docs, err := r.client.Collection(likesCollection).Where("postId", "==", postID).Limit(limit).Documents(ctx).GetAll()
-	reads := int64(len(docs))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
 		return 0, false, fmt.Errorf("engagement: likes query: %w", err)
 	}
 	if len(docs) == 0 {
 		return 0, false, nil
 	}
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	for _, d := range docs {
 		b.Delete(d.Ref)
 	}

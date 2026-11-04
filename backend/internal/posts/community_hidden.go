@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // hiddenPageMax is the most rows one page of the platform's hidden-post listing reads (Limit <= 50).
@@ -57,13 +55,12 @@ func (m *firestoreModerator) hiddenQuery(cid, after string, limit int) firestore
 }
 
 // ListHidden implements CommunityModerator: one page of hidden posts and replies of cid after the id `after` (read-only, outside any
-// transaction). Reads: max(1, rows). Rows are passed to each in id order; last is the id of the last row ("" when there are none).
+// transaction). Rows are passed to each in id order; last is the id of the last row ("" when there are none).
 func (m *firestoreModerator) ListHidden(ctx context.Context, cid, after string, limit int, each HiddenRowFunc) (int, string, error) {
 	if m == nil || m.client == nil {
 		return 0, "", errors.New("posts: moderator has no firestore client")
 	}
 	snaps, err := m.hiddenQuery(cid, after, limit).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(snaps))
 	if err != nil {
 		return 0, "", fmt.Errorf("posts: list hidden: %w", err)
 	}
@@ -84,14 +81,13 @@ func (m *firestoreModerator) ListHidden(ctx context.Context, cid, after string, 
 // SetCommunityListing(listed=true), never a Set). The page is read as a query first and written after, because a Firestore transaction
 // refuses a read that follows a write, so SetCommunityListing (a Get then an Update per post) cannot be called once per post here. A row
 // with `moderation` set, a REPOST or a root whose label is not cid is never restored (D5a, L-2). No F16 rule: this is the platform.
-// Writes: one per restored row. The caller calls this after its own reads and before its writes.
+// The caller calls this after its own reads and before its writes.
 func (m *firestoreModerator) RestoreHiddenPage(ctx context.Context, tx *firestore.Transaction, cid, after string, limit int, want HiddenRowFunc) (HiddenPageResult, error) {
 	var res HiddenPageResult
 	if m == nil || m.client == nil {
 		return res, errors.New("posts: moderator has no firestore client")
 	}
 	snaps, err := tx.Documents(m.hiddenQuery(cid, after, limit)).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(snaps))
 	if err != nil {
 		return res, fmt.Errorf("posts: read hidden page: %w", err)
 	}
@@ -110,7 +106,6 @@ func (m *firestoreModerator) RestoreHiddenPage(ctx context.Context, tx *firestor
 		if err := tx.Update(s.Ref, listingUpdates(reply, true, cid)); err != nil {
 			return res, fmt.Errorf("posts: restore hidden post: %w", err)
 		}
-		budget.FromContext(ctx).AddWrites(1)
 		res.Restored++
 		if !reply {
 			res.RestoredRoots = append(res.RestoredRoots, s.Ref.ID)

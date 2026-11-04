@@ -27,7 +27,7 @@
 //   and expire after 30 days. For user timelines "tab" is the EFFECTIVE tab: POSTS
 //   and UNSPECIFIED + include_replies=false bind the same feed, as do REPLIES and UNSPECIFIED + true, so every
 //   pre-W3 token stays valid; a token used on another tab is rejected like a foreign one. An expired, foreign or
-//   tampered token => INVALID_ARGUMENT + VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads:
+//   tampered token => INVALID_ARGUMENT + VALIDATION with metadata["field"] = "since_token" or "page_token", before any lookup:
 //   drop that token and call with no token (cold open). After a rejected page_token, or a rejected since_token,
 // REPLACE the cached feed with the cold open, do not merge into it: a since_token is
 //   also rejected when the server cannot list removed_ids completely (below), it answers exactly as for an expired
@@ -457,7 +457,7 @@ func (x *GetUserTimelineResponse) GetAuthorProtected() bool {
 
 type GetListTimelineRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// 19-digit Snowflake; else VALIDATION "list_id", 0 reads.
+	// 19-digit Snowflake; else VALIDATION "list_id", before any lookup.
 	ListId string `protobuf:"bytes,1,opt,name=list_id,json=listId,proto3" json:"list_id,omitempty"`
 	// 0 => 20; max 50 (clamped).
 	PageSize int32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
@@ -621,7 +621,7 @@ func (x *GetListTimelineResponse) GetList() *v11.ListInfo {
 
 type GetCommunityTimelineRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// 19-digit Snowflake; else VALIDATION "community_id", 0 reads.
+	// 19-digit Snowflake; else VALIDATION "community_id", before any lookup.
 	CommunityId string `protobuf:"bytes,1,opt,name=community_id,json=communityId,proto3" json:"community_id,omitempty"`
 	// 0 => 20; max 50 (clamped).
 	PageSize int32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`

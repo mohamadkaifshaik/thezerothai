@@ -10,8 +10,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // fakeSweeper is a Sweeper for the route tests.
@@ -19,20 +17,16 @@ type fakeSweeper struct {
 	res      SweepResult
 	err      error
 	panicVal any
-	reads    int64
 	calls    int
 	deadline time.Time
-	hadCount bool
 }
 
 func (f *fakeSweeper) Sweep(ctx context.Context) (SweepResult, error) {
 	f.calls++
 	f.deadline, _ = ctx.Deadline()
-	f.hadCount = budget.FromContext(ctx) != nil
 	if f.panicVal != nil {
 		panic(f.panicVal)
 	}
-	budget.FromContext(ctx).AddReads(f.reads)
 	return f.res, f.err
 }
 
@@ -77,13 +71,10 @@ func TestSweepHandler_MethodAndDeadline(t *testing.T) {
 	if sw.deadline.Before(before.Add(sweepRunDeadline)) || sw.deadline.After(after.Add(sweepRunDeadline)) {
 		t.Errorf("the run's deadline is %v after the request started, want exactly %v", sw.deadline.Sub(before), sweepRunDeadline)
 	}
-	if !sw.hadCount {
-		t.Error("the run has no budget counter (system reads must not be charged to a user)")
-	}
 }
 
 func TestSweepHandler_OneLinePerRunWith204EvenWhenItemsFail(t *testing.T) {
-	sw := &fakeSweeper{reads: 17, res: SweepResult{
+	sw := &fakeSweeper{res: SweepResult{
 		Outcome: SweepOK, Due: 9, Published: 4, Cancelled: 1, Transient: 1, Deferred: 2, HeldMedia: 4, Noop: 1, SkippedBadPath: 1, Undecodable: 1,
 		MaxLateness: 7 * time.Minute, Failed: map[ScheduledFailure]int{FailureMediaUnavailable: 2, FailureExpired: 1},
 	}}
@@ -116,24 +107,24 @@ func TestSweepHandler_OneLinePerRunWith204EvenWhenItemsFail(t *testing.T) {
 	}
 }
 
-func TestSweepHandler_NoOpOutcomesAre204WithZeroReads(t *testing.T) {
+func TestSweepHandler_NoOpOutcomesAre204(t *testing.T) {
 	for _, outcome := range []string{SweepFlagOff, SweepDegraded} {
 		sw := &fakeSweeper{res: SweepResult{Outcome: outcome}}
 		rec, logs := serveSweep(t, sw, http.MethodPost)
 		m := lastJSONLine(t, logs)
 		if rec.Code != http.StatusNoContent || m["outcome"] != outcome {
-			t.Errorf("%s: status %d line %v, want 204, the outcome and 0 reads", outcome, rec.Code, m)
+			t.Errorf("%s: status %d line %v, want 204 and the outcome", outcome, rec.Code, m)
 		}
 	}
 }
 
 func TestSweepHandler_QueryFailureIs500WithAnErrorReport(t *testing.T) {
-	sw := &fakeSweeper{reads: 1, res: SweepResult{Outcome: SweepError}, err: errors.New("posts: sweep due query: unavailable")}
+	sw := &fakeSweeper{res: SweepResult{Outcome: SweepError}, err: errors.New("posts: sweep due query: unavailable")}
 	rec, logs := serveSweep(t, sw, http.MethodPost)
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500 so Cloud Scheduler retries", rec.Code)
 	}
-	// The scheduled_sweep line is written for a failed run too (outcome=error, with the counts and the run's reads)...
+	// The scheduled_sweep line is written for a failed run too (outcome=error, with the counts)...
 	lines := logs.lines(`"msg":"scheduled_sweep"`)
 	if len(lines) != 1 {
 		t.Fatalf("scheduled_sweep lines = %d, want exactly 1 on a failed run too:\n%s", len(lines), logs.String())
@@ -143,7 +134,7 @@ func TestSweepHandler_QueryFailureIs500WithAnErrorReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	if run["outcome"] != "error" || run["level"] != "WARN" || run["due"] != float64(0) {
-		t.Errorf("run line = %v, want outcome=error at WARN with the counts and 1 read", run)
+		t.Errorf("run line = %v, want outcome=error at WARN with the counts", run)
 	}
 	// ...and a SEPARATE Error Reporting entry carries only the scrubbed error, no counts.
 	m := lastJSONLine(t, logs)

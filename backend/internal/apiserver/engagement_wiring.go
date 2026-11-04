@@ -71,8 +71,8 @@ type jobHandler interface {
 }
 
 // postDeleteChain is the composite post_delete handler: the media step (a message without
-// images is a noop that reads nothing), the engagement step, then the identity pin step (1 post read + 1 users read,
-// a write only when the deleted post was the author's pin). All three always run, so a failure of one never leaves
+// images is a noop), the engagement step, then the identity pin step (it writes only when the deleted post was the
+// author's pin). All three always run, so a failure of one never leaves
 // the others' work undone for a delivery; any error nacks the message and every step is idempotent.
 type postDeleteChain struct {
 	media jobHandler

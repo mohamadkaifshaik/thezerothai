@@ -14,7 +14,7 @@ package apiserver
 //   - the deletion of the second protected account closes the set entry too, and the whole followRequests collection holds
 //     no pair of the cohort (I-R: no request without its `requested` entry, nothing left over).
 // The wiring lists (steps, sections) and the coverage guard are lifecycle_wiring_test.go and
-// lifecycle_collections_guard_test.go; the minimum cost of the step on an empty account is in the reference-account budgets.
+// lifecycle_collections_guard_test.go.
 
 import (
 	"bytes"

@@ -7,28 +7,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// purgeAll runs the eraser to completion with the given chunk size and returns the summed counters and the invocation count.
-func (e *env) purgeAll(t *testing.T, uid string, chunk int) (reads, writes, deletes int64, invocations int, cp Checkpoint) {
+// purgeAll runs the eraser to completion with the given chunk size and returns the invocation count and the final checkpoint.
+func (e *env) purgeAll(t *testing.T, uid string, chunk int) (invocations int, cp Checkpoint) {
 	t.Helper()
 	er := NewEraser(e.repo, e.dir, WithChunk(chunk), WithModlogMax(100))
 	for range 20 {
-		ctx, c := budget.WithCounter(context.Background())
-		asked := e.dir.asked
-		next, done, err := er.PurgeUser(ctx, uid, cp)
+		next, done, err := er.PurgeUser(context.Background(), uid, cp)
 		if err != nil {
 			t.Fatalf("purge: %v", err)
 		}
-		// the fake directory charges its own reads (identity.Directory is cache-first in production); count the module's reads only
-		reads, writes, deletes, invocations, cp = reads+c.Reads()-int64(e.dir.asked-asked), writes+c.Writes(), deletes+c.Deletes(), invocations+1, next
+		invocations, cp = invocations+1, next
 		if done {
 			return
 		}
@@ -62,17 +59,16 @@ func (e *env) requireNoTrace(t *testing.T, uid string) {
 	}
 }
 
-func TestEraser_ReferenceAccountMatchesTheADRBudget(t *testing.T) {
-	// Cost: the reference account (2 joined) = 5 reads, 2 writes, 3 deletes.
+func TestEraser_ReferenceAccountIsErasedInOneInvocation(t *testing.T) {
 	e := newEnv(t, 100)
 	a, b := "0000000000000000101", "0000000000000000102"
 	for _, id := range []string{a, b} {
 		e.seedCommunity(t, Community{ID: id, Name: "c" + id[len(id)-1:], OwnerID: "owner", MemberCount: 3}, map[string]MemberState{"member": MemberJoined, "other": MemberJoined})
 	}
 	e.seedMemberships(t, "member", Memberships{Joined: []string{a, b}})
-	reads, writes, deletes, n, cp := e.purgeAll(t, "member", 10)
-	if reads != 5 || writes != 2 || deletes != 3 || n != 1 {
-		t.Errorf("reference account = %d reads, %d writes, %d deletes in %d invocation(s), want 5, 2, 3 in 1", reads, writes, deletes, n)
+	n, cp := e.purgeAll(t, "member", 10)
+	if n != 1 {
+		t.Errorf("reference account took %d invocations, want 1", n)
 	}
 	if cp.Communities != 2 {
 		t.Errorf("checkpoint = %+v", cp)
@@ -83,10 +79,15 @@ func TestEraser_ReferenceAccountMatchesTheADRBudget(t *testing.T) {
 		}
 	}
 	e.requireNoTrace(t, "member")
-	// a rerun: one read, nothing written
-	reads, writes, deletes, n, _ = e.purgeAll(t, "member", 10)
-	if reads != 1 || writes != 0 || deletes != 0 || n != 1 {
-		t.Errorf("rerun = %d reads, %d writes, %d deletes, want 1, 0, 0", reads, writes, deletes)
+	// a rerun finds nothing left: it finishes at once, reports no work and leaves the counts alone
+	n, cp = e.purgeAll(t, "member", 10)
+	if n != 1 || cp.Communities != 0 || cp.Handovers != 0 || cp.Archived != 0 {
+		t.Errorf("rerun = %d invocation(s), checkpoint %+v, want 1 and an empty checkpoint", n, cp)
+	}
+	for _, id := range []string{a, b} {
+		if c := e.community(t, id); c.MemberCount != 2 {
+			t.Errorf("after the rerun %s memberCount = %d, want 2", id, c.MemberCount)
+		}
 	}
 }
 
@@ -105,10 +106,9 @@ func TestEraser_OwnerWithModeratorsHandsOverToTheFirstActiveOne(t *testing.T) {
 	e.seedMemberships(t, "mod2", Memberships{Joined: []string{cid}, Modlogged: []string{cid}})
 	e.seedMemberships(t, "mod3", Memberships{Joined: []string{cid}, Modlogged: []string{cid}})
 
-	reads, writes, deletes, _, cp := e.purgeAll(t, "owner", 10)
-	// 1 memberships + (community + member doc) + 3 successor checks: mod1 is DELETING (no read), mod2 is chosen (1 read)
-	if reads != 1+2+1 || writes != 2 || deletes != 2 || cp.Handovers != 1 || cp.Archived != 0 {
-		t.Errorf("handover = %d reads, %d writes, %d deletes, checkpoint %+v, want 4, 2 (community + the new owner's memberships), 2", reads, writes, deletes, cp)
+	_, cp := e.purgeAll(t, "owner", 10)
+	if cp.Handovers != 1 || cp.Archived != 0 {
+		t.Errorf("handover checkpoint = %+v, want 1 handover and no archive", cp)
 	}
 	c := e.community(t, cid)
 	if c.OwnerID != "mod2" || !slices.Equal(c.ModeratorIDs, []string{"mod1", "mod3"}) || c.MemberCount != 4 || c.Status != StatusActive ||
@@ -129,10 +129,13 @@ func TestEraser_OwnerWithModeratorsHandsOverToTheFirstActiveOne(t *testing.T) {
 	if _, ok := e.data(t, "communities/"+cid+"/communityMembers/mod2"); !ok {
 		t.Error("the new owner's member doc is gone")
 	}
-	// a rerun writes nothing
-	reads, writes, deletes, _, _ = e.purgeAll(t, "owner", 10)
-	if writes != 0 || deletes != 0 || reads != 1 {
-		t.Errorf("rerun = %d reads, %d writes, %d deletes", reads, writes, deletes)
+	// a rerun writes nothing: the community, with its log, is exactly as the hand-over left it
+	before := e.community(t, cid)
+	if _, cp := e.purgeAll(t, "owner", 10); cp.Handovers != 0 || cp.Archived != 0 {
+		t.Errorf("rerun checkpoint = %+v, want no work", cp)
+	}
+	if after := e.community(t, cid); !reflect.DeepEqual(before, after) {
+		t.Errorf("rerun changed the community: %+v -> %+v", before, after)
 	}
 }
 
@@ -144,7 +147,7 @@ func TestEraser_OwnerWithoutAnActiveModeratorArchivesAndKeepsTheText(t *testing.
 	e.seedCommunity(t, Community{ID: onlyGone, Name: "Leaving", OwnerID: "owner", ModeratorIDs: []string{"mod1", "ghost"}, MemberCount: 3}, map[string]MemberState{"owner": MemberJoined})
 	e.seedCommunity(t, Community{ID: susp, Name: "Offline", OwnerID: "owner", MemberCount: 1, Status: StatusSuspended}, map[string]MemberState{"owner": MemberJoined})
 	e.seedMemberships(t, "owner", Memberships{Joined: []string{none, onlyGone, susp}, Owned: []string{none, onlyGone, susp}})
-	_, _, _, _, cp := e.purgeAll(t, "owner", 1) // one community per invocation: a resume mid-list
+	_, cp := e.purgeAll(t, "owner", 1) // one community per invocation: a resume mid-list
 	if cp.Archived != 3 || cp.Handovers != 0 || cp.Communities != 3 {
 		t.Errorf("checkpoint = %+v", cp)
 	}
@@ -192,10 +195,7 @@ func TestEraser_FormerModeratorAndBannedMemberLeaveNoTrace(t *testing.T) {
 		{Seq: 4, At: at, Actor: "gone", Action: ActionModeratorLeft},
 	}}, map[string]MemberState{"owner": MemberJoined, "other": MemberJoined})
 	e.seedMemberships(t, "gone", Memberships{Modlogged: []string{cid}})
-	reads, writes, deletes, _, _ := e.purgeAll(t, "gone", 10)
-	if reads != 3 || writes != 1 || deletes != 1 {
-		t.Errorf("former moderator = %d reads, %d writes, %d deletes, want 3 (memberships, community, member doc), 1, 1 (the memberships doc)", reads, writes, deletes)
-	}
+	e.purgeAll(t, "gone", 10)
 	c := e.community(t, cid)
 	if c.MemberCount != 2 || len(c.Modlog) != 4 || c.Modlog[0].Target != DeletedMarker || c.Modlog[0].Actor != "owner" || c.Modlog[2].Actor != DeletedMarker || c.Modlog[3].Actor != DeletedMarker ||
 		c.Modlog[2].Action != ActionHide || c.Modlog[2].PostID != "p9" {
@@ -223,9 +223,10 @@ func TestEraser_MemberWhoseCommunityIsGoneOnlyLosesTheMemberDoc(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.seedMemberships(t, "u", Memberships{Joined: []string{cid}})
-	_, writes, deletes, _, _ := e.purgeAll(t, "u", 10)
-	if writes != 0 || deletes != 2 {
-		t.Errorf("= %d writes, %d deletes, want 0 and 2", writes, deletes)
+	e.purgeAll(t, "u", 10)
+	// the erase only deletes: it must not create the missing community document
+	if _, ok := e.data(t, "communities/"+cid); ok {
+		t.Error("the eraser created the missing community document")
 	}
 	e.requireNoTrace(t, "u")
 }
@@ -251,7 +252,7 @@ func TestEraser_HandoverTrimsTheLogToItsCap(t *testing.T) {
 
 // ---- export ----
 
-func TestExport_ReferenceAccountReadsAndShape(t *testing.T) {
+func TestExport_ReferenceAccountShape(t *testing.T) {
 	e := newEnv(t, 100)
 	a, b := "0000000000000000801", "0000000000000000802"
 	for _, id := range []string{a, b} {
@@ -259,11 +260,9 @@ func TestExport_ReferenceAccountReadsAndShape(t *testing.T) {
 	}
 	e.seedMemberships(t, "member", Memberships{Joined: []string{a, b}})
 	var buf bytes.Buffer
-	measured(t, "export", func(ctx context.Context) {
-		if err := NewExporter(e.repo).ExportUser(ctx, "member", &buf); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if err := NewExporter(e.repo).ExportUser(context.Background(), "member", &buf); err != nil {
+		t.Fatal(err)
+	}
 	var got Export
 	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
 		t.Fatal(err)
@@ -274,13 +273,11 @@ func TestExport_ReferenceAccountReadsAndShape(t *testing.T) {
 	if strings.Contains(buf.String(), "owner") {
 		t.Errorf("another user's uid is in the export: %s", buf.String())
 	}
-	// an account without memberships: one read, an empty section
+	// an account without memberships: an empty section
 	buf.Reset()
-	measured(t, "empty export", func(ctx context.Context) {
-		if err := NewExporter(e.repo).ExportUser(ctx, "nobody", &buf); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if err := NewExporter(e.repo).ExportUser(context.Background(), "nobody", &buf); err != nil {
+		t.Fatal(err)
+	}
 	if strings.TrimSpace(buf.String()) != `{"joined":[],"owned":[],"banned":[],"moderationActions":[],"redactedCount":0}` {
 		t.Errorf("empty export = %s", buf.String())
 	}

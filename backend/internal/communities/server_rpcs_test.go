@@ -84,8 +84,8 @@ func sampleView() View {
 	}}
 }
 
-// TestServer_ImplementedRPCsRunTheGateBeforeTheService: in every flag mode, a caller outside the flag never reaches the service (0 reads,
-// FEATURE_DISABLED), and a caller inside does.
+// TestServer_ImplementedRPCsRunTheGateBeforeTheService: in every flag mode, a caller outside the flag never reaches the service,
+// answered FEATURE_DISABLED, and a caller inside does.
 func TestServer_ImplementedRPCsRunTheGateBeforeTheService(t *testing.T) {
 	calls := map[string]func(*Server, context.Context) error{
 		"CreateCommunity":      call((*Server).CreateCommunity),

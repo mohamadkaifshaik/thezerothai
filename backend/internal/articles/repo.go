@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -45,7 +44,6 @@ func locked() error {
 }
 func (r *firestoreRepo) get(ctx context.Context, id string) (*record, error) {
 	d, err := r.client.Collection("articles").Doc(id).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if status.Code(err) == codes.NotFound {
 		return nil, missing()
 	}
@@ -64,7 +62,6 @@ func (r *firestoreRepo) change(ctx context.Context, id string, fn func(*record) 
 	err := r.client.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		ref := r.client.Collection("articles").Doc(id)
 		d, err := tx.Get(ref)
-		budget.FromContext(ctx).AddReads(1)
 		var current *record
 		if err == nil {
 			current = &record{ID: id}
@@ -78,7 +75,7 @@ func (r *firestoreRepo) change(ctx context.Context, id string, fn func(*record) 
 		if err != nil {
 			return err
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		if next == nil {
 			if current != nil {
 				b.Delete(ref)
@@ -97,11 +94,6 @@ func (r *firestoreRepo) list(ctx context.Context, uid string, published bool, n 
 		q = q.StartAfter(after)
 	}
 	docs, err := q.Documents(ctx).GetAll()
-	reads := int64(len(docs))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
 		return nil, err
 	}

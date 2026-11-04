@@ -9,7 +9,7 @@ import (
 func TestListTimeline_PanicInChunkQueryFailsTheCallOnly(t *testing.T) {
 	r, _ := listRig(t, names("m", 3)...)
 	r.posts.hook = func() { panic("boom") }
-	_, _, err := r.list("me", testListID, "", "", 20)
+	_, err := r.list("me", testListID, "", "", 20)
 	if err == nil || !strings.Contains(err.Error(), "panic of type string") {
 		t.Fatalf("err = %v, want the panic as this call's error", err)
 	}

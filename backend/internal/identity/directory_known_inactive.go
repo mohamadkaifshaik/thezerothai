@@ -2,7 +2,7 @@ package identity
 
 // KnownInactive reports which of uids the profile cache ALREADY knows cannot be shown: a cached profile whose status is
 // not ACTIVE (SUSPENDED, DELETING) or a uid confirmed to have no users/{uid} document in the last notFoundTTL. It is
-// cache-only: 0 Firestore reads, no loading, no cache refresh, and a uid the cache has not seen, or whose entry has
+// cache-only: no Firestore read, no loading, no cache refresh, and a uid the cache has not seen, or whose entry has
 // expired, is simply absent from the result ("unknown", never "active"). So it can only ever remove work for a
 // caller that tolerates a miss; it must not be used as a permission check.
 //

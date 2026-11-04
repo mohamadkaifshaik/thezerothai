@@ -117,7 +117,7 @@ func TestUser_OwnProfileKeepsOwnCopyWithoutGraphRead(t *testing.T) {
 	cp := r.posts.add("me", r.ms(-2*time.Second))
 	makeCopy(cp, posts.KindRepost)
 	r.graph.snaps["me"] = graph.Snapshot{Blocked: following(embAuthor)}
-	resp, _, err := r.user("me", "me", false, "", "", 20)
+	resp, err := r.user("me", "me", false, "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,9 +10,9 @@
 // Auth: every RPC requires a Firebase ID token + App Check token. The caller's uid comes from the token, never the body.
 // Only Google, Apple and verified-email password sign-ins are accepted (anonymous only against the Auth emulator).
 // Any other caller, notably a password account whose email is unverified, gets FAILED_PRECONDITION
-// + PROFILE_REQUIRED at 0 Firestore reads on every RPC except CheckHandleAvailability and CreateProfile, which
-// answer EMAIL_NOT_VERIFIED. A profile-less verified caller on any other RPC gets PROFILE_REQUIRED after at most
-// 1 read, and is never answered RATE_LIMITED because of its IP address.
+// + PROFILE_REQUIRED before any Firestore read on every RPC except CheckHandleAvailability and CreateProfile, which
+// answer EMAIL_NOT_VERIFIED. A profile-less verified caller on any other RPC gets PROFILE_REQUIRED after a
+// single lookup, and is never answered RATE_LIMITED because of its IP address.
 
 package identityv1
 
@@ -600,7 +600,7 @@ type GetMeResponse struct {
 	// to 30 s. Drives the Messages badge.
 	UnreadConversationCount int64 `protobuf:"varint,7,opt,name=unread_conversation_count,json=unreadConversationCount,proto3" json:"unread_conversation_count,omitempty"`
 	// The caller's pinned Home tabs in order, after the fixed Following tab (founder decision F5): at most
-	// HOME_TABS_MAX_PINNED (5). Read from users/{uid}.homeTabs, the document this RPC already reads: 0 extra reads.
+	// HOME_TABS_MAX_PINNED (5). Read from users/{uid}.homeTabs, the document this RPC already reads.
 	// Tabs of a kind whose flag is off for the caller (LIST: FEATURE_LISTS; COMMUNITY: FEATURE_COMMUNITIES)
 	// are omitted here but kept in storage, so they come back with the flag. A tab may name a list that was deleted or
 	// made private since, or a community that was suspended: the client learns it from GetListTimeline's or

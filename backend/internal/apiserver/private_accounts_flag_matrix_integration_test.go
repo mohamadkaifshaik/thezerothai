@@ -9,7 +9,7 @@ package apiserver
 // Two gate shapes (D12), asserted separately:
 //
 //	"on for the caller": UpdateProfile(is_private=true) and GetMe.enabled_features. Refused as FEATURE_DISABLED
-//	    feature=private_accounts at exactly 0 reads, 0 writes and 0 deletes once the caller's account-status read is warm.
+//	    feature=private_accounts and writes nothing.
 //	"not globally off, or the caller is protected now": ListFollowRequests and RespondToFollowRequest. A public caller is
 //	    refused ONLY in mode off (an empty allowlist or percent 0 is a rollout, not the kill switch); a protected caller
 //	    passes in all ten states.
@@ -67,7 +67,7 @@ func TestW335b_PrivateAccountsFlagMatrix(t *testing.T) {
 				u, on := side.u, mc.enabled(side.in)
 				what := side.label + " user"
 
-				// enabled_features is exact, and the same call warms the account-status read for the 0-read refusals.
+				// enabled_features is exact, and the same call warms the account-status read for the refusals.
 				if listed := slices.Contains(r.w320Warm(t, u), privateAccountsFeature); listed != on {
 					t.Errorf("%s: enabled_features lists %s = %v, want %v", what, privateAccountsFeature, listed, on)
 				}

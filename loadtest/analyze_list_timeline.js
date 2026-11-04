@@ -1,13 +1,12 @@
-// analyze_list_timeline.js: W5 reads, writes and server time per call from the API's JSON request log (scenario
+// analyze_list_timeline.js: W5 server time per call from the API's JSON request log (scenario
 // list_timeline.js). Plain Node, no dependencies.
 //
 //   node loadtest/analyze_list_timeline.js api.log k6.out
 //
 // api.log is the API process's stdout (JSON lines); k6.out is the k6 console output (stdout and stderr together), which carries the
 // `W5 PHASE <name> <iso>` and `W5 STEP <name> <iso>` markers. In the serial phase the i-th request line is the i-th STEP (one RPC per step, one virtual user),
-// so each case prints its own reads. Request lines after `cold_calls_done` are the herd: they are grouped by timeline_op and
-// timeline_mode, with the server-side latency percentiles. Only lines with message "request" carry the request fields (fs_reads,
-// fs_writes, fs_deletes, timeline_op, timeline_mode, list_members, timeline_chunks, authors_from_cache, items_returned, cache_hit, code).
+// so each case prints its own line. Request lines after `cold_calls_done` are the herd: they are grouped by timeline_op and
+// timeline_mode, with the server-side latency percentiles. Only lines with message "request" carry the request fields (timeline_op, timeline_mode, list_members, timeline_chunks, authors_from_cache, items_returned, cache_hit, code).
 const fs = require('fs');
 
 const [apiLog, k6Out] = process.argv.slice(2);
@@ -66,11 +65,11 @@ for (const line of fs.readFileSync(apiLog, 'utf8').split(/\r?\n/)) {
 if (seq.length !== steps.length) console.error(`WARNING: ${steps.length} steps but ${seq.length} request lines in the serial phase`);
 steps.forEach((st, i) => { if (seq[i]) serial.set(st.name, [seq[i]]); });
 const f = (x) => (x === undefined ? '-' : x);
-console.log('step | rpc | code | reads | writes | deletes | latency_ms | mode | list_members | chunks | from_cache | returned | cache_hit');
+console.log('step | rpc | code | latency_ms | mode | list_members | chunks | from_cache | returned | cache_hit');
 for (const s of steps) {
   for (const o of serial.get(s.name) || []) {
     console.log(
-      [s.name, short(o.rpc), f(o.code), f(o.fs_reads), f(o.fs_writes), f(o.fs_deletes), f(o.latency_ms), f(o.timeline_mode), f(o.list_members), f(o.timeline_chunks), f(o.authors_from_cache), f(o.items_returned), f(o.cache_hit)].join(' | '),
+      [s.name, short(o.rpc), f(o.code), f(o.latency_ms), f(o.timeline_mode), f(o.list_members), f(o.timeline_chunks), f(o.authors_from_cache), f(o.items_returned), f(o.cache_hit)].join(' | '),
     );
   }
 }
@@ -84,13 +83,10 @@ for (const o of herd) {
 }
 for (const [k, rows] of [...groups.entries()].sort()) {
   const lat = rows.map((r) => r.latency_ms || 0);
-  const reads = rows.map((r) => r.fs_reads || 0);
   const codes = {};
   for (const r of rows) codes[r.code] = (codes[r.code] || 0) + 1;
-  const hist = {};
-  for (const x of reads) hist[x] = (hist[x] || 0) + 1;
   console.log(
-    `${k}: calls=${rows.length} latency_ms mean=${mean(lat).toFixed(1)} p50=${pct(lat, 50)} p95=${pct(lat, 95)} p99=${pct(lat, 99)} max=${Math.max(...lat)} | fs_reads mean=${mean(reads).toFixed(2)} max=${Math.max(...reads)} hist=${JSON.stringify(hist)} | fs_writes mean=${mean(rows.map((r) => r.fs_writes || 0)).toFixed(2)} | codes=${JSON.stringify(codes)}`,
+    `${k}: calls=${rows.length} latency_ms mean=${mean(lat).toFixed(1)} p50=${pct(lat, 50)} p95=${pct(lat, 95)} p99=${pct(lat, 99)} max=${Math.max(...lat)} | codes=${JSON.stringify(codes)}`,
   );
 }
 console.log(`\nERROR lines: ${errors}   WARN lines: ${warns}`);

@@ -17,8 +17,8 @@ import (
 const FlagName = "posts"
 
 // Request-log fields. They ride on the mw.Logging line through logger.RequestInfo; values are
-// booleans, counts and enums only, never ids, handles or text. fs_reads/fs_writes/fs_deletes are already
-// emitted by mw.Logging. posts_op and outcome are set by the RPCs; the Reader sets only the cache field.
+// booleans, counts and enums only, never ids, handles or text.
+// posts_op and outcome are set by the RPCs; the Reader sets only the cache field.
 const fieldCacheHit = "posts_cache_hit"
 
 // fieldMediaJob records what DeletePost did about the post_delete job: published | publish_failed (absent: no images).
@@ -200,7 +200,7 @@ func (s *service) GetMany(ctx context.Context, ids []string) (map[string]*Post, 
 	return out, nil
 }
 
-// ByAuthors implements Reader. No authors means no query (0 reads).
+// ByAuthors implements Reader. No authors means no query.
 func (s *service) ByAuthors(ctx context.Context, authorIDs []string, w Window, limit int) ([]*Post, error) {
 	if len(authorIDs) == 0 {
 		return nil, nil
@@ -237,7 +237,7 @@ func (s *service) ByAuthor(ctx context.Context, authorID string, includeReplies 
 	return out, nil
 }
 
-// ByAuthorMedia implements Reader (Q-M). Reads: len(result), minimum 1. Needs the hasMedia composite index READY.
+// ByAuthorMedia implements Reader (Q-M). Needs the hasMedia composite index READY.
 func (s *service) ByAuthorMedia(ctx context.Context, authorID string, w Window, limit int) ([]*Post, error) {
 	if authorID == "" {
 		return nil, fmt.Errorf("posts: ByAuthorMedia needs an author id")
@@ -254,7 +254,7 @@ func (s *service) ByAuthorMedia(ctx context.Context, authorID string, w Window, 
 	return out, nil
 }
 
-// ByAuthorKind implements Reader (Q-B). Reads: len(result), minimum 1. Needs the kind composite index READY.
+// ByAuthorKind implements Reader (Q-B). Needs the kind composite index READY.
 func (s *service) ByAuthorKind(ctx context.Context, authorID string, kind Kind, w Window, limit int) ([]*Post, error) {
 	if authorID == "" {
 		return nil, fmt.Errorf("posts: ByAuthorKind needs an author id")
@@ -276,7 +276,7 @@ func (s *service) ByAuthorKind(ctx context.Context, authorID string, kind Kind, 
 	return out, nil
 }
 
-// ByHashtag implements Reader (Q-T). Reads: len(result), minimum 1.
+// ByHashtag implements Reader (Q-T).
 func (s *service) ByHashtag(ctx context.Context, tag string, w Window, limit int) ([]*Post, error) {
 	if tag == "" || strings.ContainsAny(tag, "# \t\r\n") {
 		return nil, fmt.Errorf("posts: ByHashtag needs a bare tag body")
@@ -293,7 +293,7 @@ func (s *service) ByHashtag(ctx context.Context, tag string, w Window, limit int
 	return out, nil
 }
 
-// CreatedAfter implements Reader (Q-W). Reads: len(result), minimum 1. Results are projected (partial) posts and are
+// CreatedAfter implements Reader (Q-W). Results are projected (partial) posts and are
 // deliberately NOT put in the posts cache or the author-recent cache.
 func (s *service) CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error) {
 	if after.CreatedAt.IsZero() {

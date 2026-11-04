@@ -14,7 +14,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -22,7 +21,7 @@ import (
 // ScheduledPurger deletes one page of a user's scheduled documents.
 type ScheduledPurger interface {
 	// PurgeScheduledPage deletes up to opsPage (500) of uid's scheduled documents in one atomic batch and reports how
-	// many. Reads: one per document (minimum 1); deletes: one per document. Deleted documents leave the next page,
+	// many. Deleted documents leave the next page,
 	// so repeating the call is self-resuming.
 	PurgeScheduledPage(ctx context.Context, uid string) (deleted int, err error)
 }
@@ -30,7 +29,7 @@ type ScheduledPurger interface {
 // ScheduledExportSource pages through a user's scheduled documents for the export.
 type ScheduledExportSource interface {
 	// ExportScheduledPage returns uid's documents (every status) strictly after `after` (nil = from the start),
-	// ordered by publishAt then id, at most limit. Reads: len(result), minimum 1.
+	// ordered by publishAt then id, at most limit.
 	ExportScheduledPage(ctx context.Context, uid string, after *Position, limit int) ([]*ScheduledPost, error)
 }
 
@@ -41,14 +40,13 @@ func (r *FirestoreRepo) PurgeScheduledPage(ctx context.Context, uid string) (int
 		return 0, err
 	}
 	docs, err := col.Select().Limit(opsPage).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return 0, fmt.Errorf("posts: purge scheduled %s: query: %w", logger.HashUID(uid), err)
 	}
 	if len(docs) == 0 {
 		return 0, nil
 	}
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	for _, d := range docs {
 		b.Delete(d.Ref)
 	}
@@ -69,7 +67,6 @@ func (r *FirestoreRepo) ExportScheduledPage(ctx context.Context, uid string, aft
 		q = q.StartAfter(after.CreatedAt, col.Doc(after.ID))
 	}
 	docs, err := q.Limit(min(max(limit, 1), opsPage)).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return nil, fmt.Errorf("posts: export scheduled %s: query: %w", logger.HashUID(uid), err)
 	}
@@ -94,7 +91,7 @@ type ScheduledEraser struct {
 func NewScheduledEraser(repo ScheduledPurger) *ScheduledEraser { return &ScheduledEraser{repo: repo} }
 
 // PurgeUser deletes one page. done is true when the page was short, which includes the empty page of an account
-// that never scheduled anything (1 read). Reads: one per document (minimum 1); deletes: one per document.
+// that never scheduled anything.
 func (e *ScheduledEraser) PurgeUser(ctx context.Context, uid string, cp ScheduledCheckpoint) (ScheduledCheckpoint, bool, error) {
 	n, err := e.repo.PurgeScheduledPage(ctx, uid)
 	if err != nil {
@@ -144,7 +141,7 @@ func NewScheduledExporter(src ScheduledExportSource) *ScheduledExporter {
 }
 
 // ExportUser streams {"userId": ..., "scheduled": [...]} to w, oldest publishAt first, in pages of opsPage (memory
-// stays bounded). It lists every document, with the draft where one is held. Reads: one per document, minimum 1.
+// stays bounded). It lists every document, with the draft where one is held.
 func (x *ScheduledExporter) ExportUser(ctx context.Context, uid string, w io.Writer) error {
 	if _, err := fmt.Fprintf(w, `{"userId":%q,"scheduled":[`, uid); err != nil {
 		return fmt.Errorf("posts: write scheduled export: %w", err)

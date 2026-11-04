@@ -25,7 +25,6 @@ import (
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -153,38 +152,36 @@ func TestW320_LegacyPostIsOffTheMediaTabUntilBackfilled(t *testing.T) {
 
 	repo := posts.NewFirestoreRepo(w.fs)
 	start := posts.BackfillCheckpoint{After: w320IDBelow(t, legacyImage)}
-	run := func(opts posts.BackfillOptions) (posts.BackfillCheckpoint, *budget.Counter) {
+	run := func(opts posts.BackfillOptions) posts.BackfillCheckpoint {
 		t.Helper()
-		bctx, c := budget.WithCounter(ctx)
 		cp := start
 		for calls := 0; calls < 1000; calls++ {
-			next, state, err := repo.BackfillHasMedia(bctx, cp, opts)
+			next, state, err := repo.BackfillHasMedia(ctx, cp, opts)
 			if err != nil {
 				t.Fatalf("BackfillHasMedia: %v", err)
 			}
 			cp = next
 			if state != posts.BackfillMore {
-				return cp, c
+				return cp
 			}
 		}
 		t.Fatal("the backfill did not finish")
-		return cp, c
+		return cp
 	}
 
 	// Dry run: counts, writes nothing, the tab is unchanged.
-	cp, c := run(posts.BackfillOptions{PageSize: 50, DryRun: true})
+	cp := run(posts.BackfillOptions{PageSize: 50, DryRun: true})
 	if cp.Updated != 0 || cp.Missing < 2 {
-		t.Errorf("dry run: writes=%d updated=%d missing=%d, want 0 writes and at least our 2 missing", c.Writes(), cp.Updated, cp.Missing)
+		t.Errorf("dry run: updated=%d missing=%d, want nothing updated and at least our 2 missing", cp.Updated, cp.Missing)
 	}
 	if got := mediaTab(); !slices.Equal(got, []string{fresh}) {
 		t.Errorf("after a dry run the Media tab = %v", got)
 	}
 
 	// Real run: writes the missing keys only (one per missing document, never more).
-	cp, c = run(posts.BackfillOptions{PageSize: 50})
-	t.Logf("W320BUDGET backfill-has-media real run: scanned=%d missing=%d updated=%d reads=%d writes=%d", cp.Scanned, cp.Missing, cp.Updated, c.Reads(), c.Writes())
+	cp = run(posts.BackfillOptions{PageSize: 50})
 	if cp.Updated != cp.Missing || cp.Updated < 2 {
-		t.Errorf("real run: updated=%d missing=%d writes=%d, want one write per missing document (at least our 2)", cp.Updated, cp.Missing, c.Writes())
+		t.Errorf("real run: updated=%d missing=%d, want one update per missing document (at least our 2)", cp.Updated, cp.Missing)
 	}
 	if got, ok := w.w320StoredBool(t, legacyImage); !ok || !got {
 		t.Errorf("legacy image post hasMedia = %v/%v, want true", got, ok)
@@ -199,10 +196,9 @@ func TestW320_LegacyPostIsOffTheMediaTabUntilBackfilled(t *testing.T) {
 		t.Errorf("after the backfill the Media tab = %v, want newest first [fresh legacyImage] %v", got, []string{fresh, legacyImage})
 	}
 
-	// Rerun: nothing is missing any more, so nothing is written; every post is read once.
-	cp, c = run(posts.BackfillOptions{PageSize: 50})
+	// Rerun: nothing is missing any more, so nothing is written.
+	cp = run(posts.BackfillOptions{PageSize: 50})
 	if cp.Updated != 0 || cp.Missing != 0 {
-		t.Errorf("rerun: writes=%d updated=%d missing=%d, want 0/0/0", c.Writes(), cp.Updated, cp.Missing)
+		t.Errorf("rerun: updated=%d missing=%d, want 0/0", cp.Updated, cp.Missing)
 	}
-	t.Logf("W320BUDGET backfill-has-media rerun: scanned=%d reads=%d writes=%d", cp.Scanned, c.Reads(), c.Writes())
 }

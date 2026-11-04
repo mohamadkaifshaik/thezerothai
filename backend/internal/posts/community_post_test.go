@@ -102,28 +102,28 @@ func TestCreate_CommunityShape(t *testing.T) {
 			g := &fakeGate{name: "Go"}
 			e := gatedEnv(g)
 			tt.in.IdempotencyKey, tt.in.Text, tt.in.CommunitiesEnabled = key1, "hello", true
-			_, c, err := e.create(tt.in)
+			_, err := e.create(tt.in)
 			ae := wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 			if ae.Metadata["field"] != tt.field {
 				t.Fatalf("field = %q, want %q", ae.Metadata["field"], tt.field)
 			}
 			if g.admitCount() != 0 || e.repo.createCalls != 0 {
-				t.Fatalf("reads=%d writes=%d admits=%d creates=%d", c.Reads(), c.Writes(), g.admitCount(), e.repo.createCalls)
+				t.Fatalf("admits=%d creates=%d", g.admitCount(), e.repo.createCalls)
 			}
 		})
 	}
 	t.Run("reply_policy EVERYONE is accepted", func(t *testing.T) {
 		t.Parallel()
 		e := gatedEnv(&fakeGate{name: "Go"})
-		_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunityID: testCommunityID, CommunitiesEnabled: true, ReplyPolicy: 1, ReplyAudienceEnabled: true})
+		_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunityID: testCommunityID, CommunitiesEnabled: true, ReplyPolicy: 1, ReplyAudienceEnabled: true})
 		if err != nil {
 			t.Fatal(err)
 		}
 	})
 }
 
-// TestCreate_CommunityGateOrder: protected caller first (0 reads, the gate is never asked), then the gate's own refusals pass through
-// unchanged, 0 writes.
+// TestCreate_CommunityGateOrder: protected caller first (the gate is never asked), then the gate's own refusals pass through
+// unchanged, with no create.
 func TestCreate_CommunityGateOrder(t *testing.T) {
 	t.Parallel()
 	t.Run("protected caller", func(t *testing.T) {
@@ -133,10 +133,10 @@ func TestCreate_CommunityGateOrder(t *testing.T) {
 		p := e.dir.profiles[testUID]
 		p.IsPrivate = true
 		e.dir.profiles[testUID] = p
-		_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunityID: testCommunityID, CommunitiesEnabled: true})
+		_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunityID: testCommunityID, CommunitiesEnabled: true})
 		_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT)
 		if g.admitCount() != 0 || e.repo.createCalls != 0 {
-			t.Fatalf("admits=%d writes=%d creates=%d", g.admitCount(), c.Writes(), e.repo.createCalls)
+			t.Fatalf("admits=%d creates=%d", g.admitCount(), e.repo.createCalls)
 		}
 	})
 	t.Run("gate refusals pass through", func(t *testing.T) {
@@ -146,10 +146,10 @@ func TestCreate_CommunityGateOrder(t *testing.T) {
 			apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_COMMUNITY_STATE, "state").WithMeta("reason", "community_archived"),
 		} {
 			e := gatedEnv(&fakeGate{admitErr: want})
-			_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunityID: testCommunityID, CommunitiesEnabled: true})
+			_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunityID: testCommunityID, CommunitiesEnabled: true})
 			_ = wantAPIError(t, err, want.Code, want.Reason)
 			if e.repo.createCalls != 0 {
-				t.Fatalf("writes=%d creates=%d", c.Writes(), e.repo.createCalls)
+				t.Fatalf("creates=%d", e.repo.createCalls)
 			}
 		}
 	})
@@ -157,7 +157,7 @@ func TestCreate_CommunityGateOrder(t *testing.T) {
 		t.Parallel()
 		g := &fakeGate{name: "Go"}
 		e := gatedEnv(g)
-		_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunityID: testCommunityID})
+		_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunityID: testCommunityID})
 		ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
 		if ae.Metadata["feature"] != "communities" || g.admitCount() != 0 {
 			t.Fatalf("feature=%q admits=%d", ae.Metadata["feature"], g.admitCount())
@@ -187,7 +187,7 @@ func TestCreate_CommunityPostFields(t *testing.T) {
 				p.CreatedAt = time.Unix(1_700_000_000, 0).Add(-time.Hour)
 				e.dir.profiles[testUID] = p
 			}
-			p, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunityID: testCommunityID, CommunitiesEnabled: true})
+			p, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunityID: testCommunityID, CommunitiesEnabled: true})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -206,7 +206,7 @@ func TestCreate_CommunityPostFields(t *testing.T) {
 	t.Run("plain post has no community", func(t *testing.T) {
 		t.Parallel()
 		e := gatedEnv(&fakeGate{})
-		p, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunitiesEnabled: true})
+		p, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunitiesEnabled: true})
 		if err != nil || p.CommunityID != "" || p.Community != nil || p.ConversationCommunityID != "" || e.repo.lastCreate.Community != nil {
 			t.Fatalf("post = %+v err = %v", p, err)
 		}
@@ -219,7 +219,7 @@ func TestCreate_CommunityRequestHash(t *testing.T) {
 	t.Parallel()
 	e := gatedEnv(&fakeGate{name: "Go"})
 	plain := CreateInput{IdempotencyKey: key1, Text: "hi", CommunitiesEnabled: true}
-	if _, _, err := e.create(plain); err != nil {
+	if _, err := e.create(plain); err != nil {
 		t.Fatal(err)
 	}
 	if want := requestHashWithPoll("hi", "", "", nil, nil, ReplyPolicyEveryone, false, false, nil); e.repo.lastCreate.RequestHash != want {
@@ -227,19 +227,19 @@ func TestCreate_CommunityRequestHash(t *testing.T) {
 	}
 	in := plain
 	in.CommunityID = testCommunityID
-	_, _, err := e.create(in) // same key, now with a community
+	_, err := e.create(in) // same key, now with a community
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 
 	in.IdempotencyKey = key2
-	if _, _, err := e.create(in); err != nil {
+	if _, err := e.create(in); err != nil {
 		t.Fatal(err)
 	}
 	in.CommunityID = "9234567890123456789"
-	_, _, err = e.create(in)
+	_, err = e.create(in)
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 }
 
-// TestApplyReply_InheritsConversationCommunity: +0 reads; a parent without one changes nothing.
+// TestApplyReply_InheritsConversationCommunity: a parent without one changes nothing.
 func TestApplyReply_InheritsConversationCommunity(t *testing.T) {
 	t.Parallel()
 	var p CreateParams

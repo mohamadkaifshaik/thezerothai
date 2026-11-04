@@ -430,7 +430,7 @@ func TestIsBlockedBy_OverflowButNotActuallyBlocked(t *testing.T) {
 }
 
 // TestFlagGuard_DisabledRejectsEveryRPC: every GraphService RPC returns FEATURE_DISABLED
-// with 0 reads when the flag is off for the caller.
+// without touching the repo when the flag is off for the caller.
 func TestFlagGuard_DisabledRejectsEveryRPC(t *testing.T) {
 	repo := newFakeRepo()
 	svc := newTestServiceWithRepo(repo, false)

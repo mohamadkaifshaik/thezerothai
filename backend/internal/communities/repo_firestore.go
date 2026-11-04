@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
@@ -208,7 +207,7 @@ func (r *FirestoreRepo) putIdem(b store.Batch, uid, key, rpc, hash, communityID 
 	})
 }
 
-// lookup reads the idempotency document in tx (1 read). found with a nil error is a replay; found with ErrKeyReused is a record that
+// lookup reads the idempotency document in tx. found with a nil error is a replay; found with ErrKeyReused is a record that
 // belongs to another request body; not found means the caller proceeds.
 func (r *FirestoreRepo) lookup(ctx context.Context, tx *firestore.Transaction, key, hash string) (rec idempotency.Record, found bool, err error) {
 	rec, err = r.idem.Get(ctx, tx, key)
@@ -225,10 +224,9 @@ func (r *FirestoreRepo) lookup(ctx context.Context, tx *firestore.Transaction, k
 	}
 }
 
-// getInTx reads communities/{id} inside tx (1 read) and decodes it, or ErrNotFound when it is missing.
+// getInTx reads communities/{id} inside tx and decodes it, or ErrNotFound when it is missing.
 func (r *FirestoreRepo) getInTx(ctx context.Context, tx *firestore.Transaction, id string) (Community, error) {
 	snap, err := tx.Get(r.ref(id))
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return Community{}, ErrNotFound
@@ -242,7 +240,7 @@ func (r *FirestoreRepo) getInTx(ctx context.Context, tx *firestore.Transaction, 
 	return d.community(id), nil
 }
 
-// replay answers a replay from the community as it is now (the record holds the id only): 1 fresh read in tx. A community that is gone
+// replay answers a replay from the community as it is now (the record holds the id only): a fresh read in tx. A community that is gone
 // or SUSPENDED since is the one ErrNotFound.
 func (r *FirestoreRepo) replay(ctx context.Context, tx *firestore.Transaction, rec idempotency.Record) (Community, error) {
 	id := rec.Result["id"]
@@ -259,10 +257,9 @@ func (r *FirestoreRepo) replay(ctx context.Context, tx *firestore.Transaction, r
 	return c, nil
 }
 
-// membershipsInTx reads communityMemberships/{uid} inside tx (1 read, billed when missing too). A missing doc is empty memberships.
+// membershipsInTx reads communityMemberships/{uid} inside tx. A missing doc is empty memberships.
 func (r *FirestoreRepo) membershipsInTx(ctx context.Context, tx *firestore.Transaction, uid string) (m Memberships, exists bool, err error) {
 	snap, err := tx.Get(r.membershipsRef(uid))
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return Memberships{}, false, nil
@@ -277,7 +274,7 @@ func (r *FirestoreRepo) membershipsInTx(ctx context.Context, tx *firestore.Trans
 }
 
 // Create implements Repo: one transaction. Reads, fresh and in this order: idempotency/{hash} (a replay
-// returns after reading the community: 2 reads), communityMemberships/{uid} (the owned and joined caps are exact). Writes 4: Create the
+// returns after reading the community), communityMemberships/{uid} (the owned and joined caps are exact). Writes: Create the
 // community (ACTIVE, PUBLIC, memberCount 1), Create the owner's member doc (JOINED), the memberships doc (owned and joined += id) and
 // Create the idempotency document. At either cap nothing is written. No quota (the owned cap is lifetime).
 func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResult, error) {
@@ -314,7 +311,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 			MemberCount: 1, Status: string(StatusActive), Visibility: VisibilityPublic, RecentRemovals: []removalDoc{},
 			Modlog: []logDoc{}, ModlogSeq: 0, CreatedAt: now, UpdatedAt: now,
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		b.Create(r.ref(p.ID), doc)
 		b.Create(r.memberRef(p.ID, p.UID), memberDoc{UID: p.UID, State: string(MemberJoined), JoinedAt: &now})
 		if exists {
@@ -341,7 +338,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 
 func sameRules(a, b []Rule) bool { return slices.Equal(a, b) }
 
-// Update implements Repo: one transaction. Reads, fresh: idempotency (a replay returns after reading the community: 2 reads), the
+// Update implements Repo: one transaction. Reads, fresh: idempotency (a replay returns after reading the community), the
 // community, and, only when something changes, the owner's memberships (the first log entry that names the owner adds the community to
 // modlogged, I-L). A missing or SUSPENDED community is ErrNotFound, then a caller who is not the owner is ErrNotOwner, then an ARCHIVED
 // community is ErrArchived; nothing is written and an error is not recorded. A request that changes nothing writes only the
@@ -392,7 +389,7 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 			updates = append(updates, firestore.Update{Path: "rules", Value: ruleDocs(*p.Rules)})
 			next.Rules = slices.Clone(*p.Rules)
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		outcome := Unchanged
 		if len(updates) > 0 {
 			ms, exists, merr := r.membershipsInTx(ctx, tx, p.UID)
@@ -435,13 +432,12 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 	return res, err
 }
 
-// Get implements Repo: one point read of communities/{id}, outside any transaction, charged as 1 read whether or not it exists.
+// Get implements Repo: one point read of communities/{id}, outside any transaction.
 func (r *FirestoreRepo) Get(ctx context.Context, id string) (Community, error) {
 	if r == nil || r.client == nil {
 		return Community{}, errors.New("communities: repo has no firestore client")
 	}
 	snap, err := r.ref(id).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return Community{}, ErrNotFound
@@ -455,13 +451,12 @@ func (r *FirestoreRepo) Get(ctx context.Context, id string) (Community, error) {
 	return d.community(snap.Ref.ID), nil
 }
 
-// Member implements Repo: one point read of the member doc, charged as 1 read whether or not it exists.
+// Member implements Repo: one point read of the member doc.
 func (r *FirestoreRepo) Member(ctx context.Context, communityID, uid string) (MemberState, error) {
 	if r == nil || r.client == nil {
 		return MemberNone, errors.New("communities: repo has no firestore client")
 	}
 	snap, err := r.memberRef(communityID, uid).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return MemberNone, nil

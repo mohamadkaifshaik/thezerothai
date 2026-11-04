@@ -10,10 +10,7 @@ import (
 )
 
 // ListCommunities is gated by FEATURE_COMMUNITIES. The directory is one response of at most 50 ACTIVE communities, most members first;
-// page_size is ignored and a non-empty page_token is VALIDATION "page_token" with 0 reads beyond the interceptor.
-//
-// Firestore (interceptor included): reads 52 cold (interceptor, at most 50 for the shared refill, caller memberships), at most 22 at
-// Stage 0 (<= 20 communities), 0-2 warm (the shared entry lives 5 minutes, the memberships 60 s), planning 22; writes 0.
+// page_size is ignored and a non-empty page_token is VALIDATION "page_token" before any lookup.
 func (s *Server) ListCommunities(ctx context.Context, req *connect.Request[communitiesv1.ListCommunitiesRequest]) (*connect.Response[communitiesv1.ListCommunitiesResponse], error) {
 	ctx, cancel, uid, err := s.entry(ctx, "ListCommunities")
 	if err != nil {
@@ -33,10 +30,7 @@ func (s *Server) ListCommunities(ctx context.Context, req *connect.Request[commu
 
 // ListCommunityMembers is gated by FEATURE_COMMUNITIES. The BANNED filter is for the owner and moderators only (FORBIDDEN
 // reason=not_moderator after the community read). A tampered, expired, foreign or wrong-filter page_token is VALIDATION "page_token"
-// with 0 reads beyond the interceptor.
-//
-// Firestore (interceptor included): reads 43 cold at page 20 / 103 at page 50 (interceptor, community, query <= page, profiles <= page,
-// caller graph), 21 / 51 warm, planning 30; a member asking for BANNED 2 (interceptor, community); writes 0.
+// before any lookup.
 func (s *Server) ListCommunityMembers(ctx context.Context, req *connect.Request[communitiesv1.ListCommunityMembersRequest]) (*connect.Response[communitiesv1.ListCommunityMembersResponse], error) {
 	ctx, cancel, uid, err := s.entry(ctx, "ListCommunityMembers")
 	if err != nil {

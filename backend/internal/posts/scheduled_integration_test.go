@@ -16,14 +16,13 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 const itTTL = 168 * time.Hour
 
-// itMedia is a MediaAttacher over media/{id} docs: it reads them inside the transaction (one read each, as the real
+// itMedia is a MediaAttacher over media/{id} docs: it reads them inside the transaction (as the real
 // one does), requires the owner to match, and records any Attach call (a scheduled post must never attach).
 type itMedia struct {
 	client   *firestore.Client
@@ -36,7 +35,6 @@ func (m *itMedia) LoadForPost(ctx context.Context, tx *firestore.Transaction, ui
 		refs[i] = m.client.Collection("media").Doc(id)
 	}
 	snaps, err := tx.GetAll(refs)
-	budget.FromContext(ctx).AddReads(int64(len(ids)))
 	if err != nil {
 		return nil, err
 	}
@@ -135,16 +133,13 @@ func (e *schedEnv) params(t *testing.T, uid string, n int, publishAt time.Time) 
 	}
 }
 
-func counted() (context.Context, *budget.Counter) { return budget.WithCounter(context.Background()) }
-
-// TestScheduled_Integration_CreateAndReplay: the schedule transaction stores the documented shape in 2 reads (quotas,
-// the window count) and 2 writes, a repeat of the id is ErrScheduledExists with nothing written and the stored draft
+// TestScheduled_Integration_CreateAndReplay: the schedule transaction stores the documented shape, a repeat of the id is ErrScheduledExists with nothing written and the stored draft
 // untouched (Create precondition), and the daily cap rejects with QUOTA_EXCEEDED quota=schedules and nothing written.
 func TestScheduled_Integration_CreateAndReplay(t *testing.T) {
 	e := newSchedEnv(t)
 	p := e.params(t, "alice", 1, schedBase.Add(30*time.Second)) // not on a whole minute: stored truncated
 
-	ctx, _ := counted()
+	ctx := context.Background()
 	got, err := e.repo.CreateScheduled(ctx, p)
 	if err != nil {
 		t.Fatalf("CreateScheduled: %v", err)
@@ -171,16 +166,15 @@ func TestScheduled_Integration_CreateAndReplay(t *testing.T) {
 		t.Errorf("quotas.schedules = %d, want 1", e.schedules(t, "alice"))
 	}
 
-	rd, rc := counted()
-	read, err := e.repo.GetScheduled(rd, "alice", p.ID)
+	read, err := e.repo.GetScheduled(context.Background(), "alice", p.ID)
 	if err != nil || read.UpdateTime.IsZero() || read.Draft == nil || read.Draft.Text != "hello" || read.UID != "alice" {
-		t.Fatalf("GetScheduled = %+v err=%v reads=%d", read, err, rc.Reads())
+		t.Fatalf("GetScheduled = %+v err=%v", read, err)
 	}
 
 	// A replay (same id, even with a different body) never overwrites.
 	again := p
 	again.Draft = ScheduledDraft{Text: "overwritten?"}
-	rctx, _ := counted()
+	rctx := context.Background()
 	if _, err := e.repo.CreateScheduled(rctx, again); !errors.Is(err, ErrScheduledExists) {
 		t.Fatalf("replay err = %v, want ErrScheduledExists", err)
 	}
@@ -194,20 +188,19 @@ func TestScheduled_Integration_CreateAndReplay(t *testing.T) {
 	t.Run("daily cap", func(t *testing.T) {
 		capped := e.params(t, "alice", 2, schedBase.Add(time.Hour))
 		capped.QuotaLimit = 1
-		cctx, _ := counted()
+		cctx := context.Background()
 		_, err := e.repo.CreateScheduled(cctx, capped)
 		var ae *apierr.Error
 		if !errors.As(err, &ae) || ae.Metadata["quota"] != "schedules" {
 			t.Fatalf("err = %v, want QUOTA_EXCEEDED quota=schedules", err)
 		}
-		// quotas + the window count; the daily cap is checked after the window and before the media read.
 		if _, err := e.repo.GetScheduled(context.Background(), "alice", capped.ID); !errors.Is(err, ErrScheduledNotFound) {
 			t.Errorf("the capped document exists: %v", err)
 		}
 	})
 }
 
-// TestScheduled_Integration_CreateWithMedia: media are validated (1 read each) and copied with their alt texts, never
+// TestScheduled_Integration_CreateWithMedia: media are validated and copied with their alt texts, never
 // attached; a missing or foreign image is ErrMediaNotReady with nothing written.
 func TestScheduled_Integration_CreateWithMedia(t *testing.T) {
 	e := newSchedEnv(t)
@@ -219,13 +212,12 @@ func TestScheduled_Integration_CreateWithMedia(t *testing.T) {
 	}
 	p := e.params(t, "alice", 1, schedBase)
 	p.MediaIDs, p.MediaAlts = []string{"m1", "m2"}, []string{"first", ""}
-	cctx, c := counted()
-	got, err := e.repo.CreateScheduled(cctx, p)
+	got, err := e.repo.CreateScheduled(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if e.media.attached != 0 {
-		t.Errorf("reads = %d, attached = %d, want 4 and 0 (validated, not reserved)", c.Reads(), e.media.attached)
+		t.Errorf("attached = %d, want 0 (validated, not reserved)", e.media.attached)
 	}
 	if len(got.Draft.Media) != 2 || got.Draft.Media[0].AltText != "first" || got.Draft.Media[0].URL == "" {
 		t.Errorf("draft media = %+v", got.Draft.Media)
@@ -238,7 +230,7 @@ func TestScheduled_Integration_CreateWithMedia(t *testing.T) {
 	for name, ids := range map[string][]string{"someone else's image": {"m3"}, "an unknown image": {"nope"}} {
 		bad := e.params(t, "alice", 2, schedBase.Add(time.Hour))
 		bad.MediaIDs = ids
-		bctx, _ := counted()
+		bctx := context.Background()
 		if _, err := e.repo.CreateScheduled(bctx, bad); !errors.Is(err, ErrMediaNotReady) {
 			t.Errorf("%s: err = %v, want ErrMediaNotReady", name, err)
 		}
@@ -250,7 +242,7 @@ func TestScheduled_Integration_CreateWithMedia(t *testing.T) {
 
 // TestScheduled_Integration_ListPagination: PENDING and FAILED items interleaved by publishAt page across the status
 // boundary in (publishAt, id) order, PUBLISHED and CANCELLED never appear, another user's items never appear, and a
-// page costs one read per item.
+// short page carries no token.
 func TestScheduled_Integration_ListPagination(t *testing.T) {
 	e := newSchedEnv(t)
 	var want []string
@@ -277,7 +269,7 @@ func TestScheduled_Integration_ListPagination(t *testing.T) {
 	var got []string
 	token := ""
 	for pages := 0; pages < 10; pages++ {
-		ctx, _ := counted()
+		ctx := context.Background()
 		page, err := ListScheduledPage(ctx, e.repo, schedKey, "alice", 3, token, schedNow)
 		if err != nil {
 			t.Fatal(err)
@@ -302,15 +294,13 @@ func TestScheduled_Integration_ListPagination(t *testing.T) {
 	if _, err := ListScheduledPage(context.Background(), e.repo, schedKey, "bob", 2, first.NextPageToken, schedNow); !errors.Is(err, ErrInvalidScheduledToken) {
 		t.Errorf("foreign token: %v", err)
 	}
-	// An empty list costs one read.
-	ctx, c := counted()
-	if page, err := ListScheduledPage(ctx, e.repo, schedKey, "carol", 20, "", schedNow); err != nil || len(page.Items) != 0 {
-		t.Errorf("empty list = %d items err=%v reads=%d, want 0 items and 1 read", len(page.Items), err, c.Reads())
+	// An empty list is an empty page.
+	if page, err := ListScheduledPage(context.Background(), e.repo, schedKey, "carol", 20, "", schedNow); err != nil || len(page.Items) != 0 || page.NextPageToken != "" {
+		t.Errorf("empty list = %d items err=%v token=%q, want an empty page", len(page.Items), err, page.NextPageToken)
 	}
 }
 
-// TestScheduled_Integration_Counts: the pending count stops at its limit, counts only the caller's PENDING items and
-// costs one read.
+// TestScheduled_Integration_Counts: the pending count stops at its limit, counts only the caller's PENDING items.
 func TestScheduled_Integration_Counts(t *testing.T) {
 	e := newSchedEnv(t)
 	for n := 0; n < 5; n++ {
@@ -321,17 +311,16 @@ func TestScheduled_Integration_Counts(t *testing.T) {
 	e.seed(t, newSched(t, "bob", 0, ScheduledPending))
 
 	for limit, want := range map[int]int64{26: 5, 5: 5, 3: 3, 1: 1} {
-		ctx, c := counted()
-		got, err := e.repo.CountPending(ctx, "alice", limit)
+		got, err := e.repo.CountPending(context.Background(), "alice", limit)
 		if err != nil || got != want {
-			t.Errorf("CountPending(limit %d) = %d err=%v reads=%d, want %d and 1 read", limit, got, err, c.Reads(), want)
+			t.Errorf("CountPending(limit %d) = %d err=%v, want %d", limit, got, err, want)
 		}
 	}
 }
 
 // TestScheduled_Integration_WindowCap: the window count inside the schedule transaction covers +/-4 min inclusive and
-// only PENDING items of the caller; a full window is ErrScheduledWindowFull with nothing written and no quota spent
-// (3 reads: quotas, the count, the document of this id); a window with room costs 2 reads; windowQuery honours its limit.
+// only PENDING items of the caller; a full window is ErrScheduledWindowFull with nothing written and no quota spent;
+// windowQuery honours its limit.
 func TestScheduled_Integration_WindowCap(t *testing.T) {
 	e := newSchedEnv(t)
 	w := newSched(t, "carol", 0, ScheduledPending).PublishAt // the centre
@@ -349,22 +338,19 @@ func TestScheduled_Integration_WindowCap(t *testing.T) {
 	e.seed(t, otherUser)
 	// Four PENDING items of carol are inside [-4m, +4m]: -4, -1, 0, +4. The -5 and +5 items, the FAILED one and dave's are not.
 
-	// The query stops at its limit (the transaction passes WindowCap+1), 1 read each.
+	// The query stops at its limit (the transaction passes WindowCap+1).
 	col := e.client.Collection("users").Doc("carol").Collection("scheduled")
 	for limit, want := range map[int]int64{26: 4, 4: 4, 3: 3, 2: 2, 1: 1} {
-		ctx, c := counted()
-		got, err := countQuery(ctx, windowQuery(col, w, limit), nil)
+		got, err := countQuery(context.Background(), windowQuery(col, w, limit), nil)
 		if err != nil || got != want {
-			t.Errorf("window count (limit %d) = %d err=%v reads=%d, want %d and 1 read", limit, got, err, c.Reads(), want)
+			t.Errorf("window count (limit %d) = %d err=%v, want %d", limit, got, err, want)
 		}
 	}
 
-	try := func(n int, at time.Time, windowCap int) (*budget.Counter, error) {
+	try := func(n int, at time.Time, windowCap int) (*ScheduledPost, error) {
 		p := e.params(t, "carol", n, at)
 		p.WindowCap = windowCap
-		ctx, c := counted()
-		_, err := e.repo.CreateScheduled(ctx, p)
-		return c, err
+		return e.repo.CreateScheduled(context.Background(), p)
 	}
 	for _, windowCap := range []int{1, 2, 3, 4} {
 		_, err := try(100+windowCap, w, windowCap)
@@ -382,12 +368,11 @@ func TestScheduled_Integration_WindowCap(t *testing.T) {
 	// The window is checked before the daily cap: a caller over both (QuotaLimit 0 is spent from the start) hears the window.
 	both := e.params(t, "carol", 105, w)
 	both.QuotaLimit = 0
-	bctx, _ := counted()
-	if _, err := e.repo.CreateScheduled(bctx, both); !errors.Is(err, ErrScheduledWindowFull) {
+	if _, err := e.repo.CreateScheduled(context.Background(), both); !errors.Is(err, ErrScheduledWindowFull) {
 		t.Errorf("over both caps: err = %v, want ErrScheduledWindowFull (the window comes first)", err)
 	}
 
-	// Room: a window far away (nothing inside) and a cap above the four inside. Each costs quotas + count.
+	// Room: a window far away (nothing inside) and a cap above the four inside.
 	for name, tc := range map[string]struct {
 		n         int
 		at        time.Time
@@ -421,12 +406,11 @@ func TestScheduled_Integration_WindowFullByTheSameKey(t *testing.T) {
 	winner.ID, winner.PublishAt = mine.ID, at
 	e.seed(t, winner)
 
-	ctx, c := counted()
-	if _, err := e.repo.CreateScheduled(ctx, mine); !errors.Is(err, ErrScheduledExists) {
+	if _, err := e.repo.CreateScheduled(context.Background(), mine); !errors.Is(err, ErrScheduledExists) {
 		t.Fatalf("err = %v, want ErrScheduledExists", err)
 	}
 	if e.schedules(t, "carol") != 0 {
-		t.Errorf("writes %d, schedules %d: nothing may be written", c.Writes(), e.schedules(t, "carol"))
+		t.Errorf("schedules %d: nothing may be written", e.schedules(t, "carol"))
 	}
 }
 
@@ -462,7 +446,7 @@ func TestScheduled_Integration_WindowCapIsEvaluatedPerAttempt(t *testing.T) {
 			}
 			return nil
 		}
-		ctx, _ := counted()
+		ctx := context.Background()
 		if _, err := e.repo.CreateScheduled(ctx, mine); !errors.Is(err, ErrScheduledWindowFull) {
 			t.Fatalf("err = %v, want ErrScheduledWindowFull from the retried attempt", err)
 		}
@@ -487,7 +471,7 @@ func TestScheduled_Integration_WindowCapIsEvaluatedPerAttempt(t *testing.T) {
 		}
 		// 3 items sit in the window now (2 seeded + the winner above), so use a quiet minute.
 		quiet := e.params(t, "carol", 10, at.Add(6*time.Hour))
-		ctx, _ := counted()
+		ctx := context.Background()
 		if _, err := e.repo.CreateScheduled(ctx, quiet); err != nil {
 			t.Fatalf("err = %v, want success on the retried attempt", err)
 		}
@@ -495,8 +479,8 @@ func TestScheduled_Integration_WindowCapIsEvaluatedPerAttempt(t *testing.T) {
 	e.repo.attemptHook = nil
 }
 
-// TestScheduled_Integration_Cancel: PENDING and FAILED become CANCELLED in 1 read and 1 write, clearing the draft;
-// PUBLISHED and CANCELLED are returned unchanged with 0 writes; another user's id is not found.
+// TestScheduled_Integration_Cancel: PENDING and FAILED become CANCELLED, clearing the draft;
+// PUBLISHED and CANCELLED are returned unchanged; another user's id is not found.
 func TestScheduled_Integration_Cancel(t *testing.T) {
 	e := newSchedEnv(t)
 	pending, failed, published := newSched(t, "alice", 1, ScheduledPending), newSched(t, "alice", 2, ScheduledFailed), newSched(t, "alice", 3, ScheduledPublished)
@@ -507,8 +491,7 @@ func TestScheduled_Integration_Cancel(t *testing.T) {
 	}
 
 	for _, p := range []*ScheduledPost{pending, failed} {
-		ctx, _ := counted()
-		got, changed, err := e.repo.CancelScheduled(ctx, "alice", p.ID, schedNow, itTTL)
+		got, changed, err := e.repo.CancelScheduled(context.Background(), "alice", p.ID, schedNow, itTTL)
 		if err != nil || !changed || got.Status != ScheduledCancelled || got.Draft != nil {
 			t.Fatalf("cancel %s = %+v changed=%v err=%v", p.Status, got, changed, err)
 		}
@@ -523,10 +506,9 @@ func TestScheduled_Integration_Cancel(t *testing.T) {
 	}
 
 	for name, id := range map[string]string{"already cancelled": pending.ID, "published (too late)": published.ID} {
-		ctx, c := counted()
-		got, changed, err := e.repo.CancelScheduled(ctx, "alice", id, schedNow.Add(time.Hour), itTTL)
+		got, changed, err := e.repo.CancelScheduled(context.Background(), "alice", id, schedNow.Add(time.Hour), itTTL)
 		if err != nil || changed {
-			t.Errorf("%s: changed=%v err=%v reads=%d writes=%d, want unchanged, 1 read, 0 writes", name, changed, err, c.Reads(), c.Writes())
+			t.Errorf("%s: changed=%v err=%v, want unchanged", name, changed, err)
 		}
 		if got.Draft != nil {
 			t.Errorf("%s: the draft came back", name)
@@ -572,7 +554,7 @@ func TestScheduled_Integration_Transitions(t *testing.T) {
 
 	t.Run("fail clears the draft and stamps the ttl", func(t *testing.T) {
 		p := mk(1)
-		wctx, _ := counted()
+		wctx := context.Background()
 		next, applied, err := e.repo.TransitionScheduled(wctx, p.Ref(), ScheduledTransition{To: ScheduledFailed, Failure: FailureExpired}, schedNow, itTTL)
 		if err != nil || !applied || next.UpdateTime.IsZero() || next.UpdateTime.Equal(p.UpdateTime) {
 			t.Fatalf("applied=%v err=%v next=%+v", applied, err, next)
@@ -607,10 +589,9 @@ func TestScheduled_Integration_Transitions(t *testing.T) {
 		p := mk(3)
 		cur := p.Ref()
 		for i := 1; i <= 2; i++ {
-			wctx, c := counted()
-			next, ok, err := e.repo.BumpScheduledAttempts(wctx, cur, schedNow)
+			next, ok, err := e.repo.BumpScheduledAttempts(ctx, cur, schedNow)
 			if err != nil || !ok {
-				t.Fatalf("bump %d: applied=%v err=%v reads=%d writes=%d", i, ok, err, c.Reads(), c.Writes())
+				t.Fatalf("bump %d: applied=%v err=%v", i, ok, err)
 			}
 			cur = next
 			if got, _ := e.repo.GetScheduled(ctx, "alice", p.ID); got.Attempts != i || got.Status != ScheduledPending || got.Draft == nil {
@@ -674,7 +655,7 @@ func TestScheduled_Integration_Transitions(t *testing.T) {
 				if cur.Status != ScheduledPending {
 					return nil // the publish transaction ends here: another run, a cancel or the eraser won
 				}
-				b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+				b := store.NewFirestoreTxBatch(tx)
 				if err := e.repo.StageScheduledTransition(b, "alice", p.ID, ScheduledTransition{To: ScheduledPublished, PostID: "1234567890123456789"}, schedNow, itTTL); err != nil {
 					return err
 				}
@@ -736,7 +717,7 @@ func TestScheduled_Integration_DueQuery(t *testing.T) {
 		}
 	}
 
-	dctx, _ := counted()
+	dctx := context.Background()
 	page, err := e.repo.DueScheduled(dctx, now, 50, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -811,7 +792,7 @@ func TestScheduled_Integration_DueQuery(t *testing.T) {
 }
 
 // TestScheduled_Integration_EraseAndExport: the export lists every document with the draft where one is held; the
-// eraser deletes the owner's documents only, in pages, and the same call on an empty account is done after 1 read.
+// eraser deletes the owner's documents only, in pages, and the same call on an empty account is done.
 func TestScheduled_Integration_EraseAndExport(t *testing.T) {
 	e := newSchedEnv(t)
 	ctx := context.Background()
@@ -825,7 +806,7 @@ func TestScheduled_Integration_EraseAndExport(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	xctx, _ := counted()
+	xctx := context.Background()
 	if err := NewScheduledExporter(e.repo).ExportUser(xctx, "alice", &buf); err != nil {
 		t.Fatal(err)
 	}
@@ -852,8 +833,7 @@ func TestScheduled_Integration_EraseAndExport(t *testing.T) {
 	}
 
 	eraser := NewScheduledEraser(e.repo)
-	ectx, _ := counted()
-	cp, done, err := eraser.PurgeUser(ectx, "alice", ScheduledCheckpoint{})
+	cp, done, err := eraser.PurgeUser(ctx, "alice", ScheduledCheckpoint{})
 	if err != nil || !done || cp.Deleted != 4 {
 		t.Fatalf("erase = %+v done=%v err=%v, want 4 deleted and done", cp, done, err)
 	}
@@ -863,10 +843,9 @@ func TestScheduled_Integration_EraseAndExport(t *testing.T) {
 	if _, err := e.repo.GetScheduled(ctx, "bob", bobs.ID); err != nil {
 		t.Errorf("bob's document was erased: %v", err)
 	}
-	// An empty account: done, 1 read.
-	zctx, zc := counted()
-	if cp, done, err := eraser.PurgeUser(zctx, "alice", ScheduledCheckpoint{}); err != nil || !done || cp.Deleted != 0 {
-		t.Errorf("erase of an empty account = %+v done=%v err=%v reads=%d deletes=%d", cp, done, err, zc.Reads(), zc.Deletes())
+	// An empty account: done with nothing deleted.
+	if cp, done, err := eraser.PurgeUser(ctx, "alice", ScheduledCheckpoint{}); err != nil || !done || cp.Deleted != 0 {
+		t.Errorf("erase of an empty account = %+v done=%v err=%v", cp, done, err)
 	}
 	// The export of an erased account is a valid empty section.
 	buf.Reset()
@@ -878,8 +857,7 @@ func TestScheduled_Integration_EraseAndExport(t *testing.T) {
 	}
 }
 
-// TestScheduled_Integration_GIFRefused: a draft naming a GIF is ErrGifNotSchedulable after the same
-// <= 4 media reads and with nothing written; the daily schedule count is not charged.
+// TestScheduled_Integration_GIFRefused: a draft naming a GIF is ErrGifNotSchedulable with nothing written; the daily schedule count is not charged.
 func TestScheduled_Integration_GIFRefused(t *testing.T) {
 	e := newSchedEnv(t)
 	ctx := context.Background()
@@ -888,8 +866,7 @@ func TestScheduled_Integration_GIFRefused(t *testing.T) {
 	}
 	p := e.params(t, "alice", 1, schedBase)
 	p.MediaIDs = []string{"g1"}
-	cctx, _ := counted()
-	if _, err := e.repo.CreateScheduled(cctx, p); !errors.Is(err, ErrGifNotSchedulable) {
+	if _, err := e.repo.CreateScheduled(ctx, p); !errors.Is(err, ErrGifNotSchedulable) {
 		t.Fatalf("err = %v, want ErrGifNotSchedulable", err)
 	}
 	if e.schedules(t, "alice") != 0 {

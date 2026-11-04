@@ -15,35 +15,29 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
 // integration tests: AcceptMessageRequest and DeleteConversation on the real FirestoreRepo.
-// In every test alice is the requester and bob the recipient, as in the plan's A and B. Each RPC runs under its own budget
-// counter pre-charged with the account-status interceptor's 1 read, so the budgets are the per-RPC budgets.
+// In every test alice is the requester and bob the recipient, as in the plan's A and B.
 
-func (e *itEnv) accept(svc *service, uid, convID string) (*budget.Counter, error) {
-	ctx, c := budget.WithCounter(verifiedCtx())
-	c.AddReads(1)
-	_, err := svc.Accept(ctx, uid, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: convID})
-	return c, err
+func (e *itEnv) accept(svc *service, uid, convID string) error {
+	_, err := svc.Accept(verifiedCtx(), uid, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: lifeKey, ConversationId: convID})
+	return err
 }
 
 // delSeq makes every del call a new user action with a new idempotency_key (a client generates one key per action, and
 // reuses it only to retry that action): a second del in a test is a second delete, not a retry of the first.
 var delSeq atomic.Int64
 
-func (e *itEnv) del(svc *service, uid, convID string) (*budget.Counter, error) {
+func (e *itEnv) del(svc *service, uid, convID string) error {
 	return e.delKey(svc, uid, convID, fmt.Sprintf("delete-key-%016d", delSeq.Add(1)))
 }
 
 // delKey is DeleteConversation with an explicit idempotency_key (a retry reuses the key of the action it retries).
-func (e *itEnv) delKey(svc *service, uid, convID, key string) (*budget.Counter, error) {
-	ctx, c := budget.WithCounter(context.Background())
-	c.AddReads(1)
-	_, err := svc.Delete(ctx, uid, &messagingv1.DeleteConversationRequest{IdempotencyKey: key, ConversationId: convID})
-	return c, err
+func (e *itEnv) delKey(svc *service, uid, convID, key string) error {
+	_, err := svc.Delete(context.Background(), uid, &messagingv1.DeleteConversationRequest{IdempotencyKey: key, ConversationId: convID})
+	return err
 }
 
 // request opens a request from alice to bob with n messages (not mutual, so it lands in bob's dmRequests), one second
@@ -81,8 +75,8 @@ func (e *itEnv) threadTexts(svc *service, uid, convID string) []string {
 
 // Given B accepts, then both see the conversation in the Inbox, B's unread count is kept, the state is ACCEPTED, A's own
 // entry loses requestPending and gets the accept changedAt, nothing is emitted, and B's next reply pushes to A. A second message of A lands in B's Inbox, not in
-// Requests, and the unanswered-request cap no longer applies. Budget : 4 reads, 3 writes, 1 delete.
-func TestAccept_MovesTheRequestWithinBudget(t *testing.T) {
+// Requests, and the unanswered-request cap no longer applies.
+func TestAccept_MovesTheRequestOnEmulator(t *testing.T) {
 	e := newIT(t, nil)
 	id := e.request(2)
 	if ent, ok := e.entry(bob, dmRequestsCollection, id); !ok || ent.UnreadCount != 2 {
@@ -94,7 +88,7 @@ func TestAccept_MovesTheRequestWithinBudget(t *testing.T) {
 
 	svc := e.newService() // a cold instance
 	e.tick(time.Minute)
-	_, err := e.accept(svc, bob, id)
+	err := e.accept(svc, bob, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,17 +160,17 @@ func TestAccept_MovesTheRequestWithinBudget(t *testing.T) {
 	}
 }
 
-// Given an accept replayed, then success with 2 reads (interceptor, conversation) and no write.
+// Given an accept replayed, then success and no write.
 func TestAccept_ReplayOnEmulator(t *testing.T) {
 	e := newIT(t, nil)
 	id := e.request(1)
-	if _, err := e.accept(e.newService(), bob, id); err != nil {
+	if err := e.accept(e.newService(), bob, id); err != nil {
 		t.Fatal(err)
 	}
 	conv, _ := e.conv(id)
 	entry, _ := e.entry(bob, dmInboxCollection, id)
 	e.tick(time.Minute)
-	_, err := e.accept(e.newService(), bob, id)
+	err := e.accept(e.newService(), bob, id)
 	if err != nil {
 		t.Fatalf("replay: %v", err)
 	}
@@ -189,7 +183,7 @@ func TestAccept_ReplayOnEmulator(t *testing.T) {
 }
 
 // Given A calls Accept on its own request, then NOT_FOUND; the same bytes as a non-participant, an unknown id and a
-// conversation that never was a request, after 2 reads, with nothing written.
+// conversation that never was a request, with nothing written.
 func TestAccept_OnlyTheRecipient_NotFoundByteIdentical(t *testing.T) {
 	e := newIT(t, nil)
 	id := e.request(1)
@@ -204,7 +198,7 @@ func TestAccept_OnlyTheRecipient_NotFoundByteIdentical(t *testing.T) {
 	e.addUser("uid-erin", "erin", false)
 	e.must("uid-erin", toUser(skey(8), bob, "hello bob"))
 	deleted := ConversationID("uid-erin", bob)
-	if _, err := e.del(e.newService(), bob, deleted); err != nil {
+	if err := e.del(e.newService(), bob, deleted); err != nil {
 		t.Fatal(err)
 	}
 
@@ -220,7 +214,7 @@ func TestAccept_OnlyTheRecipient_NotFoundByteIdentical(t *testing.T) {
 	}
 	var first []byte
 	for name, tt := range cases {
-		_, err := e.accept(e.newService(), tt.uid, tt.id)
+		err := e.accept(e.newService(), tt.uid, tt.id)
 		if codeOf(err) != connect.CodeNotFound {
 			t.Fatalf("%s: err = %v, want NOT_FOUND", name, err)
 		}
@@ -254,7 +248,7 @@ func TestAccept_PeerFlagOffAndErasedPeer(t *testing.T) {
 		e := newIT(t, nil)
 		id := e.request(1)
 		e.reg = flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.Allowlist, Allowlist: map[string]struct{}{bob: {}}})
-		_, err := e.accept(e.newService(), bob, id)
+		err := e.accept(e.newService(), bob, id)
 		wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
 		if conv, _ := e.conv(id); conv.State != stateRequest {
 			t.Errorf("state = %q, want REQUEST", conv.State)
@@ -264,7 +258,7 @@ func TestAccept_PeerFlagOffAndErasedPeer(t *testing.T) {
 		}
 		// The caller outside the cohort: FEATURE_DISABLED before any read.
 		e.reg = flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.Allowlist, Allowlist: map[string]struct{}{alice: {}}})
-		_, err = e.accept(e.newService(), bob, id)
+		err = e.accept(e.newService(), bob, id)
 		wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": FlagName})
 	})
 	t.Run("requester erased", func(t *testing.T) {
@@ -274,14 +268,14 @@ func TestAccept_PeerFlagOffAndErasedPeer(t *testing.T) {
 		if conv, _ := e.conv(id); len(conv.Gone) != 1 || conv.RequestFrom != DeletedUID {
 			t.Fatalf("setup: conversation after the eraser = %+v", conv)
 		}
-		_, err := e.accept(e.newService(), bob, id)
+		err := e.accept(e.newService(), bob, id)
 		wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
 		ent, ok := e.entry(bob, dmRequestsCollection, id)
 		if !ok || ent.PeerID != DeletedUID || ent.Peer.DisplayName != DeletedAccountName {
 			t.Errorf("bob's request entry = %+v %v, want the Deleted account placeholder", ent, ok)
 		}
 		// Clean-up stays possible.
-		_, err = e.del(e.newService(), bob, id)
+		err = e.del(e.newService(), bob, id)
 		if err != nil {
 			t.Fatalf("delete of a conversation with an erased peer: %v", err)
 		}
@@ -299,10 +293,10 @@ func TestAccept_PeerFlagOffAndErasedPeer(t *testing.T) {
 func TestAccept_AfterDeleteIsNotFound(t *testing.T) {
 	e := newIT(t, nil)
 	id := e.request(1)
-	if _, err := e.del(e.newService(), bob, id); err != nil {
+	if err := e.del(e.newService(), bob, id); err != nil {
 		t.Fatal(err)
 	}
-	_, err := e.accept(e.newService(), bob, id)
+	err := e.accept(e.newService(), bob, id)
 	if codeOf(err) != connect.CodeNotFound {
 		t.Fatalf("err = %v, want NOT_FOUND", err)
 	}
@@ -315,8 +309,8 @@ func TestAccept_AfterDeleteIsNotFound(t *testing.T) {
 }
 
 // Given B deletes a request, then B's folders lack it, clearedAt[B] is set, the state is still REQUEST with its count, and
-// A's entry and the messages are untouched. Budget: 3 reads, 1 write, 1 delete. A's cap still applies: the 4th message of
-// A is refused after the delete. Replay: 0 writes.
+// A's entry and the messages are untouched. A's cap still applies: the 4th message of
+// A is refused after the delete. A replay writes nothing.
 func TestDelete_RequestKeepsTheSendersCap(t *testing.T) {
 	e := newIT(t, nil)
 	id := e.request(3)
@@ -324,7 +318,7 @@ func TestDelete_RequestKeepsTheSendersCap(t *testing.T) {
 
 	svc := e.newService()
 	e.tick(time.Minute)
-	_, err := e.del(svc, bob, id)
+	err := e.del(svc, bob, id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,11 +349,11 @@ func TestDelete_RequestKeepsTheSendersCap(t *testing.T) {
 
 	// The cap still applies to A.
 	e.tick(time.Second)
-	_, _, err = e.send(alice, toUser(skey(300), bob, "a fourth request"))
+	_, err = e.send(alice, toUser(skey(300), bob, "a fourth request"))
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, map[string]string{"limit": "request_unanswered"})
 
 	// A repeat of the delete: success, nothing written.
-	_, err = e.del(e.newService(), bob, id)
+	err = e.del(e.newService(), bob, id)
 	if err != nil {
 		t.Fatalf("replay: %v", err)
 	}
@@ -376,7 +370,7 @@ func TestDelete_ThenANewMessageRecreatesTheEntry(t *testing.T) {
 		e := newIT(t, nil)
 		id := e.request(1)
 		e.tick(time.Minute)
-		if _, err := e.del(e.newService(), bob, id); err != nil {
+		if err := e.del(e.newService(), bob, id); err != nil {
 			t.Fatal(err)
 		}
 		e.tick(time.Minute)
@@ -410,7 +404,7 @@ func TestDelete_ThenANewMessageRecreatesTheEntry(t *testing.T) {
 		e.must(bob, toUser(skey(2), alice, "old 2"))
 		id := ConversationID(alice, bob)
 		e.tick(time.Minute)
-		_, err := e.del(e.newService(), bob, id)
+		err := e.del(e.newService(), bob, id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -431,7 +425,7 @@ func TestDelete_ThenANewMessageRecreatesTheEntry(t *testing.T) {
 		}
 		// The sender deleting and sending again sees only newer messages too.
 		e.tick(time.Minute)
-		if _, err := e.del(e.newService(), alice, id); err != nil {
+		if err := e.del(e.newService(), alice, id); err != nil {
 			t.Fatal(err)
 		}
 		e.tick(time.Minute)
@@ -445,16 +439,16 @@ func TestDelete_ThenANewMessageRecreatesTheEntry(t *testing.T) {
 	})
 }
 
-// Given a non-participant or an unknown id, then NOT_FOUND with the bytes of Accept's, after 2 reads, with nothing written
+// Given a non-participant or an unknown id, then NOT_FOUND with the bytes of Accept's, with nothing written
 // and no clearedAt created.
 func TestDelete_NotFoundOnEmulator(t *testing.T) {
 	e := newIT(t, nil)
 	id := e.request(1)
 	e.addUser(carol, "carol", false)
 	unknown := ConversationID(alice, "uid-nobody")
-	cNon, errNon := e.del(e.newService(), carol, id)
-	cUnk, errUnk := e.del(e.newService(), carol, unknown)
-	_, errAcc := e.accept(e.newService(), alice, id)
+	errNon := e.del(e.newService(), carol, id)
+	errUnk := e.del(e.newService(), carol, unknown)
+	errAcc := e.accept(e.newService(), alice, id)
 	for name, err := range map[string]error{"non-participant": errNon, "unknown": errUnk, "accept by the requester": errAcc} {
 		if codeOf(err) != connect.CodeNotFound {
 			t.Fatalf("%s: err = %v, want NOT_FOUND", name, err)
@@ -463,18 +457,16 @@ func TestDelete_NotFoundOnEmulator(t *testing.T) {
 	if !bytes.Equal(wireBytes(t, errNon), wireBytes(t, errUnk)) || !bytes.Equal(wireBytes(t, errNon), wireBytes(t, errAcc)) {
 		t.Error("NOT_FOUND bytes differ")
 	}
-	for range map[string]*budget.Counter{"non-participant": cNon, "unknown": cUnk} {
-	}
 	if conv, _ := e.conv(id); len(conv.ClearedAt) != 0 {
 		t.Errorf("clearedAt = %v, want none", conv.ClearedAt)
 	}
 	if _, ok := e.conv(unknown); ok {
 		t.Error("an unknown id created a conversation")
 	}
-	// Malformed: VALIDATION with only the interceptor's read.
-	cBad, errBad := e.del(e.newService(), bob, "nope")
+	// Malformed: VALIDATION.
+	errBad := e.del(e.newService(), bob, "nope")
 	if codeOf(errBad) != connect.CodeInvalidArgument {
-		t.Errorf("malformed id: err = %v reads = %d", errBad, cBad.Reads())
+		t.Errorf("malformed id: err = %v, want INVALID_ARGUMENT", errBad)
 	}
 }
 
@@ -492,7 +484,7 @@ func TestDelete_ClearedAtCacheOnThisAndOtherInstances(t *testing.T) {
 		}
 	}
 	e.tick(time.Minute)
-	if _, err := e.del(here, bob, id); err != nil {
+	if err := e.del(here, bob, id); err != nil {
 		t.Fatal(err)
 	}
 	if got := e.threadTexts(here, bob, id); len(got) != 0 {
@@ -519,8 +511,8 @@ func TestAcceptVsDelete_Race(t *testing.T) {
 			var accErr, delErr error
 			svcA, svcD := e.newService(), e.newService()
 			wg.Add(2)
-			go func() { defer wg.Done(); _, accErr = e.accept(svcA, bob, id) }()
-			go func() { defer wg.Done(); _, delErr = e.del(svcD, bob, id) }()
+			go func() { defer wg.Done(); accErr = e.accept(svcA, bob, id) }()
+			go func() { defer wg.Done(); delErr = e.del(svcD, bob, id) }()
 			wg.Wait()
 			if delErr != nil {
 				t.Fatalf("delete: %v", delErr)
@@ -559,10 +551,10 @@ func TestAcceptVsSend_Race(t *testing.T) {
 			var accErr, sendErr error
 			svcA := e.newService()
 			wg.Add(2)
-			go func() { defer wg.Done(); _, accErr = e.accept(svcA, bob, id) }()
+			go func() { defer wg.Done(); accErr = e.accept(svcA, bob, id) }()
 			go func() {
 				defer wg.Done()
-				_, _, sendErr = e.sendOn(e.newService(), alice, toUser(skey(500), bob, "racing"))
+				_, sendErr = e.sendOn(e.newService(), alice, toUser(skey(500), bob, "racing"))
 			}()
 			wg.Wait()
 			if accErr != nil || sendErr != nil {

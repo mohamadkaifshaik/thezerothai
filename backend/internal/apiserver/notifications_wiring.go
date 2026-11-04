@@ -17,7 +17,7 @@ import (
 const maxTrackedAccountAges = 10_000
 
 // accountAges remembers recently authenticated accounts' createdAt so the notifications recipient cap can tell a new
-// account at emit time with 0 reads (N-1). Entries expire after an hour; the verdict is recomputed from createdAt
+// account at emit time without a read (N-1). Entries expire after an hour; the verdict is recomputed from createdAt
 // on every call, so an account ages out of the new-account tier on time.
 type accountAges struct {
 	window time.Duration

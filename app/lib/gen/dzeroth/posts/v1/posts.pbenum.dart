@@ -115,7 +115,7 @@ class ReplyPolicy extends $pb.ProtobufEnum {
   const ReplyPolicy._(super.value, super.name);
 }
 
-/// Whether the viewer may reply, as far as the server can tell without extra reads. Advisory only:
+/// Whether the viewer may reply, as far as the server can tell without extra lookups. Advisory only:
 /// CreatePost decides.
 class ReplyPermission extends $pb.ProtobufEnum {
   /// An older server that does not compute it: treat as allowed.

@@ -126,7 +126,7 @@ type codec struct {
 	now func() time.Time
 }
 
-// parse decodes and validates both tokens against f with 0 reads. Any failure is VALIDATION with the field of
+// parse decodes and validates both tokens against f without any read. Any failure is VALIDATION with the field of
 // the offending token; sending both tokens is VALIDATION field=page_token.
 func (c codec) parse(f feed, sinceToken, pageToken string) (request, error) {
 	var r request
@@ -172,7 +172,7 @@ func (c codec) encodePage(f feed, upper posts.Position, lower *posts.Position) s
 }
 
 // listFeed is the token family of one list read by one caller: bound to the caller AND the list, so a Home or
-// user token on a list, a list token on another list or for another caller is VALIDATION with 0 reads. ids never contain a pipe.
+// user token on a list, a list token on another list or for another caller is VALIDATION. ids never contain a pipe.
 func listFeed(caller, listID string) feed {
 	base := "tl|list|" + caller + "|" + listID + "|"
 	return feed{since: base + "since", page: base + "page"}
@@ -180,7 +180,7 @@ func listFeed(caller, listID string) feed {
 
 // communityFeed is the token family of one community read by one caller: bound to the caller AND the community
 // (`community|<uid>|<cid>`), so a Home, user or list token on a community, or a community token on another community or for another
-// caller, is VALIDATION with 0 reads. ids never contain a pipe.
+// caller, is VALIDATION. ids never contain a pipe.
 func communityFeed(caller, cid string) feed {
 	base := "tl|community|" + caller + "|" + cid + "|"
 	return feed{since: base + "since", page: base + "page"}

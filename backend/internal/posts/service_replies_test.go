@@ -15,7 +15,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -75,10 +74,8 @@ func newThreadEnv() *createEnv {
 	return e
 }
 
-func (e *createEnv) thread(in ThreadInput) (*Thread, *budget.Counter, error) {
-	ctx, c := budget.WithCounter(googleCtx(context.Background(), testUID))
-	t, err := e.svc.GetThread(ctx, testUID, in)
-	return t, c, err
+func (e *createEnv) thread(in ThreadInput) (*Thread, error) {
+	return e.svc.GetThread(googleCtx(context.Background(), testUID), testUID, in)
 }
 
 func idsOf(ps []*Post) []string {
@@ -96,7 +93,7 @@ func TestCreateReply_StoresReplyShapeAndBumpsParent(t *testing.T) {
 	e.cache.StoreAuthorRecent(testUID, nil, false, time.Now())
 	root := e.repo.docs[rRoot]
 
-	p, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "good point", ReplyToPostID: rRoot, RepliesEnabled: true})
+	p, err := e.create(CreateInput{IdempotencyKey: key1, Text: "good point", ReplyToPostID: rRoot, RepliesEnabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,8 +103,6 @@ func TestCreateReply_StoresReplyShapeAndBumpsParent(t *testing.T) {
 	if root.ReplyCount != 1 {
 		t.Fatalf("parent replyCount = %d, want 1", root.ReplyCount)
 	}
-	// 5 writes: idempotency, post, users.postsCount, quotas, parent replyCount. Reads (fakes): parent 1, caller
-	// graph 1, idempotency 1, quotas 1; the plan ceiling is 15 cold.
 	// A reply is never a timeline item: the author-recent (Posts tab / Home) entry stays empty.
 	if r, ok := e.svc.AuthorRecent(testUID); !ok || len(r.Posts) != 0 {
 		t.Fatalf("author-recent after a reply = %+v, %v; want empty", r, ok)
@@ -115,7 +110,7 @@ func TestCreateReply_StoresReplyShapeAndBumpsParent(t *testing.T) {
 	if len(e.events.created) != 1 || !e.events.created[0].IsReply {
 		t.Fatal("PostEvents.Created must fire once with the reply")
 	}
-	// The hook gets the parent's author from the parent the validation already read (no extra read), transiently.
+	// The hook gets the parent's author from the parent the validation already read (no refetch), transiently.
 	if got := e.events.created[0].ReplyToAuthorID; got != uZed {
 		t.Fatalf("Created got ReplyToAuthorID %q, want %q", got, uZed)
 	}
@@ -123,7 +118,7 @@ func TestCreateReply_StoresReplyShapeAndBumpsParent(t *testing.T) {
 
 func TestCreateReply_ToAReplyJoinsTheSameConversation(t *testing.T) {
 	e := newThreadEnv()
-	p, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "deeper", ReplyToPostID: rReply1, RepliesEnabled: true})
+	p, err := e.create(CreateInput{IdempotencyKey: key1, Text: "deeper", ReplyToPostID: rReply1, RepliesEnabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,12 +127,12 @@ func TestCreateReply_ToAReplyJoinsTheSameConversation(t *testing.T) {
 	}
 }
 
-func TestCreateReply_FlagOffIsFeatureDisabledWithZeroReads(t *testing.T) {
+func TestCreateReply_FlagOffIsFeatureDisabledBeforeAnyLookup(t *testing.T) {
 	e := newThreadEnv()
-	_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", ReplyToPostID: rRoot})
+	_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", ReplyToPostID: rRoot})
 	ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
-	if ae.Metadata["feature"] != "replies" {
-		t.Fatalf("metadata=%v reads=%d writes=%d", ae.Metadata, c.Reads(), c.Writes())
+	if ae.Metadata["feature"] != "replies" || e.repo.getAllCalls != 0 || e.graph.calls != 0 || e.repo.createCalls != 0 {
+		t.Fatalf("metadata=%v getAllCalls=%d graphCalls=%d creates=%d, want the refusal before any lookup", ae.Metadata, e.repo.getAllCalls, e.graph.calls, e.repo.createCalls)
 	}
 }
 
@@ -157,13 +152,13 @@ func TestCreateReply_NotFoundIsUniform(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newThreadEnv()
 			tc.setup(e)
-			_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", ReplyToPostID: tc.to, RepliesEnabled: true})
+			_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", ReplyToPostID: tc.to, RepliesEnabled: true})
 			ae := wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 			if ae.Message != postNotFoundText {
 				t.Fatalf("message = %q, want the one uniform answer", ae.Message)
 			}
 			if e.repo.docs[rRoot] != nil && e.repo.docs[rRoot].ReplyCount != 0 {
-				t.Fatalf("writes=%d, want 0 and no counter change", c.Writes())
+				t.Fatalf("parent replyCount = %d, want 0: a refusal must not change the counter", e.repo.docs[rRoot].ReplyCount)
 			}
 		})
 	}
@@ -171,23 +166,23 @@ func TestCreateReply_NotFoundIsUniform(t *testing.T) {
 
 func TestCreateReply_InvalidParentID(t *testing.T) {
 	e := newThreadEnv()
-	_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", ReplyToPostID: "abc", RepliesEnabled: true})
+	_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", ReplyToPostID: "abc", RepliesEnabled: true})
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 }
 
 func TestCreateReply_IdempotencyKeyBindsTheParent(t *testing.T) {
 	e := newThreadEnv()
-	first, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "same", ReplyToPostID: rRoot, RepliesEnabled: true})
+	first, err := e.create(CreateInput{IdempotencyKey: key1, Text: "same", ReplyToPostID: rRoot, RepliesEnabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Same key, same body: replay returns the first post and does not bump again.
-	again, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "same", ReplyToPostID: rRoot, RepliesEnabled: true})
+	again, err := e.create(CreateInput{IdempotencyKey: key1, Text: "same", ReplyToPostID: rRoot, RepliesEnabled: true})
 	if err != nil || again.ID != first.ID || e.repo.docs[rRoot].ReplyCount != 1 {
-		t.Fatalf("replay: id=%v err=%v writes=%d count=%d", again, err, c.Writes(), e.repo.docs[rRoot].ReplyCount)
+		t.Fatalf("replay: id=%v err=%v count=%d", again, err, e.repo.docs[rRoot].ReplyCount)
 	}
 	// Same key and text, different parent: a different request.
-	_, _, err = e.create(CreateInput{IdempotencyKey: key1, Text: "same", ReplyToPostID: rReply1, RepliesEnabled: true})
+	_, err = e.create(CreateInput{IdempotencyKey: key1, Text: "same", ReplyToPostID: rReply1, RepliesEnabled: true})
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 }
 
@@ -205,12 +200,12 @@ func withRepost(e *createEnv, of string) *Post {
 func TestCreateReply_ToARepostResolvesToTheOriginal(t *testing.T) {
 	e := newThreadEnv()
 	rp := withRepost(e, rRoot)
-	_, _, err := newThreadEnv().create(CreateInput{IdempotencyKey: key1, Text: "x", ReplyToPostID: rRoot, RepliesEnabled: true})
+	_, err := newThreadEnv().create(CreateInput{IdempotencyKey: key1, Text: "x", ReplyToPostID: rRoot, RepliesEnabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	p, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "good point", ReplyToPostID: rRepost, RepliesEnabled: true})
+	p, err := e.create(CreateInput{IdempotencyKey: key1, Text: "good point", ReplyToPostID: rRepost, RepliesEnabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,11 +218,9 @@ func TestCreateReply_ToARepostResolvesToTheOriginal(t *testing.T) {
 	if rp.ReplyCount != 0 || rp.LikeCount != 0 || rp.RepostCount != 0 || rp.QuoteCount != 0 {
 		t.Fatalf("REPOST counters moved: %+v", rp)
 	}
-	// D17: +1 post read here; the original's author profile comes from the directory (+2 cold in Firestore).
-
 	// UndoRepost removes the REPOST doc; the reply's thread still renders from the original.
 	delete(e.repo.docs, rRepost)
-	th, _, err := e.thread(ThreadInput{PostID: p.ID})
+	th, err := e.thread(ThreadInput{PostID: p.ID})
 	if err != nil || th.Focal.ID != p.ID || th.Parent == nil || th.Parent.ID != rRoot || th.ParentUnavailable {
 		t.Fatalf("thread after UndoRepost: %+v err=%v", th, err)
 	}
@@ -248,10 +241,10 @@ func TestCreateReply_ToARepostNotFound(t *testing.T) {
 			e := newThreadEnv()
 			withRepost(e, rRoot)
 			tc.setup(e)
-			_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", ReplyToPostID: rRepost, RepliesEnabled: true})
+			_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", ReplyToPostID: rRepost, RepliesEnabled: true})
 			ae := wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
-			if ae.Message != postNotFoundText {
-				t.Fatalf("message=%q writes=%d", ae.Message, c.Writes())
+			if ae.Message != postNotFoundText || e.repo.createCalls != 0 {
+				t.Fatalf("message=%q creates=%d", ae.Message, e.repo.createCalls)
 			}
 		})
 	}
@@ -260,7 +253,7 @@ func TestCreateReply_ToARepostNotFound(t *testing.T) {
 func TestGetThread_OnARepostIdOpensTheOriginalsThread(t *testing.T) {
 	e := newThreadEnv()
 	withRepost(e, rReply1)
-	th, _, err := e.thread(ThreadInput{PostID: rRepost})
+	th, err := e.thread(ThreadInput{PostID: rRepost})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +263,7 @@ func TestGetThread_OnARepostIdOpensTheOriginalsThread(t *testing.T) {
 
 	delete(e.repo.docs, rReply1) // original gone: NOT_FOUND "post not found"
 	e.cache.DeletePost(rReply1)
-	_, _, err = e.thread(ThreadInput{PostID: rRepost})
+	_, err = e.thread(ThreadInput{PostID: rRepost})
 	if ae := wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED); ae.Message != postNotFoundText {
 		t.Fatalf("message = %q", ae.Message)
 	}
@@ -281,7 +274,7 @@ func TestGetThread_OnARepostIdOpensTheOriginalsThread(t *testing.T) {
 func TestDeleteReply_ReleasesTheParentCounter(t *testing.T) {
 	e := newThreadEnv()
 	e.repo.docs[rRoot].ReplyCount = 1
-	_, outcome, err := e.del(rReply4)
+	outcome, err := e.del(rReply4)
 	if err != nil || outcome != outcomeDeleted {
 		t.Fatalf("err=%v outcome=%s", err, outcome)
 	}
@@ -291,12 +284,12 @@ func TestDeleteReply_ReleasesTheParentCounter(t *testing.T) {
 
 	// A failing counter update never fails the delete.
 	e.repo.replyCountErr = errBoom
-	if _, outcome, err = e.del(rReply5); err == nil && outcome != "noop:not_owner" {
+	if outcome, err = e.del(rReply5); err == nil && outcome != "noop:not_owner" {
 		t.Fatalf("someone else's reply must be a no-op, got %s", outcome)
 	}
 	e.repo.docs[rReply4] = replyPost(rReply4, testUID, "Alice", rReply1, rRoot)
 	e.cache.DeletePost(rReply4)
-	if _, outcome, err = e.del(rReply4); err != nil || outcome != outcomeDeleted {
+	if outcome, err = e.del(rReply4); err != nil || outcome != outcomeDeleted {
 		t.Fatalf("counter failure must not fail the delete: err=%v outcome=%s", err, outcome)
 	}
 }
@@ -304,7 +297,7 @@ func TestDeleteReply_ReleasesTheParentCounter(t *testing.T) {
 func TestDeleteRoot_DoesNotTouchAnyCounter(t *testing.T) {
 	e := newThreadEnv()
 	e.repo.docs[rRoot].AuthorID = testUID
-	if _, outcome, err := e.del(rRoot); err != nil || outcome != outcomeDeleted {
+	if outcome, err := e.del(rRoot); err != nil || outcome != outcomeDeleted {
 		t.Fatalf("err=%v outcome=%s", err, outcome)
 	}
 	if e.repo.replyCountCalls != 0 {
@@ -316,7 +309,7 @@ func TestDeleteRoot_DoesNotTouchAnyCounter(t *testing.T) {
 
 func TestGetThread_ChronologicalAndFiltered(t *testing.T) {
 	e := newThreadEnv()
-	th, _, err := e.thread(ThreadInput{PostID: rReply1})
+	th, err := e.thread(ThreadInput{PostID: rReply1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +330,7 @@ func TestGetThread_ChronologicalAndFiltered(t *testing.T) {
 
 func TestGetThread_RootFocalHasNoParent(t *testing.T) {
 	e := newThreadEnv()
-	th, _, err := e.thread(ThreadInput{PostID: rRoot})
+	th, err := e.thread(ThreadInput{PostID: rRoot})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +350,7 @@ func TestGetThread_PagingWithOpaqueCursor(t *testing.T) {
 	var all []string
 	token := ""
 	for i := 0; i < 6; i++ {
-		th, _, err := e.thread(ThreadInput{PostID: rRoot, PageSize: 2, PageToken: token})
+		th, err := e.thread(ThreadInput{PostID: rRoot, PageSize: 2, PageToken: token})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -377,22 +370,26 @@ func TestGetThread_PagingWithOpaqueCursor(t *testing.T) {
 
 func TestGetThread_PageTokenIsBoundAndValidated(t *testing.T) {
 	e := newThreadEnv()
-	th, _, err := e.thread(ThreadInput{PostID: rRoot, PageSize: 1})
+	th, err := e.thread(ThreadInput{PostID: rRoot, PageSize: 1})
 	if err != nil || th.NextPageToken == "" {
 		t.Fatalf("err=%v token=%q", err, th.NextPageToken)
 	}
-	// Another thread: rejected at 0 reads.
-	_, _, err = e.thread(ThreadInput{PostID: rReply1, PageToken: th.NextPageToken})
+	// Another thread, a garbage token and a bad id are all rejected before the thread is read.
+	callsBefore := e.repo.conversationCalls
+	_, err = e.thread(ThreadInput{PostID: rReply1, PageToken: th.NextPageToken})
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
-	_, _, err = e.thread(ThreadInput{PostID: rRoot, PageToken: "garbage"})
+	_, err = e.thread(ThreadInput{PostID: rRoot, PageToken: "garbage"})
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
-	_, _, err = e.thread(ThreadInput{PostID: "nope"})
+	_, err = e.thread(ThreadInput{PostID: "nope"})
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
+	if e.repo.conversationCalls != callsBefore {
+		t.Fatalf("conversation queries = %d, want %d: a rejected token or id must not read the thread", e.repo.conversationCalls, callsBefore)
+	}
 }
 
 func TestGetThread_PageSizeIsClamped(t *testing.T) {
 	e := newThreadEnv()
-	if _, _, err := e.thread(ThreadInput{PostID: rRoot, PageSize: 500}); err != nil {
+	if _, err := e.thread(ThreadInput{PostID: rRoot, PageSize: 500}); err != nil {
 		t.Fatal(err)
 	}
 	if e.repo.lastLimit != ThreadMaxPageSize {
@@ -403,7 +400,7 @@ func TestGetThread_PageSizeIsClamped(t *testing.T) {
 func TestGetThread_DeletedParentRendersATombstone(t *testing.T) {
 	e := newThreadEnv()
 	delete(e.repo.docs, rRoot) // the root (also the parent of rReply1) is gone
-	th, _, err := e.thread(ThreadInput{PostID: rReply1})
+	th, err := e.thread(ThreadInput{PostID: rReply1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +414,7 @@ func TestGetThread_DeletedParentRendersATombstone(t *testing.T) {
 	e.repo.docs[rRoot] = replyPost(rRoot, uZed, "zed", "", rRoot)
 	delete(e.repo.docs, rReply4)
 	e.cache.DeletePost(rReply4)
-	th, _, err = e.thread(ThreadInput{PostID: rReply5})
+	th, err = e.thread(ThreadInput{PostID: rReply5})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -429,7 +426,7 @@ func TestGetThread_DeletedParentRendersATombstone(t *testing.T) {
 func TestGetThread_ContextByABlockedOrBlockingAuthorIsATombstone(t *testing.T) {
 	e := newThreadEnv()
 	e.graph.snap.BlockedBy = map[string]bool{uCarol: true} // carol (rReply1's author) blocks the caller
-	th, _, err := e.thread(ThreadInput{PostID: rReply4})
+	th, err := e.thread(ThreadInput{PostID: rReply4})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,24 +434,24 @@ func TestGetThread_ContextByABlockedOrBlockingAuthorIsATombstone(t *testing.T) {
 		t.Fatalf("a blocking parent author must be a tombstone: %+v", th)
 	}
 	// The same call for the focal post itself is the uniform NOT_FOUND.
-	_, _, err = e.thread(ThreadInput{PostID: rReply1})
+	_, err = e.thread(ThreadInput{PostID: rReply1})
 	if ae := wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED); ae.Message != postNotFoundText {
 		t.Fatalf("message = %q", ae.Message)
 	}
 	// The caller blocking the parent's author hides the context row as well.
 	e = newThreadEnv()
 	e.graph.snap.Blocked[uCarol] = true
-	th, _, err = e.thread(ThreadInput{PostID: rReply4})
+	th, err = e.thread(ThreadInput{PostID: rReply4})
 	if err != nil || !th.ParentUnavailable {
 		t.Fatalf("err=%v thread=%+v", err, th)
 	}
 }
 
-func TestGetThread_BlockedByOverflowFailsClosedWithoutExtraReads(t *testing.T) {
+func TestGetThread_BlockedByOverflowFailsClosed(t *testing.T) {
 	e := newThreadEnv()
 	e.graph.snap.BlockedByOverflow = true
 	e.graph.snaps = map[string]graph.Snapshot{uCarol: {}} // the focal author's own graph: no block
-	th, _, err := e.thread(ThreadInput{PostID: rReply4})
+	th, err := e.thread(ThreadInput{PostID: rReply4})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -465,17 +462,17 @@ func TestGetThread_BlockedByOverflowFailsClosedWithoutExtraReads(t *testing.T) {
 
 func TestGetThread_FocalNotFoundCases(t *testing.T) {
 	e := newThreadEnv()
-	_, _, err := e.thread(ThreadInput{PostID: "0000000000000000999"})
+	_, err := e.thread(ThreadInput{PostID: "0000000000000000999"})
 	_ = wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 	delete(e.dir.profiles, uZed)
-	_, _, err = e.thread(ThreadInput{PostID: rRoot})
+	_, err = e.thread(ThreadInput{PostID: rRoot})
 	_ = wantAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 }
 
 func TestGetThread_RepoFailureIsInternalNotNotFound(t *testing.T) {
 	e := newThreadEnv()
 	e.repo.conversationErr = errBoom
-	_, _, err := e.thread(ThreadInput{PostID: rRoot})
+	_, err := e.thread(ThreadInput{PostID: rRoot})
 	if err == nil || errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v", err)
 	}
@@ -488,7 +485,6 @@ func TestGetThread_RepoFailureIsInternalNotNotFound(t *testing.T) {
 func TestGetThread_LogsCountsOnly(t *testing.T) {
 	e := newThreadEnv()
 	ctx, info := logger.WithRequestInfo(googleCtx(context.Background(), testUID))
-	ctx, _ = budget.WithCounter(ctx)
 	if _, err := e.svc.GetThread(ctx, testUID, ThreadInput{PostID: rReply1}); err != nil {
 		t.Fatal(err)
 	}
@@ -515,8 +511,7 @@ func TestServer_GetThreadNeedsBothFlags(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			srv := NewServer(e.svc, fl)
-			ctx, _ := budget.WithCounter(callerCtx(testUID))
-			_, err := srv.GetThread(ctx, connect.NewRequest(&postsv1.GetThreadRequest{PostId: rRoot}))
+			_, err := srv.GetThread(callerCtx(testUID), connect.NewRequest(&postsv1.GetThreadRequest{PostId: rRoot}))
 			_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
 		})
 	}
@@ -602,7 +597,7 @@ func TestGetThread_ContextCopyOfABlockingAuthorIsATombstone(t *testing.T) {
 			e := newThreadEnv()
 			copyOf(e.repo.docs[tt.copyID], tt.kind, tt.embAuthor)
 			e.graph.snap = tt.snap
-			th, _, err := e.thread(ThreadInput{PostID: tt.focal})
+			th, err := e.thread(ThreadInput{PostID: tt.focal})
 			if err != nil {
 				t.Fatal(err)
 			}

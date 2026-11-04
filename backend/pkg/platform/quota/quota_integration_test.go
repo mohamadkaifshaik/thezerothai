@@ -12,7 +12,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -32,13 +31,12 @@ func quotaTestClient(t *testing.T) *firestore.Client {
 // reserveSchedule runs the transaction shape of SchedulePost's quota part: Get, then CheckAndReserve on the batch.
 func reserveSchedule(t *testing.T, client *firestore.Client, s *Store, uid string, limit int64) error {
 	t.Helper()
-	ctx, _ := budget.WithCounter(context.Background())
-	_, err := store.RunTransaction(ctx, client, func(ctx context.Context, tx *firestore.Transaction) error {
+	_, err := store.RunTransaction(context.Background(), client, func(ctx context.Context, tx *firestore.Transaction) error {
 		rec, err := s.Get(ctx, tx, uid)
 		if err != nil {
 			return err
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		if err := CheckAndReserve(b, s.Ref(uid), rec, Schedules, limit); err != nil {
 			return err
 		}

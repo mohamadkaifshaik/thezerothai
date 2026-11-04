@@ -331,7 +331,7 @@ func requestHash(purpose Purpose, items []UploadItem) string {
 	return idempotency.HashRequest(sb.String())
 }
 
-// CreateUpload implements Service (see the CreateUpload proto comment for the budget).
+// CreateUpload implements Service.
 func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadInput) (_ []UploadTarget, err error) {
 	logger.SetRequestField(ctx, fieldOp, "create_upload")
 	defer func() {

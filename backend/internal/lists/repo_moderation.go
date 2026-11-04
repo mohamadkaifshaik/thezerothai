@@ -9,7 +9,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -19,19 +18,19 @@ import (
 // writer of lists/{listId}.
 type Moderator interface {
 	// SetHidden sets or clears the platform `hidden` flag of one list. changed is false when the list already was in that
-	// state (nothing written). ErrNotFound for a missing list. Reads 1, writes 1 (0 when unchanged).
+	// state (nothing written). ErrNotFound for a missing list.
 	SetHidden(ctx context.Context, listID string, hidden bool, now time.Time) (changed bool, err error)
-	// Get reads the list outside a transaction (1 read), for `--dry-run`.
+	// Get reads the list outside a transaction, for `--dry-run`.
 	Get(ctx context.Context, id string) (List, error)
 }
 
 var _ Moderator = (*FirestoreRepo)(nil)
 
-// SetHidden implements Moderator: one transaction that reads the list (1 read, ErrNotFound when it is gone) and, only when
-// the flag differs, writes `hidden` and `updatedAt` through a field-level Update (1 write). It is never a Set, so a list
+// SetHidden implements Moderator: one transaction that reads the list (ErrNotFound when it is gone) and, only when
+// the flag differs, writes `hidden` and `updatedAt` through a field-level Update. It is never a Set, so a list
 // deleted between the read and the commit stays deleted, and no other field (members, name, privacy) can be touched or
 // reverted. Restore removes the field (`firestore.Delete`), so storage keeps its "absent means false" shape. Idempotent: a
-// repeat is 1 read and 0 writes. The api instances keep serving a cached copy for at most cacheTTL (60 s);
+// repeat writes nothing. The api instances keep serving a cached copy for at most cacheTTL (60 s);
 // nothing here can reach their memory.
 func (r *FirestoreRepo) SetHidden(ctx context.Context, listID string, hidden bool, now time.Time) (bool, error) {
 	if r == nil || r.client == nil {
@@ -41,7 +40,6 @@ func (r *FirestoreRepo) SetHidden(ctx context.Context, listID string, hidden boo
 	_, err := r.run(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		changed = false
 		snap, err := tx.Get(r.ref(listID))
-		budget.FromContext(ctx).AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				return ErrNotFound
@@ -59,7 +57,7 @@ func (r *FirestoreRepo) SetHidden(ctx context.Context, listID string, hidden boo
 		if hidden {
 			hv = true
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		b.Update(r.ref(listID), []firestore.Update{{Path: "hidden", Value: hv}, {Path: "updatedAt", Value: now.UTC()}})
 		if err := b.Err(); err != nil {
 			return err

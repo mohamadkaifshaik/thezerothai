@@ -23,7 +23,7 @@
 //   verify         BURST_START + BURST_DURATION + 15 s: pages the whole burst thread and compares the thread with both unread counts
 //                  (no message lost, no lost Increment); prints one `W723 VERIFY` line.
 //
-// Reads are NOT a k6 metric: they come from the API request log (`fs_reads`, `fs_writes`, `fs_deletes`, `txn_attempts`, `results`,
+// Server time and behaviour are NOT k6 metrics: they come from the API request log (`txn_attempts`, `results`,
 // `latency_ms`), see loadtest/analyze_messaging.js. k6 prints `W723 PHASE <name> <iso time>` lines (stdout/stderr) that the analyzer
 // uses to cut the log into phases. k6 records the response sizes (`resp_bytes` = decompressed JSON, `wire_bytes` = Content-Length of
 // the gzip response, the server gzips when the client sends Accept-Encoding: gzip) and the status of every call. Latency is emulator

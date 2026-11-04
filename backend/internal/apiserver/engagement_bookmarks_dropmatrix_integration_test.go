@@ -154,8 +154,7 @@ func TestListBookmarksChain_DropMatrixStepByStep(t *testing.T) {
 	l := wantRows(t, "phase 1", r, v, newestFirst(deleted, hidden, suspended, byBlocked, byMuted, byBlocker, quote))
 	// rows: live + deleting kept; dropped: missing 1, hidden 2 (takedown + suspended), blocked 3 (x, z, the quote's embedded e), muted 1
 	tally(l, 1, 2, 3, 1, 1, 2)
-	// Cold: interceptor 1 + query 9 + GetMany 9 (the deleted one is a read too) + graph 1 + userLikes 1 = 21 reads; the
-	// prune of the one missing row adds 1 write and 1 delete.
+	// Cold open; the one missing row is pruned.
 	// Prune exactly once: only the deleted post's doc is gone, nothing else, no residue in the array.
 	for id, want := range map[string]bool{live: true, deleted: false, hidden: true, suspended: true, deleting: true, byBlocked: true, byMuted: true, byBlocker: true, quote: true} {
 		if got := w.bookmarkDocExists(t, v.uid, id); got != want {
@@ -248,7 +247,7 @@ func TestListBookmarksChain_PruneSkippedUnderReadOnly(t *testing.T) {
 		t.Fatalf("normal list = %v, %v", postIDs(resp), err)
 	}
 	if l := r.line(t, rpcListBookmarks); num(l, "rows_pruned") != 1 {
-		t.Errorf("normal request line = %v, want 1 pruned / 1 write / 1 delete", l)
+		t.Errorf("normal request line = %v, want 1 row pruned", l)
 	}
 	if w.bookmarkDocExists(t, v.uid, gone) || slices.Contains(w.bookmarkIDs(t, v.uid), gone) {
 		t.Error("residue of the pruned bookmark (doc or userLikes.bookmarks entry)")

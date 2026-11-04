@@ -2,9 +2,9 @@ package config
 
 import "fmt"
 
-// MaxListMembersCeiling is the hard ceiling of LIST_MAX_MEMBERS (cost review L-1). Above 500 the trigger
+// MaxListMembersCeiling is the hard ceiling of LIST_MAX_MEMBERS. Above 500 the trigger
 // for a members-collection change is already broken (the memberIds array is the whole list document, read on every list
-// read), and above about 4,890 a list timeline would pass the 269-read hold. Raising it needs a design decision.
+// read). Raising it needs a design decision.
 const MaxListMembersCeiling = 500
 
 // ListsConfig holds the list values that are neither a rate limit nor a daily quota. The list buckets and the

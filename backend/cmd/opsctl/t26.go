@@ -151,7 +151,7 @@ func toAuthUser(r *fbauth.UserRecord) authUser {
 	return u
 }
 
-// newUsersExist counts existing users/{uid} docs with one batched GetAll per call (1 read per uid).
+// newUsersExist counts existing users/{uid} docs with one batched GetAll per call.
 func newUsersExist(client *firestore.Client) usersExistFn {
 	return func(ctx context.Context, uids []string) (int, error) {
 		refs := make([]*firestore.DocumentRef, len(uids))

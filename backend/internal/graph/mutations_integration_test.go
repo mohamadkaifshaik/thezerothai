@@ -1,13 +1,10 @@
 //go:build integration
 
 // mutations_integration_test.go holds emulator contract tests for the six
-// graph mutations (Follow, Unfollow, Block, Unblock, Mute, Unmute) covering every documented ErrorReason
-// Budget assertions (worst case and typical) on every call, replays, quotas (incl. the IST-midnight
+// graph mutations (Follow, Unfollow, Block, Unblock, Mute, Unmute) covering every documented ErrorReason,
+// replays, quotas (incl. the IST-midnight
 // rollover and new-account tiers), caps, races, and degraded mode. Every newWired test ends with the graph
 // invariant sweep (invariants_integration_test.go); race tests also sweep after each iteration.
-//
-// Budgets ("Per-RPC budget", worst / typical). The typical figures assume identity's profile cache is
-// warm (what a busy instance has); cold worst cases include the 2-doc identity.Directory read Follow does first.
 package graph_test
 
 import (
@@ -30,9 +27,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/degraded"
 )
-
-// Budgets straight from the table (reads / writes / deletes).
-var ()
 
 type mutationFn func(ctx context.Context, w wired, caller, key, target string) (graph.Relationship, error)
 
@@ -73,64 +67,74 @@ func must(t *testing.T, what string, err error) {
 }
 
 // ---------------------------------------------------------------------------------------------------------
-// Happy paths and budgets (worst + typical) for all six RPCs.
+// Happy paths (warm and cold identity cache) for all six RPCs.
 // ---------------------------------------------------------------------------------------------------------
 
-func TestT16a_Follow_WarmTypicalAndReplayBudgets(t *testing.T) {
+func TestT16a_Follow_WarmTypicalAndReplay(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
 	mustCreateProfile(t, w.identity, "uid-b", "userb")
 	mustCreateProfile(t, w.identity, "uid-c", "userc")
 
 	warmProfiles(t, w, "uid-a", "uid-b", "uid-c")
-	measured(t, "Follow (typical, warm)", func(ctx context.Context) {
+	// Follow (typical, warm)
+	{
+		ctx := context.Background()
 		rel, err := w.graph.Follow(ctx, "uid-a", key1, "uid-b")
 		must(t, "Follow", err)
 		if rel.FollowState != graph.FollowStateFollowing || rel.Blocking || rel.Muting {
 			t.Errorf("rel = %+v, want FOLLOWING", rel)
 		}
-	})
+	}
 
 	// Replay (same key) right after a create: Follow evicted both profiles, so this replay is cold (worst).
-	measured(t, "Follow (replay, same key, cold)", func(ctx context.Context) {
+	// Follow (replay, same key, cold)
+	{
+		ctx := context.Background()
 		rel, err := w.graph.Follow(ctx, "uid-a", key1, "uid-b")
 		must(t, "Follow replay", err)
 		if rel.FollowState != graph.FollowStateFollowing {
 			t.Errorf("rel = %+v", rel)
 		}
-	})
+	}
 	// The cold replay repopulated the cache (replays don't evict): now the documented 2R / 0W typical replay.
-	measured(t, "Follow (replay, new key, warm)", func(ctx context.Context) {
+	// Follow (replay, new key, warm)
+	{
+		ctx := context.Background()
 		if _, err := w.graph.Follow(ctx, "uid-a", key2, "uid-b"); err != nil {
 			t.Fatalf("Follow replay: %v", err)
 		}
-	})
+	}
 
-	// Following a second account keeps the same budget (no N+1 in the number of existing edges).
+	// Following a second account works the same way.
 	warmProfiles(t, w, "uid-a", "uid-c")
-	measured(t, "Follow (typical, 2nd target)", func(ctx context.Context) {
+	// Follow (typical, 2nd target)
+	{
+		ctx := context.Background()
 		if _, err := w.graph.Follow(ctx, "uid-a", key3, "uid-c"); err != nil {
 			t.Fatalf("Follow: %v", err)
 		}
-	})
+	}
 	if got := quotaUsed(t, w.client, "uid-a", istDay(0), "follows"); got != 2 {
 		t.Errorf("quotas.follows = %d, want 2 (replays must not reserve quota)", got)
 	}
 }
 
-// TestT16a_Follow_ColdWorstBudget: with identity's profile cache empty, Follow pays the 2-doc directory read on
-// top of graph + quota (4 reads), and quotas are configuration (withQuotas), not constants.
-func TestT16a_Follow_ColdWorstBudget_AndConfigurableQuota(t *testing.T) {
+// TestT16a_Follow_ColdIdentityCache_AndConfigurableQuota: Follow works with identity's profile cache empty, and
+// quotas are configuration (withQuotas), not constants.
+func TestT16a_Follow_ColdIdentityCache_AndConfigurableQuota(t *testing.T) {
 	w := newWired(t, withNewAccountWindow(1), withQuotas(2, 1, 2, 1))
 	for _, u := range []string{"a", "b", "c", "d"} {
 		mustCreateProfile(t, w.identity, "uid-"+u, "user"+u)
 	}
 	w.identity.(interface{ Forget(...string) }).Forget("uid-a", "uid-b")
-	measured(t, "Follow (worst: cold identity cache)", func(ctx context.Context) {
+	// Follow (worst: cold identity cache)
+	{
+		ctx := context.Background()
 		if _, err := w.graph.Follow(ctx, "uid-a", key1, "uid-b"); err != nil {
 			t.Fatalf("Follow: %v", err)
 		}
-	})
+	}
 	if _, err := w.graph.Follow(context.Background(), "uid-a", key1, "uid-c"); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +143,7 @@ func TestT16a_Follow_ColdWorstBudget_AndConfigurableQuota(t *testing.T) {
 }
 
 // TestT16a_SeedFixtures_ConsistentAndUsable proves the shared seeding fixtures (used later) produce states
-// the checker accepts and the RPCs can operate on, at the documented budgets.
+// the checker accepts and the RPCs can operate on.
 func TestT16a_SeedFixtures_ConsistentAndUsable(t *testing.T) {
 	w := newWired(t)
 	for _, u := range []string{"a", "b", "c", "d"} {
@@ -149,49 +153,61 @@ func TestT16a_SeedFixtures_ConsistentAndUsable(t *testing.T) {
 	seedFollow(t, w, "uid-b", "uid-a", time.Now().UTC())
 	seedBlock(t, w.client, "uid-c", "uid-d")
 	assertGraphInvariants(t, w.client)
-	measured(t, "Unfollow (seeded edge)", func(ctx context.Context) {
+	// Unfollow (seeded edge)
+	{
+		ctx := context.Background()
 		if _, err := w.graph.Unfollow(ctx, "uid-a", key1, "uid-b"); err != nil {
 			t.Fatalf("Unfollow: %v", err)
 		}
-	})
-	measured(t, "Block (seeded one-way follow)", func(ctx context.Context) {
+	}
+	// Block (seeded one-way follow)
+	{
+		ctx := context.Background()
 		if _, err := w.graph.Block(ctx, "uid-a", key2, "uid-b"); err != nil {
 			t.Fatalf("Block: %v", err)
 		}
-	})
-	measured(t, "Unblock (seeded block)", func(ctx context.Context) {
+	}
+	// Unblock (seeded block)
+	{
+		ctx := context.Background()
 		if _, err := w.graph.Unblock(ctx, "uid-c", key3, "uid-d"); err != nil {
 			t.Fatalf("Unblock: %v", err)
 		}
-	})
+	}
 }
 
-func TestT16a_Unfollow_Budgets(t *testing.T) {
+func TestT16a_Unfollow(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
 	mustCreateProfile(t, w.identity, "uid-b", "userb")
 	_, err := w.graph.Follow(context.Background(), "uid-a", key1, "uid-b")
 	must(t, "Follow", err)
 
-	measured(t, "Unfollow", func(ctx context.Context) {
+	// Unfollow
+	{
+		ctx := context.Background()
 		rel, err := w.graph.Unfollow(ctx, "uid-a", key2, "uid-b")
 		must(t, "Unfollow", err)
 		if rel.FollowState != graph.FollowStateNone {
 			t.Errorf("rel = %+v, want NONE", rel)
 		}
-	})
-	measured(t, "Unfollow (no-op replay, same key)", func(ctx context.Context) {
+	}
+	// Unfollow (no-op replay, same key)
+	{
+		ctx := context.Background()
 		_, err := w.graph.Unfollow(ctx, "uid-a", key2, "uid-b")
 		must(t, "Unfollow replay", err)
-	})
-	measured(t, "Unfollow (never followed, new key)", func(ctx context.Context) {
+	}
+	// Unfollow (never followed, new key)
+	{
+		ctx := context.Background()
 		_, err := w.graph.Unfollow(ctx, "uid-a", key3, "uid-b")
 		must(t, "Unfollow never-followed", err)
-	})
+	}
 	// A no-op must not disturb the (already zero) counters; the end-of-test sweep proves it stays consistent.
 }
 
-func TestT16a_Block_WorstAndTypicalBudgets(t *testing.T) {
+func TestT16a_Block_WorstAndTypical(t *testing.T) {
 	w := newWired(t)
 	for _, u := range []string{"a", "b", "c"} {
 		mustCreateProfile(t, w.identity, "uid-"+u, "user"+u)
@@ -203,36 +219,44 @@ func TestT16a_Block_WorstAndTypicalBudgets(t *testing.T) {
 	_, err = w.graph.Follow(ctx0, "uid-b", key1, "uid-a")
 	must(t, "b follows a", err)
 
-	measured(t, "Block (worst: mutual follow)", func(ctx context.Context) {
+	// Block (worst: mutual follow)
+	{
+		ctx := context.Background()
 		rel, err := w.graph.Block(ctx, "uid-a", key2, "uid-b")
 		must(t, "Block", err)
 		if !rel.Blocking || rel.FollowState != graph.FollowStateNone {
 			t.Errorf("rel = %+v", rel)
 		}
-	})
-	measured(t, "Block (replay, same key)", func(ctx context.Context) {
+	}
+	// Block (replay, same key)
+	{
+		ctx := context.Background()
 		rel, err := w.graph.Block(ctx, "uid-a", key2, "uid-b")
 		must(t, "Block replay", err)
 		if !rel.Blocking {
 			t.Errorf("rel = %+v, want blocking", rel)
 		}
-	})
-	measured(t, "Block (replay, new key)", func(ctx context.Context) {
+	}
+	// Block (replay, new key)
+	{
+		ctx := context.Background()
 		if _, err := w.graph.Block(ctx, "uid-a", key3, "uid-b"); err != nil {
 			t.Fatalf("Block replay: %v", err)
 		}
-	})
-	measured(t, "Block (typical: no edges)", func(ctx context.Context) {
+	}
+	// Block (typical: no edges)
+	{
+		ctx := context.Background()
 		if _, err := w.graph.Block(ctx, "uid-a", key1, "uid-c"); err != nil {
 			t.Fatalf("Block: %v", err)
 		}
-	})
+	}
 	if got := quotaUsed(t, w.client, "uid-a", istDay(0), "blocks"); got != 2 {
 		t.Errorf("quotas.blocks = %d, want 2 (the replays must not reserve quota)", got)
 	}
 }
 
-func TestT16a_UnblockMuteUnmute_Budgets(t *testing.T) {
+func TestT16a_UnblockMuteUnmute(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
 	mustCreateProfile(t, w.identity, "uid-b", "userb")
@@ -240,75 +264,97 @@ func TestT16a_UnblockMuteUnmute_Budgets(t *testing.T) {
 	_, err := w.graph.Block(context.Background(), "uid-a", key1, "uid-b")
 	must(t, "Block", err)
 
-	measured(t, "Unblock", func(ctx context.Context) {
+	// Unblock
+	{
+		ctx := context.Background()
 		rel, err := w.graph.Unblock(ctx, "uid-a", key2, "uid-b")
 		must(t, "Unblock", err)
 		if rel.Blocking {
 			t.Errorf("rel = %+v, want not blocking", rel)
 		}
-	})
-	measured(t, "Unblock (no-op, same key)", func(ctx context.Context) {
+	}
+	// Unblock (no-op, same key)
+	{
+		ctx := context.Background()
 		_, err := w.graph.Unblock(ctx, "uid-a", key2, "uid-b")
 		must(t, "Unblock replay", err)
-	})
-	measured(t, "Unblock (no-op, new key)", func(ctx context.Context) {
+	}
+	// Unblock (no-op, new key)
+	{
+		ctx := context.Background()
 		_, err := w.graph.Unblock(ctx, "uid-a", key3, "uid-b")
 		must(t, "Unblock replay", err)
-	})
+	}
 
-	measured(t, "Mute", func(ctx context.Context) {
+	// Mute
+	{
+		ctx := context.Background()
 		rel, err := w.graph.Mute(ctx, "uid-a", key1, "uid-c")
 		must(t, "Mute", err)
 		if !rel.Muting {
 			t.Errorf("rel = %+v, want muting", rel)
 		}
-	})
-	measured(t, "Mute (replay, same key)", func(ctx context.Context) {
+	}
+	// Mute (replay, same key)
+	{
+		ctx := context.Background()
 		_, err := w.graph.Mute(ctx, "uid-a", key1, "uid-c")
 		must(t, "Mute replay", err)
-	})
-	measured(t, "Mute (replay, new key)", func(ctx context.Context) {
+	}
+	// Mute (replay, new key)
+	{
+		ctx := context.Background()
 		_, err := w.graph.Mute(ctx, "uid-a", key2, "uid-c")
 		must(t, "Mute replay", err)
-	})
-	measured(t, "Unmute", func(ctx context.Context) {
+	}
+	// Unmute
+	{
+		ctx := context.Background()
 		rel, err := w.graph.Unmute(ctx, "uid-a", key3, "uid-c")
 		must(t, "Unmute", err)
 		if rel.Muting {
 			t.Errorf("rel = %+v, want not muting", rel)
 		}
-	})
-	measured(t, "Unmute (no-op, same key)", func(ctx context.Context) {
+	}
+	// Unmute (no-op, same key)
+	{
+		ctx := context.Background()
 		_, err := w.graph.Unmute(ctx, "uid-a", key3, "uid-c")
 		must(t, "Unmute replay", err)
-	})
-	measured(t, "Unmute (no-op, new key)", func(ctx context.Context) {
+	}
+	// Unmute (no-op, new key)
+	{
+		ctx := context.Background()
 		_, err := w.graph.Unmute(ctx, "uid-a", key1, "uid-c")
 		must(t, "Unmute replay", err)
-	})
+	}
 }
 
-// TestT16a_Follow_OverflowedCaller_WorstBudget: worst-case Follow (an overflowed caller) is 5 reads and the
-// follow still succeeds when nobody blocked them, so the +1 read is the only cost of the fail-closed rule.
-func TestT16a_Follow_OverflowedCaller_WorstBudget(t *testing.T) {
+// TestT16a_Follow_OverflowedCaller: Follow by an overflowed caller still succeeds when nobody blocked them, so the
+// fail-closed rule costs nothing but the extra check.
+func TestT16a_Follow_OverflowedCaller(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
 	mustCreateProfile(t, w.identity, "uid-b", "userb")
 	seedGraphArrays(t, w.client, "uid-a", map[string]interface{}{"blockedByOverflow": true})
 
-	measured(t, "Follow (worst: overflowed caller)", func(ctx context.Context) {
+	// Follow (worst: overflowed caller)
+	{
+		ctx := context.Background()
 		if _, err := w.graph.Follow(ctx, "uid-a", key1, "uid-b"); err != nil {
 			t.Fatalf("Follow: %v", err)
 		}
-	})
+	}
+	if !docExists(t, w.client, "follows/uid-a_uid-b") {
+		t.Error("the overflowed caller's Follow created no edge")
+	}
 }
 
 // ---------------------------------------------------------------------------------------------------------
 // Every documented ErrorReason, per RPC.
 // ---------------------------------------------------------------------------------------------------------
 
-// TestT16a_ErrorReasons_AllRPCs: input validation, self-target and feature-flag rejections for all six RPCs,
-// each costing 0 Firestore operations.
+// TestT16a_ErrorReasons_AllRPCs: input validation, self-target and feature-flag rejections for all six RPCs.
 func TestT16a_ErrorReasons_AllRPCs(t *testing.T) {
 	for _, m := range allMutations {
 		m := m
@@ -318,25 +364,29 @@ func TestT16a_ErrorReasons_AllRPCs(t *testing.T) {
 			mustCreateProfile(t, w.identity, "uid-b", "userb")
 
 			t.Run("bad idempotency key", func(t *testing.T) {
-				measured(t, m.name+" (bad key)", func(ctx context.Context) {
+				{
+					ctx := context.Background()
 					_, err := m.call(ctx, w, "uid-a", "short", "uid-b")
 					requireAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "field", "idempotency_key")
-				})
+				}
 			})
 			t.Run("bad user id", func(t *testing.T) {
-				measured(t, m.name+" (bad user_id)", func(ctx context.Context) {
+				{
+					ctx := context.Background()
 					_, err := m.call(ctx, w, "uid-a", key1, "not a valid id!")
 					requireAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "field", "user_id")
-				})
+				}
 			})
 			t.Run("empty user id", func(t *testing.T) {
-				measured(t, m.name+" (empty user_id)", func(ctx context.Context) {
+				{
+					ctx := context.Background()
 					_, err := m.call(ctx, w, "uid-a", key1, "")
 					requireAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "field", "user_id")
-				})
+				}
 			})
 			t.Run("self target", func(t *testing.T) {
-				measured(t, m.name+" (self)", func(ctx context.Context) {
+				{
+					ctx := context.Background()
 					rel, err := m.call(ctx, w, "uid-a", key1, "uid-a")
 					if m.selfIsNoop {
 						if err != nil || rel.FollowState != graph.FollowStateNone || rel.Blocking || rel.Muting {
@@ -345,7 +395,7 @@ func TestT16a_ErrorReasons_AllRPCs(t *testing.T) {
 						return
 					}
 					requireAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "field", "user_id")
-				})
+				}
 			})
 		})
 	}
@@ -357,10 +407,11 @@ func TestT16a_ErrorReasons_AllRPCs(t *testing.T) {
 			w := newWired(t, withFlags(flagsOff{}))
 			mustCreateProfile(t, w.identity, "uid-a", "usera")
 			mustCreateProfile(t, w.identity, "uid-b", "userb")
-			measured(t, m.name+" (flag off)", func(ctx context.Context) {
+			{
+				ctx := context.Background()
 				_, err := m.call(ctx, w, "uid-a", key1, "uid-b")
 				requireAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "", "")
-			})
+			}
 		})
 	}
 }
@@ -396,7 +447,7 @@ func TestT16a_Follow_ErrorReasons(t *testing.T) {
 		requireAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "", "")
 	})
 
-	t.Run("blocked-by is byte-identical to a missing user, 0 writes", func(t *testing.T) {
+	t.Run("blocked-by is byte-identical to a missing user", func(t *testing.T) {
 		w := newWired(t)
 		mustCreateProfile(t, w.identity, "uid-a", "usera")
 		mustCreateProfile(t, w.identity, "uid-b", "userb")
@@ -404,11 +455,13 @@ func TestT16a_Follow_ErrorReasons(t *testing.T) {
 			t.Fatal(err)
 		}
 		var missing, blocked *apierr.Error
-		measured(t, "Follow (blocked-by)", func(ctx context.Context) {
+		// Follow (blocked-by)
+		{
+			ctx := context.Background()
 			_, err := w.graph.Follow(ctx, "uid-a", key2, "uid-b")
 			requireAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "", "")
 			blocked = err.(*apierr.Error)
-		})
+		}
 		_, err := w.graph.Follow(context.Background(), "uid-a", key2, "ghost")
 		missing = err.(*apierr.Error)
 		if missing.Code != blocked.Code || missing.Reason != blocked.Reason || missing.Message != blocked.Message ||
@@ -438,13 +491,15 @@ func TestT16a_Follow_ErrorReasons(t *testing.T) {
 		mustCreateProfile(t, w.identity, "uid-a", "usera")
 		mustCreateProfile(t, w.identity, "uid-b", "userb")
 		seedUserField(t, w, "uid-b", "isPrivate", true)
-		measured(t, "Follow (protected target)", func(ctx context.Context) {
+		// Follow (protected target)
+		{
+			ctx := context.Background()
 			rel, err := w.graph.Follow(ctx, "uid-a", key1, "uid-b")
 			must(t, "Follow", err)
 			if rel.FollowState != graph.FollowStateRequested {
 				t.Errorf("FollowState = %v, want REQUESTED", rel.FollowState)
 			}
-		})
+		}
 	})
 
 	t.Run("following cap 5,000: 4,999 ok then LIMIT_REACHED", func(t *testing.T) {
@@ -456,10 +511,12 @@ func TestT16a_Follow_ErrorReasons(t *testing.T) {
 		if _, err := w.graph.Follow(context.Background(), "uid-a", key1, "uid-b"); err != nil {
 			t.Fatalf("the 5,000th follow must succeed: %v", err)
 		}
-		measured(t, "Follow (at cap)", func(ctx context.Context) {
+		// Follow (at cap)
+		{
+			ctx := context.Background()
 			_, err := w.graph.Follow(ctx, "uid-a", key2, "uid-c")
 			requireAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "limit", "following")
-		})
+		}
 		// A replay of an existing edge at the cap still succeeds (replay precedes the cap check).
 		if _, err := w.graph.Follow(context.Background(), "uid-a", key3, "uid-b"); err != nil {
 			t.Errorf("replay at the cap must succeed: %v", err)
@@ -503,10 +560,12 @@ func TestT16a_Block_ErrorReasons(t *testing.T) {
 		if _, err := w.graph.Block(context.Background(), "uid-a", key1, "uid-b"); err != nil {
 			t.Fatalf("the 2,000th block must succeed: %v", err)
 		}
-		measured(t, "Block (at cap)", func(ctx context.Context) {
+		// Block (at cap)
+		{
+			ctx := context.Background()
 			_, err := w.graph.Block(ctx, "uid-a", key2, "uid-c")
 			requireAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "limit", "blocked")
-		})
+		}
 		// Replay at the cap still succeeds; Unblock frees a slot.
 		if _, err := w.graph.Block(context.Background(), "uid-a", key3, "uid-b"); err != nil {
 			t.Errorf("replay at the cap must succeed: %v", err)
@@ -538,11 +597,13 @@ func TestT16a_Block_ErrorReasons(t *testing.T) {
 		}
 
 		// Now at the cap: c's block records c.blocked, skips blockedBy, sets the overflow flag.
-		measured(t, "Block (target blockedBy at cap)", func(ctx context.Context) {
+		// Block (target blockedBy at cap)
+		{
+			ctx := context.Background()
 			if _, err := w.graph.Block(ctx, "uid-c", key2, "uid-b"); err != nil {
 				t.Fatalf("Block at blockedBy cap: %v", err)
 			}
-		})
+		}
 		gb = graphArrays(t, w.client, "uid-b")
 		if len(gb["blockedBy"]) != 10000 || contains(gb["blockedBy"], "uid-c") {
 			t.Errorf("blockedBy must not grow past its cap; len = %d", len(gb["blockedBy"]))
@@ -552,10 +613,12 @@ func TestT16a_Block_ErrorReasons(t *testing.T) {
 		}
 
 		// Fail-closed: b (overflowed) can still not follow c even though c is not in b.blockedBy.
-		measured(t, "Follow (overflowed caller blocked by target)", func(ctx context.Context) {
+		// Follow (overflowed caller blocked by target)
+		{
+			ctx := context.Background()
 			_, err := w.graph.Follow(ctx, "uid-b", key3, "uid-c")
 			requireAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "", "")
-		})
+		}
 		// Unblock removes the entry normally but never clears the overflow flag.
 		if _, err := w.graph.Unblock(context.Background(), "uid-c", key3, "uid-b"); err != nil {
 			t.Fatal(err)
@@ -618,10 +681,12 @@ func TestT16a_Mute_ErrorReasonsAndSemantics(t *testing.T) {
 		if _, err := w.graph.Mute(context.Background(), "uid-a", key1, "uid-b"); err != nil {
 			t.Fatalf("the 2,000th mute must succeed: %v", err)
 		}
-		measured(t, "Mute (at cap)", func(ctx context.Context) {
+		// Mute (at cap)
+		{
+			ctx := context.Background()
 			_, err := w.graph.Mute(ctx, "uid-a", key2, "uid-c")
 			requireAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "limit", "muted")
-		})
+		}
 		if _, err := w.graph.Mute(context.Background(), "uid-a", key3, "uid-b"); err != nil {
 			t.Errorf("replay at the cap must succeed: %v", err)
 		}
@@ -670,14 +735,16 @@ func TestT16a_BlockThenFollowAndUnfollowSemantics(t *testing.T) {
 	_, err = w.graph.Block(ctx, "uid-a", key2, "uid-b")
 	must(t, "Block", err)
 
-	// Unfollow after Block: NONE, 0 writes (the block already removed the edge).
-	measured(t, "Unfollow (after block)", func(ctx context.Context) {
+	// Unfollow after Block: NONE (the block already removed the edge).
+	// Unfollow (after block)
+	{
+		ctx := context.Background()
 		rel, err := w.graph.Unfollow(ctx, "uid-a", key3, "uid-b")
 		must(t, "Unfollow", err)
 		if rel.FollowState != graph.FollowStateNone {
 			t.Errorf("rel = %+v", rel)
 		}
-	})
+	}
 	// Unblock does not restore the follow.
 	rel, err := w.graph.Unblock(ctx, "uid-a", key3, "uid-b")
 	must(t, "Unblock", err)
@@ -704,10 +771,12 @@ func TestT16a_Quota_Follows(t *testing.T) {
 		if _, err := w.graph.Follow(context.Background(), "uid-a", key1, "uid-b"); err != nil {
 			t.Fatalf("the 200th follow of the day must succeed: %v", err)
 		}
-		measured(t, "Follow (quota exhausted)", func(ctx context.Context) {
+		// Follow (quota exhausted)
+		{
+			ctx := context.Background()
 			_, err := w.graph.Follow(ctx, "uid-a", key2, "uid-c")
 			requireAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "follows")
-		})
+		}
 		// Replay of an existing edge reserves nothing, so it works even when exhausted.
 		if _, err := w.graph.Follow(context.Background(), "uid-a", key3, "uid-b"); err != nil {
 			t.Errorf("replay while exhausted must succeed: %v", err)
@@ -771,14 +840,18 @@ func TestT16a_Quota_BlocksAndMutesShareOneCounter(t *testing.T) {
 		if _, err := w.graph.Block(context.Background(), "uid-a", key1, "uid-b"); err != nil {
 			t.Fatalf("the 200th block/mute of the day must succeed: %v", err)
 		}
-		measured(t, "Mute (quota exhausted)", func(ctx context.Context) {
+		// Mute (quota exhausted)
+		{
+			ctx := context.Background()
 			_, err := w.graph.Mute(ctx, "uid-a", key2, "uid-c")
 			requireAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "blocks")
-		})
-		measured(t, "Block (quota exhausted)", func(ctx context.Context) {
+		}
+		// Block (quota exhausted)
+		{
+			ctx := context.Background()
 			_, err := w.graph.Block(ctx, "uid-a", key2, "uid-c")
 			requireAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "blocks")
-		})
+		}
 		// Replays reserve nothing.
 		if _, err := w.graph.Block(context.Background(), "uid-a", key3, "uid-b"); err != nil {
 			t.Errorf("Block replay while exhausted: %v", err)

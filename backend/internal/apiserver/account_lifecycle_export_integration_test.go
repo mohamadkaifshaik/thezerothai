@@ -9,8 +9,7 @@ package apiserver
 //   - TestAccountLifecycle_ExportQuotaRollover: the daily exports quota resets at the IST day boundary.
 //   - TestAccountLifecycle_ExportWhileDeleting: an export that is still PENDING when the deletion starts is FAILED
 //     with no object; a DELETING caller can neither request nor poll one.
-//   - TestAccountLifecycle_FlagOffRPCs: with account_lifecycle off, all three RPCs answer FEATURE_DISABLED with 0 reads
-//     and 0 writes.
+//   - TestAccountLifecycle_FlagOffRPCs: with account_lifecycle off, all three RPCs answer FEATURE_DISABLED.
 // Run `go test -tags=integration ./internal/apiserver -run ExportContentsGolden -update-golden` to rewrite the golden.
 
 import (
@@ -403,7 +402,7 @@ func TestAccountLifecycle_ExportQuotaRollover(t *testing.T) {
 
 // TestAccountLifecycle_ExportWhileDeleting: DeleteAccount arrives while an export is PENDING. The export job refuses
 // to compose (FAILED, no object, no Auth call that reveals anything), a DELETING caller can no longer request or poll
-// an export (ACCOUNT_RESTRICTED, 0 writes), and the deletion still erases the failed export doc.
+// an export (ACCOUNT_RESTRICTED), and the deletion still erases the failed export doc.
 func TestAccountLifecycle_ExportWhileDeleting(t *testing.T) {
 	ctx := context.Background()
 	e := newLifecycleEnv(t)
@@ -491,7 +490,7 @@ func TestAccountLifecycle_FlagOffRPCs(t *testing.T) {
 		}
 		lines := off.requestLinesFor(svc + name)
 		if len(lines) != 1 {
-			t.Errorf("%s with the flag off: request lines %v, want 1 line and 0 writes", name, lines)
+			t.Errorf("%s with the flag off: request lines %v, want exactly one line", name, lines)
 		}
 	}
 	snap, _ := on.fs.Doc("users/" + u.uid).Get(ctx)

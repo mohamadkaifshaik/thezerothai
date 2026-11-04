@@ -195,36 +195,29 @@ type Service interface {
 	// Moderation is the owner and moderator surface: Hide, Restore, SetMemberRole and ListModerationLog.
 	Moderation
 	// CreateCommunity creates a community owned by uid, who becomes its first member. COMMUNITY_CREATORS is checked first (FORBIDDEN
-	// not_creator, 0 reads), then the key and the text rules. No daily quota: the owned cap is exact and lifetime. Firestore: reads 2
-	// (idempotency, memberships; the interceptor's 1 on top = 3 cold); writes 4 (community, owner member doc, memberships,
-	// idempotency); replay reads 2 (idempotency, the community), writes 0; refused 0 writes.
+	// not_creator, before any read), then the key and the text rules. No daily quota: the owned cap is exact and lifetime. A replay
+	// and a refused request write nothing.
 	CreateCommunity(ctx context.Context, uid string, in CreateInput) (View, error)
-	// UpdateCommunity changes the set fields of uid's own community. Firestore: reads 3 (idempotency, community, owner memberships;
-	// 2 when nothing changes), writes 3 for an owner's first edit (community, idempotency, memberships modlogged), 2 after that, 1
-	// when nothing changes; replay reads 2, writes 0.
+	// UpdateCommunity changes the set fields of uid's own community. A request that changes nothing writes only the idempotency doc; a
+	// replay writes nothing.
 	UpdateCommunity(ctx context.Context, uid string, in UpdateInput) (View, error)
-	// GetCommunity returns one community with its owner and moderators as uid may see it. Firestore: reads cold 1 community + 1 caller
-	// member doc (skipped for the owner and moderators) + 1 caller graph + owner and <= 10 moderator profiles (the interceptor's 1 on
-	// top = 15); warm 0; writes 0.
+	// GetCommunity returns one community with its owner and moderators as uid may see it. It writes nothing.
 	GetCommunity(ctx context.Context, uid, communityID string) (Detail, error)
 	// JoinCommunity makes uid a JOINED member. One transaction that never reads the community document: memberCount is a
-	// blind Increment and the status comes from the 60 s cache. Firestore (interceptor excluded): reads 5 cold (community 1, idempotency, member
-	// doc, memberships, quotas) / 4 warm; writes 5 (member doc, memberships, memberCount, quotas, idempotency); already a member 2 reads, 1 write
-	// (the idempotency doc), no quota; banned, at the cap or over the quota 0 writes; replay 0 writes.
+	// blind Increment and the status comes from the 60 s cache. Already a member writes only the idempotency doc and takes no quota;
+	// banned, at the cap or over the quota writes nothing; a replay writes nothing.
 	JoinCommunity(ctx context.Context, uid string, in MembershipInput) (View, error)
 	// LeaveCommunity removes uid's membership. The owner cannot leave. A moderator also leaves moderatorIds in the same transaction (logged
-	// MODERATOR_LEFT). Firestore (interceptor excluded): reads 4 cold (community 1, idempotency, member doc, memberships) / 3 warm, +1 when the
-	// community is read fresh for a moderator; writes 3 (memberships, community, idempotency) + 1 delete (member doc); not a member 2 reads,
-	// 1 write; the owner 3 reads, 0 writes; replay 0 writes.
+	// MODERATOR_LEFT). The community is read fresh in the transaction for a caller who may be a moderator. A caller who is not a member
+	// writes only the idempotency doc; the owner and a replay write nothing.
 	LeaveCommunity(ctx context.Context, uid string, in MembershipInput) (View, error)
-	// ListMyCommunities lists the communities uid is JOINED in, newest join first (not paged at Stage 0). Firestore (interceptor excluded):
-	// reads 1 (memberships) + one per community document that is not cached, at most 51; warm 1; writes 0.
+	// ListMyCommunities lists the communities uid is JOINED in, newest join first (not paged at Stage 0). Community documents that are
+	// not cached are read.
 	ListMyCommunities(ctx context.Context, uid, pageToken string) (MyCommunities, error)
 	// ListCommunities is the directory: ACTIVE communities, most members first, from the shared Directory entry (5 min) with the caller's role per row
-	// (memberships cached 60 s). Firestore (interceptor excluded): reads cold <= 51 (the refill <= 50, memberships 1), warm 0-1; writes 0.
+	// (memberships cached 60 s).
 	ListCommunities(ctx context.Context, uid, pageToken string) ([]View, error)
-	// ListCommunityMembers is one member page (BANNED for the owner and moderators only). Firestore (interceptor excluded): reads 1 community +
-	// page rows + page profiles + 1 caller graph = 42 cold at page 20 / 102 at page 50; warm 20 / 50; writes 0.
+	// ListCommunityMembers is one member page (BANNED for the owner and moderators only).
 	ListCommunityMembers(ctx context.Context, uid string, in MembersInput) (MembersPage, error)
 }
 
@@ -343,22 +336,22 @@ type LeaveResult struct {
 type Repo interface {
 	Create(ctx context.Context, p CreateParams) (CreateResult, error)
 	Update(ctx context.Context, p UpdateParams) (UpdateResult, error)
-	// Get reads communities/{id} outside any transaction (1 read, charged even when missing): ErrNotFound when it does not exist. It
+	// Get reads communities/{id} outside any transaction: ErrNotFound when it does not exist. It
 	// does not apply the SUSPENDED rule; the service does.
 	Get(ctx context.Context, id string) (Community, error)
-	// Member reads the member doc (1 read, charged even when missing): MemberNone when there is none.
+	// Member reads the member doc: MemberNone when there is none.
 	Member(ctx context.Context, communityID, uid string) (MemberState, error)
 	// Join is one transaction (see JoinCommunity): ErrBanned, ErrJoinedLimit, ErrNotFound (the community document is gone) or a quota
 	// error leave nothing written.
 	Join(ctx context.Context, p JoinParams) (JoinResult, error)
 	// Leave is one transaction (see LeaveCommunity): ErrOwnerLeave and ErrNotFound leave nothing written.
 	Leave(ctx context.Context, p LeaveParams) (LeaveResult, error)
-	// Memberships reads communityMemberships/{uid} outside any transaction (1 read, charged when missing too): empty when there is none.
+	// Memberships reads communityMemberships/{uid} outside any transaction: empty when there is none.
 	Memberships(ctx context.Context, uid string) (Memberships, error)
-	// GetMany reads the community documents with one GetAll (1 read per id, charged when missing too). Missing ids are absent from the map.
+	// GetMany reads the community documents with one GetAll. Missing ids are absent from the map.
 	GetMany(ctx context.Context, ids []string) (map[string]Community, error)
-	// ListByMemberCount is the directory query (memberCount DESC, __name__ DESC, Limit <= 50; 1 read per row, min 1); Status is not filtered.
+	// ListByMemberCount is the directory query (memberCount DESC, __name__ DESC, Limit <= 50); Status is not filtered.
 	ListByMemberCount(ctx context.Context, limit int) ([]Community, error)
-	// ListMembers is one member page (joinedAt or bannedAt DESC, __name__ DESC; presence of the field is the filter; 1 read per row, min 1).
+	// ListMembers is one member page (joinedAt or bannedAt DESC, __name__ DESC; presence of the field is the filter).
 	ListMembers(ctx context.Context, q MembersQuery) ([]MemberRow, error)
 }

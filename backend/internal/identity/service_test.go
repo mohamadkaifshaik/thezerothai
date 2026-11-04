@@ -12,7 +12,6 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // fakeRepo is an in-memory Repo for service-layer unit tests ("table-driven,
@@ -70,7 +69,6 @@ func (f *fakeRepo) ResolveHandle(_ context.Context, handleLower string) (string,
 func (f *fakeRepo) ResolveHandles(ctx context.Context, handleLowers []string) (map[string]string, error) {
 	f.resolveManyCalls++
 	f.resolveManyArgs = append(f.resolveManyArgs, append([]string(nil), handleLowers...))
-	budget.FromContext(ctx).AddReads(int64(len(handleLowers)))
 	if f.resolveManyErr != nil {
 		return nil, f.resolveManyErr
 	}
@@ -946,7 +944,6 @@ func (f *fakeRepo) SearchHandles(ctx context.Context, prefix string, limit int) 
 	if len(all) > limit {
 		all = all[:limit]
 	}
-	budget.FromContext(ctx).AddReads(int64(max(len(all), 1)))
 	return all, nil
 }
 

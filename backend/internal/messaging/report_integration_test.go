@@ -13,7 +13,6 @@ import (
 	"time"
 
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // twoMessages is a mutual conversation where alice wrote m1 and bob answered with m2 (the last message).
@@ -26,20 +25,17 @@ func twoMessages(t *testing.T, e *itEnv) (convID, m1, m2 string) {
 	return ConversationID(alice, bob), r1.GetMessage().GetId(), r2.GetMessage().GetId()
 }
 
-func (e *itEnv) takedown(convID, msgID string, dryRun bool) (TakedownResult, *budget.Counter, error) {
-	ctx, c := budget.WithCounter(context.Background())
-	res, err := e.repo.TakedownMessage(ctx, convID, msgID, dryRun)
-	return res, c, err
+func (e *itEnv) takedown(convID, msgID string, dryRun bool) (TakedownResult, error) {
+	return e.repo.TakedownMessage(context.Background(), convID, msgID, dryRun)
 }
 
-// The lookup reads the conversation and the message through the repo (2 reads, the profile is the directory's); the
+// The lookup reads the conversation and the message through the repo; the
 // takedown then removes the text, and the thread and the inbox of BOTH participants show it as removed.
 func TestReportAndTakedown_BothParticipantsSeeTheMessageRemoved(t *testing.T) {
 	e := newIT(t, nil)
 	convID, _, m2 := twoMessages(t, e)
 
-	ctx, _ := budget.WithCounter(context.Background())
-	got, err := e.newService().ReportableMessage(ctx, alice, convID, m2)
+	got, err := e.newService().ReportableMessage(context.Background(), alice, convID, m2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +44,7 @@ func TestReportAndTakedown_BothParticipantsSeeTheMessageRemoved(t *testing.T) {
 	}
 
 	// m2 is the last message of both conversations' previews: bob's own entry and alice's.
-	res, _, err := e.takedown(convID, m2, false)
+	res, err := e.takedown(convID, m2, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +67,7 @@ func TestReportAndTakedown_BothParticipantsSeeTheMessageRemoved(t *testing.T) {
 
 	// A fresh first page and a fresh inbox, for both participants: REMOVED, empty text. Nothing of the text is left in storage.
 	for _, uid := range []string{alice, bob} {
-		resp, _ := e.mustListMsgs(e.msgSvc(), uid, &messagingv1.ListMessagesRequest{ConversationId: convID})
+		resp := e.mustListMsgs(e.msgSvc(), uid, &messagingv1.ListMessagesRequest{ConversationId: convID})
 		var seen bool
 		for _, m := range resp.GetMessages() {
 			if m.GetId() == m2 {
@@ -84,7 +80,7 @@ func TestReportAndTakedown_BothParticipantsSeeTheMessageRemoved(t *testing.T) {
 		if !seen {
 			t.Errorf("%s's thread lost the tombstone", uid)
 		}
-		list, _ := e.mustList(e.listSvc(), uid, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX})
+		list := e.mustList(e.listSvc(), uid, &messagingv1.ListConversationsRequest{Folder: messagingv1.Folder_FOLDER_INBOX})
 		if len(list.GetConversations()) != 1 {
 			t.Fatalf("%s lists %d conversations", uid, len(list.GetConversations()))
 		}
@@ -97,7 +93,7 @@ func TestReportAndTakedown_BothParticipantsSeeTheMessageRemoved(t *testing.T) {
 	if _, err := e.newService().ReportableMessage(context.Background(), alice, convID, m2); err != ErrNotFound { //nolint:errorlint // sentinel identity
 		t.Errorf("a taken-down message is still reportable: %v", err)
 	}
-	res, _, err = e.takedown(convID, m2, false)
+	res, err = e.takedown(convID, m2, false)
 	if err != nil || res.Wrote || res.Before != msgRemoved || res.After != msgRemoved {
 		t.Fatalf("repeat = %+v, %v", res, err)
 	}
@@ -109,10 +105,10 @@ func TestReportAndTakedown_BothParticipantsSeeTheMessageRemoved(t *testing.T) {
 func TestTakedown_RetryOfTheSameKeyReplaysTheTombstoneAndCreatesNothing(t *testing.T) {
 	e := newIT(t, nil)
 	convID, _, m2 := twoMessages(t, e)
-	if _, _, err := e.takedown(convID, m2, false); err != nil {
+	if _, err := e.takedown(convID, m2, false); err != nil {
 		t.Fatal(err)
 	}
-	resp, _, err := e.send(bob, toUser(skey(2), alice, "second, from bob"))
+	resp, err := e.send(bob, toUser(skey(2), alice, "second, from bob"))
 	if err != nil {
 		t.Fatalf("retry err = %v, want a replay of the tombstone", err)
 	}
@@ -134,7 +130,7 @@ func TestTakedown_RetryOfTheSameKeyReplaysTheTombstoneAndCreatesNothing(t *testi
 func TestTakedown_NotTheLastMessageLeavesThePreviewsAlone(t *testing.T) {
 	e := newIT(t, nil)
 	convID, m1, m2 := twoMessages(t, e)
-	res, _, err := e.takedown(convID, m1, false)
+	res, err := e.takedown(convID, m1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +150,7 @@ func TestTakedown_NotTheLastMessageLeavesThePreviewsAlone(t *testing.T) {
 func TestTakedown_DryRunReadsTheSameAndWritesNothing(t *testing.T) {
 	e := newIT(t, nil)
 	convID, _, m2 := twoMessages(t, e)
-	res, _, err := e.takedown(convID, m2, true)
+	res, err := e.takedown(convID, m2, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +170,7 @@ func TestTakedown_RequestConversationRewritesBothFolders(t *testing.T) {
 	if _, ok := e.entry(bob, dmRequestsCollection, convID); !ok {
 		t.Fatal("setup: the recipient's entry is not in dmRequests")
 	}
-	res, _, err := e.takedown(convID, r.GetMessage().GetId(), false)
+	res, err := e.takedown(convID, r.GetMessage().GetId(), false)
 	if err != nil || res.Entries != 2 {
 		t.Fatalf("result = %+v, %v", res, err)
 	}
@@ -192,7 +188,7 @@ func TestTakedown_SkipsAnEntryThatIsGone(t *testing.T) {
 	if _, err := e.fs.Collection("users").Doc(alice).Collection(dmInboxCollection).Doc(convID).Delete(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	res, _, err := e.takedown(convID, m2, false)
+	res, err := e.takedown(convID, m2, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,14 +206,14 @@ func TestTakedown_SkipsAnEntryThatIsGone(t *testing.T) {
 func TestTakedown_UnknownMessageAndMissingConversation(t *testing.T) {
 	e := newIT(t, nil)
 	convID, _, m2 := twoMessages(t, e)
-	_, _, err := e.takedown(convID, "00000000000000000000000000000000", false)
+	_, err := e.takedown(convID, "00000000000000000000000000000000", false)
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown message: %v", err)
 	}
 	if _, err := e.fs.Collection("conversations").Doc(convID).Delete(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := e.takedown(convID, m2, false); !errors.Is(err, ErrNotFound) {
+	if _, err := e.takedown(convID, m2, false); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("message without its conversation: %v", err)
 	}
 	if got := e.msgs(convID)[m2]; got.State != msgVisible {
@@ -232,7 +228,7 @@ func TestTakedownAndEraser_TombstonesSurviveEachOther(t *testing.T) {
 	t.Run("takedown, then the sender deletes the account", func(t *testing.T) {
 		e := newIT(t, nil)
 		convID, _, m2 := twoMessages(t, e)
-		if _, _, err := e.takedown(convID, m2, false); err != nil {
+		if _, err := e.takedown(convID, m2, false); err != nil {
 			t.Fatal(err)
 		}
 		e.runEraserFor(bob)
@@ -248,7 +244,7 @@ func TestTakedownAndEraser_TombstonesSurviveEachOther(t *testing.T) {
 		e := newIT(t, nil)
 		convID, _, m2 := twoMessages(t, e)
 		e.runEraserFor(bob)
-		res, _, err := e.takedown(convID, m2, false)
+		res, err := e.takedown(convID, m2, false)
 		if err != nil {
 			t.Fatal(err)
 		}

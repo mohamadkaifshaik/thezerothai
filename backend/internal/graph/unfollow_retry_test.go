@@ -14,7 +14,6 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -33,8 +32,7 @@ func (c usersCounters) AddCounts(b store.Batch, uid string, _, _ int64)      { c
 var errAborted = status.Error(codes.Aborted, "Transaction lock timeout")
 
 // TestUnfollow_RetryLoop drives Unfollow's bounded retry with an injected commit and backoff,
-// so it needs no emulator. Budget: a successful unfollow is 3 writes + 1 delete counted exactly once no
-// matter how many attempts were lost; failed attempts count nothing.
+// so it needs no emulator.
 func TestUnfollow_RetryLoop(t *testing.T) {
 	t.Parallel()
 	aborted := func(n int) []error {
@@ -53,18 +51,16 @@ func TestUnfollow_RetryLoop(t *testing.T) {
 		wantCommits  int
 		wantWaits    int
 		wantAttempts int
-		wantWrites   int64
-		wantDeletes  int64
 		wantCeilings []time.Duration
 	}{
 		{
 			name: "aborted x5 then ok", results: append(aborted(5), nil),
-			wantChanged: true, wantCommits: 6, wantWaits: 5, wantAttempts: 6, wantWrites: 3, wantDeletes: 1,
+			wantChanged: true, wantCommits: 6, wantWaits: 5, wantAttempts: 6,
 			wantCeilings: []time.Duration{25 * time.Millisecond, 50 * time.Millisecond, 100 * time.Millisecond, 200 * time.Millisecond, 400 * time.Millisecond},
 		},
 		{
 			name: "first try ok", results: []error{nil},
-			wantChanged: true, wantCommits: 1, wantAttempts: 1, wantWrites: 3, wantDeletes: 1,
+			wantChanged: true, wantCommits: 1, wantAttempts: 1,
 		},
 		{
 			name: "aborted x6 is contention", results: aborted(6),
@@ -102,7 +98,6 @@ func TestUnfollow_RetryLoop(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			ctx, info := logger.WithRequestInfo(ctx)
-			ctx, _ = budget.WithCounter(ctx)
 
 			commits, waits := 0, 0
 			var ceilings []time.Duration

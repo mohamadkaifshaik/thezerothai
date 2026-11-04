@@ -131,7 +131,7 @@ func TestBackfillHasMedia_Complete(t *testing.T) {
 	for _, want := range []string{
 		"call 1: scanned=0 missing=0 updated=0 checkpoint=0100 -> scanned=500 missing=12 updated=12 checkpoint=0200 done=false",
 		"call 2: scanned=500 missing=12 updated=12 checkpoint=0200 -> scanned=700 missing=12 updated=12 checkpoint=0300 done=true",
-		"backfill-has-media: reads=0 writes=0 deletes=0",
+		"backfill-has-media: done",
 		"backfill-has-media: complete: scanned=700 updated=12 checkpoint=0300",
 	} {
 		if !strings.Contains(stdout, want) {

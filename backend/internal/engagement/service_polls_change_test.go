@@ -248,7 +248,7 @@ func TestVotePoll_ChangeMatrix(t *testing.T) {
 }
 
 // A change moves one count down and one up with the total fixed, replaces (never appends) the viewer's cache entry, leaves the shared stored
-// poll alone, and costs the vote doc read plus one write batch: the documented budget (typical 1 vote read, 0 extra, writes counted at the repo).
+// poll alone.
 func TestVotePoll_ChangeEffects(t *testing.T) {
 	e := newPollEnv(t) // counts 5/2/0, total 7
 	// Three-part entries on open polls, so none of them has expired and nothing is pruned.

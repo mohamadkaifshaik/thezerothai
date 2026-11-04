@@ -253,7 +253,7 @@ func TestMessageReport_ParticipantMatrixAndOneNotFound(t *testing.T) {
 func errOf[T any](_ T, err error) error { return err }
 
 // A message report needs `reports` on for the caller and `messaging` only not globally off (F6): a user dropped from the
-// messaging allowlist can still report. Disabled calls cost at most the interceptor's one read.
+// messaging allowlist can still report.
 func TestMessageReport_FlagMatrix(t *testing.T) {
 	setup := newReportChain(t, nil)
 	th := setup.reportThread(t)
@@ -321,38 +321,22 @@ func TestMessageReport_BlockedPeerIsStillReportable(t *testing.T) {
 	}
 }
 
-// The budget of the RPC doc comment, through the whole chain: 6 reads cold (interceptor, conversation, message, sender profile,
-// report, quotas) and 3 writes (report, quotas, the evidence child); a second message in the same conversation on the same instance 3 reads (the conversation, the
-// sender's profile and the caller's profile are cached; the message, the report and the quotas are not); a repeat 2 reads
-// (message, report) and 0 writes.
-func TestMessageReport_BudgetColdWarmAndDuplicate(t *testing.T) {
+// ReportContent through the whole chain on one instance: a first report on a cold instance, a second message in the same
+// conversation once the instance has cached it, a repeat of a report (already reported), and an unknown message (NOT_FOUND).
+func TestMessageReport_ColdWarmDuplicateAndUnknown(t *testing.T) {
 	th := newReportChain(t, nil).reportThread(t)
 	e := newReportChain(t, nil) // booted AFTER the data was written: a cold instance
 
-	measure := func(label string, wantReads, wantWrites int64, run func()) {
-		t.Helper()
-		run()
-		got := e.lineBudget(t, rpcReportContent)
-		t.Logf("REPORTBUDGET case=%q reads=%d writes=%d deletes=%d", label, got.Reads(), got.Writes(), got.Deletes())
+	if r, err := e.report(th.b, th.convID, th.m1); err != nil || r.GetAlreadyReported() {
+		t.Fatalf("cold report = %v, %v", r, err)
 	}
-	measure("cold", 6, 3, func() {
-		if _, err := e.report(th.b, th.convID, th.m1); err != nil {
-			t.Fatal(err)
-		}
-	})
-	measure("warm, a second message", 3, 3, func() {
-		if _, err := e.report(th.b, th.convID, th.m2); err != nil {
-			t.Fatal(err)
-		}
-	})
-	measure("duplicate", 2, 0, func() {
-		if r, err := e.report(th.b, th.convID, th.m2); err != nil || !r.GetAlreadyReported() {
-			t.Fatalf("duplicate = %v, %v", r, err)
-		}
-	})
-	measure("refused, unknown message", 1, 0, func() { // the warm conversation costs 0 and the message read 1
-		_ = errOf(e.report(th.b, th.convID, strings.Repeat("9", 32)))
-	})
+	if r, err := e.report(th.b, th.convID, th.m2); err != nil || r.GetAlreadyReported() {
+		t.Fatalf("warm report of a second message = %v, %v", r, err)
+	}
+	if r, err := e.report(th.b, th.convID, th.m2); err != nil || !r.GetAlreadyReported() {
+		t.Fatalf("duplicate = %v, %v", r, err)
+	}
+	requireCode(t, errOf(e.report(th.b, th.convID, strings.Repeat("9", 32))), connect.CodeNotFound)
 }
 
 // A moderator takedown: both participants see the message as removed (state REMOVED, no text) on a first page, and the inbox
@@ -485,9 +469,8 @@ func TestMessageReport_StaysReportableAfterDeleteForMe(t *testing.T) {
 	}
 }
 
-// Cold budgets of the refusals and the duplicate, each on its own cold instance (booted after the data was written). The
-// RPC doc comment promises at most 3 reads for a refusal and 6 for a duplicate.
-func TestMessageReport_ColdBudgetsOfRefusalsAndDuplicate(t *testing.T) {
+// The refusals and the duplicate, each on its own cold instance (booted after the data was written).
+func TestMessageReport_ColdRefusalsAndDuplicate(t *testing.T) {
 	setup := newReportChain(t, nil)
 	th := setup.reportThread(t)
 	stranger := setup.user(t)
@@ -500,12 +483,11 @@ func TestMessageReport_ColdBudgetsOfRefusalsAndDuplicate(t *testing.T) {
 		name      string
 		who       dmUser
 		conv, msg string
-		wantReads int64
 		duplicate bool
 	}{
-		{"non-participant: interceptor, conversation", stranger, th.convID, th.m1, 2, false},
-		{"participant, unknown message: interceptor, conversation, message", th.b, th.convID, unknownMsg, 3, false},
-		{"duplicate: interceptor, conversation, message, sender profile, report", th.b, th.convID, th.m1, 5, true},
+		{"non-participant", stranger, th.convID, th.m1, false},
+		{"participant, unknown message", th.b, th.convID, unknownMsg, false},
+		{"duplicate", th.b, th.convID, th.m1, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -522,10 +504,8 @@ func TestMessageReport_ColdBudgetsOfRefusalsAndDuplicate(t *testing.T) {
 	}
 }
 
-// A non-participant gets the very same bytes, and the very same cost, whether the instance has the conversation cached or not
-// (security review H-1): the cache answers only a participant, so a probe is always the interceptor's read plus one
-// fresh conversation read (2 cold, 2 warm) and leaves nothing in the cache. No read count or timing separates "exists" from
-// "missing" for a caller who is not in the conversation.
+// A non-participant gets the very same bytes whether the instance has the conversation cached or not: the cache answers
+// only a participant, so nothing separates "exists" from "missing" for a caller who is not in the conversation.
 func TestMessageReport_NonParticipantSameBytesWarmOrCold(t *testing.T) {
 	setup := newReportChain(t, nil)
 	th := setup.reportThread(t)

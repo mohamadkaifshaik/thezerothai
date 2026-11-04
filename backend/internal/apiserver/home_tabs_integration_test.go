@@ -21,7 +21,7 @@ import (
 )
 
 // Home tabs through the production wiring: SetHomeTabs, GetMe.home_tabs, GetList.pinned_by_viewer, UpdateList's retitle
-// and DeleteList's unpin, and the flag modes. Request-line budgets include the account-status interceptor's read.
+// and DeleteList's unpin, and the flag modes.
 
 func tabsListsOn(c *config.Config) {
 	w320AllW3On(c)
@@ -91,7 +91,6 @@ func TestW59_HomeTabsLifecycle(t *testing.T) {
 	if want := []string{theirsPublic + ":", mine + ":Mine"}; !slices.Equal(tabPairs(got.GetTabs()), want) {
 		t.Fatalf("response tabs = %v, want %v (own list titled, foreign list not)", tabPairs(got.GetTabs()), want)
 	}
-	// Table: <= 19 reads, 2 writes (users field-level, idempotency).
 
 	// The same order under a new key writes only the idempotency record; a replay writes nothing.
 	if _, err := h.setTabs(me, "set2", theirsPublic, mine); err != nil {

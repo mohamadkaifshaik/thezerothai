@@ -173,7 +173,7 @@ func EncodeScheduledPageToken(key []byte, uid string, last *ScheduledPost, now t
 }
 
 // DecodeScheduledPageToken opens token for uid. An empty token is the first page (nil position, nil error); a token
-// issued for another uid, expired, tampered with or carrying a malformed id is ErrInvalidScheduledToken. Pure: 0 reads.
+// issued for another uid, expired, tampered with or carrying a malformed id is ErrInvalidScheduledToken. Pure: no I/O.
 func DecodeScheduledPageToken(key []byte, uid, token string, now time.Time) (*Position, error) {
 	cur, err := cursor.DecodeAt(key, scheduledBinding(uid), token, now)
 	if err != nil || (token != "" && (cursor.IsFirstPage(cur) || !ValidScheduledID(cur.DocID))) {
@@ -188,7 +188,7 @@ func DecodeScheduledPageToken(key []byte, uid, token string, now time.Time) (*Po
 // ScheduledLister is the read side of the user's list: status in [PENDING, FAILED], ordered by publishAt then id.
 type ScheduledLister interface {
 	// ListScheduled returns uid's PENDING and FAILED items strictly after `after` (nil = from the start), oldest
-	// publishAt first, at most limit (1..MaxLimit). Reads: len(result), minimum 1.
+	// publishAt first, at most limit (1..MaxLimit).
 	ListScheduled(ctx context.Context, uid string, after *Position, limit int) ([]*ScheduledPost, error)
 }
 
@@ -212,7 +212,7 @@ func ScheduledPageSize(n int) int {
 
 // ListScheduledPage is the list read of ListScheduledPosts without the handler concerns: it opens the HMAC-bound
 // token for uid, reads one page and seals the next token when the page was full. A short page has no next token.
-// Reads: len(items), minimum 1; writes 0. A foreign or malformed token is rejected before any read.
+// A foreign or malformed token is rejected before any read.
 func ListScheduledPage(ctx context.Context, repo ScheduledLister, key []byte, uid string, pageSize int, token string, now time.Time) (ScheduledPage, error) {
 	after, err := DecodeScheduledPageToken(key, uid, token, now)
 	if err != nil {

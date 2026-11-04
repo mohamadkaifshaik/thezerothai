@@ -19,9 +19,8 @@ func (e *itEnv) setEntry(uid, collection, convID string, ups ...firestore.Update
 	}
 }
 
-// on the emulator: a first page carries the caller's own unread_count and silent (3 unread, 25 reads at page 20, 55 at
-// page 50), an older page and a since refresh leave them unset, and a missing entry (delete for me) is 0 and still costs the
-// one read.
+// on the emulator: a first page carries the caller's own unread_count and silent (3 unread), an older page
+// and a since refresh leave them unset, and a missing entry (delete for me) is 0.
 func TestListMessages_FirstPageUnreadOnEmulator(t *testing.T) {
 	e := newIT(t, nil)
 	var msgs [][2]string
@@ -32,31 +31,31 @@ func TestListMessages_FirstPageUnreadOnEmulator(t *testing.T) {
 	e.setEntry(alice, dmInboxCollection, id, firestore.Update{Path: "unreadCount", Value: 3}, firestore.Update{Path: "silent", Value: true})
 	svc := e.msgSvc()
 
-	first, _ := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id})
+	first := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id})
 	if first.Conversation.GetUnreadCount() != 3 || !first.Conversation.GetSilent() {
 		t.Fatalf("first page conversation = %+v, want unread_count 3 silent true", first.Conversation)
 	}
 	// Bob's side is untouched by alice's read: his entry has 0 unread.
-	if bobFirst, _ := e.mustListMsgs(e.msgSvc(), bob, &messagingv1.ListMessagesRequest{ConversationId: id}); bobFirst.Conversation.GetUnreadCount() != 0 {
+	if bobFirst := e.mustListMsgs(e.msgSvc(), bob, &messagingv1.ListMessagesRequest{ConversationId: id}); bobFirst.Conversation.GetUnreadCount() != 0 {
 		t.Errorf("bob's unread_count = %d, want his own entry's 0", bobFirst.Conversation.GetUnreadCount())
 	}
 
-	older, _ := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageToken: first.NextPageToken})
+	older := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageToken: first.NextPageToken})
 	if older.Conversation.GetUnreadCount() != 0 || older.Conversation.GetSilent() {
 		t.Errorf("older page conversation = %+v, want unread_count 0 silent false", older.Conversation)
 	}
-	poll, _ := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id, SinceToken: first.SinceToken})
+	poll := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id, SinceToken: first.SinceToken})
 	if poll.Conversation != nil {
 		t.Errorf("since refresh conversation = %+v, want none", poll.Conversation)
 	}
 
-	_, _ = e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageSize: 50})
+	_ = e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageSize: 50})
 
 	// Delete for me removed the entry: 0 unread, not silent, and the lookup still billed its read (25, not 24).
 	if _, err := e.fs.Collection("users").Doc(alice).Collection(dmInboxCollection).Doc(id).Delete(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	gone, _ := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id})
+	gone := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id})
 	if gone.Conversation.GetUnreadCount() != 0 || gone.Conversation.GetSilent() {
 		t.Errorf("entry gone: conversation = %+v, want 0 / false", gone.Conversation)
 	}
@@ -70,11 +69,11 @@ func TestListMessages_FirstPageUnreadFromRequests(t *testing.T) {
 	e.setEntry(bob, dmRequestsCollection, id, firestore.Update{Path: "unreadCount", Value: 2})
 	e.setEntry(alice, dmInboxCollection, id, firestore.Update{Path: "unreadCount", Value: 7})
 
-	recipient, _ := e.mustListMsgs(e.msgSvc(), bob, &messagingv1.ListMessagesRequest{ConversationId: id})
+	recipient := e.mustListMsgs(e.msgSvc(), bob, &messagingv1.ListMessagesRequest{ConversationId: id})
 	if recipient.Conversation.GetUnreadCount() != 2 || recipient.Conversation.GetFolder() != messagingv1.Folder_FOLDER_REQUESTS {
 		t.Errorf("recipient conversation = %+v, want unread 2 in REQUESTS", recipient.Conversation)
 	}
-	requester, _ := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id})
+	requester := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id})
 	if requester.Conversation.GetUnreadCount() != 7 {
 		t.Errorf("requester conversation = %+v, want unread 7", requester.Conversation)
 	}

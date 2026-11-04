@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // RequestExportRow is one row of the `follow_requests` section: the other party and when the request was made.
@@ -30,8 +28,8 @@ type RequestsExport struct {
 const requestExportPage = 500
 
 // ExportRequests pages both sides (every query has a Limit of 500) and resolves handles through the ProfileReader in
-// batches of 50, as ExportUser does. Reads: 1 per request doc, minimum 2 (one query per side), plus the handle
-// lookups for the distinct counterparts (cache-first through the ProfileReader); writes 0. Sent requests are capped
+// batches of 50, as ExportUser does. It runs one query per side, plus the handle
+// lookups for the distinct counterparts (cache-first through the ProfileReader), and writes nothing. Sent requests are capped
 // at 500 by graph/{uid}.requested.
 func (r *FirestoreRepo) ExportRequests(ctx context.Context, uid string) (RequestsExport, error) {
 	if r.profiles == nil {
@@ -83,11 +81,6 @@ func (r *FirestoreRepo) exportRequestSide(ctx context.Context, uid string, sent 
 			q = q.StartAfter(last)
 		}
 		page, err := q.Limit(requestExportPage).Documents(ctx).GetAll()
-		reads := int64(len(page))
-		if reads == 0 {
-			reads = 1
-		}
-		budget.FromContext(ctx).AddReads(reads)
 		if err != nil {
 			return nil, fmt.Errorf("graph: export requests query: %w", err)
 		}

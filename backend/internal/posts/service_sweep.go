@@ -21,7 +21,6 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
@@ -67,14 +66,14 @@ func (s *service) timeLeft(ctx context.Context) time.Duration {
 	return time.Until(dl)
 }
 
-// Sweep implements Sweeper. The comment on the interface states the Firestore budget.
+// Sweep implements Sweeper.
 func (s *service) Sweep(ctx context.Context) (SweepResult, error) {
 	if s.sweep.Repo == nil {
 		return SweepResult{Outcome: SweepError, Failed: map[ScheduledFailure]int{}}, errNoSweepRepo
 	}
 	tally := &sweepTally{res: SweepResult{Outcome: SweepOK, Failed: map[ScheduledFailure]int{}}}
 
-	// 1. The no-op cases, 0 reads. Only the kill switch counts: in allowlist or percent mode the sweep still processes
+	// 1. The no-op cases, no reads. Only the kill switch counts: in allowlist or percent mode the sweep still processes
 	// every due doc, because only enabled users could create them (per-user flags are not re-evaluated at publish).
 	switch {
 	case s.sweep.Flags == nil || s.sweep.Flags.GloballyOff(FlagName) || s.sweep.Flags.GloballyOff(ScheduledPostsFlagName):
@@ -84,7 +83,7 @@ func (s *service) Sweep(ctx context.Context) (SweepResult, error) {
 		tally.res.Outcome = SweepDegraded
 		return tally.snapshot(), nil
 	}
-	// The media kill switch, asked once with 0 reads. While FEATURE_MEDIA is off for everyone CreatePost
+	// The media kill switch, asked once. While FEATURE_MEDIA is off for everyone CreatePost
 	// refuses media_ids, so the sweep must not attach images either: items that carry them are held (below). Allowlist and
 	// percent are rollouts, not the kill switch (GloballyOff is false for them), so they hold nothing.
 	holdMedia := s.sweep.Flags.GloballyOff(mediaFlagName)
@@ -151,12 +150,11 @@ func (s *service) Sweep(ctx context.Context) (SweepResult, error) {
 	}
 
 	// 3. Dispatch: one worker per author, bounded. errgroup.Group (not WithContext), and workers never return an error.
-	runCounter := budget.FromContext(ctx)
 	var g errgroup.Group
 	g.SetLimit(concurrency)
 	for _, uid := range order {
 		g.Go(func() error {
-			s.sweepAuthor(ctx, runRef{now: runNow, counter: runCounter}, uid, byAuthor[uid], tally)
+			s.sweepAuthor(ctx, runRef{now: runNow}, uid, byAuthor[uid], tally)
 			return nil
 		})
 	}
@@ -175,36 +173,26 @@ func (s *service) Sweep(ctx context.Context) (SweepResult, error) {
 
 // runRef is what every worker of one run shares.
 type runRef struct {
-	now     time.Time
-	counter *budget.Counter
+	now time.Time
 }
 
-// sweepAuthor runs one author's items, one after another, on a counter of its own that is folded into the run's counter
-// when the worker ends (a context holds one counter, so the per-author total needs its own; the fold keeps the run's
-// fs_reads and fs_writes exact). It recovers on its own as well as per item, so the fold and the reads warning can
+// sweepAuthor runs one author's items, one after another. It recovers on its own as well as per item, so a panic can
 // never take the process down.
 func (s *service) sweepAuthor(ctx context.Context, run runRef, uid string, items []*ScheduledPost, tally *sweepTally) {
-	actx, ac := budget.WithCounter(ctx)
 	defer func() {
 		if v := recover(); v != nil {
-			s.reportPanic(actx, v, "uid_hash", logger.HashUID(uid))
-		}
-		run.counter.AddReads(ac.Reads())
-		run.counter.AddWrites(ac.Writes())
-		run.counter.AddDeletes(ac.Deletes())
-		if warn := s.sweep.Limits.AuthorReadsWarn; warn > 0 && ac.Reads() > int64(warn) {
-			s.sweep.Log.WarnContext(actx, "scheduled_author_reads", append([]any{"uid_hash", logger.HashUID(uid), "fs_reads", ac.Reads(), "warn_above", warn}, logger.TraceAttrs(actx)...)...)
+			s.reportPanic(ctx, v, "uid_hash", logger.HashUID(uid))
 		}
 	}()
 	for i, it := range items {
 		// Out of time, or the run was cancelled (a client that hung up): leave the rest PENDING for the next run, without
 		// burning an attempt on an error the cancellation caused.
-		if actx.Err() != nil || s.timeLeft(actx) < sweepMinRemaining {
+		if ctx.Err() != nil || s.timeLeft(ctx) < sweepMinRemaining {
 			n := len(items) - i
 			tally.add(func(r *SweepResult) { r.Deferred += n })
 			return
 		}
-		s.sweepItemSafe(actx, run, it, tally)
+		s.sweepItemSafe(ctx, run, it, tally)
 	}
 }
 

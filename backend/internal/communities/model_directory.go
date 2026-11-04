@@ -13,7 +13,7 @@ import (
 // every viewer of this instance. The Stage 0 implementation is one Firestore query behind a 5 minute instance entry; the W4 discovery
 // engine replaces it behind this interface without touching the handler or the viewer-role logic.
 type Directory interface {
-	// Top returns at most DirectoryMax ACTIVE communities, memberCount descending, with whether the entry was already warm (0 reads). The
+	// Top returns at most DirectoryMax ACTIVE communities, memberCount descending, with whether the entry was already warm. The
 	// slice is the caller's to keep. Staleness bound: DirectoryTTL (5 minutes), so a suspension, an archive or a new community reaches the
 	// list within 5 minutes on every instance.
 	Top(ctx context.Context) (ranked []Community, warm bool, err error)

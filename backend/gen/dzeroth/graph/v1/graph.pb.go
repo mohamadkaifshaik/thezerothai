@@ -13,12 +13,12 @@
 //
 // Private accounts and follow requests (which reverses the earlier deferral of private accounts): a Follow of a protected account creates
 // followRequests/{caller}_{target} and adds the target to the caller's graph.requested[] (the caller's outgoing
-// requests, so FOLLOW_STATE_REQUESTED costs 0 reads everywhere); the account accepts or declines with
+// requests, so FOLLOW_STATE_REQUESTED needs no extra lookup anywhere); the account accepts or declines with
 // RespondToFollowRequest. followRequests/{a}_{b} exists exactly when b is in graph/{a}.requested, and never together
 // with the edge follows/{a}_{b}. Who may see a protected account's posts and lists is never flag-gated; the
 // FEATURE_PRIVATE_ACCOUNTS flag gates only who may protect (identity) and the two request RPCs below.
 // Every GraphService RPC is behind the FEATURE_GRAPH server flag: when it is off for the caller the RPC returns
-// FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED with 0 reads (clients learn the flag from
+// FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED before any lookup (clients learn the flag from
 // IdentityService.GetMe enabled_features).
 // Block semantics: if the target blocked the caller, target-facing RPCs behave exactly as for a missing
 // user (NOT_FOUND); GetRelationships and every other response never reveal who blocked the caller.
@@ -169,7 +169,7 @@ type UserListItem struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	User  *v1.AuthorSnapshot     `protobuf:"bytes,1,opt,name=user,proto3" json:"user,omitempty"`
 	Since *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=since,proto3" json:"since,omitempty"`
-	// The caller's relationship to `user`, computed from the caller's own graph (0 extra reads), so clients can render
+	// The caller's relationship to `user`, computed from the caller's own graph, so clients can render
 	// follow buttons on list rows without calling GetRelationships.
 	Relationship  *Relationship `protobuf:"bytes,3,opt,name=relationship,proto3" json:"relationship,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -588,7 +588,7 @@ func (x *RespondToFollowRequestRequest) GetAccept() bool {
 
 type RespondToFollowRequestResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The caller's relationship to the requester after the response, from the caller's graph snapshot (0 reads), so
+	// The caller's relationship to the requester after the response, from the caller's graph snapshot, so
 	// the client can offer "Follow back".
 	Relationship  *Relationship `protobuf:"bytes,1,opt,name=relationship,proto3" json:"relationship,omitempty"`
 	unknownFields protoimpl.UnknownFields

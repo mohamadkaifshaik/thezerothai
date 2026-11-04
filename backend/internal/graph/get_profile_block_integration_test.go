@@ -25,29 +25,24 @@ func coldIdentity(t *testing.T, w wired) identity.Service {
 	return is
 }
 
-// TestT17_GetProfile_BlockEnforcement_Budget closes the gap found during the test sweep: the plan
-// budget for IdentityService.GetProfile with the block check wired ("3 reads worst / 0-1 typical"
-// D9) had no measured assertion (identity's own budget tests run without a BlockChecker). Measures a cold
-// instance, the warm path, and the blocked (NOT_FOUND) path.
-func TestT17_GetProfile_BlockEnforcement_Budget(t *testing.T) {
+// TestT17_GetProfile_BlockEnforcement: IdentityService.GetProfile with the block check wired answers on a cold
+// instance and from its warm caches, and is NOT_FOUND for a viewer the target blocked (identity's own tests run
+// without a BlockChecker).
+func TestT17_GetProfile_BlockEnforcement(t *testing.T) {
 	w := newWired(t)
 	viewer, target := "uid-t17v", "uid-t17t"
 	mustCreateProfile(t, w.identity, viewer, "t17viewer")
 	mustCreateProfile(t, w.identity, target, "t17target")
 
+	ctx := context.Background()
 	cold := coldIdentity(t, w)
-	// Cold instance: viewer graph + viewer users doc (status) + target users doc.
-	measured(t, "GetProfile+blockcheck (cold instance)", func(ctx context.Context) {
-		if _, err := cold.GetProfile(ctx, viewer, identity.ProfileTarget{UserID: target}); err != nil {
-			t.Fatalf("GetProfile: %v", err)
-		}
-	})
+	if _, err := cold.GetProfile(ctx, viewer, identity.ProfileTarget{UserID: target}); err != nil {
+		t.Fatalf("GetProfile (cold instance): %v", err)
+	}
 	// Warm: everything from the 60 s instance caches.
-	measured(t, "GetProfile+blockcheck (warm)", func(ctx context.Context) {
-		if _, err := cold.GetProfile(ctx, viewer, identity.ProfileTarget{UserID: target}); err != nil {
-			t.Fatalf("GetProfile (warm): %v", err)
-		}
-	})
+	if _, err := cold.GetProfile(ctx, viewer, identity.ProfileTarget{UserID: target}); err != nil {
+		t.Fatalf("GetProfile (warm): %v", err)
+	}
 
 	// Blocked: block seeded before the cold instance's first read. The block is on the viewer's own graph
 	// (blockedBy), so the check needs no target-graph read.
@@ -56,9 +51,7 @@ func TestT17_GetProfile_BlockEnforcement_Budget(t *testing.T) {
 	mustCreateProfile(t, w.identity, blocker, "t17blocker")
 	seedBlock(t, w.client, blocker, blockedViewer)
 	cold2 := coldIdentity(t, w)
-	measured(t, "GetProfile+blockcheck (blocked, NOT_FOUND, cold instance)", func(ctx context.Context) {
-		if _, err := cold2.GetProfile(ctx, blockedViewer, identity.ProfileTarget{UserID: blocker}); err == nil {
-			t.Fatal("GetProfile succeeded for a viewer blocked by the target")
-		}
-	})
+	if _, err := cold2.GetProfile(ctx, blockedViewer, identity.ProfileTarget{UserID: blocker}); err == nil {
+		t.Fatal("GetProfile succeeded for a viewer blocked by the target")
+	}
 }

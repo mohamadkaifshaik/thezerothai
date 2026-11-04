@@ -16,44 +16,40 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// (FEATURE_REPLIES), quote_of_post_id (FEATURE_ENGAGEMENT), media_ids / media_alt_texts (FEATURE_MEDIA), a
   /// reply_policy other than UNSPECIFIED (FEATURE_REPLY_AUDIENCE) or paid_partnership / made_with_ai true
   /// (FEATURE_CONTENT_DISCLOSURE) => FAILED_PRECONDITION + FEATURE_DISABLED with metadata["feature"] = "replies" |
-  /// "quotes" | "media" | "reply_audience" | "content_disclosure" (first match in that order), 0 reads.
+  /// "quotes" | "media" | "reply_audience" | "content_disclosure" (first match in that order), before any lookup.
   /// Reply policy: settable on a root post or a quote only (a non-UNSPECIFIED value on a reply =>
   /// VALIDATION field "reply_policy"); FOLLOWING_OF_FOLLOWING and VERIFIED => VALIDATION field "reply_policy" ("not
   /// available yet"). UNSPECIFIED and EVERYONE are stored as absent. It covers the whole conversation: a reply stores
-  /// the policy inherited from its parent (0 extra reads). A reply into a FOLLOWING or MENTIONED_ONLY conversation is
+  /// the policy inherited from its parent. A reply into a FOLLOWING or MENTIONED_ONLY conversation is
   /// checked against the conversation root R after the parent visibility check: an unusable R (missing, not public,
   /// hidden, author not ACTIVE, a block in either direction, caller blockedBy overflow, or a quote root whose embedded
   /// author blocks the caller) => NOT_FOUND "post not found"; otherwise R's author always may reply, FOLLOWING needs
   /// R's author to follow the caller (graph cache 60 s), MENTIONED_ONLY needs the caller in R's mentions; else
-  /// PERMISSION_DENIED + REPLY_NOT_ALLOWED (metadata["policy"]), 0 writes, nothing stored under the idempotency key.
-  /// Enforcement is not flag-gated. Extra reads: EVERYONE / absent +0; parent = root: MENTIONED_ONLY +0, FOLLOWING
-  /// +1 cold; deeper: MENTIONED_ONLY +3, FOLLOWING +4 cold; +0 warm.
+  /// PERMISSION_DENIED + REPLY_NOT_ALLOWED (metadata["policy"]), with nothing stored under the idempotency key.
+  /// Enforcement is not flag-gated.
   /// Disclosure: paid_partnership and made_with_ai are user-asserted labels, never rejected; copied
   /// into the embedded snapshot of quotes and reposts. Clients compare the returned post's reply_policy and labels
   /// with what they sent (UNSPECIFIED == EVERYONE) and warn on a mismatch.
   /// Quotes (plan engagement.md, FEATURE_ENGAGEMENT): quote_of_post_id is a 19-digit post id that must be visible
-  /// to the caller by the GetPost rules (else NOT_FOUND "post not found", 0 writes). Quoting a REPOST quotes its
+  /// to the caller by the GetPost rules (else NOT_FOUND "post not found", writing nothing). Quoting a REPOST quotes its
   /// original. A quote needs its own text or at least one image, cannot also set reply_to_post_id (VALIDATION), is
   /// kind QUOTE, a root post for feeds (never a reply), carries an embedded one-level snapshot of the quoted post
-  /// frozen at write time, and increments the quoted post's quote_count in the same transaction. Reads +3 cold /
-  /// +0 warm for the visibility check and writes +1 (quoteCount) over a root post: 17 cold / 2 warm reads, 5 writes.
+  /// frozen at write time, and increments the quoted post's quote_count in the same transaction.
   /// Deleting the quoted post replaces the embed with an unavailable tombstone (async job).
   /// Protected authors: quoting a protected account's post is refused for everyone but that account:
   /// a caller who may not see the post gets NOT_FOUND "post not found" (the visibility check above), and an approved
-  /// follower gets FAILED_PRECONDITION + PROTECTED_ACCOUNT; both 0 writes. A reply to such a post by an approved
+  /// follower gets FAILED_PRECONDITION + PROTECTED_ACCOUNT; both write nothing. A reply to such a post by an approved
   /// follower is allowed and is public: it shows its own text, never the parent's.
   /// Replies (plan replies-and-threads.md): reply_to_post_id is honoured when FEATURE_REPLIES is on for the caller (else
   /// FEATURE_DISABLED, metadata["feature"]="replies"). The parent must be visible to the caller by the GetPost
   /// rules (missing, deleted, hidden, suspended author or an author who blocks the caller => NOT_FOUND
-  /// "post not found", 0 writes). The reply copies the parent's conversation_id, sets reply_to_handle, increments
+  /// "post not found", writing nothing). The reply copies the parent's conversation_id, sets reply_to_handle, increments
   /// the parent's reply_count in the same transaction and is never fanned out to the home timeline.
-  /// Reply reads 15 cold / 3 warm, writes 5 (idempotency, post, users.postsCount, quotas, parent replyCount).
+  /// A reply writes the idempotency doc, the post, users.postsCount, quotas and the parent's replyCount.
   /// Reply audience: a reply into a restricted conversation (FOLLOWING / MENTIONED_ONLY root) is checked after
-  /// the parent visibility check. Extra reads over a plain reply: EVERYONE +0; restricted, parent is the root: MENTIONED_ONLY +0,
-  /// FOLLOWING +1 cold (root author's graph); restricted, deeper reply: MENTIONED_ONLY +3 / FOLLOWING +4 cold (root post, root
-  /// author's profile, caller graph if the caller wrote the parent, + root author's graph for FOLLOWING); +0 warm (60 s caches).
+  /// the parent visibility check. The root and graph lookups behind it use 60 s caches.
   /// A refusal is PERMISSION_DENIED + ERROR_REASON_REPLY_NOT_ALLOWED with metadata "policy" = "following" | "mentioned_only",
-  /// 0 writes, same reads as the allowed path. A conversation root that is unusable for the caller (deleted, hidden, suspended or
+  /// writes nothing and does the same lookups as the allowed path. A conversation root that is unusable for the caller (deleted, hidden, suspended or
   /// deleting author, or one who blocks the caller) is NOT_FOUND "post not found", never REPLY_NOT_ALLOWED.
   /// Media (FEATURE_MEDIA): media_ids are 1-4 distinct READY or READY_UNSCREENED POST images owned by the caller
   /// and not yet attached to a post; any other id (missing, someone else's, an avatar, PENDING, REJECTED, already
@@ -72,38 +68,33 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// One transaction: idempotency doc + quotas read fresh; Create idempotency doc + Create post +
   /// users.postsCount + quotas (+ parent replyCount / quoted quoteCount once those ship). The post id (and
   /// created_at) is drawn in each transaction attempt; the transaction has a 5 s deadline.
-  /// Replay: idempotency doc exists => return the stored post (+1 read if not cached); a different body =>
-  /// INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED, 0 writes.
-  /// Firestore for a root post without images: reads 14 cold / 2 warm, planning 2.5 (caller users via
-  /// the account-status interceptor 1 + handles <= 10 in (no author graph read since M2) if the text has mention
-  /// candidates in one GetAll + idempotency 1 + quotas 1); writes 4/4 (idempotency, post, users.postsCount, quotas) + 1 eventual
-  /// TTL delete. Replay: reads 14 cold / 1 warm, writes 0.
-  /// With n images: + n reads (one GetAll of media/* inside the transaction) and + n writes (media/{id}.postId),
-  /// so at most 17 cold / 6 warm reads and 8 writes; a replay re-reads no media.
-  /// Full contract once replies, quotes, media and notifications ship: reads 19/1, writes 6/4 (+<= 11 async
-  /// notification writes: 1 per mentioned user + 1 for the parent/quoted author).
+  /// Replay: idempotency doc exists => return the stored post (the post is read if not cached); a different body =>
+  /// INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED, writing nothing.
+  /// Mention candidates in the text resolve their handles in one batch (at most 10). With n images the media docs are read
+  /// in one batch inside the transaction and each gets postId set; a replay re-reads no media. Notifications for
+  /// mentions and for the parent or quoted author are written asynchronously.
   /// Polls (FEATURE_POLLS, wire name "polls"): a set `poll` while polls is off for the caller =>
-  /// FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "polls", 0 reads, checked after "content_disclosure"
+  /// FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "polls", before any lookup, checked after "content_disclosure"
   /// in the order above. Root posts only, with non-empty text (the question) and no media: a poll together with
-  /// media_ids, reply_to_post_id or quote_of_post_id, or with empty text => VALIDATION field "poll", 0 writes. 2-4
+  /// media_ids, reply_to_post_id or quote_of_post_id, or with empty text => VALIDATION field "poll", writing nothing. 2-4
   /// choices, each 1-25 code points after the text rules (NFC, no control or bidi formatting characters, trimmed),
   /// distinct after NFC and case folding; mentions and hashtags in choices are not parsed. duration_minutes 5..10080
   /// (7 days). Otherwise VALIDATION field "poll". The server sets closes_at = created_at + duration. The poll is stored
-  /// on the post doc: +0 reads, +0 writes. requestHash gains a poll suffix only when a poll is present, so a request
+  /// on the post doc itself. requestHash gains a poll suffix only when a poll is present, so a request
   /// without one replays exactly as before. Clients send `poll` only when GetMe.enabled_features lists "polls", and
   /// check that the returned post carries `poll` (an older server drops the field): if not, warn and offer delete.
   /// GIF media (FEATURE_GIF, wire name "gif"): a media id whose media is a GIF while gif is not enabled
   /// for the caller => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "gif", after the media reads inside
-  /// the transaction (<= 4 reads, as a MEDIA_NOT_READY refusal), 0 writes. A GIF must be the only media item, else
+  /// the transaction (as a MEDIA_NOT_READY refusal), writing nothing. A GIF must be the only media item, else
   /// VALIDATION field "media_ids". MediaRef.content_type is copied from the media doc.
   /// Communities (FEATURE_COMMUNITIES, wire name "communities"; dzeroth.communities.v1 header):
   /// - community_id posts a root post or a quote into that community. A set community_id while communities is off for
-  ///   the caller => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "communities", 0 reads beyond the
-  ///   interceptor, checked after "polls" in the order above. Not 19 digits => VALIDATION field "community_id". With
+  ///   the caller => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "communities", before any lookup,
+  ///   checked after "polls" in the order above. Not 19 digits => VALIDATION field "community_id". With
   ///   reply_to_post_id => VALIDATION field "community_id" (a reply belongs to its root's conversation). With a
   ///   reply_policy other than UNSPECIFIED or EVERYONE => VALIDATION field "reply_policy" (F8: a community conversation
-  ///   is members only and takes no policy of its own). 0 writes.
-  /// - Then, in this order (posts.CommunityGate): a protected caller => FAILED_PRECONDITION + PROTECTED_ACCOUNT, 0 reads
+  ///   is members only and takes no policy of its own). Nothing is written.
+  /// - Then, in this order (posts.CommunityGate): a protected caller => FAILED_PRECONDITION + PROTECTED_ACCOUNT, before any lookup
   ///   (F6; the interceptor's profile is held); a missing or SUSPENDED community => NOT_FOUND "community not found"
   ///   (byte-identical for both); an ARCHIVED one => FAILED_PRECONDITION + COMMUNITY_STATE metadata["reason"] =
   ///   "community_archived" (status from the 60 s community cache); inside the transaction the caller's member doc, read
@@ -111,24 +102,22 @@ extension type PostServiceClient (connect.Transport _transport) {
   ///   made on another instance stops the next post at once); quotas.communityPosts (50 per IST day, 10 for new accounts,
   ///   on top of the posts quota) in the same quota write => QUOTA_EXCEEDED metadata["quota"] = "community_posts"; then
   ///   the in-memory cap of 20 posts per community per uid per IST day per instance => RATE_LIMITED metadata["limit"] =
-  ///   "community_posts_per_community_daily". Every refusal writes 0.
+  ///   "community_posts_per_community_daily". Every refusal writes nothing.
   /// - Blocks with the community's owner or moderators never refuse a post. The post is an ordinary public
   ///   post (F6, F7): it also shows on the author's profile and in followers' Home, with Post.community as its label.
   /// - The post doc gets communityId, community {id, name} (the name from the cached community doc) and the conversation's
-  ///   community in the same write: +0 writes. The request hash covers community_id only when it is set, so a request
+  ///   community in the same write. The request hash covers community_id only when it is set, so a request
   ///   without one replays exactly as before; the same key with another community_id => IDEMPOTENCY_KEY_REUSED.
-  /// - Extra over CreatePost: reads +2 cold (community via the cache, member doc fresh in the transaction) / +1 warm,
-  ///   planning +1.5; writes +0.
+  /// - The community is read through the cache and the member doc fresh in the transaction.
   /// - Clients send community_id only when GetMe.enabled_features lists "communities", and check that the returned post
   ///   carries `community` (an older server drops the field): if not, warn and offer delete.
   /// Replies in a community conversation: members only. Every reply inherits its parent's conversation
-  /// community (+0 reads: the parent is already read). While communities is not globally off, and after the existing
+  /// community (the parent is already read). While communities is not globally off, and after the existing
   /// reply rules (a block either way => NOT_FOUND): a SUSPENDED community => NOT_FOUND "community not
   /// found"; an ARCHIVED one => COMMUNITY_STATE "community_archived"; a caller who is not a JOINED member (banned
-  /// included) => PERMISSION_DENIED + FORBIDDEN metadata["reason"] = "not_member", 0 writes. The member doc is cached
-  /// 60 s on this path, so a ban reaches other instances' reply path within 60 s. Extra reads +2 cold (community, member
-  /// doc, both cached) / +0 warm. With communities globally off, community posts behave as ordinary posts: no label and
-  /// no reply gate (the kill switch).
+  /// included) => PERMISSION_DENIED + FORBIDDEN metadata["reason"] = "not_member", writing nothing. The member doc is cached
+  /// 60 s on this path, so a ban reaches other instances' reply path within 60 s. The community and member doc are cached. With communities globally off, community posts behave as
+  /// ordinary posts: no label and no reply gate (the kill switch).
   Future<dzerothpostsv1posts.CreatePostResponse> createPost(
     dzerothpostsv1posts.CreatePostRequest input, {
     connect.Headers? headers,
@@ -147,21 +136,18 @@ extension type PostServiceClient (connect.Transport _transport) {
   }
 
   /// Delete own post. post_id must be 19 digits (else VALIDATION). Only the author's call deletes anything:
-  /// another user's post, an unknown id and an already-deleted post all return success with 0 writes,
+  /// another user's post, an unknown id and an already-deleted post all return success and write nothing,
   /// byte-identical, so the call reveals neither existence nor blocks. Replay => success.
   /// Sync: one batch Delete(post, Exists) + users.postsCount -1; a failed Exists precondition (a concurrent
-  /// delete won) => success, 0 writes, so the counter is decremented exactly once. Instance caches are evicted
+  /// delete won) => success, writing nothing, so the counter is decremented exactly once. Instance caches are evicted
   /// locally; others converge in <= 60 s.
   /// Every deleted post publishes one `post_delete` job after the commit (Pub/Sub, no Firestore access on the
   /// request path). The job (idempotent, resumable) deletes its public image objects and media documents, its
   /// likes and reposts documents (and the REPOST posts docs those created), and replaces the embedded snapshot of
-  /// quotes of it with an unavailable tombstone. Async cost: 2 post reads + n media + 3 queries (1 read minimum
-  /// each) + 1 read and 1 delete per dependant.
+  /// quotes of it with an unavailable tombstone.
   /// Deleting a REPOST post doc is UndoRepost: its reposts/{originalId}_{uid} doc goes in the same batch and the
   /// original's repostCount is decremented best effort after the commit. Deleting a QUOTE decrements the quoted
   /// post's quoteCount best effort, like a reply's parent replyCount.
-  /// Firestore (request path): reads 2 cold / 0 warm, planning 1 (interceptor caller users + post); writes 1/1,
-  /// deletes 1/1 (0/0 on a no-op), + 1 best-effort counter write for a reply, quote or repost.
   Future<dzerothpostsv1posts.DeletePostResponse> deletePost(
     dzerothpostsv1posts.DeletePostRequest input, {
     connect.Headers? headers,
@@ -188,14 +174,12 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// Protected authors: a post by a protected account is NOT_FOUND (the same bytes) for a caller who is
   /// neither that account nor a follower of it, and so is a REPOST of such a post; a QUOTE of one is returned with
   /// embed_viewer_state = PROTECTED and its embed stripped of text and media. Post.visibility is FOLLOWERS while the
-  /// author is protected. Decided from the instance-cached protected-author set: 0 extra reads.
-  /// Reads: caller users (account-status interceptor) + post + author users (status) + caller graph (blocked-by),
-  /// all instance-cached 60 s; +1 author graph if the caller's blocked-by list overflowed.
-  /// Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 userLikes cold with engagement or bookmarks on. Writes 0.
-  /// viewer_reply_permission: for a root post in a FOLLOWING conversation (viewer not the author) +1
-  /// cold read (the author's graph); a reply in a restricted conversation is always UNKNOWN (+0). In a community
-  /// conversation it is ALLOWED for a JOINED member and NOT_ALLOWED otherwise: +1 cold read (the caller's
-  /// member doc, cached 60 s), +0 warm.
+  /// author is protected. Decided from the instance-cached protected-author set.
+  /// The caller's profile, the post, the author's status and the caller's graph are instance-cached 60 s; a blocked-by
+  /// overflow also consults the author's graph.
+  /// viewer_reply_permission: for a root post in a FOLLOWING conversation (viewer not the author) it uses the author's
+  /// graph; a reply in a restricted conversation is always UNKNOWN. In a community conversation it is ALLOWED for a
+  /// JOINED member and NOT_ALLOWED otherwise (from the caller's member doc, cached 60 s).
   Future<dzerothpostsv1posts.GetPostResponse> getPost(
     dzerothpostsv1posts.GetPostRequest input, {
     connect.Headers? headers,
@@ -223,20 +207,17 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// read, so a page may be short; follow next_page_token while it is non-empty.
   /// Protected authors, for a caller who is neither the author nor a follower of it: a focal post by a
   /// protected account is NOT_FOUND; such a parent or root is unset with parent_unavailable / root_unavailable; reply
-  /// rows by such an account are dropped (the page may be short); QUOTE embeds as in GetPost. 0 extra reads.
+  /// rows by such an account are dropped (the page may be short); QUOTE embeds as in GetPost.
   /// Community moderation: a reply that a community's owner or a moderator hid
   /// (CommunityService.HideCommunityPost) is dropped from the page for every caller but its author (the page may be
   /// short), and as the parent it is unset with parent_unavailable = true; as the focal post it is returned as GetPost
   /// returns it, and the replies under it stay. A hidden root is unaffected. This holds whatever the state of
-  /// FEATURE_COMMUNITIES. 0 extra reads.
-  /// page_size: default 10 (first page, cost-model lever 6.2), clamped to 1..30. Opaque page_token bound to
+  /// FEATURE_COMMUNITIES.
+  /// page_size: default 10 (first page), clamped to 1..30. Opaque page_token bound to
   /// the caller and the focal post.
-  /// Firestore (plan replies-and-threads.md): reads <= 1 (interceptor) + focal 1 + parent/root 2 + <= 3 author profiles
-  /// + caller graph 1 (+1 author graph on blockedBy overflow) + page <= 30 = 38 cold, <= 3 warm
-  /// (one conversation query, minimum 1); writes 0.
-  /// viewer_reply_permission: UNKNOWN when root_unavailable; otherwise computed from the root, +1 cold
-  /// read for a FOLLOWING conversation (the root author's graph), +0 warm. In a community conversation
-  /// ALLOWED for a JOINED member and NOT_ALLOWED otherwise, +1 cold read (the caller's member doc), +0 warm.
+  /// viewer_reply_permission: UNKNOWN when root_unavailable; otherwise computed from the root (for a FOLLOWING
+  /// conversation, the root author's graph). In a community conversation ALLOWED for a JOINED member and NOT_ALLOWED
+  /// otherwise (the caller's member doc).
   Future<dzerothpostsv1posts.GetThreadResponse> getThread(
     dzerothpostsv1posts.GetThreadRequest input, {
     connect.Headers? headers,
@@ -257,7 +238,7 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// Scheduled posts. All three need FEATURE_POSTS. SchedulePost also needs FEATURE_SCHEDULED_POSTS on for the
   /// caller; ListScheduledPosts and CancelScheduledPost only need it not globally off, so a caller outside the allowlist or
   /// percent bucket can still list and cancel what they already scheduled. Otherwise FAILED_PRECONDITION +
-  /// FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), 0 reads. They
+  /// FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), before any lookup. They
   /// only ever touch users/{caller}/scheduled; another user's id is NOT_FOUND like an unknown id. They share the
   /// CreatePost rate-limit bucket. A published post is created by the server sweep (Cloud Scheduler, every 5 min),
   /// up to ~5 min after publish_at; an item more than 6 h late is FAILED EXPIRED instead of published.
@@ -281,12 +262,7 @@ extension type PostServiceClient (connect.Transport _transport) {
   /// window full is answered with the stored item) => LIMIT_REACHED "scheduled_window"; 50 calls per IST day (10 for
   /// accounts younger than 24 h) => QUOTA_EXCEEDED metadata["quota"] = "schedules". The posts daily quota is charged at
   /// publish.
-  /// Firestore: reads 9 worst (interceptor 1, scheduled doc 1, pending count 1, quotas 1, window count 1, media <= 4)
-  /// / 5 typical without media (4 of them the service's own; the interceptor's profile read is a cache hit when warm);
-  /// writes 2 (scheduled doc, quotas). A concurrent duplicate adds 1 (the winner's doc is re-read), and a transaction
-  /// retry under contention re-reads quotas, the window count and the media (up to 6 more per retry). Replay / at
-  /// pending cap / at window cap / at daily cap: reads 2 / 3 / 6 / 5 worst, writes 0 (the window cap reads this key's own
-  /// document once more, to tell a full window from a duplicate).
+  /// A replay and a refusal at the pending, window or daily cap write nothing.
   Future<dzerothpostsv1posts.SchedulePostResponse> schedulePost(
     dzerothpostsv1posts.SchedulePostRequest input, {
     connect.Headers? headers,
@@ -306,7 +282,6 @@ extension type PostServiceClient (connect.Transport _transport) {
 
   /// The caller's PENDING and FAILED scheduled posts, publish_at ascending. page_size 0 => 20, clamped to 50; opaque
   /// page_token bound to the caller.
-  /// Firestore: reads 1 + page (21 at 20, 51 at 50), typical 1 + items (min 1); writes 0.
   Future<dzerothpostsv1posts.ListScheduledPostsResponse> listScheduledPosts(
     dzerothpostsv1posts.ListScheduledPostsRequest input, {
     connect.Headers? headers,
@@ -325,10 +300,10 @@ extension type PostServiceClient (connect.Transport _transport) {
   }
 
   /// Cancel a PENDING item, or dismiss a FAILED one; returns the item's current state without text or media.
-  /// Idempotent by state: an item already PUBLISHED (too late, not an error) or CANCELLED is returned unchanged with
-  /// 0 writes. scheduled_id must match ^[0-9a-f]{32}$ (else VALIDATION); unknown => NOT_FOUND. idempotency_key is
+  /// Idempotent by state: an item already PUBLISHED (too late, not an error) or CANCELLED is returned unchanged, writing
+  /// nothing. scheduled_id must match ^[0-9a-f]{32}$ (else VALIDATION); unknown => NOT_FOUND. idempotency_key is
   /// format-validated (VALIDATION when malformed) but not stored.
-  /// Firestore: reads 2 worst / 1 typical; writes 1 (0 if already terminal); +1 TTL delete after 7 d.
+  /// Terminal items expire by TTL after SCHEDULED_TERMINAL_TTL (default 7 days).
   Future<dzerothpostsv1posts.CancelScheduledPostResponse> cancelScheduledPost(
     dzerothpostsv1posts.CancelScheduledPostRequest input, {
     connect.Headers? headers,

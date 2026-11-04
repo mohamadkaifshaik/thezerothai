@@ -19,7 +19,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -60,11 +59,11 @@ type PurgeParams struct {
 
 // PagePurger is the storage the eraser needs (FirestoreRepo in production).
 type PagePurger interface {
-	// LoadMemberships reads communityMemberships/{uid} (1 read, billed when missing too).
+	// LoadMemberships reads communityMemberships/{uid}.
 	LoadMemberships(ctx context.Context, uid string) (m Memberships, exists bool, err error)
 	// PurgeCommunity takes uid out of one community in one transaction; see FirestoreRepo.PurgeCommunity.
 	PurgeCommunity(ctx context.Context, uid, communityID string, p PurgeParams) (PurgeResult, error)
-	// DeleteMemberships deletes communityMemberships/{uid} (1 delete).
+	// DeleteMemberships deletes communityMemberships/{uid}.
 	DeleteMemberships(ctx context.Context, uid string) error
 }
 
@@ -73,7 +72,6 @@ var _ PagePurger = (*FirestoreRepo)(nil)
 // LoadMemberships implements PagePurger.
 func (r *FirestoreRepo) LoadMemberships(ctx context.Context, uid string) (Memberships, bool, error) {
 	snap, err := r.membershipsRef(uid).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return Memberships{}, false, nil
@@ -89,7 +87,7 @@ func (r *FirestoreRepo) LoadMemberships(ctx context.Context, uid string) (Member
 
 // DeleteMemberships implements PagePurger.
 func (r *FirestoreRepo) DeleteMemberships(ctx context.Context, uid string) error {
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	b.Delete(r.membershipsRef(uid))
 	if err := b.Commit(ctx); err != nil {
 		return logger.RedactErr(fmt.Errorf("communities: delete memberships %s: %w", logger.HashUID(uid), err), uid)
@@ -141,7 +139,6 @@ func (r *FirestoreRepo) PurgeCommunity(ctx context.Context, uid, cid string, p P
 		}
 		missing := cerr != nil
 		msnap, merr := tx.Get(r.memberRef(cid, uid))
-		budget.FromContext(ctx).AddReads(1)
 		memberState := MemberNone
 		if merr == nil {
 			var md memberDoc
@@ -160,7 +157,6 @@ func (r *FirestoreRepo) PurgeCommunity(ctx context.Context, uid, cid string, p P
 					continue
 				}
 				_, serr := tx.Get(r.membershipsRef(m))
-				budget.FromContext(ctx).AddReads(1)
 				if serr != nil {
 					if status.Code(serr) == codes.NotFound {
 						continue
@@ -171,7 +167,7 @@ func (r *FirestoreRepo) PurgeCommunity(ctx context.Context, uid, cid string, p P
 				break
 			}
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		if merr == nil {
 			b.Delete(r.memberRef(cid, uid), firestore.Exists)
 			res.MemberRemoved = true
@@ -311,11 +307,10 @@ func (e *Eraser) active(ctx context.Context, uid string) bool {
 	return ok && p.Status == identity.AccountStatusActive
 }
 
-// PurgeUser runs up to one chunk of communities and reports whether the step is finished. It reads the memberships doc once (1
-// read), then each community in its own transaction (2 reads, plus the successor checks of an owned one), and when the last community
-// is done deletes the memberships doc. An account with no memberships doc is one read and no writes, and so is a rerun after
-// completion. Reads: 1 + 2 per community (+ at most 10 profiles and 10 memberships reads per owned community with moderators); writes:
-// 1 per community that changed (+1 on a handover); deletes: 1 per member doc + 1 for the memberships doc.
+// PurgeUser runs up to one chunk of communities and reports whether the step is finished. It reads the memberships doc once, then
+// each community in its own transaction (plus the successor checks of an owned one), and when the last community
+// is done deletes the memberships doc. An account with no memberships doc writes nothing, and so does a rerun after
+// completion.
 func (e *Eraser) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	ms, exists, err := e.repo.LoadMemberships(ctx, uid)
 	if err != nil {
@@ -361,10 +356,10 @@ func (e *Eraser) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Chec
 
 // ExportSource reads what the export section needs (FirestoreRepo in production).
 type ExportSource interface {
-	// LoadMemberships reads communityMemberships/{uid} (1 read).
+	// LoadMemberships reads communityMemberships/{uid}.
 	LoadMemberships(ctx context.Context, uid string) (m Memberships, exists bool, err error)
 	// ExportRows reads, in batches of at most 100 references, the community doc of every id and the user's own member doc of every
-	// id in withMember. Reads: one per document requested (a missing one is billed too). Rows come back in the order of ids.
+	// id in withMember. Rows come back in the order of ids.
 	ExportRows(ctx context.Context, uid string, ids, withMember []string) ([]ExportRow, error)
 }
 
@@ -397,7 +392,6 @@ func (r *FirestoreRepo) ExportRows(ctx context.Context, uid string, ids, withMem
 	for from := 0; from < len(refs); from += exportBatch {
 		to := min(from+exportBatch, len(refs))
 		snaps, err := r.client.GetAll(ctx, refs[from:to])
-		budget.FromContext(ctx).AddReads(int64(to - from))
 		if err != nil {
 			return nil, logger.RedactErr(fmt.Errorf("communities: export %s: %w", logger.HashUID(uid), err), append([]string{uid}, ids...)...)
 		}
@@ -484,8 +478,8 @@ type Exporter struct{ src ExportSource }
 // NewExporter builds the section on an ExportSource (FirestoreRepo in production).
 func NewExporter(src ExportSource) *Exporter { return &Exporter{src: src} }
 
-// BuildExport assembles the section. Reads: 1 (memberships) + 1 per community in joined ∪ owned ∪ banned ∪ modlogged + 1 per joined
-// or banned community (the user's member doc, which carries joinedAt and bannedAt); an account without a memberships doc is 1 read.
+// BuildExport assembles the section: the memberships doc, every community in joined ∪ owned ∪ banned ∪ modlogged, and for each joined
+// or banned community the user's member doc (which carries joinedAt and bannedAt). An account without a memberships doc yields an empty section.
 func (x *Exporter) BuildExport(ctx context.Context, uid string) (Export, error) {
 	out := Export{Joined: []ExportedJoined{}, Owned: []ExportedOwned{}, Banned: []ExportedBanned{}, ModerationActions: []ExportedAction{}}
 	ms, exists, err := x.src.LoadMemberships(ctx, uid)

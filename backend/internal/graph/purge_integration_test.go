@@ -14,7 +14,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // purgeToCompletion loops PurgeUser from cp until done, retrying transient errors (a concurrent run can make
@@ -162,14 +161,26 @@ func TestPurgeUser_Integration_ConcurrentRunsNoDoubleDecrement(t *testing.T) {
 	assertPurged(t, w)
 }
 
-func TestPurgeUser_Integration_StepBudgets(t *testing.T) {
+func TestPurgeUser_Integration_Step1OutgoingEdgesOnly(t *testing.T) {
 	w := purgeFixture(t)
 	w.SkipInvariantSweep("deliberately stops after purge step 1, a legitimately mid-purge (inconsistent) state")
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, _, err := w.graph.repo.PurgeUser(ctx, "uid-u", graph.Checkpoint{}); err != nil {
 		t.Fatal(err)
 	}
-	// Step 1 with 3 outgoing edges: 3 edge reads, 3 followee counter writes, 3 edge deletes.
+	// Step 1 with 3 outgoing edges deletes them and decrements each followee's followers counter; the 2 incoming
+	// edges are left for step 2.
+	if n := countFollowDocs(t, w.client, "followerId", "uid-u"); n != 0 {
+		t.Errorf("%d outgoing follows docs left after step 1, want 0", n)
+	}
+	if n := countFollowDocs(t, w.client, "followeeId", "uid-u"); n != 2 {
+		t.Errorf("%d incoming follows docs after step 1, want the 2 that step 2 handles", n)
+	}
+	for _, f := range []string{"uid-f1", "uid-f2", "uid-f3"} {
+		if _, fr := counts(t, w, f); fr != 0 {
+			t.Errorf("%s followersCount = %d after step 1, want 0", f, fr)
+		}
+	}
 }
 
 func TestPurgeUser_Integration_MissingCounterpartIsSkipped(t *testing.T) {

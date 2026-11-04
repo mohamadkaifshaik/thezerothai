@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // Emulator tests for `opsctl backfill-has-media`. The documents are seeded as raw maps: toDoc always
@@ -68,10 +66,10 @@ func bfSnap(t *testing.T, client *firestore.Client, id string) *firestore.Docume
 	return s
 }
 
-// bfRun drives BackfillHasMedia the way opsctl does: from cp until the state is not BackfillMore, on one budget counter.
-func bfRun(t *testing.T, r *FirestoreRepo, cp BackfillCheckpoint, opts BackfillOptions) (BackfillCheckpoint, BackfillState, *budget.Counter) {
+// bfRun drives BackfillHasMedia the way opsctl does: from cp until the state is not BackfillMore.
+func bfRun(t *testing.T, r *FirestoreRepo, cp BackfillCheckpoint, opts BackfillOptions) (BackfillCheckpoint, BackfillState) {
 	t.Helper()
-	ctx, c := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	for calls := 0; calls < 10_000; calls++ {
 		next, state, err := r.BackfillHasMedia(ctx, cp, opts)
 		if err != nil {
@@ -79,11 +77,11 @@ func bfRun(t *testing.T, r *FirestoreRepo, cp BackfillCheckpoint, opts BackfillO
 		}
 		cp = next
 		if state != BackfillMore {
-			return cp, state, c
+			return cp, state
 		}
 	}
 	t.Fatal("BackfillHasMedia did not finish")
-	return cp, BackfillMore, c
+	return cp, BackfillMore
 }
 
 // TestBackfillHasMedia_Integration_WritesOnlyMissingAndRerunWritesZero is the ticket's core test: legacy documents get
@@ -98,11 +96,10 @@ func TestBackfillHasMedia_Integration_WritesOnlyMissingAndRerunWritesZero(t *tes
 		untouched[id] = bfSnap(t, client, id).UpdateTime
 	}
 
-	cp, state, _ := bfRun(t, repo, BackfillCheckpoint{}, BackfillOptions{})
+	cp, state := bfRun(t, repo, BackfillCheckpoint{}, BackfillOptions{})
 	if state != BackfillDone {
 		t.Fatalf("state = %v, want done", state)
 	}
-	// 8 posts: 8 reads (the short page is the last one: no extra empty query); 5 legacy documents: 5 writes.
 	if want := (BackfillCheckpoint{After: bfOddFalse, Scanned: 8, Missing: 5, Updated: 5}); cp != want {
 		t.Errorf("checkpoint = %+v, want %+v", cp, want)
 	}
@@ -134,7 +131,7 @@ func TestBackfillHasMedia_Integration_WritesOnlyMissingAndRerunWritesZero(t *tes
 	}
 
 	// A rerun reads every post again and writes nothing.
-	cp2, state2, _ := bfRun(t, repo, BackfillCheckpoint{}, BackfillOptions{})
+	cp2, state2 := bfRun(t, repo, BackfillCheckpoint{}, BackfillOptions{})
 	if state2 != BackfillDone || cp2.Updated != 0 || cp2.Missing != 0 || cp2.Scanned != 8 {
 		t.Errorf("rerun = %+v state=%v, want done with scanned 8 and 0 missing/updated", cp2, state2)
 	}
@@ -146,7 +143,7 @@ func TestBackfillHasMedia_Integration_DryRunWritesNothing(t *testing.T) {
 	repo := NewFirestoreRepo(client)
 	seedBackfillPosts(t, client)
 
-	cp, state, _ := bfRun(t, repo, BackfillCheckpoint{}, BackfillOptions{DryRun: true})
+	cp, state := bfRun(t, repo, BackfillCheckpoint{}, BackfillOptions{DryRun: true})
 	if state != BackfillDone || cp.Scanned != 8 || cp.Missing != 5 || cp.Updated != 0 {
 		t.Errorf("dry run = %+v state=%v, want done, scanned 8, missing 5, updated 0", cp, state)
 	}
@@ -168,7 +165,7 @@ func TestBackfillHasMedia_Integration_CapAndResume(t *testing.T) {
 
 	// Run 1: page 1 is bfImage, bfText, bfRepost. The cap lands on the third legacy post: the checkpoint is the last post
 	// decided (bfText), so bfRepost is read again, not skipped, by the resume.
-	cp1, state, _ := bfRun(t, repo, BackfillCheckpoint{}, opts)
+	cp1, state := bfRun(t, repo, BackfillCheckpoint{}, opts)
 	if state != BackfillCapped || cp1.After != bfText || cp1.Updated != 2 || cp1.Scanned != 2 {
 		t.Fatalf("run 1 = %+v state=%v, want capped at %s with 2 updated", cp1, state, bfText)
 	}
@@ -177,7 +174,7 @@ func TestBackfillHasMedia_Integration_CapAndResume(t *testing.T) {
 	}
 
 	// Run 2 resumes after bfText with a fresh write allowance and caps again, mid-page, at bfQuote's neighbour.
-	cp2, state, _ := bfRun(t, repo, BackfillCheckpoint{After: cp1.After}, opts)
+	cp2, state := bfRun(t, repo, BackfillCheckpoint{After: cp1.After}, opts)
 	if state != BackfillCapped || cp2.Updated != 2 || cp2.After != bfQuote {
 		t.Fatalf("run 2 = %+v state=%v, want capped after %s with 2 updated", cp2, state, bfQuote)
 	}
@@ -186,7 +183,7 @@ func TestBackfillHasMedia_Integration_CapAndResume(t *testing.T) {
 	}
 
 	// Run 3 finishes.
-	cp3, state, _ := bfRun(t, repo, BackfillCheckpoint{After: cp2.After}, opts)
+	cp3, state := bfRun(t, repo, BackfillCheckpoint{After: cp2.After}, opts)
 	if state != BackfillDone || cp3.Updated != 1 || cp3.Missing != 1 {
 		t.Fatalf("run 3 = %+v state=%v, want done with 1 updated", cp3, state)
 	}
@@ -197,33 +194,32 @@ func TestBackfillHasMedia_Integration_CapAndResume(t *testing.T) {
 	}
 
 	// The cap alone, with no --after, is also safe: it re-reads from the start and writes 0.
-	cp4, state, c4 := bfRun(t, repo, BackfillCheckpoint{}, opts)
+	cp4, state := bfRun(t, repo, BackfillCheckpoint{}, opts)
 	if state != BackfillDone || cp4.Updated != 0 {
-		t.Errorf("final rerun = %+v state=%v writes=%d, want done with 0 writes", cp4, state, c4.Writes())
+		t.Errorf("final rerun = %+v state=%v, want done with 0 updated", cp4, state)
 	}
 }
 
 // TestBackfillHasMedia_Integration_CapMetOnAFullPageIsCapped: when the write cap is met exactly by the last write of a full
-// page, the call reports capped (more may remain) and the next call reads nothing.
+// page, the call reports capped (more may remain) and the next call returns the same checkpoint.
 func TestBackfillHasMedia_Integration_CapMetOnAFullPageIsCapped(t *testing.T) {
 	client := newTestClient(t)
 	repo := NewFirestoreRepo(client)
 	seedBackfillPosts(t, client)
 
-	ctx, c := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	cp, state, err := repo.BackfillHasMedia(ctx, BackfillCheckpoint{}, BackfillOptions{PageSize: 2, MaxWrites: 2})
 	if err != nil || state != BackfillCapped || cp.Updated != 2 || cp.After != bfText {
 		t.Fatalf("call 1 = %+v state=%v err=%v, want capped with 2 updated", cp, state, err)
 	}
-	readsBefore := c.Reads()
 	cp2, state2, err := repo.BackfillHasMedia(ctx, cp, BackfillOptions{PageSize: 2, MaxWrites: 2})
 	if err != nil || state2 != BackfillCapped || cp2 != cp {
-		t.Errorf("call 2 = %+v state=%v err=%v reads %d -> %d, want the same capped checkpoint and no read", cp2, state2, err, readsBefore, c.Reads())
+		t.Errorf("call 2 = %+v state=%v err=%v, want the same capped checkpoint", cp2, state2, err)
 	}
 }
 
 // TestBackfillHasMedia_Integration_MultiPageAtProductionPageSize: 1,001 posts (every third already carries the field) are
-// read in pages of 500, 500 and 1, so reads == posts and writes == legacy posts exactly.
+// read in pages of 500, 500 and 1, so every post is scanned and exactly the legacy posts are updated.
 func TestBackfillHasMedia_Integration_MultiPageAtProductionPageSize(t *testing.T) {
 	client := newTestClient(t)
 	repo := NewFirestoreRepo(client)
@@ -246,20 +242,23 @@ func TestBackfillHasMedia_Integration_MultiPageAtProductionPageSize(t *testing.T
 	}
 	bw.End()
 
-	cp, state, _ := bfRun(t, repo, BackfillCheckpoint{}, BackfillOptions{})
+	cp, state := bfRun(t, repo, BackfillCheckpoint{}, BackfillOptions{})
 	if state != BackfillDone || cp.Scanned != n || cp.Updated != legacy {
 		t.Fatalf("run = %+v state=%v, want done, scanned %d, updated %d", cp, state, n, legacy)
 	}
-	_, _, _ = bfRun(t, repo, BackfillCheckpoint{}, BackfillOptions{})
+	rerun, state := bfRun(t, repo, BackfillCheckpoint{}, BackfillOptions{})
+	if state != BackfillDone || rerun.Updated != 0 {
+		t.Fatalf("rerun = %+v state=%v, want done with 0 updated", rerun, state)
+	}
 }
 
 func TestBackfillHasMedia_Integration_EmptyCollectionAndBadCheckpoint(t *testing.T) {
 	client := newTestClient(t)
 	repo := NewFirestoreRepo(client)
 
-	cp, state, c := bfRun(t, repo, BackfillCheckpoint{}, BackfillOptions{})
+	cp, state := bfRun(t, repo, BackfillCheckpoint{}, BackfillOptions{})
 	if state != BackfillDone || cp != (BackfillCheckpoint{}) {
-		t.Errorf("empty collection = %+v state=%v reads=%d writes=%d, want done, zero checkpoint, 1 read, 0 writes", cp, state, c.Reads(), c.Writes())
+		t.Errorf("empty collection = %+v state=%v, want done and a zero checkpoint", cp, state)
 	}
 
 	if _, _, err := repo.BackfillHasMedia(context.Background(), BackfillCheckpoint{After: "a/b"}, BackfillOptions{}); !errors.Is(err, ErrInvalidID) {

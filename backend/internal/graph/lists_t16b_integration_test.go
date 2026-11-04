@@ -1,6 +1,6 @@
 //go:build integration
 
-// lists_t16b_integration_test.go: pagination completeness and stability, read budgets at page sizes 20
+// lists_t16b_integration_test.go: pagination completeness and stability at page sizes 20
 // and 50 for every list RPC, tampered/truncated/cross-user cursors, and the daily list cap. Everything is
 // seeded through real Follow/Block/Mute calls and asserted over the real Connect handlers.
 package graph_test
@@ -20,18 +20,17 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 )
 
-// pageResult is what one list page looked like: its uids in order, the next token and the Firestore reads.
+// pageResult is what one list page looked like: its uids in order and the next token.
 type pageResult struct {
-	uids  []string
-	next  string
-	reads int64
+	uids []string
+	next string
 }
 
 type pager func(token string, size int32) (pageResult, error)
 
-// walkAll follows next_page_token to the end, asserting every page's size and reads budget. between(n) runs
+// walkAll follows next_page_token to the end, asserting every page's size. between(n) runs
 // after page n (1-based) has been fetched, so tests can mutate the graph mid-walk.
-func walkAll(t *testing.T, name string, list pager, size int32, budgetReads func(size int) int64, between func(page int)) (all []string, maxReads int64, pages int) {
+func walkAll(t *testing.T, name string, list pager, size int32, between func(page int)) (all []string, pages int) {
 	t.Helper()
 	token := ""
 	for {
@@ -53,18 +52,12 @@ func walkAll(t *testing.T, name string, list pager, size int32, budgetReads func
 		if len(res.uids) > eff {
 			t.Errorf("%s page %d: %d rows > page size %d", name, pages, len(res.uids), eff)
 		}
-		if res.reads > budgetReads(eff) {
-			t.Errorf("%s page %d (size %d): reads = %d, want <= %d (documented budget)", name, pages, eff, res.reads, budgetReads(eff))
-		}
-		if res.reads > maxReads {
-			maxReads = res.reads
-		}
 		all = append(all, res.uids...)
 		if between != nil {
 			between(pages)
 		}
 		if res.next == "" {
-			return all, maxReads, pages
+			return all, pages
 		}
 		token = res.next
 	}
@@ -111,8 +104,8 @@ func fUID(i int) string { return fmt.Sprintf("uid-f%03d", i) }
 type paginationWorld struct {
 	r *rig
 	// cold makes every list request start with an empty identity profile cache (Directory.Forget of every
-	// uid in the world), so profile hydration costs its documented worst case. The graph snapshot cache is
-	// internal to graph and cannot be evicted from here; it only ever saves 1 read.
+	// uid in the world), so profile hydration runs from scratch. The graph snapshot cache is
+	// internal to graph and cannot be evicted from here.
 	cold    bool
 	allUIDs []string
 	visible []string // H's followers as V sees them (V's blocks removed)
@@ -188,7 +181,7 @@ func (pw *paginationWorld) followersPager(viewer, target string) pager {
 		if err != nil {
 			return pageResult{}, err
 		}
-		return pageResult{uids: uidsOf(resp.Msg.GetUsers()), next: resp.Msg.GetNextPageToken(), reads: pw.r.lastOps().Reads()}, nil
+		return pageResult{uids: uidsOf(resp.Msg.GetUsers()), next: resp.Msg.GetNextPageToken()}, nil
 	}
 }
 
@@ -200,7 +193,7 @@ func (pw *paginationWorld) followingPager(viewer, target string) pager {
 		if err != nil {
 			return pageResult{}, err
 		}
-		return pageResult{uids: uidsOf(resp.Msg.GetUsers()), next: resp.Msg.GetNextPageToken(), reads: pw.r.lastOps().Reads()}, nil
+		return pageResult{uids: uidsOf(resp.Msg.GetUsers()), next: resp.Msg.GetNextPageToken()}, nil
 	}
 }
 
@@ -212,7 +205,7 @@ func (pw *paginationWorld) blockedPager(viewer string) pager {
 		if err != nil {
 			return pageResult{}, err
 		}
-		return pageResult{uids: uidsOf(resp.Msg.GetUsers()), next: resp.Msg.GetNextPageToken(), reads: pw.r.lastOps().Reads()}, nil
+		return pageResult{uids: uidsOf(resp.Msg.GetUsers()), next: resp.Msg.GetNextPageToken()}, nil
 	}
 }
 
@@ -224,24 +217,18 @@ func (pw *paginationWorld) mutedPager(viewer string) pager {
 		if err != nil {
 			return pageResult{}, err
 		}
-		return pageResult{uids: uidsOf(resp.Msg.GetUsers()), next: resp.Msg.GetNextPageToken(), reads: pw.r.lastOps().Reads()}, nil
+		return pageResult{uids: uidsOf(resp.Msg.GetUsers()), next: resp.Msg.GetNextPageToken()}, nil
 	}
 }
 
-// Documented worst cases (cost table, D-"List paging"): edge lists 2 + size + size (102 at 50, 42 at
-// 20); own lists 1 + size (51 at 50).
-func edgeListBudget(size int) int64 { return int64(2 + 2*size) }
-func ownListBudget(size int) int64  { return int64(1 + size) }
-
-func TestLists_Integration_PaginationBudgetsAndStability(t *testing.T) {
+func TestLists_Integration_PaginationCompletenessAndStability(t *testing.T) {
 	pw := buildPaginationWorld(t)
 	_ = context.Background()
 
 	type listCase struct {
-		name   string
-		pager  pager
-		want   []string // set that must appear exactly once
-		budget func(int) int64
+		name  string
+		pager pager
+		want  []string // set that must appear exactly once
 	}
 	f0to49 := make([]string, 50)
 	for i := range f0to49 {
@@ -252,11 +239,11 @@ func TestLists_Integration_PaginationBudgetsAndStability(t *testing.T) {
 		all120[i] = fUID(i)
 	}
 	cases := []listCase{
-		{"ListFollowers(H) as V (5 rows filtered)", pw.followersPager(uidV, uidH), pw.visible, edgeListBudget},
-		{"ListFollowers(H) as X (third party, all 120)", pw.followersPager(uidY, uidH), all120, edgeListBudget},
-		{"ListFollowing(hub2) (exact multiple of 50)", pw.followingPager(uidY, uidH2), f0to49, edgeListBudget},
-		{"ListBlockedUsers(X)", pw.blockedPager(uidX), f0to49, ownListBudget},
-		{"ListMutedUsers(Y)", pw.mutedPager(uidY), f0to49, ownListBudget},
+		{"ListFollowers(H) as V (5 rows filtered)", pw.followersPager(uidV, uidH), pw.visible},
+		{"ListFollowers(H) as X (third party, all 120)", pw.followersPager(uidY, uidH), all120},
+		{"ListFollowing(hub2) (exact multiple of 50)", pw.followingPager(uidY, uidH2), f0to49},
+		{"ListBlockedUsers(X)", pw.blockedPager(uidX), f0to49},
+		{"ListMutedUsers(Y)", pw.mutedPager(uidY), f0to49},
 	}
 	for _, cold := range []bool{false, true} {
 		for _, size := range []int32{20, 50} {
@@ -264,12 +251,12 @@ func TestLists_Integration_PaginationBudgetsAndStability(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/size=%d/cold=%v", c.name, size, cold), func(t *testing.T) {
 					pw.cold = cold
 					defer func() { pw.cold = false }()
-					got, maxReads, pages := walkAll(t, c.name, c.pager, size, c.budget, nil)
+					got, pages := walkAll(t, c.name, c.pager, size, nil)
 					assertExactlyOnce(t, c.name, got, c.want)
 					if len(got) != len(c.want) {
 						t.Errorf("%s: %d rows, want %d", c.name, len(got), len(c.want))
 					}
-					t.Logf("READS list=%q size=%d cold=%v pages=%d rows=%d max_page_reads=%d budget=%d", c.name, size, cold, pages, len(got), maxReads, c.budget(int(size)))
+					t.Logf("list=%q size=%d cold=%v pages=%d rows=%d", c.name, size, cold, pages, len(got))
 				})
 			}
 		}
@@ -298,9 +285,6 @@ func TestLists_Integration_PaginationBudgetsAndStability(t *testing.T) {
 		res2, err := p(res1.next, 50)
 		if err != nil || len(res2.uids) != 0 || res2.next != "" {
 			t.Fatalf("page 2: rows=%d next=%q err=%v; want empty and no token", len(res2.uids), res2.next, err)
-		}
-		if res2.reads > 3 {
-			t.Errorf("empty final page cost %d reads, want <= 3 (target check + 1 empty edge query)", res2.reads)
 		}
 	})
 
@@ -344,7 +328,7 @@ func TestLists_Integration_PaginationBudgetsAndStability(t *testing.T) {
 		}
 		seenGone := fUID(119) // newest: already delivered on page 1 when it is removed
 		unseenGone := fUID(5) // oldest region: removed before it is reached
-		got, _, pages := walkAll(t, "ListFollowers(H) with concurrent writes", pw.followersPager(uidV, uidH), 20, edgeListBudget, func(page int) {
+		got, pages := walkAll(t, "ListFollowers(H) with concurrent writes", pw.followersPager(uidV, uidH), 20, func(page int) {
 			switch page {
 			case 1:
 				for i, u := range fresh {
@@ -394,7 +378,7 @@ func countOf(in []string, v string) int {
 }
 
 // TestCursors_Integration_TamperedTruncatedCrossUser: every list RPC rejects bad page tokens with
-// INVALID_ARGUMENT + VALIDATION (field page_token) and reads nothing.
+// INVALID_ARGUMENT + VALIDATION (field page_token).
 func TestCursors_Integration_TamperedTruncatedCrossUser(t *testing.T) {
 	pw := buildPaginationWorld(t)
 	r := pw.r
@@ -590,7 +574,7 @@ func TestLists_Integration_DailyCap(t *testing.T) {
 		}
 	}
 
-	// Not capped: GetRelationships and mutations by the same uid; other uids have their own budget.
+	// Not capped: GetRelationships and mutations by the same uid; other uids have their own daily count.
 	if _, err := v.graph.GetRelationships(ctx, connect.NewRequest(&graphv1.GetRelationshipsRequest{UserIds: []string{uidH}})); err != nil {
 		t.Errorf("GetRelationships after cap: %v", err)
 	}

@@ -6,7 +6,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -27,7 +26,6 @@ func (p *publicationIntent) LoadForPublish(ctx context.Context, tx *firestore.Tr
 	r := p.repo.(*firestoreRepo)
 	ref := r.client.Collection("articles").Doc(p.expected.ID)
 	d, err := tx.Get(ref)
-	budget.FromContext(ctx).AddReads(1)
 	if status.Code(err) == codes.NotFound {
 		return nil, missing()
 	}

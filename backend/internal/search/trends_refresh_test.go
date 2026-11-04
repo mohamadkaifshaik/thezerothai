@@ -12,12 +12,10 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// fakeScanner implements CreatedAfter over a fixed list ordered by (createdAt, id), strictly after the watermark, and
-// bills like the reader: len(result), minimum 1.
+// fakeScanner implements CreatedAfter over a fixed list ordered by (createdAt, id), strictly after the watermark.
 type fakeScanner struct {
 	posts []*posts.Post
 	calls int
@@ -55,7 +53,6 @@ func (f *fakeScanner) CreatedAfter(ctx context.Context, after posts.Position, li
 			}
 		}
 	}
-	budget.FromContext(ctx).AddQueryReads(len(out))
 	return out, nil
 }
 
@@ -232,7 +229,7 @@ func TestRefresh_TopHundredOnly(t *testing.T) {
 
 func TestRefresh_Switches(t *testing.T) {
 	t.Parallel()
-	t.Run("flag globally off: 0 reads, 0 writes", func(t *testing.T) {
+	t.Run("flag globally off: no store access", func(t *testing.T) {
 		t.Parallel()
 		h := newHarness(t, false, nil)
 		h.scan.posts = []*posts.Post{post(1, "a", ago(time.Hour), "x")}
@@ -261,7 +258,7 @@ func TestRefresh_Switches(t *testing.T) {
 			t.Fatalf("res %+v", res)
 		}
 	})
-	t.Run("readonly: 0 reads, 0 writes", func(t *testing.T) {
+	t.Run("readonly: no store access", func(t *testing.T) {
 		t.Parallel()
 		h := newHarness(t, true, func(c *RefresherConfig) { c.ReadOnly = true })
 		res, err := h.run(t)
@@ -481,8 +478,8 @@ func TestRefresh_Failures(t *testing.T) {
 	})
 }
 
-// TestRefresh_Budget: 1 read for the document + 1 for the hide list + the posts read + 1 per candidate author (4) + 1 write, via the log line's own counter fields.
-func TestRefresh_Budget(t *testing.T) {
+// TestRefresh_LogLine: the trends_refresh line carries the scan, author and tag figures and leaks no uid.
+func TestRefresh_LogLine(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, true, nil)
 	for i := 1; i <= 37; i++ {
@@ -502,7 +499,8 @@ func TestRefresh_Budget(t *testing.T) {
 			t.Errorf("trends_refresh line leaks %s", banned)
 		}
 	}
-	// A fresh-skipped run: 1 read, 0 writes.
+	// A fresh-skipped run writes nothing.
+	puts := h.store.puts
 	h.clk.advance(time.Minute)
 	if _, err := h.run(t); err != nil {
 		t.Fatal(err)
@@ -510,6 +508,9 @@ func TestRefresh_Budget(t *testing.T) {
 	line = lastLine(h.logs.String(), "trends_skipped")
 	if !strings.Contains(line, `"reason":"fresh"`) {
 		t.Errorf("fresh skip line: %s", line)
+	}
+	if h.store.puts != puts {
+		t.Errorf("the fresh-skipped run wrote the document: puts %d -> %d", puts, h.store.puts)
 	}
 }
 
@@ -524,7 +525,7 @@ func lastLine(logs, msg string) string {
 }
 
 // fakeAuthors is the AuthorDirectory: every uid is an ACTIVE account created 100 days before trendsT0 unless overridden. It
-// bills one read per id asked for, like a cold identity cache, and records every batch.
+// records every batch.
 type fakeAuthors struct {
 	created map[string]time.Time // uid → createdAt (a zero value in the map is a zero createdAt)
 	absent  map[string]bool      // missing, SUSPENDED or DELETING: omitted from the result
@@ -542,7 +543,6 @@ func newFakeAuthors() *fakeAuthors {
 
 func (f *fakeAuthors) GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error) {
 	f.batches = append(f.batches, append([]string(nil), uids...))
-	budget.FromContext(ctx).AddReads(int64(len(uids)))
 	if f.slow > 0 {
 		f.clk.advance(f.slow)
 	}
@@ -634,7 +634,7 @@ func TestRefresh_EstablishedAuthors(t *testing.T) {
 			t.Fatalf("res %+v err %v items %+v puts %d", res, err, h.items(), h.store.puts)
 		}
 	})
-	t.Run("denylisted, hidden and under-minimum tags cost no author reads", func(t *testing.T) {
+	t.Run("denylisted, hidden and under-minimum tags trigger no author reads", func(t *testing.T) {
 		t.Parallel()
 		h := newHarness(t, true, func(c *RefresherConfig) { c.Denylist = []string{"bad"} })
 		h.store.hidden = []string{"hid"}
@@ -644,15 +644,14 @@ func TestRefresh_EstablishedAuthors(t *testing.T) {
 			}
 		}
 		h.scan.posts = append(h.scan.posts, post(50, "x", ago(4*time.Hour), "few"), post(51, "y", ago(4*time.Hour), "few"))
-		res, err := h.run(t)
-		if err != nil || len(h.dir.batches) != 0 || res.FsReads != int64(2+len(h.scan.posts)) {
-			t.Fatalf("batches %d reads %d err %v, want no author reads", len(h.dir.batches), res.FsReads, err)
+		if _, err := h.run(t); err != nil || len(h.dir.batches) != 0 {
+			t.Fatalf("batches %d err %v, want no author reads", len(h.dir.batches), err)
 		}
 	})
 	t.Run("an empty window reads no profiles", func(t *testing.T) {
 		t.Parallel()
 		h := newHarness(t, true, nil)
-		if res, err := h.run(t); err != nil || len(h.dir.batches) != 0 || res.FsReads != 3 { // document, hide list, the empty page
+		if res, err := h.run(t); err != nil || len(h.dir.batches) != 0 {
 			t.Fatalf("res %+v batches %d err %v", res, len(h.dir.batches), err)
 		}
 	})
@@ -694,10 +693,6 @@ func TestRefresh_AuthorCheckCap(t *testing.T) {
 		if len(b) > 50 {
 			t.Fatalf("batch of %d", len(b))
 		}
-	}
-	// The document, the hide list, 600 posts, 500 profiles.
-	if res.FsReads != 2+600+500 {
-		t.Errorf("reads = %d, want 1,102", res.FsReads)
 	}
 	got := h.items()
 	if len(got) != 2 || got[0] != (TrendItem{Tag: "wide", Posts: 400, Authors: 400}) || got[1] != (TrendItem{Tag: "mid", Posts: 100, Authors: 100}) {

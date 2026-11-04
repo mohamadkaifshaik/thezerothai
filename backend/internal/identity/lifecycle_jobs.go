@@ -3,7 +3,7 @@
 // FEATURE_ACCOUNT_LIFECYCLE or DEGRADED_MODE (Q8, Q9): turning the flag off can never strand a DELETING account.
 //
 // A delivery of {account_delete, uid, seq}:
-//  1. reads users/{uid} fresh (the job-state read, 1 read) and applies IAM control C1 (DELETING + deletionRequestedAt);
+//  1. reads users/{uid} fresh (the job-state read) and applies IAM control C1 (DELETING + deletionRequestedAt);
 //  2. dedupes on seq: seq == state.seq works; seq == state.seq-1 re-publishes state.seq (the state was saved but
 //     the continuation may not have been published); anything else is dropped;
 //  3. before 120 s after deletionRequestedAt it only disables the Auth user and answers 429 (gated nack);
@@ -24,7 +24,6 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/pubsubpush"
@@ -114,10 +113,9 @@ func (l *Lifecycle) JobsHandler() http.Handler {
 		}
 		ctx, cancel := context.WithTimeout(ctx, handlerBudget)
 		defer cancel()
-		ctx, counter := budget.WithCounter(ctx)
 		started := l.now()
 		res := l.dispatch(ctx, d)
-		l.logDelivery(ctx, res, d, counter, l.now().Sub(started))
+		l.logDelivery(ctx, res, d, l.now().Sub(started))
 		// No body: nothing about the job or the user is echoed back.
 		w.WriteHeader(res.status)
 	}))
@@ -170,14 +168,12 @@ func (l *Lifecycle) dispatch(ctx context.Context, d pubsubpush.Delivery) jobResu
 	}
 }
 
-// logDelivery writes the one line per delivery: account_job, step, seq, delivery_attempt, fs_reads/fs_writes/
-// fs_deletes, outcome, uid_hash, elapsed_ms, plus step_calls/deleted_docs/deleted_objects (delete) or sections/bytes
+// logDelivery writes the one line per delivery: account_job, step, seq, delivery_attempt, outcome, uid_hash, elapsed_ms, plus step_calls/deleted_docs/deleted_objects (delete) or sections/bytes
 // (export). Never a raw uid, an export id or a URL. A failing delivery is WARN, and ERROR (Error Reporting) from the
 // attempt that would dead-letter it.
-func (l *Lifecycle) logDelivery(ctx context.Context, res jobResult, d pubsubpush.Delivery, c *budget.Counter, elapsed time.Duration) {
+func (l *Lifecycle) logDelivery(ctx context.Context, res jobResult, d pubsubpush.Delivery, elapsed time.Duration) {
 	attrs := append([]any{
 		"account_job", res.job, "step", res.step, "seq", res.seq, "delivery_attempt", d.Attempt,
-		"fs_reads", c.Reads(), "fs_writes", c.Writes(), "fs_deletes", c.Deletes(),
 		"outcome", res.outcome, "uid_hash", logger.HashUID(res.uid), "elapsed_ms", elapsed.Milliseconds(),
 	}, logger.TraceAttrs(ctx)...)
 	switch res.job {
@@ -394,7 +390,7 @@ func (l *Lifecycle) work(ctx context.Context, p Profile, t deletionTarget, job D
 
 // identityStep erases what identity itself owns: the user's exports (objects first, then
 // docs), users/{uid}/private/*, handles/{handleLower} (only when it is theirs) and quotas/{uid}. users/{uid} is a
-// later step. Idempotent; a page that comes back full asks for another call. Reads 2 + max(E, 1), deletes 2 + E.
+// later step. Idempotent; a page that comes back full asks for another call.
 func (l *Lifecycle) identityStep(ctx context.Context, p Profile, st *jobStats) ([]byte, bool, error) {
 	exports, err := l.repo.ListExports(ctx, p.UserID, identityExportsPage)
 	if err != nil {
@@ -439,7 +435,7 @@ func (l *Lifecycle) identityStep(ctx context.Context, p Profile, st *jobStats) (
 		l.log.WarnContext(ctx, "handle_owner_mismatch", append([]any{"uid_hash", logger.HashUID(p.UserID)}, logger.TraceAttrs(ctx)...)...)
 	}
 	// The protected set lists uids, so the entry goes before users/{uid} is deleted (this step runs before
-	// stepUserDoc). Unconditional on isPrivate so a drifted entry cannot outlive the account. At most 1 write.
+	// stepUserDoc). Unconditional on isPrivate so a drifted entry cannot outlive the account.
 	if err := l.repo.RemoveFromProtectedSet(ctx, p.UserID); err != nil {
 		return nil, false, logger.RedactErr(fmt.Errorf("identity: remove from protected set: %w", err), p.UserID)
 	}
@@ -468,8 +464,7 @@ const backstopPublishOp = "jobs/backstop_worker"
 //
 // Both scans are ordered oldest-progress first and filtered by age in the query (L-6), so a page holds only stuck
 // documents and fresh jobs never crowd them out. Each scan walks at most backstopMaxPages pages of backstopPage
-// documents with a cursor. Cost: 1 read per scan when nothing is stuck (2 per run), otherwise 1 per stuck document,
-// at most backstopMaxPages*backstopPage = 200 per scan (400 per run). Republishing does not move the progress
+// documents with a cursor. A scan reads at most backstopMaxPages*backstopPage = 200 documents (400 per run). Republishing does not move the progress
 // timestamp, so a job that stays stuck stays at the head of the next run; more than 200 permanently failing jobs
 // (each one a DLQ and Error Reporting alert) log backstop_page_full.
 func (l *Lifecycle) Backstop(ctx context.Context) (BackstopResult, error) {
@@ -574,12 +569,10 @@ func (l *Lifecycle) CronHandler() http.Handler {
 		}
 		ctx, cancel := context.WithTimeout(logger.WithTrace(r.Context(), logger.TraceFromRequest(r, l.projectID)), 25*time.Second)
 		defer cancel()
-		ctx, counter := budget.WithCounter(ctx)
 		res, err := l.Backstop(ctx)
 		attrs := append([]any{
 			"account_job", "backstop", "deletions_republished", res.DeletionsRepublished,
 			"exports_republished", res.ExportsRepublished, "exports_failed", res.ExportsFailed,
-			"fs_reads", counter.Reads(), "fs_writes", counter.Writes(), "fs_deletes", counter.Deletes(),
 		}, logger.TraceAttrs(ctx)...)
 		if err != nil {
 			attrs = append(attrs, "outcome", "error")

@@ -116,16 +116,15 @@ func TestByAuthorMediaAndKind(t *testing.T) {
 	before := &Position{CreatedAt: time.UnixMilli(5000).UTC(), ID: "0000000000000000005"}
 	after := &Position{CreatedAt: time.UnixMilli(1000).UTC(), ID: "0000000000000000001"}
 
-	t.Run("media passes the author, window and a clamped limit, charges query reads and fills the cache", func(t *testing.T) {
+	t.Run("media passes the author, window and a clamped limit and fills the cache", func(t *testing.T) {
 		t.Parallel()
 		repo := newFakeRepo()
 		repo.queryResult = []*Post{p2, p1}
 		svc, cache := newSvc(repo)
 		w := Window{Before: before, After: after}
-		var got []*Post
-		var err error
-		if r := reads(t, func(ctx context.Context) { got, err = svc.ByAuthorMedia(ctx, "a", w, 500) }); err != nil || len(got) != 2 || r != 2 {
-			t.Fatalf("got=%d err=%v reads=%d, want 2, nil, 2", len(got), err, r)
+		got, err := svc.ByAuthorMedia(context.Background(), "a", w, 500)
+		if err != nil || len(got) != 2 {
+			t.Fatalf("got=%d err=%v, want 2, nil", len(got), err)
 		}
 		if !repo.lastMedia || repo.lastAuthor != "a" || repo.lastLimit != MaxLimit || repo.lastWindow != w {
 			t.Fatalf("repo saw media=%v author=%q limit=%d window=%+v", repo.lastMedia, repo.lastAuthor, repo.lastLimit, repo.lastWindow)
@@ -139,17 +138,16 @@ func TestByAuthorMediaAndKind(t *testing.T) {
 		t.Parallel()
 		repo := newFakeRepo()
 		svc, _ := newSvc(repo)
-		var got []*Post
-		var err error
-		if r := reads(t, func(ctx context.Context) { got, err = svc.ByAuthorKind(ctx, "a", KindRepost, Window{}, 0) }); err != nil || len(got) != 0 || r != 1 {
-			t.Fatalf("got=%d err=%v reads=%d, want 0, nil, 1 (an empty query bills 1)", len(got), err, r)
+		got, err := svc.ByAuthorKind(context.Background(), "a", KindRepost, Window{}, 0)
+		if err != nil || len(got) != 0 {
+			t.Fatalf("got=%d err=%v, want 0, nil", len(got), err)
 		}
 		if repo.lastKind != KindRepost || repo.lastMedia || repo.lastAuthor != "a" || repo.lastLimit != 20 {
 			t.Fatalf("repo saw kind=%q media=%v author=%q limit=%d", repo.lastKind, repo.lastMedia, repo.lastAuthor, repo.lastLimit)
 		}
 	})
 
-	t.Run("bad input is refused before any read", func(t *testing.T) {
+	t.Run("bad input is refused before any query", func(t *testing.T) {
 		t.Parallel()
 		repo := newFakeRepo()
 		svc, _ := newSvc(repo)
@@ -171,9 +169,8 @@ func TestByAuthorMediaAndKind(t *testing.T) {
 			},
 		}
 		for name, call := range calls {
-			var err error
-			if r := reads(t, func(ctx context.Context) { err = call(ctx) }); err == nil || r != 0 {
-				t.Errorf("%s: err=%v reads=%d, want an error and 0 reads", name, err, r)
+			if err := call(context.Background()); err == nil {
+				t.Errorf("%s: want an error", name)
 			}
 		}
 		if repo.queryCalls != 0 {

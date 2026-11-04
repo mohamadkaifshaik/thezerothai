@@ -12,7 +12,6 @@ import (
 	"connectrpc.com/connect"
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // The platform hide (security review M-4) against the emulator: SetHidden is the write, the existing read
@@ -26,15 +25,15 @@ func hideEnv(t *testing.T) *membersEnv {
 	return e
 }
 
-// viewerSvc is a fresh service for any caller: cold doc cache, the real graph repository, the same charging directory.
+// viewerSvc is a fresh service for any caller: cold doc cache, the real graph repository, the same directory.
 func (e *membersEnv) viewerSvc() *service {
 	return New(Deps{
-		Repo: e.repo, Directory: chargingDirectory{profiles: e.profiles}, IDs: e.node, Graph: graphFromRepo{graph.NewFirestoreRepo(e.client)},
+		Repo: e.repo, Directory: profileDirectory{profiles: e.profiles}, IDs: e.node, Graph: graphFromRepo{graph.NewFirestoreRepo(e.client)},
 		CursorKey: readKey, Limits: Limits{MaxPerUser: 20, CacheEntries: 100, MaxMembers: 150, AddsPerDay: 300, NewAccountAddsPerDay: 50},
 	}).(*service)
 }
 
-func TestHideLever_Integration_SetHiddenCostAndShape(t *testing.T) {
+func TestHideLever_Integration_SetHiddenShape(t *testing.T) {
 	e := hideEnv(t)
 	ctx := context.Background()
 	v, err := e.svc.CreateList(ctx, "owner", CreateInput{Key: key(1), Name: "Cricket", Description: "ODI", IsPrivate: new(false)})
@@ -48,18 +47,16 @@ func TestHideLever_Integration_SetHiddenCostAndShape(t *testing.T) {
 	before, _ := e.doc(t, id)
 	at := time.Now().UTC().Truncate(time.Millisecond).Add(time.Hour)
 
-	hide := func(hidden bool) (bool, *budget.Counter) {
-		cctx, c := budget.WithCounter(ctx)
-		changed, err := e.repo.SetHidden(cctx, id, hidden, at)
+	hide := func(hidden bool) bool {
+		changed, err := e.repo.SetHidden(ctx, id, hidden, at)
 		if err != nil {
 			t.Fatalf("SetHidden(%v): %v", hidden, err)
 		}
-		return changed, c
+		return changed
 	}
 
-	changed, c := hide(true)
-	if !changed {
-		t.Fatalf("hide: changed=%v reads=%d writes=%d, want true 1 1", changed, c.Reads(), c.Writes())
+	if !hide(true) {
+		t.Fatal("hide: changed=false, want true")
 	}
 	after, _ := e.doc(t, id)
 	if after["hidden"] != true || !after["updatedAt"].(time.Time).Equal(at) {
@@ -72,27 +69,35 @@ func TestHideLever_Integration_SetHiddenCostAndShape(t *testing.T) {
 		}
 	}
 
-	if changed, c = hide(true); changed {
-		t.Fatalf("hide again: changed=%v reads=%d writes=%d, want false 1 0", changed, c.Reads(), c.Writes())
+	// A repeat changes nothing and writes nothing: the document is exactly as it was, even with a later timestamp.
+	at = at.Add(time.Hour)
+	if hide(true) {
+		t.Fatal("hide again: changed=true, want false")
+	}
+	if again, _ := e.doc(t, id); !reflect.DeepEqual(again, after) {
+		t.Errorf("a repeated hide rewrote the document: %#v -> %#v", after, again)
 	}
 
-	if changed, c = hide(false); !changed {
-		t.Fatalf("restore: changed=%v reads=%d writes=%d, want true 1 1", changed, c.Reads(), c.Writes())
+	if !hide(false) {
+		t.Fatal("restore: changed=false, want true")
 	}
 	restored, _ := e.doc(t, id)
 	if _, present := restored["hidden"]; present {
 		t.Errorf("restore left hidden=%v in the document; storage keeps absent = false", restored["hidden"])
 	}
-	if changed, c = hide(false); changed {
-		t.Fatalf("restore again: changed=%v reads=%d writes=%d, want false 1 0", changed, c.Reads(), c.Writes())
+	at = at.Add(time.Hour)
+	if hide(false) {
+		t.Fatal("restore again: changed=true, want false")
+	}
+	if again, _ := e.doc(t, id); !reflect.DeepEqual(again, restored) {
+		t.Errorf("a repeated restore rewrote the document: %#v -> %#v", restored, again)
 	}
 }
 
 // A missing list is refused and, being a field-level Update inside a read, is never created.
 func TestHideLever_Integration_MissingListIsRefused(t *testing.T) {
 	e := hideEnv(t)
-	ctx, _ := budget.WithCounter(context.Background())
-	changed, err := e.repo.SetHidden(ctx, "0000000000000009999", true, time.Now())
+	changed, err := e.repo.SetHidden(context.Background(), "0000000000000009999", true, time.Now())
 	if !errors.Is(err, ErrNotFound) || changed {
 		t.Fatalf("changed=%v err=%v, want ErrNotFound", changed, err)
 	}
@@ -214,20 +219,16 @@ func TestHideLever_Integration_OwnerWritesKeepItHidden(t *testing.T) {
 	}
 }
 
-// A report of a visible list returns the evidence; the owner's own list is ErrOwnList; reads: list 1, caller graph 1, owner
-// profile 1, owner graph 1 on a cold instance.
-func TestHideLever_Integration_ReportableListBudget(t *testing.T) {
+// A report of a visible list returns the evidence on a cold instance; the owner's own list is ErrOwnList.
+func TestHideLever_Integration_ReportableList(t *testing.T) {
 	e := hideEnv(t)
 	ctx := context.Background()
 	v, err := e.svc.CreateList(ctx, "owner", CreateInput{Key: key(1), Name: "Cricket", Description: "ODI", IsPrivate: new(false)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A directory that charges the owner's profile too (chargingDirectory treats the owner as the free caller): free is the viewer.
 	cold := e.viewerSvc()
-	cold.d.Directory = readDirectory{profiles: e.profiles, free: "viewer"}
-	cctx, _ := budget.WithCounter(ctx)
-	got, err := cold.ReportableList(cctx, "viewer", v.Header.ID)
+	got, err := cold.ReportableList(ctx, "viewer", v.Header.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -13,13 +13,12 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 // Against the Firestore emulator: an ACCOUNT report keeps the profile the reporter saw as
-// evidence, at no extra read and the same two writes, and PROFILE_CLEARED is a storable resolution.
+// evidence, and PROFILE_CLEARED is a storable resolution.
 
 func accountEvidence(website string) *Evidence {
 	return &Evidence{AuthorHandle: "Mallory", DisplayName: "Mal", Bio: "click here", Location: "Pune", Website: website,
@@ -33,7 +32,7 @@ func TestRepo_AccountEvidenceRoundTripAndPostReportsKeepTheirShape(t *testing.T)
 
 	acct := sampleReport("u-rep", TargetAccount, "u-mal", "u-mal", t0)
 	acct.Evidence = accountEvidence("https://phish.example/login")
-	ctx, _ := counted()
+	ctx := context.Background()
 	if _, err := repo.Create(ctx, CreateParams{Report: acct, QuotaLimit: 5}); err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +91,7 @@ func TestRepo_AccountEvidenceRoundTripAndPostReportsKeepTheirShape(t *testing.T)
 
 // TestReportContent_AccountEvidenceIsThePresentedProfile drives ReportContent over the real identity service: the
 // evidence is the profile the reporter saw, so while profile_extras is globally off it has no website, and a report
-// costs the same reads with or without evidence.
+// is stored the same way with or without evidence.
 func TestReportContent_AccountEvidenceIsThePresentedProfile(t *testing.T) {
 	for _, tt := range []struct {
 		name        string
@@ -134,13 +133,12 @@ func TestReportContent_AccountEvidenceIsThePresentedProfile(t *testing.T) {
 
 			claims := authn.WithClaims(context.Background(), authn.Claims{UID: "uid-alice", SignInProvider: authn.SignInProviderGoogle})
 			in := ReportInput{IdempotencyKey: "0123456789abcdef", TargetType: TargetAccount, TargetID: "uid-mal", Reason: ReasonOther}
-			ctx, _ := budget.WithCounter(claims)
+			ctx := claims
 			res, err := newSvc().Report(ctx, "uid-alice", in)
 			if err != nil || res.AlreadyReported {
 				t.Fatalf("report: res=%+v err=%v", res, err)
 			}
-			// Documented ReportContent ACCOUNT cost: reporter users 1, target users 1, report doc 1, quotas 1 (+ graph).
-			// The evidence adds no read: it is copied from the profile already loaded.
+			// The evidence is copied from the profile already loaded.
 			stored, err := NewFirestoreRepo(client, nil).Get(context.Background(), res.ReportID)
 			if err != nil || stored.Evidence == nil {
 				t.Fatalf("stored = %+v err=%v", stored, err)

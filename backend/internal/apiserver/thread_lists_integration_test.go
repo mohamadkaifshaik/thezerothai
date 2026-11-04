@@ -3,15 +3,14 @@
 package apiserver
 
 // Protected accounts in threads and lists through the real Build chain on the emulators, FEATURE_PRIVATE_ACCOUNTS on, the real
-// protected-set loader and the real UpdateProfile(is_private) toggle. Every reader below is a cold instance, so the
-// budgets are cold and the interceptor read is included:
+// protected-set loader and the real UpdateProfile(is_private) toggle. Every reader below is a cold instance:
 //   - GetThread: a protected focal is byte-identical to a deleted focal; a protected parent or root is a tombstone
 //     (parent_unavailable / root_unavailable) and the focal reply's text stays; replies by the protected author are
-//     dropped for a stranger and kept for a follower; the reads stay inside GetThread's 38 cold ceiling;
+//     dropped for a stranger and kept for a follower;
 //   - ListBookmarks and ListLikedPosts (owner-only): rows by the protected author stay for an unapproved caller as
 //     stripped withheld placeholders; a REPOST of the author's post is dropped; a QUOTE of it is kept with the
 //     stripped PROTECTED embed, nothing is pruned, the placeholders are counted under rows_withheld (rows_dropped_protected
-//     is 0), and the cold budgets stay 43 and 23 at page 20;
+//     is 0);
 //   - a follower keeps the rows (wire visibility FOLLOWERS); unfollowing turns them into placeholders and the author unprotecting brings them back (a Follow of a
 //     protected account is a follow request, so "follow again" is covered by the engagement unit table).
 
@@ -119,7 +118,7 @@ func TestW329b_ThreadAndOwnerListsThroughTheChain(t *testing.T) {
 		}
 	})
 
-	t.Run("GetThread: tombstones, dropped replies, cold budget", func(t *testing.T) {
+	t.Run("GetThread: tombstones, dropped replies, cold", func(t *testing.T) {
 		r := newW320Chain(t, w329bOn)
 		got, err := r.w329bThread(stranger, xDeep)
 		if err != nil {
@@ -213,7 +212,7 @@ func TestW329b_ThreadAndOwnerListsThroughTheChain(t *testing.T) {
 		}
 	})
 
-	t.Run("lists: cold budgets are unchanged", func(t *testing.T) {
+	t.Run("lists: cold", func(t *testing.T) {
 		r := newW320Chain(t, w329bOn)
 		marks(r, stranger)
 		r = newW320Chain(t, w329bOn)

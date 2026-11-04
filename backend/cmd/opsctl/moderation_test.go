@@ -413,7 +413,7 @@ func TestSuspendUnsuspend(t *testing.T) {
 		t.Parallel()
 		f := newModFixture()
 		code, out, _ := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2", "--dry-run")
-		if code != 0 || !strings.Contains(out, "nothing written") || !strings.Contains(out, "reads~9 writes~15") || len(f.acc.calls) != 0 || f.mod.hideCalls != 0 {
+		if code != 0 || !strings.Contains(out, "nothing written") || !strings.Contains(out, "hide up to 7 post(s)") || len(f.acc.calls) != 0 || f.mod.hideCalls != 0 {
 			t.Fatalf("code=%d out=%q acc=%v hide=%d", code, out, f.acc.calls, f.mod.hideCalls)
 		}
 	})
@@ -595,7 +595,7 @@ func TestSuspendUser_CleansUpCopiesOfTheHiddenPosts(t *testing.T) {
 			t.Errorf("order=%v, want the copy cleanup after the settle wait", f.order)
 		}
 	})
-	t.Run("an author whose posts have no copies costs only the listing", func(t *testing.T) {
+	t.Run("an author whose posts have no copies has no copy cleanup to run", func(t *testing.T) {
 		t.Parallel()
 		f := newModFixture()
 		code, out, _ := f.run("", "suspend-user", "--project", "dzeroth-dev", "--uid", "u2")

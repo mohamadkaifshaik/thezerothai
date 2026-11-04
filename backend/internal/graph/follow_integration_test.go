@@ -2,7 +2,7 @@
 
 // follow_integration_test.go exercises Follow/Unfollow against the Firestore emulator, wiring
 // identity+graph together the same way apiserver.Build does (will build a fuller invariant-checker
-// suite; this focuses on the own acceptance criteria and budget assertions).
+// suite; this focuses on the own acceptance criteria).
 package graph_test
 
 import (
@@ -15,15 +15,14 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-func TestFollow_Integration_HappyPath_Budget(t *testing.T) {
+func TestFollow_Integration_HappyPath(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
 	mustCreateProfile(t, w.identity, "uid-b", "userb")
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	rel, err := w.graph.Follow(ctx, "uid-a", "0123456789abcdef", "uid-b")
 	if err != nil {
 		t.Fatalf("Follow() error = %v", err)
@@ -57,7 +56,7 @@ func TestFollow_Integration_Replay(t *testing.T) {
 		t.Fatalf("Follow() #1 error = %v", err)
 	}
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	rel, err := w.graph.Follow(ctx, "uid-a", "fedcba9876543210", "uid-b")
 	if err != nil {
 		t.Fatalf("Follow() #2 (replay) error = %v", err)
@@ -160,7 +159,7 @@ func TestFollow_Integration_CallerBlocksTarget_TargetBlocked(t *testing.T) {
 
 // TestIsBlockedBy_Integration_OverflowFallback: a caller with BlockedByOverflow=true still
 // gets NOT_FOUND on Follow when the target's own .blocked array (not the caller's incomplete blockedBy)
-// contains the caller — the fail-closed path, +1 read.
+// contains the caller — the fail-closed path.
 func TestFollow_Integration_BlockedByOverflowFallback(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
@@ -168,7 +167,7 @@ func TestFollow_Integration_BlockedByOverflowFallback(t *testing.T) {
 	seedGraphArrays(t, w.client, "uid-a", map[string]interface{}{"blockedByOverflow": true})
 	seedGraphArrays(t, w.client, "uid-b", map[string]interface{}{"blocked": []string{"uid-a"}})
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	_, err := w.graph.Follow(ctx, "uid-a", "fedcba9876543210", "uid-b")
 	var ae *apierr.Error
 	if !errors.As(err, &ae) {
@@ -177,7 +176,6 @@ func TestFollow_Integration_BlockedByOverflowFallback(t *testing.T) {
 	if ae.Code.String() != "not_found" {
 		t.Errorf("Code = %v, want NotFound", ae.Code)
 	}
-	// Worst-case budget (proto): reads 4/2 (+1 if the caller's blockedBy overflowed) => 5 here.
 }
 
 func TestUnfollow_Integration_HappyPathAndNoop(t *testing.T) {
@@ -188,7 +186,7 @@ func TestUnfollow_Integration_HappyPathAndNoop(t *testing.T) {
 		t.Fatalf("Follow: %v", err)
 	}
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	if _, err := w.graph.Unfollow(ctx, "uid-a", "fedcba9876543210", "uid-b"); err != nil {
 		t.Fatalf("Unfollow() error = %v", err)
 	}
@@ -201,10 +199,13 @@ func TestUnfollow_Integration_HappyPathAndNoop(t *testing.T) {
 		t.Errorf("FollowingCount = %d, want 0", me.Profile.FollowingCount)
 	}
 
-	// Second Unfollow: not following any more -> 0 writes.
-	ctx2, _ := budget.WithCounter(context.Background())
+	// Second Unfollow: not following any more -> nothing changes.
+	ctx2 := context.Background()
 	if _, err := w.graph.Unfollow(ctx2, "uid-a", "0123456789fedcba", "uid-b"); err != nil {
 		t.Fatalf("Unfollow() #2 error = %v", err)
+	}
+	if me2, err := w.identity.GetMe(context.Background(), "uid-a"); err != nil || me2.Profile.FollowingCount != 0 {
+		t.Errorf("after the second Unfollow: followingCount = %d, err %v, want 0", me2.Profile.FollowingCount, err)
 	}
 }
 

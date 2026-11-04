@@ -11,13 +11,11 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	searchv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// fakeTrendsStore is an in-memory TrendsStore that counts like the Firestore one: Get bills 1 read (a missing document
-// too), Load 2 (and counts as a get), Hidden 1, Put 1 write; Hide and Unhide follow the real rules (1 read, 1 write only when
-// the list changes, refused at 100 keys).
+// fakeTrendsStore is an in-memory TrendsStore that tallies its calls: Get and Load count as gets, Hidden as hiddenGets,
+// Put as puts; Hide and Unhide follow the real rules (a write only when the list changes, refused at 100 keys).
 type fakeTrendsStore struct {
 	mu     sync.Mutex
 	doc    *TrendsDoc
@@ -33,11 +31,10 @@ type fakeTrendsStore struct {
 	hideWrites int
 }
 
-func (f *fakeTrendsStore) Get(ctx context.Context) (*TrendsDoc, error) {
+func (f *fakeTrendsStore) Get(context.Context) (*TrendsDoc, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.gets++
-	budget.FromContext(ctx).AddReads(1)
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -48,14 +45,13 @@ func (f *fakeTrendsStore) Get(ctx context.Context) (*TrendsDoc, error) {
 	return &d, nil
 }
 
-func (f *fakeTrendsStore) Put(ctx context.Context, d *TrendsDoc) error {
+func (f *fakeTrendsStore) Put(_ context.Context, d *TrendsDoc) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.putErr != nil {
 		return f.putErr
 	}
 	f.puts++
-	budget.FromContext(ctx).AddWrites(1)
 	cp := *d
 	f.doc = &cp
 	return nil
@@ -218,31 +214,32 @@ func repeat(s string, n int) string {
 	return out
 }
 
-// TestTrends_CacheTTLAndBudget: cold = the load (2 reads: trends/current and trends/hidden, plus the interceptor's 1 outside this layer = 3), warm = 0,
-// and the copy expires after exactly 10 minutes by the injected clock.
-func TestTrends_CacheTTLAndBudget(t *testing.T) {
+// TestTrends_CacheTTL: the cold call loads the store once, warm calls do not load it, and the copy expires after
+// exactly 10 minutes by the injected clock.
+func TestTrends_CacheTTL(t *testing.T) {
 	t.Parallel()
 	clk := &fakeClock{t: trendsT0}
 	store := &fakeTrendsStore{doc: sampleDoc()}
 	svc := trendsSvc(t, store, clk)
-	call := func() int64 {
-		ctx, c := budget.WithCounter(context.Background())
-		if _, err := svc.Trends(ctx, "u1", 0, ""); err != nil {
+	call := func() {
+		if _, err := svc.Trends(context.Background(), "u1", 0, ""); err != nil {
 			t.Fatal(err)
 		}
-		return c.Reads()
 	}
-	if r := call(); r != 2 {
-		t.Fatalf("cold reads = %d, want 2 (trends/current and trends/hidden; the interceptor's read is counted outside the service)", r)
+	call()
+	if store.gets != 1 {
+		t.Fatalf("cold call loaded the store %d times, want 1", store.gets)
 	}
 	for range 3 {
-		if r := call(); r != 0 {
-			t.Fatalf("warm reads = %d, want 0", r)
+		call()
+		if store.gets != 1 {
+			t.Fatalf("warm call loaded the store again: %d loads, want 1", store.gets)
 		}
 	}
 	clk.advance(trendsCacheTTL - time.Second)
-	if r := call(); r != 0 {
-		t.Fatalf("just inside the TTL: reads = %d, want 0", r)
+	call()
+	if store.gets != 1 {
+		t.Fatalf("just inside the TTL: %d loads, want 1", store.gets)
 	}
 	// A refresh lands; the instance still serves the old list until the TTL runs out.
 	store.doc = &TrendsDoc{ComputedAt: trendsT0, Items: []TrendItem{{Tag: "new", Posts: 3, Authors: 3}}}
@@ -251,8 +248,9 @@ func TestTrends_CacheTTLAndBudget(t *testing.T) {
 		t.Fatalf("inside the TTL the old list must be served, got %v", tags(got))
 	}
 	clk.advance(time.Second)
-	if r := call(); r != 2 {
-		t.Fatalf("after the TTL: reads = %d, want 2", r)
+	call()
+	if store.gets != 2 {
+		t.Fatalf("after the TTL: %d loads, want 2", store.gets)
 	}
 	got, _ = svc.Trends(context.Background(), "u1", 0, "")
 	if tags(got)[0] != "new" {
@@ -302,7 +300,7 @@ func TestTrends_FlagOffReadsNothing(t *testing.T) {
 	_, err := svc.Trends(context.Background(), "u1", 0, "")
 	ae := apiErr(t, err)
 	if ae.Reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED || ae.Metadata["feature"] != FlagTrends || store.gets != 0 {
-		t.Fatalf("err %+v gets %d, want FEATURE_DISABLED trends and 0 reads", ae, store.gets)
+		t.Fatalf("err %+v gets %d, want FEATURE_DISABLED trends and no store load", ae, store.gets)
 	}
 }
 

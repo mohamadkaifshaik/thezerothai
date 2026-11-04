@@ -8,9 +8,6 @@
 //	Q-R  ByAuthor,  authorId == X (Replies tab)                 -> (authorId ASC, createdAt DESC)
 //	Q-M ListAuthorMedia, authorId == X AND hasMedia == true -> (authorId ASC, hasMedia ASC, createdAt DESC) []
 //	Q-B ListAuthorReposts, authorId == X AND kind == "REPOST" -> (authorId ASC, kind ASC, createdAt DESC) []
-//
-// Reads are charged to the request's budget.Counter: one per document returned, and 1 for a query that
-// returns nothing (Firestore bills an empty query as one read).
 package posts
 
 import (
@@ -21,7 +18,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -31,36 +27,35 @@ const postsCollection = "posts"
 // in-memory fake. Argument limits (ids <= MaxGetMany, authors <= MaxByAuthors, limit 1..MaxLimit) are
 // enforced by the service before the repo is called.
 type Repo interface {
-	// GetAll fetches posts/{id} for every id in one GetAll. Missing ids are absent from the result. Reads: len(ids).
+	// GetAll fetches posts/{id} for every id in one GetAll. Missing ids are absent from the result.
 	GetAll(ctx context.Context, ids []string) (map[string]*Post, error)
-	// ByAuthors is Q-H. Reads: len(result), minimum 1.
+	// ByAuthors is Q-H.
 	ByAuthors(ctx context.Context, authorIDs []string, w Window, limit int) ([]*Post, error)
-	// ByAuthor is Q-P (includeReplies=false) or Q-R (true). Reads: len(result), minimum 1.
+	// ByAuthor is Q-P (includeReplies=false) or Q-R (true).
 	ByAuthor(ctx context.Context, authorID string, includeReplies bool, w Window, limit int) ([]*Post, error)
-	// ByAuthorMedia is Q-M and ByAuthorKind is Q-B (kind is KindRepost for the Reposts tab). Reads: len(result), minimum 1.
+	// ByAuthorMedia is Q-M and ByAuthorKind is Q-B (kind is KindRepost for the Reposts tab).
 	// They need the composite indexes READY (the emulator does not enforce indexes).
 	ByAuthorMedia(ctx context.Context, authorID string, w Window, limit int) ([]*Post, error)
 	ByAuthorKind(ctx context.Context, authorID string, kind Kind, w Window, limit int) ([]*Post, error)
 	// ByHashtag is Q-T (existing composite index) and CreatedAfter is Q-W (projected, ascending, automatic indexes).
-	// Reads: len(result), minimum 1.
 	ByHashtag(ctx context.Context, tag string, w Window, limit int) ([]*Post, error)
 	// ByCommunity is the community feed query (repo_community.go): its own `communityId == C ORDER BY __name__ DESC` shape, never run().
 	ByCommunity(ctx context.Context, cid string, w Window, limit int) ([]*Post, error)
 	CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error)
-	// Create runs the CreatePost transaction (repo_create.go). Reads 2 (idempotency, quotas) and 4 writes on a
-	// first call, 1 read and 0 writes on a replay. It returns ErrIdempotencyKeyReused for a key used with
+	// Create runs the CreatePost transaction (repo_create.go). A replay writes
+	// nothing. It returns ErrIdempotencyKeyReused for a key used with
 	// another request, and the quota package's RESOURCE_EXHAUSTED apierr when the daily quota is spent.
-	// A community post (p.Community) adds 1 read, the member doc read fresh in the transaction, and 0 writes.
+	// A community post (p.Community) also reads the member doc fresh in the transaction and writes nothing extra.
 	Create(ctx context.Context, p CreateParams) (CreateResult, error)
 	// DeleteOwn deletes posts/{id} and decrements the author's postsCount in one batch, with an Exists
-	// precondition on the post. deleted=false (and 0 writes) when the post is already gone (a concurrent delete
-	// won). Reads 0; writes 1 + deletes 1 only when deleted.
+	// precondition on the post. deleted=false (and nothing is written) when the post is already gone (a concurrent
+	// delete won). The batch writes the counter and deletes the post only when deleted.
 	//
 	// stage functions append further writes to the same batch (DeletePost of a REPOST adds the blind delete of
 	// its reposts doc through RepostLinks); they must not add a guarded write of their own.
 	DeleteOwn(ctx context.Context, id, authorID string, stage ...func(store.Batch)) (deleted bool, err error)
 	// Conversation is Q-T (repo_thread.go): the posts of one conversation, oldest first, strictly after `after`
-	// (nil = from the start), at most limit. Reads: len(result), minimum 1.
+	// (nil = from the start), at most limit.
 	Conversation(ctx context.Context, conversationID string, after *Position, limit int) ([]*Post, error)
 	// AddReplyCount applies FieldValue.Increment(delta) to a parent's replyCount. A parent that is gone is not an
 	// error. Used by DeletePost for a reply (the create path does it inside the CreatePost transaction).
@@ -131,7 +126,7 @@ type postDoc struct {
 	// backfill. Replies store the value inherited from the parent, never a user id. Exempt from indexing.
 	ReplyPolicy string `firestore:"replyPolicy,omitempty"`
 	// HasMedia is: len(media) > 0, false for a REPOST. NOT omitempty: the field is stored as an explicit false
-	// too, so a doc that lacks it is exactly a pre-W3 doc the backfill still has to visit (rerun writes 0) and the
+	// too, so a doc that lacks it is exactly a pre-W3 doc the backfill still has to visit (a rerun writes nothing) and the
 	// (authorId, hasMedia, createdAt) index holds every post. Indexed.
 	HasMedia bool `firestore:"hasMedia"`
 	// Poll is: root posts with a poll only; absent otherwise, no backfill. The whole map is index-exempt (fieldOverride
@@ -359,7 +354,7 @@ func (r *FirestoreRepo) ref(id string) *firestore.DocumentRef {
 	return r.client.Collection(postsCollection).Doc(id)
 }
 
-// GetAll implements Repo. A missing doc is billed as a read too, so reads = len(ids).
+// GetAll implements Repo.
 func (r *FirestoreRepo) GetAll(ctx context.Context, ids []string) (map[string]*Post, error) {
 	if len(ids) == 0 {
 		return map[string]*Post{}, nil
@@ -369,7 +364,6 @@ func (r *FirestoreRepo) GetAll(ctx context.Context, ids []string) (map[string]*P
 		refs[i] = r.ref(id)
 	}
 	snaps, err := r.client.GetAll(ctx, refs)
-	budget.FromContext(ctx).AddReads(int64(len(ids)))
 	if err != nil {
 		return nil, fmt.Errorf("posts: get %d posts: %w", len(ids), err)
 	}
@@ -415,7 +409,6 @@ func (r *FirestoreRepo) run(ctx context.Context, q firestore.Query, w Window, li
 		q = q.EndBefore(w.After.CreatedAt, r.ref(w.After.ID))
 	}
 	docs, err := q.Limit(limit).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return nil, fmt.Errorf("posts: query: %w", err)
 	}
@@ -458,12 +451,12 @@ func (r *FirestoreRepo) ByHashtag(ctx context.Context, tag string, w Window, lim
 	return r.run(ctx, q, w, limit)
 }
 
-// createdAfterFields is the projection of CreatedAfter. A projected read still bills 1 read per doc.
+// createdAfterFields is the projection of CreatedAfter.
 var createdAfterFields = []string{"hashtags", "authorId", "moderation", "createdAt", "kind"}
 
 // CreatedAfter implements Repo (Q-W): `createdAt > after ORDER BY createdAt ASC, __name__ ASC` with the projection
 // above, on the automatic single-field indexes (no composite). With an empty after.ID the bound is createdAt only;
-// otherwise it resumes strictly after the (createdAt, id) pair. Reads: len(result), minimum 1.
+// otherwise it resumes strictly after the (createdAt, id) pair.
 func (r *FirestoreRepo) CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error) {
 	q := r.client.Collection(postsCollection).Select(createdAfterFields...).
 		OrderBy("createdAt", firestore.Asc).OrderBy(firestore.DocumentID, firestore.Asc)
@@ -473,7 +466,6 @@ func (r *FirestoreRepo) CreatedAfter(ctx context.Context, after Position, limit 
 		q = q.StartAfter(after.CreatedAt, r.ref(after.ID))
 	}
 	docs, err := q.Limit(limit).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return nil, fmt.Errorf("posts: query: %w", err)
 	}

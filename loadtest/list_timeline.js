@@ -1,6 +1,6 @@
 // list_timeline: W5 Part A emulator load smoke.
 // One file, one timeline, ONE local API process ("one instance") and the Firebase emulators. Never point it at dzeroth-dev or
-// dzeroth-prod: it mints about 300 users and raises every list, post, graph and read-budget cap.
+// dzeroth-prod: it mints about 300 users and raises every list, post, graph and rate-limit cap.
 //
 //   setup()       Mints 3 owners (O1..O3), AUTHORS (default 250) authors with one post each, VIEWERS (default 12) named viewers and
 //                 HERD_VIEWERS (default 20) herd viewers. Lists (all public): LA = 50 members (authors 0-49, owner O1), LB = 150
@@ -16,12 +16,12 @@
 //                 iteration is one open (page 20) of LA or LB by a herd viewer followed by one refresh with the since_token. This
 //                 is the warm-path p95 (tags: rpc=list_open_warm, list_refresh_warm).
 //
-// Reads are NOT a k6 metric: they come from the API request log (`fs_reads`, `fs_writes`, `fs_deletes`, `timeline_op`, `timeline_mode`,
+// Server time and behaviour are NOT k6 metrics: they come from the API request log (`timeline_op`, `timeline_mode`,
 // `list_members`, `timeline_chunks`, `authors_from_cache`, `cache_hit`), see loadtest/analyze_list_timeline.js. k6 prints
 // `W5 PHASE <name> <iso>` and `W5 STEP <name> <iso>` lines that the analyzer uses to cut the log. Latency is emulator latency, indicative only.
 //
 // API requirements (a local API against the emulators): ENV=local FEATURE_LISTS=on FEATURE_POSTS=on FEATURE_GRAPH=on
-// FEATURE_ENGAGEMENT=on (the budget counts the userLikes read; FEATURE_REMOVED_IDS=on adds the removal-log window query to a refresh with an old token), and these raised (per instance / per user; every virtual user shares
+// FEATURE_ENGAGEMENT=on (FEATURE_REMOVED_IDS=on adds the removal-log window query to a refresh with an old token), and these raised (per instance / per user; every virtual user shares
 // 127.0.0.1): RATE_LIMIT_PER_IP_PER_MIN, RATE_LIMIT_PRE_AUTH_IP_PER_MIN, RATE_LIMIT_PER_USER_PER_MIN, RATE_LIMIT_LISTS_WRITE_PER_MIN,
 // RATE_LIMIT_LISTS_READ_PER_MIN, RATE_LIMIT_LIST_TIMELINE_PER_MIN, RATE_LIMIT_TIMELINE_PER_MIN, RATE_LIMIT_GRAPH_FOLLOW_PER_MIN,
 // LIST_MUTATIONS_PER_DAY, QUOTA_NEW_ACCOUNT_LIST_ADDS_PER_DAY, QUOTA_LIST_ADDS_PER_DAY, QUOTA_NEW_ACCOUNT_LIST_CREATES_PER_DAY,

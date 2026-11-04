@@ -2,15 +2,15 @@
 //
 // One transaction, bounded by createTxTimeout (5 s):
 //
-//	reads : idempotency/{hash} (1), then, only on a first attempt, quotas/{uid} (1)
-//	        a community post: + communityMembers/{uid} (1, fresh, after the replay check; the community doc is read before the
-//	        transaction through the 60 s cache); posts and communityPosts share the one quota Set, so +0 writes
-//	        media/* (only with images: + len(media_ids) GetAll reads)
-//	writes: Create idempotency doc, Create posts/{id}, Update users.postsCount (+1), Set quotas/{uid}  (4)
+//	reads : idempotency/{hash}, then, only on a first attempt, quotas/{uid}
+//	        a community post: + communityMembers/{uid} (fresh, after the replay check; the community doc is read before the
+//	        transaction through the 60 s cache); posts and communityPosts share the one quota Set
+//	        media/* (only with images: one GetAll over media_ids)
+//	writes: Create idempotency doc, Create posts/{id}, Update users.postsCount (+1), Set quotas/{uid}
 //	        (+ one media/{id}.postId update per image, <= 4)
 //
-// A poll is built here per attempt from the validated draft (closesAt = this attempt's createdAt + the duration): +0 reads,
-// +0 writes.
+// A poll is built here per attempt from the validated draft (closesAt = this attempt's createdAt + the duration); it
+// needs no extra read or write.
 //
 // A replay reads only the idempotency doc and writes nothing. The post id (and so createdAt, the Snowflake's
 // millisecond) is drawn inside every attempt, so a retried attempt never commits a stale timestamp, which the
@@ -28,7 +28,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
@@ -76,10 +75,10 @@ type CreateParams struct {
 	// gone). A request carries a ParentID or a QuoteID, never both.
 	QuoteID string
 	// Poll is the validated poll of a root post, nil for none. The transaction builds the stored Poll from it inside
-	// every attempt: closesAt = that attempt's Snowflake createdAt + the duration, counts all 0. +0 reads, +0 writes.
+	// every attempt: closesAt = that attempt's Snowflake createdAt + the duration, counts all 0.
 	Poll *PollDraft
 	// Community, when set, runs the gate inside the transaction (member doc fresh, communityPosts reserved in the same quota
-	// Set, the per-community daily cap): +1 read, +0 writes. Nil for every other post.
+	// Set, the per-community daily cap). Nil for every other post.
 	Community *CommunityPost
 }
 
@@ -89,7 +88,7 @@ type CommunityPost struct {
 	Gate       CommunityGate
 	QuotaLimit int64
 	// capDrawn makes the per-community cap draw happen once per CreatePost call, not once per transaction attempt (the SDK re-runs the
-	// function on contention), so a retry is not charged twice. A refusal before the draw and a replay never reach it.
+	// function on contention), so a retry does not draw twice. A refusal before the draw and a replay never reach it.
 	capDrawn bool
 }
 
@@ -242,9 +241,9 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 		}
 	}
 
-	b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+	b := store.NewFirestoreTxBatch(tx)
 	if p.Community != nil {
-		// One whole-record Set for both kinds: +0 writes (CheckAndReserve twice would lose the first increment).
+		// One whole-record Set for both kinds: no extra write (CheckAndReserve twice would lose the first increment).
 		if err := quota.CheckAndReserveBoth(b, r.w.Quotas.Ref(p.AuthorID), qrec, quota.Posts, p.QuotaLimit, quota.CommunityPosts, p.Community.QuotaLimit); err != nil {
 			return CreateResult{}, err
 		}

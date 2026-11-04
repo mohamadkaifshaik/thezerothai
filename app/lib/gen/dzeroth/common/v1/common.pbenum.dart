@@ -148,7 +148,8 @@ class ErrorReason extends $pb.ProtobufEnum {
   /// in expected_choice. A vote is changeable until the poll closes,
   /// so this is now only a stale or missing expected_choice (an older client, a second device, a late retry).
   /// metadata["choice"] is the caller's own stored choice as a 0-based index (decimal). Call VotePoll once more with
-  /// that choice (or, with a current expected_choice, to change it): a vote with the same choice is not an error, it returns the current state with results (0 writes).
+  /// that choice (or, with a current expected_choice, to change it): a vote with the same choice is not an error, it returns the current state with results
+  /// and writes nothing.
   static const ErrorReason ERROR_REASON_ALREADY_VOTED =
       ErrorReason._(20, _omitEnumNames ? '' : 'ERROR_REASON_ALREADY_VOTED');
 

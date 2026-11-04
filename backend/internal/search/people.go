@@ -30,7 +30,7 @@ const (
 )
 
 // HandleDirectory is the one identity seam people search needs (identity.Directory satisfies it): the handle-prefix
-// reader, at most 20 reads, raw profiles including status.
+// reader, at most 20 profiles, raw profiles including status.
 type HandleDirectory interface {
 	SearchHandles(ctx context.Context, prefix string, limit int) ([]identity.Profile, error)
 }
@@ -86,21 +86,16 @@ func peopleLimit(limit int32) (int, error) {
 // dropped counts the rows removed from one answer, by cause (logged as dropped_*, never the handles).
 type dropped struct{ status, blockedBy, overflow int }
 
-// People is SearchPeople. Flag: search, checked before anything else (0 reads when off).
+// People is SearchPeople. Flag: search, checked before anything else (nothing else runs when off).
 //
-// Rules: the query is validated and classified with 0 reads (a bad or 1-character query is VALIDATION
+// Rules: the query is validated and classified before any read (a bad or 1-character query is VALIDATION
 // `query`; a `#` sigil or a rest that is not a 2 to 15 character handle prefix answers empty with unsupported_query =
 // true); the raw profiles come from the shared 60 s prefix cache or one identity.Directory.SearchHandles; each row is
 // then filtered for THIS viewer from graph.Reader.Snapshot: users who are not ACTIVE and users who blocked the viewer
 // are dropped (the answer is then what a missing user's would be: no row, no flag), users the viewer blocks or mutes
 // stay with relationship.blocking / muting set, protected accounts stay with user.is_private set, and the viewer's own
-// row stays. With blockedBy overflowed a blocker cannot be ruled out at 0 reads, so only the viewer and
+// row stays. With blockedBy overflowed a blocker cannot be ruled out without a lookup, so only the viewer and
 // accounts the viewer follows are kept. At most limit rows (0 means 10, max 20), handle order, no token.
-//
-// Worst-case Firestore cost (the interceptor's account-status read included): cold 1 + 1 + limit = 22 reads at limit 20
-// (7 at limit 5: interceptor 1, caller graph 1, SearchHandles = len(result), minimum 1); prefix entry warm with the
-// snapshot cold 2; both warm 0 to 1 (the interceptor's profile is usually cached); an empty entry skips the graph
-// read; a rejected or unsupported query costs the interceptor's read only; writes 0.
 func (s *service) People(ctx context.Context, uid, query string, limit int32) (*searchv1.SearchPeopleResponse, error) {
 	if err := s.guard(ctx, uid, FlagSearch); err != nil {
 		return nil, err

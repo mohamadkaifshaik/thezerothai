@@ -49,11 +49,11 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	accountOpsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.AccountOpsCallsPerDay)
 
 	// RegisterDevice and UnregisterDevice share one per-uid daily call cap, limit_name
-	// "notification_devices_daily" (each call is a transaction of up to 8 reads and 5 writes). The other three
+	// "notification_devices_daily" (each call is a transaction). The other three
 	// notification RPCs use the 60/min default bucket.
 	notificationDevicesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.NotificationDevicesCallsPerDay)
 	// MarkNotificationsSeen has its own cap, limit_name "notification_seen_daily": it is called on every tab focus,
-	// so sharing the 50/day devices cap would lock device registration out. 200 writes/uid/day worst case.
+	// so sharing the 50/day devices cap would lock device registration out.
 	notificationSeenDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.NotificationSeenCallsPerDay)
 
 	// Home 6/min (the existing RATE_LIMIT_TIMELINE_PER_MIN), user timeline 30/min, CreatePost 10/min,
@@ -111,14 +111,13 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// Responses need no quota (the pending requests bound them).
 	rlFollowRequestsRespond := ratelimit.NewLimiter(cfg.RateLimit.FollowRequestsRespondPerUserPerMinute, idleBucketTTL)
 	// L-4: UpdateProfile had only the 60/min default bucket and rewrote the whole users document on every call, so a
-	// save loop was unbounded (about 6,000 writes a day per account at 3 instances). Its own per-uid
+	// save loop was unbounded. Its own per-uid
 	// daily call cap, limit_name "profile_update_daily" (PROFILE_UPDATES_PER_DAY, default 100; see
-	// config.RateLimitConfig.ProfileUpdatesPerDay for the math). It counts every call, including a no-op one (0 writes).
+	// config.RateLimitConfig.ProfileUpdatesPerDay for the math). It counts every call, including a no-op one.
 	profileUpdateDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.ProfileUpdatesPerDay)
 	// M-1: ONE shared daily call cap over AddBookmark + RemoveBookmark (same DailyCap type, one counter per uid): an
-	// already bookmarked Add and a Remove of a missing bookmark reserve no quota but still store an idempotency doc (1 write +
-	// 1 TTL delete), so the per-minute bucket alone left them unbounded. See config.RateLimitConfig.BookmarkMutationsPerDay for
-	// the default's math. Logged as limit_name "bookmark_mutation_daily". ListBookmarks is a read and has no daily cap.
+	// already bookmarked Add and a Remove of a missing bookmark reserve no quota but still store an idempotency doc, so the per-minute
+	// bucket alone left them unbounded. See config.RateLimitConfig.BookmarkMutationsPerDay for the default's math. Logged as limit_name "bookmark_mutation_daily". ListBookmarks is a read and has no daily cap.
 	bookmarkMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.BookmarkMutationsPerDay)
 
 	// SendMessage has its own per-user bucket (RATE_LIMIT_MESSAGES_SEND_PER_MIN, 20/min per instance) and a per-uid
@@ -164,7 +163,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// quota.Uploads (20, 5 for new accounts) and Vision spend by VISION_MONTHLY_CAP.
 	rlMedia := ratelimit.NewLimiter(cfg.RateLimit.PostCreatePerMinute, idleBucketTTL)
 	// FinalizeUpload has its own bucket, RATE_LIMIT_MEDIA_FINALIZE_PER_MIN, so client retries cannot starve new
-	// uploads and the reverse. The per-uid Vision-units daily cap (media_vision_units_daily) lives in the media service, charged before the claim.
+	// uploads and the reverse. The per-uid Vision-units daily cap (media_vision_units_daily) lives in the media service, counted before the claim.
 	rlMediaFinalize := ratelimit.NewLimiter(cfg.RateLimit.MediaFinalizePerMinute, idleBucketTTL)
 
 	return ratelimit.Config{
