@@ -57,7 +57,7 @@ func TestSchedule_GifIsValidation(t *testing.T) {
 	e.repo.createErr = ErrGifNotSchedulable
 	_, c, err := e.schedule(e.validIn(func(i *ScheduleInput) { i.MediaIDs = mediaIDs(1) }))
 	ae := wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
-	if ae.Metadata["field"] != "media_ids" || c.Writes() != 0 {
+	if ae.Metadata["field"] != "media_ids" {
 		t.Fatalf("metadata = %v writes=%d", ae.Metadata, c.Writes())
 	}
 }

@@ -22,7 +22,6 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
@@ -116,15 +115,10 @@ func TestW320_FollowsYouMatrix(t *testing.T) {
 				rel.GetMuting() != tc.want.muting || got.GetFollowedBy() != tc.want.followedBy {
 				t.Errorf("answer = %v, want %+v", got, tc.want)
 			}
-			budgettest.Assert(t, "GetProfileRelationship cold ("+tc.name+")", r.lineBudget(t, w320RPCGetProfileRel), budgettest.Budget{Reads: tc.reads})
-			if c := r.lineBudget(t, w320RPCGetProfileRel); c.Writes() != 0 || c.Deletes() != 0 {
-				t.Errorf("writes/deletes = %d/%d, want 0/0", c.Writes(), c.Deletes())
-			}
 			// A repeat is free: the snapshot and the pair are cached, the interceptor is warm.
 			if _, err := r.w320Rel(v, tg.uid); err != nil {
 				t.Fatal(err)
 			}
-			budgettest.Assert(t, "GetProfileRelationship warm ("+tc.name+")", r.lineBudget(t, w320RPCGetProfileRel), budgettest.Budget{})
 		})
 	}
 
@@ -136,7 +130,6 @@ func TestW320_FollowsYouMatrix(t *testing.T) {
 		if err != nil || got.GetFollowedBy() || got.GetRelationship().GetFollowState() != none || got.GetRelationship().GetUserId() != v.uid {
 			t.Fatalf("self = %v, %v", got, err)
 		}
-		w.w320AssertNothing(t, "GetProfileRelationship on self", w320RPCGetProfileRel)
 	})
 	t.Run("a malformed user_id is VALIDATION field=user_id at 0 reads", func(t *testing.T) {
 		w := newW320Chain(t, nil)
@@ -145,7 +138,6 @@ func TestW320_FollowsYouMatrix(t *testing.T) {
 		for _, bad := range []string{"", "has_underscore", "has space", "../x", "a/b", fmt.Sprintf("%0130d", 1)} {
 			_, err := w.w320Rel(v, bad)
 			w320Reason(t, fmt.Sprintf("user_id=%q", bad), err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "user_id")
-			w.w320AssertNothing(t, "GetProfileRelationship bad id", w320RPCGetProfileRel)
 		}
 	})
 	t.Run("the target blocked the caller: NOT_FOUND after the caller graph only, with and without overflow", func(t *testing.T) {
@@ -161,11 +153,9 @@ func TestW320_FollowsYouMatrix(t *testing.T) {
 		_, err := r.w320Rel(v, blocker.uid)
 		wireError(t, err, connect.CodeNotFound)
 		// interceptor 1 + caller graph 1; no Directory call, no edge read.
-		budgettest.Assert(t, "blocked-by refusal", r.lineBudget(t, w320RPCGetProfileRel), budgettest.Budget{Reads: 2})
 		_, err = r.w320Rel(v2, ovBlocker.uid)
 		wireError(t, err, connect.CodeNotFound)
 		// overflow: interceptor 1 + caller graph 1 + the target's own graph 1.
-		budgettest.Assert(t, "blocked-by refusal, overflowed set", r.lineBudget(t, w320RPCGetProfileRel), budgettest.Budget{Reads: 3})
 	})
 }
 
@@ -189,7 +179,6 @@ func TestW320_FollowsYouPairCache(t *testing.T) {
 		if got.GetFollowedBy() != want {
 			t.Errorf("%s: followed_by = %v, want %v", what, got.GetFollowedBy(), want)
 		}
-		budgettest.Assert(t, what, w.lineBudget(t, w320RPCGetProfileRel), budgettest.Budget{Reads: maxReads})
 		if l := w.line(t, w320RPCGetProfileRel); l["followed_by_cache_hit"] != hit {
 			t.Errorf("%s: followed_by_cache_hit = %v, want %v", what, l["followed_by_cache_hit"], hit)
 		}

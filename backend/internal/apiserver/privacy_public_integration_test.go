@@ -121,7 +121,6 @@ func TestW328b_PrivacyPublicThroughTheChain(t *testing.T) {
 		t.Fatalf("delivery = %d", code)
 	}
 	line := e.w328bLastJob(t)
-	t.Logf("BUDGET privacy_public n=%d reads=%v writes=%v deletes=%v", n, line["fs_reads"], line["fs_writes"], line["fs_deletes"])
 	// reads: 2 pages x 1 (users) + 2 per request (+ the cache-first Directory lookup, at most 1 per requester when cold).
 	// writes: 3 per request + 1 per page. deletes: 1 per request.
 	reads, writes, deletes := line["fs_reads"].(float64), line["fs_writes"].(float64), line["fs_deletes"].(float64)

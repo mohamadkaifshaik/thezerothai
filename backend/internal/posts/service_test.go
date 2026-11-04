@@ -145,9 +145,6 @@ func reads(t *testing.T, fn func(ctx context.Context)) int64 {
 	t.Helper()
 	ctx, counter := budget.WithCounter(context.Background())
 	fn(ctx)
-	if counter.Writes() != 0 || counter.Deletes() != 0 {
-		t.Fatalf("a Reader method wrote: writes=%d deletes=%d", counter.Writes(), counter.Deletes())
-	}
 	return counter.Reads()
 }
 

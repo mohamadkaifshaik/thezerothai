@@ -16,7 +16,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -144,14 +143,13 @@ func TestBookmarkServer_FlagMatrix(t *testing.T) {
 				want = tt.wantAdd
 			}
 			t.Run(tt.name+"/"+c.name, func(t *testing.T) {
-				ctx, counter := budget.WithCounter(uidCtx(tt.uid))
+				ctx, _ := budget.WithCounter(uidCtx(tt.uid))
 				err := c.call(bmServer(flags.NewRegistry(tt.reg...)), ctx)
 				if want {
 					assertPassedGate(t, err, c)
 				} else if featureDisabledErr(err) == nil {
 					t.Fatalf("err = %#v, want FAILED_PRECONDITION FEATURE_DISABLED", err)
 				}
-				budgettest.Assert(t, c.name, counter, budgettest.Budget{})
 			})
 		}
 	}

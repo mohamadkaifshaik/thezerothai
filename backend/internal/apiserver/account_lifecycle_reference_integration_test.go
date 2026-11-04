@@ -100,8 +100,6 @@ func TestAccountLifecycle_ReferenceAccountBudgets(t *testing.T) {
 	if export == nil {
 		t.Fatalf("no export `done` line: %v", e.jobLines())
 	}
-	t.Logf("BUDGET account-export job (P=300 O=100 I=100) reads=%v writes=%v bytes=%v sections=%v (budget: reads <= %d, writes <= %d)",
-		export["fs_reads"], export["fs_writes"], export["bytes"], export["sections"], refExportReads, refExportWrites)
 	if r := export["fs_reads"].(float64); r > refExportReads || export["fs_writes"].(float64) > refExportWrites || export["fs_deletes"].(float64) != 0 {
 		t.Errorf("export job cost = %v, over the reference budget (reads %d, writes %d, deletes 0)", export, refExportReads, refExportWrites)
 	}
@@ -109,7 +107,6 @@ func TestAccountLifecycle_ReferenceAccountBudgets(t *testing.T) {
 		// A signed URL cannot be minted against the emulators; only the cost of the poll matters here.
 		t.Logf("GetAccountExport on the emulator: %v", err)
 	}
-	t.Logf("BUDGET GetAccountExport reads=%v writes=%v (budget: reads <= 2 cold, 0 writes)", e.lineNum(t, "/dzeroth.identity.v1.IdentityService/GetAccountExport", -1, "fs_reads"), e.lineNum(t, "/dzeroth.identity.v1.IdentityService/GetAccountExport", -1, "fs_writes"))
 	if w := e.lineNum(t, "/dzeroth.identity.v1.IdentityService/GetAccountExport", -1, "fs_writes"); w != 0 {
 		t.Errorf("GetAccountExport wrote %v docs", w)
 	}
@@ -119,7 +116,6 @@ func TestAccountLifecycle_ReferenceAccountBudgets(t *testing.T) {
 		t.Fatal(err)
 	}
 	const rpc = "/dzeroth.identity.v1.IdentityService/DeleteAccount"
-	t.Logf("BUDGET DeleteAccount (sync) reads=%v writes=%v (budget: reads <= 2, writes 1)", e.lineNum(t, rpc, -1, "fs_reads"), e.lineNum(t, rpc, -1, "fs_writes"))
 	if e.lineNum(t, rpc, -1, "fs_reads") > 2 || e.lineNum(t, rpc, -1, "fs_writes") != 1 {
 		t.Errorf("DeleteAccount cost over budget")
 	}
@@ -152,9 +148,6 @@ func TestAccountLifecycle_ReferenceAccountBudgets(t *testing.T) {
 			progressed++
 		}
 	}
-	t.Logf("BUDGET account-delete job (P=300 O=100 I=100 E=1) over %d deliveries (%d progressed): reads=%.0f writes=%.0f deletes=%.0f", deleteLines, progressed, reads, writes, deletes)
-	t.Logf("BUDGET account-delete limits: reads <= %d + D (ADR-0011 formula; plan AC %d + job state), writes <= %d + checkpoints(%d), deletes <= %d",
-		refDeleteReadsBase, planDeleteReads, refDeleteWrites, progressed, refDeleteDeletes)
 	if reads > float64(refDeleteReadsBase+deleteLines) {
 		t.Errorf("delete job reads = %.0f, over %d + D(%d) from the ADR-0011 formula", reads, refDeleteReadsBase, deleteLines)
 	}

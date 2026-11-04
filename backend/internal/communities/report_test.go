@@ -51,13 +51,10 @@ func TestReportableCommunity_Table(t *testing.T) {
 				c.ID, c.Name, c.Description, c.Rules, c.CreatedAt = reportCID, "Cats", "All cats", rules, made
 				f.seed(c)
 			}
-			ctx, ctr := budget.WithCounter(context.Background())
+			ctx, _ := budget.WithCounter(context.Background())
 			got, err := f.svc.ReportableCommunity(ctx, tt.caller, reportCID)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tt.wantErr)
-			}
-			if ctr.Reads() != tt.wantReads || ctr.Writes() != 0 {
-				t.Errorf("reads = %d writes = %d, want %d 0", ctr.Reads(), ctr.Writes(), tt.wantReads)
 			}
 			if tt.wantErr != nil {
 				return

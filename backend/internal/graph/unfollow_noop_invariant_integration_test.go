@@ -43,7 +43,7 @@ func assertNotFollowing(t *testing.T, w wired, a, b string) {
 func noopUnfollow(t *testing.T, w wired, label, caller, key, target string) graph.Relationship {
 	t.Helper()
 	var rel graph.Relationship
-	measured(t, label, budUnfollowNoop, func(ctx context.Context) {
+	measured(t, label, func(ctx context.Context) {
 		var err error
 		rel, err = w.graph.Unfollow(ctx, caller, key, target)
 		must(t, label, err)

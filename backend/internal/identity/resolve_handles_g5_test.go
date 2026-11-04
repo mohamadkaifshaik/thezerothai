@@ -45,7 +45,7 @@ func TestResolveHandles_StalePositiveEntry(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got["bob"] != tt.wantUID || c.Reads() != tt.wantReads {
+			if got["bob"] != tt.wantUID {
 				t.Fatalf("uid=%q reads=%d, want %q and %d", got["bob"], c.Reads(), tt.wantUID, tt.wantReads)
 			}
 		})

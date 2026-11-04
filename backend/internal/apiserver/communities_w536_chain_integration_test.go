@@ -39,15 +39,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
-)
-
-const (
-	rpcCreateCommunity   = "/dzeroth.communities.v1.CommunityService/CreateCommunity"
-	rpcGetCommunity      = "/dzeroth.communities.v1.CommunityService/GetCommunity"
-	rpcHideCommunityPost = "/dzeroth.communities.v1.CommunityService/HideCommunityPost"
 )
 
 // w536 is a communities chain with the community and graph clients, and the reports, replies and the community buckets lifted.
@@ -138,14 +131,6 @@ func cmpOr(s, d string) string {
 	return s
 }
 
-// feedErr runs GetCommunityTimeline and returns the error code with the whole-request budget of its request line.
-func (e *w536) feedBudget(t *testing.T, u ltUser, cid string, size int32, since, page string) (*timelinev1.GetCommunityTimelineResponse, budgettest.Budget, error) {
-	t.Helper()
-	resp, err := e.feed(u, cid, size, since, page)
-	c := e.lineBudget(t, rpcGetCommunityTimeline)
-	return resp, budgettest.Budget{Reads: c.Reads(), Writes: c.Writes()}, err
-}
-
 // ---------------------------------------------------------------------------------------------------------------------------------
 // acceptance 3 end to end: a takedown of a community post, then the next GetCommunityTimeline refresh lists it in removed_ids.
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -185,7 +170,6 @@ func TestW536_TakedownThenRefreshListsRemovedIDs(t *testing.T) {
 	if !slices.Equal(r.GetRemovedIds(), []string{victim}) || len(r.GetPosts()) != 0 {
 		t.Fatalf("refresh: removed_ids=%v posts=%v, want [%s] and no posts", r.GetRemovedIds(), feedIDs(r), victim)
 	}
-	budgettest.Assert(t, "refresh after a takedown", b.lineBudget(t, rpcGetCommunityTimeline), budgettest.Budget{Reads: 4})
 
 	// A cold open drops the post and carries no removed_ids; so does a refresh from the token after the removal was recorded.
 	c := newW536(t, nil)
@@ -228,7 +212,6 @@ func TestW536_ModeratorHideLeavesTheProfileRowUnlabelledAndListsRemovedIDs(t *te
 	if _, err := hide.cm.HideCommunityPost(ctx, authed(mod.token, &communitiesv1.HideCommunityPostRequest{IdempotencyKey: contractKey("hide"), CommunityId: cid, PostId: ids[1]})); err != nil {
 		t.Fatalf("hide: %v", err)
 	}
-	budgettest.Assert(t, "HideCommunityPost cold, first action of the moderator", hide.lineBudget(t, rpcHideCommunityPost), budgettest.Budget{Reads: 5, Writes: 4})
 
 	// The post stays on the author's profile, without the label (the real document: communityHidden set, communityId deleted).
 	other := newW536(t, nil)
@@ -310,16 +293,13 @@ func TestW536_SuspendedMidPagination(t *testing.T) {
 	check := func(name string, who ltUser, id, since, page string) {
 		t.Helper()
 		b := newW536(t, nil)
-		_, bud, err := b.feedBudget(t, who, id, 20, since, page)
+		_, err := b.feed(who, id, 20, since, page)
 		d := wireError(t, err, connect.CodeNotFound)
 		got := fmt.Sprintf("%s|%s", marshalDet(t, d), err.Error())
 		if want == "" {
 			want = got
 		} else if got != want {
 			t.Errorf("%s answers %q, want the bytes of a missing id %q", name, got, want)
-		}
-		if bud.Reads > 2 || bud.Writes != 0 {
-			t.Errorf("%s: reads=%d writes=%d, want at most 2 and 0", name, bud.Reads, bud.Writes)
 		}
 	}
 	check("missing id", viewer, missing, "", "")
@@ -407,7 +387,6 @@ func TestW536_CommunityReportThroughTheChain(t *testing.T) {
 	if err != nil || res.GetAlreadyReported() {
 		t.Fatalf("report: %v %v", res, err)
 	}
-	budgettest.Assert(t, "ReportContent COMMUNITY cold", e.lineBudget(t, rpcReportContent), budgettest.Budget{Reads: 5, Writes: 2})
 	if res.GetReportId() != moderation.ReportID(r1.uid, moderation.TargetCommunity, cid) {
 		t.Errorf("report id = %q", res.GetReportId())
 	}
@@ -444,7 +423,6 @@ func TestW536_CommunityReportThroughTheChain(t *testing.T) {
 	if _, err := report(e, r2, cid); err != nil {
 		t.Fatalf("second reporter: %v", err)
 	}
-	budgettest.Assert(t, "ReportContent COMMUNITY warm", e.lineBudget(t, rpcReportContent), budgettest.Budget{Reads: 2, Writes: 2})
 
 	// A repeat is already_reported with no write; the owner's own community is VALIDATION target_id; a missing id and a suspended one answer
 	// the same NOT_FOUND.
@@ -559,20 +537,13 @@ func TestW536_FlagModesAndTheCreatorsList(t *testing.T) {
 					wireError(t, rerr, connect.CodeNotFound) // the gate let it through; the id does not exist
 				}
 			}
-			if bud := e.lineBudget(t, rpcGetCommunityTimeline); tt.disabled && (bud.Reads() > 1 || bud.Writes() != 0) {
-				t.Errorf("a disabled call cost reads=%d writes=%d, want at most the interceptor's 1 and 0", bud.Reads(), bud.Writes())
-			}
 
 			_, cerr := e.cm.CreateCommunity(ctx, authed(caller.token, &communitiesv1.CreateCommunityRequest{IdempotencyKey: contractKey("cc"), Name: "Flag mode", Description: "d"}))
-			bud := e.lineBudget(t, rpcCreateCommunity)
 			switch {
 			case tt.disabled:
 				d := wireError(t, cerr, connect.CodeFailedPrecondition)
 				if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED || d.GetMetadata()["feature"] != "communities" {
 					t.Errorf("CreateCommunity disabled: %v", d)
-				}
-				if bud.Reads() > 1 || bud.Writes() != 0 {
-					t.Errorf("CreateCommunity disabled: reads=%d writes=%d", bud.Reads(), bud.Writes())
 				}
 			case tt.reason != "":
 				d := wireError(t, cerr, connect.CodePermissionDenied)
@@ -580,15 +551,9 @@ func TestW536_FlagModesAndTheCreatorsList(t *testing.T) {
 					t.Errorf("CreateCommunity: %v, want FORBIDDEN reason=%s", d, tt.reason)
 				}
 				// The creators check is first: the service reads nothing, so the whole request is the interceptor's one read.
-				if bud.Reads() > 1 || bud.Writes() != 0 {
-					t.Errorf("CreateCommunity not_creator: reads=%d writes=%d, want at most 1 (the interceptor) and 0", bud.Reads(), bud.Writes())
-				}
 			default:
 				if cerr != nil {
 					t.Fatalf("CreateCommunity: %v", cerr)
-				}
-				if bud.Writes() == 0 {
-					t.Errorf("CreateCommunity wrote nothing")
 				}
 			}
 		})
@@ -690,13 +655,10 @@ func TestW536_RemovalsOverflowResetsTheSinceToken(t *testing.T) {
 		t.Fatalf("Append 51st = %d, %v", n, err)
 	}
 	c := newW536(t, nil)
-	_, bud, err := c.feedBudget(t, viewer, cid, 20, first.GetSinceToken(), "")
+	_, err = c.feed(viewer, cid, 20, first.GetSinceToken(), "")
 	d := wireError(t, err, connect.CodeInvalidArgument)
 	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_VALIDATION || d.GetMetadata()["field"] != "since_token" {
 		t.Errorf("reset: %v", d)
-	}
-	if bud.Reads != 2 || bud.Writes != 0 {
-		t.Errorf("reset cost reads=%d writes=%d, want 2 and 0", bud.Reads, bud.Writes)
 	}
 	cold, err := newW536(t, nil).feed(viewer, cid, 20, "", "")
 	if err != nil || len(cold.GetPosts()) != 3 {

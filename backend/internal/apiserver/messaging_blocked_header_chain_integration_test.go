@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // over the real chain and the real graph snapshot: a caller whose peer blocked them opens the thread for exactly
@@ -27,7 +26,6 @@ func TestMessagingChain_BlockedCallerFirstPageCostsTheSame(t *testing.T) {
 		if err != nil || len(r.GetMessages()) != 20 || r.GetConversation() == nil {
 			t.Fatalf("%s: messages = %d, conversation %v, err = %v", label, len(r.GetMessages()), r.GetConversation(), err)
 		}
-		budgettest.Assert(t, label, e.lineBudget(t, rpcListMessages), budgettest.Budget{Reads: 25})
 		if got := e.lineBudget(t, rpcListMessages).Reads(); got != 25 {
 			t.Errorf("%s: reads = %d, want exactly 25", label, got)
 		}

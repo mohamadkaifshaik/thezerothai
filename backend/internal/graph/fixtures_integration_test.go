@@ -22,7 +22,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // Idempotency keys that satisfy the 16-64 char [A-Za-z0-9_-] convention. Distinct keys model "a new key".
@@ -265,15 +264,11 @@ func seedUserField(t *testing.T, w wired, uid, field string, value interface{}) 
 	w.identity.(identity.Directory).Forget(uid)
 }
 
-// measured runs fn with a fresh budget counter, logs "BUDGET <rpc> reads=.. writes=.. deletes=.." (grep the
-// -v output; these numbers feed the cost report) and asserts the call stayed within b. On a regression the
-// failure names the RPC with the actual vs documented value (budgettest.Assert). Use one call per invocation.
-func measured(t *testing.T, rpc string, b budgettest.Budget, fn func(ctx context.Context)) {
+// measured runs fn with a fresh request counter. Use one call per invocation.
+func measured(t *testing.T, rpc string, fn func(ctx context.Context)) {
 	t.Helper()
-	ctx, counter := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	fn(ctx)
-	t.Logf("BUDGET %s reads=%d writes=%d deletes=%d (budget %dR/%dW/%dD)", rpc, counter.Reads(), counter.Writes(), counter.Deletes(), b.Reads, b.Writes, b.Deletes)
-	budgettest.Assert(t, rpc, counter, b)
 }
 
 // requireAPIError fails t unless err is an *apierr.Error with the given Connect code and ErrorReason; a

@@ -424,7 +424,6 @@ func TestAccountLifecycle_Chain(t *testing.T) {
 	if work == nil {
 		t.Fatalf("no `done` job line: %v", e.jobLines())
 	}
-	t.Logf("BUDGET account_delete work delivery (1 post, 1 following, 1 follower, 1 export) reads=%v writes=%v deletes=%v", work["fs_reads"], work["fs_writes"], work["fs_deletes"])
 	// Budget table, P=1 O=1 I=1 E=1 W=1: reads P+O+I+2*ceil((max(B,Bb)+1)/500)+2+3+2+max(E,1)+D = 14,
 	// writes O+2I+B+Bb+(W-1) = 3, deletes P+O+I+1+3+E = 8 (D = 1 here: the gated delivery's read is a separate line).
 	// The notifications step adds 3 reads: its devices, own-rows and rows-naming-the-user queries

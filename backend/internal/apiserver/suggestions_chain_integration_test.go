@@ -112,7 +112,6 @@ func TestListSuggestedUsers_ChainReadCapAndWire(t *testing.T) {
 	}
 	coldLine := lines[0]
 	coldCap := float64(w320SugColdCap(t)) // 32 at the default EdgeLimit 20; TestW320_SuggestionsHardCap32 pins the literal
-	t.Logf("BUDGET ListSuggestedUsers chain cold fs_reads=%v fs_writes=%v (documented hard cap %v)", coldLine["fs_reads"], coldLine["fs_writes"], coldCap)
 	if reads := logNum(coldLine, "fs_reads"); reads > coldCap || reads < coldCap-1 {
 		t.Errorf("cold fs_reads = %v, want %v or %v (interceptor 0-1 + graph 1 + EdgeLimit edges + HydrateMax profiles)", reads, coldCap-1, coldCap)
 	}
@@ -128,7 +127,6 @@ func TestListSuggestedUsers_ChainReadCapAndWire(t *testing.T) {
 		t.Fatalf("warm ListSuggestedUsers: %v", err)
 	}
 	warmLine := env.logs.requestLines(rpc)[1]
-	t.Logf("BUDGET ListSuggestedUsers chain warm fs_reads=%v (documented 1, the interceptor; 2 when the 60 s snapshot entry has expired)", warmLine["fs_reads"])
 	if logNum(warmLine, "fs_reads") > 1 || logNum(warmLine, "fs_writes") != 0 {
 		t.Errorf("warm fs_reads/fs_writes = %v/%v, want <= 1 (the interceptor) and 0", warmLine["fs_reads"], warmLine["fs_writes"])
 	}

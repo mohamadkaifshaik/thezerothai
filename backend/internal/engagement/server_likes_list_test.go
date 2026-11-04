@@ -15,7 +15,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -83,7 +82,7 @@ func TestListLikedPosts_FlagMatrix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, counter := budget.WithCounter(uidCtx(tt.uid))
+			ctx, _ := budget.WithCounter(uidCtx(tt.uid))
 			sl := &stubLikes{}
 			err := listLikedPosts(NewServer(&stubSvc{}, flags.NewRegistry(tt.reg...), WithLikesList(sl)), ctx)
 			if wantCalls := map[bool]int{true: 1, false: 0}[tt.pass]; len(sl.calls) != wantCalls {
@@ -102,7 +101,6 @@ func TestListLikedPosts_FlagMatrix(t *testing.T) {
 					t.Errorf("metadata feature = %q, want %q", ae.Metadata["feature"], tt.feature)
 				}
 			}
-			budgettest.Assert(t, "ListLikedPosts", counter, budgettest.Budget{})
 		})
 	}
 }

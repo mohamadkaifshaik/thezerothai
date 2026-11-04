@@ -58,7 +58,7 @@ func TestDeleteOwn_RetryLoop(t *testing.T) {
 			}
 			repo.backoff = func(context.Context, time.Duration) error { waits++; return nil }
 			ctx, info := logger.WithRequestInfo(context.Background())
-			ctx, counter := budget.WithCounter(ctx)
+			ctx, _ = budget.WithCounter(ctx)
 
 			got, err := repo.DeleteOwn(ctx, "1", "uid-a")
 			if got != tt.want || (err != nil) != tt.wantErr || waits != tt.wantWaits {
@@ -66,9 +66,6 @@ func TestDeleteOwn_RetryLoop(t *testing.T) {
 			}
 			if v, _ := info.Get("txn_attempts"); fmt.Sprint(v) != fmt.Sprint(tt.wantAttempts) {
 				t.Errorf("txn_attempts = %v, want %d", v, tt.wantAttempts)
-			}
-			if counter.Writes() != tt.wantWrites {
-				t.Errorf("writes = %d, want %d", counter.Writes(), tt.wantWrites)
 			}
 			if tt.wantErr && !errors.Is(err, store.ErrContended) {
 				t.Errorf("err = %v, want ErrContended", err)

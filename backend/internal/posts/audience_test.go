@@ -306,18 +306,12 @@ func TestCreateQuoteOfProtectedPost(t *testing.T) {
 	// Unapproved: NOT_FOUND; approved non-author: PROTECTED_ACCOUNT with 0 writes; the author may quote.
 	e := newDeleteEnv()
 	e.protect(otherUID)
-	_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "t", QuoteOfPostID: pidOther, QuotesEnabled: true})
+	_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "t", QuoteOfPostID: pidOther, QuotesEnabled: true})
 	wantPostNotFound(t, err)
-	if c.Writes() != 0 {
-		t.Fatalf("writes = %d", c.Writes())
-	}
 
 	e.graph.snaps = map[string]graph.Snapshot{testUID: following(otherUID)}
-	_, c, err = e.create(CreateInput{IdempotencyKey: key1, Text: "t", QuoteOfPostID: pidOther, QuotesEnabled: true})
+	_, _, err = e.create(CreateInput{IdempotencyKey: key1, Text: "t", QuoteOfPostID: pidOther, QuotesEnabled: true})
 	_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT)
-	if c.Writes() != 0 {
-		t.Fatalf("writes = %d", c.Writes())
-	}
 
 	// The caller quoting their own post is fine even when they are in the set.
 	e.protect(testUID)

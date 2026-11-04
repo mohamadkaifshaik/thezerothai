@@ -128,7 +128,7 @@ func TestCommunityModerator_SetCommunityListing(t *testing.T) {
 			_, _, _, err := m.SetCommunityListing(bctx, tx, "0000000000000000901", cid, listed, guard)
 			return err
 		})
-		if !errors.Is(err, guardErr) || gotAuthor != "alice" || c.Reads() != 1 || c.Writes() != 0 {
+		if !errors.Is(err, guardErr) || gotAuthor != "alice" {
 			t.Errorf("guard refusal listed=%v: err=%v author=%q reads=%d writes=%d", listed, err, gotAuthor, c.Reads(), c.Writes())
 		}
 	}

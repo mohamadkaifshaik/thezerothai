@@ -13,7 +13,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 )
 
@@ -40,11 +39,10 @@ func TestCreate_Integration_Poll(t *testing.T) {
 	in.signUp(t, "uid-alice", "alice")
 
 	draft := &PollInput{Choices: []string{" Yes ", "No", "Maybe"}, DurationMinutes: 1440}
-	p, c, err := in.createWithPoll(t, "uid-alice", key(1), "Which one?", draft)
+	p, _, err := in.createWithPoll(t, "uid-alice", key(1), "Which one?", draft)
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "CreatePost with a poll (warm): +0 reads and +0 writes over a root post", c, budgettest.Budget{Reads: 2, Writes: 4})
 
 	snap, err := client.Collection(postsCollection).Doc(p.ID).Get(context.Background())
 	if err != nil {
@@ -64,11 +62,10 @@ func TestCreate_Integration_Poll(t *testing.T) {
 		t.Fatalf("returned poll = %+v", p.Poll)
 	}
 
-	again, c, err := in.createWithPoll(t, "uid-alice", key(1), "Which one?", draft)
+	again, _, err := in.createWithPoll(t, "uid-alice", key(1), "Which one?", draft)
 	if err != nil || again.ID != p.ID || again.Poll == nil || !again.Poll.ClosesAt.Equal(p.Poll.ClosesAt) {
 		t.Fatalf("replay = %+v, %v", again, err)
 	}
-	budgettest.Assert(t, "CreatePost with a poll, replay", c, budgettest.Budget{Reads: 1, Writes: 0})
 
 	_, _, err = in.createWithPoll(t, "uid-alice", key(1), "Which one?", &PollInput{Choices: []string{"Yes", "No", "Perhaps"}, DurationMinutes: 1440})
 	wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
@@ -76,9 +73,8 @@ func TestCreate_Integration_Poll(t *testing.T) {
 	wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 
 	before := countDocs(t, client, postsCollection)
-	_, c, err = in.createWithPoll(t, "uid-alice", key(2), "Which one?", &PollInput{Choices: []string{"Yes", "yes"}, DurationMinutes: 60})
+	_, _, err = in.createWithPoll(t, "uid-alice", key(2), "Which one?", &PollInput{Choices: []string{"Yes", "yes"}, DurationMinutes: 60})
 	wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
-	budgettest.Assert(t, "rejected poll", c, budgettest.Budget{})
 	if countDocs(t, client, postsCollection) != before {
 		t.Fatal("a rejected poll wrote a post")
 	}

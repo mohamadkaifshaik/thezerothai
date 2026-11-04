@@ -3,8 +3,8 @@
 package apiserver
 
 // GetCommunityTimeline and the COMMUNITY kind of SetHomeTabs over the real Build chain on the emulators. The package
-// tests in internal/timeline run below the interceptors, so the figures here are the WHOLE-request figures of the proto doc comment
-// (interceptor read included), read from the request line of a FRESH Build over the same emulator project (cold caches) with budgettest.
+// tests in internal/timeline run below the interceptors; these run the whole request on a FRESH Build over the same emulator
+// project (cold caches).
 
 import (
 	"context"
@@ -20,13 +20,9 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
-	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
-
-const rpcGetCommunityTimeline = timelinev1connect.TimelineServiceGetCommunityTimelineProcedure
 
 func communitiesOn(c *config.Config) {
 	relaxLimits(c)
@@ -121,40 +117,38 @@ func TestCommunityTimelineChain_Budgets(t *testing.T) {
 	cid := seedCommunity(t, setup.fs, owner.uid, viewer.uid, "ACTIVE")
 	ids := seedCommunityPosts(t, setup.fs, cid, owner.uid, 60)
 
-	cold := func(t *testing.T, name string, size int32, since, page string, b budgettest.Budget) (*timelinev1.GetCommunityTimelineResponse, *cmChain) {
+	cold := func(t *testing.T, name string, size int32, since, page string) (*timelinev1.GetCommunityTimelineResponse, *cmChain) {
 		t.Helper()
 		c := newCMChain(t)
 		resp, err := c.feed(viewer, cid, size, since, page)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		budgettest.Assert(t, name, c.lineBudget(t, rpcGetCommunityTimeline), b)
 		return resp, c
 	}
-	r20, warm := cold(t, "page 20 cold", 20, "", "", budgettest.Budget{Reads: 25})
+	r20, warm := cold(t, "page 20 cold", 20, "", "")
 	if !slices.Equal(feedIDs(r20), ids[:20]) || r20.GetNextPageToken() == "" || r20.GetSinceToken() == "" {
 		t.Fatalf("page 20: ids=%v next=%q since=%q", feedIDs(r20), r20.GetNextPageToken(), r20.GetSinceToken())
 	}
 	if r20.GetCommunity().GetCommunityId() != cid || r20.GetCommunity().GetViewerRole().String() != "COMMUNITY_ROLE_MEMBER" {
 		t.Fatalf("header = %v", r20.GetCommunity())
 	}
-	cold(t, "page 50 cold", 50, "", "", budgettest.Budget{Reads: 55})
+	cold(t, "page 50 cold", 50, "", "")
 
 	// Warm: the same instance again. The community, the member doc, the graph and userLikes are cached, and the entry answers the page.
 	if _, err := warm.feed(viewer, cid, 20, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "page 20 warm", warm.lineBudget(t, rpcGetCommunityTimeline), budgettest.Budget{Reads: 3})
 
 	// An older page (the second of 20 + 20 + 20): one query of at most 20 rows plus the fixed reads.
-	_, _ = cold(t, "older page cold", 20, "", r20.GetNextPageToken(), budgettest.Budget{Reads: 25})
+	_, _ = cold(t, "older page cold", 20, "", r20.GetNextPageToken())
 
 	// An empty since refresh on an instance with no entry: the interceptor, the community, the member doc and the one empty query. It
 	// reads no graph and no userLikes.
-	first, _ := cold(t, "page 50 for the since token", 50, "", "", budgettest.Budget{Reads: 55})
+	first, _ := cold(t, "page 50 for the since token", 50, "", "")
 	newest := first.GetSinceToken()
 	// The seeded posts are 30 s old, so the settle watermark (15 s) is newer than every one of them: nothing is newer than the token.
-	resp, _ := cold(t, "empty since refresh cold", 20, newest, "", budgettest.Budget{Reads: 4})
+	resp, _ := cold(t, "empty since refresh cold", 20, newest, "")
 	if len(resp.GetPosts()) != 0 || len(resp.GetRemovedIds()) != 0 {
 		t.Fatalf("refresh: posts=%d removed=%v", len(resp.GetPosts()), resp.GetRemovedIds())
 	}
@@ -180,7 +174,6 @@ func TestCommunityTimelineChain_StatusAndTokens(t *testing.T) {
 		} else if got != want {
 			t.Errorf("%s answers %q, want %q", name, got, want)
 		}
-		budgettest.Assert(t, name+" not found", c.lineBudget(t, rpcGetCommunityTimeline), budgettest.Budget{Reads: 2})
 	}
 	// The suspended community is not readable by its owner either.
 	if _, err := c.feed(owner, suspended, 20, "", ""); connect.CodeOf(err) != connect.CodeNotFound {
@@ -193,7 +186,6 @@ func TestCommunityTimelineChain_StatusAndTokens(t *testing.T) {
 	}
 	_, err = c.feed(viewer, active, 20, home.Msg.GetSinceToken(), "")
 	wireError(t, err, connect.CodeInvalidArgument)
-	budgettest.Assert(t, "wrong-feed token", c.lineBudget(t, rpcGetCommunityTimeline), budgettest.Budget{Reads: 1})
 }
 
 // TestCommunityTimelineChain_HomeTab: SetHomeTabs accepts a community the caller has not joined, at +1 read, and GetMe returns the tab

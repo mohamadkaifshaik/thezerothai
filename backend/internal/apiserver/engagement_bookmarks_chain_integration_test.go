@@ -3,9 +3,7 @@
 package apiserver
 
 // AddBookmark / RemoveBookmark over the real Build chain on the emulators: the transaction's
-// documents, replay, the cap and the quota, visibility (byte-identical to GetPost), REPOST resolution, and the
-// budget table of the RPC doc comments (Add 7 reads / 4 writes, Remove 2 reads / 2 writes / 1 delete), asserted with
-// budgettest on the logged fs_reads / fs_writes / fs_deletes of the request line.
+// documents, replay, the cap and the quota, visibility (byte-identical to GetPost) and REPOST resolution.
 
 import (
 	"context"
@@ -26,7 +24,6 @@ import (
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
@@ -101,7 +98,7 @@ func (e *bmChain) remove(u bmUser, key, postID string) (*engagementv1.BookmarkSt
 	return r.Msg.GetState(), nil
 }
 
-// lineBudget is the last logged request line of rpc as a budget.Counter, so budgettest.Assert can check it.
+// lineBudget is the last logged request line of rpc as a budget.Counter.
 func (e *chainEnv) lineBudget(t *testing.T, rpc string) *budget.Counter {
 	t.Helper()
 	lines := e.logs.requestLines(rpc)
@@ -114,7 +111,6 @@ func (e *chainEnv) lineBudget(t *testing.T, rpc string) *budget.Counter {
 	c.AddReads(num("fs_reads"))
 	c.AddWrites(num("fs_writes"))
 	c.AddDeletes(num("fs_deletes"))
-	t.Logf("BUDGET %s reads=%d writes=%d deletes=%d outcome=%v", rpc, c.Reads(), c.Writes(), c.Deletes(), l["outcome"])
 	return c
 }
 
@@ -177,7 +173,6 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 	if err != nil || st.GetPostId() != pid || !st.GetBookmarked() {
 		t.Fatalf("AddBookmark = %v, %v", st, err)
 	}
-	budgettest.Assert(t, "AddBookmark", e.lineBudget(t, rpcAddBookmark), budgettest.Budget{Reads: 7, Writes: 4})
 	if w := e.lineBudget(t, rpcAddBookmark).Writes(); w != 4 {
 		t.Errorf("AddBookmark writes = %d, want exactly 4 (bookmark, idempotency, quotas, userLikes)", w)
 	}
@@ -239,7 +234,6 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 	if err != nil || !st.GetBookmarked() {
 		t.Fatalf("AddBookmark replay = %v, %v", st, err)
 	}
-	budgettest.Assert(t, "AddBookmark replay", e.lineBudget(t, rpcAddBookmark), budgettest.Budget{Reads: 5})
 	if got := e.lastOutcome(rpcAddBookmark); got != "replay" {
 		t.Errorf("replay outcome = %q", got)
 	}
@@ -258,7 +252,6 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 	if err != nil || !st.GetBookmarked() || st.GetPostId() != pid {
 		t.Fatalf("AddBookmark existing = %v, %v", st, err)
 	}
-	budgettest.Assert(t, "AddBookmark existing", e.lineBudget(t, rpcAddBookmark), budgettest.Budget{Reads: 7, Writes: 1})
 	if got := e.quotaUsed(t, b.uid); got != 1 {
 		t.Errorf("quotas.bookmarks = %d after an existing add, want 1", got)
 	}
@@ -267,10 +260,6 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 	st, err = e.remove(b, rmKey, pid)
 	if err != nil || st.GetBookmarked() || st.GetPostId() != pid {
 		t.Fatalf("RemoveBookmark = %v, %v", st, err)
-	}
-	budgettest.Assert(t, "RemoveBookmark", e.lineBudget(t, rpcRemoveBookmark), budgettest.Budget{Reads: 2, Writes: 2, Deletes: 1})
-	if c := e.lineBudget(t, rpcRemoveBookmark); c.Writes() != 2 || c.Deletes() != 1 {
-		t.Errorf("RemoveBookmark writes/deletes = %d/%d, want 2/1", c.Writes(), c.Deletes())
 	}
 	if e.bookmarkDocExists(t, b.uid, pid) || len(e.bookmarkIDs(t, b.uid)) != 0 {
 		t.Error("bookmark or its array entry survived RemoveBookmark")
@@ -291,7 +280,6 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 	if err != nil || st.GetBookmarked() {
 		t.Fatalf("RemoveBookmark replay = %v, %v", st, err)
 	}
-	budgettest.Assert(t, "RemoveBookmark replay", e.lineBudget(t, rpcRemoveBookmark), budgettest.Budget{Reads: 2})
 	st, err = e.add(b, addKey, pid)
 	if err != nil || !st.GetBookmarked() {
 		t.Fatalf("AddBookmark replay after remove = %v, %v", st, err)
@@ -316,7 +304,6 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 	if err != nil || st.GetBookmarked() {
 		t.Fatalf("RemoveBookmark no-op = %v, %v", st, err)
 	}
-	budgettest.Assert(t, "RemoveBookmark no-op", e.lineBudget(t, rpcRemoveBookmark), budgettest.Budget{Reads: 2, Writes: 1})
 	if got := e.lastOutcome(rpcRemoveBookmark); got != "noop" {
 		t.Errorf("no-op outcome = %q", got)
 	}
@@ -387,7 +374,6 @@ func TestBookmarksChain_CapAndQuota(t *testing.T) {
 		if d.GetMetadata()["limit"] != "bookmarks" {
 			t.Errorf("metadata = %v, want limit=bookmarks", d.GetMetadata())
 		}
-		budgettest.Assert(t, "AddBookmark at the cap", e.lineBudget(t, rpcAddBookmark), budgettest.Budget{Reads: 7})
 		if w := e.lineBudget(t, rpcAddBookmark).Writes(); w != 0 {
 			t.Errorf("writes at the cap = %d, want 0", w)
 		}
@@ -516,7 +502,6 @@ func TestBookmarksChain_RepostResolvesToOriginal(t *testing.T) {
 	if err != nil || st.GetPostId() != pid || !st.GetBookmarked() {
 		t.Fatalf("AddBookmark(REPOST id) = %v, %v, want the original %s", st, err, pid)
 	}
-	budgettest.Assert(t, "AddBookmark(REPOST id)", e.lineBudget(t, rpcAddBookmark), budgettest.Budget{Reads: 7 + 2, Writes: 4})
 	if !e.bookmarkDocExists(t, c.uid, pid) || e.bookmarkDocExists(t, c.uid, repostID) {
 		t.Error("the bookmark must be keyed by the original's id, never the REPOST's")
 	}

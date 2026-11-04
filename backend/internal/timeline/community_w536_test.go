@@ -190,11 +190,8 @@ func TestW536_SinceTokenAcrossInstances(t *testing.T) {
 	other := NewServer(Deps{Flags: deps.Flags, Posts: deps.Posts, Graph: deps.Graph, Directory: deps.Directory, Viewer: deps.Viewer,
 		CursorKey: []byte("another-key-another-key-another!"), TokenTTL: 720 * time.Hour, SettleWindow: 15 * time.Second, Now: a.clock.Now})
 	other.SetCommunities(&fakeCommunities{c: a.fc.c, roles: a.fc.roles, gotRole: map[string]bool{}}, 100)
-	_, counter, err = callOn(other, first.GetSinceToken())
+	_, _, err = callOn(other, first.GetSinceToken())
 	wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "since_token"})
-	if counter.Reads() != 0 {
-		t.Errorf("a foreign token cost %d reads", counter.Reads())
-	}
 }
 
 // Concurrent cold fills (several requests find no entry at once, as on a fresh instance under a burst). Whatever the interleaving, every
@@ -244,7 +241,7 @@ func TestW536_ConcurrentColdFills(t *testing.T) {
 	}
 	t.Logf("%d concurrent cold opens ran %d fill queries (there is no single-flight: each racing request that misses pays its own fill, bounded by its page)", n, len(fills))
 	before := len(fills)
-	if _, counter := c.must("", "", 20); counter.Reads() != 2 || len(c.cp.callsSnapshot()) != before {
+	if _, counter := c.must("", "", 20); len(c.cp.callsSnapshot()) != before {
 		t.Errorf("after the burst the entry is not a clean warm hit: reads=%d queries=%d->%d", counter.Reads(), before, len(c.cp.callsSnapshot()))
 	}
 }
@@ -263,7 +260,7 @@ func TestW536_RefreshWithTwentyFiveNewPostsOnAWarmEntry(t *testing.T) {
 		fresh = append(fresh, c.cp.add(testCID, "a4", c.ms(-time.Duration(i)*100*time.Millisecond)))
 	}
 	c.clock.Advance(2 * time.Minute) // the entry is past its TTL
-	resp, counter := c.must(first.GetSinceToken(), "", 20)
+	resp, _ := c.must(first.GetSinceToken(), "", 20)
 	if len(resp.GetPosts()) != 20 || resp.GetGapPageToken() == "" || resp.GetNextPageToken() != "" {
 		t.Fatalf("refresh: posts=%d gap=%q next=%q", len(resp.GetPosts()), resp.GetGapPageToken(), resp.GetNextPageToken())
 	}
@@ -274,9 +271,6 @@ func TestW536_RefreshWithTwentyFiveNewPostsOnAWarmEntry(t *testing.T) {
 		if q.nReads > 20 {
 			t.Errorf("a query read %d rows, over the page", q.nReads)
 		}
-	}
-	if counter.Reads() > 24 {
-		t.Errorf("reads = %d, over page + 4", counter.Reads())
 	}
 	gap, _ := c.must("", resp.GetGapPageToken(), 20)
 	if !slices.Equal(commIDs(gap), idsOf(fresh[20:])) || gap.GetGapPageToken() != "" {

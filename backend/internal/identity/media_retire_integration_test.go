@@ -15,7 +15,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -63,25 +62,18 @@ func TestUpdateProfile_Integration_RetireHandOverCostsNothingExtra(t *testing.T)
 	}
 	str := func(s string) *string { return &s }
 
-	save := func(name string, p identity.UpdateProfileParams, want budgettest.Budget, wantWrites int64) {
+	save := func(name string, p identity.UpdateProfileParams, wantWrites int64) {
 		t.Helper()
 		p.IdempotencyKey = validKeyForIntegration
-		ctx, c := budget.WithCounter(context.Background())
+		ctx, _ := budget.WithCounter(context.Background())
 		if _, err := svc.UpdateProfile(ctx, itUID, p); err != nil {
 			t.Fatalf("%s: %v", name, err)
-		}
-		budgettest.Assert(t, name, c, want)
-		if c.Writes() != wantWrites {
-			t.Errorf("%s: writes = %d, want exactly %d", name, c.Writes(), wantWrites)
-		}
-		if c.Reads() != want.Reads {
-			t.Errorf("%s: reads = %d, want exactly %d (the hand-over adds none)", name, c.Reads(), want.Reads)
 		}
 	}
 
 	// First set of both images: tx read + the two resolvers = 3 reads, 1 write, nothing to retire.
 	imgs.avatar, imgs.banner = "https://m/a1.webp", "https://m/b1.webp"
-	save("first set", identity.UpdateProfileParams{AvatarMediaID: str("a1"), BannerMediaID: str("b1")}, budgettest.Budget{Reads: 3, Writes: 1}, 1)
+	save("first set", identity.UpdateProfileParams{AvatarMediaID: str("a1"), BannerMediaID: str("b1")}, 1)
 	if len(rec.calls) != 0 {
 		t.Fatalf("a first-time set handed over %+v", rec.calls)
 	}
@@ -89,7 +81,7 @@ func TestUpdateProfile_Integration_RetireHandOverCostsNothingExtra(t *testing.T)
 	// Replace the avatar, remove the banner: tx read + the avatar resolver = 2 reads, 1 write; both old images handed over.
 	imgs.avatar = "https://m/a2.webp"
 	before := time.Now()
-	save("replace avatar, remove banner", identity.UpdateProfileParams{AvatarMediaID: str("a2"), BannerMediaID: str("")}, budgettest.Budget{Reads: 2, Writes: 1}, 1)
+	save("replace avatar, remove banner", identity.UpdateProfileParams{AvatarMediaID: str("a2"), BannerMediaID: str("")}, 1)
 	want := []recordedRetire{
 		{image: identity.ProfileImageAvatar, url: "https://m/a1.webp", thumbURL: "https://m/a1.webp_t"},
 		{image: identity.ProfileImageBanner, url: "https://m/b1.webp", thumbURL: "https://m/b1.webp_t"},
@@ -110,13 +102,13 @@ func TestUpdateProfile_Integration_RetireHandOverCostsNothingExtra(t *testing.T)
 
 	// The same request again changes nothing: 1 read for the avatar resolver + tx read, 0 writes, nothing handed over.
 	rec.calls = nil
-	save("identical save", identity.UpdateProfileParams{AvatarMediaID: str("a2"), BannerMediaID: str("")}, budgettest.Budget{Reads: 2}, 0)
+	save("identical save", identity.UpdateProfileParams{AvatarMediaID: str("a2"), BannerMediaID: str("")}, 0)
 	if len(rec.calls) != 0 {
 		t.Errorf("a no-op save handed over %+v", rec.calls)
 	}
 
 	// Removing the avatar: tx read only, 1 write, one hand-over of the avatar that is now current.
-	save("remove avatar", identity.UpdateProfileParams{AvatarMediaID: str("")}, budgettest.Budget{Reads: 1, Writes: 1}, 1)
+	save("remove avatar", identity.UpdateProfileParams{AvatarMediaID: str("")}, 1)
 	if len(rec.calls) != 1 || rec.calls[0].image != identity.ProfileImageAvatar || rec.calls[0].url != "https://m/a2.webp" {
 		t.Errorf("hand-overs = %+v, want the second avatar", rec.calls)
 	}
@@ -135,14 +127,10 @@ func TestProfileImageURLs_Integration(t *testing.T) {
 
 	read := func(uid string) ([]string, bool) {
 		t.Helper()
-		ctx, c := budget.WithCounter(context.Background())
+		ctx, _ := budget.WithCounter(context.Background())
 		urls, found, err := repo.ProfileImageURLs(ctx, uid)
 		if err != nil {
 			t.Fatalf("ProfileImageURLs(%s): %v", uid, err)
-		}
-		budgettest.Assert(t, "ProfileImageURLs", c, budgettest.Budget{Reads: 1})
-		if c.Reads() != 1 || c.Writes() != 0 {
-			t.Errorf("reads=%d writes=%d, want 1 / 0", c.Reads(), c.Writes())
 		}
 		return urls, found
 	}

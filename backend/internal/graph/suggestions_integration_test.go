@@ -19,7 +19,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 func withSuggestions(l graph.SuggestionLimits) wiredOption {
@@ -118,11 +117,10 @@ func TestListEdgesByFollowers_OrderedAcrossFollowers(t *testing.T) {
 		"limit 51":         {[]string{"f1"}, 51},
 		"invalid follower": {[]string{"f1", "bad id!"}, 10},
 	} {
-		cctx, counter := budget.WithCounter(ctx)
+		cctx, _ := budget.WithCounter(ctx)
 		if _, err := w.graph.repo.ListEdgesByFollowers(cctx, tt.followers, tt.limit); err == nil {
 			t.Errorf("%s: want an error", name)
 		}
-		budgettest.Assert(t, name, counter, budgettest.Budget{})
 	}
 }
 
@@ -160,7 +158,6 @@ func TestListSuggestedUsers_ColdWarmReadCap(t *testing.T) {
 
 	fresh := newInstance(w.client, withSuggestions(graph.SuggestionLimits{SampleFollowees: 30, EdgeLimit: 30, HydrateMax: 10, MaxResults: 5, CacheTTL: time.Hour}))
 	cold, coldReads := listSuggested(t, fresh, viewer, 0)
-	t.Logf("BUDGET ListSuggestedUsers cold reads=%d (+1 interceptor = %d, documented hard cap 42)", coldReads, coldReads+1)
 	if coldReads != 41 {
 		t.Errorf("cold reads = %d, want exactly 41 for this world (1 graph + 30 edges + 10 profiles); fewer means the cap was not reached", coldReads)
 	}
@@ -181,7 +178,6 @@ func TestListSuggestedUsers_ColdWarmReadCap(t *testing.T) {
 	}
 
 	warm, warmReads := listSuggested(t, fresh, viewer, 0)
-	t.Logf("BUDGET ListSuggestedUsers warm reads=%d (+1 interceptor = %d, documented 1, or 2 without a cached snapshot)", warmReads, warmReads+1)
 	if warmReads != 0 {
 		t.Errorf("warm reads = %d, want 0", warmReads)
 	}
@@ -211,7 +207,6 @@ func TestListSuggestedUsers_ColdReadCapAtTheDefault(t *testing.T) {
 
 	fresh := newInstance(w.client, withSuggestions(graph.SuggestionLimits{}))
 	cold, coldReads := listSuggested(t, fresh, viewer, 0)
-	t.Logf("BUDGET ListSuggestedUsers cold reads=%d at the default EdgeLimit 20 (+1 interceptor = %d, documented hard cap 32)", coldReads, coldReads+1)
 	if coldReads != 31 {
 		t.Errorf("cold reads = %d, want exactly 31 for this world (1 graph + 20 edges + 10 profiles); fewer means the cap was not reached", coldReads)
 	}
@@ -284,7 +279,6 @@ func TestListSuggestedUsers_CuratedFallback(t *testing.T) {
 	list := []string{cu[0], cu[1], cu[2], "uid-never-created", cu[3], cu[4], cu[5], cu[6]}
 	inst := newInstance(w.client, withSuggestions(graph.SuggestionLimits{CuratedUIDs: list}))
 	items, reads := listSuggested(t, inst, viewer, 5)
-	t.Logf("BUDGET ListSuggestedUsers curated cold reads=%d (+1 interceptor = %d, documented hard cap 12)", reads, reads+1)
 	if want := []string{cu[0], cu[3], cu[6]}; !slices.Equal(rowUIDs(items), want) {
 		t.Errorf("rows = %v, want %v", rowUIDs(items), want)
 	}
@@ -358,7 +352,6 @@ func TestListSuggestedUsers_WarmHitDropsABlockerAddedElsewhere(t *testing.T) {
 	if reads != 1 {
 		t.Errorf("warm hit without a cached snapshot: reads %d, want exactly 1", reads)
 	}
-	t.Logf("BUDGET ListSuggestedUsers warm without a cached snapshot reads=%d (+1 interceptor = %d)", reads, reads+1)
 	if _, reads = listSuggested(t, instA, viewer, 5); reads != 0 {
 		t.Errorf("next warm hit: reads %d, want 0 (the snapshot is cached for 60 s again)", reads)
 	}

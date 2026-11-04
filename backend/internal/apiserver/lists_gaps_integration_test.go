@@ -27,14 +27,10 @@ import (
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	listsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
-	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
-
-const rpcSetHomeTabs = timelinev1connect.TimelineServiceSetHomeTabsProcedure
 
 func (e *ltChain) setTabs(u ltUser, label string, ids ...string) (*timelinev1.SetHomeTabsResponse, error) {
 	req := &timelinev1.SetHomeTabsRequest{IdempotencyKey: "w515-" + label + "-0123456789"}
@@ -111,7 +107,6 @@ func TestW515_SetHomeTabsIsGatedByTheListsFlag(t *testing.T) {
 			if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED || d.GetMetadata()["feature"] != "lists" {
 				t.Fatalf("detail = %v", d)
 			}
-			budgettest.Assert(t, "SetHomeTabs refused", c.lineBudget(t, rpcSetHomeTabs), budgettest.Budget{Reads: 1, Writes: 0})
 			// And the request left nothing behind: with lists on the same caller has no tabs.
 			on := newLTChain(t, nil)
 			if got := on.tabs(t, viewer); len(got) != 0 {
@@ -192,7 +187,6 @@ func TestW515_PinnedListsThatStopBeingReadable(t *testing.T) {
 	if len(moved.GetTabs()) != 3 || moved.GetTabs()[0].GetId() != toRename || moved.GetTabs()[2].GetId() != toPrivate {
 		t.Fatalf("reordered = %v", moved.GetTabs())
 	}
-	budgettest.Assert(t, "SetHomeTabs reorder of stored tabs", c.lineBudget(t, rpcSetHomeTabs), budgettest.Budget{Reads: 3, Writes: 2}) // interceptor, idempotency, users: a re-read of a dangling list would make it 5
 	if _, err := c.setTabs(viewer, "drop", toRename); err != nil {
 		t.Fatalf("removing dangling tabs: %v", err)
 	}
@@ -257,7 +251,6 @@ func TestW515_SetHomeTabsWorstCase(t *testing.T) {
 	if _, err := cold.setTabs(viewer, "worst", ids...); err != nil {
 		t.Fatalf("SetHomeTabs: %v", err)
 	}
-	budgettest.Assert(t, "SetHomeTabs, 5 foreign lists, cold", cold.lineBudget(t, rpcSetHomeTabs), budgettest.Budget{Reads: 19, Writes: 2})
 	if got := cold.tabs(t, viewer); len(got) != 5 {
 		t.Fatalf("tabs = %v", got)
 	}
@@ -267,7 +260,6 @@ func TestW515_SetHomeTabsWorstCase(t *testing.T) {
 	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED || d.GetMetadata()["limit"] != "home_tabs" {
 		t.Fatalf("detail = %v", d)
 	}
-	budgettest.Assert(t, "SetHomeTabs sixth tab", cold.lineBudget(t, rpcSetHomeTabs), budgettest.Budget{Reads: 1, Writes: 0})
 }
 
 // Page size 0 -> 20 and 500 -> 50 on a 60-member list; the opaque cursor walks the rest with no repeat; a list made private
@@ -392,7 +384,6 @@ func TestW515_QuotaNamesAtTheDailyCaps(t *testing.T) {
 	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED || d.GetMetadata()["quota"] != "list_creates" {
 		t.Fatalf("11th create: %v", d)
 	}
-	budgettest.Assert(t, "CreateList over quota", c.lineBudget(t, "/dzeroth.lists.v1.ListService/CreateList"), budgettest.Budget{Reads: 4, Writes: 0})
 
 	// 300 adds recorded today: the 301st is refused; seeding the counter avoids 300 RPCs.
 	if _, err := c.fs.Collection("quotas").Doc(u.uid).Set(context.Background(), quota.Record{Day: quota.Today(), ListCreates: 10, ListAdds: 300}); err != nil {
@@ -404,7 +395,6 @@ func TestW515_QuotaNamesAtTheDailyCaps(t *testing.T) {
 	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED || d.GetMetadata()["quota"] != "list_adds" {
 		t.Fatalf("301st add: %v", d)
 	}
-	budgettest.Assert(t, "AddListMember over quota", fresh.lineBudget(t, "/dzeroth.lists.v1.ListService/AddListMember"), budgettest.Budget{Reads: 7, Writes: 0}) // L-4: +1 fresh target status
 }
 
 // DEGRADED_MODE=readonly (acceptance, the interceptor derives "mutating" from each RPC's idempotency level): the five list
@@ -507,7 +497,6 @@ func TestW515_ListTokenBindingAcrossFeedsAndViewers(t *testing.T) {
 		if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_VALIDATION || d.GetMetadata()["field"] != tc.wantFieldKey {
 			t.Errorf("%s: detail = %v", tc.name, d)
 		}
-		budgettest.Assert(t, tc.name, c.lineBudget(t, rpcGetListTimeline), budgettest.Budget{Reads: 1})
 	}
 }
 

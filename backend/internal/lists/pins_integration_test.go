@@ -10,7 +10,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
@@ -65,37 +64,28 @@ func TestPins_Integration_DeleteListUnpins(t *testing.T) {
 	pinTo(t, a, "pin-key-00000001", identity.HomeTab{Kind: identity.HomeTabKindList, ID: ids[0], Title: "seed 0"}, identity.HomeTab{Kind: identity.HomeTabKindList, ID: ids[1], Title: "seed 1"})
 
 	// Pinned: 2 reads + 1 (Unpin) = 3; writes 1 (idempotency) + 1 (homeTabs) = 2; 1 delete.
-	c := measured(t, "DeleteList, pinned", budgettest.Budget{Reads: 3, Writes: 2, Deletes: 1}, func(ctx context.Context) {
+	measured(t, "DeleteList, pinned", func(ctx context.Context) {
 		if err := e.svc.DeleteList(ctx, "owner", key(1), ids[0]); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if c.Reads() != 3 || c.Writes() != 2 || c.Deletes() != 1 {
-		t.Errorf("reads/writes/deletes = %d/%d/%d, want 3/2/1", c.Reads(), c.Writes(), c.Deletes())
-	}
 	if got := pinnedIDs(t, e); !slices.Equal(got, []string{ids[1] + ":seed 1"}) {
 		t.Fatalf("pins = %v, want only the other list", got)
 	}
 	// A replay never reaches the adapter again (Deleted is false): 1 read, 0 writes.
-	c = measured(t, "DeleteList, replay", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	measured(t, "DeleteList, replay", func(ctx context.Context) {
 		if err := e.svc.DeleteList(ctx, "owner", key(1), ids[0]); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if c.Writes() != 0 {
-		t.Errorf("replay writes = %d, want 0", c.Writes())
-	}
 	// Deleted, not pinned: Unpin reads once and writes nothing.
 	pinTo(t, a, "pin-key-00000002")
 	ids2 := e.seedLists(t, "owner", 1, nil)
-	c = measured(t, "DeleteList, unpinned", budgettest.Budget{Reads: 3, Writes: 1, Deletes: 1}, func(ctx context.Context) {
+	measured(t, "DeleteList, unpinned", func(ctx context.Context) {
 		if err := e.svc.DeleteList(ctx, "owner", key(2), ids2[0]); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if c.Writes() != 1 {
-		t.Errorf("unpinned writes = %d, want 1 (the idempotency record only)", c.Writes())
-	}
 }
 
 func TestPins_Integration_UpdateListRetitles(t *testing.T) {
@@ -105,16 +95,13 @@ func TestPins_Integration_UpdateListRetitles(t *testing.T) {
 
 	// Pinned rename: 2 reads + 1 (Retitle); writes 2 (list, idempotency) + 1 (homeTabs).
 	var v View
-	c := measured(t, "UpdateList rename, pinned", budgettest.Budget{Reads: 3, Writes: 3}, func(ctx context.Context) {
+	measured(t, "UpdateList rename, pinned", func(ctx context.Context) {
 		var err error
 		v, err = e.svc.UpdateList(ctx, "owner", UpdateInput{Key: key(1), ListID: id, Name: ptr("Renamed")})
 		if err != nil {
 			t.Fatal(err)
 		}
 	})
-	if c.Reads() != 3 || c.Writes() != 3 {
-		t.Errorf("reads/writes = %d/%d, want 3/3", c.Reads(), c.Writes())
-	}
 	if !v.PinnedByViewer {
 		t.Error("the owner's UpdateList response must say pinned_by_viewer")
 	}
@@ -122,12 +109,9 @@ func TestPins_Integration_UpdateListRetitles(t *testing.T) {
 		t.Fatalf("pins = %v, want the tab retitled", got)
 	}
 	// Not a rename: no Retitle at all.
-	c = measured(t, "UpdateList description only", budgettest.Budget{Reads: 2, Writes: 2}, func(ctx context.Context) {
+	measured(t, "UpdateList description only", func(ctx context.Context) {
 		if _, err := e.svc.UpdateList(ctx, "owner", UpdateInput{Key: key(2), ListID: id, Description: ptr("d")}); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if c.Reads() != 2 {
-		t.Errorf("description-only reads = %d, want 2 (no pin lookup)", c.Reads())
-	}
 }

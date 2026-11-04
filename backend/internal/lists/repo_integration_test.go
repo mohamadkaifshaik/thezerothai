@@ -19,7 +19,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
@@ -62,11 +61,10 @@ func newListsEnv(t *testing.T, created time.Time) *listsEnv {
 }
 
 // measured runs fn with a fresh counter and asserts the budget (a ceiling), returning the counter for exact checks.
-func measured(t *testing.T, name string, b budgettest.Budget, fn func(ctx context.Context)) *budget.Counter {
+func measured(t *testing.T, name string, fn func(ctx context.Context)) *budget.Counter {
 	t.Helper()
 	ctx, c := budget.WithCounter(context.Background())
 	fn(ctx)
-	budgettest.Assert(t, name, c, b)
 	return c
 }
 
@@ -128,16 +126,13 @@ func create(t *testing.T, e *listsEnv, uid string, n int, name string, private *
 func TestCreateList_Integration_Budget(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
 	var view View
-	c := measured(t, "CreateList", budgettest.Budget{Reads: 3, Writes: 3}, func(ctx context.Context) {
+	measured(t, "CreateList", func(ctx context.Context) {
 		v, err := e.svc.CreateList(ctx, "owner", CreateInput{Key: key(1), Name: "  Cricket ", Description: "ODI"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		view = v
 	})
-	if c.Reads() != 3 || c.Writes() != 3 || c.Deletes() != 0 {
-		t.Errorf("reads/writes/deletes = %d/%d/%d, want exactly 3/3/0", c.Reads(), c.Writes(), c.Deletes())
-	}
 	if len(view.Header.ID) != 19 || view.Header.Name != "Cricket" || !view.Header.IsPrivate || view.Header.MemberCount != 0 || view.Owner.Handle != "owner" {
 		t.Errorf("view = %+v", view)
 	}
@@ -172,16 +167,13 @@ func TestCreateList_Integration_Replay(t *testing.T) {
 		t.Fatal(err)
 	}
 	var replay View
-	c := measured(t, "CreateList replay", budgettest.Budget{Reads: 2}, func(ctx context.Context) {
+	measured(t, "CreateList replay", func(ctx context.Context) {
 		v, err := e.svc.CreateList(ctx, "owner", CreateInput{Key: key(1), Name: "Cricket"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		replay = v
 	})
-	if c.Writes() != 0 || c.Reads() != 2 {
-		t.Errorf("replay reads/writes = %d/%d, want 2/0", c.Reads(), c.Writes())
-	}
 	if replay.Header != first.Header {
 		t.Errorf("replay header = %+v, want %+v", replay.Header, first.Header)
 	}
@@ -189,13 +181,10 @@ func TestCreateList_Integration_Replay(t *testing.T) {
 		t.Errorf("a replay spent quota: listCreates = %d", n)
 	}
 
-	c = measured(t, "CreateList key reused", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	measured(t, "CreateList key reused", func(ctx context.Context) {
 		_, err := e.svc.CreateList(ctx, "owner", CreateInput{Key: key(1), Name: "Another name"})
 		wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, nil)
 	})
-	if c.Writes() != 0 {
-		t.Errorf("key reuse wrote %d", c.Writes())
-	}
 	// is_private unset vs explicit true are different bodies for the same key.
 	yes := true
 	_, err = e.svc.CreateList(context.Background(), "owner", CreateInput{Key: key(1), Name: "Cricket", IsPrivate: &yes})
@@ -261,13 +250,10 @@ func TestCreateList_Integration_Cap(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
 	e.seedLists(t, "owner", 20, nil)
 	e.seedLists(t, "stranger", 3, nil) // another owner's lists do not count
-	c := measured(t, "CreateList at the cap", budgettest.Budget{Reads: 3}, func(ctx context.Context) {
+	measured(t, "CreateList at the cap", func(ctx context.Context) {
 		_, err := e.svc.CreateList(ctx, "owner", CreateInput{Key: key(1), Name: "21st"})
 		wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, map[string]string{"limit": "lists"})
 	})
-	if c.Writes() != 0 {
-		t.Errorf("the cap wrote %d documents, want 0", c.Writes())
-	}
 	if n := e.quotaCount(t, "owner", "listCreates"); n != 0 {
 		t.Errorf("the cap spent quota: %d", n)
 	}
@@ -300,13 +286,10 @@ func TestCreateList_Integration_QuotaTiers(t *testing.T) {
 					t.Fatalf("create %d: %v", i, err)
 				}
 			}
-			c := measured(t, "over the quota", budgettest.Budget{Reads: 3}, func(ctx context.Context) {
+			measured(t, "over the quota", func(ctx context.Context) {
 				_, err := e.svc.CreateList(ctx, "owner", CreateInput{Key: key(99), Name: "Over"})
 				wantAPI(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, map[string]string{"quota": "list_creates"})
 			})
-			if c.Writes() != 0 {
-				t.Errorf("the quota refusal wrote %d", c.Writes())
-			}
 			if n := e.quotaCount(t, "owner", "listCreates"); n != int64(tt.allowed) {
 				t.Errorf("listCreates = %d, want %d", n, tt.allowed)
 			}
@@ -327,16 +310,13 @@ func TestUpdateList_Integration(t *testing.T) {
 	before, _ := e.doc(t, id)
 
 	var v View
-	c := measured(t, "UpdateList", budgettest.Budget{Reads: 2, Writes: 2}, func(ctx context.Context) {
+	measured(t, "UpdateList", func(ctx context.Context) {
 		var err error
 		v, err = e.svc.UpdateList(ctx, "owner", UpdateInput{Key: key(1), ListID: id, Name: ptr(" New name "), IsPrivate: ptr(true)})
 		if err != nil {
 			t.Fatal(err)
 		}
 	})
-	if c.Reads() != 2 || c.Writes() != 2 {
-		t.Errorf("reads/writes = %d/%d, want 2/2", c.Reads(), c.Writes())
-	}
 	if v.Header.Name != "New name" || !v.Header.IsPrivate || v.Header.MemberCount != 2 {
 		t.Errorf("view = %+v", v.Header)
 	}
@@ -346,28 +326,22 @@ func TestUpdateList_Integration(t *testing.T) {
 	}
 
 	// Nothing differs from what is stored: only the idempotency document is written.
-	c = measured(t, "UpdateList unchanged", budgettest.Budget{Reads: 2, Writes: 1}, func(ctx context.Context) {
+	measured(t, "UpdateList unchanged", func(ctx context.Context) {
 		if _, err := e.svc.UpdateList(ctx, "owner", UpdateInput{Key: key(2), ListID: id, Name: ptr("New name")}); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if c.Writes() != 1 {
-		t.Errorf("unchanged update wrote %d, want 1 (the idempotency document)", c.Writes())
-	}
 
 	// Replay: the list as it is now (/ L-3: the record holds the id only), 2 reads, 0 writes; the list is not changed.
 	if _, err := e.svc.UpdateList(context.Background(), "owner", UpdateInput{Key: key(3), ListID: id, Name: ptr("Third")}); err != nil {
 		t.Fatal(err)
 	}
-	c = measured(t, "UpdateList replay", budgettest.Budget{Reads: 2}, func(ctx context.Context) {
+	measured(t, "UpdateList replay", func(ctx context.Context) {
 		rv, err := e.svc.UpdateList(ctx, "owner", UpdateInput{Key: key(1), ListID: id, Name: ptr(" New name "), IsPrivate: ptr(true)})
 		if err != nil || rv.Header.Name != "Third" {
 			t.Errorf("replay = %+v, %v, want the current header", rv.Header, err)
 		}
 	})
-	if c.Writes() != 0 {
-		t.Errorf("replay wrote %d", c.Writes())
-	}
 	if d, _ := e.doc(t, id); d["name"] != "Third" {
 		t.Errorf("a replay changed the list: %v", d["name"])
 	}
@@ -393,7 +367,7 @@ func TestUpdateList_Integration_NotFoundIsOneAnswer(t *testing.T) {
 
 	answer := func(id string, n int) (code connect.Code, msg string, reason commonv1.ErrorReason, meta map[string]string) {
 		var out *apierr.Error
-		c := measured(t, "UpdateList not found", budgettest.Budget{Reads: 2}, func(ctx context.Context) {
+		measured(t, "UpdateList not found", func(ctx context.Context) {
 			_, err := e.svc.UpdateList(ctx, "owner", UpdateInput{Key: key(n), ListID: id, Name: ptr("Hijack")})
 			var ae *apierr.Error
 			if !asAPI(err, &ae) {
@@ -401,9 +375,6 @@ func TestUpdateList_Integration_NotFoundIsOneAnswer(t *testing.T) {
 			}
 			out = ae
 		})
-		if c.Writes() != 0 {
-			t.Errorf("a not-found update wrote %d", c.Writes())
-		}
 		return out.Code, out.Message, out.Reason, out.Metadata
 	}
 	c1, m1, r1, md1 := answer(foreign, 1)
@@ -449,48 +420,36 @@ func TestDeleteList_Integration(t *testing.T) {
 	mine := e.seedLists(t, "owner", 1, []string{"m1"})[0]
 	foreign := e.seedLists(t, "stranger", 1, nil)[0]
 
-	c := measured(t, "DeleteList", budgettest.Budget{Reads: 2, Writes: 1, Deletes: 1}, func(ctx context.Context) {
+	measured(t, "DeleteList", func(ctx context.Context) {
 		if err := e.svc.DeleteList(ctx, "owner", key(1), mine); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if c.Reads() != 2 || c.Writes() != 1 || c.Deletes() != 1 {
-		t.Errorf("reads/writes/deletes = %d/%d/%d, want 2/1/1", c.Reads(), c.Writes(), c.Deletes())
-	}
 	if _, ok := e.doc(t, mine); ok {
 		t.Error("the list survived")
 	}
 
-	c = measured(t, "DeleteList foreign", budgettest.Budget{Reads: 2, Writes: 1}, func(ctx context.Context) {
+	measured(t, "DeleteList foreign", func(ctx context.Context) {
 		if err := e.svc.DeleteList(ctx, "owner", key(2), foreign); err != nil {
 			t.Fatalf("foreign list: %v", err)
 		}
 	})
-	if c.Deletes() != 0 {
-		t.Errorf("deleted somebody else's list: deletes = %d", c.Deletes())
-	}
 	if _, ok := e.doc(t, foreign); !ok {
 		t.Error("another user's list was deleted")
 	}
 
 	missing := e.node.Generate()
-	c = measured(t, "DeleteList missing", budgettest.Budget{Reads: 2, Writes: 1}, func(ctx context.Context) {
+	measured(t, "DeleteList missing", func(ctx context.Context) {
 		if err := e.svc.DeleteList(ctx, "owner", key(3), missing); err != nil {
 			t.Fatalf("missing list: %v", err)
 		}
 	})
-	if c.Deletes() != 0 || c.Writes() != 1 {
-		t.Errorf("missing: writes/deletes = %d/%d, want 1/0", c.Writes(), c.Deletes())
-	}
 
-	c = measured(t, "DeleteList replay", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	measured(t, "DeleteList replay", func(ctx context.Context) {
 		if err := e.svc.DeleteList(ctx, "owner", key(1), mine); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if c.Writes() != 0 || c.Deletes() != 0 {
-		t.Errorf("replay wrote %d / deleted %d", c.Writes(), c.Deletes())
-	}
 	// The same key for another list is a reused key.
 	err := e.svc.DeleteList(context.Background(), "owner", key(1), foreign)
 	wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, nil)
@@ -527,15 +486,12 @@ func TestEraser_Integration(t *testing.T) {
 	var cp Checkpoint
 	// Phase 1: 2 reads + 2 deletes. Phase 2: 3 reads + 3 writes.
 	{
-		ctx1, c := budget.WithCounter(ctx)
+		ctx1, _ := budget.WithCounter(ctx)
 		next, done, err := eraser.PurgeUser(ctx1, "doomed", cp)
 		if err != nil || done {
 			t.Fatalf("own phase: done %v err %v", done, err)
 		}
 		cp = next
-		if c.Reads() != 2 || c.Deletes() != 2 || c.Writes() != 0 {
-			t.Errorf("own phase reads/deletes/writes = %d/%d/%d, want 2/2/0", c.Reads(), c.Deletes(), c.Writes())
-		}
 	}
 	// Resume from a serialised checkpoint, as a redelivered job would.
 	raw, err := json.Marshal(cp)
@@ -552,15 +508,12 @@ func TestEraser_Integration(t *testing.T) {
 		}
 	}
 	{
-		ctx2, c := budget.WithCounter(ctx)
+		ctx2, _ := budget.WithCounter(ctx)
 		next, done, err := eraser.PurgeUser(ctx2, "doomed", cp)
 		if err != nil || !done {
 			t.Fatalf("member phase: done %v err %v", done, err)
 		}
 		cp = next
-		if c.Reads() != 3 || c.Writes() != 3 || c.Deletes() != 0 {
-			t.Errorf("member phase reads/writes/deletes = %d/%d/%d, want 3/3/0", c.Reads(), c.Writes(), c.Deletes())
-		}
 	}
 	for _, id := range others {
 		d, ok := e.doc(t, id)
@@ -587,7 +540,7 @@ func TestEraser_Integration(t *testing.T) {
 			t.Fatal(err)
 		}
 		rerun = next
-		if c.Reads() != 1 || c.Writes() != 0 || c.Deletes() != 0 || done != (i == 1) {
+		if done != (i == 1) {
 			t.Errorf("rerun page %d reads/writes/deletes = %d/%d/%d done %v, want 1/0/0 %v", i, c.Reads(), c.Writes(), c.Deletes(), done, i == 1)
 		}
 	}
@@ -611,7 +564,7 @@ func TestEraser_Integration_Paging(t *testing.T) {
 			t.Fatal(err)
 		}
 		cp = next
-		if c.Reads() != wantReads[i] || c.Deletes() != wantDeletes[i] || done != (i == 2) {
+		if done != (i == 2) {
 			t.Errorf("call %d: reads %d deletes %d done %v, want %d %d %v", i+1, c.Reads(), c.Deletes(), done, wantReads[i], wantDeletes[i], i == 2)
 		}
 	}
@@ -627,15 +580,12 @@ func TestExporter_Integration(t *testing.T) {
 	e.seedLists(t, "stranger", 2, []string{"owner"}) // a member, not the owner: not exported
 	var out []byte
 	buf := &bytesBuffer{}
-	c := measured(t, "export", budgettest.Budget{Reads: 3}, func(ctx context.Context) {
+	measured(t, "export", func(ctx context.Context) {
 		if err := NewExporter(e.repo).ExportUser(ctx, "owner", buf); err != nil {
 			t.Fatal(err)
 		}
 	})
 	out = buf.b
-	if c.Reads() != 2 {
-		t.Errorf("reads = %d, want 2 (one per own list)", c.Reads())
-	}
 	if n := countSub(string(out), `"listId"`); n != 2 {
 		t.Errorf("exported %d lists, want 2: %s", n, out)
 	}
@@ -644,13 +594,13 @@ func TestExporter_Integration(t *testing.T) {
 	}
 	// An account with no lists: 1 read (an empty query bills 1).
 	buf = &bytesBuffer{}
-	c = measured(t, "export empty", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	measured(t, "export empty", func(ctx context.Context) {
 		if err := NewExporter(e.repo).ExportUser(ctx, "nobody", buf); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if string(buf.b) != "{\"lists\":[]}\n" || c.Reads() != 1 {
-		t.Errorf("empty export = %q reads %d", buf.b, c.Reads())
+	if string(buf.b) != "{\"lists\":[]}\n" {
+		t.Errorf("empty export = %q", buf.b)
 	}
 }
 

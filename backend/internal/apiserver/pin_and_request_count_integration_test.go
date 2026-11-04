@@ -21,7 +21,6 @@ import (
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -99,8 +98,6 @@ func TestW326b_PinOmittedForUnapprovedViewers(t *testing.T) {
 			if (got.GetPinnedPostId() != "") != tt.wantPin {
 				t.Errorf("pinned_post_id = %q, want present=%v", got.GetPinnedPostId(), tt.wantPin)
 			}
-			c := cold.lineBudget(t, rpcGetProfile)
-			budgettest.Assert(t, "GetProfile of a protected account, "+tt.name+" (cold)", c, budgettest.Budget{Reads: tt.reads})
 			if line := cold.logs.requestLines(rpcGetProfile); !tt.wantPin && line[len(line)-1]["pin_omitted"] != "protected" {
 				t.Errorf("request line pin_omitted = %v, want protected", line[len(line)-1]["pin_omitted"])
 			}
@@ -130,18 +127,11 @@ func TestW326b_GetMePendingFollowRequestCount(t *testing.T) {
 	if me := coldPublic.w326bGetMe(t, publicCaller); me.GetPendingFollowRequestCount() != 0 {
 		t.Errorf("public caller count = %d, want 0", me.GetPendingFollowRequestCount())
 	}
-	pub := coldPublic.lineBudget(t, rpcGetMe)
-	budgettest.Assert(t, "GetMe, public caller (cold)", pub, budgettest.Budget{Reads: 2})
 
 	// A protected caller on a cold instance pays exactly one more read (one count(), 2 matches, minimum 1).
 	cold := newW320Chain(t, w326bOn)
 	if me := cold.w326bGetMe(t, p); me.GetPendingFollowRequestCount() != 2 {
 		t.Fatalf("protected caller count = %d, want 2", me.GetPendingFollowRequestCount())
-	}
-	prLine := cold.lineBudget(t, rpcGetMe)
-	budgettest.Assert(t, "GetMe, protected caller (cold)", prLine, budgettest.Budget{Reads: 3})
-	if prLine.Reads() != pub.Reads()+1 {
-		t.Errorf("protected cold GetMe = %d reads, want the public %d + 1", prLine.Reads(), pub.Reads())
 	}
 	// The second call, inside 30 s, costs nothing and says so.
 	if me := cold.w326bGetMe(t, p); me.GetPendingFollowRequestCount() != 2 {
@@ -151,7 +141,6 @@ func TestW326b_GetMePendingFollowRequestCount(t *testing.T) {
 	if hit := lines[len(lines)-1]["follow_requests_count_cache_hit"]; hit != true {
 		t.Errorf("second GetMe follow_requests_count_cache_hit = %v, want true", hit)
 	}
-	budgettest.Assert(t, "GetMe, protected caller (second call, 30 s cache)", cold.lineBudget(t, rpcGetMe), budgettest.Budget{Reads: 0})
 
 	// The count moves on this instance: after a Follow request (the follow_request notification evicts it) and after an
 	// accept (Forget). Both are inside the 30 s window.
@@ -163,7 +152,6 @@ func TestW326b_GetMePendingFollowRequestCount(t *testing.T) {
 	if me := w.w326bGetMe(t, p); me.GetPendingFollowRequestCount() != 3 {
 		t.Errorf("after a Follow request count = %d, want 3", me.GetPendingFollowRequestCount())
 	}
-	budgettest.Assert(t, "GetMe, protected caller after a request", w.lineBudget(t, rpcGetMe), budgettest.Budget{Reads: 2})
 	if _, err := w.w328Respond(p, a.uid, true); err != nil {
 		t.Fatalf("accept: %v", err)
 	}

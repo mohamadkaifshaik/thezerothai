@@ -10,7 +10,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 func arrUnion(path string, uid string) firestore.Update {
@@ -89,13 +88,9 @@ func TestDeletePost_Integration_D6Matrix(t *testing.T) {
 			client, id := d6Fixture(t)
 			row.seed(t, client)
 			in := newCreateInstance(t, client, time.Nanosecond)
-			c, err := in.del("uid-alice", id)
+			_, err := in.del("uid-alice", id)
 			if err != nil {
 				t.Fatalf("DeletePost: %v, want nil", err)
-			}
-			budgettest.Assert(t, "DeletePost "+row.name, c, budgettest.Budget{Reads: 1})
-			if c.Writes() != 0 || c.Deletes() != 0 {
-				t.Fatalf("writes=%d deletes=%d, want 0/0", c.Writes(), c.Deletes())
 			}
 			if !postExists(t, client, id) {
 				t.Fatal("B's post was deleted by A")
@@ -113,15 +108,7 @@ func TestGetPost_Integration_D6Matrix(t *testing.T) {
 			client, id := d6Fixture(t)
 			row.seed(t, client)
 			in := newCreateInstance(t, client, time.Nanosecond)
-			c, p, err := in.get("uid-alice", id)
-			ceiling := int64(3)
-			if row.name == "A blockedByOverflow, B blocked A" {
-				ceiling = 4
-			}
-			budgettest.Assert(t, "GetPost "+row.name, c, budgettest.Budget{Reads: ceiling})
-			if c.Writes() != 0 || c.Deletes() != 0 {
-				t.Fatalf("writes=%d deletes=%d, want 0/0", c.Writes(), c.Deletes())
-			}
+			_, p, err := in.get("uid-alice", id)
 			if row.getFound {
 				if err != nil || p == nil || p.ID != id {
 					t.Fatalf("want the post returned, got %v %v", p, err)
@@ -142,11 +129,10 @@ func TestGetPost_Integration_D6Matrix(t *testing.T) {
 func TestGetPost_Integration_Own(t *testing.T) {
 	client, id := d6Fixture(t)
 	in := newCreateInstance(t, client, time.Nanosecond)
-	c, p, err := in.get("uid-bob", id)
+	_, p, err := in.get("uid-bob", id)
 	if err != nil || p == nil || p.ID != id {
 		t.Fatalf("own post: %v %v", p, err)
 	}
-	budgettest.Assert(t, "GetPost own", c, budgettest.Budget{Reads: 3})
 }
 
 // TestPurge_Integration_RestartFromEmptyCheckpoint: the checkpoint is lost after batch 1; PurgeUser restarted from

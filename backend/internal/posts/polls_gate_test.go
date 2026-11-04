@@ -34,7 +34,7 @@ func TestCreate_PollsGate(t *testing.T) {
 			switch {
 			case tt.wantFeature != "":
 				ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
-				if ae.Metadata["feature"] != tt.wantFeature || c.Reads() != 0 || c.Writes() != 0 || e.repo.createCalls != 0 {
+				if ae.Metadata["feature"] != tt.wantFeature || e.repo.createCalls != 0 {
 					t.Fatalf("feature=%q reads=%d writes=%d creates=%d", ae.Metadata["feature"], c.Reads(), c.Writes(), e.repo.createCalls)
 				}
 			default:

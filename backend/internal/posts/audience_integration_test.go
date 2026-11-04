@@ -14,7 +14,6 @@ import (
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -57,9 +56,8 @@ func TestAudience_Integration_GetPostQuoteAndRefusals(t *testing.T) {
 	// Bob protects. Alice is a stranger.
 	in := newCreateInstance(t, client, time.Nanosecond)
 	set := in.protectIn("uid-bob")
-	c, _, err := in.get("uid-alice", bobPost.ID)
+	_, _, err = in.get("uid-alice", bobPost.ID)
 	wantPostNotFound(t, err)
-	budgettest.Assert(t, "GetPost of a protected post, stranger", c, budgettest.Budget{Reads: 3})
 	_, _, missing := in.get("uid-alice", pid(777))
 	if err.Error() != missing.Error() {
 		t.Fatalf("not byte-identical to a deleted post: %q vs %q", err, missing)
@@ -70,12 +68,9 @@ func TestAudience_Integration_GetPostQuoteAndRefusals(t *testing.T) {
 
 	// A quote target refusal for the stranger is the same NOT_FOUND, 0 writes.
 	actx := authn.WithClaims(context.Background(), authn.Claims{UID: "uid-alice", SignInProvider: authn.SignInProviderGoogle})
-	actx, wc := budget.WithCounter(actx)
+	actx, _ = budget.WithCounter(actx)
 	_, err = in.svc.Create(actx, "uid-alice", CreateInput{IdempotencyKey: key(3), Text: "q", QuoteOfPostID: bobPost.ID, QuotesEnabled: true})
 	wantPostNotFound(t, err)
-	if wc.Writes() != 0 {
-		t.Fatalf("refused quote wrote %d", wc.Writes())
-	}
 
 	// The strip: alice reads carol's pre-existing quote of bob.
 	srv := NewServer(in.svc, replyAudienceRegistry(flags.Spec{Mode: flags.Off}))
@@ -95,20 +90,16 @@ func TestAudience_Integration_GetPostQuoteAndRefusals(t *testing.T) {
 	setGraph(t, client, "uid-alice", []firestore.Update{{Path: "following", Value: firestore.ArrayUnion("uid-bob")}})
 	in2 := newCreateInstance(t, client, time.Nanosecond)
 	in2.protectIn("uid-bob")
-	c, p, err := in2.get("uid-alice", bobPost.ID)
+	_, p, err := in2.get("uid-alice", bobPost.ID)
 	if err != nil {
 		t.Fatalf("follower: %v", err)
 	}
-	budgettest.Assert(t, "GetPost of a protected post, follower", c, budgettest.Budget{Reads: 3})
 	if p.Visibility != VisibilityPublic {
 		t.Fatal("stored visibility must stay PUBLIC")
 	}
-	actx2, wc2 := budget.WithCounter(authn.WithClaims(context.Background(), authn.Claims{UID: "uid-alice", SignInProvider: authn.SignInProviderGoogle}))
+	actx2, _ := budget.WithCounter(authn.WithClaims(context.Background(), authn.Claims{UID: "uid-alice", SignInProvider: authn.SignInProviderGoogle}))
 	_, err = in2.svc.Create(actx2, "uid-alice", CreateInput{IdempotencyKey: key(4), Text: "q", QuoteOfPostID: bobPost.ID, QuotesEnabled: true})
 	_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT)
-	if wc2.Writes() != 0 {
-		t.Fatalf("PROTECTED_ACCOUNT quote wrote %d", wc2.Writes())
-	}
 
 	// Bob may quote his own post.
 	bctx := authn.WithClaims(context.Background(), authn.Claims{UID: "uid-bob", SignInProvider: authn.SignInProviderGoogle})

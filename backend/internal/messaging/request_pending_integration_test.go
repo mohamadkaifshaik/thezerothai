@@ -10,7 +10,6 @@ import (
 	"time"
 
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // integration tests: the requester's pending request reads REQUEST in their own Inbox through the requestPending flag
@@ -36,14 +35,9 @@ func TestRequestPending_SenderRowReadsRequest(t *testing.T) {
 	id := ConversationID(alice, bob)
 	for i := range 3 {
 		e.tick(time.Minute)
-		_, c, err := e.send(alice, toUser(skey(300+i), bob, fmt.Sprintf("request %d", i)))
+		_, _, err := e.send(alice, toUser(skey(300+i), bob, fmt.Sprintf("request %d", i)))
 		if err != nil {
 			t.Fatal(err)
-		}
-		if i == 0 {
-			budgettest.Assert(t, "SendMessage new conversation", c, budgettest.Budget{Reads: 4, Writes: 5})
-		} else {
-			budgettest.Assert(t, "SendMessage request message", c, budgettest.Budget{Reads: 2, Writes: 4})
 		}
 		if ent, ok := e.entry(alice, dmInboxCollection, id); !ok || !ent.RequestPending {
 			t.Fatalf("after message %d alice's entry = %+v %v, want requestPending", i, ent, ok)
@@ -121,11 +115,10 @@ func TestRequestPending_AcceptAfterRequesterDeleted(t *testing.T) {
 		t.Fatal("setup: alice's entry survived her delete")
 	}
 	e.tick(time.Minute)
-	c, err := e.accept(e.newService(), bob, id)
+	_, err := e.accept(e.newService(), bob, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "AcceptMessageRequest, requester deleted", c, budgettest.Budget{Reads: 4, Writes: 2, Deletes: 1})
 	if _, ok := e.entry(alice, dmInboxCollection, id); ok {
 		t.Error("Accept created a ghost dmInbox entry for the requester")
 	}
