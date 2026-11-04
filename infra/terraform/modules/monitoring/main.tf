@@ -245,7 +245,7 @@ resource "google_monitoring_alert_policy" "run_5xx_rate" {
 }
 
 // 3. Firestore reads > 40k in a day — 80% of the 50k/day free quota, early
-// cost warning (billing budget is the hard cost backstop).
+// cost warning.
 // The threshold is a variable (250k/day in credit mode, back to 40k on 2026-12-22). The display name is
 // unchanged at the default so Stage 0 plans show no diff.
 resource "google_monitoring_alert_policy" "firestore_reads_near_quota" {
@@ -332,7 +332,7 @@ resource "google_monitoring_alert_policy" "auth_admin_mutations" { # cost-approv
 
 // 5. Request-flood detector (credit mode). Cloud Run bills every request that reaches the container, even
 // ones our limiters answer with 429, and requests are not capped by max-instances: a 1,000 req/s flood is about
-// INR 3,283/day. The billing budget lags by hours; this metric lags by minutes. Default 50,000 requests/hour is about
+// INR 3,283/day. This metric lags by minutes. Default 50,000 requests/hour is about
 // 14 req/s, 10x the 3k-DAU average. Alerting is not charged before 2027-09-01 (pricing page, 2026-10-23).
 // Off by default (var.enable_request_flood_alert) so Stage 0 plans do not change.
 resource "google_monitoring_alert_policy" "request_flood" { # cost-approved: ADR-0022 until:2026-12-26
@@ -361,7 +361,7 @@ resource "google_monitoring_alert_policy" "request_flood" { # cost-approved: ADR
 
   documentation {
     mime_type = "text/markdown"
-    content   = "Request volume above the credit-mode flood threshold (ADR-0022 D3). Requests are billed even when answered 429, and the budget alert lags by hours. Fastest cost stop: remove the allUsers run.invoker binding on the api service (IAM-denied requests are not billed; lever L2). Then investigate the abuse or cost spike. Restore the invoker afterwards."
+    content   = "Request volume above the credit-mode flood threshold (ADR-0022 D3). Requests are billed even when answered 429, Fastest cost stop: remove the allUsers run.invoker binding on the api service (IAM-denied requests are not billed; lever L2). Then investigate the abuse or cost spike. Restore the invoker afterwards."
   }
 
   alert_strategy {
