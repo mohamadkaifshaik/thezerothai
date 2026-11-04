@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../theme/app_theme.dart';
 import 'app_bottom_bar.dart';
@@ -74,6 +75,35 @@ class ResponsiveScaffold extends StatefulWidget {
 
 class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
   final _scaffoldKey = GlobalKey<ScaffoldState>();
+  bool _showMobileNavigation = true;
+
+  @override
+  void didUpdateWidget(covariant ResponsiveScaffold oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A bar hidden by scrolling should not stay hidden after the user changes
+    // to another top-level destination.
+    if (oldWidget.selectedIndex != widget.selectedIndex) {
+      _showMobileNavigation = true;
+    }
+  }
+
+  bool _onScrollNotification(ScrollNotification notification) {
+    if (MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile ||
+        notification.depth != 0 ||
+        notification.metrics.axis != Axis.vertical ||
+        notification is! UserScrollNotification) {
+      return false;
+    }
+    final show = switch (notification.direction) {
+      ScrollDirection.forward => true,
+      ScrollDirection.reverse => false,
+      ScrollDirection.idle => _showMobileNavigation,
+    };
+    if (show != _showMobileNavigation) {
+      setState(() => _showMobileNavigation = show);
+    }
+    return false;
+  }
 
   // Anchors of the rail destinations that open a menu (`onActivate`), by index.
   final _anchorKeys = <int, GlobalKey>{};
@@ -114,7 +144,13 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     final scaffold = Scaffold(
       key: _scaffoldKey,
       drawer: widget.drawer,
-      body: SafeArea(bottom: false, child: widget.body),
+      body: SafeArea(
+        bottom: false,
+        child: NotificationListener<ScrollNotification>(
+          onNotification: _onScrollNotification,
+          child: widget.body,
+        ),
+      ),
       floatingActionButton: widget.onCompose != null && widget.showFab
           ? FloatingActionButton(
               tooltip: _composeTooltip,
@@ -122,10 +158,17 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
               child: const Icon(Icons.edit_outlined),
             )
           : null,
-      bottomNavigationBar: AppBottomBar(
-        destinations: [for (final i in bar) widget.destinations[i]],
-        selectedIndex: selected < 0 ? null : selected,
-        onSelected: (index) => widget.onDestinationSelected(bar[index]),
+      bottomNavigationBar: AnimatedSize(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
+        child: _showMobileNavigation
+            ? AppBottomBar(
+                destinations: [for (final i in bar) widget.destinations[i]],
+                selectedIndex: selected < 0 ? null : selected,
+                onSelected: (index) => widget.onDestinationSelected(bar[index]),
+              )
+            : const SizedBox.shrink(),
       ),
     );
     if (widget.drawer == null) return scaffold;

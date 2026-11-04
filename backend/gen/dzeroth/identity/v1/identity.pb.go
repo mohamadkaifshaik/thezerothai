@@ -179,9 +179,12 @@ type Profile struct {
 	// Cleared by the server when the post is deleted; a takedown keeps it, so a restore brings the pin back.
 	// Also empty for a caller who may not see a protected account's posts: neither the account nor a
 	// follower of it.
-	PinnedPostId  string `protobuf:"bytes,17,opt,name=pinned_post_id,json=pinnedPostId,proto3" json:"pinned_post_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	PinnedPostId string `protobuf:"bytes,17,opt,name=pinned_post_id,json=pinnedPostId,proto3" json:"pinned_post_id,omitempty"`
+	// Paid subscription verification entitlement. Set only by trusted subscription administration after confirming
+	// an active paid subscription; unrelated to verified identity or email status.
+	SubscriptionVerified bool `protobuf:"varint,18,opt,name=subscription_verified,json=subscriptionVerified,proto3" json:"subscription_verified,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *Profile) Reset() {
@@ -331,6 +334,13 @@ func (x *Profile) GetPinnedPostId() string {
 		return x.PinnedPostId
 	}
 	return ""
+}
+
+func (x *Profile) GetSubscriptionVerified() bool {
+	if x != nil {
+		return x.SubscriptionVerified
+	}
+	return false
 }
 
 type CreateProfileRequest struct {
@@ -1394,7 +1404,7 @@ var File_dzeroth_identity_v1_identity_proto protoreflect.FileDescriptor
 
 const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\n" +
-	"\"dzeroth/identity/v1/identity.proto\x12\x13dzeroth.identity.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc6\x04\n" +
+	"\"dzeroth/identity/v1/identity.proto\x12\x13dzeroth.identity.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfb\x04\n" +
 	"\aProfile\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x16\n" +
 	"\x06handle\x18\x02 \x01(\tR\x06handle\x12!\n" +
@@ -1418,7 +1428,8 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x10banner_thumb_url\x18\x0e \x01(\tR\x0ebannerThumbUrl\x12\x1a\n" +
 	"\blocation\x18\x0f \x01(\tR\blocation\x12\x18\n" +
 	"\awebsite\x18\x10 \x01(\tR\awebsite\x12$\n" +
-	"\x0epinned_post_id\x18\x11 \x01(\tR\fpinnedPostId\"z\n" +
+	"\x0epinned_post_id\x18\x11 \x01(\tR\fpinnedPostId\x123\n" +
+	"\x15subscription_verified\x18\x12 \x01(\bR\x14subscriptionVerified\"z\n" +
 	"\x14CreateProfileRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x16\n" +
 	"\x06handle\x18\x02 \x01(\tR\x06handle\x12!\n" +

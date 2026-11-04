@@ -8,9 +8,11 @@ import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'alt_text_chip.dart';
 import 'gif_badge.dart';
 
-/// A post's attached images (0-4), rounded and bordered. One image keeps its
-/// own aspect ratio (clamped to 4:5 .. 16:9 so a tall image cannot take over
-/// the feed); two or more fill a fixed 16:9 grid.
+/// A post's attached images (0-4), rounded and bordered. Each image occupies
+/// a swipeable page. A single image keeps its own aspect ratio (clamped to
+/// 4:5 .. 16:9 so a tall image cannot take over the feed); multiple images use
+/// a fixed 16:9 viewport and can be browsed horizontally. Images fit inside
+/// their tiles without cropping; unused space is filled with the surface color.
 ///
 /// Lists use `thumbUrl` only and decode it at display size. A ref with no
 /// `thumbUrl` shows a placeholder and never falls back to the full image:
@@ -68,63 +70,21 @@ class PostMedia extends StatelessWidget {
   }
 
   Widget _layout(List<common.MediaRef> items) {
-    Widget tile(common.MediaRef m) => _MediaTile(
-      media: m,
+    Widget tile(int index) => _MediaTile(
+      media: items[index],
       useFullImage: useFullImage,
-      onOpen: onOpenImage == null ? null : () => onOpenImage!(items.indexOf(m)),
+      onOpen: onOpenImage == null ? null : () => onOpenImage!(index),
     );
-    switch (items.length) {
-      case 1:
-        return tile(items[0]);
-      case 2:
-        return Row(
-          children: [
-            Expanded(child: tile(items[0])),
-            const SizedBox(width: _gap),
-            Expanded(child: tile(items[1])),
-          ],
-        );
-      case 3:
-        return Row(
-          children: [
-            Expanded(child: tile(items[0])),
-            const SizedBox(width: _gap),
-            Expanded(
-              child: Column(
-                children: [
-                  Expanded(child: tile(items[1])),
-                  const SizedBox(height: _gap),
-                  Expanded(child: tile(items[2])),
-                ],
-              ),
-            ),
-          ],
-        );
-      default:
-        return Column(
-          children: [
-            Expanded(
-              child: Row(
-                children: [
-                  Expanded(child: tile(items[0])),
-                  const SizedBox(width: _gap),
-                  Expanded(child: tile(items[1])),
-                ],
-              ),
-            ),
-            const SizedBox(height: _gap),
-            Expanded(
-              child: Row(
-                children: [
-                  Expanded(child: tile(items[2])),
-                  const SizedBox(width: _gap),
-                  Expanded(child: tile(items[3])),
-                ],
-              ),
-            ),
-          ],
-        );
-    }
+    if (items.length == 1) return tile(0);
+    return PageView.builder(
+      itemCount: items.length,
+      itemBuilder: (context, index) => Padding(
+        padding: EdgeInsetsDirectional.only(
+          end: index == items.length - 1 ? 0 : _gap,
+        ),
+        child: tile(index),
+      ),
+    );
   }
 }
 
@@ -184,26 +144,29 @@ Widget _withAltChip(Widget image, String alt) {
 /// while it loads.
 Widget _networkImage(String url, ColorScheme colors, {Widget? placeholder}) {
   final blank = ColoredBox(color: colors.surfaceContainerHigh);
-  return LayoutBuilder(
-    builder: (context, constraints) {
-      final px = (constraints.maxWidth * MediaQuery.devicePixelRatioOf(context))
-          .ceil();
-      return CachedNetworkImage(
-        imageUrl: url,
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: double.infinity,
-        memCacheWidth: px > 0 ? px : null,
-        placeholder: (_, _) => placeholder ?? blank,
-        errorWidget: (_, _, _) => ColoredBox(
-          color: colors.surfaceContainerHigh,
-          child: Icon(
-            Icons.broken_image_outlined,
-            color: colors.onSurfaceVariant,
+  return ColoredBox(
+    color: colors.surfaceContainerHigh,
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final px = (constraints.maxWidth * MediaQuery.devicePixelRatioOf(context))
+            .ceil();
+        return CachedNetworkImage(
+          imageUrl: url,
+          fit: BoxFit.contain,
+          width: double.infinity,
+          height: double.infinity,
+          memCacheWidth: px > 0 ? px : null,
+          placeholder: (_, _) => placeholder ?? blank,
+          errorWidget: (_, _, _) => ColoredBox(
+            color: colors.surfaceContainerHigh,
+            child: Icon(
+              Icons.broken_image_outlined,
+              color: colors.onSurfaceVariant,
+            ),
           ),
-        ),
-      );
-    },
+        );
+      },
+    ),
   );
 }
 

@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/app_shell_scope.dart';
-import '../../../core/widgets/app_top_bar.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../graph/presentation/widgets/who_to_follow_card.dart';
@@ -75,11 +73,6 @@ class _ExploreHeader extends SliverPersistentHeaderDelegate {
     bool overlapsContent,
   ) {
     final colors = Theme.of(context).colorScheme;
-    // The drawer's avatar button leads the row on phones only, as on the other
-    // top bars.
-    final showAvatar =
-        MediaQuery.sizeOf(context).width < AppBreakpoints.mobile &&
-        AppShellScope.maybeOf(context) != null;
     return ColoredBox(
       color: colors.surface.withValues(alpha: 0.92),
       child: Column(
@@ -88,14 +81,7 @@ class _ExploreHeader extends SliverPersistentHeaderDelegate {
             height: rowHeight,
             child: Row(
               children: [
-                if (showAvatar)
-                  const Padding(
-                    padding: EdgeInsets.only(left: AppSpacing.sm),
-                    child: AppAvatarButton(),
-                  )
-                else
-                  const SizedBox(width: AppSpacing.md),
-                if (showAvatar) const SizedBox(width: AppSpacing.sm),
+                const SizedBox(width: AppSpacing.md),
                 Expanded(child: const Center(child: AppSearchField())),
                 const SizedBox(width: AppSpacing.md),
               ],

@@ -23,14 +23,13 @@ import '../theme/app_theme.dart';
 /// The account drawer of narrow layouts, opened by the avatar button of the
 /// top bar (`AppTopBar`): the account block (avatar, name, handle and the
 /// Following / Followers counts) and one 56dp row per destination that is not
-/// in the bottom bar: Profile, Settings, Sign out.
+/// in the bottom bar: Profile, Settings and Privacy, Sign out.
 ///
 /// It reads the profile the app already holds (`OnboardingBloc`): 0 RPCs. A
 /// row closes the drawer, then navigates; the counts open the same lists as
-/// the profile header. Bookmarks sits between Profile and Settings
-/// with the `bookmarks` and `posts` flags on; Lists follows it with `lists` on;
-/// behind its flag. With `shells` and `ui_shell` on, the shell rows (Creator
-/// tools, Premium, Advertise, Calls) follow under a divider, before Settings.
+/// the profile header. The row order follows the mobile More menu, while each
+/// destination keeps its existing feature gate. Follow requests remains an
+/// app-specific row immediately after Profile.
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
 
@@ -39,6 +38,18 @@ class AppDrawer extends StatelessWidget {
     final profile = context.select((OnboardingBloc bloc) => bloc.state.profile);
     final handle = profile?.handle ?? '';
     final shellEntries = shellEntriesFor(context);
+    final callsEntry = shellEntries.where(
+      (entry) => entry.kind == ShellKind.calls,
+    );
+    final secondaryShellEntries = [
+      for (final kind in const [
+        ShellKind.premium,
+        ShellKind.creatorStudio,
+        ShellKind.advertise,
+      ])
+        for (final entry in shellEntries)
+          if (entry.kind == kind) entry,
+    ];
     final pendingRequests = context.select(
       (OnboardingBloc bloc) => bloc.state.pendingFollowRequestCount,
     );
@@ -81,16 +92,14 @@ class AppDrawer extends StatelessWidget {
                   () => context.go(AppRouter.followRequestsPath),
                 ),
               ),
-            // Needs `bookmarks` (the entry) and `posts` (the route).
-            if (isFeatureEnabled(context, kFeatureBookmarks) &&
-                isFeatureEnabled(context, kFeaturePosts))
+            for (final entry in callsEntry)
               _DrawerRow(
-                icon: Icons.bookmark_border,
-                label: 'History',
-                onTap: () =>
-                    _go(context, () => context.go(AppRouter.bookmarksPath)),
+                key: ValueKey('shell-${entry.kind.name}'),
+                icon: entry.icon,
+                label: entry.label,
+                onTap: () => _go(context, () => openShellEntry(context, entry)),
               ),
-            // Needs `lists` (the drawer only exists with `ui_shell`).
+            // Needs `posts` (the entry and route).
             if (isFeatureEnabled(context, kFeaturePosts))
               _DrawerRow(
                 icon: Icons.article_outlined,
@@ -98,6 +107,7 @@ class AppDrawer extends StatelessWidget {
                 onTap: () =>
                     _go(context, () => context.go(AppRouter.articlesPath)),
               ),
+            // Needs `lists` (the drawer only exists with `ui_shell`).
             if (isFeatureEnabled(context, kFeatureLists))
               _DrawerRow(
                 key: const ValueKey('drawer-lists'),
@@ -115,11 +125,19 @@ class AppDrawer extends StatelessWidget {
                 onTap: () =>
                     _go(context, () => context.go(AppRouter.communitiesPath)),
               ),
-            // The read-only shells: after every feature row, before
-            // Settings, under a hairline. Needs `shells` and `ui_shell`.
-            if (shellEntries.isNotEmpty) ...[
+            // History follows feature destinations, then the remaining shell
+            // entries in the requested order. Needs `shells` and `ui_shell`.
+            if (isFeatureEnabled(context, kFeatureBookmarks) &&
+                isFeatureEnabled(context, kFeaturePosts))
+              _DrawerRow(
+                icon: Icons.bookmark_border,
+                label: 'History',
+                onTap: () =>
+                    _go(context, () => context.go(AppRouter.bookmarksPath)),
+              ),
+            if (secondaryShellEntries.isNotEmpty) ...[
               const Divider(height: 1),
-              for (final entry in shellEntries)
+              for (final entry in secondaryShellEntries)
                 _DrawerRow(
                   key: ValueKey('shell-${entry.kind.name}'),
                   icon: entry.icon,
@@ -130,7 +148,7 @@ class AppDrawer extends StatelessWidget {
             ],
             _DrawerRow(
               icon: Icons.settings_outlined,
-              label: 'Settings',
+              label: 'Settings and Privacy',
               onTap: () =>
                   _go(context, () => context.go(AppRouter.settingsPath)),
             ),

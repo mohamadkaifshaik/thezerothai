@@ -355,7 +355,7 @@ void main() {
       await tester.tap(find.bySemanticsLabel('Account menu'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Settings'));
+      await tester.tap(find.text('Settings and Privacy'));
       await tester.pumpAndSettle();
 
       expect(find.text('settings body'), findsOneWidget);
@@ -946,7 +946,9 @@ void main() {
     });
   });
 
-  testWidgets('showComposeFabAt follows the D2 table', (tester) async {
+  testWidgets('showComposeFabAt hides only where the FAB conflicts', (
+    tester,
+  ) async {
     final results = <String, bool>{};
     whenListen(
       onboarding,
@@ -975,7 +977,7 @@ void main() {
     );
 
     expect(results, {
-      '/home': false,
+      '/home': true,
       '/notifications': false,
       '/bookmarks': false,
       '/settings/blocked': false,

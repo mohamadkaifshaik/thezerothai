@@ -24,9 +24,8 @@ class PostActions {
 
 /// Reply / repost / like / bookmark / share: 16dp outline icons (in 48dp tap
 /// boxes) with compact counts. Every visible counted action (reply, repost,
-/// like) gets an equal, left-aligned slot, so two actions (replies off) sit
-/// next to each other instead of at opposite edges; Bookmark and Share, when
-/// offered, are right-aligned after them (Bookmark filled and accent when
+/// like) gets an equal, left-aligned slot. Share and Bookmark use the final
+/// slots in that order (Bookmark filled and accent when
 /// bookmarked). The liked / reposted state uses the like / repost colours and
 /// is announced as `selected`. Rendered by `PostCard` only when it is given
 /// [PostActions] (the engagement bar).
@@ -139,18 +138,17 @@ class PostActionBar extends StatelessWidget {
         children: [
           for (final button in counted) Flexible(child: button),
           // The last glyph sits flush with the right edge, as in the list.
-          ?bookmark(alignEnd: !shareShown),
-          if (shareShown) share(alignEnd: true),
+          if (shareShown) Flexible(child: share(alignEnd: false)),
+          ?bookmark(alignEnd: false),
         ],
       );
     }
     return Row(
       children: [
         for (final button in counted) _ActionSlot(child: button),
-        // Bookmark and Share sit together at the right edge (X's action row);
-        // alone, Bookmark takes the flush-right place Share would have.
-        ?bookmark(alignEnd: !shareShown),
-        if (shareShown) share(alignEnd: true),
+        if (shareShown) _ActionSlot(child: share(alignEnd: false)),
+        if (actions.onBookmark != null)
+          _ActionSlot(child: bookmark(alignEnd: false)!),
       ],
     );
   }
