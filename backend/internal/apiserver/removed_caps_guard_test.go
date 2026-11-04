@@ -6,11 +6,13 @@ import (
 	"strings"
 	"testing"
 
+	articlesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1/articlesv1connect"
 	communitiesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1/communitiesv1connect"
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	messagingv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1/messagingv1connect"
+	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	searchv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1/searchv1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
@@ -98,6 +100,12 @@ func dailyCapInventoryViolations(rl ratelimit.Config) []string {
 			out = append(out, "no per-minute bucket on "+p)
 		}
 	}
+	// Publishing an article creates a post, so it must draw on the CreatePost bucket: without it a post made through an
+	// article would skip the per-minute bound that CreatePost has.
+	create := rl.PerProcedure[postsv1connect.PostServiceCreatePostProcedure]
+	if pub := rl.PerProcedure[articlesv1connect.ArticleServicePublishArticleProcedure]; create == nil || pub != create {
+		out = append(out, "PublishArticle does not share the CreatePost bucket")
+	}
 	sort.Strings(out)
 	return out
 }
@@ -151,6 +159,12 @@ func TestDailyCapInventory_IsExact(t *testing.T) {
 		{"a required bucket is dropped", func(c *ratelimit.Config) {
 			delete(c.PerProcedure, graphv1connect.GraphServiceListMutedUsersProcedure)
 		}, "no per-minute bucket on " + graphv1connect.GraphServiceListMutedUsersProcedure},
+		{"PublishArticle loses the CreatePost bucket", func(c *ratelimit.Config) {
+			delete(c.PerProcedure, articlesv1connect.ArticleServicePublishArticleProcedure)
+		}, "PublishArticle does not share the CreatePost bucket"},
+		{"PublishArticle gets its own bucket", func(c *ratelimit.Config) {
+			c.PerProcedure[articlesv1connect.ArticleServicePublishArticleProcedure] = ratelimit.NewLimiter(10, idleBucketTTL)
+		}, "PublishArticle does not share the CreatePost bucket"},
 		{"CheckHandleAvailability loses its bucket", func(c *ratelimit.Config) {
 			delete(c.PerProcedure, identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure)
 		}, "no per-minute bucket on " + identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure},

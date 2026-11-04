@@ -3,6 +3,7 @@ package apiserver
 import (
 	"time"
 
+	articlesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1/articlesv1connect"
 	communitiesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1/communitiesv1connect"
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
@@ -51,6 +52,9 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// SchedulePost and CancelScheduledPost share the CreatePost bucket (the SAME limiter, so one user's
 	// creates, schedules and cancels draw on one 10/min budget; that bound is what limits schedule/cancel churn
 	// across the instance-local limiter). ListScheduledPosts is a read: the 60/min default bucket.
+	// PublishArticle creates a post, so it shares the CreatePost bucket too: an article post and a normal post draw on one
+	// budget. SaveArticle is NOT mapped: the editor autosaves after every pause in typing, and on the 10/min bucket
+	// that would block posting; it stays on the default bucket with the other article calls.
 	// ReportContent 5/min per user; the daily bound is the reports quota (20, 5 for new accounts).
 	rlReport := ratelimit.NewLimiter(cfg.RateLimit.ReportPerMinute, idleBucketTTL)
 
@@ -151,6 +155,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			postsv1connect.PostServiceDeletePostProcedure:                      rlPostDelete,
 			postsv1connect.PostServiceSchedulePostProcedure:                    rlPostCreate,
 			postsv1connect.PostServiceCancelScheduledPostProcedure:             rlPostCreate,
+			articlesv1connect.ArticleServicePublishArticleProcedure:            rlPostCreate,
 			moderationv1connect.ModerationServiceReportContentProcedure:        rlReport,
 			engagementv1connect.EngagementServiceLikePostProcedure:             rlEngagement,
 			engagementv1connect.EngagementServiceUnlikePostProcedure:           rlEngagement,
