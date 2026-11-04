@@ -29,7 +29,7 @@ variable "auth_admin_alert_per_hour" {
 }
 
 variable "enable_ops_alerts" {
-  description = "Create the three ops alert policies (uptime, 5xx rate, Firestore reads). Billable under Cloud Monitoring alerting pricing (~$0.35 per metric reference per month), so prod only (ADR-0007 amendment 2026-10-10, R4). The dashboard and uptime check exist regardless."
+  description = "Create the ops alert policies (uptime, 5xx count, Firestore reads, dead-lettered messages, failing Scheduler jobs, missed daily-maintenance). Billable under Cloud Monitoring alerting pricing (~$0.35 per metric reference per month), so prod only (ADR-0007 amendment 2026-10-10, R4). The dashboard and uptime check exist regardless."
   type        = bool
   default     = true
 }
@@ -50,4 +50,10 @@ variable "firestore_reads_alert_per_day" {
   description = "Daily Firestore reads above which the near-quota alert fires. 40000 = 80% of the free 50k (Stage 0). ADR-0022 D2 raises it to 250000 in credit mode until 2026-12-22."
   type        = number
   default     = 40000
+}
+
+variable "run_5xx_per_10min" {
+  description = "5xx responses in 10 minutes above which the api 5xx alert fires. A count, so it works at low traffic: raise it as traffic grows."
+  type        = number
+  default     = 5
 }
