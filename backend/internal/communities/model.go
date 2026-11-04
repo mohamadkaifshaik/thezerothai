@@ -9,7 +9,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 )
 
-// Field limits of a community (ADR-0031 D2), in code points after trim and NFC. The number of rules and the capped arrays are
+// Field limits of a community, in code points after trim and NFC. The number of rules and the capped arrays are
 // config (COMMUNITY_MAX_RULES, COMMUNITY_MODLOG_MAX), not constants.
 const (
 	MinNameRunes        = 1
@@ -20,16 +20,16 @@ const (
 	MaxRuleTextRunes    = 300
 )
 
-// DeletedMarker replaces a deleted account's uid in the moderation log (ADR-0031 D2, D9; the ADR-0027 marker). A log entry keeps its
+// DeletedMarker replaces a deleted account's uid in the moderation log (the same marker messaging uses). A log entry keeps its
 // action and time, so the owner still sees that something happened.
 const DeletedMarker = "_deleted"
 
-// PlatformMarker is the modlog actor of an operator action (ADR-0031 Amendment 1 D14a, R6): `opsctl community restore-hidden` writes one
-// RESTORE entry per run with this actor. Like DeletedMarker it can never be a uid (a uid has no `_`, ADR-0008 A3), so I-L, the eraser scrub
+// PlatformMarker is the modlog actor of an operator action: `opsctl community restore-hidden` writes one
+// RESTORE entry per run with this actor. Like DeletedMarker it can never be a uid (a uid has no `_`), so I-L, the eraser scrub
 // and the export never match it. On the wire it is an unset actor with actor_deleted false.
 const PlatformMarker = "_platform"
 
-// Status is communities/{cid}.status (ADR-0031 D2).
+// Status is communities/{cid}.status.
 type Status string
 
 const (
@@ -45,7 +45,7 @@ const (
 // VisibilityPublic is the only visibility at Stage 0 (F6).
 const VisibilityPublic = "PUBLIC"
 
-// MemberState is communityMembers/{uid}.state (ADR-0031 D2): never a role.
+// MemberState is communityMembers/{uid}.state: never a role.
 type MemberState string
 
 const (
@@ -57,7 +57,7 @@ const (
 	MemberBanned MemberState = "BANNED"
 )
 
-// Role is the viewer's role in a community (ADR-0031 D4), computed from the community doc (OWNER, MODERATOR) and the member doc
+// Role is the viewer's role in a community, computed from the community doc (OWNER, MODERATOR) and the member doc
 // (MEMBER, BANNED); the client never infers one.
 type Role int
 
@@ -70,7 +70,7 @@ const (
 	RoleBanned
 )
 
-// Moderation-log actions (ADR-0031 D2).
+// Moderation-log actions.
 const (
 	ActionHide          = "HIDE"
 	ActionRestore       = "RESTORE"
@@ -106,7 +106,7 @@ type Removal struct {
 	At     time.Time
 }
 
-// Community is one communities/{cid} document as the module sees it (ADR-0031 D2). Slices are copies the caller may keep.
+// Community is one communities/{cid} document as the module sees it. Slices are copies the caller may keep.
 type Community struct {
 	ID                  string
 	Name                string
@@ -145,7 +145,7 @@ func containsString(s []string, v string) bool {
 	return false
 }
 
-// Memberships is communityMemberships/{uid} (ADR-0031 D2): the per-user index of the communities the user joined, owns, is banned
+// Memberships is communityMemberships/{uid}: the per-user index of the communities the user joined, owns, is banned
 // from or appears in a moderation log of (I-L). Written only in the transaction of the document it mirrors.
 type Memberships struct {
 	Joined, Owned, Banned, Modlogged []string
@@ -189,7 +189,7 @@ type Detail struct {
 	Moderators []Person
 }
 
-// Service is everything the CommunityService handlers call (ADR-0031 D1, the seam: handlers call only this): Create, Update
+// Service is everything the CommunityService handlers call (the seam: handlers call only this): Create, Update
 // and Get; Join, Leave and the lists; the moderation calls.
 type Service interface {
 	// Moderation is the owner and moderator surface: Hide, Restore, SetMemberRole and ListModerationLog.
@@ -207,7 +207,7 @@ type Service interface {
 	// member doc (skipped for the owner and moderators) + 1 caller graph + owner and <= 10 moderator profiles (the interceptor's 1 on
 	// top = 15); warm 0; writes 0.
 	GetCommunity(ctx context.Context, uid, communityID string) (Detail, error)
-	// JoinCommunity makes uid a JOINED member (ADR-0031 D2, D4, D8). One transaction that never reads the community document: memberCount is a
+	// JoinCommunity makes uid a JOINED member. One transaction that never reads the community document: memberCount is a
 	// blind Increment and the status comes from the 60 s cache. Firestore (interceptor excluded): reads 5 cold (community 1, idempotency, member
 	// doc, memberships, quotas) / 4 warm; writes 5 (member doc, memberships, memberCount, quotas, idempotency); already a member 2 reads, 1 write
 	// (the idempotency doc), no quota; banned, at the cap or over the quota 0 writes; replay 0 writes.

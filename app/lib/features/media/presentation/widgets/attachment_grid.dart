@@ -206,7 +206,7 @@ class _AttachmentTileState extends State<AttachmentTile> {
                     child: GifBadge(),
                   ),
                 if (attachment.status == AttachmentStatus.unchecked)
-                  // ADR-0029 Amendment 1 A5.6: the upload is kept; Retry
+                  // The upload is kept; Retry
                   // checks the same media id again, with no re-upload.
                   PositionedDirectional(
                     bottom: 0,

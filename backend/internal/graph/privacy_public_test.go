@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// ADR-0025 D8: the privacy_public job's handler and listener over a fake page source.
+// The privacy_public job's handler and listener over a fake page source.
 
 type fakePager struct {
 	mu    sync.Mutex

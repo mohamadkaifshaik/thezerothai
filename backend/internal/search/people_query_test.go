@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// fixturePath is the grammar shared with the Dart parser (ADR-0028 D1 step 8).
+// fixturePath is the grammar shared with the Dart parser.
 var fixturePath = filepath.Join("..", "..", "..", "testdata", "search_query_grammar.json")
 
 // wantCases is the row count of the fixture: adding or dropping a row must be a deliberate edit of both sides.
@@ -79,7 +79,7 @@ func TestQueryGrammarFixture(t *testing.T) {
 	}
 }
 
-// TestQueryGrammarFixtureCoversADR: the examples ADR-0028 D1 step 8 requires are in the file.
+// TestQueryGrammarFixtureCoversADR: the examples the query grammar requires are in the file.
 func TestQueryGrammarFixtureCoversADR(t *testing.T) {
 	var have []string
 	for _, c := range loadFixture(t) {

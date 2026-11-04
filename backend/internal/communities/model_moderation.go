@@ -17,7 +17,7 @@ const (
 	LogPageMax = 25
 )
 
-// Moderation is the owner and moderator surface of a community (ADR-0031 D1, D4, D5): the four calls behind HideCommunityPost,
+// Moderation is the owner and moderator surface of a community: the four calls behind HideCommunityPost,
 // RestoreCommunityPost, SetMemberRole and ListModerationLog. The capped arrays (recentRemovals, modlog) sit behind it, so a later
 // `modlog` collection changes no caller. *service implements it, and Service embeds it.
 type Moderation interface {
@@ -128,7 +128,7 @@ type ModeratePostParams struct {
 }
 
 // ModeratePostResult is what Repo.ModeratePost answers. Community is the freshly written document when Outcome is Written. Reply is true when the
-// target was a reply of the community's conversation (ADR-0031 Amendment 1 D4a), known once the post was read, so also on an F16 refusal; false on a replay.
+// target was a reply of the community's conversation, known once the post was read, so also on an F16 refusal; false on a replay.
 type ModeratePostResult struct {
 	Outcome   Outcome
 	Community Community

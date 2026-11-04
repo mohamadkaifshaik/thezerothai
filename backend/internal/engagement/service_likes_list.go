@@ -1,6 +1,6 @@
-// service_likes_list.go is the business logic of ListLikedPosts (ADR-0024 D6). The source is the caller's
+// service_likes_list.go is the business logic of ListLikedPosts. The source is the caller's
 // own userLikes.recent (the last MaxRecentLikes liked post ids, newest last), read through the instance cache; a page is
-// a slice of it from the newest end, the live posts it names in ONE cache-first GetMany, the ADR-0010 D6 Home-column
+// a slice of it from the newest end, the live posts it names in ONE cache-first GetMany, the Home-feed
 // drop rules (list_common.go, shared with ListBookmarks) and the viewer state of what is left. Nothing is pruned: the
 // like path owns the array, so a row whose post is gone is dropped from the page and nothing else (short pages are
 // expected). Nothing of other users' content is stored here.
@@ -29,16 +29,16 @@ func (m *Module) ListLikedPosts(ctx context.Context, uid string, pageSize int32,
 	return m.s.listLikedPosts(ctx, uid, pageSize, pageToken)
 }
 
-// likesBinding ties a ListLikedPosts page token to its list and caller (ADR-0024 D6).
+// likesBinding ties a ListLikedPosts page token to its list and caller.
 func likesBinding(uid string) string { return listBinding("likes", uid) }
 
 // likesTokenVersion prefixes the payload of a likes page token, so the shape can change without a flag day: a token of
 // another version fails to open and the client reloads the first page.
 const likesTokenVersion = "v1"
 
-// likesAnchor is the cursor of ListLikedPosts (ADR-0024 D6): where the next page starts, remembered three ways so that
+// likesAnchor is the cursor of ListLikedPosts: where the next page starts, remembered three ways so that
 // an unlike, a re-like or a trim between two pages neither skips nor repeats a row. The rule itself lives in
-// pkg/platform/pageresume, shared with the list-member pages (ADR-0030).
+// pkg/platform/pageresume, shared with the list-member pages.
 type likesAnchor = pageresume.Anchor
 
 // encodeLikesToken seals a for uid into an opaque token. The payload rides in cursor.Cursor.DocID ("v1:next:last:index");
@@ -69,7 +69,7 @@ func (s *service) decodeLikesToken(uid, token string) (*likesAnchor, error) {
 	return &likesAnchor{Next: parts[1], Last: parts[2], NextIndex: idx}, nil
 }
 
-// likesResume is the resume rule of ADR-0024 D6 (pageresume.Index): the position, counted from the newest end of recent
+// likesResume is the resume rule (pageresume.Index): the position, counted from the newest end of recent
 // (0 = newest), where the next page starts. recent is newest last, as stored.
 func likesResume(recent []string, a likesAnchor) int { return pageresume.Index(recent, a) }
 

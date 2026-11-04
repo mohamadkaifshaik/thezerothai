@@ -36,7 +36,7 @@ class TimelineState {
   /// blocked: one answer for every cause). [entries] is empty then.
   final bool unavailable;
 
-  /// The author is protected and the viewer is not approved (ADR-0025 D4):
+  /// The author is protected and the viewer is not approved:
   /// show the protected view, not an empty feed.
   final bool authorProtected;
 

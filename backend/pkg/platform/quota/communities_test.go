@@ -10,9 +10,9 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// TestCommunityKinds: the communityJoins and communityPosts counters (ADR-0031 D11) reserve like the others, never touch another
+// TestCommunityKinds: the communityJoins and communityPosts counters reserve like the others, never touch another
 // kind (the posts quota in particular: community posts are charged on top of it), and each Record field, valueFor case and
-// increment case ship together (ADR-0021 I-3: the whole-record Set of CheckAndReserveN would zero a field one of them forgot).
+// increment case ship together (the whole-record Set of CheckAndReserveN would zero a field one of them forgot).
 func TestCommunityKinds(t *testing.T) {
 	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
 	tests := []struct {

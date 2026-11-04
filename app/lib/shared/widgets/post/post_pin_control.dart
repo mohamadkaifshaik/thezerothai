@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 /// What a post's overflow menu needs to offer "Pin to your profile" /
-/// "Unpin from profile" on the viewer's own posts (ADR-0024 D3). A
+/// "Unpin from profile" on the viewer's own posts. A
 /// screen that can pin builds one (from its own cubit) and hands it down; a
 /// null control means the menu has no pin rows, so the card needs no provider
 /// of its own and every other screen is unchanged.
@@ -11,8 +11,8 @@ import 'package:flutter/foundation.dart';
 /// on every own profile. "Pin to your profile" is a set, so it needs
 /// `profile_extras` on for the viewer and no refusal by the server this
 /// session ([canPin]); "Unpin from profile" is a clear, which the server
-/// accepts from any caller whatever the flag (ADR-0024 Amendment 1 A2,
-/// M-1), so it is offered on the pinned post regardless.
+/// accepts from any caller whatever the flag,
+/// so it is offered on the pinned post regardless.
 @immutable
 class PostPinControl {
   const PostPinControl({

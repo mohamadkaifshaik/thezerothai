@@ -5,7 +5,7 @@
 // package's import lint (only the posts, graph and identity seams) still covers timeline itself.
 //
 // Budgets: every figure asserted here is the documented ceiling MINUS the account-status interceptor's caller
-// `users` read (ADR-0010 D17), because these tests call the Connect handler directly, below the interceptors.
+// `users` read, because these tests call the Connect handler directly, below the interceptors.
 package integration
 
 import (
@@ -235,7 +235,7 @@ func TestHome_Integration_F60ColdRefreshAndOwnPost(t *testing.T) {
 	}
 	budgettest.Assert(t, "GetHomeTimeline cold F=60 p=20", c, budgettest.Budget{Reads: 43})
 	t.Logf("BUDGET GetHomeTimeline cold F=60 p=20 reads=%d (ceiling 43 + interceptor)", c.Reads())
-	// A cold page may be short (ADR-0004 exact-prefix cut; the client follows next_page_token).
+	// A cold page may be short (exact-prefix cut; the client follows next_page_token).
 	if len(resp.Posts) == 0 || len(resp.Posts) > 20 || resp.NextPageToken == "" || resp.SinceToken == "" {
 		t.Fatalf("cold page: %d posts next=%q since=%q", len(resp.Posts), resp.NextPageToken, resp.SinceToken)
 	}
@@ -282,7 +282,7 @@ func TestHome_Integration_F60ColdRefreshAndOwnPost(t *testing.T) {
 		t.Fatal("the clamped since should re-deliver the recent posts")
 	}
 	// Refresh with 0 new posts on a fresh instance: author-recent empty, graph warm => exactly C. The instance's cold
-	// removal log read (ADR-0016 D10) is detached from the caller's budget (RID-4) and logged as removal_log_reads.
+	// removal log read is detached from the caller's budget (RID-4) and logged as removal_log_reads.
 	b := newInstanceAt(t, client, later)
 	b.warm(t, "me")
 	r0, c0, err := b.home(t, "me", ra.SinceToken, "", 20)
@@ -352,7 +352,7 @@ func TestHome_Integration_OwnPostUpdatesAuthorRecentInPlace(t *testing.T) {
 	}
 }
 
-// ADR-0010 D6 home column with the real graph: muted and blocked-by authors never appear, even when a stale
+// Home column with the real graph: muted and blocked-by authors never appear, even when a stale
 // `following` still lists them; the blocked author is gone as well (the block removed the edge).
 func TestHome_Integration_BlockAndMuteMatrix(t *testing.T) {
 	client := newClient(t)
@@ -422,7 +422,7 @@ func TestHome_Integration_WorstCaseAtTheFollowingCap(t *testing.T) {
 	took := time.Since(start)
 	budgettest.Assert(t, "GetHomeTimeline F=5000 p=50", c, budgettest.Budget{Reads: 268})
 	// k = 1 per chunk, and every chunk holding a post filled it, so the exact prefix is short: at least the newest
-	// post, with a next_page_token to continue (ADR-0004 decision 3).
+	// post, with a next_page_token to continue (decision 3).
 	if len(resp.Posts) == 0 || resp.NextPageToken == "" {
 		t.Fatalf("posts = %d next=%q, want a short non-empty page with a next token", len(resp.Posts), resp.NextPageToken)
 	}
@@ -624,7 +624,7 @@ func TestHome_Integration_TokenTTL(t *testing.T) {
 	}
 }
 
-// ADR-0010 D6 home column with real status and graph data: SUSPENDED, DELETING and users-doc-missing authors stay
+// Home column with real status and graph data: SUSPENDED, DELETING and users-doc-missing authors stay
 // (D10: the home never reads status, so the reads are exactly graph + the returned docs), a both-block author is
 // dropped even though a stale `following` lists them, a non-followed author is absent, and a caller whose
 // blockedByOverflow is set pays no extra read.
@@ -764,7 +764,7 @@ func TestUser_Integration_ColdSmallPageBudget(t *testing.T) {
 	t.Logf("BUDGET GetUserTimeline cold p=5 reads=%d (ceiling 22 + interceptor)", c.Reads())
 }
 
-// TestModeration_Integration_HiddenPostsLeaveEveryFeedAtNoExtraReads is ADR-0016 acceptance 3 and 4: a takedown and a
+// TestModeration_Integration_HiddenPostsLeaveEveryFeedAtNoExtraReads checks that a takedown and a
 // suspension (HideAuthor) remove posts from Home and the profile timeline as seen by a cold instance (the cache TTL
 // bound), the hidden documents are the only extra cost (0 extra reads), and a restore brings exactly them back.
 func TestModeration_Integration_HiddenPostsLeaveEveryFeedAtNoExtraReads(t *testing.T) {
@@ -818,7 +818,7 @@ func TestModeration_Integration_HiddenPostsLeaveEveryFeedAtNoExtraReads(t *testi
 	}
 }
 
-// TestModeration_Integration_RemovedIDsReachRefreshingClients is ADR-0016 D10 end to end on the emulator: a post
+// TestModeration_Integration_RemovedIDsReachRefreshingClients checks removed_ids end to end on the emulator: a post
 // hidden by opsctl's writers (takedown, suspension) is listed in removed_ids of the next refresh of a client whose
 // since token was issued before the hide, on both timelines, and not for a client whose token was issued after
 // (beyond the lag that covers stale caches). A restored post is not listed. Cold opens and page calls never carry it.
@@ -891,7 +891,7 @@ func TestModeration_Integration_RemovedIDsReachRefreshingClients(t *testing.T) {
 }
 
 // TestModeration_Integration_SuspensionOfAnUnfollowedUserDoesNotResetOthers is the RID-2 regression end to end
-// (ADR-0016 amendment 2026-10-18 (b)): suspending a 60-post account (more than one response can list) neither
+// (amendment 2026-10-18 (b)): suspending a 60-post account (more than one response can list) neither
 // rejects the since_token of a viewer who does not follow it nor leaks a single id into removed_ids, on a cold
 // instance too; a viewer of that account's own profile is told to reset, and a followed author's takedown is still
 // delivered through the same cold cache.
@@ -985,7 +985,7 @@ func contains(xs []string, s string) bool {
 	return false
 }
 
-// userTab is user() with the ADR-0024 D5 tab field.
+// userTab is user() with the tab field.
 func (in *instance) userTab(t *testing.T, uid, target string, tab timelinev1.UserTimelineTab, since, page string, size int32) (*timelinev1.GetUserTimelineResponse, *budget.Counter, error) {
 	t.Helper()
 	return in.userTabOn(t, in.srv, uid, target, tab, since, page, size)
@@ -1001,7 +1001,7 @@ func (in *instance) userTabOn(t *testing.T, srv *timeline.Server, uid, target st
 	return resp.Msg, c, nil
 }
 
-// ADR-0024 D5 against the real posts repo: the Media tab is the author's hasMedia posts (replies and quotes with
+// Against the real posts repo: the Media tab is the author's hasMedia posts (replies and quotes with
 // images included), the Reposts tab the author's REPOST items, both newest first, one Limit(page) query each with no
 // instance cache, so a cold or warm open costs target users 1 + caller graph 1 + the rows (22 at page 20, 32 for the 30
 // media rows at page 50, 8 for 6 reposts; the interceptor and the engagement viewer, absent here, add 2 more to the

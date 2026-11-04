@@ -38,7 +38,7 @@ const _moderator = CommunityRole.COMMUNITY_ROLE_MODERATOR;
 const _member = CommunityRole.COMMUNITY_ROLE_MEMBER;
 const _banned = CommunityRole.COMMUNITY_ROLE_BANNED;
 
-/// ADR-0031 D4a, R3, F16: "Remove from Community" on the replies of a
+/// "Remove from Community" on the replies of a
 /// community conversation. The root's `community` label plus the server's
 /// `viewer_role` (ListMyCommunities, session cache) decide; the server refuses
 /// what a role may not do.

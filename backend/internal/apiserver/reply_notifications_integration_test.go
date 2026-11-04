@@ -2,7 +2,7 @@
 
 package apiserver
 
-// Reply notifications (ADR-0017) over the real Build chain with the inline emitter: a reply writes
+// Reply notifications over the real Build chain with the inline emitter: a reply writes
 // users/{parentAuthor}/notifications/reply_{replyId}; replying to yourself, a recipient that muted the replier and
 // a repeated idempotent create write nothing extra; a reply that also @mentions the parent author yields ONE row
 // (the reply row; the mention is folded into it). The budget assertion is the logged fs_reads/fs_writes of the

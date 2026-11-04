@@ -2,7 +2,7 @@
 
 package engagement
 
-// ADR-0023 D2, D6, D8: ordering and resumption of the bookmark query when createdAt values tie, for the export
+// Ordering and resumption of the bookmark query when createdAt values tie, for the export
 // (pages of 500) and ListPage (pages of the caller's size), the eraser's re-run at the cap, and the concurrent same-post
 // Add at repo level. The query is orderBy(createdAt DESC, __name__ DESC) resumed by StartAfter(createdAt, doc): a tie
 // that straddles a page boundary must neither repeat nor skip a row.

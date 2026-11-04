@@ -6,7 +6,7 @@ import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'not_encrypted_note.dart';
 
 /// Messages a sender may send to a request before the recipient accepts it
-/// (`MESSAGES_REQUEST_MAX_UNANSWERED`, ADR-0027 D13). Copy only: the server
+/// (`MESSAGES_REQUEST_MAX_UNANSWERED`). Copy only: the server
 /// enforces the cap (`LIMIT_REACHED request_unanswered`).
 const kMessageRequestMaxUnanswered = 3;
 
@@ -16,7 +16,7 @@ const kSentRequestText =
     '$kMessageRequestMaxUnanswered messages.';
 
 /// A request the caller received and has not accepted: it sits in the
-/// REQUESTS folder (ADR-0027 D5). The caller gets the banner, not a composer.
+/// REQUESTS folder. The caller gets the banner, not a composer.
 bool isReceivedRequest(pb.Conversation conversation) =>
     conversation.state == ConversationState.CONVERSATION_STATE_REQUEST &&
     conversation.folder == Folder.FOLDER_REQUESTS;
@@ -90,7 +90,7 @@ String requestPeerName(String displayName, String handle) =>
     displayName.isNotEmpty ? displayName : '@$handle';
 
 /// "`name` wants to message you" with Accept, Delete and Block
-/// (ADR-0027 D4), at the bottom of a request thread in place of the composer.
+///At the bottom of a request thread in place of the composer.
 ///
 /// - Accept is the filled action; Delete and Block are outlined, Block in the
 ///   error colour. All three are 48dp and wrap at a large text scale.

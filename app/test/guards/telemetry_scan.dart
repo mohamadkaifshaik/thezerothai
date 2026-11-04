@@ -1,4 +1,4 @@
-// Pure scanners behind `telemetry_guard_test.dart` (ADR-0032). They take
+// Pure scanners behind `telemetry_guard_test.dart`. They take
 // text and return findings, so the guard test can prove each one on synthetic
 // input (a built-in mutation check) as well as on the real tree.
 import 'dart:io';
@@ -12,7 +12,7 @@ List<String> findSdkImports(String source) => [
     m.group(1)!,
 ];
 
-/// Calls that would tie telemetry to a person (Q10 (f), ADR-0032 F3). Case
+/// Calls that would tie telemetry to a person (Q10 (f)). Case
 /// insensitive, because iOS spells it `setUserID`.
 List<String> findForbiddenCalls(String source) => [
   for (final m in RegExp(
@@ -22,7 +22,7 @@ List<String> findForbiddenCalls(String source) => [
     m.group(0)!,
 ];
 
-/// The only custom keys that may exist (ADR-0032 F6).
+/// The only custom keys that may exist.
 const Set<String> allowedCrashKeys = {
   'build_number',
   'FIREBASE_ENV',
@@ -150,8 +150,7 @@ Map<String, String> readTree(String dir, Set<String> extensions) {
   return out;
 }
 
-/// Reads of the SDK identifiers that could join a report to an account (ADR-0032
-/// data inventory: the app never calls `FirebaseInstallations.getId` or reads
+/// Reads of the SDK identifiers that could join a report to an account (the app never calls `FirebaseInstallations.getId` or reads
 /// the Analytics app-instance ID).
 List<String> findIdentifierReads(String source) => [
   for (final m in RegExp(

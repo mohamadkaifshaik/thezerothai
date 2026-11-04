@@ -2,7 +2,7 @@
 
 package apiserver
 
-// (ADR-0025 D3 to D5) through the real Build chain on the emulators, with the real protected-set loader and the
+// Protected posts through the real Build chain on the emulators, with the real protected-set loader and the
 // real UpdateProfile(is_private) toggle (FEATURE_PRIVATE_ACCOUNTS on):
 //   - for an unapproved viewer, GetPost, LikePost, AddBookmark, ReportContent, a reply to and a quote of the protected
 //     author's post answer exactly what the same RPC answers for a deleted post: HTTP status, content type and body (the

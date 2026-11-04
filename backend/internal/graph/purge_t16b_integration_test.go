@@ -1,6 +1,6 @@
 //go:build integration
 
-// purge_t16b_integration_test.go: graph.Eraser crash-resume (ADR-0008 D10). The existing
+// purge_t16b_integration_test.go: graph.Eraser crash-resume. The existing
 // purge_integration_test.go covers the happy cascade, lost checkpoint, concurrent runs and missing
 // counterparts on a small fixture; this file adds interruption at *every* call boundary (kept checkpoint, lost
 // checkpoint, and a failed call with a cancelled context), a mid-step crash inside a multi-batch step, and
@@ -37,7 +37,7 @@ const (
 var purgeUsers = []string{pU, pF1, pF2, pG1, pG2, pB1, pC1, pZ1, pM1}
 
 // purgeWorldT16b builds the D10 fixture (mutual follow, both block directions, a surviving edge, a mute) through
-// real RPCs and marks U as DELETING, as the runbook does before purging.
+// real RPCs and marks U as DELETING, as the account-deletion procedure does before purging.
 func purgeWorldT16b(t *testing.T) wired {
 	t.Helper()
 	w := newWired(t)
@@ -129,7 +129,7 @@ func assertNoResidueT16b(t *testing.T, w wired, label string) {
 			t.Errorf("%s: %s counters following/followers = %d/%d, want %d/%d", label, u, fg, fr, exp[0], exp[1])
 		}
 	}
-	// The purged user's own users doc is deleted by the orchestrator after the graph purge (runbook order);
+	// The purged user's own users doc is deleted by the orchestrator after the graph purge;
 	// do the same so the global invariants describe a consistent world.
 	if _, err := w.client.Doc("users/" + pU).Delete(context.Background()); err != nil {
 		t.Fatal(err)

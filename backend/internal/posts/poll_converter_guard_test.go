@@ -1,6 +1,6 @@
 package posts
 
-// guard (ADR-0029 D4): the posts converter is the only place that knows who may see a poll's per-choice counts and the
+// guard: the posts converter is the only place that knows who may see a poll's per-choice counts and the
 // viewer's choice. This source scan fails the day a PostView producer builds a view (or a Poll) without it. It names the
 // producers by file:
 //
@@ -38,7 +38,7 @@ var pollProducerCalls = map[string][]string{
 	"engagement/service_likes_list.go":     {"HydrateViewer"},
 }
 
-// pollBlockedSetters are the only producers that may call ViewerSet.WithBlockedAuthors (ADR-0029 Amendment 1 A1.5): the surfaces that show
+// pollBlockedSetters are the only producers that may call ViewerSet.WithBlockedAuthors: the surfaces that show
 // a post by an author the viewer blocks (SurfaceDirect: GetPost, GetThread, the author's profile timeline). Every list surface drops such rows, so a
 // list producer setting it would be a bug. The Home and lists builders in timeline/service.go pass nil.
 var pollBlockedSetters = map[string]bool{"posts/server.go": true, "timeline/service.go": true}

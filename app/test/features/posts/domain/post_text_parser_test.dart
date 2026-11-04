@@ -215,8 +215,8 @@ void main() {
   });
 
   group('shared fixture testdata/post_text_grammar.json', () {
-    // The repo-root fixture is the single source of grammar rows (ADR-0010
-    // D21 G1); tests run from app/.
+    // The repo-root fixture is the single source of grammar rows;
+    // tests run from app/.
     final file = File('../testdata/post_text_grammar.json');
     final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
     final rows = (json['grammar'] as List).cast<Map<String, dynamic>>();

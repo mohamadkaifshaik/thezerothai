@@ -74,7 +74,7 @@ class _Rec {
 }
 
 /// The client's one source of "is this post bookmarked" and the only caller
-/// of AddBookmark / RemoveBookmark (ADR-0023, /). Widgets
+/// of AddBookmark / RemoveBookmark. Widgets
 /// never ask it directly: `BookmarksCubit` mirrors it.
 ///
 /// - **Overlay.** Per post, a [BookmarkEntry]: the session's toggles plus the
@@ -92,7 +92,7 @@ class _Rec {
 ///   free). 1 RPC per tap in the common case.
 /// - **Flag.** AddBookmark goes through [ServiceFeatureGate] (0 RPCs while
 ///   `bookmarks` is off for the caller). RemoveBookmark deliberately does not:
-///   ADR-0023 D5 lets a user dropped from the allowlist still remove what
+///   Lets a user dropped from the allowlist still remove what
 ///   they saved, and a FEATURE_DISABLED answer to Add must not block it.
 ///
 /// `postId` is always the target: the original for a REPOST row.
@@ -181,8 +181,8 @@ class BookmarksRepository {
   /// the token is not (the server drops hidden and blocked rows), so only an
   /// empty token ends the list.
   ///
-  /// - Deliberately NOT behind the `bookmarks` gate (ADR-0023 D5, like
-  ///   RemoveBookmark): a caller dropped from the allowlist still sees what
+  /// - Deliberately NOT behind the `bookmarks` gate (like   RemoveBookmark):
+  /// a caller dropped from the allowlist still sees what
   ///   they saved. Only a flag that is off for everyone answers
   ///   FEATURE_DISABLED ([FeatureDisabledException]); that answer is not
   ///   remembered by the gate.

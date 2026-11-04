@@ -4,7 +4,7 @@ package apiserver
 
 // over the real Build chain (Firestore, Auth, Pub/Sub emulators): UpdateProfile with a banner, location, website
 // and pinned post, the profile_extras gate, the pin kill switch (Profile.pinned_post_id omitted while the flag is
-// globally off), and the post_delete job's identity step that clears the pin of a deleted post (ADR-0024 D1-D3, D9).
+// globally off), and the post_delete job's identity step that clears the pin of a deleted post.
 //
 // As in the chain test, finished media documents are seeded straight into Firestore the way FinalizeUpload leaves
 // them (a signed PUT URL cannot be minted against the emulators).
@@ -227,7 +227,7 @@ func TestProfileExtras_FlagGateAndKillSwitch(t *testing.T) {
 	loc, spaces := "Pune", "   "
 
 	// Outside the cohort: FEATURE_DISABLED feature=profile_extras for a SET, and for a request that mixes a clear with a
-	// set (refused whole), with 0 writes (ADR-0024 Amendment 1 A2: only a clear passes, below).
+	// set (refused whole), with 0 writes (only a clear passes, below).
 	empty := ""
 	for name, req := range map[string]*identityv1.UpdateProfileRequest{
 		"location":         {IdempotencyKey: "pinext-gate-000000001", Location: &loc},
@@ -298,7 +298,7 @@ func TestProfileExtras_FlagGateAndKillSwitch(t *testing.T) {
 }
 
 // TestProfileExtras_KillSwitchOmitsThePinAndWebsite: with profile_extras globally off (mode off) the stored pin and website
-// are not returned by any RPC, the owner's own view included, while banner and location still are (ADR-0024 D3: clients
+// are not returned by any RPC, the owner's own view included, while banner and location still are (clients
 // stop the GetPost call; Amendment 1 A1: the link stops rendering). A clear still works, at 1 read and 1 write
 // (Amendment 1 A2).
 func TestProfileExtras_KillSwitchOmitsThePinAndWebsite(t *testing.T) {

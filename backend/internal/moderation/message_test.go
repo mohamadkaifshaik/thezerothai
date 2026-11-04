@@ -188,7 +188,7 @@ func TestReport_MessageOwnMessageIsValidationTargetID(t *testing.T) {
 }
 
 // Every cause the lookup folds into ErrMessageNotFound is the one NOT_FOUND, with the same code, reason, text and metadata:
-// nothing says which rule refused (ADR-0027 D11).
+// nothing says which rule refused.
 func TestReport_MessageNotFoundIsOneAnswer(t *testing.T) {
 	t.Parallel()
 	var first *apierr.Error
@@ -302,7 +302,7 @@ func (f plainFlags) Enabled(_, name string) bool {
 	return (name == FlagName && f.reports) || (name == MessagingFlagName && f.messaging)
 }
 
-// The flag matrix of a MESSAGE report (ADR-0027 D6, F6): `reports` must be on for the caller, `messaging` only not globally
+// The flag matrix of a MESSAGE report: `reports` must be on for the caller, `messaging` only not globally
 // off. A checker that cannot tell the two apart answers per caller.
 func TestServer_MessageReportFlagMatrix(t *testing.T) {
 	t.Parallel()

@@ -15,11 +15,11 @@ import '../../data/timeline_store.dart';
 import '../../domain/feed_key.dart';
 import 'timeline_state.dart';
 
-/// Automatic refreshes happen at most this often (ADR-0004 section 7).
+/// Automatic refreshes happen at most this often (section 7).
 const kAutoRefreshInterval = Duration(seconds: 60);
 
 /// Drives one cached feed (Home, or one tab of a profile) over
-/// [TimelineRepository] (ADR-0004 section 7, ADR-0010 D5/D13/D14).
+/// [TimelineRepository] (section 7).
 ///
 /// - [load] renders the cache at once (one `cached` read per screen open),
 ///   then refreshes unless this feed was refreshed less than
@@ -361,7 +361,7 @@ class TimelineCubit extends Cubit<TimelineState> {
       if (view != null) {
         final id = view.post.postId;
         // A REPOST or QUOTE of a hidden author's post is a copy of their
-        // text: it leaves the list too (ADR-0018 D13).
+        // text: it leaves the list too.
         final embeddedAuthor = view.post.hasEmbedded()
             ? view.post.embedded.author.userId
             : '';

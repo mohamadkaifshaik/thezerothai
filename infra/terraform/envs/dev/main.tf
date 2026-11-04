@@ -115,7 +115,7 @@ module "secrets" {
   project_id                    = var.project_id
   runtime_service_account_email = module.iam.runtime_service_account_email
   secret_ids                    = []
-  # cursor-hmac-key: pure random HMAC signing material (ADR-0003 cursors) —
+  # cursor-hmac-key: pure random HMAC signing material (cursors) —
   # Terraform generates and seeds it; nothing to set manually.
   generated_secret_ids = ["cursor-hmac-key"]
   labels               = merge(local.labels, { module = "secrets" })
@@ -123,7 +123,7 @@ module "secrets" {
   depends_on = [module.project_services]
 }
 
-// Graph slice (ADR-0008 D6/D7). Names and defaults mirror backend/pkg/platform/config/config.go and
+// Graph slice. Names and defaults mirror backend/pkg/platform/config/config.go and
 // backend/pkg/platform/flags; caps are code, so a change here needs a cost note in the PR.
 // FEATURE_GRAPH: off | allowlist | percent | on. The rollout (allowlist -> percent -> on) is driven by
 // changing var.feature_graph* here, not by ad-hoc `gcloud run services update`, so state never drifts.
@@ -136,7 +136,7 @@ locals {
     { name = "QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY", value = "50" },
     { name = "LIST_CALLS_PER_DAY", value = "100" },
     { name = "GRAPH_MUTATIONS_PER_DAY", value = "500" },
-    # ADR-0010 D5 read budget (rule 11: caps are config). Must match the config.go defaults.
+    # Read budget (rule 11: caps are config). Must match the config.go defaults.
     { name = "READ_BUDGET_PER_UID_PER_DAY", value = "2000" },
     { name = "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", value = "500" },
     { name = "CHECK_HANDLE_CALLS_PER_DAY", value = "100" },
@@ -148,7 +148,7 @@ locals {
   ]
 }
 
-// Posts + timeline slice (ADR-0010 Handoff). Names and defaults mirror backend/pkg/platform/config/config.go;
+// Posts + timeline slice. Names and defaults mirror backend/pkg/platform/config/config.go;
 // caps are code, so a change here needs a cost note in the PR. FEATURE_POSTS is set explicitly in both envs so the
 // environment does not depend on the code default (on in dev/local, off in prod). The rollout (off -> allowlist ->
 // percent -> on) is driven by var.feature_posts*, not by ad-hoc `gcloud run services update`.
@@ -175,7 +175,7 @@ locals {
   ]
 }
 
-// Account lifecycle slice (ADR-0011). Names and defaults mirror backend/pkg/platform/config/config.go; caps are
+// Account lifecycle slice. Names and defaults mirror backend/pkg/platform/config/config.go; caps are
 // code, so a change here needs a cost note in the PR. FEATURE_ACCOUNT_LIFECYCLE is set explicitly in both envs
 // (dev on, prod off) and rolled out via var.feature_account_lifecycle*. EXPORT_RETENTION must equal the exports
 // bucket lifecycle age (7 days) in modules/media-buckets.
@@ -192,29 +192,29 @@ locals {
   ]
 }
 
-// Reports and moderation (ADR-0016). FEATURE_REPORTS is off in both envs until the founder ramps it
+// Reports and moderation. FEATURE_REPORTS is off in both envs until the founder ramps it
 // (var.feature_reports*); no code path or apply turns it on. Quotas mirror backend/pkg/platform/config/config.go.
 locals {
   reports_env_vars = [
     { name = "FEATURE_REPORTS", value = var.feature_reports },
     { name = "FEATURE_REPORTS_ALLOWLIST", value = var.feature_reports_allowlist },
     { name = "FEATURE_REPORTS_PERCENT", value = tostring(var.feature_reports_percent) },
-    // ADR-0016 D10: the moderation removal log read on since_token refreshes. Off = no log reads and no feed reset.
+    // The moderation removal log read on since_token refreshes. Off = no log reads and no feed reset.
     { name = "FEATURE_REMOVED_IDS", value = var.feature_removed_ids },
     { name = "FEATURE_REMOVED_IDS_ALLOWLIST", value = var.feature_removed_ids_allowlist },
     { name = "FEATURE_REMOVED_IDS_PERCENT", value = tostring(var.feature_removed_ids_percent) },
-    // ADR-0028 D8: search and trends. Default off; dev ceiling allowlist 6, no prod raise.
+    // Search and trends. Default off; dev ceiling allowlist 6, no prod raise.
     { name = "FEATURE_SEARCH", value = var.feature_search },
     { name = "FEATURE_SEARCH_ALLOWLIST", value = var.feature_search_allowlist },
     { name = "FEATURE_SEARCH_PERCENT", value = tostring(var.feature_search_percent) },
     { name = "FEATURE_TRENDS", value = var.feature_trends },
     { name = "FEATURE_TRENDS_ALLOWLIST", value = var.feature_trends_allowlist },
     { name = "FEATURE_TRENDS_PERCENT", value = tostring(var.feature_trends_percent) },
-    // ADR-0028 note 2026-10-31 (review M-1): tags that never trend, applied at serve time and by the sweep. Operators hide a tag
+    // Tags that never trend, applied at serve time and by the sweep. Operators hide a tag
     // at once with `opsctl trends hide`; this list is the deploy-time floor. Comma-separated tag bodies, no leading #.
     { name = "TRENDS_MIN_AUTHORS", value = tostring(var.trends_min_authors) },
     { name = "TRENDS_DENYLIST", value = var.trends_denylist },
-    // ADR-0029 D12: polls, drafts (client only) and GIF. Default off; dev ceiling allowlist 6, no prod raise.
+    // Polls, drafts (client only) and GIF. Default off; dev ceiling allowlist 6, no prod raise.
     { name = "FEATURE_POLLS", value = var.feature_polls },
     { name = "FEATURE_POLLS_ALLOWLIST", value = var.feature_polls_allowlist },
     { name = "FEATURE_POLLS_PERCENT", value = tostring(var.feature_polls_percent) },
@@ -229,7 +229,7 @@ locals {
   ]
 }
 
-// Notifications slice (ADR-0017). FEATURE_NOTIFICATIONS is off in every environment until the founder rolls it
+// Notifications slice. FEATURE_NOTIFICATIONS is off in every environment until the founder rolls it
 // out via var.feature_notifications*. No new resource: the topic, push subscription and DLQ already exist in
 // modules/pubsub and the runtime SA's publish binding is in runtime_publisher_topics. The device-call cap mirrors
 // config.go (NOTIFICATION_DEVICES_CALLS_PER_DAY, default 10); caps are code, so a change needs a cost note.
@@ -245,10 +245,10 @@ locals {
   ]
 }
 
-// Media, engagement, replies and profile snapshot (ADR-0005). All four flags are off in every
+// Media, engagement, replies and profile snapshot. All four flags are off in every
 // environment until the founder ramps them via var.feature_*; nothing here turns one on. The non-flag values below
 // are the config.go defaults written out so they are reviewed as code (caps are code); changing one needs a cost note.
-// VISION_MONTHLY_CAP is the runaway-bill guard (ADR-0005). vision.googleapis.com is already enabled in
+// VISION_MONTHLY_CAP is the runaway-bill guard. vision.googleapis.com is already enabled in
 // modules/project-services.
 locals {
   media_engagement_env_vars = [
@@ -295,9 +295,9 @@ locals {
     { name = "MESSAGES_REQUEST_MAX_UNANSWERED", value = "3" },
     { name = "MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR", value = "20" },
     { name = "CACHE_MESSAGING_CONVERSATION_ENTRIES", value = "5000" },
-    # ADR-0030 D9, D10: FEATURE_LISTS and the list limits as explicit config (rule 11), each equal to its backend/pkg/platform/config
+    # FEATURE_LISTS and the list limits as explicit config (rule 11), each equal to its backend/pkg/platform/config
     # default. Inert while FEATURE_LISTS is off. Nothing here is applied by the build ticket (plans a targeted dev apply; prod waits for
-    # the held prod apply, credit runbook dated step 1.2).
+    # the held prod apply, step 1.2 of the credit plan).
     { name = "FEATURE_LISTS", value = var.feature_lists },
     { name = "FEATURE_LISTS_ALLOWLIST", value = var.feature_lists_allowlist },
     { name = "FEATURE_LISTS_PERCENT", value = tostring(var.feature_lists_percent) },
@@ -313,7 +313,7 @@ locals {
     { name = "RATE_LIMIT_LISTS_READ_PER_MIN", value = "30" },
     { name = "RATE_LIMIT_LIST_TIMELINE_PER_MIN", value = "12" },
     { name = "CACHE_LISTS_ENTRIES", value = "2000" },
-    # ADR-0031 D10, D11, D12: FEATURE_COMMUNITIES, COMMUNITY_CREATORS and the community limits as explicit config (rule 11), each equal to
+    # FEATURE_COMMUNITIES, COMMUNITY_CREATORS and the community limits as explicit config (rule 11), each equal to
     # its backend/pkg/platform/config default. Inert while FEATURE_COMMUNITIES is off. Nothing here is applied by the build ticket (plans the
     # targeted dev apply with an allowlist of 3; prod waits for the held prod apply).
     { name = "FEATURE_COMMUNITIES", value = var.feature_communities },
@@ -354,13 +354,13 @@ locals {
     { name = "FEATURE_PRIVATE_ACCOUNTS", value = var.feature_private_accounts },
     { name = "FEATURE_PRIVATE_ACCOUNTS_ALLOWLIST", value = var.feature_private_accounts_allowlist },
     { name = "FEATURE_PRIVATE_ACCOUNTS_PERCENT", value = tostring(var.feature_private_accounts_percent) },
-    # ADR-0025 D2, D3, D8, D13: private-accounts limits. Must match the config.go defaults; config.Load rejects a toggle quota <= 0,
+    # Private-accounts limits. Must match the config.go defaults; config.Load rejects a toggle quota <= 0,
     # a protected-set cap outside 1..20000 and a stale window outside 1s..1h.
     { name = "QUOTA_PRIVACY_TOGGLES_PER_DAY", value = "4" },
     { name = "PROTECTED_AUTHORS_MAX", value = "20000" },
     { name = "PROTECTED_SET_MAX_STALE", value = "10m" },
     { name = "RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN", value = "60" },
-    # ADR-0024 D8, D10: per-instance rate limits (effective x max-instances), the suggestions daily call cap and read caps, and the
+    # Per-instance rate limits (effective x max-instances), the suggestions daily call cap and read caps, and the
     # curated fallback list. Must match the config.go defaults; config.Load rejects edge > 50, hydrate > 50, sample > 30 and max results > 5.
     { name = "RATE_LIMIT_SUGGESTIONS_PER_MIN", value = "10" },
     { name = "RATE_LIMIT_LIKES_LIST_PER_MIN", value = "10" },
@@ -368,7 +368,7 @@ locals {
     { name = "SUGGESTIONS_CALLS_PER_DAY", value = "50" },
     # L-4: UpdateProfile daily call cap (limit_name profile_update_daily). Must match the config.go default; config.Load rejects a value <= 0.
     { name = "PROFILE_UPDATES_PER_DAY", value = "100" },
-    # ADR-0024 Amendment 1 A4: delete replaced or removed profile images 24-48 h after the change. Per-project retention, default off: raise it to banner only after the media bucket's customTime lifecycle rule is applied here, to all only after the avatar placeholder app release. Must match config.Load's accepted values.
+    # Delete replaced or removed profile images 24-48 h after the change. Per-project retention, default off: raise it to banner only after the media bucket's customTime lifecycle rule is applied here, to all only after the avatar placeholder app release. Must match config.Load's accepted values.
     { name = "PROFILE_MEDIA_RETIRE", value = var.profile_media_retire },
     { name = "SUGGESTIONS_SAMPLE_FOLLOWEES", value = "30" },
     { name = "SUGGESTIONS_EDGE_LIMIT", value = "20" },
@@ -416,7 +416,7 @@ module "cloud_run_api" {
   runtime_service_account_email     = module.iam.runtime_service_account_email
   pubsub_push_service_account_email = module.iam.pubsub_push_service_account_email
   image                             = var.image
-  max_instance_count                = 1 # ADR-0007: dev max 1 (prod keeps the module default 3)
+  max_instance_count                = 1 # Dev max 1 (prod keeps the module default 3)
   degraded_mode                     = "off"
   app_check_mode                    = "monitor" # ADR-0006: monitor in both envs for now
   internal_oidc_audience            = local.api_url
@@ -476,15 +476,15 @@ module "scheduler" {
   #   prod: 2  (daily-maintenance, publish-scheduled; see envs/prod)
   #   total: 2 of 3 free. Do not add a dev job.
   # Because no dev job exists, `gcloud scheduler jobs run <job>` cannot work here. To exercise a cron route in dev,
-  # POST to it directly with an OIDC identity token minted for the pubsub-push service account: the exact curl, and
-  # the IAM Credentials fallback, are in ADR-0021 D1. Minting that token needs the opt-in
+  # POST to it directly with an OIDC identity token minted for the pubsub-push service account (IAM Credentials
+  # impersonation is the fallback for minting it). Minting that token needs the opt-in
   # google_service_account_iam_member.cron_test_invoker_openid grant below, which is NOT created by default.
   jobs = {}
 
   depends_on = [module.project_services, module.cloud_run_api]
 }
 
-// Dev only, OPT-IN, time-boxed (ADR-0021 D1, security review L-5). Creates nothing unless cron_test_invoker is set.
+// Dev only, OPT-IN, time-boxed (security review L-5). Creates nothing unless cron_test_invoker is set.
 // It lets one named person mint an OIDC identity token for the dev pubsub-push service account, to curl a cron route
 // by hand. Deliberately:
 //  - roles/iam.serviceAccountOpenIdTokenCreator only (iam.serviceAccounts.getOpenIdToken). Never
@@ -531,10 +531,10 @@ module "monitoring" {
   founder_emails = var.founder_emails
   api_hostname   = replace(module.cloud_run_api.url, "https://", "")
 
-  # ADR-0011 C4 alert is prod only (~$0.40/month); dev relies on log inspection. The log-based metric still exists.
+  # Alert is prod only (~$0.40/month); dev relies on log inspection. The log-based metric still exists.
   enable_auth_admin_alert = false
 
-  # R4 (founder 2026-10-10, ADR-0007 amendment): ops alert policies are billable, so prod only. Dev relies on the dashboard.
+  # R4 (founder 2026-10-10): ops alert policies are billable, so prod only. Dev relies on the dashboard.
   enable_ops_alerts = false
 
   depends_on = [module.cloud_run_api]
@@ -620,8 +620,7 @@ module "apikeys" {
 
   # Same baseline plus App Check: Android/iOS call FirebaseAppCheck.activate()
   # with real attestation providers in release builds (bootstrap.dart) —
-  # unlike web, which defers App Check until a reCAPTCHA Enterprise key exists
-  # (ADR-0006 amendment).
+  # unlike web, which defers App Check until a reCAPTCHA Enterprise key exists.
   android_api_targets = [
     "identitytoolkit.googleapis.com",
     "securetoken.googleapis.com",

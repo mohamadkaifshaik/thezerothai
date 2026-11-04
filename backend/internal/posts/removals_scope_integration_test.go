@@ -143,7 +143,7 @@ func TestRemovalLog_WritersStampTheAuthor(t *testing.T) {
 	}
 }
 
-// TestPurgeUser_DeletesTheUsersRemovalEntries (right to delete, ADR-0011 Q10): phase 2 removes exactly the entries
+// TestPurgeUser_DeletesTheUsersRemovalEntries (right to delete): phase 2 removes exactly the entries
 // whose authorId is the user, after the copies phase; other authors' entries stay. Deletes one per entry.
 func TestPurgeUser_DeletesTheUsersRemovalEntries(t *testing.T) {
 	client := newTestClient(t)

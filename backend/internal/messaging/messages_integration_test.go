@@ -27,7 +27,7 @@ func (c chargedProfiles) GetProfiles(ctx context.Context, uids []string) (map[st
 func (c chargedProfiles) Forget(uids ...string) { c.inner.Forget(uids...) }
 
 // msgSvc is a second instance (cold caches) whose graph and directory reads are charged, so the budgets below are the
-// per-RPC table of ADR-0027 and not only the repo's own reads.
+// per-RPC budgets and not only the repo's own reads.
 func (e *itEnv) msgSvc() *service {
 	svc := e.newService()
 	svc.d.Social = chargedSocial{e.social}
@@ -67,7 +67,7 @@ func idsOf(r *messagingv1.ListMessagesResponse) []string {
 	return out
 }
 
-// Given 45 messages, then 20 / 20 / 5, newest first, no overlap. Budget (ADR-0027 table): first or older page of 20
+// Given 45 messages, then 20 / 20 / 5, newest first, no overlap. Budget (table): first or older page of 20
 // 25 reads (interceptor, conversation, query 20, peer, caller graph, caller entry), 0 writes; a page of 50 is 55; an
 // older page is 24 / 54 (no entry read).
 func TestListMessages_PagesWithinBudget(t *testing.T) {

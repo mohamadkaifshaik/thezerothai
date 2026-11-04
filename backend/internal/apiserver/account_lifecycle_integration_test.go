@@ -2,7 +2,7 @@
 
 package apiserver
 
-// Account lifecycle over the real Build chain (ADR-0011): Firestore, Auth, Pub/Sub and Storage emulators with
+// Account lifecycle over the real Build chain: Firestore, Auth, Pub/Sub and Storage emulators with
 // the real posts and graph Erasers behind the adapters. The Pub/Sub topic is real (the REST publisher talks to the
 // emulator); messages are pulled from a pull subscription and delivered to /internal/pubsub/jobs by hand, which is
 // what a push subscription does. The 120 s start gate is passed by moving deletionRequestedAt back in Firestore.
@@ -62,7 +62,7 @@ func newLifecycleEnv(t *testing.T) *lifecycleEnv {
 	return newLifecycleEnvWith(t, nil)
 }
 
-// seedProtectedSetDoc creates privacy/protectedAuthors (ADR-0025 D2) the way dev and prod always have it, so the identity
+// seedProtectedSetDoc creates privacy/protectedAuthors the way dev and prod always have it, so the identity
 // step's ArrayRemove is a real write on every run: the cost is deterministic whatever ran before on the emulator (D-2).
 // Merge-only: it never clears uids another test protected.
 func seedProtectedSetDoc(t *testing.T, c *firestore.Client) {
@@ -252,8 +252,8 @@ func fsDocExists(t *testing.T, c *firestore.Client, path string) bool {
 }
 
 // TestAccountLifecycle_Chain is the reference path: a user with a post, a follower, a followee and an export
-// requests deletion; the chain of job deliveries erases everything in ADR-0011 Q1 order and leaves no residue
-// outside the Q10 allowlist.
+// requests deletion; the chain of job deliveries erases everything in deletion order and leaves no residue
+// outside the residue allowlist.
 func TestAccountLifecycle_Chain(t *testing.T) {
 	ctx := context.Background()
 	e := newLifecycleEnv(t)
@@ -425,25 +425,25 @@ func TestAccountLifecycle_Chain(t *testing.T) {
 		t.Fatalf("no `done` job line: %v", e.jobLines())
 	}
 	t.Logf("BUDGET account_delete work delivery (1 post, 1 following, 1 follower, 1 export) reads=%v writes=%v deletes=%v", work["fs_reads"], work["fs_writes"], work["fs_deletes"])
-	// ADR-0011 budget table, P=1 O=1 I=1 E=1 W=1: reads P+O+I+2*ceil((max(B,Bb)+1)/500)+2+3+2+max(E,1)+D = 14,
+	// Budget table, P=1 O=1 I=1 E=1 W=1: reads P+O+I+2*ceil((max(B,Bb)+1)/500)+2+3+2+max(E,1)+D = 14,
 	// writes O+2I+B+Bb+(W-1) = 3, deletes P+O+I+1+3+E = 8 (D = 1 here: the gated delivery's read is a separate line).
-	// (ADR-0017 D10) adds 3 reads: the notifications step's devices, own-rows and rows-naming-the-user queries
+	// The notifications step adds 3 reads: its devices, own-rows and rows-naming-the-user queries
 	// (an empty query bills 1 read), so reads = 17.
-	// (ADR-0018 D7, D14) adds 3 reads (likes, reposts and the posts copy-phase queries, empty = 1 read each) and
+	// The engagement step adds 3 reads (likes, reposts and the posts copy-phase queries, empty = 1 read each) and
 	// 1 delete (the userLikes doc): reads = 20, deletes = 9.
-	// The posts step's phase 2 (the user's postRemovals entries by authorId, ADR-0016 amendment 2026-10-18 (b)) adds
+	// The posts step's phase 2 (the user's postRemovals entries by authorId) adds
 	// 1 read (empty query): reads = 21.
-	// The scheduled step (ADR-0021: users/{uid}/scheduled, one page query, an empty query bills 1 read) adds 1 read:
+	// The scheduled step (users/{uid}/scheduled, one page query, an empty query bills 1 read) adds 1 read:
 	// reads = 22.
-	// The bookmarks step (ADR-0023 D6: users/{uid}/bookmarks, one page query, an empty query bills 1 read) adds 1 read:
+	// The bookmarks step (users/{uid}/bookmarks, one page query, an empty query bills 1 read) adds 1 read:
 	// reads = 23.
-	// The follow_requests step (ADR-0025 D11: outgoing + incoming empty pages, one read each) adds 2 reads:
+	// The follow_requests step (outgoing + incoming empty pages, one read each) adds 2 reads:
 	// reads = 25.
-	// ADR-0025 D11: the identity step also ArrayRemoves the uid from privacy/protectedAuthors, a real write whenever
+	// The identity step also ArrayRemoves the uid from privacy/protectedAuthors, a real write whenever
 	// that doc exists (always, in dev and prod; the setup creates it), so writes = 4 exactly (D-2).
-	// The messaging step (ADR-0027 D8: one conversation cursor query, an empty query bills 1 read) adds 1 read:
-	// reads = 26. The lists step (ADR-0030 D8: an empty page per phase, own lists then membership) adds 2 more:
-	// reads = 28. The poll_votes step (ADR-0029 D8: one votes query, an empty query bills 1 read) adds 1: reads = 29. The communities step (ADR-0031 D9: the memberships doc read, 1 when absent) adds 1: reads = 30.
+	// The messaging step (one conversation cursor query, an empty query bills 1 read) adds 1 read:
+	// reads = 26. The lists step (an empty page per phase, own lists then membership) adds 2 more:
+	// reads = 28. The poll_votes step (one votes query, an empty query bills 1 read) adds 1: reads = 29. The communities step (the memberships doc read, 1 when absent) adds 1: reads = 30.
 	if work["fs_reads"].(float64) > 30 || work["fs_writes"].(float64) != 4 || work["fs_deletes"].(float64) > 9 {
 		t.Errorf("work delivery cost = %v, over the ADR-0011 reference-account budget (reads 30, writes exactly 4, deletes 9)", work)
 	}

@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// TestNoInternalImports pins ADR-0010 D21 G3: the pure parser imports nothing under internal/ (the handle
+// TestNoInternalImports pins: the pure parser imports nothing under internal/ (the handle
 // grammar lives in pkg/platform/handle), so fuzz builds stay small and identity can later import the grammar
 // without a cycle.
 func TestNoInternalImports(t *testing.T) {

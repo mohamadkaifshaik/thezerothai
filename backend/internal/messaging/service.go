@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// flagClass says whom FEATURE_MESSAGING must be on for (ADR-0027 D6).
+// flagClass says whom FEATURE_MESSAGING must be on for.
 type flagClass int
 
 const (
@@ -46,7 +46,7 @@ type Deps struct {
 	Repo   Repo
 	Social Social
 	// TxSocial reads the recipient's graph inside the send transaction and TxProfiles the recipient's users doc inside the
-	// transaction of a send that creates a conversation (ADR-0027 note); both are required for SendMessage.
+	// transaction of a send that creates a conversation; both are required for SendMessage.
 	TxSocial   TxSocial
 	TxProfiles identity.TxProfiles
 	Profiles   Profiles
@@ -64,7 +64,7 @@ type Deps struct {
 	Log *slog.Logger
 }
 
-// convCacheTTL is the staleness bound of the per-instance conversation cache (ADR-0027 D14): membership is immutable in
+// convCacheTTL is the staleness bound of the per-instance conversation cache: membership is immutable in
 // a 1:1 conversation, state and clearedAt converge on other instances within 60 s. SendMessage never trusts the cached
 // state: it re-reads the document in its transaction.
 const convCacheTTL = 60 * time.Second

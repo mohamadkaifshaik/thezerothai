@@ -44,7 +44,7 @@ const kSearchUnavailableBody = 'Please check back later.';
 /// The note under the Top rows: a way to the newest posts.
 const kSeeLatestLabel = 'See latest';
 
-/// `/search?q=<query>&tab=top|latest|people|media` (ADR-0028): the
+/// `/search?q=<query>&tab=top|latest|people|media`: the
 /// results of one query in four tabs. Display only: every tab owns a
 /// [SearchResultsCubit].
 ///

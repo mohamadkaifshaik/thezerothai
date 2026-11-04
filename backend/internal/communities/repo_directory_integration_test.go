@@ -17,7 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// Budgets here exclude the account-status interceptor read (not part of this harness); the RPC doc comments and ADR-0031 list them
+// Budgets here exclude the account-status interceptor read (not part of this harness); the RPC doc comments list them
 // with it: ListCommunities 52 cold (<= 22 at Stage 0) / 0-2 warm, ListCommunityMembers 43 / 103 cold at page 20 / 50.
 
 func newListEnv(t *testing.T) *env {

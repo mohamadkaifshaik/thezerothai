@@ -6,13 +6,13 @@
 
 // Identity: profiles, handles, account lifecycle. Owner module: backend/internal/identity.
 // Collections owned: users/{uid}, handles/{handleLower}, exports/{exportId}, privacy/protectedAuthors (the set of
-// protected uids, ADR-0025 D2; never exported). See ADR-0003 and ADR-0006.
+// protected uids; never exported).
 // Auth: every RPC requires a Firebase ID token + App Check token. The caller's uid comes from the token, never the body.
-// Only Google, Apple and verified-email password sign-ins are accepted (ADR-0010 D5 A10; anonymous only against the
-// Auth emulator). Any other caller, notably a password account whose email is unverified, gets FAILED_PRECONDITION
+// Only Google, Apple and verified-email password sign-ins are accepted (anonymous only against the Auth emulator).
+// Any other caller, notably a password account whose email is unverified, gets FAILED_PRECONDITION
 // + PROFILE_REQUIRED at 0 Firestore reads on every RPC except CheckHandleAvailability and CreateProfile, which
 // answer EMAIL_NOT_VERIFIED. A profile-less verified caller on any other RPC gets PROFILE_REQUIRED after at most
-// 1 read, and is never answered RATE_LIMITED because of its IP address (ADR-0010 D5 A8).
+// 1 read, and is never answered RATE_LIMITED because of its IP address.
 
 package identityv1
 
@@ -150,7 +150,7 @@ type Profile struct {
 	AvatarUrl string `protobuf:"bytes,5,opt,name=avatar_url,json=avatarUrl,proto3" json:"avatar_url,omitempty"`
 	// 96 px avatar for lists; empty if none.
 	AvatarThumbUrl string `protobuf:"bytes,6,opt,name=avatar_thumb_url,json=avatarThumbUrl,proto3" json:"avatar_thumb_url,omitempty"`
-	// True when the account is protected (ADR-0025): its posts, its followers and following lists and its pinned post
+	// True when the account is protected: its posts, its followers and following lists and its pinned post
 	// are shown only to the account and its approved followers. The profile itself (this message, counts included)
 	// stays public. Set with UpdateProfile.is_private.
 	IsPrivate      bool  `protobuf:"varint,7,opt,name=is_private,json=isPrivate,proto3" json:"is_private,omitempty"`
@@ -158,26 +158,26 @@ type Profile struct {
 	FollowersCount int64 `protobuf:"varint,9,opt,name=followers_count,json=followersCount,proto3" json:"followers_count,omitempty"`
 	FollowingCount int64 `protobuf:"varint,10,opt,name=following_count,json=followingCount,proto3" json:"following_count,omitempty"`
 	PostsCount     int64 `protobuf:"varint,11,opt,name=posts_count,json=postsCount,proto3" json:"posts_count,omitempty"`
-	// Clients render "Joined Month YYYY" from this (ADR-0024 D2; no extra field).
+	// Clients render "Joined Month YYYY" from this (no extra field).
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	// Profile extras (ADR-0024). Data set while FEATURE_PROFILE_EXTRAS was on keeps rendering after a ramp-down; only
+	// Profile extras. Data set while FEATURE_PROFILE_EXTRAS was on keeps rendering after a ramp-down; only
 	// pinned_post_id and website are withheld while the flag is globally off (D3, D9, Amendment 1 A1), in every Profile
 	// including the owner's own. Nothing stored is erased, and the banner and location are not withheld.
-	// 1500 x 500 banner (cover image, 3:1; ADR-0024 D1); empty if none. A new banner has a new URL (immutable object).
+	// 1500 x 500 banner (cover image, 3:1); empty if none. A new banner has a new URL (immutable object).
 	BannerUrl string `protobuf:"bytes,13,opt,name=banner_url,json=bannerUrl,proto3" json:"banner_url,omitempty"`
 	// 600 x 200 banner for small layouts; empty if none.
 	BannerThumbUrl string `protobuf:"bytes,14,opt,name=banner_thumb_url,json=bannerThumbUrl,proto3" json:"banner_thumb_url,omitempty"`
-	// Free-text location, <= 30 code points, single line (ADR-0024 D2); empty if none.
+	// Free-text location, <= 30 code points, single line; empty if none.
 	Location string `protobuf:"bytes,15,opt,name=location,proto3" json:"location,omitempty"`
-	// An absolute http(s) URL, <= 100 characters, as typed except the lower-cased scheme (ADR-0024 D2); empty if none.
+	// An absolute http(s) URL, <= 100 characters, as typed except the lower-cased scheme; empty if none.
 	// Show the host only (punycode for a non-ASCII host) and open it outside the app. The server never fetches it.
 	// Always empty while FEATURE_PROFILE_EXTRAS is globally off (Amendment 1 A1), the owner's view included, so an owner
 	// cannot offer Remove for it then; the stored value returns when the flag is back on.
 	Website string `protobuf:"bytes,16,opt,name=website,proto3" json:"website,omitempty"`
-	// The owner's one pinned post (ADR-0024 D3); empty if none, and always empty while FEATURE_PROFILE_EXTRAS is
+	// The owner's one pinned post; empty if none, and always empty while FEATURE_PROFILE_EXTRAS is
 	// globally off. Render it with PostsService.GetPost; NOT_FOUND (deleted or taken down) => hide the pinned row.
 	// Cleared by the server when the post is deleted; a takedown keeps it, so a restore brings the pin back.
-	// Also empty for a caller who may not see a protected account's posts (ADR-0025 D4): neither the account nor a
+	// Also empty for a caller who may not see a protected account's posts: neither the account nor a
 	// follower of it.
 	PinnedPostId  string `protobuf:"bytes,17,opt,name=pinned_post_id,json=pinnedPostId,proto3" json:"pinned_post_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -577,21 +577,21 @@ type GetMeResponse struct {
 	// From the ID token claim (no Firestore read). Posting requires true or a Google/Apple provider.
 	EmailVerified           bool  `protobuf:"varint,3,opt,name=email_verified,json=emailVerified,proto3" json:"email_verified,omitempty"`
 	UnreadNotificationCount int64 `protobuf:"varint,4,opt,name=unread_notification_count,json=unreadNotificationCount,proto3" json:"unread_notification_count,omitempty"`
-	// Server feature flags enabled for this caller (ADR-0008 D6), lower snake case, e.g. "graph". A missing name means
+	// Server feature flags enabled for this caller, lower snake case, e.g. "graph". A missing name means
 	// off; clients ignore names they don't know. The server stays authoritative: a disabled feature's RPCs return
 	// FAILED_PRECONDITION + ERROR_REASON_FEATURE_DISABLED.
 	EnabledFeatures []string `protobuf:"bytes,5,rep,name=enabled_features,json=enabledFeatures,proto3" json:"enabled_features,omitempty"`
-	// Pending incoming follow requests (ADR-0025 D7): set for a protected caller only, else 0. A count cached 30 s, so
+	// Pending incoming follow requests: set for a protected caller only, else 0. A count cached 30 s, so
 	// it may lag a new request or a response by up to 30 s. Drives the Follow requests entry and its badge.
 	PendingFollowRequestCount int64 `protobuf:"varint,6,opt,name=pending_follow_request_count,json=pendingFollowRequestCount,proto3" json:"pending_follow_request_count,omitempty"`
-	// Inbox conversations with unread messages (ADR-0027 D10): set only when FEATURE_MESSAGING is on for the caller,
+	// Inbox conversations with unread messages: set only when FEATURE_MESSAGING is on for the caller,
 	// else 0. Capped at 100 (show "99+"); message requests do not count (ListConversations.request_count shows them). A
 	// count cached 30 s, evicted on the serving instance by a send to or a mark-read by the caller, so it may lag by up
 	// to 30 s. Drives the Messages badge.
 	UnreadConversationCount int64 `protobuf:"varint,7,opt,name=unread_conversation_count,json=unreadConversationCount,proto3" json:"unread_conversation_count,omitempty"`
-	// The caller's pinned Home tabs in order, after the fixed Following tab (ADR-0030 D6, founder decision F5): at most
+	// The caller's pinned Home tabs in order, after the fixed Following tab (founder decision F5): at most
 	// HOME_TABS_MAX_PINNED (5). Read from users/{uid}.homeTabs, the document this RPC already reads: 0 extra reads.
-	// Tabs of a kind whose flag is off for the caller (LIST: FEATURE_LISTS; COMMUNITY: FEATURE_COMMUNITIES, ADR-0031 D6)
+	// Tabs of a kind whose flag is off for the caller (LIST: FEATURE_LISTS; COMMUNITY: FEATURE_COMMUNITIES)
 	// are omitted here but kept in storage, so they come back with the flag. A tab may name a list that was deleted or
 	// made private since, or a community that was suspended: the client learns it from GetListTimeline's or
 	// GetCommunityTimeline's NOT_FOUND, shows the tab as unavailable and offers Unpin. Written by
@@ -820,28 +820,28 @@ type UpdateProfileRequest struct {
 	DisplayName    *string                `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3,oneof" json:"display_name,omitempty"`
 	Bio            *string                `protobuf:"bytes,3,opt,name=bio,proto3,oneof" json:"bio,omitempty"`
 	// A READY media id with purpose AVATAR owned by the caller; "" removes the avatar. A replaced or removed avatar's
-	// objects are deleted 24-48 h later when PROFILE_MEDIA_RETIRE=all (ADR-0024 Amendment 1 A4), otherwise kept until
+	// objects are deleted 24-48 h later when PROFILE_MEDIA_RETIRE=all, otherwise kept until
 	// account deletion; a retired avatar answers MEDIA_NOT_READY if sent again.
 	AvatarMediaId *string `protobuf:"bytes,4,opt,name=avatar_media_id,json=avatarMediaId,proto3,oneof" json:"avatar_media_id,omitempty"`
 	// true protects the account (needs FEATURE_PRIVATE_ACCOUNTS on for the caller); false unprotects it, from any
-	// caller. Quota and cap: see UpdateProfile (ADR-0025 D8, D12).
+	// caller. Quota and cap: see UpdateProfile.
 	IsPrivate *bool `protobuf:"varint,5,opt,name=is_private,json=isPrivate,proto3,oneof" json:"is_private,omitempty"`
-	// ADR-0024 profile extras: setting any of the four fields below needs FEATURE_PROFILE_EXTRAS on for the caller; the
+	// Profile extras: setting any of the four fields below needs FEATURE_PROFILE_EXTRAS on for the caller; the
 	// exact value "" (a clear) never does (see UpdateProfile).
-	// A READY or READY_UNSCREENED media id with purpose BANNER owned by the caller (ADR-0024 D1); "" removes the banner.
+	// A READY or READY_UNSCREENED media id with purpose BANNER owned by the caller; "" removes the banner.
 	// Anything else (unknown, PENDING, REJECTED, another purpose, another owner) => FAILED_PRECONDITION +
 	// MEDIA_NOT_READY, one answer for every cause, a banner that was replaced or removed earlier (retired) included. A
-	// replaced or removed banner's objects are deleted 24-48 h later when PROFILE_MEDIA_RETIRE covers banners (ADR-0024
-	// Amendment 1 A4), otherwise kept until account deletion.
+	// replaced or removed banner's objects are deleted 24-48 h later when PROFILE_MEDIA_RETIRE covers banners,
+	// otherwise kept until account deletion.
 	BannerMediaId *string `protobuf:"bytes,6,opt,name=banner_media_id,json=bannerMediaId,proto3,oneof" json:"banner_media_id,omitempty"`
 	// <= 30 code points after NFC and trim, single line; no control or bidi formatting characters (the bio rules);
-	// else INVALID_ARGUMENT + VALIDATION, metadata["field"] = "location". "" clears it (ADR-0024 D2).
+	// else INVALID_ARGUMENT + VALIDATION, metadata["field"] = "location". "" clears it.
 	Location *string `protobuf:"bytes,7,opt,name=location,proto3,oneof" json:"location,omitempty"`
 	// <= 100 characters after trim; an absolute URL with scheme https or http, a non-empty host, no userinfo and no
 	// control, whitespace or bidi characters; else INVALID_ARGUMENT + VALIDATION, metadata["field"] = "website".
-	// Stored as typed with the scheme lower-cased. "" clears it (ADR-0024 D2).
+	// Stored as typed with the scheme lower-cased. "" clears it.
 	Website *string `protobuf:"bytes,8,opt,name=website,proto3,oneof" json:"website,omitempty"`
-	// The caller's own POST, QUOTE or REPLY that is visible (never a REPOST); "" unpins (ADR-0024 D3). Every other
+	// The caller's own POST, QUOTE or REPLY that is visible (never a REPOST); "" unpins. Every other
 	// case (missing, deleted, hidden, another user's post, a REPOST) is the same INVALID_ARGUMENT + VALIDATION,
 	// metadata["field"] = "pinned_post_id", so the call is no existence oracle. One pin; a new value replaces it.
 	PinnedPostId  *string `protobuf:"bytes,9,opt,name=pinned_post_id,json=pinnedPostId,proto3,oneof" json:"pinned_post_id,omitempty"`
@@ -1319,7 +1319,7 @@ type GetAccountExportResponse struct {
 	DownloadUrlExpiresAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=download_url_expires_at,json=downloadUrlExpiresAt,proto3" json:"download_url_expires_at,omitempty"`
 	// created_at + 7 days. The JSON object in the private `<project>-exports` bucket (age = 7 lifecycle) and the
 	// exports doc (Firestore TTL) are deleted after it; both delete late, so the server returns NOT_FOUND from this
-	// time on (ADR-0011 D-B, Q6). Deleting the account deletes its exports at once.
+	// time on. Deleting the account deletes its exports at once.
 	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

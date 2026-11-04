@@ -1,7 +1,7 @@
 import 'package:intl/intl.dart';
 
 /// One planned paid plan shown (never sold) in the Premium pop-up
-/// (ADR-0026 D3). Prices are in paise, monthly, inclusive of GST.
+///Prices are in paise, monthly, inclusive of GST.
 class PremiumPlan {
   const PremiumPlan({required this.name, required this.pricePaise});
 
@@ -21,7 +21,7 @@ class PremiumPlan {
 }
 
 /// The only place a Premium price lives. A change is a one-line, reviewed
-/// copy change approved by the founder (ADR-0026 D3).
+/// copy change approved by the founder.
 const kPremiumPlans = <PremiumPlan>[
   PremiumPlan(name: 'Plus', pricePaise: 23500),
   PremiumPlan(name: 'Premium', pricePaise: 85000),

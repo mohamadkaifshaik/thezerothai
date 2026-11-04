@@ -18,7 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Home tabs (ADR-0030 D6): the caller's pinned Home tabs live on users/{uid}.homeTabs, an array of at most
+// Home tabs: the caller's pinned Home tabs live on users/{uid}.homeTabs, an array of at most
 // HOME_TABS_MAX_PINNED maps {kind, id, title}. Identity owns the field; timeline writes it only through its consumer-side
 // HomeTabsStore and lists only through lists.Pins, and this one adapter (HomeTabsAdapter) satisfies both.
 
@@ -36,7 +36,7 @@ const (
 	CommunitiesFlag = "communities"
 )
 
-// HomeTab is one pinned Home tab. Title is stored only for a list the owner owns ("" for another user's list, ADR-0030 D6).
+// HomeTab is one pinned Home tab. Title is stored only for a list the owner owns ("" for another user's list).
 type HomeTab struct {
 	Kind  string `firestore:"kind" json:"k"`
 	ID    string `firestore:"id" json:"i"`
@@ -46,7 +46,7 @@ type HomeTab struct {
 // ErrKeyReused is HomeTabsAdapter.Replace's answer when the idempotency key belongs to another request body.
 var ErrKeyReused = errors.New("identity: idempotency key reused")
 
-// rpcSetHomeTabs is the rpc name hashed into the idempotency document id (ADR-0030 D7).
+// rpcSetHomeTabs is the rpc name hashed into the idempotency document id.
 const rpcSetHomeTabs = "SetHomeTabs"
 
 // encodeHomeTabs is the comparable, immutable form Profile carries (a slice would make Profile incomparable and share a
@@ -124,7 +124,7 @@ func (h *HomeTabsAdapter) Current(ctx context.Context, uid string) ([]HomeTab, e
 	return p.HomeTabs(), nil
 }
 
-// Replace runs the SetHomeTabs transaction (ADR-0030 D6, D7). Reads, fresh and in this order: the idempotency document,
+// Replace runs the SetHomeTabs transaction. Reads, fresh and in this order: the idempotency document,
 // users/{uid} (2 reads). A record that exists with the same hash is a replay: the stored tabs are returned and nothing is
 // written; with another hash it is ErrKeyReused. Otherwise next(current) (pure: it reruns on a transaction retry) yields the
 // new order; writes: the field-level homeTabs update plus the idempotency document (2), or the idempotency document alone

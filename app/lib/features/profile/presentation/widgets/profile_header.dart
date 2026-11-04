@@ -35,7 +35,7 @@ import 'profile_cover_band.dart';
 /// following counts, and (for other users, when the graph flag is on) a
 /// [FollowButton] plus a block/mute overflow menu.
 ///
-/// Owned by the graph plan (ADR-0008 D13); the posts/profile-timeline plan
+/// Owned by the graph plan; the posts/profile-timeline plan
 /// adds the tabs and body below it — this widget never grows to include
 /// them, so the two plans don't edit the same widget at once.
 class ProfileHeader extends StatelessWidget {
@@ -70,8 +70,7 @@ class ProfileHeader extends StatelessWidget {
   /// loaded: the server answers NOT_FOUND). Null hides it.
   final VoidCallback? onMessage;
 
-  /// The profile follows the viewer (`GetProfileRelationship.followed_by`,
-  /// ADR-0024 D7): shows the "Follows you" chip next to the handle and turns
+  /// The profile follows the viewer (`GetProfileRelationship.followed_by`): shows the "Follows you" chip next to the handle and turns
   /// Follow into "Follow back". Only read with the graph flag on, on another
   /// user's profile, and not while the viewer blocks them.
   final bool followedBy;
@@ -84,8 +83,7 @@ class ProfileHeader extends StatelessWidget {
   /// under the app bar (the app-bar name fades in then).
   final Key? nameKey;
 
-  /// Offers "Report @handle" on other people's profiles (the `reports` flag,
-  /// ADR-0016). Works with or without the graph menu.
+  /// Offers "Report @handle" on other people's profiles (the `reports` flag). Works with or without the graph menu.
   final bool reportsEnabled;
 
   /// Shows an "Edit profile" button on the viewer's own profile (only
@@ -467,7 +465,7 @@ class _ProfileHeaderBody extends StatelessWidget {
 }
 
 /// The banner URL for the header: the 600 px thumb below 600 dp, the 1500 px
-/// full image at 600 dp and above (ADR-0024 D1), whichever exists when only one
+/// full image at 600 dp and above, whichever exists when only one
 /// does. Empty = no banner. Both sizes are 3:1, so neither changes the layout.
 String _bannerUrlFor(identity.Profile profile, {required bool fullSize}) {
   final full = profile.bannerUrl;
@@ -548,7 +546,7 @@ class _FollowsYouChip extends StatelessWidget {
   }
 }
 
-/// Opens a profile website outside the app (never fetched by us, ADR-0024 D2).
+/// Opens a profile website outside the app (never fetched by us).
 Future<void> _openWebsite(
   BuildContext context,
   Uri uri,
@@ -689,7 +687,7 @@ class _CountLink extends StatelessWidget {
 }
 
 /// Shown instead of the counts row when the viewer blocks this profile
-/// (ADR-0008: "hides counts links"). The overflow menu (Mute/Unmute,
+/// ("hides counts links"). The overflow menu (Mute/Unmute,
 /// Block/Unblock) stays available up in the header row regardless.
 class _BlockedBanner extends StatelessWidget {
   const _BlockedBanner({required this.handle});

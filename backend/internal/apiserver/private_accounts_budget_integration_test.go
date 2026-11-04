@@ -3,7 +3,7 @@
 package apiserver
 
 // The Part B budget table, in two parts, every figure measured on a cold instance (a fresh Build chain per call, the
-// account-status interceptor's read included) and asserted at the ADR-0025 Cost impact ceilings:
+// account-status interceptor's read included) and asserted at the planned cost ceilings:
 //   - TestW335a_BudgetTableWithPartBOn runs the whole table again with FEATURE_PRIVATE_ACCOUNTS on and a protected
 //     account in the set: every existing read path keeps its ceiling ("+0", the predicate costs no read);
 //   - TestW335a_PartBBudgetTable measures each Part B RPC and each modified read path against its own row.
@@ -119,7 +119,7 @@ func TestW335a_PartBBudgetTable(t *testing.T) {
 		}
 	}
 	// afterList is a warm instance: List has read the caller's profile (interceptor), the caller's snapshot and the
-	// requesters' profiles (Directory), which is what ADR-0025 D7 counts as "warm".
+	// requesters' profiles (Directory), which is what counts as "warm".
 	afterList := func() *w320Chain {
 		r := newW320Chain(t, noFanout)
 		if _, err := r.w328List(w.p); err != nil {
@@ -137,7 +137,7 @@ func TestW335a_PartBBudgetTable(t *testing.T) {
 	r = afterList()
 	respond(r, reqs[1], false)
 	r.w320Measure(t, rpcRespondToFollowReq, "Respond decline, warm (after List)", budgettest.Budget{Reads: 2, Writes: 1, Deletes: 1})
-	// A fully cold standalone Respond reads up to 5 (ADR-0025 implementation note); writes unchanged.
+	// A fully cold standalone Respond reads up to 5 (implementation note); writes unchanged.
 	meas(rpcRespondToFollowReq, "Respond accept, standalone cold (W3-28a note: up to 5)", budgettest.Budget{Reads: 5, Writes: 4, Deletes: 1}, func(r *w320Chain) {
 		respond(r, reqs[2], true)
 	})

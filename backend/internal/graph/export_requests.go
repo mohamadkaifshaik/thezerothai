@@ -1,4 +1,4 @@
-// export_requests.go builds the `follow_requests` export section (ADR-0025 D11): the requests the
+// export_requests.go builds the `follow_requests` export section: the requests the
 // subject sent and received, newest first, as {userId, handle, requestedAt}. The graph section and its golden are
 // unchanged and the privacy/protectedAuthors set doc is never exported (it lists other users).
 package graph
@@ -68,7 +68,7 @@ func (r *FirestoreRepo) ExportRequests(ctx context.Context, uid string) (Request
 
 // exportRequestSide returns one side's requests, newest first. Received uses the composite index
 // `followeeId ASC, createdAt DESC`; sent uses the automatic followerId index ordered by document id (no new
-// composite index, ADR-0025 D15) and sorts in memory.
+// composite index) and sorts in memory.
 func (r *FirestoreRepo) exportRequestSide(ctx context.Context, uid string, sent bool) ([]requestDoc, error) {
 	var all []requestDoc
 	var last *firestore.DocumentSnapshot

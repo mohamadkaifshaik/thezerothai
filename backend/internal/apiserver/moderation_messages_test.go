@@ -10,7 +10,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 )
 
-// TestMessageReportFlagName_IsMessagingsOwn (ADR-0027 F6): moderation checks "messaging" is not globally off under
+// TestMessageReportFlagName_IsMessagingsOwn: moderation checks "messaging" is not globally off under
 // the name moderation declares, because it cannot import messaging. The two must stay the same string, or a report would
 // be gated on a flag nobody sets.
 func TestMessageReportFlagName_IsMessagingsOwn(t *testing.T) {

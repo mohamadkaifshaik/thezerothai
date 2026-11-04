@@ -13,7 +13,7 @@ import '../domain/media_feature_flag.dart';
 import '../domain/processed_image.dart';
 
 /// The server's name for the per-uid daily read budget. It covers every RPC
-/// including media (ADR-0010 D5), so it is the one limit shared with the
+/// including media, so it is the one limit shared with the
 /// read screens through [RateLimitHold].
 const _kReadBudgetDaily = 'read_budget_daily';
 

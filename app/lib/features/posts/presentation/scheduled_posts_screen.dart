@@ -36,13 +36,12 @@ const kScheduledEmptyBody = 'Schedule a post and it will show up here.';
 /// no Retry (pull down to check again).
 const kScheduledUnavailableBody = 'Please check back later.';
 
-/// `/scheduled` (ADR-0021 D4): the caller's PENDING and
+/// `/scheduled`: the caller's PENDING and
 /// FAILED scheduled posts, oldest first. Cancel a pending one (after a
 /// confirmation) or dismiss a failed one; a failed post is never rescheduled.
 /// Reached from Settings, the composer's Schedule dialog and the "View" action
-/// of the schedule toast. The route needs only the `posts` flag (ADR-0021
-/// L-A option b: listing and cancelling need `scheduled_posts` only "not
-/// globally off"); the entry points in Settings and the composer show only
+/// of the schedule toast. The route needs only the `posts` flag (listing and cancelling
+/// need `scheduled_posts` only "not globally off"); the entry points in Settings and the composer show only
 /// with both flags.
 class ScheduledPostsScreen extends StatelessWidget {
   const ScheduledPostsScreen({super.key});

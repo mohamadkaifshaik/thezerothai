@@ -2,7 +2,7 @@
 
 package apiserver
 
-// UpdateProfile extras (ADR-0024 D1-D3, D9) over the real Build chain with the Pub/Sub emulator for the
+// UpdateProfile extras over the real Build chain with the Pub/Sub emulator for the
 // post_delete job: the location and website (and name and bio) validation driven by the shared fixture
 // testdata/profile_text (61 accept / 126 reject rows) over the wire, the per-account daily cap and the no-op skip of
 // L-4, the pin rules (own POST, QUOTE and REPLY pin; another user's post, a REPOST, a hidden, deleted, unknown or
@@ -283,7 +283,7 @@ func w320SeedPinWorld(t *testing.T, w *w320Chain) w320PinWorld {
 	return p
 }
 
-// TestW320_PinRules: ADR-0024 D3. A caller pins their own POST, QUOTE or REPLY; every other id is one VALIDATION
+// TestW320_PinRules: a caller pins their own POST, QUOTE or REPLY; every other id is one VALIDATION
 // field=pinned_post_id answer with one identical message (no existence oracle) and pin_check=rejected in the request log;
 // "" unpins; a takedown or a suspended author hides the post and refuses a NEW pin (a cold instance, so no cache hides
 // the change) while an existing pin is kept (a takedown does not unpin: a restore brings the pin back).
@@ -379,7 +379,7 @@ func TestW320_PinRules(t *testing.T) {
 	}
 }
 
-// TestW320_TakedownKeepsThePinRestoreBringsItBack: ADR-0024 D3 "Takedown": a takedown does not unpin (no post_delete job
+// TestW320_TakedownKeepsThePinRestoreBringsItBack: a takedown does not unpin (no post_delete job
 // runs for it), GetPost answers NOT_FOUND while hidden, and after a restore the same pin is live again with no write to
 // the profile in between. A suspended author's post behaves the same.
 func TestW320_TakedownKeepsThePinRestoreBringsItBack(t *testing.T) {
@@ -426,7 +426,7 @@ func TestW320_TakedownKeepsThePinRestoreBringsItBack(t *testing.T) {
 	}
 }
 
-// TestW320_PostDeleteJobClearsThePin: the job's identity step (ADR-0024 D3) clears exactly the deleted post's pin, a
+// TestW320_PostDeleteJobClearsThePin: the job's identity step clears exactly the deleted post's pin, a
 // redelivery is harmless, and it does so while profile_extras is OFF everywhere (D9: "never gated" - otherwise a pin could
 // outlive its post after a kill-switch flip). Forged messages change nothing: another user's uid, a different post id, a
 // REPOST id, a live pinned post.

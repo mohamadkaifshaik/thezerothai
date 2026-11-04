@@ -461,7 +461,7 @@ func TestSuspendUser_AppendsToTheCommunityRemovalLog(t *testing.T) {
 	})
 }
 
-// A removed-id append does not run for unsuspend-user or restore-post (ADR-0031 D6: they do not list).
+// A removed-id append does not run for unsuspend-user or restore-post (they do not list).
 func TestRestoreAndUnsuspendDoNotTouchTheRemovalLog(t *testing.T) {
 	t.Parallel()
 	f := newModFixture()

@@ -38,7 +38,7 @@ func (p *capturingPublisher) Publish(_ context.Context, b []byte) error {
 	return nil
 }
 
-// TestMessageEvent_ReachesTheFanoutAsPushOnly (ADR-0027 D9): `message` is a valid notifications type now, so the
+// TestMessageEvent_ReachesTheFanoutAsPushOnly: `message` is a valid notifications type now, so the
 // real emitter publishes one event that names the conversation (and no post) when the recipient has both `notifications`
 // and `messaging` on, and nothing when messaging is off. The flag name notifications checks is messaging's own.
 func TestMessageEvent_ReachesTheFanoutAsPushOnly(t *testing.T) {

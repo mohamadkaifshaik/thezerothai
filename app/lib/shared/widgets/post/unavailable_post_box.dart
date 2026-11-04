@@ -4,7 +4,7 @@ import '../../../core/theme/app_theme.dart';
 
 /// The bordered "This post is unavailable" placeholder: a deleted, hidden or
 /// otherwise unshowable post (thread context rows, quote and repost embeds
-/// with `unavailable`, ADR-0018 D12). It never says why: the server does not
+/// with `unavailable`). It never says why: the server does not
 /// distinguish the causes either. [message] overrides the text for the
 /// "you blocked / muted this account" variants of an embed.
 class UnavailablePostBox extends StatelessWidget {

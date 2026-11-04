@@ -2,7 +2,7 @@
 
 package apiserver
 
-// / ADR-0023 D6: the `bookmarks` erase step on an account AT THE CAP (1,000 documents), through the production jobs
+// / The `bookmarks` erase step on an account AT THE CAP (1,000 documents), through the production jobs
 // handler and the crash-resume harness (account_lifecycle_crash_integration_test.go). With the 1 ns work budget each
 // delivery runs one step call, so the step takes exactly three invocations (500 + 500 + the empty page with the
 // userLikes field clear). The instance is killed after each side effect of the step and the redelivery chain must reach

@@ -6,7 +6,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestLoad_ContentDisclosureFlag: FEATURE_CONTENT_DISCLOSURE (ADR-0021 D3) defaults to off in every environment,
+// TestLoad_ContentDisclosureFlag: FEATURE_CONTENT_DISCLOSURE defaults to off in every environment,
 // is overridable like the other server flags, and is listed in enabled_features only when on for the caller.
 func TestLoad_ContentDisclosureFlag(t *testing.T) {
 	clearEnv(t)

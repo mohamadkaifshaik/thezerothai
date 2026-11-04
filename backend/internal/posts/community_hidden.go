@@ -11,12 +11,12 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// hiddenPageMax is the most rows one page of the platform's hidden-post listing reads (Limit <= 50, ADR-0031 D14a).
+// hiddenPageMax is the most rows one page of the platform's hidden-post listing reads (Limit <= 50).
 const hiddenPageMax = 50
 
 // HiddenRowFunc sees one hidden post or reply of a community: its id, whether it is a reply (a root otherwise), the server time of the
 // hide (the zero time when the post was hidden before then wrote communityHiddenAt: "unknown", no backfill), and whether `moderation` is
-// set (a platform takedown or suspended author, ADR-0031 D5a), and whether the row is `other` (a REPOST or a root labelled with another community: never restored). It never receives text or a uid. For RestoreHiddenPage the answer says
+// set (a platform takedown or suspended author), and whether the row is `other` (a REPOST or a root labelled with another community: never restored). It never receives text or a uid. For RestoreHiddenPage the answer says
 // whether to restore the row (a moderated or other row is never restored, whatever the answer); ListHidden ignores it.
 type HiddenRowFunc = func(id string, reply bool, hiddenAt time.Time, moderated, other bool) bool
 
@@ -40,7 +40,7 @@ type hiddenDoc struct {
 }
 
 // hiddenQuery is `posts where conversationCommunityId == cid AND communityHidden == true ORDER BY __name__ LIMIT n`, after the post `after`
-// (ADR-0031 D14a). A hidden root keeps conversationCommunityId and every reply carries it, so one query covers both. Two equalities and the
+// A hidden root keeps conversationCommunityId and every reply carries it, so one query covers both. Two equalities and the
 // document id order is served by merging the automatic single-field indexes; the dev proof of this shape is recorded in the ticket.
 func (m *firestoreModerator) hiddenQuery(cid, after string, limit int) firestore.Query {
 	if limit <= 0 || limit > hiddenPageMax {
@@ -79,7 +79,7 @@ func (m *firestoreModerator) ListHidden(ctx context.Context, cid, after string, 
 	return len(snaps), last, nil
 }
 
-// RestoreHiddenPage implements CommunityModerator: the platform's restore of one page, inside tx (ADR-0031 D14a). It reads the page
+// RestoreHiddenPage implements CommunityModerator: the platform's restore of one page, inside tx. It reads the page
 // FRESH in tx (max(1, rows) reads), asks want about every row, and stages one field-level Update per wanted row (the same updates as
 // SetCommunityListing(listed=true), never a Set). The page is read as a query first and written after, because a Firestore transaction
 // refuses a read that follows a write, so SetCommunityListing (a Get then an Update per post) cannot be called once per post here. A row

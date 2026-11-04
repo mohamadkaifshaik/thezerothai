@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Accept implements Repo: one transaction (ADR-0027 D4, D6, D11).
+// Accept implements Repo: one transaction.
 //
 // Reads, fresh and before any write: conversations/{convId} (1), then the caller's dmRequests entry (1), then the requester's
 // own dmInbox entry (1; it carries requestPending): 3 in all, 4 with the interceptor. The
@@ -85,7 +85,7 @@ func (r *FirestoreRepo) Accept(ctx context.Context, p AcceptParams) (AcceptResul
 			b := store.NewFirestoreTxBatch(tx, c)
 			b.Update(r.convRef(p.ConvID), []firestore.Update{{Path: "state", Value: stateAccepted}, {Path: "updatedAt", Value: now}})
 			// changedAt = the same stamp as updatedAt: the accepter's other devices see the conversation in their next INBOX
-			// since refresh (ADR-0027 note 2026-10-29). Their REQUESTS cache drops the row locally; a delete never surfaces in since.
+			// since refresh. Their REQUESTS cache drops the row locally; a delete never surfaces in since.
 			moved := esnap.Data()
 			moved["changedAt"] = now
 			b.Set(r.inboxRef(p.UID, p.ConvID), moved)
@@ -107,7 +107,7 @@ func (r *FirestoreRepo) Accept(ctx context.Context, p AcceptParams) (AcceptResul
 	return res, nil
 }
 
-// Delete implements Repo: DeleteConversation, "delete for me" (ADR-0027 D1, D14), one transaction.
+// Delete implements Repo: DeleteConversation, "delete for me", one transaction.
 //
 // Reads, fresh and before any write: conversations/{convId} (1), then the caller's own entry (1), in the folder the
 // conversation document says it lives in (decideDelete: dmRequests for the recipient of an unaccepted request, dmInbox
@@ -115,8 +115,8 @@ func (r *FirestoreRepo) Accept(ctx context.Context, p AcceptParams) (AcceptResul
 // ErrNotFound after 1 read.
 //
 // Writes: clearedAt.{caller} = now and clearedKey.{caller} = the key digest on the conversation, one field-level Update of
-// those two map keys with updatedAt (the peer's keys are never touched; the key costs no read and no write of its own,
-// ADR-0027 2026-10-29 note), and 1 delete: the caller's entry. The peer's entry, the messages and the conversation state are
+// those two map keys with updatedAt (the peer's keys are never touched; the key costs no read and no write of its own),
+// and 1 delete: the caller's entry. The peer's entry, the messages and the conversation state are
 // untouched: a deleted request stays a REQUEST for the sender, whose cap still applies, and a later message of the peer
 // recreates the caller's entry (Send's Set with MergeAll) while ListMessages shows only what is newer than clearedAt.
 //

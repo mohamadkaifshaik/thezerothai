@@ -5,9 +5,9 @@
 // source: dzeroth/posts/v1/posts.proto
 
 // Posts: create/delete, single post, threads. Owner module: backend/internal/posts.
-// Collections owned: posts/{postId}, users/{uid}/scheduled/{scheduledId} (ADR-0021). Uses idempotency/{hash}
+// Collections owned: posts/{postId}, users/{uid}/scheduled/{scheduledId}. Uses idempotency/{hash}
 // (platform) for CreatePost because post ids are time-ordered Snowflakes and cannot be derived from the idempotency
-// key (ADR-0003). SchedulePost uses its own natural-key doc instead (ADR-0021 D4, founder-approved rule-4 bend).
+// key. SchedulePost uses its own natural-key doc instead (founder-approved rule-4 bend).
 // Timelines (home/profile) live in dzeroth.timeline.v1 and return the PostView defined here.
 
 package postsv1
@@ -92,7 +92,7 @@ type Visibility int32
 const (
 	Visibility_VISIBILITY_UNSPECIFIED Visibility = 0
 	Visibility_VISIBILITY_PUBLIC      Visibility = 1
-	// The author is protected (ADR-0025): only the author and approved followers see the post. Computed at read time
+	// The author is protected: only the author and approved followers see the post. Computed at read time
 	// from the author's current setting (within 60 s); the stored post keeps PUBLIC, so the value follows the account
 	// when it protects or unprotects.
 	Visibility_VISIBILITY_FOLLOWERS Visibility = 2
@@ -139,12 +139,12 @@ func (Visibility) EnumDescriptor() ([]byte, []int) {
 	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{1}
 }
 
-// Who may reply in a conversation (ADR-0021 D2). Set on the first post of a conversation (a root post or a quote);
+// Who may reply in a conversation. Set on the first post of a conversation (a root post or a quote);
 // replies carry the effective policy inherited from their parent. The conversation root's author may always reply.
 type ReplyPolicy int32
 
 const (
-	// Same as EVERYONE. Every post written before ADR-0021 has it.
+	// Same as EVERYONE. Every post written before reply policies existed has it.
 	ReplyPolicy_REPLY_POLICY_UNSPECIFIED ReplyPolicy = 0
 	ReplyPolicy_REPLY_POLICY_EVERYONE    ReplyPolicy = 1
 	// Accounts the conversation root's author follows.
@@ -205,7 +205,7 @@ func (ReplyPolicy) EnumDescriptor() ([]byte, []int) {
 	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{2}
 }
 
-// Whether the viewer may reply, as far as the server can tell without extra reads (ADR-0021 D2). Advisory only:
+// Whether the viewer may reply, as far as the server can tell without extra reads. Advisory only:
 // CreatePost decides.
 type ReplyPermission int32
 
@@ -213,7 +213,7 @@ const (
 	// An older server that does not compute it: treat as allowed.
 	ReplyPermission_REPLY_PERMISSION_UNSPECIFIED ReplyPermission = 0
 	ReplyPermission_REPLY_PERMISSION_ALLOWED     ReplyPermission = 1
-	// The viewer may not reply. On a post that carries `community` (ADR-0031 D5, A7) it means members only: the
+	// The viewer may not reply. On a post that carries `community` it means members only: the
 	// conversation belongs to that community and the viewer is not a JOINED member (or is banned); show "Only members of
 	// <community.name> can reply". A community conversation takes no reply_policy, so this is unambiguous, and there is no
 	// separate value: a client that predates communities already hides the reply box for it. On a post without the label
@@ -268,9 +268,9 @@ func (ReplyPermission) EnumDescriptor() ([]byte, []int) {
 }
 
 // Why the viewer should not see a REPOST or QUOTE's embedded original (issue #152). Decided by the server from the
-// viewer's OWN block and mute lists (BLOCKED, MUTED) and, since ADR-0025, from whether the viewer may see a protected
+// viewer's OWN block and mute lists (BLOCKED, MUTED) and, since private accounts, from whether the viewer may see a protected
 // embedded author (PROTECTED); an author who blocks the viewer is never reported here (GetPost answers NOT_FOUND for
-// that, ADR-0008).
+// that).
 type EmbedViewerState int32
 
 const (
@@ -281,11 +281,11 @@ const (
 	EmbedViewerState_EMBED_VIEWER_STATE_BLOCKED EmbedViewerState = 1
 	// The viewer mutes the embedded author.
 	EmbedViewerState_EMBED_VIEWER_STATE_MUTED EmbedViewerState = 2
-	// The embedded author is protected and the viewer is neither that author nor a follower (ADR-0025 D4). The server
+	// The embedded author is protected and the viewer is neither that author nor a follower. The server
 	// stripped the embed's text and media (and its hashtags and mentions), keeping post_id and the author snapshot;
 	// render a protected-post placeholder. A QUOTE row carries it. A REPOST of such a post is dropped from feeds and
 	// lists, except on the caller's own profile, where the caller's REPOST is kept with this state (and
-	// reposted_by_viewer = true) so it can be undone (ADR-0025 note L-2); GetPost answers NOT_FOUND for it.
+	// reposted_by_viewer = true) so it can be undone; GetPost answers NOT_FOUND for it.
 	EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED EmbedViewerState = 3
 )
 
@@ -332,7 +332,7 @@ func (EmbedViewerState) EnumDescriptor() ([]byte, []int) {
 	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{4}
 }
 
-// Lifecycle of a scheduled post (ADR-0021 D4).
+// Lifecycle of a scheduled post.
 type ScheduledPostStatus int32
 
 const (
@@ -517,7 +517,7 @@ func (x *Mention) GetHandle() string {
 	return ""
 }
 
-// One choice of a poll (ADR-0029).
+// One choice of a poll.
 type PollChoice struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 1-25 code points, as the author wrote it (normalised by the text rules).
@@ -573,7 +573,7 @@ func (x *PollChoice) GetVotes() int64 {
 	return 0
 }
 
-// A poll on a root post (ADR-0029 D1, D4). Stored on the post doc, so it costs 0 extra reads anywhere a post is read.
+// A poll on a root post. Stored on the post doc, so it costs 0 extra reads anywhere a post is read.
 // Counts are the post's instance-cached state (up to 60 s stale), except in the VotePoll response (the committed
 // counts). Per viewer: never cache a Post with a poll across viewers on the client.
 // In EmbeddedPost.poll (a repost or quote row) it is a frozen definition: labels and closes_at only, every votes 0,
@@ -662,7 +662,7 @@ func (x *Poll) GetClosed() bool {
 	return false
 }
 
-// The poll a CreatePost asks for (ADR-0029 D1, F4).
+// The poll a CreatePost asks for.
 type PollDraft struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 2-4 choices, each 1-25 code points, distinct after NFC and case folding.
@@ -721,7 +721,7 @@ func (x *PollDraft) GetDurationMinutes() int32 {
 // author snapshot is not refreshed by the profile-snapshot job). Replaced by a tombstone (unavailable = true, only
 // post_id set) by the post-delete job when the original is deleted, and when its author deletes their account.
 // A REPOST whose original is deleted is removed outright instead.
-// It carries no community label at Stage 0 (ADR-0031 D5): a REPOST row shows "reposted", never the original's community.
+// It carries no community label at Stage 0: a REPOST row shows "reposted", never the original's community.
 type EmbeddedPost struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	PostId    string                 `protobuf:"bytes,1,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
@@ -731,12 +731,12 @@ type EmbeddedPost struct {
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	// True when the original was deleted or became invisible; render a tombstone.
 	Unavailable bool `protobuf:"varint,6,opt,name=unavailable,proto3" json:"unavailable,omitempty"`
-	// The original's disclosure labels (ADR-0021 D3), frozen at write time; render them on the embed.
+	// The original's disclosure labels, frozen at write time; render them on the embed.
 	PaidPartnership bool `protobuf:"varint,7,opt,name=paid_partnership,json=paidPartnership,proto3" json:"paid_partnership,omitempty"`
 	MadeWithAi      bool `protobuf:"varint,8,opt,name=made_with_ai,json=madeWithAi,proto3" json:"made_with_ai,omitempty"`
-	// The original's effective reply policy, for the viewer hint of a REPOST row (ADR-0021 D2).
+	// The original's effective reply policy, for the viewer hint of a REPOST row.
 	ReplyPolicy ReplyPolicy `protobuf:"varint,9,opt,name=reply_policy,json=replyPolicy,proto3,enum=dzeroth.posts.v1.ReplyPolicy" json:"reply_policy,omitempty"`
-	// The original's poll as a frozen definition (ADR-0029 D5): labels and closes_at, no counts (see Poll). Unset when
+	// The original's poll as a frozen definition: labels and closes_at, no counts (see Poll). Unset when
 	// the original has no poll, in a tombstone, and when the embed is stripped (EMBED_VIEWER_STATE_PROTECTED).
 	Poll          *Poll `protobuf:"bytes,10,opt,name=poll,proto3" json:"poll,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -868,16 +868,16 @@ type Post struct {
 	QuoteCount  int64                  `protobuf:"varint,15,opt,name=quote_count,json=quoteCount,proto3" json:"quote_count,omitempty"`
 	Visibility  Visibility             `protobuf:"varint,16,opt,name=visibility,proto3,enum=dzeroth.posts.v1.Visibility" json:"visibility,omitempty"`
 	CreatedAt   *timestamppb.Timestamp `protobuf:"bytes,17,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	// Effective reply policy (ADR-0021 D2); on replies, the one inherited from the conversation. UNSPECIFIED ==
+	// Effective reply policy; on replies, the one inherited from the conversation. UNSPECIFIED ==
 	// EVERYONE.
 	ReplyPolicy ReplyPolicy `protobuf:"varint,18,opt,name=reply_policy,json=replyPolicy,proto3,enum=dzeroth.posts.v1.ReplyPolicy" json:"reply_policy,omitempty"`
-	// User-asserted disclosure labels (ADR-0021 D3).
+	// User-asserted disclosure labels.
 	PaidPartnership bool `protobuf:"varint,19,opt,name=paid_partnership,json=paidPartnership,proto3" json:"paid_partnership,omitempty"`
 	MadeWithAi      bool `protobuf:"varint,20,opt,name=made_with_ai,json=madeWithAi,proto3" json:"made_with_ai,omitempty"`
-	// The post's poll (ADR-0029), root posts only; unset otherwise. Redacted per viewer (Poll.results_visible). Unset on a
+	// The post's poll, root posts only; unset otherwise. Redacted per viewer (Poll.results_visible). Unset on a
 	// withheld row (PostView.withheld). Vote with dzeroth.engagement.v1.EngagementService.VotePoll.
 	Poll *Poll `protobuf:"bytes,21,opt,name=poll,proto3" json:"poll,omitempty"`
-	// The community the post was created in, for the label row (ADR-0031 D5). Set only on a root post or quote created
+	// The community the post was created in, for the label row. Set only on a root post or quote created
 	// with CreatePostRequest.community_id, while a community moderator has not hidden it and FEATURE_COMMUNITIES is not
 	// globally off (with it globally off community posts render as ordinary posts). Never on a reply, a REPOST row or an
 	// embed. Set on every surface that returns the post (Home, profile, lists, search, GetPost, GetThread, bookmarks),
@@ -1071,7 +1071,7 @@ func (x *Post) GetCommunity() *CommunityRef {
 	return nil
 }
 
-// The community a post was created in (ADR-0031 D2, D5). A snapshot taken at post time: a rename does not rewrite old
+// The community a post was created in. A snapshot taken at post time: a rename does not rewrite old
 // posts, while the community's own page and feed header show the current name. A tap opens the community
 // (dzeroth.communities.v1.CommunityService.GetCommunity, dzeroth.timeline.v1.TimelineService.GetCommunityTimeline),
 // only when GetMe.enabled_features lists "communities".
@@ -1130,26 +1130,26 @@ func (x *CommunityRef) GetName() string {
 }
 
 // A post as seen by the caller. Viewer flags come from userLikes/{uid} (1 read per request, cached 60 s) while
-// FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the caller (liked / reposted only with engagement, bookmarked_by_viewer with either); otherwise all are false and no userLikes read happens (ADR-0010 D3).
+// FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the caller (liked / reposted only with engagement, bookmarked_by_viewer with either); otherwise all are false and no userLikes read happens.
 // For a REPOST item the flags describe the original (embedded.post_id): the caller liked / reposted it.
 type PostView struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Post             *Post                  `protobuf:"bytes,1,opt,name=post,proto3" json:"post,omitempty"`
 	LikedByViewer    bool                   `protobuf:"varint,2,opt,name=liked_by_viewer,json=likedByViewer,proto3" json:"liked_by_viewer,omitempty"`
 	RepostedByViewer bool                   `protobuf:"varint,3,opt,name=reposted_by_viewer,json=repostedByViewer,proto3" json:"reposted_by_viewer,omitempty"`
-	// Whether the caller may reply (ADR-0021 D2). Timelines decide it with 0 reads for root posts only (EVERYONE, the
+	// Whether the caller may reply. Timelines decide it with 0 reads for root posts only (EVERYONE, the
 	// viewer is the author, or MENTIONED_ONLY); a REPOST row uses embedded.reply_policy; anything else is UNKNOWN.
-	// A post in a community conversation (ADR-0031 D5): GetCommunityTimeline sets ALLOWED or NOT_ALLOWED from the
+	// A post in a community conversation: GetCommunityTimeline sets ALLOWED or NOT_ALLOWED from the
 	// viewer's role (+0 reads); GetPost and GetThread decide it from the caller's member doc; Home, profile, list and
 	// search timelines answer UNKNOWN (CreatePost decides).
 	ViewerReplyPermission ReplyPermission `protobuf:"varint,4,opt,name=viewer_reply_permission,json=viewerReplyPermission,proto3,enum=dzeroth.posts.v1.ReplyPermission" json:"viewer_reply_permission,omitempty"`
 	// Set by GetPost and GetThread for a REPOST or QUOTE whose embedded author the viewer blocks or mutes, so the
 	// client shows the placeholder even when its relationship cache is cold (issue #152). Timelines do not set BLOCKED
-	// or MUTED: they drop such rows (ADR-0018 D13). PROTECTED (ADR-0025 D4) is different: every surface that returns a
+	// or MUTED: they drop such rows. PROTECTED is different: every surface that returns a
 	// QUOTE row, timelines and lists included, keeps the row and sets it, with the embed stripped; so does the caller's
-	// own REPOST on the caller's own profile (ADR-0025 note L-2).
+	// own REPOST on the caller's own profile.
 	EmbedViewerState EmbedViewerState `protobuf:"varint,5,opt,name=embed_viewer_state,json=embedViewerState,proto3,enum=dzeroth.posts.v1.EmbedViewerState" json:"embed_viewer_state,omitempty"`
-	// Whether the caller bookmarked this item (ADR-0023 D3); true only for the caller, never another user's state. For a
+	// Whether the caller bookmarked this item; true only for the caller, never another user's state. For a
 	// REPOST row it describes the original (embedded.post_id), like liked_by_viewer. Hydrated from userLikes.bookmarks at
 	// 0 extra reads when FEATURE_ENGAGEMENT is on for the viewer (the userLikes read already happens), +1 cold read
 	// (cached 60 s) when only FEATURE_BOOKMARKS is on; absent (false) when neither flag is on for the viewer. Staleness
@@ -1157,20 +1157,20 @@ type PostView struct {
 	// stay false.
 	BookmarkedByViewer bool `protobuf:"varint,6,opt,name=bookmarked_by_viewer,json=bookmarkedByViewer,proto3" json:"bookmarked_by_viewer,omitempty"`
 	// The server stripped this row's post to post_id, kind and the author snapshot because the caller may no longer see
-	// its protected author (ADR-0025 note L-2): no text, media, labels, hashtags, mentions, counts, reply fields,
+	// its protected author: no text, media, labels, hashtags, mentions, counts, reply fields,
 	// embed or timestamp. Set only on the caller's own Likes and Bookmarks lists (ListLikedPosts, ListBookmarks), where
 	// liked_by_viewer or bookmarked_by_viewer stays true; render the protected placeholder with the undo action (Unlike
 	// or Remove bookmark). The caller's own REPOST on their own profile uses embed_viewer_state = PROTECTED instead.
 	// False everywhere else.
 	Withheld bool `protobuf:"varint,7,opt,name=withheld,proto3" json:"withheld,omitempty"`
-	// The caller's own vote in this item's poll (ADR-0029 D3): 0 = not voted (or not known: FEATURE_ENGAGEMENT off for
+	// The caller's own vote in this item's poll: 0 = not voted (or not known: FEATURE_ENGAGEMENT off for
 	// the caller, or the vote is older than the newest 500 the server keeps for the check mark), 1-4 = choice index + 1.
 	// For a REPOST row it describes the original's poll (embedded.post_id), like liked_by_viewer. Hydrated from
 	// userLikes at 0 extra reads; staleness bound 60 s (the userLikes instance cache). Never another user's vote.
 	// 0 on a withheld row.
 	ViewerPollChoice int32 `protobuf:"varint,8,opt,name=viewer_poll_choice,json=viewerPollChoice,proto3" json:"viewer_poll_choice,omitempty"`
-	// True when this item carries a live poll (not closed), the caller is not its author and the caller blocks the author
-	// (ADR-0029 Amendment 1 A1.5): VotePoll then answers FAILED_PRECONDITION + TARGET_BLOCKED, so render the choices
+	// True when this item carries a live poll (not closed), the caller is not its author and the caller blocks the author:
+	// VotePoll then answers FAILED_PRECONDITION + TARGET_BLOCKED, so render the choices
 	// disabled ("You blocked @handle. Unblock to vote."). Negative polarity on purpose: false on every other row, on every
 	// producer that does not set it and on older revisions, which is the behaviour before the amendment; the server stays
 	// the authority. Set only where a post by a blocked author is shown directly (GetPost, GetThread, GetUserTimeline of
@@ -1283,14 +1283,14 @@ type CreatePostRequest struct {
 	QuoteOfPostId string   `protobuf:"bytes,5,opt,name=quote_of_post_id,json=quoteOfPostId,proto3" json:"quote_of_post_id,omitempty"`
 	// Parallel to media_ids; optional accessibility text <= 1,000 chars each.
 	MediaAltTexts []string `protobuf:"bytes,6,rep,name=media_alt_texts,json=mediaAltTexts,proto3" json:"media_alt_texts,omitempty"`
-	// Root posts and quotes only (ADR-0021 D2); FEATURE_REPLY_AUDIENCE.
+	// Root posts and quotes only; FEATURE_REPLY_AUDIENCE.
 	ReplyPolicy ReplyPolicy `protobuf:"varint,7,opt,name=reply_policy,json=replyPolicy,proto3,enum=dzeroth.posts.v1.ReplyPolicy" json:"reply_policy,omitempty"`
-	// Disclosure labels (ADR-0021 D3); FEATURE_CONTENT_DISCLOSURE.
+	// Disclosure labels; FEATURE_CONTENT_DISCLOSURE.
 	PaidPartnership bool `protobuf:"varint,8,opt,name=paid_partnership,json=paidPartnership,proto3" json:"paid_partnership,omitempty"`
 	MadeWithAi      bool `protobuf:"varint,9,opt,name=made_with_ai,json=madeWithAi,proto3" json:"made_with_ai,omitempty"`
-	// A poll on a root post (ADR-0029 D1); FEATURE_POLLS. Rules in the CreatePost comment.
+	// A poll on a root post; FEATURE_POLLS. Rules in the CreatePost comment.
 	Poll *PollDraft `protobuf:"bytes,10,opt,name=poll,proto3" json:"poll,omitempty"`
-	// Post into this community (ADR-0031 D5): a 19-digit community id; root posts and quotes only, members only, no
+	// Post into this community: a 19-digit community id; root posts and quotes only, members only, no
 	// reply_policy other than EVERYONE; FEATURE_COMMUNITIES. "" => an ordinary post. Rules in the CreatePost comment.
 	CommunityId   string `protobuf:"bytes,11,opt,name=community_id,json=communityId,proto3" json:"community_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1782,7 +1782,7 @@ func (x *GetThreadResponse) GetRootUnavailable() bool {
 	return false
 }
 
-// A post waiting to be published by the server (ADR-0021 D4). Kept 7 days after it reaches a terminal state.
+// A post waiting to be published by the server. Kept 7 days after it reaches a terminal state.
 type ScheduledPost struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// 32 lowercase hex characters.

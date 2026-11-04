@@ -14,16 +14,16 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// TestReplyAudience_Integration (ADR-0021 D2,/B4) against the Firestore emulator:
+// TestReplyAudience_Integration against the Firestore emulator:
 //   - the field is stored as `replyPolicy` (absent for EVERYONE), inherited by replies and copied into embeds;
 //   - setting a policy costs exactly what a plain create costs (delta 0, asserted equal, not <= a ceiling);
-//   - the extra reads of a reply in a restricted conversation match the ADR cost table from cold caches, and a
+//   - the extra reads of a reply in a restricted conversation match the planned cost table from cold caches, and a
 //     warm instance pays +0;
 //   - a refusal writes nothing, stores nothing under the idempotency key and reads exactly the allowed path minus
 //     the transaction's two reads.
 //
 // Every measurement runs on a fresh instance (new caches) over the same database, because a warm cache would hide
-// the cold cost the ADR documents.
+// the documented cold cost.
 func TestReplyAudience_Integration(t *testing.T) {
 	client := newTestClient(t)
 	seed := newCreateInstance(t, client, time.Nanosecond)

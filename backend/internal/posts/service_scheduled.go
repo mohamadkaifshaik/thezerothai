@@ -1,4 +1,4 @@
-// service_scheduled.go is the service layer of scheduled posts (ADR-0021 D4): SchedulePost, ListScheduledPosts
+// service_scheduled.go is the service layer of scheduled posts: SchedulePost, ListScheduledPosts
 // and CancelScheduledPost. They touch only users/{caller}/scheduled (plus quotas/{caller} and the caller's media docs
 // inside the schedule transaction); another user's id is simply absent from the path built from the token uid, so it is
 // NOT_FOUND exactly like an unknown id. The publish sweep lives in service_sweep.go.
@@ -20,7 +20,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// ScheduledPostsFlagName is the wire name of FEATURE_SCHEDULED_POSTS (ADR-0021 D4). The three RPCs need it AND
+// ScheduledPostsFlagName is the wire name of FEATURE_SCHEDULED_POSTS. The three RPCs need it AND
 // FEATURE_POSTS; GuardFeature runs first.
 const ScheduledPostsFlagName = "scheduled_posts"
 
@@ -122,7 +122,7 @@ var _ Scheduler = (*service)(nil)
 
 var errNoScheduledRepo = errors.New("posts: scheduled posts are not configured")
 
-// Schedule implements Scheduler. The order is ADR-0021 D4 "SchedulePost order" (security review L-6): flags, shape,
+// Schedule implements Scheduler. The order is fixed (security review L-6): flags, shape,
 // normalise, replay lookup, THEN the time checks and caps, so a retry that arrives after the lead time has passed or
 // after a cap filled still gets its stored item and the client never re-schedules under a new key.
 func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_ *ScheduledPost, err error) {
@@ -203,7 +203,7 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 		return nil, apierr.Validation("publish_at", "publish_at is too far ahead")
 	}
 
-	// 6. The caps. What is exact and what is soft (ADR-0021 D4):
+	// 6. The caps. What is exact and what is soft:
 	//   - The pending cap is SOFT. Its count() runs here, outside the transaction (1 read, charged by the repository),
 	//     because reading up to MaxPending+1 documents inside it would blow the read budget. Concurrent calls can overshoot
 	//     it by the number in flight, which the exact daily quota (SchedulesPerDay, a transactional counter) and the
@@ -315,7 +315,7 @@ func (s *service) ListScheduled(ctx context.Context, uid string, pageSize int, p
 }
 
 // CancelScheduled implements Scheduler. Idempotent by state: nothing is stored for the idempotency_key, which is
-// only format-checked (ADR-0021 D4, founder-approved rule-4 bend).
+// only format-checked (founder-approved rule-4 bend).
 func (s *service) CancelScheduled(ctx context.Context, uid, idempotencyKey, scheduledID string) (_ *ScheduledPost, err error) {
 	logger.SetRequestField(ctx, fieldOp, opScheduleCancel)
 	defer func() {

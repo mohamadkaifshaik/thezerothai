@@ -219,7 +219,7 @@ class ModerationServiceApi {
   /// note: optional, <= 500 code points after NFC and trim; control characters other than LF => VALIDATION "note".
   /// The report doc copies the reported post's text, author handle and media ids ("evidence"), so a later author
   /// delete does not destroy it. For target_type ACCOUNT the evidence is the profile as the reporter saw it: handle,
-  /// display name, bio, location, website, avatar URL and banner URL (ADR-0024 Amendment 1 A3), copied from the profile
+  /// display name, bio, location, website, avatar URL and banner URL, copied from the profile
   /// the call already loads (0 extra reads), so a link or image cannot be swapped before triage. While
   /// FEATURE_PROFILE_EXTRAS is globally off the reporter sees no website, so none is kept. Retention and access follow
   /// the post evidence: resolved + 90 days, never returned to any client.
@@ -229,7 +229,7 @@ class ModerationServiceApi {
   /// Firestore: reads cold 6 (interceptor caller users 1, post 1 + author users 1 + caller graph 1 for POST or
   /// target users 1 for ACCOUNT, report doc 1, quotas 1), warm 2 (report doc, quotas); planning 3. A LIST target reads the
   /// list, caller graph, owner users and owner graph (4, all cache-first) instead: 7 cold, 2 warm. A COMMUNITY target
-  /// (ADR-0031 D14) reads the community and the owner's users (2, cache-first) instead: 5 cold, 2 warm. Writes 2 (report
+  /// reads the community and the owner's users (2, cache-first) instead: 5 cold, 2 warm. Writes 2 (report
   /// create, quotas); replay 0. No async work. Nothing here loops over documents.
   $async.Future<ReportContentResponse> reportContent(
           $pb.ClientContext? ctx, ReportContentRequest request) =>

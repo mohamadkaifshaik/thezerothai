@@ -4,7 +4,7 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 
 /// The viewer's like/repost state and the counts of one engagement target,
-/// plus whether a request for it is in flight (ADR-0018).
+/// plus whether a request for it is in flight.
 ///
 /// A count is `null` while it is unknown: a REPOST row carries the counters
 /// of the REPOST doc (always 0, plan D17), not of the original it points to,
@@ -107,7 +107,7 @@ class EngagementEntry {
 }
 
 /// The id a like/repost/quote acts on: the original for a REPOST item
-/// (ADR-0018 D4: acting on a REPOST acts on its original), else the post
+/// (acting on a REPOST acts on its original), else the post
 /// itself. Empty when a REPOST has no usable embed.
 String engagementTargetId(pb.Post post) {
   if (post.kind == PostKind.POST_KIND_REPOST) {

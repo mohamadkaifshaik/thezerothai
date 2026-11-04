@@ -10,7 +10,7 @@ import (
 // watermark token (W, zeroID) never hides a post created at W.
 const zeroID = "0000000000000000000"
 
-// Watermark is W of ADR-0010 D13: min(request start, loadedAt of every author-recent entry used) minus the settle
+// Watermark is W of: min(request start, loadedAt of every author-recent entry used) minus the settle
 // window, as a position (floored to the millisecond, the resolution of createdAt).
 func Watermark(start time.Time, loadedAt []time.Time, settle time.Duration) posts.Position {
 	m := start
@@ -22,7 +22,7 @@ func Watermark(start time.Time, loadedAt []time.Time, settle time.Duration) post
 	return posts.Position{CreatedAt: m.Add(-settle).UTC().Truncate(time.Millisecond), ID: zeroID}
 }
 
-// NextSince computes the new since_token position (ADR-0010 D13): max(old, min(newest, w)) as (createdAt,
+// NextSince computes the new since_token position: max(old, min(newest, w)) as (createdAt,
 // postId) tuples. old and newest may be nil (a cold open has no old since; an empty result has no newest, and
 // then the token advances to max(old, w)). clamped is true when w was the smaller of newest and w, that is when
 // returned items newer than w will come back on the next refresh (the client dedupes by post_id).

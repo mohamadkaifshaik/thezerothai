@@ -25,7 +25,7 @@ const (
 )
 
 // refreshInterval is how long a registration with an unchanged token and index is treated as fresh: a
-// RegisterDevice inside it writes nothing (ADR-0017 D9: "once per app start" must not cost 2 writes each time).
+// RegisterDevice inside it writes nothing ("once per app start" must not cost 2 writes each time).
 const refreshInterval = 24 * time.Hour
 
 // ListQuery is one ListNotifications page: rows strictly older than Before (when set) and strictly newer than
@@ -99,7 +99,7 @@ type notificationDoc struct {
 	Actor    actorDoc `firestore:"actor"`
 	ActorIDs []string `firestore:"actorIds"`
 	// ActorCount is the distinct actors folded in so far; ActorIDs keeps only the last MaxActorIDs of them (the
-	// hot-doc bound, ADR-0017 D4). Rows written before the field existed read 0 and fall back to len(ActorIDs).
+	// hot-doc bound). Rows written before the field existed read 0 and fall back to len(ActorIDs).
 	ActorCount int       `firestore:"actorCount"`
 	PostID     string    `firestore:"postId,omitempty"`
 	CreatedAt  time.Time `firestore:"createdAt"`
@@ -177,7 +177,7 @@ func foldActor(ids []string, actorID string) ([]string, bool) {
 }
 
 // AddActor implements Repo: one transaction, 1 read always, 1 write only when the actor is new to the row.
-// actorIds is capped at the last MaxActorIDs (hot-doc bound, ADR-0017 D4) and actorCount keeps counting through
+// actorIds is capped at the last MaxActorIDs (hot-doc bound) and actorCount keeps counting through
 // firestore.Increment. A missing row is not an error (expired or erased between the failed create and this call).
 func (r *FirestoreRepo) AddActor(ctx context.Context, recipientUID, id string, a Actor, at time.Time) error {
 	ref := r.notifications(recipientUID).Doc(id)

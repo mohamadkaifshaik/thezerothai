@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ADR-0011 amendment M2 (2026-10-08) over the real Build chain and the Auth emulator. The production token
+// Amendment M2 (2026-10-08) over the real Build chain and the Auth emulator. The production token
 // verifier does not check revocation or deletion, so a deleted (or disabled) user's still-valid ID token reaches
 // CreateProfile (profile-exempt). The CreateProfile boundary must look the Auth user up and refuse.
 

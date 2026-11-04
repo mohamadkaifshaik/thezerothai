@@ -1,6 +1,6 @@
 //go:build integration
 
-// request_races_integration_test.go is the race and redelivery suite for the ADR-0025 request lifecycle (D7, D8,
+// request_races_integration_test.go is the race and redelivery suite for the request lifecycle (D7, D8,
 // D9): Respond on two instances, the privacy_public job against withdraw, Block and a manual accept, two concurrent job
 // runs, a delivery that stops at the page cap, a crash between and after pages, and at-cap requesters. Every scenario
 // ends with the automatic invariant sweep (I1 to I4, I-R and I-X); the assertions here are the end states the sweep cannot
@@ -35,8 +35,8 @@ func hasEdge(t *testing.T, w wired, follower, followee string) bool {
 	return docExists(t, w.client, "follows/"+follower+"_"+followee)
 }
 
-// TestW335b_Respond_TwoInstances: the same request answered at the same moment on two instances (ADR-0025 D7, "Respond on
-// two instances"). Neither call may fail; whichever commits second is a replay (the request is gone), so exactly one
+// TestW335b_Respond_TwoInstances: the same request answered at the same moment on two instances ("Respond on two instances").
+// Neither call may fail; whichever commits second is a replay (the request is gone), so exactly one
 // effect lands: one edge or none, one counter step, at most one notification.
 func TestW335b_Respond_TwoInstances(t *testing.T) {
 	type op func(ctx context.Context, w wired) error
@@ -220,8 +220,9 @@ func (f *failingAccepter) AcceptPendingPage(ctx context.Context, a graph.Pending
 // TestW335b_PrivacyPublic_CrashBetweenAndAfterPages: the redelivery after a crash converges on the exact end state.
 //   - a crash before page 3 loses nothing and no notification;
 //   - a crash after page 3 committed but before its events were emitted keeps the edges and counters (the page is atomic)
-//     and loses only that page's notification (ADR-0025 D8: "a crash between commit and emit loses at most that page's
-//     notifications"); the redelivery neither doubles the edge nor emits for it.
+//     and loses only that page's notification ("a crash between commit and emit loses at most that page's     notifications");
+//
+// the redelivery neither doubles the edge nor emits for it.
 func TestW335b_PrivacyPublic_CrashBetweenAndAfterPages(t *testing.T) {
 	for _, afterRun := range []bool{false, true} {
 		t.Run(fmt.Sprintf("crash after the commit=%v", afterRun), func(t *testing.T) {
@@ -404,7 +405,7 @@ func TestW335b_PrivacyPublic_AgainstWithdrawBlockAndManualAccept(t *testing.T) {
 }
 
 // TestW335b_PrivacyPublic_AtCapRequestersAreRecountedEveryRun: a requester at the 5,000 following cap keeps a pending
-// request (ADR-0025 D7: nothing written, the target may decline), so it never drops out of the query. Every rerun
+// request (nothing written, the target may decline), so it never drops out of the query. Every rerun
 // re-reads it: the cost is the same on every delivery (no growth, no writes), the outcome stays "done", and healthy
 // requesters are accepted once.
 func TestW335b_PrivacyPublic_AtCapRequestersAreRecountedEveryRun(t *testing.T) {

@@ -19,7 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// ADR-0024 Amendment 1 A4 on the real repo: UpdateProfile's hand-over of a replaced or removed avatar or banner costs
+// On the real repo: UpdateProfile's hand-over of a replaced or removed avatar or banner costs
 // nothing on the request path (the budgets are the pre-A4 ones, 1 read and 1 write in the transaction plus the
 // resolvers' reads), and ProfileImageURLs, the fresh users/{uid} read the media step checks, is 1 read.
 

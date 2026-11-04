@@ -2,11 +2,11 @@
 
 // mutations_integration_test.go holds emulator contract tests for the six
 // graph mutations (Follow, Unfollow, Block, Unblock, Mute, Unmute) covering every documented ErrorReason
-// (ADR-0008), budget assertions (worst case and typical) on every call, replays, quotas (incl. the IST-midnight
-// rollover and new-account tiers), caps, races, and degraded mode. Every newWired test ends with the ADR-0008 D3
+// Budget assertions (worst case and typical) on every call, replays, quotas (incl. the IST-midnight
+// rollover and new-account tiers), caps, races, and degraded mode. Every newWired test ends with the graph
 // invariant sweep (invariants_integration_test.go); race tests also sweep after each iteration.
 //
-// Budgets (ADR-0008 "Per-RPC budget", worst / typical). The typical figures assume identity's profile cache is
+// Budgets ("Per-RPC budget", worst / typical). The typical figures assume identity's profile cache is
 // warm (what a busy instance has); cold worst cases include the 2-doc identity.Directory read Follow does first.
 package graph_test
 
@@ -32,16 +32,16 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/degraded"
 )
 
-// Budgets straight from the ADR-0008 table (reads / writes / deletes).
+// Budgets straight from the table (reads / writes / deletes).
 var (
 	budFollowWorstCold = budgettest.Budget{Reads: 4, Writes: 5} // cold identity cache: caller profile + target users (in the txn) + graph + quota
-	budFollowTypical   = budgettest.Budget{Reads: 3, Writes: 5} // warm identity cache: ADR-0025 D6 reads the target users doc in the txn
+	budFollowTypical   = budgettest.Budget{Reads: 3, Writes: 5} // warm identity cache: Follow reads the target users doc in the txn
 	budFollowOverflow  = budgettest.Budget{Reads: 5, Writes: 5} // +1 read for an overflowed caller
 	budFollowReplay    = budgettest.Budget{Reads: 3, Writes: 0} // warm replay
 	budFollowReplayCld = budgettest.Budget{Reads: 4, Writes: 0} // cold replay
 	budUnfollow        = budgettest.Budget{Reads: 0, Writes: 3, Deletes: 1}
-	budFollowRequest   = budgettest.Budget{Reads: 4, Writes: 3}             // ADR-0025 D6, cold: followRequests Create + requested ArrayUnion + quota
-	budWithdraw        = budgettest.Budget{Reads: 0, Writes: 1, Deletes: 1} // ADR-0025 D7: the second blind batch (the interceptor read is logged separately)
+	budFollowRequest   = budgettest.Budget{Reads: 4, Writes: 3}             // cold: followRequests Create + requested ArrayUnion + quota
+	budWithdraw        = budgettest.Budget{Reads: 0, Writes: 1, Deletes: 1} // The second blind batch (the interceptor read is logged separately)
 	budUnfollowNoop    = budgettest.Budget{Reads: 0, Writes: 0, Deletes: 0}
 	budBlockWorst      = budgettest.Budget{Reads: 3, Writes: 5, Deletes: 2} // mutual follow
 	budBlockTypical    = budgettest.Budget{Reads: 3, Writes: 3}
@@ -386,7 +386,7 @@ func TestT16a_ErrorReasons_AllRPCs(t *testing.T) {
 	}
 }
 
-// TestT16a_IdempotencyKeyIsNotStored: ADR-0008 "Idempotency": keys are format-validated only; reusing one key
+// TestT16a_IdempotencyKeyIsNotStored: keys are format-validated only; reusing one key
 // for a different target is legitimate (state-setting RPCs), so IDEMPOTENCY_KEY_REUSED never occurs.
 func TestT16a_IdempotencyKeyReusedAcrossTargets_IsAllowed(t *testing.T) {
 	w := newWired(t)
@@ -452,7 +452,7 @@ func TestT16a_Follow_ErrorReasons(t *testing.T) {
 		}
 	})
 
-	// ADR-0025 D6 replaced the ADR-0008 D1 rule (a stored isPrivate target is FEATURE_DISABLED): the Follow becomes a
+	// The rule changed (a stored isPrivate target used to be FEATURE_DISABLED): the Follow now becomes a
 	// request. The full request suite is follow_requests_integration_test.go.
 	t.Run("protected target is a request, not FEATURE_DISABLED", func(t *testing.T) {
 		w := newWired(t)
@@ -680,7 +680,7 @@ func TestT16a_Mute_ErrorReasonsAndSemantics(t *testing.T) {
 	})
 }
 
-// TestT16a_Unblock_DoesNotRestoreFollows and Unfollow-vs-block semantics from the ADR-0008 D9 table.
+// TestT16a_Unblock_DoesNotRestoreFollows and Unfollow-vs-block semantics from the table.
 func TestT16a_BlockThenFollowAndUnfollowSemantics(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
@@ -903,7 +903,7 @@ func TestT16a_Race_ConcurrentDuplicateBlocksAndMutes(t *testing.T) {
 	// the emulator's lock timeout tolerates (in CI nearly every call timed out).
 	const n = 3
 	// Racing on the emulator can legitimately make every call of one kind answer with the retryable
-	// UNAVAILABLE (ADR-0008 D1: exhausted retries). Such a phase proves nothing about concurrency, so it is
+	// UNAVAILABLE (exhausted retries). Such a phase proves nothing about concurrency, so it is
 	// retried ONCE on a fresh pair; a second all-UNAVAILABLE kind fails the test instead of being papered
 	// over by a sequential replay that would create the entry uncontended.
 	const maxPhases = 2

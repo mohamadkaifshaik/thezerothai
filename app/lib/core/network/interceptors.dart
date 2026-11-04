@@ -51,7 +51,7 @@ final class ServicePausedInterceptor {
 }
 
 /// Attaches the Firebase ID token and the Firebase App Check token to every
-/// outgoing call (ADR-0006 §2). Both are refreshed lazily by the providers,
+/// outgoing call. Both are refreshed lazily by the providers,
 /// which cache the underlying platform tokens for their own TTL.
 final class AuthHeadersInterceptor {
   const AuthHeadersInterceptor(this._authTokens, this._appCheckTokens);
@@ -67,8 +67,8 @@ final class AuthHeadersInterceptor {
       if (idToken != null) {
         request.headers.set('authorization', ['Bearer $idToken']);
       }
-      // App Check is enforced server-side in monitor mode at Stage 0 (ADR-0006
-      // §2): a token fetch failure (e.g. attestation hiccup, App Check not
+      // App Check is enforced server-side in monitor mode at Stage 0:
+      // a token fetch failure (e.g. attestation hiccup, App Check not
       // yet warmed up) must not take down every API call. Send the request
       // without the header and let the server decide (accept in monitor
       // mode, reject with APP_CHECK_REQUIRED once enforced) rather than
@@ -88,7 +88,7 @@ final class AuthHeadersInterceptor {
 }
 
 /// Silently retries `RATE_LIMITED` rejections whose `metadata["limit"]` is
-/// `read_budget_inflight` (ADR-0010 D5 A1): a concurrent call of the same
+/// `read_budget_inflight`: a concurrent call of the same
 /// account was still holding the read budget, `retry_after` is ~1 s.
 ///
 /// Unlike [RetryInterceptor] this is safe for mutations too: the server rejects

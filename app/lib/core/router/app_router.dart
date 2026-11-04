@@ -211,7 +211,7 @@ class AppRouter {
       '$composePath?quote=${Uri.encodeQueryComponent(postId)}';
 
   /// Profile by user id: what post cards and mentions use, since handles can
-  /// be changed and re-claimed (ADR-0010 D7).
+  /// be changed and re-claimed.
   static String profileByIdPath(String userId) =>
       '/u/${Uri.encodeComponent(userId)}';
 
@@ -637,7 +637,7 @@ class AppRouter {
   static final _profilePath = RegExp(r'^/profile/([^/]+)$');
   static final _messageThreadPath = RegExp(r'^/messages/[^/]+$');
 
-  /// A conversation link (ADR-0027): fixed-length lower-case hex, the
+  /// A conversation link: fixed-length lower-case hex, the
   /// shape of a conversation id. Deliberately tighter than `/u/...` and
   /// `/profile/...`: a query or a fragment disqualifies the whole link instead
   /// of being dropped. `/messages`, `/messages/requests` and `/messages/new`
@@ -831,7 +831,7 @@ class AppRouter {
     if (_onboardingBloc.state.enabledFeatures.contains(kFeatureMessaging)) {
       return null;
     }
-    // (ADR-0027 F6(a)): off for this caller only. The inbox, the
+    // Messaging is off for this caller only (read-only access). The inbox, the
     // requests and a thread open; starting a message does not.
     if (_messagingGate?.access == MessagingAccess.readOnly) {
       return loc == messageNewPath || loc == messageDraftPath
@@ -844,7 +844,7 @@ class AppRouter {
   /// `/follow-requests` redirects Home unless `graph` is on and the caller is
   /// protected or has `private_accounts`. A protected caller keeps the
   /// screen with `private_accounts` off everywhere: requests are never lost
-  /// to a flag (the undo rule, ADR-0025 D12).
+  /// to a flag (the undo rule).
   String? _followRequestsRedirect(String loc) {
     if (loc != followRequestsPath) return null;
     final state = _onboardingBloc.state;
@@ -876,8 +876,8 @@ class AppRouter {
 
   /// The Scheduled posts list redirects to Settings unless `posts` is on for
   /// this caller. It does NOT need `scheduled_posts`: ListScheduledPosts
-  /// and CancelScheduledPost only need the flag "not globally off" (ADR-0021
-  /// L-A option b), so a user dropped from the allowlist can still see and
+  /// and CancelScheduledPost only need the flag "not globally off",
+  /// so a user dropped from the allowlist can still see and
   /// cancel what they already scheduled. A globally-off flag shows the list's
   /// own "not available" state.
   String? _scheduledFlagRedirect(String loc) {
@@ -900,7 +900,7 @@ class AppRouter {
 
   /// `/bookmarks` redirects Home unless `posts` is on for this caller.
   /// It does NOT need `bookmarks`: ListBookmarks and RemoveBookmark only need
-  /// the flag "not globally off" (ADR-0023 D5), so a user dropped from the
+  /// the flag "not globally off", so a user dropped from the
   /// allowlist still reaches what they saved. A flag that is off for everyone
   /// shows the list's own "not available" state.
   String? _bookmarksFlagRedirect(String loc) {
@@ -965,7 +965,7 @@ class AppRouter {
   );
 
   /// Graph-only routes redirect away when the graph feature flag is off for
-  /// this caller (ADR-0008 D6) — belt-and-suspenders alongside hiding the
+  /// this caller — belt-and-suspenders alongside hiding the
   /// UI entry points that link to them.
   String? _graphFlagRedirect(String loc) {
     if (_onboardingBloc.state.enabledFeatures.contains(kFeatureGraph)) {

@@ -2,7 +2,7 @@
 
 package apiserver
 
-// (ADR-0025 note L-2) through the real Build chain on the emulators: the owner keeps an undo on their own
+// Owner placeholders through the real Build chain on the emulators: the owner keeps an undo on their own
 // REPOST, like and bookmark of a protected author they can no longer see.
 //   - S liked, bookmarked and reposted P's post while P was public; P protects. S's own Likes and Bookmarks lists keep the
 //     row as a withheld placeholder (post_id, kind, author; no text, media, counts or timestamp), S's own profile keeps

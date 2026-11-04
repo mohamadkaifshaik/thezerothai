@@ -17,7 +17,7 @@ import (
 )
 
 // TestSetAccountStatus_Integration: ACTIVE <-> SUSPENDED in one transaction (1 read, 1 write, 0 on a no-op); a
-// DELETING account is never touched (ADR-0016 D4); unknown users are ErrNotFound.
+// DELETING account is never touched; unknown users are ErrNotFound.
 func TestSetAccountStatus_Integration(t *testing.T) {
 	client := newTestClient(t)
 	repo := identity.NewFirestoreRepo(client, graph.NewFirestoreRepo(client))

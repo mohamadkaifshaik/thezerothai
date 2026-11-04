@@ -1,4 +1,4 @@
-// sweep.go holds the types of the scheduled-post publish sweep (ADR-0021 "Sweep"): the storage seam, the
+// sweep.go holds the types of the scheduled-post publish sweep ("Sweep"): the storage seam, the
 // limits and collaborators the wiring supplies, the Sweeper interface the cron route calls, and the per-run counters.
 // The orchestration is service_sweep.go, the per-item rules service_sweep_item.go, the HTTP route sweep_http.go and the
 // publish transaction repo_publish_scheduled.go.
@@ -30,7 +30,7 @@ const (
 const sweepOp = "cron/publish-scheduled"
 
 const (
-	// sweepRunDeadline is the whole run's budget (ADR-0021 D1: a 25 s context deadline).
+	// sweepRunDeadline is the whole run's budget (a 25 s context deadline).
 	sweepRunDeadline = 25 * time.Second
 	// sweepMinRemaining is the least time that must remain to fetch another page or to start another item: one item's
 	// publish transaction has its own 5 s bound (createTxTimeout), plus the post-commit effects.
@@ -126,7 +126,7 @@ type SweepResult struct {
 	// expiry, UNSUPPORTED or INVALID_CONTENT check would retire is retired as always, not held. The verdicts that need the
 	// publish transaction (ACCOUNT_RESTRICTED, CANCELLED, QUOTA_EXCEEDED, MEDIA_UNAVAILABLE) wait until the item is released
 	// or expires. Next run asks again, so they are re-read every run until the flag returns or they expire, and they keep
-	// their place at the head of the due window meanwhile (known limit: runbook posts.md section 12).
+	// their place at the head of the due window meanwhile (a known limit).
 	HeldMedia int
 	// Noop counts state writes that found the item already moved on (another run, a Cancel, the eraser): nothing was
 	// written. The item can also be counted elsewhere: Published when the publish committed and a later panic's FAILED write
@@ -150,7 +150,7 @@ func (r SweepResult) Expired() int { return r.Failed[FailureExpired] }
 // Sweeper is the publish sweep the cron route calls. The concrete service returned by New implements it (reached by
 // type assertion in the wiring, like Scheduler), so Service and its fakes stay unchanged.
 type Sweeper interface {
-	// Sweep publishes the scheduled posts that are due (ADR-0021 "Sweep"). The error is non-nil only when the FIRST due
+	// Sweep publishes the scheduled posts that are due ("Sweep"). The error is non-nil only when the FIRST due
 	// page failed (nothing was processed: the route answers 500 and Cloud Scheduler retries). An item that fails is counted
 	// in the result, never returned. When a LATER page fails the earlier pages are processed and the failure comes back as
 	// SweepResult.LaterPageErr with a nil error (the route answers 204: a retry would burn the items' attempt ladder).

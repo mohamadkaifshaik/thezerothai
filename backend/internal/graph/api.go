@@ -1,11 +1,11 @@
-// Package graph owns follows, blocks and mutes (ADR-0003: graph/{uid}, follows/{a}_{b}; ADR-0008 social
-// graph slice). It exposes Service (consumed by server.go, the Connect handler), Reader (consumed by other
+// Package graph owns follows, blocks and mutes (graph/{uid}, follows/{a}_{b}).
+// It exposes Service (consumed by server.go, the Connect handler), Reader (consumed by other
 // modules — timeline, posts, notifications — for filtering on the caller's social context), FollowEvents
 // (a no-op post-commit hook until the notifications plan) and Eraser (the delete-cascade building block used
 // by opsctl and, later, the account-lifecycle job). graph depends on identity's api.go interfaces
 // (Directory, Counters) directly; identity depends on graph only through the consumer-side BlockChecker
 // interface identity itself declares (identity/api.go) — graph is never imported by identity, so there is
-// no import cycle (ADR-0008 "Import cycle to avoid").
+// no import cycle ("Import cycle to avoid").
 package graph
 
 import (
@@ -24,7 +24,7 @@ const (
 	FollowStateUnspecified FollowState = iota
 	FollowStateNone
 	FollowStateFollowing
-	// FollowStateRequested is a pending follow request to a protected account (ADR-0025 D2): the target is in the caller's
+	// FollowStateRequested is a pending follow request to a protected account: the target is in the caller's
 	// graph.requested array, so every path that holds the caller's Snapshot reports it at 0 extra reads.
 	FollowStateRequested
 )
@@ -37,21 +37,21 @@ type Relationship struct {
 	Muting      bool
 }
 
-// Snapshot is the caller's whole social context (ADR-0003/ADR-0008 D2), read from graph/{uid} and cached
-// 60s (ADR-0008 D8). Set membership is presence-in-map; a nil map is a valid, empty set.
+// Snapshot is the caller's whole social context, read from graph/{uid} and cached
+// 60s. Set membership is presence-in-map; a nil map is a valid, empty set.
 type Snapshot struct {
 	Following map[string]bool
 	Blocked   map[string]bool
 	Muted     map[string]bool
 	Requested map[string]bool
-	// BlockedBy is never serialized to any client and never exported (ADR-0008 D2/D12).
+	// BlockedBy is never serialized to any client and never exported.
 	BlockedBy map[string]bool
 	// BlockedByOverflow is true once this account has been blocked by so many users that blockedBy stopped
-	// growing at its 10,000 cap (ADR-0008 D2). Fail-closed paths (Follow, GetProfile, list target checks)
+	// growing at its 10,000 cap. Fail-closed paths (Follow, GetProfile, list target checks)
 	// then also consult the other party's own graph doc directly instead of trusting BlockedBy alone.
 	BlockedByOverflow bool
 	// RecentFollowing is the newest followees, newest first, at most recentFollowingMax (30) of them: the tail of the
-	// stored following array, which ArrayUnion appends in follow order (ADR-0024 D8 "the newest 30"). Following is a
+	// stored following array, which ArrayUnion appends in follow order ("the newest 30"). Following is a
 	// set and has no order; this is the one ordered view, bounded so the 60 s snapshot cache never holds the whole
 	// 5,000-entry array twice. Empty when the account follows nobody.
 	RecentFollowing []string
@@ -63,7 +63,7 @@ func (s Snapshot) isMuted(uid string) bool     { return s.Muted[uid] }
 func (s Snapshot) isBlockedBy(uid string) bool { return s.BlockedBy[uid] }
 func (s Snapshot) isRequested(uid string) bool { return s.Requested[uid] }
 
-// relationshipFor computes a Relationship from a caller's own Snapshot only (ADR-0008 D4): never reports
+// relationshipFor computes a Relationship from a caller's own Snapshot only: never reports
 // followed_by, never reflects BlockedBy (a user who blocked the caller looks like a stranger).
 func relationshipFor(callerSnap Snapshot, targetUID string) Relationship {
 	rel := Relationship{UserID: targetUID}
@@ -93,7 +93,7 @@ type Page struct {
 	NextPageToken string
 }
 
-// Checkpoint resumes Eraser.PurgeUser across calls (ADR-0008 D10). Zero value starts from the beginning.
+// Checkpoint resumes Eraser.PurgeUser across calls. Zero value starts from the beginning.
 type Checkpoint struct {
 	// Step is 1-5 (see purge.go); 0 means "start".
 	Step int
@@ -116,21 +116,21 @@ type Service interface {
 	ListFollowing(ctx context.Context, callerUID, targetUID string, pageSize int32, pageToken string) (Page, error)
 	ListBlockedUsers(ctx context.Context, callerUID string, pageSize int32, pageToken string) (Page, error)
 	ListMutedUsers(ctx context.Context, callerUID string, pageSize int32, pageToken string) (Page, error)
-	// GetProfileRelationship is the ADR-0024 D7 header RPC: the caller's Relationship to one user plus followed_by.
+	// GetProfileRelationship is the header RPC: the caller's Relationship to one user plus followed_by.
 	GetProfileRelationship(ctx context.Context, callerUID, targetUID string) (ProfileRelationship, error)
-	// ListSuggestedUsers is the ADR-0024 D8 "who to follow" RPC: at most maxResults rows (0 => 5, clamped to 1..5), no cursor.
+	// ListSuggestedUsers is the "who to follow" RPC: at most maxResults rows (0 => 5, clamped to 1..5), no cursor.
 	ListSuggestedUsers(ctx context.Context, callerUID string, maxResults int32) ([]ListItem, error)
-	// FollowRequestsGate is the ADR-0025 D12 gate shared by ListFollowRequests and RespondToFollowRequest (both
+	// FollowRequestsGate is the gate shared by ListFollowRequests and RespondToFollowRequest (both
 	// built): FEATURE_GRAPH, then private_accounts not globally off or the caller protected now.
 	FollowRequestsGate(ctx context.Context, callerUID string) error
-	// ListFollowRequests is ADR-0025 D7: the caller's incoming follow requests, newest first (gate first, then the page).
+	// ListFollowRequests is: the caller's incoming follow requests, newest first (gate first, then the page).
 	ListFollowRequests(ctx context.Context, callerUID string, pageSize int32, pageToken string) (Page, error)
 	// RespondToFollowRequest accepts or declines the pending request from requesterUID and returns the caller's
-	// Relationship to the requester (ADR-0025 D7). idempotencyKey is validated, not stored.
+	// Relationship to the requester. idempotencyKey is validated, not stored.
 	RespondToFollowRequest(ctx context.Context, callerUID, idempotencyKey, requesterUID string, accept bool) (Relationship, error)
 }
 
-// Reader is graph's read-only seam other modules use for filtering (ADR-0008: "the timeline, posts and
+// Reader is graph's read-only seam other modules use for filtering ("the timeline, posts and
 // notifications plans must use them" — never by reading graph/* directly).
 type Reader interface {
 	// Snapshot returns uid's whole social context, cached 60s (0 reads on a cache hit).
@@ -140,7 +140,7 @@ type Reader interface {
 // TxReader lets another module read graph/{uid} INSIDE its own transaction, uncached, so a concurrent write of that
 // document (a Block, Mute, Follow or Unfollow of the owner, or anyone's Block of the owner, which writes blockedBy)
 // conflicts with the transaction instead of being missed. It is the read-side companion of Reader for the one path
-// that must not trust the 60 s cache: messaging's send reads the RECIPIENT's graph this way (ADR-0027 note, A8).
+// that must not trust the 60 s cache: messaging's send reads the RECIPIENT's graph this way.
 // *FirestoreRepo implements it.
 type TxReader interface {
 	// SnapshotInTx reads graph/{uid} through tx: 1 read (charged to ctx's budget.Counter), never the 60 s cache (it
@@ -149,20 +149,20 @@ type TxReader interface {
 	SnapshotInTx(ctx context.Context, tx *firestore.Transaction, uid string) (Snapshot, error)
 }
 
-// FollowEvents is a post-commit hook, a no-op until the notifications plan (ADR-0008 D11): "graph calls a
+// FollowEvents is a post-commit hook, a no-op until the notifications plan: "graph calls a
 // no-op FollowEvents.Followed(ctx, follower, followee, at) after a commit that created an edge; replays and
 // no-ops don't call it." Never called synchronously inside the mutation's own transaction/budget.
 type FollowEvents interface {
 	Followed(ctx context.Context, followerUID, followeeUID string, at time.Time)
-	// FollowRequested is called after the commit that created a follow request to a protected account (ADR-0025 D10).
+	// FollowRequested is called after the commit that created a follow request to a protected account.
 	// A replay of the request never calls it. Followed is not called for a request..
 	FollowRequested(ctx context.Context, requesterUID, targetUID string, at time.Time)
 	// FollowRequestAccepted is called after the commit that accepted a request (RespondToFollowRequest or the
-	// privacy_public job; ADR-0025 D10). Followed is not called for it..
+	// privacy_public job). Followed is not called for it..
 	FollowRequestAccepted(ctx context.Context, targetUID, requesterUID string, at time.Time)
 }
 
-// Eraser is the delete-cascade building block (ADR-0008 D10), used by opsctl purge-graph now and later the
+// Eraser is the delete-cascade building block, used by opsctl purge-graph now and later the
 // account-lifecycle job. PurgeUser is resumable: call again with the returned checkpoint until done is true.
 type Eraser interface {
 	PurgeUser(ctx context.Context, uid string, checkpoint Checkpoint) (next Checkpoint, done bool, err error)

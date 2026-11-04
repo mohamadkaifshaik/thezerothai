@@ -22,7 +22,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
 )
 
-// ADR-0024 Amendment 1 A4 over the real Firestore repo and, for the eraser, the Storage emulator. The users/{uid}
+// Over the real Firestore repo and, for the eraser, the Storage emulator. The users/{uid}
 // read is a fake here (it lives in identity and is charged there; the apiserver chain test asserts the whole job at 2
 // reads and 1 write). The emulator does not implement objects.patch, so a counting tagger records the customTime
 // patches the step makes and delegates to the real Buckets (which accepts the emulator's 501).

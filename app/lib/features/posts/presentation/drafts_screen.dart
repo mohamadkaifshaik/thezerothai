@@ -38,7 +38,7 @@ const kDraftsRetentionNote =
 const kDraftsTabUnsent = 'Unsent posts';
 const kDraftsTabScheduled = 'Scheduled';
 
-/// `/drafts` (ADR-0029): the Unsent posts tab (drafts kept on this
+/// `/drafts`: the Unsent posts tab (drafts kept on this
 /// device, 0 RPCs) and the Scheduled tab (the list, unchanged). `/scheduled`
 /// is an alias that opens the Scheduled tab while `drafts` is on.
 ///

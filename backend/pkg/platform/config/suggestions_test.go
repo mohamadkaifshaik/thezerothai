@@ -8,7 +8,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// w3Flags lists the four ADR-0024 D9 flags: env name, wire name, and the Config field.
+// w3Flags lists the four flags: env name, wire name, and the Config field.
 var w3Flags = []struct {
 	env, wire string
 	spec      func(Config) flags.Spec
@@ -19,7 +19,7 @@ var w3Flags = []struct {
 	{"FOLLOW_SUGGESTIONS", "follow_suggestions", func(c Config) flags.Spec { return c.FeatureFollowSuggestions }},
 }
 
-// TestLoad_ProfileGraphDefaults pins every ADR-0024 D8/D9/D10 default: the four flags (off), the three per-minute
+// TestLoad_ProfileGraphDefaults pins every default: the four flags (off), the three per-minute
 // buckets, the daily call cap, the suggestion limits and an empty curated list.
 func TestLoad_ProfileGraphDefaults(t *testing.T) {
 	clearEnv(t)

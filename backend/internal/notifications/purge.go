@@ -1,4 +1,4 @@
-// purge.go implements Eraser and Exporter on FirestoreRepo (ADR-0017 D10): the right-to-delete and
+// purge.go implements Eraser and Exporter on FirestoreRepo: the right-to-delete and
 // right-to-access paths for users/{uid}/notifications, users/{uid}/devices and deviceTokens.
 package notifications
 
@@ -29,7 +29,7 @@ const (
 	purgeCommitBackoff  = 50 * time.Millisecond
 )
 
-// Exporter writes one user's notification data as the manual data export (ADR-0003 "Deletes & privacy").
+// Exporter writes one user's notification data as the manual data export ("Deletes & privacy").
 type Exporter interface {
 	ExportUser(ctx context.Context, uid string, w io.Writer) error
 }

@@ -23,7 +23,7 @@ const (
 
 var _ LifecycleRepo = (*FirestoreRepo)(nil)
 
-// exportDocFS is the exports/{id} shape (ADR-0003, ADR-0011). expireAt is the Firestore TTL field.
+// exportDocFS is the exports/{id} shape. expireAt is the Firestore TTL field.
 type exportDocFS struct {
 	UID        string    `firestore:"uid"`
 	Status     string    `firestore:"status"`
@@ -79,7 +79,7 @@ func (r *FirestoreRepo) BeginDeletion(ctx context.Context, uid string, now time.
 			out = DeletionStart{Profile: p, Replay: true}
 			return nil
 		}
-		// ACTIVE, SUSPENDED (ADR-0011 Q3), or DELETING set by hand without job state: (re)start the job.
+		// ACTIVE, SUSPENDED, or DELETING set by hand without job state: (re)start the job.
 		job := DeletionJob{Seq: 0, ProgressAt: now}
 		b := store.NewFirestoreTxBatch(tx, counter)
 		b.Update(r.userRef(uid), []firestore.Update{

@@ -463,7 +463,7 @@ void main() {
       expect(find.text('Unpin from profile'), findsNothing);
     });
 
-    // ADR-0024 Amendment 1 A2 (M-1): Unpin is a clear, which the server
+    // Unpin is a clear, which the server
     // accepts whatever the flag says; only Pin (a set) needs profile_extras.
     testWidgets('Unpin from profile is on the pinned post without '
         'profile_extras, and sends "" (Pin is not offered)', (tester) async {

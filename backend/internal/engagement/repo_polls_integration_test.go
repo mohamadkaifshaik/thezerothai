@@ -242,7 +242,7 @@ func TestPollVoteExporter_120Votes(t *testing.T) {
 	}
 }
 
-// ChangeVote (ADR-0029 Amendment 1 A2.3): ONE batch, 0 reads, 4 writes, including TWO writes to userLikes/{uid} in the same commit (ArrayRemove of
+// ChangeVote: ONE batch, 0 reads, 4 writes, including TWO writes to userLikes/{uid} in the same commit (ArrayRemove of
 // the old entry, ArrayUnion of the new one). This test is the evidence that the emulator accepts that shape; dev Firestore is a separate check.
 func TestRepoChangeVote_BatchBudgetAndEffects(t *testing.T) {
 	e := newRepoEnv(t)

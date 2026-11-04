@@ -1,4 +1,4 @@
-// poll.go is the one place that knows the poll creation rules (ADR-0029 D1, D2): the limits, the validation of
+// poll.go is the one place that knows the poll creation rules: the limits, the validation of
 // a CreatePost poll, the idempotency suffix and the stored shape. The Flutter client mirrors the same rules from the
 // shared fixture testdata/poll_rules.json (the Go test poll_rules_test.go and the Dart test run the same rows).
 // Nothing here reads or writes Firestore.
@@ -20,7 +20,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// pollField is the VALIDATION field every poll rule reports (ADR-0029 D1).
+// pollField is the VALIDATION field every poll rule reports.
 const pollField = "poll"
 
 // MaxPollChoices is the structural ceiling of a poll: the wire contract indexes choices 0..3 (VotePoll.choice_index,
@@ -51,7 +51,7 @@ type PollInput struct {
 	DurationMinutes int32
 }
 
-// Poll is the stored poll of a root post (ADR-0029 D1). Counts has one entry per option (index = choice index), Total is the
+// Poll is the stored poll of a root post. Counts has one entry per option (index = choice index), Total is the
 // sum of the votes (kept as its own counter so redaction can show it without the counts). The instance cache and every reader
 // treat a Poll as read-only; a writer builds a new one.
 type Poll struct {
@@ -63,7 +63,7 @@ type Poll struct {
 	Total    int64
 }
 
-// EmbeddedPoll is the frozen definition a QUOTE or REPOST copies (ADR-0029 D5): labels and closing time, never counts.
+// EmbeddedPoll is the frozen definition a QUOTE or REPOST copies: labels and closing time, never counts.
 type EmbeddedPoll struct {
 	Options  []string
 	ClosesAt time.Time
@@ -139,7 +139,7 @@ func foldKey(s string) string {
 	return norm.NFC.String(cases.Fold().String(norm.NFC.String(text.StripFoldIgnorable(s))))
 }
 
-// pollHashSuffix is the ADR-0029 D2 suffix appended to the request hash base after `|ai=1`, only when a poll is present:
+// pollHashSuffix is the suffix appended to the request hash base after `|ai=1`, only when a poll is present:
 // `|poll=<n>:<hex SHA-256 of the normalised labels joined by U+001F>|dur=<minutes>`. Empty for no poll, so a CreatePost
 // without a poll hashes byte for byte as before.
 func pollHashSuffix(d *PollDraft) string {
@@ -149,7 +149,7 @@ func pollHashSuffix(d *PollDraft) string {
 	return "|poll=" + strconv.Itoa(len(d.Options)) + ":" + idempotency.HashRequest(strings.Join(d.Options, "\x1f")) + "|dur=" + strconv.Itoa(d.DurationMin)
 }
 
-// checkPoll validates the request's poll before any read (ADR-0029 D1): the refused combinations first (media or alt texts,
+// checkPoll validates the request's poll before any read: the refused combinations first (media or alt texts,
 // a reply, a quote, empty text), then the poll's own rules. Every failure is VALIDATION field=poll, so no combination is
 // told apart by its error. It returns nil, nil for a request without a poll.
 func (s *service) checkPoll(in CreateInput) (*PollDraft, error) {
@@ -173,7 +173,7 @@ func (s *service) checkPoll(in CreateInput) (*PollDraft, error) {
 	return &d, nil
 }
 
-// requestHashWithPoll is requestHash plus the ADR-0029 D2 poll suffix (absent for no poll, so the hash is today's).
+// requestHashWithPoll is requestHash plus the poll suffix (absent for no poll, so the hash is today's).
 func requestHashWithPoll(normalisedText, replyTo, quoteOf string, mediaIDs, alts []string, policy ReplyPolicy, paidPartnership, madeWithAI bool, poll *PollDraft) string {
 	return idempotency.HashRequest(requestHashBase(normalisedText, replyTo, quoteOf, mediaIDs, alts, policy, paidPartnership, madeWithAI) + pollHashSuffix(poll))
 }
@@ -186,7 +186,7 @@ func pollInputOf(m *postsv1.PollDraft) *PollInput {
 	return &PollInput{Choices: m.GetChoices(), DurationMinutes: m.GetDurationMinutes()}
 }
 
-// Voted returns a copy of p whose poll counts one more vote for choice (ADR-0029 D6 step 8): a NEW Post and a NEW Poll with
+// Voted returns a copy of p whose poll counts one more vote for choice: a NEW Post and a NEW Poll with
 // fresh Counts, never an in-place change, because the cached *Post and its *Poll are shared by every reader (Cache.AdjustCounts
 // copies Post shallowly). It is p itself when p has no poll or choice is out of range.
 func (p *Post) Voted(choice int) *Post {
@@ -203,7 +203,7 @@ func (p *Post) Voted(choice int) *Post {
 	return &cp
 }
 
-// VoteChanged returns a copy of p whose poll moves one vote from choice from to choice to (ADR-0029 Amendment 1 A2.7): a NEW Post and a
+// VoteChanged returns a copy of p whose poll moves one vote from choice from to choice to: a NEW Post and a
 // NEW Poll with fresh Counts, like Voted, with each count clamped at 0 and Total unchanged. It is p itself when p has no poll, a
 // choice is out of range or from == to.
 func (p *Post) VoteChanged(from, to int) *Post {

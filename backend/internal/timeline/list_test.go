@@ -1,6 +1,6 @@
 package timeline
 
-// GetListTimeline (ADR-0030 D5). The fakes charge reads the way the real seams do, so the assertions here cover what
+// GetListTimeline. The fakes charge reads the way the real seams do, so the assertions here cover what
 // timeline itself reads: the caller graph (1, a cache hit in production) and the member queries. The fixed reads of the list
 // (list, owner profile, owner graph) belong to lists.Reader and are asserted by the emulator budget test.
 

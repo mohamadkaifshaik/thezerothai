@@ -16,7 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
-// ADR-0024 Amendment 1 A3(a): `opsctl clear-profile-fields`, over fakes. The Firestore behaviour (one field-level
+// `opsctl clear-profile-fields`, over fakes. The Firestore behaviour (one field-level
 // update, skip empty, DELETING refused, 1 read / 1 write) is in internal/identity's integration test and the CLI end to
 // end in clear_profile_integration_test.go.
 
@@ -403,7 +403,7 @@ func TestReportsResolve_ProfileClearedIsNotAManualResolution(t *testing.T) {
 	}
 }
 
-// ADR-0024 Amendment 1 A4: a committed clear of a banner or avatar runs the retire step in process.
+// A committed clear of a banner or avatar runs the retire step in process.
 
 func TestClearProfileFields_RetiresClearedImagesInProcess(t *testing.T) {
 	t.Parallel()

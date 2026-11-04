@@ -19,17 +19,17 @@ import (
 
 const (
 	// trendsCacheTTL is the staleness bound of the per-instance copy of the served list, loaded from trends/current and
-	// trends/hidden (ADR-0028 D4): 10 minutes after a refresh or a hide, so a tag is up to one sweep interval + 10 min old.
+	// trends/hidden: 10 minutes after a refresh or a hide, so a tag is up to one sweep interval + 10 min old.
 	// At most one load (2 document reads) per instance per TTL.
 	trendsCacheTTL = 10 * time.Minute
-	// Limits of GetTrends (proto: 0 => 10, max 30, clamped) and of the prefix (ADR-0028 D1 step 7).
+	// Limits of GetTrends (proto: 0 => 10, max 30, clamped) and of the prefix.
 	defaultTrendsLimit = 10
 	maxTrendsLimit     = 30
 	maxPrefixPoints    = 50
 )
 
 // trendsServed is the list GetTrends serves: trends/current with the denylisted and hidden keys already dropped, in rank
-// order. Its position + 1 is the rank, so a hidden tag leaves no gap (ADR-0028 note 2026-10-31 part 1).
+// order. Its position + 1 is the rank, so a hidden tag leaves no gap (part 1).
 type trendsServed struct {
 	ComputedAt time.Time
 	Items      []TrendItem
@@ -63,7 +63,7 @@ func serve(doc *TrendsDoc, hidden []string, deny map[string]struct{}) *trendsSer
 // measured by an injectable clock, and singleflight so concurrent cold callers cost one load. It loads trends/current
 // and trends/hidden together (2 reads) and caches the list after the filter. Staleness: the TTL above, for the list and
 // for a hide alike (a hide reaches every server within 10 min and every screen within 15 min). It sits behind this small
-// type so Memorystore can replace it by ADR at Stage 2 with no caller change.
+// type so Memorystore can replace it at Stage 2 with no caller change.
 type trendsCache struct {
 	store TrendsStore
 	ttl   time.Duration
@@ -137,7 +137,7 @@ func (c *trendsCache) fresh() (*trendsServed, bool) {
 // Firestore, worst case: 3 reads cold (the interceptor's profile read, then trends/current and trends/hidden in one
 // GetAll), 1 warm (the interceptor alone; the instance copy serves the list with 0 reads) and 0 writes. A flag refusal
 // and a validation error read nothing beyond the interceptor. At most one load (2 reads) per instance per 10 minutes, so
-// <= 864 a day at 3 instances whatever the number of callers (ADR-0028 D4, D6, note 2026-10-31 part 1). The served list
+// <= 864 a day at 3 instances whatever the number of callers. The served list
 // has the denylisted and hidden tags dropped and is ranked 1..n after that.
 func (s *service) Trends(ctx context.Context, uid string, limit int32, prefix string) (*searchv1.GetTrendsResponse, error) {
 	if err := s.guard(ctx, uid, FlagTrends); err != nil {
@@ -179,7 +179,7 @@ func (s *service) Trends(ctx context.Context, uid string, limit int32, prefix st
 	return out, nil
 }
 
-// logTrends adds the GetTrends fields to the request line (ADR-0028 D10): results, cache_hit and computed_age_s (-1 when
+// logTrends adds the GetTrends fields to the request line: results, cache_hit and computed_age_s (-1 when
 // there is no list). fs_reads comes from the request counter. No uid, no prefix text.
 func (s *service) logTrends(ctx context.Context, results int, hit bool, ageSeconds int64) {
 	logger.SetRequestField(ctx, "results", results)
@@ -200,7 +200,7 @@ func trendsLimit(limit int32) (int, error) {
 	return int(limit), nil
 }
 
-// normalisePrefix applies ADR-0028 D1 step 7: NFC and lower-case, one leading '#' removed, at most 50 code points after
+// normalisePrefix applies the prefix rules: NFC and lower-case, one leading '#' removed, at most 50 code points after
 // it, a control (\p{Cc}) or bidi formatting character => VALIDATION "prefix". Characters outside the hashtag body class
 // are not rejected: they match no tag.
 func normalisePrefix(raw string) (string, error) {

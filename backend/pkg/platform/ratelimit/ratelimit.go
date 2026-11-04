@@ -1,4 +1,4 @@
-// Package ratelimit implements the in-memory, per-instance token buckets from ADR-0006 §3. Limits are
+// Package ratelimit implements the in-memory, per-instance token buckets. Limits are
 // approximate (effective ceiling is roughly limit x Cloud Run max-instances) — that's an accepted
 // trade-off for $0 (no Redis).
 package ratelimit
@@ -55,7 +55,7 @@ func NewLimiterWindow(n int, window, idleTTL time.Duration) *Limiter {
 }
 
 // Allow reports whether a request for key is permitted right now, and if not, how long the caller
-// should wait before retrying (RESOURCE_EXHAUSTED + retry_after, ADR-0006 §3).
+// should wait before retrying (RESOURCE_EXHAUSTED + retry_after).
 func (l *Limiter) Allow(key string) (bool, time.Duration) {
 	now := l.now()
 	// GetOrSet: two concurrent first requests for a key must share one bucket (a Get-miss-then-Set pair let

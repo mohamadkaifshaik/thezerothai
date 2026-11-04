@@ -1,7 +1,7 @@
 //go:build integration
 
 // lists_integration_test.go exercises GetRelationships and the own-list RPCs against the Firestore emulator
-// (ADR-0008 acceptance criteria and budgets).
+// (acceptance criteria and budgets).
 package graph_test
 
 import (
@@ -109,7 +109,7 @@ func TestListMutedUsers_Integration_RelationshipFilled(t *testing.T) {
 	}
 }
 
-// ADR-0008 D9: A blocks B and B blocks A -> A's own ListBlockedUsers hides B (showing B would reveal that
+// A blocks B and B blocks A -> A's own ListBlockedUsers hides B (showing B would reveal that
 // B blocked A, while GetProfile(B) says NOT_FOUND).
 func TestListBlockedUsers_Integration_HidesUsersWhoBlockedCaller(t *testing.T) {
 	w := newWired(t)

@@ -13,7 +13,7 @@ const kMediaVisionUnitsDailyLimit = 'media_vision_units_daily';
 /// attachment for a GIF post.
 String uploadErrorMessage(AppException error, {bool gif = false}) {
   return switch (error) {
-    // The per-account daily Vision-units cap (ADR-0029 Amendment 1 A5.5):
+    // The per-account daily Vision-units cap:
     // there is nothing to retry today.
     RateLimitedException(limitName: kMediaVisionUnitsDailyLimit) =>
       "You've reached today's image checks. Try again tomorrow.",

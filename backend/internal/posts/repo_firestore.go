@@ -1,4 +1,4 @@
-// repo_firestore.go is the Firestore implementation of Repo (ADR-0003 `posts/{postId}`; ADR-0010 D18, D19).
+// repo_firestore.go is the Firestore implementation of Repo (`posts/{postId}`).
 //
 // Every query has a Limit and orders `createdAt DESC, __name__ DESC` explicitly. A composite index carries
 // __name__ in the direction of its last field, so these shapes map to the indexes in firebase/firestore.indexes.json:
@@ -93,8 +93,8 @@ func NewFirestoreRepo(client *firestore.Client) *FirestoreRepo {
 
 var _ Repo = (*FirestoreRepo)(nil)
 
-// postDoc is the posts/{postId} shape (ADR-0003); counters start at 0. Embedded and mentionIds are not
-// written yet (ADR-0010 D2, D12); media is written from (empty unless the post has images).
+// postDoc is the posts/{postId} shape; counters start at 0. Embedded and mentionIds are not
+// written yet; media is written from (empty unless the post has images).
 type postDoc struct {
 	AuthorID       string    `firestore:"authorId"`
 	Author         authorDoc `firestore:"author"`
@@ -106,7 +106,7 @@ type postDoc struct {
 	ConversationID string    `firestore:"conversationId"`
 	QuoteOfID      string    `firestore:"quoteOfId,omitempty"`
 	RepostOfID     string    `firestore:"repostOfId,omitempty"`
-	// Embedded is the QUOTE/REPOST snapshot (ADR-0018); EmbeddedAuthorID is its top-level, indexed author id.
+	// Embedded is the QUOTE/REPOST snapshot; EmbeddedAuthorID is its top-level, indexed author id.
 	Embedded         *embeddedDoc `firestore:"embedded,omitempty"`
 	EmbeddedAuthorID string       `firestore:"embeddedAuthorId,omitempty"`
 	Hashtags         []string     `firestore:"hashtags"`
@@ -118,24 +118,24 @@ type postDoc struct {
 	QuoteCount       int64        `firestore:"quoteCount"`
 	Visibility       string       `firestore:"visibility"`
 	SnapshotVersion  int64        `firestore:"snapshotVersion"`
-	// Moderation is absent for a visible post (ADR-0016 D3); ModeratedAt is when the state last changed.
+	// Moderation is absent for a visible post; ModeratedAt is when the state last changed.
 	Moderation  string     `firestore:"moderation,omitempty"`
 	ModeratedAt *time.Time `firestore:"moderatedAt,omitempty"`
 	CreatedAt   time.Time  `firestore:"createdAt"`
-	// ADR-0021 D3 disclosure labels; absent (omitempty) = false, no backfill.
+	// Disclosure labels; absent (omitempty) = false, no backfill.
 	PaidPartnership bool `firestore:"paidPartnership,omitempty"`
 	MadeWithAI      bool `firestore:"madeWithAi,omitempty"`
-	// ADR-0021 D2: the conversation's effective reply policy (FOLLOWING | MENTIONED_ONLY); absent = EVERYONE, no
+	// The conversation's effective reply policy (FOLLOWING | MENTIONED_ONLY); absent = EVERYONE, no
 	// backfill. Replies store the value inherited from the parent, never a user id. Exempt from indexing.
 	ReplyPolicy string `firestore:"replyPolicy,omitempty"`
-	// HasMedia is ADR-0024 D4: len(media) > 0, false for a REPOST. NOT omitempty: the field is stored as an explicit false
+	// HasMedia is: len(media) > 0, false for a REPOST. NOT omitempty: the field is stored as an explicit false
 	// too, so a doc that lacks it is exactly a pre-W3 doc the backfill still has to visit (rerun writes 0) and the
 	// (authorId, hasMedia, createdAt) index holds every post. Indexed.
 	HasMedia bool `firestore:"hasMedia"`
-	// Poll is ADR-0029 D1: root posts with a poll only; absent otherwise, no backfill. The whole map is index-exempt (fieldOverride
+	// Poll is: root posts with a poll only; absent otherwise, no backfill. The whole map is index-exempt (fieldOverride
 	// posts.poll). A vote increments poll.counts.<i> and poll.total with field paths, never a whole-map write.
 	Poll *pollDoc `firestore:"poll,omitempty"`
-	// ADR-0031 D2, D5: communityId (the community feed key, root POST or QUOTE only), community {id, name} (label snapshot) and
+	// CommunityId (the community feed key, root POST or QUOTE only), community {id, name} (label snapshot) and
 	// conversationCommunityId (the conversation's community). All omitempty: absent = not a community post, no backfill.
 	CommunityID             string        `firestore:"communityId,omitempty"`
 	Community               *communityDoc `firestore:"community,omitempty"`
@@ -158,7 +158,7 @@ type pollDoc struct {
 	Total       int64            `firestore:"total"`
 }
 
-// embeddedPollDoc is the frozen poll definition inside an embed (ADR-0029 D5): no counts.
+// embeddedPollDoc is the frozen poll definition inside an embed: no counts.
 type embeddedPollDoc struct {
 	Options  []string  `firestore:"options"`
 	ClosesAt time.Time `firestore:"closesAt"`
@@ -206,12 +206,12 @@ type embeddedDoc struct {
 	Media       []mediaDoc `firestore:"media,omitempty"`
 	CreatedAt   *time.Time `firestore:"createdAt,omitempty"`
 	Unavailable bool       `firestore:"unavailable,omitempty"`
-	// ADR-0021 D3: the embedded post's labels, copied by snapshotOf; absent = false.
+	// The embedded post's labels, copied by snapshotOf; absent = false.
 	PaidPartnership bool `firestore:"paidPartnership,omitempty"`
 	MadeWithAI      bool `firestore:"madeWithAi,omitempty"`
-	// ADR-0021 D2: the embedded post's effective reply policy, copied by snapshotOf; absent = EVERYONE.
+	// The embedded post's effective reply policy, copied by snapshotOf; absent = EVERYONE.
 	ReplyPolicy string `firestore:"replyPolicy,omitempty"`
-	// ADR-0029 D5: the embedded post's poll definition, copied by snapshotOf; absent = none.
+	// The embedded post's poll definition, copied by snapshotOf; absent = none.
 	Poll *embeddedPollDoc `firestore:"poll,omitempty"`
 }
 
@@ -420,7 +420,7 @@ func (r *FirestoreRepo) run(ctx context.Context, q firestore.Query, w Window, li
 	return out, nil
 }
 
-// HasMediaFor is the one definition of posts.hasMedia (ADR-0024 D4): a post's own stored images are non-empty, and a
+// HasMediaFor is the one definition of posts.hasMedia: a post's own stored images are non-empty, and a
 // REPOST never has its own (the original's images are in `embedded`). toDoc writes it on every create path (CreatePost
 // root, reply and quote, the scheduled publish sweep, the REPOST doc); `opsctl backfill-has-media` must call it
 // with a legacy doc's kind and len(media), so there is exactly one rule.
@@ -448,7 +448,7 @@ func (r *FirestoreRepo) ByHashtag(ctx context.Context, tag string, w Window, lim
 	return r.run(ctx, q, w, limit)
 }
 
-// createdAfterFields is the projection of CreatedAfter (ADR-0028 D6). A projected read still bills 1 read per doc.
+// createdAfterFields is the projection of CreatedAfter. A projected read still bills 1 read per doc.
 var createdAfterFields = []string{"hashtags", "authorId", "moderation", "createdAt", "kind"}
 
 // CreatedAfter implements Repo (Q-W): `createdAt > after ORDER BY createdAt ASC, __name__ ASC` with the projection

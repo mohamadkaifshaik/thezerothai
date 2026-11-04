@@ -1,4 +1,4 @@
-// relationship.go is GetProfileRelationship (ADR-0024 D7): the profile header's one graph call. It is
+// relationship.go is GetProfileRelationship: the profile header's one graph call. It is
 // the caller's Relationship to ONE user, computed from the cached caller snapshot exactly as GetRelationships does,
 // plus followed_by ("Follows you"): whether follows/{target}_{caller} exists. That edge is the only extra read, and
 // it is cached per pair in graph.Cache (see Cache.Edge for the staleness bound).
@@ -18,7 +18,7 @@ import (
 // a refused target, a target the caller blocks). Enums and bools only, never a uid (security review L4).
 const fieldFollowedByCacheHit = "followed_by_cache_hit"
 
-// ProfileRelationship is the GetProfileRelationship answer (ADR-0024 D7): the caller's Relationship to one user, plus
+// ProfileRelationship is the GetProfileRelationship answer: the caller's Relationship to one user, plus
 // whether that user follows the caller.
 type ProfileRelationship struct {
 	Relationship Relationship
@@ -26,7 +26,7 @@ type ProfileRelationship struct {
 	FollowedBy bool
 }
 
-// GetProfileRelationship is the ADR-0024 D7 header RPC for exactly one target; it is never computed for list rows
+// GetProfileRelationship is the header RPC for exactly one target; it is never computed for list rows
 // (1 read each). It needs only FEATURE_GRAPH on for the caller, like every GraphService RPC; D9 gives it no flag
 // of its own. It replaces the header's GetRelationships([uid]), which is unchanged.
 //
@@ -38,12 +38,12 @@ type ProfileRelationship struct {
 //     Directory call, no edge read.
 //  4. the target missing, SUSPENDED or DELETING (identity.Directory, cache-first): the same NOT_FOUND.
 //  5. the caller blocks the target: Blocking true, followed_by false without reading, because Block deleted both
-//     edges and a blocked pair cannot follow (ADR-0008 D9).
+//     edges and a blocked pair cannot follow.
 //  6. otherwise the edge follows/{target}_{caller}, from the pair cache or one point read.
 //
 // Reads: cold = caller graph 1 + edge 1 = 2 when the target's profile is warm in the Directory (the header's
 // GetProfile has just loaded it), +1 if that profile is cold, +1 on blockedByOverflow; the account-status
-// interceptor adds its own 1 on the request line (ADR-0024: "3 cold"). Warm: 0. Refused as blocked-by: 1 cold
+// interceptor adds its own 1 on the request line ("3 cold"). Warm: 0. Refused as blocked-by: 1 cold
 // (the caller graph), 0 warm. The caller blocks the target: 1 + Directory, no edge read. Writes: 0.
 func (s *service) GetProfileRelationship(ctx context.Context, callerUID, targetUID string) (_ ProfileRelationship, err error) {
 	defer begin(ctx, "profile_relationship")(&err)

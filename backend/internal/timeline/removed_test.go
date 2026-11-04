@@ -89,7 +89,7 @@ func TestRemovedIDs_UserRefreshCarriesTheIDs(t *testing.T) {
 }
 
 // Only a since_token refresh consults the log: cold opens and page tokens never carry removed_ids and never cost
-// a log read (ADR-0016 D10).
+// a log read.
 func TestRemovedIDs_OnlyRefreshConsultsTheLog(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
@@ -210,7 +210,7 @@ func TestRemovedIDs_FlagOffReadsNothing(t *testing.T) {
 }
 
 // The scope handed to the log is the feed's authors: the caller plus the followees for home, the one profile author
-// for a user timeline (ADR-0016 amendment 2026-10-18 (b)).
+// for a user timeline (amendment 2026-10-18 (b)).
 func TestRemovedIDs_ScopeIsTheFeedsAuthors(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)

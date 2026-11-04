@@ -1,4 +1,4 @@
-// moderation_messages.go adapts messaging to moderation.MessageLookup (ADR-0027 D12, D15): the composition root is
+// moderation_messages.go adapts messaging to moderation.MessageLookup: the composition root is
 // the one place that knows both modules. moderation defines the interface and its own types and never imports messaging;
 // messaging never imports moderation.
 package apiserver

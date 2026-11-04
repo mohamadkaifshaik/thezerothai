@@ -4,7 +4,7 @@ import '../../../shared/format/single_line_text.dart';
 import 'lists_feature_flag.dart';
 
 /// Why a List name or description is refused before sending. The
-/// server (`lists.validateName` / `validateDescription`, ADR-0030 D2) runs the
+/// server (`lists.validateName` / `validateDescription`) runs the
 /// same rules through `identity.SingleLineText`, so the two agree on
 /// `testdata/profile_text/single_line_text.json`; the server stays
 /// authoritative.

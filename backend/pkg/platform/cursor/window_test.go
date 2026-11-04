@@ -9,7 +9,7 @@ import (
 
 const (
 	homePageBind = "tl|home|uid-a|page"
-	// ttl30d is TIMELINE_TOKEN_TTL (720 h, ADR-0010 D14).
+	// ttl30d is TIMELINE_TOKEN_TTL (720 h).
 	ttl30d = 720 * time.Hour
 )
 
@@ -152,7 +152,7 @@ func TestWindow_TokensAreOpaqueAndRandomised(t *testing.T) {
 }
 
 // TestDecodeTTL_CursorWithLongerLifetime: the single-position Cursor decode also takes a caller TTL (timeline
-// `since` tokens, ADR-0010 D14), while Decode/DecodeAt keep the 24 h default so graph tokens are unchanged.
+// `since` tokens), while Decode/DecodeAt keep the 24 h default so graph tokens are unchanged.
 func TestDecodeTTL_CursorWithLongerLifetime(t *testing.T) {
 	now := time.Now()
 	key := []byte("k")

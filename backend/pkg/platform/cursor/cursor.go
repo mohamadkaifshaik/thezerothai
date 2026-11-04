@@ -1,5 +1,5 @@
-// Package cursor implements opaque pagination cursors (ADR-0003, rule 5: "pagination: opaque cursors only,
-// never offset"). A cursor encodes the last scanned document's (createdAt, docId) pair.
+// Package cursor implements opaque pagination cursors ("pagination: opaque cursors only, never offset").
+// A cursor encodes the last scanned document's (createdAt, docId) pair.
 //
 // Tokens are sealed with AES-256-GCM (security review M1): confidential, so a token cannot leak the doc id
 // of a row the server chose to hide (e.g. a blocked-by follower filtered out of a list page), and
@@ -13,7 +13,7 @@
 // new secret is needed. Tokens from the previous (v1, HMAC-signed, plaintext) format simply fail to open and
 // come back as ErrInvalid, which callers map to INVALID_ARGUMENT/VALIDATION; clients restart the list.
 //
-// Timelines (ADR-0010 D14) add two things without changing the graph tokens above: Window tokens carrying an
+// Timelines add two things without changing the graph tokens above: Window tokens carrying an
 // upper and an optional lower position (window.go), and a caller-chosen TTL on decode (DecodeTTL, DecodeAtTTL,
 // DecodeWindow) so persisted `since` and gap tokens can live 30 days while Decode keeps the 24 h default.
 package cursor
@@ -76,7 +76,7 @@ func DecodeAt(key []byte, binding, token string, now time.Time) (Cursor, error) 
 }
 
 // DecodeTTL is Decode with a caller-chosen token lifetime instead of the 24 h TTL. Timelines persist their
-// `since` tokens on the client across days, so they decode with TIMELINE_TOKEN_TTL (30 days, ADR-0010 D14).
+// `since` tokens on the client across days, so they decode with TIMELINE_TOKEN_TTL (30 days).
 // The encoder side is unchanged: the TTL is enforced only here, against the sealed issue time.
 func DecodeTTL(key []byte, binding, token string, ttl time.Duration) (Cursor, error) {
 	return DecodeAtTTL(key, binding, token, time.Now(), ttl)

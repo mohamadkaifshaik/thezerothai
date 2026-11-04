@@ -7,7 +7,7 @@ import '../../data/bookmarks_repository.dart';
 import '../../domain/bookmark_entry.dart';
 import 'bookmarks_state.dart';
 
-/// The session-wide bookmark overlay for widgets (ADR-0023): a
+/// The session-wide bookmark overlay for widgets: a
 /// thin mirror of [BookmarksRepository], which owns the logic (optimistic
 /// toggle, rollback, one idempotency key per intent, per-post serialisation,
 /// session reset). Every card of the same target, and the screen, read

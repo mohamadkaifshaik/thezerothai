@@ -42,7 +42,7 @@ class _NoThemeStore implements ThemeModeStore {
 }
 
 /// `/scheduled` and its flag redirect: the Scheduled posts list
-/// needs only `posts` (ADR-0021 L-A option b: a caller dropped from the
+/// needs only `posts` (a caller dropped from the
 /// `scheduled_posts` allowlist can still list and cancel what they already
 /// scheduled); without `posts` the router sends the caller to Settings.
 ///

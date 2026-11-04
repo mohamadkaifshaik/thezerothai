@@ -34,7 +34,7 @@ func featureDisabled(err error) *apierr.Error {
 	return nil
 }
 
-// TestListSuggestedUsers_FlagMatrix (ADR-0024 D9): ListSuggestedUsers needs FEATURE_GRAPH and FEATURE_FOLLOW_SUGGESTIONS
+// TestListSuggestedUsers_FlagMatrix: ListSuggestedUsers needs FEATURE_GRAPH and FEATURE_FOLLOW_SUGGESTIONS
 // on for the caller. Passing both runs the RPC (it reads the caller graph); anything else is FEATURE_DISABLED with the
 // right metadata and touches no storage. No outcome writes or deletes anything.
 func TestListSuggestedUsers_FlagMatrix(t *testing.T) {

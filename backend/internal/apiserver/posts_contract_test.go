@@ -2,7 +2,7 @@
 
 package apiserver
 
-// Wire-level contract tests for the documented CreatePost error reasons (audit item 13, ADR-0010 D1/D2), over the
+// Wire-level contract tests for the documented CreatePost error reasons (audit item 13), over the
 // real Build chain: Connect code, dzeroth.common.v1.ErrorDetail.reason and metadata exactly as a client decodes
 // them. Helpers come from posts_restricted_test.go.
 //
@@ -210,8 +210,8 @@ func TestPostsContract_FeatureDisabled(t *testing.T) {
 	})
 }
 
-// TestPostsContract_FeatureDisabledReplyAudience: the reply_audience rows of the FEATURE_DISABLED contract (ADR-0021
-// D2). Any reply_policy other than UNSPECIFIED is refused while the flag is off, after media and before disclosure.
+// TestPostsContract_FeatureDisabledReplyAudience: the reply_audience rows of the FEATURE_DISABLED contract.
+// Any reply_policy other than UNSPECIFIED is refused while the flag is off, after media and before disclosure.
 // A separate caller from TestPostsContract_FeatureDisabled keeps both tables under the per-user rate limit.
 func TestPostsContract_FeatureDisabledReplyAudience(t *testing.T) {
 	ctx := context.Background()

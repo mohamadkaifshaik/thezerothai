@@ -159,7 +159,7 @@ void main() {
     });
   });
 
-  // ADR-0024 Amendment 1 A2 (M-1): Unpin is a clear, which the server
+  // Unpin is a clear, which the server
   // accepts whatever `profile_extras` says, so it is offered on the pinned post
   // even when Pin is not. Pin (a set) follows `canPin`.
   group('without profile_extras (canPin false)', () {

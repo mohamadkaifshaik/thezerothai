@@ -9,7 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../support/messaging_flow_rig.dart';
 import '../../../support/thread_test_support.dart';
 
-/// ADR-0027 note: the requester's own pending request reads
+/// Note: the requester's own pending request reads
 /// REQUEST in the Inbox row, so the thread shows the waiting note, and the
 /// note goes when an Inbox refresh brings the accept. Real router, real
 /// repository, store and cubits; only the wire is faked.

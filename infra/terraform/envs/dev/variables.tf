@@ -845,7 +845,7 @@ variable "feature_profile_snapshot_percent" {
   }
 }
 
-# ---- Manual cron testing in dev (ADR-0021 D1, security review L-5). OPT-IN: both default to "" and create nothing. Dev only:
+# ---- Manual cron testing in dev (security review L-5). OPT-IN: both default to "" and create nothing. Dev only:
 # envs/prod has no such variable on purpose. Whether to set them is the founder's decision.
 
 variable "cron_test_invoker" {

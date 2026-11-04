@@ -14,7 +14,7 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-/// The caller's role in a community (ADR-0031 D4). Returned as viewer_role and CommunityMember.role; the client never
+/// The caller's role in a community. Returned as viewer_role and CommunityMember.role; the client never
 /// infers one. A new value is additive: a client that does not know a value treats it as NONE.
 class CommunityRole extends $pb.ProtobufEnum {
   /// Not computed (an older server): treat as NONE.
@@ -110,7 +110,7 @@ class CommunityVisibility extends $pb.ProtobufEnum {
   const CommunityVisibility._(super.value, super.name);
 }
 
-/// Which rows ListCommunityMembers returns. Named after the member doc's state, not a role (ADR-0031 D2).
+/// Which rows ListCommunityMembers returns. Named after the member doc's state, not a role.
 class CommunityMemberFilter extends $pb.ProtobufEnum {
   /// Same as JOINED.
   static const CommunityMemberFilter COMMUNITY_MEMBER_FILTER_UNSPECIFIED =
@@ -142,7 +142,7 @@ class CommunityMemberFilter extends $pb.ProtobufEnum {
   const CommunityMemberFilter._(super.value, super.name);
 }
 
-/// What SetMemberRole does to its target (ADR-0031 D4).
+/// What SetMemberRole does to its target.
 class MemberRoleAction extends $pb.ProtobufEnum {
   static const MemberRoleAction MEMBER_ROLE_ACTION_UNSPECIFIED =
       MemberRoleAction._(
@@ -182,7 +182,7 @@ class MemberRoleAction extends $pb.ProtobufEnum {
   const MemberRoleAction._(super.value, super.name);
 }
 
-/// One moderation-log action (ADR-0031 D2). A new value is additive: a client that does not know one shows a generic
+/// One moderation-log action. A new value is additive: a client that does not know one shows a generic
 /// "Moderation action".
 class ModerationLogAction extends $pb.ProtobufEnum {
   static const ModerationLogAction MODERATION_LOG_ACTION_UNSPECIFIED =
@@ -196,7 +196,7 @@ class ModerationLogAction extends $pb.ProtobufEnum {
 
   /// A hidden post or reply was restored (post_id set). With the platform as actor (ModerationLogEntry.actor) and
   /// post_id "": one bulk restore by `opsctl community restore-hidden`, one entry per run however many posts it
-  /// restored (ADR-0031 Amendment 1, D14a).
+  /// restored.
   static const ModerationLogAction MODERATION_LOG_ACTION_RESTORE =
       ModerationLogAction._(
           2, _omitEnumNames ? '' : 'MODERATION_LOG_ACTION_RESTORE');

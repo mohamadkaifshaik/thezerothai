@@ -27,7 +27,7 @@ import 'widgets/conversation_row.dart';
 import 'widgets/messaging_access_builder.dart';
 import 'widgets/not_encrypted_note.dart';
 
-/// `/messages` and `/messages/requests` (ADR-0027 D7, D14): the inbox.
+/// `/messages` and `/messages/requests`: the inbox.
 ///
 /// One screen, two folders: [Folder.FOLDER_INBOX] (title "Messages", the
 /// "New message" action and the "Message requests (N)" row) and
@@ -218,7 +218,7 @@ class _ConversationsViewState extends State<_ConversationsView>
   @override
   Widget build(BuildContext context) {
     final cubit = context.read<ConversationsCubit>();
-    // A foreground message push refreshes the list (ADR-0027 D7): an
+    // A foreground message push refreshes the list: an
     // FCM nudge, throttled, never a timer.
     return BlocListener<PushCubit, PushState>(
       listenWhen: (a, b) => b.messagePushes > a.messagePushes,

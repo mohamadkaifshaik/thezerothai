@@ -148,7 +148,7 @@ func (r *FirestoreRepo) GetMessage(ctx context.Context, convID, msgID string) (M
 	return m, true, nil
 }
 
-// Send implements Repo: one transaction (ADR-0027 D4 step 5).
+// Send implements Repo: one transaction.
 //
 // Reads, fresh and before any write: conversations/{convId} (1) and the recipient.s graph/{uid} (1, RecipientGraphInTx,
 // a Block, Mute or Unfollow by the recipient decides this send; a gone conversation stops before it). A missing
@@ -332,7 +332,7 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 	if !res.Silent {
 		other["unreadCount"] = firestore.Increment(1)
 	}
-	// requestPending (ADR-0027 note, +0 reads, +0 writes): true on the requester's own entry while the conversation is
+	// requestPending : true on the requester's own entry while the conversation is
 	// REQUEST after this send, else deleted in the same MergeAll map. The peer's entry always deletes it, so the reply that
 	// accepts a request clears the requester's flag in the write it already makes.
 	if dec.State == stateRequest {
@@ -447,7 +447,7 @@ func (r *FirestoreRepo) CountRequests(ctx context.Context, uid string) (int64, e
 	return out.Count, nil
 }
 
-// unreadConversationsCap bounds CountUnreadConversations (ADR-0027 D10): the count is never above 100 and the client shows
+// unreadConversationsCap bounds CountUnreadConversations: the count is never above 100 and the client shows
 // "99+". Firestore bills the aggregation 1 read per 1,000 matches, so the cap keeps the GetMe badge at 1 read.
 const unreadConversationsCap = 100
 

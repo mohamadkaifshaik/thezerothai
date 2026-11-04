@@ -1,6 +1,6 @@
 import '../storage/app_database.dart';
 
-/// The two server flags of ADR-0032 F7 as exposed in `GetMe.enabled_features`
+/// The two server flags as exposed in `GetMe.enabled_features`
 /// (client-only flags; a missing name means off). Never hardcode the strings
 /// elsewhere.
 const kFeatureCrashReporting = 'crash_reporting';

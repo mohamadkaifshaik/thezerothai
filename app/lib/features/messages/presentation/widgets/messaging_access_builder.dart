@@ -6,7 +6,7 @@ import '../../data/messaging_repository.dart';
 import '../../domain/messaging_feature_flag.dart';
 import '../../domain/messaging_feature_gate.dart';
 
-/// What Messages offers this caller right now (ADR-0027 F6(a)), read
+/// What Messages offers this caller right now, read
 /// from the one seam, [MessagingFeatureGate.access].
 ///
 /// - With `messaging` in `GetMe.enabled_features` it is [MessagingAccess.full].

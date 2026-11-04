@@ -1,21 +1,21 @@
 import 'reply_audience.dart';
 
 /// Name of the drafts flag as exposed through `GetMeResponse.enabled_features`
-/// (ADR-0029 D12, `FEATURE_DRAFTS`). Client-only: no RPC is gated by it. It
+/// (`FEATURE_DRAFTS`). Client-only: no RPC is gated by it. It
 /// hides the Drafts button, "Save post?", the Unsent tab and autosave; rows
 /// already on the device are kept while it is off. A missing name means off.
 /// Never hardcode `'drafts'` anywhere else.
 const kFeatureDrafts = 'drafts';
 
 /// How long a draft lives after the user last edited it (founder decision
-/// 2026-10-31, ADR-0029 Amendment 1, security finding L-5). Device-local: the
+/// 2026-10-31, security finding L-5). Device-local: the
 /// client deletes older drafts on app start and when Drafts opens, and never
 /// shows or loads one that is older, even before the purge has run. A
 /// scheduled post is server-side, not a draft, and is not affected. Applies
 /// whatever the `drafts` flag says.
 const kDraftExpiry = Duration(days: 30);
 
-/// Most drafts one account keeps on a device (ADR-0029); the 51st
+/// Most drafts one account keeps on a device; the 51st
 /// removes the oldest.
 const kMaxDrafts = 50;
 
@@ -25,7 +25,7 @@ const kMaxDraftCodePoints = 2000;
 
 /// The poll part of a draft, as plain Dart. It is mapped to the generated
 /// `PollDraft` (choices, `duration_minutes`) when the poll builder lands, so
-/// the store does not depend on generated code (ADR-0029).
+/// the store does not depend on generated code.
 class DraftPoll {
   const DraftPoll({required this.choices, required this.durationMinutes});
 
@@ -67,7 +67,7 @@ bool _sameChoices(List<String> a, List<String> b) {
   return true;
 }
 
-/// One unsent post kept on the device (ADR-0029 F7/F8): text, poll, reply
+/// One unsent post kept on the device: text, poll, reply
 /// audience and disclosure labels. Never photos or GIFs.
 class ComposerDraft {
   const ComposerDraft({
@@ -93,7 +93,7 @@ class ComposerDraft {
   final bool paidPartnership;
   final bool madeWithAi;
 
-  /// The community the post was going into (ADR-0029 F8), or empty for
+  /// The community the post was going into, or empty for
   /// Everyone. The id only: the name is read from the caller's communities when
   /// the draft opens, and a community the caller is not in is dropped then.
   final String communityId;

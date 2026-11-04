@@ -13,7 +13,7 @@ const windowAADLabel = "dzeroth-cursor-v2w|"
 // noLower is the plaintext marker for "this Window has no lower bound".
 const noLower = "-"
 
-// Window is a two-bound page position for a createdAt-descending query (ADR-0010 D14): Upper is the position to
+// Window is a two-bound page position for a createdAt-descending query: Upper is the position to
 // resume strictly below (the oldest item already returned) and Lower, when set, is the position the scan must
 // stop at (a timeline gap's old `since`). A nil Lower is an ordinary scroll. The codec never interprets the
 // two bounds; ordering and "lower bound reached" rules belong to the timeline service.

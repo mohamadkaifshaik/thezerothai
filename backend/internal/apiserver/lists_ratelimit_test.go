@@ -17,7 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// listMutationProcedures are the six ADR-0030 mutations: each stores an idempotency document even when it changes nothing, so
+// listMutationProcedures are the six list mutations: each stores an idempotency document even when it changes nothing, so
 // they share one per-minute bucket and ONE per-uid daily call cap (limit_name "list_mutation_daily").
 var listMutationProcedures = []string{
 	listsv1connect.ListServiceCreateListProcedure,
@@ -35,7 +35,7 @@ var listReadProcedures = []string{
 	listsv1connect.ListServiceListListMembersProcedure,
 }
 
-// listsRateLimitViolations asserts the wiring (ADR-0030 D10): the six mutations share one limiter and one named DailyCap;
+// listsRateLimitViolations asserts the wiring: the six mutations share one limiter and one named DailyCap;
 // the three reads share another limiter and have no daily cap; GetListTimeline has its own limiter and no daily cap; the three
 // limiters are three different objects.
 func listsRateLimitViolations(rl ratelimit.Config) []string {

@@ -1,4 +1,4 @@
-// purge_bookmarks.go is the right-to-delete and right-to-access path of users/{uid}/bookmarks (ADR-0023 D6, D8).
+// purge_bookmarks.go is the right-to-delete and right-to-access path of users/{uid}/bookmarks.
 // Deleting users/{uid} does not delete its subcollections, so the `bookmarks` account-deletion step
 // (BookmarkEraser, registered BeforeIdentity after `scheduled`) removes the documents and clears the
 // userLikes.bookmarks set, and the `bookmarks` export section lists post id and bookmark time per row.
@@ -146,7 +146,7 @@ type BookmarkCheckpoint struct {
 	Deleted int
 }
 
-// BookmarkEraser is the `bookmarks` account-deletion step (ADR-0023 D6): it deletes every users/{uid}/bookmarks
+// BookmarkEraser is the `bookmarks` account-deletion step: it deletes every users/{uid}/bookmarks
 // document, one page of at most 500 per call, then clears userLikes.bookmarks. An account at the cap (1,000) takes 3
 // invocations at most (500 + 500 + the empty page), 1,000 reads + 1,000 deletes in all.
 type BookmarkEraser struct {

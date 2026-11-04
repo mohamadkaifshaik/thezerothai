@@ -10,7 +10,7 @@ import '../domain/search_feature_flags.dart';
 import 'widgets/explore_trends_section.dart';
 import 'widgets/app_search_field.dart';
 
-/// `/explore` (ADR-0028, F7): a root destination of the new shell. A
+/// `/explore`: a root destination of the new shell. A
 /// two-row sticky header (the search field, then a one-tab "Trending" bar), the
 /// trends list, and the "Who to follow" card (W3's, which draws nothing unless
 /// its own flags are on). No news, sports or entertainment tabs, no promoted

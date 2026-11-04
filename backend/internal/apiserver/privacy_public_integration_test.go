@@ -2,7 +2,7 @@
 
 package apiserver
 
-// (ADR-0025 D8, AQ1) through the real Build chain on the emulators, with the real UpdateProfile(is_private)
+// The privacy_public job through the real Build chain on the emulators, with the real UpdateProfile(is_private)
 // toggle, the real PrivacyListener publishing to the jobs topic, and the real /internal/pubsub/jobs push endpoint
 // (FEATURE_PRIVATE_ACCOUNTS on):
 //   - P protects, 130 users request (two pages of the job), P unprotects: one privacy_public message is published, its
@@ -32,7 +32,7 @@ import (
 
 // w328bCfg turns the flags on and publishes notification events to a real topic (the inline emitter is a local-dev
 // shortcut with 8 slots and would drop most of 130 events), with the per-actor recipient cap lifted: P is a new account
-// and the production cap (50 per day for a new actor, 200 otherwise) would silently drop the surplus (runbook).
+// and the production cap (50 per day for a new actor, 200 otherwise) would silently drop the surplus.
 func w328bCfg(topic string) func(*config.Config) {
 	return func(c *config.Config) {
 		relaxLimits(c)

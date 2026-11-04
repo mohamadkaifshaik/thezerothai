@@ -1,6 +1,6 @@
-// list_common.go holds what the two owner-only post lists of this module share: ListBookmarks (ADR-0023 D2, D6) and
-// ListLikedPosts (ADR-0024 D6). Both read the caller's own ids, load the live posts in ONE cache-first GetMany and apply
-// the same ADR-0010 D6 Home-column drop rules, so the page token binding and opening, the per-row drop decision and the
+// list_common.go holds what the two owner-only post lists of this module share: ListBookmarks and
+// ListLikedPosts. Both read the caller's own ids, load the live posts in ONE cache-first GetMany and apply
+// the same Home-feed drop rules, so the page token binding and opening, the per-row drop decision and the
 // one request-line writer live here once. What differs stays in the callers: where the ids come from, the cursor
 // payload, and whether a missing post's row is pruned (bookmarks) or left alone (likes, whose array the like path owns).
 package engagement
@@ -27,7 +27,7 @@ const (
 	fieldRowsDroppedBlocked = "rows_dropped_blocked"
 	fieldRowsDroppedMuted   = "rows_dropped_muted"
 	// fieldRowsDroppedProtected counts rows posts.Audience dropped: the author, or the original a REPOST copies, is a
-	// protected account the caller does not follow (ADR-0025 D4). Never pruned: a follow, or an unprotect, brings them back.
+	// protected account the caller does not follow. Never pruned: a follow, or an unprotect, brings them back.
 	fieldRowsDroppedProtected = "rows_dropped_protected"
 	fieldRowsPruned           = "rows_pruned"
 	fieldRowsReturned         = "rows_returned"
@@ -60,13 +60,13 @@ func (s *service) openListToken(binding, token string) (cursor.Cursor, error) {
 	return cur, nil
 }
 
-// dropTally counts the rows a page dropped, by cause (ADR-0023 D6).
+// dropTally counts the rows a page dropped, by cause.
 type dropTally struct{ missing, hidden, blocked, muted, protected, withheld int }
 
 func (d dropTally) total() int { return d.missing + d.hidden + d.blocked + d.muted + d.protected }
 
 // RowAudience is the part of posts.Audience the lists use (satisfied by *posts.Audience): the one visibility predicate
-// (ADR-0025 D3, D4). Decide on the list surface drops a row whose author, or whose REPOSTed original's author, is
+// Decide on the list surface drops a row whose author, or whose REPOSTed original's author, is
 // protected and not followed, and marks a QUOTE of one PROTECTED; ProtectedAuthor feeds the computed wire visibility.
 type RowAudience interface {
 	Decide(ctx context.Context, viewer string, snap graph.Snapshot, p *posts.Post, surface posts.Surface) (posts.Decision, error)
@@ -78,8 +78,8 @@ type RowAudience interface {
 type RowHint struct {
 	Embed     postsv1.EmbedViewerState
 	Protected bool
-	// Withheld: the caller may no longer see the row's protected author; the row is a stripped placeholder (ADR-0025 note
-	// L-2). Set only by dropRows for the owner lists.
+	// Withheld: the caller may no longer see the row's protected author; the row is a stripped placeholder.
+	// Set only by dropRows for the owner lists.
 	Withheld bool
 }
 
@@ -93,7 +93,7 @@ func (h RowHint) Apply(v *postsv1.PostView) {
 	posts.ApplyWireVisibility(v, h.Protected)
 }
 
-// blockCause applies the ADR-0010 D6 Home column to a live, visible post for viewer uid: causeBlocked when the author
+// blockCause applies the Home-feed rules to a live, visible post for viewer uid: causeBlocked when the author
 // or the QUOTE/REPOST's embedded author is in the caller's blocked or blockedBy set, causeMuted when in the muted set,
 // "" otherwise. The caller's own posts are kept, copies of others included (as timeline.embedAllowed does). When the
 // caller's blockedBy overflowed it cannot prove a foreign author (the post's own, or the embedded copy's) does not
@@ -133,9 +133,9 @@ type dropResult struct {
 	Missing []string
 }
 
-// dropRows applies the drop rules of ADR-0023 D2 / ADR-0024 D6 to ids (the page's ids in order) and live (the GetMany
+// dropRows applies the drop rules to ids (the page's ids in order) and live (the GetMany
 // answer): missing, then !Visible (taken down or its author suspended: kept in storage, a restore brings it back), then
-// blockCause, then Audience.Decide on the list surface (protected authors, ADR-0025 D4; it replaced the stored-visibility
+// blockCause, then Audience.Decide on the list surface (protected authors; it replaced the stored-visibility
 // privateToViewer, which never fired because stored visibility is always PUBLIC). The caller's graph snapshot is read lazily, only when a live post of someone else is
 // met (1 read, cached 60 s), so a page of the caller's own posts costs none. It returns the graph error unredacted;
 // callers wrap and redact it.
@@ -198,7 +198,7 @@ func (s *service) dropRows(ctx context.Context, uid string, ids []string, live m
 	return res, nil
 }
 
-// dropErr maps a dropRows error: an apierr (UNAVAILABLE when the protected set is unknown, fail closed, ADR-0025 D3)
+// dropErr maps a dropRows error: an apierr (UNAVAILABLE when the protected set is unknown, fail closed)
 // passes through to the handler; anything else is wrapped and redacted as an internal error.
 func dropErr(op, uid string, err error) error {
 	var ae *apierr.Error

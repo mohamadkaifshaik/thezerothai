@@ -1,4 +1,4 @@
-// lifecycle_messaging.go joins direct messages (ADR-0027 D8) to the account-lifecycle registry: the `messaging` Eraser
+// lifecycle_messaging.go joins direct messages to the account-lifecycle registry: the `messaging` Eraser
 // step (conversations, their messages and users/{uid}/dmInbox and dmRequests, none of which deleting users/{uid} removes)
 // and the `messages` export section (own messages in full, received ones as time and "received", no peer uid, F5). Both
 // are registered whether or not FEATURE_MESSAGING is on, because documents outlive the flag. The step is appended after

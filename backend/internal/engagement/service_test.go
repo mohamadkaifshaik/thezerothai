@@ -103,7 +103,7 @@ type fakePosts struct {
 	created   []*posts.Post
 	removed   []string
 	viewCalls int
-	// shareRefused lists protected authors (ADR-0025 D5).
+	// shareRefused lists protected authors.
 	shareRefused map[string]bool
 	// cached models the instance post cache for polls: PollVoted stores a copy-on-write post here and Viewable serves it.
 	cached    map[string]*posts.Post
@@ -943,7 +943,7 @@ func TestRepost_CancelledAfterCommitStillRunsEffects(t *testing.T) {
 	}
 }
 
-// ADR-0018 "Rule 4": the idempotency_key is format-checked only; the natural keys carry the replay.
+// "Rule 4": the idempotency_key is format-checked only; the natural keys carry the replay.
 
 // A LikePost delivered after an UnlikePost re-likes. This is the documented behaviour of natural-key
 // idempotency (a late retry is the client's problem: serialize toggles, latest intent wins), pinned here.
@@ -990,7 +990,7 @@ func TestRepost_ReplayWhileRepostExistsIsTheSameId(t *testing.T) {
 	}
 }
 
-// RefuseShare is posts' ADR-0025 D5 rule; the fake refuses authors listed in shareRefused.
+// RefuseShare is posts' share rule; the fake refuses authors listed in shareRefused.
 func (f *fakePosts) RefuseShare(_ context.Context, caller string, p *posts.Post) error {
 	if f.shareRefused[p.AuthorID] && p.AuthorID != caller {
 		return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT, "this account's posts are protected")
@@ -1020,7 +1020,7 @@ func (fakeDir) SearchHandles(context.Context, string, int) ([]identity.Profile, 
 	return nil, nil
 }
 
-// ByHashtag and CreatedAfter are search and trends queries (ADR-0028); engagement never calls them.
+// ByHashtag and CreatedAfter are search and trends queries; engagement never calls them.
 func (f *fakePosts) ByCommunity(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
 	return nil, nil
 }

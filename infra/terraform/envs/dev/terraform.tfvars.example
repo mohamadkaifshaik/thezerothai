@@ -32,7 +32,7 @@ ios_bundle_id         = "com.dzeroth.dzeroth"
 # Must be globally unique across ALL Firebase projects, not just yours.
 hosting_site_id = "dzeroth-dev"
 
-# Must match the billing account currency. Alert threshold: Stage 0 is about INR 434/month at 300 DAU (ADR-0022).
+# Must match the billing account currency. Alert threshold: Stage 0 is about INR 434/month at 300 DAU.
 budget_amount        = 500
 budget_currency_code = "INR"
 
@@ -41,7 +41,7 @@ browser_key_uid = "00000000-0000-0000-0000-000000000000" # Browser key (auto cre
 android_key_uid = "00000000-0000-0000-0000-000000000000" # Android key (auto created by Firebase)
 ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created by Firebase)
 
-# Manual cron testing in dev (ADR-0021 D1, security review L-5). OPT-IN: leave both commented out and nothing is created.
+# Manual cron testing in dev (security review L-5). OPT-IN: leave both commented out and nothing is created.
 # The founder decides whether to set them. Together they create ONE time-boxed IAM binding
 # on the dev pubsub-push service account: roles/iam.serviceAccountOpenIdTokenCreator (only getOpenIdToken) for ONE
 # person ("user:" only: a service account, group or domain is refused), with an IAM condition that stops it working at
@@ -53,7 +53,7 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 # cron_test_invoker        = "user:someone@example.com"
 # cron_test_invoker_expiry = "2026-11-24T00:00:00Z" # example: 30 days after the apply date
 
-# W3 Part A rollout, dev (ADR-0024). OPT-IN, founder decision: leave these
+# W3 Part A rollout, dev. OPT-IN, founder decision: leave these
 # commented out and the four W3 flags stay `off` (the variable defaults). Never put real uids in this file or in any committed
 # file; they live only in the gitignored terraform.tfvars.
 # - The cohort is the same 3 testers as feature_bookmarks_allowlist / feature_engagement_allowlist / feature_media_allowlist
@@ -62,7 +62,7 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 # - Dev ceilings (scripts/promotion/flag-ceiling.json): allowlist, at most 3 uids, percent 0. Do not exceed them.
 # - profile_tabs never leaves `off` before the two posts indexes are READY and `opsctl backfill-has-media` has run in dev.
 # - suggested_user_ids is the curated "who to follow" fallback (at most 20 uids, not a secret). Empty (the default): a user who
-#   follows fewer than 3 accounts sees an empty card. A founder choice; the runbook proposes the 3 test uids for dev.
+#   follows fewer than 3 accounts sees an empty card. A founder choice; the proposal for dev is the 3 test uids.
 # feature_profile_extras               = "allowlist"
 # feature_profile_extras_allowlist     = "<uid-1>,<uid-2>,<uid-3>"
 # feature_profile_tabs                 = "allowlist"
@@ -73,25 +73,25 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 # feature_follow_suggestions_allowlist = "<uid-1>,<uid-2>,<uid-3>"
 # suggested_user_ids                   = "<uid-1>,<uid-2>,<uid-3>"
 
-# W3 Part B (ADR-0025): private accounts. OPT-IN, founder decision (question B4); the flag stays `off` until it ships. Dev ceiling:
+# W3 Part B: private accounts. OPT-IN, founder decision (question B4); the flag stays `off` until it ships. Dev ceiling:
 # allowlist, at most 3 uids, percent 0; there is no prod entry. The four limits are literals in main.tf (config.go defaults).
 # feature_private_accounts           = "allowlist"
 # feature_private_accounts_allowlist = "<uid-1>,<uid-2>,<uid-3>"
 
-# W8 coming-soon pages (ADR-0026). OPT-IN: leave commented out and `shells`
+# W8 coming-soon pages. OPT-IN: leave commented out and `shells`
 # stays `off`. The cohort is the same 3 testers as feature_ui_shell_allowlist (entries need shells AND ui_shell). Dev ceiling:
 # allowlist, at most 3 uids, percent 0.
 # feature_shells           = "allowlist"
 # feature_shells_allowlist = "<uid-1>,<uid-2>,<uid-3>"
 
-# W4 (ADR-0028 D8): search and trends. Default off. Dev ceiling: allowlist, at most 6 uids, percent 0; no prod raise.
+# W4: search and trends. Default off. Dev ceiling: allowlist, at most 6 uids, percent 0; no prod raise.
 # trends never ramps ahead of search (the trend rows link to search).
 # feature_search           = "allowlist"
 # feature_search_allowlist = "<uid-1>,<uid-2>,<uid-3>"
 # feature_trends           = "allowlist"
 # feature_trends_allowlist = "<uid-1>,<uid-2>,<uid-3>"
 
-# W6 (ADR-0029 D12): polls, drafts (client only) and GIF. Default off. Dev ceiling: allowlist, at most 6 uids, percent 0; no prod raise.
+# W6: polls, drafts (client only) and GIF. Default off. Dev ceiling: allowlist, at most 6 uids, percent 0; no prod raise.
 # polls never ramps ahead of engagement, gif never ahead of media; polls and gif leave off only after 100 percent of traffic is on a revision that enforces them.
 # feature_polls           = "allowlist"
 # feature_polls_allowlist = "<uid-1>,<uid-2>,<uid-3>"

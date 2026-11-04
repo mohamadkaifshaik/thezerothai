@@ -13,7 +13,7 @@ import (
 
 const reportCID = "0000000000000000901"
 
-// ReportableCommunity (ADR-0031 D14): the evidence of an ACTIVE or ARCHIVED community for a stranger; the same ErrNotFound for a
+// ReportableCommunity: the evidence of an ACTIVE or ARCHIVED community for a stranger; the same ErrNotFound for a
 // missing and a SUSPENDED one; ErrOwnCommunity for the owner; the owner's handle only while the owner is ACTIVE.
 func TestReportableCommunity_Table(t *testing.T) {
 	t.Parallel()

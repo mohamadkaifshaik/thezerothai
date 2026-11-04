@@ -13,7 +13,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// Emulator tests for ADR-0024 D4/D5: hasMedia is written, as an explicit boolean, by every create path, and the two
+// Emulator tests for: hasMedia is written, as an explicit boolean, by every create path, and the two
 // tab queries return the right posts in the right order within their read budget. The emulator does not enforce composite
 // indexes, so these prove the query shape (filters, order, window, Limit) and the stored field names; the shapes map to the
 // indexes in firebase/firestore.indexes.json (see repo_firestore.go Q-M and Q-B).
@@ -131,7 +131,7 @@ func TestHasMedia_Integration_CreatePostPaths(t *testing.T) {
 	}
 }
 
-// TestHasMedia_Integration_PublishSweep: the ADR-0021 publish sweep writes hasMedia like CreatePost (true with a draft image,
+// TestHasMedia_Integration_PublishSweep: the publish sweep writes hasMedia like CreatePost (true with a draft image,
 // an explicit false without), in the same 4 + n writes as before.
 func TestHasMedia_Integration_PublishSweep(t *testing.T) {
 	e := newSweepIT(t)

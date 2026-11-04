@@ -3,8 +3,7 @@
 // their client libraries via FIRESTORE_EMULATOR_HOST / FIREBASE_AUTH_EMULATOR_HOST / PUBSUB_EMULATOR_HOST,
 // so this package does not special-case them beyond choosing sane local defaults.
 //
-// Loading is a single, cheap pass over os.Getenv — safe to call before ListenAndServe (ADR-0002 cold
-// start budget: nothing heavy in main before the server starts).
+// Loading is a single, cheap pass over os.Getenv — safe to call before ListenAndServe (cold start budget: nothing heavy in main before the server starts).
 package config
 
 import (
@@ -16,19 +15,19 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// MaxCacheTTL is the upper bound for CACHE_TTL (ADR-0009): the account-deletion start gate is 120 s, so
+// MaxCacheTTL is the upper bound for CACHE_TTL: the account-deletion start gate is 120 s, so
 // instance caches must expire well inside it.
 const MaxCacheTTL = 60 * time.Second
 
 // MinTimelineSettleWindow is the lower bound (and default) for TIMELINE_SETTLE_WINDOW: 3 x the 5 s CreatePost
-// transaction deadline (ADR-0010 D13).
+// transaction deadline.
 const MinTimelineSettleWindow = 15 * time.Second
 
 // MaxTimelineTokenTTL is the upper bound for TIMELINE_TOKEN_TTL (90 days, follow-up): a typo must not make
 // timeline tokens effectively immortal.
 const MaxTimelineTokenTTL = 2160 * time.Hour
 
-// RemovalLogMaxReads is the most reads the shared moderation removal log refresh (ADR-0016 D10) can cost: a full
+// RemovalLogMaxReads is the most reads the shared moderation removal log refresh can cost: a full
 // incremental page (50) followed by the reload of the newest 50, once per instance per CACHE_TTL and only when 50
 // or more log entries are new. Since the 2026-10-18 (b) amendment (security audit RID-4) it is charged to a
 // detached counter (log field removal_log_reads), NOT to the user whose request triggered it, so it is no longer
@@ -42,15 +41,15 @@ const RemovalLogMaxReads = 100
 // a test pins them equal.
 const RemovalWindowMaxReads = 107
 
-// ReadBudgetMaxCallReads is the worst-case Firestore reads of ONE call charged to the user, the figure ADR-0010
-// D5's cost bound and the read budget's single-flight guard use: home timeline 2 + C + 2 * page_size = 269 at
+// ReadBudgetMaxCallReads is the worst-case Firestore reads of ONE call charged to the user, the figure the
+// cost bound and the read budget's single-flight guard use: home timeline 2 + C + 2 * page_size = 269 at
 // 5,000 following (C = 30-uid chunks = 167) and page 50 (timeline.proto). The removal log adds nothing to that
 // worst case: its shared refresh is detached (RemovalLogMaxReads) and its window query
 // (RemovalWindowMaxReads = 107) only runs for feeds of at most 180 authors (C <= 7, so such a call is at most
 // 2 + 7 + 100 + 107 = 216). Keep it in sync with that RPC's doc comment; tests use this constant, not a literal.
 const ReadBudgetMaxCallReads = 269
 
-// IPReadBudgetMaxCallReads is the per-call hold M of the IP read budget (ADR-0010 D5 A1). Since A8 nothing
+// IPReadBudgetMaxCallReads is the per-call hold M of the IP read budget. Since A8 nothing
 // reserves the IP key (it is charge-only everywhere), so this hold has no admission role; it is the constant any
 // future enforced IP procedure must respect. It is true because a profile-less call charged to the IP key stops
 // at account status after at most 1 read, and a call that finds a profile is charged 0 there (A9). CreateProfile
@@ -70,32 +69,32 @@ type Config struct {
 	Degraded DegradedMode
 	AppCheck AppCheckMode
 
-	// CursorHMACKey signs opaque pagination cursors (ADR-0003) so clients cannot craft unbounded scans.
+	// CursorHMACKey signs opaque pagination cursors so clients cannot craft unbounded scans.
 	// Sourced from a Secret Manager-backed env var in dev/prod; read once here at process start.
 	CursorHMACKey []byte
 
 	RateLimit RateLimitConfig
 	Quota     QuotaConfig
-	// Scheduled holds the SCHEDULED_* limits of scheduled posts (ADR-0021 D4, Sweep).
+	// Scheduled holds the SCHEDULED_* limits of scheduled posts (Sweep).
 	Scheduled ScheduledConfig
-	// Suggestions holds the SUGGESTIONS_* limits and the SUGGESTED_USER_IDS curated list of ListSuggestedUsers (ADR-0024 D8).
+	// Suggestions holds the SUGGESTIONS_* limits and the SUGGESTED_USER_IDS curated list of ListSuggestedUsers.
 	Suggestions SuggestionsConfig
 	// Messaging holds the MESSAGES_* and CACHE_MESSAGING_* values of direct messages that are neither a rate limit nor a daily
-	// quota (ADR-0027 D13). The send and read buckets and the daily send cap live in RateLimit; the new-conversation quota in Quota.
+	// quota. The send and read buckets and the daily send cap live in RateLimit; the new-conversation quota in Quota.
 	Messaging MessagingConfig
-	// Lists holds LISTS_MAX_PER_USER, LIST_MAX_MEMBERS, HOME_TABS_MAX_PINNED and CACHE_LISTS_ENTRIES (ADR-0030 D10). The list buckets and
+	// Lists holds LISTS_MAX_PER_USER, LIST_MAX_MEMBERS, HOME_TABS_MAX_PINNED and CACHE_LISTS_ENTRIES. The list buckets and
 	// the daily mutation cap live in RateLimit; the create and add quotas in Quota.
 	Lists ListsConfig
-	// Communities holds COMMUNITY_CREATORS, the community caps and the cache sizes (ADR-0031 D10, D11, D12). The community buckets and the
+	// Communities holds COMMUNITY_CREATORS, the community caps and the cache sizes. The community buckets and the
 	// three daily caps live in RateLimit; the join and community-post quotas in Quota.
 	Communities CommunitiesConfig
-	// Search holds the cache sizes and trend-refresh values of search and trends (ADR-0028 D9). The search buckets and the
+	// Search holds the cache sizes and trend-refresh values of search and trends. The search buckets and the
 	// shared daily cap live in RateLimit.
 	Search SearchConfig
-	// Composer holds the poll and GIF limits of the composer extras (ADR-0029). The VotePoll bucket and the poll_votes_daily
+	// Composer holds the poll and GIF limits of the composer extras. The VotePoll bucket and the poll_votes_daily
 	// cap live in RateLimit.
 	Composer ComposerConfig
-	// Privacy holds PROTECTED_AUTHORS_MAX and PROTECTED_SET_MAX_STALE for private accounts (ADR-0025 D2, D3).
+	// Privacy holds PROTECTED_AUTHORS_MAX and PROTECTED_SET_MAX_STALE for private accounts.
 	Privacy PrivacyConfig
 
 	// HandleChangeCooldown is the minimum time between successful ChangeHandle calls.
@@ -107,24 +106,24 @@ type Config struct {
 	// CacheTTL is the default instance-cache TTL for hot documents (e.g. users/{uid}).
 	CacheTTL time.Duration
 
-	// CachePostsEntries and CacheAuthorRecentEntries size the posts module's two instance caches (ADR-0010 D15):
+	// CachePostsEntries and CacheAuthorRecentEntries size the posts module's two instance caches:
 	// post docs by id (CACHE_POSTS_ENTRIES, default 20,000) and per-author newest root posts
 	// (CACHE_AUTHOR_RECENT_ENTRIES, default 1,000). Both must be > 0: the worst-case memory is
 	// entries x ~2.5 KiB (posts) and entries x 20 shared pointers, bounded within the ~150 MiB cache budget.
 	CachePostsEntries        int
 	CacheAuthorRecentEntries int
 
-	// TimelineTokenTTL is how long timeline since/page/gap tokens stay valid (ADR-0010 D14), env
+	// TimelineTokenTTL is how long timeline since/page/gap tokens stay valid, env
 	// TIMELINE_TOKEN_TTL, default 720h (30 days). The client persists since and gap tokens across days. It must
 	// be between 24h (the graph-token TTL) and MaxTimelineTokenTTL (90 days); a shorter value would turn every morning refresh into a cold open.
 	TimelineTokenTTL time.Duration
-	// TimelineSettleWindow is the since-watermark settle window (ADR-0010 D13), env TIMELINE_SETTLE_WINDOW,
+	// TimelineSettleWindow is the since-watermark settle window, env TIMELINE_SETTLE_WINDOW,
 	// default and minimum MinTimelineSettleWindow: a post whose transaction started before the watermark has
 	// committed or timed out (3 x the 5 s transaction deadline), so a `since` refresh cannot skip it.
 	TimelineSettleWindow time.Duration
 
-	// InternalOIDCAudience/InternalOIDCAllowedEmails configure /internal/* OIDC verification (ADR-0006
-	// §5). Empty only in local dev (no real Pub/Sub push subscriptions exist yet); Load fails closed (M8)
+	// InternalOIDCAudience/InternalOIDCAllowedEmails configure /internal/* OIDC verification.
+	// Empty only in local dev (no real Pub/Sub push subscriptions exist yet); Load fails closed (M8)
 	// if either is unset outside ENV=local, since an unauthenticated /internal/* in dev/prod would accept
 	// forged Pub/Sub push/Scheduler calls.
 	InternalOIDCAudience      string
@@ -139,7 +138,7 @@ type Config struct {
 	CORSAllowedOrigins []string
 
 	// TrustedProxyHops, left at the default (<=1), lets ratelimit.ResolveClientIP auto-detect the Firebase
-	// Hosting -> Cloud Run path (M2, 2026-09-27 security audit amendment to ADR-0006 §3): it recognizes
+	// Hosting -> Cloud Run path (M2, 2026-09-27 security audit): it recognizes
 	// when the rightmost X-Forwarded-For entry is a Google-operated egress address rather than the real
 	// client, and if so counts one hop further left. Set above 1 only as an explicit operator override for
 	// a topology that heuristic does not fit — it then skips detection and always counts that many entries
@@ -148,11 +147,11 @@ type Config struct {
 	// real dev traffic instead of guessed.
 	TrustedProxyHops int
 
-	// FeatureGraph is the ADR-0008 D6 server feature flag gating every GraphService RPC. Loaded from
+	// FeatureGraph is the server feature flag gating every GraphService RPC. Loaded from
 	// FEATURE_GRAPH / FEATURE_GRAPH_ALLOWLIST / FEATURE_GRAPH_PERCENT (pkg/platform/flags).
 	FeatureGraph flags.Spec
 
-	// FeaturePosts is the ADR-0010 D1 server feature flag gating PostService and TimelineService. Loaded from
+	// FeaturePosts is the server feature flag gating PostService and TimelineService. Loaded from
 	// FEATURE_POSTS / FEATURE_POSTS_ALLOWLIST / FEATURE_POSTS_PERCENT (pkg/platform/flags), default off in prod
 	// and on in dev and local, like FeatureGraph.
 	FeaturePosts flags.Spec
@@ -162,90 +161,90 @@ type Config struct {
 	// every environment.
 	FeatureAccountLifecycle flags.Spec
 
-	// FeatureReports is the server flag (wire name `reports`, ADR-0016 D1) gating ModerationService.ReportContent.
+	// FeatureReports is the server flag (wire name `reports`) gating ModerationService.ReportContent.
 	// FEATURE_REPORTS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureReports flags.Spec
-	// FeatureEngagement is the server flag (wire name `engagement`, ADR-0018 D8) gating EngagementService, the
+	// FeatureEngagement is the server flag (wire name `engagement`) gating EngagementService, the
 	// quote path of CreatePost and viewer-flag hydration. FEATURE_ENGAGEMENT[_ALLOWLIST|_PERCENT], default off.
 	FeatureEngagement flags.Spec
-	// FeatureQuotes is the quote-creation flag (wire name `quotes`, ADR-0018 amendment 2026-10-18) gating only the
+	// FeatureQuotes is the quote-creation flag (wire name `quotes`) gating only the
 	// quote_of_post_id path of CreatePost, in addition to FEATURE_ENGAGEMENT. FEATURE_QUOTES[_ALLOWLIST|_PERCENT],
 	// default off in every environment. Existing quote posts keep displaying regardless.
 	FeatureQuotes flags.Spec
-	// FeatureContentDisclosure is the ADR-0021 D3 flag (wire name `content_disclosure`) gating only SETTING
+	// FeatureContentDisclosure is the flag (wire name `content_disclosure`) gating only SETTING
 	// paid_partnership / made_with_ai on CreatePost (either true while off is FEATURE_DISABLED). Existing labels keep
 	// rendering. FEATURE_CONTENT_DISCLOSURE[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureContentDisclosure flags.Spec
-	// FeatureReplyAudience is the ADR-0021 D2 flag (wire name `reply_audience`) gating only SETTING a reply_policy
+	// FeatureReplyAudience is the flag (wire name `reply_audience`) gating only SETTING a reply_policy
 	// on CreatePost (a non-default value while off is FEATURE_DISABLED). ENFORCEMENT of an already-stored policy is
 	// never flag-gated, so turning it off cannot reopen a restricted conversation. FEATURE_REPLY_AUDIENCE[_ALLOWLIST|
 	// _PERCENT], default off in every environment.
 	FeatureReplyAudience flags.Spec
-	// FeatureScheduledPosts is the ADR-0021 D4 flag (wire name `scheduled_posts`) gating SchedulePost,
+	// FeatureScheduledPosts is the flag (wire name `scheduled_posts`) gating SchedulePost,
 	// ListScheduledPosts and CancelScheduledPost (FEATURE_DISABLED feature=scheduled_posts while off) and the publish
 	// sweep (a no-op while off). FEATURE_SCHEDULED_POSTS[_ALLOWLIST|_PERCENT], default off in every environment. It
-	// leaves off only after 100% of traffic is on a revision that stores it (ADR-0021 L-1).
+	// leaves off only after 100% of traffic is on a revision that stores it.
 	FeatureScheduledPosts flags.Spec
-	// FeatureBookmarks is the ADR-0023 D5 flag (wire name `bookmarks`) gating AddBookmark (on for the caller),
+	// FeatureBookmarks is the flag (wire name `bookmarks`) gating AddBookmark (on for the caller),
 	// ListBookmarks and RemoveBookmark (only not globally off, so a caller dropped from the allowlist can still list and
 	// remove what they saved). FEATURE_DISABLED feature=bookmarks otherwise. FEATURE_BOOKMARKS[_ALLOWLIST|_PERCENT],
 	// default off in every environment; it also needs FEATURE_POSTS, not FEATURE_ENGAGEMENT.
 	FeatureBookmarks flags.Spec
-	// FeatureMessaging is the ADR-0027 D6 flag (wire name `messaging`) gating MessagingService. SendMessage and
+	// FeatureMessaging is the flag (wire name `messaging`) gating MessagingService. SendMessage and
 	// AcceptMessageRequest need it on for the caller; ListConversations, ListMessages, MarkConversationRead and
 	// DeleteConversation only need it not globally off, so a caller dropped from the allowlist can still read and clean
 	// up. FEATURE_DISABLED feature=messaging otherwise. FEATURE_MESSAGING[_ALLOWLIST|_PERCENT], default off in every
 	// environment (dev ceiling: allowlist of 3, no prod raise).
 	FeatureMessaging flags.Spec
-	// FeatureLists is the ADR-0030 D9 flag (wire name `lists`) gating every ListService RPC, GetListTimeline and the LIST entries of
+	// FeatureLists is the flag (wire name `lists`) gating every ListService RPC, GetListTimeline and the LIST entries of
 	// SetHomeTabs and GetMe.home_tabs. FEATURE_LISTS[_ALLOWLIST|_PERCENT], default off in every environment (dev ceiling: allowlist,
 	// no prod raise). It also needs FEATURE_POSTS, like Home.
 	FeatureLists flags.Spec
-	// FeatureCommunities is the ADR-0031 D10 flag (wire name `communities`) gating every CommunityService RPC, GetCommunityTimeline,
+	// FeatureCommunities is the flag (wire name `communities`) gating every CommunityService RPC, GetCommunityTimeline,
 	// CreatePost.community_id and the COMMUNITY entries of SetHomeTabs and GetMe.home_tabs. FEATURE_COMMUNITIES[_ALLOWLIST|_PERCENT],
 	// default off in every environment (dev ceiling: allowlist of 3, no prod raise). CreateCommunity also needs the caller in
 	// Communities.Creators (COMMUNITY_CREATORS).
 	FeatureCommunities flags.Spec
-	// FeatureProfileExtras is the ADR-0024 D9 flag (wire name `profile_extras`) gating the UpdateProfile banner, location,
+	// FeatureProfileExtras is the flag (wire name `profile_extras`) gating the UpdateProfile banner, location,
 	// website and pin fields and CreateUpload(BANNER) (which also needs `media`). FEATURE_PROFILE_EXTRAS[_ALLOWLIST|_PERCENT],
 	// default off in every environment.
 	FeatureProfileExtras flags.Spec
-	// FeatureProfileTabs is the ADR-0024 D9 flag (wire name `profile_tabs`) gating GetUserTimeline tab MEDIA and REPOSTS
+	// FeatureProfileTabs is the flag (wire name `profile_tabs`) gating GetUserTimeline tab MEDIA and REPOSTS
 	// (Posts and Replies stay ungated). FEATURE_PROFILE_TABS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureProfileTabs flags.Spec
-	// FeatureLikesList is the ADR-0024 D9 flag (wire name `likes_list`) gating EngagementService.ListLikedPosts (on for the
+	// FeatureLikesList is the flag (wire name `likes_list`) gating EngagementService.ListLikedPosts (on for the
 	// caller; it also needs FEATURE_POSTS, not FEATURE_ENGAGEMENT). FEATURE_LIKES_LIST[_ALLOWLIST|_PERCENT], default off in
 	// every environment.
 	FeatureLikesList flags.Spec
-	// FeatureFollowSuggestions is the ADR-0024 D9 flag (wire name `follow_suggestions`) gating GraphService.ListSuggestedUsers
+	// FeatureFollowSuggestions is the flag (wire name `follow_suggestions`) gating GraphService.ListSuggestedUsers
 	// (on for the caller; it also needs FEATURE_GRAPH). FEATURE_FOLLOW_SUGGESTIONS[_ALLOWLIST|_PERCENT], default off in every
 	// environment.
 	FeatureFollowSuggestions flags.Spec
-	// FeaturePrivateAccounts is the ADR-0025 D12 flag (wire name `private_accounts`) gating UpdateProfile(is_private=true)
+	// FeaturePrivateAccounts is the flag (wire name `private_accounts`) gating UpdateProfile(is_private=true)
 	// for the caller, plus ListFollowRequests / RespondToFollowRequest in later tickets. Enforcement of an existing
 	// protection is never behind it: only mode off stops new protections, and is_private=false is always accepted.
 	// FEATURE_PRIVATE_ACCOUNTS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeaturePrivateAccounts flags.Spec
-	// FeatureSearch is the ADR-0028 D8 flag (wire name `search`) gating SearchPeople and SearchPosts per caller
+	// FeatureSearch is the flag (wire name `search`) gating SearchPeople and SearchPosts per caller
 	// (FEATURE_DISABLED feature=search, 0 reads). FEATURE_SEARCH[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureSearch flags.Spec
-	// FeatureTrends is the ADR-0028 D8 flag (wire name `trends`) gating GetTrends per caller and the trends refresh step
+	// FeatureTrends is the flag (wire name `trends`) gating GetTrends per caller and the trends refresh step
 	// (which honours only a globally-off flag). FEATURE_TRENDS[_ALLOWLIST|_PERCENT], default off in every environment;
 	// it never ramps ahead of FEATURE_SEARCH.
 	FeatureTrends flags.Spec
-	// FeaturePolls is the ADR-0029 D12 flag (wire name `polls`) gating CREATING a poll per caller (CreatePost with `poll`,
+	// FeaturePolls is the flag (wire name `polls`) gating CREATING a poll per caller (CreatePost with `poll`,
 	// FEATURE_DISABLED feature=polls, 0 reads). VotePoll needs engagement on for the caller and polls NOT globally off.
 	// It never ramps ahead of FEATURE_ENGAGEMENT and leaves off only once 100% of traffic is on a revision that stores
-	// and enforces polls (ADR-0021 L-1). FEATURE_POLLS[_ALLOWLIST|_PERCENT], default off in every environment.
+	// and enforces polls. FEATURE_POLLS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeaturePolls flags.Spec
-	// FeatureDrafts is the ADR-0029 D12 client-only flag (wire name `drafts`, like ui_shell): no RPC guard; it is registered
+	// FeatureDrafts is the client-only flag (wire name `drafts`, like ui_shell): no RPC guard; it is registered
 	// so GetMe.enabled_features reports it. FEATURE_DRAFTS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureDrafts flags.Spec
-	// FeatureGif is the ADR-0029 D12 flag (wire name `gif`) gating CreateUpload with image/gif (0 reads) and CreatePost
+	// FeatureGif is the flag (wire name `gif`) gating CreateUpload with image/gif (0 reads) and CreatePost
 	// with a GIF media doc. It never ramps ahead of FEATURE_MEDIA. FEATURE_GIF[_ALLOWLIST|_PERCENT], default off.
 	FeatureGif flags.Spec
 
-	// FeatureUIShell is the client-only UI flag (wire name `ui_shell`, ADR-0020, W0 plan D3)
+	// FeatureUIShell is the client-only UI flag (wire name `ui_shell`, W0 plan D3)
 	// choosing the new app shell (bottom bar + avatar drawer, account chip, X-style rail) over the legacy four-item
 	// navigation. No RPC is gated by it, it only reaches clients through GetMe.enabled_features. FEATURE_UI_SHELL
 	// [_ALLOWLIST|_PERCENT], default off in every environment.
@@ -257,19 +256,19 @@ type Config struct {
 	// every environment.
 	FeatureShells flags.Spec
 
-	// FeatureCrashReporting is the client-only telemetry flag (wire name `crash_reporting`, ADR-0032 D11) gating the "Send crash reports"
+	// FeatureCrashReporting is the client-only telemetry flag (wire name `crash_reporting`) gating the "Send crash reports"
 	// switch and Firebase Crashlytics collection in the Android app. No RPC is gated by it, it only reaches clients through
 	// GetMe.enabled_features; collection is flag x consent x Android. FEATURE_CRASH_REPORTING[_ALLOWLIST|_PERCENT], default off in
 	// every environment.
 	FeatureCrashReporting flags.Spec
 
-	// FeatureAnalytics is the client-only telemetry flag (wire name `analytics`, ADR-0032 D11) gating the "Share usage statistics"
+	// FeatureAnalytics is the client-only telemetry flag (wire name `analytics`) gating the "Share usage statistics"
 	// switch and Google Analytics for Firebase collection in the Android app. No RPC is gated by it, it only reaches clients through
 	// GetMe.enabled_features; collection is flag x consent x Android. FEATURE_ANALYTICS[_ALLOWLIST|_PERCENT], default off in every
 	// environment.
 	FeatureAnalytics flags.Spec
 
-	// FeatureRemovedIDs is the ADR-0016 D10 server flag (wire name `removed_ids`) gating the moderation removal log
+	// FeatureRemovedIDs is the server flag (wire name `removed_ids`) gating the moderation removal log
 	// read on since_token refreshes (TimelineService removed_ids). FEATURE_REMOVED_IDS[_ALLOWLIST|_PERCENT], default
 	// off in every environment: off means no log reads and no suspension-reset cost.
 	// The log is still WRITTEN on every hide/restore while this is off, so enabling it later needs no backfill.
@@ -288,7 +287,7 @@ type Config struct {
 	// default off in every environment (UpdateProfile/ChangeHandle themselves are not gated).
 	FeatureProfileSnapshot flags.Spec
 
-	// ExportBucket is EXPORT_BUCKET, the private account-export bucket (ADR-0011 D-B). Default `<project>-exports`,
+	// ExportBucket is EXPORT_BUCKET, the private account-export bucket. Default `<project>-exports`,
 	// the name Terraform gives it.
 	ExportBucket string
 	// ExportURLTTL is EXPORT_URL_TTL (default 15m, in (0, 1h]): the lifetime of the signed GET URL minted per
@@ -296,12 +295,12 @@ type Config struct {
 	ExportURLTTL time.Duration
 	// ExportRetention is EXPORT_RETENTION (default 168h = 7 d, in (0, 7d]): exports/{id}.expireAt = createdAt + this.
 	// The bucket's age = 7 lifecycle rule is Terraform's; this value only drives the Firestore TTL field and the
-	// NOT_FOUND-after-expiry rule (ADR-0011 Q6), so it must not exceed what the bucket keeps.
+	// NOT_FOUND-after-expiry rule, so it must not exceed what the bucket keeps.
 	ExportRetention time.Duration
 	// JobsTopic is JOBS_TOPIC, the shared Pub/Sub topic account deletion and export jobs self-chain on (default "jobs").
 	JobsTopic string
 
-	// FeatureNotifications is the server flag (wire name `notifications`, ADR-0017 D7) gating the
+	// FeatureNotifications is the server flag (wire name `notifications`) gating the
 	// NotificationService RPCs, the event producers and the fan-out handler.
 	// FEATURE_NOTIFICATIONS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureNotifications flags.Spec
@@ -314,7 +313,7 @@ type Config struct {
 	// ENV=local, pubsub otherwise; inline is refused outside local (it would run after the response).
 	NotificationsDelivery string
 
-	// AuthEmulator is true iff FIREBASE_AUTH_EMULATOR_HOST is non-empty (ADR-0010 D5 A10). Only then does the
+	// AuthEmulator is true iff FIREBASE_AUTH_EMULATOR_HOST is non-empty. Only then does the
 	// verified-identity gate admit anonymous sign-ins (the e2e helpers mint them). Load refuses the variable
 	// when ENV is dev or prod: the Admin SDK would then accept unsigned emulator tokens.
 	AuthEmulator bool
@@ -330,21 +329,21 @@ type Config struct {
 	// slash). Default https://storage.googleapis.com/<MediaBucket>; local dev points it at the Storage emulator.
 	MediaPublicBaseURL string
 	// VisionMonthlyCap is VISION_MONTHLY_CAP (default 10,000): the most SafeSearch units one calendar month may
-	// consume (ADR-0005). At the cap, VisionExhaustedPolicy applies. 0 disables screening spend entirely (every
+	// consume. At the cap, VisionExhaustedPolicy applies. 0 disables screening spend entirely (every
 	// upload takes the exhausted path).
 	VisionMonthlyCap int
-	// VisionExhaustedPolicy is VISION_EXHAUSTED_POLICY (ADR-0005): what an upload becomes once the cap is hit.
+	// VisionExhaustedPolicy is VISION_EXHAUSTED_POLICY: what an upload becomes once the cap is hit.
 	VisionExhaustedPolicy VisionExhaustedPolicy
 	// VisionScreenThumb is VISION_SCREEN_THUMB (default true): screen the thumbnail too, so the small image shown
 	// in lists is moderated as well as the full image (2 units per image instead of 1). Set false to follow
-	// ADR-0005's one-unit wording literally.
+	// the one-unit wording literally.
 	VisionScreenThumb bool
-	// ProfileMediaRetire is PROFILE_MEDIA_RETIRE (ADR-0024 Amendment 1 A4, default off): which replaced or removed profile
+	// ProfileMediaRetire is PROFILE_MEDIA_RETIRE (default off): which replaced or removed profile
 	// images the profile_media_retired step deletes after the grace. Per-project retention, not a FEATURE_ flag.
 	ProfileMediaRetire ProfileMediaRetire
 }
 
-// Bounds of the export settings (ADR-0011 D-B): a signed URL is a bearer credential, and the retention
+// Bounds of the export settings: a signed URL is a bearer credential, and the retention
 // promised to users is 7 days.
 const (
 	MaxExportURLTTL = time.Hour
@@ -356,7 +355,7 @@ const (
 // MaxAccountDeleteReauthMaxAge is the upper bound of ACCOUNT_DELETE_REAUTH_MAX_AGE.
 const MaxAccountDeleteReauthMaxAge = 10 * time.Minute
 
-// Load reads Config from the environment, applying Stage 0 defaults (ADR-0002/0003/0006) for anything unset.
+// Load reads Config from the environment, applying Stage 0 defaults for anything unset.
 func Load() (Config, error) {
 	env := getenv("ENV", "local")
 
@@ -446,7 +445,7 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	// ADR-0009: the account-deletion start gate is 120 s; instance caches must expire well inside it so
+	// The account-deletion start gate is 120 s; instance caches must expire well inside it so
 	// a purge cannot race a stale cache entry.
 	if cacheTTL > MaxCacheTTL {
 		return Config{}, fmt.Errorf(
@@ -485,7 +484,7 @@ func Load() (Config, error) {
 	if rl.TimelinePerUserPerMinute, err = getInt("RATE_LIMIT_TIMELINE_PER_MIN", 6); err != nil {
 		return Config{}, err
 	}
-	// R-N8 (2026-09-28 readiness review / ADR-0008 D7): raised from 10 to 20/min.
+	// R-N8 (2026-09-28 readiness review): raised from 10 to 20/min.
 	if rl.CheckHandlePerUserPerMinute, err = getInt("RATE_LIMIT_CHECK_HANDLE_PER_MIN", 20); err != nil {
 		return Config{}, err
 	}
@@ -498,7 +497,7 @@ func Load() (Config, error) {
 	if rl.TimelinePerUserPerMinute <= 0 {
 		return Config{}, fmt.Errorf("config: RATE_LIMIT_TIMELINE_PER_MIN must be > 0 (got %d)", rl.TimelinePerUserPerMinute)
 	}
-	// ADR-0010 / Handoff: GetUserTimeline 30/min, CreatePost 10/min, DeletePost 20/min.
+	// GetUserTimeline 30/min, CreatePost 10/min, DeletePost 20/min.
 	for _, b := range []struct {
 		key string
 		def int
@@ -507,32 +506,32 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_USER_TIMELINE_PER_MIN", 30, &rl.UserTimelinePerMinute},
 		{"RATE_LIMIT_POST_CREATE_PER_MIN", 10, &rl.PostCreatePerMinute},
 		{"RATE_LIMIT_POST_DELETE_PER_MIN", 20, &rl.PostDeletePerMinute},
-		// ADR-0029 Amendment 1 A5.5: FinalizeUpload has its own bucket, split from CreateUpload's (10/min per instance, 30 with 3).
+		// FinalizeUpload has its own bucket, split from CreateUpload's (10/min per instance, 30 with 3).
 		{"RATE_LIMIT_MEDIA_FINALIZE_PER_MIN", 10, &rl.MediaFinalizePerMinute},
 		{"RATE_LIMIT_REPORT_PER_MIN", 5, &rl.ReportPerMinute},
-		// ADR-0023 D4: AddBookmark and RemoveBookmark share one bucket (30/min); ListBookmarks has its own (10/min).
+		// AddBookmark and RemoveBookmark share one bucket (30/min); ListBookmarks has its own (10/min).
 		{"RATE_LIMIT_BOOKMARKS_PER_MIN", 30, &rl.BookmarksPerUserPerMinute},
 		{"RATE_LIMIT_BOOKMARKS_LIST_PER_MIN", 10, &rl.BookmarksListPerUserPerMinute},
-		// ADR-0024 D10: ListSuggestedUsers 10/min, ListLikedPosts 10/min, GetProfileRelationship 60/min (all per instance).
-		// ADR-0028 D9: SearchPeople 30/min and SearchPosts 20/min (per instance, 90 and 60 with 3). GetTrends uses the default bucket.
+		// ListSuggestedUsers 10/min, ListLikedPosts 10/min, GetProfileRelationship 60/min (all per instance).
+		// SearchPeople 30/min and SearchPosts 20/min (per instance, 90 and 60 with 3). GetTrends uses the default bucket.
 		{"RATE_LIMIT_SEARCH_PEOPLE_PER_MIN", 30, &rl.SearchPeoplePerUserPerMinute},
-		// ADR-0029 D6: VotePoll 30/min per instance (90 with 3).
+		// VotePoll 30/min per instance (90 with 3).
 		{"RATE_LIMIT_POLL_VOTE_PER_MIN", 30, &rl.PollVotePerUserPerMinute},
 		{"RATE_LIMIT_SEARCH_POSTS_PER_MIN", 20, &rl.SearchPostsPerUserPerMinute},
 		{"RATE_LIMIT_SUGGESTIONS_PER_MIN", 10, &rl.SuggestionsPerUserPerMinute},
 		{"RATE_LIMIT_LIKES_LIST_PER_MIN", 10, &rl.LikesListPerUserPerMinute},
 		{"RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", 60, &rl.ProfileRelationshipPerUserPerMinute},
-		// ADR-0025 D13: RespondToFollowRequest 60/min per instance (180 with 3). ListFollowRequests uses the graph list bucket.
+		// RespondToFollowRequest 60/min per instance (180 with 3). ListFollowRequests uses the graph list bucket.
 		{"RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN", 60, &rl.FollowRequestsRespondPerUserPerMinute},
-		// ADR-0027 D13: SendMessage 20/min (per instance, 60 with 3); the read RPCs (lists, polls, mark-read) 30/min.
+		// SendMessage 20/min (per instance, 60 with 3); the read RPCs (lists, polls, mark-read) 30/min.
 		{"RATE_LIMIT_MESSAGES_SEND_PER_MIN", 20, &rl.MessagesSendPerUserPerMinute},
 		{"RATE_LIMIT_MESSAGES_READ_PER_MIN", 30, &rl.MessagesReadPerUserPerMinute},
-		// ADR-0030 D10: the six list mutations 30/min, GetList / ListUserLists / ListListMembers 30/min, GetListTimeline 12/min (all per
+		// The six list mutations 30/min, GetList / ListUserLists / ListListMembers 30/min, GetListTimeline 12/min (all per
 		// instance, x3 with 3 instances).
 		{"RATE_LIMIT_LISTS_WRITE_PER_MIN", 30, &rl.ListsWritePerUserPerMinute},
 		{"RATE_LIMIT_LISTS_READ_PER_MIN", 30, &rl.ListsReadPerUserPerMinute},
 		{"RATE_LIMIT_LIST_TIMELINE_PER_MIN", 12, &rl.ListTimelinePerUserPerMinute},
-		// ADR-0031 D11: the seven community mutations 20/min, the five community reads 30/min, GetCommunityTimeline 12/min (per instance, x3).
+		// The seven community mutations 20/min, the five community reads 30/min, GetCommunityTimeline 12/min (per instance, x3).
 		{"RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN", 20, &rl.CommunitiesWritePerUserPerMinute},
 		{"RATE_LIMIT_COMMUNITIES_READ_PER_MIN", 30, &rl.CommunitiesReadPerUserPerMinute},
 		{"RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN", 12, &rl.CommunityTimelinePerUserPerMinute},
@@ -549,7 +548,7 @@ func Load() (Config, error) {
 	if rl.PreAuthIPPerMinute, err = getInt("RATE_LIMIT_PRE_AUTH_IP_PER_MIN", 120); err != nil {
 		return Config{}, err
 	}
-	// ADR-0008 D7: Follow/Unfollow 30/min; Block/Unblock/Mute/Unmute 20/min; lists 20/min; GetRelationships
+	// Follow/Unfollow 30/min; Block/Unblock/Mute/Unmute 20/min; lists 20/min; GetRelationships
 	// uses PerUserPerMinute (the 60/min default) — no separate config needed for it.
 	if rl.GraphFollowPerMinute, err = getInt("RATE_LIMIT_GRAPH_FOLLOW_PER_MIN", 30); err != nil {
 		return Config{}, err
@@ -580,7 +579,7 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: BOOKMARK_MUTATIONS_PER_DAY must be > 0 (got %d)", bookmarkMutationsPerDay)
 	}
 	rl.BookmarkMutationsPerDay = int64(bookmarkMutationsPerDay)
-	// ADR-0027 D13: SendMessage daily cap (limit_name "messages_daily"); see RateLimitConfig.MessagesSendsPerDay. A cap
+	// SendMessage daily cap (limit_name "messages_daily"); see RateLimitConfig.MessagesSendsPerDay. A cap
 	// of 0 would lock every user out of the RPC.
 	messagesSendsPerDay, err := getInt("MESSAGES_SENDS_PER_DAY", 300)
 	if err != nil {
@@ -601,9 +600,9 @@ func Load() (Config, error) {
 	}{
 		{&rl.MessagesMarkReadPerDay, "MESSAGES_MARK_READ_PER_DAY", 500},
 		{&rl.MessagesMutationsPerDay, "MESSAGES_MUTATIONS_PER_DAY", 500},
-		// ADR-0030 D10: ONE daily cap over the six list mutations (limit_name "list_mutation_daily"); see RateLimitConfig.ListMutationsPerDay.
+		// ONE daily cap over the six list mutations (limit_name "list_mutation_daily"); see RateLimitConfig.ListMutationsPerDay.
 		{&rl.ListMutationsPerDay, "LIST_MUTATIONS_PER_DAY", 500},
-		// ADR-0031 D11: in-memory daily caps (per uid per instance, x3): Create/Update/Join/Leave share community_mutation_daily; Hide/Restore/
+		// In-memory daily caps (per uid per instance, x3): Create/Update/Join/Leave share community_mutation_daily; Hide/Restore/
 		// SetMemberRole share community_mod_actions_daily; CreatePost into a community draws on community_posts_per_community_daily per uid|cid.
 		{&rl.CommunityMutationsPerDay, "COMMUNITY_MUTATIONS_PER_DAY", 200},
 		{&rl.CommunityModActionsPerDay, "COMMUNITY_MOD_ACTIONS_PER_DAY", 200},
@@ -618,7 +617,7 @@ func Load() (Config, error) {
 		}
 		*f.dst = int64(v)
 	}
-	// ADR-0024 D10: ListSuggestedUsers daily call cap (limit_name "suggestions_daily"); see
+	// ListSuggestedUsers daily call cap (limit_name "suggestions_daily"); see
 	// RateLimitConfig.SuggestionsCallsPerDay for the default's math. A cap of 0 would lock every user out of the RPC.
 	suggestionsCallsPerDay, err := getInt("SUGGESTIONS_CALLS_PER_DAY", 50)
 	if err != nil {
@@ -628,7 +627,7 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: SUGGESTIONS_CALLS_PER_DAY must be > 0 (got %d)", suggestionsCallsPerDay)
 	}
 	rl.SuggestionsCallsPerDay = int64(suggestionsCallsPerDay)
-	// ADR-0029 D6 (option D): the VotePoll daily cap (limit_name "poll_votes_daily"), POLL_VOTES_PER_DAY, and the lower value
+	// The VotePoll daily cap (limit_name "poll_votes_daily"), POLL_VOTES_PER_DAY, and the lower value
 	// for accounts inside the new-account window, POLL_VOTES_PER_DAY_NEW_ACCOUNT; see RateLimitConfig.PollVotesPerDay. Both
 	// must be > 0 and the new-account value must not exceed the general one.
 	for _, f := range []struct {
@@ -651,7 +650,7 @@ func Load() (Config, error) {
 	if rl.PollVotesPerDayNewAccount > rl.PollVotesPerDay {
 		return Config{}, fmt.Errorf("config: POLL_VOTES_PER_DAY_NEW_ACCOUNT (%d) must not exceed POLL_VOTES_PER_DAY (%d)", rl.PollVotesPerDayNewAccount, rl.PollVotesPerDay)
 	}
-	// ADR-0028 D9: ONE daily call cap shared by SearchPeople and SearchPosts (limit_name "search_daily"); see
+	// ONE daily call cap shared by SearchPeople and SearchPosts (limit_name "search_daily"); see
 	// RateLimitConfig.SearchCallsPerDay for the default's math. A cap of 0 would lock every user out of search.
 	searchCallsPerDay, err := getInt("SEARCH_CALLS_PER_DAY", 300)
 	if err != nil {
@@ -661,7 +660,7 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: SEARCH_CALLS_PER_DAY must be > 0 (got %d)", searchCallsPerDay)
 	}
 	rl.SearchCallsPerDay = int64(searchCallsPerDay)
-	// ADR-0028 note 2026-10-31 part 4 (review L-4): GetTrends' OWN daily call cap (limit_name "trends_daily"); see
+	// Part 4 (review L-4): GetTrends' OWN daily call cap (limit_name "trends_daily"); see
 	// RateLimitConfig.TrendsCallsPerDay for the default's math. A cap of 0 would lock every user out of trends.
 	trendsCallsPerDay, err := getInt("TRENDS_CALLS_PER_DAY", 400)
 	if err != nil {
@@ -775,28 +774,28 @@ func Load() (Config, error) {
 	if q.NewAccountMediaPerDay, err = getInt("QUOTA_NEW_ACCOUNT_MEDIA_PER_DAY", 5); err != nil {
 		return Config{}, err
 	}
-	// ADR-0008 D7: Block + Mute share one daily counter (quota.Blocks).
+	// Block + Mute share one daily counter (quota.Blocks).
 	if q.BlocksPerDay, err = getInt("QUOTA_BLOCKS_PER_DAY", 200); err != nil {
 		return Config{}, err
 	}
 	if q.NewAccountBlocksPerDay, err = getInt("QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY", 50); err != nil {
 		return Config{}, err
 	}
-	// ADR-0016 D1: 20 reports/day, 5 for accounts younger than the new-account window.
+	// 20 reports/day, 5 for accounts younger than the new-account window.
 	if q.ReportsPerDay, err = getInt("QUOTA_REPORTS_PER_DAY", 20); err != nil {
 		return Config{}, err
 	}
 	if q.NewAccountReportsPerDay, err = getInt("QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY", 5); err != nil {
 		return Config{}, err
 	}
-	// ADR-0018 D3: 500 likes/day, 100 for accounts younger than the new-account window.
+	// 500 likes/day, 100 for accounts younger than the new-account window.
 	if q.LikesPerDay, err = getInt("QUOTA_LIKES_PER_DAY", 500); err != nil {
 		return Config{}, err
 	}
 	if q.NewAccountLikesPerDay, err = getInt("QUOTA_NEW_ACCOUNT_LIKES_PER_DAY", 100); err != nil {
 		return Config{}, err
 	}
-	// ADR-0021 D4: 50 SchedulePost calls/day, 10 for accounts younger than the new-account window (review L-4).
+	// 50 SchedulePost calls/day, 10 for accounts younger than the new-account window (review L-4).
 	if q.SchedulesPerDay, err = getInt("QUOTA_SCHEDULES_PER_DAY", 50); err != nil {
 		return Config{}, err
 	}
@@ -811,7 +810,7 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
 		}
 	}
-	// ADR-0023 D4: 200 AddBookmark writes/day, 50 for accounts younger than the new-account window, and a hard cap of
+	// 200 AddBookmark writes/day, 50 for accounts younger than the new-account window, and a hard cap of
 	// 1,000 bookmarks per user (the userLikes array length is the exact cap check).
 	if q.BookmarksPerDay, err = getInt("QUOTA_BOOKMARKS_PER_DAY", 200); err != nil {
 		return Config{}, err
@@ -831,7 +830,7 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
 		}
 	}
-	// ADR-0027 D13: 20 new conversations per IST day, 5 for accounts younger than the new-account window (quota.DMNew).
+	// 20 new conversations per IST day, 5 for accounts younger than the new-account window (quota.DMNew).
 	if q.DMNewConversationsPerDay, err = getInt("QUOTA_DM_NEW_CONVERSATIONS_PER_DAY", 20); err != nil {
 		return Config{}, err
 	}
@@ -846,7 +845,7 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
 		}
 	}
-	// ADR-0030 D10: 10 CreateList writes and 300 AddListMember writes per IST day, 3 and 50 for accounts younger than the new-account
+	// 10 CreateList writes and 300 AddListMember writes per IST day, 3 and 50 for accounts younger than the new-account
 	// window (quota.ListCreates, quota.ListAdds). RemoveListMember, UpdateList, DeleteList and SetHomeTabs have no quota.
 	for _, f := range []struct {
 		dst *int
@@ -857,7 +856,7 @@ func Load() (Config, error) {
 		{&q.NewAccountListCreatesPerDay, "QUOTA_NEW_ACCOUNT_LIST_CREATES_PER_DAY", 3},
 		{&q.ListAddsPerDay, "QUOTA_LIST_ADDS_PER_DAY", 300},
 		{&q.NewAccountListAddsPerDay, "QUOTA_NEW_ACCOUNT_LIST_ADDS_PER_DAY", 50},
-		// ADR-0031 D11: 20 JoinCommunity writes and 50 community posts per IST day, 5 and 10 for accounts younger than the new-account window
+		// 20 JoinCommunity writes and 50 community posts per IST day, 5 and 10 for accounts younger than the new-account window
 		// (quota.CommunityJoins, quota.CommunityPosts; community posts are on top of the posts quota).
 		{&q.CommunityJoinsPerDay, "QUOTA_COMMUNITY_JOINS_PER_DAY", 20},
 		{&q.NewAccountCommunityJoinsPerDay, "QUOTA_NEW_ACCOUNT_COMMUNITY_JOINS_PER_DAY", 5},
@@ -873,7 +872,7 @@ func Load() (Config, error) {
 		}
 		*f.dst = v
 	}
-	// ADR-0025 D8: 4 is_private changes per IST day, both directions (quota.PrivacyToggles). A request counts under follows.
+	// 4 is_private changes per IST day, both directions (quota.PrivacyToggles). A request counts under follows.
 	if q.PrivacyTogglesPerDay, err = getInt("QUOTA_PRIVACY_TOGGLES_PER_DAY", 4); err != nil {
 		return Config{}, err
 	}
@@ -913,7 +912,7 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
-	// ADR-0010 D5 A10: with the Auth emulator variable set, the Admin SDK accepts unsigned tokens. That must
+	// With the Auth emulator variable set, the Admin SDK accepts unsigned tokens. That must
 	// never be true in a deployed environment, so refuse to start.
 	authEmulator := os.Getenv("FIREBASE_AUTH_EMULATOR_HOST") != ""
 	if authEmulator && env != "local" {
@@ -937,7 +936,7 @@ func Load() (Config, error) {
 		}
 	}
 
-	// ADR-0008 D6/rollout plan: off in prod, on in dev and local by default (an operator can always
+	// Rollout plan: off in prod, on in dev and local by default (an operator can always
 	// override via FEATURE_GRAPH). LoadSpec fails startup fast on an invalid mode/percent.
 	graphDefaultMode := flags.On
 	if env == "prod" {
@@ -947,7 +946,7 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	// ADR-0010 D1: same rollout shape as graph (dev on, prod off; Terraform sets it explicitly).
+	// Same rollout shape as graph (dev on, prod off; Terraform sets it explicitly).
 	featurePosts, err := flags.LoadSpec("POSTS", "posts", graphDefaultMode)
 	if err != nil {
 		return Config{}, err
@@ -974,7 +973,7 @@ func Load() (Config, error) {
 	case notifDelivery == "inline" && env != "local":
 		return Config{}, fmt.Errorf("config: NOTIFICATIONS_DELIVERY=inline is only allowed in env local (got %q)", env)
 	}
-	// Media is off everywhere until the founder ramps it; the Vision cap is a runaway-bill guard (ADR-0005), so
+	// Media is off everywhere until the founder ramps it; the Vision cap is a runaway-bill guard, so
 	// a negative value or an unknown policy name fails startup instead of silently changing what is published.
 	featureMedia, err := flags.LoadSpec("MEDIA", "media", flags.Off)
 	if err != nil {

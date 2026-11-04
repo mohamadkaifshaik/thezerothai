@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ADR-0024 Amendment 1 A4 over the real Build chain (Firestore, Auth, Pub/Sub and Storage emulators): a replaced or
+// Over the real Build chain (Firestore, Auth, Pub/Sub and Storage emulators): a replaced or
 // removed avatar or banner publishes a profile_media_retired job after the UpdateProfile commit (0 extra reads), the
 // job tags the old image and retires its media document (2 reads, 1 write), a redelivery does nothing, the resolvers
 // refuse a retired image, and a forged message never retires a current image or another user's image.

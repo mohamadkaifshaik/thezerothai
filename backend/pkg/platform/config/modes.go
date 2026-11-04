@@ -20,7 +20,7 @@ func (m DegradedMode) valid() bool {
 	}
 }
 
-// AppCheckMode controls whether a missing/invalid App Check token rejects the request (ADR-0006 §2).
+// AppCheckMode controls whether a missing/invalid App Check token rejects the request.
 type AppCheckMode string
 
 const (
@@ -37,7 +37,7 @@ func (m AppCheckMode) valid() bool {
 	}
 }
 
-// VisionExhaustedPolicy is what happens to an upload once VISION_MONTHLY_CAP is spent (ADR-0005).
+// VisionExhaustedPolicy is what happens to an upload once VISION_MONTHLY_CAP is spent.
 type VisionExhaustedPolicy string
 
 const (
@@ -52,7 +52,7 @@ func (p VisionExhaustedPolicy) valid() bool {
 	return p == VisionPolicyEstablished || p == VisionPolicyReject
 }
 
-// ProfileMediaRetire is PROFILE_MEDIA_RETIRE (ADR-0024 Amendment 1 A4): which replaced or removed profile images the
+// ProfileMediaRetire is PROFILE_MEDIA_RETIRE: which replaced or removed profile images the
 // retire step deletes after the grace. It is per-project retention config, not a FEATURE_ flag (no cohort, no
 // allowlist), and it defaults to off: nothing is deleted until a project's operator has applied the media bucket's
 // customTime lifecycle rule there and set it.

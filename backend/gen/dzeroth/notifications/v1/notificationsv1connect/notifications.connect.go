@@ -2,12 +2,12 @@
 //
 // Source: dzeroth/notifications/v1/notifications.proto
 
-// In-app notifications and push-device registration (ADR-0017, Phase 1).
+// In-app notifications and push-device registration (Phase 1).
 // Owner module: backend/internal/notifications. Owns users/{uid}/notifications/{id}, users/{uid}/devices/{deviceId}
 // and the deviceTokens/{sha256(token)} reverse index. The unread badge is GetMeResponse.unread_notification_count
 // (identity); mark-seen writes users/{uid}.notificationsSeenAt through identity.
 //
-// Token contract for ListNotifications (same shape as the timelines, ADR-0010 D14; all tokens opaque):
+// Token contract for ListNotifications (same shape as the timelines; all tokens opaque):
 //   - First open, no local cache: send neither token.
 //   - Pull-to-refresh / app resume / push received: send since_token from the last response. Only notifications newer
 //     than it are read (cost-model lever 6.1). since_token trails the newest item by a short settle window, so a

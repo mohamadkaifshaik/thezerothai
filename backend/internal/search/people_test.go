@@ -110,7 +110,7 @@ func handles(r *searchv1.SearchPeopleResponse) []string {
 	return out
 }
 
-// TestPeopleFilters: the per-viewer rules of ADR-0028 D2 steps 3 to 7, one table.
+// TestPeopleFilters: the per-viewer rules, one table.
 func TestPeopleFilters(t *testing.T) {
 	const me = "u-me"
 	all := []identity.Profile{

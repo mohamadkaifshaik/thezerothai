@@ -55,7 +55,7 @@ class ReportState {
   }
 }
 
-/// One report intent for one target (a post or an account), ADR-0016.
+/// One report intent for one target (a post or an account).
 ///
 /// One idempotency key per (reason, note) intent, reused when the same
 /// request is retried after a failure; editing the reason or note starts a

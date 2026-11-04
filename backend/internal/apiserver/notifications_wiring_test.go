@@ -72,7 +72,7 @@ func TestPostNotifier(t *testing.T) {
 	}
 }
 
-// TestPostNotifierReplies (ADR-0017): a reply notifies the parent author; replying to yourself emits nothing; a
+// TestPostNotifierReplies: a reply notifies the parent author; replying to yourself emits nothing; a
 // mention of the parent author is folded into the reply row (precedence: reply beats mention) while other mentions
 // still get their own event; a non-public reply and a post without a known parent author emit nothing for the reply.
 func TestPostNotifierReplies(t *testing.T) {
@@ -127,7 +127,7 @@ func TestPostNotifierReplies(t *testing.T) {
 	}
 }
 
-// TestNotificationDeviceCallsAreCapped (ADR-0017 D9): Register and Unregister share one per-uid daily cap.
+// TestNotificationDeviceCallsAreCapped: Register and Unregister share one per-uid daily cap.
 func TestNotificationDeviceCallsAreCapped(t *testing.T) {
 	rl := RateLimitConfig(defaultRateLimitCfg())
 	reg := rl.DailyCaps[notificationsv1connect.NotificationServiceRegisterDeviceProcedure]
@@ -191,7 +191,7 @@ func TestAccountAges(t *testing.T) {
 	}
 }
 
-// TestFollowNotifierRequestTypes (ADR-0025 D10): a request notifies the target with the requester as actor; an accept
+// TestFollowNotifierRequestTypes: a request notifies the target with the requester as actor; an accept
 // notifies the requester with the target as actor.
 func TestFollowNotifierRequestTypes(t *testing.T) {
 	at := time.Date(2026, 10, 28, 1, 2, 3, 0, time.UTC)

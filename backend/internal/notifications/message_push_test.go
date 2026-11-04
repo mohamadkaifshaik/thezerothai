@@ -188,7 +188,7 @@ func TestEmitterRequiresMessagingFlag(t *testing.T) {
 }
 
 // TestHandler_MessageAndOldRevision: the handler forwards conversationId; an event an older revision cannot parse
-// into a valid type (unknown type) is acknowledged with no row or push, as ADR-0027 D9 requires.
+// into a valid type (unknown type) is acknowledged with no row or push.
 func TestHandler_MessageAndOldRevision(t *testing.T) {
 	r := newRig(t, bothOn("alice", "bob"))
 	r.addDevice("bob", "d1", "tok-1")

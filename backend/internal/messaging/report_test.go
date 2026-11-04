@@ -172,7 +172,7 @@ func TestReportableMessage_ReadsAndCache(t *testing.T) {
 }
 
 // The lookup reads neither flag state nor the caller's graph: a user dropped from the allowlist, or one who blocked the
-// sender, can still report (ADR-0027 D4 "On read", D6, F6). The service here has no Social at all and its registry has the
+// sender, can still report ("On read", D6, F6). The service here has no Social at all and its registry has the
 // flag off for everyone.
 func TestReportableMessage_NeedsNoFlagAndNoGraph(t *testing.T) {
 	t.Parallel()

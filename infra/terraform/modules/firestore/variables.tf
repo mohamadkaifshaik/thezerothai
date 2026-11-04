@@ -28,8 +28,8 @@ variable "ttl_fields" {
       field      = "expireAt"
     }
     notifications_expire_at = {
-      # Collection group ID — actual docs live at users/{uid}/notifications/{id}
-      # (ADR-0003); TTL field config is keyed by collection group, not path.
+      # Collection group ID — actual docs live at users/{uid}/notifications/{id}.
+      # TTL field config is keyed by collection group, not path.
       collection = "notifications"
       field      = "expireAt"
     }
@@ -37,30 +37,30 @@ variable "ttl_fields" {
       collection = "exports"
       field      = "expireAt"
     }
-    # ADR-0016 D2: set when a report is resolved (resolvedAt + 90 days); absent while OPEN, so open reports never expire.
+    # Set when a report is resolved (resolvedAt + 90 days); absent while OPEN, so open reports never expire.
     reports_expire_at = {
       collection = "reports"
       field      = "expireAt"
     }
-    # ADR-0016 note 2026-10-30: the copied text of a MESSAGE report at reports/{id}/evidence/message; expireAt =
+    # The copied text of a MESSAGE report at reports/{id}/evidence/message; expireAt =
     # filing + 180 days, shortened to resolvedAt + 90 days when the report is resolved. Collection-group key; the report stays.
     report_evidence_expire_at = {
       collection = "evidence"
       field      = "expireAt"
     }
-    # ADR-0016 D10: the moderation removal log (postRemovals/{postId}); expireAt = createdAt + 32 days
+    # The moderation removal log (postRemovals/{postId}); expireAt = createdAt + 32 days
     # (posts.RemovalRetention), set against the 30-day timeline since token. Edited only, not applied.
     post_removals_expire_at = {
       collection = "postRemovals"
       field      = "expireAt"
     }
-    # ADR-0021: finished scheduled posts (PUBLISHED / CANCELLED / FAILED) at users/{uid}/scheduled/{id}; expireAt is
+    # Finished scheduled posts (PUBLISHED / CANCELLED / FAILED) at users/{uid}/scheduled/{id}; expireAt is
     # set when the item leaves PENDING (+7 days), absent while PENDING so pending items never expire. Collection-group key.
     scheduled_expire_at = {
       collection = "scheduled"
       field      = "expireAt"
     }
-    # ADR-0029 D8, D9: a poll vote (pollVotes/{postId}_{uid}); expireAt = the poll's closesAt + 30 days
+    # A poll vote (pollVotes/{postId}_{uid}); expireAt = the poll's closesAt + 30 days
     # (POLL_VOTE_TTL_AFTER_CLOSE), so the votes on a deleted poll post expire by TTL. Edited only, not applied: apply
     # it before FEATURE_POLLS leaves off in a project (otherwise vote docs simply stay).
     poll_votes_expire_at = {

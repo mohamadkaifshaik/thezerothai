@@ -7,13 +7,13 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cache"
 )
 
-// Default cache sizes (ADR-0010 D15), overridden by CACHE_POSTS_ENTRIES / CACHE_AUTHOR_RECENT_ENTRIES.
+// Default cache sizes, overridden by CACHE_POSTS_ENTRIES / CACHE_AUTHOR_RECENT_ENTRIES.
 const (
 	DefaultPostsEntries        = 20_000
 	DefaultAuthorRecentEntries = 1_000
 )
 
-// Cache is posts' instance cache (ADR-0010 D15): post docs by id, and per-author recent root posts. Both are
+// Cache is posts' instance cache: post docs by id, and per-author recent root posts. Both are
 // LRU-bounded with the CACHE_TTL expiry, filled by every read path, and updated in place by this instance's own
 // writes (project rule: "update the instance cache from written data instead of re-reading"). Entries of the two
 // caches share *Post pointers, and a *Post is immutable.
@@ -84,7 +84,7 @@ func (c *Cache) AdjustCounts(id string, likeDelta, repostDelta, quoteDelta int64
 }
 
 // AdjustPoll replaces the cached copy of id with Post.Voted(choice) (copy on write, a new Poll with fresh counts) and returns it, so a
-// committed vote is visible to this instance at once (ADR-0029 D6 step 8). The read-modify-write is under the cache lock, so concurrent
+// committed vote is visible to this instance at once. The read-modify-write is under the cache lock, so concurrent
 // votes on one instance compose. A post that is not cached is left alone and nil is returned (the next read brings the fresh counts).
 func (c *Cache) AdjustPoll(id string, choice int) *Post {
 	c.mu.Lock()
@@ -98,7 +98,7 @@ func (c *Cache) AdjustPoll(id string, choice int) *Post {
 	return np
 }
 
-// AdjustPollChange is AdjustPoll for a vote change: the cached copy of id is replaced with Post.VoteChanged(from, to) (ADR-0029 Amendment 1 A2.7).
+// AdjustPollChange is AdjustPoll for a vote change: the cached copy of id is replaced with Post.VoteChanged(from, to).
 // Same lock, same nil for a post that is not cached.
 func (c *Cache) AdjustPollChange(id string, from, to int) *Post {
 	c.mu.Lock()

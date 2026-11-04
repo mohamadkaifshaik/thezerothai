@@ -1,4 +1,4 @@
-// service_bookmarks.go is the business logic of AddBookmark and RemoveBookmark (ADR-0023): the
+// service_bookmarks.go is the business logic of AddBookmark and RemoveBookmark: the
 // engagement.Bookmarks seam. Posts are read only through posts.Engagement.Viewable (the GetPost rules, a REPOST id
 // resolving to its original); the writes are one BookmarkRepo transaction. No Events: a bookmark is private, nothing
 // is published and nobody (least of all the post's author) learns of it.
@@ -105,7 +105,7 @@ func noteBookmarkOutcome(ctx context.Context, o BookmarkOutcome) {
 	}
 }
 
-// addBookmark implements Bookmarks.AddBookmark (ADR-0023 D4). Before the transaction: the visibility check (3 reads
+// addBookmark implements Bookmarks.AddBookmark. Before the transaction: the visibility check (3 reads
 // cold, 0 warm, +2 for a REPOST id) and the caller's profile for the new-account quota (cache first, 0 extra reads
 // behind the account-status interceptor). In the transaction: idempotency, quotas, userLikes.
 func (s *service) addBookmark(ctx context.Context, uid, key, postID string) (_ BookmarkState, err error) {

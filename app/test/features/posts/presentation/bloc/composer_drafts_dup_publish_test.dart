@@ -16,7 +16,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../../support/fake_posts_server.dart';
 import '../../../../support/media_fixtures.dart';
 
-/// The drafts duplicate-publication matrix (ADR-0029 Amendment 1, A4).
+/// The drafts duplicate-publication matrix.
 ///
 /// S1-S4 pin what is safe. G1-G6 are tests of the FIXED behaviour:
 /// persists the send key on the draft row (they were skipped until then).

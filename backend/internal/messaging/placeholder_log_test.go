@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// L-2: the placeholder can never be a real account's uid (ADR-0008 A3), and nothing treats it as one.
+// L-2: the placeholder can never be a real account's uid, and nothing treats it as one.
 func TestDeletedUID_IsNotAValidUID(t *testing.T) {
 	t.Parallel()
 	if ids.ValidUID(DeletedUID) {

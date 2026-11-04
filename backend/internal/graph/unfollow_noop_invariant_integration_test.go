@@ -1,6 +1,6 @@
 //go:build integration
 
-// unfollow_noop_invariant_integration_test.go is (ADR-0009, closes review item N4): emulator tests
+// unfollow_noop_invariant_integration_test.go is (closes review item N4): emulator tests
 // that pin the invariant "for any account that can call graph RPCs, follows/{a}_{b} exists <=> b in
 // graph/{a}.following <=> users/{a} and users/{b} exist", which is what makes Unfollow's blind-batch no-op
 // (repo_firestore.go Unfollow: failed precondition => (false, nil) => NONE) correct.
@@ -22,7 +22,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 )
 
-// wantNoopRel is the only answer Unfollow may give for any no-op cause (ADR-0009 privacy/oracle check).
+// wantNoopRel is the only answer Unfollow may give for any no-op cause (privacy/oracle check).
 func wantNoopRel(target string) graph.Relationship {
 	return graph.Relationship{UserID: target, FollowState: graph.FollowStateNone}
 }
@@ -55,7 +55,7 @@ func noopUnfollow(t *testing.T, w wired, label, caller, key, target string) grap
 }
 
 // TestT32_Unfollow_NoopCauses_LeaveInvariantAndCostNothing covers each cause of a no-op Unfollow that API paths
-// can produce (ADR-0009 reachability table): never followed (incl. a target that never existed), replay,
+// can produce (reachability table): never followed (incl. a target that never existed), replay,
 // blocked either way, edge removed by Block, and edge removed by the target's purge (step 2). Self-unfollow is
 // the service-level no-op that never reaches Firestore.
 func TestT32_Unfollow_NoopCauses_LeaveInvariantAndCostNothing(t *testing.T) {
@@ -174,7 +174,7 @@ func TestT32_Unfollow_RaceWithTargetPurge(t *testing.T) {
 }
 
 // TestT32_Unfollow_StuckS2_IsFlaggedAndPurgeRepairs pins the ops-only failure and its documented repair
-// (ADR-0009 S2, runbook: `opsctl purge-graph --skip-start-gate --uid <deleted uid>`): the edge and following
+// (`opsctl purge-graph --skip-start-gate --uid <deleted uid>`): the edge and following
 // entry exist but users/{b} is gone, so the counter Update in Unfollow's batch fails NotFound.
 func TestT32_Unfollow_StuckS2_IsFlaggedAndPurgeRepairs(t *testing.T) {
 	const a, b = "uid-a", "uid-b"
@@ -187,7 +187,7 @@ func TestT32_Unfollow_StuckS2_IsFlaggedAndPurgeRepairs(t *testing.T) {
 	must(t, "Follow", err)
 	assertGraphInvariants(t, w.client) // consistent before the deviation
 
-	// The ops deviation: users/{b} deleted before the graph purge finished (runbook Step 2 out of order).
+	// The ops deviation: users/{b} deleted before the graph purge finished.
 	if _, err := w.client.Collection("users").Doc(b).Delete(ctx); err != nil {
 		t.Fatalf("seed S2: delete users/%s: %v", b, err)
 	}

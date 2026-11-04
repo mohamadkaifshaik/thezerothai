@@ -1,6 +1,6 @@
 import 'app_exception.dart';
 
-/// The RATE_LIMITED answer read RPCs are held back for (ADR-0010 D5: the
+/// The RATE_LIMITED answer read RPCs are held back for (the
 /// daily read budget is one budget per uid across every RPC, so a limit
 /// answered to one read screen holds all of them; there are no exemptions).
 ///

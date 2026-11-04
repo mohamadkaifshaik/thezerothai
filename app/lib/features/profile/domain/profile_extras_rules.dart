@@ -4,7 +4,7 @@ import '../../../shared/format/profile_website.dart';
 import '../../../shared/format/single_line_text.dart';
 
 /// Client checks for the profile text fields, mirroring the server
-/// (`backend/internal/identity/validate.go`, ADR-0024 D2, L-2 / L-3).
+/// (`backend/internal/identity/validate.go`).
 /// Both sides run the vectors in `testdata/profile_text/` (see its README.md),
 /// so a rule changed here without the server, or the other way round, fails a
 /// test. The server stays authoritative: a disagreement comes back as

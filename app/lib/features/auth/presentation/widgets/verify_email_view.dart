@@ -11,8 +11,8 @@ import '../bloc/auth_event.dart';
 import '../request_sign_out.dart';
 
 /// Shown instead of the app once the user has signed up with email/password
-/// but not yet verified their address (ADR-0006: posting/following/uploading
-/// all require a verified email). Not a separate route — it's rendered by
+/// but not yet verified their address (posting/following/uploading all require a verified email).
+/// Not a separate route — it's rendered by
 /// whichever screen is on top of the [AuthBloc] when `status ==
 /// AuthStatus.needsEmailVerification`, so it works from sign-up without
 /// adding a new URL. `CreateProfileScreen` reuses it the same way for

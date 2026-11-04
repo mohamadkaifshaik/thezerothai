@@ -1,6 +1,6 @@
 package apiserver
 
-// The pollVotes TTL is the only thing that removes the vote docs of a deleted poll post (ADR-0029 D8), and the code stamps
+// The pollVotes TTL is the only thing that removes the vote docs of a deleted poll post, and the code stamps
 // expireAt on them. This guard keeps the Terraform `ttl_fields` entry and the code's field name in step, so a rename on either side
 // fails here rather than leaving vote docs for ever. (It reads the module's default; applying it comes later.)
 

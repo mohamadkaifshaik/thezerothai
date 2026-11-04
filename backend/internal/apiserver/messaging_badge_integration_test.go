@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ADR-0027 D10, D14: GetMe.unread_conversation_count over the real Build chain on the emulators. Cold: 3 reads
+// GetMe.unread_conversation_count over the real Build chain on the emulators. Cold: 3 reads
 // (account-status profile, notification count, the dmInbox count()), warm 0, a send on this instance evicts it through
 // messaging.Deps.Badge so the next GetMe recounts (2 with the send's own notification-count eviction), messaging off for the caller 2 reads and 0.
 

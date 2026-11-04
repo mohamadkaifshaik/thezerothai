@@ -1,6 +1,6 @@
-// Package lists is the Lists module (ADR-0030): curated sets of up to LIST_MAX_MEMBERS accounts that a user can read as a
+// Package lists is the Lists module: curated sets of up to LIST_MAX_MEMBERS accounts that a user can read as a
 // timeline and pin as a custom Home tab. It owns the lists/{listId} collection and dzeroth.lists.v1.ListService. Other modules
-// reach it through the interfaces only (ADR-0030 D1): Service for the handlers, Pins for the owner's pinned-tab clean-up
+// reach it through the interfaces only: Service for the handlers, Pins for the owner's pinned-tab clean-up
 // (implements it in identity), and lists.Reader for the timeline.
 //
 // What exists: the flag gate (FEATURE_LISTS, D9); the write path CreateList, UpdateList and DeleteList (model.go, service.go,
@@ -19,7 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// FlagName is the wire name of FEATURE_LISTS (ADR-0030 D9), the `feature` metadata of FEATURE_DISABLED and the string in
+// FlagName is the wire name of FEATURE_LISTS, the `feature` metadata of FEATURE_DISABLED and the string in
 // GetMe.enabled_features. timeline.GetListTimeline and SetHomeTabs gate on the same name.
 const FlagName = "lists"
 
@@ -31,7 +31,7 @@ type FlagChecker interface {
 }
 
 // Guard is the flag gate every ListService method (and timeline's GetListTimeline and SetHomeTabs) runs before any
-// Firestore access (ADR-0030 D9: one class, the flag must be on for the caller). Disabled is FAILED_PRECONDITION +
+// Firestore access (one class, the flag must be on for the caller). Disabled is FAILED_PRECONDITION +
 // FEATURE_DISABLED with metadata feature=lists and 0 reads. A nil checker is off for everyone.
 func Guard(ctx context.Context, fc FlagChecker, uid string) error {
 	err := flags.Guard(ctx, func(uid, name string) bool { return fc != nil && fc.Enabled(uid, name) }, uid, FlagName)

@@ -74,7 +74,7 @@ func TestDeliver_FollowCreatesRowAndPushesOnce(t *testing.T) {
 		t.Errorf("push = %+v", push)
 	}
 
-	// Pub/Sub redelivers the same message: no second row and no second push (ADR-0017 D3).
+	// Pub/Sub redelivers the same message: no second row and no second push.
 	out, err = r.f.Deliver(context.Background(), ev)
 	mustNoErr(t, err)
 	if out.Duplicate != 1 || out.Created != 0 || out.Pushed != 0 || len(r.sender.sent) != 2 {

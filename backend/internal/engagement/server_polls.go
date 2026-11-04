@@ -1,4 +1,4 @@
-// server_polls.go holds the Connect handler of VotePoll (ADR-0029 D6): the flag gate, then the vote
+// server_polls.go holds the Connect handler of VotePoll: the flag gate, then the vote
 // through the Polls seam. No business logic here.
 package engagement
 
@@ -15,13 +15,13 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// PollsFlagName is the wire name of FEATURE_POLLS (ADR-0029 D12). CreatePost with a poll needs it on for the caller
+// PollsFlagName is the wire name of FEATURE_POLLS. CreatePost with a poll needs it on for the caller
 // (posts); VotePoll needs FEATURE_ENGAGEMENT on for the caller and this flag NOT globally off.
 const PollsFlagName = posts.PollsFlagName
 
-// guardPoll is the flag gate of VotePoll, run before any Firestore access (ADR-0029 D6 step 2): FEATURE_POSTS first (the
+// guardPoll is the flag gate of VotePoll, run before any Firestore access: FEATURE_POSTS first (the
 // posts guard), then FEATURE_ENGAGEMENT on for the caller (feature=engagement), then FEATURE_POLLS not globally off
-// (feature=polls; Registry.GloballyOff, the ADR-0021 L-A pattern: a viewer outside a polls allowlist may still vote in an
+// (feature=polls; Registry.GloballyOff: a viewer outside a polls allowlist may still vote in an
 // existing poll). A checker without GloballyOff gets the per-caller answer. Disabled is FAILED_PRECONDITION +
 // FEATURE_DISABLED and 0 reads. It returns the caller's uid.
 func (s *Server) guardPoll(ctx context.Context) (string, error) {
@@ -46,9 +46,9 @@ func (s *Server) guardPoll(ctx context.Context) (string, error) {
 	return uid, nil
 }
 
-// VotePoll records the caller's vote in a poll, or changes it until the poll closes (ADR-0029 D6, Amendment 1 A1 and A2); the rules are
+// VotePoll records the caller's vote in a poll, or changes it until the poll closes; the rules are
 // Polls.VotePoll. It is behind FEATURE_POSTS, FEATURE_ENGAGEMENT on for the caller and FEATURE_POLLS not globally off. Worst case once the gate
-// passes (ADR-0029 Cost impact):
+// passes:
 //   - a new vote: 8 reads cold (interceptor 1, post 1, author users 1, caller graph 1, +2 for a REPOST id, +1 on blockedBy overflow, userLikes 1)
 //     and 3 writes in one batch (vote doc, the post's poll counters, userLikes.pollVotes) + 1 TTL delete later; planning 3 reads;
 //   - a change (expected_choice names the stored vote): 9 reads worst (the 8 + the vote doc), 4 typical, 4 writes in one batch (vote doc under a

@@ -17,7 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// TestMessagingRateLimitWiring (ADR-0027 D13): SendMessage has its own bucket and the shared messages_daily cap;
+// TestMessagingRateLimitWiring: SendMessage has its own bucket and the shared messages_daily cap;
 // ListConversations and ListMessages share one read bucket and have no daily cap (reads: the read budget covers them);
 // the guard enumeration sees both reads and the budget covers every messaging RPC.
 func TestMessagingRateLimitWiring(t *testing.T) {

@@ -2,7 +2,7 @@
 
 package apiserver
 
-// (ADR-0025 D4) through the real Build chain on the emulators, with the real protected-set loader and the real
+// Protected timelines through the real Build chain on the emulators, with the real protected-set loader and the real
 // UpdateProfile(is_private) toggle (FEATURE_PRIVATE_ACCOUNTS on):
 //   - GetUserTimeline of a protected P for an unapproved viewer answers author_protected on all four tabs at 3 cold
 //     reads (interceptor, target users, caller graph) and 0 page reads, with no posts and no tokens, even when a

@@ -27,7 +27,7 @@ type PostGone interface {
 	PostGone(ctx context.Context, postID string) (bool, error)
 }
 
-// PinJobs is the identity step of the post_delete job (ADR-0024 D3): when the deleted post is the author's pinned
+// PinJobs is the identity step of the post_delete job: when the deleted post is the author's pinned
 // post, the pin is cleared. apiserver runs it next to the media and engagement steps on the same message. It is
 // never flag-gated (a pin set while profile_extras was on must still be cleaned up when the flag is off), and a
 // takedown does not run it (a restore brings the pin back).

@@ -43,7 +43,7 @@ func lower(s string) string {
 	return string(b)
 }
 
-// TestBeginDeletion_Integration: DeleteAccount's sync part is 1 read and 1 write (ADR-0011 budget table); a replay
+// TestBeginDeletion_Integration: DeleteAccount's sync part is 1 read and 1 write (budget table); a replay
 // is 1 read and 0 writes; SUSPENDED may delete; and the deletion state survives UpdateProfile's whole-document write.
 func TestBeginDeletion_Integration(t *testing.T) {
 	repo, client := lifecycleRepo(t)
@@ -76,7 +76,7 @@ func TestBeginDeletion_Integration(t *testing.T) {
 	}
 	budgettest.Assert(t, "BeginDeletion replay", c, budgettest.Budget{Reads: 1, Writes: 0})
 
-	// SUSPENDED may delete (ADR-0011 Q3).
+	// SUSPENDED may delete.
 	if _, err := client.Collection("users").Doc("u2").Update(context.Background(), []firestore.Update{{Path: "status", Value: "SUSPENDED"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +300,7 @@ func TestIdentityStepOps_Integration(t *testing.T) {
 	if err := repo.DeleteQuotas(ctx, "no-quota-doc"); err != nil {
 		t.Errorf("DeleteQuotas(missing): %v", err)
 	}
-	// The final delete is conditional (ADR-0011 m8): an ACTIVE doc, or a DELETING one at another seq, survives.
+	// The final delete is conditional (m8): an ACTIVE doc, or a DELETING one at another seq, survives.
 	if err := repo.DeleteUserDoc(ctx, "u1", 0); !errors.Is(err, identity.ErrJobConflict) {
 		t.Errorf("DeleteUserDoc on an ACTIVE account = %v, want ErrJobConflict", err)
 	}

@@ -1,7 +1,7 @@
-// profile_snapshot.go is the identity side of the profile-snapshot-refresh job (ADR-0003 "Author snapshot
-// refresh"): a profile edit that changes what posts copy about their author (display name, handle) bumps
+// profile_snapshot.go is the identity side of the profile-snapshot-refresh job ("Author snapshot refresh"):
+// a profile edit that changes what posts copy about their author (display name, handle) bumps
 // users/{uid}.snapshotVersion in the same write, and after the commit a best-effort `profile_snapshot_refresh`
-// message goes to the shared `jobs` topic (ADR-0011). The job handler (lifecycle_jobs.go dispatch) re-reads the
+// message goes to the shared `jobs` topic. The job handler (lifecycle_jobs.go dispatch) re-reads the
 // profile and asks the posts module, through SnapshotWriter, to rewrite `author` on the newest posts.
 //
 // Gated by FEATURE_PROFILE_SNAPSHOT (wire name `profile_snapshot`): off means no quota reservation, no message,
@@ -30,8 +30,7 @@ const ProfileSnapshotFlag = "profile_snapshot"
 // JobKindProfileSnapshot is the JobMessage.Kind of a snapshot refresh.
 const JobKindProfileSnapshot = "profile_snapshot_refresh"
 
-// SnapshotRefreshPosts is how many of an author's newest posts one refresh rewrites (ADR-0003: older posts keep
-// the old snapshot at Stage 0).
+// SnapshotRefreshPosts is how many of an author's newest posts one refresh rewrites (older posts keep the old snapshot at Stage 0).
 const SnapshotRefreshPosts = 100
 
 // publishTimeout bounds the best-effort enqueue so a slow Pub/Sub never holds the RPC response.

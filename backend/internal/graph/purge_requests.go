@@ -1,6 +1,6 @@
-// purge_requests.go is the right-to-delete path of followRequests (ADR-0025 D11): the `follow_requests`
+// purge_requests.go is the right-to-delete path of followRequests: the `follow_requests`
 // account-deletion step. It is its own step, appended after `bookmarks` and before `identity`, because step names are
-// persisted in users/{uid}.deletionJob.step; it never joins graph's Checkpoint (the ADR-0023 D6 precedent).
+// persisted in users/{uid}.deletionJob.step; it never joins graph's Checkpoint (the precedent).
 //
 // followRequests/{followerId}_{followeeId} holds {followerId, followeeId, createdAt} (invariant I-R: the doc exists
 // exactly when followeeId is in graph/{followerId}.requested). The account under purge appears on either side:
@@ -46,7 +46,7 @@ const (
 	requestIncomingPage = 250
 )
 
-// requestDoc is the followRequests/{followerId}_{followeeId} shape (ADR-0025 D2).
+// requestDoc is the followRequests/{followerId}_{followeeId} shape.
 type requestDoc struct {
 	FollowerID string    `firestore:"followerId"`
 	FolloweeID string    `firestore:"followeeId"`
@@ -59,7 +59,7 @@ type RequestCheckpoint struct {
 	Phase int
 }
 
-// RequestEraser is the `follow_requests` account-deletion step (ADR-0025 D11).
+// RequestEraser is the `follow_requests` account-deletion step.
 type RequestEraser struct{ r *FirestoreRepo }
 
 // NewRequestEraser binds the step to the graph repo (its client and counters).
@@ -107,7 +107,7 @@ func (e *RequestEraser) PurgeUser(ctx context.Context, uid string, cp RequestChe
 }
 
 // queryRequests reads up to limit requests on one side of uid. The outgoing side uses the automatic single-field
-// index on followerId; the incoming side the composite `followeeId ASC, createdAt DESC` (ADR-0025 D15).
+// index on followerId; the incoming side the composite `followeeId ASC, createdAt DESC`.
 func (r *FirestoreRepo) queryRequests(ctx context.Context, uid string, outgoing bool, limit int) ([]requestDoc, error) {
 	q := r.client.Collection(followRequestsCollection).Where("followerId", "==", uid)
 	if !outgoing {

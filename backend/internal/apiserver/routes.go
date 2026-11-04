@@ -12,7 +12,7 @@ import (
 // Secure by default: every route this process serves is registered through a routeTable, and the table offers only
 // three ways in, one per protection class. There is no way to hand it a bare handler.
 //
-//	connect   a generated Connect service. The full interceptor chain (ADR-0006 §2: logging, recover, App Check, ID
+//	connect   a generated Connect service. The full interceptor chain (logging, recover, App Check, ID
 //	          token, verified identity, rate limit, degraded mode, account status, error mapping) and the decompressed
 //	          read cap are applied by the table, so a new service cannot be registered without them.
 //	internal  a Pub/Sub push or Scheduler endpoint behind the OIDC verifier (outside ENV=local the verifier is always

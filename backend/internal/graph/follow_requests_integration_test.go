@@ -1,7 +1,7 @@
 //go:build integration
 
-// follow_requests_integration_test.go exercises the request path against the Firestore emulator (ADR-0025 D6,
-// D7, AQ4): Follow to a protected account, replay, the 500 cap, withdraw, Block clean-up in both directions, and the
+// follow_requests_integration_test.go exercises the request path against the Firestore emulator:
+// Follow to a protected account, replay, the 500 cap, withdraw, Block clean-up in both directions, and the
 // REQUESTED relationship state on every read path, each with a budget assertion. The follow-vs-protect race is
 // follow_race_integration_test.go (it needs the transaction hook).
 package graph_test
@@ -172,7 +172,7 @@ func TestFollowRequest_Integration_RequestedCapIs500(t *testing.T) {
 	}
 }
 
-// ADR-0025 D7: a Block deletes the requests in both directions and their `requested` entries, with +0 reads and +0
+// A Block deletes the requests in both directions and their `requested` entries, with +0 reads and +0
 // writes over a plain Block and at most 2 more deletes.
 func TestFollowRequest_Integration_BlockClearsRequestsBothWays(t *testing.T) {
 	for _, tc := range []struct {
@@ -226,7 +226,7 @@ func TestFollowRequest_Integration_BlockClearsRequestsBothWays(t *testing.T) {
 	}
 }
 
-// ADR-0025 AQ4: the target went public while the request is still pending (the privacy_public job has not run). Follow
+// The target went public while the request is still pending (the privacy_public job has not run). Follow
 // becomes the edge, and in the same transaction deletes the request and its `requested` entry.
 func TestFollowRequest_Integration_PublicTargetWithLeftoverRequestBecomesEdge(t *testing.T) {
 	w := newWired(t)

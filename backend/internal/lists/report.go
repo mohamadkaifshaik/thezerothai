@@ -28,7 +28,7 @@ type ListReporter interface {
 
 var _ ListReporter = (*service)(nil)
 
-// ReportableList implements ListReporter: the caller may report exactly the lists ADR-0030 D3 lets them see (a missing,
+// ReportableList implements ListReporter: the caller may report exactly the lists they may see (a missing,
 // malformed-id, private, hidden, blocked or inactive-owner list is ErrNotFound after the same reads as GetList, so a
 // private list answers like a missing one). The caller's own list is ErrOwnList. It checks no flag: the report handler has
 // already required `reports` on and `lists` not globally off, so a user dropped from the lists allowlist can still report what

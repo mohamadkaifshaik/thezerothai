@@ -13,7 +13,7 @@ type releaseStub struct{}
 
 func (releaseStub) StageRelease(store.Batch, string, string) {}
 
-// withCopyPhase wires the collaborators PurgeUser's copy phase (ADR-0018 D14) needs.
+// withCopyPhase wires the collaborators PurgeUser's copy phase needs.
 func withCopyPhase(repo *FirestoreRepo, client *firestore.Client) {
 	repo.SetWriters(WriteDeps{Counters: countersStub{client}})
 	repo.SetRepostLinks(releaseStub{})

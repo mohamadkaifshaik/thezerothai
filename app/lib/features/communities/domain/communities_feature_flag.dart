@@ -1,5 +1,5 @@
 /// Name of the Communities flag (`FEATURE_COMMUNITIES`) as exposed through
-/// `GetMeResponse.enabled_features` (ADR-0031 D10; a missing name means off).
+/// `GetMeResponse.enabled_features` (a missing name means off).
 /// It is also the `metadata["feature"]` of the FEATURE_DISABLED answer of every
 /// communities RPC, of `GetCommunityTimeline`, of CreatePost with a
 /// `community_id` and of SetHomeTabs for a COMMUNITY tab. The server stays
@@ -37,7 +37,7 @@ const kMaxCommunitiesJoined = 50;
 const kMaxCommunityModerators = 10;
 const kMaxCommunityRules = 10;
 
-/// Field limits (code points, after NFC and trim; ADR-0031 D2).
+/// Field limits (code points, after NFC and trim).
 const kCommunityNameMaxLength = 30;
 const kCommunityDescriptionMaxLength = 160;
 const kCommunityRuleTitleMaxLength = 60;

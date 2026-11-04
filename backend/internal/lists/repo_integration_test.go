@@ -26,7 +26,7 @@ import (
 )
 
 // The budgets below are the service's own reads on top of the account-status interceptor's one profile read (the interceptor is
-// not part of this harness): ADR-0030 "Cost impact" lists CreateList 4 / UpdateList 3 / DeleteList 3 including it.
+// not part of this harness): the budgets are CreateList 4 / UpdateList 3 / DeleteList 3 including it.
 
 type listsEnv struct {
 	client *firestore.Client
@@ -124,7 +124,7 @@ func create(t *testing.T, e *listsEnv, uid string, n int, name string, private *
 }
 
 // CreateList: 3 reads and 3 writes in the service (4 and 3 with the interceptor), private by default, and the stored document
-// has the ADR-0030 D2 shape with memberIds as an empty array.
+// has the shape with memberIds as an empty array.
 func TestCreateList_Integration_Budget(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
 	var view View
@@ -496,7 +496,7 @@ func TestDeleteList_Integration(t *testing.T) {
 	wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, nil)
 }
 
-// The late-retry hazard ADR-0030 D7 closes: a delete of a missing list stores its key, so the retry replays instead of acting on
+// The late-retry hazard: a delete of a missing list stores its key, so the retry replays instead of acting on
 // state that appeared since. (Snowflake ids are never reused, so here the stored key is checked, not a recreated list.)
 func TestDeleteList_Integration_NoOpStoresTheKey(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))

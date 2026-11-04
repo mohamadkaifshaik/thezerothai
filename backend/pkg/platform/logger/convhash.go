@@ -12,7 +12,7 @@ import (
 )
 
 // convHashInfo is the HKDF info label of the conversation-hash key. It is distinct from the cursor module's own label, so
-// the two derived keys are unrelated (ADR-0027, security review L-7).
+// the two derived keys are unrelated (security review L-7).
 const convHashInfo = "dzeroth log conversation_hash v1"
 
 // convHashKey is the process's derived key; nil until SetConversationKey (or the first HashConversation, which then
@@ -130,7 +130,7 @@ func RedactErrPosts(err error, postIDs []string, ids ...string) error {
 // RedactErrPostDocs is RedactErrPosts for an error that names documents with the composite id <postId>_<uid> (likes, reposts,
 // pollVotes): the post part of each id is mapped through the keyed HashPost and the uid through HashUID, so a document id
 // renders as HashPost(postId)_HashUID(uid). Redacting the uid first breaks the id apart and leaves the plain post id next to the
-// uid hash. A uid never contains "_" (ADR-0008 A3), so the post id is everything before the last "_"; an id without one is
+// uid hash. A uid never contains "_", so the post id is everything before the last "_"; an id without one is
 // skipped (it is not a composite id).
 func RedactErrPostDocs(err error, uid string, docIDs ...string) error {
 	postIDs := make([]string, 0, len(docIDs))
@@ -142,7 +142,7 @@ func RedactErrPostDocs(err error, uid string, docIDs ...string) error {
 	return RedactErrPosts(err, postIDs, uid)
 }
 
-// HashCommunity is the log pseudonym of a community id (community_hash on the Communities moderation request lines, ADR-0031 D13a):
+// HashCommunity is the log pseudonym of a community id (community_hash on the Communities moderation request lines):
 // the first 8 bytes of HMAC-SHA256(key, "community|" + id), the same key as HashConversation. A community id is a public
 // Snowflake; an unkeyed hash next to the actor's uid_hash would let a log reader rebuild who moderated what. `opsctl community
 // loghash` and the opsctl community commands reproduce it. "" in, "" out.

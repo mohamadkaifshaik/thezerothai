@@ -1,4 +1,4 @@
-// removals_firestore.go is the Firestore side of the moderation removal log (ADR-0016 D10): the writes that
+// removals_firestore.go is the Firestore side of the moderation removal log: the writes that
 // moderate.go batches with the moderation field, and the RemovalSource the instance cache reads.
 //
 // The cache queries (Newest, After) order by createdAt then __name__ in the same direction, which the built-in

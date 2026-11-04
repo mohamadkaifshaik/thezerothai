@@ -105,7 +105,7 @@ func headroom(d *DailyCap, key string) bool {
 	return ok
 }
 
-// TestDailyCap_ReserveCharge covers the unit-budget mode (ADR-0010 D5): Reserve checks headroom without
+// TestDailyCap_ReserveCharge covers the unit-budget mode: Reserve checks headroom without
 // spending, Charge spends n (the counter may pass the limit by the reads of the calls already admitted; with
 // the A1 hold armed that is at most M - 1 above the limit per instance lifetime), the IST rollover resets both.
 func TestDailyCap_ReserveCharge(t *testing.T) {
@@ -207,7 +207,7 @@ func TestDailyCap_SingleFlightNearCap(t *testing.T) {
 		t.Fatal("third call would make spent + 3*max > limit")
 	}
 
-	// A fresh day allows floor(2000/269) = 7 calls in flight (ADR-0010 D5 A1, "legitimate parallelism").
+	// A fresh day allows floor(2000/269) = 7 calls in flight ("legitimate parallelism").
 	n := 0
 	for {
 		ok, _ := d.Reserve("fresh")
@@ -255,7 +255,7 @@ func TestDailyCap_InvariantAtAnyConcurrency(t *testing.T) {
 	}
 }
 
-// TestDailyCap_ConcurrentReserveAtLimitMinusOne (M1, ADR-0010 D5): N goroutines hit a key at limit-1 while
+// TestDailyCap_ConcurrentReserveAtLimitMinusOne (M1): N goroutines hit a key at limit-1 while
 // each admitted call holds its slot and then spends one full worst-case call. Total spend never exceeds
 // limit - 1 + one call's worst case, and no more than one call is ever admitted.
 func TestDailyCap_ConcurrentReserveAtLimitMinusOne(t *testing.T) {

@@ -1,6 +1,6 @@
 //go:build integration
 
-// purge_integration_test.go exercises graph.Eraser against the Firestore emulator (ADR-0008/D10):
+// purge_integration_test.go exercises graph.Eraser against the Firestore emulator:
 // full cascade, crash-resume, replay safety, concurrent runs and missing counterparts.
 package graph_test
 

@@ -10,7 +10,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// GetThread and a reply a community moderator hid (ADR-0031 Amendment 1 D4a, R4, R5): the drop is for every viewer but the reply's author,
+// GetThread and a reply a community moderator hid: the drop is for every viewer but the reply's author,
 // costs no read, never touches the root slot and never changes who may reply.
 func TestGetThread_CommunityHiddenReply(t *testing.T) {
 	tests := []struct {

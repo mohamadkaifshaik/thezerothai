@@ -61,17 +61,17 @@ class ApiClient {
   late final moderation = ModerationServiceClient(_transport);
   late final engagement = EngagementServiceClient(_transport);
 
-  /// Direct messages (ADR-0027). Only `MessagingRepository` calls it.
+  /// Direct messages. Only `MessagingRepository` calls it.
   late final messaging = MessagingServiceClient(_transport);
 
-  /// Search, hashtag results and trends (ADR-0028). Only `SearchRepository`
+  /// Search, hashtag results and trends. Only `SearchRepository`
   /// calls it.
   late final search = SearchServiceClient(_transport);
 
-  /// Lists (ADR-0030). Only `ListsRepository` calls it.
+  /// Lists. Only `ListsRepository` calls it.
   late final lists = ListServiceClient(_transport);
 
-  /// Communities (ADR-0031). Only `CommunitiesRepository` calls it.
+  /// Communities. Only `CommunitiesRepository` calls it.
   late final communities = CommunityServiceClient(_transport);
 }
 

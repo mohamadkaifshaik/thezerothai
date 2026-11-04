@@ -1,5 +1,5 @@
 // Cloud Run v2 service `api` — the entire backend modular monolith.
-// Request-based billing only: min 0 (scales to zero; the only exception is the ADR-0022 credit mode, a
+// Request-based billing only: min 0 (scales to zero; the only exception is the credit mode, a
 // SERVICE-level min 1 in prod until 2026-12-22, carried on the caller's line by a `# cost-approved: ADR-0022`
 // marker with its until date), max 3 (cost cap + blast-radius cap), 1 vCPU / 512Mi, CPU allocated only during requests,
 // concurrency 80, 30s timeout. Public invoker: authn is Firebase ID tokens
@@ -11,7 +11,7 @@ resource "google_cloud_run_v2_service" "api" {
   location = var.region
   ingress  = "INGRESS_TRAFFIC_ALL"
 
-  # ADR-0022 (credit mode): SERVICE-level minimum instances, never revision-level. A revision-level minimum starts
+  # Credit mode: SERVICE-level minimum instances, never revision-level. A revision-level minimum starts
   # every revision that holds a traffic tag (prod tags `candidate`) and keeps it warm; a service-level minimum is split
   # across the revisions that are in the traffic split (Cloud Run min-instances doc, "Apply minimum instances at
   # service-level versus revision-level"). Default 0 = Stage 0 (scale to zero): cost-guard blocks raising it
@@ -117,7 +117,7 @@ resource "google_cloud_run_v2_service" "api" {
       # new revision itself. Trade-off: a plan with no other change still shows `revision -> null`, and applying it
       # would create a revision, so apply only together with a real change (or skip it).
       traffic,
-      # Service-level `scaling` is managed since ADR-0022 (it used to be ignored because it was unset and the API echoed
+      # Service-level `scaling` is managed for credit mode (it used to be ignored because it was unset and the API echoed
       # zero defaults back). min/max/manual_instance_count are Optional+Computed, so the echoed values cause no diff;
       # scaling_mode is Optional only, so it stays ignored in case the API echoes a mode string (UNVERIFIED until a plan).
       scaling[0].scaling_mode,

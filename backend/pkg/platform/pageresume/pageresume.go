@@ -1,5 +1,5 @@
-// Package pageresume is the resume rule for paging a bounded id array that changes between two pages (ADR-0024 D6, reused by
-// ADR-0030 for list members). The array is held newest last, a page is a slice counted from the newest end (position 0 =
+// Package pageresume is the resume rule for paging a bounded id array that changes between two pages (reused for list members).
+// The array is held newest last, a page is a slice counted from the newest end (position 0 =
 // newest), and the cursor remembers where the next page starts in three ways, so an add, a remove, a re-add or a trim between
 // two pages neither skips nor repeats a row. Pure: no I/O.
 package pageresume

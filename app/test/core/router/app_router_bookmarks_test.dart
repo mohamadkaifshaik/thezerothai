@@ -51,8 +51,8 @@ class _NoThemeStore implements ThemeModeStore {
 }
 
 /// `/bookmarks` on the real router: a shell page that needs only the
-/// `posts` flag (ADR-0023 D5: List and Remove need `bookmarks` only "not
-/// globally off"), and the "not available" answer when it is off for everyone.
+/// `posts` flag (List and Remove need `bookmarks` only "not globally off"),
+/// and the "not available" answer when it is off for everyone.
 void main() {
   const user = AppUser(
     uid: 'uid-1',

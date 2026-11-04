@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// Emulator tests for `opsctl backfill-has-media` (ADR-0024 D4). The documents are seeded as raw maps: toDoc always
+// Emulator tests for `opsctl backfill-has-media`. The documents are seeded as raw maps: toDoc always
 // writes hasMedia, so only a raw Set can produce the pre-W3 shape the backfill exists for.
 
 const (

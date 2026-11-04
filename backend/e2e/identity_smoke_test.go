@@ -3,7 +3,7 @@
 // Package e2e boots the real API handler — backend/internal/apiserver.Build, the exact wiring
 // cmd/api/main.go runs in production — inside an httptest.Server against the Firebase Emulator Suite
 // ("Go e2e suite in backend/e2e: runs against emulators in CI"). No mocks: real
-// Connect interceptor chain (ADR-0006 §2), a real Firebase Auth emulator-minted ID token, real Firestore.
+// Connect interceptor chain, a real Firebase Auth emulator-minted ID token, real Firestore.
 // Run via `make test-int`.
 package e2e
 
@@ -508,7 +508,7 @@ func captureLogger() (*slog.Logger, *syncBuffer) {
 	return slog.New(slog.NewJSONHandler(buf, &slog.HandlerOptions{Level: slog.LevelInfo})), buf
 }
 
-// TestE2E_VerifiedIdentityGate_WiredBeforeRateLimiterAndAccountStatus (code review 2 MJ2, ADR-0010 D5 A2): over
+// TestE2E_VerifiedIdentityGate_WiredBeforeRateLimiterAndAccountStatus (code review 2 MJ2): over
 // the real Build chain and a real emulator-minted unverified password token,
 //   - CheckHandleAvailability answers FAILED_PRECONDITION + EMAIL_NOT_VERIFIED. Only the gate produces that on
 //     this RPC (identity's defence in depth sits on CreateProfile), so it proves the gate is wired;
@@ -554,7 +554,7 @@ func TestE2E_VerifiedIdentityGate_WiredBeforeRateLimiterAndAccountStatus(t *test
 	}
 }
 
-// TestE2E_VerifiedIdentityGate_AnonymousOnlyAgainstTheEmulator (ADR-0010 D5 A10): with config.AuthEmulator off
+// TestE2E_VerifiedIdentityGate_AnonymousOnlyAgainstTheEmulator: with config.AuthEmulator off
 // (what a deployed environment has), an anonymous-provider token is outside the allowlist and gets the A2
 // answers at 0 reads, logging gate=provider_not_allowed and gate_provider=anonymous; with it on (this test
 // environment) the same token passes the gate.

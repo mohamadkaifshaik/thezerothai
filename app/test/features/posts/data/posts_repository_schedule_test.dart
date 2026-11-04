@@ -22,7 +22,7 @@ const _list = '/dzeroth.posts.v1.PostService/ListScheduledPosts';
 const _cancel = '/dzeroth.posts.v1.PostService/CancelScheduledPost';
 
 /// SchedulePost, ListScheduledPosts and CancelScheduledPost through the real
-/// `PostServiceClient` and a fake transport (ADR-0021 D4).
+/// `PostServiceClient` and a fake transport.
 void main() {
   late AppDatabase db;
   late FakeTransport transport;

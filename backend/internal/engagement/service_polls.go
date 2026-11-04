@@ -1,6 +1,6 @@
-// service_polls.go is VotePoll (ADR-0029 D6; Amendment 1 A1 and A2): one vote per account per poll, changeable until
+// service_polls.go is VotePoll : one vote per account per poll, changeable until
 // the poll closes. The natural key pollVotes/{postId}_{uid} is the idempotency record (D7, the founder's F2 decision, a bend of the idempotency rule
-// as ADR-0018's likes): no idempotency/* doc is stored, a replay of the same choice is a 0-write success. A different choice is a change only
+// as the likes): no idempotency/* doc is stored, a replay of the same choice is a 0-write success. A different choice is a change only
 // when expected_choice names the stored vote (the compare-and-set of A2.2), else ALREADY_VOTED. The voter blocking the author is TARGET_BLOCKED (A1).
 package engagement
 
@@ -25,7 +25,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Request-line outcomes and fields of poll_vote (ADR-0029 Observability). Never the choice.
+// Request-line outcomes and fields of poll_vote. Never the choice.
 const (
 	outcomeVoted       = "voted"
 	outcomeChanged     = "changed"
@@ -59,7 +59,7 @@ var _ Polls = (*Module)(nil)
 // pollBusyErr is the retryable answer of a vote that kept losing lock races (contention) or ran out of its transaction time.
 func pollBusyErr() error { return bookmarkBusyErr() }
 
-// votePoll implements Polls.VotePoll in the order of ADR-0029 D6; every refusal writes nothing.
+// votePoll implements Polls.VotePoll; every refusal writes nothing.
 func (s *service) votePoll(ctx context.Context, uid, key, postID string, choiceIndex, expectedChoice int32) (_ PollVote, err error) {
 	logger.SetRequestField(ctx, fieldOp, "poll_vote")
 	outcome := ""
@@ -257,7 +257,7 @@ func (s *service) pollVoteView(ctx context.Context, uid string, post *posts.Post
 	}
 	vs = vs.WithPollVotes([]string{entry}) // only this post is rendered
 	if g, ok := s.d.Flags.(posts.GloballyOffChecker); ok && g.GloballyOff(posts.CommunitiesFlagName) {
-		vs = vs.WithCommunitiesGloballyOff() // the kill switch: the response shows no community label (ADR-0031 D5)
+		vs = vs.WithCommunitiesGloballyOff() // the kill switch: the response shows no community label
 	}
 	out := PollVote{Post: post, Viewer: vs}
 	if s.d.Audience != nil && s.d.Graph != nil {
@@ -272,7 +272,7 @@ func (s *service) pollVoteView(ctx context.Context, uid string, post *posts.Post
 	return out
 }
 
-// trimPollVotes is the lazy trim of userLikes.pollVotes (ADR-0029 D3, the TrimLikes pattern A3): a cached list over
+// trimPollVotes is the lazy trim of userLikes.pollVotes (the TrimLikes pattern A3): a cached list over
 // PollViewerVotesKept + slack gets its oldest entries ArrayRemoved down to PollViewerVotesKept (1 write, no read). Best effort: a
 // failure is logged and the list stays long until the next vote. The read side never trims.
 func (s *service) trimPollVotes(ctx context.Context, uid string) {
@@ -306,7 +306,7 @@ func (s *service) newAccountVoteCapErr(ctx context.Context) error {
 
 // mapVoteErr turns a PollRepo error into the handler's answer. Exhausted contention (Aborted after the store's bounded retry) or
 // the transaction's own timeout is a retryable UNAVAILABLE counted as contention=true (the stage-ladder signal that a poll is
-// hot, ADR-0029 D6 step 9); a caller that left is a client outcome; anything else is a redacted internal error.
+// hot); a caller that left is a client outcome; anything else is a redacted internal error.
 func (s *service) mapVoteErr(ctx context.Context, uid, postID string, err error) error {
 	switch {
 	case errors.Is(ctx.Err(), context.Canceled):
@@ -322,7 +322,7 @@ func (s *service) mapVoteErr(ctx context.Context, uid, postID string, err error)
 	return logger.RedactErrPosts(fmt.Errorf("engagement: poll vote: %w", err), []string{postID}, uid)
 }
 
-// withPollVote returns list with entry as the post's one vote: any earlier entry for postID is dropped and entry goes last (ADR-0029 I-V3: one
+// withPollVote returns list with entry as the post's one vote: any earlier entry for postID is dropped and entry goes last (one
 // entry per post, replaced on a change, the order Firestore's ArrayRemove + ArrayUnion leaves). The vote doc is the truth, so a replay corrects a
 // stale entry too. pollEntry builds the entry; this prefix match is its only reader here (changes the entry format in both).
 func withPollVote(list []string, postID, entry string) []string {

@@ -37,7 +37,7 @@ extension type CommunityServiceClient (connect.Transport _transport) {
 
   /// Change a community's name, description or rules. While creation is allowlisted (always at Stage 0) the caller must
   /// be in COMMUNITY_CREATORS, checked first: else FORBIDDEN "not_creator", 0 reads beyond the interceptor, 0 writes,
-  /// whoever owns the community (ADR-0031 Amendment 1, D10a: an owner by hand-over keeps every other owner power).
+  /// whoever owns the community (an owner by hand-over keeps every other owner power).
   /// Then owner only: anyone else => FORBIDDEN "not_owner"; ARCHIVED => COMMUNITY_STATE "community_archived". Only the
   /// fields that are set change; the text rules are CreateCommunity's.
   /// A rename does not rewrite the label of earlier posts (Post.community is a snapshot at post time); the community's
@@ -204,7 +204,7 @@ extension type CommunityServiceClient (connect.Transport _transport) {
   /// either way drops the row unless the caller is the owner or a moderator, who see every member; a muted member is
   /// shown). A protected member (user.is_private) is left out for a caller who is not the owner, a moderator, that
   /// member or an approved follower of it (a pending request is not approval); a protected owner or moderator is
-  /// always listed (ADR-0031 Amendment 1, D7a, F17), and member_count still counts every member. So a page may be
+  /// always listed, and member_count still counts every member. So a page may be
   /// short while next_page_token is set: keep following it. user.is_private is set (live row).
   /// Paging: page_size 0 => 20, max 50 (clamped); page_token is sealed, bound to the caller, the community and the
   /// effective filter (UNSPECIFIED and JOINED bind the same), and expires after 24 h (expired, foreign or tampered =>
@@ -228,7 +228,7 @@ extension type CommunityServiceClient (connect.Transport _transport) {
     );
   }
 
-  /// Hide a post from this community's view (A12), or a reply from its conversations (ADR-0031 Amendment 1, F15).
+  /// Hide a post from this community's view, or a reply from its conversations.
   /// Owner or moderator, else FORBIDDEN "not_moderator"; ARCHIVED => COMMUNITY_STATE "community_archived".
   /// post_id must be a root post created into this community (Post.community.id == community_id) or a reply at any
   /// depth of a conversation whose root was. Anything else (a reply in another community's conversation or in one with
@@ -240,7 +240,7 @@ extension type CommunityServiceClient (connect.Transport _transport) {
   /// A root post leaves the community's feed and loses its label on every surface. A reply leaves the community's
   /// threads: GetThread drops it for every caller but its author, and as a parent returns it unavailable. Both stay on
   /// the author's profile, in search and on a direct link (GetPost), with their likes and reposts, and a hide is never
-  /// a takedown (ADR-0016). Already hidden => success, the idempotency doc only. A block either way does not refuse it
+  /// a takedown. Already hidden => success, the idempotency doc only. A block either way does not refuse it
   /// (F14).
   /// One transaction (posts.CommunityModerator): idempotency doc, the community (fresh), the actor's memberships, the
   /// post (fresh), then the post (field-level: communityHidden and the hide time set; a root also loses communityId),
@@ -292,7 +292,7 @@ extension type CommunityServiceClient (connect.Transport _transport) {
     );
   }
 
-  /// Change one user's standing in a community (ADR-0031 D4). user_id: [A-Za-z0-9-]{1,128}; a target that is missing or
+  /// Change one user's standing in a community. user_id: [A-Za-z0-9-]{1,128}; a target that is missing or
   /// not ACTIVE => NOT_FOUND "user not found", whatever the blocks (F14). ARCHIVED => COMMUNITY_STATE
   /// "community_archived".
   /// - BAN, UNBAN: owner or moderator, else FORBIDDEN "not_moderator". The target must be a plain member or a non-member
@@ -331,7 +331,7 @@ extension type CommunityServiceClient (connect.Transport _transport) {
     );
   }
 
-  /// The community's moderation log, newest first: what the owner and moderators did (ADR-0031 D2). Owner and moderators
+  /// The community's moderation log, newest first: what the owner and moderators did. Owner and moderators
   /// only, else FORBIDDEN "not_moderator". The community keeps its newest COMMUNITY_MODLOG_MAX (100) entries, so older
   /// ones are gone. Entries never name a post's author; a user who deleted the account reads as actor_deleted or
   /// target_deleted (the action and time stay); an entry written by the platform has no actor and actor_deleted false

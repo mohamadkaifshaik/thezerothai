@@ -16,7 +16,7 @@ func deployedEnv(t *testing.T, env string) {
 	t.Setenv("INTERNAL_OIDC_ALLOWED_EMAILS", "sa@x.iam.gserviceaccount.com")
 }
 
-// TestLoad_Notifications (ADR-0017 D7, D9): the flag is off in every environment by default, the topic and the
+// TestLoad_Notifications: the flag is off in every environment by default, the topic and the
 // per-uid device cap have defaults, and inline delivery never leaves ENV=local.
 func TestLoad_Notifications(t *testing.T) {
 	for _, env := range []string{"local", "dev", "prod"} {

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestLoad_ProfileMediaRetire (ADR-0024 Amendment 1 A4): off by default, the three values load, and anything else fails
+// TestLoad_ProfileMediaRetire: off by default, the three values load, and anything else fails
 // startup instead of silently deleting (or not deleting) public images. The value is case-sensitive and not trimmed.
 func TestLoad_ProfileMediaRetire(t *testing.T) {
 	tests := []struct {

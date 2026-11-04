@@ -1,6 +1,6 @@
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 
-/// What a run of post text is, for rendering (ADR-0010 D7/D8).
+/// What a run of post text is, for rendering.
 enum PostSpanKind { plain, link, mention, hashtag }
 
 /// One contiguous run of a post's text. Concatenating every span's [text]
@@ -39,7 +39,7 @@ class PostSpan {
   String toString() => 'PostSpan($kind, "$text")';
 }
 
-// URL-span candidate (ADR-0010 D7 "URL spans", D21 G1): `http://` or
+// URL-span candidate ("URL spans", D21 G1): `http://` or
 // `https://` (any case) followed by one or more non-terminator runes. The
 // terminator set is ECMAScript `\s` plus `<`, `>` and `"`, which is exactly
 // what `[^\s<>"]` already means in Dart. It must equal the server's explicit
@@ -130,7 +130,7 @@ bool _isBlockedBefore(String text, int index, String extra) {
 /// - A mention is tappable only when its handle matches a `mentions[]` entry
 ///   **case-insensitively** (the server stores handles lower-case); an
 ///   unresolved `@carol` stays plain text.
-/// - Hashtags follow ADR-0010 D8; tapping them is a placeholder until
+/// - Hashtags are parsed too; tapping them is a placeholder until
 ///   Phase 2.
 /// - `@` and `#` inside any URL span (even one rendered as plain text) are
 ///   never a mention or hashtag (D7/D8, D21 G1).

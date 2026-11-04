@@ -2,7 +2,7 @@
 
 package messaging
 
-// Report a message (ADR-0027 D12) on the real FirestoreRepo: the lookup's reads, the takedown transaction's
+// Report a message on the real FirestoreRepo: the lookup's reads, the takedown transaction's
 // reads and writes, the previews of both participants, and how a takedown and the account eraser leave each other's
 // tombstones (a taken-down message stays REMOVED when its sender later deletes the account).
 

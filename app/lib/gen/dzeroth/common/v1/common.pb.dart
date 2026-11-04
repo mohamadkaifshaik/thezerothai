@@ -23,8 +23,8 @@ export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
 export 'common.pbenum.dart';
 
 /// A user's display data. Two kinds of copy share this message:
-/// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author` (ADR-0003;
-///   may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
+/// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author`
+///   (may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
 ///   (snapshotted when the row was written);
 /// - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
 ///   cache, up to 60 s stale).
@@ -137,11 +137,11 @@ class AuthorSnapshot extends $pb.GeneratedMessage {
   @$pb.TagNumber(5)
   void clearVerified() => $_clearField(5);
 
-  /// True when the account protects its posts (ADR-0025; the implementation note). A display hint for the lock
+  /// True when the account protects its posts. A display hint for the lock
   /// badge, never an access decision.
   /// Set ONLY on live rows: `graph.v1.UserListItem.user` in every graph user list (ListFollowers, ListFollowing,
-  /// ListFollowRequests, ListSuggestedUsers, ListBlockedUsers, ListMutedUsers) and in `search.v1.SearchPeople`
-  /// (ADR-0028 D2), copied from the hydrated profile at 0 extra reads; up to 60 s stale on the server, plus however long the client keeps the row.
+  /// ListFollowRequests, ListSuggestedUsers, ListBlockedUsers, ListMutedUsers) and in `search.v1.SearchPeople`,
+  /// copied from the hydrated profile at 0 extra reads; up to 60 s stale on the server, plus however long the client keeps the row.
   /// ALWAYS false (unset) in frozen copies: `posts.v1.Post.author`, `posts.v1.EmbeddedPost.author` and
   /// `notifications.v1.Notification.actor`.
   /// Clients must never infer "public" from false. The authoritative signals are `identity.v1.Profile.is_private`
@@ -156,7 +156,7 @@ class AuthorSnapshot extends $pb.GeneratedMessage {
   void clearIsPrivate() => $_clearField(6);
 }
 
-/// A moderated, publicly readable image (ADR-0005). URLs are immutable and cacheable forever.
+/// A moderated, publicly readable image. URLs are immutable and cacheable forever.
 class MediaRef extends $pb.GeneratedMessage {
   factory MediaRef({
     $core.String? mediaId,
@@ -290,7 +290,7 @@ class MediaRef extends $pb.GeneratedMessage {
   @$pb.TagNumber(7)
   void clearAltText() => $_clearField(7);
 
-  /// The full object's content type (ADR-0029 D10): "image/jpeg", "image/webp" or "image/gif" (POST media only, behind
+  /// The full object's content type: "image/jpeg", "image/webp" or "image/gif" (POST media only, behind
   /// FEATURE_GIF). Empty on refs stored before W6, which are still JPEG or WebP images. A client badges and plays a GIF
   /// from this field, never from the URL. thumb_url is always a still image (JPEG or WebP): lists show it, and the full
   /// url is fetched only when the user taps to play (F10). Set in FinalizeUpload's MediaResult.media, copied into posts
@@ -306,7 +306,7 @@ class MediaRef extends $pb.GeneratedMessage {
   void clearContentType() => $_clearField(8);
 }
 
-/// One pinned Home tab (ADR-0030 D6, founder decision F5). Home always starts with the fixed "Following" tab, which is
+/// One pinned Home tab (founder decision F5). Home always starts with the fixed "Following" tab, which is
 /// never stored or sent; these are the up to HOME_TABS_MAX_PINNED (5) tabs after it, in the user's order. Stored on
 /// users/{uid}.homeTabs, written only by TimelineService.SetHomeTabs, returned by IdentityService.GetMe home_tabs.
 /// It lives in common so identity does not import timeline (or, through it, posts).
@@ -383,9 +383,9 @@ class HomeTab extends $pb.GeneratedMessage {
   void clearId() => $_clearField(2);
 
   /// Output only; ignored on input. The list's name when the caller owns the list, copied at pin time and refreshed by
-  /// the caller's own UpdateList; "" for another user's list (ADR-0030 D6: no copy of another user's text is kept on
-  /// users/{uid}). The client labels a tab from the header of the last GetList or GetListTimeline response it holds
-  /// for that id, and calls GetList once for a tab it has no label for. Always "" for a COMMUNITY tab (ADR-0031 D6):
+  /// the caller's own UpdateList; "" for another user's list (no copy of another user's text is kept on users/{uid}).
+  /// The client labels a tab from the header of the last GetList or GetListTimeline response it holds
+  /// for that id, and calls GetList once for a tab it has no label for. Always "" for a COMMUNITY tab:
   /// the client labels it from the last GetCommunityTimeline or GetCommunity header it holds, and calls GetCommunity
   /// once for a tab it has no label for.
   @$pb.TagNumber(3)

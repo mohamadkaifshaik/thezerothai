@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Request-log fields for CreatePost (ADR-0010 D20). They ride on the mw.Logging line; every value is an enum, a
+// Request-log fields for CreatePost. They ride on the mw.Logging line; every value is an enum, a
 // count or a boolean. Never log text, handles, hashtags, mention lists or uids.
 const (
 	fieldOp                 = "posts_op"
@@ -26,9 +26,9 @@ const (
 	fieldFeature            = "feature"
 	fieldHasPoll            = "has_poll"
 	fieldCommunityRefused   = "community_refused"    // flag_off or not_wired; a set community_id only, never the id
-	fieldCommunityPost      = "community_post"       // bool: this CreatePost carries a community_id (ADR-0031 D13), never the id
+	fieldCommunityPost      = "community_post"       // bool: this CreatePost carries a community_id, never the id
 	fieldCommunityGate      = "community_gate"       // the gate's outcome enum: admitted, rejected, rejected:protected, rejected:forbidden, rejected:quota, rejected:cap
-	fieldCommunityReplyGate = "community_reply_gate" // outcome enum of the members-only reply check (ADR-0031 D5): admitted, rejected:not_member, rejected:state, error
+	fieldCommunityReplyGate = "community_reply_gate" // outcome enum of the members-only reply check: admitted, rejected:not_member, rejected:state, error
 )
 
 // outcomes of CreatePost (posts_op=create).
@@ -64,11 +64,11 @@ func rejectReason(err error) string {
 	case ae.Reason == commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED:
 		return "quota_exceeded"
 	case ae.Reason == commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED:
-		return "limit_reached" // ADR-0021 D4 scheduled_pending / scheduled_window: expected traffic, not an outage
+		return "limit_reached" // Scheduled_pending / scheduled_window: expected traffic, not an outage
 	case ae.Reason == commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED:
 		return "key_reused"
 	case ae.Reason == commonv1.ErrorReason_ERROR_REASON_REPLY_NOT_ALLOWED:
-		return "reply_not_allowed" // ADR-0021 D2: expected traffic, not an outage (runbook posts.md)
+		return "reply_not_allowed" // Expected traffic, not an outage
 	case ae.Code == connect.CodeInvalidArgument:
 		return "invalid"
 	case ae.Code == connect.CodeNotFound:

@@ -22,7 +22,7 @@ import (
 )
 
 // The budgets here are the service's own reads, the account-status interceptor's one profile read excluded (it is not part of this
-// harness) and the caller's profile lookup free (production: the interceptor has just loaded it, 0 reads). ADR-0031 "Cost impact" and
+// harness) and the caller's profile lookup free (production: the interceptor has just loaded it, 0 reads). The budgets in
 // the RPC doc comments list Join 6 / 4, Leave 5 (6 for a moderator) / 3 and ListMyCommunities 52 / 2 with the interceptor included.
 
 const (

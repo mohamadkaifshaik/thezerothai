@@ -99,7 +99,7 @@ func TestPollLimits_ZeroValueRejectsEveryPoll(t *testing.T) {
 }
 
 // TestCreate_PollValidation drives the service: every refusal is VALIDATION field=poll with 0 reads, 0 writes and no repo call
-// (ADR-0029 D1), and the combinations are refused whichever way they are reached.
+// And the combinations are refused whichever way they are reached.
 func TestCreate_PollValidation(t *testing.T) {
 	t.Parallel()
 	base := func(mod func(*CreateInput)) CreateInput {
@@ -164,7 +164,7 @@ func TestCreate_PollStored(t *testing.T) {
 	}
 }
 
-// TestCreate_PollRequestHash: the poll suffix follows ADR-0029 D2 and a request without a poll hashes byte for byte as today.
+// TestCreate_PollRequestHash: the poll suffix is part of the hash and a request without a poll hashes byte for byte as today.
 // The no-poll goldens are the canonical strings written out by hand, not built by the code under test.
 func TestCreate_PollRequestHash(t *testing.T) {
 	t.Parallel()
@@ -297,7 +297,7 @@ func TestToView_PollRedaction(t *testing.T) {
 }
 
 // TestSnapshotOf_PollIsAFrozenDefinition: a quote or repost of a poll post embeds the labels and closing time only: every
-// count 0, total 0, results never visible (ADR-0029 D5); the copy does not alias the original's slice; the ADR-0025 strips
+// count 0, total 0, results never visible; the copy does not alias the original's slice; the strips
 // drop it.
 func TestSnapshotOf_PollIsAFrozenDefinition(t *testing.T) {
 	t.Parallel()
@@ -363,7 +363,7 @@ func TestPollDoc_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestExport_PollShape: the author's own export names the poll only when there is one (ADR-0029 D8).
+// TestExport_PollShape: the author's own export names the poll only when there is one.
 func TestExport_PollShape(t *testing.T) {
 	t.Parallel()
 	plain, _ := json.Marshal(exportedPost{ID: "1"})

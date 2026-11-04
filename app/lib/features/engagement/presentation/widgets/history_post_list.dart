@@ -130,7 +130,7 @@ enum WithheldAction {
   unlike('Unlike'),
 
   /// The Bookmarks tab: `BookmarksCubit.setBookmarked(saved: false)`. Always
-  /// offered (a removal works while the flag is not globally off, ADR-0023 D5).
+  /// offered (a removal works while the flag is not globally off).
   removeBookmark('Remove bookmark');
 
   const WithheldAction(this.label);

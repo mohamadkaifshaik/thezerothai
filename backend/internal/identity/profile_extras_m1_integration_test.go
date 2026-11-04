@@ -18,7 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// M-1 (ADR-0024 Amendment 1 A2 and A3) against the Firestore emulator: a clear costs 1 read / 1 write for a caller
+// M-1 against the Firestore emulator: a clear costs 1 read / 1 write for a caller
 // outside the cohort and under a globally pulled kill switch, and the operator's ClearProfileFields is one field-level
 // update that skips empty fields.
 
@@ -93,7 +93,7 @@ func TestUpdateProfile_Integration_ClearOutsideTheCohortCostsOneReadOneWrite(t *
 				t.Errorf("a clear touched other fields: before %v after %v", before, after)
 			}
 
-			// Clearing what is already empty is the L-4 no-op (ADR-0024 Amendment 1 A2): the read, no write, and
+			// Clearing what is already empty is the L-4 no-op: the read, no write, and
 			// updatedAt stays where the first clear put it.
 			ctx, counter = budget.WithCounter(context.Background())
 			if _, err := svc.UpdateProfile(ctx, itUID, identity.UpdateProfileParams{

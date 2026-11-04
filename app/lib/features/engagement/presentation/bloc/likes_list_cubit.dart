@@ -11,7 +11,7 @@ import '../../domain/engagement_entry.dart'
 import 'engagement_cubit.dart';
 import 'likes_list_state.dart';
 
-/// The rows of the Likes tab (ADR-0024 D6): live posts, most
+/// The rows of the Likes tab: live posts, most
 /// recent like first, in session memory only (no drift table; a later
 /// full-history source or offline cache replaces `LikesRepository`'s body and
 /// no caller). The same pattern as `BookmarksListCubit`, without its Undo

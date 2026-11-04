@@ -56,7 +56,7 @@ resource "google_service_account_iam_member" "runtime_self_token_creator" {
   member             = "serviceAccount:${google_service_account.runtime.email}"
 }
 
-// Account lifecycle (ADR-0011 IAM): the narrowest Firebase Auth role. roles/firebaseauth.admin is rejected (it also
+// Account lifecycle: the narrowest Firebase Auth role. roles/firebaseauth.admin is rejected (it also
 // grants configs.getSecret, users.create, users.createSession, users.sendEmail). Deletion and export may only
 // act on the caller's own uid; that is enforced in code (controls C1-C3) and watched by the C4 alert in the
 // monitoring module. Emergency stop: remove this binding (all Auth mutations stop at once).
@@ -78,7 +78,7 @@ resource "google_project_iam_member" "runtime_account_lifecycle_auth" {
   member  = "serviceAccount:${google_service_account.runtime.email}"
 }
 
-// Push notifications (ADR-0017 D6): FCM HTTP v1 send needs exactly one permission, cloudmessaging.messages.create.
+// Push notifications: FCM HTTP v1 send needs exactly one permission, cloudmessaging.messages.create.
 // roles/firebasecloudmessaging.admin is rejected (it also manages campaigns/composer data), and the default Cloud
 // Run runtime has no FCM access without a grant (review M3). The API fcm.googleapis.com is enabled in the
 // project-services module. Emergency stop: remove this binding (every push fails with PERMISSION_DENIED, rows

@@ -1,5 +1,5 @@
 // repo_moderation.go is the one write path moderation uses on users/{uid}: moving an account between ACTIVE and
-// SUSPENDED (ADR-0016 D4). It changes status and updatedAt only, through identity's own repo, and never
+// SUSPENDED. It changes status and updatedAt only, through identity's own repo, and never
 // touches Firebase Auth (IAM control C2: authadmin_guard_test.go). The status interceptor and Directory read the
 // status from users/{uid}, so a suspended caller gets ACCOUNT_RESTRICTED once the 60 s identity cache expires.
 package identity
@@ -72,8 +72,8 @@ func (r *FirestoreRepo) SetAccountStatus(ctx context.Context, uid string, from, 
 	return changed, nil
 }
 
-// ProfileField names a profile field an operator can clear with `opsctl clear-profile-fields` (ADR-0024 Amendment 1
-// A3). The display name (it must stay 1-50 characters) and the pin are deliberately not here: a bad name is
+// ProfileField names a profile field an operator can clear with `opsctl clear-profile-fields`.
+// The display name (it must stay 1-50 characters) and the pin are deliberately not here: a bad name is
 // suspend-user, and a bad pinned post is takedown-post.
 type ProfileField string
 
@@ -142,8 +142,8 @@ type ClearResult struct {
 	Written bool
 }
 
-// ClearProfileFields is the operator's narrow lever on users/{uid} (ADR-0024 Amendment 1 A3, opsctl
-// clear-profile-fields). One transaction reads the STORED document (never the presented view): a missing one is
+// ClearProfileFields is the operator's narrow lever on users/{uid} (opsctl clear-profile-fields).
+// One transaction reads the STORED document (never the presented view): a missing one is
 // ErrNotFound and a DELETING one is ErrStatusConflict, because the deletion job's UpdateTime-preconditioned
 // checkpoints must not race an operator write. It then writes one field-level Update that sets each requested field
 // that holds a value to "" plus updatedAt (banner and avatar clear both their URLs; either one set counts as set).

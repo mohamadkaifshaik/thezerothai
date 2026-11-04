@@ -13,10 +13,10 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// FlagName is the wire name PostService and TimelineService RPCs check (ADR-0010 D1: FEATURE_POSTS <-> "posts").
+// FlagName is the wire name PostService and TimelineService RPCs check (FEATURE_POSTS <-> "posts").
 const FlagName = "posts"
 
-// Request-log fields (ADR-0010 D20). They ride on the mw.Logging line through logger.RequestInfo; values are
+// Request-log fields. They ride on the mw.Logging line through logger.RequestInfo; values are
 // booleans, counts and enums only, never ids, handles or text. fs_reads/fs_writes/fs_deletes are already
 // emitted by mw.Logging. posts_op and outcome are set by the RPCs; the Reader sets only the cache field.
 const fieldCacheHit = "posts_cache_hit"
@@ -32,15 +32,15 @@ type Deps struct {
 	// Jobs publishes the post_delete job for a deleted post that carried images. Nil disables it.
 	Jobs PostDeleteJobs
 	// Directory and Graph are only needed by Create (author profile, handle resolution, block filtering). They
-	// are the other modules' api.go interfaces (ADR-0002); a Reader-only service may leave them nil.
+	// are the other modules' api.go interfaces; a Reader-only service may leave them nil.
 	Directory identity.Directory
 	Graph     graph.Reader
-	// Daily CreatePost quotas and the new-account window (config.QuotaConfig, ADR-0006 §4).
+	// Daily CreatePost quotas and the new-account window (config.QuotaConfig).
 	PostsPerDay           int64
 	NewAccountPostsPerDay int64
 	NewAccountWindow      time.Duration
-	// CommunityPostsPerDay and NewAccountCommunityPostsPerDay are the quota.CommunityPosts daily limits (50, and 10 inside NewAccountWindow;
-	// ADR-0031 D11), reserved in CreatePost's quota write on top of posts. Zero or negative refuses every community post.
+	// CommunityPostsPerDay and NewAccountCommunityPostsPerDay are the quota.CommunityPosts daily limits (50, and 10 inside NewAccountWindow),
+	// reserved in CreatePost's quota write on top of posts. Zero or negative refuses every community post.
 	CommunityPostsPerDay           int64
 	NewAccountCommunityPostsPerDay int64
 	// Links releases a deleted REPOST's reposts doc and counters (engagement). Nil: a REPOST deleted through
@@ -48,14 +48,14 @@ type Deps struct {
 	Links RepostLinks
 	// CursorKey seals GetThread and ListScheduledPosts page tokens (config.CursorHMACKey). Required only for those.
 	CursorKey []byte
-	// Scheduled and Schedule enable the Scheduler (SchedulePost, ListScheduledPosts, CancelScheduledPost; ADR-0021 D4).
+	// Scheduled and Schedule enable the Scheduler (SchedulePost, ListScheduledPosts, CancelScheduledPost).
 	// A nil Scheduled leaves them returning an internal error; the wiring never calls them then (the flag is off).
 	Scheduled ScheduledRepo
 	Schedule  ScheduleLimits
-	// Sweep enables the Sweeper, the scheduled-post publish sweep behind the cron route (ADR-0021). A zero value
+	// Sweep enables the Sweeper, the scheduled-post publish sweep behind the cron route. A zero value
 	// leaves Sweep returning an error; the wiring never mounts the route then.
 	Sweep SweepDeps
-	// Poll holds the poll creation limits (config.Composer; ADR-0029). The zero value rejects every poll.
+	// Poll holds the poll creation limits (config.Composer). The zero value rejects every poll.
 	Poll PollLimits
 	// Now is overridable for tests; nil means time.Now.
 	Now func() time.Time
@@ -83,7 +83,7 @@ type service struct {
 	newAccountWindow      time.Duration
 	// allowAnonymous is set only by WithAllowAnonymous (wired from config.AuthEmulator); the default is false.
 	allowAnonymous bool
-	// protected is the ADR-0025 protected-set loader (WithProtectedAuthors); nil until it is wired, then nobody is protected.
+	// protected is the protected-set loader (WithProtectedAuthors); nil until it is wired, then nobody is protected.
 	protected identity.ProtectedAuthors
 	aud       *Audience
 	// community is the CreatePost gate (SetCommunityGate); nil = a set community_id is FEATURE_DISABLED.
@@ -95,13 +95,13 @@ type service struct {
 // Option configures New.
 type Option func(*service)
 
-// WithAllowAnonymous lets anonymous sign-ins post. Wire it from config.AuthEmulator only (ADR-0010 D5 A10):
+// WithAllowAnonymous lets anonymous sign-ins post. Wire it from config.AuthEmulator only:
 // never from a request or a global.
 func WithAllowAnonymous(allow bool) Option {
 	return func(s *service) { s.allowAnonymous = allow }
 }
 
-// WithProtectedAuthors wires the loader of the protected-author set that posts.Audience consults (ADR-0025 D3).
+// WithProtectedAuthors wires the loader of the protected-author set that posts.Audience consults.
 // Without it nobody is protected and the predicate costs nothing.
 func WithProtectedAuthors(p identity.ProtectedAuthors) Option {
 	return func(s *service) { s.protected = p }
@@ -184,7 +184,7 @@ func (s *service) GetMany(ctx context.Context, ids []string) (map[string]*Post, 
 		missing = append(missing, id)
 	}
 	readAt := s.now()
-	// A per-request count (ADR-0010 D20): a request that calls several Reader methods sums its hits.
+	// A per-request count: a request that calls several Reader methods sums its hits.
 	logger.AddRequestCount(ctx, fieldCacheHit, int64(len(out)))
 	if len(missing) == 0 {
 		return out, nil
@@ -294,7 +294,7 @@ func (s *service) ByHashtag(ctx context.Context, tag string, w Window, limit int
 }
 
 // CreatedAfter implements Reader (Q-W). Reads: len(result), minimum 1. Results are projected (partial) posts and are
-// deliberately NOT put in the posts cache or the author-recent cache (ADR-0028 D6).
+// deliberately NOT put in the posts cache or the author-recent cache.
 func (s *service) CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error) {
 	if after.CreatedAt.IsZero() {
 		return nil, fmt.Errorf("posts: CreatedAfter needs a watermark time")
@@ -308,8 +308,8 @@ func (s *service) CreatedAfter(ctx context.Context, after Position, limit int) (
 	return s.repo.CreatedAfter(ctx, after, limit)
 }
 
-// fill puts results of a read that started at readAt in the posts cache (every read path fills it, ADR-0010
-// D15), skipping posts this instance deleted since the read began.
+// fill puts results of a read that started at readAt in the posts cache (every read path fills it),
+// skipping posts this instance deleted since the read began.
 func (s *service) fill(ps []*Post, readAt time.Time) {
 	for _, p := range ps {
 		s.cache.SetPostRead(p, readAt)

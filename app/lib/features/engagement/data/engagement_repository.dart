@@ -3,15 +3,15 @@ import '../../../core/network/api_client.dart';
 import '../../../gen/dzeroth/engagement/v1/engagement.pb.dart' as pb;
 import '../../timeline/data/timeline_store.dart';
 
-/// Talks to `EngagementService` (like, unlike, repost, undo repost;
-/// ADR-0018) behind the `engagement` flag.
+/// Talks to `EngagementService` (like, unlike, repost, undo repost) behind the
+/// `engagement` flag.
 ///
 /// - Every call goes through the [ServiceFeatureGate]: with the flag off no
 ///   RPC is sent (0 reads), and a FEATURE_DISABLED answer is remembered until
 ///   the next `GetMe`. Errors are typed ([guardApiCall]); nothing here
 ///   retries: the four RPCs are not marked side-effect-free, so the
 ///   transport never resends them, and only `EngagementCubit` may resend
-///   (latest intent wins, ADR-0018 "Rule 4").
+///   (latest intent wins).
 /// - The RPCs are state-setting and keyed by (post, caller) on the server, so
 ///   [idempotencyKey] is validated for format only; callers still reuse one
 ///   key per user intent.

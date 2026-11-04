@@ -21,7 +21,7 @@ const (
 	rpcLeaveCommunity = "LeaveCommunity"
 )
 
-// memberCountDelta is the one writer of communities/{cid}.memberCount (ADR-0031 D2, rule 3): a blind FieldValue.Increment that is
+// memberCountDelta is the one writer of communities/{cid}.memberCount: a blind FieldValue.Increment that is
 // never read back in the same transaction, so a join burst does not abort other joins on a read lock. The signal for sustained
 // contention is `community_txn_attempts` and ABORTED on the request line (noteAttempts); the fallback is the Stage ladder's shards.
 func memberCountDelta(n int64) firestore.Update {
@@ -58,7 +58,7 @@ func (r *FirestoreRepo) memberInTx(ctx context.Context, tx *firestore.Transactio
 	return MemberNone, nil
 }
 
-// Join implements Repo (ADR-0031 D2, D4, D8, D11). One transaction. Reads, fresh and in this order: idempotency (a replay returns here),
+// Join implements Repo. One transaction. Reads, fresh and in this order: idempotency (a replay returns here),
 // the caller's member doc (BANNED is ErrBanned, JOINED writes the idempotency document only and spends no quota), the caller's
 // memberships (the joined cap is exact, ErrJoinedLimit), quotas/{uid} (QUOTA_EXCEEDED). The community document is never read: its status
 // comes from the service's 60 s cache, and memberCount is a blind Increment. Writes 5: Create the member doc (JOINED), memberships
@@ -131,7 +131,7 @@ func (r *FirestoreRepo) Join(ctx context.Context, p JoinParams) (JoinResult, err
 	return res, notFoundIfNoDoc(err)
 }
 
-// Leave implements Repo (ADR-0031 D2, D4, D8). One transaction. Reads, fresh and in this order: idempotency (a replay returns here), the
+// Leave implements Repo. One transaction. Reads, fresh and in this order: idempotency (a replay returns here), the
 // caller's member doc (none or BANNED: the idempotency document only, the ban stays; 2 reads), the caller's memberships (the owner is
 // exact there: C in owned, I-M, ErrOwnerLeave, 0 writes). A caller who may be a moderator (the service's hint from its cached community,
 // or the community in the caller's modlogged, which a promotion adds, I-L) also reads the community fresh (+1 read): a confirmed
@@ -139,7 +139,7 @@ func (r *FirestoreRepo) Join(ctx context.Context, p JoinParams) (JoinResult, err
 // the memberCount -1, and the community joins modlogged in the same memberships Update. Otherwise the community write is the blind
 // memberCount -1. Writes 3 (memberships joined -= id, the community, idempotency) + 1 delete (the member doc).
 //
-// Residual window (runbook communities.md): a moderator promoted on another instance whose promotion is neither in the service's 60 s
+// Residual window: a moderator promoted on another instance whose promotion is neither in the service's 60 s
 // cache nor in this caller's modlogged would stay in moderatorIds after leaving. The promotion must add the target to modlogged in
 // its own transaction (I-L says it does), which closes the window through the repository's fresh check.
 func (r *FirestoreRepo) Leave(ctx context.Context, p LeaveParams) (LeaveResult, error) {

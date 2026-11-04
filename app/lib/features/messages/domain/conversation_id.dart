@@ -1,4 +1,4 @@
-/// The shape of a conversation id: exactly 32 lower-case hex digits (ADR-0027).
+/// The shape of a conversation id: exactly 32 lower-case hex digits.
 /// The one definition: the thread screen, the push routing and the deep-link
 /// allowlist (`AppRouter.deepLinkTarget`) all build on it.
 const String kConversationIdPattern = '[0-9a-f]{32}';

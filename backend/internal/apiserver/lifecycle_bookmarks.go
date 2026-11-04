@@ -1,4 +1,4 @@
-// lifecycle_bookmarks.go joins bookmarks (ADR-0023 D6, D8) to the account-lifecycle registry: the `bookmarks` Eraser
+// lifecycle_bookmarks.go joins bookmarks to the account-lifecycle registry: the `bookmarks` Eraser
 // step (users/{uid}/bookmarks is a subcollection, which deleting users/{uid} does not remove) and the `bookmarks`
 // export section (post id and bookmark time per row, never the post's content). Both are registered whether or not
 // FEATURE_BOOKMARKS is on, because documents outlive the flag. The step is appended after `scheduled`: its name is

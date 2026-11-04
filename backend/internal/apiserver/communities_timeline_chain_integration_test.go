@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ADR-0031 D6: GetCommunityTimeline and the COMMUNITY kind of SetHomeTabs over the real Build chain on the emulators. The package
+// GetCommunityTimeline and the COMMUNITY kind of SetHomeTabs over the real Build chain on the emulators. The package
 // tests in internal/timeline run below the interceptors, so the figures here are the WHOLE-request figures of the proto doc comment
 // (interceptor read included), read from the request line of a FRESH Build over the same emulator project (cold caches) with budgettest.
 
@@ -72,7 +72,7 @@ func seedCommunity(t *testing.T, fs *firestore.Client, owner, member, status str
 	return cid
 }
 
-// seedCommunityPosts writes n root posts listed in cid, authored by author, with ids that fall as createdAt falls (ADR-0010 D18), the
+// seedCommunityPosts writes n root posts listed in cid, authored by author, with ids that fall as createdAt falls, the
 // newest 30 s old. It returns the ids newest first.
 func seedCommunityPosts(t *testing.T, fs *firestore.Client, cid, author string, n int) []string {
 	t.Helper()
@@ -112,7 +112,7 @@ func feedIDs(r *timelinev1.GetCommunityTimelineResponse) []string {
 	return out
 }
 
-// TestCommunityTimelineChain_Budgets asserts the ADR-0031 D6 table over the whole chain: a cold open at page 20 and 50 (page + 5: the
+// TestCommunityTimelineChain_Budgets asserts the read budgets over the whole chain: a cold open at page 20 and 50 (page + 5: the
 // interceptor, the community, the member doc, the posts, the caller graph, userLikes), the older page, a warm repeat, and an empty since
 // refresh (4 cold), each from a fresh Build so no cache is warm.
 func TestCommunityTimelineChain_Budgets(t *testing.T) {

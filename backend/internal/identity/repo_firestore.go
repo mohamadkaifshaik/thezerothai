@@ -37,7 +37,7 @@ func (e *ErrHandleChangeCooldown) Error() string {
 	return "identity: handle change cooldown active"
 }
 
-// userDoc is the users/{uid} shape (ADR-0003). PII stays out of this doc (email lives in Firebase Auth).
+// userDoc is the users/{uid} shape. PII stays out of this doc (email lives in Firebase Auth).
 type userDoc struct {
 	Handle              string    `firestore:"handle"`
 	HandleLower         string    `firestore:"handleLower"`
@@ -56,17 +56,17 @@ type userDoc struct {
 	SnapshotVersion     int64     `firestore:"snapshotVersion"`
 	CreatedAt           time.Time `firestore:"createdAt"`
 	UpdatedAt           time.Time `firestore:"updatedAt"`
-	// Profile extras (ADR-0024 D1-D3): absent = none, never backfilled, index-exempt (D14), not in the author snapshot.
+	// Profile extras: absent = none, never backfilled, index-exempt, not in the author snapshot.
 	// omitempty keeps a whole-doc rewrite (ChangeHandle) from adding empty fields to a doc that has none.
 	BannerURL      string `firestore:"bannerUrl,omitempty"`
 	BannerThumbURL string `firestore:"bannerThumbUrl,omitempty"`
 	Location       string `firestore:"location,omitempty"`
 	Website        string `firestore:"website,omitempty"`
 	PinnedPostID   string `firestore:"pinnedPostId,omitempty"`
-	// HomeTabs (ADR-0030 D6): the pinned Home tabs, absent = none. In userDoc so a whole-document rewrite (UpdateProfile, ChangeHandle, the
+	// HomeTabs: the pinned Home tabs, absent = none. In userDoc so a whole-document rewrite (UpdateProfile, ChangeHandle, the
 	// privacy toggle) cannot drop it; only HomeTabsAdapter changes it, field-level.
 	HomeTabs []HomeTab `firestore:"homeTabs,omitempty"`
-	// Account-deletion job state (ADR-0011): set once by DeleteAccount, absent for every live account. Pointers
+	// Account-deletion job state: set once by DeleteAccount, absent for every live account. Pointers
 	// with omitempty, so a normal profile write never stores them; Profile carries them so a whole-doc rewrite
 	// (UpdateProfile) cannot drop them.
 	DeletionRequestedAt *time.Time      `firestore:"deletionRequestedAt,omitempty"`
@@ -160,7 +160,7 @@ func statusToString(s AccountStatus) string {
 	}
 }
 
-// handleDoc is the handles/{handleLower} shape (ADR-0003): uniqueness by transactional Create.
+// handleDoc is the handles/{handleLower} shape: uniqueness by transactional Create.
 type handleDoc struct {
 	UID       string    `firestore:"uid"`
 	CreatedAt time.Time `firestore:"createdAt"`
@@ -270,7 +270,7 @@ func (r *FirestoreRepo) ResolveHandles(ctx context.Context, handleLowers []strin
 }
 
 // CreateProfile: worst case reads 2 (users, handles), writes 3 (users, handles, graph); a replay
-// (users/{uid} already exists) is reads 1, writes 0 (ADR-0003, proto comment). authorize adds no Firestore ops.
+// (users/{uid} already exists) is reads 1, writes 0 (proto comment). authorize adds no Firestore ops.
 func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) error) (Profile, bool, error) {
 	var result Profile
 	replay := false
@@ -386,7 +386,7 @@ func (r *FirestoreRepo) UpdateProfile(ctx context.Context, uid string, mutate fu
 	return result, nil
 }
 
-// ClearIfPinned implements Pins (ADR-0024 D3): 1 read (users/{uid}, fresh, inside the transaction), at most 1 write.
+// ClearIfPinned implements Pins: 1 read (users/{uid}, fresh, inside the transaction), at most 1 write.
 // The write is a field-level Update of pinnedPostId to "" and happens only when the stored pin is exactly postID, so a
 // newer pin is never touched and a purged users doc is never recreated (a missing doc is "nothing to clear"). It is
 // not flag-gated: the clean-up must run whatever profile_extras says.
@@ -431,7 +431,7 @@ var _ Pins = (*FirestoreRepo)(nil)
 // ProfileImageURLs returns, from one fresh read of users/{uid} that bypasses every cache (1 read), the image URLs the
 // profile holds right now: the avatar, its thumbnail, the banner and its thumbnail, empty ones omitted. found is false
 // when the document does not exist (not an error). It is what the media module's profile_media_retired step checks
-// before it retires an image: a job never acts on a message's word alone (ADR-0024 Amendment 1 A4). It implements
+// before it retires an image: a job never acts on a message's word alone. It implements
 // media.ProfileImages, which apiserver and opsctl bind to this repo.
 func (r *FirestoreRepo) ProfileImageURLs(ctx context.Context, uid string) (urls []string, found bool, err error) {
 	p, err := r.GetProfile(ctx, uid)
@@ -547,8 +547,8 @@ func (r *FirestoreRepo) ChangeHandle(ctx context.Context, uid, newHandle, newHan
 }
 
 // AddPostsCount, AddFollowersCount and AddFollowingCount implement Counters: an atomic
-// FieldValue.Increment appended to a batch/transaction another module already opened (ADR-0002
-// unit-of-work seam). 0 extra reads; 1 write each, counted by the caller's own Batch.
+// FieldValue.Increment appended to a batch/transaction another module already opened (unit-of-work seam).
+// 0 extra reads; 1 write each, counted by the caller's own Batch.
 
 func (r *FirestoreRepo) AddPostsCount(b store.Batch, uid string, delta int64) {
 	b.Update(r.userRef(uid), []firestore.Update{{Path: "postsCount", Value: firestore.Increment(delta)}})
@@ -562,7 +562,7 @@ func (r *FirestoreRepo) AddFollowingCount(b store.Batch, uid string, delta int64
 	b.Update(r.userRef(uid), []firestore.Update{{Path: "followingCount", Value: firestore.Increment(delta)}})
 }
 
-// AddCounts combines both counter deltas into one Update() call (ADR-0008 D3: "combined per doc") so a
+// AddCounts combines both counter deltas into one Update() call ("combined per doc") so a
 // caller changing both on the same uid pays for one write, not two. A zero delta is omitted; if both are
 // zero, nothing is appended to b at all.
 func (r *FirestoreRepo) AddCounts(b store.Batch, uid string, followingDelta, followersDelta int64) {
@@ -579,8 +579,8 @@ func (r *FirestoreRepo) AddCounts(b store.Batch, uid string, followingDelta, fol
 	b.Update(r.userRef(uid), updates)
 }
 
-// GetProfiles batch-reads uids via one GetAll (ADR-0008; the read-budget rule: "batch known IDs with GetAll
-// after checking the cache"). Callers are responsible for capping len(uids) at 50 (identity.Directory's
+// GetProfiles batch-reads uids via one GetAll (the read-budget rule: "batch known IDs with GetAll after checking the cache").
+// Callers are responsible for capping len(uids) at 50 (identity.Directory's
 // caller, graph, only ever passes misses from its own cache-first pass). Missing docs are silently omitted,
 // not an error (Firestore's GetAll returns a non-existent snapshot for them, never a NotFound error).
 func (r *FirestoreRepo) GetProfiles(ctx context.Context, uids []string) (map[string]Profile, error) {
@@ -635,7 +635,7 @@ func (r *FirestoreRepo) UnreadNotificationCount(ctx context.Context, uid string,
 	return out.Count, nil
 }
 
-// MarkNotificationsSeen sets users/{uid}.notificationsSeenAt = at (ADR-0017 D8): 0 reads, 1 write. identity
+// MarkNotificationsSeen sets users/{uid}.notificationsSeenAt = at: 0 reads, 1 write. identity
 // owns the field, so the notifications module reaches it through this method (notifications.SeenStore) instead of
 // writing users/* itself. A field-level Update never clobbers a concurrent profile edit; a missing profile is
 // ErrNotFound.

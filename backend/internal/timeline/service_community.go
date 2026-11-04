@@ -18,7 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// The community feed (ADR-0031 D6). Everything GetCommunityTimeline needs lives in this file: the shared per-community entry, the
+// The community feed. Everything GetCommunityTimeline needs lives in this file: the shared per-community entry, the
 // per-viewer keep rule, the community's removed_ids and the reply hint. The Home merge, the token codec, the settle watermark and the
 // audience filter are reused as they are.
 
@@ -30,7 +30,7 @@ const (
 )
 
 const (
-	// communityEntryMax is how many of the newest posts a shared entry keeps (ADR-0031 D6).
+	// communityEntryMax is how many of the newest posts a shared entry keeps.
 	communityEntryMax = 30
 	// communityEntryTTL is how long an entry answers a request without a refill. STALENESS BOUND: a post created on another instance
 	// shows up on this one within communityEntryTTL (60 s, the CACHE_TTL of the other community caches); a hide arrives within the 60 s
@@ -43,7 +43,7 @@ const (
 	communityEntryMaxAge = 5 * time.Minute
 )
 
-// communityEntry is one shared entry (ADR-0031 D6): the newest <= communityEntryMax posts of a community, newest first, complete from
+// communityEntry is one shared entry: the newest <= communityEntryMax posts of a community, newest first, complete from
 // the first row down to the last (everything newer than the last row that existed at loadedAt is in it). Immutable once stored: a refill
 // builds a new entry, so concurrent requests filter the same slices without a lock.
 type communityEntry struct {
@@ -77,7 +77,7 @@ func (s *Server) SetCommunities(r communities.Reader, feedEntries int) {
 }
 
 // ForgetCommunityFeed drops this instance's shared entry for a community. A hide, a restore or a moderation action that lands on this
-// instance calls it so the next read refills at once (ADR-0031 D6, eviction); other instances learn within the bounds above. Safe on a
+// instance calls it so the next read refills at once (eviction); other instances learn within the bounds above. Safe on a
 // server without communities.
 func (s *Server) ForgetCommunityFeed(cid string) {
 	if s.community != nil {
@@ -207,11 +207,11 @@ func (r communityResult) empty() bool {
 // communityRead reads the rows the window needs. Cold opens and since refreshes go through the shared entry (a warm entry costs 0
 // reads, a refill 1 + new posts); older pages and gap pages run ByCommunity directly. Every path reads at most `limit` post rows
 // (at least 1 for an empty query), so the worst call is limit + 5 with the interceptor, the community, the member doc, the graph and
-// userLikes (ADR-0031 D6).
+// userLikes.
 func (s *Server) communityRead(ctx context.Context, cid string, tok request, limit int, start time.Time) (communityResult, error) {
 	var res communityResult
 	// Older and gap pages run the query directly. So does a refresh on an instance with no entry: it costs 1 + new posts, where filling the
-	// entry would read a whole page (ADR-0031 D6: an empty refresh is 1 read).
+	// entry would read a whole page (an empty refresh is 1 read).
 	if md := tok.mode(); md == modeOlder || md == modeGap || (md == modeRefresh && !s.community.hasEntry(cid)) {
 		ps, err := s.deps.Posts.ByCommunity(ctx, cid, tok.window(), limit)
 		if err != nil {
@@ -259,7 +259,7 @@ func (s *Server) communityEntryRows(ctx context.Context, cid string, limit int, 
 	case ok && start.Sub(e.loadedAt) < communityEntryTTL:
 		return e.posts, e.exhaustive, e.loadedAt, true, nil
 	case ok:
-		w := Watermark(start, []time.Time{e.loadedAt}, s.settle) // ADR-0010 D13: a post that committed late is not missed
+		w := Watermark(start, []time.Time{e.loadedAt}, s.settle) // A post that committed late is not missed
 		fresh, err := s.deps.Posts.ByCommunity(ctx, cid, posts.Window{After: &w}, limit)
 		if err != nil {
 			return nil, false, time.Time{}, false, logger.RedactErr(fmt.Errorf("timeline: community refill: %w", err), cid)
@@ -309,7 +309,7 @@ func removalIDs(c communities.Community) map[string]bool {
 	return m
 }
 
-// communityRemovals is the community's removed_ids for a since refresh (ADR-0031 A3, D6): the recentRemovals entries newer than the
+// communityRemovals is the community's removed_ids for a since refresh: the recentRemovals entries newer than the
 // token's cutoff (its issue time minus posts.RemovalLag, as Home), newest first, at most 50. 0 reads: the document is already held. A
 // removal the capped array has dropped since the cutoff (removalsTruncatedAt newer than it) cannot be listed, so the token is rejected
 // exactly like an expired one, before any post is read; the client cold-opens.
@@ -339,7 +339,7 @@ func communityRemovals(ctx context.Context, c communities.Community, tok request
 	return out, nil
 }
 
-// communityAuthorAllowed is the per-viewer author rule of a community feed (ADR-0031 D6, D7): the viewer's own posts are kept; an author
+// communityAuthorAllowed is the per-viewer author rule of a community feed: the viewer's own posts are kept; an author
 // the viewer blocks or mutes is dropped (a moderator's own blocks and mutes still apply); an author who blocks the viewer is dropped
 // except for the community's OWNER and MODERATORS, who must see raiders (F14); and a viewer whose blockedBy overflowed cannot prove an
 // author does not block them, so only authors they follow stay (fail closed, the W4 rule) unless they moderate.
@@ -359,10 +359,10 @@ func communityAuthorAllowed(uid string, snap graph.Snapshot, mod bool, a string)
 	return !snap.BlockedByOverflow || snap.Following[a]
 }
 
-// applyCommunityReplyHint sets viewer_reply_permission on community rows from the role already read, in both directions (ADR-0031 A7, 0 reads;
+// applyCommunityReplyHint sets viewer_reply_permission on community rows from the role already read, in both directions (0 reads;
 // the literal wording of A7, so it does not depend on what posts.ToView puts there for a community post): ALLOWED for the OWNER, MODERATORS and
 // MEMBERS of an ACTIVE community, NOT_ALLOWED for everyone else (not a member, banned, or the community is ARCHIVED). A community post cannot
-// carry a reply policy other than EVERYONE (CreatePost refuses it), so no stricter ADR-0021 hint is overwritten. Known edge: a moderator whose
+// carry a reply policy other than EVERYONE (CreatePost refuses it), so no stricter hint is overwritten. Known edge: a moderator whose
 // F14-kept row is by an author who blocks them sees ALLOWED while CreatePost answers NOT_FOUND; NOT_ALLOWED would be a block oracle.
 func applyCommunityReplyHint(views []*postsv1.PostView, items []*posts.Post, c communities.Community, role communities.Role) {
 	can := c.Status == communities.StatusActive &&

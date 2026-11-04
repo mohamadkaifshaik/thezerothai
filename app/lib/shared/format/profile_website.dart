@@ -1,6 +1,6 @@
 /// A profile website the client may show and open: the ASCII (punycode) host
 /// the row displays and the URL that is launched, built from the same host so
-/// what the viewer reads is what opens (ADR-0024 D2: `http`/`https` only).
+/// what the viewer reads is what opens (`http`/`https` only).
 class ProfileWebsite {
   const ProfileWebsite({required this.host, required this.uri});
 
@@ -19,7 +19,7 @@ final RegExp _website = RegExp(
 
 // Whitespace (`\s` also covers no-break and line-separator spaces), C0/C1
 // controls and the bidi formatting controls U+061C, U+200E, U+200F,
-// U+202A-U+202E and U+2066-U+2069 (ADR-0010 D9). Written as escapes on purpose:
+// U+202A-U+202E and U+2066-U+2069. Written as escapes on purpose:
 // a raw bidi character in source is itself a Trojan Source risk.
 final RegExp _forbidden = RegExp(
   r'[\s\u0000-\u001F\u007F-\u009F\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]',

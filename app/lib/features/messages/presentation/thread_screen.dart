@@ -51,7 +51,7 @@ import 'widgets/thread_push_scope.dart';
 const kThreadReadOnlyText = "You can't reply to this conversation";
 
 /// The line that replaces the composer when messaging is off for this caller
-/// but not for everyone (ADR-0027 F6(a)): list, read, delete, report and
+/// but not for everyone: list, read, delete, report and
 /// block still work.
 const kMessagingReadOnlyText = "You can't send messages right now.";
 
@@ -88,7 +88,7 @@ typedef ThreadBannerBuilder = Widget? Function(
   ThreadRequestActions actions,
 );
 
-/// `/messages/:id` (ADR-0027 D7, D11, D14): one conversation.
+/// `/messages/:id`: one conversation.
 ///
 /// - A reversed message list (newest at the bottom): own bubbles on the
 ///   accent, the peer's on the raised surface, grouped by sender with the time

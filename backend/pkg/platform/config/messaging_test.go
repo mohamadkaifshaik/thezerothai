@@ -7,7 +7,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestLoad_MessagingDefaults pins every ADR-0027 D13 default and the flag (off, wire name messaging).
+// TestLoad_MessagingDefaults pins every default and the flag (off, wire name messaging).
 func TestLoad_MessagingDefaults(t *testing.T) {
 	clearEnv(t)
 	cfg, err := Load()

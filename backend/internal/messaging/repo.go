@@ -11,19 +11,19 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 )
 
-// Repo is the storage seam of messaging.Service: the three collections of ADR-0027 D1 behind one interface, so a group
+// Repo is the storage seam of messaging.Service: the three collections behind one interface, so a group
 // fan-out or a listener-backed store changes no caller (seam). FirestoreRepo is the implementation.
 type Repo interface {
 	// GetConversation reads conversations/{id}: 1 read. found is false for a missing document.
 	GetConversation(ctx context.Context, id string) (conv ConvDoc, found bool, err error)
-	// Send runs the SendMessage transaction (ADR-0027 D4 step 5).
+	// Send runs the SendMessage transaction.
 	Send(ctx context.Context, p SendParams) (SendResult, error)
 	// ListEntries reads one page of the caller's entries in a folder: reads max(len(rows), 1).
 	ListEntries(ctx context.Context, uid string, folder string, q ListQuery) ([]EntryRow, error)
 	// CountRequests is count() on the caller's dmRequests, capped at requestCountCap: 1 read.
 	CountRequests(ctx context.Context, uid string) (int64, error)
 	// CountUnreadConversations is count() on the caller's dmInbox where unreadCount > 0, Limit unreadConversationsCap
-	// (ADR-0027 D10): 1 read.
+	//1 read.
 	CountUnreadConversations(ctx context.Context, uid string) (int64, error)
 	// ListMessages reads one page of a conversation's messages: reads max(len(rows), 1).
 	ListMessages(ctx context.Context, convID string, q MessageQuery) ([]MessageRow, error)
@@ -48,7 +48,7 @@ type Repo interface {
 type AcceptParams struct {
 	UID, ConvID string
 	Now         time.Time
-	// PeerAllowed reports whether the other participant has messaging on (the per-recipient half of ADR-0027 D6). It is
+	// PeerAllowed reports whether the other participant has messaging on (the per-recipient half of the flag gate). It is
 	// pure (flags are env vars, 0 reads) and runs inside the transaction once the peer is known, only when something
 	// would be written. nil allows.
 	PeerAllowed func(peerUID string) bool
@@ -135,11 +135,11 @@ type SendParams struct {
 	// (the new-account tier already applied).
 	MaxUnanswered, DMNewLimit int64
 	// RecipientGraphInTx reads the recipient.s graph/{uid} through the transaction (graph.TxReader.SnapshotInTx, uncached,
-	// 1 read; ADR-0027 note). Required. Blocked[caller] refuses the send before every cap; Following[caller] makes
+	// 1 read). Required. Blocked[caller] refuses the send before every cap; Following[caller] makes
 	// the conversation mutual; Muted[caller] makes it silent.
 	RecipientGraphInTx func(ctx context.Context, tx *firestore.Transaction) (graph.Snapshot, error)
 	// RecipientInTx reads the recipient.s users/{uid} through the transaction (identity.TxProfiles.ProfileInTx, +1 read). It
-	// is called only when this send creates the conversation (ADR-0027 D8 purge race, security review L-3); a missing
+	// is called only when this send creates the conversation (purge race, security review L-3); a missing
 	// document or a status other than ACTIVE refuses the send. Required for a new conversation.
 	RecipientInTx func(ctx context.Context, tx *firestore.Transaction) (identity.Profile, error)
 }

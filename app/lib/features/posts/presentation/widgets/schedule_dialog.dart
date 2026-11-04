@@ -7,7 +7,7 @@ import '../../../../shared/widgets/primitives/app_form_header.dart';
 import '../../domain/schedule_rules.dart';
 import '../bloc/schedule_dialog_cubit.dart';
 
-/// The L-9 note (ADR-0021 security review, founder-approved): shown only when
+/// The L-9 note (security review, founder-approved): shown only when
 /// photos are attached, because an uploaded image has a public URL before the
 /// post goes out.
 const kScheduleImagesNote =
@@ -103,7 +103,7 @@ Future<TimeOfDay?> _platformPickTime(
   required TimeOfDay initial,
 }) => showTimePicker(context: context, initialTime: initial, helpText: 'Time');
 
-/// Opens the Schedule dialog (ADR-0021 D4): a full-screen route below
+/// Opens the Schedule dialog: a full-screen route below
 /// [AppBreakpoints.mobile] wide, a centred dialog above. [initial] is the
 /// schedule already set (offering "Remove schedule"); [hasMedia] adds the L-9
 /// note; [notice] is a server refusal of the time to show under the pickers.

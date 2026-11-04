@@ -1,6 +1,6 @@
 package posts
 
-// tester probes (ADR-0025 note L-2) on the timeline's audience: NewSnapshotAudience, whose block test is
+// tester probes on the timeline's audience: NewSnapshotAudience, whose block test is
 // the caller's graph snapshot alone, with the caller's blockedBy set overflowed.
 
 import (
@@ -10,7 +10,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 )
 
-// The ADR says block is decided first: "a P who blocks A is still dropped everywhere". With A's blockedBy overflowed the
+// The design says block is decided first: "a P who blocks A is still dropped everywhere". With A's blockedBy overflowed the
 // snapshot cannot say whether P blocks A (P is absent from BlockedBy because the set overflowed), so a path that keeps
 // the row must not rest on BlockedBy[P] alone. The own-profile surface keeps A's REPOST of P as a PROTECTED row, which
 // shows P's author snapshot to a user P may block.

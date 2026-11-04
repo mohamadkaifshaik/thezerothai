@@ -8,7 +8,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestLoad_PrivacyDefaults pins every ADR-0025 default: the toggle quota, the cap, the stale window, the Respond bucket
+// TestLoad_PrivacyDefaults pins every default: the toggle quota, the cap, the stale window, the Respond bucket
 // and the flag (off).
 func TestLoad_PrivacyDefaults(t *testing.T) {
 	clearEnv(t)

@@ -1,10 +1,10 @@
-// moderation.go holds the moderator commands (ADR-0016 D4): reports list|show|resolve, takedown-post,
+// moderation.go holds the moderator commands: reports list|show|resolve, takedown-post,
 // restore-post, suspend-user, unsuspend-user. There is no admin console at Stage 0; the founder runs these from
 // their machine with Application Default Credentials, with the same --project / typed-prod-confirmation rules as
 // every other opsctl command.
 //
 // Cost (printed at the end of every write command): suspend-user reads and writes one document per post of the
-// user, once, in batches of 250. Each hidden post is two writes (the post and its postRemovals entry, ADR-0016 D10);
+// user, once, in batches of 250. Each hidden post is two writes (the post and its postRemovals entry);
 // unsuspend-user and restore-post write a RESTORED entry the same way (+1 write per restored post). It then waits out
 // the instance cache TTL and runs one settle pass over the posts of the last suspendSkew
 // (reads: the posts in that window, 1 when none), then sweeps the notification rows other users hold about the
@@ -32,7 +32,7 @@ import (
 
 const (
 	// settleWait is how long suspend-user waits before the settle pass: every warm instance caches the account
-	// status for at most CACHE_TTL (capped at config.MaxCacheTTL, ADR-0009), so after this a post can no
+	// status for at most CACHE_TTL (capped at config.MaxCacheTTL), so after this a post can no
 	// longer be accepted from the suspended account. The margin covers in-flight requests (Cloud Run's 10 s).
 	settleWait = config.MaxCacheTTL + 15*time.Second
 	// suspendSkew moves the settle pass's lower bound before the moment suspension started, so server/operator
@@ -144,7 +144,7 @@ func printReport(out io.Writer, r moderation.Report) {
 		r.CreatedAt.Format(time.RFC3339), orDash(r.ReporterID), r.TargetType, r.TargetID, r.TargetOwnerID, r.Reason, r.Note)
 	switch {
 	case r.Evidence != nil && r.TargetType == moderation.TargetAccount:
-		// ADR-0024 Amendment 1 A3(b): the profile as the reporter saw it. No website here while profile_extras was
+		// The profile as the reporter saw it. No website here while profile_extras was
 		// globally off at report time; a reopened report refreshes all of it.
 		e := r.Evidence
 		fmt.Fprintf(out, "evidence profile @%s: display name %q, bio %q, location %q, website %q\nevidence avatar %q, banner %q\n",
@@ -159,7 +159,7 @@ func printReport(out io.Writer, r moderation.Report) {
 	case r.TargetType == moderation.TargetList:
 		fmt.Fprintln(out, "evidence none")
 	case r.TargetType == moderation.TargetCommunity && r.Evidence != nil:
-		// ADR-0031 D14: the community as the reporter saw it (public text; no member ids). The owner's handle is empty when the
+		// The community as the reporter saw it (public text; no member ids). The owner's handle is empty when the
 		// community was ARCHIVED. Suspend it with `opsctl community suspend CID --report R` (the target id above; it resolves this report as TAKEDOWN).
 		e := r.Evidence
 		fmt.Fprintf(out, "evidence community owned by @%s created %s: name %q, description %q\n", e.AuthorHandle, e.PostCreatedAt.Format(time.RFC3339), e.CommunityName, e.CommunityDescription)
@@ -169,7 +169,7 @@ func printReport(out io.Writer, r moderation.Report) {
 	case r.TargetType == moderation.TargetCommunity:
 		fmt.Fprintln(out, "evidence none")
 	case r.TargetType == moderation.TargetMessage && r.Evidence != nil:
-		// ADR-0027 D12: one private message, copied at report time. owner above is the sender's uid; the handle is "" when
+		// One private message, copied at report time. owner above is the sender's uid; the handle is "" when
 		// the sender was not ACTIVE then. takedown with `opsctl messages takedown <target>`.
 		if r.Evidence.TextExpired {
 			// The copied text lives in reports/{id}/evidence/message and its TTL deleted it (180 days after filing, or
@@ -270,7 +270,7 @@ func takedownPost(ctx context.Context, b *backends, a modArgs, out io.Writer, no
 		return err
 	}
 	if r.CommunityID != "" {
-		// ADR-0031 D14: a community post also goes into that community's recentRemovals, so a cached community feed drops it. Also when the
+		// A community post also goes into that community's recentRemovals, so a cached community feed drops it. Also when the
 		// takedown changed nothing (a re-run finishes a crashed one); a post already listed writes nothing. A missing community is only a note.
 		var tot removalTotals
 		if err := appendCommunityRemovals(cctx, b, map[string][]string{r.CommunityID: {a.post}}, now(), &tot); err != nil {
@@ -291,7 +291,7 @@ func takedownPost(ctx context.Context, b *backends, a modArgs, out io.Writer, no
 // than that is finished by running takedown-post again, which is idempotent.
 const cleanupPageBudget = 50
 
-// cleanupCopies makes a taken-down post's copies disappear too (ADR-0018 D6, ADR-0016 follow-up): REPOST
+// cleanupCopies makes a taken-down post's copies disappear too (follow-up): REPOST
 // posts of it are removed (with their reposts docs, the reposters' postsCount and the post's repostCount, because
 // the post still exists and the counter must stay exact) and the embeds of its quotes become a tombstone. Likes
 // stay. restore-post does not bring the copies back.
@@ -357,8 +357,8 @@ type copyCheckpoint struct {
 	Unfinished int
 }
 
-// suspendCopyCleanup removes the copies other accounts hold of a suspended author's posts (issue #151, ADR-0018
-// note): REPOSTs of them are deleted with their counters and the embeds of quotes become a tombstone. Like
+// suspendCopyCleanup removes the copies other accounts hold of a suspended author's posts (issue #151):
+// REPOSTs of them are deleted with their counters and the embeds of quotes become a tombstone. Like
 // takedown-post's cleanup it is permanent: unsuspend-user restores the author's own posts, not the copies.
 func suspendCopyCleanup(ctx context.Context, b *backends, uid string, out io.Writer) error {
 	if b.cleanup == nil || b.copied == nil {
@@ -433,7 +433,7 @@ func stateName(m posts.Moderation) string {
 	return string(m)
 }
 
-// suspendUser is suspend-user (ADR-0016 D4, ADR-0010 D10). Order: status first, then every post (resumable), so a
+// suspendUser is suspend-user. Order: status first, then every post (resumable), so a
 // crash leaves a suspended user with some posts still visible and re-running finishes the job.
 func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io.Writer, now func() time.Time) error {
 	if a.dryRun {
@@ -467,7 +467,7 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 			return err
 		}
 	}
-	// ADR-0031 D14: every page also appends its community posts to each community's recentRemovals (once per community per page).
+	// Every page also appends its community posts to each community's recentRemovals (once per community per page).
 	var removals removalTotals
 	suspendedAt := now()
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -521,7 +521,7 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 			return fmt.Errorf("%w (re-run suspend-user to resume)", err)
 		}
 	}
-	// Issue #151: the copies other users hold of the hidden posts (ADR-0018 note). After the settle pass, so a
+	// Issue #151: the copies other users hold of the hidden posts. After the settle pass, so a
 	// post created while instance caches still saw the account as ACTIVE is covered too.
 	if err := suspendCopyCleanup(ctx, b, uid, out); err != nil {
 		return fmt.Errorf("%w (re-run suspend-user to resume)", err)
@@ -536,7 +536,7 @@ func suspendUser(ctx context.Context, b *backends, uid string, a modArgs, out io
 }
 
 // printResetWarning prints the P >= 50 warning for a command that logs P removals at once (suspend-user,
-// unsuspend-user). The removal log is scoped per feed (ADR-0016 amendment 2026-10-18 (b)): only the feeds that
+// unsuspend-user). The removal log is scoped per feed (amendment 2026-10-18 (b)): only the feeds that
 // show this account (its followers' Home, its profile) are affected, so the cost is those clients' cold opens.
 func printResetWarning(out io.Writer, cmd string, p int64) {
 	if p < int64(posts.RemovalMaxIDs) {
@@ -623,7 +623,7 @@ func statusName(s identity.AccountStatus) string {
 	return "UNKNOWN"
 }
 
-// hideAuthorPage is one HideAuthor call of suspend-user plus the community removal-log appends for the page it processed (ADR-0031 D14).
+// hideAuthorPage is one HideAuthor call of suspend-user plus the community removal-log appends for the page it processed.
 // An append failure fails the call, so driveLoop repeats the same page: the hide is idempotent and an append of a post already listed
 // writes nothing.
 func hideAuthorPage(ctx context.Context, b *backends, uid string, cp posts.ModerationCheckpoint, now func() time.Time, tot *removalTotals) (posts.ModerationCheckpoint, bool, error) {

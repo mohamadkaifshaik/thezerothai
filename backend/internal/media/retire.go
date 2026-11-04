@@ -1,4 +1,4 @@
-// retire.go is the `profile_media_retired` job (ADR-0024 Amendment 1 A4): when a profile's avatar or banner is replaced
+// retire.go is the `profile_media_retired` job: when a profile's avatar or banner is replaced
 // or removed, the old image's public objects (full and thumbnail) are scheduled for deletion after a grace of at least
 // 24 h. It rides the shared `jobs` Pub/Sub topic like `post_delete` (no new topic, Scheduler job, collection or index):
 // identity.Lifecycle routes messages of this kind to RetireHandler.

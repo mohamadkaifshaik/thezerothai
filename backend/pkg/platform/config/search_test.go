@@ -9,7 +9,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestLoad_SearchDefaults pins every ADR-0028 D9 default and the two flags (off, wire names search and trends).
+// TestLoad_SearchDefaults pins every default and the two flags (off, wire names search and trends).
 func TestLoad_SearchDefaults(t *testing.T) {
 	clearEnv(t)
 	cfg, err := Load()

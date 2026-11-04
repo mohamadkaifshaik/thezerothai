@@ -147,7 +147,7 @@ func wantDisabled(t *testing.T, err error) {
 // TestServer_ReadonlyRefusesTheMutations: DEGRADED_MODE=readonly refuses SendMessage, MarkConversationRead,
 // AcceptMessageRequest and DeleteConversation through the existing interceptor, which reads each RPC's declared
 // idempotency level (the two lists are NO_SIDE_EFFECTS and still answer). Nothing in the module is needed for it; this pins
-// that the proto keeps declaring the mutations as such (ADR-0027 D11).
+// that the proto keeps declaring the mutations as such.
 func TestServer_ReadonlyRefusesTheMutations(t *testing.T) {
 	uidOf := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {

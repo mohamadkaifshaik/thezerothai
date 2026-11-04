@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// communityHashForAudit is the community_hash that opsctl's community commands print (ADR-0031 D13a): the keyed
+// communityHashForAudit is the community_hash that opsctl's community commands print: the keyed
 // logger.HashCommunity the API writes on its moderation request lines, so the operator's output and the logs agree. Without
 // CURSOR_HMAC_KEY in the shell it is a marker, never the unkeyed digest the commands printed before then (the
 // conversationHashForAudit precedent).

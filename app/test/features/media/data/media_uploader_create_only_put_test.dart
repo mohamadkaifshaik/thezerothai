@@ -13,7 +13,7 @@ import 'package:mocktail/mocktail.dart';
 import '../../../support/fake_transport.dart';
 import '../../../support/media_fixtures.dart';
 
-/// The review's Dart follow-up, ADR-0029: since then the signed
+/// The review's Dart follow-up: since then the signed
 /// upload PUT is create-only (`x-goog-if-generation-match: 0`). A PUT that
 /// landed but whose answer was lost makes the retry answer **412**, which means
 /// "already stored": the image is `putDone`, FinalizeUpload runs with the same

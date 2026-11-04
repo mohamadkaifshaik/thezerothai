@@ -6,7 +6,7 @@ import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../gen/dzeroth/engagement/v1/engagement.pb.dart' as pb;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as posts_pb;
 
-/// Talks to `EngagementService.VotePoll` (ADR-0029 D6) and re-reads a poll
+/// Talks to `EngagementService.VotePoll` and re-reads a poll
 /// post: the only `VotePoll` caller.
 ///
 /// - Voting needs the `engagement` flag (the same [ServiceFeatureGate] flag
@@ -18,7 +18,7 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as posts_pb;
 ///   FEATURE_DISABLED for polls: the vote buttons go away, nothing is
 ///   reported.
 /// - Nothing retries here. [idempotencyKey] is validated for format only (the
-///   natural key `pollVotes/{post}_{uid}` is the record, ADR-0029 D7). The
+///   natural key `pollVotes/{post}_{uid}` is the record). The
 ///   caller reuses one key per (post, choice) intent for a first vote and uses
 ///   a fresh key per tap for a change; a change also carries `expectedChoice`
 ///   (Amendment 1 A2.2).
@@ -51,9 +51,8 @@ class PollRepository {
   /// REPOST row). Returns the original's `PostView` with the committed counts,
   /// `results_visible` true and `viewer_poll_choice` set.
   ///
-  /// [expectedChoice] (`VotePollRequest.expected_choice`, ADR-0029 Amendment
-  /// 1) is the vote the caller holds, 1-based as `viewer_poll_choice` is; 0
-  /// (default) is a first vote. A server that predates it ignores the field
+  /// [expectedChoice] (`VotePollRequest.expected_choice`) is the
+  /// vote the caller holds, 1-based as `viewer_poll_choice` is; 0 (default) is a first vote. A server that predates it ignores the field
   /// and answers ALREADY_VOTED to a change.
   Future<posts_pb.PostView> vote({
     required String postId,

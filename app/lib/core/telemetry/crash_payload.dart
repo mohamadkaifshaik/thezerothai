@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import '../network/connect_error_mapper.dart' show findErrorDetail;
 import 'crash_scrubber.dart';
 
-/// What leaves the device for one error (ADR-0032 F6). The SDK reads the
+/// What leaves the device for one error. The SDK reads the
 /// error's `toString()` as the report title, so we hand it this object, never
 /// the original: its text is exactly [type], or `type: message` for an
 /// allowlisted type after [CrashScrubber].

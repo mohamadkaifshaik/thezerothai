@@ -1,5 +1,5 @@
-// jobs.go is the `post_delete` job (ADR-0005 "Deletes"): when a post that carried images is deleted, its public
-// objects and media documents are removed. It rides the shared `jobs` Pub/Sub topic (ADR-0011 D-A, no new topic):
+// jobs.go is the `post_delete` job ("Deletes"): when a post that carried images is deleted, its public
+// objects and media documents are removed. It rides the shared `jobs` Pub/Sub topic (no new topic):
 // identity.Lifecycle routes messages of this kind to Jobs.Handle.
 //
 // The job never acts on a message's word alone (the IAM control C1 pattern): it re-reads each media document and
@@ -79,7 +79,7 @@ func (j *Jobs) Handle(ctx context.Context, data []byte) (string, error) {
 		return "dropped:invalid_message", nil
 	}
 	if len(m.MediaIDs) == 0 {
-		// Since every deleted post publishes this job (ADR-0018 D10); a post without images has nothing
+		// Since every deleted post publishes this job; a post without images has nothing
 		// here. Acknowledged before any read, so a post's likes/reposts clean-up costs media 0 reads.
 		return "noop", nil
 	}

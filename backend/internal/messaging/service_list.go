@@ -22,13 +22,13 @@ const (
 	DefaultPageSize = 20
 	MaxPageSize     = 50
 	// SettleWindow is how far since_token trails the newest returned entry, so an entry committed by another instance a
-	// moment after this read is still returned by the next refresh (ADR-0027 D7; the same 5 s as notifications).
+	// moment after this read is still returned by the next refresh (the same 5 s as notifications).
 	SettleWindow = 5 * time.Second
 	// RefreshTokenTTL is how long a persisted since or page token is accepted (30 days, the notifications value).
 	RefreshTokenTTL = 30 * 24 * time.Hour
 )
 
-// Request-line fields of a list (ADR-0027 D11). Counts only: never a uid, a conversation id or a snippet.
+// Request-line fields of a list. Counts only: never a uid, a conversation id or a snippet.
 const (
 	kindListConversations = "list_conversations"
 	fieldFolder           = "folder"
@@ -40,9 +40,9 @@ const (
 	folderLabelRequests   = "requests"
 )
 
-// Token bindings: a token opens only for the uid, the folder and the token kind it was issued for (ADR-0027 D7).
+// Token bindings: a token opens only for the uid, the folder and the token kind it was issued for.
 //
-// The since kind is "since-changed" (ADR-0027 note 2026-10-29): the position is a changedAt, not a lastMessageAt. A token
+// The since kind is "since-changed": the position is a changedAt, not a lastMessageAt. A token
 // of the older kind fails to open (VALIDATION since_token, 0 reads) and the client cold-opens the folder once; an entry
 // written before changedAt existed would otherwise be skipped by a query on it.
 func sinceBinding(uid, folder string) string {
@@ -62,7 +62,7 @@ func clampPageSize(n int32) int {
 	return int(n)
 }
 
-// ListConversations implements Service.ListConversations (ADR-0027 D4 "On read", D7).
+// ListConversations implements Service.ListConversations ("On read", D7).
 //
 // Flag: not globally off (a caller dropped from the allowlist can still read). Validation, in this order and before any
 // read: folder INBOX or REQUESTS (VALIDATION "folder"), page_token and since_token not both (VALIDATION "page_token"),
@@ -255,7 +255,7 @@ func (d *droppedCounts) add(cause string) {
 	}
 }
 
-// requestHiddenBy is the REQUESTS read-time rule (ADR-0027 D4 "On read"): the cause that hides the entry, or "". The
+// requestHiddenBy is the REQUESTS read-time rule ("On read"): the cause that hides the entry, or "". The
 // blockedBy overflow flag is not consulted (it would cost a graph read per peer), like the notifications list.
 func requestHiddenBy(peer string, snap graph.Snapshot) string {
 	switch {
@@ -271,7 +271,7 @@ func requestHiddenBy(peer string, snap graph.Snapshot) string {
 
 // conversationOf maps an entry to the wire Conversation. The state comes from the folder (the entry holds none, and a
 // conversation read per row would break the budget): REQUESTS is REQUEST, INBOX is ACCEPTED, except an INBOX row with
-// RequestPending (the requester's own entry while the peer has not accepted, ADR-0027 note), which is REQUEST in the
+// RequestPending (the requester's own entry while the peer has not accepted), which is REQUEST in the
 // INBOX, the same pair the ListMessages header returns for the requester. +0 reads.
 func conversationOf(r EntryRow, folder string, snap graph.Snapshot) *messagingv1.Conversation {
 	c := &messagingv1.Conversation{

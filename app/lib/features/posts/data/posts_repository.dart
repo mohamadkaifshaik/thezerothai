@@ -21,7 +21,7 @@ import '../domain/reply_audience.dart';
 ///
 /// - Every call goes through [PostsFeatureGate.run]: with the posts flag off
 ///   no RPC is sent, and a CreatePost that needs a sub-feature known to be
-///   off (`replies`, `quotes`, `media`) is not sent either (ADR-0010 D2).
+///   off (`replies`, `quotes`, `media`) is not sent either.
 /// - A post that is NOT_FOUND on open, or that the caller deletes, is removed
 ///   from every cached feed.
 /// - A created post is put at the top of the caller's already-loaded feeds
@@ -42,7 +42,7 @@ class PostsRepository {
   final PostsFeatureGate _gate;
 
   /// The RATE_LIMITED hold shared with the timeline: reads send nothing
-  /// while it runs (ADR-0010 D5).
+  /// while it runs.
   final RateLimitHold _hold;
 
   final StreamController<String> _removed = StreamController.broadcast();
@@ -61,8 +61,8 @@ class PostsRepository {
   /// Creates a post. [idempotencyKey] must be reused when retrying the same
   /// post (the server replays the stored result). [replyPolicy] stays
   /// UNSPECIFIED (everyone) unless the user chose a narrower audience for a
-  /// root post or quote (ADR-0021 D2); never set it on a reply. [poll] (root
-  /// post only, ADR-0029) is sent as given: the caller passes the normalised
+  /// root post or quote; never set it on a reply. [poll] (root
+  /// post only) is sent as given: the caller passes the normalised
   /// choices; the server answers VALIDATION `field=poll` or FEATURE_DISABLED
   /// `feature=polls` (the gate then hides polls for the session).
   Future<pb.PostView> createPost({
@@ -94,7 +94,7 @@ class PostsRepository {
                   durationMinutes: poll.durationMinutes,
                 ),
           // Set only for a post into a community (root or quote; never with
-          // a reply policy, ADR-0031 D5/F8): the field stays unset otherwise.
+          // a reply policy): the field stays unset otherwise.
           communityId: communityId.isEmpty ? null : communityId,
         ),
       ),
@@ -132,7 +132,7 @@ class PostsRepository {
     return view;
   }
 
-  /// Schedules a new root post (`SchedulePost`, ADR-0021 D4). [idempotencyKey]
+  /// Schedules a new root post (`SchedulePost`). [idempotencyKey]
   /// must be reused for every retry of the same request (the server answers a
   /// lost response with the stored item) and replaced when the text, media,
   /// audience or [publishAt] changed. [publishAt] goes out as UTC; the server
@@ -277,7 +277,7 @@ class PostsRepository {
   }
 
   /// Deletes the caller's post. The server answers success for an unknown
-  /// or foreign id too (ADR-0010 D4), so success always means "it is gone":
+  /// or foreign id too, so success always means "it is gone":
   /// the post leaves every cached feed.
   Future<void> deletePost({
     required String postId,

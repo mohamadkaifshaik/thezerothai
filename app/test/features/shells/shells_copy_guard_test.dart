@@ -12,7 +12,7 @@ import '../../support/shells_copy_guard.dart';
 import '../../support/shells_harness.dart';
 
 /// The copy guard over all four pages, the drawer rows and the More
-/// menu (ADR-0026 D3). The Premium pop-up is the only place a rupee amount may
+/// menu. The Premium pop-up is the only place a rupee amount may
 /// appear, and only the ones in `kPremiumPlans`. Runs on every copy change.
 void main() {
   group('the guard itself catches what it must', () {

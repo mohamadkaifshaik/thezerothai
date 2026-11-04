@@ -92,8 +92,7 @@ class ConversationsState {
 
 const Object _keep = Object();
 
-/// Drives one folder of the inbox over [MessagingRepository]
-/// (ADR-0027 D7, D14).
+/// Drives one folder of the inbox over [MessagingRepository].
 ///
 /// - [load] renders the cache at once, then refreshes (opening always does).
 /// - [refreshIfStale] is for resume and a message push: throttled to one
@@ -128,7 +127,7 @@ class ConversationsCubit extends Cubit<ConversationsState> {
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
 
   /// Called with the cached INBOX rows after every successful INBOX refresh
-  /// (the Messages badge re-syncs from them, ADR-0027 D10). [hasMore] is
+  /// (the Messages badge re-syncs from them). [hasMore] is
   /// true when older pages exist, so the rows are only a lower bound.
   final void Function(List<pb.Conversation> rows, {required bool hasMore})?
   onInboxSynced;

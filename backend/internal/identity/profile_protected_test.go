@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// The pin rule of GetProfile (ADR-0025 D4, AQ6) and GetMe's pending_follow_request_count (D7, AQ3).
+// The pin rule of GetProfile and GetMe's pending_follow_request_count (D7, AQ3).
 
 type fakeProtectedAuthors struct {
 	set   ProtectedSet

@@ -18,7 +18,7 @@ import 'gif_badge.dart';
 /// operations, review #110 M2). The detail view passes [useFullImage] to show
 /// `url` instead.
 ///
-/// A GIF (`MediaRef.content_type == image/gif`, ADR-0029 F10) is different in
+/// A GIF (`MediaRef.content_type == image/gif`) is different in
 /// both views: it shows its still `thumbUrl` with a "GIF" badge and a play
 /// control, and the full file is fetched only after a tap (a tap again stops
 /// it). Nothing autoplays, so reduced motion and a data saver are respected

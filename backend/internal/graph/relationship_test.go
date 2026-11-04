@@ -73,7 +73,7 @@ func (f relFixture) get(caller, target string) (ProfileRelationship, error) {
 	return f.svc.GetProfileRelationship(context.Background(), caller, target)
 }
 
-// TestGetProfileRelationship_Matrix (ADR-0024 D7): the relationship comes from the caller's snapshot, followed_by from
+// TestGetProfileRelationship_Matrix: the relationship comes from the caller's snapshot, followed_by from
 // the edge follows/{target}_{caller}, and every refusal costs no edge read.
 func TestGetProfileRelationship_Matrix(t *testing.T) {
 	const a, b = "uid-a", "uid-b" // a is the caller, b the target
@@ -209,7 +209,7 @@ func TestGetProfileRelationship_Matrix(t *testing.T) {
 }
 
 // assertProfileNotFound compares err with the exact answer identity.GetProfile gives for a missing user: same code,
-// reason, message and metadata, so a blocked-by target cannot be told apart from an absent one (ADR-0008 D9).
+// reason, message and metadata, so a blocked-by target cannot be told apart from an absent one.
 func assertProfileNotFound(t *testing.T, err error) {
 	t.Helper()
 	var got, want *apierr.Error
@@ -271,7 +271,7 @@ func TestGetProfileRelationship_ErrorsAreRedacted(t *testing.T) {
 	}
 }
 
-// TestGetProfileRelationship_CachesTheEdge (ADR-0024 D7): both answers are cached per pair, so the repeat view is 0
+// TestGetProfileRelationship_CachesTheEdge: both answers are cached per pair, so the repeat view is 0
 // edge reads whether the target follows the caller or not, and the cache key is (target -> caller).
 func TestGetProfileRelationship_CachesTheEdge(t *testing.T) {
 	for _, edge := range []bool{true, false} {
@@ -308,7 +308,7 @@ func TestGetProfileRelationship_CacheKeyIsPerPair(t *testing.T) {
 	}
 }
 
-// TestGetProfileRelationship_EvictionByWrites (ADR-0024 D7): the pair is evicted on this instance by exactly the writes
+// TestGetProfileRelationship_EvictionByWrites: the pair is evicted on this instance by exactly the writes
 // that change the edge it names. For each write, `evicted` is the viewer->profile views whose cached answer must go and
 // `kept` the views that must survive. A flipped key fails the row: (viewer a, profile b) names the edge b->a.
 func TestGetProfileRelationship_EvictionByWrites(t *testing.T) {
@@ -508,7 +508,7 @@ func TestGetProfileRelationship_FollowedByAfterTheTargetFollows(t *testing.T) {
 	}
 }
 
-// TestGetProfileRelationship_FlagMatrix (ADR-0024 D7, D9): the RPC is gated by FEATURE_GRAPH only, in every mode
+// TestGetProfileRelationship_FlagMatrix: the RPC is gated by FEATURE_GRAPH only, in every mode
 // (off, allowlist in and out, percent in and out, on, not registered, retired); no W3 flag changes the answer. A
 // refusal is FEATURE_DISABLED for the whole service (no feature metadata) and reads nothing; a pass answers through the
 // handler with the relationship and followed_by.

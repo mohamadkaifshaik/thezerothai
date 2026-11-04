@@ -9,14 +9,14 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 )
 
-// Field limits of a list (ADR-0030 D2), in code points after trim and NFC.
+// Field limits of a list, in code points after trim and NFC.
 const (
 	MinNameRunes        = 1
 	MaxNameRunes        = 25
 	MaxDescriptionRunes = 100
 )
 
-// List is one lists/{listId} document as the module sees it (ADR-0030 D2). MemberIDs is in add order and has at most
+// List is one lists/{listId} document as the module sees it. MemberIDs is in add order and has at most
 // LIST_MAX_MEMBERS entries; there is no stored count (memberCount is len(MemberIDs)).
 type List struct {
 	ID          string
@@ -67,7 +67,7 @@ type UpdateInput struct {
 	IsPrivate   *bool
 }
 
-// Service is everything the ListService handlers call (ADR-0030 D1, seam: handlers call only this): the write path
+// Service is everything the ListService handlers call (seam: handlers call only this): the write path
 // and the reads. *service also implements Reader, the seam other modules use.
 type Service interface {
 	// CreateList creates a list owned by uid. Firestore: reads 4 cold (interceptor, idempotency, quotas, count()) / 3
@@ -81,7 +81,7 @@ type Service interface {
 	// Firestore: reads 3 (interceptor, idempotency, list), +1 when pinned (Pins); writes 1 (idempotency) + 1 when
 	// pinned; deletes 1 (the list, Exists precondition); replay reads 2, writes 0.
 	DeleteList(ctx context.Context, uid, key, listID string) error
-	// AddMember adds userID to one of uid's lists (ADR-0030 D4); any other caller or list is the one NOT_FOUND. The target checks
+	// AddMember adds userID to one of uid's lists; any other caller or list is the one NOT_FOUND. The target checks
 	// (ACTIVE, block either way, protected and not followed) run before the transaction from cache-first reads and are applied
 	// only after the idempotency lookup misses, so a replay answers with the stored outcome. Firestore: reads 5 cold (caller graph,
 	// target profile, idempotency, list, quotas; +1 target graph when the caller's blockedBy overflowed) / 3 warm, plus the
@@ -92,7 +92,7 @@ type Service interface {
 	// only when a member is actually removed, plus the interceptor's 1; writes 2 (list, idempotency), 1 when not a member;
 	// replay reads 1, writes 0. No quota.
 	RemoveMember(ctx context.Context, uid, key, listID, userID string) (View, error)
-	// GetList returns one list as viewer may see it (ADR-0030 D3); any other case is the one NOT_FOUND. pinned_by_viewer is false until
+	// GetList returns one list as viewer may see it; any other case is the one NOT_FOUND. pinned_by_viewer is false until
 	// supplies the pin check. Firestore: reads 5 cold for a non-owner (interceptor, list, caller graph, owner profile, owner
 	// graph), 2 for the owner; 0-1 warm; writes 0.
 	GetList(ctx context.Context, viewer, listID string) (View, error)
@@ -105,7 +105,7 @@ type Service interface {
 	ListListMembers(ctx context.Context, viewer, listID string, pageSize int32, pageToken string) (MembersPage, error)
 }
 
-// Pins is the consumer-side seam to the owner's pinned Home tabs on users/{uid}.homeTabs (ADR-0030 D1, D6). Identity
+// Pins is the consumer-side seam to the owner's pinned Home tabs on users/{uid}.homeTabs. Identity
 // implements it over the same adapter as timeline.HomeTabsStore; without it the service runs with a nil Pins and a
 // pinned tab is cleaned up lazily by GetMe. Both calls run after the list's own commit and are best effort: a failure is
 // logged and never fails the RPC. Neither signature names a timeline or lists type, so identity imports neither.
@@ -195,7 +195,7 @@ type Repo interface {
 	AddMember(ctx context.Context, p AddMemberParams) (MemberResult, error)
 	RemoveMember(ctx context.Context, p RemoveMemberParams) (MemberResult, error)
 	// Get reads lists/{id} outside any transaction (1 read, charged even when missing): ErrNotFound when it does not exist. It does
-	// not decide who may see the list; the service applies ADR-0030 D3.
+	// not decide who may see the list; the service applies the list visibility rules.
 	Get(ctx context.Context, id string) (List, error)
 	// ListByOwner reads ownerId == owner ordered by list id, after the id `after` ("" = from the start), at most limit docs
 	// (reads = docs returned, minimum 1). Private and hidden lists are returned; filtering is the service's.
@@ -204,7 +204,7 @@ type Repo interface {
 
 // ErrMemberLimit and ErrProtected are the repository's refusals of AddMember (mapped to LIMIT_REACHED "list_members" and
 // PROTECTED_ACCOUNT by the service). ErrNotFound doubles as the refusal for a target that is missing, not ACTIVE or in a block
-// relationship with the owner: one answer for every cause, so the call is no block oracle (ADR-0008 D9).
+// relationship with the owner: one answer for every cause, so the call is no block oracle.
 var (
 	ErrMemberLimit = errors.New("lists: member limit reached")
 	ErrProtected   = errors.New("lists: protected account not followed")
@@ -255,7 +255,7 @@ type ListMembers struct {
 	PinnedByViewer bool
 }
 
-// Reader is the only way another module reads a list (ADR-0030 D1; timeline uses it). Every method applies the D3
+// Reader is the only way another module reads a list (timeline uses it). Every method applies the D3
 // visibility rules for viewer and answers ErrNotFound (one sentinel, every cause) when viewer may not see the list.
 // *service implements it; apiserver passes `listsSvc.(lists.Reader)`.
 type Reader interface {

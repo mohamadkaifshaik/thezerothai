@@ -1,4 +1,4 @@
-// purge.go implements graph.Eraser (ADR-0008 D10): the resumable delete cascade for one user's social graph.
+// purge.go implements graph.Eraser: the resumable delete cascade for one user's social graph.
 // One PurgeUser call does one bounded unit of work (one atomic batch of <= 500 ops) and returns the next
 // checkpoint; callers loop until done (opsctl purge-graph today, the account-lifecycle job later).
 //

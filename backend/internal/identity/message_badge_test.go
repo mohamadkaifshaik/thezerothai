@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// fakeBadge is a MessageBadge fake (ADR-0027 D10).
+// fakeBadge is a MessageBadge fake.
 type fakeBadge struct {
 	n     int64
 	err   error

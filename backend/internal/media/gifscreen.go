@@ -17,7 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
 )
 
-// GIF screening glue (ADR-0029 D11): the per-instance semaphore, the object read, the deadlines, the panic
+// GIF screening glue: the per-instance semaphore, the object read, the deadlines, the panic
 // recover and the gif_screen log line around the pure sampler in gifscan.go.
 //
 // Worst-case memory, per instance, whatever the request concurrency (the semaphore admits one GIF at a time and is held
@@ -29,7 +29,7 @@ import (
 // which max-instances 3 and the 3-uid allowlist make unreachable at Stage 0. A refused bomb never allocates more
 // than the frame list (one small struct per frame, at most GIF_MAX_FRAMES).
 
-// Default guard values (ADR-0029 D11); Deps zero values mean these.
+// Default guard values; Deps zero values mean these.
 const (
 	defaultGifMaxFrames     = 300
 	defaultGifMaxFrameArea  = int64(50_000_000)

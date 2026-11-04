@@ -20,7 +20,7 @@ enum HomeTabKind {
   };
 }
 
-/// One pinned Home tab after the fixed Following tab (ADR-0030 D6): the
+/// One pinned Home tab after the fixed Following tab: the
 /// descriptor `HomeScreen` feeds to its tab scaffold.
 ///
 /// [title] is the server's (empty for another user's list); the label to show

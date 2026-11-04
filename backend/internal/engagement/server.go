@@ -31,16 +31,16 @@ type Server struct {
 // ServerOption customises NewServer.
 type ServerOption func(*Server)
 
-// WithBookmarks supplies the bookmark service behind AddBookmark and RemoveBookmark (ADR-0023). Without it both answer
+// WithBookmarks supplies the bookmark service behind AddBookmark and RemoveBookmark. Without it both answer
 // Unimplemented after the flag gate.
 func WithBookmarks(b Bookmarks) ServerOption { return func(s *Server) { s.bookmarks = b } }
 
-// WithLikesList supplies the likes-list service behind ListLikedPosts (ADR-0024 D6), overriding the default: NewServer
+// WithLikesList supplies the likes-list service behind ListLikedPosts, overriding the default: NewServer
 // already uses svc when it implements LikesList (the Module does), so apiserver needs no extra wiring. Without either,
 // ListLikedPosts answers Unimplemented after the flag gate.
 func WithLikesList(l LikesList) ServerOption { return func(s *Server) { s.likes = l } }
 
-// WithPolls supplies the poll service behind VotePoll (ADR-0029 D6), overriding the default: NewServer already uses svc when it
+// WithPolls supplies the poll service behind VotePoll, overriding the default: NewServer already uses svc when it
 // implements Polls (the Module does). Without either, VotePoll answers Unimplemented after the flag gate.
 func WithPolls(p Polls) ServerOption { return func(s *Server) { s.polls = p } }
 

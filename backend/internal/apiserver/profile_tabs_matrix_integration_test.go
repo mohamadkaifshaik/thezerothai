@@ -2,7 +2,7 @@
 
 package apiserver
 
-// GetUserTimeline tabs MEDIA and REPOSTS (ADR-0024 D5) over the real Build chain on the emulators. The cells the
+// GetUserTimeline tabs MEDIA and REPOSTS over the real Build chain on the emulators. The cells the
 // chain tests (profile_tabs_integration_test.go) leave empty:
 //   - the whole token matrix: every spelling of every effective tab issuing a page token and a since token, and every
 //     spelling consuming it; only a spelling that resolves to the SAME effective tab opens it, every other pair is
@@ -11,7 +11,7 @@ package apiserver
 //   - an unknown tab number is VALIDATION field=tab at 0 reads, flag on or off;
 //   - NOT_FOUND for a missing, SUSPENDED, DELETING, blocking and blocking-with-overflowed-blockedBy author is byte for byte
 //     GetProfile's answer on the wire, for GetUserTimeline MEDIA and REPOSTS and for GetProfileRelationship;
-//   - the ADR-0010 D6 / ADR-0018 D13 drop matrix on Reposts and Media: embedded author blocked, blocking, muted, and the
+//   - the drop matrix on Reposts and Media: embedded author blocked, blocking, muted, and the
 //     viewer's blockedBy overflow failing closed, while a blocker or muter of the AUTHOR still gets the posts;
 //   - deleted and taken-down rows leaving a tab, and removed_ids on a refresh.
 
@@ -385,11 +385,11 @@ func w320SeedRepostWorld(t *testing.T, w *w320Chain) w320RepostWorld {
 	return x
 }
 
-// TestW320_TabDropMatrixOnRepostsAndMedia: ADR-0024 D5 + ADR-0018 D13 on the two new tabs. A REPOST (Reposts tab) or QUOTE
+// TestW320_TabDropMatrixOnRepostsAndMedia: the drop rules on the two new tabs. A REPOST (Reposts tab) or QUOTE
 // (Media tab, with images) is dropped when the author of the post it copies is blocked by the viewer, blocks the viewer or
 // is muted by the viewer; the copy of an unrelated author stays. A viewer whose blockedBy overflowed fails closed for
 // every foreign copy; the author's own view keeps everything. A viewer who blocks or mutes the AUTHOR still gets the
-// posts. Cold budget stays inside the ADR-0024 ceiling (24 at page 20) in every row.
+// posts. Cold budget stays inside the ceiling (24 at page 20) in every row.
 func TestW320_TabDropMatrixOnRepostsAndMedia(t *testing.T) {
 	ctx := context.Background()
 	w := newW320Chain(t, w320TabsOn)

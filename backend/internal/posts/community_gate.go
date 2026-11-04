@@ -17,7 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 )
 
-// CommunityGate is the posting gate of ADR-0031 D5 (A2), declared here by its consumer and implemented by the communities module:
+// CommunityGate is the posting gate, declared here by its consumer and implemented by the communities module:
 // posts never imports communities. Every method returns an already-shaped *apierr.Error for a refusal, which Create passes through.
 //
 // Create runs it in this order: the protected-caller check (Create itself, 0 reads), Admit (before the transaction), then inside
@@ -36,7 +36,7 @@ type CommunityGate interface {
 	// day): RATE_LIMITED limit=community_posts_per_community_daily when spent. Memory only, 0 reads.
 	AllowPost(ctx context.Context, uid, cid string) error
 
-	// CanReply is the members-only reply rule (ADR-0031 D5, F8), run by Create for a reply whose parent carries a
+	// CanReply is the members-only reply rule, run by Create for a reply whose parent carries a
 	// conversationCommunityId. It checks the community status from the 60 s cache (SUSPENDED or missing is the one NOT_FOUND, ARCHIVED is
 	// community_archived) and then the caller's member doc from the 60 s cache: not JOINED, and BANNED, is FORBIDDEN reason=not_member.
 	// +2 reads cold, +0 warm; staleness bound 60 s, so a ban or leave on another instance reaches this path within a minute. 0 writes.
@@ -46,7 +46,7 @@ type CommunityGate interface {
 	IsMember(ctx context.Context, uid, cid string) (bool, error)
 }
 
-// Gate outcomes on the request line (`community_gate`, ADR-0031 D13): enums only.
+// Gate outcomes on the request line (`community_gate`): enums only.
 const (
 	gateAdmitted  = "admitted"
 	gateProtected = "rejected:protected"
@@ -62,11 +62,11 @@ const (
 	replyGateError     = "error"
 )
 
-// zeroPostID is the all-zero sentinel id (ADR-0010 D13): the timeline's settle watermark is a position (W, zeroID).
+// zeroPostID is the all-zero sentinel id: the timeline's settle watermark is a position (W, zeroID).
 const zeroPostID = "0000000000000000000"
 
-// communityBounds are the id bounds a Window puts on `communityId == C ORDER BY __name__ DESC` (ADR-0031 D3). Ids are fixed-width
-// 19-digit decimals (ADR-0010 D18), so id order equals (createdAt, id) order. Zero values mean "no bound".
+// communityBounds are the id bounds a Window puts on `communityId == C ORDER BY __name__ DESC`. Ids are fixed-width
+// 19-digit decimals, so id order equals (createdAt, id) order. Zero values mean "no bound".
 type communityBounds struct {
 	// startAfter resumes strictly older than this id (Window.Before).
 	startAfter string
@@ -92,12 +92,12 @@ func communityBoundsOf(w Window) communityBounds {
 	return b
 }
 
-// SetCommunityGate wires the gate of CreatePost into a community (ADR-0031 D5). Like SetRepostLinks it is set once at startup, before
+// SetCommunityGate wires the gate of CreatePost into a community. Like SetRepostLinks it is set once at startup, before
 // ListenAndServe, because communities is built after posts. Without it a set community_id stays FEATURE_DISABLED feature=communities
 // (fail closed: never an ordinary post).
 func (s *service) SetCommunityGate(g CommunityGate) { s.community = g }
 
-// ByCommunity implements Reader (ADR-0031 D3). Reads: len(result), minimum 1.
+// ByCommunity implements Reader. Reads: len(result), minimum 1.
 func (s *service) ByCommunity(ctx context.Context, cid string, w Window, limit int) ([]*Post, error) {
 	if cid == "" {
 		return nil, fmt.Errorf("posts: ByCommunity needs a community id")
@@ -114,7 +114,7 @@ func (s *service) ByCommunity(ctx context.Context, cid string, w Window, limit i
 	return out, nil
 }
 
-// validateCommunityShape is the 0-read VALIDATION part of a set community_id (ADR-0031 D5; proto CreatePost comment): 19 digits, not
+// validateCommunityShape is the 0-read VALIDATION part of a set community_id (proto CreatePost comment): 19 digits, not
 // with a reply. (reply_policy is checked where the policy is parsed.)
 func validateCommunityShape(in CreateInput) error {
 	if in.CommunityID == "" {
@@ -175,9 +175,9 @@ func noteCommunityGateError(ctx context.Context, err error) {
 	}
 }
 
-// gateReply is the members-only reply check (ADR-0031 D5, F8) for a reply whose parent is in a community conversation. It keys on the
+// gateReply is the members-only reply check for a reply whose parent is in a community conversation. It keys on the
 // parent's conversationCommunityId, which every reply inherits, so a reply to a reply never loads the root and a hidden root (no
-// communityId) stays members-only. It runs after the reply-policy rules, so blocks and ADR-0021 refusals answer first. Reads: +2 cold
+// communityId) stays members-only. It runs after the reply-policy rules, so blocks refusals answer first. Reads: +2 cold
 // (community status, member doc, both 60 s caches), +0 warm; a conversation outside a community, communities globally off and an
 // unwired gate skip it with 0 reads. A refusal writes nothing.
 func (s *service) gateReply(ctx context.Context, uid string, parent *Post, off bool) error {
@@ -208,8 +208,8 @@ func isForbiddenReason(err error) bool {
 	return errors.As(err, &ae) && ae.Reason == commonv1.ErrorReason_ERROR_REASON_FORBIDDEN
 }
 
-// CommunityReplyPermission is the viewer hint for a post whose conversation carries a conversationCommunityId (ADR-0031 A7, no new enum
-// value): NOT_ALLOWED for a viewer who is not a JOINED member, ALLOWED for a member. known is false (nothing to say) for a post outside a
+// CommunityReplyPermission is the viewer hint for a post whose conversation carries a conversationCommunityId (no new enum value):
+// NOT_ALLOWED for a viewer who is not a JOINED member, ALLOWED for a member. known is false (nothing to say) for a post outside a
 // community conversation or when the lookup fails, and the caller keeps the answer it had. +1 read cold (the member doc), +0 warm. A
 // hidden root keeps its conversation members-only. Implements CommunityReplyHinter; the caller never asks while communities is globally off.
 func (s *service) CommunityReplyPermission(ctx context.Context, viewer string, p *Post) (perm postsv1.ReplyPermission, known bool) {

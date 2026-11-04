@@ -16,7 +16,7 @@ void _closeWhenSettled(RelationshipCubit cubit) {
 }
 
 /// Whether a post of this [kind] can be pinned: the server accepts the
-/// caller's own POST, QUOTE or REPLY, never a REPOST (ADR-0024 D3).
+/// caller's own POST, QUOTE or REPLY, never a REPOST.
 bool _isPinnable(PostKind kind) =>
     kind == PostKind.POST_KIND_POST ||
     kind == PostKind.POST_KIND_QUOTE ||

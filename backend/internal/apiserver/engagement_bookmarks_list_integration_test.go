@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ListBookmarks (ADR-0023 D2, D6) over the real Build chain on the emulators: paging (25 bookmarks give
+// ListBookmarks over the real Build chain on the emulators: paging (25 bookmarks give
 // 20 + a token, then 5 + ""), the clamp, the caller-bound token, the drop rules, the lazy prune and the budget table
 // of the RPC doc comment (43 reads at page 20, 103 at page 50, 2 for an empty list), asserted with budgettest on the
 // logged fs_reads / fs_writes / fs_deletes of the request line.
@@ -125,7 +125,7 @@ func TestListBookmarksChain_PagingAndColdBudget(t *testing.T) {
 	if b0.GetPost().GetLikedByViewer() || b0.GetPost().GetRepostedByViewer() {
 		t.Error("like/repost flags leaked with FEATURE_ENGAGEMENT off")
 	}
-	// Every row is a bookmark of the caller, so every row says so (ADR-0023 D3), from the userLikes read the page
+	// Every row is a bookmark of the caller, so every row says so, from the userLikes read the page
 	// already made (the 43-read budget above is unchanged).
 	for i, row := range p1.GetBookmarks() {
 		if !row.GetPost().GetBookmarkedByViewer() {

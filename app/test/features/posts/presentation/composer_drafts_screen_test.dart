@@ -45,7 +45,7 @@ class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// The composer's side of Drafts (ADR-0029): the Drafts header button,
+/// The composer's side of Drafts: the Drafts header button,
 /// autosave, "Save post?", opening a saved draft under the same id, and the
 /// `drafts` flag gate (off: no button, the old prompt).
 void main() {

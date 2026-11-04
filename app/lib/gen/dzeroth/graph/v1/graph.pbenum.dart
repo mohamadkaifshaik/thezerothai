@@ -22,7 +22,7 @@ class FollowState extends $pb.ProtobufEnum {
   static const FollowState FOLLOW_STATE_FOLLOWING =
       FollowState._(2, _omitEnumNames ? '' : 'FOLLOW_STATE_FOLLOWING');
 
-  /// A follow request to a protected account is pending (ADR-0025): the target is in the caller's requested[].
+  /// A follow request to a protected account is pending: the target is in the caller's requested[].
   /// Unfollow withdraws it.
   static const FollowState FOLLOW_STATE_REQUESTED =
       FollowState._(3, _omitEnumNames ? '' : 'FOLLOW_STATE_REQUESTED');

@@ -321,7 +321,7 @@ fi
 expect "authenticated smoke tests" 0 "$here/smoke-test.sh"
 expect "bookmarks smoke tests (dev-only, W2-16)" 0 "$here/bookmarks-smoke-test.sh"
 
-# --- check-until-dates.sh (ADR-0022): a time-boxed marker must not outlive its date
+# --- check-until-dates.sh: a time-boxed marker must not outlive its date
 U="$p/check-until-dates.sh"
 ud="$tmp/until"
 mkdir -p "$ud/envs/prod" "$ud/.terraform"

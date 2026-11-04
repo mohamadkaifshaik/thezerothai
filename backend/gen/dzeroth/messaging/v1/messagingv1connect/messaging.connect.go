@@ -2,25 +2,25 @@
 //
 // Source: dzeroth/messaging/v1/messaging.proto
 
-// Direct messages v1: 1:1, text only, pull plus push, no realtime channel, no end-to-end encryption (ADR-0027).
+// Direct messages v1: 1:1, text only, pull plus push, no realtime channel, no end-to-end encryption.
 // Owner module: backend/internal/messaging. Collections owned: conversations/{convId}, its messages/{msgId}
 // subcollection, and the per-user entries users/{uid}/dmInbox/{convId} and users/{uid}/dmRequests/{convId}. Only
-// messaging.Service reads or writes them; firestore.rules stay deny-all to clients (ADR-0027 D1, D11).
+// messaging.Service reads or writes them; firestore.rules stay deny-all to clients.
 //
-// Who can message whom (ADR-0027 D4, founder decision F2): mutual follows land in the recipient's Inbox; everyone else
+// Who can message whom (founder decision F2): mutual follows land in the recipient's Inbox; everyone else
 // lands in the recipient's Message requests (folder REQUESTS) until the recipient accepts or replies. Muted senders
 // are delivered silently (no push, no unread increment; F9). Mentions and hashtags in a message are plain text: no
-// notification, no tap-through (ADR-0027 D3). Messages are NOT end-to-end encrypted: the server holds the text.
+// notification, no tap-through. Messages are NOT end-to-end encrypted: the server holds the text.
 //
-// Ids (ADR-0027 D2): conversation_id and message id are opaque 32-character lower-case hex strings, NOT Snowflake
+// Ids: conversation_id and message id are opaque 32-character lower-case hex strings, NOT Snowflake
 // ids. A conversation id is derived from the participant pair and is therefore guessable: authorization never relies
 // on it. Every RPC that takes a conversation_id checks that the caller is a participant against the conversation doc.
 // A conversation_id that is not 32 lower-case hex => INVALID_ARGUMENT + VALIDATION, metadata["field"] =
 // "conversation_id", 0 reads. An unknown id, a conversation the caller is not a participant of and a deleted
-// conversation answer ONE byte-identical NOT_FOUND after <= 2 reads (ADR-0027 D11). No response carries a sender uid:
+// conversation answer ONE byte-identical NOT_FOUND after <= 2 reads. No response carries a sender uid:
 // a Message has from_self, and the peer is Conversation.peer.
 //
-// Flag FEATURE_MESSAGING (wire name "messaging", default off; ADR-0027 D6, founder decision F6):
+// Flag FEATURE_MESSAGING (wire name "messaging", default off; founder decision F6):
 //   - SendMessage and AcceptMessageRequest need it on for the caller (else FAILED_PRECONDITION + FEATURE_DISABLED,
 //     metadata["feature"] = "messaging", 0 reads) AND for the recipient (else ERROR_REASON_CANNOT_MESSAGE, below).
 //   - ListConversations, ListMessages, MarkConversationRead and DeleteConversation need it only NOT GLOBALLY OFF, so a
@@ -38,11 +38,10 @@
 //     deleted the account. It is no oracle beyond what GetProfile's NOT_FOUND already reveals.
 //   - FAILED_PRECONDITION + ERROR_REASON_LIMIT_REACHED, metadata["limit"] (limit_name) = "request_unanswered" (3 messages
 //     until the recipient accepts) or "dm_new_daily" (new conversations per IST day).
-//   - RESOURCE_EXHAUSTED + RATE_LIMITED (per-minute buckets, the "messages_daily" cap and the per-uid daily read budget,
-//     ADR-0010 D5); honour retry_after.
+//   - RESOURCE_EXHAUSTED + RATE_LIMITED (per-minute buckets, the "messages_daily" cap and the per-uid daily read budget); honour retry_after.
 //   - DEGRADED_MODE=readonly refuses the four mutations through the existing interceptor; the two lists still answer.
 //
-// Token contract for both lists (the ADR-0017 notifications codec, ADR-0027 D7; all tokens opaque):
+// Token contract for both lists (the notifications codec; all tokens opaque):
 //   - First open: send neither token. Refresh (open, resume, a push received, a thread poll): send since_token from the
 //     last response. Scroll older: send page_token (= next_page_token). Sending both tokens is INVALID_ARGUMENT.
 //   - since_token trails the newest item by a 5 s settle window, so a refresh may return items the client already has:
@@ -54,12 +53,14 @@
 //   - A ListMessages since_token is also retired when the thread changed under the client (a moderator removed a
 //     message, or the other participant deleted the account): the answer is the very same INVALID_ARGUMENT +
 //     VALIDATION, metadata["field"] = "since_token", after at most 2 reads (the interceptor and the conversation; no
-//     message query). The handling is unchanged: drop the token, drop the cached thread and call once with no token
-//     (ADR-0027 note 2026-10-29). A ListConversations since refresh returns an entry again when its preview changed that
-//     way (a removed message, an erased peer); replace the cached row by id, the order does not change.
+//     message query). The handling is unchanged: drop the token, drop the cached thread and call once with no token.
 //
-// Firestore budgets below are ADR-0027 "Cost impact" (per RPC). Worst-case reads include the account-status
-// interceptor; every call is charged to the per-uid daily read budget (ADR-0010 D5, 2,000 reads/uid/day per instance).
+// A ListConversations since refresh returns an entry again when its preview changed that
+//
+//	way (a removed message, an erased peer); replace the cached row by id, the order does not change.
+//
+// Firestore budgets below are per RPC. Worst-case reads include the account-status
+// interceptor; every call is charged to the per-uid daily read budget (2,000 reads/uid/day per instance).
 package messagingv1connect
 
 import (
@@ -122,16 +123,16 @@ type MessagingServiceClient interface {
 	// The caller needs a verified email (FAILED_PRECONDITION EMAIL_NOT_VERIFIED, 0 reads), as for posts.
 	// Refusals, all CANNOT_MESSAGE with identical bytes: either side blocks the other (the caller's graph
 	// snapshot, cached 60 s, and the recipient's graph read inside the send transaction, so the recipient's Block applies
-	// at once on every instance; ADR-0027 note),
+	// at once on every instance),
 	// the recipient is not ACTIVE or has messaging off, the conversation is gone (the peer deleted the account).
 	// Routing: a new conversation is ACCEPTED when the two follow each other, else REQUEST (the recipient's entry goes
 	// to REQUESTS). While REQUEST, the requester may send MESSAGES_REQUEST_MAX_UNANSWERED (3) messages, then
 	// LIMIT_REACHED "request_unanswered"; a message from the recipient of the request accepts it (as on X). The
 	// recipient muted the caller => delivered silently (no unread increment, no push).
-	// Idempotency (ADR-0027 D2, the ADR-0021 bend of rules 1 and 4): the message id is derived from (caller,
+	// Idempotency (the bend of rules 1 and 4): the message id is derived from (caller,
 	// idempotency_key) and Created in the send transaction, so a retry returns the stored message with 0 writes; the
 	// same key with a different body => VALIDATION "idempotency_key". Clients dedupe by message id.
-	// Caps (ADR-0027 D13): RATE_LIMIT_MESSAGES_SEND_PER_MIN 20/min/uid per instance (60/min at 3 instances);
+	// Caps: RATE_LIMIT_MESSAGES_SEND_PER_MIN 20/min/uid per instance (60/min at 3 instances);
 	// MESSAGES_SENDS_PER_DAY 300 (50 for new accounts) per instance (<= 900/day at 3) => RATE_LIMITED metadata["limit"]
 	// = "messages_daily"; QUOTA_DM_NEW_CONVERSATIONS_PER_DAY 20 new conversations per IST day (5 for new accounts),
 	// exact (quotas/{uid}.dmNew, in the transaction) => LIMIT_REACHED "dm_new_daily"; MESSAGES_REQUEST_MAX_UNANSWERED 3,
@@ -139,7 +140,7 @@ type MessagingServiceClient interface {
 	// Push: after the commit one `message` event through notifications.Emitter (one Pub/Sub publish, 0 Firestore on
 	// this path), only when the recipient's side is accepted and not silent; a request never pushes. The push is
 	// generic ("New message") and carries only the conversation id (NOTIFICATION_TYPE_MESSAGE).
-	// Firestore (ADR-0027 Cost impact): accepted conversation reads 5 worst cold (interceptor, caller graph, recipient
+	// Firestore: accepted conversation reads 5 worst cold (interceptor, caller graph, recipient
 	// users via the directory, conversation and recipient graph in the transaction), planning 3.5; writes 3 (message,
 	// 2 entries), 4 while REQUEST (+ requestCount). New conversation reads 7 worst (+ the recipient's users doc in the transaction, quotas),
 	// writes 5 (message, conversation, 2 entries, quotas.dmNew). Replay +1 read (the stored message), 0 writes.
@@ -169,7 +170,7 @@ type MessagingServiceClient interface {
 	// gone), and can_reply is false.
 	// A since refresh whose page was full returns gap_page_token: keep the cache and fill the gap with page_token =
 	// gap_page_token (bounded below by the old since_token).
-	// Client polling (ADR-0027 D7): only on a visible thread; web 15 s while hot, Android 30 s while hot, 45 s while
+	// Client polling: only on a visible thread; web 15 s while hot, Android 30 s while hot, 45 s while
 	// quiet, stopped after 5 min idle or when hidden; a push for the conversation triggers an immediate pull; a
 	// RATE_LIMITED answer pauses polling.
 	// Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),
@@ -307,16 +308,16 @@ type MessagingServiceHandler interface {
 	// The caller needs a verified email (FAILED_PRECONDITION EMAIL_NOT_VERIFIED, 0 reads), as for posts.
 	// Refusals, all CANNOT_MESSAGE with identical bytes: either side blocks the other (the caller's graph
 	// snapshot, cached 60 s, and the recipient's graph read inside the send transaction, so the recipient's Block applies
-	// at once on every instance; ADR-0027 note),
+	// at once on every instance),
 	// the recipient is not ACTIVE or has messaging off, the conversation is gone (the peer deleted the account).
 	// Routing: a new conversation is ACCEPTED when the two follow each other, else REQUEST (the recipient's entry goes
 	// to REQUESTS). While REQUEST, the requester may send MESSAGES_REQUEST_MAX_UNANSWERED (3) messages, then
 	// LIMIT_REACHED "request_unanswered"; a message from the recipient of the request accepts it (as on X). The
 	// recipient muted the caller => delivered silently (no unread increment, no push).
-	// Idempotency (ADR-0027 D2, the ADR-0021 bend of rules 1 and 4): the message id is derived from (caller,
+	// Idempotency (the bend of rules 1 and 4): the message id is derived from (caller,
 	// idempotency_key) and Created in the send transaction, so a retry returns the stored message with 0 writes; the
 	// same key with a different body => VALIDATION "idempotency_key". Clients dedupe by message id.
-	// Caps (ADR-0027 D13): RATE_LIMIT_MESSAGES_SEND_PER_MIN 20/min/uid per instance (60/min at 3 instances);
+	// Caps: RATE_LIMIT_MESSAGES_SEND_PER_MIN 20/min/uid per instance (60/min at 3 instances);
 	// MESSAGES_SENDS_PER_DAY 300 (50 for new accounts) per instance (<= 900/day at 3) => RATE_LIMITED metadata["limit"]
 	// = "messages_daily"; QUOTA_DM_NEW_CONVERSATIONS_PER_DAY 20 new conversations per IST day (5 for new accounts),
 	// exact (quotas/{uid}.dmNew, in the transaction) => LIMIT_REACHED "dm_new_daily"; MESSAGES_REQUEST_MAX_UNANSWERED 3,
@@ -324,7 +325,7 @@ type MessagingServiceHandler interface {
 	// Push: after the commit one `message` event through notifications.Emitter (one Pub/Sub publish, 0 Firestore on
 	// this path), only when the recipient's side is accepted and not silent; a request never pushes. The push is
 	// generic ("New message") and carries only the conversation id (NOTIFICATION_TYPE_MESSAGE).
-	// Firestore (ADR-0027 Cost impact): accepted conversation reads 5 worst cold (interceptor, caller graph, recipient
+	// Firestore: accepted conversation reads 5 worst cold (interceptor, caller graph, recipient
 	// users via the directory, conversation and recipient graph in the transaction), planning 3.5; writes 3 (message,
 	// 2 entries), 4 while REQUEST (+ requestCount). New conversation reads 7 worst (+ the recipient's users doc in the transaction, quotas),
 	// writes 5 (message, conversation, 2 entries, quotas.dmNew). Replay +1 read (the stored message), 0 writes.
@@ -354,7 +355,7 @@ type MessagingServiceHandler interface {
 	// gone), and can_reply is false.
 	// A since refresh whose page was full returns gap_page_token: keep the cache and fill the gap with page_token =
 	// gap_page_token (bounded below by the old since_token).
-	// Client polling (ADR-0027 D7): only on a visible thread; web 15 s while hot, Android 30 s while hot, 45 s while
+	// Client polling: only on a visible thread; web 15 s while hot, Android 30 s while hot, 45 s while
 	// quiet, stopped after 5 min idle or when hidden; a push for the conversation triggers an immediate pull; a
 	// RATE_LIMITED answer pauses polling.
 	// Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),

@@ -2,7 +2,7 @@
 
 package media
 
-// The banner moderation path (ADR-0024 D1) against the REAL Firestore repo on the emulator, with the fake object
+// The banner moderation path against the REAL Firestore repo on the emulator, with the fake object
 // store and the scripted SafeSearch of the unit tests. The cells that banner_test.go (fakes) and
 // TestIntegration_BannerBudgetsAndResolver / _BannerErasureAndExport (real repo, happy path) leave open:
 //   - the Racy rule table on each of the two images, for a BANNER, an AVATAR and a POST, with the Vision calls made and
@@ -185,7 +185,7 @@ func TestW320Banner_RacyRuleAndUnitsOnTheRealRepo(t *testing.T) {
 	}
 }
 
-// TestW320Banner_VisionCapPathsOnTheRealCounter: the exhausted path of ADR-0024 D1 on the real monthly counter doc. A
+// TestW320Banner_VisionCapPathsOnTheRealCounter: the exhausted path on the real monthly counter doc. A
 // banner needs 2 units, so with 1 unit left it is already "exhausted" (the avatar next to it still fits). Under the
 // established policy an account of 7 days or more publishes UNSCREENED (the counter does not move, SafeSearch is not
 // called) and a younger one is REJECTED with the capacity reason; under the reject policy nobody publishes unscreened.

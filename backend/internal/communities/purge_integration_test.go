@@ -64,7 +64,7 @@ func (e *env) requireNoTrace(t *testing.T, uid string) {
 }
 
 func TestEraser_ReferenceAccountMatchesTheADRBudget(t *testing.T) {
-	// ADR-0031 Cost impact: the reference account (2 joined) = 5 reads, 2 writes, 3 deletes.
+	// Cost: the reference account (2 joined) = 5 reads, 2 writes, 3 deletes.
 	e := newEnv(t, 100)
 	a, b := "0000000000000000101", "0000000000000000102"
 	for _, id := range []string{a, b} {

@@ -134,7 +134,7 @@ func TestIntegration_AddActorFoldsAndMovesCreatedAt(t *testing.T) {
 }
 
 // TestIntegration_AddActorCapsTheHotDoc: a viral post's collapsed row keeps the last MaxActorIDs actors and a
-// running count (ADR-0017 D4 amendment), so the document does not grow without bound.
+// running count, so the document does not grow without bound.
 func TestIntegration_AddActorCapsTheHotDoc(t *testing.T) {
 	repo := NewFirestoreRepo(newTestClient(t))
 	_, err := repo.Create(context.Background(), "bob", row("like_hot", TypeLike, "a000", t0))
@@ -469,7 +469,7 @@ func TestIntegration_ExportCarriesNoTokens(t *testing.T) {
 }
 
 // TestIntegration_FanoutBudgetsAndIdempotency runs the handler's Deliver against the real repo: the per-recipient
-// Firestore cost documented in ADR-0017 (1 write per new row, 1 read for a replay, devices <= 5 reads).
+// Firestore cost (1 write per new row, 1 read for a replay, devices <= 5 reads).
 func TestIntegration_FanoutBudgetsAndIdempotency(t *testing.T) {
 	client := newTestClient(t)
 	repo := NewFirestoreRepo(client)
@@ -623,9 +623,9 @@ func TestIntegration_PurgeStep2PersistentRaceEndsInAnError(t *testing.T) {
 	}
 }
 
-// TestIntegration_FollowRequestTypesBudgetsAndErasure (ADR-0025 D10): a request and an accept cost about 2
+// TestIntegration_FollowRequestTypesBudgetsAndErasure: a request and an accept cost about 2
 // reads per recipient and 1 write, a re-request is write-free, a suppressed protected-actor row costs 0 writes, and
-// the actorIds query of the ADR-0017 D10 eraser finds the request row when the requester is deleted.
+// the actorIds query of the eraser finds the request row when the requester is deleted.
 func TestIntegration_FollowRequestTypesBudgetsAndErasure(t *testing.T) {
 	client := newTestClient(t)
 	repo := NewFirestoreRepo(client).WithDirectory(newDirectory("dave"))
@@ -682,7 +682,7 @@ func TestIntegration_FollowRequestTypesBudgetsAndErasure(t *testing.T) {
 	}
 }
 
-// TestIntegration_MessagePushIsPushOnlyAndBudgeted (ADR-0027 D9): a message event writes nothing (no row, no
+// TestIntegration_MessagePushIsPushOnlyAndBudgeted: a message event writes nothing (no row, no
 // badge move), keeps the fan-out's two fresh profile reads, reads the devices, and sends one push per device whose
 // data holds the type and the conversation id only. The own limiter bucket throttles the 21st push inside the hour.
 func TestIntegration_MessagePushIsPushOnlyAndBudgeted(t *testing.T) {

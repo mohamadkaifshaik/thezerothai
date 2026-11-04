@@ -25,7 +25,7 @@ func validateUserID(id string) error {
 	return nil
 }
 
-// social is the owner's graph snapshot, cache-first (60 s staleness bound, ADR-0008 D8). A missing Graph is a wiring bug and
+// social is the owner's graph snapshot, cache-first (60 s staleness bound). A missing Graph is a wiring bug and
 // fails closed rather than skipping the block checks.
 func (s *service) social(ctx context.Context, uid string) (graph.Snapshot, error) {
 	if s.d.Graph == nil {
@@ -38,7 +38,7 @@ func (s *service) social(ctx context.Context, uid string) (graph.Snapshot, error
 	return snap, nil
 }
 
-// targetVerdict decides whether uid may add target, from cache-first reads only (ADR-0030 D4). nil = allowed; ErrNotFound = the
+// targetVerdict decides whether uid may add target, from cache-first reads only. nil = allowed; ErrNotFound = the
 // target is missing, not ACTIVE, blocks the owner or is blocked by the owner (one answer for every cause: no block oracle);
 // ErrProtected = a protected account the owner does not follow. Adding yourself is always allowed. When the owner\'s blockedBy
 // overflowed it cannot be trusted alone, so the target\'s own graph is consulted too (fail closed, as Follow).
@@ -67,7 +67,7 @@ func (s *service) targetVerdict(ctx context.Context, uid, target string, owner g
 	return nil, nil
 }
 
-// AddMember implements Service (ADR-0030 D4, D7). Validation first (0 reads), then the owner\'s and the target\'s profiles
+// AddMember implements Service. Validation first (0 reads), then the owner\'s and the target\'s profiles
 // (one cache-first call) and the owner\'s graph, then one repository transaction that applies the verdict after the idempotency
 // lookup. The instance cache is filled from the written list.
 func (s *service) AddMember(ctx context.Context, uid, key, listID, userID string) (View, error) {

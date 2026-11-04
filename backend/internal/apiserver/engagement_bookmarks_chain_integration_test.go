@@ -2,7 +2,7 @@
 
 package apiserver
 
-// AddBookmark / RemoveBookmark (ADR-0023) over the real Build chain on the emulators: the transaction's
+// AddBookmark / RemoveBookmark over the real Build chain on the emulators: the transaction's
 // documents, replay, the cap and the quota, visibility (byte-identical to GetPost), REPOST resolution, and the
 // budget table of the RPC doc comments (Add 7 reads / 4 writes, Remove 2 reads / 2 writes / 1 delete), asserted with
 // budgettest on the logged fs_reads / fs_writes / fs_deletes of the request line.
@@ -219,7 +219,7 @@ func TestBookmarksChain_AddRemoveLifecycleAndBudget(t *testing.T) {
 	if err != nil || gp.Msg.GetPost().GetLikedByViewer() || gp.Msg.GetPost().GetRepostedByViewer() {
 		t.Fatalf("GetPost with engagement off = %v, %v: liked/reposted flags must stay false", gp, err)
 	}
-	// ... but the bookmark itself is on the wire (bookmarks-only hydration, ADR-0023 D3/D5), only for the caller who
+	// ... but the bookmark itself is on the wire (bookmarks-only hydration), only for the caller who
 	// made it: the author sees false for the same post.
 	if !gp.Msg.GetPost().GetBookmarkedByViewer() {
 		t.Fatalf("GetPost bookmarked_by_viewer = false for the caller's bookmark, want true: %v", gp)

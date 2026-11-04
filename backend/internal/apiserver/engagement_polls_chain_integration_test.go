@@ -4,7 +4,7 @@ package apiserver
 
 // VotePoll over the real Build chain (Firestore and Auth emulators): the wire contract the poll card maps by reason, the
 // vote batch, replay, ALREADY_VOTED, concurrency, the new-account cap, the byte-identical NOT_FOUND, the flag gate and the budgets
-// (logged fs_reads / fs_writes of the request line, ADR-0029 Cost impact). The emulator serialises writes, so the concurrency here is
+// (logged fs_reads / fs_writes of the request line). The emulator serialises writes, so the concurrency here is
 // not proof for production OPTIMISTIC concurrency (runs a dev smoke).
 
 import (
@@ -86,7 +86,7 @@ func (p *pollChain) vote(u testUser, key, postID string, choice int32) (*postsv1
 	return p.voteExpecting(u, key, postID, choice, 0)
 }
 
-// voteExpecting is vote with VotePollRequest.expected_choice (ADR-0029 Amendment 1 A2.2): 0 = no vote held, 1..4 = the held choice + 1.
+// voteExpecting is vote with VotePollRequest.expected_choice: 0 = no vote held, 1..4 = the held choice + 1.
 func (p *pollChain) voteExpecting(u testUser, key, postID string, choice, expected int32) (*postsv1.PostView, error) {
 	r, err := p.eng.VotePoll(context.Background(), authed(u.token, &engagementv1.VotePollRequest{IdempotencyKey: key, PostId: postID, ChoiceIndex: choice, ExpectedChoice: expected}))
 	if err != nil {

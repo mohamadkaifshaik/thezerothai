@@ -2,7 +2,7 @@
 
 package apiserver
 
-// (ADR-0025 D5, D7, D9, D12) through the real Build chain on the emulators, with the real protected-set loader and
+// Follow requests through the real Build chain on the emulators, with the real protected-set loader and
 // the real UpdateProfile(is_private) toggle (FEATURE_PRIVATE_ACCOUNTS on):
 //   - Follow of a protected P is REQUESTED; ListFollowRequests shows the requests newest first at the documented reads;
 //   - an unapproved viewer (a stranger, or a mere requester) gets PROTECTED_ACCOUNT on P's followers and following at 3

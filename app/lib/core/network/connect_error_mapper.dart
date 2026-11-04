@@ -7,7 +7,7 @@ import 'app_exception.dart';
 /// making a call) into a typed [AppException] the UI can branch on.
 ///
 /// Branches on `dzeroth.common.v1.ErrorDetail.reason`, never on the message
-/// text (ADR-0006 / `common.proto`).
+/// text (see `common.proto`).
 AppException mapConnectError(Object error) {
   if (error is! connect.ConnectException) {
     return NetworkException(error.toString());
@@ -57,7 +57,7 @@ AppException mapConnectError(Object error) {
       case common.ErrorReason.ERROR_REASON_HANDLE_TAKEN:
         return HandleTakenException(message);
       case common.ErrorReason.ERROR_REASON_LIMIT_REACHED:
-        // The handle cooldown names the limit under `quota`; the graph cap and the ADR-0021 scheduling limits
+        // The handle cooldown names the limit under `quota`; the graph cap and the scheduling limits
         // (`scheduled_pending`, `scheduled_window`) use `limit`.
         return LimitReachedException(
           message,
@@ -74,11 +74,11 @@ AppException mapConnectError(Object error) {
         return IdempotencyKeyReusedException(message);
       case common.ErrorReason.ERROR_REASON_ACCOUNT_RESTRICTED:
         return AccountRestrictedException(message);
-      // Added in the graph slice (ADR-0008 D5/D9): the caller blocks the
+      // Added in the graph slice: the caller blocks the
       // target (e.g. Follow) — unblock first, never auto-unblocked.
       case common.ErrorReason.ERROR_REASON_TARGET_BLOCKED:
         return TargetBlockedException(message);
-      // ADR-0008 D6: the server feature flag is off for this caller (or the
+      // The server feature flag is off for this caller (or the
       // RPC isn't built yet, e.g. follow requests). Clients hide the feature
       // and refresh GetMe.enabled_features; never retry.
       case common.ErrorReason.ERROR_REASON_FEATURE_DISABLED:
@@ -91,29 +91,29 @@ AppException mapConnectError(Object error) {
       // call. The caller re-authenticates once and retries with the same key.
       case common.ErrorReason.ERROR_REASON_REAUTH_REQUIRED:
         return ReauthRequiredException(message);
-      // ADR-0021: the reply audience policy forbids this caller. The message
+      // The reply audience policy forbids this caller. The message
       // is fixed and generic (never the server text) so it cannot reveal why.
       case common.ErrorReason.ERROR_REASON_REPLY_NOT_ALLOWED:
         final policy = detail.metadata['policy'];
         return ReplyNotAllowedException(
           policy: (policy == null || policy.isEmpty) ? null : policy,
         );
-      // ADR-0025 D14: a Repost or Quote of a protected account's post; the follower lists use the same
+      // A Repost or Quote of a protected account's post; the follower lists use the same
       // reason.
       case common.ErrorReason.ERROR_REASON_PROTECTED_ACCOUNT:
         return const ProtectedAccountException();
-      // ADR-0027 D4: one refusal for blocked either way, a recipient who is not ACTIVE or outside the messaging
+      // One refusal for blocked either way, a recipient who is not ACTIVE or outside the messaging
       // rollout, and a conversation with an erased participant. Fixed text, so it never reveals which.
       case common.ErrorReason.ERROR_REASON_CANNOT_MESSAGE:
         return const CannotMessageException();
-      // ADR-0029 D6: VotePoll refusals. Fixed text, never the server's.
+      // VotePoll refusals. Fixed text, never the server's.
       case common.ErrorReason.ERROR_REASON_POLL_CLOSED:
         return const PollClosedException();
       case common.ErrorReason.ERROR_REASON_ALREADY_VOTED:
         return AlreadyVotedException(
           choiceIndex: int.tryParse(detail.metadata['choice'] ?? ''),
         );
-      // ADR-0031 N1: keyed by `metadata["reason"]`, one fixed message per reason. An unknown reason maps to
+      // Keyed by `metadata["reason"]`, one fixed message per reason. An unknown reason maps to
       // the `unknown` value of the enum (generic text), never to AccountRestricted / ProfileRequired.
       case common.ErrorReason.ERROR_REASON_FORBIDDEN:
         return CommunityForbiddenException(
@@ -150,7 +150,7 @@ common.ErrorDetail? _findErrorDetail(connect.ConnectException error) {
 
 /// True when [error] is connect-dart's own fallback for an HTTP 403 whose body
 /// was not a Connect error (Google's front end answers an HTML page or an
-/// empty body when the public invoker is removed; ADR-0022 pause).
+/// empty body when the public invoker is removed while the service is paused).
 ///
 /// connect-dart 2.0.0 builds `ConnectException(permissionDenied, 'HTTP 403')`
 /// (no details, no cause) for that case (`ResponseValidation.validate`). A real

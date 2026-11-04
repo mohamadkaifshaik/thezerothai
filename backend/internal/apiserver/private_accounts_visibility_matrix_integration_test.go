@@ -2,10 +2,10 @@
 
 package apiserver
 
-// (ADR-0025 D4) the visibility matrix: one protected account P, ten viewer classes, every read path, on cold
+// The visibility matrix: one protected account P, ten viewer classes, every read path, on cold
 // instances through the real Build chain, the real protected-set loader and the real UpdateProfile(is_private) toggle.
 //
-// The expected cells are the ADR-0025 D4 table, written down per class below (not read off the code):
+// The expected cells are written down per class below (not read off the code):
 //   - self, an approved follower and a follower who muted P see P; a follower whose blockedBy overflowed (and who is not
 //     blocked) sees P too, at one extra read;
 //   - a requester, a stranger, a user P blocks, a user who blocked P (the edge is gone), and a user P blocks whose
@@ -14,7 +14,7 @@ package apiserver
 //   - nothing an unapproved viewer receives, on any path, contains P's post text or the id of P's post image
 //     (the leak scan; the approved viewers' GetPost body carries both, so the scan can see them).
 //
-// Cells that depend on ADR-0010 block and mute behaviour rather than on protection are asserted only where that
+// Cells that depend on block and mute behaviour rather than on protection are asserted only where that
 // behaviour is documented (GetPost shows a muted author's post: D6; a list drops it); the rest of such a class is held
 // to the leak scan. Notification fan-out and the lifecycle paths have their own files.
 
@@ -57,7 +57,7 @@ func w335aOn(c *config.Config) {
 }
 
 // tri is a matrix cell: the viewer must get it (yes), must not (no), or the cell is not asserted (na) because it rests on
-// ADR-0010 block or mute behaviour that this ticket does not own.
+// Block or mute behaviour that this ticket does not own.
 type tri int
 
 const (
@@ -80,7 +80,7 @@ type w335aWorld struct {
 	pid, img, pReply, xroot, quoteID, repostID, gone string
 }
 
-// w335aViewer is one class: who it is and what the ADR says it gets.
+// w335aViewer is one class: who it is and what the design says it gets.
 type w335aViewer struct {
 	name string
 	u    bmUser
@@ -443,7 +443,7 @@ func (w *w335aWorld) oracleParity(t *testing.T, r *w320Chain, what string, u bmU
 	}
 }
 
-// ADR-0025 D4 row "P blocks A" with A's blockedBy overflowed: the fallback read of P's blocked list refuses a viewer whose
+// Row "P blocks A" with A's blockedBy overflowed: the fallback read of P's blocked list refuses a viewer whose
 // follow edge was left behind. The same state without the block shows the post.
 func TestW335a_OverflowFallbackRefusesAStaleEdge(t *testing.T) {
 	ctx := context.Background()
@@ -472,7 +472,7 @@ func TestW335a_OverflowFallbackRefusesAStaleEdge(t *testing.T) {
 	}
 }
 
-// ADR-0025 D4 rows "P suspended" and "post taken down": an approved follower gets the deleted post's answer.
+// Rows "P suspended" and "post taken down": an approved follower gets the deleted post's answer.
 func TestW335a_SuspendedAuthorAndTakenDownPostHideFromApprovedFollowers(t *testing.T) {
 	ctx := context.Background()
 	w := newW335aWorld(t)

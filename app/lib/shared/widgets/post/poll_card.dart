@@ -9,7 +9,7 @@ import '../../format/poll_time.dart';
 /// promise secrecy of votes: in a small poll the totals can reveal a choice.
 const kPollPrivacyNote = 'Individual choices are hidden from other users';
 
-/// The poll of a post (ADR-0029): choice buttons while the viewer may
+/// The poll of a post: choice buttons while the viewer may
 /// vote, result bars once the server sent counts, and plain labels in between.
 /// Presentational: it draws a [PollDisplay] and calls [onVote] /
 /// [onSeeFinalResults]; it reads no bloc and calls no RPC (`PostPoll` wires
@@ -24,7 +24,7 @@ const kPollPrivacyNote = 'Individual choices are hidden from other users';
 /// - Results also carry the small [kPollPrivacyNote] line under the footer.
 /// - Footer: "12 votes · 2 days left" or "12 votes · Final results". Counts
 ///   are what the server said when the post was read, never live.
-/// - Change (ADR-0029 Amendment 1 A2.8): when [onChangeVote] is set (open,
+/// - Change: when [onChangeVote] is set (open,
 ///   voted, not the author, not blocked) the footer ends with an accent "Change
 ///   vote" text button; it turns the bars into [PollMode.change] pills with the
 ///   check on the current choice and a "Cancel" button ([onCancelChange]).
@@ -365,7 +365,7 @@ class _ChoiceRow extends StatelessWidget {
   }
 }
 
-/// A poll on a repost or quote row (ADR-0029 D5): the frozen definition
+/// A poll on a repost or quote row: the frozen definition
 /// only (labels and `closes_at`, no counts), so it is read-only and points to
 /// the original post for live results. Compact: "Poll · 3 choices · ends in 2
 /// days"; with [showOptions] the labels are listed under it. Tapping calls

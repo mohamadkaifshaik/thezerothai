@@ -12,7 +12,7 @@ import 'trend_row.dart';
 import 'trends_loader.dart';
 import 'trends_status_views.dart';
 
-/// Rows Explore shows before "Show more" (ADR-0028 F6), and the most it
+/// Rows Explore shows before "Show more", and the most it
 /// expands to.
 const kExploreTrendsCollapsedRows = 10;
 const kExploreTrendsMaxRows = 30;

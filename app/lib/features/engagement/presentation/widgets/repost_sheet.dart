@@ -11,7 +11,7 @@ enum RepostChoice { repost, undoRepost, quote }
 /// and Quote when [canQuote]. Returns null when dismissed. Rows are 48dp
 /// targets with an icon and a label; no default list tiles.
 ///
-/// With [restricted] (another user's followers-only post, ADR-0025) Repost and
+/// With [restricted] (another user's followers-only post) Repost and
 /// Quote are shown disabled under a line saying why; Undo repost stays.
 Future<RepostChoice?> showRepostSheet(
   BuildContext context, {

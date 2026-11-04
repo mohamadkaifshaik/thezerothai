@@ -1,4 +1,4 @@
-// jobs.go is the engagement half of the `post_delete` job (ADR-0018 D6, D10, D11). The message is the media
+// jobs.go is the engagement half of the `post_delete` job. The message is the media
 // job's (kind, uid, postId, mediaIds): apiserver runs both handlers on it and acknowledges only when both do.
 //
 // The job never acts on a message's word alone (the IAM control C1 pattern): ids are validated and the post must
@@ -29,7 +29,7 @@ import (
 const JobKindPostDelete = "post_delete"
 
 const (
-	// jobPage is the page size of the job's queries (an ops path, ADR-0003 purge rule).
+	// jobPage is the page size of the job's queries (an ops path, under the purge rule).
 	jobPage = 100
 	// jobMaxPages bounds the pages of all kinds one delivery processes before it republishes (D11).
 	jobMaxPages = 10
@@ -119,7 +119,7 @@ steps:
 				break
 			}
 			// A full page that removed nothing would repeat (and re-publish) forever; stop the step and let
-			// the residue sweep and the runbook name what is left.
+			// the residue sweep name what is left.
 			if n == 0 {
 				slog.ErrorContext(ctx, "engagement_post_delete_no_progress", "step", st.name)
 				break

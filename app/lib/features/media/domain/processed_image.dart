@@ -36,7 +36,7 @@ class ProcessedImage {
   /// encoder here writes JPEG only).
   final String contentType;
 
-  /// The thumbnail's content type for CreateUpload (ADR-0029 D10). Empty means
+  /// The thumbnail's content type for CreateUpload. Empty means
   /// "the same as [contentType]" (every photo). A GIF sets `image/jpeg`: its
   /// thumbnail is a still of the first frame.
   final String thumbContentType;

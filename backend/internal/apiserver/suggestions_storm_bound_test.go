@@ -6,10 +6,10 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
-// TestSuggestionsStormBound_DefaultsStayUnderTheReadBudget: ADR-0024 Amendment 2 (B1(b), D10 storm arithmetic). With the
+// TestSuggestionsStormBound_DefaultsStayUnderTheReadBudget: the storm arithmetic. With the
 // config defaults, one account that burns its whole daily call cap on cold friends-of-friends calls reads
 // SUGGESTIONS_CALLS_PER_DAY x (2 + SUGGESTIONS_EDGE_LIMIT + SUGGESTIONS_HYDRATE_MAX) = 50 x 32 = 1,600 documents, under the
-// per-uid daily read budget (2,000, ADR-0010 D5), so the call cap is the binding limit. It pins the literals, so a default
+// per-uid daily read budget (2,000), so the call cap is the binding limit. It pins the literals, so a default
 // that moved back to 30 edges (42 per call, 2,100 a day, over the budget) fails here.
 func TestSuggestionsStormBound_DefaultsStayUnderTheReadBudget(t *testing.T) {
 	for _, k := range []string{"SUGGESTIONS_EDGE_LIMIT", "SUGGESTIONS_HYDRATE_MAX", "SUGGESTIONS_CALLS_PER_DAY", "READ_BUDGET_PER_UID_PER_DAY"} {

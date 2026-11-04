@@ -1,5 +1,5 @@
 // Package handle holds the one @handle grammar shared by identity (profile handles) and posts/text (mention
-// candidates), ADR-0010 D21 G3. Dependency-free on purpose (the precedent is pkg/platform/ids), so a pure parser
+// candidates). Dependency-free on purpose (the precedent is pkg/platform/ids), so a pure parser
 // can use it without importing a domain module. Policy (reserved names, lower-casing, error messages) stays in
 // identity.
 package handle

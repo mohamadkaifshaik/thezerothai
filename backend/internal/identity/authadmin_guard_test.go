@@ -1,6 +1,6 @@
 package identity
 
-// ADR-0011 IAM control C2 as a type-based CI guard. The runtime service account can read, disable and delete any
+// IAM control C2 as a type-based CI guard. The runtime service account can read, disable and delete any
 // Firebase Auth user, so only internal/identity's authAdmin wrapper (which enforces C1 and writes the C3 audit
 // line) and the founder's own cmd/opsctl may use the Admin SDK's user-management methods. The check type-checks
 // the whole module (production and test files, with the integration tag) and looks at what each identifier

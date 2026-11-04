@@ -11,7 +11,7 @@ import (
 const maxTrendKeyPoints = 50
 
 // TrendKey is the one matching function for trends: the denylist (TRENDS_DENYLIST), the hide list (trends/hidden) and the
-// stored tags are all compared by this key (ADR-0028 note 2026-10-31 part 1, review M-1). Steps, in order: trim, drop one
+// stored tags are all compared by this key (part 1, review M-1). Steps, in order: trim, drop one
 // leading '#', NFKC (fullwidth and mathematical letters are valid D8 letters), lower-case, drop U+200C, U+200D and '_',
 // NFKC again. The '#' is dropped again after the first NFKC so a fullwidth '＃' behaves like '#'. An empty key never
 // matches anything. Stored tags are not rewritten and counting is unchanged. Cross-script homoglyphs (UTS #39) stay a

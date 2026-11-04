@@ -22,7 +22,7 @@ const (
 	// defaultPeopleLimit and maxPeopleLimit are SearchPeople's limit: 0 means 10, above 20 is clamped (D1 step 9).
 	defaultPeopleLimit = 10
 	maxPeopleLimit     = 20
-	// prefixCacheTTL is the staleness bound of a prefix entry (ADR-0028 D4): a new handle, a rename or a status change
+	// prefixCacheTTL is the staleness bound of a prefix entry: a new handle, a rename or a status change
 	// shows within 60 s on this instance.
 	prefixCacheTTL = 60 * time.Second
 	// defaultPrefixEntries is the cache size when the wiring gives none (CACHE_SEARCH_PREFIX_ENTRIES' default).
@@ -55,7 +55,7 @@ type prefixKey struct {
 type people struct {
 	dir   HandleDirectory
 	graph graph.Reader
-	// entries caches the RAW directory answer per (prefix, limit), shared by every viewer (ADR-0028 D2, D4).
+	// entries caches the RAW directory answer per (prefix, limit), shared by every viewer.
 	// Staleness bound: prefixCacheTTL (60 s) from the fill, per instance. The entry holds profiles with their status
 	// and is filtered per viewer after the read, so no block, mute, follow or status of any viewer is ever cached in it
 	// and an entry can safely serve two viewers who see different rows. The cached slices are read-only.
@@ -88,13 +88,13 @@ type dropped struct{ status, blockedBy, overflow int }
 
 // People is SearchPeople. Flag: search, checked before anything else (0 reads when off).
 //
-// Rules (ADR-0028 D1, D2): the query is validated and classified with 0 reads (a bad or 1-character query is VALIDATION
+// Rules: the query is validated and classified with 0 reads (a bad or 1-character query is VALIDATION
 // `query`; a `#` sigil or a rest that is not a 2 to 15 character handle prefix answers empty with unsupported_query =
 // true); the raw profiles come from the shared 60 s prefix cache or one identity.Directory.SearchHandles; each row is
 // then filtered for THIS viewer from graph.Reader.Snapshot: users who are not ACTIVE and users who blocked the viewer
 // are dropped (the answer is then what a missing user's would be: no row, no flag), users the viewer blocks or mutes
 // stay with relationship.blocking / muting set, protected accounts stay with user.is_private set, and the viewer's own
-// row stays. With blockedBy overflowed (ADR-0008 D2) a blocker cannot be ruled out at 0 reads, so only the viewer and
+// row stays. With blockedBy overflowed a blocker cannot be ruled out at 0 reads, so only the viewer and
 // accounts the viewer follows are kept. At most limit rows (0 means 10, max 20), handle order, no token.
 //
 // Worst-case Firestore cost (the interceptor's account-status read included): cold 1 + 1 + limit = 22 reads at limit 20
@@ -157,7 +157,7 @@ func (p *people) search(ctx context.Context, uid, prefix string, limit int) (*se
 	return &searchv1.SearchPeopleResponse{Users: graph.ListItemsToProto(items)}, nil
 }
 
-// filterPeople applies the viewer's view to the shared raw rows (ADR-0028 D2 steps 3 to 6). It never edits profiles
+// filterPeople applies the viewer's view to the shared raw rows (steps 3 to 6). It never edits profiles
 // (they are shared with the cache) and returns at most limit rows in the input (handle) order.
 func filterPeople(uid string, snap graph.Snapshot, profiles []identity.Profile, limit int) ([]graph.ListItem, dropped) {
 	var d dropped

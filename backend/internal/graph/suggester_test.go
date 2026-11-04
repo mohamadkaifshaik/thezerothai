@@ -20,10 +20,10 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
-// Unit tests of ListSuggestedUsers (ADR-0024 D8) over fakes. The reads the fakes charge to the budget
+// Unit tests of ListSuggestedUsers over fakes. The reads the fakes charge to the budget
 // counter mirror the real repo and Directory (a snapshot read 1, an edge query one per document with a minimum of 1,
 // hydration one per uid), so the cold and warm read caps are asserted here too. The interceptor's read is not part of
-// the service: the documented 32 is 31 here plus that one (the config default EdgeLimit 20, ADR-0024 Amendment 2
+// the service: the documented 32 is 31 here plus that one (the config default EdgeLimit 20
 // B1(b); 42 and 41 when a test pins EdgeLimit to 30).
 
 const sugViewer = "uid-v"
@@ -208,7 +208,7 @@ func names(prefix string, n int) []string {
 }
 
 // TestListSuggestedUsers_ExclusionMatrix: self, following, requested, blocked, blockedBy and muted never come back,
-// each on its own (ADR-0024 D8 step 4), and an excluded uid is not even sent to hydration (0 reads spent on it).
+// each on its own, and an excluded uid is not even sent to hydration (0 reads spent on it).
 func TestListSuggestedUsers_ExclusionMatrix(t *testing.T) {
 	tests := []struct {
 		name string
@@ -295,7 +295,7 @@ func TestListSuggestedUsers_Ranking(t *testing.T) {
 	}
 }
 
-// TestListSuggestedUsers_Sources: friends of friends versus the curated list (ADR-0024 D8 fallback), decided after the
+// TestListSuggestedUsers_Sources: friends of friends versus the curated list (fallback), decided after the
 // exclusion matrix; curated rows that are blocked, deleted or suspended are dropped.
 func TestListSuggestedUsers_Sources(t *testing.T) {
 	curated := []string{"cu-1", "cu-2", "cu-3", "cu-4"}
@@ -409,7 +409,7 @@ func TestListSuggestedUsers_Sources(t *testing.T) {
 // TestListSuggestedUsers_CapsAndCache: with 40 followees and 60 candidates the sample is the newest 30 followees, the
 // query asks for EdgeLimit edges, hydration is ONE call of HydrateMax uids, the cold call reads exactly 1 + EdgeLimit +
 // HydrateMax (31 at the config default 20, whose documented cap is 32 with the interceptor; 41 with EdgeLimit pinned to
-// 30, cap 42, ADR-0024 Amendment 2 B1(b)) and the warm call reads nothing.
+// 30, cap 42) and the warm call reads nothing.
 func TestListSuggestedUsers_CapsAndCache(t *testing.T) {
 	for _, tt := range []struct {
 		name                        string

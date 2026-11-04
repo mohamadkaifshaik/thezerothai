@@ -23,13 +23,13 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Request-line fields (ADR-0031 D13): counts and enums only, never an id, name, description or rule text.
+// Request-line fields: counts and enums only, never an id, name, description or rule text.
 const (
 	fieldOp       = "community_op"
 	fieldOutcome  = "outcome"
 	fieldCacheHit = "cache_hit"
 
-	// Keyed pseudonyms (ADR-0031 D13a): HMAC with the CURSOR_HMAC_KEY-derived log key, never a raw id or a plain digest.
+	// Keyed pseudonyms: HMAC with the CURSOR_HMAC_KEY-derived log key, never a raw id or a plain digest.
 	fieldCommunityHash = "community_hash"
 	fieldPostHash      = "post_hash"
 	fieldTargetHash    = "target_hash"
@@ -52,7 +52,7 @@ type Limits struct {
 	// MaxModerators (COMMUNITY_MAX_MODERATORS, 10) and RecentRemovalsMax (COMMUNITY_RECENT_REMOVALS_MAX, 50) are the caps; zero reads as the default.
 	MaxModerators, RecentRemovalsMax  int
 	CacheEntries, MembersCacheEntries int
-	// JoinsPerDay and NewAccountJoinsPerDay are the quota.CommunityJoins daily limits (20, and 5 inside NewAccountWindow; ADR-0031 D11).
+	// JoinsPerDay and NewAccountJoinsPerDay are the quota.CommunityJoins daily limits (20, and 5 inside NewAccountWindow).
 	JoinsPerDay, NewAccountJoinsPerDay int64
 	NewAccountWindow                   time.Duration
 }
@@ -74,7 +74,7 @@ type Deps struct {
 	Moderation ModerationRepo
 	// OnPostRestored, when set, runs once after a RestoreCommunityPost that committed a change (outcome Written; not on a replay, a no-op or an
 	// error), with the community id. apiserver hands it timeline.Server.ForgetCommunityFeed so this instance's shared feed entry refills at
-	// once (ADR-0031 D6). It must be in-process and cheap (0 Firestore ops); communities never imports timeline. A hide needs none.
+	// once. It must be in-process and cheap (0 Firestore ops); communities never imports timeline. A hide needs none.
 	OnPostRestored func(communityID string)
 	// CursorKey seals ListCommunityMembers page tokens (config.CursorHMACKey).
 	CursorKey []byte
@@ -285,7 +285,7 @@ func mapErr(ctx context.Context, op, uid, cid string, err error) error {
 	return logger.RedactErr(fmt.Errorf("communities: %s: %w", op, err), uid, cid)
 }
 
-// CreateCommunity implements Service (ADR-0031 D2, D8, F1). The creators check is first: a caller outside COMMUNITY_CREATORS gets
+// CreateCommunity implements Service. The creators check is first: a caller outside COMMUNITY_CREATORS gets
 // FORBIDDEN not_creator with 0 reads, whatever else is wrong with the request. Then the key and the text rules (0 reads), then one
 // repository transaction. The new community and the owner's member doc fill the instance caches.
 func (s *service) CreateCommunity(ctx context.Context, uid string, in CreateInput) (View, error) {

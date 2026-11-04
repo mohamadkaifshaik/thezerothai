@@ -2,7 +2,7 @@
 
 package apiserver
 
-// AcceptMessageRequest and DeleteConversation (ADR-0027) over the real Build chain on the emulators: the
+// AcceptMessageRequest and DeleteConversation over the real Build chain on the emulators: the
 // account-status, rate-limit and degraded-mode interceptors, the flag classes (Accept per caller and per peer, Delete
 // only "not globally off"), the byte-identical NOT_FOUND, the documents each RPC writes, clearedAt applied at once on
 // the instance that handled the delete, and the budget table of the RPC doc comments (Accept 3 reads / 2 writes /
@@ -366,7 +366,7 @@ func TestMessagingChain_AcceptDeleteNotFoundIsByteIdentical(t *testing.T) {
 	budgettest.Assert(t, "malformed ids", e.lineBudget(t, rpcDelete), budgettest.Budget{Reads: 1})
 }
 
-// The flag classes (ADR-0027 D6, F6): Accept needs the flag on for the caller (FEATURE_DISABLED, the interceptor's read
+// The flag classes: Accept needs the flag on for the caller (FEATURE_DISABLED, the interceptor's read
 // only) and for the peer (CANNOT_MESSAGE, the bytes of any other refusal); Delete needs only "not globally off", so a
 // caller dropped from an allowlist, or at percent 0, can still clean up, and global off hides both.
 func TestMessagingChain_AcceptDeleteFlagModes(t *testing.T) {
@@ -538,7 +538,7 @@ func (e *dmChain) delKey(who dmUser, convID, key string) error {
 }
 
 // DeleteConversation stores the digest of its key as conversations.clearedKey.{caller} with clearedAt, and a retry with the same
-// key is a replay even after the peer's next message recreated the entry (ADR-0027 2026-10-29 note): through the whole chain,
+// key is a replay even after the peer's next message recreated the entry: through the whole chain,
 // the retry writes nothing, keeps the entry and the new message, and the request line says replay.
 func TestMessagingChain_DeleteRetryWithTheSameKey(t *testing.T) {
 	setup := newDMChain(t, nil)

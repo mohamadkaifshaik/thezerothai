@@ -15,7 +15,7 @@ import (
 // publishTimeout bounds the producer-side publish so a slow Pub/Sub can never stall a follow or a post.
 const publishTimeout = 3 * time.Second
 
-// prepare applies the producer-side filters (ADR-0017 D2, D7): drop self-actions and recipients the flag is off
+// prepare applies the producer-side filters: drop self-actions and recipients the flag is off
 // for. ok=false means there is nothing to send (0 cost).
 func prepare(e Event, fl FlagChecker, now time.Time) (Event, bool) {
 	out := e
@@ -41,7 +41,7 @@ func prepare(e Event, fl FlagChecker, now time.Time) (Event, bool) {
 }
 
 // recipientFlagsOn reports whether uid may receive an event of type t: `notifications` for every type, and also
-// `messaging` for the push-only message type (ADR-0027 D9). A nil checker allows everything (tests).
+// `messaging` for the push-only message type. A nil checker allows everything (tests).
 func recipientFlagsOn(fl FlagChecker, uid string, t Type) bool {
 	if fl == nil {
 		return true
@@ -128,7 +128,7 @@ var _ Emitter = (*PubSubEmitter)(nil)
 
 // Emit implements Emitter. Reads 0, writes 0, one Pub/Sub publish when there is at least one eligible recipient
 // and the actor is under the daily recipient cap (N-1; an over-cap event is dropped and logged, nothing published).
-// A failed publish is logged and returned, never fatal to the producer (ADR-0017 D2).
+// A failed publish is logged and returned, never fatal to the producer.
 func (e *PubSubEmitter) Emit(ctx context.Context, ev Event) error {
 	ev, ok := prepare(ev, e.flags, e.now())
 	if !ok || !admit(ctx, e.log, e.recipCap, ev) {

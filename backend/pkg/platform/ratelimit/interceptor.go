@@ -20,7 +20,7 @@ import (
 )
 
 // Config wires the interceptor: PerProcedure overrides the per-uid Default limiter for specific hot
-// RPCs (home timeline, CheckHandleAvailability, likes per ADR-0006 §3); IP is checked in addition to the
+// RPCs (home timeline, CheckHandleAvailability, likes); IP is checked in addition to the
 // per-uid limit.
 type Config struct {
 	Default      *Limiter
@@ -34,14 +34,14 @@ type Config struct {
 	// config.Config.TrustedProxyHops (env TRUSTED_PROXY_HOPS).
 	TrustedProxyHops int
 
-	// DailyCaps applies an additional per-uid-per-instance daily cap (ADR-0008 D7/: "an extension of the
-	// existing limiter... don't write a second limiter") on top of the per-minute limiters above, keyed by
+	// DailyCaps applies an additional per-uid-per-instance daily cap (an extension of the existing limiter, not a second limiter)
+	// on top of the per-minute limiters above, keyed by
 	// fully-qualified Connect procedure. Checked after PerProcedure/Default so a burst is still rejected by
 	// the per-minute bucket first; a rejection here sets logger.RequestInfo.LimitName so mw.Logging's
 	// per-request line can be queried by limiter (e.g. "graph_list_daily").
 	DailyCaps map[string]NamedDailyCap
 
-	// ReadBudget is the per-uid daily Firestore read budget (ADR-0010 D5): the same DailyCap type as
+	// ReadBudget is the per-uid daily Firestore read budget: the same DailyCap type as
 	// DailyCaps, counting reads instead of calls. It covers EVERY procedure (there is no per-procedure
 	// opt-in, so a future read RPC is covered automatically); ReadBudgetExempt (never charged) and
 	// ReadBudgetChargeOnly (charged, never rejected) are the only escape hatches and must stay empty unless
@@ -73,7 +73,7 @@ type Config struct {
 const LimitReadBudgetDaily = "read_budget_daily"
 
 // LimitReadBudgetInflight is the limit_name / metadata["limit"] of a rejection by the in-flight hold alone
-// (ADR-0010 D5 A1/A7): the budget is not spent, the client retries in RetryAfterInFlight.
+// The budget is not spent, the client retries in RetryAfterInFlight.
 const LimitReadBudgetInflight = "read_budget_inflight"
 
 // ReadBudgetCovers reports whether the read budget applies to procedure. The apiserver guard test asserts
@@ -123,7 +123,7 @@ type NamedDailyCap struct {
 // Interceptor enforces per-uid and per-IP token buckets. Must run after authn.IDTokenInterceptor so a
 // verified uid is available; falls back to IP-only limiting if somehow no uid is present.
 //
-// This is the *inside-the-Connect-chain* limiter (ADR-0006 §2/§3): it still does real JWT-verify work
+// This is the *inside-the-Connect-chain* limiter: it still does real JWT-verify work
 // upstream of it (App Check + ID token) before this ever runs. PreAuthIPMiddleware (httpmiddleware.go) is
 // the separate, coarser *pre-auth* limiter added for M1 that runs as plain
 // net/http middleware in front of the whole Connect handler, before any of that verification work happens
@@ -167,7 +167,7 @@ func Interceptor(cfg Config) connect.UnaryInterceptorFunc {
 				}
 			}
 
-			// ADR-0010 D5 read budget. Keys: the uid (A6: charge-only for account operations) and the IP key
+			// Read budget. Keys: the uid (A6: charge-only for account operations) and the IP key
 			// (A3, A8): charge-only everywhere (CheckHandleAvailability, CreateProfile and the non-exempt calls of
 			// a marked uid), so the IP key never rejects. A uid rejection happens before any Firestore read (this
 			// runs before account status).
@@ -341,7 +341,7 @@ func rejectDaily(ctx context.Context, name string, c *DailyCap) error {
 	return rejectWith(ctx, name, quota.UntilNextDay(c.now()))
 }
 
-// rejectReadBudget is the RATE_LIMITED rejection of the read budget (ADR-0010 D5). The client always sees
+// rejectReadBudget is the RATE_LIMITED rejection of the read budget. The client always sees
 // limit=read_budget_daily, or read_budget_inflight when only the in-flight hold (A1) rejected; the request log
 // additionally gets read_budget_key (uid or ip, A7), the spends (logBudgetSpends) and, for the hold,
 // read_budget_inflight. retry_after is 1 s for the hold, else the time to IST midnight. keys[:tripped+1] are
@@ -376,7 +376,7 @@ func limitError(ctx context.Context, name string, retryAfter time.Duration) *api
 }
 
 // ExceededError is the RATE_LIMITED *apierr.Error of a daily cap that a service (not the interceptor) drew on, such as the per
-// (uid, community) post cap of the posts gate (ADR-0031 D11): metadata["limit"] = name, retry_after the time to the next IST midnight,
+// (uid, community) post cap of the posts gate: metadata["limit"] = name, retry_after the time to the next IST midnight,
 // and the request log's limit_name set. It is the same answer the interceptor gives for a procedure cap.
 func (d *DailyCap) ExceededError(ctx context.Context, name string) *apierr.Error {
 	return limitError(ctx, name, quota.UntilNextDay(d.now()))
@@ -392,8 +392,7 @@ type ClientIPResult struct {
 	ViaHosting bool
 }
 
-// ResolveClientIP extracts the caller's real IP from X-Forwarded-For (ADR-0006 §3, as amended by the
-// 2026-09-27 security audit's M2 finding).
+// ResolveClientIP extracts the caller's real IP from X-Forwarded-For (as amended by the 2026-09-27 security audit's M2 finding).
 //
 // Facts about our two ingress paths (confirmed live by that audit):
 //   - Mobile calls Cloud Run directly: Google Front End (GFE) appends exactly one entry, the real client

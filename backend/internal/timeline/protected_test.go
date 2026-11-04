@@ -1,6 +1,6 @@
 package timeline
 
-// ADR-0025 D4: GetUserTimeline answers author_protected for a protected account's unapproved viewers before any
+// GetUserTimeline answers author_protected for a protected account's unapproved viewers before any
 // cache or page is read, and the feeds drop a REPOST of such an author and strip a QUOTE of one through posts.Audience.
 
 import (

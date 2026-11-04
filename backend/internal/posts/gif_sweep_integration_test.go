@@ -4,7 +4,7 @@ package posts
 
 import "testing"
 
-// TestSweepIT_GIFDraftIsUnavailableNotPublished (ADR-0029 F10): SchedulePost refuses a GIF, so no draft should hold
+// TestSweepIT_GIFDraftIsUnavailableNotPublished: SchedulePost refuses a GIF, so no draft should hold
 // one, but a draft that somehow does (a hand-written document, an older revision) must end FAILED / MEDIA_UNAVAILABLE at the
 // sweep: no post, nothing attached, no post quota charged. The photo draft next to it still publishes.
 func TestSweepIT_GIFDraftIsUnavailableNotPublished(t *testing.T) {

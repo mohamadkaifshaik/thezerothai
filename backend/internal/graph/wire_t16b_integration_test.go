@@ -130,7 +130,7 @@ func newRig(t *testing.T, w wired, listDailyCap int64) *rig {
 
 // newRigWithMutationCap is newRig plus the shared graph_mutation_daily cap over the six graph mutations,
 // wired exactly like apiserver.Build does. mutationDailyCap <= 0 disables it.
-// mods adjust the ratelimit.Config last (e.g. to enable the ADR-0010 read budget).
+// mods adjust the ratelimit.Config last (e.g. to enable the read budget).
 func newRigWithMutationCap(t *testing.T, w wired, listDailyCap, mutationDailyCap int64, mods ...func(*ratelimit.Config)) *rig {
 	t.Helper()
 	r := &rig{w: w, errLog: &syncBuffer{}}

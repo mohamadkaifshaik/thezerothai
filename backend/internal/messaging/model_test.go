@@ -17,7 +17,7 @@ func TestConversationID(t *testing.T) {
 	if !ValidID(ConversationID(a, b)) {
 		t.Errorf("ConversationID = %q, want 32 lower-case hex", ConversationID(a, b))
 	}
-	// The derivation is part of the contract (ADR-0027 D2): pin one value so a change of formula fails loudly.
+	// The derivation is part of the contract: pin one value so a change of formula fails loudly.
 	if got, want := ConversationID("a", "b"), digest32("dm1|a|b"); got != want {
 		t.Errorf("ConversationID(a,b) = %q, want %q", got, want)
 	}

@@ -2,7 +2,7 @@
 
 package apiserver
 
-// / ADR-0030 D8: the `lists` erase step through the production jobs handler and the crash-resume harness
+// / The `lists` erase step through the production jobs handler and the crash-resume harness
 // (account_lifecycle_crash_integration_test.go). The deleted account owns 2 lists and is a member of 3 lists owned by a
 // friend (one of which also names the friend's other members). The instance is killed after each side effect of the step; the
 // redelivery chain must reach the same end state as a clean run: the 2 own lists gone, the 3 other lists no longer naming the

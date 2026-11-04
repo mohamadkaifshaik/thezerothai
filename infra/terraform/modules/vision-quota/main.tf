@@ -4,7 +4,7 @@
 // (roles/serviceusage.serviceUsageConsumer, which the tf-plan service account holds so that Terraform's
 // user_project_override works). Every Vision feature has its own project-wide per-minute quota that defaults to
 // 1,800 and bills per unit, and none of them is tied to VISION_MONTHLY_CAP (an app-side counter). A stolen or
-// early-minted plan token could therefore burn the credit (ADR-0022) in hours. These overrides make the API itself
+// early-minted plan token could therefore burn the credit in hours. These overrides make the API itself
 // refuse the excess.
 //
 // The app uses exactly one feature: SAFE_SEARCH_DETECTION (backend/internal/media/vision.go), one image per

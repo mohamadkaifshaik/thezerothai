@@ -5,7 +5,7 @@ import '../../shared/widgets/primitives/app_pill_button.dart';
 import '../network/app_exception.dart';
 import '../theme/app_theme.dart';
 
-/// Full-screen "service paused" state (ADR-0022): shown by the root instead of
+/// Full-screen "service paused" state: shown by the root instead of
 /// the usual screens while the API refuses every call at Google's front end.
 /// Reuses [AppEmptyView] and [AppPillButton]; no screen knows about it.
 class ServicePausedView extends StatelessWidget {

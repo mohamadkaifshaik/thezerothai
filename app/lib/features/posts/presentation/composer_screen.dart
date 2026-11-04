@@ -61,7 +61,7 @@ const kDraftGoneMessage = 'That draft is no longer available.';
 const kDraftNeedsNoMediaMessage =
     'That draft has a poll. Remove your photos or GIF to open it.';
 
-/// ADR-0031 L-1: the server posted without the community (an older revision
+/// The server posted without the community (an older revision
 /// dropped the field), so the post is open to everyone.
 const kCommunityNotAddedMessage =
     'Your post was sent without its community, so everyone can see it.';
@@ -72,7 +72,7 @@ const kCommunityNotAddedMessage =
 const kComposerInputCap = 1000;
 
 /// `/compose`: write a text post. 280 code points counted after NFC
-/// (ADR-0010 D9), at most 10 lines; Post is disabled otherwise. The server
+///At most 10 lines; Post is disabled otherwise. The server
 /// stays authoritative.
 ///
 /// With [quoteOfPostId] (`/compose?quote=<id>`) it is the quote
@@ -390,7 +390,7 @@ class _ComposerViewState extends State<_ComposerView> {
     setState(() {});
   }
 
-  /// ADR-0029 L-1: the server posted the question without its poll. Tell the
+  /// The server posted the question without its poll. Tell the
   /// user once and offer Delete (the post is a bare question) or Keep. The
   /// messenger and the repository are taken before the screen pops, so the
   /// snackbar outlives it.
@@ -600,7 +600,7 @@ class _ComposerViewState extends State<_ComposerView> {
       if (state.communityNotApplied && !state.pollNotAdded) {
         _warnNotApplied(context, state.created!, kCommunityNotAddedMessage);
       }
-      // ADR-0021 L-1: the server echoed another audience than the one sent.
+      // The server echoed another audience than the one sent.
       // The messenger is app-level, so the snackbar outlives this screen.
       if (state.replyPolicyNotApplied) {
         ScaffoldMessenger.of(context)
@@ -929,7 +929,7 @@ class _ComposerViewState extends State<_ComposerView> {
                     if (isQuote) _QuotePreview(preview: widget.quotePreview),
                     if (widget.mediaEnabled)
                       AttachmentGrid(enabled: !state.isSubmitting),
-                    // A community post takes no reply policy (ADR-0031 F8):
+                    // A community post takes no reply policy:
                     // the cubit hides this control while one is chosen.
                     if (cubit.canChooseReplyAudience)
                       _ReplyAudienceLink(
@@ -1063,7 +1063,7 @@ class _AddPhotoButton extends StatelessWidget {
   }
 }
 
-/// "Everyone can reply" under the text (ADR-0021 D2): the current audience in
+/// "Everyone can reply" under the text: the current audience in
 /// the accent colour with its icon, opening the "Who can reply?" sheet. A
 /// 48dp-high target; the label follows the choice.
 class _ReplyAudienceLink extends StatelessWidget {

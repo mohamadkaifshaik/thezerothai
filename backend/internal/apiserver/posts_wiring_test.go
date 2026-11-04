@@ -102,7 +102,7 @@ func (emptyReader) ByAuthors(context.Context, []string, posts.Window, int) ([]*p
 	return nil, nil
 }
 
-// ByAuthorMedia and ByAuthorKind are the Media and Reposts tab queries (ADR-0024 D5): empty, so a tab call that
+// ByAuthorMedia and ByAuthorKind are the Media and Reposts tab queries: empty, so a tab call that
 // passes the flag gate runs without a Firestore repo.
 func (emptyReader) ByAuthorMedia(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
 	return nil, nil
@@ -119,7 +119,7 @@ func (emptyGraph) Snapshot(context.Context, string) (graph.Snapshot, error) {
 	return graph.Snapshot{}, nil
 }
 
-// ByHashtag and CreatedAfter are search and trends queries (ADR-0028): empty here.
+// ByHashtag and CreatedAfter are search and trends queries: empty here.
 func (emptyReader) ByCommunity(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
 	return nil, nil
 }

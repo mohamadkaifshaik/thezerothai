@@ -24,7 +24,7 @@ type flagMap map[string]bool
 
 func (f flagMap) Enabled(_, name string) bool { return f[name] }
 
-// TestHydrateViewer (ADR-0023 D5): viewer state is hydrated, with one userLikes read, when FEATURE_ENGAGEMENT or
+// TestHydrateViewer: viewer state is hydrated, with one userLikes read, when FEATURE_ENGAGEMENT or
 // FEATURE_BOOKMARKS is on for the viewer; with only bookmarks on, the like and repost flags never reach the response.
 func TestHydrateViewer(t *testing.T) {
 	post := &Post{ID: "1", Kind: KindPost}
@@ -75,7 +75,7 @@ func TestViewerSet_Bookmarked(t *testing.T) {
 	}
 }
 
-// TestToView_BookmarkedByViewer (ADR-0023 D3): ToView puts ViewerSet.Bookmarked on the wire as bookmarked_by_viewer,
+// TestToView_BookmarkedByViewer: ToView puts ViewerSet.Bookmarked on the wire as bookmarked_by_viewer,
 // keyed like liked_by_viewer (a REPOST row describes its original), independently of the like and repost flags.
 func TestToView_BookmarkedByViewer(t *testing.T) {
 	t.Parallel()

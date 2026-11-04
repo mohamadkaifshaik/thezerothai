@@ -1,4 +1,4 @@
-// repo_firestore.go is the Firestore implementation of Repo (ADR-0018 D2, D3). Collections owned here:
+// repo_firestore.go is the Firestore implementation of Repo. Collections owned here:
 // likes/{postId}_{uid}, reposts/{postId}_{uid} and userLikes/{uid} (bookmarks: repo_bookmarks.go). Every write that touches another module's
 // document goes through that module's seam (posts.EngagementWriter, identity.Counters), appended to the batch or
 // transaction this file commits.
@@ -52,7 +52,7 @@ type WriteDeps struct {
 	Writer   posts.EngagementWriter
 	Counters identity.Counters
 	IDs      IDGenerator
-	// Idempotency stores the idempotency docs of AddBookmark and RemoveBookmark (ADR-0023 D4); only they use it.
+	// Idempotency stores the idempotency docs of AddBookmark and RemoveBookmark; only they use it.
 	Idempotency *idempotency.Store
 }
 
@@ -89,9 +89,9 @@ type repostDoc struct {
 type userLikesDoc struct {
 	Recent        []string `firestore:"recent"`
 	RecentReposts []string `firestore:"recentReposts"`
-	// Bookmarks is the complete bookmark set (ADR-0023 D3). Only repo_bookmarks.go writes it, always field-level.
+	// Bookmarks is the complete bookmark set. Only repo_bookmarks.go writes it, always field-level.
 	Bookmarks []string `firestore:"bookmarks"`
-	// PollVotes is the viewer's poll choices (ADR-0029 D3), absent on documents written before polls.
+	// PollVotes is the viewer's poll choices, absent on documents written before polls.
 	PollVotes []string `firestore:"pollVotes"`
 }
 
@@ -234,7 +234,7 @@ func (r *FirestoreRepo) Unlike(ctx context.Context, uid, postID string) (bool, e
 }
 
 // Repost implements Repo: one transaction, 1 read (quotas) and 6 writes (reposts doc, REPOST post, repostCount,
-// postsCount, userLikes, quota). The REPOST id is drawn inside every attempt (the settle watermark, ADR-0010 D13).
+// postsCount, userLikes, quota). The REPOST id is drawn inside every attempt (the settle watermark).
 func (r *FirestoreRepo) Repost(ctx context.Context, p RepostParams) (RepostResult, error) {
 	if err := r.ready(); err != nil {
 		return RepostResult{}, err

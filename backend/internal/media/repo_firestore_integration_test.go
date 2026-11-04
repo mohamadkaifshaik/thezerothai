@@ -391,7 +391,7 @@ func TestIntegration_ListByOwnerPagesWithALimit(t *testing.T) {
 	}
 }
 
-// TestIntegration_BannerBudgetsAndResolver asserts the BANNER rows of ADR-0024 D1 against the real repo: the
+// TestIntegration_BannerBudgetsAndResolver asserts the BANNER rows against the real repo: the
 // existing CreateUpload / FinalizeUpload budgets (2 reads / 2 + n writes; n + 1 reads / 2n + 1 writes) with 2 Vision
 // units, and ResolveBanner at 1 read with one answer for every unusable id.
 func TestIntegration_BannerBudgetsAndResolver(t *testing.T) {
@@ -482,7 +482,7 @@ func TestIntegration_BannerBudgetsAndResolver(t *testing.T) {
 }
 
 // TestIntegration_BannerErasureAndExport proves a replaced banner and the current one are both listed in the
-// export and erased with the account (rule 10; replaced banners are kept until then, ADR-0024 D1 Option 5A).
+// export and erased with the account (rule 10; replaced banners are kept until then).
 func TestIntegration_BannerErasureAndExport(t *testing.T) {
 	e := newIntEnv(t, envOpts{})
 	ctx := context.Background()

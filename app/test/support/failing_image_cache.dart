@@ -3,8 +3,8 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// A cache manager whose every download fails, for widget tests of images that
-/// may be missing (a removed or replaced avatar or banner, ADR-0024 Amendment 1
-/// A4). By default it fails the way the media bucket does for a missing
+/// may be missing (a removed or replaced avatar or banner).
+/// By default it fails the way the media bucket does for a missing
 /// object: `HttpExceptionWithStatus` 404 (a listing is 401 or 403, and an
 /// object GET never is). A widget test cannot load a real network image (every
 /// request answers 400 and the default manager needs platform plugins), and

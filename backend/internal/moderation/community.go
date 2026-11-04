@@ -1,4 +1,4 @@
-// community.go is moderation's side of "report a community" (ADR-0031 D14): the target type, the consumer-side seam
+// community.go is moderation's side of "report a community": the target type, the consumer-side seam
 // through which moderation reaches a community, and its sentinels. moderation never reads communities/* itself: communities implements
 // CommunityReporter and the composition root adapts it (the ListLookup and MessageLookup pattern).
 package moderation

@@ -1,4 +1,4 @@
-/// The one place crash text is made safe (ADR-0032 F6, D6). Pure Dart with no
+/// The one place crash text is made safe. Pure Dart with no
 /// SDK or Flutter import, so a future web reporter shares it unchanged.
 abstract final class CrashScrubber {
   /// Longest message that may leave the device.

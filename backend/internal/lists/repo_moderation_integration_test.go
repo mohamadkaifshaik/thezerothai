@@ -161,7 +161,7 @@ func TestHideLever_Integration_NonOwnersGetNotFoundOwnerSees(t *testing.T) {
 		t.Fatalf("ReportableList of a hidden list = %v, want ErrNotFound", err)
 	}
 
-	// The owner (ADR-0030 D3) still sees and edits it.
+	// The owner still sees and edits it.
 	o := e.viewerSvc()
 	if g, err := o.GetList(ctx, "owner", id); err != nil || g.Header.ID != id {
 		t.Fatalf("owner GetList: %+v %v", g, err)

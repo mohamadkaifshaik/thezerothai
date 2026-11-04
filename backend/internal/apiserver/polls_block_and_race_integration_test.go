@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ADR-0029 Amendment 1: the tests the review (security-w6-36-poll-changes.md L-1) and the 60 x 3 race ask for that the
+// The tests the review (security-w6-36-poll-changes.md L-1) and the 60 x 3 race ask for that the
 // developer's / files do not hold. Names start with TestW641_ so one -run regex selects them.
 //   - L-1: the author blocks a voter who had voted; replay, change and stale shapes, by post id and by REPOST id, answer the bytes of a
 //     missing post (0 writes), and nothing changes;

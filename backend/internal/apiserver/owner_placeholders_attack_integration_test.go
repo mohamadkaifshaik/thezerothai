@@ -2,7 +2,7 @@
 
 package apiserver
 
-// tester attacks (ADR-0025 note L-2) through the real Build chain on the emulators, beyond the author's
+// tester attacks through the real Build chain on the emulators, beyond the author's
 // own file (owner_placeholders_integration_test.go): a REPOST by another user in the owner's lists, the protected
 // set unavailable, an overflowed blockedBy, the own REPOST on every tab and on since refreshes, the viewer flags after a
 // userLikes trim, and the wire bytes of a placeholder.
@@ -133,7 +133,7 @@ func (w *w335aWorld) rawBody(t *testing.T, u bmUser, proc string, req proto.Mess
 
 // ---- case 1 ---------------------------------------------------------------------------------------------------------
 
-// A REPOST by another user R (X) of protected P's post in the caller's Likes list (m1: the ADR and the proto say "a post
+// A REPOST by another user R (X) of protected P's post in the caller's Likes list (m1: the design and the proto say "a post
 // by P", so this row is dropped as before, never a placeholder). LikePost and AddBookmark of a REPOST id store the
 // original's id, so a REPOST row reaches the list only through a seeded legacy array; the Bookmarks list holds the
 // placeholder of P's post itself.
@@ -565,7 +565,7 @@ func TestW341aAttack_FlagsAfterUserLikesTrim(t *testing.T) {
 	// Trim: the original leaves recentReposts (cap 500, best-effort trim of the oldest 100).
 	w341aSetFS(t, w, "userLikes/"+s.uid, map[string]any{"recentReposts": firestore.ArrayRemove(w.pid)})
 	check("recentReposts trimmed")
-	// Cap: recent dropped the like (the Likes row is gone, ADR-0018 D8) and the reposts array is empty too.
+	// Cap: recent dropped the like (the Likes row is gone) and the reposts array is empty too.
 	w341aSetFS(t, w, "userLikes/"+s.uid, map[string]any{"recent": firestore.ArrayRemove(w.pid), "recentReposts": []string{}})
 	check("recent and recentReposts empty")
 	if _, err := w.e.fs.Doc("userLikes/" + s.uid).Delete(context.Background()); err != nil {

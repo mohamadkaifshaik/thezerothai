@@ -8,7 +8,7 @@
 // in the instance cache, scenario setup waited out CACHE_TTL), later passes "warm". For each (page size, pass, page
 // position) it prints calls, fs_reads min/mean/max and server latency p50/p95, then checks that read_budget_spent
 // rises by exactly fs_reads between two consecutive lines of the same viewer (ListBookmarks is charged to the per-uid
-// daily read budget, ADR-0010 D5) and counts read_budget_daily rejections. Only lines with message "request" carry
+// daily read budget) and counts read_budget_daily rejections. Only lines with message "request" carry
 // the fields (pkg/platform/mw Logging).
 const fs = require('fs');
 

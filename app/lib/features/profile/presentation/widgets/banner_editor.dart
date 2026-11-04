@@ -13,7 +13,7 @@ import 'profile_cover_band.dart';
 ///   null leaves no Change button (media or `profile_extras` is off).
 /// - [onRemove] drops the banner ("Remove banner photo"); shown only while the
 ///   band shows a banner; null hides it. A removal is a clear, so it is offered
-///   without media and without `profile_extras` (ADR-0024 Amendment 1 A2);
+///   without media and without `profile_extras`;
 ///   both null make the band read-only.
 /// - [removed]: the saved banner is to be removed on Save, so the band shows
 ///   the placeholder instead of [url].

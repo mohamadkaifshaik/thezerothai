@@ -85,8 +85,8 @@ func TestTimelines_PollViewerRule(t *testing.T) {
 	}
 }
 
-// ADR-0029 Amendment 1 A1.5: the author's profile timeline carries viewer_poll_vote_blocked for a viewer who blocks that author (the posts
-// are shown by ADR-0010 D6), and Home never does (a blocked author's rows are dropped there). 0 extra reads: the snapshot checkVisible read.
+// The author's profile timeline carries viewer_poll_vote_blocked for a viewer who blocks that author (the posts
+// are shown by the visibility rules), and Home never does (a blocked author's rows are dropped there). 0 extra reads: the snapshot checkVisible read.
 func TestUserTimeline_PollVoteBlocked(t *testing.T) {
 	t.Parallel()
 	reg := flags.NewRegistry(flags.Spec{Name: "posts", Mode: flags.On}, flags.Spec{Name: "engagement", Mode: flags.On}, flags.Spec{Name: "polls", Mode: flags.On})

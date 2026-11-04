@@ -9,7 +9,7 @@ import (
 )
 
 // publicCacheControl is the Cache-Control of every public object: object names embed the immutable media id, so
-// the bytes never change (ADR-0005).
+// the bytes never change.
 const publicCacheControl = "public, max-age=31536000, immutable"
 
 // Buckets implements Signer and Objects over the private upload bucket and the public-read media bucket.

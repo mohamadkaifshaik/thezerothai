@@ -1,5 +1,5 @@
-// snapshot.go implements the posts side of the profile-snapshot-refresh job (ADR-0003 "Author snapshot
-// refresh"): rewrite `author` (and snapshotVersion) on an author's newest posts after a profile edit.
+// snapshot.go implements the posts side of the profile-snapshot-refresh job ("Author snapshot refresh"):
+// rewrite `author` (and snapshotVersion) on an author's newest posts after a profile edit.
 package posts
 
 import (
@@ -16,7 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// SnapshotRefreshLimit is how many of an author's newest posts one refresh covers (ADR-0003). It is also the
+// SnapshotRefreshLimit is how many of an author's newest posts one refresh covers. It is also the
 // batch bound: one atomic batch, far below Firestore's 500 writes.
 const SnapshotRefreshLimit = 100
 

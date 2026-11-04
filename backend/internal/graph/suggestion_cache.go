@@ -26,7 +26,7 @@ type suggestionEntry struct {
 	expiresAt time.Time
 }
 
-// suggestionCache is the per-viewer instance cache behind ListSuggestedUsers (ADR-0024 D8).
+// suggestionCache is the per-viewer instance cache behind ListSuggestedUsers.
 //
 // Staleness bound: a viewer's answer is served for at most CacheTTL (SUGGESTIONS_CACHE_TTL, default 1 h) after the
 // call that built it. This instance removes a user from the viewer's entry the moment its own Follow, Block or Mute

@@ -3,7 +3,7 @@ import '../../lists/domain/list_text_rules.dart' show normalizeListText;
 import 'communities_feature_flag.dart';
 
 /// Why a community field is refused before sending. The server
-/// (ADR-0031 D2) checks the same limits after trim and NFC and stays
+/// checks the same limits after trim and NFC and stays
 /// authoritative; this only saves a wasted call.
 enum CommunityTextIssue {
   /// Empty after trim (name and rule title only).

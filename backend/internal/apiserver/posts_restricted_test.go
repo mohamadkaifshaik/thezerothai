@@ -121,7 +121,7 @@ type chainEnv struct {
 	identity identityv1connect.IdentityServiceClient
 	posts    postsv1connect.PostServiceClient
 	timeline timelinev1connect.TimelineServiceClient
-	// moderation is the ADR-0016 ReportContent client.
+	// moderation is the ReportContent client.
 	moderation moderationv1connect.ModerationServiceClient
 }
 
@@ -195,7 +195,7 @@ func wireError(t *testing.T, err error, code connect.Code) *commonv1.ErrorDetail
 	return nil
 }
 
-// TestPosts_SuspendedAndDeletingCallers_AreRestrictedOnEveryRPC (audit item 5, ADR-0010 D6 last row): through the
+// TestPosts_SuspendedAndDeletingCallers_AreRestrictedOnEveryRPC (audit item 5): through the
 // real chain, a SUSPENDED or DELETING caller gets PERMISSION_DENIED + ACCOUNT_RESTRICTED from CreatePost,
 // DeletePost, GetPost and both timelines. The account-status interceptor answers before any handler, so each call
 // costs at most that interceptor's single users/{uid} read and creates nothing.

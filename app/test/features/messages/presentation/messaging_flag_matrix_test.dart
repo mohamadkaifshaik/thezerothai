@@ -24,13 +24,13 @@ import '../../../support/thread_test_support.dart';
 /// are documented to decide:
 ///
 /// - `messaging`: the Inbox, a conversation and the picker open, or the route
-///   redirects Home with not one messaging RPC (ADR-0027 D6).
+///   redirects Home with not one messaging RPC.
 /// - `ui_shell`: the Messages destination in the shell (F10); it needs
 ///   `messaging` too. A conversation is never inside the shell.
 /// - `reports`: the "Report message" action on a peer's bubble and the "Report
 ///   @handle" item of the conversation menu.
 /// - `notifications`: with push registered on Android the open thread polls
-///   every 30 s, otherwise every 15 s (ADR-0027 D7).
+///   every 30 s, otherwise every 15 s.
 /// - `search`: today's only people source cannot search the server, so the
 ///   flag changes nothing in the picker: typing filters the loaded Following
 ///   rows and sends no request (W4's source plugs in later).

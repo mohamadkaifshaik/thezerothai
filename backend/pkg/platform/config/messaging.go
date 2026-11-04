@@ -1,6 +1,6 @@
 package config
 
-// MessagingConfig holds the direct-message values that are neither a rate limit nor a daily quota (ADR-0027 D13). The
+// MessagingConfig holds the direct-message values that are neither a rate limit nor a daily quota. The
 // SendMessage and read buckets and the daily send cap are RateLimitConfig fields; the new-conversation quota is a
 // QuotaConfig field. Every value is > 0: a 0 would lock every user out of the feature or disable a cap, so startup fails
 // instead.

@@ -20,7 +20,7 @@ import (
 
 var _ Reader = (*service)(nil)
 
-// Request-line fields of the read side (ADR-0030 D12): counts and enums only.
+// Request-line fields of the read side: counts and enums only.
 const (
 	fieldCacheHit = "cache_hit"
 	// Rows dropped from a member page, by cause: members who block the list's owner, members the viewer blocks, mutes or is
@@ -46,7 +46,7 @@ type access struct {
 	ownerSnap  graph.Snapshot
 }
 
-// loadList reads the list through the instance cache (60 s staleness bound, ADR-0030 D11); a miss is one point read, and a
+// loadList reads the list through the instance cache (60 s staleness bound); a miss is one point read, and a
 // missing document is remembered for 60 s too (negative cache, / L-1: 0 reads on a repeat). The cache
 // holds private and hidden lists too (Create and the member writes put them), so a hit says nothing about who may see the
 // list: resolve decides. ErrNotFound for a malformed id and for a missing doc.
@@ -77,7 +77,7 @@ func (s *service) loadList(ctx context.Context, id string) (List, error) {
 // hiddenFromOthers is the cheap half of D3 for a non-owner: a private or hidden list is not theirs. 0 reads.
 func hiddenFromOthers(l List) bool { return l.IsPrivate || l.Hidden }
 
-// resolve applies ADR-0030 D3 once for every read path. Order, cheapest first, each refusal the same ErrNotFound: the list
+// resolve applies the list visibility rules once for every read path. Order, cheapest first, each refusal the same ErrNotFound: the list
 // (cache or 1 read); the owner as viewer is visible and stops here (plus their own graph when wantSnaps); for anyone else, a
 // private or hidden list (0 more reads), then the viewer's blockedBy naming the owner (viewer graph), then an owner who is
 // missing or not ACTIVE (profile), then an owner whose blockedBy overflowed or who blocks the viewer (owner graph; the second
@@ -132,7 +132,7 @@ func (s *service) resolve(ctx context.Context, viewer, listID string, wantSnaps 
 }
 
 // hiddenByProtection is the protected-owner rule of D3 (M-2): the lists of a protected account are visible to that account and
-// to the viewers who follow it, as ListFollowing is (ADR-0025 D5). The owner's profile and the viewer's graph are both held already, so
+// to the viewers who follow it, as ListFollowing is. The owner's profile and the viewer's graph are both held already, so
 // the rule costs 0 reads. A pending follow request is not following. The answer comes from the profile's isPrivate, not from
 // FEATURE_PRIVATE_ACCOUNTS (ramping that flag down never un-hides a list). A viewer who blocked the owner is not special-cased (I-3).
 func hiddenByProtection(owner identity.Profile, ownerID string, viewer graph.Snapshot) bool {
@@ -265,7 +265,7 @@ func (s *service) encodeAfter(binding, id string) string {
 // owner's graph (the owner blocks the viewer; an overflowed blockedBy returns no lists); then one query. The caller's own lists
 // read page_size + 1 docs (the extra row decides next_page_token). Another owner's read all LISTS_MAX_PER_USER docs, drop private
 // and hidden rows and return every public one with no token whatever page_size is: a token or a short page computed from the
-// raw rows would leak how many private lists the owner has and where they sit (ADR-0030 D3). Simpler than paging the
+// raw rows would leak how many private lists the owner has and where they sit. Simpler than paging the
 // filtered set and costs no more reads than the documented worst case (the owner has at most LISTS_MAX_PER_USER docs).
 func (s *service) ListUserLists(ctx context.Context, viewer string, in UserListsInput) (UserLists, error) {
 	begin(ctx, "user_lists")
@@ -362,8 +362,8 @@ func (s *service) otherOwner(ctx context.Context, viewer, owner string) (prof id
 		return identity.Profile{}, nil, false, identity.ProfileNotFoundError()
 	}
 	// M-2: after the block checks so a blocked viewer learns nothing about protection. ErrProtected maps to
-	// PROTECTED_ACCOUNT, the ListFollowing precedent (ADR-0025 D5, AQ: an error, not an empty page, so the client shows the
-	// protected-account state instead of "no lists"). 0 extra reads: the profile and both graphs are held.
+	// PROTECTED_ACCOUNT, the ListFollowing precedent (AQ: an error, not an empty page, so the client shows the protected-account state instead of "no lists").
+	// 0 extra reads: the profile and both graphs are held.
 	if hiddenByProtection(p, owner, vs) {
 		return identity.Profile{}, nil, false, ErrProtected
 	}

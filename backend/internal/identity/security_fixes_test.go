@@ -77,7 +77,7 @@ func TestReservedDocIDs(t *testing.T) {
 	if ValidUserID("__x__") || ValidUserID("____") {
 		t.Error("ValidUserID accepted a reserved doc id")
 	}
-	// ADR-0008 A3: `_` is reserved in uids (composite-key separator), so every id containing one is invalid.
+	// `_` is reserved in uids (composite-key separator), so every id containing one is invalid.
 	for _, bad := range []string{"__x", "x__", "___", "_x_", "a__b__c", "a_b", "x_y"} {
 		if ValidUserID(bad) {
 			t.Errorf("ValidUserID(%q) = true, want false (no '_' in uids)", bad)

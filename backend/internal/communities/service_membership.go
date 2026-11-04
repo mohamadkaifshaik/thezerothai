@@ -100,7 +100,7 @@ func (s *service) openForMembership(ctx context.Context, op, uid, communityID st
 	return c, nil
 }
 
-// JoinCommunity implements Service (ADR-0031 D2, D4, D8, D11). The community comes from the 60 s cache (the transaction never reads it),
+// JoinCommunity implements Service. The community comes from the 60 s cache (the transaction never reads it),
 // so a community archived or suspended on another instance in the last 60 s can still take a join; the cap, the ban and the quota are
 // always fresh. The caller's member doc is cached from the written state, never the community (a locally adjusted copy would reset its
 // TTL), and the response's member_count is the cached count plus this join, which can lag other instances by up to 60 s.
@@ -142,7 +142,7 @@ func (s *service) JoinCommunity(ctx context.Context, uid string, in MembershipIn
 	return View{Community: c, Role: roleAfter(c, uid, res.State)}, nil
 }
 
-// LeaveCommunity implements Service (ADR-0031 D2, D4, D8). Allowed in an ARCHIVED community; a SUSPENDED one is NOT_FOUND. A caller the
+// LeaveCommunity implements Service. Allowed in an ARCHIVED community; a SUSPENDED one is NOT_FOUND. A caller the
 // cached community lists as a moderator makes the transaction read the community fresh and leave moderatorIds in the same write; when
 // it did, the freshly written document replaces the cache entry (the one time a community is put from a write, so the moderator is gone
 // from this instance's GetCommunity at once). Otherwise the cached document is left alone and the response carries the count minus one.
@@ -185,7 +185,7 @@ func (s *service) LeaveCommunity(ctx context.Context, uid string, in MembershipI
 	return View{Community: c, Role: roleAfter(c, uid, res.State)}, nil
 }
 
-// ListMyCommunities implements Service (ADR-0031 D2, N3). Not paged at Stage 0: a non-empty page_token is VALIDATION "page_token" with
+// ListMyCommunities implements Service. Not paged at Stage 0: a non-empty page_token is VALIDATION "page_token" with
 // 0 reads. The memberships document is read fresh (1 read); its joined array is in join order, so the reverse is newest first. The
 // community documents come from the cache, the misses from one GetAll (1 read each, at most COMMUNITIES_MAX_JOINED). A SUSPENDED
 // community is left out unless the caller owns it; an ARCHIVED one stays; a document that is gone is skipped.

@@ -51,7 +51,7 @@ func TestSweepMediaHold_HeldItemIsLeftUntouched(t *testing.T) {
 		t.Fatalf("res = %+v, want one due item, all of it in HeldMedia", res)
 	}
 	// A held item is still a due item: it counts toward the oldest lateness (item 1 is due 10 minutes minus 1 s ago), which
-	// is what makes max_lateness_ms rise during a hold (runbook, "Images held while FEATURE_MEDIA is off").
+	// is what makes max_lateness_ms rise during a hold.
 	if want := 10*time.Minute - time.Second; res.MaxLateness != want {
 		t.Errorf("MaxLateness = %v, want %v: held items must count", res.MaxLateness, want)
 	}

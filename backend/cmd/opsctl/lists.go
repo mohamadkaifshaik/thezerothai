@@ -17,7 +17,7 @@ const listsUsage = `  opsctl lists hide    LIST_ID --project P [--report R] [--n
   opsctl lists restore LIST_ID --project P [--dry-run]
 `
 
-// listsCacheBound is the longest an api instance serves a cached copy of a list doc (lists cacheTTL, ADR-0030 D11). opsctl is
+// listsCacheBound is the longest an api instance serves a cached copy of a list doc (lists cacheTTL). opsctl is
 // a separate process and cannot evict another process's memory, so this is the honest bound printed to the operator.
 const listsCacheBound = "60 s"
 
@@ -47,7 +47,7 @@ func parseListsArgs(sub, listID string, a modArgs) error {
 }
 
 // listsCommand is `opsctl lists hide|restore` (security review M-4): the platform hide of one list. The
-// reads already honour `hidden` (ADR-0030 D3): a hidden list answers NOT_FOUND to everyone but its owner on GetList,
+// reads already honour `hidden`: a hidden list answers NOT_FOUND to everyone but its owner on GetList,
 // ListUserLists, ListListMembers and GetListTimeline, and a pinned tab of it shows "unavailable". The write is
 // lists.Moderator.SetHidden, a field-level Update of `hidden` and `updatedAt` (never a Set); a missing list is refused.
 //

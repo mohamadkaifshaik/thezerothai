@@ -10,11 +10,11 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// FlagRemovedIDs is the wire name of the FEATURE_REMOVED_IDS server flag (ADR-0016 D10). Off for the caller: the
+// FlagRemovedIDs is the wire name of the FEATURE_REMOVED_IDS server flag. Off for the caller: the
 // refresh answers without removed_ids, reads nothing from the log and never rejects a since_token for the log.
 const FlagRemovedIDs = "removed_ids"
 
-// removalLag is posts.RemovalLag (ADR-0016 D10): how far before a since token's issue time the removal log is consulted.
+// removalLag is posts.RemovalLag: how far before a since token's issue time the removal log is consulted.
 const removalLag = posts.RemovalLag
 
 // Request-log fields: how many ids a refresh returned, and whether it was rejected because the log could not answer
@@ -24,8 +24,8 @@ const (
 	fieldRemovedReset = "removed_reset"
 )
 
-// removedIDs returns the removal ids for a refresh (ADR-0016 D10) and nil for every other mode or when no log is
-// wired. The answer is scoped to the feed being refreshed (ADR-0016 amendment 2026-10-18 (b)): authors are the
+// removedIDs returns the removal ids for a refresh and nil for every other mode or when no log is
+// wired. The answer is scoped to the feed being refreshed (amendment 2026-10-18 (b)): authors are the
 // accounts the feed shows (the caller's home authors, or the one profile author), so a removal by anyone else is
 // neither listed nor a reason to reject the token. A log that cannot answer completely for this feed (token older
 // than the log keeps, a window it could not query for this author set, or more than 50 matches) rejects the

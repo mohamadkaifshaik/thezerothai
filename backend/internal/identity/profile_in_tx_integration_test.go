@@ -30,7 +30,7 @@ func profileInTx(t *testing.T, client *firestore.Client, repo *identity.Firestor
 	return got, counter, err
 }
 
-// TestProfileInTx_Integration: the transaction-scoped profile read (ADR-0021 Sweep step 3.2) costs exactly 1 read,
+// TestProfileInTx_Integration: the transaction-scoped profile read costs exactly 1 read,
 // returns the profile unfiltered by status (SUSPENDED and DELETING come back, unlike Directory.GetProfiles), reports
 // ErrNotFound for an absent document, and never puts the uid in the error text.
 func TestProfileInTx_Integration(t *testing.T) {

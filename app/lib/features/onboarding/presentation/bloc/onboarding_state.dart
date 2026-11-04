@@ -37,7 +37,7 @@ abstract class OnboardingState with _$OnboardingState {
     @Default('') String handleCheckMessage,
     @Default(false) bool isSubmitting,
     AppException? error,
-    // Server feature flags enabled for the caller (ADR-0008 D6), e.g.
+    // Server feature flags enabled for the caller, e.g.
     // "graph". Populated from `GetMe.enabled_features`, which costs 0 extra
     // Firestore reads. A cached-profile render (before `GetMe` resolves)
     // keeps whatever was known from the previous fetch this session; a name
@@ -46,8 +46,8 @@ abstract class OnboardingState with _$OnboardingState {
     // `GetMe.unread_notification_count` (capped server-side at 100), seeded
     // into the unread badge on every fresh GetMe; 0 extra reads.
     @Default(0) int unreadNotificationCount,
-    // `GetMe.unread_conversation_count` (ADR-0027 D10; 0 unless
-    // `messaging` is on for the caller, capped at 100 server-side), seeded into
+    // `GetMe.unread_conversation_count` (0 unless `messaging` is on for the caller, capped at 100 server-side),
+    // seeded into
     // the Messages badge on every fresh GetMe; 0 extra reads.
     @Default(0) int unreadConversationCount,
     // `GetMe.pending_follow_request_count`: set for a protected caller
@@ -55,7 +55,7 @@ abstract class OnboardingState with _$OnboardingState {
     // badge; an answered request lowers it locally (no GetMe refetch).
     @Default(0) int pendingFollowRequestCount,
     // The caller's account is suspended or being deleted: every RPC but
-    // DeleteAccount answers ACCOUNT_RESTRICTED (ADR-0016), including GetMe.
+    // DeleteAccount answers ACCOUNT_RESTRICTED, including GetMe.
     // Cleared by the next successful GetMe.
     @Default(false) bool accountRestricted,
   }) = _OnboardingState;

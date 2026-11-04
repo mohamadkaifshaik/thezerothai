@@ -1,4 +1,4 @@
-// messaging: W7 emulator load smoke (ADR-0027 "Cost impact"). One file, one timeline
+// messaging: W7 emulator load smoke. One file, one timeline
 // of five phases, all against ONE local API process (one "instance") and the Firebase emulators. Never point it at dzeroth-dev or
 // dzeroth-prod: it sends tens of thousands of messages and raises every messaging cap.
 //

@@ -21,8 +21,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// allowedReadBudgetChargeOnly: procedure -> why the read budget charges but never rejects it (ADR-0010 D5
-// amendment, the privacy rule). Adding an entry here requires a reason and review; the wired
+// allowedReadBudgetChargeOnly: procedure -> why the read budget charges but never rejects it.
+// Adding an entry here requires a reason and review; the wired
 // ratelimit.Config.ReadBudgetChargeOnly must equal this set exactly.
 var allowedReadBudgetChargeOnly = map[string]string{
 	identityv1connect.IdentityServiceDeleteAccountProcedure:        "right to delete: must work for a user who spent the day's budget (App Store, Play, DPDP)",
@@ -67,35 +67,35 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.AccountOpsCallsPerDay = 20
 	cfg.RateLimit.NotificationDevicesCallsPerDay = 10
 	cfg.RateLimit.NotificationSeenCallsPerDay = 200
-	// ADR-0010 per-minute buckets (the config.Load defaults).
+	// Per-minute buckets (the config.Load defaults).
 	cfg.RateLimit.TimelinePerUserPerMinute = 6
 	cfg.RateLimit.UserTimelinePerMinute = 30
 	cfg.RateLimit.PostCreatePerMinute = 10
 	cfg.RateLimit.PostDeletePerMinute = 20
-	cfg.RateLimit.ReportPerMinute = 5                // ADR-0016
-	cfg.RateLimit.BookmarksPerUserPerMinute = 30     // ADR-0023 D4: Add and Remove share it
-	cfg.RateLimit.BookmarksListPerUserPerMinute = 10 // ADR-0023 D4
-	cfg.RateLimit.BookmarkMutationsPerDay = 1500     // M-1: Add and Remove share one daily call cap
-	// ADR-0024 D10 (the config.Load defaults).
+	cfg.RateLimit.ReportPerMinute = 5
+	cfg.RateLimit.BookmarksPerUserPerMinute = 30 // Add and Remove share it
+	cfg.RateLimit.BookmarksListPerUserPerMinute = 10
+	cfg.RateLimit.BookmarkMutationsPerDay = 1500 // M-1: Add and Remove share one daily call cap
+	// Suggestions, likes list and relationship limits (the config.Load defaults).
 	cfg.RateLimit.SuggestionsPerUserPerMinute = 10
 	cfg.RateLimit.LikesListPerUserPerMinute = 10
 	cfg.RateLimit.ProfileRelationshipPerUserPerMinute = 60
 	cfg.RateLimit.SuggestionsCallsPerDay = 50
-	// ADR-0029 D6 (the config.Load defaults).
+	// Poll vote limits (the config.Load defaults).
 	cfg.RateLimit.PollVotePerUserPerMinute = 30
 	cfg.RateLimit.PollVotesPerDay = 300
 	cfg.RateLimit.PollVotesPerDayNewAccount = 50
-	// ADR-0028 D9 (the config.Load defaults).
+	// Search and trends limits (the config.Load defaults).
 	cfg.RateLimit.SearchPeoplePerUserPerMinute = 30
 	cfg.RateLimit.SearchPostsPerUserPerMinute = 20
 	cfg.RateLimit.SearchCallsPerDay = 300
 	cfg.RateLimit.TrendsCallsPerDay = 400
-	// ADR-0025 D13 (the config.Load default).
+	// Follow request limits (the config.Load default).
 	cfg.RateLimit.FollowRequestsRespondPerUserPerMinute = 60
 	cfg.RateLimit.GraphListPerMinute = 20 // ListFollowRequests shares the graph list bucket (RATE_LIMIT_GRAPH_LIST_PER_MIN)
 	cfg.RateLimit.GraphListCallsPerDay = 100
 	cfg.RateLimit.ProfileUpdatesPerDay = 100 // L-4
-	// ADR-0027 D13 (the config.Load defaults).
+	// Messaging limits (the config.Load defaults).
 	cfg.RateLimit.MessagesSendPerUserPerMinute = 20
 	cfg.RateLimit.MessagesReadPerUserPerMinute = 30
 	cfg.RateLimit.MessagesSendsPerDay = 300
@@ -104,8 +104,8 @@ func defaultRateLimitCfg() config.Config {
 	return cfg
 }
 
-// ipSetViolations asserts the ADR-0010 D5 A4/A8 sets (security L6): the IP key is wired, ReadBudgetIPEnforce is
-// EMPTY (A8: the IP key never rejects; adding a procedure needs an ADR amendment), and the enforced and
+// ipSetViolations asserts the sets (security L6): the IP key is wired, ReadBudgetIPEnforce is
+// EMPTY (A8: the IP key never rejects; adding a procedure needs a recorded design decision), and the enforced and
 // charge-only IP sets partition the profile-exempt procedures exactly, with no procedure in both. exempt is the
 // set Build uses (profileExemptProcedures).
 func ipSetViolations(rl ratelimit.Config, exempt map[string]struct{}) []string {
@@ -187,12 +187,12 @@ func readBudgetGuardViolations(rl ratelimit.Config, procs []string, allowedExemp
 	return out
 }
 
-// TestReadBudgetGuard_EveryNoSideEffectsProcedureIsCovered is the ADR-0010 D5 /.5 CI guard: the daily
+// TestReadBudgetGuard_EveryNoSideEffectsProcedureIsCovered is the CI guard: the daily
 // Firestore read budget must be enabled in the config Build wires, and every read-only (NO_SIDE_EFFECTS)
 // procedure must be covered by it. The exemption list is empty and must stay explained: adding an entry
 // requires editing allowedReadBudgetExemptions below with a reason, in review.
 func TestReadBudgetGuard_EveryNoSideEffectsProcedureIsCovered(t *testing.T) {
-	// allowedReadBudgetExemptions: procedure -> why it may skip the read budget. Empty by ADR-0010 D5.
+	// allowedReadBudgetExemptions: procedure -> why it may skip the read budget. Empty.
 	allowedReadBudgetExemptions := map[string]string{}
 
 	rl := RateLimitConfig(defaultRateLimitCfg())

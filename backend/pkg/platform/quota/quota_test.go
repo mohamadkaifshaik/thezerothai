@@ -177,7 +177,7 @@ func TestCheckAndReserveN(t *testing.T) {
 	}
 }
 
-// TestSchedulesKind: the schedules counter (ADR-0021 D4) reserves like the others, is independent of posts, rejects
+// TestSchedulesKind: the schedules counter reserves like the others, is independent of posts, rejects
 // with QUOTA_EXCEEDED metadata quota=schedules, and the only thing it writes is the one whole-record Set.
 func TestSchedulesKind(t *testing.T) {
 	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
@@ -222,7 +222,7 @@ func TestSchedulesKind(t *testing.T) {
 	}
 }
 
-// TestBookmarksKind: the bookmarks counter (ADR-0023 D4) reserves like the others, is independent of every other kind
+// TestBookmarksKind: the bookmarks counter reserves like the others, is independent of every other kind
 // (including likes and schedules, which share the whole-record Set), and rejects with QUOTA_EXCEEDED quota=bookmarks.
 func TestBookmarksKind(t *testing.T) {
 	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
@@ -267,9 +267,9 @@ func TestBookmarksKind(t *testing.T) {
 	}
 }
 
-// TestPrivacyTogglesKind: the privacyToggles counter (ADR-0025 D8) reserves like the others, rejects with QUOTA_EXCEEDED
+// TestPrivacyTogglesKind: the privacyToggles counter reserves like the others, rejects with QUOTA_EXCEEDED
 // metadata quota=privacy_toggles, never touches another kind, and the Record field, valueFor and increment ship together
-// (ADR-0021 I-3: the whole-record Set of CheckAndReserveN would zero a field one of them forgot).
+// (the whole-record Set of CheckAndReserveN would zero a field one of them forgot).
 func TestPrivacyTogglesKind(t *testing.T) {
 	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
 	tests := []struct {
@@ -317,9 +317,9 @@ func TestPrivacyTogglesKind(t *testing.T) {
 	}
 }
 
-// TestDMNewKind: the dmNew counter (ADR-0027 D13) reserves like the others, never touches another kind, and the Record
-// field, valueFor and increment ship together (ADR-0021 I-3: the whole-record Set of CheckAndReserveN would zero a field
-// one of them forgot). The Firestore field name is dmNew.
+// TestDMNewKind: the dmNew counter reserves like the others, never touches another kind, and the Record
+// field, valueFor and increment ship together (the whole-record Set of CheckAndReserveN would zero a field one of them forgot).
+// The Firestore field name is dmNew.
 func TestDMNewKind(t *testing.T) {
 	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
 	tests := []struct {

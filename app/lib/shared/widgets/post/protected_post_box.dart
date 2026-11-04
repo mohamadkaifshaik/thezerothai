@@ -8,7 +8,7 @@ import '../primitives/app_avatar.dart';
 
 /// Whether [view] is a REPOST whose original the server withheld because its
 /// author protects their posts (`EMBED_VIEWER_STATE_PROTECTED`). Other viewers
-/// never get such a row (ADR-0025 D4); the caller gets their own on their own
+/// never get such a row; the caller gets their own on their own
 /// profile so they can undo it (note L-2). Nothing opens from it: the
 /// original answers NOT_FOUND. A gone original (`embedded.unavailable`)
 /// is not this case: `PostCard` answers it with the unavailable box first.
@@ -27,7 +27,7 @@ bool isProtectedRepost(pb.PostView view) {
 /// [viewerUserId], the server says the caller reposted the original, and the
 /// `engagement` flag is on for the caller ([engagementEnabled], like the repost
 /// button). Never gated on `private_accounts`: an undo works whatever that
-/// flag is (ADR-0025).
+/// flag is.
 bool canUndoProtectedRepost(
   pb.PostView view, {
   required String? viewerUserId,
@@ -41,7 +41,7 @@ bool canUndoProtectedRepost(
     view.post.author.userId == viewerUserId;
 
 /// The bordered placeholder for a post whose author protects their posts
-/// (ADR-0025 D5, `EMBED_VIEWER_STATE_PROTECTED`): the author's avatar, name and
+/// (`EMBED_VIEWER_STATE_PROTECTED`): the author's avatar, name and
 /// @handle (public header data, founder 2026-10-28), a lock and [message]. The
 /// server sends only the author snapshot for it, and this box shows nothing
 /// else: no post text and no post media. It is not tappable:

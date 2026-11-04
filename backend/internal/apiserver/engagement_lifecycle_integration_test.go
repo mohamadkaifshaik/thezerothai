@@ -2,7 +2,7 @@
 
 package apiserver
 
-// x account lifecycle (ADR-0018 D7, D14, ADR-0011): a user with likes, a self-like and a repost is exported and
+// x account lifecycle: a user with likes, a self-like and a repost is exported and
 // deleted while other users repost and quote their post. Asserts the surviving counters, that nothing of the user
 // remains, and the export's engagement section.
 
@@ -202,8 +202,8 @@ func TestEngagementLifecycle_DeleteAccountWithEngagement(t *testing.T) {
 	if qs.Data()["text"] != "c take" {
 		t.Errorf("c's own quote text changed: %v", qs.Data()["text"])
 	}
-	// Likes OTHER users left on a's post are not touched by the purge (ADR-0018 "Orphaned likes", a founder
-	// decision): they name only the deleted post id and the liker's own uid, no PII of a. Exactly c's like is
+	// Likes OTHER users left on a's post are not touched by the purge ("Orphaned likes", a founder decision):
+	// they name only the deleted post id and the liker's own uid, no PII of a. Exactly c's like is
 	// left (a's self-like went with a's records), and none of the deleted user's own likes remain anywhere.
 	orphans, err := e.fs.Collection("likes").Where("postId", "==", pA).Limit(50).Documents(ctx).GetAll()
 	if err != nil {

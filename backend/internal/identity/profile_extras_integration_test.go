@@ -16,7 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// ADR-0024: UpdateProfile's profile extras and the pin clean-up step against the Firestore emulator, with the
+// UpdateProfile's profile extras and the pin clean-up step against the Firestore emulator, with the
 // budget assertions of the ticket: 3 reads / 1 write worst (the transaction's read of users/{uid}, the banner's media
 // doc, the pinned post), 0 / 0 when the flag is off, and 1 / 1 for ClearIfPinned.
 

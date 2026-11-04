@@ -1,4 +1,4 @@
-// lifecycle.go is the account-lifecycle service (ADR-0011): DeleteAccount, RequestAccountExport and
+// lifecycle.go is the account-lifecycle service: DeleteAccount, RequestAccountExport and
 // GetAccountExport, plus the registry the deletion orchestrator (lifecycle_jobs.go) and the export composer
 // (lifecycle_export.go) run from. The orchestrator lives in identity (D-C) and reaches other modules only
 // through the consumer-side StepEraser / ExportSection interfaces, registered by apiserver.Build.
@@ -24,10 +24,10 @@ import (
 )
 
 const (
-	// StartGateDuration is ADR-0008 D10's wait after DELETING is committed: 2x the 60 s instance-cache TTL, so no
+	// StartGateDuration is the wait after DELETING is committed: 2x the 60 s instance-cache TTL, so no
 	// instance still sees the user as ACTIVE and can create a new edge mid-purge.
 	StartGateDuration = 120 * time.Second
-	// defaultWorkBudget is the time one job delivery works before it saves its checkpoint and chains (ADR-0011:
+	// defaultWorkBudget is the time one job delivery works before it saves its checkpoint and chains (
 	// 20 s slices inside Cloud Run's 30 s request timeout and Pub/Sub's 30 s ack deadline).
 	defaultWorkBudget = 20 * time.Second
 	// stepGrace is how long past the soft budget one step call may still run (a call that starts at 19.9 s).
@@ -42,7 +42,7 @@ const (
 	// maxStepErrors is opsctl purgeLoop's policy, moved here: after this many consecutive errors on one step the
 	// delivery fails (Pub/Sub then retries it with backoff).
 	maxStepErrors = 5
-	// maxDeliveryAttempts is the `jobs` subscription's dead-letter threshold (ADR-0011: 10). An error on the last
+	// maxDeliveryAttempts is the `jobs` subscription's dead-letter threshold (10). An error on the last
 	// attempt is the one that reaches Error Reporting at ERROR; earlier ones are WARN.
 	maxDeliveryAttempts = 10
 
@@ -59,7 +59,7 @@ const (
 
 var exportIDPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-// StartGate reports how much longer to wait before an eraser may start on p (ADR-0008 D10, ADR-0011): 120 s after
+// StartGate reports how much longer to wait before an eraser may start on p: 120 s after
 // DELETING was committed, measured from deletionRequestedAt, which checkpoint writes and counter increments never
 // move. An account set to DELETING by hand (opsctl) has no deletionRequestedAt, so updatedAt is the fallback. An
 // account that is not DELETING is an error: nothing may be erased for it.
@@ -178,7 +178,7 @@ func NewLifecycle(d LifecycleDeps) (*Lifecycle, error) {
 }
 
 // RegisterEraser adds a deletion step that runs after the built-in Auth disable and before the identity step, in
-// registration order (ADR-0011 Q1: later slices register their Erasers here). AfterIdentity, a duplicate or
+// registration order (later slices register their Erasers here). AfterIdentity, a duplicate or
 // reserved name, or a registration after the first job ran is a startup error.
 func (l *Lifecycle) RegisterEraser(pos Position, s StepEraser) error {
 	l.mu.Lock()
@@ -303,7 +303,7 @@ func (l *Lifecycle) publish(ctx context.Context, msg JobMessage) error {
 	return l.pub.Publish(ctx, data)
 }
 
-// DeleteAccount (ADR-0011 D-A): one transaction sets DELETING + the deletion state (first call: 1 read, 1 write; a
+// DeleteAccount: one transaction sets DELETING + the deletion state (first call: 1 read, 1 write; a
 // replay 2 reads, 0 writes, 3 with the interceptor's cold profile read), then it publishes the job message. A publish
 // failure still returns success (ERROR account_delete_enqueue_failed). A replay re-publishes the current seq only
 // when the job has made no progress for deleteRepublishAfter (M2), so a replay storm cannot start duplicate slices;
@@ -311,7 +311,7 @@ func (l *Lifecycle) publish(ctx context.Context, msg JobMessage) error {
 // read, so it adds no Firestore operation. The caller's recent sign-in and the flag are checked by the handler; the
 // uid is the token's own, never a request field (IAM control C1).
 //
-// Rule 4 deviation (ADR-0011 amendment 2026-10-09): idempotency_key is validated but not stored. DELETING is itself
+// Rule 4 deviation : idempotency_key is validated but not stored. DELETING is itself
 // the idempotency record: a second call, with any key, is a replay of the same one-way transition.
 func (l *Lifecycle) DeleteAccount(ctx context.Context, uid, idempotencyKey string) (time.Time, error) {
 	logger.SetRequestField(ctx, "account_op", "delete_request")
@@ -390,7 +390,7 @@ func (l *Lifecycle) RequestAccountExport(ctx context.Context, uid, idempotencyKe
 }
 
 // GetAccountExport: 1 read (fresh), 0 writes. An unknown id, another user's id, a malformed id and an expired
-// export all give the same NOT_FOUND, bytes included (ADR-0011 Q6). READY gets a fresh signed GET URL per call
+// export all give the same NOT_FOUND, bytes included. READY gets a fresh signed GET URL per call
 // that is never stored or logged.
 func (l *Lifecycle) GetAccountExport(ctx context.Context, uid, exportID string) (ExportView, error) {
 	logger.SetRequestField(ctx, "account_op", "export_get")

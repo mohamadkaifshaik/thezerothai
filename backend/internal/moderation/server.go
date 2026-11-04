@@ -88,7 +88,7 @@ func secondFlag(t TargetType) string {
 	return MessagingFlagName
 }
 
-// guardNotGloballyOff is the second flag gate of a MESSAGE report (ADR-0027 D6, F6) and of a LIST report: the
+// guardNotGloballyOff is the second flag gate of a MESSAGE report and of a LIST report: the
 // feature (messaging or lists) only has to be not
 // globally off, so a user dropped from the allowlist or percent bucket can still report what they received. A checker
 // without GloballyOff (posts.GloballyOffChecker) gets the stricter per-caller answer. Disabled is FAILED_PRECONDITION +

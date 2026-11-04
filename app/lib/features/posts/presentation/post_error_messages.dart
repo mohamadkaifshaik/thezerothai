@@ -11,7 +11,7 @@ import '../domain/reply_audience.dart';
 import '../domain/schedule_rules.dart';
 
 /// VALIDATION `media_ids`: a GIF came with other media, or with a schedule
-/// (ADR-0029 D10). The composer never builds either; this is the answer if a
+///The composer never builds either; this is the answer if a
 /// stale screen does.
 const kMediaCombinationMessage =
     "A GIF can't go with photos or a schedule. Remove one and try again.";
@@ -28,7 +28,7 @@ String createPostErrorMessage(AppException error) {
     QuotaExceededException() =>
       "You've reached today's limit for posting. It resets tomorrow.",
     final RateLimitedException e => rateLimitedMessage(e),
-    // ADR-0031: a post or reply into a community the caller may not
+    // A post or reply into a community the caller may not
     // write to. Fixed text per reason; never "restricted" or the profile flow.
     final CommunityForbiddenException e => e.reason.userMessage,
     final CommunityStateException e => e.reason.userMessage,
@@ -74,7 +74,7 @@ String createPostErrorMessage(AppException error) {
 ///
 /// [communityName] is the community of the post being replied to, when it
 /// carries a label: a refusal for not being allowed to reply then reads "Only
-/// members of `<name>` can reply" (ADR-0031 F8).
+/// members of `<name>` can reply".
 String replyErrorMessage(AppException error, {String communityName = ''}) {
   if (communityName.isNotEmpty &&
       (error is ReplyNotAllowedException ||
@@ -102,8 +102,7 @@ String replyErrorMessage(AppException error, {String communityName = ''}) {
   };
 }
 
-/// Friendly messages for a failed quote (CreatePost with `quote_of_post_id`,
-/// ADR-0018): the quoted post vanished or is not viewable (one NOT_FOUND for
+/// Friendly messages for a failed quote (CreatePost with `quote_of_post_id`): the quoted post vanished or is not viewable (one NOT_FOUND for
 /// every cause), or the quotes sub-feature is off. Everything else is the
 /// shared [createPostErrorMessage].
 String quoteErrorMessage(AppException error) {
@@ -134,7 +133,7 @@ String threadRefreshErrorMessage(AppException error) {
   };
 }
 
-/// Friendly messages for a failed SchedulePost (ADR-0021 D4), shown in a
+/// Friendly messages for a failed SchedulePost, shown in a
 /// snackbar. The `publish_at` VALIDATION is normally handled by reopening the
 /// Schedule dialog; its text is the fallback. Everything not scheduling
 /// specific is the shared [createPostErrorMessage]. Callers must keep the SAME
@@ -178,7 +177,7 @@ String scheduleErrorMessage(AppException error) {
 }
 
 /// Why a scheduled post failed to publish, for a FAILED row of the Scheduled
-/// list (ADR-0021 D4). Always a full sentence; never server text.
+/// list. Always a full sentence; never server text.
 String scheduledFailureMessage(ScheduledPostFailure failure) {
   return switch (failure) {
     ScheduledPostFailure.SCHEDULED_POST_FAILURE_MEDIA_UNAVAILABLE =>
@@ -229,6 +228,6 @@ String scheduledListNoticeMessage(AppException error) {
 }
 
 /// Said when a poll was sent but the post the server echoed has none
-/// (ADR-0029 L-1: an older server revision drops the field and posts the
-/// question alone). The snackbar offers Delete and Keep.
+/// (an older server revision drops the field and posts the question alone).
+/// The snackbar offers Delete and Keep.
 const kPollNotAddedMessage = 'Your poll was not added';

@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// ADR-0024 D1-D3, D9: UpdateProfile's banner, location, website and pinned_post_id, over fakeRepo. The
+// UpdateProfile's banner, location, website and pinned_post_id, over fakeRepo. The
 // Firestore-backed paths are covered by the integration tests (repo budgets) and the apiserver chain test.
 
 const (
@@ -158,7 +158,7 @@ func TestUpdateProfile_Extras_FlagModes(t *testing.T) {
 }
 
 // TestUpdateProfile_Extras_FlagOffGatesEverySet: every SET of the four fields is FEATURE_DISABLED while the flag is off. A
-// clear (the exact string "") is not gated since ADR-0024 Amendment 1 A2; TestUpdateProfile_Extras_GateMatrix covers it.
+// clear (the exact string "") is not gated; TestUpdateProfile_Extras_GateMatrix covers it.
 func TestUpdateProfile_Extras_FlagOffGatesEverySet(t *testing.T) {
 	tests := []struct {
 		name string
@@ -552,7 +552,7 @@ func TestUpdateProfile_Extras_FieldsChangedLogsNamesNeverValues(t *testing.T) {
 }
 
 // TestProfile_PinAndWebsiteOmittedOnlyWhileGloballyOff covers every RPC that returns a Profile (the profile_extras kill
-// switch, ADR-0024 D3 and Amendment 1 A1): with profile_extras off for everyone the pin and the website are gone from the
+// switch): with profile_extras off for everyone the pin and the website are gone from the
 // response, the owner's own view included, while the banner and location stay; in a rollout (allowlist, even an empty
 // one, or percent 0) and on both are returned to every viewer, listed or not.
 func TestProfile_PinAndWebsiteOmittedOnlyWhileGloballyOff(t *testing.T) {

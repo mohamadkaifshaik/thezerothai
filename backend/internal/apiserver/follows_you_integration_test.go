@@ -2,7 +2,7 @@
 
 package apiserver
 
-// GraphService.GetProfileRelationship, "Follows you" (ADR-0024 D7), over the real Build chain on the emulators.
+// GraphService.GetProfileRelationship, "Follows you", over the real Build chain on the emulators.
 // The graph package has the module-level matrix (TestW311_*); this file proves the same rules through the production
 // chain (interceptors, flag gate, rate-limit config, error mapping, request log): the full relationship matrix with real
 // Follow / Block / Mute calls, the budget in the order a profile header uses it (GetProfile, then the relationship call),
@@ -57,7 +57,7 @@ func (e *bmChain) w320Block(t *testing.T, who bmUser, target string) {
 
 // TestW320_FollowsYouMatrix: eleven relationship states, each built with the real RPCs on a writer chain and read on a
 // cold reader through the header sequence (GetProfile of the target, then GetProfileRelationship). Cold cost: 3 reads
-// after the header's GetProfile warmed the target (ADR-0024 D7: interceptor, caller graph, edge doc), +1 on overflow, 1
+// after the header's GetProfile warmed the target (interceptor, caller graph, edge doc), +1 on overflow, 1
 // when the answer is the blocked-by refusal (the caller graph; no edge, no Directory read), 0 for the caller's own id.
 func TestW320_FollowsYouMatrix(t *testing.T) {
 	ctx := context.Background()
@@ -169,7 +169,7 @@ func TestW320_FollowsYouMatrix(t *testing.T) {
 	})
 }
 
-// TestW320_FollowsYouPairCache: the pair cache of ADR-0024 D7 on ONE instance. The answer is cached both ways; the
+// TestW320_FollowsYouPairCache: the pair cache on ONE instance. The answer is cached both ways; the
 // TARGET's Follow and Unfollow evict it at once (no wait for the TTL), a Block in either direction evicts it, and the
 // caller's own Follow and Unfollow never change this edge, so they cost the cache nothing.
 func TestW320_FollowsYouPairCache(t *testing.T) {
@@ -177,7 +177,7 @@ func TestW320_FollowsYouPairCache(t *testing.T) {
 	v, tg := w.user(t), w.user(t)
 	w.w320Warm(t, v)
 	w.w320Profile(t, v, tg.uid) // the header's GetProfile warms the target
-	// maxReads is the ADR-0024 D7 ceiling for the step: 0 when nothing was invalidated; after a write on this instance the caller's
+	// maxReads is the ceiling for the step: 0 when nothing was invalidated; after a write on this instance the caller's
 	// snapshot and the target's profile may be re-read too (3 = snapshot, profile, edge; 4 with the interceptor), the pair is
 	// what the hit flag proves.
 	rel := func(want bool, what string, maxReads int64, hit bool) {

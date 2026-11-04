@@ -20,7 +20,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// Tests for the ADR-0010 D5 amendments A1 (interceptor level), A3, A4, A5 and A7.
+// Tests for the amendments A1 (interceptor level), A3, A4, A5 and A7.
 
 const (
 	procOther  = "/t.Service/Other"         // a non-exempt procedure (needs a profile)
@@ -125,7 +125,7 @@ func a3Config() ratelimit.Config {
 
 // enforceCheckConfig is a TEST-ONLY config that enforces one IP procedure (procCheck). Production can no longer
 // reach that path (A8: ReadBudgetIPEnforce is empty), but the seam, including releasing the uid key's in-flight
-// slot when the IP key rejects, must stay correct (ADR-0010 Handoff 13).
+// slot when the IP key rejects, must stay correct.
 func enforceCheckConfig() ratelimit.Config {
 	cfg := a3Config()
 	cfg.ReadBudgetIPEnforce = map[string]struct{}{procCheck: {}}

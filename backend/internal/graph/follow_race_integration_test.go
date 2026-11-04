@@ -17,8 +17,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// TestFollow_Integration_ProtectRacingWithFollowIsSerialized (ADR-0025 D6, acceptance "a protect committed while
-// Follow is in flight commits as a request, never as an edge"). Because Follow reads the target's users doc INSIDE its
+// TestFollow_Integration_ProtectRacingWithFollowIsSerialized (acceptance "a protect committed while Follow is in flight commits as a request, never as an edge").
+// Because Follow reads the target's users doc INSIDE its
 // transaction, the doc is locked from that read to Follow's commit: a concurrent protect cannot commit in between (the
 // emulator and Firestore make the writer wait, or abort it with "Transaction lock timeout" when it waits too long). So
 // every interleaving ends in one of two consistent states:

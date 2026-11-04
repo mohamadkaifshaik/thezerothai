@@ -31,7 +31,7 @@ var _ Moderator = (*FirestoreRepo)(nil)
 // the flag differs, writes `hidden` and `updatedAt` through a field-level Update (1 write). It is never a Set, so a list
 // deleted between the read and the commit stays deleted, and no other field (members, name, privacy) can be touched or
 // reverted. Restore removes the field (`firestore.Delete`), so storage keeps its "absent means false" shape. Idempotent: a
-// repeat is 1 read and 0 writes. The api instances keep serving a cached copy for at most cacheTTL (60 s, ADR-0030 D11);
+// repeat is 1 read and 0 writes. The api instances keep serving a cached copy for at most cacheTTL (60 s);
 // nothing here can reach their memory.
 func (r *FirestoreRepo) SetHidden(ctx context.Context, listID string, hidden bool, now time.Time) (bool, error) {
 	if r == nil || r.client == nil {

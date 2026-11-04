@@ -1,4 +1,4 @@
-// service_sweep.go is the orchestration of the scheduled-post publish sweep (ADR-0021 "Sweep" steps 1, 2 and 6):
+// service_sweep.go is the orchestration of the scheduled-post publish sweep ("Sweep" steps 1, 2 and 6):
 // the no-op cases, the fetch-then-dispatch of the due items, and the per-author workers. The rules for one item are
 // service_sweep_item.go.
 //

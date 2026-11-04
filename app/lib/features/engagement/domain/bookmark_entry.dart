@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 
 /// What the viewer's "bookmarked" state of one post looks like in the
-/// session (ADR-0023 D3). One entry per post the session knows
+/// session. One entry per post the session knows
 /// about: the ones the user toggled, plus every post of a
 /// ListBookmarks page.
 ///
@@ -62,7 +62,7 @@ class BookmarkEntry {
 /// has neither `engagement` nor `bookmarks` on: the server then does not
 /// hydrate it). The type stays nullable for callers that inject a row without
 /// a flag. THE one place the client reads `PostView.bookmarked_by_viewer`
-/// (ADR-0023 D3, Q2 = B); everything else asks `BookmarksCubit`.
+/// (Q2 = B); everything else asks `BookmarksCubit`.
 ///
 /// For a REPOST row the flag describes the original, as `liked_by_viewer`
 /// does.

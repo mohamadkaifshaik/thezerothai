@@ -1,6 +1,6 @@
 // One dashboard (5 charts from free-tier-budget §5), one uptime check, and a
 // small handful of alert policies. Free at Stage 0 volumes, with one approved exception:
-// the ADR-0011 C4 log-based metric + alert policy (~$0.40/month, founder-approved).
+// the log-based metric + alert policy (~$0.40/month, founder-approved).
 
 resource "google_monitoring_notification_channel" "email" {
   for_each = toset(var.founder_emails)
@@ -97,7 +97,7 @@ locals {
     }
   }
 
-  # ADR-0011 D-A: messages that exhausted retries on the jobs topic (dead-lettered). Any non-zero bar needs a look;
+  # Messages that exhausted retries on the jobs topic (dead-lettered). Any non-zero bar needs a look;
   # the daily-maintenance backstop re-publishes stuck jobs.
   dlq_tile = {
     width  = 12
@@ -250,7 +250,7 @@ resource "google_monitoring_alert_policy" "run_5xx_rate" {
 
 // 3. Firestore reads > 40k in a day — 80% of the 50k/day free quota, early
 // cost warning (billing budget is the hard cost backstop).
-// ADR-0022 D2: the threshold is a variable (250k/day in credit mode, back to 40k on 2026-12-22). The display name is
+// The threshold is a variable (250k/day in credit mode, back to 40k on 2026-12-22). The display name is
 // unchanged at the default so Stage 0 plans show no diff.
 resource "google_monitoring_alert_policy" "firestore_reads_near_quota" {
   count        = var.enable_ops_alerts ? 1 : 0
@@ -280,11 +280,11 @@ resource "google_monitoring_alert_policy" "firestore_reads_near_quota" {
   }
 }
 
-// 4. ADR-0011 control C4: unexpected Firebase Auth mutation volume. The runtime SA holds a custom role that can
+// 4. Control C4: unexpected Firebase Auth mutation volume. The runtime SA holds a custom role that can
 // disable/delete ANY Auth user (IAM cannot scope it to one uid); code controls C1-C3 limit it to the caller's own
 // uid, and this alert detects misuse after the fact. Expected ~9 deletions/month; the metric counts successful deletes (op=delete, outcome=ok: one per deletion) plus ERROR refusals. The read-only `get` op (export, M2 sign-up check) never matches.
-// Response (runbook): set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth binding, investigate.
-// Cost: the only recurring charge in ADR-0011, ~$0.40/month TOTAL, prod only (var.enable_auth_admin_alert; dev has no
+// Response: set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth binding, investigate.
+// Cost: the only recurring charge of account lifecycle, ~$0.40/month TOTAL, prod only (var.enable_auth_admin_alert; dev has no
 // alert and relies on log inspection). The label-free log-based counter is inside the free metric ingestion
 // allotment, so it stays in both envs at $0. Founder-approved 2026-10-07, prod-only 2026-10-08.
 resource "google_logging_metric" "auth_admin_mutations" { # cost-approved: ADR-0011
@@ -334,7 +334,7 @@ resource "google_monitoring_alert_policy" "auth_admin_mutations" { # cost-approv
   }
 }
 
-// 5. ADR-0022 D3 request-flood detector (credit mode). Cloud Run bills every request that reaches the container, even
+// 5. Request-flood detector (credit mode). Cloud Run bills every request that reaches the container, even
 // ones our limiters answer with 429, and requests are not capped by max-instances: a 1,000 req/s flood is about
 // INR 3,283/day. The billing budget lags by hours; this metric lags by minutes. Default 50,000 requests/hour is about
 // 14 req/s, 10x the 3k-DAU average. Alerting is not charged before 2027-09-01 (pricing page, 2026-10-23).

@@ -1,4 +1,4 @@
-// purge.go is the right-to-delete and right-to-access path of lists/{listId} (ADR-0030 D8). Deleting users/{uid}
+// purge.go is the right-to-delete and right-to-access path of lists/{listId}. Deleting users/{uid}
 // does not delete a list, so the `lists` account-deletion step (Eraser, registered BeforeIdentity after `messaging`) removes
 // the user's own lists and then removes the uid from every other list that names it, and the `lists` export section writes
 // the user's own lists. Neither is flag-gated: documents outlive the flag.
@@ -115,7 +115,7 @@ type Checkpoint struct {
 	Updated int    `json:"updated,omitempty"`
 }
 
-// Eraser is the `lists` account-deletion step (ADR-0030 D8). Phase 1 deletes the user's own lists (which also removes any
+// Eraser is the `lists` account-deletion step. Phase 1 deletes the user's own lists (which also removes any
 // membership in them), phase 2 removes the uid from other users' lists. One page of at most 500 per call; never flag-gated.
 type Eraser struct {
 	repo PagePurger
@@ -152,7 +152,7 @@ func (e *Eraser) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Chec
 	return next, pg.Scanned < purgePage, nil
 }
 
-// ExportedList is one row of the `lists` export section: the user's own list with its member ids (ADR-0030 D8). Lists the user
+// ExportedList is one row of the `lists` export section: the user's own list with its member ids. Lists the user
 // is a member of belong to their owners and are not exported.
 type ExportedList struct {
 	ListID      string    `json:"listId"`

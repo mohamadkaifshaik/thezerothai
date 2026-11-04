@@ -40,7 +40,7 @@ func TestSecurity_Integration_MutationDailyCap(t *testing.T) {
 	steps := []struct {
 		name string
 		call func() error
-		// replay calls read at most this many docs (Follow replay 3 since ADR-0025 D6, Block replay 3).
+		// replay calls read at most this many docs (Follow replay 3 since Follow reads the target users doc, Block replay 3).
 		maxReads int64
 	}{
 		{"Follow", func() error {
@@ -50,7 +50,7 @@ func TestSecurity_Integration_MutationDailyCap(t *testing.T) {
 		{"Follow replay", func() error {
 			_, err := a.graph.Follow(ctx, connect.NewRequest(&graphv1.FollowRequest{IdempotencyKey: key(2), UserId: "uid-mcb"}))
 			return err
-		}, 4}, // the create just evicted both profiles from the cache: 2 profile reads + 2 replay reads (ADR-0008 worst case 4)
+		}, 4}, // the create just evicted both profiles from the cache: 2 profile reads + 2 replay reads (worst case 4)
 		{"Follow replay 2", func() error {
 			_, err := a.graph.Follow(ctx, connect.NewRequest(&graphv1.FollowRequest{IdempotencyKey: key(3), UserId: "uid-mcb"}))
 			return err
@@ -132,7 +132,7 @@ func TestSecurity_Integration_ReservedIDsAreValidation(t *testing.T) {
 	assertBadIDsAreValidation(t, "__x__", true)
 }
 
-// / ADR-0008 A3: a uid containing the `_` edge separator is the same VALIDATION on every uid-taking RPC,
+// / A uid containing the `_` edge separator is the same VALIDATION on every uid-taking RPC,
 // 0 Firestore ops, 0 ERROR lines, so the a_b -> c vs a -> b_c collision can never be constructed. (`a_b` is a
 // legal HANDLE, so the handle probe is skipped.)
 func TestT28_Integration_UnderscoreUIDIsValidation(t *testing.T) {

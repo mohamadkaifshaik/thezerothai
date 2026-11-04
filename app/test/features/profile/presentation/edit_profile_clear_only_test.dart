@@ -14,8 +14,7 @@ import '../../../support/media_fixtures.dart';
 import '../../../support/profile_edit_fixtures.dart';
 import '../../../support/theme_harness.dart';
 
-/// Edit profile for a caller WITHOUT `profile_extras` (M-1 item (c),
-/// ADR-0024 Amendment 1 A2): a saved banner, location and website are shown
+/// Edit profile for a caller WITHOUT `profile_extras`: a saved banner, location and website are shown
 /// read-only with Remove, nothing can be set, and the only thing a request
 /// carries for them is an exact `""`. The server accepts that from any
 /// caller, and refuses a clear next to a set, so the screen sends clears

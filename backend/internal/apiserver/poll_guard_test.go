@@ -16,7 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// pollVoteViolations asserts the wiring (ADR-0029 D6): VotePoll has its own per-minute bucket and a DailyCaps entry
+// pollVoteViolations asserts the wiring: VotePoll has its own per-minute bucket and a DailyCaps entry
 // named poll_votes_daily holding its own cap, and no other engagement procedure shares that cap (likes are bounded by the
 // likes quota, bookmarks by bookmark_mutation_daily). VotePoll writes, so it is not NO_SIDE_EFFECTS: the read budget
 // still covers it (it covers every procedure).

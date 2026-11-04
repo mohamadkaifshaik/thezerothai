@@ -1,7 +1,7 @@
 package identity
 
-// Crash and failure injection for the deletion job (ADR-0011 handoff, tester: "crash after every step call",
-// "users/{uid} existing until after Auth delete"). The fakes record every side effect in one ordered log; these tests
+// Crash and failure injection for the deletion job (handoff, tester: "crash after every step call", "users/{uid} existing until after Auth delete").
+// The fakes record every side effect in one ordered log; these tests
 // kill the delivery after each of those effects in turn, redeliver the same message the way Pub/Sub does, and check
 // the end state and the ordering invariants.
 
@@ -123,7 +123,7 @@ func (h *harness) pump(maxSteps int) (crashes int) {
 
 // TestJobs_CrashAfterEverySideEffect kills the delivery after each recorded side effect of a complete deletion (the
 // Auth disable, every step call, every object/doc delete, the state save, the continuation publish, the Auth delete,
-// users/{uid}) and checks the redelivery converges to the same end state with the ADR-0011 Q1 order intact.
+// users/{uid}) and checks the redelivery converges to the same end state with the order intact.
 func TestJobs_CrashAfterEverySideEffect(t *testing.T) {
 	// A clean run fixes the number of side effects to crash after.
 	clean := crashScenario(t)

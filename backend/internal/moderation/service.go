@@ -24,7 +24,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
-// FlagName is the wire name ModerationService RPCs check (FEATURE_REPORTS <-> "reports", ADR-0016 D1).
+// FlagName is the wire name ModerationService RPCs check (FEATURE_REPORTS <-> "reports").
 const FlagName = "reports"
 
 // Request-log fields. Enums, counts and booleans only: never ids, handles, notes or evidence text.
@@ -36,7 +36,7 @@ const (
 	fieldTxn        = "txn_attempts"
 )
 
-// postIDPattern is the post id shape (ADR-0010 D18).
+// postIDPattern is the post id shape.
 var postIDPattern = regexp.MustCompile(`^[0-9]{19}$`)
 
 // Deps is everything New needs.
@@ -45,17 +45,17 @@ type Deps struct {
 	Posts     PostViewer
 	Accounts  AccountViewer
 	Directory identity.Directory
-	// Messages resolves a MESSAGE target (ADR-0027 D12); nil makes a message report an internal error.
+	// Messages resolves a MESSAGE target; nil makes a message report an internal error.
 	Messages MessageLookup
 	// Lists resolves a LIST target; nil makes a list report an internal error.
 	Lists ListLookup
-	// Communities resolves a COMMUNITY target (ADR-0031 D14); nil makes a community report an internal error.
+	// Communities resolves a COMMUNITY target; nil makes a community report an internal error.
 	Communities CommunityLookup
 	// ReportsPerDay is the daily quota (config.QuotaConfig); NewAccountReportsPerDay applies inside NewAccountWindow.
 	ReportsPerDay           int64
 	NewAccountReportsPerDay int64
 	NewAccountWindow        time.Duration
-	// AllowAnonymous is set only from config.AuthEmulator (the posts convention, ADR-0010 D5 A10).
+	// AllowAnonymous is set only from config.AuthEmulator (the posts convention).
 	AllowAnonymous bool
 	// Now is overridable for tests; nil means time.Now.
 	Now func() time.Time
@@ -64,7 +64,7 @@ type Deps struct {
 type service struct {
 	d Deps
 	// exhausted remembers, per instance, the uids whose reports quota was found spent, so a client that keeps
-	// retrying an over-quota report costs 1 Firestore read (the replay lookup) until the IST day rolls over (ADR-0016 D2).
+	// retrying an over-quota report costs 1 Firestore read (the replay lookup) until the IST day rolls over.
 	exhausted *cache.LRU[string, exhaustion]
 }
 
@@ -90,7 +90,7 @@ func New(d Deps) Service {
 
 var _ Service = (*service)(nil)
 
-// Report implements Service (ADR-0016 D1).
+// Report implements Service.
 func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res ReportResult, err error) {
 	logger.SetRequestField(ctx, fieldOp, "report")
 	defer func() {
@@ -180,7 +180,7 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 	}
 	switch in.TargetType {
 	case TargetPost:
-		// GetForViewer applies ADR-0010 D6 (missing, deleted, hidden, blocked author, non-ACTIVE author => the one
+		// GetForViewer applies the post visibility rules (missing, deleted, hidden, blocked author, non-ACTIVE author => the one
 		// NOT_FOUND), so a reporter cannot probe for any of those.
 		p, err := s.d.Posts.GetForViewer(ctx, uid, in.TargetID)
 		if err != nil {
@@ -203,7 +203,7 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 			return ReportResult{}, err
 		}
 		rep.TargetOwnerID = prof.UserID
-		// ADR-0024 Amendment 1 A3(b): keep what the reporter saw, so the profile cannot be swapped before triage. prof is
+		// Keep what the reporter saw, so the profile cannot be swapped before triage. prof is
 		// already loaded (0 extra reads, the same single report write) and is the PRESENTED profile, so while
 		// profile_extras is globally off it holds no website. No field here holds a uid (media URLs are m/{mediaId}).
 		rep.Evidence = &Evidence{AuthorHandle: prof.Handle, DisplayName: prof.DisplayName, Bio: prof.Bio,
@@ -213,8 +213,8 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		if err != nil {
 			return ReportResult{}, err
 		}
-		// ADR-0027 D12: the evidence is that one message's text, the sender's handle and its time, and nothing else of
-		// the conversation. The text is private content (ADR-0016 note 2026-10-28); it is never logged.
+		// The evidence is that one message's text, the sender's handle and its time, and nothing else of
+		// the conversation. The text is private content; it is never logged.
 		rep.TargetOwnerID = m.SenderUID
 		rep.Evidence = &Evidence{Text: m.Text, AuthorHandle: m.SenderHandle, PostCreatedAt: m.CreatedAt}
 	case TargetList:
@@ -349,7 +349,7 @@ func noteRejected(ctx context.Context, err error) {
 	logger.SetRequestField(ctx, fieldOutcome, "rejected:"+reason)
 }
 
-// pollChoices are the labels of the reported post's poll (ADR-0029 D8; 0 reads, the post is loaded), nil without a poll.
+// pollChoices are the labels of the reported post's poll (0 reads, the post is loaded), nil without a poll.
 func pollChoices(p *posts.Poll) []string {
 	if p == nil {
 		return nil

@@ -37,7 +37,7 @@ pbc.Community _community(
 MyCommunities _mine(List<pbc.Community> list) =>
     MyCommunities(communities: list, canCreate: false);
 
-/// ADR-0031 D5/F6/F8: the composer's audience, what CreatePost carries,
+/// The composer's audience, what CreatePost carries,
 /// the schedule exclusion, the key per community, the echo check, drafts.
 void main() {
   setUpAll(() {

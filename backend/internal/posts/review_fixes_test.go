@@ -144,7 +144,7 @@ func TestGetMany_RejectsInvalidIDs(t *testing.T) {
 	}
 }
 
-// TestCacheHitIsAPerRequestCount (review M1, ADR-0010 D20): several Reader calls in one request sum their cache
+// TestCacheHitIsAPerRequestCount (review M1): several Reader calls in one request sum their cache
 // hits into one posts_cache_hit counter instead of the last call overwriting it.
 func TestCacheHitIsAPerRequestCount(t *testing.T) {
 	p1, p2, p3 := post("0000000000000000001", "a"), post("0000000000000000002", "a"), post("0000000000000000003", "a")
@@ -170,7 +170,7 @@ func TestCacheHitIsAPerRequestCount(t *testing.T) {
 
 // TestFirestoreIndexesCoverThePostQueries (review M3): the emulator does not enforce composite indexes, so this
 // asserts the file Terraform/firebase deploys declares the two indexes Q-H/Q-P and Q-R need
-// (ADR-0010 D19: `__name__ DESC` rides on the last field's direction).
+// (`__name__ DESC` rides on the last field's direction).
 func TestFirestoreIndexesCoverThePostQueries(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "firebase", "firestore.indexes.json"))
 	if err != nil {

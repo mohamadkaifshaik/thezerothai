@@ -32,7 +32,7 @@ func (c usersCounters) AddCounts(b store.Batch, uid string, _, _ int64)      { c
 
 var errAborted = status.Error(codes.Aborted, "Transaction lock timeout")
 
-// TestUnfollow_RetryLoop drives Unfollow's bounded retry (ADR-0008 D1) with an injected commit and backoff,
+// TestUnfollow_RetryLoop drives Unfollow's bounded retry with an injected commit and backoff,
 // so it needs no emulator. Budget: a successful unfollow is 3 writes + 1 delete counted exactly once no
 // matter how many attempts were lost; failed attempts count nothing.
 func TestUnfollow_RetryLoop(t *testing.T) {

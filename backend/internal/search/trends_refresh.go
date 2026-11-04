@@ -19,12 +19,12 @@ import (
 )
 
 const (
-	// refreshPage is the CreatedAfter page size (the reader's maximum, ADR-0028 D6).
+	// refreshPage is the CreatedAfter page size (the reader's maximum).
 	refreshPage = posts.MaxCreatedAfterLimit
-	// firstWindow is how far back the first run, and a run after a stuck watermark, looks (ADR-0028 D6).
+	// firstWindow is how far back the first run, and a run after a stuck watermark, looks.
 	firstWindow = 24 * time.Hour
 	// staleWatermark is the age past which the watermark is dropped: a stuck sweep must never show a week-old list as
-	// "today" (ADR-0028 D6 step 3).
+	// "today".
 	staleWatermark = 48 * time.Hour
 	// emptySettle holds the watermark of an empty run this far behind now, so a post whose createdAt is a moment ago
 	// but whose commit lands after our read is still read by the next run.
@@ -37,7 +37,7 @@ const (
 	refreshOp = "cron/trends-refresh"
 )
 
-// Skip reasons of a run that wrote nothing (the trends_skipped log line, ADR-0028 D10).
+// Skip reasons of a run that wrote nothing (the trends_skipped log line).
 const (
 	SkipFlagOff  = "flag_off"
 	SkipReadonly = "readonly"
@@ -52,7 +52,7 @@ type PostScanner interface {
 }
 
 // AuthorDirectory is the part of identity.Directory the sweep uses to check authors (identity.Directory satisfies it).
-// GetProfiles is cache-first, takes at most 50 ids, and omits users that are missing, SUSPENDED or DELETING (ADR-0008).
+// GetProfiles is cache-first, takes at most 50 ids, and omits users that are missing, SUSPENDED or DELETING.
 // Its reads are charged to ctx's budget.Counter.
 type AuthorDirectory interface {
 	GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error)
@@ -84,7 +84,7 @@ type RefresherConfig struct {
 	Log *slog.Logger
 }
 
-// Refresher is TrendsRefresher (ADR-0028 D6).
+// Refresher is TrendsRefresher.
 type Refresher struct {
 	store     TrendsStore
 	scan      PostScanner
@@ -98,8 +98,8 @@ type Refresher struct {
 var _ TrendsRefresher = (*Refresher)(nil)
 
 // NewRefresher builds the sweep. A nil protected loader fails every run that has posts to count: an unknown protected
-// set is never read as "nobody is protected" (ADR-0025). A nil AuthorDirectory leaves every author unverified, so nothing
-// trends (fail closed, ADR-0028 note 2026-10-31). A nil FlagChecker is off for everyone.
+// set is never read as "nobody is protected". A nil AuthorDirectory leaves every author unverified, so nothing
+// trends (fail closed). A nil FlagChecker is off for everyone.
 func NewRefresher(store TrendsStore, scan PostScanner, protected identity.ProtectedAuthors, dir AuthorDirectory, fc FlagChecker, cfg RefresherConfig) *Refresher {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
@@ -146,12 +146,12 @@ type RunResult struct {
 	AuthorCheckErr                    error
 }
 
-// Refresh recomputes trends/current from the posts created since the last run (ADR-0028 D6).
+// Refresh recomputes trends/current from the posts created since the last run.
 //
 // Firestore, worst case: flag globally off or DEGRADED_MODE=readonly 0 reads, 0 writes; a run inside TRENDS_MIN_INTERVAL
 // of the last list 1 read (the document), 0 writes; otherwise 2 + new posts (the document, the hide list, then one read per
 // projected post, an empty page bills 1: <= 2 + TRENDS_MAX_POSTS_PER_RUN = 2,002) plus the author check and 1 write. The
-// author check (ADR-0028 note 2026-10-31, part 2) reads the profiles of the distinct authors of the candidate tags with
+// author check (part 2) reads the profiles of the distinct authors of the candidate tags with
 // identity.Directory.GetProfiles, at most TRENDS_MAX_AUTHOR_CHECKS (500) authors in batches of 50 (<= 10 calls, cache-first,
 // about 1 read per author on a cold cron instance): <= 2 + 2,000 + 500 = 2,502 reads in all, still 1 write. No candidate tag
 // means 0 extra reads. The protected set comes through the identity loader on its detached counter and is never charged
@@ -213,10 +213,10 @@ func (r *Refresher) run(ctx context.Context, now time.Time) (RunResult, error) {
 	}
 	if prev != nil && !prev.Backlog && now.Sub(prev.ComputedAt) < r.cfg.MinInterval {
 		// A Scheduler retry of the backstop minutes after a good run must not replace the day's list with an almost empty
-		// window (ADR-0028 D6 step 2).
+		// window.
 		return RunResult{Skipped: SkipFresh}, nil
 	}
-	// The hide list (ADR-0028 note 2026-10-31 part 1) is read once the run is going to write, before any post is read: a
+	// The hide list (part 1) is read once the run is going to write, before any post is read: a
 	// failed read fails the run with nothing written, as an unavailable protected set does, and is never read as empty.
 	hidden, err := r.store.Hidden(ctx)
 	if err != nil {
@@ -298,7 +298,7 @@ func (r *Refresher) run(ctx context.Context, now time.Time) (RunResult, error) {
 		// Nothing new: hold the watermark a moment behind now, never before the old one.
 		wm = Watermark{At: laterOf(wm.At, now.Add(-emptySettle))}
 	}
-	// Only established authors count (ADR-0028 note 2026-10-31, part 2). The candidates are the tags that pass the denylist,
+	// Only established authors count (part 2). The candidates are the tags that pass the denylist,
 	// the hide list and the raw author minimum, so author reads are spent on real candidates only.
 	cands := r.candidates(tags, hide)
 	items := rank(cands, r.establishedAuthors(ctx, now, cands, &res), r.cfg.MinAuthors)
@@ -420,7 +420,7 @@ func (r *Refresher) establishedAuthors(ctx context.Context, now time.Time, cands
 }
 
 // rank recounts each candidate over established authors only (posts = the sum of their posts), applies the author minimum
-// again, orders by authors, then posts, then tag, and keeps the top maxTrendItems (ADR-0028 D6 step 6).
+// again, orders by authors, then posts, then tag, and keeps the top maxTrendItems.
 func rank(cands []candidate, est map[string]struct{}, minAuthors int) []TrendItem {
 	items := make([]TrendItem, 0, len(cands))
 	for _, c := range cands {

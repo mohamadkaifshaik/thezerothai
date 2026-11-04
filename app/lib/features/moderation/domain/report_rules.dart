@@ -1,6 +1,6 @@
 import '../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart';
 
-/// Longest optional note, in code points (ADR-0016: <= 500).
+/// Longest optional note, in code points (<= 500).
 const kMaxReportNoteCodePoints = 500;
 
 /// The reasons offered, in display order (UNSPECIFIED is never offered).

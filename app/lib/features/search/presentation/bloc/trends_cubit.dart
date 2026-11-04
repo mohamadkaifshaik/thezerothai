@@ -6,15 +6,15 @@ import '../../data/search_repository.dart';
 import 'trends_state.dart';
 
 /// How long an answer (or a failure) is reused before a surface may ask again:
-/// ADR-0028 "Client" row, one call per five minutes per client.
+/// one call per five minutes per client.
 const kTrendsClientTtl = Duration(minutes: 5);
 
-/// How many trends the one call asks for: the Trending list's 30 (ADR-0028
-/// F6). Explore shows the first 10 and expands to 30, the side column the
+/// How many trends the one call asks for: the Trending list's 30.
+/// Explore shows the first 10 and expands to 30, the side column the
 /// first 5, so the two surfaces never need a second call.
 const kTrendsFetchLimit = 30;
 
-/// The app-level trends list (ADR-0028): provided once by
+/// The app-level trends list: provided once by
 /// `AppWidget`, read by Explore and the desktop side column, so mounting both
 /// is still one `GetTrends` per [kTrendsClientTtl]. Concurrent callers share
 /// the call in flight. No timer and no polling: a surface asks when it mounts

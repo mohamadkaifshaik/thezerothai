@@ -2,7 +2,7 @@
 
 package apiserver
 
-// (ADR-0025 D10, AQ5) through the real Build chain with the inline emitter and the real protected-set loader and
+// Protected-account notifications through the real Build chain with the inline emitter and the real protected-set loader and
 // toggle (FEATURE_PRIVATE_ACCOUNTS on): a protected actor P's mention, reply, quote and repost reach a follower of P
 // and nobody else. A recipient who does not follow P gets no row, and because the push is sent only by the call that
 // created the row, no push either. (The request and accept types are covered in the notifications package; graph does

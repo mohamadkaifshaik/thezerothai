@@ -18,7 +18,7 @@ import (
 
 // TestReadBudget_Regression_HappyPathsWithBudgetEnabledAtDefaults (acceptance "no legitimate call is
 // rejected" + "every graph and identity RPC still passes its existing budget assertions"): every identity and
-// graph RPC's happy path runs over HTTP through ratelimit.Interceptor with the ADR-0010 D5 read budget ENABLED at
+// graph RPC's happy path runs over HTTP through ratelimit.Interceptor with the read budget ENABLED at
 // the shipped defaults (2,000 reads/uid/day with the A1 hold armed, the IP meter on profile-exempt procedures, 100 CheckHandle
 // calls/day). No call may be rejected, each call's Firestore ops must stay within the documented budget, and the
 // per-uid budget charged must equal the sum of the reads the counter recorded.
@@ -101,7 +101,7 @@ func TestReadBudget_Regression_HappyPathsWithBudgetEnabledAtDefaults(t *testing.
 		_, err := ca.graph.ListFollowing(ctx, connect.NewRequest(&graphv1.ListFollowingRequest{UserId: a}))
 		return err
 	})
-	// ListFollowRequests/RespondToFollowRequest are FAILED_PRECONDITION stubs until private accounts ship (ADR-0008 D1).
+	// ListFollowRequests/RespondToFollowRequest are FAILED_PRECONDITION stubs until private accounts ship.
 	step("GraphService.Mute", a, budMute, func() error {
 		_, err := ca.graph.Mute(ctx, connect.NewRequest(&graphv1.MuteRequest{IdempotencyKey: key2, UserId: b}))
 		return err
@@ -140,7 +140,7 @@ func TestReadBudget_Regression_HappyPathsWithBudgetEnabledAtDefaults(t *testing.
 }
 
 // shippedRateLimitConfig is the ratelimit.Config apiserver.Build wires for the shipped defaults (config.Load with
-// no overrides), via the same exported helper Build uses (ADR-0010 L6), so these tests run the production
+// no overrides), via the same exported helper Build uses, so these tests run the production
 // limits rather than a hand-built look-alike.
 func shippedRateLimitConfig(t *testing.T) ratelimit.Config {
 	t.Helper()

@@ -34,7 +34,7 @@ type wireEvent struct {
 	ActorID      string   `json:"actorId"`
 	RecipientIDs []string `json:"recipientIds"`
 	PostID       string   `json:"postId,omitempty"`
-	// ConversationID is additive (ADR-0027 D9): an older revision ignores the field and drops the unknown type.
+	// ConversationID is additive: an older revision ignores the field and drops the unknown type.
 	ConversationID string `json:"conversationId,omitempty"`
 	AtMillis       int64  `json:"at"`
 }
@@ -65,7 +65,7 @@ func validateEvent(e Event) string {
 	return ""
 }
 
-// validConversationID reports whether s is a messaging conversation id: 32 lower-case hex characters (ADR-0027 D3).
+// validConversationID reports whether s is a messaging conversation id: 32 lower-case hex characters.
 func validConversationID(s string) bool {
 	if len(s) != 32 {
 		return false
@@ -87,7 +87,7 @@ func actorFromProfile(p identity.Profile) Actor {
 	return a
 }
 
-// notificationID is the deterministic row id (ADR-0017 D1): the natural key that makes redelivery a no-op.
+// notificationID is the deterministic row id: the natural key that makes redelivery a no-op.
 func notificationID(t Type, actorID, postID string, at time.Time) string {
 	switch t {
 	case TypeFollow:
@@ -117,14 +117,14 @@ type FanoutDeps struct {
 	ProjectID string
 	// ReadOnly makes the handler acknowledge and drop every event (DEGRADED_MODE=readonly: no Firestore writes).
 	ReadOnly bool
-	// Audience decides whether a recipient may see the actor of a post-bearing event (ADR-0025 AQ5). Nil disables the
+	// Audience decides whether a recipient may see the actor of a post-bearing event. Nil disables the
 	// check (tests, and a build where the protected set is not wired).
 	Audience AudienceChecker
 	// PushLimit is the per-recipient inbound push token bucket (N-2; NewPushLimiter builds the shipped one). Nil
 	// means unlimited. A throttled push still has its row written; only the FCM send is skipped.
 	PushLimit *ratelimit.Limiter
-	// MessagePushLimit is the push-only message type's own per-recipient bucket (MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR,
-	// ADR-0027 D9), separate from PushLimit so a chatty thread cannot starve follow or reply pushes and vice versa.
+	// MessagePushLimit is the push-only message type's own per-recipient bucket (MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR),
+	// separate from PushLimit so a chatty thread cannot starve follow or reply pushes and vice versa.
 	// Nil means unlimited. Keyed uid|message.
 	MessagePushLimit *ratelimit.Limiter
 	Now              func() time.Time
@@ -172,7 +172,7 @@ type Outcome struct {
 	Throttled int
 }
 
-// Deliver processes one event idempotently (ADR-0017 D3). A non-nil error means "retry": at least one recipient hit
+// Deliver processes one event idempotently. A non-nil error means "retry": at least one recipient hit
 // a transient failure; the recipients that succeeded are unaffected by the redelivery (natural keys).
 //
 // Budget: the actor and recipients are evicted from the profile cache first so the ACTIVE check is fresh (see
@@ -182,7 +182,7 @@ type Outcome struct {
 // writes when that actor is already in the row: a redelivery is write-free). A recipient over the hourly push limit
 // (N-2) costs 0 device reads and no FCM call: the limiter is consulted before Repo.Devices.
 //
-// Right to delete (ADR-0017 D10): the fresh status read narrows the race with an account purge from "the profile
+// Right to delete: the fresh status read narrows the race with an account purge from "the profile
 // cache TTL plus any redelivery delay" to the milliseconds between that read and the Create. It cannot be zero
 // without a transaction across users/{uid} and the row, so a row written in that window outlives the purge
 // until its 90-day TTL; the purge cannot find it by uid afterwards (the account-lifecycle backstop keys on
@@ -267,7 +267,7 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 			continue
 		}
 		if e.Type.postBearing() && f.d.Audience != nil {
-			// ADR-0025 D10: a protected actor's post-bearing event reaches only recipients who may see the actor.
+			// A protected actor's post-bearing event reaches only recipients who may see the actor.
 			// 0 reads: the recipient's snapshot is already in hand and the protected set is an instance copy.
 			// Fail closed (AQ5): an unavailable set is a retry (Pub/Sub redelivers), never a row.
 			can, err := f.d.Audience.CanSee(ctx, r, e.ActorID, snap.Following[e.ActorID])
@@ -281,7 +281,7 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 			}
 		}
 		if e.Type.pushOnly() {
-			// ADR-0027 D9: no row, no ForgetUnread, no badge move. The push below is the whole delivery; a redelivery
+			// No row, no ForgetUnread, no badge move. The push below is the whole delivery; a redelivery
 			// sends at most one more, which the device collapses on the `message` key.
 			toPush = append(toPush, pending{r, Push{Type: e.Type, ConversationID: e.ConversationID}})
 			continue

@@ -1,6 +1,6 @@
 package apiserver
 
-// ADR-0028 D7, F1 = B: the daily-maintenance wrapper. The status is the backstop's alone; the trends step is
+// The daily-maintenance wrapper. The status is the backstop's alone; the trends step is
 // skipped below 3 s left, bounded to min(10 s, 28 s - elapsed), and a trends error or panic never changes the status.
 
 import (

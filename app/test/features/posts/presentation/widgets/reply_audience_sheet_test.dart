@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/theme_harness.dart';
 
-/// The "Who can reply?" sheet (ADR-0021 D2) in both themes at 360 / 600 /
+/// The "Who can reply?" sheet in both themes at 360 / 600 /
 /// 1200 dp and text scale 1.0 / 1.3.
 void main() {
   Future<void> openSheet(

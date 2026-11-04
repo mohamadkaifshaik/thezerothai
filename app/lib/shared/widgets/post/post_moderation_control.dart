@@ -4,7 +4,7 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 
 /// What a post's overflow menu needs to offer "Remove from Community" to a
-/// community moderator (ADR-0031 D2). The community screen builds one
+/// community moderator. The community screen builds one
 /// only when the server's `viewer_role` says the viewer moderates, and hands it
 /// down like a `PostPinControl`; a null control means the menu has no
 /// moderator row, so every other screen is unchanged.
@@ -31,7 +31,7 @@ class PostModerationControl {
   /// Restores [postId] (the snackbar's Undo); throws on failure.
   final Future<void> Function(String postId) onRestore;
 
-  /// ADR-0031 D4a: the control of a community conversation's open
+  /// The control of a community conversation's open
   /// thread. A reply carries no community label of its own, so the row goes to
   /// every reply instead. The thread screen builds one only for the root's
   /// community and a `viewer_role` of owner or moderator; the server still

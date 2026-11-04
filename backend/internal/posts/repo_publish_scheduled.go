@@ -1,4 +1,4 @@
-// repo_publish_scheduled.go is the publish transaction of the scheduled-post sweep (ADR-0021 Sweep step 3.3):
+// repo_publish_scheduled.go is the publish transaction of the scheduled-post sweep:
 // the sibling of createAttempt in repo_create.go. It reuses the CreatePost write helpers (toDoc, mediaWithAlts, the
 // quota reservation, the identity.Counters seam, the media claim) but not its idempotency document: the scheduled
 // doc is the idempotency record, and the transaction re-reads it as PENDING before it writes anything.

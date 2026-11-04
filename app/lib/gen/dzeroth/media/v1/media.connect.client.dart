@@ -10,7 +10,7 @@ import "media.connect.spec.dart" as specs;
 extension type MediaServiceClient (connect.Transport _transport) {
   /// Reserve 1-4 media ids and get signed PUT URLs (full + thumb each), 10-minute TTL, bound to the exact object
   /// path, Content-Type, Content-MD5 and x-goog-content-length-range (full <= 2 MiB, thumb <= 256 KiB; BANNER:
-  /// full <= 1 MiB, thumb <= 128 KiB, ADR-0024 D1).
+  /// full <= 1 MiB, thumb <= 128 KiB).
   /// BANNER needs FEATURE_MEDIA and FEATURE_PROFILE_EXTRAS on for the caller, else FAILED_PRECONDITION +
   /// FEATURE_DISABLED, metadata["feature"] = "profile_extras", 0 reads. Its one item declares width <= 1500,
   /// height <= 500 and 3 * height * 0.98 <= width <= 3 * height * 1.02, else INVALID_ARGUMENT + VALIDATION,
@@ -20,7 +20,7 @@ extension type MediaServiceClient (connect.Transport _transport) {
   /// Batch: Create idempotency doc + media docs (PENDING, expireAt = now + 2 d) + quotas.
   /// GCS: 0 ops here (signing uses IAM signBlob, no GCS call). Client PUTs = 2 Class A per image.
   /// Firestore: reads 2/1 (quotas + replay), writes 6/3 (1 image typical).
-  /// GIF (ADR-0029 D10; FEATURE_GIF, wire name "gif"): content_type "image/gif" while gif is not enabled for the caller
+  /// GIF (FEATURE_GIF, wire name "gif"): content_type "image/gif" while gif is not enabled for the caller
   /// => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "gif", 0 reads. POST purpose only (AVATAR and
   /// BANNER => VALIDATION field "content_type"); exactly one item in a request that carries a GIF (else VALIDATION field
   /// "items"); full <= 2 MiB (the same signed range); declared width and height <= 1,280; thumb_content_type must be
@@ -44,10 +44,10 @@ extension type MediaServiceClient (connect.Transport _transport) {
 
   /// Verify and moderate uploaded objects, then publish. Per item: GCS object attrs + 512-byte ranged read
   /// (magic bytes) -> SafeSearch on every image while the monthly Vision counter is below VISION_MONTHLY_CAP
-  /// (default 10,000, ADR-0005 amendment; the full image, plus the thumbnail when VISION_SCREEN_THUMB is on, the
+  /// (default 10,000; the full image, plus the thumbnail when VISION_SCREEN_THUMB is on, the
   /// default) -> copy full+thumb to the public bucket -> READY; or REJECTED (objects deleted). Counter exhausted =>
   /// READY_UNSCREENED for accounts older than 7 days and REJECTED for newer ones, or REJECTED for everyone when
-  /// VISION_EXHAUSTED_POLICY=reject (ADR-0005). AVATAR and BANNER use the stricter Racy rule (ADR-0024 D1).
+  /// VISION_EXHAUSTED_POLICY=reject. AVATAR and BANNER use the stricter Racy rule.
   /// Naturally idempotent: items already READY/REJECTED are returned as-is.
   /// GCS per image: 2 Class A (copies) + 4 Class B (attrs and a ranged read of the full image and of the
   /// thumbnail) + 1-2 Vision fetches; deletes are free.
@@ -55,7 +55,7 @@ extension type MediaServiceClient (connect.Transport _transport) {
   /// is missing, screening fails or a concurrent finalize race is lost), plus 1 interceptor read; writes 2n+1 (per item one
   /// screening claim and one resolve, or claim and release after a failed attempt; plus the Vision counter). One call per
   /// image screens at a time: a concurrent call answers MEDIA_NOT_READY (retry) or the winner's result, with no Vision spend.
-  /// GIF (ADR-0029 D11): Cloud Vision screens only the first frame of an animated GIF, so after the checks above the
+  /// GIF: Cloud Vision screens only the first frame of an animated GIF, so after the checks above the
   /// server reads the whole uploaded GIF (<= 2 MiB, +1 Class B), refuses it before decoding when it has more than 300
   /// frames, a logical screen above 1,280 on either side or more than 50,000,000 frame pixels in total, samples 4
   /// frames over its display time into one contact sheet and screens the sheet (by bytes) and the thumbnail (by URI):
@@ -64,7 +64,7 @@ extension type MediaServiceClient (connect.Transport _transport) {
   /// READY_UNSCREENED. One GIF screens at a time per instance: a call that cannot start within 5 s answers
   /// MEDIA_NOT_READY (retry), with no Vision spend. The thumbnail is checked against thumb_content_type and published
   /// with it; the full GIF is published unchanged. Firestore cost as above.
-  /// Screening failures (ADR-0029 Amendment 1 A5; behaviour arrives later): the screening UNAVAILABLE ("image checks
+  /// Screening failures (behaviour arrives later): the screening UNAVAILABLE ("image checks
   /// are temporarily unavailable") carries retry_after (5 s); retry the same FinalizeUpload with the same media id, no
   /// re-upload. RESOURCE_EXHAUSTED + RATE_LIMITED with metadata["limit"] = "media_vision_units_daily" is the per-user daily
   /// Vision-units cap (refused before any claim, nothing written, retry_after to IST midnight; do not retry sooner). A

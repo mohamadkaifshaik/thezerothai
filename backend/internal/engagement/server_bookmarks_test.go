@@ -94,7 +94,7 @@ func assertPassedGate(t *testing.T, err error, _ bookmarkCall) {
 	}
 }
 
-// TestBookmarkServer_FlagMatrix (ADR-0023 D5): AddBookmark needs FEATURE_BOOKMARKS on for the caller; ListBookmarks
+// TestBookmarkServer_FlagMatrix: AddBookmark needs FEATURE_BOOKMARKS on for the caller; ListBookmarks
 // and RemoveBookmark only need it not globally off. FEATURE_POSTS is needed by all three and FEATURE_ENGAGEMENT by
 // none. Whatever the outcome, no Firestore read, write or delete is charged: the stub service has no repo.
 func TestBookmarkServer_FlagMatrix(t *testing.T) {

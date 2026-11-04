@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prints Cloud Vision SafeSearch units used this month and today (UTC), for `make cost` (ADR-0022).
+# Prints Cloud Vision SafeSearch units used this month and today (UTC), for `make cost`.
 # Month: Firestore doc admin/vision-YYYYMM field "units" (backend/internal/media AddVisionUnits/VisionUsed).
 # Today: sum of the vision_units field on FinalizeUpload request lines in Cloud Logging since 00:00 UTC.
 # Usage: scripts/cost-vision.sh <gcp-project>   (needs gcloud auth; read-only; ~1 Firestore read + 1 log query)
