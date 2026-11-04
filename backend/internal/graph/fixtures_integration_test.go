@@ -2,7 +2,7 @@
 
 // fixtures_integration_test.go holds the shared emulator fixtures for every graph integration suite
 // (every graph integration suite; none may grow a second seeding helper): the wired
-// identity+graph pair, profile/graph/quota seeding and the API-error
+// identity+graph pair, profile/graph seeding and the API-error
 // assertion. The invariant checker lives next to it in invariants_integration_test.go.
 package graph_test
 
@@ -71,7 +71,7 @@ type graphSvcHandle struct {
 	privacyJob func(graph.PendingAccepter) *graph.PrivacyPublicJob
 }
 
-// wiredOption tweaks the graph.Deps newWired builds (flags, quota tiers, new-account window).
+// wiredOption tweaks the graph.Deps newWired builds (flags, protected set, events).
 type wiredOption func(*graph.Deps)
 
 func withFlags(f graph.FlagChecker) wiredOption { return func(d *graph.Deps) { d.Flags = f } }
@@ -82,19 +82,6 @@ func withProtected(p identity.ProtectedAuthors) wiredOption {
 	return func(d *graph.Deps) { d.Protected = p }
 }
 func withEvents(e graph.FollowEvents) wiredOption { return func(d *graph.Deps) { d.Events = e } }
-
-// withNewAccountWindow changes how long an account counts as "new" (default 24h; with a 1ns window every
-// profile is an established account, which is how tests reach the standard quota tier without a clock seam).
-func withNewAccountWindow(w time.Duration) wiredOption {
-	return func(d *graph.Deps) { d.NewAccountWindow = w }
-}
-
-// withQuotas overrides the four daily quota limits (follows, new follows, blocks, new blocks).
-func withQuotas(follows, newFollows, blocks, newBlocks int64) wiredOption {
-	return func(d *graph.Deps) {
-		d.FollowsPerDay, d.NewAccountFollowsPerDay, d.BlocksPerDay, d.NewAccountBlocksPerDay = follows, newFollows, blocks, newBlocks
-	}
-}
 
 // newWired wires identity+graph against a fresh emulator project and registers the invariant
 // checker as a t.Cleanup, so EVERY scenario ends with a full sweep of follows/graph/users (opt out with
@@ -124,15 +111,10 @@ func newInstance(client *firestore.Client, opts ...wiredOption) wired {
 	graphRepo.SetProfiles(identityRepo)
 
 	deps := graph.Deps{
-		Repo:                    graphRepo,
-		Cache:                   graph.NewCache(time.Minute),
-		Flags:                   alwaysOnFlags{},
-		CursorKey:               []byte("test-cursor-key"),
-		FollowsPerDay:           200,
-		NewAccountFollowsPerDay: 50,
-		BlocksPerDay:            200,
-		NewAccountBlocksPerDay:  50,
-		NewAccountWindow:        24 * time.Hour,
+		Repo:      graphRepo,
+		Cache:     graph.NewCache(time.Minute),
+		Flags:     alwaysOnFlags{},
+		CursorKey: []byte("test-cursor-key"),
 	}
 	for _, o := range opts {
 		o(&deps)
@@ -190,7 +172,7 @@ func seedGraphArrays(t *testing.T, client *firestore.Client, uid string, fields 
 }
 
 // seedBlock records "blocker blocks blocked" on both graph docs exactly as Block would (blocked[] +
-// blockedBy[]), without going through the RPC (no quota use, no edges touched). Both docs must exist.
+// blockedBy[]), without going through the RPC (no edges touched). Both docs must exist.
 func seedBlock(t *testing.T, client *firestore.Client, blocker, blocked string) {
 	t.Helper()
 	ctx := context.Background()
@@ -216,7 +198,7 @@ func seedEdge(t *testing.T, w wired, follower, followee string, at time.Time) {
 }
 
 // seedFollow writes a follow exactly as Follow would (edge doc + follower's following[] + both counters),
-// without using the RPC, so it costs no quota and stays consistent with invariants I1/I2. Both users must
+// without using the RPC, so it stays consistent with invariants I1/I2. Both users must
 // exist (CreateProfile).
 func seedFollow(t *testing.T, w wired, follower, followee string, at time.Time) {
 	t.Helper()
@@ -237,19 +219,10 @@ func seedFollow(t *testing.T, w wired, follower, followee string, at time.Time) 
 	}
 }
 
-// istDay returns the quota day key (IST) offsetDays from today (-1 = yesterday).
+// istDay returns the IST day key (IST) offsetDays from today (-1 = yesterday).
 func istDay(offsetDays int) string {
 	ist := time.FixedZone("IST", 5*3600+30*60)
 	return time.Now().In(ist).AddDate(0, 0, offsetDays).Format("2006-01-02")
-}
-
-// seedQuota writes quotas/{uid} for the given IST day with one counter set (kind: "follows" or "blocks").
-// A day other than today models the IST-midnight rollover: the quota store treats it as a fresh day.
-func seedQuota(t *testing.T, client *firestore.Client, uid, day, kind string, used int) {
-	t.Helper()
-	if _, err := client.Collection("quotas").Doc(uid).Set(context.Background(), map[string]interface{}{"day": day, kind: used}); err != nil {
-		t.Fatalf("seed quotas/%s: %v", uid, err)
-	}
 }
 
 // seedUserField sets one field on users/{uid} (e.g. isPrivate=true, status="DELETING") for legacy-data
@@ -350,6 +323,14 @@ func quotaUsed(t *testing.T, client *firestore.Client, uid, day, kind string) in
 	}
 	n, _ := v.(int64)
 	return n
+}
+
+// assertNoQuotaDoc fails when quotas/{uid} exists: graph mutations no longer count a daily quota, so they never write it.
+func assertNoQuotaDoc(t *testing.T, client *firestore.Client, uid string) {
+	t.Helper()
+	if _, err := client.Collection("quotas").Doc(uid).Get(context.Background()); err == nil {
+		t.Errorf("quotas/%s was written; graph mutations no longer count a daily quota", uid)
+	}
 }
 
 // runConcurrently starts n goroutines running fn(i), releases them together, and returns each one's error.

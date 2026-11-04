@@ -166,34 +166,6 @@ func TestMute_Integration_OnlyCallerGraphChanges(t *testing.T) {
 	}
 }
 
-func TestBlockMute_Integration_QuotaExhausted_UnblockStillWorks(t *testing.T) {
-	w := newWired(t)
-	mustCreateProfile(t, w.identity, "uid-a", "usera")
-	mustCreateProfile(t, w.identity, "uid-b", "userb")
-	mustCreateProfile(t, w.identity, "uid-c", "userc")
-	if _, err := w.graph.Block(context.Background(), "uid-a", key1, "uid-b"); err != nil {
-		t.Fatal(err)
-	}
-	ist := time.FixedZone("IST", 5*3600+30*60)
-	if _, err := w.client.Collection("quotas").Doc("uid-a").Set(context.Background(), map[string]interface{}{
-		"day": time.Now().In(ist).Format("2006-01-02"), "blocks": 200,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	for name, call := range map[string]func() error{
-		"Block": func() error { _, err := w.graph.Block(context.Background(), "uid-a", key2, "uid-c"); return err },
-		"Mute":  func() error { _, err := w.graph.Mute(context.Background(), "uid-a", key2, "uid-b"); return err },
-	} {
-		var ae *apierr.Error
-		if err := call(); !errors.As(err, &ae) || ae.Metadata["quota"] != "blocks" {
-			t.Errorf("%s err = %v, want QUOTA_EXCEEDED blocks", name, err)
-		}
-	}
-	if _, err := w.graph.Unblock(context.Background(), "uid-a", key3, "uid-b"); err != nil {
-		t.Errorf("Unblock must never be quota-gated: %v", err)
-	}
-}
-
 func TestBlock_Integration_CapsAndOverflow(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-a", "usera")

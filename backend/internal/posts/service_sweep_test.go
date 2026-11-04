@@ -120,8 +120,8 @@ func TestSweep_PublishesADueItemLikeCreatePost(t *testing.T) {
 	if strings.Join(p.MediaIDs, ",") != sweepMediaID(1)+","+sweepMediaID(2) || strings.Join(p.MediaAlts, "|") != "an alt|" {
 		t.Errorf("media = %v alts %q", p.MediaIDs, p.MediaAlts)
 	}
-	if p.PostsLimit != 100 || p.NewAccountPostsLimit != 20 || p.NewAccountWindow != 24*time.Hour || p.TerminalTTL != 168*time.Hour || !p.Now.Equal(e.now) {
-		t.Errorf("limits = %d/%d window %v ttl %v now %v", p.PostsLimit, p.NewAccountPostsLimit, p.NewAccountWindow, p.TerminalTTL, p.Now)
+	if p.TerminalTTL != 168*time.Hour || !p.Now.Equal(e.now) {
+		t.Errorf("ttl %v now %v", p.TerminalTTL, p.Now)
 	}
 
 	// The item is PUBLISHED with the post id and no draft; exactly what CreatePost does after its commit followed.

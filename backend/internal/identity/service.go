@@ -442,11 +442,9 @@ func setsExtra(p *string) bool { return p != nil && *p != "" }
 // (never the cause).
 //
 // An is_private that differs from the stored value runs one transaction (repo_privacy_firestore.go):
-// a protect reads users, quotas and the privacy/protectedAuthors doc for the cap, and writes isPrivate, the set doc
-// with ArrayUnion and quotas.privacyToggles; an unprotect reads users and quotas and writes the same three (ArrayRemove,
-// no cap check). An is_private equal to the stored value is the plain update and uses no quota. The 5th change of an
-// IST day is QUOTA_EXCEEDED quota=privacy_toggles and a full set is
-// LIMIT_REACHED limit=private_accounts, both writing nothing. After the commit the committing instance updates its own copy of
+// a protect reads users and the privacy/protectedAuthors doc for the cap, and writes isPrivate and the set doc
+// with ArrayUnion; an unprotect reads users and writes the same two (ArrayRemove, no cap check). An is_private equal to
+// the stored value is the plain update. A full set is LIMIT_REACHED limit=private_accounts, writing nothing. After the commit the committing instance updates its own copy of
 // the set at once (Install on a protect, Apply on an unprotect; other instances within CACHE_TTL), and an unprotect calls
 // PrivacyListener.BecamePublic (detached, short deadline; a failure is ERROR privacy_public_enqueue_failed and never fails the
 // call). The cached profile is written from the committed data (SetProfile), so no Directory.Forget is needed. A toggle bumps
@@ -552,22 +550,9 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		return Profile{}, apierr.Validation("is_private", "private accounts are coming soon")
 	}
 
-	// A display-name edit rewrites the author snapshot on the user's posts, limited to
-	// SnapshotEditsPerDay a day. The comparison uses the cached profile (no read: the interceptor warmed it); a
-	// stale cache can only over-count an edit. Reserved before the write, on quotas/{uid}.
-	// Only while FEATURE_PROFILE_SNAPSHOT is on for the caller.
+	// A display-name edit rewrites the author snapshot on the user's posts, only while FEATURE_PROFILE_SNAPSHOT is on for
+	// the caller.
 	refresh := s.snapshotsOn(uid)
-	if refresh && params.DisplayName != nil {
-		cur, err := s.getProfileCached(ctx, uid)
-		if err != nil {
-			return Profile{}, err
-		}
-		if normalizeDisplayName(*params.DisplayName) != cur.DisplayName {
-			if err := s.reserveSnapshotEdit(ctx, uid); err != nil {
-				return Profile{}, err
-			}
-		}
-	}
 
 	now := s.now().UTC()
 	snapshotChanged := false
@@ -645,7 +630,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	)
 	if s.privacy != nil && params.IsPrivate != nil {
 		// An is_private request runs the toggle transaction. Equal to the stored value it behaves like the plain
-		// update and uses no quota.
+		// update.
 		toggle, err = s.privacy.repo.UpdateProfileWithPrivacy(ctx, uid, mutate, s.privacy.limits)
 		profile = toggle.Profile
 		logger.SetRequestField(ctx, fieldPrivacyToggleAttempts, toggle.Attempts)
@@ -720,7 +705,7 @@ func (s *service) ChangeHandle(ctx context.Context, uid, idempotencyKey, newHand
 	if oldHandleLower != "" {
 		s.cache.InvalidateHandle(oldHandleLower)
 	}
-	// Handle changes are bounded by the 7-day cooldown, so they do not spend the daily snapshot-edit quota.
+	// Handle changes are bounded by the 7-day cooldown.
 	if s.snapshotsOn(uid) && (!haveBefore || before.SnapshotVersion != profile.SnapshotVersion) {
 		s.enqueueSnapshotRefresh(ctx, uid, profile.SnapshotVersion)
 	}

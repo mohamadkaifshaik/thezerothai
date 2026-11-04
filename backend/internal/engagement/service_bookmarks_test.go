@@ -14,7 +14,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 // fakeBMRepo is the BookmarkRepo of the service tests: it records the params and answers with the configured result.
@@ -100,9 +99,9 @@ func newBMEnv(t *testing.T, accountAge time.Duration) *bmEnv {
 	bm := &fakeBMRepo{}
 	m, err := New(Deps{
 		Repo: e.repo, Posts: e.posts, Reader: e.posts, Directory: fakeDir{created: time.Now().Add(-accountAge)},
-		Events: e.events, LikesPerDay: 500, NewAccountLikesPerDay: 100, PostsPerDay: 100, NewAccountPostsPerDay: 20,
-		NewAccountWindow: 24 * time.Hour, CacheTTL: time.Minute, AllowAnonymous: true,
-		BookmarkRepo: bm, BookmarksPerDay: 200, NewAccountBookmarksPerDay: 50, BookmarksMaxPerUser: 1000,
+		Events:   e.events,
+		CacheTTL: time.Minute, AllowAnonymous: true,
+		BookmarkRepo: bm, BookmarksMaxPerUser: 1000,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +135,7 @@ func TestAddBookmark(t *testing.T) {
 		got := e.bm.adds[0]
 		want := AddBookmarkParams{
 			UID: "viewer", PostID: pidA, IdemKey: idempotency.Key("viewer", "AddBookmark", keyOK),
-			RequestHash: bookmarkRequestHash(pidA), QuotaLimit: 200, MaxPerUser: 1000,
+			RequestHash: bookmarkRequestHash(pidA), MaxPerUser: 1000,
 		}
 		if got != want {
 			t.Fatalf("params = %+v, want %+v", got, want)
@@ -144,28 +143,6 @@ func TestAddBookmark(t *testing.T) {
 		// A bookmark is private: no counter, no notification, no event of any kind.
 		if e.events.likes != 0 || e.events.reposts != 0 || len(e.posts.counts) != 0 || len(e.posts.created) != 0 {
 			t.Fatalf("side effects: events %d/%d counts %v created %v", e.events.likes, e.events.reposts, e.posts.counts, e.posts.created)
-		}
-	})
-
-	t.Run("new accounts get the smaller daily quota", func(t *testing.T) {
-		for _, tt := range []struct {
-			name string
-			age  time.Duration
-			want int64
-		}{
-			{"1 hour old", time.Hour, 50},
-			{"just inside the window", 24*time.Hour - time.Minute, 50},
-			{"just outside the window", 24*time.Hour + time.Minute, 200},
-		} {
-			t.Run(tt.name, func(t *testing.T) {
-				e := newBMEnv(t, tt.age)
-				if _, err := e.m.AddBookmark(e.ctx, "viewer", keyOK, pidA); err != nil {
-					t.Fatal(err)
-				}
-				if got := e.bm.adds[0].QuotaLimit; got != tt.want {
-					t.Fatalf("quota limit = %d, want %d", got, tt.want)
-				}
-			})
 		}
 	})
 
@@ -227,16 +204,6 @@ func TestAddBookmark(t *testing.T) {
 		}
 	})
 
-	t.Run("the daily quota is QUOTA_EXCEEDED quota=bookmarks", func(t *testing.T) {
-		e := newBMEnv(t, 48*time.Hour)
-		e.bm.addErr = quota.ExceededError(quota.Bookmarks, time.Now())
-		_, err := e.m.AddBookmark(e.ctx, "viewer", keyOK, pidA)
-		ae := requireReason(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
-		if ae.Metadata["quota"] != "bookmarks" {
-			t.Fatalf("metadata = %v, want quota=bookmarks", ae.Metadata)
-		}
-	})
-
 	t.Run("a key used for another post is IDEMPOTENCY_KEY_REUSED", func(t *testing.T) {
 		e := newBMEnv(t, 48*time.Hour)
 		e.bm.addErr = ErrIdempotencyKeyReused
@@ -289,7 +256,7 @@ func TestAddBookmark(t *testing.T) {
 		e := newBMEnv(t, 48*time.Hour)
 		m, err := New(Deps{
 			Repo: e.repo, Posts: e.posts, Reader: e.posts, Directory: fakeDir{missing: true}, BookmarkRepo: e.bm,
-			BookmarksPerDay: 200, NewAccountBookmarksPerDay: 50, BookmarksMaxPerUser: 1000, NewAccountWindow: time.Hour,
+			BookmarksMaxPerUser: 1000,
 		})
 		if err != nil {
 			t.Fatal(err)

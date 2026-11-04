@@ -5,7 +5,7 @@ package apiserver
 // tester pass over the bookmark RPCs on the real Build chain and the emulators.
 // It adds what engagement_bookmarks_*_integration_test.go does not already cover: the flag modes with real data
 // (including a user dropped from the allowlist), the late retry of a NO-OP key in both directions, the same post added
-// ten times concurrently under different keys, the cap boundary at the default 1,000, the 24 h new-account quota window,
+// ten times concurrently under different keys, the cap boundary at the default 1,000,
 // the caller-bound cursor (a scheduled-list token, an expired token), NOT_FOUND byte identity against GetPost on the
 // wire, Add / Remove and their replays on a COLD chain (a second chain, not the one that seeded the data) and the viewer
 // state with FEATURE_ENGAGEMENT off. Helpers come from engagement_bookmarks_chain_integration_test.go and
@@ -245,13 +245,13 @@ func TestBookmarksW213_LateRetryOfNoOpKeys(t *testing.T) {
 			t.Fatal("the late retry of a no-op Add key re-created a bookmark removed after it")
 		}
 		if after := w.quotaUsed(t, b.uid); after != before {
-			t.Errorf("quota %d -> %d across a no-op and its retry: only a real add may be charged", before, after)
+			t.Errorf("quota %d -> %d across a no-op and its retry: no quota is written", before, after)
 		}
 	})
 }
 
 // Ten parallel Adds of the SAME post under ten different keys (a double tap that got fresh keys, two devices): one
-// bookmark doc, one array entry, the quota charged once. Contention may abort some callers; those get a retryable error
+// bookmark doc, one array entry. Contention may abort some callers; those get a retryable error
 // and a sequential retry converges on the same single bookmark.
 func TestBookmarksW213_SamePostDifferentKeysConcurrently(t *testing.T) {
 	w := newBMChain(t, nil)
@@ -302,8 +302,8 @@ func TestBookmarksW213_SamePostDifferentKeysConcurrently(t *testing.T) {
 	if len(docs) != 1 || len(ids) != 1 || ids[0] != pid {
 		t.Errorf("docs %d, array %v: want one doc and [%s]", len(docs), ids, pid)
 	}
-	if q := w.quotaUsed(t, b.uid); q != 1 {
-		t.Errorf("quotas.bookmarks = %d after %d adds of one post, want 1 (charged once)", q, n)
+	if q := w.quotaUsed(t, b.uid); q != 0 {
+		t.Errorf("quotas.bookmarks = %d after %d adds of one post, want 0 (no daily quota)", q, n)
 	}
 	// Every key that succeeded replays to the same state and charges nothing more.
 	for i, err := range errs {
@@ -314,8 +314,8 @@ func TestBookmarksW213_SamePostDifferentKeysConcurrently(t *testing.T) {
 			t.Errorf("replay of key %d = %v, %v", i, st, rerr)
 		}
 	}
-	if q := w.quotaUsed(t, b.uid); q != 1 {
-		t.Errorf("quotas.bookmarks = %d after the replays, want 1", q)
+	if q := w.quotaUsed(t, b.uid); q != 0 {
+		t.Errorf("quotas.bookmarks = %d after the replays, want 0", q)
 	}
 }
 
@@ -373,56 +373,6 @@ func (e *bmChain) cfgCap(t *testing.T) int {
 		t.Fatal(err)
 	}
 	return cfg.Quota.BookmarksMaxPerUser
-}
-
-// The new-account quota window is 24 h from users/{uid}.createdAt: an account 23 h old gets the new-account limit, an
-// account 25 h old the established one (a boundary the existing tests only reach through a 1 ns window).
-func TestBookmarksW213_NewAccountWindowIs24Hours(t *testing.T) {
-	ctx := context.Background()
-	setup := newBMChain(t, nil)
-	a := setup.user(t)
-	young, old := setup.user(t), setup.user(t)
-	posts := make([]string, 4)
-	for i := range posts {
-		posts[i] = setup.post(t, a, fmt.Sprint("q", i))
-	}
-	setAge := func(u bmUser, age time.Duration) {
-		if _, err := setup.fs.Doc("users/"+u.uid).Update(ctx, []firestore.Update{{Path: "createdAt", Value: time.Now().Add(-age)}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	setAge(young, 23*time.Hour)
-	setAge(old, 25*time.Hour)
-
-	r := newBMChain(t, func(c *config.Config) {
-		bookmarksOn(c)
-		c.Quota.BookmarksPerDay, c.Quota.NewAccountBookmarksPerDay = 3, 1
-		if c.Quota.NewAccountWindow != 24*time.Hour {
-			t.Fatalf("NewAccountWindow = %v, want the 24 h default", c.Quota.NewAccountWindow)
-		}
-	})
-	exhausted := func(u bmUser, post string) bool {
-		_, err := r.add(u, contractKey("bm-add"), post)
-		if err == nil {
-			return false
-		}
-		d := wireError(t, err, connect.CodeResourceExhausted)
-		assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
-		return true
-	}
-	// young (23 h): 1 allowed, the 2nd refused.
-	if exhausted(young, posts[0]) || !exhausted(young, posts[1]) {
-		t.Errorf("a 23 h old account must get exactly the new-account limit of 1")
-	}
-	// old (25 h): 3 allowed, the 4th refused.
-	for i := 0; i < 3; i++ {
-		if exhausted(old, posts[i]) {
-			t.Errorf("a 25 h old account was refused add %d: it gets the established limit of 3", i+1)
-		}
-	}
-	if !exhausted(old, posts[3]) {
-		t.Error("a 25 h old account got a 4th add past the established limit of 3")
-	}
 }
 
 // ListBookmarks tokens are caller- and list-bound and expire after 24 h; each failure is INVALID_ARGUMENT VALIDATION
@@ -512,11 +462,11 @@ func TestBookmarksW213_NoPathReachesAnotherUsersBookmarks(t *testing.T) {
 	if l, err := w.list(b, 0, ""); err != nil || len(l.GetBookmarks()) != 0 {
 		t.Fatalf("B's list = %v, %v", l, err)
 	}
-	// B's own Add lands under B only; A is untouched (still one doc, quota charged to B).
+	// B's own Add lands under B only; A is untouched (still one doc).
 	if _, err := w.add(b, contractKey("bm-add"), pid); err != nil {
 		t.Fatal(err)
 	}
-	if !w.bookmarkDocExists(t, b.uid, pid) || w.quotaUsed(t, a.uid) != 1 || w.quotaUsed(t, b.uid) != 1 {
+	if !w.bookmarkDocExists(t, b.uid, pid) || w.quotaUsed(t, a.uid) != 0 || w.quotaUsed(t, b.uid) != 0 {
 		t.Error("an Add moved or shared state between users")
 	}
 
@@ -660,8 +610,8 @@ func TestBookmarksW213_NotFoundBytesMatchGetPost(t *testing.T) {
 			t.Errorf("%s: a refused add created a bookmark", tc.name)
 		}
 	}
-	if after := w.quotaUsed(t, v.uid); after-before != wantCharged {
-		t.Errorf("quota %d -> %d: want exactly the %d visible adds charged, no refused one", before, after, wantCharged)
+	if after := w.quotaUsed(t, v.uid); after != before {
+		t.Errorf("quota %d -> %d: bookmark adds no longer count a daily quota", before, after)
 	}
 	if ids := w.bookmarkIDs(t, v.uid); int64(len(ids)) != wantCharged {
 		t.Errorf("userLikes.bookmarks = %v, want only the %d visible posts", ids, wantCharged)

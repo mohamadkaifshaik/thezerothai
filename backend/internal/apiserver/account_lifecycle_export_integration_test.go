@@ -37,7 +37,6 @@ import (
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 var updateGolden = flag.Bool("update-golden", false, "rewrite testdata/account_export_golden.json")
@@ -354,50 +353,6 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		len(doc.Graph.Following) != 1 || len(doc.Graph.Followers) != 1 {
 		t.Errorf("the subject's own graph is wrong: %+v", doc.Graph)
 	}
-}
-
-// TestAccountLifecycle_ExportQuotaRollover: one export per IST day. The server reads the real clock, so a stale
-// `day` on quotas/{uid} stands in for yesterday; the exact IST boundary is quota's own unit test (TestTodayAt_ISTBoundary).
-func TestAccountLifecycle_ExportQuotaRollover(t *testing.T) {
-	ctx := context.Background()
-	e := newLifecycleEnv(t)
-	u := e.newUser(t)
-	req := func(k string) (*connect.Response[identityv1.RequestAccountExportResponse], error) {
-		return e.identity.RequestAccountExport(ctx, authed(u.token, &identityv1.RequestAccountExportRequest{IdempotencyKey: k}))
-	}
-	first, err := req("rollover-export-key-0001")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = req("rollover-export-key-0002")
-	d := wireError(t, err, connect.CodeResourceExhausted)
-	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED {
-		t.Fatalf("second export the same day: %v", d)
-	}
-	if ra := d.GetRetryAfter().AsDuration(); ra <= 0 || ra > 24*time.Hour {
-		t.Errorf("retry_after = %v, want (0, 24h] (to the next IST midnight)", ra)
-	}
-	// Midnight passes: yesterday's counter no longer counts.
-	yesterday := quota.TodayAt(time.Now().Add(-24 * time.Hour))
-	if _, err := e.fs.Doc("quotas/"+u.uid).Update(ctx, []firestore.Update{{Path: "day", Value: yesterday}}); err != nil {
-		t.Fatal(err)
-	}
-	third, err := req("rollover-export-key-0003")
-	if err != nil {
-		t.Fatalf("export on the next IST day: %v", err)
-	}
-	if third.Msg.GetExportId() == first.Msg.GetExportId() {
-		t.Error("the next day's export reused the previous export id")
-	}
-	snap, _ := e.fs.Doc("quotas/" + u.uid).Get(ctx)
-	if day, _ := snap.DataAt("day"); day != quota.Today() {
-		t.Errorf("quotas.day = %v after the rollover, want %s", day, quota.Today())
-	}
-	if n, _ := snap.DataAt("exports"); n != int64(1) {
-		t.Errorf("quotas.exports = %v after the rollover, want 1 (reset, not accumulated)", n)
-	}
-	_, err = req("rollover-export-key-0004")
-	wireError(t, err, connect.CodeResourceExhausted)
 }
 
 // TestAccountLifecycle_ExportWhileDeleting: DeleteAccount arrives while an export is PENDING. The export job refuses

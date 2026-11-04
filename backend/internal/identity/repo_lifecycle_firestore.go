@@ -130,60 +130,22 @@ func (r *FirestoreRepo) SaveJobState(ctx context.Context, uid string, updateTime
 	return nil
 }
 
-// CreateExport: the first request reads quotas/{uid} and creates the PENDING doc and the
-// incremented quota in one atomic commit. A replay is told apart without a second probe on the first
-// request: if the daily quota is already used up, the exports doc is read (the replay of the request that used it,
-// or QUOTA_EXCEEDED); if quota is left, the Create fails with AlreadyExists, which rolls the whole commit back (the
-// quota is not incremented), and the doc is read after it. Either way a replay writes nothing.
+// CreateExport creates the PENDING doc. A replay is the Create failing with AlreadyExists, after which the doc is
+// read; a replay writes nothing.
 func (r *FirestoreRepo) CreateExport(ctx context.Context, p CreateExportParams) (ExportDoc, bool, error) {
-	var out ExportDoc
-	replay := false
-	qs := quota.New(r.client)
-	// store.RunTransaction counts each attempt in its own scratch counter and folds the writes in only when the
-	// commit succeeds: a commit that rolls back (AlreadyExists, below) wrote nothing.
-	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		rec, err := qs.Get(ctx, tx, p.UID)
-		if err != nil {
-			return fmt.Errorf("identity: export quota: %w", err)
-		}
-		b := store.NewFirestoreTxBatch(tx)
-		if qerr := quota.CheckAndReserve(b, qs.Ref(p.UID), rec, quota.Exports, p.ExportsPerDay); qerr != nil {
-			// Over the daily quota: only the request that used it up may be replayed.
-			snap, gerr := tx.Get(r.exportRef(p.ID))
-			switch {
-			case gerr == nil:
-				doc, derr := decodeExport(snap)
-				if derr != nil {
-					return derr
-				}
-				out, replay = doc, true
-				return nil
-			case status.Code(gerr) == codes.NotFound:
-				return qerr
-			default:
-				return fmt.Errorf("identity: get export: %w", gerr)
-			}
-		}
-		doc := exportDocFS{UID: p.UID, Status: string(ExportPending), ObjectPath: p.ObjectPath, CreatedAt: p.Now, ExpireAt: p.Now.Add(p.Retention)}
-		b.Create(r.exportRef(p.ID), doc)
-		if b.Err() != nil {
-			return b.Err()
-		}
-		out, replay = doc.toDomain(p.ID, time.Time{}), false
-		return nil
-	})
+	doc := exportDocFS{UID: p.UID, Status: string(ExportPending), ObjectPath: p.ObjectPath, CreatedAt: p.Now, ExpireAt: p.Now.Add(p.Retention)}
+	_, err := r.exportRef(p.ID).Create(ctx, doc)
 	if status.Code(err) == codes.AlreadyExists {
-		// A replay with quota left (for example the next IST day): the commit rolled back, nothing was written.
-		doc, gerr := r.GetExport(ctx, p.ID)
+		existing, gerr := r.GetExport(ctx, p.ID)
 		if gerr != nil {
 			return ExportDoc{}, false, gerr
 		}
-		return doc, true, nil
+		return existing, true, nil
 	}
 	if err != nil {
-		return ExportDoc{}, false, err
+		return ExportDoc{}, false, fmt.Errorf("identity: create export: %w", err)
 	}
-	return out, replay, nil
+	return doc.toDomain(p.ID, time.Time{}), false, nil
 }
 
 // GetExport reads exports/{id}.

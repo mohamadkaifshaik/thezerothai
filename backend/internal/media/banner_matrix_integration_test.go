@@ -33,7 +33,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 // w320MediaEnv is newIntEnv with the cap, the exhausted policy and the account age under the test's control.
@@ -47,12 +46,12 @@ type w320MediaEnv struct {
 func newW320MediaEnv(t *testing.T, cap int64, policy config.VisionExhaustedPolicy, accountAge time.Duration) *w320MediaEnv {
 	t.Helper()
 	client := newIntegrationClient(t)
-	real := NewFirestoreRepo(client, WriteDeps{Idempotency: idempotency.New(client), Quotas: quota.New(client)})
+	real := NewFirestoreRepo(client, WriteDeps{Idempotency: idempotency.New(client)})
 	e := newEnv(t, envOpts{})
 	svc, err := New(Deps{
 		Repo: real, Signer: e.sign, Objects: e.obj, Moderator: e.mod,
 		Directory: fakeDirectory{created: testNow.Add(-accountAge)}, IDs: &seqIDs{n: rand.IntN(1 << 30)},
-		PublicBaseURL: "https://cdn.test/media", MediaPerDay: 20, NewAccountMediaPerDay: 8, NewAccountWindow: 24 * time.Hour,
+		PublicBaseURL: "https://cdn.test/media", NewAccountWindow: 24 * time.Hour,
 		VisionMonthlyCap: cap, Policy: policy, ScreenThumb: false, Now: func() time.Time { return testNow },
 	})
 	if err != nil {

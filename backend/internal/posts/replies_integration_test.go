@@ -47,7 +47,7 @@ func replyCount(t *testing.T, in *createInstance, id string) int64 {
 // root-post (Home / Posts tab) query but is in the Replies tab query.
 func TestReplies_Integration_CreateShapeAndPull(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.signUp(t, "uid-alice", "alice")
 	in.signUp(t, "uid-bob", "bob")
 
@@ -106,7 +106,7 @@ func TestReplies_Integration_CreateShapeAndPull(t *testing.T) {
 // dropped, the focal/parent/root excluded, and paging.
 func TestReplies_Integration_ThreadOrderAndFiltering(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	for _, u := range []string{"alice", "bob", "carol", "dave"} {
 		in.signUp(t, "uid-"+u, u)
 	}
@@ -183,7 +183,7 @@ func TestReplies_Integration_ThreadOrderAndFiltering(t *testing.T) {
 // TestReplies_Integration_DeleteParentRendersTombstoneAndReplyDeleteReleasesCounter.
 func TestReplies_Integration_DeleteParentRendersTombstoneAndReplyDeleteReleasesCounter(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.signUp(t, "uid-alice", "alice")
 	in.signUp(t, "uid-bob", "bob")
 	root, err := in.create(t, "uid-alice", key(1), "root")
@@ -232,7 +232,7 @@ func TestReplies_Integration_DeleteParentRendersTombstoneAndReplyDeleteReleasesC
 // TestReplies_Integration_ConcurrentRepliesCountExactly: FieldValue.Increment on the parent loses no update.
 func TestReplies_Integration_ConcurrentRepliesCountExactly(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.signUp(t, "uid-alice", "alice")
 	const n = 8
 	for i := 0; i < n; i++ {

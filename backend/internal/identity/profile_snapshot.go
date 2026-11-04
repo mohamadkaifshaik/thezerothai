@@ -4,7 +4,7 @@
 // message goes to the shared `jobs` topic. The job handler (lifecycle_jobs.go dispatch) re-reads the
 // profile and asks the posts module, through SnapshotWriter, to rewrite `author` on the newest posts.
 //
-// Gated by FEATURE_PROFILE_SNAPSHOT (wire name `profile_snapshot`): off means no quota reservation, no message,
+// Gated by FEATURE_PROFILE_SNAPSHOT (wire name `profile_snapshot`): off means no message,
 // and a delivered message is acked without work. The version bump itself is unconditional (it rides the same
 // write), so turning the flag on later heals posts at the next edit.
 package identity
@@ -16,11 +16,7 @@ import (
 	"log/slog"
 	"time"
 
-	"cloud.google.com/go/firestore"
-
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // ProfileSnapshotFlag is the wire name of FEATURE_PROFILE_SNAPSHOT.
@@ -50,27 +46,17 @@ type SnapshotWriter interface {
 	RefreshAuthor(ctx context.Context, uid string, fields SnapshotFields, version int64) (updated int, err error)
 }
 
-// SnapshotQuota reserves one snapshot-affecting edit of uid's daily allowance (quota.SnapshotEdits). It returns
-// the QUOTA_EXCEEDED apierr when the allowance is used up.
-type SnapshotQuota interface {
-	Reserve(ctx context.Context, uid string, perDay int64) error
-}
-
 // ProfileSnapshotDeps wires the refresh into identity.New (WithProfileSnapshots).
 type ProfileSnapshotDeps struct {
 	Publisher JobPublisher
 	Flags     FlagChecker
-	Quota     SnapshotQuota
-	PerDay    int64
 	Log       *slog.Logger
 }
 
 type profileSnapshots struct {
-	pub    JobPublisher
-	flags  FlagChecker
-	quota  SnapshotQuota
-	perDay int64
-	log    *slog.Logger
+	pub   JobPublisher
+	flags FlagChecker
+	log   *slog.Logger
 }
 
 // WithProfileSnapshots enables the snapshot-refresh trigger in UpdateProfile and ChangeHandle. Without it (the
@@ -84,20 +70,12 @@ func WithProfileSnapshots(d ProfileSnapshotDeps) Option {
 		if log == nil {
 			log = slog.Default()
 		}
-		s.snap = &profileSnapshots{pub: d.Publisher, flags: d.Flags, quota: d.Quota, perDay: d.PerDay, log: log}
+		s.snap = &profileSnapshots{pub: d.Publisher, flags: d.Flags, log: log}
 	}
 }
 
 func (s *service) snapshotsOn(uid string) bool {
 	return s.snap != nil && s.snap.flags.Enabled(uid, ProfileSnapshotFlag)
-}
-
-// reserveSnapshotEdit spends one of the caller's daily snapshot edits (a read and a write on quotas/{uid}).
-func (s *service) reserveSnapshotEdit(ctx context.Context, uid string) error {
-	if s.snap.quota == nil {
-		return nil
-	}
-	return s.snap.quota.Reserve(ctx, uid, s.snap.perDay)
 }
 
 // enqueueSnapshotRefresh publishes the job message after the profile write committed. Best effort: a failure
@@ -113,31 +91,6 @@ func (s *service) enqueueSnapshotRefresh(ctx context.Context, uid string, versio
 		s.snap.log.WarnContext(ctx, "profile_snapshot_enqueue_failed",
 			"uid_hash", logger.HashUID(uid), "error", logger.ScrubErr(err, uid).Error())
 	}
-}
-
-// FirestoreSnapshotQuota implements SnapshotQuota on quotas/{uid}.
-type FirestoreSnapshotQuota struct{ client *firestore.Client }
-
-// NewSnapshotQuota builds the Firestore-backed SnapshotQuota.
-func NewSnapshotQuota(client *firestore.Client) *FirestoreSnapshotQuota {
-	return &FirestoreSnapshotQuota{client: client}
-}
-
-// Reserve spends one edit from the daily quota (a rejected reservation writes nothing).
-func (q *FirestoreSnapshotQuota) Reserve(ctx context.Context, uid string, perDay int64) error {
-	qs := quota.New(q.client)
-	_, err := store.RunTransaction(ctx, q.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		rec, err := qs.Get(ctx, tx, uid)
-		if err != nil {
-			return fmt.Errorf("identity: snapshot quota: %w", err)
-		}
-		b := store.NewFirestoreTxBatch(tx)
-		if err := quota.CheckAndReserve(b, qs.Ref(uid), rec, quota.SnapshotEdits, perDay); err != nil {
-			return err
-		}
-		return b.Err()
-	})
-	return err
 }
 
 // runProfileSnapshot handles one {profile_snapshot_refresh} delivery: it reads users/{uid}, then the posts

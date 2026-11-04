@@ -57,7 +57,7 @@ func TestProtectedSeamsAllWiredInBuild(t *testing.T) {
 	src := string(b)
 	for _, want := range []string{
 		"protectedAuthors := identity.NewProtectedSetLoader(",
-		"Protected:               protectedAuthors,",
+		"Protected: protectedAuthors,",
 		"identity.WithProtectedAuthors(protectedAuthors",
 		"Audience:  notifAudience,",
 		"posts.WithProtectedAuthors(protectedAuthors)",

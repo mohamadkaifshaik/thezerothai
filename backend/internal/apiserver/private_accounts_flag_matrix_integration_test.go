@@ -40,7 +40,6 @@ func TestW335b_PrivateAccountsFlagMatrix(t *testing.T) {
 		w320AllW3On(c)
 		w328On(c)
 		w320TabsOn(c)
-		c.Quota.PrivacyTogglesPerDay = 100
 	}
 	setup := newW320Chain(t, allOn)
 

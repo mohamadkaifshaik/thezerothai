@@ -12,7 +12,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -24,7 +23,7 @@ var ErrProtectedSetFull = errors.New("identity: protected set is full")
 type PrivacyToggle int
 
 const (
-	// PrivacyNoop: is_private was absent from the change or equal to the stored value (no quota, no set read or write).
+	// PrivacyNoop: is_private was absent from the change or equal to the stored value (no set read or write).
 	PrivacyNoop PrivacyToggle = iota
 	// PrivacyOn: the account became protected.
 	PrivacyOn
@@ -34,8 +33,6 @@ const (
 
 // PrivacyLimits are the config values the toggle transaction enforces (rule 11: config, not literals).
 type PrivacyLimits struct {
-	// TogglesPerDay is QUOTA_PRIVACY_TOGGLES_PER_DAY.
-	TogglesPerDay int64
 	// SetMax is PROTECTED_AUTHORS_MAX.
 	SetMax int
 }
@@ -54,9 +51,9 @@ type PrivacyUpdate struct {
 // PrivacyRepo is the storage seam of the is_private toggle. *FirestoreRepo implements it.
 type PrivacyRepo interface {
 	// UpdateProfileWithPrivacy behaves like Repo.UpdateProfile and additionally, when mutate changes IsPrivate,
-	// runs the D8 transaction (reads: users fresh, quotas, and for a protect the set doc; writes: users, the set doc,
-	// quotas). A request whose is_private equals the stored value behaves like Repo.UpdateProfile and uses no
-	// quota. It returns the quota.ExceededError (QUOTA_EXCEEDED privacy_toggles) or ErrProtectedSetFull and writes nothing.
+	// runs the D8 transaction (reads: users fresh, and for a protect the set doc; writes: users, the set doc). A request
+	// whose is_private equals the stored value behaves like Repo.UpdateProfile. It returns ErrProtectedSetFull and writes
+	// nothing when the set is full.
 	UpdateProfileWithPrivacy(ctx context.Context, uid string, mutate func(*Profile), lim PrivacyLimits) (PrivacyUpdate, error)
 }
 
@@ -92,10 +89,9 @@ func (r *FirestoreRepo) LoadProtectedSet(ctx context.Context) ([]string, error) 
 
 // UpdateProfileWithPrivacy implements PrivacyRepo.
 //
-// One transaction: a protect reads users, quotas and the set doc and writes users, the set doc and quotas; an
-// unprotect reads users and quotas and writes users, the set doc and quotas; an equal value or no is_private reads
-// users and writes at most users. A quota or
-// cap refusal writes nothing.
+// One transaction: a protect reads users and the set doc and writes users and the set doc; an unprotect reads users and
+// writes users and the set doc; an equal value or no is_private reads users and writes at most users. A cap refusal
+// writes nothing.
 func (r *FirestoreRepo) UpdateProfileWithPrivacy(ctx context.Context, uid string, mutate func(*Profile), lim PrivacyLimits) (PrivacyUpdate, error) {
 	var out PrivacyUpdate
 	attempts, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
@@ -124,12 +120,7 @@ func (r *FirestoreRepo) UpdateProfileWithPrivacy(ctx context.Context, uid string
 			return b.Err()
 		}
 
-		// is_private changes: all reads first (quotas, then the set doc for a protect), then the checks, then the writes.
-		qs := quota.New(r.client)
-		rec, err := qs.Get(ctx, tx, uid)
-		if err != nil {
-			return err
-		}
+		// is_private changes: all reads first (the set doc for a protect), then the checks, then the writes.
 		var uids []string
 		if profile.IsPrivate {
 			sd, serr := tx.Get(r.protectedSetRef())
@@ -148,9 +139,6 @@ func (r *FirestoreRepo) UpdateProfileWithPrivacy(ctx context.Context, uid string
 		}
 		now := time.Now().UTC()
 		b.Set(r.userRef(uid), profileToDoc(profile))
-		if err := quota.CheckAndReserve(b, qs.Ref(uid), rec, quota.PrivacyToggles, lim.TogglesPerDay); err != nil {
-			return err // QUOTA_EXCEEDED; nothing was applied (the tx commits no writes on error)
-		}
 		if profile.IsPrivate {
 			if !slices.Contains(uids, uid) && len(uids) >= lim.SetMax {
 				return ErrProtectedSetFull

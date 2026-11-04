@@ -1,7 +1,10 @@
-// Package quota implements the per-user daily quotas at quotas/{uid}. The
-// mutating RPC reads the doc inside its own transaction, rejects RESOURCE_EXHAUSTED if the
-// caller is already at the limit, and appends the updated counters to the same atomic batch/transaction
-// it's already using for the entity write (no extra round trip).
+// Package quota implements the per-user daily counters at quotas/{uid}. Only two remain: ReportContent writes and new
+// direct-message conversations, both kept against spam rather than cost. The mutating RPC reads the doc inside its own
+// transaction, rejects RESOURCE_EXHAUSTED if the caller is already at the limit, and appends the updated counters to the
+// same atomic batch/transaction it's already using for the entity write (no extra round trip).
+//
+// SchedulePost and CreateList also read and rewrite the doc, counting nothing (Touch): that makes two racing calls by one
+// user conflict, which keeps the scheduled window cap and the per-owner list cap exact.
 package quota
 
 import (
@@ -26,50 +29,18 @@ const collection = "quotas"
 type Kind string
 
 const (
-	Posts   Kind = "posts"
-	Follows Kind = "follows"
-	Uploads Kind = "uploads"
-	Exports Kind = "exports"
-	// Blocks counts both Block and Mute calls: they share one daily counter. Unblock/Unmute
-	// are never quota-gated.
-	Blocks Kind = "blocks"
 	// Reports counts ReportContent calls that wrote a report. A repeat report is a no-op and is not
 	// charged.
 	Reports Kind = "reports"
-	// Likes counts LikePost calls that wrote a like. A replay is not charged; Unlike never is.
-	Likes Kind = "likes"
-	// SnapshotEdits counts profile edits that change the author snapshot copied onto posts (display name, later
-	// avatar), /: 5 per day.
-	SnapshotEdits Kind = "snapshotEdits"
-	// Schedules counts SchedulePost calls that wrote a scheduled doc (review L-4). A replay is not
-	// charged; CancelScheduledPost and ListScheduledPosts never are. The posts quota is charged at publish, not here.
-	Schedules Kind = "schedules"
-	// Bookmarks counts AddBookmark calls that wrote a bookmark. A replay and an already bookmarked post
-	// are not charged; RemoveBookmark and ListBookmarks never are.
-	Bookmarks Kind = "bookmarks"
-	// PrivacyToggles counts UpdateProfile is_private changes in both directions. An is_private equal to the
-	// stored value is not charged. A follow request counts under Follows, not here.
-	PrivacyToggles Kind = "privacyToggles"
 	// DMNew counts new direct-message conversations the caller opened: charged in the SendMessage
 	// transaction that creates the conversation. Messages in an existing conversation are not charged here.
 	DMNew Kind = "dmNew"
-	// ListCreates counts CreateList calls that wrote a list. A replay is not charged; UpdateList, DeleteList and
-	// SetHomeTabs never are.
-	ListCreates Kind = "listCreates"
-	// ListAdds counts AddListMember calls that added a member. A replay and an already-present member are not
-	// charged; RemoveListMember never is.
-	ListAdds Kind = "listAdds"
-	// CommunityJoins counts JoinCommunity calls that added a membership. A replay and an already-joined community are not
-	// charged; LeaveCommunity never is.
-	CommunityJoins Kind = "communityJoins"
-	// CommunityPosts counts CreatePost calls into a community, on top of the posts quota; a replay is not charged.
-	CommunityPosts Kind = "communityPosts"
 )
 
-// istOffset is the fixed IST (+05:30) offset the quota day boundary rolls over at.
+// ist is the fixed IST (+05:30) offset the day boundary rolls over at.
 var ist = time.FixedZone("IST", 5*3600+30*60)
 
-// Today returns the current quota day key ("YYYY-MM-DD") in IST.
+// Today returns the current day key ("YYYY-MM-DD") in IST.
 func Today() string {
 	return TodayAt(time.Now())
 }
@@ -85,80 +56,25 @@ func UntilNextDay(t time.Time) time.Duration {
 	return time.Date(y, m, d+1, 0, 0, 0, 0, ist).Sub(t)
 }
 
-// Record is the quotas/{uid} document shape.
+// Record is the quotas/{uid} document shape. Every write Sets the whole record, so counters that older revisions kept
+// on the doc (posts, follows, likes...) are dropped on the user's next write here.
 type Record struct {
-	Day     string `firestore:"day"`
-	Posts   int64  `firestore:"posts"`
-	Follows int64  `firestore:"follows"`
-	Uploads int64  `firestore:"uploads"`
-	Exports int64  `firestore:"exports"`
-	// Blocks counts Block + Mute calls.
-	Blocks int64 `firestore:"blocks"`
+	Day string `firestore:"day"`
 	// Reports counts ReportContent writes. Absent in older docs, so it decodes as 0.
 	Reports int64 `firestore:"reports"`
-	// Likes counts LikePost writes. Absent in older docs, so it decodes as 0.
-	Likes int64 `firestore:"likes"`
-	// SnapshotEdits counts snapshot-affecting profile edits.
-	SnapshotEdits int64 `firestore:"snapshotEdits"`
-	// Schedules counts SchedulePost writes. Absent in older docs, so it decodes as 0. CheckAndReserveN
-	// Sets the whole record, so a revision built without this field zeroes it on that user's next quota'd call
-	// (review I-3): a persistent counter must never live here.
-	Schedules int64 `firestore:"schedules"`
-	// Bookmarks counts AddBookmark writes. Absent in older docs, so it decodes as 0. Like Schedules it lives
-	// in the Record so the whole-record Set of CheckAndReserveN never zeroes it.
-	Bookmarks int64 `firestore:"bookmarks"`
-	// PrivacyToggles counts is_private changes. Absent in older docs, so it decodes as 0. It lives in the
-	// Record so the whole-record Set of CheckAndReserveN never zeroes it.
-	PrivacyToggles int64 `firestore:"privacyToggles"`
-	// DMNew counts new conversations opened. Absent in older docs, so it decodes as 0. It lives in the
-	// Record so the whole-record Set of CheckAndReserveN never zeroes it.
+	// DMNew counts new conversations opened. Absent in older docs, so it decodes as 0.
 	DMNew int64 `firestore:"dmNew"`
-	// ListCreates counts CreateList writes. Absent in older docs, so it decodes as 0. It lives in the Record so the
-	// whole-record Set of CheckAndReserveN never zeroes it.
-	ListCreates int64 `firestore:"listCreates"`
-	// ListAdds counts AddListMember writes; same rule as ListCreates.
-	ListAdds int64 `firestore:"listAdds"`
-	// CommunityJoins counts JoinCommunity writes. Absent in older docs, so it decodes as 0. It lives in the Record so the
-	// whole-record Set of CheckAndReserveN never zeroes it.
-	CommunityJoins int64 `firestore:"communityJoins"`
-	// CommunityPosts counts CreatePost calls into a community; same rule as CommunityJoins.
-	CommunityPosts int64 `firestore:"communityPosts"`
+	// Seq is bumped by every Touch so the write always changes the doc. A Set that leaves the doc unchanged keeps its old
+	// update_time, and under optimistic concurrency a racing transaction that read it would then still commit.
+	Seq int64 `firestore:"seq"`
 }
 
 func (r Record) valueFor(k Kind) int64 {
 	switch k {
-	case Posts:
-		return r.Posts
-	case Follows:
-		return r.Follows
-	case Uploads:
-		return r.Uploads
-	case Exports:
-		return r.Exports
-	case Blocks:
-		return r.Blocks
 	case Reports:
 		return r.Reports
-	case Likes:
-		return r.Likes
-	case SnapshotEdits:
-		return r.SnapshotEdits
-	case Schedules:
-		return r.Schedules
-	case Bookmarks:
-		return r.Bookmarks
-	case PrivacyToggles:
-		return r.PrivacyToggles
 	case DMNew:
 		return r.DMNew
-	case ListCreates:
-		return r.ListCreates
-	case ListAdds:
-		return r.ListAdds
-	case CommunityJoins:
-		return r.CommunityJoins
-	case CommunityPosts:
-		return r.CommunityPosts
 	default:
 		return 0
 	}
@@ -166,38 +82,10 @@ func (r Record) valueFor(k Kind) int64 {
 
 func (r *Record) increment(k Kind, n int64) {
 	switch k {
-	case Posts:
-		r.Posts += n
-	case Follows:
-		r.Follows += n
-	case Uploads:
-		r.Uploads += n
-	case Exports:
-		r.Exports += n
-	case Blocks:
-		r.Blocks += n
 	case Reports:
 		r.Reports += n
-	case Likes:
-		r.Likes += n
-	case SnapshotEdits:
-		r.SnapshotEdits += n
-	case Schedules:
-		r.Schedules += n
-	case Bookmarks:
-		r.Bookmarks += n
-	case PrivacyToggles:
-		r.PrivacyToggles += n
 	case DMNew:
 		r.DMNew += n
-	case ListCreates:
-		r.ListCreates += n
-	case ListAdds:
-		r.ListAdds += n
-	case CommunityJoins:
-		r.CommunityJoins += n
-	case CommunityPosts:
-		r.CommunityPosts += n
 	}
 }
 
@@ -239,63 +127,29 @@ func (s *Store) Get(ctx context.Context, tx *firestore.Transaction, uid string) 
 // (same atomic unit of work as the caller's entity write). rec must be the value returned by Get for the
 // same uid in the same transaction.
 func CheckAndReserve(b store.Batch, ref *firestore.DocumentRef, rec Record, kind Kind, limit int64) error {
-	return CheckAndReserveN(b, ref, rec, kind, limit, 1)
-}
-
-// CheckAndReserveN is CheckAndReserve for a call that consumes n units at once (CreateUpload reserves one
-// `uploads` unit per image, up to 4). It is rejected when the n units would not all fit under limit, so a
-// 4-image call at 18/20 fails as a whole instead of half-reserving.
-func CheckAndReserveN(b store.Batch, ref *firestore.DocumentRef, rec Record, kind Kind, limit, n int64) error {
-	if rec.valueFor(kind)+n > limit {
+	if rec.valueFor(kind)+1 > limit {
 		return ExceededError(kind, time.Now())
 	}
-	rec.increment(kind, n)
+	rec.increment(kind, 1)
 	b.Set(ref, rec)
 	return nil
 }
 
-// CheckAndReserveBoth reserves one unit of each of two kinds in ONE whole-record Set (CheckAndReserve called twice with the same rec
-// would write the second copy without the first increment, losing a unit). CreatePost into a community uses it for posts and
-// communityPosts, so the extra quota adds no write. first is checked first: when both are over, first's error wins.
-func CheckAndReserveBoth(b store.Batch, ref *firestore.DocumentRef, rec Record, first Kind, firstLimit int64, second Kind, secondLimit int64) error {
-	if rec.valueFor(first)+1 > firstLimit {
-		return ExceededError(first, time.Now())
-	}
-	if rec.valueFor(second)+1 > secondLimit {
-		return ExceededError(second, time.Now())
-	}
-	rec.increment(first, 1)
-	rec.increment(second, 1)
+// Touch appends rec to b with Seq bumped and no counter changed. A transaction that read the doc with Get and writes it
+// back conflicts with every other such transaction for the same uid, so of two racing calls only one commits and the other
+// retries after it. rec must be the value returned by Get for the same uid in the same transaction.
+func Touch(b store.Batch, ref *firestore.DocumentRef, rec Record) {
+	rec.Seq++
 	b.Set(ref, rec)
-	return nil
 }
 
 // ExceededError is the RESOURCE_EXHAUSTED / QUOTA_EXCEEDED error for kind at instant now, retry-after the next IST
-// midnight. CheckAndReserveN returns it; a module that remembers "this uid is out of quota until midnight" in its
+// midnight. CheckAndReserve returns it; a module that remembers "this uid is out of quota until midnight" in its
 // instance cache (moderation) builds the identical error from it without a Firestore read.
 func ExceededError(kind Kind, now time.Time) *apierr.Error {
 	return apierr.New(
 		connect.CodeResourceExhausted,
 		commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED,
 		"daily limit reached, please try again tomorrow",
-	).WithMeta("quota", metaName(kind)).WithRetryAfter(UntilNextDay(now))
-}
-
-// metaName is the QUOTA_EXCEEDED metadata["quota"] value for kind: the Firestore field name, except where
-// a snake_case wire value is fixed (privacy_toggles; lists.proto: list_creates, list_adds; communities.proto: community_joins, community_posts). Existing kinds keep
-// their field name.
-func metaName(kind Kind) string {
-	switch kind {
-	case PrivacyToggles:
-		return "privacy_toggles"
-	case ListCreates:
-		return "list_creates"
-	case ListAdds:
-		return "list_adds"
-	case CommunityJoins:
-		return "community_joins"
-	case CommunityPosts:
-		return "community_posts"
-	}
-	return string(kind)
+	).WithMeta("quota", string(kind)).WithRetryAfter(UntilNextDay(now))
 }

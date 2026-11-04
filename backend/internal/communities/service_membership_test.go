@@ -14,7 +14,6 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
@@ -22,7 +21,6 @@ import (
 func joinFixture(t *testing.T) *fixture {
 	t.Helper()
 	f := newFixture(ownerUID)
-	f.svc.d.Limits.JoinsPerDay, f.svc.d.Limits.NewAccountJoinsPerDay, f.svc.d.Limits.NewAccountWindow = 20, 5, 72*time.Hour
 	f.svc.now = func() time.Time { return testNow }
 	f.dir.profiles[memberUID] = profile(memberUID, identity.AccountStatusActive)
 	f.seed(Community{ID: testCID, Name: "Go", OwnerID: ownerUID, ModeratorIDs: []string{modUID}, MemberCount: 4, CreatedAt: testNow})
@@ -113,12 +111,6 @@ func TestJoin_MapsRepoErrors(t *testing.T) {
 			wantAPIErr(t, err, tt.code, tt.reason, tt.meta)
 		})
 	}
-	t.Run("quota error passes through", func(t *testing.T) {
-		f := joinFixture(t)
-		f.repo.joinErr = apierr.New(connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota")
-		_, err := f.svc.JoinCommunity(context.Background(), memberUID, in(testCID))
-		wantAPIErr(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, nil)
-	})
 	t.Run("unknown error names no id", func(t *testing.T) {
 		f := joinFixture(t)
 		f.repo.joinErr = fmt.Errorf("rpc error: documents/communityMemberships/%s", memberUID)
@@ -132,15 +124,15 @@ func TestJoin_MapsRepoErrors(t *testing.T) {
 	})
 }
 
-func TestJoin_QuotaTierFollowsAccountAge(t *testing.T) {
+// TestJoin_Params: whatever the account age (there is no daily quota tier any more), the repo gets the same parameters.
+func TestJoin_Params(t *testing.T) {
 	tests := []struct {
 		name    string
 		created time.Time
-		want    int64
 	}{
-		{"new account", testNow.Add(-time.Hour), 5},
-		{"old account", testNow.Add(-100 * time.Hour), 20},
-		{"unknown age counts as old", time.Time{}, 20},
+		{"new account", testNow.Add(-time.Hour)},
+		{"old account", testNow.Add(-100 * time.Hour)},
+		{"unknown age", time.Time{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -153,7 +145,7 @@ func TestJoin_QuotaTierFollowsAccountAge(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := f.repo.joins[0]
-			if got.QuotaLimit != tt.want || got.MaxJoined != 50 || got.UID != memberUID || got.ID != testCID ||
+			if got.MaxJoined != 50 || got.UID != memberUID || got.ID != testCID ||
 				got.IdemKey != idempotency.Key(memberUID, rpcJoinCommunity, goodKey) {
 				t.Errorf("params = %+v", got)
 			}

@@ -156,8 +156,8 @@ type Objects interface {
 	DeletePublic(ctx context.Context, object string) error
 }
 
-// Directory is the one thing media needs from identity: the account's creation time (new-account quotas and the
-// exhausted-cap policy). Implemented by a consumer-side adapter in apiserver over identity.Directory.
+// Directory is the one thing media needs from identity: the account's creation time (the new-account tier of the
+// Vision-units cap and the exhausted-cap policy). Implemented by a consumer-side adapter in apiserver over identity.Directory.
 type Directory interface {
 	AccountCreatedAt(ctx context.Context, uid string) (time.Time, error)
 }
@@ -214,8 +214,8 @@ type Result struct {
 
 // Service is the Connect handler's dependency.
 type Service interface {
-	// CreateUpload reserves len(items) media ids and signs their PUT URLs. It writes the idempotency record, the
-	// quota and one media doc per item; a replay writes nothing. It makes no GCS call.
+	// CreateUpload reserves len(items) media ids and signs their PUT URLs. It writes the idempotency record and
+	// one media doc per item; a replay writes nothing. It makes no GCS call.
 	// A BANNER is exactly one item with its own byte caps (1 MiB / 128 KiB) and a 3:1 declared shape, and the Server
 	// additionally needs profile_extras on for the caller (checked before any read when off).
 	// A GIF is POST only, exactly one item, full <= 2 MiB, declared edges <= GIF_MAX_EDGE, with a still

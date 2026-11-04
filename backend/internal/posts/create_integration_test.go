@@ -48,13 +48,13 @@ func (in *createInstance) skipInvariantSweep(reason string) {
 	in.skipSweep = true
 }
 
-func newCreateInstance(t *testing.T, client *firestore.Client, window time.Duration) *createInstance {
+func newCreateInstance(t *testing.T, client *firestore.Client) *createInstance {
 	t.Helper()
 	graphRepo := graph.NewFirestoreRepo(client)
 	identityRepo := identity.NewFirestoreRepo(client, graphRepo)
 	graphRepo.SetCounters(identityRepo)
 	graphRepo.SetProfiles(identityRepo)
-	graphSvc := graph.New(graph.Deps{Repo: graphRepo, Cache: graph.NewCache(time.Minute), Flags: allOn{}, NewAccountWindow: window, BlocksPerDay: 100, NewAccountBlocksPerDay: 100})
+	graphSvc := graph.New(graph.Deps{Repo: graphRepo, Cache: graph.NewCache(time.Minute), Flags: allOn{}})
 	identitySvc := identity.New(identityRepo, identity.NewCache(time.Minute), 7*24*time.Hour)
 	graphSvc.SetDirectory(identitySvc.(identity.Directory))
 
@@ -63,11 +63,10 @@ func newCreateInstance(t *testing.T, client *firestore.Client, window time.Durat
 		t.Fatal(err)
 	}
 	repo := NewFirestoreRepo(client)
-	repo.SetWriters(WriteDeps{Idempotency: idempotency.New(client), Quotas: quota.New(client), Counters: identityRepo, IDs: node})
+	repo.SetWriters(WriteDeps{Idempotency: idempotency.New(client), Counters: identityRepo, IDs: node})
 	cache := NewCache(time.Minute, 0, 0)
 	svc := New(Deps{
 		Repo: repo, Cache: cache, Directory: identitySvc.(identity.Directory), Graph: graphSvc,
-		PostsPerDay: 100, NewAccountPostsPerDay: 20, NewAccountWindow: window,
 	}).(*service)
 	in := &createInstance{svc: svc, repo: repo, identity: identitySvc, cache: cache}
 	// Every scenario ends with the posts invariant sweep (users.postsCount == posts by authorId); registered after the
@@ -144,11 +143,11 @@ func fieldInt(t *testing.T, client *firestore.Client, path, field string) int64 
 
 func key(i int) string { return fmt.Sprintf("key-%012d", i) }
 
-// TestCreate_Integration_ShapeAndCounters: the post shape, users.postsCount +1, quotas.posts +1 and
+// TestCreate_Integration_ShapeAndCounters: the post shape, users.postsCount +1, no quotas doc and
 // exactly one idempotency doc with expireAt 24 h out.
 func TestCreate_Integration_ShapeAndCounters(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.signUp(t, "uid-alice", "alice")
 
 	p, err := in.create(t, "uid-alice", key(1), "hello #World")
@@ -175,9 +174,7 @@ func TestCreate_Integration_ShapeAndCounters(t *testing.T) {
 	if got := fieldInt(t, client, "users/uid-alice", "postsCount"); got != 1 {
 		t.Fatalf("postsCount = %d", got)
 	}
-	if got := fieldInt(t, client, "quotas/uid-alice", "posts"); got != 1 {
-		t.Fatalf("quotas.posts = %d", got)
-	}
+	assertNoQuotaDoc(t, client, "uid-alice")
 	if n := countDocs(t, client, "idempotency"); n != 1 {
 		t.Fatalf("idempotency docs = %d, want 1", n)
 	}
@@ -193,7 +190,7 @@ func TestCreate_Integration_ShapeAndCounters(t *testing.T) {
 // a replay returns the first post; a different body is IDEMPOTENCY_KEY_REUSED and writes nothing.
 func TestCreate_Integration_Replays(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.signUp(t, "uid-alice", "alice")
 
 	first, err := in.create(t, "uid-alice", key(1), "once")
@@ -212,7 +209,7 @@ func TestCreate_Integration_Replays(t *testing.T) {
 	}
 
 	// Concurrent x10 with a fresh key, from this instance and a second one (cold caches).
-	other := newCreateInstance(t, client, time.Nanosecond)
+	other := newCreateInstance(t, client)
 	var wg sync.WaitGroup
 	ids := make([]string, 10)
 	errs := make([]error, 10)
@@ -234,7 +231,7 @@ func TestCreate_Integration_Replays(t *testing.T) {
 	wg.Wait()
 	// A contended create takes 2 to 3 s on the emulator (lock waits and the SDK's backoff), so on a slow runner a
 	// racer can pass the 5 s transaction deadline. That racer gets the retryable UNAVAILABLE "busy" answer, which is
-	// correct; what must never happen is a second post or a second quota charge. So: at least one racer succeeds,
+	// correct; what must never happen is a second post or a second counter bump. So: at least one racer succeeds,
 	// every success has the same id, a busy racer's retry with the same key replays that id, and the counts below
 	// stay exact.
 	winner := ""
@@ -265,52 +262,44 @@ func TestCreate_Integration_Replays(t *testing.T) {
 			t.Fatalf("retry of busy call %d: %v %v, want the replay of %q", i, p, err, winner)
 		}
 	}
-	// "once" + "racing" = 2 posts, postsCount 2, quotas.posts 2, idempotency docs 2.
+	// "once" + "racing" = 2 posts, postsCount 2, idempotency docs 2.
 	if n := countDocs(t, client, postsCollection); n != 2 {
 		t.Fatalf("posts = %d, want 2", n)
 	}
 	if got := fieldInt(t, client, "users/uid-alice", "postsCount"); got != 2 {
 		t.Fatalf("postsCount = %d, want 2", got)
 	}
-	if got := fieldInt(t, client, "quotas/uid-alice", "posts"); got != 2 {
-		t.Fatalf("quotas.posts = %d, want 2", got)
-	}
+	assertNoQuotaDoc(t, client, "uid-alice")
 	if n := countDocs(t, client, "idempotency"); n != 2 {
 		t.Fatalf("idempotency docs = %d, want 2", n)
 	}
 }
 
-// TestCreate_Integration_Quota: at 100 (20 for an account younger than the window) QUOTA_EXCEEDED with
-// metadata.quota=posts and no entity writes.
-func TestCreate_Integration_Quota(t *testing.T) {
-	tests := []struct {
-		name   string
-		window time.Duration
-		used   int64
-	}{
-		{"established account", time.Nanosecond, 100},
-		{"new account", 24 * time.Hour, 20},
+// TestCreate_Integration_NoDailyQuota: a legacy quotas/{uid} showing the old daily limit used up (100, or 20 for a new
+// account) no longer blocks CreatePost, and the doc is left untouched.
+func TestCreate_Integration_NoDailyQuota(t *testing.T) {
+	client := newTestClient(t)
+	in := newCreateInstance(t, client)
+	in.signUp(t, "uid-alice", "alice")
+	if _, err := client.Collection("quotas").Doc("uid-alice").Set(context.Background(), map[string]any{"day": quota.Today(), "posts": int64(100)}); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			client := newTestClient(t)
-			in := newCreateInstance(t, client, tt.window)
-			in.signUp(t, "uid-alice", "alice")
-			if _, err := client.Collection("quotas").Doc("uid-alice").Set(context.Background(), quota.Record{Day: quota.Today(), Posts: tt.used}); err != nil {
-				t.Fatal(err)
-			}
-			_, err := in.create(t, "uid-alice", key(1), "over the limit")
-			var ae *apierr.Error
-			if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED || ae.Code != connect.CodeResourceExhausted || ae.Metadata["quota"] != "posts" {
-				t.Fatalf("err = %v, want QUOTA_EXCEEDED quota=posts", err)
-			}
-			if countDocs(t, client, postsCollection) != 0 || countDocs(t, client, "idempotency") != 0 {
-				t.Fatal("a rejected create wrote")
-			}
-			if got := fieldInt(t, client, "users/uid-alice", "postsCount"); got != 0 {
-				t.Fatalf("postsCount = %d", got)
-			}
-		})
+	if _, err := in.create(t, "uid-alice", key(1), "past the old limit"); err != nil {
+		t.Fatalf("create past the old daily quota: %v", err)
+	}
+	if got := fieldInt(t, client, "users/uid-alice", "postsCount"); got != 1 {
+		t.Fatalf("postsCount = %d, want 1", got)
+	}
+	if got := fieldInt(t, client, "quotas/uid-alice", "posts"); got != 100 {
+		t.Fatalf("quotas.posts = %d, want the seeded 100 untouched", got)
+	}
+}
+
+// assertNoQuotaDoc fails when quotas/{uid} exists: CreatePost no longer counts a daily quota.
+func assertNoQuotaDoc(t *testing.T, client *firestore.Client, uid string) {
+	t.Helper()
+	if _, err := client.Doc("quotas/" + uid).Get(context.Background()); err == nil {
+		t.Errorf("quotas/%s was written; posts no longer count a daily quota", uid)
 	}
 }
 
@@ -327,7 +316,7 @@ func seedBlockedBy(t *testing.T, client *firestore.Client, uid string, blockedBy
 // other (M2: no block oracle), overflow changes nothing, and the author graph is never read.
 func TestCreate_Integration_Mentions(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.signUp(t, "uid-alice", "alice")
 	in.signUp(t, "uid-bob", "bob")
 	in.signUp(t, "uid-carol", "carol")
@@ -369,7 +358,7 @@ func TestCreate_Integration_Mentions(t *testing.T) {
 
 	// Overflow of the author's blockedBy list changes nothing either: the graph is not consulted.
 	seedBlockedBy(t, client, "uid-alice", nil, true)
-	in2 := newCreateInstance(t, client, time.Nanosecond)
+	in2 := newCreateInstance(t, client)
 	p, err = in2.create(t, "uid-alice", key(4), "@carol hi")
 	if err != nil || len(p.Mentions) != 1 || p.Mentions[0].Handle != "carol" {
 		t.Fatalf("overflow: mentions=%v err=%v", p, err)
@@ -379,10 +368,10 @@ func TestCreate_Integration_Mentions(t *testing.T) {
 // TestCreate_Integration_ElevenMentions: the parser caps at 10 mentions, from a cold instance.
 func TestCreate_Integration_ElevenMentions(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.signUp(t, "uid-alice", "alice")
 	text := in.signUpFriends(t, 11)
-	in2 := newCreateInstance(t, client, time.Nanosecond) // cold handle cache
+	in2 := newCreateInstance(t, client) // cold handle cache
 	in2.cold = true
 	p, err := in2.create(t, "uid-alice", key(1), text)
 	if err != nil {
@@ -397,7 +386,7 @@ func TestCreate_Integration_ElevenMentions(t *testing.T) {
 // post's id and createdAt come from the retrying attempt.
 func TestCreate_Integration_RetriedAttemptDrawsAFreshID(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.signUp(t, "uid-alice", "alice")
 	var seen []string
 	in.repo.attemptHook = func(attempt int, id string) error {
@@ -453,7 +442,7 @@ func seedGraphDoc(t *testing.T, client *firestore.Client, uid string, fields map
 // replay returns the original id. The text has 10 mentions, the worst case.
 func TestCreate_Integration_ColdReplayAndReusedKey(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.signUp(t, "uid-alice", "alice")
 	text := in.signUpFriends(t, 10)
 	first, err := in.create(t, "uid-alice", key(1), text)
@@ -461,14 +450,14 @@ func TestCreate_Integration_ColdReplayAndReusedKey(t *testing.T) {
 		t.Fatalf("first create: %v %v", first, err)
 	}
 
-	cold := newCreateInstance(t, client, time.Nanosecond)
+	cold := newCreateInstance(t, client)
 	cold.cold = true
 	again, err := cold.create(t, "uid-alice", key(1), text)
 	if err != nil || again.ID != first.ID {
 		t.Fatalf("cold replay: %v %v", again, err)
 	}
 
-	cold2 := newCreateInstance(t, client, time.Nanosecond)
+	cold2 := newCreateInstance(t, client)
 	cold2.cold = true
 	_, err = cold2.create(t, "uid-alice", key(1), text+"changed")
 	var ae *apierr.Error
@@ -477,47 +466,6 @@ func TestCreate_Integration_ColdReplayAndReusedKey(t *testing.T) {
 	}
 	if n := countDocs(t, client, postsCollection); n != 1 {
 		t.Fatalf("posts = %d, want 1", n)
-	}
-}
-
-// TestCreate_Integration_QuotaRollsOverAtISTMidnight (audit #12, D9): a quota record from yesterday (IST) at the daily
-// limit does not block today's create, and the counter restarts at 1 on today's date.
-func TestCreate_Integration_QuotaRollsOverAtISTMidnight(t *testing.T) {
-	tests := []struct {
-		name   string
-		window time.Duration
-		used   int64
-	}{
-		{"established account", time.Nanosecond, 100},
-		{"new account", 24 * time.Hour, 20},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			client := newTestClient(t)
-			in := newCreateInstance(t, client, tt.window)
-			in.signUp(t, "uid-alice", "alice")
-			yesterday := quota.TodayAt(time.Now().Add(-24 * time.Hour))
-			if yesterday == quota.Today() {
-				t.Fatalf("test setup: yesterday == today (%s)", yesterday)
-			}
-			if _, err := client.Collection("quotas").Doc("uid-alice").Set(context.Background(), quota.Record{Day: yesterday, Posts: tt.used}); err != nil {
-				t.Fatal(err)
-			}
-			_, err := in.create(t, "uid-alice", key(1), "a new day")
-			if err != nil {
-				t.Fatalf("create after rollover: %v", err)
-			}
-			snap, err := client.Doc("quotas/uid-alice").Get(context.Background())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if day, _ := snap.DataAt("day"); day != quota.Today() {
-				t.Fatalf("quotas.day = %v, want %s", day, quota.Today())
-			}
-			if got := fieldInt(t, client, "quotas/uid-alice", "posts"); got != 1 {
-				t.Fatalf("quotas.posts = %d, want 1 (reset, not %d+1)", got, tt.used)
-			}
-		})
 	}
 }
 
@@ -555,7 +503,7 @@ func TestCreate_Integration_MentionsD6Matrix(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client := newTestClient(t)
-			in := newCreateInstance(t, client, time.Nanosecond)
+			in := newCreateInstance(t, client)
 			in.signUp(t, "uid-alice", "alice")
 			in.signUp(t, "uid-bob", "bob")
 			tt.setup(t, client)
@@ -602,7 +550,7 @@ func TestCreate_Integration_StoredMentionsAndHashtagsTable(t *testing.T) {
 		{"NFC: decomposed e+acute", "#cafe\u0301", "#caf\u00e9", []string{"caf\u00e9"}, nil},
 	}
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.signUp(t, "uid-alice", "alice")
 	in.signUp(t, "uid-bob", "bob")
 	in.signUp(t, "uid-carol", "carol")
@@ -643,7 +591,7 @@ func TestCreate_Integration_StoredMentionsAndHashtagsTable(t *testing.T) {
 // TestCreate_Integration_LineSeparatorStoredAsNewline (audit #20, D21 G2): U+2028 in the request is stored as \n.
 func TestCreate_Integration_LineSeparatorStoredAsNewline(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.signUp(t, "uid-alice", "alice")
 	p, err := in.create(t, "uid-alice", key(1), "a\u2028b")
 	if err != nil {
@@ -662,8 +610,8 @@ func TestCreate_Integration_LineSeparatorStoredAsNewline(t *testing.T) {
 func TestCreate_Integration_ReclaimedHandleResolvesToNewOwner(t *testing.T) {
 	t.Run("9 s old entry contradicted by the renamed profile: carol wins", func(t *testing.T) {
 		client := newTestClient(t)
-		in := newCreateInstance(t, client, time.Nanosecond)    // the mentioning instance
-		other := newCreateInstance(t, client, time.Nanosecond) // where the rename and the claim happen
+		in := newCreateInstance(t, client)    // the mentioning instance
+		other := newCreateInstance(t, client) // where the rename and the claim happen
 		in.signUp(t, "uid-alice", "alice")
 		other.signUp(t, "uid-bob", "bob")
 

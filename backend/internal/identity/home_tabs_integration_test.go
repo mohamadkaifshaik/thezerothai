@@ -45,7 +45,7 @@ func newHomeTabsEnv(t *testing.T) *homeTabsEnv {
 	set := identity.NewProtectedSetLoader(repo, time.Minute, 10*time.Minute, nil, nil)
 	reg := flags.NewRegistry(flags.Spec{Name: identity.PrivateAccountsFlag, Mode: flags.On}, flags.Spec{Name: identity.ListsFlag, Mode: flags.On})
 	svc := identity.New(repo, cache, 7*24*time.Hour, identity.WithFeatureFlags(reg), identity.WithExtrasFlags(reg),
-		identity.WithPrivacy(identity.PrivacyDeps{Repo: repo, Set: set, Limits: identity.PrivacyLimits{TogglesPerDay: 4, SetMax: 20000}}))
+		identity.WithPrivacy(identity.PrivacyDeps{Repo: repo, Set: set, Limits: identity.PrivacyLimits{SetMax: 20000}}))
 	ctx := context.Background()
 	if _, err := svc.CreateProfile(ctx, itUID, validKeyForIntegration, "Alice", "Alice A."); err != nil {
 		t.Fatalf("CreateProfile: %v", err)

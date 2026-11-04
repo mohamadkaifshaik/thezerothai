@@ -91,7 +91,6 @@ type LifecycleDeps struct {
 	// ProjectID is only used for the Cloud Trace correlation field of job log lines.
 	ProjectID       string
 	Now             func() time.Time
-	ExportsPerDay   int64
 	ExportRetention time.Duration
 	ExportURLTTL    time.Duration
 	// WorkBudget and StartGate are test seams; zero means the production values (20 s, 120 s).
@@ -118,7 +117,6 @@ type Lifecycle struct {
 	log        *slog.Logger
 	projectID  string
 	now        func() time.Time
-	perDay     int64
 	retention  time.Duration
 	urlTTL     time.Duration
 	workBudget time.Duration
@@ -145,12 +143,12 @@ func NewLifecycle(d LifecycleDeps) (*Lifecycle, error) {
 	switch {
 	case d.Repo == nil || d.Cache == nil || d.Publisher == nil || d.Auth == nil:
 		return nil, errors.New("identity: lifecycle needs Repo, Cache, Publisher and Auth")
-	case d.ExportRetention <= 0 || d.ExportURLTTL <= 0 || d.ExportsPerDay <= 0:
-		return nil, errors.New("identity: lifecycle needs positive ExportRetention, ExportURLTTL and ExportsPerDay")
+	case d.ExportRetention <= 0 || d.ExportURLTTL <= 0:
+		return nil, errors.New("identity: lifecycle needs positive ExportRetention and ExportURLTTL")
 	}
 	l := &Lifecycle{
 		repo: d.Repo, cache: d.Cache, pub: d.Publisher, objects: d.Objects, log: d.Log, projectID: d.ProjectID, now: d.Now,
-		perDay: d.ExportsPerDay, retention: d.ExportRetention, urlTTL: d.ExportURLTTL,
+		retention: d.ExportRetention, urlTTL: d.ExportURLTTL,
 		workBudget: d.WorkBudget, startGate: d.StartGate, retryBackoff: d.RetryBackoff,
 		snapshots: d.Snapshots, flags: d.Flags,
 	}
@@ -346,8 +344,8 @@ func exportNotFound() error {
 	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "export not found")
 }
 
-// RequestAccountExport: the first call writes the exports doc and the quota; a replay with the same key
-// reads the quota, then the exports doc, and writes nothing. The export id is hash(uid, key), so a replay returns the same export. A publish
+// RequestAccountExport: the first call writes the exports doc; a replay with the same key
+// reads the exports doc and writes nothing. The export id is hash(uid, key), so a replay returns the same export. A publish
 // failure still returns success (ERROR account_export_enqueue_failed). A replay re-publishes only a PENDING export
 // older than exportRepublishAfter (L-4: a lost publish is recovered by the client's retry, without a replay storm
 // re-composing the export); the daily backstop covers the rest. The throttle reads createdAt from the doc the replay
@@ -364,14 +362,9 @@ func (l *Lifecycle) RequestAccountExport(ctx context.Context, uid, idempotencyKe
 	}
 	id := idempotency.Key(uid, exportRPC, idempotencyKey)
 	doc, replay, err := l.repo.CreateExport(ctx, CreateExportParams{
-		ID: id, UID: uid, ObjectPath: id + ".json", Now: l.stamp(), Retention: l.retention, ExportsPerDay: l.perDay,
+		ID: id, UID: uid, ObjectPath: id + ".json", Now: l.stamp(), Retention: l.retention,
 	})
 	if err != nil {
-		var ae *apierr.Error
-		if errors.As(err, &ae) {
-			logger.SetRequestField(ctx, "outcome", "rejected:quota")
-			return ExportView{}, err
-		}
 		return ExportView{}, logger.RedactErr(fmt.Errorf("identity: create export: %w", err), uid)
 	}
 	outcome := "accepted"

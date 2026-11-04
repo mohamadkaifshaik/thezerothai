@@ -102,14 +102,10 @@ func (s *service) AddMember(ctx context.Context, uid, key, listID, userID string
 	if err != nil {
 		return View{}, mapErr(ctx, "add", uid, listID, err)
 	}
-	limit := s.d.Limits.AddsPerDay
-	if s.isNew(prof) {
-		limit = s.d.Limits.NewAccountAddsPerDay
-	}
 	res, err := s.d.Repo.AddMember(ctx, AddMemberParams{
 		UID: uid, ListID: listID, TargetID: userID, IdemKey: idempotency.Key(uid, rpcAddListMember, key),
 		RequestHash: memberHash(listID, userID), Refusal: refusal,
-		MaxMembers: s.d.Limits.MaxMembers, QuotaLimit: limit, BlockedBy: owner.BlockedBy,
+		MaxMembers: s.d.Limits.MaxMembers, BlockedBy: owner.BlockedBy,
 	})
 	if err != nil {
 		return View{}, mapErr(ctx, "add", uid, listID, err)

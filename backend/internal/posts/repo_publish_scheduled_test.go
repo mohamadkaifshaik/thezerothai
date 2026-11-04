@@ -10,7 +10,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -28,7 +27,7 @@ func (r *rollbackRunner) RunTransaction(ctx context.Context, f func(context.Cont
 }
 
 // A panic inside the publish callback must come back as a returned error, so the client rolls back instead of leaving a
-// transaction open that holds the author's users and quotas docs (review M-2). Only the panic TYPE is kept.
+// transaction open that holds the author's users doc (review M-2). Only the panic TYPE is kept.
 func TestGuardPublishPanic(t *testing.T) {
 	var nilMap map[string]int
 	tests := []struct {
@@ -111,7 +110,7 @@ func TestPublishScheduled_ImagesWithoutAMediaAttacherIsAnError(t *testing.T) {
 	var wired *identity.FirestoreRepo // satisfies Counters and TxProfiles; never called here
 	newRepo := func(media MediaAttacher) *FirestoreRepo {
 		r := &FirestoreRepo{}
-		r.SetWriters(WriteDeps{IDs: publishTestIDs("1"), Quotas: &quota.Store{}, Counters: wired, Profiles: wired, Media: media})
+		r.SetWriters(WriteDeps{IDs: publishTestIDs("1"), Counters: wired, Profiles: wired, Media: media})
 		return r
 	}
 	_, err := newRepo(nil).PublishScheduled(context.Background(), PublishParams{

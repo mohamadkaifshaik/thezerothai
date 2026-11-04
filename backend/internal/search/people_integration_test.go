@@ -53,7 +53,6 @@ func TestSearchPeople_Integration(t *testing.T) {
 	graphRepo.SetProfiles(identityRepo)
 	graphSvc := graph.New(graph.Deps{
 		Repo: graphRepo, Cache: graph.NewCache(time.Minute), Flags: alwaysOn{}, CursorKey: []byte("test-cursor-key"),
-		FollowsPerDay: 200, NewAccountFollowsPerDay: 50, BlocksPerDay: 200, NewAccountBlocksPerDay: 50, NewAccountWindow: 24 * time.Hour,
 	})
 	idSvc := identity.New(identityRepo, identity.NewCache(time.Minute), 7*24*time.Hour, identity.WithBlockChecker(graphSvc))
 	dir := idSvc.(identity.Directory)

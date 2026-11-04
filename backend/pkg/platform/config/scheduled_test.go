@@ -15,9 +15,6 @@ func TestLoad_ScheduledDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.Quota.SchedulesPerDay != 50 || cfg.Quota.NewAccountSchedulesPerDay != 10 {
-		t.Errorf("schedule quotas = %d/%d, want 50/10", cfg.Quota.SchedulesPerDay, cfg.Quota.NewAccountSchedulesPerDay)
-	}
 	want := ScheduledConfig{
 		MaxPending: 25, Horizon: 1440 * time.Hour, MinLead: 2 * time.Minute, PerAuthorPerRun: 3,
 		SweepLimit: 50, SweepMaxPages: 2, SweepConcurrency: 4, MaxLateness: 6 * time.Hour, MaxAttempts: 3,
@@ -39,8 +36,6 @@ func TestLoad_ScheduledDefaults(t *testing.T) {
 func TestLoad_ScheduledOverridesAndValidation(t *testing.T) {
 	t.Run("overrides", func(t *testing.T) {
 		clearEnv(t)
-		t.Setenv("QUOTA_SCHEDULES_PER_DAY", "7")
-		t.Setenv("QUOTA_NEW_ACCOUNT_SCHEDULES_PER_DAY", "2")
 		t.Setenv("SCHEDULED_MAX_PENDING", "5")
 		t.Setenv("SCHEDULED_HORIZON", "24h")
 		t.Setenv("SCHEDULED_MIN_LEAD", "5m")
@@ -60,8 +55,8 @@ func TestLoad_ScheduledOverridesAndValidation(t *testing.T) {
 			SweepLimit: 20, SweepMaxPages: 3, SweepConcurrency: 2, MaxLateness: time.Hour, MaxAttempts: 5,
 			TerminalTTL: 48 * time.Hour,
 		}
-		if cfg.Scheduled != want || cfg.Quota.SchedulesPerDay != 7 || cfg.Quota.NewAccountSchedulesPerDay != 2 {
-			t.Errorf("override: %+v quota %d/%d", cfg.Scheduled, cfg.Quota.SchedulesPerDay, cfg.Quota.NewAccountSchedulesPerDay)
+		if cfg.Scheduled != want {
+			t.Errorf("override: %+v", cfg.Scheduled)
 		}
 	})
 
@@ -75,9 +70,6 @@ func TestLoad_ScheduledOverridesAndValidation(t *testing.T) {
 	})
 
 	tests := []struct{ key, val, want string }{
-		{"QUOTA_SCHEDULES_PER_DAY", "0", "QUOTA_SCHEDULES_PER_DAY"},
-		{"QUOTA_NEW_ACCOUNT_SCHEDULES_PER_DAY", "-1", "QUOTA_NEW_ACCOUNT_SCHEDULES_PER_DAY"},
-		{"QUOTA_SCHEDULES_PER_DAY", "many", "QUOTA_SCHEDULES_PER_DAY"},
 		{"SCHEDULED_MAX_PENDING", "0", "SCHEDULED_MAX_PENDING"},
 		{"SCHEDULED_MAX_PENDING", "51", "SCHEDULED_MAX_PENDING"},
 		{"SCHEDULED_PER_AUTHOR_PER_RUN", "0", "SCHEDULED_PER_AUTHOR_PER_RUN"},

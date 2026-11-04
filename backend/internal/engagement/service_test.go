@@ -16,7 +16,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 const (
@@ -249,8 +248,8 @@ func newEnv(t *testing.T) *env {
 	}, hidden: map[string]bool{}}
 	m, err := New(Deps{
 		Repo: e.repo, Posts: e.posts, Reader: e.posts, Directory: fakeDir{created: time.Now().Add(-48 * time.Hour)},
-		Events: e.events, LikesPerDay: 500, NewAccountLikesPerDay: 100, PostsPerDay: 100, NewAccountPostsPerDay: 20,
-		NewAccountWindow: 24 * time.Hour, CacheTTL: time.Minute, AllowAnonymous: true,
+		Events:   e.events,
+		CacheTTL: time.Minute, AllowAnonymous: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -282,7 +281,7 @@ func TestLike(t *testing.T) {
 		if e.events.likes != 1 || len(e.posts.counts) != 1 || e.posts.counts[0] != pidA+":1:0" {
 			t.Fatalf("events=%d counts=%v", e.events.likes, e.posts.counts)
 		}
-		if got := e.repo.likeParams[0]; got.QuotaLimit != 500 || got.PostID != pidA || got.UID != "viewer" {
+		if got := e.repo.likeParams[0]; got.PostID != pidA || got.UID != "viewer" {
 			t.Fatalf("params = %+v", got)
 		}
 	})
@@ -305,17 +304,6 @@ func TestLike(t *testing.T) {
 		}
 		if e.posts.viewCalls != 2 {
 			t.Errorf("viewable calls = %d, want 2 (repost, original)", e.posts.viewCalls)
-		}
-	})
-	t.Run("new accounts get the smaller quota", func(t *testing.T) {
-		e := newEnv(t)
-		m, _ := New(Deps{Repo: e.repo, Posts: e.posts, Reader: e.posts, Directory: fakeDir{created: time.Now().Add(-time.Hour)},
-			LikesPerDay: 500, NewAccountLikesPerDay: 100, NewAccountWindow: 24 * time.Hour, AllowAnonymous: true})
-		if _, err := m.Like(e.ctx, "viewer", keyOK, pidA); err != nil {
-			t.Fatal(err)
-		}
-		if got := e.repo.likeParams[0].QuotaLimit; got != 100 {
-			t.Fatalf("limit = %d, want 100", got)
 		}
 	})
 	tests := []struct {
@@ -348,25 +336,6 @@ func TestLike(t *testing.T) {
 			}
 		})
 	}
-	t.Run("quota exceeded passes through", func(t *testing.T) {
-		e := newEnv(t)
-		e.repo.likeErr = quota.ExceededError(quota.Likes, time.Now())
-		_, err := e.m.Like(e.ctx, "viewer", keyOK, pidA)
-		ae := requireCode(t, err, connect.CodeResourceExhausted)
-		if ae.Metadata["quota"] != "likes" {
-			t.Fatalf("metadata = %v", ae.Metadata)
-		}
-	})
-	t.Run("a cached like survives the daily limit as a replay", func(t *testing.T) {
-		e := newEnv(t)
-		e.repo.loaded = UserLikes{Recent: []string{pidA}}
-		_ = e.m.Viewer(e.ctx, "viewer") // fills the cache
-		e.repo.likeErr = quota.ExceededError(quota.Likes, time.Now())
-		r, err := e.m.Like(e.ctx, "viewer", keyOK, pidA)
-		if err != nil || !r.LikedByViewer {
-			t.Fatalf("r=%+v err=%v", r, err)
-		}
-	})
 }
 
 func TestUnlike(t *testing.T) {
@@ -424,7 +393,7 @@ func TestRepostAndUndo(t *testing.T) {
 		if len(e.posts.created) != 1 || e.events.reposts != 1 || e.posts.counts[0] != pidA+":0:1" {
 			t.Fatalf("created=%d events=%d counts=%v", len(e.posts.created), e.events.reposts, e.posts.counts)
 		}
-		if got := e.repo.repostParams[0]; got.QuotaLimit != 100 || got.Original.ID != pidA || got.Author.Handle != "h_viewer" {
+		if got := e.repo.repostParams[0]; got.Original.ID != pidA || got.Author.Handle != "h_viewer" {
 			t.Fatalf("params = %+v", got)
 		}
 	})
@@ -455,15 +424,6 @@ func TestRepostAndUndo(t *testing.T) {
 		e.repo.repostErr = ErrPostGone
 		_, err := e.m.Repost(e.ctx, "viewer", keyOK, pidA)
 		_ = requireCode(t, err, connect.CodeNotFound)
-	})
-	t.Run("posts quota", func(t *testing.T) {
-		e := newEnv(t)
-		e.repo.repostErr = quota.ExceededError(quota.Posts, time.Now())
-		_, err := e.m.Repost(e.ctx, "viewer", keyOK, pidA)
-		ae := requireCode(t, err, connect.CodeResourceExhausted)
-		if ae.Reason != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED || ae.Metadata["quota"] != "posts" {
-			t.Fatalf("err = %+v", ae)
-		}
 	})
 	t.Run("undo", func(t *testing.T) {
 		e := newEnv(t)
@@ -580,7 +540,7 @@ func newGateEnv(t *testing.T, n int32) (*env, *gateRepo, chan struct{}) {
 	g := &gateRepo{fakeRepo: e.repo, started: make(chan struct{}), release: make(chan struct{})}
 	m, err := New(Deps{
 		Repo: g, Posts: e.posts, Reader: e.posts, Directory: fakeDir{created: time.Now().Add(-48 * time.Hour)},
-		Events: e.events, LikesPerDay: 500, NewAccountLikesPerDay: 100, NewAccountWindow: 24 * time.Hour,
+		Events:   e.events,
 		CacheTTL: time.Minute, AllowAnonymous: true,
 	})
 	if err != nil {
@@ -926,8 +886,7 @@ func TestRepost_CancelledAfterCommitStillRunsEffects(t *testing.T) {
 	e.repo.repostRes = RepostResult{Post: &posts.Post{ID: pidRep}}
 	m, err := New(Deps{
 		Repo: &cancelAfterRepost{fakeRepo: e.repo, cancel: cancel}, Posts: e.posts, Reader: e.posts,
-		Directory: fakeDir{created: time.Now().Add(-48 * time.Hour)}, Events: e.events, LikesPerDay: 500,
-		NewAccountLikesPerDay: 100, PostsPerDay: 100, NewAccountPostsPerDay: 20, NewAccountWindow: 24 * time.Hour,
+		Directory: fakeDir{created: time.Now().Add(-48 * time.Hour)}, Events: e.events,
 		CacheTTL: time.Minute, AllowAnonymous: true,
 	})
 	if err != nil {

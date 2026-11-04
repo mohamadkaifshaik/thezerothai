@@ -11,7 +11,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
@@ -21,7 +20,7 @@ const bmUID = "bm-user"
 func addParams(uid, key, postID string) AddBookmarkParams {
 	return AddBookmarkParams{
 		UID: uid, PostID: postID, IdemKey: idempotency.Key(uid, "AddBookmark", key),
-		RequestHash: bookmarkRequestHash(postID), QuotaLimit: 200, MaxPerUser: 1000,
+		RequestHash: bookmarkRequestHash(postID), MaxPerUser: 1000,
 	}
 }
 
@@ -61,16 +60,16 @@ func (e *repoEnv) quotaBookmarks(t *testing.T, uid string) int64 {
 	return n
 }
 
-// The Add transaction writes the bookmark, the userLikes array, the quota and the idempotency doc; every userLikes and quota write keeps
-// the other fields (field-level userLikes, whole-record quota with every kind).
-func TestBookmarkRepo_AddWritesFourDocsAndKeepsTheRest(t *testing.T) {
+// The Add transaction writes the bookmark, the userLikes array and the idempotency doc; every userLikes write keeps the other
+// fields (field-level userLikes), and a legacy quotas doc is neither read for a limit nor written.
+func TestBookmarkRepo_AddWritesThreeDocsAndKeepsTheRest(t *testing.T) {
 	e := newRepoEnv(t)
 	ctx := context.Background()
 	const pid = "0000000000000000101"
 	if _, err := e.client.Doc("userLikes/"+bmUID).Set(ctx, map[string]any{"recent": []string{"9"}, "recentReposts": []string{"8"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.client.Doc("quotas/"+bmUID).Set(ctx, quota.Record{Day: quota.Today(), Likes: 7, Posts: 3, Schedules: 2}); err != nil {
+	if _, err := e.client.Doc("quotas/"+bmUID).Set(ctx, map[string]any{"day": quota.Today(), "likes": int64(7), "bookmarks": int64(200)}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -91,14 +90,8 @@ func TestBookmarkRepo_AddWritesFourDocsAndKeepsTheRest(t *testing.T) {
 	if v, _ := snap.DataAt("recentReposts"); fmt.Sprint(v) != "[8]" {
 		t.Errorf("userLikes.recentReposts = %v: Add must not touch it", v)
 	}
-	if got := e.quotaBookmarks(t, bmUID); got != 1 {
-		t.Errorf("quotas.bookmarks = %d, want 1", got)
-	}
-	q, _ := e.client.Doc("quotas/" + bmUID).Get(ctx)
-	var rec quota.Record
-	_ = q.DataTo(&rec)
-	if rec.Likes != 7 || rec.Posts != 3 || rec.Schedules != 2 {
-		t.Errorf("quota record = %+v: the other kinds must survive the whole-record Set", rec)
+	if got := e.quotaBookmarks(t, bmUID); got != 200 {
+		t.Errorf("quotas.bookmarks = %d, want the seeded 200 untouched (no daily quota)", got)
 	}
 	b, _ := e.client.Doc("users/" + bmUID + "/bookmarks/" + pid).Get(ctx)
 	if d := b.Data(); len(d) != 1 || d["createdAt"] == nil {
@@ -127,21 +120,18 @@ func TestBookmarkRepo_ReplayExistingCapQuotaAndKeyReuse(t *testing.T) {
 		if err != nil || res.Outcome != BookmarkReplayed || !res.State.Bookmarked {
 			t.Fatalf("replay = %+v, %v", res, err)
 		}
-		if got := e.quotaBookmarks(t, bmUID); got != 1 || len(e.bookmarks(t, bmUID)) != 1 {
-			t.Errorf("a replay changed state: quota %d, bookmarks %v", got, e.bookmarks(t, bmUID))
+		if len(e.bookmarks(t, bmUID)) != 1 {
+			t.Errorf("a replay changed state: bookmarks %v", e.bookmarks(t, bmUID))
 		}
 	})
 
-	t.Run("existing bookmark under a new key: success, the idempotency doc is stored, no charge", func(t *testing.T) {
+	t.Run("existing bookmark under a new key: success, the idempotency doc is stored", func(t *testing.T) {
 		res, err := e.repo.Add(ctx, addParams(bmUID, "key-0000000000002", p1))
 		if err != nil || res.Outcome != BookmarkUnchanged || !res.State.Bookmarked {
 			t.Fatalf("existing = %+v, %v", res, err)
 		}
 		if !e.exists(t, "idempotency/"+idempotency.Key(bmUID, "AddBookmark", "key-0000000000002")) {
 			t.Error("existing: the idempotency doc was not stored")
-		}
-		if got := e.quotaBookmarks(t, bmUID); got != 1 {
-			t.Errorf("quota = %d, want 1", got)
 		}
 	})
 
@@ -154,8 +144,8 @@ func TestBookmarkRepo_ReplayExistingCapQuotaAndKeyReuse(t *testing.T) {
 		if err != nil || res.Outcome != BookmarkUnchanged {
 			t.Fatalf("drift = %+v, %v", res, err)
 		}
-		if e.quotaBookmarks(t, uid) != 0 || !e.exists(t, "idempotency/"+idempotency.Key(uid, "AddBookmark", "key-0000000000003")) {
-			t.Errorf("quota %d, want 0 and the idempotency doc stored", e.quotaBookmarks(t, uid))
+		if !e.exists(t, "idempotency/"+idempotency.Key(uid, "AddBookmark", "key-0000000000003")) {
+			t.Error("the idempotency doc was not stored")
 		}
 	})
 
@@ -197,34 +187,6 @@ func TestBookmarkRepo_ReplayExistingCapQuotaAndKeyReuse(t *testing.T) {
 		}
 	})
 
-	t.Run("the daily quota: QUOTA_EXCEEDED quota=bookmarks and nothing is written; a replay still succeeds", func(t *testing.T) {
-		const uid = "bm-quota"
-		for i, post := range []string{p1, p2} {
-			q := addParams(uid, fmt.Sprintf("key-000000000001%d", i), post)
-			q.QuotaLimit = 2
-			if _, err := e.repo.Add(ctx, q); err != nil {
-				t.Fatalf("add %d: %v", i, err)
-			}
-		}
-		third := addParams(uid, "key-0000000000099", "0000000000000000113")
-		third.QuotaLimit = 2
-		_, err := e.repo.Add(context.Background(), third)
-		var ae *apierr.Error
-		if !errors.As(err, &ae) || ae.Metadata["quota"] != "bookmarks" {
-			t.Fatalf("err = %v, want QUOTA_EXCEEDED quota=bookmarks", err)
-		}
-		if e.bookmarkExists(t, uid, "0000000000000000113") || e.exists(t, "idempotency/"+idempotency.Key(uid, "AddBookmark", "key-0000000000099")) {
-			t.Error("a refusal over the quota wrote something")
-		}
-		first := addParams(uid, "key-0000000000010", p1)
-		first.QuotaLimit = 2
-		if res, err := e.repo.Add(ctx, first); err != nil || res.Outcome != BookmarkReplayed {
-			t.Fatalf("replay at the quota = %+v, %v", res, err)
-		}
-		if got := e.quotaBookmarks(t, uid); got != 2 {
-			t.Errorf("quota = %d, want 2", got)
-		}
-	})
 }
 
 // Remove: a missing bookmark rolls the transaction back and records only its idempotency
@@ -329,9 +291,9 @@ func TestBookmarkRepo_Remove(t *testing.T) {
 	})
 }
 
-// Concurrent Adds by one user all lock quotas/{uid} and userLikes/{uid}: the transactions serialise, and under heavy
+// Concurrent Adds by one user all lock userLikes/{uid}: the transactions serialise, and under heavy
 // contention some give up (a deadline or Aborted after the bounded retries) instead of corrupting anything. The
-// invariant asserted here is consistency, never "everyone wins": the array, the quota and the bookmark docs agree with
+// invariant asserted here is consistency, never "everyone wins": the array and the bookmark docs agree with
 // the number of successful writes, and a retry of the same key converges on one bookmark.
 func TestBookmarkRepo_ConcurrentAddsStayConsistent(t *testing.T) {
 	e := newRepoEnv(t)
@@ -353,7 +315,7 @@ func TestBookmarkRepo_ConcurrentAddsStayConsistent(t *testing.T) {
 		return outs
 	}
 
-	// Ten retries of the SAME request (one key, one post): at most one write, never a second charge.
+	// Ten retries of the SAME request (one key, one post): at most one write.
 	outs := run("bm-same-key", 10, func(int) string { return "key-conc-same-0001" }, func(int) string { return "0000000000000000131" })
 	written := 0
 	for _, o := range outs {
@@ -361,11 +323,11 @@ func TestBookmarkRepo_ConcurrentAddsStayConsistent(t *testing.T) {
 			written++
 		}
 	}
-	if n, q := len(e.bookmarks(t, "bm-same-key")), e.quotaBookmarks(t, "bm-same-key"); written > 1 || n != 1 || q != 1 {
-		t.Errorf("one key: written %d, array %d, quota %d, want at most 1 write and 1/1", written, n, q)
+	if n := len(e.bookmarks(t, "bm-same-key")); written > 1 || n != 1 {
+		t.Errorf("one key: written %d, array %d, want at most 1 write and 1", written, n)
 	}
 
-	// Distinct posts: whatever the contention outcome, the array, the quota and the bookmark docs agree with each other.
+	// Distinct posts: whatever the contention outcome, the array and the bookmark docs agree with each other.
 	outs = run("bm-many", 4, func(i int) string { return fmt.Sprintf("key-conc-many-%04d", i) }, func(i int) string { return fmt.Sprintf("%019d", 200+i) })
 	// A call that timed out on the client may still have committed, so the reference is the bookmark docs themselves.
 	docs := 0
@@ -376,8 +338,8 @@ func TestBookmarkRepo_ConcurrentAddsStayConsistent(t *testing.T) {
 			t.Errorf("add %d succeeded but its bookmark doc is missing", i)
 		}
 	}
-	if n, q := len(e.bookmarks(t, "bm-many")), e.quotaBookmarks(t, "bm-many"); n != docs || q != int64(docs) {
-		t.Errorf("distinct posts: %d bookmark docs, array %d, quota %d: want all three equal", docs, n, q)
+	if n := len(e.bookmarks(t, "bm-many")); n != docs {
+		t.Errorf("distinct posts: %d bookmark docs, array %d: want them equal", docs, n)
 	}
 }
 

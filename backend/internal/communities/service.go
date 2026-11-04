@@ -52,9 +52,6 @@ type Limits struct {
 	// MaxModerators (COMMUNITY_MAX_MODERATORS, 10) and RecentRemovalsMax (COMMUNITY_RECENT_REMOVALS_MAX, 50) are the caps; zero reads as the default.
 	MaxModerators, RecentRemovalsMax  int
 	CacheEntries, MembersCacheEntries int
-	// JoinsPerDay and NewAccountJoinsPerDay are the quota.CommunityJoins daily limits (20, and 5 inside NewAccountWindow).
-	JoinsPerDay, NewAccountJoinsPerDay int64
-	NewAccountWindow                   time.Duration
 }
 
 // Deps is everything New needs.

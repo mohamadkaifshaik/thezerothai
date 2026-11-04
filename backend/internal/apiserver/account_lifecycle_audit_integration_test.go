@@ -195,11 +195,6 @@ func TestAccountLifecycle_DegradedAndFlagOff(t *testing.T) {
 	if docs, err := e.fs.Collection("exports").Where("uid", "==", u.uid).Limit(1).Documents(ctx).GetAll(); err != nil || len(docs) != 0 {
 		t.Errorf("a rejected RequestAccountExport left an exports doc: %d, %v", len(docs), err)
 	}
-	if q, err := e.fs.Doc("quotas/" + u.uid).Get(ctx); err == nil {
-		if n, derr := q.DataAt("exports"); derr == nil {
-			t.Errorf("a rejected RequestAccountExport reserved quota: exports = %v", n)
-		}
-	}
 
 	// An accepted deletion finishes on an instance that is read-only with the flag off.
 	if _, err := e.identity.DeleteAccount(ctx, authed(doomed.token, &identityv1.DeleteAccountRequest{IdempotencyKey: "degraded-delete-key-02"})); err != nil {

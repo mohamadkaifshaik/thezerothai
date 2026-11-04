@@ -2,8 +2,8 @@
 //
 // CreateUploads is one transaction:
 //
-//	reads : idempotency/{hash} (1), then, on a first attempt, quotas/{uid} (1)
-//	writes: Create idempotency doc, Set quotas/{uid}, Create media/{id} per image   (2 + n)
+//	reads : idempotency/{hash} (1)
+//	writes: Create idempotency doc, Create media/{id} per image   (1 + n)
 //
 // A replay reads only the idempotency doc and writes nothing. Every query has a Limit (the query-limit rule).
 package media
@@ -19,7 +19,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -105,7 +104,6 @@ type CreateUploadsParams struct {
 	UID         string
 	IdemKey     string
 	RequestHash string
-	QuotaLimit  int64
 	// Docs are the media documents to create (IDs set); Created is stamped by the caller.
 	Docs []Doc
 }
@@ -129,8 +127,8 @@ type Resolution struct {
 
 // Repo is media's storage seam.
 type Repo interface {
-	// CreateUploads runs the CreateUpload transaction. ErrKeyReused / the quota package's RESOURCE_EXHAUSTED
-	// apierr are returned as documented there.
+	// CreateUploads runs the CreateUpload transaction. ErrKeyReused is returned for a key used with another
+	// request.
 	CreateUploads(ctx context.Context, p CreateUploadsParams) (CreateUploadsResult, error)
 	// GetMany reads media/{id} for every id in one GetAll; missing ids are absent.
 	GetMany(ctx context.Context, ids []string) (map[string]*Doc, error)
@@ -170,7 +168,6 @@ var (
 // WriteDeps are the cross-module collaborators of the CreateUpload transaction.
 type WriteDeps struct {
 	Idempotency *idempotency.Store
-	Quotas      *quota.Store
 }
 
 // FirestoreRepo implements Repo against the shared Firestore client.
@@ -196,7 +193,7 @@ func (r *FirestoreRepo) visionRef(month string) *firestore.DocumentRef {
 
 // CreateUploads implements Repo.
 func (r *FirestoreRepo) CreateUploads(ctx context.Context, p CreateUploadsParams) (CreateUploadsResult, error) {
-	if r.w.Idempotency == nil || r.w.Quotas == nil {
+	if r.w.Idempotency == nil {
 		return CreateUploadsResult{}, errors.New("media: repo has no CreateUpload writers configured")
 	}
 	ctx, cancel := context.WithTimeout(ctx, createTxTimeout)
@@ -233,14 +230,7 @@ func (r *FirestoreRepo) createAttempt(ctx context.Context, tx *firestore.Transac
 	case !errors.Is(err, idempotency.ErrNotFound):
 		return CreateUploadsResult{}, fmt.Errorf("media: idempotency lookup: %w", err)
 	}
-	qrec, err := r.w.Quotas.Get(ctx, tx, p.UID)
-	if err != nil {
-		return CreateUploadsResult{}, fmt.Errorf("media: quota lookup: %w", err)
-	}
 	b := store.NewFirestoreTxBatch(tx)
-	if err := quota.CheckAndReserveN(b, r.w.Quotas.Ref(p.UID), qrec, quota.Uploads, p.QuotaLimit, int64(len(p.Docs))); err != nil {
-		return CreateUploadsResult{}, err
-	}
 	ids := make([]string, len(p.Docs))
 	for i := range p.Docs {
 		d := p.Docs[i]

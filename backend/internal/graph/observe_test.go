@@ -27,7 +27,7 @@ func TestGraphLogFields_Mutations(t *testing.T) {
 		"uid-1": activeProfile("uid-1", now.Add(-72*time.Hour)),
 		"uid-2": activeProfile("uid-2", now.Add(-72*time.Hour)),
 	}
-	deps := Deps{FollowsPerDay: 200, NewAccountFollowsPerDay: 50, NewAccountWindow: time.Hour}
+	deps := Deps{}
 
 	follow := func(key string) func(*service, context.Context) error {
 		return func(s *service, ctx context.Context) error {

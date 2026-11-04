@@ -491,9 +491,8 @@ func TestUpdateProfile_Extras_AllFieldsInOneCall(t *testing.T) {
 func TestUpdateProfile_Extras_NeverTouchTheAuthorSnapshot(t *testing.T) {
 	repo := newFakeRepo()
 	pub := &fakePublisher{log: &opLog{}}
-	q := &fakeSnapQuota{}
 	svc := New(repo, NewCache(time.Minute), 7*24*time.Hour,
-		WithProfileSnapshots(ProfileSnapshotDeps{Publisher: pub, Flags: fakeSnapFlags{on: true}, Quota: q, PerDay: 5}),
+		WithProfileSnapshots(ProfileSnapshotDeps{Publisher: pub, Flags: fakeSnapFlags{on: true}}),
 		WithBannerResolver(&fakeBanners{ref: BannerRef{URL: "https://m/b.webp", ThumbURL: "https://m/b_t.webp"}}),
 		WithPinChecker(&fakePins{can: true}),
 		WithExtrasFlags(extrasRegistry(flags.On)),
@@ -513,8 +512,8 @@ func TestUpdateProfile_Extras_NeverTouchTheAuthorSnapshot(t *testing.T) {
 	if got.SnapshotVersion != before {
 		t.Fatalf("snapshotVersion %d -> %d: the extras are not part of the author snapshot", before, got.SnapshotVersion)
 	}
-	if q.calls != 0 || len(pub.msgs) != 0 {
-		t.Fatalf("snapshotEdits spent %d times, %d jobs published: the extras must trigger neither", q.calls, len(pub.msgs))
+	if len(pub.msgs) != 0 {
+		t.Fatalf("%d jobs published: the extras must not trigger a snapshot refresh", len(pub.msgs))
 	}
 }
 

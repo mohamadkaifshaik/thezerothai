@@ -23,7 +23,7 @@ import (
 
 // Server uses the existing posts capability and protected Connect interceptor
 // chain. Publication freezes the draft, then atomically finalizes it with the
-// root post through a trusted claim. Root creation reuses normal post quotas,
+// root post through a trusted claim. Root creation reuses normal post
 // ownership/media validation and timeline events.
 type Server struct {
 	articlesv1connect.UnimplementedArticleServiceHandler
@@ -253,7 +253,7 @@ func (s *Server) PublishArticle(ctx context.Context, req *connect.Request[av.Pub
 		return nil, apierr.Validation("idempotency_key", "invalid publication key")
 	}
 	// Validate caption before freezing. Create performs the authoritative text,
-	// quota, reply-policy and verified-account checks before committing a post.
+	// reply-policy and verified-account checks before committing a post.
 	if len([]rune(m.GetCaption())) > 280 {
 		return nil, apierr.Validation("caption", "caption is too long")
 	}

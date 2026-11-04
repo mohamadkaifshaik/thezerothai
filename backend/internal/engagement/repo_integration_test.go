@@ -17,7 +17,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -52,7 +51,7 @@ func newRepoEnv(t *testing.T) *repoEnv {
 		t.Fatal(err)
 	}
 	pr := posts.NewFirestoreRepo(client)
-	repo := NewFirestoreRepo(client, WriteDeps{Quotas: quota.New(client), Writer: pr, Counters: countersStub{client}, IDs: node, Idempotency: idempotency.New(client)})
+	repo := NewFirestoreRepo(client, WriteDeps{Writer: pr, Counters: countersStub{client}, IDs: node, Idempotency: idempotency.New(client)})
 	return &repoEnv{client: client, repo: repo, posts: pr}
 }
 
@@ -124,16 +123,16 @@ func TestRepo_LikeRepostCycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if replay, err := e.repo.Like(ctx, LikeParams{UID: uid, PostID: pid, QuotaLimit: 10}); err != nil || replay {
+	if replay, err := e.repo.Like(ctx, LikeParams{UID: uid, PostID: pid}); err != nil || replay {
 		t.Fatalf("Like: replay=%v err=%v", replay, err)
 	}
-	if replay, err := e.repo.Like(ctx, LikeParams{UID: uid, PostID: pid, QuotaLimit: 10}); err != nil || !replay {
+	if replay, err := e.repo.Like(ctx, LikeParams{UID: uid, PostID: pid}); err != nil || !replay {
 		t.Fatalf("Like again: replay=%v err=%v", replay, err)
 	}
 	if got := e.intField(t, "posts/"+pid, "likeCount"); got != 1 {
 		t.Fatalf("likeCount = %d, want 1", got)
 	}
-	res, err := e.repo.Repost(ctx, RepostParams{UID: uid, Original: &posts.Post{ID: pid, AuthorID: "author"}, QuotaLimit: 10,
+	res, err := e.repo.Repost(ctx, RepostParams{UID: uid, Original: &posts.Post{ID: pid, AuthorID: "author"},
 		Author: posts.AuthorSnapshot{UserID: uid, Handle: "h"}})
 	if err != nil || res.Post == nil {
 		t.Fatalf("Repost: %+v %v", res, err)
@@ -153,7 +152,7 @@ func TestRepo_LikeRepostCycle(t *testing.T) {
 		t.Error("undo left the REPOST or its reposts doc")
 	}
 	// A like of a post that vanished is ErrPostGone; unlike of a gone post is a no-op.
-	if _, err := e.repo.Like(ctx, LikeParams{UID: "u3", PostID: pid, QuotaLimit: 10}); !errors.Is(err, ErrPostGone) {
+	if _, err := e.repo.Like(ctx, LikeParams{UID: "u3", PostID: pid}); !errors.Is(err, ErrPostGone) {
 		t.Errorf("Like of a deleted post = %v, want ErrPostGone", err)
 	}
 	if removed, err := e.repo.Unlike(ctx, "u3", pid); err != nil || removed {
@@ -273,7 +272,7 @@ func TestRepo_Rule4Replays(t *testing.T) {
 	if _, err := e.client.Doc("users/"+uid).Set(context.Background(), map[string]any{"postsCount": int64(0)}); err != nil {
 		t.Fatal(err)
 	}
-	params := RepostParams{UID: uid, Original: &posts.Post{ID: pid, AuthorID: "author"}, QuotaLimit: 10,
+	params := RepostParams{UID: uid, Original: &posts.Post{ID: pid, AuthorID: "author"},
 		Author: posts.AuthorSnapshot{UserID: uid, Handle: "h"}}
 
 	firstCtx := context.Background()
@@ -294,13 +293,13 @@ func TestRepo_Rule4Replays(t *testing.T) {
 		t.Errorf("posts by the reposter after a replay = %d, want 1", n)
 	}
 
-	if replayed, err := e.repo.Like(context.Background(), LikeParams{UID: uid, PostID: pid, QuotaLimit: 10}); err != nil || replayed {
+	if replayed, err := e.repo.Like(context.Background(), LikeParams{UID: uid, PostID: pid}); err != nil || replayed {
 		t.Fatalf("Like: replayed=%v err=%v", replayed, err)
 	}
 	if removed, err := e.repo.Unlike(context.Background(), uid, pid); err != nil || !removed {
 		t.Fatalf("Unlike: removed=%v err=%v", removed, err)
 	}
-	if replayed, err := e.repo.Like(context.Background(), LikeParams{UID: uid, PostID: pid, QuotaLimit: 10}); err != nil || replayed {
+	if replayed, err := e.repo.Like(context.Background(), LikeParams{UID: uid, PostID: pid}); err != nil || replayed {
 		t.Fatalf("Like after Unlike: replayed=%v err=%v, want a fresh like", replayed, err)
 	}
 	if got := e.intField(t, "posts/"+pid, "likeCount"); got != 1 {
@@ -321,7 +320,7 @@ func TestRepo_RepostDocStoresHasMediaFalse(t *testing.T) {
 	}
 	original := &posts.Post{ID: pid, AuthorID: "author", Author: posts.AuthorSnapshot{UserID: "author"}, Kind: posts.KindPost,
 		Media: []posts.MediaRef{{ID: "0000000000000000090", URL: "https://x/1"}}, HasMedia: true}
-	res, err := e.repo.Repost(ctx, RepostParams{UID: uid, Original: original, QuotaLimit: 10, Author: posts.AuthorSnapshot{UserID: uid, Handle: "h"}})
+	res, err := e.repo.Repost(ctx, RepostParams{UID: uid, Original: original, Author: posts.AuthorSnapshot{UserID: uid, Handle: "h"}})
 	if err != nil || res.Post == nil {
 		t.Fatalf("Repost: %+v %v", res, err)
 	}

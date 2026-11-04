@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"connectrpc.com/connect"
 
@@ -212,25 +211,5 @@ func TestUnmute_ChangedAndError(t *testing.T) {
 	repo.unmuteErr = errors.New("boom")
 	if _, err := svc.Unmute(context.Background(), "uid-1", validKey, "uid-2"); err == nil {
 		t.Fatal("expected error")
-	}
-}
-
-func TestResolvedDailyLimit(t *testing.T) {
-	now := time.Now()
-	tests := []struct {
-		name      string
-		createdAt time.Time
-		want      int64
-	}{
-		{"new account", now.Add(-time.Hour), 50},
-		{"old account", now.Add(-48 * time.Hour), 200},
-		{"zero createdAt", time.Time{}, 200},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := resolvedDailyLimit(tt.createdAt, now, 24*time.Hour, 200, 50); got != tt.want {
-				t.Errorf("got %d, want %d", got, tt.want)
-			}
-		})
 	}
 }

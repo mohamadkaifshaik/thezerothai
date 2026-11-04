@@ -30,7 +30,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 )
 
@@ -83,7 +82,6 @@ func newInstanceAt(t *testing.T, client *firestore.Client, now func() time.Time)
 	graphRepo.SetProfiles(identityRepo)
 	graphSvc := graph.New(graph.Deps{
 		Repo: graphRepo, Cache: graph.NewCache(time.Minute), Flags: allOn{}, CursorKey: cursorKey,
-		FollowsPerDay: 500, NewAccountFollowsPerDay: 500, BlocksPerDay: 500, NewAccountBlocksPerDay: 500, NewAccountWindow: time.Nanosecond,
 	})
 	identitySvc := identity.New(identityRepo, identity.NewCache(time.Minute), 7*24*time.Hour, identity.WithBlockChecker(graphSvc))
 	dir := identitySvc.(identity.Directory)
@@ -94,11 +92,10 @@ func newInstanceAt(t *testing.T, client *firestore.Client, now func() time.Time)
 		t.Fatal(err)
 	}
 	repo := posts.NewFirestoreRepo(client)
-	repo.SetWriters(posts.WriteDeps{Idempotency: idempotency.New(client), Quotas: quota.New(client), Counters: identityRepo, IDs: node})
+	repo.SetWriters(posts.WriteDeps{Idempotency: idempotency.New(client), Counters: identityRepo, IDs: node})
 	pcache := posts.NewCache(time.Minute, 20_000, 1_000)
 	postsSvc := posts.New(posts.Deps{
 		Repo: repo, Cache: pcache, Events: posts.NopEvents{}, Directory: dir, Graph: graphSvc,
-		PostsPerDay: 100, NewAccountPostsPerDay: 100, NewAccountWindow: time.Nanosecond,
 	})
 	srv := timeline.NewServer(timeline.Deps{
 		Flags: allOn{}, Posts: postsSvc, Graph: graphSvc, Directory: dir,

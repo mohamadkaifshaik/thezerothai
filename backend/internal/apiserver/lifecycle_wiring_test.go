@@ -170,7 +170,7 @@ type stubAuth struct{ identity.AuthClient }
 func TestRegisterLifecycleModules(t *testing.T) {
 	l, err := identity.NewLifecycle(identity.LifecycleDeps{
 		Repo: stubRepo{}, Cache: identity.NewCache(time.Minute), Publisher: stubPub{}, Auth: stubAuth{},
-		ExportsPerDay: 1, ExportRetention: time.Hour, ExportURLTTL: time.Minute,
+		ExportRetention: time.Hour, ExportURLTTL: time.Minute,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +198,7 @@ func TestRegisterLifecycleModules(t *testing.T) {
 func TestRegisterLifecycle_FullOrder(t *testing.T) {
 	l, err := identity.NewLifecycle(identity.LifecycleDeps{
 		Repo: stubRepo{}, Cache: identity.NewCache(time.Minute), Publisher: stubPub{}, Auth: stubAuth{},
-		ExportsPerDay: 1, ExportRetention: time.Hour, ExportURLTTL: time.Minute,
+		ExportRetention: time.Hour, ExportURLTTL: time.Minute,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -90,7 +90,7 @@ func (s *service) screenUnits(d *Doc) int64 {
 }
 
 // chargeUnits counts units against uid's media_vision_units_daily cap before anything is claimed or sent (A5.5). The tier follows the account's
-// age (the same new-account window as the upload quota). A refusal is RATE_LIMITED, retry_after to IST midnight, and writes nothing. If the
+// age (the module's new-account window). A refusal is RATE_LIMITED, retry_after to IST midnight, and writes nothing. If the
 // account's age cannot be read the stricter new-account tier applies, so a directory outage never widens the cap.
 func (s *service) chargeUnits(ctx context.Context, uid string, units int64) (*ratelimit.DailyCap, error) {
 	c := s.unitsCap
@@ -118,8 +118,8 @@ func (s *service) isNewAccount(ctx context.Context, uid string) bool {
 	return s.isNewAccountAt(created, s.Now())
 }
 
-// isNewAccountAt is the module's one definition of the new-account tier, shared by the upload quota (CreateUpload) and the per-uid Vision-units cap
-// (chargeUnits), so an account never gets the wider limit of one and the narrower of the other (L-4). A zero createdAt (a users doc written
+// isNewAccountAt is the module's one definition of the new-account tier, used by the per-uid Vision-units cap
+// (chargeUnits) and the exhausted-cap policy. A zero createdAt (a users doc written
 // without it; signup always sets it) is NEW: an unknown age proves nothing about the account, so it takes the stricter tier, the same fail-closed answer the
 // unreadable age gets above and that establishedAccount gives for the unscreened publish (zero is not established).
 func (s *service) isNewAccountAt(created, now time.Time) bool {

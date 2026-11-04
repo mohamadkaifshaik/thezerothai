@@ -12,7 +12,6 @@ import (
 	"connectrpc.com/connect"
 	fbauth "firebase.google.com/go/v4/auth"
 
-	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
@@ -34,7 +33,7 @@ func apiErr(t *testing.T, err error) *apierr.Error {
 }
 
 func TestRequestAccountExport(t *testing.T) {
-	t.Run("first request: PENDING, 2 writes, 1 read (quotas), one publish", func(t *testing.T) {
+	t.Run("first request: PENDING, 1 write, one publish", func(t *testing.T) {
 		h := newHarness(t)
 		h.seedActive("u1", "Alice")
 		v, err := h.l.RequestAccountExport(context.Background(), "u1", expKey1)
@@ -44,8 +43,8 @@ func TestRequestAccountExport(t *testing.T) {
 		if v.ID != expID("u1", expKey1) || v.Status != ExportPending || v.DownloadURL != "" {
 			t.Errorf("view = %+v", v)
 		}
-		if h.repo.writes != 2 {
-			t.Errorf("writes = %d, want 2 (the export doc and the quota, in one commit)", h.repo.writes)
+		if h.repo.writes != 1 {
+			t.Errorf("writes = %d, want 1 (the export doc)", h.repo.writes)
 		}
 		want := JobMessage{Kind: JobKindAccountExport, ExportID: v.ID}
 		if h.pub.count() != 1 || h.pub.msgs[0] != want {
@@ -72,7 +71,7 @@ func TestRequestAccountExport(t *testing.T) {
 			t.Error("status changed")
 		}
 	})
-	t.Run("replay with the same key: same id, 0 writes, 2 reads, a PENDING one older than 2 minutes re-publishes", func(t *testing.T) {
+	t.Run("replay with the same key: same id, 0 writes, a PENDING one older than 2 minutes re-publishes", func(t *testing.T) {
 		h := newHarness(t)
 		first, _ := h.l.RequestAccountExport(context.Background(), "u1", expKey1)
 		h.clock.Advance(exportRepublishAfter)
@@ -98,19 +97,15 @@ func TestRequestAccountExport(t *testing.T) {
 			t.Errorf("replay = %+v, %v, publishes %d -> %d", again, err, n, h.pub.count())
 		}
 	})
-	t.Run("a second request with a new key the same day is QUOTA_EXCEEDED", func(t *testing.T) {
+	t.Run("a second request with a new key the same day is a new export (no daily quota)", func(t *testing.T) {
 		h := newHarness(t)
-		if _, err := h.l.RequestAccountExport(context.Background(), "u1", expKey1); err != nil {
+		first, err := h.l.RequestAccountExport(context.Background(), "u1", expKey1)
+		if err != nil {
 			t.Fatal(err)
 		}
-		writes := h.repo.writes
-		_, err := h.l.RequestAccountExport(context.Background(), "u1", expKey2)
-		ae := apiErr(t, err)
-		if ae.Code != connect.CodeResourceExhausted || ae.Reason != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED || ae.Metadata["quota"] != "exports" {
-			t.Errorf("err = %+v", ae)
-		}
-		if h.repo.writes != writes {
-			t.Error("a rejected request wrote")
+		second, err := h.l.RequestAccountExport(context.Background(), "u1", expKey2)
+		if err != nil || second.ID == first.ID || second.Status != ExportPending {
+			t.Errorf("second = %+v, %v; want a new PENDING export", second, err)
 		}
 	})
 	t.Run("one user's key does not collide with another's", func(t *testing.T) {

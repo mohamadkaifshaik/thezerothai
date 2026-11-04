@@ -39,7 +39,7 @@ func newSchedSvcIT(t *testing.T, mut ...func(*ScheduleLimits)) *schedSvcIT {
 	return &schedSvcIT{
 		schedEnv: e, clock: schedNow,
 		svc: New(Deps{
-			Repo: e.repo, Cache: NewCache(time.Minute, 0, 0), Directory: dir, NewAccountWindow: 24 * time.Hour,
+			Repo: e.repo, Cache: NewCache(time.Minute, 0, 0), Directory: dir,
 			CursorKey: schedKey, Scheduled: e.repo, Schedule: limits, Now: func() time.Time { return schedNow },
 		}).(*service),
 	}
@@ -100,20 +100,14 @@ func TestSchedulerIT_ScheduleReplayAndKeyReuse(t *testing.T) {
 	if _, hasExpire := raw["expireAt"]; hasExpire {
 		t.Error("a PENDING doc must not carry expireAt")
 	}
-	if e.schedules(t, "alice") != 1 {
-		t.Fatalf("schedules = %d, want 1", e.schedules(t, "alice"))
-	}
 
-	// A replay, even after the lead time passed: the stored item, no quota charge.
+	// A replay, even after the lead time passed: the stored item.
 	late := e.svc
 	late.now = func() time.Time { return schedNow.Add(24 * time.Hour) }
 	rctx := e.ctx("alice")
 	again, err := late.Schedule(rctx, "alice", in)
 	if err != nil || again.ID != p.ID {
 		t.Fatalf("replay = %+v, %v", again, err)
-	}
-	if e.schedules(t, "alice") != 1 {
-		t.Errorf("a replay charged the quota: %d", e.schedules(t, "alice"))
 	}
 	late.now = func() time.Time { return schedNow }
 
@@ -127,20 +121,15 @@ func TestSchedulerIT_ScheduleReplayAndKeyReuse(t *testing.T) {
 		_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 	}
 
-	// The posts daily quota is not charged at schedule time, and another user cannot see the item.
-	if snap, err := e.client.Collection("quotas").Doc("alice").Get(context.Background()); err != nil {
-		t.Fatal(err)
-	} else if posts, _ := snap.DataAt("posts"); posts != int64(0) {
-		t.Errorf("quotas.posts = %v, want 0 (charged at publish)", posts)
-	}
+	// Another user cannot see the item.
 	lctx := e.ctx("bob")
 	if page, err := e.svc.ListScheduled(lctx, "bob", 0, ""); err != nil || len(page.Items) != 0 {
 		t.Errorf("bob's list = %+v, %v", page, err)
 	}
 }
 
-func TestSchedulerIT_MediaAndTheDailyCap(t *testing.T) {
-	e := newSchedSvcIT(t, func(l *ScheduleLimits) { l.SchedulesPerDay = 2 })
+func TestSchedulerIT_MediaAndNoDailyCap(t *testing.T) {
+	e := newSchedSvcIT(t)
 	e.seedMedia(t, "alice", 1, 2, 3, 4)
 	e.seedMedia(t, "bob", 9)
 
@@ -155,28 +144,15 @@ func TestSchedulerIT_MediaAndTheDailyCap(t *testing.T) {
 		t.Errorf("media = %+v attached = %d (validated, never reserved)", p.Draft.Media, e.media.attached)
 	}
 
-	// Someone else's and unknown images are MEDIA_NOT_READY with nothing written and no quota spent.
+	// Someone else's and unknown images are MEDIA_NOT_READY with nothing written.
 	for _, id := range map[string]string{"someone else's": itMediaID(9), "unknown": itMediaID(77)} {
 		mctx := e.ctx("alice")
 		_, err := e.svc.Schedule(mctx, "alice", e.in(2, func(i *ScheduleInput) { i.MediaIDs = []string{id} }))
 		_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY)
 	}
-	if e.schedules(t, "alice") != 1 {
-		t.Fatalf("schedules = %d, want 1", e.schedules(t, "alice"))
-	}
-
-	e.mustSchedule(t, "alice", e.in(3)) // 2 of 2
-	// At the cap the call is refused even with four images named: the cap
-	// is checked before the media read. Unknown ids prove it: a media read would answer MEDIA_NOT_READY instead.
-	cctx := e.ctx("alice")
-	_, err = e.svc.Schedule(cctx, "alice", e.in(4, func(i *ScheduleInput) {
-		i.MediaIDs = []string{itMediaID(51), itMediaID(52), itMediaID(53), itMediaID(54)}
-	}))
-	ae := wantAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
-	if ae.Metadata["quota"] != "schedules" {
-		t.Errorf("meta = %v", ae.Metadata)
-	}
-	// Another user has their own quota.
+	// No daily cap: the old limit was 50 a day (10 for a new account); a third and fourth schedule go through.
+	e.mustSchedule(t, "alice", e.in(3))
+	e.mustSchedule(t, "alice", e.in(4))
 	e.mustSchedule(t, "bob", e.in(1))
 }
 
@@ -197,7 +173,7 @@ func TestSchedulerIT_PendingAndWindowCaps(t *testing.T) {
 	if ae.Metadata["limit"] != "scheduled_window" {
 		t.Errorf("limit = %q", ae.Metadata["limit"])
 	}
-	// doc 1 + pending count 1 + quotas 1 + window count 1 + the document of this key 1 (a full window is checked for a
+	// doc 1 + pending count 1 + quotas (the serialization read) 1 + window count 1 + the document of this key 1 (a full window is checked for a
 	// concurrent duplicate); documented 6 with the interceptor.
 	// +5 min from the last is outside every window; -4 min inclusive is inside.
 	octx := e.ctx("alice")
@@ -392,9 +368,6 @@ func TestSchedulerIT_ConcurrentDuplicates(t *testing.T) {
 		if id != want {
 			t.Errorf("id = %s, want %s", id, want)
 		}
-	}
-	if n := e.schedules(t, "alice"); n != 1 {
-		t.Errorf("quotas.schedules = %d, want 1", n)
 	}
 	docs, err := e.client.Collection("users").Doc("alice").Collection("scheduled").Documents(context.Background()).GetAll()
 	if err != nil || len(docs) != 1 {

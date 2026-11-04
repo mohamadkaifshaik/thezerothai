@@ -2,8 +2,7 @@
 
 // mutations_integration_test.go holds emulator contract tests for the six
 // graph mutations (Follow, Unfollow, Block, Unblock, Mute, Unmute) covering every documented ErrorReason,
-// replays, quotas (incl. the IST-midnight
-// rollover and new-account tiers), caps, races, and degraded mode. Every newWired test ends with the graph
+// replays, caps, races, and degraded mode. Every newWired test ends with the graph
 // invariant sweep (invariants_integration_test.go); race tests also sweep after each iteration.
 package graph_test
 
@@ -115,15 +114,12 @@ func TestT16a_Follow_WarmTypicalAndReplay(t *testing.T) {
 			t.Fatalf("Follow: %v", err)
 		}
 	}
-	if got := quotaUsed(t, w.client, "uid-a", istDay(0), "follows"); got != 2 {
-		t.Errorf("quotas.follows = %d, want 2 (replays must not reserve quota)", got)
-	}
+	assertNoQuotaDoc(t, w.client, "uid-a")
 }
 
-// TestT16a_Follow_ColdIdentityCache_AndConfigurableQuota: Follow works with identity's profile cache empty, and
-// quotas are configuration (withQuotas), not constants.
-func TestT16a_Follow_ColdIdentityCache_AndConfigurableQuota(t *testing.T) {
-	w := newWired(t, withNewAccountWindow(1), withQuotas(2, 1, 2, 1))
+// TestT16a_Follow_ColdIdentityCache: Follow works with identity's profile cache empty.
+func TestT16a_Follow_ColdIdentityCache(t *testing.T) {
+	w := newWired(t)
 	for _, u := range []string{"a", "b", "c", "d"} {
 		mustCreateProfile(t, w.identity, "uid-"+u, "user"+u)
 	}
@@ -138,8 +134,9 @@ func TestT16a_Follow_ColdIdentityCache_AndConfigurableQuota(t *testing.T) {
 	if _, err := w.graph.Follow(context.Background(), "uid-a", key1, "uid-c"); err != nil {
 		t.Fatal(err)
 	}
-	_, err := w.graph.Follow(context.Background(), "uid-a", key1, "uid-d")
-	requireAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "follows")
+	if _, err := w.graph.Follow(context.Background(), "uid-a", key1, "uid-d"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // TestT16a_SeedFixtures_ConsistentAndUsable proves the shared seeding fixtures (used later) produce states
@@ -251,9 +248,7 @@ func TestT16a_Block_WorstAndTypical(t *testing.T) {
 			t.Fatalf("Block: %v", err)
 		}
 	}
-	if got := quotaUsed(t, w.client, "uid-a", istDay(0), "blocks"); got != 2 {
-		t.Errorf("quotas.blocks = %d, want 2 (the replays must not reserve quota)", got)
-	}
+	assertNoQuotaDoc(t, w.client, "uid-a")
 }
 
 func TestT16a_UnblockMuteUnmute(t *testing.T) {
@@ -530,14 +525,13 @@ func TestT16a_Follow_ErrorReasons(t *testing.T) {
 		}
 	})
 
-	t.Run("precedence: blocked-by beats quota and cap", func(t *testing.T) {
+	t.Run("precedence: blocked-by beats the cap", func(t *testing.T) {
 		w := newWired(t)
 		mustCreateProfile(t, w.identity, "uid-a", "usera")
 		mustCreateProfile(t, w.identity, "uid-b", "userb")
 		if _, err := w.graph.Block(context.Background(), "uid-b", key1, "uid-a"); err != nil {
 			t.Fatal(err)
 		}
-		seedQuota(t, w.client, "uid-a", istDay(0), "follows", 50)
 		_, err := w.graph.Follow(context.Background(), "uid-a", key2, "uid-b")
 		requireAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "", "")
 	})
@@ -757,152 +751,30 @@ func TestT16a_BlockThenFollowAndUnfollowSemantics(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------------------------------------
-// Quotas: exhaustion, IST-midnight rollover, new-account tiers.
+// No daily quota: a caller whose legacy quotas/{uid} shows the old limits used up still follows, blocks and mutes.
 // ---------------------------------------------------------------------------------------------------------
 
-func TestT16a_Quota_Follows(t *testing.T) {
-	// An established account (window shrunk to 1ns: no clock seam needed) gets the standard 200/day tier.
-	t.Run("exhausted at 200 (established)", func(t *testing.T) {
-		w := newWired(t, withNewAccountWindow(1))
-		mustCreateProfile(t, w.identity, "uid-a", "usera")
-		mustCreateProfile(t, w.identity, "uid-b", "userb")
-		mustCreateProfile(t, w.identity, "uid-c", "userc")
-		seedQuota(t, w.client, "uid-a", istDay(0), "follows", 199)
-		if _, err := w.graph.Follow(context.Background(), "uid-a", key1, "uid-b"); err != nil {
-			t.Fatalf("the 200th follow of the day must succeed: %v", err)
-		}
-		// Follow (quota exhausted)
-		{
-			ctx := context.Background()
-			_, err := w.graph.Follow(ctx, "uid-a", key2, "uid-c")
-			requireAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "follows")
-		}
-		// Replay of an existing edge reserves nothing, so it works even when exhausted.
-		if _, err := w.graph.Follow(context.Background(), "uid-a", key3, "uid-b"); err != nil {
-			t.Errorf("replay while exhausted must succeed: %v", err)
-		}
-		// Unfollow is never quota-gated.
-		if _, err := w.graph.Unfollow(context.Background(), "uid-a", key3, "uid-b"); err != nil {
-			t.Errorf("Unfollow must never be quota-gated: %v", err)
-		}
-		if got := quotaUsed(t, w.client, "uid-a", istDay(0), "follows"); got != 200 {
-			t.Errorf("quotas.follows = %d, want 200 (rejections and replays reserve nothing)", got)
-		}
-	})
-
-	t.Run("IST-midnight rollover resets the counter", func(t *testing.T) {
-		w := newWired(t, withNewAccountWindow(1))
-		mustCreateProfile(t, w.identity, "uid-a", "usera")
-		mustCreateProfile(t, w.identity, "uid-b", "userb")
-		seedQuota(t, w.client, "uid-a", istDay(-1), "follows", 200) // yesterday, fully used
-		if _, err := w.graph.Follow(context.Background(), "uid-a", key1, "uid-b"); err != nil {
-			t.Fatalf("a new IST day must reset the quota: %v", err)
-		}
-		if got := quotaUsed(t, w.client, "uid-a", istDay(0), "follows"); got != 1 {
-			t.Errorf("after rollover quotas.follows for today = %d, want 1", got)
-		}
-	})
-
-	t.Run("new account limited to 50", func(t *testing.T) {
-		w := newWired(t) // default 24h window: fresh profiles are new accounts
-		mustCreateProfile(t, w.identity, "uid-a", "usera")
-		mustCreateProfile(t, w.identity, "uid-b", "userb")
-		mustCreateProfile(t, w.identity, "uid-c", "userc")
-		seedQuota(t, w.client, "uid-a", istDay(0), "follows", 49)
-		if _, err := w.graph.Follow(context.Background(), "uid-a", key1, "uid-b"); err != nil {
-			t.Fatalf("the 50th follow must succeed: %v", err)
-		}
-		_, err := w.graph.Follow(context.Background(), "uid-a", key2, "uid-c")
-		requireAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "follows")
-	})
-
-	t.Run("established account is not held to the new-account 50", func(t *testing.T) {
-		w := newWired(t, withNewAccountWindow(1))
-		mustCreateProfile(t, w.identity, "uid-a", "usera")
-		mustCreateProfile(t, w.identity, "uid-b", "userb")
-		seedQuota(t, w.client, "uid-a", istDay(0), "follows", 50)
-		if _, err := w.graph.Follow(context.Background(), "uid-a", key1, "uid-b"); err != nil {
-			t.Errorf("established account at 50 follows must still succeed: %v", err)
-		}
-	})
-}
-
-func TestT16a_Quota_BlocksAndMutesShareOneCounter(t *testing.T) {
-	t.Run("established: 200 shared, Unblock/Unmute never gated", func(t *testing.T) {
-		w := newWired(t, withNewAccountWindow(1))
-		for _, u := range []string{"a", "b", "c", "d"} {
-			mustCreateProfile(t, w.identity, "uid-"+u, "user"+u)
-		}
-		if _, err := w.graph.Mute(context.Background(), "uid-a", key1, "uid-d"); err != nil { // uses 1
-			t.Fatal(err)
-		}
-		seedQuota(t, w.client, "uid-a", istDay(0), "blocks", 199)
-		if _, err := w.graph.Block(context.Background(), "uid-a", key1, "uid-b"); err != nil {
-			t.Fatalf("the 200th block/mute of the day must succeed: %v", err)
-		}
-		// Mute (quota exhausted)
-		{
-			ctx := context.Background()
-			_, err := w.graph.Mute(ctx, "uid-a", key2, "uid-c")
-			requireAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "blocks")
-		}
-		// Block (quota exhausted)
-		{
-			ctx := context.Background()
-			_, err := w.graph.Block(ctx, "uid-a", key2, "uid-c")
-			requireAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "blocks")
-		}
-		// Replays reserve nothing.
-		if _, err := w.graph.Block(context.Background(), "uid-a", key3, "uid-b"); err != nil {
-			t.Errorf("Block replay while exhausted: %v", err)
-		}
-		if _, err := w.graph.Mute(context.Background(), "uid-a", key3, "uid-d"); err != nil {
-			t.Errorf("Mute replay while exhausted: %v", err)
-		}
-		// Never gated.
-		if _, err := w.graph.Unblock(context.Background(), "uid-a", key3, "uid-b"); err != nil {
-			t.Errorf("Unblock gated: %v", err)
-		}
-		if _, err := w.graph.Unmute(context.Background(), "uid-a", key3, "uid-d"); err != nil {
-			t.Errorf("Unmute gated: %v", err)
-		}
-	})
-
-	t.Run("IST-midnight rollover", func(t *testing.T) {
-		w := newWired(t, withNewAccountWindow(1))
-		mustCreateProfile(t, w.identity, "uid-a", "usera")
-		mustCreateProfile(t, w.identity, "uid-b", "userb")
-		seedQuota(t, w.client, "uid-a", istDay(-1), "blocks", 200)
-		if _, err := w.graph.Block(context.Background(), "uid-a", key1, "uid-b"); err != nil {
-			t.Fatalf("Block after rollover: %v", err)
-		}
-		if got := quotaUsed(t, w.client, "uid-a", istDay(0), "blocks"); got != 1 {
-			t.Errorf("quotas.blocks for today = %d, want 1", got)
-		}
-	})
-
-	t.Run("new account limited to 50 (Block and Mute)", func(t *testing.T) {
-		w := newWired(t)
-		for _, u := range []string{"a", "b", "c"} {
-			mustCreateProfile(t, w.identity, "uid-"+u, "user"+u)
-		}
-		seedQuota(t, w.client, "uid-a", istDay(0), "blocks", 49)
-		if _, err := w.graph.Block(context.Background(), "uid-a", key1, "uid-b"); err != nil {
-			t.Fatalf("the 50th block must succeed: %v", err)
-		}
-		_, err := w.graph.Mute(context.Background(), "uid-a", key2, "uid-c")
-		requireAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "blocks")
-	})
-
-	t.Run("established account is not held to the new-account 50", func(t *testing.T) {
-		w := newWired(t, withNewAccountWindow(1))
-		mustCreateProfile(t, w.identity, "uid-a", "usera")
-		mustCreateProfile(t, w.identity, "uid-b", "userb")
-		seedQuota(t, w.client, "uid-a", istDay(0), "blocks", 50)
-		if _, err := w.graph.Block(context.Background(), "uid-a", key1, "uid-b"); err != nil {
-			t.Errorf("established account at 50 blocks must still succeed: %v", err)
-		}
-	})
+func TestT16a_NoDailyQuota(t *testing.T) {
+	w := newWired(t) // fresh profiles: the old new-account tier (50/day) would have applied
+	for _, u := range []string{"a", "b", "c", "d"} {
+		mustCreateProfile(t, w.identity, "uid-"+u, "user"+u)
+	}
+	if _, err := w.client.Collection("quotas").Doc("uid-a").Set(context.Background(), map[string]interface{}{"day": istDay(0), "follows": 200, "blocks": 200}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.graph.Follow(context.Background(), "uid-a", key1, "uid-b"); err != nil {
+		t.Fatalf("Follow past the old daily quota: %v", err)
+	}
+	if _, err := w.graph.Block(context.Background(), "uid-a", key1, "uid-c"); err != nil {
+		t.Fatalf("Block past the old daily quota: %v", err)
+	}
+	if _, err := w.graph.Mute(context.Background(), "uid-a", key1, "uid-d"); err != nil {
+		t.Fatalf("Mute past the old daily quota: %v", err)
+	}
+	// The legacy doc is left as it was: nothing reads or counts it any more.
+	if got := quotaUsed(t, w.client, "uid-a", istDay(0), "follows"); got != 200 {
+		t.Errorf("quotas.follows = %d, want the seeded 200 untouched", got)
+	}
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -915,7 +787,7 @@ func isAPIErr(err error, code connect.Code, reason commonv1.ErrorReason) bool {
 }
 
 func TestT16a_Race_ConcurrentDuplicateFollows(t *testing.T) {
-	w := newWired(t, withNewAccountWindow(1))
+	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
 	mustCreateProfile(t, w.identity, "uid-b", "userb")
 
@@ -941,16 +813,14 @@ func TestT16a_Race_ConcurrentDuplicateFollows(t *testing.T) {
 			if !docExists(t, w.client, "follows/"+a+"_"+b) {
 				t.Error("edge missing after concurrent follows")
 			}
-			if got := quotaUsed(t, w.client, a, istDay(0), "follows"); got != 1 {
-				t.Errorf("quotas.follows = %d, want exactly 1 (a duplicate must not reserve quota twice)", got)
-			}
+			assertNoQuotaDoc(t, w.client, a)
 			assertGraphInvariants(t, w.client) // counters = 1/1, no double increment
 		})
 	}
 }
 
 func TestT16a_Race_ConcurrentDuplicateBlocksAndMutes(t *testing.T) {
-	w := newWired(t, withNewAccountWindow(1))
+	w := newWired(t)
 	// A double-click or client retry is 2-3 duplicates; 12 per kind piles more onto one pair of docs than
 	// the emulator's lock timeout tolerates (in CI nearly every call timed out).
 	const n = 3
@@ -999,26 +869,21 @@ func TestT16a_Race_ConcurrentDuplicateBlocksAndMutes(t *testing.T) {
 		}
 		t.Logf("phase %d: Block %d/%d, Mute %d/%d succeeded; retrying once on a fresh pair", phase, blockOK, n, muteOK, n)
 	}
-	// Assert on the concurrent phase alone, BEFORE any further call: Block and Mute share one counter, so the
-	// n duplicates of each kind must have reserved exactly two quota units (one Block, one Mute), never 2n.
-	if got := quotaUsed(t, w.client, a, istDay(0), "blocks"); got != 2 {
-		t.Errorf("after the concurrent phase quotas.blocks = %d, want exactly 2", got)
-	}
+	// Assert on the concurrent phase alone, BEFORE any further call: n duplicates of each kind leave exactly one entry.
+	assertNoQuotaDoc(t, w.client, a)
 	as, bs := graphArrays(t, w.client, a), graphArrays(t, w.client, b)
 	if len(as["blocked"]) != 1 || len(as["muted"]) != 1 || len(bs["blockedBy"]) != 1 {
 		t.Errorf("after the concurrent phase a = %v, b = %v; want exactly one blocked/muted/blockedBy entry", as, bs)
 	}
-	// Idempotency replay (not part of the race): repeating each op with fresh keys is a no-op that neither
-	// changes state nor reserves quota again.
+	// Idempotency replay (not part of the race): repeating each op with fresh keys is a no-op that does not
+	// change state.
 	if _, err := w.graph.Block(context.Background(), a, fmt.Sprintf("%016d", 100), b); err != nil {
 		t.Errorf("idempotency replay Block: %v", err)
 	}
 	if _, err := w.graph.Mute(context.Background(), a, fmt.Sprintf("%016d", 101), b); err != nil {
 		t.Errorf("idempotency replay Mute: %v", err)
 	}
-	if got := quotaUsed(t, w.client, a, istDay(0), "blocks"); got != 2 {
-		t.Errorf("after the replay quotas.blocks = %d, want still 2", got)
-	}
+	assertNoQuotaDoc(t, w.client, a)
 	as, bs = graphArrays(t, w.client, a), graphArrays(t, w.client, b)
 	if len(as["blocked"]) != 1 || len(as["muted"]) != 1 || len(bs["blockedBy"]) != 1 {
 		t.Errorf("after the replay a = %v, b = %v; want exactly one blocked/muted/blockedBy entry", as, bs)
@@ -1030,7 +895,7 @@ func TestT16a_Race_ConcurrentDuplicateBlocksAndMutes(t *testing.T) {
 // invariants and the block must win (no edge survives, blocker records the block).
 func TestT16a_Race_FollowAndUnfollowVsBlock(t *testing.T) {
 	const iterations = 4
-	w := newWired(t, withNewAccountWindow(1))
+	w := newWired(t)
 	users := mustCreateUsers(t, w.identity, "r", 2*iterations*5)
 	next := 0
 	pair := func() (a, b string) { a, b = users[next], users[next+1]; next += 2; return }
@@ -1169,7 +1034,7 @@ func TestT16a_Race_FollowAndUnfollowVsBlock(t *testing.T) {
 // TestT16a_Race_FollowUnfollowFlapping is the like/unlike-style race: many interleaved Follow and Unfollow
 // calls on one edge (with fresh keys) must leave counters equal to the surviving edge count.
 func TestT16a_Race_FollowUnfollowFlapping(t *testing.T) {
-	w := newWired(t, withNewAccountWindow(1))
+	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
 	mustCreateProfile(t, w.identity, "uid-b", "userb")
 	errs := runConcurrently(8, func(i int) error {

@@ -11,11 +11,9 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
-	"connectrpc.com/connect"
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
 func lifecycleRepo(t *testing.T) (*identity.FirestoreRepo, *firestore.Client) {
@@ -137,13 +135,12 @@ func TestSaveJobState_Integration(t *testing.T) {
 	}
 }
 
-// TestCreateExport_Integration: a first request creates the export; a replay writes nothing (also with quota left
-// and the next IST day, via the AlreadyExists rollback); the quota is
-// enforced across keys; the export doc carries the TTL field.
+// TestCreateExport_Integration: a first request creates the export; a replay writes nothing (the Create fails with
+// AlreadyExists); a second key the same day is a second export (no daily quota); the export doc carries the TTL field.
 func TestCreateExport_Integration(t *testing.T) {
 	repo, client := lifecycleRepo(t)
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	p := identity.CreateExportParams{ID: "export-id-1", UID: "u1", ObjectPath: "export-id-1.json", Now: now, Retention: 7 * 24 * time.Hour, ExportsPerDay: 1}
+	p := identity.CreateExportParams{ID: "export-id-1", UID: "u1", ObjectPath: "export-id-1.json", Now: now, Retention: 7 * 24 * time.Hour}
 
 	ctx := context.Background()
 	doc, replay, err := repo.CreateExport(ctx, p)
@@ -159,13 +156,11 @@ func TestCreateExport_Integration(t *testing.T) {
 
 	p2 := p
 	p2.ID = "export-id-2"
-	_, _, err = repo.CreateExport(context.Background(), p2)
-	var ae *apierr.Error
-	if !errors.As(err, &ae) || ae.Code != connect.CodeResourceExhausted || ae.Metadata["quota"] != "exports" {
-		t.Errorf("second export today: err = %v, want RESOURCE_EXHAUSTED exports", err)
+	if _, replay, err := repo.CreateExport(context.Background(), p2); err != nil || replay {
+		t.Errorf("second export today = replay %v, err %v; want a new export", replay, err)
 	}
-	if _, err := client.Collection("exports").Doc("export-id-2").Get(context.Background()); err == nil {
-		t.Error("a rejected export left a doc")
+	if _, err := client.Collection("quotas").Doc("u1").Get(context.Background()); err == nil {
+		t.Error("CreateExport wrote quotas/u1; exports no longer count a daily quota")
 	}
 
 	// Status changes carry the precondition.
@@ -186,32 +181,8 @@ func TestCreateExport_Integration(t *testing.T) {
 		t.Errorf("SetExportStatus(unknown) err = %v", err)
 	}
 	pend, err := repo.ListPendingExports(context.Background(), time.Now().Add(time.Hour), identity.BackstopCursor{}, 50)
-	if err != nil || len(pend) != 0 {
-		t.Errorf("pending after READY = %v, %v", pend, err)
-	}
-}
-
-// TestCreateExport_Integration_ReplayWithQuotaLeft: the same id replayed while the daily quota is not used up (so
-// the Create runs) fails with AlreadyExists, which rolls the commit back: the doc is returned, nothing is written
-// and the quota counter is not incremented a second time.
-func TestCreateExport_Integration_ReplayWithQuotaLeft(t *testing.T) {
-	repo, client := lifecycleRepo(t)
-	now := time.Now().UTC().Truncate(time.Millisecond)
-	p := identity.CreateExportParams{ID: "export-id-1", UID: "u1", ObjectPath: "export-id-1.json", Now: now, Retention: time.Hour, ExportsPerDay: 5}
-	if _, _, err := repo.CreateExport(context.Background(), p); err != nil {
-		t.Fatal(err)
-	}
-	ctx := context.Background()
-	doc, replay, err := repo.CreateExport(ctx, p)
-	if err != nil || !replay || doc.ID != "export-id-1" || doc.UID != "u1" {
-		t.Fatalf("replay = %+v, %v, %v", doc, replay, err)
-	}
-	snap, err := client.Collection("quotas").Doc("u1").Get(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n, _ := snap.DataAt("exports"); n != int64(1) {
-		t.Errorf("exports quota counter = %v after a replay, want 1", n)
+	if err != nil || len(pend) != 1 || pend[0].ID != "export-id-2" {
+		t.Errorf("pending after READY = %v, %v; want only the second export (export-id-2)", pend, err)
 	}
 }
 
@@ -223,11 +194,11 @@ func TestIdentityStepOps_Integration(t *testing.T) {
 	seedProfile(t, repo, "u2", "Bobby")
 	now := time.Now().UTC()
 	for _, id := range []string{"e1", "e2"} {
-		if _, _, err := repo.CreateExport(ctx, identity.CreateExportParams{ID: id, UID: "u1", ObjectPath: id + ".json", Now: now, Retention: time.Hour, ExportsPerDay: 5}); err != nil {
+		if _, _, err := repo.CreateExport(ctx, identity.CreateExportParams{ID: id, UID: "u1", ObjectPath: id + ".json", Now: now, Retention: time.Hour}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, _, err := repo.CreateExport(ctx, identity.CreateExportParams{ID: "other", UID: "u2", ObjectPath: "other.json", Now: now, Retention: time.Hour, ExportsPerDay: 5}); err != nil {
+	if _, _, err := repo.CreateExport(ctx, identity.CreateExportParams{ID: "other", UID: "u2", ObjectPath: "other.json", Now: now, Retention: time.Hour}); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"a", "b", "c"} {
@@ -376,7 +347,7 @@ func TestBackstopQueries_Integration(t *testing.T) {
 		id  string
 		ago time.Duration
 	}{{"p-new", time.Minute}, {"p-mid", 2 * time.Hour}, {"p-old", 30 * time.Hour}} {
-		if _, _, err := repo.CreateExport(ctx, identity.CreateExportParams{ID: e.id, UID: "u-" + e.id, ObjectPath: e.id + ".json", Now: now.Add(-e.ago), Retention: 7 * 24 * time.Hour, ExportsPerDay: 1}); err != nil {
+		if _, _, err := repo.CreateExport(ctx, identity.CreateExportParams{ID: e.id, UID: "u-" + e.id, ObjectPath: e.id + ".json", Now: now.Add(-e.ago), Retention: 7 * 24 * time.Hour}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -400,7 +371,7 @@ func TestClaimExport_Integration(t *testing.T) {
 	repo, _ := lifecycleRepo(t)
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	if _, _, err := repo.CreateExport(ctx, identity.CreateExportParams{ID: "x1", UID: "u1", ObjectPath: "x1.json", Now: now, Retention: time.Hour, ExportsPerDay: 5}); err != nil {
+	if _, _, err := repo.CreateExport(ctx, identity.CreateExportParams{ID: "x1", UID: "u1", ObjectPath: "x1.json", Now: now, Retention: time.Hour}); err != nil {
 		t.Fatal(err)
 	}
 	doc, err := repo.GetExport(ctx, "x1")

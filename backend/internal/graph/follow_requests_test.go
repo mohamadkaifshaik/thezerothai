@@ -17,7 +17,7 @@ func requestsTestService(repo *fakeRepo, ev FollowEvents) (*service, *fakeDirect
 		"uid-1": activeProfile("uid-1", time.Now().Add(-72*time.Hour)),
 		"uid-2": activeProfile("uid-2", time.Now().Add(-72*time.Hour)),
 	}}
-	return newTestServiceWithDirectory(repo, dir, Deps{Events: ev, FollowsPerDay: 200, NewAccountFollowsPerDay: 50, NewAccountWindow: time.Hour}), dir
+	return newTestServiceWithDirectory(repo, dir, Deps{Events: ev}), dir
 }
 
 // A created request reports FollowRequested and never Followed, and does not move any counter (no directory Forget).
@@ -70,19 +70,20 @@ func TestFollow_Request_EventsAndCaches(t *testing.T) {
 	}
 }
 
-// Follow reads only the caller through the Directory: the target's existence and protection come from the transaction.
-func TestFollow_ReadsOnlyCallerFromDirectory(t *testing.T) {
+// Follow reads nothing through the Directory: the target's existence and protection come from the transaction, and with
+// the daily follows quota gone the caller's account age is no longer needed.
+func TestFollow_NoDirectoryRead(t *testing.T) {
 	repo := newFakeRepo()
 	repo.followOutcome = OutcomeCreated
 	dir := &askedDirectory{fakeDirectory: fakeDirectory{profiles: map[string]identity.Profile{
 		"uid-1": activeProfile("uid-1", time.Now().Add(-72*time.Hour)),
 	}}}
-	svc := newTestServiceWithDirectory(repo, dir, Deps{FollowsPerDay: 200, NewAccountWindow: time.Hour})
+	svc := newTestServiceWithDirectory(repo, dir, Deps{})
 	if _, err := svc.Follow(context.Background(), "uid-1", validKey, "ghost-target"); err != nil {
 		t.Fatal(err)
 	}
-	if len(dir.asked) != 1 || len(dir.asked[0]) != 1 || dir.asked[0][0] != "uid-1" {
-		t.Errorf("Directory.GetProfiles asked %v, want exactly [[uid-1]]", dir.asked)
+	if len(dir.asked) != 0 {
+		t.Errorf("Directory.GetProfiles asked %v, want no read", dir.asked)
 	}
 }
 
@@ -200,7 +201,7 @@ func TestFollowStateOf_Requested(t *testing.T) {
 
 func TestFirestoreRepo_FollowWithoutTxProfilesErrors(t *testing.T) {
 	r := &FirestoreRepo{}
-	if _, _, err := r.Follow(context.Background(), "a", "b", 10, time.Now()); err == nil {
+	if _, _, err := r.Follow(context.Background(), "a", "b", time.Now()); err == nil {
 		t.Fatal("Follow without TxProfiles wired must return an error, not panic")
 	}
 }

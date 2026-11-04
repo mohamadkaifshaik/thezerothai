@@ -41,7 +41,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 type stubSigner struct{}
@@ -123,9 +122,9 @@ func newGifChain(t *testing.T, mutate func(*config.Config)) *gifChain {
 		t.Fatal(err)
 	}
 	svc, err := media.New(media.Deps{
-		Repo:   media.NewFirestoreRepo(e.fs, media.WriteDeps{Idempotency: idempotency.New(e.fs), Quotas: quota.New(e.fs)}),
+		Repo:   media.NewFirestoreRepo(e.fs, media.WriteDeps{Idempotency: idempotency.New(e.fs)}),
 		Signer: stubSigner{}, Objects: buckets, Moderator: media.AllowAll{}, Directory: oldAccount{}, IDs: randIDs{},
-		PublicBaseURL: "https://cdn.test", MediaPerDay: 100, NewAccountMediaPerDay: 100, NewAccountWindow: time.Hour, VisionMonthlyCap: 1000,
+		PublicBaseURL: "https://cdn.test", NewAccountWindow: time.Hour, VisionMonthlyCap: 1000,
 	})
 	if err != nil {
 		t.Fatal(err)

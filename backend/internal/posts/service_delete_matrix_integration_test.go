@@ -5,7 +5,6 @@ package posts
 import (
 	"context"
 	"testing"
-	"time"
 
 	"cloud.google.com/go/firestore"
 )
@@ -68,7 +67,7 @@ func d6Rows() []d6Row {
 func d6Fixture(t *testing.T) (*firestore.Client, string) {
 	t.Helper()
 	client := newTestClient(t)
-	setup := newCreateInstance(t, client, time.Nanosecond)
+	setup := newCreateInstance(t, client)
 	setup.signUp(t, "uid-alice", "alice")
 	setup.signUp(t, "uid-bob", "bob")
 	p, err := setup.create(t, "uid-bob", key(1), "from bob")
@@ -85,7 +84,7 @@ func TestDeletePost_Integration_D6Matrix(t *testing.T) {
 		t.Run(row.name, func(t *testing.T) {
 			client, id := d6Fixture(t)
 			row.seed(t, client)
-			in := newCreateInstance(t, client, time.Nanosecond)
+			in := newCreateInstance(t, client)
 			err := in.del("uid-alice", id)
 			if err != nil {
 				t.Fatalf("DeletePost: %v, want nil", err)
@@ -105,7 +104,7 @@ func TestGetPost_Integration_D6Matrix(t *testing.T) {
 		t.Run(row.name, func(t *testing.T) {
 			client, id := d6Fixture(t)
 			row.seed(t, client)
-			in := newCreateInstance(t, client, time.Nanosecond)
+			in := newCreateInstance(t, client)
 			p, err := in.get("uid-alice", id)
 			if row.getFound {
 				if err != nil || p == nil || p.ID != id {
@@ -126,7 +125,7 @@ func TestGetPost_Integration_D6Matrix(t *testing.T) {
 // TestGetPost_Integration_Own: A == B returns the post (own post skips the graph).
 func TestGetPost_Integration_Own(t *testing.T) {
 	client, id := d6Fixture(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	p, err := in.get("uid-bob", id)
 	if err != nil || p == nil || p.ID != id {
 		t.Fatalf("own post: %v %v", p, err)

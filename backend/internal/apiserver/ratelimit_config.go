@@ -57,8 +57,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	notificationSeenDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.NotificationSeenCallsPerDay)
 
 	// Home 6/min (the existing RATE_LIMIT_TIMELINE_PER_MIN), user timeline 30/min, CreatePost 10/min,
-	// DeletePost 20/min; GetPost uses rlDefault (60/min). Posts are bounded per day by quota.Posts (100, 20 for
-	// new accounts), so there is no extra daily call cap.
+	// DeletePost 20/min; GetPost uses rlDefault (60/min). Posts have no daily
+	// bound (the daily posts quota was removed): only these per-minute buckets limit them.
 	rlHomeTimeline := ratelimit.NewLimiter(cfg.RateLimit.TimelinePerUserPerMinute, idleBucketTTL)
 	rlUserTimeline := ratelimit.NewLimiter(cfg.RateLimit.UserTimelinePerMinute, idleBucketTTL)
 	rlPostCreate := ratelimit.NewLimiter(cfg.RateLimit.PostCreatePerMinute, idleBucketTTL)
@@ -66,13 +66,12 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// SchedulePost and CancelScheduledPost share the CreatePost bucket (the SAME limiter, so one user's
 	// creates, schedules and cancels draw on one 10/min budget; that bound is what limits schedule/cancel churn
 	// across the instance-local limiter). ListScheduledPosts is a read: the 60/min default bucket.
-	// Schedules are bounded per day by quota.Schedules (50, 10 for new accounts).
 	// ReportContent 5/min per user; the daily bound is the reports quota (20, 5 for new accounts).
 	rlReport := ratelimit.NewLimiter(cfg.RateLimit.ReportPerMinute, idleBucketTTL)
 
 	// LikePost, UnlikePost, RepostPost and UndoRepost share one per-user bucket
-	// (RATE_LIMIT_LIKES_PER_MIN, 30/min). Likes are bounded per day by quota.Likes (500, 100 for new accounts),
-	// reposts by quota.Posts.
+	// (RATE_LIMIT_LIKES_PER_MIN, 30/min). Likes and reposts have no daily bound (those quotas were
+	// removed): only this per-minute bucket limits them.
 	rlEngagement := ratelimit.NewLimiter(cfg.RateLimit.LikesPerUserPerMinute, idleBucketTTL)
 
 	// VotePoll has its own per-user bucket (RATE_LIMIT_POLL_VOTE_PER_MIN, 30/min per instance) and the poll_votes_daily
@@ -83,8 +82,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	pollVotesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.PollVotesPerDay)
 
 	// AddBookmark and RemoveBookmark share one per-user bucket (RATE_LIMIT_BOOKMARKS_PER_MIN, 30/min); ListBookmarks
-	// has its own (RATE_LIMIT_BOOKMARKS_LIST_PER_MIN, 10/min). Adds are bounded per day by quota.Bookmarks (200, 50 for new
-	// accounts) and the cap. DEGRADED_MODE=readonly rejects Add and Remove through
+	// has its own (RATE_LIMIT_BOOKMARKS_LIST_PER_MIN, 10/min). Adds are bounded by the
+	// 1,000 cap and the shared bookmark_mutation_daily cap. DEGRADED_MODE=readonly rejects Add and Remove through
 	// their idempotency level, with no list here.
 	rlBookmarks := ratelimit.NewLimiter(cfg.RateLimit.BookmarksPerUserPerMinute, idleBucketTTL)
 	rlBookmarksList := ratelimit.NewLimiter(cfg.RateLimit.BookmarksListPerUserPerMinute, idleBucketTTL)
@@ -139,7 +138,6 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// (LIST_MUTATIONS_PER_DAY, limit_name "list_mutation_daily"; a replay or a no-op still stores an idempotency doc). GetList,
 	// ListUserLists and ListListMembers share a read bucket (RATE_LIMIT_LISTS_READ_PER_MIN, 30/min); GetListTimeline has its own
 	// (RATE_LIMIT_LIST_TIMELINE_PER_MIN, 12/min), because tabs switch quickly while Home stays at 6.
-	// Creates and adds are bounded per day by quota.ListCreates and quota.ListAdds.
 	rlListsWrite := ratelimit.NewLimiter(cfg.RateLimit.ListsWritePerUserPerMinute, idleBucketTTL)
 	rlListsRead := ratelimit.NewLimiter(cfg.RateLimit.ListsReadPerUserPerMinute, idleBucketTTL)
 	rlListTimeline := ratelimit.NewLimiter(cfg.RateLimit.ListTimelinePerUserPerMinute, idleBucketTTL)
@@ -159,8 +157,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	communityMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.CommunityMutationsPerDay)
 	communityModActionsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.CommunityModActionsPerDay)
 
-	// CreateUpload keeps the CreatePost rate (a post with images is two media calls plus one CreatePost). Images are bounded per day by
-	// quota.Uploads (20, 5 for new accounts) and Vision spend by VISION_MONTHLY_CAP.
+	// CreateUpload keeps the CreatePost rate (a post with images is two media calls plus one CreatePost). Vision spend is
+	// bounded by VISION_MONTHLY_CAP.
 	rlMedia := ratelimit.NewLimiter(cfg.RateLimit.PostCreatePerMinute, idleBucketTTL)
 	// FinalizeUpload has its own bucket, RATE_LIMIT_MEDIA_FINALIZE_PER_MIN, so client retries cannot starve new
 	// uploads and the reverse. The per-uid Vision-units daily cap (media_vision_units_daily) lives in the media service, counted before the claim.

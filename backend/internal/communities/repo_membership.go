@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -57,10 +56,10 @@ func (r *FirestoreRepo) memberInTx(ctx context.Context, tx *firestore.Transactio
 }
 
 // Join implements Repo. One transaction. Reads, fresh and in this order: idempotency (a replay returns here),
-// the caller's member doc (BANNED is ErrBanned, JOINED writes the idempotency document only and spends no quota), the caller's
-// memberships (the joined cap is exact, ErrJoinedLimit), quotas/{uid} (QUOTA_EXCEEDED). The community document is never read: its status
+// the caller's member doc (BANNED is ErrBanned, JOINED writes the idempotency document only), the caller's
+// memberships (the joined cap is exact, ErrJoinedLimit). The community document is never read: its status
 // comes from the service's 60 s cache, and memberCount is a blind Increment. Writes: Create the member doc (JOINED), memberships
-// (joined += id, created when missing), the memberCount Increment, quotas.communityJoins, and Create the idempotency document. A community
+// (joined += id, created when missing), the memberCount Increment, and Create the idempotency document. A community
 // deleted inside the cache window fails the memberCount Update at commit with NotFound, which is ErrNotFound with nothing written.
 func (r *FirestoreRepo) Join(ctx context.Context, p JoinParams) (JoinResult, error) {
 	if err := r.ready(); err != nil {
@@ -97,13 +96,6 @@ func (r *FirestoreRepo) Join(ctx context.Context, p JoinParams) (JoinResult, err
 		}
 		if len(ms.Joined) >= p.MaxJoined {
 			return ErrJoinedLimit
-		}
-		qrec, err := r.quotas.Get(ctx, tx, p.UID)
-		if err != nil {
-			return fmt.Errorf("communities: quota lookup: %w", err)
-		}
-		if err := quota.CheckAndReserve(b, r.quotas.Ref(p.UID), qrec, quota.CommunityJoins, p.QuotaLimit); err != nil {
-			return err
 		}
 		now := r.now().UTC()
 		b.Create(r.memberRef(p.ID, p.UID), memberDoc{UID: p.UID, State: string(MemberJoined), JoinedAt: &now})

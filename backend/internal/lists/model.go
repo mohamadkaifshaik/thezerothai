@@ -70,7 +70,7 @@ type UpdateInput struct {
 // Service is everything the ListService handlers call (seam: handlers call only this): the write path
 // and the reads. *service also implements Reader, the seam other modules use.
 type Service interface {
-	// CreateList creates a list owned by uid. A replay, a list at the cap and an exhausted quota write nothing.
+	// CreateList creates a list owned by uid. A replay and a list at the cap write nothing.
 	CreateList(ctx context.Context, uid string, in CreateInput) (View, error)
 	// UpdateList changes the set fields of one of uid's lists; any other caller, a missing or a deleted list is the one
 	// NOT_FOUND. A pinned list that is renamed is retitled (Pins). A request that changes nothing writes only the idempotency
@@ -86,7 +86,7 @@ type Service interface {
 	AddMember(ctx context.Context, uid, key, listID, userID string) (View, error)
 	// RemoveMember removes userID from one of uid's lists; any other caller or list is the one NOT_FOUND. Not a member is
 	// success with the idempotency document only. The caller graph is read (cache-first) only when a member is actually removed;
-	// a replay writes nothing. No quota.
+	// a replay writes nothing.
 	RemoveMember(ctx context.Context, uid, key, listID, userID string) (View, error)
 	// GetList returns one list as viewer may see it; any other case is the one NOT_FOUND. pinned_by_viewer is false until Pins
 	// supplies the pin check.
@@ -142,7 +142,6 @@ type CreateParams struct {
 	Name, Description             string
 	IsPrivate                     bool
 	MaxPerUser                    int
-	QuotaLimit                    int64
 }
 
 // CreateResult is what Repo.Create answers. List is nil on a replay.
@@ -210,7 +209,6 @@ type AddMemberParams struct {
 	UID, ListID, TargetID, IdemKey, RequestHash string
 	Refusal                                     error
 	MaxMembers                                  int
-	QuotaLimit                                  int64
 	BlockedBy                                   map[string]bool
 }
 

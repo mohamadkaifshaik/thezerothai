@@ -69,8 +69,8 @@ func newMembersEnv(t *testing.T, created time.Time) *membersEnv {
 	svc := New(Deps{
 		Repo: base.repo, Directory: profileDirectory{profiles: profiles}, IDs: base.node, Graph: graphFromRepo{graph.NewFirestoreRepo(base.client)},
 		Limits: Limits{
-			MaxPerUser: 20, CreatesPerDay: 10, NewAccountCreatesPerDay: 3, NewAccountWindow: 24 * time.Hour, CacheEntries: 100,
-			MaxMembers: 150, AddsPerDay: 300, NewAccountAddsPerDay: 50,
+			MaxPerUser: 20, CacheEntries: 100,
+			MaxMembers: 150,
 		},
 	}).(*service)
 	return &membersEnv{listsEnv: base, svc: svc, profiles: profiles}
@@ -113,7 +113,7 @@ func (e *membersEnv) members(t *testing.T, id string) []string {
 
 func (e *membersEnv) seedQuota(t *testing.T, uid string, adds int64) {
 	t.Helper()
-	if _, err := e.client.Collection("quotas").Doc(uid).Set(context.Background(), quota.Record{Day: quota.Today(), ListAdds: adds}); err != nil {
+	if _, err := e.client.Collection("quotas").Doc(uid).Set(context.Background(), map[string]any{"day": quota.Today(), "listAdds": adds}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -155,9 +155,6 @@ func TestAddMember_Integration_Stores(t *testing.T) {
 	if got := e.members(t, id); !slices.Equal(got, []string{"u1", "u2"}) {
 		t.Errorf("memberIds = %v, want [u1 u2] in add order", got)
 	}
-	if n := e.quotaCount(t, "owner", "listAdds"); n != 1 {
-		t.Errorf("quotas.listAdds = %d, want 1", n)
-	}
 	snaps, err := e.client.Collection("lists").Where("memberIds", "array-contains", "u2").Limit(5).Documents(context.Background()).GetAll()
 	if err != nil || len(snaps) != 1 {
 		t.Errorf("array-contains u2: %d docs, err %v: memberIds must stay indexed for the eraser", len(snaps), err)
@@ -170,7 +167,7 @@ func TestAddMember_Integration_Stores(t *testing.T) {
 // cacheHas reports whether the instance cache holds id. A seeded list is private=false (seedLists writes no isPrivate), so a write fills it.
 func (e *membersEnv) cacheHas(id string) bool { _, ok := e.svc.cache.get(id); return ok }
 
-// Already a member: success with the list unchanged and no quota spent; a different key is the same.
+// Already a member: success with the list unchanged; a different key is the same.
 func TestAddMember_Integration_AlreadyMember(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
 	id := e.seedLists(t, "owner", 1, []string{"u1", "u2"})[0]
@@ -178,15 +175,12 @@ func TestAddMember_Integration_AlreadyMember(t *testing.T) {
 	if err != nil || v.Header.MemberCount != 2 {
 		t.Fatalf("view %+v err %v", v, err)
 	}
-	if n := e.quotaCount(t, "owner", "listAdds"); n != 0 {
-		t.Errorf("an existing member spent quota: %d", n)
-	}
 	if got := e.members(t, id); !slices.Equal(got, []string{"u1", "u2"}) {
 		t.Errorf("memberIds = %v", got)
 	}
 }
 
-// A replay writes nothing, answers with the list.s current header, spends no quota, even after the
+// A replay writes nothing, answers with the list's current header, even after the
 // member was removed in between (a late retry never re-adds) and even after the target started blocking the owner.
 func TestAddMember_Integration_Replay(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
@@ -211,15 +205,12 @@ func TestAddMember_Integration_Replay(t *testing.T) {
 	if got := e.members(t, id); len(got) != 0 {
 		t.Errorf("a replay re-added the member: %v", got)
 	}
-	if n := e.quotaCount(t, "owner", "listAdds"); n != 1 {
-		t.Errorf("listAdds = %d, want 1", n)
-	}
 	// The same key for another user is a different request.
 	_, err = e.add(context.Background(), 1, id, "u3")
 	wantCode(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 }
 
-// Two requests with the same key at once: one writes, the other replays (the AlreadyExists re-run), one quota unit is spent.
+// Two requests with the same key at once: one writes, the other replays (the AlreadyExists re-run).
 func TestAddMember_Integration_ConcurrentSameKey(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
 	id := e.seedLists(t, "owner", 1, nil)[0]
@@ -240,9 +231,6 @@ func TestAddMember_Integration_ConcurrentSameKey(t *testing.T) {
 	}
 	if got := e.members(t, id); !slices.Equal(got, []string{"u2"}) {
 		t.Errorf("memberIds = %v", got)
-	}
-	if n := e.quotaCount(t, "owner", "listAdds"); n != 1 {
-		t.Errorf("listAdds = %d, want 1", n)
 	}
 }
 
@@ -305,53 +293,23 @@ func TestAddMember_Integration_CapRace(t *testing.T) {
 	if got := e.members(t, id); len(got) != 150 {
 		t.Errorf("members = %d, want exactly 150", len(got))
 	}
-	if n := e.quotaCount(t, "owner", "listAdds"); n != 1 {
-		t.Errorf("listAdds = %d: the refused add spent quota", n)
-	}
 }
 
-// The daily quota is exact in the transaction: at 300 the add is QUOTA_EXCEEDED list_adds and writes nothing; a new account has 50.
-func TestAddMember_Integration_Quota(t *testing.T) {
-	t.Run("established account", func(t *testing.T) {
-		e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
-		id := e.seedLists(t, "owner", 1, nil)[0]
-		e.seedQuota(t, "owner", 299)
-		if _, err := e.add(context.Background(), 1, id, "u2"); err != nil {
-			t.Fatalf("the 300th add: %v", err)
-		}
-		_, err := e.add(context.Background(), 2, id, "u3")
-		ae := wantCode(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
-		if ae.Metadata["quota"] != "list_adds" {
-			t.Errorf("metadata = %v", ae.Metadata)
-		}
-		if got := e.members(t, id); !slices.Equal(got, []string{"u2"}) {
-			t.Errorf("members = %v", got)
-		}
-	})
-	t.Run("new account", func(t *testing.T) {
-		e := newMembersEnv(t, time.Now().Add(-time.Hour))
-		id := e.seedLists(t, "owner", 1, nil)[0]
-		e.seedQuota(t, "owner", 50)
-		_, err := e.add(context.Background(), 1, id, "u2")
-		if ae := wantCode(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED); ae.Metadata["quota"] != "list_adds" {
-			t.Errorf("new-account tier metadata = %v, want quota=list_adds", ae.Metadata) // The wire name, not the field name listAdds
-		}
-		e.seedQuota(t, "owner", 49)
-		if _, err := e.add(context.Background(), 2, id, "u2"); err != nil {
-			t.Fatalf("the 50th add of a new account: %v", err)
-		}
-	})
-	t.Run("an add that changes nothing is free", func(t *testing.T) {
-		e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
-		id := e.seedLists(t, "owner", 1, []string{"u2"})[0]
-		e.seedQuota(t, "owner", 300)
-		if _, err := e.add(context.Background(), 1, id, "u2"); err != nil {
-			t.Fatalf("existing member at the quota: %v", err)
-		}
-		if n := e.quotaCount(t, "owner", "listAdds"); n != 300 {
-			t.Errorf("an add that changes nothing spent quota: listAdds = %d, want 300", n)
-		}
-	})
+// No daily quota: a legacy quotas doc showing the old limit used up (300, or 50 for a new account) no longer refuses an add,
+// and the doc is left untouched.
+func TestAddMember_Integration_NoDailyQuota(t *testing.T) {
+	e := newMembersEnv(t, time.Now().Add(-time.Hour))
+	id := e.seedLists(t, "owner", 1, nil)[0]
+	e.seedQuota(t, "owner", 300)
+	if _, err := e.add(context.Background(), 1, id, "u2"); err != nil {
+		t.Fatalf("add past the old daily quota: %v", err)
+	}
+	if got := e.members(t, id); !slices.Equal(got, []string{"u2"}) {
+		t.Errorf("members = %v", got)
+	}
+	if n := e.quotaCount(t, "owner", "listAdds"); n != 300 {
+		t.Errorf("listAdds = %d, want the seeded 300 untouched", n)
+	}
 }
 
 // The block matrix: every way a target can be unusable is the same NOT_FOUND, byte for byte, as a user that does not exist,
@@ -549,7 +507,7 @@ func (t txProfilesFromMap) ProfileInTx(_ context.Context, _ *firestore.Transacti
 }
 
 // L-4: the cache-first directory still says u2 is ACTIVE (a 60 s old entry), but users/{u2} read fresh inside the
-// transaction says DELETING: the add is the same NOT_FOUND as a missing user, nothing is written, no quota is spent.
+// transaction says DELETING: the add is the same NOT_FOUND as a missing user, nothing is written.
 func TestAddMember_Integration_FreshTargetStatus(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
 	id := e.seedLists(t, "owner", 1, nil)[0]
@@ -563,9 +521,6 @@ func TestAddMember_Integration_FreshTargetStatus(t *testing.T) {
 	wantCode(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 	if got := e.members(t, id); len(got) != 0 {
 		t.Errorf("members = %v, want none", got)
-	}
-	if n := e.quotaCount(t, "owner", "listAdds"); n != 0 {
-		t.Errorf("a refused add spent quota: %d", n)
 	}
 	// A user the fresh read does not find at all is the same answer.
 	_, err = e.add(context.Background(), 2, id, "u3")

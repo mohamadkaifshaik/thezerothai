@@ -62,9 +62,9 @@ type ScheduledRepo interface {
 	// SCHEDULED_MAX_PENDING+1). It is soft
 	// on purpose (see CreateScheduled).
 	CountPending(ctx context.Context, uid string, limit int) (int64, error)
-	// CreateScheduled runs the schedule transaction. It reads, in this order: quotas, the window count() (PENDING items
+	// CreateScheduled runs the schedule transaction. It reads, in this order: quotas/{uid} (the per-user serialization point, below), the window count() (PENDING items
 	// within +/-ScheduledWindowRadius of PublishAt, limit WindowCap+1), then the media (MediaIDs); it writes the
-	// document and quotas.schedules. Every one of those reads repeats on each retry of a conflicted attempt.
+	// document and rewrites quotas/{uid} unchanged. Every one of those reads repeats on each retry of a conflicted attempt.
 	//
 	// The window cap is EXACT, because of how racing transactions conflict, not because of the count itself: the count
 	// runs inside the transaction AFTER the quotas read, and every schedule by one user reads and writes quotas/{uid}, so
@@ -73,8 +73,7 @@ type ScheduledRepo interface {
 	// the winner's committed document. The pending cap is not checked here: reading up to MaxPending+1 documents inside the
 	// transaction is too costly, so it stays a soft count() outside (CountPending).
 	//
-	// Errors, each with nothing written: ErrScheduledWindowFull, ErrScheduledExists, ErrMediaNotReady, or the quota
-	// package's QUOTA_EXCEEDED error. The window check comes before the daily cap, as it did when the count ran outside.
+	// Errors, each with nothing written: ErrScheduledWindowFull, ErrScheduledExists or ErrMediaNotReady.
 	// A full window also reads the document of this very id: when it exists (a concurrent first call of the same
 	// idempotency key committed it), the answer is ErrScheduledExists (a replay), not ErrScheduledWindowFull. The count
 	// includes that document only while it is PENDING and inside the window; the existence read does not depend on that,
@@ -283,7 +282,6 @@ type ScheduledCreateParams struct {
 	PublishAt   time.Time
 	RequestHash string
 	Now         time.Time
-	QuotaLimit  int64
 	// WindowCap is the most PENDING items allowed within +/-ScheduledWindowRadius of PublishAt (SCHEDULED_PER_AUTHOR_PER_RUN,
 	// validated >= 1 at startup). It is required: a value below 1 is refused, never read as "unchecked".
 	WindowCap int
@@ -320,10 +318,10 @@ func (r *FirestoreRepo) CreateScheduled(ctx context.Context, p ScheduledCreatePa
 		}
 		qrec, err := r.w.Quotas.Get(ctx, tx, p.UID)
 		if err != nil {
-			return fmt.Errorf("posts: quota lookup: %w", err)
+			return fmt.Errorf("posts: schedule lock read: %w", err)
 		}
 		// The window cap, EXACT. It is evaluated here, in the closure, so every retry of a conflicted attempt counts again.
-		// Concurrent schedules by one user all read and write quotas/{uid} (above and in CheckAndReserve below), so only one
+		// Concurrent schedules by one user all read and write quotas/{uid} (above and in quota.Touch below), so only one
 		// of two racing calls commits: the other is rejected at commit (ABORTED, optimistic mode) and its retry runs this
 		// count after the winner committed and sees the winner's document. The count itself is not what makes it exact. It
 		// must stay AFTER the quotas read: in optimistic mode a count placed above it could miss a winner that commits
@@ -344,12 +342,6 @@ func (r *FirestoreRepo) CreateScheduled(ctx context.Context, p ScheduledCreatePa
 				return fmt.Errorf("posts: window check document: %w", serr)
 			}
 			return ErrScheduledWindowFull
-		}
-		// The daily cap is checked before the media read: a call at the cap costs no media read however many images it
-		// names, and nothing has been written yet. CheckAndReserve below repeats the same
-		// rule when it stages the quota write.
-		if qrec.Schedules >= p.QuotaLimit {
-			return quota.ExceededError(quota.Schedules, p.Now)
 		}
 		draft := p.Draft
 		if len(p.MediaIDs) > 0 {
@@ -372,9 +364,8 @@ func (r *FirestoreRepo) CreateScheduled(ctx context.Context, p ScheduledCreatePa
 			CreatedAt: p.Now.UTC(), UpdatedAt: p.Now.UTC(),
 		}
 		b := store.NewFirestoreTxBatch(tx)
-		if err := quota.CheckAndReserve(b, r.w.Quotas.Ref(p.UID), qrec, quota.Schedules, p.QuotaLimit); err != nil {
-			return err
-		}
+		// Nothing is counted: the rewrite only makes two racing schedules by one user conflict, which keeps the window cap exact.
+		quota.Touch(b, r.w.Quotas.Ref(p.UID), qrec)
 		b.Create(ref, toScheduledDoc(post))
 		if err := b.Err(); err != nil {
 			return err

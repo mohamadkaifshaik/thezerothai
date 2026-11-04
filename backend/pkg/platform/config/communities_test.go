@@ -20,9 +20,6 @@ func TestLoad_CommunitiesDefaults(t *testing.T) {
 	if rl := cfg.RateLimit; rl.CommunityMutationsPerDay != 200 || rl.CommunityModActionsPerDay != 200 || rl.CommunityPostsPerCommunityPerDay != 20 {
 		t.Errorf("community daily caps = %d/%d/%d, want 200/200/20", rl.CommunityMutationsPerDay, rl.CommunityModActionsPerDay, rl.CommunityPostsPerCommunityPerDay)
 	}
-	if q := cfg.Quota; q.CommunityJoinsPerDay != 20 || q.NewAccountCommunityJoinsPerDay != 5 || q.CommunityPostsPerDay != 50 || q.NewAccountCommunityPostsPerDay != 10 {
-		t.Errorf("community quotas = %d/%d/%d/%d, want 20/5/50/10", q.CommunityJoinsPerDay, q.NewAccountCommunityJoinsPerDay, q.CommunityPostsPerDay, q.NewAccountCommunityPostsPerDay)
-	}
 	c := cfg.Communities
 	if c.MaxOwned != 2 || c.MaxJoined != 50 || c.MaxModerators != 10 || c.MaxRules != 10 || c.RecentRemovalsMax != 50 || c.ModlogMax != 100 {
 		t.Errorf("community caps = %+v, want 2/50/10/10/50/100", c)
@@ -46,8 +43,6 @@ func TestLoad_CommunitiesOverridesAndValidation(t *testing.T) {
 		for k, v := range map[string]string{
 			"RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN": "7", "RATE_LIMIT_COMMUNITIES_READ_PER_MIN": "8", "RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN": "9",
 			"COMMUNITY_MUTATIONS_PER_DAY": "11", "COMMUNITY_MOD_ACTIONS_PER_DAY": "12", "COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY": "13",
-			"QUOTA_COMMUNITY_JOINS_PER_DAY": "6", "QUOTA_NEW_ACCOUNT_COMMUNITY_JOINS_PER_DAY": "2",
-			"QUOTA_COMMUNITY_POSTS_PER_DAY": "40", "QUOTA_NEW_ACCOUNT_COMMUNITY_POSTS_PER_DAY": "4",
 			"COMMUNITIES_MAX_OWNED": "3", "COMMUNITIES_MAX_JOINED": "12", "COMMUNITY_MAX_MODERATORS": "4", "COMMUNITY_MAX_RULES": "5",
 			"COMMUNITY_RECENT_REMOVALS_MAX": "21", "COMMUNITY_MODLOG_MAX": "22",
 			"CACHE_COMMUNITIES_ENTRIES": "10", "CACHE_COMMUNITY_FEED_ENTRIES": "11", "CACHE_COMMUNITY_MEMBERS_ENTRIES": "12",
@@ -62,9 +57,6 @@ func TestLoad_CommunitiesOverridesAndValidation(t *testing.T) {
 		if rl := cfg.RateLimit; rl.CommunitiesWritePerUserPerMinute != 7 || rl.CommunitiesReadPerUserPerMinute != 8 || rl.CommunityTimelinePerUserPerMinute != 9 ||
 			rl.CommunityMutationsPerDay != 11 || rl.CommunityModActionsPerDay != 12 || rl.CommunityPostsPerCommunityPerDay != 13 {
 			t.Errorf("rate limit override = %+v", rl)
-		}
-		if q := cfg.Quota; q.CommunityJoinsPerDay != 6 || q.NewAccountCommunityJoinsPerDay != 2 || q.CommunityPostsPerDay != 40 || q.NewAccountCommunityPostsPerDay != 4 {
-			t.Errorf("quota override = %d/%d/%d/%d", q.CommunityJoinsPerDay, q.NewAccountCommunityJoinsPerDay, q.CommunityPostsPerDay, q.NewAccountCommunityPostsPerDay)
 		}
 		c := cfg.Communities
 		if c.MaxOwned != 3 || c.MaxJoined != 12 || c.MaxModerators != 4 || c.MaxRules != 5 || c.RecentRemovalsMax != 21 || c.ModlogMax != 22 ||
@@ -86,7 +78,6 @@ func TestLoad_CommunitiesOverridesAndValidation(t *testing.T) {
 	for _, key := range []string{
 		"RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN", "RATE_LIMIT_COMMUNITIES_READ_PER_MIN", "RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN",
 		"COMMUNITY_MUTATIONS_PER_DAY", "COMMUNITY_MOD_ACTIONS_PER_DAY", "COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY",
-		"QUOTA_COMMUNITY_JOINS_PER_DAY", "QUOTA_NEW_ACCOUNT_COMMUNITY_JOINS_PER_DAY", "QUOTA_COMMUNITY_POSTS_PER_DAY", "QUOTA_NEW_ACCOUNT_COMMUNITY_POSTS_PER_DAY",
 		"COMMUNITIES_MAX_OWNED", "COMMUNITIES_MAX_JOINED", "COMMUNITY_MAX_MODERATORS", "COMMUNITY_MAX_RULES",
 		"COMMUNITY_RECENT_REMOVALS_MAX", "COMMUNITY_MODLOG_MAX",
 		"CACHE_COMMUNITIES_ENTRIES", "CACHE_COMMUNITY_FEED_ENTRIES", "CACHE_COMMUNITY_MEMBERS_ENTRIES",

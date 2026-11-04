@@ -685,7 +685,7 @@ func TestRegistry(t *testing.T) {
 
 func TestNewLifecycle_Validation(t *testing.T) {
 	h := newHarness(t)
-	good := LifecycleDeps{Repo: h.repo, Cache: h.cache, Publisher: h.pub, Auth: h.auth, ExportsPerDay: 1, ExportRetention: time.Hour, ExportURLTTL: time.Minute}
+	good := LifecycleDeps{Repo: h.repo, Cache: h.cache, Publisher: h.pub, Auth: h.auth, ExportRetention: time.Hour, ExportURLTTL: time.Minute}
 	if _, err := NewLifecycle(good); err != nil {
 		t.Fatalf("valid deps: %v", err)
 	}
@@ -696,7 +696,6 @@ func TestNewLifecycle_Validation(t *testing.T) {
 		"no auth":      func(d *LifecycleDeps) { d.Auth = nil },
 		"no retention": func(d *LifecycleDeps) { d.ExportRetention = 0 },
 		"no url ttl":   func(d *LifecycleDeps) { d.ExportURLTTL = 0 },
-		"no quota":     func(d *LifecycleDeps) { d.ExportsPerDay = 0 },
 	} {
 		d := good
 		mutate(&d)

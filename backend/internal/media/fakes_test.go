@@ -10,10 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"connectrpc.com/connect"
-
-	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
 )
 
@@ -23,8 +19,7 @@ type fakeRepo struct {
 	docs     map[string]*Doc
 	idem     map[string]fakeIdem
 	vision   map[string]int64
-	quota    int64 // images reserved today
-	visionRd int   // VisionUsed calls
+	visionRd int // VisionUsed calls
 	resolves int
 	claims   int // ClaimScreening calls, won or lost
 	releases int // ReleaseScreening calls
@@ -59,10 +54,6 @@ func (r *fakeRepo) CreateUploads(_ context.Context, p CreateUploadsParams) (Crea
 		}
 		return CreateUploadsResult{ReplayIDs: rec.ids}, nil
 	}
-	if r.quota+int64(len(p.Docs)) > p.QuotaLimit {
-		return CreateUploadsResult{}, apierr.New(connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "daily limit reached")
-	}
-	r.quota += int64(len(p.Docs))
 	ids := make([]string, len(p.Docs))
 	for i := range p.Docs {
 		d := p.Docs[i]

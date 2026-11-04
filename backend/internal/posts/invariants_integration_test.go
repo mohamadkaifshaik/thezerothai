@@ -149,7 +149,7 @@ func TestPostsInvariants_NegativeSelfTests(t *testing.T) {
 // counter that was bumped behind the service's back.
 func TestPostsInvariants_LoaderSeesTamperedEmulatorState(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, 1)
+	in := newCreateInstance(t, client)
 	in.skipInvariantSweep("tampers postsCount on purpose")
 	in.signUp(t, "uid-alice", "alice")
 	if _, err := in.create(t, "uid-alice", key(1), "one"); err != nil {

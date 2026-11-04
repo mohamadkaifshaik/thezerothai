@@ -16,7 +16,6 @@ import (
 	"slices"
 	"testing"
 
-	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
@@ -35,15 +34,6 @@ func TestW335b_PrivacyToggleLimits(t *testing.T) {
 		_, err := e.identity.UpdateProfile(ctx, authed(token, &identityv1.UpdateProfileRequest{IdempotencyKey: key, IsPrivate: &v}))
 		return err
 	}
-	requireQuota := func(t *testing.T, what string, err error) {
-		t.Helper()
-		d := wireError(t, err, connect.CodeResourceExhausted)
-		assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
-		if d.GetMetadata()["quota"] != "privacy_toggles" {
-			t.Errorf("%s: metadata = %v, want quota=privacy_toggles", what, d.GetMetadata())
-		}
-	}
-
 	t.Run("equal-false on an account that was never protected", func(t *testing.T) {
 		token, uid := mintToken(t, "")
 		e := newW320BM(newChain(t, on))
@@ -56,49 +46,17 @@ func TestW335b_PrivacyToggleLimits(t *testing.T) {
 		}
 	})
 
-	t.Run("public at 4 of 4: equal-false is a no-op, the other value is QUOTA_EXCEEDED", func(t *testing.T) {
+	t.Run("no daily toggle quota: a fifth change in a day goes through", func(t *testing.T) {
 		token, uid := mintToken(t, "")
 		e := newW320BM(newChain(t, on))
 		e.createProfile(t, token)
-		for i, v := range []bool{true, false, true, false} {
-			if err := toggle(e, token, "w335b-pub44-00000"+string(rune('1'+i)), v); err != nil {
+		for i, v := range []bool{true, false, true, false, true} {
+			if err := toggle(e, token, "w335b-five-000000"+string(rune('1'+i)), v); err != nil {
 				t.Fatalf("toggle %d: %v", i+1, err)
 			}
 		}
-		if priv, n := ptoggleStored(t, e.chainEnv, uid); priv || n != 4 {
-			t.Fatalf("setup: isPrivate=%v quota=%d, want false / 4", priv, n)
-		}
-		if err := toggle(e, token, "w335b-pub44-0000010", false); err != nil {
-			t.Fatalf("equal-false at 4 of 4 = %v, want accepted (the no-op is decided before the quota)", err)
-		}
-		requireQuota(t, "protect at 4 of 4", toggle(e, token, "w335b-pub44-0000011", true))
-		if priv, n := ptoggleStored(t, e.chainEnv, uid); priv || n != 4 {
-			t.Errorf("after both: isPrivate=%v quota=%d, want false / 4", priv, n)
-		}
-	})
-
-	t.Run("protected at 4 of 4: equal-true is a no-op, unprotect is QUOTA_EXCEEDED", func(t *testing.T) {
-		token, uid := mintToken(t, "")
-		e := newW320BM(newChain(t, on))
-		e.createProfile(t, token)
-		// The account starts protected without having spent a toggle (state written directly), so four changes end protected.
-		if _, err := e.fs.Doc("users/"+uid).Update(ctx, []firestore.Update{{Path: "isPrivate", Value: true}}); err != nil {
-			t.Fatal(err)
-		}
-		for i, v := range []bool{false, true, false, true} {
-			if err := toggle(e, token, "w335b-prot44-000000"+string(rune('1'+i)), v); err != nil {
-				t.Fatalf("toggle %d: %v", i+1, err)
-			}
-		}
-		if priv, n := ptoggleStored(t, e.chainEnv, uid); !priv || n != 4 {
-			t.Fatalf("setup: isPrivate=%v quota=%d, want true / 4", priv, n)
-		}
-		if err := toggle(e, token, "w335b-prot44-0000010", true); err != nil {
-			t.Fatalf("equal-true at 4 of 4 = %v, want accepted", err)
-		}
-		requireQuota(t, "unprotect at 4 of 4", toggle(e, token, "w335b-prot44-0000011", false))
-		if priv, n := ptoggleStored(t, e.chainEnv, uid); !priv || n != 4 {
-			t.Errorf("after the refusal: isPrivate=%v quota=%d, want true / 4", priv, n)
+		if priv, n := ptoggleStored(t, e.chainEnv, uid); !priv || n != 0 {
+			t.Errorf("after five toggles: isPrivate=%v quota=%d, want true / 0", priv, n)
 		}
 	})
 

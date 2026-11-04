@@ -128,12 +128,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureQuotes, cfg.FeatureContentDisclosure, cfg.FeatureReplyAudience, cfg.FeatureScheduledPosts, cfg.FeatureBookmarks, cfg.FeatureMessaging, cfg.FeatureLists, cfg.FeatureCommunities, cfg.FeatureProfileExtras, cfg.FeatureProfileTabs, cfg.FeatureLikesList, cfg.FeatureFollowSuggestions, cfg.FeaturePrivateAccounts, cfg.FeatureUIShell, cfg.FeatureShells, cfg.FeatureCrashReporting, cfg.FeatureAnalytics, cfg.FeatureRemovedIDs, cfg.FeatureSearch, cfg.FeatureTrends, cfg.FeaturePolls, cfg.FeatureDrafts, cfg.FeatureGif)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 	// The private-accounts limits, so an operator can see what the revision enforces. Numbers only.
-	log.Info("privacy_limits", "toggles_per_day", cfg.Quota.PrivacyTogglesPerDay, "protected_authors_max", cfg.Privacy.ProtectedAuthorsMax,
+	log.Info("privacy_limits", "protected_authors_max", cfg.Privacy.ProtectedAuthorsMax,
 		"protected_set_max_stale", cfg.Privacy.ProtectedSetMaxStale.String(), "respond_per_min", cfg.RateLimit.FollowRequestsRespondPerUserPerMinute)
 	// The community limits, so an operator can see what the revision enforces. Numbers only: the creators are a count,
 	// never the uids.
 	log.Info("community_limits", "creators", len(cfg.Communities.Creators), "max_owned", cfg.Communities.MaxOwned, "max_joined", cfg.Communities.MaxJoined,
-		"max_moderators", cfg.Communities.MaxModerators, "joins_per_day", cfg.Quota.CommunityJoinsPerDay, "posts_per_day", cfg.Quota.CommunityPostsPerDay)
+		"max_moderators", cfg.Communities.MaxModerators)
 
 	// --- modules ---
 	// graph.FirestoreRepo backs both identity.GraphInitializer (creating the empty graph/{uid} doc inside
@@ -162,18 +162,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// into it below, once identity (the fan-out's Directory) exists.
 	notifSlot := &emitterSlot{}
 	graphSvc := graph.New(graph.Deps{
-		Events:                  followNotifier{slot: notifSlot},
-		Repo:                    graphRepo,
-		Cache:                   graphCache,
-		Flags:                   featureFlags,
-		CursorKey:               cfg.CursorHMACKey,
-		Protected:               protectedAuthors,
-		ReadOnly:                cfg.Degraded == config.DegradedReadonly,
-		FollowsPerDay:           int64(cfg.Quota.FollowsPerDay),
-		NewAccountFollowsPerDay: int64(cfg.Quota.NewAccountFollowsPerDay),
-		BlocksPerDay:            int64(cfg.Quota.BlocksPerDay),
-		NewAccountBlocksPerDay:  int64(cfg.Quota.NewAccountBlocksPerDay),
-		NewAccountWindow:        cfg.Quota.NewAccountWindow,
+		Events:    followNotifier{slot: notifSlot},
+		Repo:      graphRepo,
+		Cache:     graphCache,
+		Flags:     featureFlags,
+		CursorKey: cfg.CursorHMACKey,
+		Protected: protectedAuthors,
+		ReadOnly:  cfg.Degraded == config.DegradedReadonly,
 		// The ListSuggestedUsers limits and the curated SUGGESTED_USER_IDS list (reads them).
 		Suggestions: graph.SuggestionLimits{
 			SampleFollowees: cfg.Suggestions.SampleFollowees, EdgeLimit: cfg.Suggestions.EdgeLimit,
@@ -231,11 +226,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithPrivacyListener(graph.NewPrivacyListener(jobsPublisher), log),
 		identity.WithPrivacy(identity.PrivacyDeps{
 			Repo: identityRepo, Set: protectedAuthors,
-			Limits: identity.PrivacyLimits{TogglesPerDay: int64(cfg.Quota.PrivacyTogglesPerDay), SetMax: cfg.Privacy.ProtectedAuthorsMax},
+			Limits: identity.PrivacyLimits{SetMax: cfg.Privacy.ProtectedAuthorsMax},
 		}),
 		identity.WithProfileSnapshots(identity.ProfileSnapshotDeps{
-			Publisher: jobsPublisher, Flags: featureFlags, Quota: identity.NewSnapshotQuota(fsClient),
-			PerDay: int64(cfg.Quota.SnapshotEditsPerDay), Log: log,
+			Publisher: jobsPublisher, Flags: featureFlags, Log: log,
 		}),
 	)
 	// identitySvc's concrete type also implements identity.Directory (GetProfiles/Forget); asserted here
@@ -304,16 +298,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	})
 	postsSvc := posts.New(posts.Deps{
 		Repo: postsRepo, Cache: postsCache, Events: postNotifier{slot: notifSlot},
-		Jobs:                  mediaMod.jobs,
-		Directory:             identitySvc.(identity.Directory),
-		Graph:                 graphSvc,
-		PostsPerDay:           int64(cfg.Quota.PostsPerDay),
-		NewAccountPostsPerDay: int64(cfg.Quota.NewAccountPostsPerDay),
-		NewAccountWindow:      cfg.Quota.NewAccountWindow,
-		// quotas.communityPosts, reserved in CreatePost's quota write on top of posts.
-		CommunityPostsPerDay:           int64(cfg.Quota.CommunityPostsPerDay),
-		NewAccountCommunityPostsPerDay: int64(cfg.Quota.NewAccountCommunityPostsPerDay),
-		CursorKey:                      cfg.CursorHMACKey,
+		Jobs:      mediaMod.jobs,
+		Directory: identitySvc.(identity.Directory),
+		Graph:     graphSvc,
+		CursorKey: cfg.CursorHMACKey,
 		// Poll creation limits (config.Composer). The zero value would reject every poll.
 		Poll: posts.PollLimits{
 			MaxChoices: cfg.Composer.PollMaxChoices, ChoiceMaxCodepoints: cfg.Composer.PollChoiceMaxCodepoints,
@@ -325,7 +313,6 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Schedule: posts.ScheduleLimits{
 			MaxPending: cfg.Scheduled.MaxPending, WindowCap: cfg.Scheduled.PerAuthorPerRun,
 			MinLead: cfg.Scheduled.MinLead, Horizon: cfg.Scheduled.Horizon, TerminalTTL: cfg.Scheduled.TerminalTTL,
-			SchedulesPerDay: int64(cfg.Quota.SchedulesPerDay), NewAccountSchedulesPerDay: int64(cfg.Quota.NewAccountSchedulesPerDay),
 		},
 		// The publish sweep behind /internal/cron/publish-scheduled. Flags is the registry's kill-switch
 		// view (GloballyOff), so an allowlist or percent rollout still publishes every due item.
@@ -349,7 +336,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// other (engagement drives posts' counters and clean-up, DeletePost releases through engagement's reposts
 	// links), so the links are bound here, once, synchronously, before ListenAndServe.
 	engagementRepo := engagement.NewFirestoreRepo(fsClient, engagement.WriteDeps{
-		Quotas: quota.New(fsClient), Writer: postsRepo, Counters: identityRepo, IDs: snowflakeNode,
+		Writer: postsRepo, Counters: identityRepo, IDs: snowflakeNode,
 		Idempotency: idempotency.New(fsClient), // AddBookmark / RemoveBookmark idempotency docs
 	})
 	audienceSvc := postsSvc
@@ -366,13 +353,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	engagementMod, err := engagement.New(engagement.Deps{
 		Repo: engagementRepo, Posts: postsSvc.(posts.Engagement), Reader: postsSvc, Directory: identitySvc.(identity.Directory),
-		Events:      engagementNotifier{slot: notifSlot},
-		LikesPerDay: int64(cfg.Quota.LikesPerDay), NewAccountLikesPerDay: int64(cfg.Quota.NewAccountLikesPerDay),
-		PostsPerDay: int64(cfg.Quota.PostsPerDay), NewAccountPostsPerDay: int64(cfg.Quota.NewAccountPostsPerDay),
+		Events:           engagementNotifier{slot: notifSlot},
 		NewAccountWindow: cfg.Quota.NewAccountWindow, CacheTTL: cfg.CacheTTL, AllowAnonymous: cfg.AuthEmulator,
-		// Bookmarks: the repo is the engagement repo, the quota and the cap are config, not literals.
-		BookmarkRepo: engagementRepo, BookmarksPerDay: int64(cfg.Quota.BookmarksPerDay),
-		NewAccountBookmarksPerDay: int64(cfg.Quota.NewAccountBookmarksPerDay), BookmarksMaxPerUser: cfg.Quota.BookmarksMaxPerUser,
+		// Bookmarks: the repo is the engagement repo, the cap is config, not a literal.
+		BookmarkRepo: engagementRepo, BookmarksMaxPerUser: cfg.Quota.BookmarksMaxPerUser,
 		// ListBookmarks: the graph snapshot filters blocked and muted authors, the flags decide viewer-state
 		// hydration, the cursor key seals the page tokens, and readonly mode skips the lazy prune.
 		Graph: graphSvc, Flags: featureFlags, CursorKey: cfg.CursorHMACKey, ReadOnly: cfg.Degraded == config.DegradedReadonly,
@@ -406,10 +390,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Repo: listsRepo, Directory: identitySvc.(identity.Directory), IDs: snowflakeNode, Graph: graphSvc, CursorKey: cfg.CursorHMACKey,
 		Pins: homeTabs,
 		Limits: lists.Limits{
-			MaxPerUser:    cfg.Lists.MaxPerUser,
-			CreatesPerDay: int64(cfg.Quota.ListCreatesPerDay), NewAccountCreatesPerDay: int64(cfg.Quota.NewAccountListCreatesPerDay),
-			NewAccountWindow: cfg.Quota.NewAccountWindow, CacheEntries: cfg.Lists.CacheEntries,
-			MaxMembers: cfg.Lists.MaxMembers, AddsPerDay: int64(cfg.Quota.ListAddsPerDay), NewAccountAddsPerDay: int64(cfg.Quota.NewAccountListAddsPerDay),
+			MaxPerUser: cfg.Lists.MaxPerUser, CacheEntries: cfg.Lists.CacheEntries, MaxMembers: cfg.Lists.MaxMembers,
 		},
 	})
 	listsReader := listsSvc.(lists.Reader)
@@ -452,7 +433,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	lifecycle, err := identity.NewLifecycle(identity.LifecycleDeps{
 		Repo: identityRepo, Cache: identityCache, Publisher: jobsPublisher, Auth: authAdminClient, Objects: exportStore,
-		Log: log, ProjectID: cfg.ProjectID, ExportsPerDay: int64(cfg.Quota.ExportsPerDay),
+		Log: log, ProjectID: cfg.ProjectID,
 		ExportRetention: cfg.ExportRetention, ExportURLTTL: cfg.ExportURLTTL,
 		Snapshots: profileSnapshotWriter{postsRepo}, Flags: featureFlags,
 	})
@@ -681,8 +662,6 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		Limits: communities.Limits{
 			MaxOwned: cfg.Communities.MaxOwned, MaxJoined: cfg.Communities.MaxJoined, MaxRules: cfg.Communities.MaxRules,
 			ModlogMax: cfg.Communities.ModlogMax, MaxModerators: cfg.Communities.MaxModerators, RecentRemovalsMax: cfg.Communities.RecentRemovalsMax, CacheEntries: cfg.Communities.CacheEntries, MembersCacheEntries: cfg.Communities.MembersCacheEntries,
-			JoinsPerDay: int64(cfg.Quota.CommunityJoinsPerDay), NewAccountJoinsPerDay: int64(cfg.Quota.NewAccountCommunityJoinsPerDay),
-			NewAccountWindow: cfg.Quota.NewAccountWindow,
 		},
 	})
 	// The posting gate: posts declares posts.CommunityGate and never imports communities; communities implements it over

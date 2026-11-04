@@ -38,8 +38,6 @@ type envOpts struct {
 	policy      config.VisionExhaustedPolicy
 	screenThumb bool
 	accountAge  time.Duration // age of every account
-	perDay      int64
-	newPerDay   int64
 	dirErr      error
 	// The directory knows the account but its createdAt is zero (a users doc written without it).
 	accountUnknown bool
@@ -58,14 +56,8 @@ type envOpts struct {
 
 func newEnv(t *testing.T, o envOpts) *env {
 	t.Helper()
-	if o.cap == 0 && o.perDay == 0 {
+	if o.cap == 0 {
 		o.cap = 100
-	}
-	if o.perDay == 0 {
-		o.perDay = 20
-	}
-	if o.newPerDay == 0 {
-		o.newPerDay = 8
 	}
 	if o.accountAge == 0 {
 		o.accountAge = 30 * 24 * time.Hour
@@ -79,7 +71,7 @@ func newEnv(t *testing.T, o envOpts) *env {
 		Repo: e.repo, Signer: e.sign, Objects: objs, Moderator: e.mod,
 		Log: o.log, GifQueueWait: o.gifWait, GifDecodeTimeout: o.gifDecode, GifMaxFrames: o.gifMaxFrames, GifMaxFrameAreaSum: o.gifMaxArea, MediaMaxScreenAttempts: o.maxAttempts, MediaMaxScreenRetries: o.maxRetries, VisionUnitsPerDay: o.unitsPerDay, VisionUnitsPerDayNewAccount: o.newUnitsDay,
 		Directory: fakeDirectory{created: createdFor(o), err: o.dirErr}, IDs: &seqIDs{},
-		PublicBaseURL: "https://cdn.test/media", MediaPerDay: o.perDay, NewAccountMediaPerDay: o.newPerDay,
+		PublicBaseURL:    "https://cdn.test/media",
 		NewAccountWindow: 24 * time.Hour, VisionMonthlyCap: o.cap, Policy: o.policy, ScreenThumb: o.screenThumb,
 		Now: func() time.Time { return testNow },
 	})
@@ -222,8 +214,9 @@ func TestCreateUpload_ReplayAndKeyReuse(t *testing.T) {
 	_ = wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 }
 
-func TestCreateUpload_QuotaTiers(t *testing.T) {
-	e := newEnv(t, envOpts{accountAge: time.Hour, perDay: 20, newPerDay: 8})
+// TestCreateUpload_NoDailyQuota: a new account (the old daily limit was 8 images) uploads past it.
+func TestCreateUpload_NoDailyQuota(t *testing.T) {
+	e := newEnv(t, envOpts{accountAge: time.Hour})
 	mk := func(n int, key string) error {
 		items := make([]UploadItem, n)
 		for i := range items {
@@ -238,19 +231,20 @@ func TestCreateUpload_QuotaTiers(t *testing.T) {
 	if err := mk(4, key2); err != nil {
 		t.Fatal(err)
 	}
-	// The 9th image exceeds the new-account limit of 8, as a whole call.
-	err := mk(1, "third-key-0123456789")
-	_ = wantAPI(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
+	if err := mk(4, "third-key-0123456789"); err != nil {
+		t.Fatalf("the 9th to 12th images: %v", err)
+	}
 }
 
-func TestCreateUpload_DirectoryFailureIsInternal(t *testing.T) {
+// TestCreateUpload_NoAccountAgeRead: with the daily upload quota gone CreateUpload no longer reads the account's age, so a
+// failing directory does not affect it.
+func TestCreateUpload_NoAccountAgeRead(t *testing.T) {
 	e := newEnv(t, envOpts{dirErr: errors.New("boom")})
 	_, err := e.svc.CreateUpload(context.Background(), uidA, CreateUploadInput{
 		IdempotencyKey: key1, Purpose: PurposePost, Items: []UploadItem{item(jpegBytes("a"), jpegBytes("b"), "image/jpeg")},
 	})
-	var ae *apierr.Error
-	if err == nil || errors.As(err, &ae) {
-		t.Fatalf("err = %v: an infrastructure failure must not be shaped as an API error", err)
+	if err != nil {
+		t.Fatalf("err = %v, want success: CreateUpload must not read the account age", err)
 	}
 }
 
@@ -543,7 +537,7 @@ func newEnvCap0(t *testing.T, policy config.VisionExhaustedPolicy, age time.Dura
 	svc, err := New(Deps{
 		Repo: e.repo, Signer: e.sign, Objects: e.obj, Moderator: e.mod,
 		Directory: fakeDirectory{created: testNow.Add(-age)}, IDs: &seqIDs{}, PublicBaseURL: "https://cdn.test/media",
-		MediaPerDay: 20, NewAccountMediaPerDay: 8, NewAccountWindow: 24 * time.Hour,
+		NewAccountWindow: 24 * time.Hour,
 		VisionMonthlyCap: 0, Policy: policy, Now: func() time.Time { return testNow },
 	})
 	if err != nil {

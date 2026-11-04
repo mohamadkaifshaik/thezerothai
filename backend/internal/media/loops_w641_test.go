@@ -73,7 +73,7 @@ func TestW641_H3_LoopAcrossDocumentsStopsAtTheUnitsCap(t *testing.T) {
 		tier bool
 	}{
 		{"established account, cap 20", envOpts{screenThumb: true, unitsPerDay: 20}, 8, 20, false},
-		{"new account, cap 6", envOpts{screenThumb: true, accountAge: 1, newUnitsDay: 6, unitsPerDay: 100, newPerDay: 8}, 5, 6, true},
+		{"new account, cap 6", envOpts{screenThumb: true, accountAge: 1, newUnitsDay: 6, unitsPerDay: 100}, 5, 6, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newEnv(t, tt.opts)

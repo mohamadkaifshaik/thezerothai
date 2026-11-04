@@ -18,11 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
 	fbauth "firebase.google.com/go/v4/auth"
-
-	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
 // opLog is one ordered log of every side effect the fakes see, so a test can assert an order across the repo,
@@ -281,23 +277,13 @@ func (f *fakeLCRepo) CreateExport(_ context.Context, p CreateExportParams) (Expo
 	if err := f.enter("CreateExport"); err != nil {
 		return ExportDoc{}, false, err
 	}
-	f.reads++ // quotas/{uid}
 	if e := f.exports[p.ID]; e != nil {
-		if f.quotas[p.UID] >= p.ExportsPerDay {
-			f.reads++ // the exports probe of an over-quota call
-		} else {
-			f.reads++ // the read after the AlreadyExists rollback
-		}
+		f.reads++ // the read after the AlreadyExists Create
 		return *e, true, nil
 	}
-	if f.quotas[p.UID] >= p.ExportsPerDay {
-		f.reads++ // the exports probe finds nothing
-		return ExportDoc{}, false, apierr.New(connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "daily limit reached, please try again tomorrow").WithMeta("quota", "exports")
-	}
-	f.quotas[p.UID]++
 	e := &ExportDoc{ID: p.ID, UID: p.UID, Status: ExportPending, ObjectPath: p.ObjectPath, CreatedAt: p.Now, ExpireAt: p.Now.Add(p.Retention), UpdateTime: utOf(1)}
 	f.exports[p.ID] = e
-	f.writes += 2
+	f.writes++
 	f.log.add("repo.CreateExport")
 	return *e, false, nil
 }
@@ -794,7 +780,7 @@ func newHarness(t *testing.T, opts ...harnessOpt) *harness {
 	deps := LifecycleDeps{
 		Repo: h.repo, Cache: h.cache, Publisher: h.pub, Auth: h.auth, Objects: h.objs,
 		Log: slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug})), ProjectID: "demo-p",
-		Now: clock.Now, RetryBackoff: time.Microsecond, ExportsPerDay: 1, ExportRetention: 7 * 24 * time.Hour, ExportURLTTL: 15 * time.Minute,
+		Now: clock.Now, RetryBackoff: time.Microsecond, ExportRetention: 7 * 24 * time.Hour, ExportURLTTL: 15 * time.Minute,
 	}
 	for _, o := range opts {
 		o(&deps)

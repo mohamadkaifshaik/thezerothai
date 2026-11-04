@@ -15,7 +15,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -108,19 +107,6 @@ func (e *schedEnv) raw(t *testing.T, uid, id string) map[string]any {
 	return snap.Data()
 }
 
-func (e *schedEnv) schedules(t *testing.T, uid string) int64 {
-	t.Helper()
-	snap, err := e.quotas.Ref(uid).Get(context.Background())
-	if err != nil {
-		return 0
-	}
-	var rec quota.Record
-	if err := snap.DataTo(&rec); err != nil {
-		t.Fatal(err)
-	}
-	return rec.Schedules
-}
-
 func (e *schedEnv) params(t *testing.T, uid string, n int, publishAt time.Time) ScheduledCreateParams {
 	t.Helper()
 	id, err := ScheduledID(uid, schedKeyFor(n))
@@ -128,13 +114,13 @@ func (e *schedEnv) params(t *testing.T, uid string, n int, publishAt time.Time) 
 		t.Fatal(err)
 	}
 	return ScheduledCreateParams{
-		UID: uid, ID: id, PublishAt: publishAt, RequestHash: "hash", Now: schedNow, QuotaLimit: 50, WindowCap: 3,
+		UID: uid, ID: id, PublishAt: publishAt, RequestHash: "hash", Now: schedNow, WindowCap: 3,
 		Draft: ScheduledDraft{Text: "hello", ReplyPolicy: ReplyPolicyMentionedOnly, MadeWithAI: true},
 	}
 }
 
 // TestScheduled_Integration_CreateAndReplay: the schedule transaction stores the documented shape, a repeat of the id is ErrScheduledExists with nothing written and the stored draft
-// untouched (Create precondition), and the daily cap rejects with QUOTA_EXCEEDED quota=schedules and nothing written.
+// untouched (Create precondition), and there is no daily cap.
 func TestScheduled_Integration_CreateAndReplay(t *testing.T) {
 	e := newSchedEnv(t)
 	p := e.params(t, "alice", 1, schedBase.Add(30*time.Second)) // not on a whole minute: stored truncated
@@ -162,9 +148,6 @@ func TestScheduled_Integration_CreateAndReplay(t *testing.T) {
 	if _, has := draft["paidPartnership"]; has {
 		t.Errorf("a false disclosure label must be omitted: %v", draft)
 	}
-	if e.schedules(t, "alice") != 1 {
-		t.Errorf("quotas.schedules = %d, want 1", e.schedules(t, "alice"))
-	}
 
 	read, err := e.repo.GetScheduled(context.Background(), "alice", p.ID)
 	if err != nil || read.UpdateTime.IsZero() || read.Draft == nil || read.Draft.Text != "hello" || read.UID != "alice" {
@@ -181,21 +164,15 @@ func TestScheduled_Integration_CreateAndReplay(t *testing.T) {
 	if after := e.raw(t, "alice", p.ID); after["draft"].(map[string]any)["text"] != "hello" {
 		t.Errorf("the replay changed the stored draft: %v", after)
 	}
-	if e.schedules(t, "alice") != 1 {
-		t.Errorf("a replay charged the quota: schedules = %d", e.schedules(t, "alice"))
-	}
 
-	t.Run("daily cap", func(t *testing.T) {
-		capped := e.params(t, "alice", 2, schedBase.Add(time.Hour))
-		capped.QuotaLimit = 1
-		cctx := context.Background()
-		_, err := e.repo.CreateScheduled(cctx, capped)
-		var ae *apierr.Error
-		if !errors.As(err, &ae) || ae.Metadata["quota"] != "schedules" {
-			t.Fatalf("err = %v, want QUOTA_EXCEEDED quota=schedules", err)
+	t.Run("no daily cap", func(t *testing.T) {
+		// A legacy quotas doc showing the old daily schedules quota used up no longer refuses the call.
+		if _, err := e.client.Collection("quotas").Doc("alice").Set(context.Background(), map[string]any{"day": quota.Today(), "schedules": int64(50)}); err != nil {
+			t.Fatal(err)
 		}
-		if _, err := e.repo.GetScheduled(context.Background(), "alice", capped.ID); !errors.Is(err, ErrScheduledNotFound) {
-			t.Errorf("the capped document exists: %v", err)
+		more := e.params(t, "alice", 2, schedBase.Add(time.Hour))
+		if _, err := e.repo.CreateScheduled(context.Background(), more); err != nil {
+			t.Fatalf("schedule past the old daily quota: %v", err)
 		}
 	})
 }
@@ -234,9 +211,6 @@ func TestScheduled_Integration_CreateWithMedia(t *testing.T) {
 		if _, err := e.repo.CreateScheduled(bctx, bad); !errors.Is(err, ErrMediaNotReady) {
 			t.Errorf("%s: err = %v, want ErrMediaNotReady", name, err)
 		}
-	}
-	if e.schedules(t, "alice") != 1 {
-		t.Errorf("schedules = %d, want 1: only the successful call is charged", e.schedules(t, "alice"))
 	}
 }
 
@@ -319,7 +293,7 @@ func TestScheduled_Integration_Counts(t *testing.T) {
 }
 
 // TestScheduled_Integration_WindowCap: the window count inside the schedule transaction covers +/-4 min inclusive and
-// only PENDING items of the caller; a full window is ErrScheduledWindowFull with nothing written and no quota spent;
+// only PENDING items of the caller; a full window is ErrScheduledWindowFull with nothing written;
 // windowQuery honours its limit.
 func TestScheduled_Integration_WindowCap(t *testing.T) {
 	e := newSchedEnv(t)
@@ -358,18 +332,8 @@ func TestScheduled_Integration_WindowCap(t *testing.T) {
 			t.Errorf("cap %d with 4 inside: err = %v, want ErrScheduledWindowFull", windowCap, err)
 		}
 	}
-	if e.schedules(t, "carol") != 0 {
-		t.Errorf("a rejected call charged the quota: %d", e.schedules(t, "carol"))
-	}
 	if _, err := e.repo.GetScheduled(context.Background(), "carol", e.params(t, "carol", 101, w).ID); !errors.Is(err, ErrScheduledNotFound) {
 		t.Errorf("a rejected call stored a document: %v", err)
-	}
-
-	// The window is checked before the daily cap: a caller over both (QuotaLimit 0 is spent from the start) hears the window.
-	both := e.params(t, "carol", 105, w)
-	both.QuotaLimit = 0
-	if _, err := e.repo.CreateScheduled(context.Background(), both); !errors.Is(err, ErrScheduledWindowFull) {
-		t.Errorf("over both caps: err = %v, want ErrScheduledWindowFull (the window comes first)", err)
 	}
 
 	// Room: a window far away (nothing inside) and a cap above the four inside.
@@ -408,9 +372,6 @@ func TestScheduled_Integration_WindowFullByTheSameKey(t *testing.T) {
 
 	if _, err := e.repo.CreateScheduled(context.Background(), mine); !errors.Is(err, ErrScheduledExists) {
 		t.Fatalf("err = %v, want ErrScheduledExists", err)
-	}
-	if e.schedules(t, "carol") != 0 {
-		t.Errorf("schedules %d: nothing may be written", e.schedules(t, "carol"))
 	}
 }
 
@@ -454,9 +415,6 @@ func TestScheduled_Integration_WindowCapIsEvaluatedPerAttempt(t *testing.T) {
 			t.Errorf("attempts = %v, want [1 2]", attempts)
 		}
 		// attempt 1 aborted before its first read; attempt 2: quotas + count + the document of this id.
-		if e.schedules(t, "carol") != 0 {
-			t.Errorf("schedules = %d: the loser must not be charged", e.schedules(t, "carol"))
-		}
 		if _, err := e.repo.GetScheduled(context.Background(), "carol", mine.ID); !errors.Is(err, ErrScheduledNotFound) {
 			t.Errorf("the loser stored a document: %v", err)
 		}
@@ -868,8 +826,5 @@ func TestScheduled_Integration_GIFRefused(t *testing.T) {
 	p.MediaIDs = []string{"g1"}
 	if _, err := e.repo.CreateScheduled(ctx, p); !errors.Is(err, ErrGifNotSchedulable) {
 		t.Fatalf("err = %v, want ErrGifNotSchedulable", err)
-	}
-	if e.schedules(t, "alice") != 0 {
-		t.Errorf("schedules = %d, want 0", e.schedules(t, "alice"))
 	}
 }

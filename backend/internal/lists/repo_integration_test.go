@@ -51,7 +51,7 @@ func newListsEnv(t *testing.T, created time.Time) *listsEnv {
 	}}
 	svc := New(Deps{
 		Repo: repo, Directory: dir, IDs: node,
-		Limits: Limits{MaxPerUser: 20, CreatesPerDay: 10, NewAccountCreatesPerDay: 3, NewAccountWindow: 24 * time.Hour, CacheEntries: 100},
+		Limits: Limits{MaxPerUser: 20, CacheEntries: 100},
 	}).(*service)
 	return &listsEnv{client: client, repo: repo, svc: svc, node: node}
 }
@@ -136,9 +136,6 @@ func TestCreateList_Integration_StoresDocument(t *testing.T) {
 	if _, has := d["hidden"]; has {
 		t.Error("hidden is written when false (absent = false)")
 	}
-	if n := e.quotaCount(t, "owner", "listCreates"); n != 1 {
-		t.Errorf("quotas.listCreates = %d, want 1", n)
-	}
 	// is_private=false is honoured.
 	pub := false
 	v2, err := create(t, e, "owner", 2, "Public", &pub)
@@ -162,9 +159,6 @@ func TestCreateList_Integration_Replay(t *testing.T) {
 	if replay.Header != first.Header {
 		t.Errorf("replay header = %+v, want %+v", replay.Header, first.Header)
 	}
-	if n := e.quotaCount(t, "owner", "listCreates"); n != 1 {
-		t.Errorf("a replay spent quota: listCreates = %d", n)
-	}
 	if docs, _ := e.client.Collection("lists").Where("ownerId", "==", "owner").Limit(10).Documents(context.Background()).GetAll(); len(docs) != 1 {
 		t.Errorf("lists after a replay = %d, want 1", len(docs))
 	}
@@ -175,20 +169,16 @@ func TestCreateList_Integration_Replay(t *testing.T) {
 	yes := true
 	_, err = e.svc.CreateList(context.Background(), "owner", CreateInput{Key: key(1), Name: "Cricket", IsPrivate: &yes})
 	wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, nil)
-	if n := e.quotaCount(t, "owner", "listCreates"); n != 1 {
-		t.Errorf("a refused key reuse spent quota: listCreates = %d", n)
-	}
 	if docs, _ := e.client.Collection("lists").Where("ownerId", "==", "owner").Limit(10).Documents(context.Background()).GetAll(); len(docs) != 1 {
 		t.Errorf("lists after the refused key reuses = %d, want 1", len(docs))
 	}
 }
 
 // Four requests race with one key. The contract (service.mapErr, the same as messaging's "busy") lets a racer that loses the
-// transaction and exhausts its re-runs answer a retryable UNAVAILABLE; what must never happen is a second list or a second
-// quota charge.: this used to demand that all four succeed inside the 5 s transaction timeout, but a contended call
+// transaction and exhausts its re-runs answer a retryable UNAVAILABLE; what must never happen is a second list. This used to demand that all four succeed inside the 5 s transaction timeout, but a contended call
 // takes 2 to 3.4 s on the emulator (the SDK's own backoff on the losers), so a slower runner pushed a loser over the
 // timeout and failed the test with a correct product answer. Now: at least one succeeds, every success is the same list,
-// a busy racer's retry with the same key replays that list, and there is exactly one list and one quota charge.
+// a busy racer's retry with the same key replays that list, and there is exactly one list.
 func TestCreateList_Integration_ConcurrentSameKey(t *testing.T) {
 	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
 	const n = 4
@@ -232,9 +222,6 @@ func TestCreateList_Integration_ConcurrentSameKey(t *testing.T) {
 	if err != nil || len(docs) != 1 {
 		t.Errorf("lists = %d (err %v), want exactly 1", len(docs), err)
 	}
-	if q := e.quotaCount(t, "owner", "listCreates"); q != 1 {
-		t.Errorf("listCreates = %d, want 1", q)
-	}
 }
 
 // At 20 lists CreateList is LIMIT_REACHED limit=lists and writes nothing.
@@ -244,9 +231,6 @@ func TestCreateList_Integration_Cap(t *testing.T) {
 	e.seedLists(t, "stranger", 3, nil) // another owner's lists do not count
 	_, err := e.svc.CreateList(context.Background(), "owner", CreateInput{Key: key(1), Name: "21st"})
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, map[string]string{"limit": "lists"})
-	if n := e.quotaCount(t, "owner", "listCreates"); n != 0 {
-		t.Errorf("the cap spent quota: %d", n)
-	}
 	if docs, _ := e.client.Collection("lists").Where("ownerId", "==", "owner").Limit(30).Documents(context.Background()).GetAll(); len(docs) != 20 {
 		t.Errorf("lists after the refused 21st = %d, want 20", len(docs))
 	}
@@ -261,37 +245,49 @@ func TestCreateList_Integration_Cap(t *testing.T) {
 	}
 }
 
-// Quota tiers: 10 a day, 3 for an account younger than 24 h; the refusal is QUOTA_EXCEEDED list_creates and writes nothing.
-func TestCreateList_Integration_QuotaTiers(t *testing.T) {
-	tests := []struct {
-		name    string
-		created time.Time
-		allowed int
-	}{
-		{"new account", time.Now().Add(-time.Hour), 3},
-		{"established account", time.Now().Add(-72 * time.Hour), 10},
+// No daily quota: a new account (the old tier was 3 a day) creates past it, and a legacy quotas doc showing the old
+// limit used up does not refuse it.
+func TestCreateList_Integration_NoDailyQuota(t *testing.T) {
+	e := newListsEnv(t, time.Now().Add(-time.Hour))
+	if _, err := e.client.Collection("quotas").Doc("owner").Set(context.Background(), map[string]any{"day": quota.Today(), "listCreates": int64(10)}); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			e := newListsEnv(t, tt.created)
-			for i := 1; i <= tt.allowed; i++ {
-				if _, err := create(t, e, "owner", i, fmt.Sprintf("List %d", i), nil); err != nil {
-					t.Fatalf("create %d: %v", i, err)
-				}
-			}
-			_, err := e.svc.CreateList(context.Background(), "owner", CreateInput{Key: key(99), Name: "Over"})
-			wantAPI(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, map[string]string{"quota": "list_creates"})
-			if n := e.quotaCount(t, "owner", "listCreates"); n != int64(tt.allowed) {
-				t.Errorf("listCreates = %d, want %d", n, tt.allowed)
-			}
-			if docs, _ := e.client.Collection("lists").Where("ownerId", "==", "owner").Limit(30).Documents(context.Background()).GetAll(); len(docs) != tt.allowed {
-				t.Errorf("lists after the refused create = %d, want %d", len(docs), tt.allowed)
-			}
-			// A replay of an earlier create still succeeds at the limit and is not charged.
-			if _, err := create(t, e, "owner", 1, "List 1", nil); err != nil {
-				t.Errorf("replay at the quota limit: %v", err)
-			}
-		})
+	for i := 1; i <= 5; i++ {
+		if _, err := create(t, e, "owner", i, fmt.Sprintf("List %d", i), nil); err != nil {
+			t.Fatalf("create %d: %v", i, err)
+		}
+	}
+	if docs, _ := e.client.Collection("lists").Where("ownerId", "==", "owner").Limit(30).Documents(context.Background()).GetAll(); len(docs) != 5 {
+		t.Errorf("lists = %d, want 5", len(docs))
+	}
+}
+
+// TestCreateList_Integration_CapRace: creates racing with different keys never pass the per-owner cap. Every create reads
+// and rewrites quotas/{uid} (counting nothing), so of two racing creates only one commits and the other recounts.
+func TestCreateList_Integration_CapRace(t *testing.T) {
+	e := newListsEnv(t, time.Now().Add(-72*time.Hour))
+	e.seedLists(t, "owner", 18, nil)
+	// Today's quotas doc exists, so Touch must still change it for the racing creates to conflict.
+	if _, err := e.client.Collection("quotas").Doc("owner").Set(context.Background(), map[string]any{"day": quota.Today()}); err != nil {
+		t.Fatal(err)
+	}
+	const n = 5
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, errs[i] = create(t, e, "owner", 50+i, fmt.Sprintf("Race %d", i), nil)
+		}()
+	}
+	wg.Wait()
+	docs, err := e.client.Collection("lists").Where("ownerId", "==", "owner").Limit(30).Documents(context.Background()).GetAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) > 20 {
+		t.Errorf("lists = %d after racing creates, the cap is 20 (errs %v)", len(docs), errs)
 	}
 }
 

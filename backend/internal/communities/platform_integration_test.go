@@ -16,7 +16,7 @@ import (
 
 const platCID = "0000000000000000831"
 
-// platformRepo is the repository as opsctl builds it: no idempotency store and no quota store (the platform methods need only the client).
+// platformRepo is the repository as opsctl builds it: no idempotency store (the platform methods need only the client).
 func (e *env) platformRepo() *FirestoreRepo { return NewFirestoreRepo(e.client, nil) }
 
 func (e *env) seedPlatform(t *testing.T) {

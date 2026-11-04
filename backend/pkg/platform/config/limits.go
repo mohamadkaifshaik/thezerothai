@@ -33,8 +33,7 @@ type RateLimitConfig struct {
 	// (security review M-1). An already bookmarked Add and a Remove of a missing bookmark reserve no quota but each
 	// store an idempotency doc, so the 30/min bucket alone left them unbounded.
 	//
-	// Default 1,500: QUOTA_BOOKMARKS_PER_DAY 200 adds + a full clear-out of the BOOKMARKS_MAX_PER_USER 1,000 cap = 1,200
-	// legitimate calls, plus 300 for retries and undo churn. The cap is per instance, so with 3 instances an account can make at most 4,500 calls a day.
+	// Default 1,500: a full clear-out of the BOOKMARKS_MAX_PER_USER 1,000 cap plus room for adds, retries and undo churn. The cap is per instance, so with 3 instances an account can make at most 4,500 calls a day.
 	BookmarkMutationsPerDay int64
 
 	// MessagesSendPerUserPerMinute is the SendMessage bucket, env RATE_LIMIT_MESSAGES_SEND_PER_MIN, default 20;
@@ -219,74 +218,22 @@ type RateLimitConfig struct {
 	NotificationPushesPerRecipientPerHour int64
 }
 
-// QuotaConfig holds the daily per-user quotas, persisted in quotas/{uid}.
+// QuotaConfig holds the daily per-user quotas kept against spam (persisted in quotas/{uid}) and the bookmarks cap.
 type QuotaConfig struct {
-	PostsPerDay   int
-	FollowsPerDay int
-	MediaPerDay   int
-	ExportsPerDay int
-	// SnapshotEditsPerDay caps the profile edits that rewrite the author snapshot on posts (5/day).
-	SnapshotEditsPerDay int
-
-	// Lower quotas for accounts younger than NewAccountWindow.
-	NewAccountPostsPerDay   int
-	NewAccountFollowsPerDay int
-	NewAccountMediaPerDay   int
-	NewAccountWindow        time.Duration
-
-	// BlocksPerDay/NewAccountBlocksPerDay cover Block + Mute together (quota.Blocks).
-	// Unblock/Unmute are never quota-gated.
-	BlocksPerDay           int
-	NewAccountBlocksPerDay int
+	// NewAccountWindow is how long an account counts as new: the lower tiers below, and the new-account tiers of
+	// other modules, apply inside it.
+	NewAccountWindow time.Duration
 
 	// ReportsPerDay/NewAccountReportsPerDay cap ReportContent writes (quota.Reports).
 	ReportsPerDay           int
 	NewAccountReportsPerDay int
 
-	// LikesPerDay/NewAccountLikesPerDay cap LikePost writes (quota.Likes). Unlike and UndoRepost are
-	// never quota-gated; reposts use the posts quota.
-	LikesPerDay           int
-	NewAccountLikesPerDay int
-
-	// SchedulesPerDay/NewAccountSchedulesPerDay cap SchedulePost calls per IST day (quota.Schedules; review L-4).
-	// CancelScheduledPost and ListScheduledPosts are never quota-gated. The new-account tier applies to
-	// accounts younger than NewAccountWindow.
-	SchedulesPerDay           int
-	NewAccountSchedulesPerDay int
-
-	// BookmarksPerDay/NewAccountBookmarksPerDay cap AddBookmark writes per IST day (quota.Bookmarks); Remove
-	// and List are never quota-gated. BookmarksMaxPerUser is the hard cap of bookmarks a user can hold (LIMIT_REACHED).
-	BookmarksPerDay           int
-	NewAccountBookmarksPerDay int
-	BookmarksMaxPerUser       int
-
-	// PrivacyTogglesPerDay caps UpdateProfile is_private changes (both directions) per IST day (quota.PrivacyToggles),
-	// env QUOTA_PRIVACY_TOGGLES_PER_DAY, default 4. An is_private equal to the stored value is not
-	// charged. There is no new-account tier: the cap is already small.
-	PrivacyTogglesPerDay int
+	// BookmarksMaxPerUser is the hard cap of bookmarks a user can hold (LIMIT_REACHED).
+	BookmarksMaxPerUser int
 
 	// DMNewConversationsPerDay/NewAccountDMNewConversationsPerDay cap the new conversations a user opens per IST day
 	// (quota.DMNew), env QUOTA_DM_NEW_CONVERSATIONS_PER_DAY (20) and QUOTA_NEW_ACCOUNT_DM_NEW_CONVERSATIONS_PER_DAY
 	// (5, accounts younger than NewAccountWindow). Messages in an existing conversation are not charged.
 	DMNewConversationsPerDay           int
 	NewAccountDMNewConversationsPerDay int
-
-	// ListCreatesPerDay/NewAccountListCreatesPerDay cap CreateList writes per IST day (quota.ListCreates), env
-	// QUOTA_LIST_CREATES_PER_DAY (10) and QUOTA_NEW_ACCOUNT_LIST_CREATES_PER_DAY (3); ListAddsPerDay/NewAccountListAddsPerDay cap
-	// AddListMember writes (quota.ListAdds), env QUOTA_LIST_ADDS_PER_DAY (300) and QUOTA_NEW_ACCOUNT_LIST_ADDS_PER_DAY (50). The
-	// new-account tier applies to accounts younger than NewAccountWindow. A replay and an already-present member are not charged;
-	// Remove has no quota.
-	ListCreatesPerDay           int
-	NewAccountListCreatesPerDay int
-	ListAddsPerDay              int
-	NewAccountListAddsPerDay    int
-
-	// CommunityJoinsPerDay/NewAccountCommunityJoinsPerDay cap JoinCommunity writes per IST day (quota.CommunityJoins), env
-	// QUOTA_COMMUNITY_JOINS_PER_DAY (20) and QUOTA_NEW_ACCOUNT_COMMUNITY_JOINS_PER_DAY (5); CommunityPostsPerDay/NewAccountCommunityPostsPerDay
-	// cap CreatePost into a community (quota.CommunityPosts, on top of the posts quota), env QUOTA_COMMUNITY_POSTS_PER_DAY (50) and
-	// QUOTA_NEW_ACCOUNT_COMMUNITY_POSTS_PER_DAY (10). The new-account tier applies to accounts younger than NewAccountWindow.
-	CommunityJoinsPerDay           int
-	NewAccountCommunityJoinsPerDay int
-	CommunityPostsPerDay           int
-	NewAccountCommunityPostsPerDay int
 }

@@ -12,7 +12,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
 // fakeGraph serves canned snapshots; a uid it does not know is an empty snapshot (graph.Reader's own behaviour). The fakes of
@@ -57,8 +56,8 @@ func newMemberEnv(created time.Time, profiles map[string]identity.Profile, snaps
 	s := New(Deps{
 		Repo: repo, Directory: dir, IDs: fixedIDs{}, Graph: g, Now: func() time.Time { return testNow },
 		Limits: Limits{
-			MaxPerUser: 20, CreatesPerDay: 10, NewAccountCreatesPerDay: 3, NewAccountWindow: 24 * time.Hour, CacheEntries: 50,
-			MaxMembers: 150, AddsPerDay: 300, NewAccountAddsPerDay: 50,
+			MaxPerUser: 20, CacheEntries: 50,
+			MaxMembers: 150,
 		},
 	}).(*service)
 	return memberEnv{svc: s, repo: repo, g: g, dir: dir}
@@ -107,16 +106,15 @@ func TestAddMember_Verdict(t *testing.T) {
 	}
 }
 
-// What reaches the repository: ids, hash, caps, quota tier by account age, and the owner's blockedBy for the lazy drop.
+// What reaches the repository, whatever the account age: ids, hash, caps, and the owner's blockedBy for the lazy drop.
 func TestAddMember_Params(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
 		name    string
 		created time.Time
-		quota   int64
 	}{
-		{"old account", oldAccount(), 300},
-		{"new account", testNow.Add(-time.Hour), 50},
+		{"old account", oldAccount()},
+		{"new account", testNow.Add(-time.Hour)},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -127,7 +125,7 @@ func TestAddMember_Params(t *testing.T) {
 				t.Fatal(err)
 			}
 			p := e.repo.addedBy[0]
-			if p.UID != testUID || p.ListID != testListID || p.TargetID != "u2" || p.MaxMembers != 150 || p.QuotaLimit != tt.quota || !p.BlockedBy["bad"] {
+			if p.UID != testUID || p.ListID != testListID || p.TargetID != "u2" || p.MaxMembers != 150 || !p.BlockedBy["bad"] {
 				t.Errorf("params = %+v", p)
 			}
 			if p.IdemKey == "" || p.RequestHash == "" || p.RequestHash == memberHash(testListID, "u3") {
@@ -182,10 +180,6 @@ func TestAddMember_ErrorMapping(t *testing.T) {
 		{"protected", ErrProtected, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT, nil},
 		{"not found", ErrNotFound, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil},
 		{"key reused", ErrKeyReused, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, nil},
-		{
-			"quota passes through", apierr.New(connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "x").WithMeta("quota", "list_adds"),
-			connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, map[string]string{"quota": "list_adds"},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

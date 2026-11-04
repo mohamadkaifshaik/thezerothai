@@ -54,10 +54,10 @@ type Config struct {
 	// quota. The send and read buckets and the daily send cap live in RateLimit; the new-conversation quota in Quota.
 	Messaging MessagingConfig
 	// Lists holds LISTS_MAX_PER_USER, LIST_MAX_MEMBERS, HOME_TABS_MAX_PINNED and CACHE_LISTS_ENTRIES. The list buckets and
-	// the daily mutation cap live in RateLimit; the create and add quotas in Quota.
+	// the daily mutation cap live in RateLimit.
 	Lists ListsConfig
 	// Communities holds COMMUNITY_CREATORS, the community caps and the cache sizes. The community buckets and the
-	// three daily caps live in RateLimit; the join and community-post quotas in Quota.
+	// three daily caps live in RateLimit.
 	Communities CommunitiesConfig
 	// Search holds the cache sizes and trend-refresh values of search and trends. The search buckets and the
 	// shared daily cap live in RateLimit.
@@ -254,7 +254,7 @@ type Config struct {
 	AccountDeleteReauthMaxAge time.Duration
 
 	// FeatureProfileSnapshot is the server flag (wire name `profile_snapshot`) gating the
-	// profile-snapshot-refresh job and the snapshot-edit quota. FEATURE_PROFILE_SNAPSHOT[_ALLOWLIST|_PERCENT],
+	// profile-snapshot-refresh job. FEATURE_PROFILE_SNAPSHOT[_ALLOWLIST|_PERCENT],
 	// default off in every environment (UpdateProfile/ChangeHandle themselves are not gated).
 	FeatureProfileSnapshot flags.Spec
 
@@ -709,37 +709,6 @@ func Load() (Config, error) {
 	}
 
 	q := QuotaConfig{NewAccountWindow: newAccountWindow}
-	if q.PostsPerDay, err = getInt("QUOTA_POSTS_PER_DAY", 100); err != nil {
-		return Config{}, err
-	}
-	if q.FollowsPerDay, err = getInt("QUOTA_FOLLOWS_PER_DAY", 200); err != nil {
-		return Config{}, err
-	}
-	if q.MediaPerDay, err = getInt("QUOTA_MEDIA_PER_DAY", 20); err != nil {
-		return Config{}, err
-	}
-	if q.ExportsPerDay, err = getInt("QUOTA_EXPORTS_PER_DAY", 1); err != nil {
-		return Config{}, err
-	}
-	if q.SnapshotEditsPerDay, err = getInt("QUOTA_SNAPSHOT_EDITS_PER_DAY", 5); err != nil {
-		return Config{}, err
-	}
-	if q.NewAccountPostsPerDay, err = getInt("QUOTA_NEW_ACCOUNT_POSTS_PER_DAY", 20); err != nil {
-		return Config{}, err
-	}
-	if q.NewAccountFollowsPerDay, err = getInt("QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY", 50); err != nil {
-		return Config{}, err
-	}
-	if q.NewAccountMediaPerDay, err = getInt("QUOTA_NEW_ACCOUNT_MEDIA_PER_DAY", 5); err != nil {
-		return Config{}, err
-	}
-	// Block + Mute share one daily counter (quota.Blocks).
-	if q.BlocksPerDay, err = getInt("QUOTA_BLOCKS_PER_DAY", 200); err != nil {
-		return Config{}, err
-	}
-	if q.NewAccountBlocksPerDay, err = getInt("QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY", 50); err != nil {
-		return Config{}, err
-	}
 	// 20 reports/day, 5 for accounts younger than the new-account window.
 	if q.ReportsPerDay, err = getInt("QUOTA_REPORTS_PER_DAY", 20); err != nil {
 		return Config{}, err
@@ -747,47 +716,12 @@ func Load() (Config, error) {
 	if q.NewAccountReportsPerDay, err = getInt("QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY", 5); err != nil {
 		return Config{}, err
 	}
-	// 500 likes/day, 100 for accounts younger than the new-account window.
-	if q.LikesPerDay, err = getInt("QUOTA_LIKES_PER_DAY", 500); err != nil {
-		return Config{}, err
-	}
-	if q.NewAccountLikesPerDay, err = getInt("QUOTA_NEW_ACCOUNT_LIKES_PER_DAY", 100); err != nil {
-		return Config{}, err
-	}
-	// 50 SchedulePost calls/day, 10 for accounts younger than the new-account window (review L-4).
-	if q.SchedulesPerDay, err = getInt("QUOTA_SCHEDULES_PER_DAY", 50); err != nil {
-		return Config{}, err
-	}
-	if q.NewAccountSchedulesPerDay, err = getInt("QUOTA_NEW_ACCOUNT_SCHEDULES_PER_DAY", 10); err != nil {
-		return Config{}, err
-	}
-	for name, v := range map[string]int{
-		"QUOTA_SCHEDULES_PER_DAY":             q.SchedulesPerDay,
-		"QUOTA_NEW_ACCOUNT_SCHEDULES_PER_DAY": q.NewAccountSchedulesPerDay,
-	} {
-		if v <= 0 {
-			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
-		}
-	}
-	// 200 AddBookmark writes/day, 50 for accounts younger than the new-account window, and a hard cap of
-	// 1,000 bookmarks per user (the userLikes array length is the exact cap check).
-	if q.BookmarksPerDay, err = getInt("QUOTA_BOOKMARKS_PER_DAY", 200); err != nil {
-		return Config{}, err
-	}
-	if q.NewAccountBookmarksPerDay, err = getInt("QUOTA_NEW_ACCOUNT_BOOKMARKS_PER_DAY", 50); err != nil {
-		return Config{}, err
-	}
+	// A hard cap of 1,000 bookmarks per user (the userLikes array length is the exact cap check).
 	if q.BookmarksMaxPerUser, err = getInt("BOOKMARKS_MAX_PER_USER", 1000); err != nil {
 		return Config{}, err
 	}
-	for name, v := range map[string]int{
-		"QUOTA_BOOKMARKS_PER_DAY":             q.BookmarksPerDay,
-		"QUOTA_NEW_ACCOUNT_BOOKMARKS_PER_DAY": q.NewAccountBookmarksPerDay,
-		"BOOKMARKS_MAX_PER_USER":              q.BookmarksMaxPerUser,
-	} {
-		if v <= 0 {
-			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
-		}
+	if q.BookmarksMaxPerUser <= 0 {
+		return Config{}, fmt.Errorf("config: BOOKMARKS_MAX_PER_USER must be > 0 (got %d)", q.BookmarksMaxPerUser)
 	}
 	// 20 new conversations per IST day, 5 for accounts younger than the new-account window (quota.DMNew).
 	if q.DMNewConversationsPerDay, err = getInt("QUOTA_DM_NEW_CONVERSATIONS_PER_DAY", 20); err != nil {
@@ -803,40 +737,6 @@ func Load() (Config, error) {
 		if v <= 0 {
 			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", name, v)
 		}
-	}
-	// 10 CreateList writes and 300 AddListMember writes per IST day, 3 and 50 for accounts younger than the new-account
-	// window (quota.ListCreates, quota.ListAdds). RemoveListMember, UpdateList, DeleteList and SetHomeTabs have no quota.
-	for _, f := range []struct {
-		dst *int
-		key string
-		def int
-	}{
-		{&q.ListCreatesPerDay, "QUOTA_LIST_CREATES_PER_DAY", 10},
-		{&q.NewAccountListCreatesPerDay, "QUOTA_NEW_ACCOUNT_LIST_CREATES_PER_DAY", 3},
-		{&q.ListAddsPerDay, "QUOTA_LIST_ADDS_PER_DAY", 300},
-		{&q.NewAccountListAddsPerDay, "QUOTA_NEW_ACCOUNT_LIST_ADDS_PER_DAY", 50},
-		// 20 JoinCommunity writes and 50 community posts per IST day, 5 and 10 for accounts younger than the new-account window
-		// (quota.CommunityJoins, quota.CommunityPosts; community posts are on top of the posts quota).
-		{&q.CommunityJoinsPerDay, "QUOTA_COMMUNITY_JOINS_PER_DAY", 20},
-		{&q.NewAccountCommunityJoinsPerDay, "QUOTA_NEW_ACCOUNT_COMMUNITY_JOINS_PER_DAY", 5},
-		{&q.CommunityPostsPerDay, "QUOTA_COMMUNITY_POSTS_PER_DAY", 50},
-		{&q.NewAccountCommunityPostsPerDay, "QUOTA_NEW_ACCOUNT_COMMUNITY_POSTS_PER_DAY", 10},
-	} {
-		v, err := getInt(f.key, f.def)
-		if err != nil {
-			return Config{}, err
-		}
-		if v <= 0 {
-			return Config{}, fmt.Errorf("config: %s must be > 0 (got %d)", f.key, v)
-		}
-		*f.dst = v
-	}
-	// 4 is_private changes per IST day, both directions (quota.PrivacyToggles). A request counts under follows.
-	if q.PrivacyTogglesPerDay, err = getInt("QUOTA_PRIVACY_TOGGLES_PER_DAY", 4); err != nil {
-		return Config{}, err
-	}
-	if q.PrivacyTogglesPerDay <= 0 {
-		return Config{}, fmt.Errorf("config: QUOTA_PRIVACY_TOGGLES_PER_DAY must be > 0 (got %d)", q.PrivacyTogglesPerDay)
 	}
 	scheduled, err := loadScheduled()
 	if err != nil {

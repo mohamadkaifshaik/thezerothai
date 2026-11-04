@@ -21,12 +21,11 @@ import (
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 )
 
-// M2: one shared daily cap over Follow/Unfollow/Block/Unblock/Mute/Unmute. Replays leave quotas/{uid}
-// untouched (they reserve nothing) but count against the cap; the call after the cap is RATE_LIMITED with 0
+// M2: one shared daily cap over Follow/Unfollow/Block/Unblock/Mute/Unmute. Replays count against the cap; the call after the cap is RATE_LIMITED with 0
 // Firestore ops; other uids and the list RPCs are unaffected.
 func TestSecurity_Integration_MutationDailyCap(t *testing.T) {
 	const mutCap = 6
-	w := newWired(t, withNewAccountWindow(1))
+	w := newWired(t)
 	for _, u := range [][2]string{{"uid-mca", "mcalice"}, {"uid-mcb", "mcbob"}, {"uid-mcc", "mccarol"}} {
 		mustCreateProfile(t, w.identity, u[0], u[1])
 	}
@@ -72,12 +71,8 @@ func TestSecurity_Integration_MutationDailyCap(t *testing.T) {
 		}
 	}
 	// Replays reserved nothing: exactly one follow and one block were ever charged.
-	if got := quotaUsed(t, w.client, "uid-mca", istDay(0), "follows"); got != 1 {
-		t.Errorf("quotas.follows = %d after 1 create + 2 replays, want 1", got)
-	}
-	if got := quotaUsed(t, w.client, "uid-mca", istDay(0), "blocks"); got != 1 {
-		t.Errorf("quotas.blocks = %d after 1 create + 1 replay, want 1", got)
-	}
+	assertNoQuotaDoc(t, w.client, "uid-mca")
+	assertNoQuotaDoc(t, w.client, "uid-mca")
 
 	// Cap reached: every mutation, whatever the RPC, is rejected before any Firestore access.
 	rejected := map[string]func() error{

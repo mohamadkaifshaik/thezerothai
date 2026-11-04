@@ -78,10 +78,8 @@ type Deps struct {
 	NameSuffix func() (string, error)
 	// PublicBaseURL is the URL prefix public objects are served from, no trailing slash.
 	PublicBaseURL string
-	// Daily upload quotas (units are images) and the new-account window (config.QuotaConfig).
-	MediaPerDay           int64
-	NewAccountMediaPerDay int64
-	NewAccountWindow      time.Duration
+	// NewAccountWindow decides the new-account tier of the Vision-units cap and the exhausted-cap policy.
+	NewAccountWindow time.Duration
 	// VisionMonthlyCap, Policy and ScreenThumb are the runaway-bill guard and its fallback.
 	VisionMonthlyCap int64
 	Policy           config.VisionExhaustedPolicy
@@ -368,16 +366,8 @@ func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadI
 	logger.SetRequestField(ctx, fieldContentType, in.Items[0].ContentType) // validated above: one of three constants
 	logger.SetRequestField(ctx, fieldImages, n)
 
-	createdAt, err := s.Directory.AccountCreatedAt(ctx, uid)
-	if err != nil {
-		return nil, logger.RedactErr(fmt.Errorf("media: load account: %w", err), uid)
-	}
 	now := s.Now().UTC()
 	maxFull, maxThumb := capsFor(in.Purpose)
-	limit := s.MediaPerDay
-	if s.isNewAccountAt(createdAt, now) { // zero createdAt is new, as for the units cap
-		limit = s.NewAccountMediaPerDay
-	}
 
 	expire := now.Add(PendingTTL)
 	docs := make([]Doc, n)
@@ -399,7 +389,7 @@ func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadI
 	}
 	res, err := s.Repo.CreateUploads(ctx, CreateUploadsParams{
 		UID: uid, IdemKey: idempotency.Key(uid, createRPC, in.IdempotencyKey),
-		RequestHash: requestHash(in.Purpose, in.Items), QuotaLimit: limit, Docs: docs,
+		RequestHash: requestHash(in.Purpose, in.Items), Docs: docs,
 	})
 	if err != nil {
 		if errors.Is(err, ErrKeyReused) {

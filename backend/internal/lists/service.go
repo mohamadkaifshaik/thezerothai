@@ -43,18 +43,12 @@ const limitListMembers = "list_members"
 // notFoundText is the one message of every NOT_FOUND this module answers (byte-identical for every cause).
 const notFoundText = "list not found"
 
-// Limits are the caps and quota tiers the write path needs, from config (rule 11).
+// Limits are the caps the write path needs, from config (rule 11).
 type Limits struct {
 	// MaxPerUser is LISTS_MAX_PER_USER (20): the lists one owner may have.
 	MaxPerUser int
-	// CreatesPerDay and NewAccountCreatesPerDay are the quota.ListCreates daily limits (10, and 3 inside NewAccountWindow).
-	CreatesPerDay           int64
-	NewAccountCreatesPerDay int64
-	NewAccountWindow        time.Duration
-	// MaxMembers is LIST_MAX_MEMBERS (150); AddsPerDay and NewAccountAddsPerDay are the quota.ListAdds daily limits (300, and 50
-	// inside NewAccountWindow). Used by AddMember.
-	MaxMembers                       int
-	AddsPerDay, NewAccountAddsPerDay int64
+	// MaxMembers is LIST_MAX_MEMBERS (150). Used by AddMember.
+	MaxMembers int
 	// CacheEntries is CACHE_LISTS_ENTRIES.
 	CacheEntries int
 }
@@ -168,10 +162,6 @@ func errNoProfile() *apierr.Error {
 	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED, "create a profile first")
 }
 
-func (s *service) isNew(p identity.Profile) bool {
-	return !p.CreatedAt.IsZero() && s.now().Sub(p.CreatedAt) < s.d.Limits.NewAccountWindow
-}
-
 // begin records the op on the request line and returns the deferred outcome note for a failed call.
 func begin(ctx context.Context, op string) {
 	logger.SetRequestField(ctx, fieldOp, op)
@@ -188,8 +178,8 @@ func noteOutcome(ctx context.Context, o Outcome) {
 	}
 }
 
-// mapErr turns a repository error into the handler's answer. Known sentinels and already shaped apierrs (the daily quota,
-// validation) pass through; a client that left is CANCELED / DEADLINE_EXCEEDED; exhausted contention or the transaction's own
+// mapErr turns a repository error into the handler's answer. Known sentinels and already shaped apierrs (validation)
+// pass through; a client that left is CANCELED / DEADLINE_EXCEEDED; exhausted contention or the transaction's own
 // timeout is a retryable UNAVAILABLE logged at WARN; anything else is a redacted internal error that reaches Error Reporting.
 // The uid and list id are redacted from the chain: a Firestore error embeds document paths.
 func mapErr(ctx context.Context, op, uid, listID string, err error) error {
@@ -235,7 +225,7 @@ func mapErr(ctx context.Context, op, uid, listID string, err error) error {
 }
 
 // CreateList implements Service. Validation first (no reads), the caller's profile (cache-first; it
-// decides the new-account quota tier and is the response's owner row), then one repository transaction. The new list's data
+// is the response's owner row), then one repository transaction. The new list's data
 // fills the instance cache.
 func (s *service) CreateList(ctx context.Context, uid string, in CreateInput) (View, error) {
 	begin(ctx, "create")
@@ -254,15 +244,11 @@ func (s *service) CreateList(ctx context.Context, uid string, in CreateInput) (V
 	if err != nil {
 		return View{}, mapErr(ctx, "create", uid, "", err)
 	}
-	limit := s.d.Limits.CreatesPerDay
-	if s.isNew(prof) {
-		limit = s.d.Limits.NewAccountCreatesPerDay
-	}
 	res, err := s.d.Repo.Create(ctx, CreateParams{
 		UID: uid, ID: s.d.IDs.Generate(), IdemKey: idempotency.Key(uid, rpcCreateList, in.Key),
 		RequestHash: createHash(name, description, in.IsPrivate), Name: name, Description: description,
 		IsPrivate:  in.IsPrivate == nil || *in.IsPrivate, // F3: absent = private, so an old or careless client fails closed
-		MaxPerUser: s.d.Limits.MaxPerUser, QuotaLimit: limit,
+		MaxPerUser: s.d.Limits.MaxPerUser,
 	})
 	if err != nil {
 		return View{}, mapErr(ctx, "create", uid, "", err)

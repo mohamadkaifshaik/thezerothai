@@ -1,6 +1,6 @@
 // service_scheduled.go is the service layer of scheduled posts: SchedulePost, ListScheduledPosts
-// and CancelScheduledPost. They touch only users/{caller}/scheduled (plus quotas/{caller} and the caller's media docs
-// inside the schedule transaction); another user's id is simply absent from the path built from the token uid, so it is
+// and CancelScheduledPost. They touch only users/{caller}/scheduled (plus quotas/{caller}, read and rewritten unchanged, and the caller's
+// media docs inside the schedule transaction); another user's id is simply absent from the path built from the token uid, so it is
 // NOT_FOUND exactly like an unknown id. The publish sweep lives in service_sweep.go.
 package posts
 
@@ -43,8 +43,8 @@ const (
 	fieldLimit = "limit"
 )
 
-// ScheduleLimits are the plain-value limits of the Scheduler, filled by the wiring from config.Scheduled and
-// config.Quota (posts does not import config).
+// ScheduleLimits are the plain-value limits of the Scheduler, filled by the wiring from config.Scheduled
+// (posts does not import config).
 type ScheduleLimits struct {
 	// MaxPending is the most PENDING items one user holds (SCHEDULED_MAX_PENDING, soft: the count runs outside the
 	// transaction).
@@ -56,9 +56,6 @@ type ScheduleLimits struct {
 	MinLead, Horizon time.Duration
 	// TerminalTTL is how long a CANCELLED item is kept before the Firestore TTL deletes it (SCHEDULED_TERMINAL_TTL).
 	TerminalTTL time.Duration
-	// SchedulesPerDay and NewAccountSchedulesPerDay are the SchedulePost calls per IST day (quota.Schedules); the
-	// second applies to accounts younger than the service's new-account window.
-	SchedulesPerDay, NewAccountSchedulesPerDay int64
 }
 
 // ScheduleInput is the SchedulePost request at the domain layer (server.go converts from the proto and makes every
@@ -86,13 +83,12 @@ type Scheduler interface {
 	// Schedule stores a root post to publish at in.PublishAt (truncated to the minute) and returns the stored item,
 	// or, for a replayed idempotency key, the stored item of the first call.
 	//
-	// Exact and soft: the window cap (WindowCap items within +/-4 min) and the daily quota are exact, both decided
-	// inside the transaction after the quotas read. Every schedule by one user reads and writes quotas/{uid}, so of two
+	// Exact and soft: the window cap (WindowCap items within +/-4 min) is exact, decided inside the transaction after the
+	// quotas read. Every schedule by one user reads and writes quotas/{uid}, so of two
 	// racing calls only one commits; the loser is rejected at commit (ABORTED under the OPTIMISTIC mode of dev and prod,
 	// a lock wait on the emulator), retries, and counts the winner's committed document. The pending cap is soft: its
 	// count() runs outside the transaction (reading up to MaxPending+1 documents inside it is too costly),
-	// so concurrent calls can overshoot it by the number in flight, bounded by the daily quota and the rate bucket's
-	// burst of 10.
+	// so concurrent calls can overshoot it by the number in flight, bounded by the rate bucket's burst of 10.
 	Schedule(ctx context.Context, uid string, in ScheduleInput) (*ScheduledPost, error)
 	// ListScheduled returns one page of uid's PENDING and FAILED items, publish_at ascending (page size rule:
 	// ScheduledPageSize).
@@ -191,8 +187,7 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 	// 6. The caps. What is exact and what is soft:
 	//   - The pending cap is SOFT. Its count() runs here, outside the transaction,
 	//     because reading up to MaxPending+1 documents inside it is too costly. Concurrent calls can overshoot
-	//     it by the number in flight, which the exact daily quota (SchedulesPerDay, a transactional counter) and the
-	//     CreatePost-shared rate bucket's burst of 10 per instance bound.
+	//     it by the number in flight, which the CreatePost-shared rate bucket bounds (a burst of 10 per instance, so up to 10 x max-instances in all).
 	//   - The window cap (WindowCap items within +/-ScheduledWindowRadius) is EXACT. It is not checked here: step 8's
 	//     transaction counts the window after reading quotas/{uid}, which every schedule by one user reads and writes, so
 	//     of two racing calls only one commits and the rejected one's retry counts the winner's committed document. It
@@ -205,24 +200,19 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 		return nil, limitReached(ctx, limitScheduledPending, "you have too many scheduled posts; cancel one first")
 	}
 
-	// 7. The account age picks the daily quota tier. The profile is the interceptor's cached read.
+	// 7. A profile is required. It is the interceptor's cached read.
 	profiles, err := s.directory.GetProfiles(ctx, []string{uid})
 	if err != nil {
 		return nil, logger.ScrubErr(fmt.Errorf("posts: schedule load author: %w", err), uid)
 	}
-	author, ok := profiles[uid]
-	if !ok {
+	if _, ok := profiles[uid]; !ok {
 		return nil, apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED, "create a profile first")
 	}
-	quotaLimit := s.schedule.SchedulesPerDay
-	if s.isNewAccount(author, now) {
-		quotaLimit = s.schedule.NewAccountSchedulesPerDay
-	}
 
-	// 8. The transaction: quotas, the window count (the exact window cap), media (at most 4 images), then
-	// Create + quotas.schedules.
+	// 8. The transaction: quotas/{uid} (read and rewritten unchanged, the per-user serialization point), the window
+	// count (the exact window cap), media (at most 4 images), then Create.
 	created, err := s.scheduled.CreateScheduled(ctx, ScheduledCreateParams{
-		UID: uid, ID: id, PublishAt: publishAt, RequestHash: hash, Now: now, QuotaLimit: quotaLimit, WindowCap: s.schedule.WindowCap,
+		UID: uid, ID: id, PublishAt: publishAt, RequestHash: hash, Now: now, WindowCap: s.schedule.WindowCap,
 		Draft:    ScheduledDraft{Text: parsed.Text, ReplyPolicy: policy, PaidPartnership: in.PaidPartnership, MadeWithAI: in.MadeWithAI},
 		MediaIDs: in.MediaIDs, MediaAlts: in.MediaAltTexts,
 	})
@@ -247,7 +237,7 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 	}
 	var ae *apierr.Error
 	if errors.As(err, &ae) {
-		return nil, err // QUOTA_EXCEEDED quota=schedules and other already-shaped errors
+		return nil, err // already-shaped errors
 	}
 	return nil, logger.ScrubErr(fmt.Errorf("posts: schedule: %w", err), uid)
 }

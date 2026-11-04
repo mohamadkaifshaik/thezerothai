@@ -9,7 +9,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -43,10 +42,10 @@ func (r *FirestoreRepo) writeMembers(b store.Batch, id string, d *listDoc, membe
 
 // AddMember implements Repo: one transaction. Reads, fresh and in this order: idempotency/{hash} (a replay
 // returns here after a second read of the list for its current header, / L-3), the list (a foreign or missing list is ErrNotFound before anything about the target is said),
-// then the service's Refusal, then quotas/{uid} only when a member is really added. Already a member: the idempotency
-// document only, no quota. The cap is checked on the list after the lazy drop of members who block the owner (F4), so
+// then the service's Refusal. Already a member: the idempotency
+// document only. The cap is checked on the list after the lazy drop of members who block the owner (F4), so
 // the drop can make room; at the cap nothing is written. A real add (not yet a member, not yourself) first reads users/{target}
-// fresh in the transaction (/ L-4; missing or not ACTIVE = ErrNotFound). Otherwise it writes the list (memberIds, updatedAt), the quota record,
+// fresh in the transaction (/ L-4; missing or not ACTIVE = ErrNotFound). Otherwise it writes the list (memberIds, updatedAt) and
 // the idempotency document.
 func (r *FirestoreRepo) AddMember(ctx context.Context, p AddMemberParams) (MemberResult, error) {
 	if err := r.ready(); err != nil {
@@ -90,13 +89,6 @@ func (r *FirestoreRepo) AddMember(ctx context.Context, p AddMemberParams) (Membe
 		if len(kept) >= p.MaxMembers {
 			return ErrMemberLimit
 		}
-		qrec, err := r.quotas.Get(ctx, tx, p.UID)
-		if err != nil {
-			return fmt.Errorf("lists: quota lookup: %w", err)
-		}
-		if err := quota.CheckAndReserve(b, r.quotas.Ref(p.UID), qrec, quota.ListAdds, p.QuotaLimit); err != nil {
-			return err
-		}
 		dropped := len(d.MemberIDs) - len(kept)
 		r.writeMembers(b, p.ListID, &d, append(kept, p.TargetID))
 		l := d.list(p.ListID)
@@ -138,7 +130,7 @@ func (r *FirestoreRepo) targetActiveInTx(ctx context.Context, tx *firestore.Tran
 // RemoveMember implements Repo: one transaction. Reads, fresh: idempotency (a replay returns), the list (a foreign
 // or missing list is ErrNotFound). Not a member: the idempotency document only, the list untouched. A member:
 // BlockedBy is loaded (cache-first) and the same write drops members who block the owner (F4); the list and the
-// idempotency document are written. No quota.
+// idempotency document are written.
 func (r *FirestoreRepo) RemoveMember(ctx context.Context, p RemoveMemberParams) (MemberResult, error) {
 	if err := r.ready(); err != nil {
 		return MemberResult{}, err

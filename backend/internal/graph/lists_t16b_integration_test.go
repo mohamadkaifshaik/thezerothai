@@ -98,8 +98,8 @@ func fUID(i int) string { return fmt.Sprintf("uid-f%03d", i) }
 
 // paginationWorld:
 //   - hub H is followed by f000..f119 (120 followers; newest = f119);
-//   - hub2 follows f000..f049 (50 followees, the new-account follow quota, i.e. an exact multiple of 50);
-//   - X blocks f000..f049 and Y mutes f000..f049 (50 each, the new-account block/mute quota);
+//   - hub2 follows f000..f049 (50 followees, an exact multiple of the page size);
+//   - X blocks f000..f049 and Y mutes f000..f049 (50 each);
 //   - viewer V blocks five followers, so V's view of H's lists is short-paged (row filtering).
 type paginationWorld struct {
 	r *rig

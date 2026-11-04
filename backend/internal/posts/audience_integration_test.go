@@ -5,7 +5,6 @@ package posts
 import (
 	"context"
 	"testing"
-	"time"
 
 	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
@@ -34,7 +33,7 @@ func (in *createInstance) protectIn(uids ...string) *fakeProtected {
 // quote made while the author was public is stripped for an unapproved viewer; and the stored doc stays PUBLIC.
 func TestAudience_Integration_GetPostQuoteAndRefusals(t *testing.T) {
 	client := newTestClient(t)
-	setup := newCreateInstance(t, client, time.Nanosecond)
+	setup := newCreateInstance(t, client)
 	for _, u := range []string{"alice", "bob", "carol"} {
 		setup.signUp(t, "uid-"+u, u)
 	}
@@ -53,7 +52,7 @@ func TestAudience_Integration_GetPostQuoteAndRefusals(t *testing.T) {
 	}
 
 	// Bob protects. Alice is a stranger.
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	set := in.protectIn("uid-bob")
 	_, err = in.get("uid-alice", bobPost.ID)
 	wantPostNotFound(t, err)
@@ -87,7 +86,7 @@ func TestAudience_Integration_GetPostQuoteAndRefusals(t *testing.T) {
 
 	// Alice follows bob: reads the post; wire visibility is FOLLOWERS; quote is PROTECTED_ACCOUNT.
 	setGraph(t, client, "uid-alice", []firestore.Update{{Path: "following", Value: firestore.ArrayUnion("uid-bob")}})
-	in2 := newCreateInstance(t, client, time.Nanosecond)
+	in2 := newCreateInstance(t, client)
 	in2.protectIn("uid-bob")
 	p, err := in2.get("uid-alice", bobPost.ID)
 	if err != nil {

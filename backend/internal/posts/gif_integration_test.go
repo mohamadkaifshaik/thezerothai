@@ -5,7 +5,6 @@ package posts
 import (
 	"context"
 	"testing"
-	"time"
 
 	"connectrpc.com/connect"
 
@@ -17,7 +16,7 @@ import (
 // wire; a GIF next to a photo is VALIDATION.
 func TestGIF_Integration_CreatePostGates(t *testing.T) {
 	client := newTestClient(t)
-	in := newCreateInstance(t, client, time.Nanosecond)
+	in := newCreateInstance(t, client)
 	in.repo.w.Media = &sweepMedia{client: client}
 	in.signUp(t, "uid-alice", "alice")
 	ctx0 := context.Background()

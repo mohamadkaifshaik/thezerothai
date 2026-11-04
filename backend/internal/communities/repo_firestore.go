@@ -13,7 +13,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -145,7 +144,6 @@ func logDocs(entries []LogEntry) []logDoc {
 type FirestoreRepo struct {
 	client *firestore.Client
 	idem   *idempotency.Store
-	quotas *quota.Store
 	now    func() time.Time
 	// moderator is the posts-side seam of Hide and Restore (A12).
 	moderator PostModerator
@@ -158,7 +156,7 @@ var _ Repo = (*FirestoreRepo)(nil)
 // NewFirestoreRepo builds the repository on the process's one Firestore client. idem is the shared idempotency store; a repo built
 // without it (the lifecycle tests) can still erase and export.
 func NewFirestoreRepo(client *firestore.Client, idem *idempotency.Store) *FirestoreRepo {
-	return &FirestoreRepo{client: client, idem: idem, quotas: quota.New(client), now: time.Now}
+	return &FirestoreRepo{client: client, idem: idem, now: time.Now}
 }
 
 func (r *FirestoreRepo) col() *firestore.CollectionRef {
@@ -176,7 +174,7 @@ func (r *FirestoreRepo) membershipsRef(uid string) *firestore.DocumentRef {
 }
 
 func (r *FirestoreRepo) ready() error {
-	if r == nil || r.client == nil || r.idem == nil || r.quotas == nil {
+	if r == nil || r.client == nil || r.idem == nil {
 		return errors.New("communities: repo is not fully wired")
 	}
 	return nil
@@ -276,7 +274,7 @@ func (r *FirestoreRepo) membershipsInTx(ctx context.Context, tx *firestore.Trans
 // Create implements Repo: one transaction. Reads, fresh and in this order: idempotency/{hash} (a replay
 // returns after reading the community), communityMemberships/{uid} (the owned and joined caps are exact). Writes: Create the
 // community (ACTIVE, PUBLIC, memberCount 1), Create the owner's member doc (JOINED), the memberships doc (owned and joined += id) and
-// Create the idempotency document. At either cap nothing is written. No quota (the owned cap is lifetime).
+// Create the idempotency document. At either cap nothing is written. The owned cap is lifetime.
 func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResult, error) {
 	if err := r.ready(); err != nil {
 		return CreateResult{}, err

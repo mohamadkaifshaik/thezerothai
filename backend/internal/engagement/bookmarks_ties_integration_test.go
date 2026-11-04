@@ -198,7 +198,7 @@ func TestBookmarkEraser_RerunAtTheCap(t *testing.T) {
 }
 
 // Ten parallel Adds of one post under ten different keys, at repo level: whatever the contention outcome, exactly one
-// bookmark doc and one array entry exist and the quota is charged once.
+// bookmark doc and one array entry exist.
 func TestBookmarkRepo_SamePostDifferentKeysConcurrently(t *testing.T) {
 	e := newRepoEnv(t)
 	const uid, pid = "bm-same-post", "0000000000000000141"
@@ -217,8 +217,5 @@ func TestBookmarkRepo_SamePostDifferentKeysConcurrently(t *testing.T) {
 	}
 	if ids := e.bookmarks(t, uid); !slices.Equal(ids, []string{pid}) {
 		t.Errorf("userLikes.bookmarks = %v, want [%s]", ids, pid)
-	}
-	if q := e.quotaBookmarks(t, uid); q != 1 {
-		t.Errorf("quotas.bookmarks = %d, want 1 (charged once)", q)
 	}
 }

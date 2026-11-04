@@ -102,7 +102,7 @@ func (f *fakeRepo) CountRequests(context.Context, string) (int64, error) {
 	return f.countN, f.countErr
 }
 
-func (f *fakeRepo) Block(_ context.Context, _, _ string, _ dailyLimits, _ time.Time) (BlockResult, error) {
+func (f *fakeRepo) Block(_ context.Context, _, _ string, _ time.Time) (BlockResult, error) {
 	f.blockCalls++
 	if f.blockErr != nil {
 		return BlockResult{}, f.blockErr
@@ -118,7 +118,7 @@ func (f *fakeRepo) Unblock(_ context.Context, _, _ string, _ time.Time) (Relatio
 	return f.unblockRel, f.unblockChanged, nil
 }
 
-func (f *fakeRepo) Mute(_ context.Context, _, _ string, _ dailyLimits, _ time.Time) (Relationship, MutationOutcome, error) {
+func (f *fakeRepo) Mute(_ context.Context, _, _ string, _ time.Time) (Relationship, MutationOutcome, error) {
 	f.muteCalls++
 	if f.muteErr != nil {
 		return Relationship{}, "", f.muteErr
@@ -210,9 +210,9 @@ func (f *fakeRepo) GetSnapshot(_ context.Context, uid string) (Snapshot, error) 
 	return Snapshot{Following: map[string]bool{}, Blocked: map[string]bool{}, Muted: map[string]bool{}, BlockedBy: map[string]bool{}, Requested: map[string]bool{}}, nil
 }
 
-func (f *fakeRepo) Follow(_ context.Context, callerUID, targetUID string, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error) {
+func (f *fakeRepo) Follow(_ context.Context, callerUID, targetUID string, now time.Time) (Relationship, MutationOutcome, error) {
 	f.followCalls++
-	f.lastFollowArgs = []interface{}{callerUID, targetUID, dailyLimit, now}
+	f.lastFollowArgs = []interface{}{callerUID, targetUID, now}
 	if f.followErr != nil {
 		return Relationship{}, "", f.followErr
 	}
@@ -478,28 +478,6 @@ func TestFlagGuard_EnabledPassesThrough(t *testing.T) {
 	var ae *apierr.Error
 	if errors.As(err, &ae) && ae.Reason == commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED {
 		t.Fatalf("expected the flag-enabled caller to pass the guard, got FEATURE_DISABLED")
-	}
-}
-
-func TestIsNewAccount(t *testing.T) {
-	svc := &service{newAccountWindow: 24 * time.Hour}
-	now := time.Now()
-	tests := []struct {
-		name      string
-		createdAt time.Time
-		want      bool
-	}{
-		{"zero createdAt (defensive)", time.Time{}, false},
-		{"1 hour old", now.Add(-time.Hour), true},
-		{"48 hours old", now.Add(-48 * time.Hour), false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := identity.Profile{CreatedAt: tt.createdAt}
-			if got := svc.isNewAccount(p, now); got != tt.want {
-				t.Errorf("isNewAccount() = %v, want %v", got, tt.want)
-			}
-		})
 	}
 }
 

@@ -2,7 +2,7 @@
 // and the removal-log appends of `opsctl takedown-post` and `suspend-user`. They run in the operator's process, never in the API, so they
 // touch no instance cache: a serving instance converges within the 60 s community cache (D12). Every write is a field-level Update inside a
 // transaction (never a Set), so a community deleted meanwhile is never recreated. The methods need only the Firestore client: opsctl
-// builds the repository without an idempotency or quota store.
+// builds the repository without an idempotency store.
 package communities
 
 import (

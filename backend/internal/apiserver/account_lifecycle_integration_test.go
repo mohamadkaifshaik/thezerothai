@@ -531,9 +531,9 @@ func TestAccountLifecycle_JobEndpointNeedsAMessage(t *testing.T) {
 	}
 }
 
-// TestAccountLifecycle_ExportQuota: one export a day; a second key is RESOURCE_EXHAUSTED with metadata quota=exports,
-// the same key is a replay.
-func TestAccountLifecycle_ExportQuota(t *testing.T) {
+// TestAccountLifecycle_ExportReplayAndNoDailyQuota: the same key is a replay; a second key the same day is a second export
+// (there is no daily export quota; account_ops_daily still bounds the calls).
+func TestAccountLifecycle_ExportReplayAndNoDailyQuota(t *testing.T) {
 	ctx := context.Background()
 	e := newLifecycleEnv(t)
 	u := e.newUser(t)
@@ -545,15 +545,14 @@ func TestAccountLifecycle_ExportQuota(t *testing.T) {
 	if err != nil || replay.Msg.GetExportId() != first.Msg.GetExportId() {
 		t.Fatalf("replay = %v, %v", replay, err)
 	}
-	_, err = e.identity.RequestAccountExport(ctx, authed(u.token, &identityv1.RequestAccountExportRequest{IdempotencyKey: "quota-export-key-0002"}))
-	d := wireError(t, err, connect.CodeResourceExhausted)
-	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED || d.GetMetadata()["quota"] != "exports" {
-		t.Errorf("detail = %v", d)
+	second, err := e.identity.RequestAccountExport(ctx, authed(u.token, &identityv1.RequestAccountExportRequest{IdempotencyKey: "quota-export-key-0002"}))
+	if err != nil || second.Msg.GetExportId() == first.Msg.GetExportId() {
+		t.Fatalf("second export the same day = %v, %v; want a new export", second, err)
 	}
-	// L-4: only the first call published. The replay came within 2 minutes of the request, so it did not re-publish
-	// (no replay storm); the rejected call did not publish either.
-	if msgs := e.pull(t); len(msgs) != 1 {
-		t.Errorf("published %d messages, want 1", len(msgs))
+	// L-4: each new export published once. The replay came within 2 minutes of the request, so it did not re-publish
+	// (no replay storm).
+	if msgs := e.pull(t); len(msgs) != 2 {
+		t.Errorf("published %d messages, want 2 (one per export)", len(msgs))
 	}
 	// The server uses the real clock, so age the export instead of sleeping: once createdAt is 3 minutes old a replay
 	// of the still-PENDING export publishes again (it recovers a lost first publish).
