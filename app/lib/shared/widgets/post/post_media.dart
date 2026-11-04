@@ -109,7 +109,10 @@ class _MediaTile extends StatelessWidget {
         ? (media.url.isNotEmpty ? media.url : media.thumbUrl)
         : media.thumbUrl;
     final placeholder = ColoredBox(color: colors.surfaceContainerHigh);
+    // Its own node: inside a PageView the image and its ALT chip would merge
+    // into one, and a screen reader would lose the description.
     final image = Semantics(
+      container: true,
       image: true,
       label: media.altText.isEmpty ? 'Image' : media.altText,
       excludeSemantics: true,
@@ -148,8 +151,9 @@ Widget _networkImage(String url, ColorScheme colors, {Widget? placeholder}) {
     color: colors.surfaceContainerHigh,
     child: LayoutBuilder(
       builder: (context, constraints) {
-        final px = (constraints.maxWidth * MediaQuery.devicePixelRatioOf(context))
-            .ceil();
+        final px =
+            (constraints.maxWidth * MediaQuery.devicePixelRatioOf(context))
+                .ceil();
         return CachedNetworkImage(
           imageUrl: url,
           fit: BoxFit.contain,

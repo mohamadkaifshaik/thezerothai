@@ -7,6 +7,8 @@ import 'package:dzeroth/shared/widgets/post/post_media.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/media_pager.dart';
+
 Widget _host(
   Widget child, {
   double width = 360,
@@ -40,9 +42,13 @@ void main() {
     await tester.pumpWidget(_host(PostMedia(media: [_ref(), _ref()])));
     expect(chip, findsNothing);
     expect(find.text('ALT'), findsNothing);
+    await swipeToNextMediaPage(tester);
+    expect(currentMediaPage(tester), 1);
+    expect(chip, findsNothing);
+    expect(find.text('ALT'), findsNothing);
   });
 
-  testWidgets('a chip only on the tiles that have a description', (
+  testWidgets('a chip only on the pages that have a description', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -51,12 +57,70 @@ void main() {
           media: [
             _ref(alt: 'a cat'),
             _ref(),
+            _ref(alt: 'a dog'),
           ],
         ),
       ),
     );
+    // Only the visible page is built, so each page shows its own chip state.
+    expect(currentMediaPage(tester), 0);
     expect(chip, findsOneWidget);
     expect(find.text('ALT'), findsOneWidget);
+
+    await swipeToNextMediaPage(tester);
+    expect(currentMediaPage(tester), 1);
+    expect(chip, findsNothing);
+    expect(find.text('ALT'), findsNothing);
+
+    await swipeToNextMediaPage(tester);
+    expect(currentMediaPage(tester), 2);
+    expect(chip, findsOneWidget);
+    expect(find.text('ALT'), findsOneWidget);
+  });
+
+  testWidgets('each page opens the sheet with its own description', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(
+        PostMedia(
+          media: [
+            _ref(alt: 'a cat'),
+            _ref(alt: 'a dog'),
+          ],
+        ),
+      ),
+    );
+    await tester.tap(chip);
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byType(AltTextSheet),
+        matching: find.text('a cat'),
+      ),
+      findsOneWidget,
+    );
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+    expect(find.byType(AltTextSheet), findsNothing);
+
+    await swipeToNextMediaPage(tester);
+    await tester.tap(chip);
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byType(AltTextSheet),
+        matching: find.text('a dog'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(AltTextSheet),
+        matching: find.text('a cat'),
+      ),
+      findsNothing,
+    );
   });
 
   testWidgets('the chip is bottom-start of its tile with a 48dp target', (
@@ -136,12 +200,28 @@ void main() {
               textScale: scale,
             ),
           );
-          expect(chip, findsNWidgets(4));
+          expect(mediaPageCount(tester), 4);
           expect(tester.takeException(), isNull);
 
-          await tester.tap(chip.first);
+          await tester.tap(chip);
           await tester.pumpAndSettle();
           expect(find.byType(AltTextSheet), findsOneWidget);
+          expect(find.text('image 0'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+          await tester.tapAt(const Offset(10, 10));
+          await tester.pumpAndSettle();
+
+          // Every page shows its own image's chip, and only that one.
+          for (var i = 0; i < 4; i++) {
+            expect(currentMediaPage(tester), i);
+            expect(chip, findsOneWidget);
+            expect(tester.takeException(), isNull);
+            if (i < 3) await swipeToNextMediaPage(tester);
+          }
+          await tester.tap(chip);
+          await tester.pumpAndSettle();
+          expect(find.byType(AltTextSheet), findsOneWidget);
+          expect(find.text('image 3'), findsOneWidget);
           expect(tester.takeException(), isNull);
         },
       );
@@ -206,14 +286,18 @@ void main() {
                   ),
                 );
 
-                expect(chip, findsNWidgets(images));
+                expect(mediaPageCount(tester), images == 1 ? isNull : images);
                 expect(tester.takeException(), isNull);
                 final media = tester.getRect(find.byType(AspectRatio));
+                // One page is built at a time: its chip is inside the tile,
+                // 48dp, and the sheet opens with that page's description.
                 for (var i = 0; i < images; i++) {
+                  if (images > 1) expect(currentMediaPage(tester), i);
+                  expect(chip, findsOneWidget);
                   final target = tester.getRect(
                     find
                         .descendant(
-                          of: chip.at(i),
+                          of: chip,
                           matching: find.byType(ConstrainedBox),
                         )
                         .first,
@@ -221,16 +305,21 @@ void main() {
                   expect(target.width, greaterThanOrEqualTo(48));
                   expect(target.height, greaterThanOrEqualTo(48));
                   expect(target.left, greaterThanOrEqualTo(media.left - 1));
+                  expect(target.right, lessThanOrEqualTo(media.right + 1));
                   expect(target.bottom, lessThanOrEqualTo(media.bottom + 1));
-                }
 
-                await tester.tap(chip.first);
-                await tester.pumpAndSettle();
-                expect(find.byType(AltTextSheet), findsOneWidget);
-                expect(find.text('image 0'), findsOneWidget);
-                final sheet = tester.getRect(find.byType(AltTextSheet));
-                expect(sheet.width, lessThanOrEqualTo(width));
-                expect(tester.takeException(), isNull);
+                  await tester.tap(chip);
+                  await tester.pumpAndSettle();
+                  expect(find.byType(AltTextSheet), findsOneWidget);
+                  expect(find.text('image $i'), findsOneWidget);
+                  final sheet = tester.getRect(find.byType(AltTextSheet));
+                  expect(sheet.width, lessThanOrEqualTo(width));
+                  expect(tester.takeException(), isNull);
+                  await tester.tapAt(const Offset(10, 10));
+                  await tester.pumpAndSettle();
+                  expect(find.byType(AltTextSheet), findsNothing);
+                  if (i < images - 1) await swipeToNextMediaPage(tester);
+                }
               },
             );
           }

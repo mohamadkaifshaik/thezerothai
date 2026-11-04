@@ -71,9 +71,7 @@ class PostContextLabel extends StatelessWidget {
       button: tappable,
       label: semanticsLabel ?? text,
       excludeSemantics: true,
-      child: tappable
-          ? InkWell(onTap: onTap, child: labelText)
-          : labelText,
+      child: tappable ? InkWell(onTap: onTap, child: labelText) : labelText,
     );
     final content = Row(
       mainAxisSize: MainAxisSize.min,

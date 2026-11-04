@@ -123,9 +123,22 @@ void main() {
     final bar = tester.widget<PostActionBar>(find.byType(PostActionBar));
     expect(bar.spread, isTrue);
     expect(bar.iconSize, AppFocalPost.actionIcon);
+    // The last button (Share) ends at the card's right padding; its 48dp box
+    // starts the icon at its left, so Share is no longer right-aligned.
+    final shareBox = tester.getRect(
+      find.ancestor(
+        of: find.byIcon(Icons.ios_share),
+        matching: find.byType(InkResponse),
+      ),
+    );
+    expect(shareBox.right, closeTo(phone.size.width - AppSpacing.md, 1));
     expect(
-      tester.getTopRight(find.byIcon(Icons.ios_share)).dx,
-      closeTo(phone.size.width - AppSpacing.md, 1),
+      tester.getTopLeft(find.byIcon(Icons.ios_share)).dx,
+      closeTo(shareBox.left, 1),
+    );
+    expect(
+      tester.getRect(find.byIcon(Icons.favorite_border)).right,
+      lessThan(shareBox.left),
     );
   });
 

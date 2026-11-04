@@ -51,6 +51,15 @@ void main() {
     expect(await gate(tester, flags: {}, location: '/home'), isFalse);
   });
 
+  testWidgets('not offered on Messages, which has its own header action', (
+    tester,
+  ) async {
+    expect(
+      await gate(tester, flags: {'posts'}, location: '/messages'),
+      isFalse,
+    );
+  });
+
   testWidgets('not offered on Settings, including its sub-pages', (
     tester,
   ) async {

@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 
 import '../../support/messaging_fixtures.dart';
+import '../../support/legacy_profile_cache.dart';
 
 void main() {
   test('migrates a v6 database to v7, keeping data and adding the messaging '
@@ -19,6 +20,7 @@ void main() {
             PRIMARY KEY (setting_key)
           )''');
         raw.execute("INSERT INTO app_setting_entries VALUES ('theme', 'dark')");
+        raw.execute(kLegacyProfileCacheTableSql);
         raw.execute('PRAGMA user_version = 6');
       },
     );
@@ -80,6 +82,7 @@ void main() {
           raw.execute(
             "INSERT INTO messaging_state_entries VALUES ('inbox', 's', 'o', 0)",
           );
+          raw.execute(kLegacyProfileCacheTableSql);
           raw.execute('PRAGMA user_version = 7');
         },
       );
@@ -107,10 +110,10 @@ void main() {
     },
   );
 
-  test('a fresh database is at schema version 11', () async {
+  test('a fresh database is at schema version 13', () async {
     final db = AppDatabase.forTesting(NativeDatabase.memory());
     addTearDown(db.close);
-    expect(db.schemaVersion, 12);
+    expect(db.schemaVersion, 13);
   });
 
   test('clearAll wipes messaging rows but keeps device settings', () async {

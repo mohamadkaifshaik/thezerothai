@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../../../core/theme/app_theme.dart';
+import 'post_share_menu.dart';
 
 /// Engagement callbacks for [PostActionBar]. Each one should add an event to
 /// the owning bloc (e.g. `context.read<TimelineBloc>().add(...)`); the bar
@@ -13,6 +14,7 @@ class PostActions {
     this.onLike,
     this.onBookmark,
     this.onShare,
+    this.onShareAt,
   });
 
   final VoidCallback? onReply;
@@ -20,6 +22,11 @@ class PostActions {
   final VoidCallback? onLike;
   final VoidCallback? onBookmark;
   final VoidCallback? onShare;
+
+  /// Like [onShare], with the Share button's global rect, so a menu can open
+  /// at the button wherever it sits in the row. Takes precedence over
+  /// [onShare].
+  final ValueChanged<Rect>? onShareAt;
 }
 
 /// Reply / repost / like / bookmark / share: 16dp outline icons (in 48dp tap
@@ -110,7 +117,8 @@ class PostActionBar extends StatelessWidget {
           onPressed: actions.onLike,
         ),
     ];
-    final shareShown = _shows(actions.onShare);
+    final shareShown =
+        showDisabled || actions.onShare != null || actions.onShareAt != null;
     // Offered only with a callback (never as a disabled placeholder).
     Widget? bookmark({required bool alignEnd}) => actions.onBookmark == null
         ? null
@@ -122,12 +130,16 @@ class PostActionBar extends StatelessWidget {
             alignEnd: alignEnd,
             onPressed: actions.onBookmark,
           );
-    Widget share({required bool alignEnd}) => _ActionButton(
-      icon: Icons.ios_share,
-      iconSize: iconSize,
-      label: 'Share',
-      alignEnd: alignEnd,
-      onPressed: actions.onShare,
+    Widget share({required bool alignEnd}) => Builder(
+      builder: (buttonContext) => _ActionButton(
+        icon: Icons.ios_share,
+        iconSize: iconSize,
+        label: 'Share',
+        alignEnd: alignEnd,
+        onPressed: actions.onShareAt != null
+            ? () => actions.onShareAt!(targetRectOf(buttonContext))
+            : actions.onShare,
+      ),
     );
 
     if (spread) {
@@ -137,7 +149,6 @@ class PostActionBar extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           for (final button in counted) Flexible(child: button),
-          // The last glyph sits flush with the right edge, as in the list.
           if (shareShown) Flexible(child: share(alignEnd: false)),
           ?bookmark(alignEnd: false),
         ],
