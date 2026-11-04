@@ -69,7 +69,7 @@ void main() {
       );
       final record = ArticleRecord(
         draft: ArticleDraft(id: 'a' * 32, authorId: uid),
-        updatedAt: DateTime.utc(2026),
+        updatedAt: DateTime.now().toUtc(),
       );
       final publish = repo.publish(record, idempotencyKey: 'key');
       final check = expectLater(publish, throwsStateError);

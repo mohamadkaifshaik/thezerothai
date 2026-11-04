@@ -24,7 +24,7 @@ abstract final class AppMoreMenu {
     required List<ShellEntry> entries,
     void Function(BuildContext context, ShellEntry entry)? onSelected,
   }) async {
-    final articles = isFeatureEnabled(anchor, kFeaturePosts);
+    final articles = featureEnabledSnapshot(anchor, kFeaturePosts);
     if (entries.isEmpty && !articles) return;
     final box = anchor.findRenderObject() as RenderBox?;
     final overlay = Overlay.of(anchor).context.findRenderObject() as RenderBox?;

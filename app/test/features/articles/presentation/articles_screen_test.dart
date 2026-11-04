@@ -58,7 +58,7 @@ Future<void> _capture(
 class _Repository implements ArticlesRepository {
   ArticleRecord record = ArticleRecord(
     draft: ArticleDraft(id: 'draft', authorId: 'owner'),
-    updatedAt: DateTime.utc(2026),
+    updatedAt: DateTime.now().toUtc(),
   );
   int saves = 0;
   String? publishKey;
@@ -84,7 +84,7 @@ class _Repository implements ArticlesRepository {
     expect(expectedRevision, record.draft.revision);
     record = ArticleRecord(
       draft: draft.revise(expectedRevision: expectedRevision),
-      updatedAt: DateTime.utc(2026),
+      updatedAt: DateTime.now().toUtc(),
     );
     return record;
   }
