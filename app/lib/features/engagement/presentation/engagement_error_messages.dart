@@ -21,7 +21,7 @@ String engagementErrorMessage(
       action == EngagementAction.bookmark ||
       action == EngagementAction.unbookmark;
   return switch (error) {
-    // Bookmarks: the 1,000-post cap (`limit=bookmarks`, ADR-0023 D4) and the
+    // Bookmarks: the 1,000-post cap (`limit=bookmarks`) and the
     // daily quota (`quota=bookmarks`).
     LimitReachedException(quota: kBookmarksLimitName) =>
       'You can save up to 1,000 posts.',
@@ -63,11 +63,11 @@ String engagementErrorMessage(
 }
 
 /// Why the vote buttons are off when the viewer blocks the author (TARGET_BLOCKED
-/// and `viewer_poll_vote_blocked`, ADR-0029 Amendment 1 A1.5).
+/// and `viewer_poll_vote_blocked`).
 const kPollBlockedReason = "You blocked this account. Unblock to vote.";
 
 /// Friendly, typed messages for a failed vote or a failed "See final results"
-/// read (ADR-0029). Fixed text, never the server's; ALREADY_VOTED and
+/// read. Fixed text, never the server's; ALREADY_VOTED and
 /// POLL_CLOSED are normally resolved by a refresh and only reach here as a
 /// snackbar when that refresh failed too.
 String pollErrorMessage(

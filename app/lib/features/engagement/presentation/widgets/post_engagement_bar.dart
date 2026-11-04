@@ -29,7 +29,7 @@ import '../engagement_error_messages.dart';
 import 'repost_sheet.dart';
 
 /// The frozen snapshot a quote of [view] previews: the original for a REPOST
-/// row (quoting a repost quotes its original, ADR-0018 D4), else the post.
+/// row (quoting a repost quotes its original), else the post.
 pb.EmbeddedPost quotePreviewOf(pb.PostView view) {
   final post = view.post;
   if (post.kind == PostKind.POST_KIND_REPOST && post.hasEmbedded()) {
@@ -45,7 +45,7 @@ pb.EmbeddedPost quotePreviewOf(pb.PostView view) {
 }
 
 /// The reply / repost / like row of one post, driven by the session's
-/// [EngagementCubit] (ADR-0018). Nothing is held here: taps call the
+/// [EngagementCubit]. Nothing is held here: taps call the
 /// cubit, which applies the change at once and rolls it back on failure.
 ///
 /// - Acts on [engagementTargetId]: the original for a REPOST row.
@@ -86,7 +86,7 @@ class PostEngagementBar extends StatelessWidget {
   /// Whether the bookmark icon exists. Null (the default) follows the
   /// `bookmarks` flag of the caller; the Bookmarks screen passes true so a
   /// user dropped from the allowlist can still remove what they saved
-  /// (ADR-0023 D5: Remove needs the flag only "not globally off").
+  /// (Remove needs the flag only "not globally off").
   final bool? bookmarkEnabled;
 
   /// Offer Reply (opens the post, or runs [onReply]). The post screen turns
@@ -105,7 +105,7 @@ class PostEngagementBar extends StatelessWidget {
     final shown = EngagementEntry.fromView(view);
     final replies =
         showReply && isFeatureEnabled(context, kPostsSubFeatureReplies);
-    // The server says this viewer may not reply (ADR-0021): the button stays,
+    // The server says this viewer may not reply: the button stays,
     // disabled, with a why-less hint. Advisory only (I-4): UNSPECIFIED and
     // UNKNOWN stay enabled, and a server refusal still shows its own message.
     final replyBlocked = replies && replyKnownNotAllowed(view);
@@ -171,7 +171,7 @@ class PostEngagementBar extends StatelessWidget {
                       ),
               ),
             );
-        // Bookmarks (ADR-0023): the icon exists only with the `bookmarks`
+        // Bookmarks: the icon exists only with the `bookmarks`
         // flag, and only here, where the action row is (so `engagement` too).
         // Flag off: no BookmarksCubit is read at all.
         if (!bookmarksOn) return bar();
@@ -195,7 +195,7 @@ class PostEngagementBar extends StatelessWidget {
     // Quote needs `engagement` + `quotes` in GetMe.enabled_features and no
     // remembered server FEATURE_DISABLED for it.
     final canQuote = quoteCreationAllowed(context);
-    // Another user's followers-only post (a protected account's, ADR-0025):
+    // Another user's followers-only post (a protected account's):
     // the server refuses Repost and Quote with PROTECTED_ACCOUNT, so the sheet
     // shows them disabled. Advisory; the server stays authoritative.
     final viewerId = context.read<OnboardingBloc>().state.profile?.userId;

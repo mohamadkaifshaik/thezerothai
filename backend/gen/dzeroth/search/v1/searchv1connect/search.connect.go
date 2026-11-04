@@ -2,15 +2,15 @@
 //
 // Source: dzeroth/search/v1/search.proto
 
-// Search, hashtag results and trends at Stage 0 (ADR-0028, W4). Owner module: backend/internal/search.
+// Search, hashtag results and trends at Stage 0. Owner module: backend/internal/search.
 // Collection owned: trends (trends/current: tags and counts; trends/hidden: the operator hide list; no uid). People come from identity
 // (Directory.SearchHandles over users.handleLower) and posts from posts.Reader.ByHashtag; search never queries another
 // module's collection directly. There is no search engine at Stage 0: people are found by handle prefix and posts by
-// one exact hashtag. Words in post text and display names are not searchable (ADR-0028 F2, F4; the Stage ladder names
-// the engine and its trigger). Every RPC is read-only (NO_SIDE_EFFECTS), so none takes an idempotency_key and all keep
+// one exact hashtag. Words in post text and display names are not searchable (the Stage ladder names the engine and its trigger).
+// Every RPC is read-only (NO_SIDE_EFFECTS), so none takes an idempotency_key and all keep
 // answering under DEGRADED_MODE=readonly. Signed-in callers only (App Check plus a Firebase ID token, like every RPC).
 //
-// Query grammar (ADR-0028 D1; the shared cases are testdata/search_query_grammar.json), applied before any read:
+// Query grammar (the shared cases are testdata/search_query_grammar.json), applied before any read:
 //   - Normalise: NFC, trim, lower-case. Then remove at most one leading sigil, '@' or '#'.
 //   - INVALID_ARGUMENT + VALIDATION, metadata["field"] = "query", 0 reads, when nothing is left (empty, "@" or "#"
 //     alone), when more than 50 code points are left (the sigil does NOT count: '#' plus a 50-code-point tag is valid),
@@ -18,12 +18,14 @@
 //   - People: a '#' sigil => unsupported. Otherwise the rest must match [a-z0-9_]{1,15}: 1 character => VALIDATION
 //     "query" (too short; "@a" and "a" alike); 2 to 15 => a handle prefix ("@ab" and "ab" are valid; full handles are
 //     3 to 15). Anything else => an empty answer with unsupported_query = true and 0 Firestore reads.
-//   - Posts: an '@' sigil => unsupported. Otherwise the rest must be exactly one hashtag body as posts define it
-//     (ADR-0010 D8), 1 to 50 code points: "#a" and the plain word "a" both search the tag "a", so a one-character plain
-//     word is valid for posts while it is too short for people. Anything else (several words, "#123" with no letter,
-//     "#go!") => an empty answer with unsupported_query = true and 0 Firestore reads; show "Search posts by #hashtag".
+//   - Posts: an '@' sigil => unsupported. Otherwise the rest must be exactly one hashtag body as posts define it,
 //
-// Flags (ADR-0028 D8; clients learn them from IdentityService.GetMe enabled_features):
+// 1 to 50 code points: "#a" and the plain word "a" both search the tag "a", so a one-character plain
+//
+//	word is valid for posts while it is too short for people. Anything else (several words, "#123" with no letter,
+//	"#go!") => an empty answer with unsupported_query = true and 0 Firestore reads; show "Search posts by #hashtag".
+//
+// Flags (clients learn them from IdentityService.GetMe enabled_features):
 //   - FEATURE_SEARCH (wire name "search") gates SearchPeople and SearchPosts per caller; FEATURE_TRENDS (wire name
 //     "trends") gates GetTrends per caller. Off => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "search"
 //     or "trends", 0 reads.
@@ -32,13 +34,14 @@
 //   - INVALID_ARGUMENT + VALIDATION, metadata["field"] in query | page_token | page_size | limit | prefix; 0 reads.
 //     A negative page_size or limit is VALIDATION; values above the maximum are clamped.
 //   - FAILED_PRECONDITION + FEATURE_DISABLED (above).
-//   - RESOURCE_EXHAUSTED + RATE_LIMITED: the per-minute buckets, the shared daily cap metadata["limit"] = "search_daily"
-//     and the per-uid daily read budget (ADR-0010 D5, "read_budget_daily"); honour retry_after.
-//   - UNAVAILABLE: SearchPosts only, when the server cannot trust its copy of the protected-accounts set (ADR-0025;
-//     PROTECTED_SET_MAX_STALE), as every list does. Retry later.
+//   - RESOURCE_EXHAUSTED + RATE_LIMITED: the per-minute buckets, the shared daily cap metadata["limit"] = "search_daily";
+//     honour retry_after.
+//   - UNAVAILABLE: SearchPosts only, when the server cannot trust its copy of the protected-accounts set (PROTECTED_SET_MAX_STALE),
 //
-// Firestore budgets below are ADR-0028 "Cost impact" (per RPC). Worst-case reads include the account-status
-// interceptor; every call is charged to the per-uid daily read budget.
+// as every list does. Retry later.
+//
+// Firestore budgets below are per RPC. Worst-case reads include the account-status
+// interceptor.
 package searchv1connect
 
 import (
@@ -82,13 +85,13 @@ const (
 
 // SearchServiceClient is a client for the dzeroth.search.v1.SearchService service.
 type SearchServiceClient interface {
-	// People whose handle starts with the query (ADR-0028 D2), in handle order. At most limit rows (0 => 10, max 20)
+	// People whose handle starts with the query, in handle order. At most limit rows (0 => 10, max 20)
 	// and NO PAGINATION: there is no page token, by design (handle enumeration costs one call per 20 handles).
 	// Rows: accounts that are not ACTIVE and accounts that block the caller are left out (the answer is then the same
 	// as for a handle nobody has); accounts the caller blocks or mutes stay, with relationship.blocking / muting set.
 	// Protected accounts are listed, with user.is_private set. Each row carries the caller's relationship (follow
 	// state incl. REQUESTED, from the caller's graph, 0 extra reads); since is unset. The caller appears when matched.
-	// A caller whose blocked-by list overflowed (ADR-0008 D2) sees only accounts they follow and themselves.
+	// A caller whose blocked-by list overflowed sees only accounts they follow and themselves.
 	// Staleness: matches are cached per instance for 60 s and shared across callers, so a new handle or a rename shows
 	// within 60 s; block and relationship filtering is per caller, from the 60 s graph snapshot.
 	// Flag: "search". Rate limits: RATE_LIMIT_SEARCH_PEOPLE_PER_MIN 30/min/uid per instance (90/min at 3 instances);
@@ -98,7 +101,7 @@ type SearchServiceClient interface {
 	// 0-2 warm (the prefix entry is cached); a grammar rejection or an unsupported query reads nothing beyond the
 	// interceptor. Writes 0.
 	SearchPeople(context.Context, *connect.Request[v1.SearchPeopleRequest]) (*connect.Response[v1.SearchPeopleResponse], error)
-	// Posts carrying one hashtag (ADR-0028 D3). The tab picks the order:
+	// Posts carrying one hashtag. The tab picks the order:
 	//   - TOP (also UNSPECIFIED): the newest 30 tagged posts, those from the last 7 days ranked by likes + 2 x reposts +
 	//     2 x quotes + replies, ties newest first. One page of at most 20; next_page_token is always "" (show "See
 	//     latest").
@@ -114,7 +117,7 @@ type SearchServiceClient interface {
 	//
 	// Filtering (every tab, per caller): hidden posts (moderation) are dropped; posts by accounts the caller blocks,
 	// who block the caller, or whom the caller mutes are dropped, including a quote whose embedded author is one of
-	// them (ADR-0010 D6). Protected accounts (ADR-0025): a post by a protected account the caller is not and does not
+	// them. Protected accounts: a post by a protected account the caller is not and does not
 	// follow is dropped; a QUOTE of such a post is kept with embed_viewer_state = PROTECTED and its embed stripped. A
 	// caller whose blocked-by list overflowed sees only their own posts and posts by accounts they follow. A page may
 	// therefore be short. Whether next_page_token is set and how many rows come back depend only on the posts the caller
@@ -135,7 +138,7 @@ type SearchServiceClient interface {
 	// entry, 52 after a 50-row window); MEDIA older call 33 (scan cap 30). An unsupported query or a grammar rejection reads nothing
 	// beyond the interceptor. Writes 0.
 	SearchPosts(context.Context, *connect.Request[v1.SearchPostsRequest]) (*connect.Response[v1.SearchPostsResponse], error)
-	// Trending hashtags (ADR-0028 D6, founder defaults F1 and F6). A tag trends when at least TRENDS_MIN_AUTHORS (3; 5 in prod)
+	// Trending hashtags (founder defaults F1 and F6). A tag trends when at least TRENDS_MIN_AUTHORS (3; 5 in prod)
 	// distinct established accounts (ACTIVE, at least TRENDS_MIN_ACCOUNT_AGE = 72 h old; at most TRENDS_MAX_AUTHOR_CHECKS = 500
 	// authors are checked per sweep, the rest are not counted) used it in the window; tags are ranked by distinct
 	// established accounts, then their posts, then tag. Hidden posts,
@@ -215,13 +218,13 @@ func (c *searchServiceClient) GetTrends(ctx context.Context, req *connect.Reques
 
 // SearchServiceHandler is an implementation of the dzeroth.search.v1.SearchService service.
 type SearchServiceHandler interface {
-	// People whose handle starts with the query (ADR-0028 D2), in handle order. At most limit rows (0 => 10, max 20)
+	// People whose handle starts with the query, in handle order. At most limit rows (0 => 10, max 20)
 	// and NO PAGINATION: there is no page token, by design (handle enumeration costs one call per 20 handles).
 	// Rows: accounts that are not ACTIVE and accounts that block the caller are left out (the answer is then the same
 	// as for a handle nobody has); accounts the caller blocks or mutes stay, with relationship.blocking / muting set.
 	// Protected accounts are listed, with user.is_private set. Each row carries the caller's relationship (follow
 	// state incl. REQUESTED, from the caller's graph, 0 extra reads); since is unset. The caller appears when matched.
-	// A caller whose blocked-by list overflowed (ADR-0008 D2) sees only accounts they follow and themselves.
+	// A caller whose blocked-by list overflowed sees only accounts they follow and themselves.
 	// Staleness: matches are cached per instance for 60 s and shared across callers, so a new handle or a rename shows
 	// within 60 s; block and relationship filtering is per caller, from the 60 s graph snapshot.
 	// Flag: "search". Rate limits: RATE_LIMIT_SEARCH_PEOPLE_PER_MIN 30/min/uid per instance (90/min at 3 instances);
@@ -231,7 +234,7 @@ type SearchServiceHandler interface {
 	// 0-2 warm (the prefix entry is cached); a grammar rejection or an unsupported query reads nothing beyond the
 	// interceptor. Writes 0.
 	SearchPeople(context.Context, *connect.Request[v1.SearchPeopleRequest]) (*connect.Response[v1.SearchPeopleResponse], error)
-	// Posts carrying one hashtag (ADR-0028 D3). The tab picks the order:
+	// Posts carrying one hashtag. The tab picks the order:
 	//   - TOP (also UNSPECIFIED): the newest 30 tagged posts, those from the last 7 days ranked by likes + 2 x reposts +
 	//     2 x quotes + replies, ties newest first. One page of at most 20; next_page_token is always "" (show "See
 	//     latest").
@@ -247,7 +250,7 @@ type SearchServiceHandler interface {
 	//
 	// Filtering (every tab, per caller): hidden posts (moderation) are dropped; posts by accounts the caller blocks,
 	// who block the caller, or whom the caller mutes are dropped, including a quote whose embedded author is one of
-	// them (ADR-0010 D6). Protected accounts (ADR-0025): a post by a protected account the caller is not and does not
+	// them. Protected accounts: a post by a protected account the caller is not and does not
 	// follow is dropped; a QUOTE of such a post is kept with embed_viewer_state = PROTECTED and its embed stripped. A
 	// caller whose blocked-by list overflowed sees only their own posts and posts by accounts they follow. A page may
 	// therefore be short. Whether next_page_token is set and how many rows come back depend only on the posts the caller
@@ -268,7 +271,7 @@ type SearchServiceHandler interface {
 	// entry, 52 after a 50-row window); MEDIA older call 33 (scan cap 30). An unsupported query or a grammar rejection reads nothing
 	// beyond the interceptor. Writes 0.
 	SearchPosts(context.Context, *connect.Request[v1.SearchPostsRequest]) (*connect.Response[v1.SearchPostsResponse], error)
-	// Trending hashtags (ADR-0028 D6, founder defaults F1 and F6). A tag trends when at least TRENDS_MIN_AUTHORS (3; 5 in prod)
+	// Trending hashtags (founder defaults F1 and F6). A tag trends when at least TRENDS_MIN_AUTHORS (3; 5 in prod)
 	// distinct established accounts (ACTIVE, at least TRENDS_MIN_ACCOUNT_AGE = 72 h old; at most TRENDS_MAX_AUTHOR_CHECKS = 500
 	// authors are checked per sweep, the rest are not counted) used it in the window; tags are ranked by distinct
 	// established accounts, then their posts, then tag. Hidden posts,

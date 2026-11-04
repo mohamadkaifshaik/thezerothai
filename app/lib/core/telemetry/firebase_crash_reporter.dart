@@ -21,7 +21,7 @@ class FirebaseCrashlyticsPort implements CrashlyticsPort {
   final FirebaseCrashlytics _c;
 
   /// `reason` and `information` stay empty: they are never built from
-  /// runtime strings (ADR-0032 D6).
+  /// runtime strings.
   @override
   Future<void> recordError(
     Object exception,
@@ -41,7 +41,7 @@ class FirebaseCrashlyticsPort implements CrashlyticsPort {
   Future<void> deleteUnsentReports() => _c.deleteUnsentReports();
 }
 
-/// The only three custom keys that exist (ADR-0032 F6). No flag list.
+/// The only three custom keys that exist. No flag list.
 @immutable
 class CrashKeys {
   const CrashKeys({

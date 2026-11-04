@@ -18,7 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// Log fields of GetListTimeline (ADR-0030 D12): counts and enums only, never ids.
+// Log fields of GetListTimeline: counts and enums only, never ids.
 const (
 	opList            = "list"
 	fieldListMembers  = "list_members"
@@ -31,7 +31,7 @@ type listFlags struct{ posts.FlagChecker }
 
 func (listFlags) GloballyOff(string) bool { return false }
 
-// GetListTimeline returns a list's feed (ADR-0030 D5): chronological root posts by the list's members, newest first. It is
+// GetListTimeline returns a list's feed: chronological root posts by the list's members, newest first. It is
 // Home's pull-merge over the members instead of the followees (homeSources, Merge, removedIDs, the audience filter, the
 // codec; no new merge, cursor or cache), with tokens bound to the caller and the list.
 //
@@ -41,7 +41,7 @@ func (listFlags) GloballyOff(string) bool { return false }
 // Budget, reads including the account-status interceptor's caller `users` read; C = ceil(members / 30) <= 5 at
 // LIST_MAX_MEMBERS 150, k as Home. Non-owner, cold: 6 + C + 2*page (interceptor, list, caller graph, owner profile, owner
 // graph, userLikes) = 51 at page 20, 111 at page 50; the owner 4 + C + 2*page. An empty since refresh by the owner, cold:
-// 3 + C. A since_token older than the instance's removal-log cache adds at most 107 (ADR-0016 window query): 218 worst.
+// 3 + C. A since_token older than the instance's removal-log cache adds at most 107 (window query): 218 worst.
 // Authors covered by a fresh author-recent entry (shared with Home) cost 0. Planning: refresh 4 + new posts, cold open or
 // older page 30. Writes 0. The removal-log refresh is detached, as for Home.
 func (s *Server) GetListTimeline(ctx context.Context, req *connect.Request[timelinev1.GetListTimelineRequest]) (*connect.Response[timelinev1.GetListTimelineResponse], error) {
@@ -130,7 +130,7 @@ func (s *Server) listTimeline(ctx context.Context, uid string, req *timelinev1.G
 		return nil, err
 	}
 	// Per viewer, after the shared author-recent entries: the author rule again (defence in depth against a stale entry),
-	// Home's embed rule and the ADR-0025 audience decision, which here can drop a protected member's rows.
+	// Home's embed rule and the audience decision, which here can drop a protected member's rows.
 	af := s.newAudienceFilter(ctx, uid, snap)
 	keep := func(p *posts.Post) bool {
 		return listAuthorAllowed(uid, snap, p.AuthorID) && embedAllowed(snap, uid, p) && af.keep(p)
@@ -152,7 +152,7 @@ func (s *Server) listTimeline(ctx context.Context, uid string, req *timelinev1.G
 	return out, nil
 }
 
-// listAuthorAllowed is the per-viewer author rule of a list (ADR-0030 D4): the caller's own posts are kept; a member the
+// listAuthorAllowed is the per-viewer author rule of a list: the caller's own posts are kept; a member the
 // caller blocks, mutes or is blocked by is dropped; and a caller whose blockedBy overflowed cannot prove a member does not
 // block them, so only members they follow stay (fail closed, the W4 rule). Home needs no overflow rule because its authors
 // are all followees.

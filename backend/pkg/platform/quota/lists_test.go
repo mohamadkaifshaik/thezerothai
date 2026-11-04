@@ -10,9 +10,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// TestListKinds: the listCreates and listAdds counters (ADR-0030 D10) reserve like the others, never touch another kind, and
-// each Record field, valueFor case and increment case ship together (ADR-0021 I-3: the whole-record Set of CheckAndReserveN
-// would zero a field one of them forgot).
+// TestListKinds: the listCreates and listAdds counters reserve like the others, never touch another kind, and
+// each Record field, valueFor case and increment case ship together (the whole-record Set of CheckAndReserveN would zero a field one of them forgot).
 func TestListKinds(t *testing.T) {
 	ref := (&firestore.Client{}).Collection("quotas").Doc("uid-1")
 	tests := []struct {

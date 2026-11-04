@@ -284,7 +284,7 @@ func TestAccountStatusInterceptor_ActiveAccountAllowed(t *testing.T) {
 	}
 }
 
-// TestAccountStatusInterceptor_AllowRestricted (ADR-0011 Q2/Q3): a SUSPENDED or DELETING caller is let through to
+// TestAccountStatusInterceptor_AllowRestricted: a SUSPENDED or DELETING caller is let through to
 // the allowed procedure only; any other procedure, and a caller with no profile, are still rejected.
 func TestAccountStatusInterceptor_AllowRestricted(t *testing.T) {
 	type acct = struct {

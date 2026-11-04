@@ -19,21 +19,21 @@ type dailyLimits struct {
 	NewAccountWindow time.Duration
 }
 
-// BlockResult is Block's outcome, including whether the target's blockedBy overflowed at the cap (ADR-0008
-// D2) — service.go logs that once, after a successful commit (never inside the retryable transaction).
+// BlockResult is Block's outcome, including whether the target's blockedBy overflowed at the cap
+// — service.go logs that once, after a successful commit (never inside the retryable transaction).
 type BlockResult struct {
 	Relationship         Relationship
 	Outcome              MutationOutcome
 	CallerWasFollowing   bool // caller -> target edge existed and was removed
 	TargetWasFollowing   bool // target -> caller edge existed and was removed
 	BlockedByOverflowHit bool
-	RequestsGone         int // pending follow requests deleted: caller -> target and target -> caller (ADR-0025 D7), 0 to 2
+	RequestsGone         int // pending follow requests deleted: caller -> target and target -> caller, 0 to 2
 }
 
-// Block runs the whole Block transaction (ADR-0008/D2/D9). Reads: caller graph + target graph + quotas
-// (3, always — the target graph doubles as the "unknown user" existence check, ADR-0008 D9). Writes on a
+// Block runs the whole Block transaction. Reads: caller graph + target graph + quotas
+// (3, always — the target graph doubles as the "unknown user" existence check). Writes on a
 // real block: caller graph, target graph, quotas, plus up to 2 combined-per-doc counter updates (worst 5);
-// deletes: up to 2 follows docs (mutual follow). Typical (no prior edges): 3 writes, 0 deletes. ADR-0025 D7: a pending
+// deletes: up to 2 follows docs (mutual follow). Typical (no prior edges): 3 writes, 0 deletes. A pending
 // follow request in either direction (target in the caller's `requested`, caller in the target's) is deleted too, with
 // a plain Delete (no Exists: drift cannot fail a Block) and its array entry removed in the graph writes already made: +0
 // reads, +0 writes, at most +2 deletes (so at most 4 deletes with a mutual follow).
@@ -141,7 +141,7 @@ func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, 
 			requestsGone++
 		}
 
-		// Counter decrements, combined per doc (ADR-0008 D3): at most one Update() per user doc.
+		// Counter decrements, combined per doc: at most one Update() per user doc.
 		callerFollowingDelta, callerFollowersDelta := int64(0), int64(0)
 		targetFollowingDelta, targetFollowersDelta := int64(0), int64(0)
 		if callerWasFollowing {
@@ -178,7 +178,7 @@ func (r *FirestoreRepo) Block(ctx context.Context, callerUID, targetUID string, 
 	return result, nil
 }
 
-// Unblock (ADR-0008/D9): fresh read of the caller graph; not blocking => 0 writes. Never quota-gated.
+// Unblock: fresh read of the caller graph; not blocking => 0 writes. Never quota-gated.
 // Does not restore follows (so FollowState is always NONE on success — a block always removed any prior
 // edge in both directions, and Unblock never restores it). Reads 1, writes 2 (0 on no-op).
 func (r *FirestoreRepo) Unblock(ctx context.Context, callerUID, targetUID string, now time.Time) (Relationship, bool, error) {
@@ -215,7 +215,7 @@ func (r *FirestoreRepo) Unblock(ctx context.Context, callerUID, targetUID string
 	return rel, changed, nil
 }
 
-// Mute (ADR-0008/D9, A1): transaction reads caller graph, then target graph (existence only), then quotas;
+// Mute: transaction reads caller graph, then target graph (existence only), then quotas;
 // writes caller graph (muted +=) + quota reservation. Same rule and order as Block: a target with no
 // graph/{target} doc => ErrNotFoundOrBlocked (NOT_FOUND) before the quota read, 0 writes. The target doc's
 // CONTENT is never inspected (in particular not blockedBy), so muting someone who blocked you is OK and
@@ -274,7 +274,7 @@ func (r *FirestoreRepo) Mute(ctx context.Context, callerUID, targetUID string, l
 	return rel, outcome, nil
 }
 
-// Unmute (ADR-0008/D9): fresh read of the caller graph; not muting => 0 writes. Never quota-gated.
+// Unmute: fresh read of the caller graph; not muting => 0 writes. Never quota-gated.
 // Reads 1, writes 1 (0 on no-op).
 func (r *FirestoreRepo) Unmute(ctx context.Context, callerUID, targetUID string, now time.Time) (Relationship, bool, error) {
 	var rel Relationship

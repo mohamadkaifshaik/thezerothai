@@ -18,7 +18,7 @@ func (s *service) checkFlag(callerUID string) error {
 	return nil
 }
 
-// Follow (ADR-0008, ADR-0025 D6). Validation order: flag -> idempotency key format -> target id format -> self ->
+// Follow. Validation order: flag -> idempotency key format -> target id format -> self ->
 // repo transaction (target missing or not ACTIVE, blocked-by, blocks, already following, then the protected-target
 // request path or the edge path; see repo_firestore.go's Follow doc comment for that precedence). The target's users doc
 // is read inside the transaction, so only the caller's profile goes through identity.Directory (cache-first).
@@ -27,7 +27,7 @@ func (s *service) checkFlag(callerUID string) error {
 // transaction, plus the caller's profile (cold only; the account-status interceptor loads it on the request line).
 // Writes: 5 for an edge (follows doc, caller graph, 2 counters, quota), 3 for a request to a protected target
 // (followRequests Create, caller `requested`, quota), +1 delete when a leftover request to a now-public target is
-// removed (AQ4); a replay (already following, or already requested) 0 writes. Planning value 4 (ADR-0008 A2).
+// removed (AQ4); a replay (already following, or already requested) 0 writes. Planning value 4.
 // A request counts against the follows quota and returns FOLLOW_STATE_REQUESTED; FEATURE_PRIVATE_ACCOUNTS never gates it.
 func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "follow")(&err)
@@ -70,7 +70,7 @@ func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetU
 		logger.SetRequestField(ctx, fieldFollowOutcome, "edge")
 	}
 	// The caller now follows the target (or already did, on a replay): the target's cached "does the caller follow
-	// me" answer on this instance is stale. The caller's own view of the opposite edge is untouched (ADR-0024 D7).
+	// me" answer on this instance is stale. The caller's own view of the opposite edge is untouched.
 	s.cache.ForgetEdge(callerUID, targetUID)
 	if outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
@@ -81,7 +81,7 @@ func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetU
 			s.directory.Forget(callerUID, targetUID)
 			s.events.Followed(ctx, callerUID, targetUID, now)
 		}
-		// ADR-0024 D8: the followed (or requested) user leaves this viewer's cached suggestions at once.
+		// The followed (or requested) user leaves this viewer's cached suggestions at once.
 		s.dropSuggested(callerUID, targetUID)
 	}
 	return rel, nil
@@ -101,12 +101,12 @@ func (s *service) mapFollowErr(callerUID, targetUID string, err error) error {
 	return s.internalErr("follow", err, callerUID, targetUID)
 }
 
-// Unfollow (ADR-0008, ADR-0025 D7): two blind batches, idempotent. The edge batch runs first; on its failed
+// Unfollow: two blind batches, idempotent. The edge batch runs first; on its failed
 // precondition the withdraw batch deletes a pending follow request (WithdrawRequest). Both failing is NONE with 0
 // writes (not following, nothing requested, or a replayed/racing Unfollow). Undo is never gated: withdrawing needs no
 // FEATURE_PRIVATE_ACCOUNTS, only the module flag every graph RPC checks. Firestore: both batches read 0; an edge removal
 // writes 3 and deletes 1, a withdraw writes 1 and deletes 1, a no-op 0; the request line logs 1 read (the caller's
-// AccountStatusInterceptor profile read, cold after a Forget; ADR-0008 Amendment 2026-09-30 (2)).
+// AccountStatusInterceptor profile read, cold after a Forget).
 func (s *service) Unfollow(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "unfollow")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -155,7 +155,7 @@ func (s *service) blockLimits() dailyLimits {
 	return dailyLimits{Standard: s.blocksPerDay, NewAccount: s.newAccountBlocksPerDay, NewAccountWindow: s.newAccountWindow}
 }
 
-// Block (ADR-0008, ADR-0025 D7). Firestore: reads 3/3, writes 5/3, deletes 2/0, plus at most 2 deletes for pending
+// Block. Firestore: reads 3/3, writes 5/3, deletes 2/0, plus at most 2 deletes for pending
 // follow requests in either direction (so at most 4): +0 reads, +0 writes.
 func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "block")(&err)
@@ -187,26 +187,26 @@ func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUI
 	setOutcome(ctx, result.Outcome)
 	logger.SetRequestField(ctx, fieldEdgesGone, b2i(result.CallerWasFollowing)+b2i(result.TargetWasFollowing))
 	logger.SetRequestField(ctx, fieldRequestsGone, result.RequestsGone)
-	// A Block deletes both follow edges: drop the cached answer for each direction (ADR-0024 D7).
+	// A Block deletes both follow edges: drop the cached answer for each direction.
 	s.cache.ForgetEdge(callerUID, targetUID)
 	s.cache.ForgetEdge(targetUID, callerUID)
 	if result.Outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
 		s.cache.Invalidate(targetUID)
 		s.directory.Forget(callerUID, targetUID)
-		// ADR-0024 D8: neither side may be suggested to the other from this instance's cache any more.
+		// Neither side may be suggested to the other from this instance's cache any more.
 		s.dropSuggested(callerUID, targetUID)
 		s.dropSuggested(targetUID, callerUID)
 		if result.BlockedByOverflowHit {
 			// Logged here (post-commit), not inside the retryable transaction, so a transaction retry never
-			// double-logs (ADR-0008 D2/handoff: "ERROR blockedby_cap_reached").
+			// double-logs (the line is "ERROR blockedby_cap_reached").
 			slog.Default().Error("blockedby_cap_reached", "target_uid_hash", logger.HashUID(targetUID))
 		}
 	}
 	return result.Relationship, nil
 }
 
-// Unblock (ADR-0008). Firestore: reads 1/1, writes 2/2 (0 on no-op).
+// Unblock. Firestore: reads 1/1, writes 2/2 (0 on no-op).
 func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "unblock")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -235,7 +235,7 @@ func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, target
 	return rel, nil
 }
 
-// Mute (ADR-0008, A1). Firestore: reads 3 (caller graph, target graph existence, quotas), writes 2 (0 on replay);
+// Mute. Firestore: reads 3 (caller graph, target graph existence, quotas), writes 2 (0 on replay);
 // target without a graph doc => NOT_FOUND after 2 reads, 0 writes (same rule as Block; no blockedBy branching).
 func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "mute")(&err)
@@ -266,12 +266,12 @@ func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID
 	setOutcome(ctx, outcome)
 	if outcome == OutcomeCreated {
 		s.cache.Invalidate(callerUID)
-		s.dropSuggested(callerUID, targetUID) // ADR-0024 D8: a muted user is never suggested
+		s.dropSuggested(callerUID, targetUID) // A muted user is never suggested
 	}
 	return rel, nil
 }
 
-// Unmute (ADR-0008). Firestore: reads 1/1, writes 1/1 (0 on no-op).
+// Unmute. Firestore: reads 1/1, writes 1/1 (0 on no-op).
 func (s *service) Unmute(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "unmute")(&err)
 	if err := s.checkFlag(callerUID); err != nil {

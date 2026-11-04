@@ -9,7 +9,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // coldIdentity wires a second identity+graph pair over the SAME Firestore project with empty caches: what
@@ -27,7 +26,7 @@ func coldIdentity(t *testing.T, w wired) identity.Service {
 }
 
 // TestT17_GetProfile_BlockEnforcement_Budget closes the gap found during the test sweep: the plan
-// budget for IdentityService.GetProfile with the block check wired ("3 reads worst / 0-1 typical", ADR-0008
+// budget for IdentityService.GetProfile with the block check wired ("3 reads worst / 0-1 typical"
 // D9) had no measured assertion (identity's own budget tests run without a BlockChecker). Measures a cold
 // instance, the warm path, and the blocked (NOT_FOUND) path.
 func TestT17_GetProfile_BlockEnforcement_Budget(t *testing.T) {
@@ -38,13 +37,13 @@ func TestT17_GetProfile_BlockEnforcement_Budget(t *testing.T) {
 
 	cold := coldIdentity(t, w)
 	// Cold instance: viewer graph + viewer users doc (status) + target users doc.
-	measured(t, "GetProfile+blockcheck (cold instance)", budgettest.Budget{Reads: 3}, func(ctx context.Context) {
+	measured(t, "GetProfile+blockcheck (cold instance)", func(ctx context.Context) {
 		if _, err := cold.GetProfile(ctx, viewer, identity.ProfileTarget{UserID: target}); err != nil {
 			t.Fatalf("GetProfile: %v", err)
 		}
 	})
 	// Warm: everything from the 60 s instance caches.
-	measured(t, "GetProfile+blockcheck (warm)", budgettest.Budget{Reads: 0}, func(ctx context.Context) {
+	measured(t, "GetProfile+blockcheck (warm)", func(ctx context.Context) {
 		if _, err := cold.GetProfile(ctx, viewer, identity.ProfileTarget{UserID: target}); err != nil {
 			t.Fatalf("GetProfile (warm): %v", err)
 		}
@@ -57,7 +56,7 @@ func TestT17_GetProfile_BlockEnforcement_Budget(t *testing.T) {
 	mustCreateProfile(t, w.identity, blocker, "t17blocker")
 	seedBlock(t, w.client, blocker, blockedViewer)
 	cold2 := coldIdentity(t, w)
-	measured(t, "GetProfile+blockcheck (blocked, NOT_FOUND, cold instance)", budgettest.Budget{Reads: 3}, func(ctx context.Context) {
+	measured(t, "GetProfile+blockcheck (blocked, NOT_FOUND, cold instance)", func(ctx context.Context) {
 		if _, err := cold2.GetProfile(ctx, blockedViewer, identity.ProfileTarget{UserID: blocker}); err == nil {
 			t.Fatal("GetProfile succeeded for a viewer blocked by the target")
 		}

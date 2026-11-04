@@ -6,15 +6,15 @@ import 'package:flutter/scheduler.dart';
 
 /// A user avatar: the network image when [url] is set, else a person icon.
 ///
-/// The one avatar for post cards, list rows and profile headers (reuse-first:
-/// no per-feature copies). Images come through the `cached_network_image`
+/// The one avatar for post cards, list rows and profile headers (no per-feature
+/// copies). Images come through the `cached_network_image`
 /// disk cache and are resized at decode time to display size (`radius * 2`
 /// device pixels, never more than [maxDecodePx]) instead of full size, which keeps long
 /// lists cheap on memory. Lists should pass the 96 px author-snapshot
 /// thumbnail; only the profile header has a larger source.
 ///
-/// **Load error: the same person icon as no avatar** (ADR-0024 Amendment 1 A4
-/// point 5). A removed or replaced avatar's object is deleted from the bucket
+/// **Load error: the same person icon as no avatar** (point 5).
+/// A removed or replaced avatar's object is deleted from the bucket
 /// 24-48 h later (`PROFILE_MEDIA_RETIRE`), and older posts and notifications
 /// keep its URL in their author snapshot, so a missing object (HTTP 404) is an
 /// expected answer, not a bug. Any load error takes the fallback, because the

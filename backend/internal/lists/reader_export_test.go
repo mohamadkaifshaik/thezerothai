@@ -13,7 +13,7 @@ import (
 )
 
 // NotFoundError is what timeline answers for ErrNotFound: it must equal, field for field, what the GetList handler path
-// answers through mapErr, so the two RPCs cannot drift (ADR-0030 D3, byte-identical).
+// answers through mapErr, so the two RPCs cannot drift (byte-identical).
 func TestNotFoundError_MatchesTheHandlerPath(t *testing.T) {
 	t.Parallel()
 	got := NotFoundError()

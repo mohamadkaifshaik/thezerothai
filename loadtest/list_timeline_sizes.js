@@ -1,9 +1,9 @@
-// list_timeline_sizes.js: response sizes of the list RPCs, byte-exact, for the egress line of the cost model (ADR-0030 "about 18.7 KB
-// per DAU per day"). Plain Node (v18+), no dependencies. Emulators and a local API only, like every file in loadtest/.
+// list_timeline_sizes.js: response sizes of the list RPCs, byte-exact, for the egress line of the cost model ("about 18.7 KB per DAU per day").
+// Plain Node (v18+), no dependencies. Emulators and a local API only, like every file in loadtest/.
 //
 //   API_URL=http://localhost:8081 AUTH_EMULATOR_HOST=localhost:9099 node loadtest/list_timeline_sizes.js
 //
-// Measures the response BODY bytes four ways, as loadtest/search_sizes.js does: JSON and binary proto (the app uses binary proto, ADR-0007;
+// Measures the response BODY bytes four ways, as loadtest/search_sizes.js does: JSON and binary proto (the app uses binary proto;
 // the Connect unary protocol takes the codec from the request Content-Type), each identity and gzip (the API gzips when the client sends
 // Accept-Encoding: gzip; the bytes are counted on the socket before any decompression). HTTP headers are not counted. It builds its own
 // accounts (display names of realistic length), a list of LIST_MEMBERS (default 40, the plan's average) members who each posted one post of

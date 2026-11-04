@@ -52,7 +52,7 @@ class _MockPostsRepository extends Mock implements PostsRepository {}
 const _allFlags = {'posts', 'engagement', 'replies', 'bookmarks', 'likes_list'};
 const _flagOff = {'posts', 'engagement', 'replies', 'bookmarks'};
 
-/// The History screen's Likes tab (ADR-0024 D6) over the real cubits
+/// The History screen's Likes tab over the real cubits
 /// and repositories, with `ListLikedPosts` / `ListBookmarks` / `LikePost` /
 /// `UnlikePost` scripted: flag off and on, the deep link, lazy loading, the
 /// copy, un-liking, short-page paging, errors, sign-out and the layout matrix.

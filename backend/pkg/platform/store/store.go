@@ -1,4 +1,4 @@
-// Package store is the unit-of-work seam for atomic, cross-module Firestore writes (ADR-0002).
+// Package store is the unit-of-work seam for atomic, cross-module Firestore writes.
 // A caller such as posts.CreatePost opens a Batch, passes it into other modules' interface methods
 // (e.g. identity.Counters.AddPostsCount(b, uid, 1)) so they can append their own writes, then commits
 // once. No module ever builds a document path it does not own — Batch only carries writes, never paths.
@@ -22,7 +22,7 @@ type Batch interface {
 	Set(ref *firestore.DocumentRef, data interface{}, opts ...firestore.SetOption) Batch
 	Create(ref *firestore.DocumentRef, data interface{}) Batch
 	Update(ref *firestore.DocumentRef, updates []firestore.Update, preconditions ...firestore.Precondition) Batch
-	// Delete's variadic preconditions (added for ADR-0008/D10) let a caller require firestore.Exists so
+	// Delete's variadic preconditions let a caller require firestore.Exists so
 	// a whole atomic batch/transaction fails (0 writes) instead of silently deleting nothing when the
 	// document is already gone — Unfollow's blind-batch replay safety and the purge cascade's
 	// two-concurrent-runs safety both depend on this. Existing callers passing no preconditions are
@@ -32,7 +32,7 @@ type Batch interface {
 
 // FirestoreBatch adapts *firestore.WriteBatch to Batch and owns committing it.
 type FirestoreBatch struct {
-	wb      *firestore.WriteBatch //nolint:staticcheck // SA1019: still the only atomic, non-transactional multi-doc write; BulkWriter is non-atomic (ADR-0002 unit of work)
+	wb      *firestore.WriteBatch //nolint:staticcheck // SA1019: still the only atomic, non-transactional multi-doc write; BulkWriter is non-atomic (unit of work)
 	counter *budget.Counter
 }
 
@@ -66,7 +66,7 @@ func (b *FirestoreBatch) Delete(ref *firestore.DocumentRef, preconditions ...fir
 }
 
 // Commit atomically applies every write appended to the batch. Call exactly once, from the module that
-// opened the batch (ADR-0002: "the owning module appends its writes to the batch, the caller commits once").
+// opened the batch ("the owning module appends its writes to the batch, the caller commits once").
 func (b *FirestoreBatch) Commit(ctx context.Context) error {
 	if _, err := b.wb.Commit(ctx); err != nil {
 		return fmt.Errorf("store: commit batch: %w", err)

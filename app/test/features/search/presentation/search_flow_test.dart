@@ -56,7 +56,7 @@ class _NoThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// ADR-0028: the cross-screen flow on the real router and the real
+/// The cross-screen flow on the real router and the real
 /// `MainShell` with only the repositories faked. The widgets have their own
 /// tests (`app_search_field_test`, `search_results_screen_test`,
 /// `explore_who_to_follow_test`, `main_shell_explore_test`); what no test had

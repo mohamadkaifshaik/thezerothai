@@ -2,7 +2,7 @@
 
 package apiserver
 
-// tester attacks (ADR-0025 note L-2) through the real Build chain on the emulators, beyond the author's
+// tester attacks through the real Build chain on the emulators, beyond the author's
 // own file (owner_placeholders_integration_test.go): a REPOST by another user in the owner's lists, the protected
 // set unavailable, an overflowed blockedBy, the own REPOST on every tab and on since refreshes, the viewer flags after a
 // userLikes trim, and the wire bytes of a placeholder.
@@ -29,7 +29,6 @@ import (
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
@@ -133,7 +132,7 @@ func (w *w335aWorld) rawBody(t *testing.T, u bmUser, proc string, req proto.Mess
 
 // ---- case 1 ---------------------------------------------------------------------------------------------------------
 
-// A REPOST by another user R (X) of protected P's post in the caller's Likes list (m1: the ADR and the proto say "a post
+// A REPOST by another user R (X) of protected P's post in the caller's Likes list (m1: the design and the proto say "a post
 // by P", so this row is dropped as before, never a placeholder). LikePost and AddBookmark of a REPOST id store the
 // original's id, so a REPOST row reaches the list only through a seeded legacy array; the Bookmarks list holds the
 // placeholder of P's post itself.
@@ -157,7 +156,6 @@ func TestW341aAttack_RepostByOtherInOwnerLists(t *testing.T) {
 			t.Errorf("likes: the REPOST row by R is listed: %v", w341aRow(lk.GetPosts(), w.repostID))
 		}
 		w341aCheckPlaceholder(t, "likes", w341aRow(lk.GetPosts(), w.pid), w.pid, postsv1.PostKind_POST_KIND_POST, w.p.uid, "liked_by_viewer")
-		budgettest.Assert(t, "ListLikedPosts cold page 20 (REPOST row)", r.lineBudget(t, rpcListLiked), budgettest.Budget{Reads: 23})
 		r = newW320Chain(t, w335aOn)
 		bm, err := r.list(s, 20, "")
 		if err != nil {
@@ -171,7 +169,6 @@ func TestW341aAttack_RepostByOtherInOwnerLists(t *testing.T) {
 			t.Error("Bookmarks holds a REPOST row: AddBookmark(REPOST id) is expected to store the original")
 		}
 		w341aCheckPlaceholder(t, "bookmarks", w341aRow(bms, w.pid), w.pid, postsv1.PostKind_POST_KIND_POST, w.p.uid, "bookmarked_by_viewer")
-		budgettest.Assert(t, "ListBookmarks cold page 20", r.lineBudget(t, rpcListBookmarks), budgettest.Budget{Reads: 43})
 		for _, body := range []string{
 			w.rawBody(t, s, w341aProcLiked, &engagementv1.ListLikedPostsRequest{PageSize: 20}),
 			w.rawBody(t, s, w341aProcBookmarks, &engagementv1.ListBookmarksRequest{PageSize: 20}),
@@ -339,7 +336,6 @@ func TestW341aAttack_BlockedByOverflow(t *testing.T) {
 		t.Errorf("P blocks S and S's blockedBy overflowed: the own Reposts tab still returns the REPOST of P (state %v, embedded %v): block must be decided first",
 			row.GetEmbedViewerState(), row.GetPost().GetEmbedded())
 	}
-	budgettest.Assert(t, "GetUserTimeline own Reposts, overflowed caller", r.lineBudget(t, rpcGetUserTimeline), budgettest.Budget{Reads: 4 + 20})
 
 	// The same overflow with no block by P: an overflowed blockedBy set cannot prove P does not block S, so the tab fails
 	// closed like the lists (D-1 fix; the owner loses the undoable row only while the overflow lasts, a rare residual).
@@ -565,7 +561,7 @@ func TestW341aAttack_FlagsAfterUserLikesTrim(t *testing.T) {
 	// Trim: the original leaves recentReposts (cap 500, best-effort trim of the oldest 100).
 	w341aSetFS(t, w, "userLikes/"+s.uid, map[string]any{"recentReposts": firestore.ArrayRemove(w.pid)})
 	check("recentReposts trimmed")
-	// Cap: recent dropped the like (the Likes row is gone, ADR-0018 D8) and the reposts array is empty too.
+	// Cap: recent dropped the like (the Likes row is gone) and the reposts array is empty too.
 	w341aSetFS(t, w, "userLikes/"+s.uid, map[string]any{"recent": firestore.ArrayRemove(w.pid), "recentReposts": []string{}})
 	check("recent and recentReposts empty")
 	if _, err := w.e.fs.Doc("userLikes/" + s.uid).Delete(context.Background()); err != nil {

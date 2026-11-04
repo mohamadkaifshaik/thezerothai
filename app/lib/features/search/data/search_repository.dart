@@ -13,7 +13,7 @@ export '../../../gen/dzeroth/search/v1/search.pb.dart' show Trend;
 export '../../../gen/dzeroth/search/v1/search.pbenum.dart' show SearchTab;
 
 /// Search is off for this caller or for everyone (FAILED_PRECONDITION +
-/// FEATURE_DISABLED, ADR-0028 D8). Hide the entry points; never retry.
+/// FEATURE_DISABLED). Hide the entry points; never retry.
 class SearchUnavailableException implements Exception {
   const SearchUnavailableException([this.feature]);
 
@@ -24,8 +24,7 @@ class SearchUnavailableException implements Exception {
   String toString() => 'Search is not available.';
 }
 
-/// RATE_LIMITED (a per-minute bucket, the shared `search_daily` cap or the
-/// per-uid read budget). Show a friendly message; offer retry after
+/// RATE_LIMITED (a per-minute bucket or the `search_daily` cap). Show a friendly message; offer retry after
 /// [retryAfter] when known. [isDaily] limits reset at IST midnight.
 class SearchRateLimitedException implements Exception {
   const SearchRateLimitedException({this.retryAfter, this.isDaily = false});
@@ -102,7 +101,7 @@ class TrendsResult {
   final DateTime? computedAt;
 }
 
-/// The only caller of SearchService (ADR-0028). Read-only: no idempotency
+/// The only caller of SearchService. Read-only: no idempotency
 /// keys, no retries beyond the transport's.
 abstract class SearchRepository {
   /// Handle-prefix people (`limit` 0 => 10 server side; no pagination).
@@ -120,6 +119,10 @@ abstract class SearchRepository {
 
   /// Trending hashtags; [prefix] filters for typeahead.
   Future<TrendsResult> getTrends({int limit = 10, String prefix = ''});
+
+  /// Sign-out or a switch of account: the next account must not inherit the
+  /// previous one's rate-limit hold.
+  void clearSession();
 }
 
 class ConnectSearchRepository implements SearchRepository {
@@ -134,6 +137,9 @@ class ConnectSearchRepository implements SearchRepository {
   final ApiClient _apiClient;
   final RateLimitHold _hold;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
+
+  @override
+  void clearSession() => _hold.clear();
 
   Future<T> _read<T>(Future<T> Function() call) async {
     final held = _hold.check();

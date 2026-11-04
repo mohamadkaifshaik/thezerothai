@@ -13,7 +13,7 @@ const kTimelineRetention = 500;
 const kTimelineHardCap = 2 * kTimelineRetention;
 
 /// One row of a cached feed: a post, or a gap marker between two runs of
-/// posts (the "show more" row of ADR-0004 / ADR-0010 D14).
+/// posts (the "show more" row).
 class TimelineEntry {
   const TimelineEntry.post(this.itemKey, this.sortKey, this.postView)
     : gapToken = null;
@@ -38,7 +38,7 @@ class TimelineSnapshot {
   });
 
   /// The server said the feed's author is protected and the viewer is not
-  /// approved (ADR-0025 D4): there are no entries, and the screen shows the
+  /// approved: there are no entries, and the screen shows the
   /// protected view instead of an empty feed.
   final bool authorProtected;
 
@@ -70,7 +70,7 @@ String sortKeyBelow(String postId) {
 /// half-merged feed.
 ///
 /// Rules: a post is stored once per feed, keyed by `post_id` (refreshes may
-/// repeat items from the server's settle window, ADR-0010 D13); rows sort by
+/// repeat items from the server's settle window); rows sort by
 /// `post_id` descending; only the newest [kTimelineRetention] posts per feed
 /// are kept.
 class TimelineStore {
@@ -141,7 +141,7 @@ class TimelineStore {
 
   /// Merges a `since_token` refresh response. A non-empty [gapPageToken]
   /// persists a gap row directly below the oldest returned post. Posts in
-  /// [removedIds] (moderation removals, ADR-0016 D10) are deleted from the
+  /// [removedIds] (moderation removals) are deleted from the
   /// feed first; empty while the server flag is off.
   Future<void> applyRefresh(
     FeedKey feed, {
@@ -170,7 +170,7 @@ class TimelineStore {
   ///   the page's `next_page_token` is stored as a gap row below the page
   ///   unless the page already reached a cached post (nothing missing).
   /// - [replace] true: the feed is rebuilt from this page (a rejected
-  ///   `since_token` or `page_token`, ADR-0010 D14 amendment 2026-10-18; the
+  ///   `since_token` or `page_token`; the
   ///   old gap tokens are unusable and cached cards may be removed ones).
   ///   Runs in one transaction after the fetch, so the old feed stays
   ///   visible if the cold open fails.
@@ -239,7 +239,7 @@ class TimelineStore {
   }
 
   /// Merges one page that fills the gap row [gapItemKey]. Merging stops at
-  /// the first post already cached (the gap is then closed, ADR-0010 D14);
+  /// the first post already cached (the gap is then closed);
   /// otherwise the gap row moves below the page with the new token, or is
   /// removed when `next_page_token` is empty.
   Future<void> applyGapPage(
@@ -293,7 +293,7 @@ class TimelineStore {
   }
 
   /// Writes the caller's own like/repost result into every cached copy of
-  /// [postId] (ADR-0018), so a restart does not show an unliked post
+  /// [postId], so a restart does not show an unliked post
   /// the caller liked: a since-refresh never re-sends old rows. Null
   /// arguments leave that field alone. Rows that are REPOSTs of [postId]
   /// (their id differs) are not touched; their flags refresh with the feed.

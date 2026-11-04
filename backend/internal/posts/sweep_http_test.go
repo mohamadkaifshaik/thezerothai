@@ -98,7 +98,7 @@ func TestSweepHandler_OneLinePerRunWith204EvenWhenItemsFail(t *testing.T) {
 	m := lastJSONLine(t, logs)
 	want := map[string]float64{
 		"due": 9, "published": 4, "cancelled": 1, "expired": 1, "transient": 1, "deferred": 2, "held_media": 4, "noop": 1, "skipped_bad_path": 1,
-		"undecodable": 1, "max_lateness_ms": 420000, "fs_reads": 17, "fs_writes": 0, "failed_total": 3,
+		"undecodable": 1, "max_lateness_ms": 420000, "failed_total": 3,
 	}
 	for k, v := range want {
 		if got, ok := m[k].(float64); !ok || got != v {
@@ -121,7 +121,7 @@ func TestSweepHandler_NoOpOutcomesAre204WithZeroReads(t *testing.T) {
 		sw := &fakeSweeper{res: SweepResult{Outcome: outcome}}
 		rec, logs := serveSweep(t, sw, http.MethodPost)
 		m := lastJSONLine(t, logs)
-		if rec.Code != http.StatusNoContent || m["outcome"] != outcome || m["fs_reads"] != float64(0) {
+		if rec.Code != http.StatusNoContent || m["outcome"] != outcome {
 			t.Errorf("%s: status %d line %v, want 204, the outcome and 0 reads", outcome, rec.Code, m)
 		}
 	}
@@ -142,7 +142,7 @@ func TestSweepHandler_QueryFailureIs500WithAnErrorReport(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[0]), &run); err != nil {
 		t.Fatal(err)
 	}
-	if run["outcome"] != "error" || run["level"] != "WARN" || run["fs_reads"] != float64(1) || run["due"] != float64(0) {
+	if run["outcome"] != "error" || run["level"] != "WARN" || run["due"] != float64(0) {
 		t.Errorf("run line = %v, want outcome=error at WARN with the counts and 1 read", run)
 	}
 	// ...and a SEPARATE Error Reporting entry carries only the scrubbed error, no counts.

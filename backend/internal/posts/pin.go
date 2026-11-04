@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-// PinChecker validates UpdateProfile.pinned_post_id (ADR-0024 D3). identity consumes it through its own consumer-side
+// PinChecker validates UpdateProfile.pinned_post_id. identity consumes it through its own consumer-side
 // PinChecker interface (the BlockChecker pattern, so identity never imports posts); the method below has exactly that
 // interface's shape, so apiserver passes *PinChecker to identity.WithPinChecker without an adapter.
 type PinChecker struct {
@@ -19,7 +19,7 @@ func NewPinChecker(r Reader) *PinChecker { return &PinChecker{reader: r} }
 // CanPin reports whether postID is uid's own, still visible POST, QUOTE or REPLY. Every "no" is (false, nil) and
 // carries no cause, so the caller can give one answer for all of them and stay no existence oracle: a missing or
 // malformed id, a deleted post, one a moderator hid (taken down or author suspended), another user's post, a REPOST
-// (ADR-0024 D3), or an empty uid. A non-nil error is an infrastructure failure and is never collapsed into false.
+// Or an empty uid. A non-nil error is an infrastructure failure and is never collapsed into false.
 //
 // Reads: 1 cold, 0 warm (Reader.Get is cache-first); writes 0. Staleness bound: the posts instance cache TTL
 // (CACHE_TTL, 60 s): a post deleted or taken down on another instance can still pass for up to that long; the D3

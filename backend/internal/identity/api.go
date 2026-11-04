@@ -1,9 +1,9 @@
-// Package identity owns users/{uid}, handles/{handleLower}, exports/{exportId} (ADR-0003). It exposes
+// Package identity owns users/{uid}, handles/{handleLower}, exports/{exportId}. It exposes
 // Service (consumed by server.go, the Connect handler) and Counters (consumed by other modules through
-// this interface only — ADR-0002: "modules depend on each other's api.go interfaces only").
+// this interface only —: "modules depend on each other's api.go interfaces only").
 //
 // Scope: CreateProfile, CheckHandleAvailability, GetMe, GetProfile, UpdateProfile, ChangeHandle, plus the account
-// lifecycle (ADR-0011): DeleteAccount, RequestAccountExport and GetAccountExport behind
+// lifecycle: DeleteAccount, RequestAccountExport and GetAccountExport behind
 // FEATURE_ACCOUNT_LIFECYCLE, served by AccountLifecycle (lifecycle*.go) with the deletion orchestrator and export
 // composer that other modules join through StepEraser / ExportSection.
 package identity
@@ -49,8 +49,8 @@ type Profile struct {
 	SnapshotVersion     int64
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
-	// Profile extras (ADR-0024 D1-D3): all absent = none. Never part of the author snapshot. PinnedPostID is omitted from the
-	// RPC responses while profile_extras is globally off (D3).
+	// Profile extras: all absent = none. Never part of the author snapshot. PinnedPostID is omitted from the
+	// RPC responses while profile_extras is globally off.
 	BannerURL      string
 	BannerThumbURL string
 	Location       string
@@ -59,7 +59,7 @@ type Profile struct {
 	// HomeTabsEnc is users/{uid}.homeTabs in a comparable, immutable form (Profile must stay comparable: UpdateProfile detects a
 	// no-op with ==). Read it with HomeTabs(); only HomeTabsAdapter writes it.
 	HomeTabsEnc string
-	// DeletionRequestedAt and DeletionJob are the account-deletion job state (ADR-0011): zero/nil for every live
+	// DeletionRequestedAt and DeletionJob are the account-deletion job state: zero/nil for every live
 	// account, set together by DeleteAccount. Never serialized to clients or exports.
 	DeletionRequestedAt time.Time
 	DeletionJob         *DeletionJob
@@ -75,16 +75,16 @@ type ProfileTarget struct {
 type MeResult struct {
 	Profile                 Profile
 	UnreadNotificationCount int64
-	// EnabledFeatures is the caller's server feature flags (ADR-0008 D6), e.g. ["graph"]. Nil when no
+	// EnabledFeatures is the caller's server feature flags, e.g. ["graph"]. Nil when no
 	// FeatureFlags provider was wired (Phase 0 default) — GetMe still returns 0 reads either way.
 	EnabledFeatures []string
-	// PendingFollowRequestCount is the number of follow requests waiting for a protected caller (ADR-0025 D7, AQ3), capped at
+	// PendingFollowRequestCount is the number of follow requests waiting for a protected caller, capped at
 	// 1,000 by the counter; 0 for every other caller and when the count failed (WARN, never an error).
 	PendingFollowRequestCount int64
-	// UnreadConversationCount is the caller's unread direct-message conversations (ADR-0027 D10), capped at 100 by
+	// UnreadConversationCount is the caller's unread direct-message conversations, capped at 100 by
 	// the counter; 0 when messaging is off for the caller, when no MessageBadge is wired and when the count failed.
 	UnreadConversationCount int64
-	// HomeTabs is the caller's pinned Home tabs in order whose kind's flag is on for the caller (ADR-0030 D6). Dangling tabs
+	// HomeTabs is the caller's pinned Home tabs in order whose kind's flag is on for the caller. Dangling tabs
 	// (list deleted or made private) are kept: GetMe adds no read, the client learns it from GetListTimeline. From the profile
 	// GetMe already read: 0 extra reads.
 	HomeTabs []HomeTab
@@ -100,10 +100,10 @@ type UpdateProfileParams struct {
 	// item (WithAvatarResolver). Without a resolver, or with FEATURE_MEDIA off for the caller, a non-empty
 	// value is rejected with ERROR_REASON_MEDIA_NOT_READY.
 	AvatarMediaID *string
-	// ADR-0024. Setting any of the four (a non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS on
+	// Setting any of the four (a non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS on
 	// for the caller (FEATURE_DISABLED feature=profile_extras, 0 reads; a request that mixes a clear with a set is refused
 	// whole). The exact value "" is a clear and is accepted from any authenticated caller whatever the flag, globally off
-	// included (Amendment 1 A2). nil = unchanged.
+	// included. nil = unchanged.
 	//
 	// BannerMediaID: "" removes the banner; non-empty must be a READY, caller-owned BANNER media item (WithBannerResolver).
 	// Location: <= 30 code points after NFC and trim, single line. Website: http(s) URL, <= 100 characters, no userinfo.
@@ -130,23 +130,23 @@ type Service interface {
 }
 
 // Counters lets other modules atomically adjust denormalized counters on users/{uid} inside their own
-// batch/transaction (ADR-0002 unit-of-work seam). No module other than identity ever writes to
+// batch/transaction (unit-of-work seam). No module other than identity ever writes to
 // users/{uid} directly. Unused until posts/graph exist; kept here so their first write goes through the
-// seam ADR-0002 specifies rather than a shortcut straight to Firestore.
+// seam the design specifies rather than a shortcut straight to Firestore.
 type Counters interface {
 	AddPostsCount(b store.Batch, uid string, delta int64)
 	AddFollowersCount(b store.Batch, uid string, delta int64)
 	AddFollowingCount(b store.Batch, uid string, delta int64)
 	// AddCounts combines a followingCount and a followersCount delta into a single Update() call — i.e. one
-	// write, not two — for the case where both counters on the *same* uid's doc change together (ADR-0008
-	// D3: Block's counter decrements are "combined per doc"). A zero delta is simply omitted from the
+	// write, not two — for the case where both counters on the *same* uid's doc change together (Block's counter decrements are "combined per doc").
+	// A zero delta is simply omitted from the
 	// update; if both are zero, no write is appended at all.
 	AddCounts(b store.Batch, uid string, followingDelta, followersDelta int64)
 }
 
 // TxProfiles lets another module read the author's users/{uid} document INSIDE its own transaction, uncached, so a
 // concurrent status change (an opsctl suspension, a DeleteAccount) conflicts with the transaction instead of being
-// missed (ADR-0021 Sweep step 3.2, security review L-7). It is the read-side companion of Counters: no module other
+// missed (security review L-7). It is the read-side companion of Counters: no module other
 // than identity ever reads or writes users/{uid} directly. Unlike Directory.GetProfiles it does NOT filter by status:
 // SUSPENDED and DELETING profiles come back with their Status so the caller can decide.
 type TxProfiles interface {
@@ -167,17 +167,17 @@ type Repo interface {
 	ResolveHandles(ctx context.Context, handleLowers []string) (map[string]string, error)
 	// SearchHandles runs the handleLower prefix range query (limit already clamped 1..20). Reads: len(result), min 1.
 	SearchHandles(ctx context.Context, prefix string, limit int) ([]Profile, error)
-	// CreateProfile runs the signup transaction (ADR-0003): read users/{uid}+handles/{h}; on first call,
+	// CreateProfile runs the signup transaction: read users/{uid}+handles/{h}; on first call,
 	// create users, handles, and (via graphInit) graph. A replay (users/{uid} already exists) returns the
 	// existing profile and performs no writes. authorize (nil = none) runs only on the not-found path, inside the
-	// transaction after the users/{uid} read and before any other read or write (ADR-0011 amendment M2: the
-	// Auth-user check); its error aborts the transaction unchanged and nothing is written. It never runs on a replay.
+	// transaction after the users/{uid} read and before any other read or write;
+	// its error aborts the transaction unchanged and nothing is written. It never runs on a replay.
 	CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) error) (profile Profile, replay bool, err error)
 	// UpdateProfile reads users/{uid}, applies mutate, writes the result back and returns the new Profile. When mutate
 	// leaves the profile unchanged (the caller must not touch UpdatedAt then) nothing is written: 1 read, 0 writes
 	// (L-4).
 	UpdateProfile(ctx context.Context, uid string, mutate func(*Profile)) (Profile, error)
-	// ChangeHandle runs the rename transaction (ADR-0003): reads users/{uid} + handles/{new} (worst case 2
+	// ChangeHandle runs the rename transaction: reads users/{uid} + handles/{new} (worst case 2
 	// reads, matching the proto doc comment). Every invariant — no-op (identical handle), case-only rename
 	// (same lower, different case), the handle-change cooldown, and handle uniqueness — is checked here,
 	// against the doc read fresh inside this same transaction (M4: never against a value the caller
@@ -197,35 +197,34 @@ type Repo interface {
 	// UnreadNotificationCount runs a count() aggregation on users/{uid}/notifications with
 	// createdAt > since.
 	UnreadNotificationCount(ctx context.Context, uid string, since time.Time) (int64, error)
-	// GetProfiles batch-reads users/{uid} for every id in uids via one GetAll (<= 50 ids; ADR-0008). Ids
+	// GetProfiles batch-reads users/{uid} for every id in uids via one GetAll (<= 50 ids). Ids
 	// with no document are simply absent from the result map (not an error).
 	GetProfiles(ctx context.Context, uids []string) (map[string]Profile, error)
 }
 
-// FeatureFlags reports which server feature flags (ADR-0008 D6) are enabled for a caller, for
+// FeatureFlags reports which server feature flags are enabled for a caller, for
 // GetMeResponse.enabled_features. 0 Firestore reads. Implemented by pkg/platform/flags.Registry; declared
 // here (rather than identity importing that package's concrete type into its exported API) so identity's
-// dependency stays interface-shaped (ADR-0002).
+// dependency stays interface-shaped.
 type FeatureFlags interface {
 	EnabledFeatures(uid string) []string
 }
 
-// BlockChecker lets GetProfile ask "did target block viewer" without identity importing graph (ADR-0008:
+// BlockChecker lets GetProfile ask "did target block viewer" without identity importing graph (
 // "identity declares a consumer-side interface identity.BlockChecker in its api.go... graph implements it
 // ... graph never gets imported by identity" — the same pattern as GraphInitializer below). Backed by the
-// viewer's own cached graph.Snapshot.BlockedBy (0 extra reads on a cache hit; ADR-0008 D2's blockedBy-cap
+// viewer's own cached graph.Snapshot.BlockedBy (0 extra reads on a cache hit; the blockedBy-cap
 // overflow fallback may add one read on the rare account that has been blocked by more than 10,000 users).
 type BlockChecker interface {
 	IsBlockedBy(ctx context.Context, viewerUID, targetUID string) (bool, error)
-	// IsFollowing reports whether viewerUID follows targetUID, from the viewer's own cached graph snapshot (0 reads on a hit;
-	// ADR-0025 AQ2/AQ6). GetProfile uses it to decide, before it touches the protected set, whether a viewer is an
+	// IsFollowing reports whether viewerUID follows targetUID, from the viewer's own cached graph snapshot (0 reads on a hit).
+	// GetProfile uses it to decide, before it touches the protected set, whether a viewer is an
 	// approved follower who keeps the pin.
 	IsFollowing(ctx context.Context, viewerUID, targetUID string) (bool, error)
 }
 
-// Directory is the batched, cache-first profile lookup other modules use to hydrate list rows (ADR-0008
-// "checks the cache first, then does one GetAll for misses (<= 50)... Reuse getProfileCached and
-// Cache; no second cache"). GetProfiles silently drops uids with no profile or a non-ACTIVE status — callers
+// Directory is the batched, cache-first profile lookup other modules use to hydrate list rows: it checks the cache first, then does one
+// GetAll for misses (<= 50), reusing getProfileCached and Cache (no second cache). GetProfiles silently drops uids with no profile or a non-ACTIVE status — callers
 // drop the corresponding row rather than erroring. Forget evicts uid's cached profile and unread count
 // immediately after another module's own commit changed users/{uid} counters (via Counters), so a
 // subsequent read on this instance reflects the write without waiting out the cache TTL (project rule: "update
@@ -233,10 +232,10 @@ type BlockChecker interface {
 type Directory interface {
 	GetProfiles(ctx context.Context, uids []string) (map[string]Profile, error)
 	// LookupProfiles is GetProfiles that also reports, in missing, the uids whose users/{uid} doc was
-	// confirmed absent by a fresh read in this call (ADR-0008). Non-ACTIVE users (SUSPENDED, DELETING)
+	// confirmed absent by a fresh read in this call. Non-ACTIVE users (SUSPENDED, DELETING)
 	// appear in neither found nor missing, so a caller can never mistake them for deleted. Same read cost.
 	LookupProfiles(ctx context.Context, uids []string) (found map[string]Profile, missing []string, err error)
-	// ResolveHandles maps lower-case handles to their owning uids for @mention resolution (ADR-0010 D7): at
+	// ResolveHandles maps lower-case handles to their owning uids for @mention resolution: at
 	// most MaxResolveHandles distinct handles, cache-first (the handle->uid cache, then the 10 s negative
 	// handle cache), then one GetAll on handles/* for the rest, so reads = the number of uncached handles
 	// (<= 10, typically 0-4). Handles that are unknown, reserved or malformed are absent from the map and cost
@@ -246,7 +245,7 @@ type Directory interface {
 	// order so an exact match comes first, raw profiles including status (SUSPENDED and DELETING included;
 	// filtering is the caller's job, as with posts.Reader). limit is clamped to 1..20. Firestore: reads =
 	// len(result), minimum 1, so at most 20; writes 0; an empty prefix returns nothing with 0 reads. Not cached
-	// here (ADR-0028 D11); the search module caches by (prefix, limit) for 60 s.
+	// here; the search module caches by (prefix, limit) for 60 s.
 	SearchHandles(ctx context.Context, prefix string, limit int) ([]Profile, error)
 	Forget(uids ...string)
 	// ForgetUnread evicts only uid's cached unread count, leaving the profile cached (for a caller that just
@@ -255,11 +254,11 @@ type Directory interface {
 }
 
 // MaxResolveHandles is the most distinct handles one ResolveHandles call takes (one post carries at most 10
-// mentions, ADR-0010 D7).
+// mentions).
 const MaxResolveHandles = 10
 
 // GraphInitializer is the minimal seam identity depends on to create the caller's empty social-graph
-// doc inside the same CreateProfile transaction (ADR-0003: "create users, handles, graph"). The full
+// doc inside the same CreateProfile transaction ("create users, handles, graph"). The full
 // GraphService (follow/unfollow/block/mute) is a separate module and out of scope for this bootstrap;
 // this interface only ever appends one Create() to the batch it's given.
 type GraphInitializer interface {
@@ -277,13 +276,13 @@ type AvatarRef struct {
 // AVATAR, not READY, or when FEATURE_MEDIA is off for the caller (one answer, no oracle).
 var ErrAvatarNotReady = errors.New("identity: avatar media not ready")
 
-// AvatarResolver is the consumer-side seam to the media module (ADR-0002); apiserver adapts media.Library and
+// AvatarResolver is the consumer-side seam to the media module; apiserver adapts media.Library and
 // the FEATURE_MEDIA check. 1 Firestore read.
 type AvatarResolver interface {
 	ResolveAvatar(ctx context.Context, uid, mediaID string) (AvatarRef, error)
 }
 
-// ProfileExtrasFlag is the wire name of FEATURE_PROFILE_EXTRAS (ADR-0024 D9): it gates SETTING the banner, location,
+// ProfileExtrasFlag is the wire name of FEATURE_PROFILE_EXTRAS: it gates SETTING the banner, location,
 // website and pinned post through UpdateProfile (and CreateUpload(BANNER), together with media); a clear (the exact
 // value "") is never gated (Amendment 1 A2). Rendering of data already stored stays ungated, except the pin and the
 // website, which are omitted while the flag is globally off (D3, Amendment 1 A1).
@@ -307,18 +306,18 @@ type BannerRef struct {
 
 // ErrBannerNotReady is returned by a BannerResolver for a media id that is missing, not the caller's, not a BANNER,
 // not READY (or READY_UNSCREENED), or when FEATURE_MEDIA is off for the caller: one answer for every cause, no oracle
-// (ADR-0024 D1). The service maps it to ERROR_REASON_MEDIA_NOT_READY, like an avatar.
+// The service maps it to ERROR_REASON_MEDIA_NOT_READY, like an avatar.
 var ErrBannerNotReady = errors.New("identity: banner media not ready")
 
-// BannerResolver is the consumer-side seam to the media module (ADR-0002), mirroring AvatarResolver. It uses
+// BannerResolver is the consumer-side seam to the media module, mirroring AvatarResolver. It uses
 // media.Reader.ResolveBanner and apiserver adapts it (including the FEATURE_MEDIA check). 1 Firestore read (the media
 // doc). A nil resolver (WithBannerResolver not called) keeps every non-empty banner_media_id rejected as not ready.
 type BannerResolver interface {
 	ResolveBanner(ctx context.Context, uid, mediaID string) (BannerRef, error)
 }
 
-// PinChecker is the consumer-side seam to the posts module (ADR-0024 D3; the BlockChecker pattern, so identity never
-// imports posts). CanPin reports whether postID is uid's own POST, QUOTE or REPLY that is still visible (not a
+// PinChecker is the consumer-side seam to the posts module (the BlockChecker pattern, so identity never imports posts).
+// CanPin reports whether postID is uid's own POST, QUOTE or REPLY that is still visible (not a
 // REPOST, not deleted or taken down, not owned by anyone else). Every "no" is the same (false, nil): the caller
 // answers one VALIDATION field=pinned_post_id for every cause, so the call is no existence oracle. A non-nil error is
 // an infrastructure failure, not a verdict. Read cache-first: 1 Firestore read cold, 0 warm. A nil checker (the
@@ -327,7 +326,7 @@ type PinChecker interface {
 	CanPin(ctx context.Context, uid, postID string) (bool, error)
 }
 
-// Pins is the identity step of the post_delete job (ADR-0024 D3). ClearIfPinned runs one transaction: it reads
+// Pins is the identity step of the post_delete job. ClearIfPinned runs one transaction: it reads
 // users/{uid} fresh (1 read) and only when pinnedPostId == postID updates it to "" (1 write, field-level, so a purged
 // users doc is never recreated; NotFound is "not pinned"). It never touches a newer pin. cleared reports whether it
 // wrote. A takedown does not call it: a restore brings the pin back. *FirestoreRepo implements it.
@@ -335,19 +334,19 @@ type Pins interface {
 	ClearIfPinned(ctx context.Context, uid, postID string) (cleared bool, err error)
 }
 
-// ProtectedSet is one instance's copy of privacy/protectedAuthors: the uids whose accounts are protected (ADR-0025 D2,
-// D3). It is an immutable snapshot, so Has and CanSee are map lookups with no I/O.
+// ProtectedSet is one instance's copy of privacy/protectedAuthors: the uids whose accounts are protected.
+// It is an immutable snapshot, so Has and CanSee are map lookups with no I/O.
 type ProtectedSet interface {
 	// Has reports whether uid is a protected account.
 	Has(uid string) bool
-	// CanSee is the one expression of the D3 predicate (ADR-0025 AQ2): viewer == author || !Has(author) || following.
+	// CanSee is the one expression of the D3 predicate: viewer == author || !Has(author) || following.
 	// following is the viewer's follow state toward author, decided by the caller from the viewer's own cached graph
 	// snapshot before it asks for the set. posts.Audience.CanSee delegates here, so the rule exists in one place;
 	// GetProfile (the pin, D4) is the only other caller.
 	CanSee(viewerUID, authorUID string, following bool) bool
 }
 
-// ProtectedAuthors is the loader of the protected set (ADR-0025 D3), declared here so every consumer depends on this
+// ProtectedAuthors is the loader of the protected set, declared here so every consumer depends on this
 // interface only (the Stage 2 sharded set or Memorystore changes no caller). The implementation is lazy, singleflight,
 // at most one read per instance per CACHE_TTL on a detached counter (protected_set_reads), never charged to a caller.
 type ProtectedAuthors interface {
@@ -364,26 +363,26 @@ type ProtectedAuthorsCached interface {
 	Cached() (ProtectedSet, bool)
 }
 
-// PrivacyListener is told by identity, after the commit, that an account stopped being protected (ADR-0025 D8, AQ1).
+// PrivacyListener is told by identity, after the commit, that an account stopped being protected.
 // graph owns the privacy_public job that accepts the pending requests; apiserver adapts this to its publish (the
-// ADR-0024 A4 MediaRetirer split). A nil listener publishes nothing (apiserver wires graph.PrivacyListener since then). identity calls it
+// MediaRetirer split). A nil listener publishes nothing (apiserver wires graph.PrivacyListener since then). identity calls it
 // with a detached, short-deadline context; an error is ERROR privacy_public_enqueue_failed and never fails the toggle.
 type PrivacyListener interface {
 	BecamePublic(ctx context.Context, uid string, at time.Time) error
 }
 
-// FollowRequestCounter is the consumer-side seam GetMe uses for pending_follow_request_count (ADR-0025 D7, AQ3; the
+// FollowRequestCounter is the consumer-side seam GetMe uses for pending_follow_request_count (the
 // BlockChecker pattern: identity cannot query graph's collection). graph implements it with a count() on
 // followRequests where followeeId == uid (1 read per 1,000 matches, minimum 1). identity caches the answer 30 s per uid.
 type FollowRequestCounter interface {
 	PendingFollowRequests(ctx context.Context, uid string) (int64, error)
 }
 
-// MessagingFlag is the wire name of FEATURE_MESSAGING in GetMe.enabled_features (ADR-0027 D6). identity cannot import
+// MessagingFlag is the wire name of FEATURE_MESSAGING in GetMe.enabled_features. identity cannot import
 // messaging, so GetMe reads the per-caller answer from the enabled_features list it already computed (0 reads).
 const MessagingFlag = "messaging"
 
-// MessageBadge is the consumer-side seam to the messaging module for GetMe.unread_conversation_count (ADR-0027 D10,;
+// MessageBadge is the consumer-side seam to the messaging module for GetMe.unread_conversation_count (
 // the BlockChecker / PinChecker pattern, so identity never imports messaging). messaging implements it with a
 // count() of users/{uid}/dmInbox where unreadCount > 0, Limit 100: 1 read (minimum 1). Requests do not count. identity
 // caches the answer 30 s per uid and calls it only for a caller with messaging on. A nil MessageBadge

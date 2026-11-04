@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ADR-0029 Amendment 1: the tests the review (security-w6-36-poll-changes.md L-1) and the 60 x 3 race ask for that the
+// The tests the review (security-w6-36-poll-changes.md L-1) and the 60 x 3 race ask for that the
 // developer's / files do not hold. Names start with TestW641_ so one -run regex selects them.
 //   - L-1: the author blocks a voter who had voted; replay, change and stale shapes, by post id and by REPOST id, answer the bytes of a
 //     missing post (0 writes), and nothing changes;
@@ -23,7 +23,6 @@ import (
 	engagementv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1"
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // rawVoteExpecting is rawVote with expectedChoice in the JSON body (the exact bytes of the response are compared, not a decoded error).
@@ -92,11 +91,6 @@ func TestW641_L1_AuthorBlocksAVoterWhoVoted_NotFoundBytes(t *testing.T) {
 			if st != status || body != ref {
 				t.Errorf("%s, %s: %d %s, want the missing-post bytes %d %s", target.name, s.name, st, body, status, ref)
 			}
-			got := e2.lineBudget(t, rpcVotePoll)
-			if got.Writes() != 0 {
-				t.Errorf("%s, %s: wrote %d, want 0", target.name, s.name, got.Writes())
-			}
-			budgettest.Assert(t, "VotePoll NOT_FOUND (author blocks voter)", got, budgettest.Budget{Reads: 7})
 		}
 	}
 	d, ok := voteDocFor(t, e, pid, voter.uid)

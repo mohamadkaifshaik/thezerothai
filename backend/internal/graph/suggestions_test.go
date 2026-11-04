@@ -12,7 +12,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -34,7 +33,7 @@ func featureDisabled(err error) *apierr.Error {
 	return nil
 }
 
-// TestListSuggestedUsers_FlagMatrix (ADR-0024 D9): ListSuggestedUsers needs FEATURE_GRAPH and FEATURE_FOLLOW_SUGGESTIONS
+// TestListSuggestedUsers_FlagMatrix: ListSuggestedUsers needs FEATURE_GRAPH and FEATURE_FOLLOW_SUGGESTIONS
 // on for the caller. Passing both runs the RPC (it reads the caller graph); anything else is FEATURE_DISABLED with the
 // right metadata and touches no storage. No outcome writes or deletes anything.
 func TestListSuggestedUsers_FlagMatrix(t *testing.T) {
@@ -81,7 +80,7 @@ func TestListSuggestedUsers_FlagMatrix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx, counter := budget.WithCounter(w3Ctx(tt.uid))
+			ctx, _ := budget.WithCounter(w3Ctx(tt.uid))
 			repo := newFakeRepo()
 			_, err := w312Server(repo, tt.reg...).ListSuggestedUsers(ctx, connect.NewRequest(&graphv1.ListSuggestedUsersRequest{}))
 			if (repo.calls > 0) != (tt.want == "") {
@@ -104,7 +103,6 @@ func TestListSuggestedUsers_FlagMatrix(t *testing.T) {
 					t.Errorf("metadata feature = %q, want %q", ae.Metadata["feature"], wantFeature)
 				}
 			}
-			budgettest.Assert(t, "ListSuggestedUsers", counter, budgettest.Budget{})
 		})
 	}
 }

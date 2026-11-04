@@ -20,11 +20,11 @@ import (
 )
 
 const (
-	// listsCollection is the one collection this module owns (ADR-0030 D2). Only lists.FirestoreRepo touches it. It has a
+	// listsCollection is the one collection this module owns. Only lists.FirestoreRepo touches it. It has a
 	// row (apiserver/lifecycle_collections_guard_test.go), the `lists` eraser step and the `lists` export section.
 	listsCollection = "lists"
 
-	// The idempotency doc id is hashed with these rpc names (ADR-0030 D7).
+	// The idempotency doc id is hashed with these rpc names.
 	rpcCreateList = "CreateList"
 	rpcUpdateList = "UpdateList"
 	rpcDeleteList = "DeleteList"
@@ -36,7 +36,7 @@ const (
 	txBackoff = 20 * time.Millisecond
 )
 
-// listDoc is lists/{listId} (ADR-0030 D2). memberIds is always written as an array (never null) and stays indexed: the
+// listDoc is lists/{listId}. memberIds is always written as an array (never null) and stays indexed: the
 // eraser's `memberIds array-contains uid` query needs the automatic array index, so firestore.indexes.json has no override.
 type listDoc struct {
 	OwnerID     string    `firestore:"ownerId"`
@@ -79,7 +79,7 @@ func NewFirestoreRepo(client *firestore.Client, quotas *quota.Store, idem *idemp
 }
 
 // SetTxProfiles wires the fresh, uncached status read AddMember makes of a target who is not already a member (graph
-// precedent, ADR-0025 D6). apiserver and the integration tests call it; without it a real add fails closed.
+// precedent). apiserver and the integration tests call it; without it a real add fails closed.
 func (r *FirestoreRepo) SetTxProfiles(p identity.TxProfiles) { r.txProfiles = p }
 
 func (r *FirestoreRepo) col() *firestore.CollectionRef { return r.client.Collection(listsCollection) }
@@ -167,7 +167,7 @@ func (r *FirestoreRepo) countOwned(ctx context.Context, tx *firestore.Transactio
 	return out.N, nil
 }
 
-// Create implements Repo: one transaction (ADR-0030 D7, rule 4). Reads, fresh and in this order: idempotency/{hash} (a
+// Create implements Repo: one transaction. Reads, fresh and in this order: idempotency/{hash} (a
 // replay returns here: 1 read), quotas/{uid}, count() of the owner's lists (3 reads; the cap is exact). Writes 3: Create the
 // list, Create the idempotency document, the quota record. At the cap or over the quota nothing is written.
 func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResult, error) {
@@ -222,7 +222,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, p CreateParams) (CreateResul
 }
 
 // getOwned reads lists/{id} inside tx (1 read) and decodes it, or ErrNotFound when it is missing or not uid's. The two are
-// indistinguishable to every caller (ADR-0030 D3).
+// indistinguishable to every caller.
 func (r *FirestoreRepo) getOwned(ctx context.Context, tx *firestore.Transaction, uid, id string) (listDoc, error) {
 	snap, err := tx.Get(r.ref(id))
 	budget.FromContext(ctx).AddReads(1)
@@ -305,7 +305,7 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 // Delete implements Repo: one transaction. Reads, fresh: idempotency (a replay returns: 1 read), the list (2 reads). The
 // owner's list is deleted with an Exists precondition (1 delete) and the idempotency document is written (1 write). A
 // list that is missing or not the caller's is success with no effect: still the idempotency document (1 write), so a late
-// retry replays (ADR-0030 D7, the DeletePost precedent).
+// retry replays (the DeletePost precedent).
 func (r *FirestoreRepo) Delete(ctx context.Context, p DeleteParams) (DeleteResult, error) {
 	if err := r.ready(); err != nil {
 		return DeleteResult{}, err

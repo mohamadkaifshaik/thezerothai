@@ -6,16 +6,10 @@ import 'package:http/http.dart' as http;
 
 import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
-import '../../../core/network/rate_limit_hold.dart';
 import '../../../gen/dzeroth/media/v1/media.pb.dart' as pb;
 import '../../posts/domain/composer_attachment_rules.dart' show kFeatureGif;
 import '../domain/media_feature_flag.dart';
 import '../domain/processed_image.dart';
-
-/// The server's name for the per-uid daily read budget. It covers every RPC
-/// including media (ADR-0010 D5), so it is the one limit shared with the
-/// read screens through [RateLimitHold].
-const _kReadBudgetDaily = 'read_budget_daily';
 
 /// Storage answered a signed-URL PUT with a 4xx: the URL is expired or
 /// otherwise unusable, so retrying the same URL cannot work. The uploader
@@ -41,10 +35,6 @@ class FinalizeRequestItem {
 /// - With the media flag off no RPC is sent ([FeatureDisabledException]); a
 ///   server FEATURE_DISABLED calls [onFeatureDisabled] so the caller can
 ///   refresh `GetMe.enabled_features`.
-/// - The daily read budget is shared with the timeline through the one
-///   session [RateLimitHold]: a held limit is thrown without sending, and a
-///   `read_budget_daily` answer is recorded (the short per-minute media
-///   bucket is not: it must not freeze unrelated reads).
 /// - The signed-URL PUT uses a bare [http.Client], never the API client, so
 ///   no Firebase ID token or App Check token reaches Cloud Storage.
 class MediaRepository {
@@ -53,7 +43,6 @@ class MediaRepository {
     required http.Client httpClient,
     required bool Function() isMediaEnabled,
     bool Function()? isGifEnabled,
-    RateLimitHold? rateLimitHold,
     void Function()? onFeatureDisabled,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
     Duration putTimeout = const Duration(minutes: 2),
@@ -61,7 +50,6 @@ class MediaRepository {
        _http = httpClient,
        _isMediaEnabled = isMediaEnabled,
        _isGifEnabled = isGifEnabled ?? (() => true),
-       _hold = rateLimitHold ?? RateLimitHold(),
        _onFeatureDisabled = onFeatureDisabled,
        _onUnexpectedError = onUnexpectedError,
        _putTimeout = putTimeout;
@@ -73,7 +61,6 @@ class MediaRepository {
   /// `gif` in `GetMe.enabled_features` (a GIF upload needs it as well as
   /// `media`); the default keeps callers that never upload GIFs unchanged.
   final bool Function() _isGifEnabled;
-  final RateLimitHold _hold;
   final void Function()? _onFeatureDisabled;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
   final Duration _putTimeout;
@@ -85,13 +72,8 @@ class MediaRepository {
         feature: kFeatureMedia,
       );
     }
-    final held = _hold.check();
-    if (held != null) throw held;
     try {
       return await guardApiCall(call);
-    } on RateLimitedException catch (error) {
-      if (error.limitName == _kReadBudgetDaily) _hold.record(error);
-      rethrow;
     } on FeatureDisabledException {
       _onFeatureDisabled?.call();
       rethrow;

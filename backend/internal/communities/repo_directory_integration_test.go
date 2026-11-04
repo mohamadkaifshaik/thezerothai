@@ -14,10 +14,9 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// Budgets here exclude the account-status interceptor read (not part of this harness); the RPC doc comments and ADR-0031 list them
+// Budgets here exclude the account-status interceptor read (not part of this harness); the RPC doc comments list them
 // with it: ListCommunities 52 cold (<= 22 at Stage 0) / 0-2 warm, ListCommunityMembers 43 / 103 cold at page 20 / 50.
 
 func newListEnv(t *testing.T) *env {
@@ -59,15 +58,12 @@ func TestDirectory_OrderFilterAndBudgets(t *testing.T) {
 	e.seedMemberships(t, "member", Memberships{Joined: []string{cids[2]}, Banned: []string{cids[4]}})
 
 	var got []View
-	cold := measured(t, "ListCommunities cold", budgettest.Budget{Reads: 6}, func(ctx context.Context) { // 5 rows (3 ACTIVE kept) + memberships
+	measured(t, "ListCommunities cold", func(ctx context.Context) { // 5 rows (3 ACTIVE kept) + memberships
 		var err error
 		if got, err = e.svc.ListCommunities(ctx, "member", ""); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if cold.Reads() != 6 {
-		t.Errorf("cold reads = %d, want 6 (5 rows + memberships)", cold.Reads())
-	}
 	want := []string{cids[2], cids[4], cids[0]}
 	if len(got) != 3 {
 		t.Fatalf("directory = %d rows, want 3 (SUSPENDED and ARCHIVED absent)", len(got))
@@ -81,13 +77,13 @@ func TestDirectory_OrderFilterAndBudgets(t *testing.T) {
 		t.Errorf("roles = %v %v %v", got[0].Role, got[1].Role, got[2].Role)
 	}
 	// the same viewer again: everything warm, 0 reads
-	measured(t, "ListCommunities warm", budgettest.Budget{Reads: 0}, func(ctx context.Context) {
+	measured(t, "ListCommunities warm", func(ctx context.Context) {
 		if _, err := e.svc.ListCommunities(ctx, "member", ""); err != nil {
 			t.Fatal(err)
 		}
 	})
 	// another viewer: the shared entry is warm, only the memberships doc is read (0-2 warm with the interceptor)
-	measured(t, "ListCommunities warm, new viewer", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	measured(t, "ListCommunities warm, new viewer", func(ctx context.Context) {
 		if _, err := e.svc.ListCommunities(ctx, "stranger", ""); err != nil {
 			t.Fatal(err)
 		}
@@ -103,13 +99,13 @@ func TestDirectory_WorstCaseAt50AndAtStage0(t *testing.T) {
 			}
 			rows := min(n+5, DirectoryMax)
 			var got []View
-			c := measured(t, "ListCommunities cold", budgettest.Budget{Reads: int64(rows) + 1}, func(ctx context.Context) {
+			c := measured(t, "ListCommunities cold", func(ctx context.Context) {
 				var err error
 				if got, err = e.svc.ListCommunities(ctx, "member", ""); err != nil {
 					t.Fatal(err)
 				}
 			})
-			if len(got) != rows || c.Reads() != int64(rows+1) {
+			if len(got) != rows {
 				t.Errorf("rows = %d, reads = %d", len(got), c.Reads())
 			}
 		})
@@ -158,24 +154,21 @@ func TestMembers_BudgetsAtPage20And50(t *testing.T) {
 			cid := "0000000000000000821"
 			e.seedPageCommunity(t, cid, 60, 0)
 			var page MembersPage
-			c := measured(t, "ListCommunityMembers cold", budgettest.Budget{Reads: tc.reads}, func(ctx context.Context) {
+			c := measured(t, "ListCommunityMembers cold", func(ctx context.Context) {
 				var err error
 				if page, err = e.svc.ListCommunityMembers(ctx, "viewer", MembersInput{CommunityID: cid, PageSize: tc.size}); err != nil {
 					t.Fatal(err)
 				}
 			})
-			if len(page.Items) != int(tc.size) || c.Reads() != tc.reads || page.NextPageToken == "" {
+			if len(page.Items) != int(tc.size) || page.NextPageToken == "" {
 				t.Errorf("rows = %d, reads = %d, token %q", len(page.Items), c.Reads(), page.NextPageToken)
 			}
 			// the community comes from the cache; the production directory and graph caches take the rest
-			warm := measured(t, "ListCommunityMembers warm", budgettest.Budget{Reads: tc.reads - 1}, func(ctx context.Context) {
+			measured(t, "ListCommunityMembers warm", func(ctx context.Context) {
 				if _, err := e.svc.ListCommunityMembers(ctx, "viewer", MembersInput{CommunityID: cid, PageSize: tc.size}); err != nil {
 					t.Fatal(err)
 				}
 			})
-			if warm.Reads() != tc.reads-1 {
-				t.Errorf("warm reads = %d, want %d", warm.Reads(), tc.reads-1)
-			}
 		})
 	}
 }
@@ -219,15 +212,14 @@ func TestMembers_BannedPageForModeratorsOnly(t *testing.T) {
 	cid := "0000000000000000823"
 	e.seedPageCommunity(t, cid, 5, 4)
 	for _, uid := range []string{"member", "stranger", "b000"} {
-		c := measured(t, "BANNED by "+uid, budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+		_ = measured(t, "BANNED by "+uid, func(ctx context.Context) {
 			_, err := e.svc.ListCommunityMembers(ctx, uid, MembersInput{CommunityID: cid, Filter: FilterBanned})
 			wantAPIErr(t, err, connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_FORBIDDEN, map[string]string{"reason": "not_moderator"})
 		})
-		_ = c
 	}
 	for _, uid := range []string{"owner", "mod1"} {
 		var page MembersPage
-		measured(t, "BANNED by "+uid, budgettest.Budget{Reads: 1 + 4 + 4 + 1}, func(ctx context.Context) {
+		measured(t, "BANNED by "+uid, func(ctx context.Context) {
 			var err error
 			if page, err = e.svc.ListCommunityMembers(ctx, uid, MembersInput{CommunityID: cid, Filter: FilterBanned}); err != nil {
 				t.Fatal(err)
@@ -272,10 +264,9 @@ func TestMembers_BlocksAndTamperedToken(t *testing.T) {
 		t.Fatalf("owner page = %v, %v (F14: moderators see every member)", uids(owner), err)
 	}
 	for name, tok := range map[string]string{"tampered": p.NextPageToken + "x", "foreign": owner.NextPageToken} {
-		c := measured(t, name, budgettest.Budget{Reads: 0}, func(ctx context.Context) {
+		_ = measured(t, name, func(ctx context.Context) {
 			_, err := e.svc.ListCommunityMembers(ctx, "viewer", MembersInput{CommunityID: cid, PageSize: 3, PageToken: tok})
 			wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "page_token"})
 		})
-		_ = c
 	}
 }

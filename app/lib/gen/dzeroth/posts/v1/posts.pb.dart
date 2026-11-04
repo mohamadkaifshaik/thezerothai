@@ -93,7 +93,7 @@ class Mention extends $pb.GeneratedMessage {
   void clearHandle() => $_clearField(2);
 }
 
-/// One choice of a poll (ADR-0029).
+/// One choice of a poll.
 class PollChoice extends $pb.GeneratedMessage {
   factory PollChoice({
     $core.String? label,
@@ -165,7 +165,7 @@ class PollChoice extends $pb.GeneratedMessage {
   void clearVotes() => $_clearField(2);
 }
 
-/// A poll on a root post (ADR-0029 D1, D4). Stored on the post doc, so it costs 0 extra reads anywhere a post is read.
+/// A poll on a root post. Stored on the post doc, so it costs 0 extra reads anywhere a post is read.
 /// Counts are the post's instance-cached state (up to 60 s stale), except in the VotePoll response (the committed
 /// counts). Per viewer: never cache a Post with a poll across viewers on the client.
 /// In EmbeddedPost.poll (a repost or quote row) it is a frozen definition: labels and closes_at only, every votes 0,
@@ -280,7 +280,7 @@ class Poll extends $pb.GeneratedMessage {
   void clearClosed() => $_clearField(5);
 }
 
-/// The poll a CreatePost asks for (ADR-0029 D1, F4).
+/// The poll a CreatePost asks for.
 class PollDraft extends $pb.GeneratedMessage {
   factory PollDraft({
     $core.Iterable<$core.String>? choices,
@@ -349,7 +349,7 @@ class PollDraft extends $pb.GeneratedMessage {
 /// author snapshot is not refreshed by the profile-snapshot job). Replaced by a tombstone (unavailable = true, only
 /// post_id set) by the post-delete job when the original is deleted, and when its author deletes their account.
 /// A REPOST whose original is deleted is removed outright instead.
-/// It carries no community label at Stage 0 (ADR-0031 D5): a REPOST row shows "reposted", never the original's community.
+/// It carries no community label at Stage 0: a REPOST row shows "reposted", never the original's community.
 class EmbeddedPost extends $pb.GeneratedMessage {
   factory EmbeddedPost({
     $core.String? postId,
@@ -487,7 +487,7 @@ class EmbeddedPost extends $pb.GeneratedMessage {
   @$pb.TagNumber(6)
   void clearUnavailable() => $_clearField(6);
 
-  /// The original's disclosure labels (ADR-0021 D3), frozen at write time; render them on the embed.
+  /// The original's disclosure labels, frozen at write time; render them on the embed.
   @$pb.TagNumber(7)
   $core.bool get paidPartnership => $_getBF(6);
   @$pb.TagNumber(7)
@@ -506,7 +506,7 @@ class EmbeddedPost extends $pb.GeneratedMessage {
   @$pb.TagNumber(8)
   void clearMadeWithAi() => $_clearField(8);
 
-  /// The original's effective reply policy, for the viewer hint of a REPOST row (ADR-0021 D2).
+  /// The original's effective reply policy, for the viewer hint of a REPOST row.
   @$pb.TagNumber(9)
   ReplyPolicy get replyPolicy => $_getN(8);
   @$pb.TagNumber(9)
@@ -516,7 +516,7 @@ class EmbeddedPost extends $pb.GeneratedMessage {
   @$pb.TagNumber(9)
   void clearReplyPolicy() => $_clearField(9);
 
-  /// The original's poll as a frozen definition (ADR-0029 D5): labels and closes_at, no counts (see Poll). Unset when
+  /// The original's poll as a frozen definition: labels and closes_at, no counts (see Poll). Unset when
   /// the original has no poll, in a tombstone, and when the embed is stripped (EMBED_VIEWER_STATE_PROTECTED).
   @$pb.TagNumber(10)
   Poll get poll => $_getN(9);
@@ -811,7 +811,7 @@ class Post extends $pb.GeneratedMessage {
   @$pb.TagNumber(17)
   $0.Timestamp ensureCreatedAt() => $_ensure(16);
 
-  /// Effective reply policy (ADR-0021 D2); on replies, the one inherited from the conversation. UNSPECIFIED ==
+  /// Effective reply policy; on replies, the one inherited from the conversation. UNSPECIFIED ==
   /// EVERYONE.
   @$pb.TagNumber(18)
   ReplyPolicy get replyPolicy => $_getN(17);
@@ -822,7 +822,7 @@ class Post extends $pb.GeneratedMessage {
   @$pb.TagNumber(18)
   void clearReplyPolicy() => $_clearField(18);
 
-  /// User-asserted disclosure labels (ADR-0021 D3).
+  /// User-asserted disclosure labels.
   @$pb.TagNumber(19)
   $core.bool get paidPartnership => $_getBF(18);
   @$pb.TagNumber(19)
@@ -841,7 +841,7 @@ class Post extends $pb.GeneratedMessage {
   @$pb.TagNumber(20)
   void clearMadeWithAi() => $_clearField(20);
 
-  /// The post's poll (ADR-0029), root posts only; unset otherwise. Redacted per viewer (Poll.results_visible). Unset on a
+  /// The post's poll, root posts only; unset otherwise. Redacted per viewer (Poll.results_visible). Unset on a
   /// withheld row (PostView.withheld). Vote with dzeroth.engagement.v1.EngagementService.VotePoll.
   @$pb.TagNumber(21)
   Poll get poll => $_getN(20);
@@ -854,7 +854,7 @@ class Post extends $pb.GeneratedMessage {
   @$pb.TagNumber(21)
   Poll ensurePoll() => $_ensure(20);
 
-  /// The community the post was created in, for the label row (ADR-0031 D5). Set only on a root post or quote created
+  /// The community the post was created in, for the label row. Set only on a root post or quote created
   /// with CreatePostRequest.community_id, while a community moderator has not hidden it and FEATURE_COMMUNITIES is not
   /// globally off (with it globally off community posts render as ordinary posts). Never on a reply, a REPOST row or an
   /// embed. Set on every surface that returns the post (Home, profile, lists, search, GetPost, GetThread, bookmarks),
@@ -977,7 +977,7 @@ class ArticlePreview extends $pb.GeneratedMessage {
   void clearCoverUrl() => $_clearField(4);
 }
 
-/// The community a post was created in (ADR-0031 D2, D5). A snapshot taken at post time: a rename does not rewrite old
+/// The community a post was created in. A snapshot taken at post time: a rename does not rewrite old
 /// posts, while the community's own page and feed header show the current name. A tap opens the community
 /// (dzeroth.communities.v1.CommunityService.GetCommunity, dzeroth.timeline.v1.TimelineService.GetCommunityTimeline),
 /// only when GetMe.enabled_features lists "communities".
@@ -1054,7 +1054,7 @@ class CommunityRef extends $pb.GeneratedMessage {
 }
 
 /// A post as seen by the caller. Viewer flags come from userLikes/{uid} (1 read per request, cached 60 s) while
-/// FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the caller (liked / reposted only with engagement, bookmarked_by_viewer with either); otherwise all are false and no userLikes read happens (ADR-0010 D3).
+/// FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the caller (liked / reposted only with engagement, bookmarked_by_viewer with either); otherwise all are false and no userLikes read happens.
 /// For a REPOST item the flags describe the original (embedded.post_id): the caller liked / reposted it.
 class PostView extends $pb.GeneratedMessage {
   factory PostView({
@@ -1161,9 +1161,9 @@ class PostView extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   void clearRepostedByViewer() => $_clearField(3);
 
-  /// Whether the caller may reply (ADR-0021 D2). Timelines decide it with 0 reads for root posts only (EVERYONE, the
+  /// Whether the caller may reply. Timelines decide it with 0 reads for root posts only (EVERYONE, the
   /// viewer is the author, or MENTIONED_ONLY); a REPOST row uses embedded.reply_policy; anything else is UNKNOWN.
-  /// A post in a community conversation (ADR-0031 D5): GetCommunityTimeline sets ALLOWED or NOT_ALLOWED from the
+  /// A post in a community conversation: GetCommunityTimeline sets ALLOWED or NOT_ALLOWED from the
   /// viewer's role (+0 reads); GetPost and GetThread decide it from the caller's member doc; Home, profile, list and
   /// search timelines answer UNKNOWN (CreatePost decides).
   @$pb.TagNumber(4)
@@ -1177,9 +1177,9 @@ class PostView extends $pb.GeneratedMessage {
 
   /// Set by GetPost and GetThread for a REPOST or QUOTE whose embedded author the viewer blocks or mutes, so the
   /// client shows the placeholder even when its relationship cache is cold (issue #152). Timelines do not set BLOCKED
-  /// or MUTED: they drop such rows (ADR-0018 D13). PROTECTED (ADR-0025 D4) is different: every surface that returns a
+  /// or MUTED: they drop such rows. PROTECTED is different: every surface that returns a
   /// QUOTE row, timelines and lists included, keeps the row and sets it, with the embed stripped; so does the caller's
-  /// own REPOST on the caller's own profile (ADR-0025 note L-2).
+  /// own REPOST on the caller's own profile.
   @$pb.TagNumber(5)
   EmbedViewerState get embedViewerState => $_getN(4);
   @$pb.TagNumber(5)
@@ -1189,7 +1189,7 @@ class PostView extends $pb.GeneratedMessage {
   @$pb.TagNumber(5)
   void clearEmbedViewerState() => $_clearField(5);
 
-  /// Whether the caller bookmarked this item (ADR-0023 D3); true only for the caller, never another user's state. For a
+  /// Whether the caller bookmarked this item; true only for the caller, never another user's state. For a
   /// REPOST row it describes the original (embedded.post_id), like liked_by_viewer. Hydrated from userLikes.bookmarks at
   /// 0 extra reads when FEATURE_ENGAGEMENT is on for the viewer (the userLikes read already happens), +1 cold read
   /// (cached 60 s) when only FEATURE_BOOKMARKS is on; absent (false) when neither flag is on for the viewer. Staleness
@@ -1205,7 +1205,7 @@ class PostView extends $pb.GeneratedMessage {
   void clearBookmarkedByViewer() => $_clearField(6);
 
   /// The server stripped this row's post to post_id, kind and the author snapshot because the caller may no longer see
-  /// its protected author (ADR-0025 note L-2): no text, media, labels, hashtags, mentions, counts, reply fields,
+  /// its protected author: no text, media, labels, hashtags, mentions, counts, reply fields,
   /// embed or timestamp. Set only on the caller's own Likes and Bookmarks lists (ListLikedPosts, ListBookmarks), where
   /// liked_by_viewer or bookmarked_by_viewer stays true; render the protected placeholder with the undo action (Unlike
   /// or Remove bookmark). The caller's own REPOST on their own profile uses embed_viewer_state = PROTECTED instead.
@@ -1219,7 +1219,7 @@ class PostView extends $pb.GeneratedMessage {
   @$pb.TagNumber(7)
   void clearWithheld() => $_clearField(7);
 
-  /// The caller's own vote in this item's poll (ADR-0029 D3): 0 = not voted (or not known: FEATURE_ENGAGEMENT off for
+  /// The caller's own vote in this item's poll: 0 = not voted (or not known: FEATURE_ENGAGEMENT off for
   /// the caller, or the vote is older than the newest 500 the server keeps for the check mark), 1-4 = choice index + 1.
   /// For a REPOST row it describes the original's poll (embedded.post_id), like liked_by_viewer. Hydrated from
   /// userLikes at 0 extra reads; staleness bound 60 s (the userLikes instance cache). Never another user's vote.
@@ -1233,8 +1233,8 @@ class PostView extends $pb.GeneratedMessage {
   @$pb.TagNumber(8)
   void clearViewerPollChoice() => $_clearField(8);
 
-  /// True when this item carries a live poll (not closed), the caller is not its author and the caller blocks the author
-  /// (ADR-0029 Amendment 1 A1.5): VotePoll then answers FAILED_PRECONDITION + TARGET_BLOCKED, so render the choices
+  /// True when this item carries a live poll (not closed), the caller is not its author and the caller blocks the author:
+  /// VotePoll then answers FAILED_PRECONDITION + TARGET_BLOCKED, so render the choices
   /// disabled ("You blocked @handle. Unblock to vote."). Negative polarity on purpose: false on every other row, on every
   /// producer that does not set it and on older revisions, which is the behaviour before the amendment; the server stays
   /// the authority. Set only where a post by a blocked author is shown directly (GetPost, GetThread, GetUserTimeline of
@@ -1373,7 +1373,7 @@ class CreatePostRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(6)
   $pb.PbList<$core.String> get mediaAltTexts => $_getList(5);
 
-  /// Root posts and quotes only (ADR-0021 D2); FEATURE_REPLY_AUDIENCE.
+  /// Root posts and quotes only; FEATURE_REPLY_AUDIENCE.
   @$pb.TagNumber(7)
   ReplyPolicy get replyPolicy => $_getN(6);
   @$pb.TagNumber(7)
@@ -1383,7 +1383,7 @@ class CreatePostRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(7)
   void clearReplyPolicy() => $_clearField(7);
 
-  /// Disclosure labels (ADR-0021 D3); FEATURE_CONTENT_DISCLOSURE.
+  /// Disclosure labels; FEATURE_CONTENT_DISCLOSURE.
   @$pb.TagNumber(8)
   $core.bool get paidPartnership => $_getBF(7);
   @$pb.TagNumber(8)
@@ -1402,7 +1402,7 @@ class CreatePostRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(9)
   void clearMadeWithAi() => $_clearField(9);
 
-  /// A poll on a root post (ADR-0029 D1); FEATURE_POLLS. Rules in the CreatePost comment.
+  /// A poll on a root post; FEATURE_POLLS. Rules in the CreatePost comment.
   @$pb.TagNumber(10)
   PollDraft get poll => $_getN(9);
   @$pb.TagNumber(10)
@@ -1414,7 +1414,7 @@ class CreatePostRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(10)
   PollDraft ensurePoll() => $_ensure(9);
 
-  /// Post into this community (ADR-0031 D5): a 19-digit community id; root posts and quotes only, members only, no
+  /// Post into this community: a 19-digit community id; root posts and quotes only, members only, no
   /// reply_policy other than EVERYONE; FEATURE_COMMUNITIES. "" => an ordinary post. Rules in the CreatePost comment.
   @$pb.TagNumber(11)
   $core.String get communityId => $_getSZ(10);
@@ -1940,7 +1940,7 @@ class GetThreadResponse extends $pb.GeneratedMessage {
   void clearRootUnavailable() => $_clearField(7);
 }
 
-/// A post waiting to be published by the server (ADR-0021 D4). Kept 7 days after it reaches a terminal state.
+/// A post waiting to be published by the server. Kept 7 days after it reaches a terminal state.
 class ScheduledPost extends $pb.GeneratedMessage {
   factory ScheduledPost({
     $core.String? scheduledId,
@@ -2629,12 +2629,12 @@ class PostServiceApi {
   /// <= 10 mentions (resolved via handles/*, cached), <= 10 hashtags (extracted server-side).
   /// Requires a verified email or a Google/Apple provider. Quota: 100 posts/day (quotas/{uid}; 20/day for
   /// accounts younger than 24 h).
-  /// Not available while the sub-feature's flag is off for the caller (ADR-0010 D2): a non-empty reply_to_post_id
+  /// Not available while the sub-feature's flag is off for the caller: a non-empty reply_to_post_id
   /// (FEATURE_REPLIES), quote_of_post_id (FEATURE_ENGAGEMENT), media_ids / media_alt_texts (FEATURE_MEDIA), a
   /// reply_policy other than UNSPECIFIED (FEATURE_REPLY_AUDIENCE) or paid_partnership / made_with_ai true
   /// (FEATURE_CONTENT_DISCLOSURE) => FAILED_PRECONDITION + FEATURE_DISABLED with metadata["feature"] = "replies" |
   /// "quotes" | "media" | "reply_audience" | "content_disclosure" (first match in that order), 0 reads.
-  /// Reply policy (ADR-0021 D2): settable on a root post or a quote only (a non-UNSPECIFIED value on a reply =>
+  /// Reply policy: settable on a root post or a quote only (a non-UNSPECIFIED value on a reply =>
   /// VALIDATION field "reply_policy"); FOLLOWING_OF_FOLLOWING and VERIFIED => VALIDATION field "reply_policy" ("not
   /// available yet"). UNSPECIFIED and EVERYONE are stored as absent. It covers the whole conversation: a reply stores
   /// the policy inherited from its parent (0 extra reads). A reply into a FOLLOWING or MENTIONED_ONLY conversation is
@@ -2645,9 +2645,9 @@ class PostServiceApi {
   /// PERMISSION_DENIED + REPLY_NOT_ALLOWED (metadata["policy"]), 0 writes, nothing stored under the idempotency key.
   /// Enforcement is not flag-gated. Extra reads: EVERYONE / absent +0; parent = root: MENTIONED_ONLY +0, FOLLOWING
   /// +1 cold; deeper: MENTIONED_ONLY +3, FOLLOWING +4 cold; +0 warm.
-  /// Disclosure (ADR-0021 D3): paid_partnership and made_with_ai are user-asserted labels, never rejected; copied
+  /// Disclosure: paid_partnership and made_with_ai are user-asserted labels, never rejected; copied
   /// into the embedded snapshot of quotes and reposts. Clients compare the returned post's reply_policy and labels
-  /// with what they sent (UNSPECIFIED == EVERYONE) and warn on a mismatch (ADR-0021 L-1).
+  /// with what they sent (UNSPECIFIED == EVERYONE) and warn on a mismatch.
   /// Quotes (plan engagement.md, FEATURE_ENGAGEMENT): quote_of_post_id is a 19-digit post id that must be visible
   /// to the caller by the GetPost rules (else NOT_FOUND "post not found", 0 writes). Quoting a REPOST quotes its
   /// original. A quote needs its own text or at least one image, cannot also set reply_to_post_id (VALIDATION), is
@@ -2655,7 +2655,7 @@ class PostServiceApi {
   /// frozen at write time, and increments the quoted post's quote_count in the same transaction. Reads +3 cold /
   /// +0 warm for the visibility check and writes +1 (quoteCount) over a root post: 17 cold / 2 warm reads, 5 writes.
   /// Deleting the quoted post replaces the embed with an unavailable tombstone (async job).
-  /// Protected authors (ADR-0025 D5): quoting a protected account's post is refused for everyone but that account:
+  /// Protected authors: quoting a protected account's post is refused for everyone but that account:
   /// a caller who may not see the post gets NOT_FOUND "post not found" (the visibility check above), and an approved
   /// follower gets FAILED_PRECONDITION + PROTECTED_ACCOUNT; both 0 writes. A reply to such a post by an approved
   /// follower is allowed and is public: it shows its own text, never the parent's.
@@ -2665,7 +2665,7 @@ class PostServiceApi {
   /// "post not found", 0 writes). The reply copies the parent's conversation_id, sets reply_to_handle, increments
   /// the parent's reply_count in the same transaction and is never fanned out to the home timeline.
   /// Reply reads 15 cold / 3 warm, writes 5 (idempotency, post, users.postsCount, quotas, parent replyCount).
-  /// Reply audience (ADR-0021 D2): a reply into a restricted conversation (FOLLOWING / MENTIONED_ONLY root) is checked after
+  /// Reply audience: a reply into a restricted conversation (FOLLOWING / MENTIONED_ONLY root) is checked after
   /// the parent visibility check. Extra reads over a plain reply: EVERYONE +0; restricted, parent is the root: MENTIONED_ONLY +0,
   /// FOLLOWING +1 cold (root author's graph); restricted, deeper reply: MENTIONED_ONLY +3 / FOLLOWING +4 cold (root post, root
   /// author's profile, caller graph if the caller wrote the parent, + root author's graph for FOLLOWING); +0 warm (60 s caches).
@@ -2677,21 +2677,21 @@ class PostServiceApi {
   /// used) => FAILED_PRECONDITION + MEDIA_NOT_READY, one answer for every cause. media_alt_texts is empty or
   /// parallel to media_ids, each <= 1,000 characters. A post with at least one image may have empty text. The
   /// image refs (url, thumb_url, size, blurhash, alt) are copied into the post; lists render thumb_url only.
-  /// Text (ADR-0010 D9): CRLF/CR -> LF, TAB -> space, NFC, trim; empty, control characters other than LF, or bidi
+  /// Text: CRLF/CR -> LF, TAB -> space, NFC, trim; empty, control characters other than LF, or bidi
   /// formatting controls (U+202A-U+202E, U+2066-U+2069) => VALIDATION field "text"; <= 280 code points, <= 10
   /// lines. Links are kept as typed and count toward the length (no server rewriting or previews).
-  /// Mentions (ADR-0010 D7): "@" + handle (3-15 of [A-Za-z0-9_], not preceded by a letter/number/_@#/.:&$+-,
+  /// Mentions: "@" + handle (3-15 of [A-Za-z0-9_], not preceded by a letter/number/_@#/.:&$+-,
   /// never truncated); first 10 distinct, stored lower-cased as {user_id, handle}. Unknown handles stay plain
   /// text; mentions never depend on the block graph (a user who blocked the author is kept, so the response
-  /// cannot reveal the block, ADR-0010 D7 M2); mentioning a user the author blocks is allowed.
-  /// Hashtags (ADR-0010 D8): "#" + 1-50 of letters/marks/numbers/_ (plus ZWJ/ZWNJ inside), >= 1 letter;
+  /// cannot reveal the block); mentioning a user the author blocks is allowed.
+  /// Hashtags: "#" + 1-50 of letters/marks/numbers/_ (plus ZWJ/ZWNJ inside), >= 1 letter;
   /// lower-cased, first 10 distinct stored; the text is unchanged.
   /// One transaction: idempotency doc + quotas read fresh; Create idempotency doc + Create post +
   /// users.postsCount + quotas (+ parent replyCount / quoted quoteCount once those ship). The post id (and
-  /// created_at) is drawn in each transaction attempt; the transaction has a 5 s deadline (ADR-0010 D13).
+  /// created_at) is drawn in each transaction attempt; the transaction has a 5 s deadline.
   /// Replay: idempotency doc exists => return the stored post (+1 read if not cached); a different body =>
   /// INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED, 0 writes.
-  /// Firestore for a root post without images (ADR-0010): reads 14 cold / 2 warm, planning 2.5 (caller users via
+  /// Firestore for a root post without images: reads 14 cold / 2 warm, planning 2.5 (caller users via
   /// the account-status interceptor 1 + handles <= 10 in (no author graph read since M2) if the text has mention
   /// candidates in one GetAll + idempotency 1 + quotas 1); writes 4/4 (idempotency, post, users.postsCount, quotas) + 1 eventual
   /// TTL delete. Replay: reads 14 cold / 1 warm, writes 0.
@@ -2699,7 +2699,7 @@ class PostServiceApi {
   /// so at most 17 cold / 6 warm reads and 8 writes; a replay re-reads no media.
   /// Full contract once replies, quotes, media and notifications ship: reads 19/1, writes 6/4 (+<= 11 async
   /// notification writes: 1 per mentioned user + 1 for the parent/quoted author).
-  /// Polls (ADR-0029 D1, D2; FEATURE_POLLS, wire name "polls"): a set `poll` while polls is off for the caller =>
+  /// Polls (FEATURE_POLLS, wire name "polls"): a set `poll` while polls is off for the caller =>
   /// FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "polls", 0 reads, checked after "content_disclosure"
   /// in the order above. Root posts only, with non-empty text (the question) and no media: a poll together with
   /// media_ids, reply_to_post_id or quote_of_post_id, or with empty text => VALIDATION field "poll", 0 writes. 2-4
@@ -2709,11 +2709,11 @@ class PostServiceApi {
   /// on the post doc: +0 reads, +0 writes. requestHash gains a poll suffix only when a poll is present, so a request
   /// without one replays exactly as before. Clients send `poll` only when GetMe.enabled_features lists "polls", and
   /// check that the returned post carries `poll` (an older server drops the field): if not, warn and offer delete.
-  /// GIF media (ADR-0029 D10; FEATURE_GIF, wire name "gif"): a media id whose media is a GIF while gif is not enabled
+  /// GIF media (FEATURE_GIF, wire name "gif"): a media id whose media is a GIF while gif is not enabled
   /// for the caller => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "gif", after the media reads inside
   /// the transaction (<= 4 reads, as a MEDIA_NOT_READY refusal), 0 writes. A GIF must be the only media item, else
   /// VALIDATION field "media_ids". MediaRef.content_type is copied from the media doc.
-  /// Communities (ADR-0031 D5; FEATURE_COMMUNITIES, wire name "communities"; dzeroth.communities.v1 header):
+  /// Communities (FEATURE_COMMUNITIES, wire name "communities"; dzeroth.communities.v1 header):
   /// - community_id posts a root post or a quote into that community. A set community_id while communities is off for
   ///   the caller => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "communities", 0 reads beyond the
   ///   interceptor, checked after "polls" in the order above. Not 19 digits => VALIDATION field "community_id". With
@@ -2729,7 +2729,7 @@ class PostServiceApi {
   ///   on top of the posts quota) in the same quota write => QUOTA_EXCEEDED metadata["quota"] = "community_posts"; then
   ///   the in-memory cap of 20 posts per community per uid per IST day per instance => RATE_LIMITED metadata["limit"] =
   ///   "community_posts_per_community_daily". Every refusal writes 0.
-  /// - Blocks with the community's owner or moderators never refuse a post (ADR-0031 D7). The post is an ordinary public
+  /// - Blocks with the community's owner or moderators never refuse a post. The post is an ordinary public
   ///   post (F6, F7): it also shows on the author's profile and in followers' Home, with Post.community as its label.
   /// - The post doc gets communityId, community {id, name} (the name from the cached community doc) and the conversation's
   ///   community in the same write: +0 writes. The request hash covers community_id only when it is set, so a request
@@ -2738,9 +2738,9 @@ class PostServiceApi {
   ///   planning +1.5; writes +0.
   /// - Clients send community_id only when GetMe.enabled_features lists "communities", and check that the returned post
   ///   carries `community` (an older server drops the field): if not, warn and offer delete.
-  /// Replies in a community conversation (ADR-0031 D5, F8): members only. Every reply inherits its parent's conversation
+  /// Replies in a community conversation: members only. Every reply inherits its parent's conversation
   /// community (+0 reads: the parent is already read). While communities is not globally off, and after the existing
-  /// reply rules (a block either way => NOT_FOUND, ADR-0021 policies): a SUSPENDED community => NOT_FOUND "community not
+  /// reply rules (a block either way => NOT_FOUND): a SUSPENDED community => NOT_FOUND "community not
   /// found"; an ARCHIVED one => COMMUNITY_STATE "community_archived"; a caller who is not a JOINED member (banned
   /// included) => PERMISSION_DENIED + FORBIDDEN metadata["reason"] = "not_member", 0 writes. The member doc is cached
   /// 60 s on this path, so a ban reaches other instances' reply path within 60 s. Extra reads +2 cold (community, member
@@ -2753,7 +2753,7 @@ class PostServiceApi {
 
   /// Delete own post. post_id must be 19 digits (else VALIDATION). Only the author's call deletes anything:
   /// another user's post, an unknown id and an already-deleted post all return success with 0 writes,
-  /// byte-identical, so the call reveals neither existence nor blocks (ADR-0010 D4). Replay => success.
+  /// byte-identical, so the call reveals neither existence nor blocks. Replay => success.
   /// Sync: one batch Delete(post, Exists) + users.postsCount -1; a failed Exists precondition (a concurrent
   /// delete won) => success, 0 writes, so the counter is decremented exactly once. Instance caches are evicted
   /// locally; others converge in <= 60 s.
@@ -2774,20 +2774,20 @@ class PostServiceApi {
 
   /// A single post. NOT_FOUND ("post not found", byte-identical in every case) if the post is missing or
   /// deleted, hidden by visibility, the author blocks the caller, or the author is SUSPENDED, DELETING or gone.
-  /// A caller who blocks or mutes the author still gets the post; the client shows a banner (ADR-0010 D6).
-  /// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS are both off for the caller (ADR-0010 D3);
+  /// A caller who blocks or mutes the author still gets the post; the client shows a banner.
+  /// Viewer flags are false and userLikes is not read while FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS are both off for the caller;
   /// with either on they come from userLikes/{caller} (cache-first, 60 s): liked / reposted only with engagement, bookmarked_by_viewer with either. A REPOST or QUOTE whose embedded author
   /// blocks the caller is NOT_FOUND like a post by that author.
-  /// Protected authors (ADR-0025 D4): a post by a protected account is NOT_FOUND (the same bytes) for a caller who is
+  /// Protected authors: a post by a protected account is NOT_FOUND (the same bytes) for a caller who is
   /// neither that account nor a follower of it, and so is a REPOST of such a post; a QUOTE of one is returned with
   /// embed_viewer_state = PROTECTED and its embed stripped of text and media. Post.visibility is FOLLOWERS while the
   /// author is protected. Decided from the instance-cached protected-author set: 0 extra reads.
   /// Reads: caller users (account-status interceptor) + post + author users (status) + caller graph (blocked-by),
-  /// all instance-cached 60 s; +1 author graph if the caller's blocked-by list overflowed (ADR-0008 D2).
+  /// all instance-cached 60 s; +1 author graph if the caller's blocked-by list overflowed.
   /// Firestore: reads 4 cold (+1 overflow) / 0 warm, planning 1; +1 userLikes cold with engagement or bookmarks on. Writes 0.
-  /// viewer_reply_permission (ADR-0021 D2): for a root post in a FOLLOWING conversation (viewer not the author) +1
+  /// viewer_reply_permission: for a root post in a FOLLOWING conversation (viewer not the author) +1
   /// cold read (the author's graph); a reply in a restricted conversation is always UNKNOWN (+0). In a community
-  /// conversation (ADR-0031 D5) it is ALLOWED for a JOINED member and NOT_ALLOWED otherwise: +1 cold read (the caller's
+  /// conversation it is ALLOWED for a JOINED member and NOT_ALLOWED otherwise: +1 cold read (the caller's
   /// member doc, cached 60 s), +0 warm.
   $async.Future<GetPostResponse> getPost(
           $pb.ClientContext? ctx, GetPostRequest request) =>
@@ -2802,10 +2802,10 @@ class PostServiceApi {
   /// it is returned unset with parent_unavailable / root_unavailable = true so the client renders a tombstone.
   /// Replies by authors the caller blocks or mutes (and by authors who block the caller) are dropped after the
   /// read, so a page may be short; follow next_page_token while it is non-empty.
-  /// Protected authors (ADR-0025 D4), for a caller who is neither the author nor a follower of it: a focal post by a
+  /// Protected authors, for a caller who is neither the author nor a follower of it: a focal post by a
   /// protected account is NOT_FOUND; such a parent or root is unset with parent_unavailable / root_unavailable; reply
   /// rows by such an account are dropped (the page may be short); QUOTE embeds as in GetPost. 0 extra reads.
-  /// Community moderation (ADR-0031 Amendment 1, F15): a reply that a community's owner or a moderator hid
+  /// Community moderation: a reply that a community's owner or a moderator hid
   /// (CommunityService.HideCommunityPost) is dropped from the page for every caller but its author (the page may be
   /// short), and as the parent it is unset with parent_unavailable = true; as the focal post it is returned as GetPost
   /// returns it, and the replies under it stay. A hidden root is unaffected. This holds whatever the state of
@@ -2815,15 +2815,15 @@ class PostServiceApi {
   /// Firestore (plan replies-and-threads.md): reads <= 1 (interceptor) + focal 1 + parent/root 2 + <= 3 author profiles
   /// + caller graph 1 (+1 author graph on blockedBy overflow) + page <= 30 = 38 cold, <= 3 warm
   /// (one conversation query, minimum 1); writes 0.
-  /// viewer_reply_permission (ADR-0021 D2): UNKNOWN when root_unavailable; otherwise computed from the root, +1 cold
-  /// read for a FOLLOWING conversation (the root author's graph), +0 warm. In a community conversation (ADR-0031 D5)
+  /// viewer_reply_permission: UNKNOWN when root_unavailable; otherwise computed from the root, +1 cold
+  /// read for a FOLLOWING conversation (the root author's graph), +0 warm. In a community conversation
   /// ALLOWED for a JOINED member and NOT_ALLOWED otherwise, +1 cold read (the caller's member doc), +0 warm.
   $async.Future<GetThreadResponse> getThread(
           $pb.ClientContext? ctx, GetThreadRequest request) =>
       _client.invoke<GetThreadResponse>(
           ctx, 'PostService', 'GetThread', request, GetThreadResponse());
 
-  /// Scheduled posts (ADR-0021 D4). All three need FEATURE_POSTS. SchedulePost also needs FEATURE_SCHEDULED_POSTS on for the
+  /// Scheduled posts. All three need FEATURE_POSTS. SchedulePost also needs FEATURE_SCHEDULED_POSTS on for the
   /// caller; ListScheduledPosts and CancelScheduledPost only need it not globally off, so a caller outside the allowlist or
   /// percent bucket can still list and cancel what they already scheduled. Otherwise FAILED_PRECONDITION +
   /// FEATURE_DISABLED (metadata["feature"] = "scheduled_posts" for the latter), 0 reads. They
@@ -2831,9 +2831,9 @@ class PostServiceApi {
   /// CreatePost rate-limit bucket. A published post is created by the server sweep (Cloud Scheduler, every 5 min),
   /// up to ~5 min after publish_at; an item more than 6 h late is FAILED EXPIRED instead of published.
   ///
-  /// Polls and scheduled posts are not combined (ADR-0029 F5): this request has no poll field. GIF media are refused
-  /// here: VALIDATION field "media_ids" (ADR-0029 D10).
-  /// Community posts are not scheduled (ADR-0031 D5): community_id is not accepted, so this request has no community_id
+  /// Polls and scheduled posts are not combined: this request has no poll field. GIF media are refused
+  /// here: VALIDATION field "media_ids".
+  /// Community posts are not scheduled: community_id is not accepted, so this request has no community_id
   /// field and a scheduled post is always an ordinary post. The composer hides its audience picker in schedule mode.
   /// Schedule a root post (no reply, quote or poll) with the CreatePost text and media rules, plus the media,
   /// reply_audience and content_disclosure sub-feature checks and a verified email, as CreatePost. publish_at is

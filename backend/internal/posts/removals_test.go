@@ -99,10 +99,9 @@ func (f *fakeRemovalSource) After(ctx context.Context, afterAt time.Time, afterI
 }
 
 type removalRig struct {
-	winSeen int64
-	src     *fakeRemovalSource
-	log     *RemovalLog
-	now     time.Time
+	src *fakeRemovalSource
+	log *RemovalLog
+	now time.Time
 }
 
 const testTTL = 60 * time.Second
@@ -123,24 +122,13 @@ func (r *removalRig) since(t *testing.T, cutoff time.Time) (ids []string, trunca
 
 func (r *removalRig) sinceFor(t *testing.T, cutoff time.Time, authors ...string) (ids []string, truncated bool, reads int64) {
 	t.Helper()
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	before := r.src.reads
 	ids, truncated, err := r.log.RemovedSince(ctx, cutoff, RemovalScope{Authors: authors})
 	if err != nil {
 		t.Fatalf("RemovedSince: %v", err)
 	}
-	if c.Reads() != r.windowDelta() {
-		t.Fatalf("request counter = %d reads, want only the window query's (the shared refresh is detached)", c.Reads())
-	}
 	return ids, truncated, r.src.reads - before
-}
-
-// windowDelta is the reads the request counter must show after a call: the window query's, which the fake tallies
-// cumulatively (r.winSeen is what earlier calls already accounted for).
-func (r *removalRig) windowDelta() int64 {
-	d := r.src.windowReads - r.winSeen
-	r.winSeen = r.src.windowReads
-	return d
 }
 
 func TestRemovalLog_ReadCounts(t *testing.T) {

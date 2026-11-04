@@ -16,7 +16,7 @@ import (
 // lifecyclePage is the page of the eraser and of the export (a Firestore batch holds 500 writes).
 const lifecyclePage = 500
 
-// Which of a user's own entries holds a conversation (ADR-0027 D1): dmRequests only for the recipient of a request that
+// Which of a user's own entries holds a conversation: dmRequests only for the recipient of a request that
 // has not been accepted, dmInbox for everything else.
 const (
 	entryInbox    = "inbox"
@@ -70,7 +70,7 @@ func (r *FirestoreRepo) NextConversation(ctx context.Context, uid, after string)
 	return docs[0].Ref.ID, true, nil
 }
 
-// MarkGone is steps 1 and 3 of the eraser for one conversation, in one transaction (ADR-0027 D8): add uid to
+// MarkGone is steps 1 and 3 of the eraser for one conversation, in one transaction: add uid to
 // `gone` (so no send can rewrite the deleted user's entries afterwards: the send transaction reads that document) and
 // rewrite the peer's entry (snapshot to the "Deleted account" placeholder; the snippet to "Message deleted" when the
 // user's message was the last one). Reads 2 (the conversation, the peer's entry; 1 when the peer is gone already);
@@ -189,7 +189,7 @@ func (r *FirestoreRepo) TombstonePage(ctx context.Context, uid, convID, after st
 // RewriteConversation is the LAST step of one conversation whose peer lives: in one transaction it replaces uid by
 // DeletedUID in participants, gone, requestFrom and requestTo and removes uid's clearedAt and clearedKey entries (the map key is
 // the uid, so the placeholder rule is to drop it), so the surviving peer's
-// copy names the deleted user nowhere (ADR-0027 D11). It must come last: the cursor query finds a conversation through
+// copy names the deleted user nowhere. It must come last: the cursor query finds a conversation through
 // `participants array-contains uid`, so once this commits the conversation is no longer listed for uid, and everything
 // before it (gone mark, tombstones, entry) is already done. A missing conversation, or one without uid, is a no-op.
 // Reads 1, writes 1. The same write increments `rev` (+0 writes), which retires every ListMessages since token the surviving

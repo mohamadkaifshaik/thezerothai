@@ -6,7 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_telemetry.dart';
 
-/// ADR-0032 F11: a different account on the device resets the analytics
+/// A different account on the device resets the analytics
 /// ID before its first event; the same account again does not; in-app deletion
 /// forgets the device. Fake adapters, 0 RPCs.
 class _Rig {

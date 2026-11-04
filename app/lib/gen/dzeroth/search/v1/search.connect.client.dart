@@ -8,13 +8,13 @@ import "search.pb.dart" as dzerothsearchv1search;
 import "search.connect.spec.dart" as specs;
 
 extension type SearchServiceClient (connect.Transport _transport) {
-  /// People whose handle starts with the query (ADR-0028 D2), in handle order. At most limit rows (0 => 10, max 20)
+  /// People whose handle starts with the query, in handle order. At most limit rows (0 => 10, max 20)
   /// and NO PAGINATION: there is no page token, by design (handle enumeration costs one call per 20 handles).
   /// Rows: accounts that are not ACTIVE and accounts that block the caller are left out (the answer is then the same
   /// as for a handle nobody has); accounts the caller blocks or mutes stay, with relationship.blocking / muting set.
   /// Protected accounts are listed, with user.is_private set. Each row carries the caller's relationship (follow
   /// state incl. REQUESTED, from the caller's graph, 0 extra reads); since is unset. The caller appears when matched.
-  /// A caller whose blocked-by list overflowed (ADR-0008 D2) sees only accounts they follow and themselves.
+  /// A caller whose blocked-by list overflowed sees only accounts they follow and themselves.
   /// Staleness: matches are cached per instance for 60 s and shared across callers, so a new handle or a rename shows
   /// within 60 s; block and relationship filtering is per caller, from the 60 s graph snapshot.
   /// Flag: "search". Rate limits: RATE_LIMIT_SEARCH_PEOPLE_PER_MIN 30/min/uid per instance (90/min at 3 instances);
@@ -40,7 +40,7 @@ extension type SearchServiceClient (connect.Transport _transport) {
     );
   }
 
-  /// Posts carrying one hashtag (ADR-0028 D3). The tab picks the order:
+  /// Posts carrying one hashtag. The tab picks the order:
   /// - TOP (also UNSPECIFIED): the newest 30 tagged posts, those from the last 7 days ranked by likes + 2 x reposts +
   ///   2 x quotes + replies, ties newest first. One page of at most 20; next_page_token is always "" (show "See
   ///   latest").
@@ -55,7 +55,7 @@ extension type SearchServiceClient (connect.Transport _transport) {
   ///   non-empty: keep following it until it is "".
   /// Filtering (every tab, per caller): hidden posts (moderation) are dropped; posts by accounts the caller blocks,
   /// who block the caller, or whom the caller mutes are dropped, including a quote whose embedded author is one of
-  /// them (ADR-0010 D6). Protected accounts (ADR-0025): a post by a protected account the caller is not and does not
+  /// them. Protected accounts: a post by a protected account the caller is not and does not
   /// follow is dropped; a QUOTE of such a post is kept with embed_viewer_state = PROTECTED and its embed stripped. A
   /// caller whose blocked-by list overflowed sees only their own posts and posts by accounts they follow. A page may
   /// therefore be short. Whether next_page_token is set and how many rows come back depend only on the posts the caller
@@ -92,7 +92,7 @@ extension type SearchServiceClient (connect.Transport _transport) {
     );
   }
 
-  /// Trending hashtags (ADR-0028 D6, founder defaults F1 and F6). A tag trends when at least TRENDS_MIN_AUTHORS (3; 5 in prod)
+  /// Trending hashtags (founder defaults F1 and F6). A tag trends when at least TRENDS_MIN_AUTHORS (3; 5 in prod)
   /// distinct established accounts (ACTIVE, at least TRENDS_MIN_ACCOUNT_AGE = 72 h old; at most TRENDS_MAX_AUTHOR_CHECKS = 500
   /// authors are checked per sweep, the rest are not counted) used it in the window; tags are ranked by distinct
   /// established accounts, then their posts, then tag. Hidden posts,

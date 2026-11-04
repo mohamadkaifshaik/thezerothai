@@ -1,6 +1,6 @@
 //go:build integration
 
-// mute_target_integration_test.go covers / ADR-0008 A1: Mute checks that the target's graph doc exists
+// mute_target_integration_test.go covers /: Mute checks that the target's graph doc exists
 // (the same rule as Block) and never branches on the target's content. Budgets: Mute 3R/2W, NOT_FOUND 2R/0W,
 // replay 3R/0W.
 package graph_test
@@ -15,10 +15,7 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
-
-var budMuteNotFound = budgettest.Budget{Reads: 2, Writes: 0}
 
 func TestT26_Mute_UnknownTarget_NotFound_SameAsBlock(t *testing.T) {
 	w := newWired(t)
@@ -26,7 +23,7 @@ func TestT26_Mute_UnknownTarget_NotFound_SameAsBlock(t *testing.T) {
 	ctx := context.Background()
 
 	var muteErr error
-	measured(t, "Mute (no graph doc => NOT_FOUND)", budMuteNotFound, func(ctx context.Context) {
+	measured(t, "Mute (no graph doc => NOT_FOUND)", func(ctx context.Context) {
 		_, muteErr = w.graph.Mute(ctx, "uid-a", key1, "uid-ghost")
 	})
 	requireAPIError(t, muteErr, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "", "")
@@ -52,11 +49,11 @@ func TestT26_Mute_ExhaustedQuota_NonexistentTargetStillNotFound(t *testing.T) {
 	mustCreateProfile(t, w.identity, "uid-b", "userb")
 	seedQuota(t, w.client, "uid-a", istDay(0), "blocks", 200)
 
-	measured(t, "Mute (exhausted quota, ghost target)", budMuteNotFound, func(ctx context.Context) {
+	measured(t, "Mute (exhausted quota, ghost target)", func(ctx context.Context) {
 		_, err := w.graph.Mute(ctx, "uid-a", key1, "uid-ghost")
 		requireAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "", "")
 	})
-	measured(t, "Mute (exhausted quota, existing target)", budMute, func(ctx context.Context) {
+	measured(t, "Mute (exhausted quota, existing target)", func(ctx context.Context) {
 		_, err := w.graph.Mute(ctx, "uid-a", key2, "uid-b")
 		requireAPIError(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED, "quota", "blocks")
 	})
@@ -80,13 +77,13 @@ func TestT26_Mute_TargetStates(t *testing.T) {
 	seedUserField(t, w, "uid-del", "status", "DELETING")
 
 	var stranger graph.Relationship
-	measured(t, "Mute (stranger)", budMute, func(ctx context.Context) {
+	measured(t, "Mute (stranger)", func(ctx context.Context) {
 		var err error
 		stranger, err = w.graph.Mute(ctx, "uid-a", key1, "uid-stranger")
 		must(t, "Mute(stranger)", err)
 	})
 	for _, target := range []string{"uid-blocker", "uid-susp", "uid-del"} {
-		measured(t, "Mute ("+target+")", budMute, func(ctx context.Context) {
+		measured(t, "Mute ("+target+")", func(ctx context.Context) {
 			rel, err := w.graph.Mute(ctx, "uid-a", key2, target)
 			must(t, "Mute("+target+")", err)
 			if !rel.Muting || rel.FollowState != stranger.FollowState || rel.Blocking != stranger.Blocking {
@@ -96,7 +93,7 @@ func TestT26_Mute_TargetStates(t *testing.T) {
 	}
 
 	purgeToCompletion(t, w.graph.repo, "uid-purged", graph.Checkpoint{})
-	measured(t, "Mute (purged target)", budMuteNotFound, func(ctx context.Context) {
+	measured(t, "Mute (purged target)", func(ctx context.Context) {
 		_, err := w.graph.Mute(ctx, "uid-a", key3, "uid-purged")
 		requireAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "", "")
 	})

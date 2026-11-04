@@ -1,6 +1,6 @@
-// Package posts owns posts/{postId} (ADR-0003 data model, ADR-0010 slice decisions). It exposes Service
+// Package posts owns posts/{postId}. It exposes Service
 // (consumed by server.go, the Connect handler), Reader (consumed by the timeline module and other modules; they
-// never query `posts` directly, ADR-0004 handoff), PostEvents (a no-op post-commit hook until notifications)
+// never query `posts` directly), PostEvents (a no-op post-commit hook until notifications)
 // and the Eraser/Exporter seams the account-lifecycle job and opsctl use (implemented later).
 //
 // posts depends on identity's api.go interfaces (Directory, Counters) and graph.Reader only; neither imports
@@ -20,7 +20,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// ReplyPolicy is who may reply in a conversation (ADR-0021 D2), stored on the first post of the conversation and
+// ReplyPolicy is who may reply in a conversation, stored on the first post of the conversation and
 // copied (never with a user id) onto every reply. The empty value is EVERYONE: legacy docs and EVERYONE both have it.
 // The doc stores the upper-case name.
 type ReplyPolicy string
@@ -47,8 +47,7 @@ const (
 	KindRepost Kind = "REPOST"
 )
 
-// Visibility mirrors postsv1.Visibility. Posts are written as VisibilityPublic only (private accounts are deferred,
-// ADR-0008 D1).
+// Visibility mirrors postsv1.Visibility. Posts are written as VisibilityPublic only (private accounts are deferred).
 type Visibility string
 
 const (
@@ -56,7 +55,7 @@ const (
 	VisibilityFollowers Visibility = "FOLLOWERS"
 )
 
-// Moderation is a post's moderation state (ADR-0016 D3). The Firestore doc stores the upper-case name, absent
+// Moderation is a post's moderation state. The Firestore doc stores the upper-case name, absent
 // when the post is visible. A hidden post is dropped by every read path and consumer.
 type Moderation string
 
@@ -65,13 +64,13 @@ const (
 	ModerationNone Moderation = ""
 	// ModerationTakenDown: a moderator removed this post (opsctl takedown-post). Reversible with restore-post.
 	ModerationTakenDown Moderation = "TAKEN_DOWN"
-	// ModerationSuspendedAuthor: hidden because its author is suspended (opsctl suspend-user, ADR-0010 D10).
+	// ModerationSuspendedAuthor: hidden because its author is suspended (opsctl suspend-user).
 	// unsuspend-user restores exactly these.
 	ModerationSuspendedAuthor Moderation = "SUSPENDED_AUTHOR"
 )
 
-// AuthorSnapshot is the author's denormalised profile copy stored in the post (ADR-0003: refreshed lazily by a
-// job when a profile changes), so rendering a post never joins to users/*.
+// AuthorSnapshot is the author's denormalised profile copy stored in the post (refreshed lazily by a job when a profile changes),
+// so rendering a post never joins to users/*.
 type AuthorSnapshot struct {
 	UserID      string
 	Handle      string
@@ -80,7 +79,7 @@ type AuthorSnapshot struct {
 	Verified    bool
 }
 
-// Mention is a resolved @mention: the lower-case handle as resolved at write time (ADR-0010 D7).
+// Mention is a resolved @mention: the lower-case handle as resolved at write time.
 type Mention struct {
 	UserID string
 	Handle string
@@ -90,7 +89,7 @@ type Mention struct {
 // the posts cache and the author-recent cache: never mutate one you received from a Reader.
 //
 // Embedded posts are not modelled yet: root posts write kind POST, isReply false, conversationId = postId,
-// visibility PUBLIC, all counters 0 (ADR-0010 D2), and the replies and engagement slices add their fields. Media
+// visibility PUBLIC, all counters 0, and the replies and engagement slices add their fields. Media
 // is the published image refs the post carries, in request order.
 type Post struct {
 	Article       *ArticlePreview
@@ -102,7 +101,7 @@ type Post struct {
 	Text          string
 	ReplyToID     string
 	ReplyToHandle string
-	// ReplyToAuthorID is the parent post's author (the reply's notification recipient, ADR-0017). It is TRANSIENT:
+	// ReplyToAuthorID is the parent post's author (the reply's notification recipient). It is TRANSIENT:
 	// set only on the *Post that CreatePost hands to PostEvents.Created (from the parent already read by the reply
 	// validation, 0 extra reads) and never persisted: a Post read back from Firestore leaves it empty.
 	ReplyToAuthorID string
@@ -124,45 +123,45 @@ type Post struct {
 	QuoteCount       int64
 	Visibility       Visibility
 	SnapshotVersion  int64
-	// Moderation is the moderation state (ADR-0016). Readers return hidden posts WITH this field set: every
+	// Moderation is the moderation state. Readers return hidden posts WITH this field set: every
 	// consumer must drop them (Visible), exactly like it drops blocked authors.
 	Moderation Moderation
-	// CreatedAt is the Snowflake's millisecond timestamp (ADR-0010 D18), so (CreatedAt, ID) order equals id order.
+	// CreatedAt is the Snowflake's millisecond timestamp, so (CreatedAt, ID) order equals id order.
 	CreatedAt time.Time
-	// PaidPartnership and MadeWithAI are the author's own content-disclosure labels (ADR-0021 D3): user assertions,
+	// PaidPartnership and MadeWithAI are the author's own content-disclosure labels: user assertions,
 	// never detected or verified. Absent on legacy docs = false. A REPOST carries none of its own (its original's
 	// labels travel in Embedded).
 	PaidPartnership bool
 	MadeWithAI      bool
-	// ReplyPolicy is the conversation's effective reply policy (ADR-0021 D2): the author's choice on a root post or
+	// ReplyPolicy is the conversation's effective reply policy: the author's choice on a root post or
 	// a quote, the value copied from the parent on a reply. Absent = EVERYONE. A REPOST has none of its own (the
 	// original's travels in Embedded). No user id is ever stored with it.
 	ReplyPolicy ReplyPolicy
-	// HasMedia mirrors the stored posts.hasMedia (ADR-0024 D4): true when the post carries its own images; always false
+	// HasMedia mirrors the stored posts.hasMedia: true when the post carries its own images; always false
 	// for a REPOST (its original's images live in Embedded). toDoc writes it from HasMediaFor on every create path, so it
 	// is derived from Media at write time and never set by a caller; a legacy doc written before W3 reads false until
 	// `opsctl backfill-has-media` ran. Only the ByAuthorMedia query (the Media tab index) filters on the stored field.
 	HasMedia bool
-	// Poll is the root post's poll (ADR-0029 D1), nil for every other post. Read-only once cached: a writer builds a new one.
+	// Poll is the root post's poll, nil for every other post. Read-only once cached: a writer builds a new one.
 	Poll *Poll
-	// CommunityID is the community feed key (ADR-0031 D2, D5): set only on a root POST or QUOTE created into a community, never on a reply
+	// CommunityID is the community feed key: set only on a root POST or QUOTE created into a community, never on a reply
 	// or a REPOST. Absent = not a community post (no backfill). Community is the label snapshot taken at post time; ConversationCommunityID
 	// is the conversation's community, set on the community root and inherited by every reply (the members-only reply key).
 	CommunityID             string
 	Community               *CommunityLabel
 	ConversationCommunityID string
-	// CommunityHidden is the label switch only (ADR-0031 D5, A12): a moderator hide sets it, a restore clears it. It never feeds Hidden() or
+	// CommunityHidden is the label switch only: a moderator hide sets it, a restore clears it. It never feeds Hidden() or
 	// the audience; ToView drops the community label while it is true. Absent = false.
 	CommunityHidden bool
 }
 
-// CommunityLabel is the community {id, name} snapshot a community post stores (ADR-0031 D5): a rename does not rewrite old posts.
+// CommunityLabel is the community {id, name} snapshot a community post stores: a rename does not rewrite old posts.
 type CommunityLabel struct {
 	ID   string
 	Name string
 }
 
-// Hidden reports whether a moderator action hides the post from every viewer (ADR-0016 D3).
+// Hidden reports whether a moderator action hides the post from every viewer.
 func (p *Post) Hidden() bool { return p.Moderation != ModerationNone }
 
 // Visible is !Hidden. Every consumer of Reader results (timelines, thread views, notifications, counts) must
@@ -185,7 +184,7 @@ func (p *Post) EmbeddedAuthor() string {
 	return p.EmbeddedAuthorID
 }
 
-// Embedded is the frozen one-level snapshot a QUOTE or REPOST carries of the post it copies (ADR-0018 D2, D12). The
+// Embedded is the frozen one-level snapshot a QUOTE or REPOST carries of the post it copies. The
 // author snapshot is not refreshed by the profile-snapshot job. A tombstone has only PostID and Unavailable set.
 type Embedded struct {
 	Article     *ArticlePreview
@@ -196,13 +195,13 @@ type Embedded struct {
 	CreatedAt   time.Time
 	Unavailable bool
 	// PaidPartnership and MadeWithAI are the embedded post's disclosure labels, frozen with the snapshot
-	// (ADR-0021 D3, review I-6: the embed shows its own labels).
+	// (review I-6: the embed shows its own labels).
 	PaidPartnership bool
 	MadeWithAI      bool
 	// ReplyPolicy is the embedded post's effective reply policy, frozen with the snapshot: the viewer hint of a
-	// REPOST row reads it (ADR-0021 D2, review I-6).
+	// REPOST row reads it (review I-6).
 	ReplyPolicy ReplyPolicy
-	// Poll is the frozen poll definition of the copied post (ADR-0029 D5): labels and closing time, no counts. Nil when the
+	// Poll is the frozen poll definition of the copied post: labels and closing time, no counts. Nil when the
 	// copied post has no poll.
 	Poll *EmbeddedPoll
 }
@@ -218,7 +217,7 @@ type MediaRef struct {
 	Height   int
 	Blurhash string
 	AltText  string
-	// ContentType is the full object's type (common.MediaRef.content_type, ADR-0029 D10), copied from the media claim.
+	// ContentType is the full object's type (common.MediaRef.content_type), copied from the media claim.
 	// Empty on refs stored before W6 (a still JPEG or WebP).
 	ContentType string
 }
@@ -244,8 +243,8 @@ type Window struct {
 // Posts returned are shared and immutable.
 //
 // A Reader applies NO visibility or relationship filtering: it returns every matching post, including those by
-// blocked, muting, suspended or deleting authors, and posts a moderator hid (Post.Hidden, ADR-0016). Callers
-// must filter per ADR-0010 D6 (block, mute and author status via graph.Reader and identity.Directory) and drop
+// blocked, muting, suspended or deleting authors, and posts a moderator hid (Post.Hidden). Callers
+// must filter (block, mute and author status via graph.Reader and identity.Directory) and drop
 // every post with !Visible() before returning anything to a client.
 type Reader interface {
 	// Get returns one post, or ErrNotFound. Cache hit: 0 reads; miss: 1 read.
@@ -265,10 +264,10 @@ type Reader interface {
 	// ByAuthorMedia returns authorID's posts that carry their own images (hasMedia == true: root posts, replies and
 	// quotes with images, never a REPOST), newest first, inside window (Before resumes strictly older; After is the
 	// since bound), at most limit (clamped to 1..50). Query: authorId == X && hasMedia == true ORDER BY createdAt DESC,
-	// __name__ DESC, served by the composite index posts(authorId, hasMedia, createdAt desc) (ADR-0024 D14). Reads:
+	// __name__ DESC, served by the composite index posts(authorId, hasMedia, createdAt desc). Reads:
 	// len(result), minimum 1 (charged with AddQueryReads); no cache read and no cache write other than filling the posts
-	// cache. Same contract as ByAuthor: NO visibility, block or mute filtering (the timeline applies the drop rules,
-	// ADR-0010 D6) and posts a moderator hid come back with Hidden() true. Must not be called in a project where that
+	// cache. Same contract as ByAuthor: NO visibility, block or mute filtering (the timeline applies the drop rules)
+	// and posts a moderator hid come back with Hidden() true. Must not be called in a project where that
 	// index is not READY and `opsctl backfill-has-media` has not run (the emulator does not enforce indexes; Firestore
 	// answers FAILED_PRECONDITION without it): the timeline gates the call on the profile_tabs flag.
 	ByAuthorMedia(ctx context.Context, authorID string, window Window, limit int) ([]*Post, error)
@@ -280,23 +279,23 @@ type Reader interface {
 	ByAuthorKind(ctx context.Context, authorID string, kind Kind, window Window, limit int) ([]*Post, error)
 
 	// ByHashtag returns posts whose stored hashtags contain tag (a bare lower-case NFC body: no "#", no spaces; the
-	// caller normalises, ADR-0028 D1), newest first, inside window, at most limit (clamped to 1..50). Query: hashtags
+	// caller normalises), newest first, inside window, at most limit (clamped to 1..50). Query: hashtags
 	// array-contains tag ORDER BY createdAt DESC, __name__ DESC on the existing composite index posts(hashtags CONTAINS,
 	// createdAt DESC); no new index. A REPOST stores hashtags [] so it never matches. Reads: len(result), minimum 1;
 	// results fill the posts cache like ByAuthor. Unfiltered: NO visibility, block, mute or audience filtering; posts a
 	// moderator hid come back with Hidden() true and protected authors' posts come back too, so the caller (search)
-	// must drop !Visible and decide each post through posts.Audience with SurfaceList (ADR-0025, ADR-0028 D3).
+	// must drop !Visible and decide each post through posts.Audience with SurfaceList.
 	ByHashtag(ctx context.Context, tag string, window Window, limit int) ([]*Post, error)
 	// ByCommunity returns the posts listed in community cid (communityId == cid: root posts and quotes, never a reply or a REPOST; a
 	// moderator hide removes the key), newest first, inside window, at most limit (clamped to 1..50). It is its own query, `communityId == cid
-	// ORDER BY __name__ DESC` with id-bound windows (ADR-0031 D3: automatic single-field index, proven on dzeroth-dev), never the createdAt
+	// ORDER BY __name__ DESC` with id-bound windows (automatic single-field index, proven on dzeroth-dev), never the createdAt
 	// order of the other methods. Before resumes strictly older (StartAfter), After stops strictly newer (EndBefore); an After whose id is
-	// the all-zero sentinel (the timeline settle watermark, ADR-0010 D13) is the inclusive EndAt of the smallest Snowflake of its
+	// the all-zero sentinel (the timeline settle watermark) is the inclusive EndAt of the smallest Snowflake of its
 	// millisecond. Reads: len(result), minimum 1; results fill the posts cache. Unfiltered like every Reader method: the caller drops
 	// !Visible() rows and applies blocks, mutes and audience.
 	ByCommunity(ctx context.Context, cid string, window Window, limit int) ([]*Post, error)
 	// CreatedAfter returns posts created strictly after the watermark, OLDEST first (createdAt ASC, __name__ ASC), at
-	// most limit (default 20, clamped to MaxCreatedAfterLimit 500), for the trends sweep (ADR-0028 D6). With an empty
+	// most limit (default 20, clamped to MaxCreatedAfterLimit 500), for the trends sweep. With an empty
 	// after.ID the bound is createdAt only; otherwise it resumes strictly after the (createdAt, id) pair. Query on the
 	// automatic single-field indexes (no composite). The result is PROJECTED: only ID, AuthorID, Hashtags, Moderation,
 	// CreatedAt and Kind are set; every other field (text, media, counts, visibility, author snapshot) is zero. Such a
@@ -306,11 +305,11 @@ type Reader interface {
 	CreatedAfter(ctx context.Context, after Position, limit int) ([]*Post, error)
 
 	// AuthorRecent returns authorID's author-recent entry if it is still fresh (loaded within the cache TTL).
-	// It also serves as the profile Posts-tab first-page cache (ADR-0010 D15). 0 reads.
+	// It also serves as the profile Posts-tab first-page cache. 0 reads.
 	AuthorRecent(authorID string) (Recent, bool)
 	// StoreAuthorRecent records an author's newest root posts (newest first; at most MaxRecent are kept).
 	// truncated=true means the author may have older posts than the entry holds. loadedAt is when the data
-	// was read (the query start), which timelines use to bound the since watermark (ADR-0010 D13).
+	// was read (the query start), which timelines use to bound the since watermark.
 	StoreAuthorRecent(authorID string, newest []*Post, truncated bool, loadedAt time.Time)
 }
 
@@ -323,7 +322,7 @@ type Recent struct {
 	LoadedAt time.Time
 }
 
-// Removals is the seam timeline uses (ADR-0016 D10, amendment 2026-10-18 (b)).
+// Removals is the seam timeline uses (amendment 2026-10-18 (b)).
 type Removals interface {
 	// RemovedSince returns the ids of posts a moderator removed after cutoff and has not restored, restricted to
 	// the authors in scope (the feed being refreshed), newest first, at most RemovalMaxIDs. An empty scope returns
@@ -340,15 +339,15 @@ type Removals interface {
 // Service is the Connect handler's dependency: the Reader plus CreatePost, DeletePost and GetPost.
 type Service interface {
 	Reader
-	// Create writes one root post for uid (ADR-0010 D2). It returns the stored post, or, for a replayed
+	// Create writes one root post for uid. It returns the stored post, or, for a replayed
 	// idempotency key, the post the first call created. Worst-case Firestore cost: see the CreatePost proto
 	// comment (14 reads cold / 2 warm, 4 writes; replay 14 cold / 1 warm, 0 writes).
 	Create(ctx context.Context, uid string, in CreateInput) (*Post, error)
-	// Delete removes uid's own post (ADR-0010 D4). Success for every other case (another user's post, an
+	// Delete removes uid's own post. Success for every other case (another user's post, an
 	// unknown or already-deleted id) with 0 writes: no existence oracle. Firestore: reads 1 (the post; 0 when
 	// cached) plus the interceptor's profile read; writes 1 (users.postsCount -1) + 1 delete (Exists precondition).
 	Delete(ctx context.Context, uid, idempotencyKey, postID string) error
-	// GetForViewer returns one post as seen by callerUID (ADR-0010 D6 GetPost column), or the one NOT_FOUND
+	// GetForViewer returns one post as seen by callerUID, or the one NOT_FOUND
 	// "post not found" answer for a missing, deleted, hidden, blocked-author or non-ACTIVE-author post.
 	// Firestore: reads post 1 + author users 1 + caller graph 1 cold (+1 author graph if the caller's blockedBy
 	// overflowed), 0 warm; writes 0.
@@ -360,7 +359,7 @@ type Service interface {
 }
 
 // CreateInput is the CreatePost request at the domain layer (server.go converts from the proto). Slice-2+
-// fields are carried only so the service can reject them uniformly (FEATURE_DISABLED, ADR-0010 D2).
+// fields are carried only so the service can reject them uniformly (FEATURE_DISABLED).
 type CreateInput struct {
 	// Trusted module input; the public CreatePost handler never sets it.
 	ArticlePublication ArticlePublication
@@ -377,7 +376,7 @@ type CreateInput struct {
 	MediaEnabled bool
 	// GifEnabled is FEATURE_GIF for the caller, made by server.go (never from the request). A GIF media doc with it false is
 	// FEATURE_DISABLED (metadata feature=gif); the content type is only known from the claim, so the refusal happens in the
-	// transaction after the media read and writes nothing (ADR-0029 D10).
+	// transaction after the media read and writes nothing.
 	GifEnabled bool
 	// QuotesEnabled is the FEATURE_QUOTES AND FEATURE_ENGAGEMENT decision for the caller, made by server.go (never from the request).
 	// A non-empty QuoteOfPostID with it false is FEATURE_DISABLED (metadata feature=quotes).
@@ -385,26 +384,26 @@ type CreateInput struct {
 	// RepliesEnabled is the FEATURE_REPLIES decision for the caller, made by server.go (never from the request).
 	// A non-empty ReplyToPostID with it false is FEATURE_DISABLED (metadata feature=replies).
 	RepliesEnabled bool
-	// PaidPartnership and MadeWithAI are the user-asserted disclosure labels (ADR-0021 D3). Either true with
+	// PaidPartnership and MadeWithAI are the user-asserted disclosure labels. Either true with
 	// DisclosureEnabled false is FEATURE_DISABLED (metadata feature=content_disclosure); nothing else is rejected.
 	PaidPartnership bool
 	MadeWithAI      bool
 	// DisclosureEnabled is the FEATURE_CONTENT_DISCLOSURE decision for the caller, made by server.go (never from
 	// the request).
 	DisclosureEnabled bool
-	// ReplyPolicy is the raw postsv1.ReplyPolicy number of the request (ADR-0021 D2); the service validates it, so
+	// ReplyPolicy is the raw postsv1.ReplyPolicy number of the request; the service validates it, so
 	// EVERYONE, FOLLOWING_OF_FOLLOWING, VERIFIED and unknown numbers all reach the checks. ReplyAudienceEnabled is
 	// the FEATURE_REPLY_AUDIENCE decision for the caller, made by server.go (never from the request): a non-zero
 	// ReplyPolicy with it false is FEATURE_DISABLED (metadata feature=reply_audience). Only SETTING is gated;
 	// enforcement of a stored policy never consults it.
 	ReplyPolicy          int32
 	ReplyAudienceEnabled bool
-	// Poll is the request's poll (CreatePostRequest.poll, ADR-0029 D1), nil for none; PollsEnabled is the FEATURE_POLLS decision for
+	// Poll is the request's poll (CreatePostRequest.poll), nil for none; PollsEnabled is the FEATURE_POLLS decision for
 	// the caller, made by server.go (never from the request). A poll with PollsEnabled false is FEATURE_DISABLED (metadata
 	// feature=polls), 0 reads, checked after content_disclosure. The service validates it (poll.go) against PollLimits.
 	Poll         *PollInput
 	PollsEnabled bool
-	// CommunityID is the request's community_id (ADR-0031 D5), "" for none; CommunitiesEnabled is the FEATURE_COMMUNITIES decision for the
+	// CommunityID is the request's community_id, "" for none; CommunitiesEnabled is the FEATURE_COMMUNITIES decision for the
 	// caller, made by server.go (never from the request). A set CommunityID is FEATURE_DISABLED (metadata feature=communities), 0 reads,
 	// checked after polls: with the flag off for the caller, and with it on while no CommunityGate is wired, so the post is never created
 	// as an ordinary one. With the flag on and a gate wired, Create validates the shape (VALIDATION community_id / reply_policy) and runs
@@ -412,7 +411,7 @@ type CreateInput struct {
 	CommunityID        string
 	CommunitiesEnabled bool
 	// CommunitiesGloballyOff is FEATURE_COMMUNITIES off for everyone (the kill switch; server.go, never from the request): a reply into a
-	// community conversation then skips CommunityGate.CanReply (ADR-0031 D5). 0 reads.
+	// community conversation then skips CommunityGate.CanReply. 0 reads.
 	CommunitiesGloballyOff bool
 }
 
@@ -435,61 +434,61 @@ type ArticlePublicationClaim interface{ Publish(store.Batch, string) }
 var ErrMediaNotReady = errors.New("posts: media not ready")
 
 // ErrGifDisabled is returned by Repo.Create when the claim holds a GIF and FEATURE_GIF is off for the caller
-// (CreateParams.GifEnabled false; ADR-0029 D10, the second gate). The service maps it to FEATURE_DISABLED feature=gif.
+// (CreateParams.GifEnabled false; the second gate). The service maps it to FEATURE_DISABLED feature=gif.
 var ErrGifDisabled = errors.New("posts: gif is disabled")
 
 // ErrGifNotAlone is returned when a GIF is attached next to another image (VALIDATION media_ids).
 var ErrGifNotAlone = errors.New("posts: a gif must be the only image")
 
-// ErrGifNotSchedulable is returned by Repo.CreateScheduled for a draft that carries a GIF (ADR-0029 F10; VALIDATION media_ids).
+// ErrGifNotSchedulable is returned by Repo.CreateScheduled for a draft that carries a GIF (VALIDATION media_ids).
 var ErrGifNotSchedulable = errors.New("posts: a gif cannot be scheduled")
 
 // MediaClaim is a validated set of the caller's READY images, loaded inside the CreatePost transaction.
 type MediaClaim interface {
 	// Refs are the published refs in request order (AltText unset: the post owns the alt texts).
 	Refs() []MediaRef
-	// HasGIF reports whether any image is a GIF (ADR-0029 D10). The content-type table stays in media; posts only asks.
+	// HasGIF reports whether any image is a GIF. The content-type table stays in media; posts only asks.
 	HasGIF() bool
 	// Attach marks every image as belonging to postID in the same batch that creates the post.
 	Attach(b store.Batch, postID string)
 }
 
-// MediaAttacher is the consumer-side seam to the media module (ADR-0002); apiserver adapts media.Library.
+// MediaAttacher is the consumer-side seam to the media module; apiserver adapts media.Library.
 type MediaAttacher interface {
 	// LoadForPost reads ids inside tx (len(ids) reads, before the transaction's first write) and returns the
 	// claim, or ErrMediaNotReady.
 	LoadForPost(ctx context.Context, tx *firestore.Transaction, uid string, ids []string) (MediaClaim, error)
 }
 
-// PostDeleteJobs publishes the post_delete background job (media, likes/reposts/quotes; ADR-0018 D6). It is
+// PostDeleteJobs publishes the post_delete background job (media, likes/reposts/quotes). It is
 // called once, after DeletePost's commit, for every deleted post (mediaIDs may be empty). An error is logged and
 // never fails the delete: the post is already gone and the dependants are also removed by the account purge.
 type PostDeleteJobs interface {
 	PostDeleted(ctx context.Context, uid, postID string, mediaIDs []string) error
 }
 
-// EngagementFlagName is the wire name of FEATURE_ENGAGEMENT (ADR-0018 D8). It gates the quote path of CreatePost
+// EngagementFlagName is the wire name of FEATURE_ENGAGEMENT. It gates the quote path of CreatePost
 // and viewer-flag hydration here; engagement.FlagName is the same string and gates its own RPCs. FEATURE_POSTS is
 // still required.
 const EngagementFlagName = "engagement"
 
-// BookmarksFlagName is the wire name of FEATURE_BOOKMARKS (ADR-0023 D5); engagement.BookmarksFlagName is the same
+// BookmarksFlagName is the wire name of FEATURE_BOOKMARKS; engagement.BookmarksFlagName is the same
 // string and gates its own RPCs. Here it only widens viewer-state hydration (HydrateViewer).
 const BookmarksFlagName = "bookmarks"
 
-// ViewerSet is what a viewer has liked, reposted and bookmarked, from one userLikes read (ADR-0018 D5, ADR-0023 D3).
+// ViewerSet is what a viewer has liked, reposted and bookmarked, from one userLikes read.
 // The zero value means "nothing", which is also what every flag is while FEATURE_ENGAGEMENT is off. A ViewerSet is
 // read-only.
 type ViewerSet struct {
 	liked, reposted, bookmarked map[string]struct{}
-	// pollChoice maps a poll post id to the 0-based choice the viewer made (userLikes.pollVotes, ADR-0029 D3). Read-only.
+	// pollChoice maps a poll post id to the 0-based choice the viewer made (userLikes.pollVotes). Read-only.
 	pollChoice map[string]int
-	// pollsOff is true when FEATURE_POLLS is globally off: nobody can vote, so every poll shows its results (ADR-0029 D4).
+	// pollsOff is true when FEATURE_POLLS is globally off: nobody can vote, so every poll shows its results.
 	pollsOff bool
-	// communitiesOff is true when FEATURE_COMMUNITIES is globally off: ToView drops PostView.post.community (ADR-0031 D5, the kill switch).
+	// communitiesOff is true when FEATURE_COMMUNITIES is globally off: ToView drops PostView.post.community (the kill switch).
 	communitiesOff bool
 	// blockedAuthors is the viewer's outgoing block set (graph snapshot.Blocked), set by the producers that show a post by an author the viewer
-	// blocks (GetPost, GetThread, the author's profile timeline) and read only by ToViewAt for viewer_poll_vote_blocked (ADR-0029 A1.5). Read-only.
+	// blocks (GetPost, GetThread, the author's profile timeline) and read only by ToViewAt for viewer_poll_vote_blocked. Read-only.
 	blockedAuthors map[string]bool
 }
 
@@ -498,7 +497,7 @@ func NewViewerSet(liked, reposted []string) ViewerSet {
 	return NewViewerSetWithBookmarks(liked, reposted, nil)
 }
 
-// NewViewerSetWithBookmarks is NewViewerSet plus the ids the viewer bookmarked (userLikes.bookmarks, ADR-0023 D3).
+// NewViewerSetWithBookmarks is NewViewerSet plus the ids the viewer bookmarked (userLikes.bookmarks).
 func NewViewerSetWithBookmarks(liked, reposted, bookmarked []string) ViewerSet {
 	v := ViewerSet{
 		liked: make(map[string]struct{}, len(liked)), reposted: make(map[string]struct{}, len(reposted)),
@@ -517,14 +516,14 @@ func NewViewerSetWithBookmarks(liked, reposted, bookmarked []string) ViewerSet {
 }
 
 // BookmarksOnly returns v without its liked and reposted sets: what a viewer with FEATURE_BOOKMARKS on but
-// FEATURE_ENGAGEMENT off may see, so the wider hydration never leaks like or repost flags (ADR-0023 D5).
-// The poll choices go with them (ADR-0029 D3); the polls-globally-off mark stays (it is not viewer state).
+// FEATURE_ENGAGEMENT off may see, so the wider hydration never leaks like or repost flags.
+// The poll choices go with them; the polls-globally-off mark stays (it is not viewer state).
 func (v ViewerSet) BookmarksOnly() ViewerSet {
 	return ViewerSet{bookmarked: v.bookmarked, pollsOff: v.pollsOff, communitiesOff: v.communitiesOff}
 }
 
-// WithPollVotes returns v plus the viewer's poll choices, from userLikes.pollVotes entries "<postId>:<index>[:<closesAtUnix>]" (newest last,
-// ADR-0029 D3). A malformed entry is skipped. v itself is not changed (a ViewerSet is read-only and shared by the engagement cache).
+// WithPollVotes returns v plus the viewer's poll choices, from userLikes.pollVotes entries "<postId>:<index>[:<closesAtUnix>]" (newest last).
+// A malformed entry is skipped. v itself is not changed (a ViewerSet is read-only and shared by the engagement cache).
 func (v ViewerSet) WithPollVotes(votes []string) ViewerSet {
 	if len(votes) == 0 {
 		return v
@@ -547,7 +546,7 @@ func (v ViewerSet) WithPollVotes(votes []string) ViewerSet {
 }
 
 // WithBlockedAuthors returns v plus the viewer's blocked authors (graph.Snapshot.Blocked, already in hand at the producer: 0 reads). ToViewAt reads it
-// for PostView.viewer_poll_vote_blocked and nothing else (ADR-0029 Amendment 1 A1.5). v itself is not changed; the map is shared and never written.
+// for PostView.viewer_poll_vote_blocked and nothing else. v itself is not changed; the map is shared and never written.
 func (v ViewerSet) WithBlockedAuthors(blocked map[string]bool) ViewerSet {
 	v.blockedAuthors = blocked
 	return v
@@ -560,13 +559,13 @@ func (v ViewerSet) PollVoteBlocked(p *Post, viewer string, now time.Time) bool {
 	return p.Poll != nil && !p.Poll.Closed(now) && viewer != p.AuthorID && v.blockedAuthors[p.AuthorID]
 }
 
-// WithPollsGloballyOff returns v marked so that every poll shows its results (FEATURE_POLLS is off for everyone, ADR-0029 D4).
+// WithPollsGloballyOff returns v marked so that every poll shows its results (FEATURE_POLLS is off for everyone).
 func (v ViewerSet) WithPollsGloballyOff() ViewerSet {
 	v.pollsOff = true
 	return v
 }
 
-// WithCommunitiesGloballyOff returns v marked so that ToView carries no community label (FEATURE_COMMUNITIES is off for everyone, ADR-0031 D5).
+// WithCommunitiesGloballyOff returns v marked so that ToView carries no community label (FEATURE_COMMUNITIES is off for everyone).
 func (v ViewerSet) WithCommunitiesGloballyOff() ViewerSet {
 	v.communitiesOff = true
 	return v
@@ -614,8 +613,8 @@ type ViewerFlags interface {
 // HydrateViewer is the one place that decides whether and how a request hydrates viewer state: nothing (0 reads) when
 // neither FEATURE_ENGAGEMENT nor FEATURE_BOOKMARKS is on for uid, the full set with engagement on, and the bookmarks
 // alone (liked and reposted stripped) with only FEATURE_BOOKMARKS on. Cost: one cached userLikes read, 0 extra
-// (ADR-0023 D3, D5). Staleness bound: the userLikes instance cache TTL (60 s).
-// A set from here also carries the polls-globally-off mark (ADR-0029 D4), flag lookups only, 0 reads, even when it is otherwise empty.
+// Staleness bound: the userLikes instance cache TTL (60 s).
+// A set from here also carries the polls-globally-off mark, flag lookups only, 0 reads, even when it is otherwise empty.
 func HydrateViewer(ctx context.Context, fc FlagChecker, vf ViewerFlags, uid string) ViewerSet {
 	if fc == nil {
 		return ViewerSet{}
@@ -665,7 +664,7 @@ type RepostLinks interface {
 	Released(ctx context.Context, originalID, uid string) error
 }
 
-// Engagement is posts' read/cache seam for the engagement module (ADR-0018 D4, D5). It is implemented by the
+// Engagement is posts' read/cache seam for the engagement module. It is implemented by the
 // concrete service returned by New (apiserver type-asserts it, like identity.Directory), so Service and every
 // fake of it stay unchanged.
 type Engagement interface {
@@ -673,7 +672,7 @@ type Engagement interface {
 	// or non-ACTIVE author are the single ErrNotFound). It reads like GetPost (post 1, author 1, caller graph 1
 	// cold) and sets no request-log fields.
 	Viewable(ctx context.Context, callerUID, postID string) (*Post, error)
-	// RefuseShare is the ADR-0025 D5 write rule, called by RepostPost on the post Viewable returned (CreatePost applies
+	// RefuseShare is the write rule, called by RepostPost on the post Viewable returned (CreatePost applies
 	// it to a quote target itself): a protected author's post can be reposted or quoted only by that author; any other
 	// caller who passed Viewable gets FAILED_PRECONDITION PROTECTED_ACCOUNT, 0 writes, 0 reads. UNAVAILABLE when the
 	// protected set is unknown.
@@ -681,10 +680,10 @@ type Engagement interface {
 	// CountsChanged applies deltas to the instance copy of a post (copy on write), after a commit.
 	CountsChanged(postID string, likeDelta, repostDelta int64)
 	// PollVoted applies one committed vote for choice (0-based) to the instance copy of the poll post (copy on write, a new Poll
-	// with fresh counts) and returns the updated post, or nil when the post is not cached (ADR-0029 D6 step 8).
+	// with fresh counts) and returns the updated post, or nil when the post is not cached.
 	PollVoted(postID string, choice int) *Post
 	// PollVoteChanged applies one committed vote change from choice from to choice to (both 0-based) to the instance copy: Post.VoteChanged, a
-	// new Poll, each count clamped at 0, total unchanged. nil when the post is not cached (ADR-0029 Amendment 1 A2.7).
+	// new Poll, each count clamped at 0, total unchanged. nil when the post is not cached.
 	PollVoteChanged(postID string, from, to int) *Post
 	// RepostCreated caches a REPOST this instance just committed: posts cache, author-recent, and the author's
 	// postsCount via identity.Directory.Forget.
@@ -697,7 +696,7 @@ type Engagement interface {
 // request body (the service maps it to INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED).
 var ErrIdempotencyKeyReused = errors.New("posts: idempotency key reused with a different request")
 
-// Limits (ADR-0010 D15, ADR-0004).
+// Limits.
 const (
 	// MaxGetMany is the most ids one GetMany takes (Firestore GetAll batch, rule 6).
 	MaxGetMany = 50
@@ -705,23 +704,23 @@ const (
 	MaxByAuthors = 30
 	// MaxLimit is the largest query Limit (the query-limit rule).
 	MaxLimit = 50
-	// MaxCreatedAfterLimit is the largest Reader.CreatedAfter page (trends sweep, ADR-0028 D6).
+	// MaxCreatedAfterLimit is the largest Reader.CreatedAfter page (trends sweep).
 	MaxCreatedAfterLimit = 500
 	// MaxRecent is how many newest root posts one author-recent entry holds.
 	MaxRecent = 20
-	// MaxMedia is the most images one post carries (ADR-0005).
+	// MaxMedia is the most images one post carries.
 	MaxMedia = 4
 )
 
 // ErrNotFound is returned by Reader.Get for a missing or deleted post. Callers map it at their own boundary;
-// GetPost uses one message for every not-found cause (ADR-0010 D6).
+// GetPost uses one message for every not-found cause.
 var ErrNotFound = errors.New("posts: post not found")
 
 // ErrInvalidID is returned by Get and GetMany for an empty id or one containing "/": never a post id, and
 // refused before any cache lookup or read. RPC handlers validate ids (^[0-9]{19}$) first; this is the backstop.
 var ErrInvalidID = errors.New("posts: invalid post id")
 
-// PostEvents is a post-commit hook, a no-op until notifications (ADR-0010): "CreatePost calls
+// PostEvents is a post-commit hook, a no-op until notifications: "CreatePost calls
 // PostEvents.Created after a commit; replays don't". Never called inside the transaction or its budget.
 type PostEvents interface {
 	Created(ctx context.Context, p *Post)
@@ -735,21 +734,21 @@ type Checkpoint struct {
 	// Deleted counts posts removed so far across calls.
 	Deleted int
 	// Phase is 0 while the user's own posts are being deleted and 1 while the copies of the user's content that
-	// live in other users' REPOST and QUOTE docs are removed (ADR-0018 D14). A checkpoint written earlier
+	// live in other users' REPOST and QUOTE docs are removed. A checkpoint written earlier
 	// decodes as phase 0. Phase 2 deletes the user's postRemovals entries (amendment 2026-10-18 (b)).
 	Phase int `json:"Phase,omitempty"`
 	// Copies counts REPOST docs removed and QUOTE embeds tombstoned in phase 1.
 	Copies int `json:"Copies,omitempty"`
 }
 
-// Eraser is the delete-cascade building block (ADR-0010 D19 Q-E), used by opsctl purge-posts now and later the
+// Eraser is the delete-cascade building block, used by opsctl purge-posts now and later the
 // account-lifecycle job. PurgeUser is resumable: call again with the returned checkpoint until done is true.
 // Implemented.
 type Eraser interface {
 	PurgeUser(ctx context.Context, uid string, checkpoint Checkpoint) (next Checkpoint, done bool, err error)
 }
 
-// Exporter writes one user's posts as the manual data export (ADR-0003 "Deletes & privacy"). Implemented.
+// Exporter writes one user's posts as the manual data export ("Deletes & privacy"). Implemented.
 type Exporter interface {
 	ExportUser(ctx context.Context, uid string, w io.Writer) error
 }
@@ -766,7 +765,7 @@ type ModerationCheckpoint struct {
 	Since time.Time
 	// PageCommunityPosts is an OUTPUT of HideAuthor, replaced on every call (an input value is ignored): the posts of the page it just
 	// processed that carry a communityId, hidden by this call or already hidden, so that opsctl can append them to each community's
-	// recentRemovals (ADR-0031 D14) and a re-run after a crash between the two steps still finds them. A moderator-hidden community post
+	// recentRemovals and a re-run after a crash between the two steps still finds them. A moderator-hidden community post
 	// has no communityId (its log entry exists already) and is not listed. Empty for RestoreAuthor.
 	PageCommunityPosts []CommunityPostRef
 }
@@ -780,7 +779,7 @@ type CommunityPostRef struct {
 // ModerationResult is what Moderator.Takedown and Restore found.
 type ModerationResult struct {
 	// CommunityID is the community the post was created into (its communityId), "" for any other post, a REPOST, or a post a community
-	// moderator hid (that hide already logged it). Read from the document the call already reads: 0 extra reads (ADR-0031 D14).
+	// moderator hid (that hide already logged it). Read from the document the call already reads: 0 extra reads.
 	CommunityID string
 	AuthorID    string
 	// Before and After are the moderation state before and after the call.
@@ -790,12 +789,12 @@ type ModerationResult struct {
 	RepostReleased bool
 }
 
-// Moderator is the moderator-action seam used by opsctl (ADR-0016 D4). It never runs in the API process, so
+// Moderator is the moderator-action seam used by opsctl. It never runs in the API process, so
 // it does not touch the instance caches: serving instances converge within CACHE_TTL (60 s).
 type Moderator interface {
 	// Takedown sets TAKEN_DOWN on one post (ErrNotFound when it does not exist). A post already hidden by a
 	// suspension becomes TAKEN_DOWN (the stronger state, which unsuspend does not undo). Reads 1, writes 2 (the post and its
-	// postRemovals entry, ADR-0016 D10; 0 when already TAKEN_DOWN).
+	// postRemovals entry; 0 when already TAKEN_DOWN).
 	// A REPOST is not hidden but removed: its doc is deleted and the reposts record and counters released (see
 	// ModerationResult.RepostReleased); Restore then reports ErrNotFound and the user can repost again.
 	Takedown(ctx context.Context, postID string, now time.Time) (ModerationResult, error)

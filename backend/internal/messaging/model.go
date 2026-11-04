@@ -10,7 +10,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// Collection names (ADR-0027 D1). messaging.Service and the repo behind it are the only readers and writers.
+// Collection names. messaging.Service and the repo behind it are the only readers and writers.
 const (
 	conversationsCollection = "conversations"
 	messagesCollection      = "messages"
@@ -19,7 +19,7 @@ const (
 	usersCollection         = "users"
 )
 
-// Stored states (ADR-0027 D1). They are the proto enum names without the prefix, so a stored value maps one to one.
+// Stored states. They are the proto enum names without the prefix, so a stored value maps one to one.
 const (
 	kindDirect = "DIRECT"
 
@@ -31,10 +31,10 @@ const (
 	msgRemoved        = "REMOVED"
 )
 
-// SnippetMaxRunes is the longest snippet an inbox entry holds (ADR-0027 D1: at most 100 code points).
+// SnippetMaxRunes is the longest snippet an inbox entry holds (at most 100 code points).
 const SnippetMaxRunes = 100
 
-// Limit names carried in LIMIT_REACHED metadata["limit"] and the request log's limit_name (ADR-0027 D13).
+// Limit names carried in LIMIT_REACHED metadata["limit"] and the request log's limit_name.
 const (
 	limitRequestUnanswered = "request_unanswered"
 	limitDMNewDaily        = "dm_new_daily"
@@ -42,26 +42,26 @@ const (
 )
 
 // DeletedUID is the one fixed value the `messaging` eraser writes in place of a deleted user's uid everywhere it remains in
-// a surviving peer's copy of a conversation (ADR-0027 D8, D11): the conversation's participants, gone, requestFrom and
+// a surviving peer's copy of a conversation: the conversation's participants, gone, requestFrom and
 // requestTo, the senderId of the user's tombstoned messages and the peer entry's peerId. It can never be a real uid: it begins with "_",
-// which ids.ValidUID refuses (ADR-0008 A3: "_" is the composite-key separator), so no account can ever take the value (L-2;
+// which ids.ValidUID refuses ("_" is the composite-key separator), so no account can ever take the value (L-2;
 // the first value, "deleted", was a valid uid shape and could have been claimed). Nothing resolves it (Firebase
 // uids are 28 random characters): readers treat it as "Deleted account".
 const DeletedUID = "_deleted"
 
-// Deleted-account placeholders (ADR-0027 D8): what the eraser writes into the peer's entry.
+// Deleted-account placeholders: what the eraser writes into the peer's entry.
 const (
 	DeletedAccountName = "Deleted account"
 	deletedSnippet     = "Message deleted"
 )
 
-// hex32 is the shape of a conversation or message id (ADR-0027 D2): 32 lower-case hex characters.
+// hex32 is the shape of a conversation or message id: 32 lower-case hex characters.
 var hex32 = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 // ValidID reports whether s has the shape of a conversation or message id.
 func ValidID(s string) bool { return hex32.MatchString(s) }
 
-// ConversationID is the deterministic id of the 1:1 conversation between two users (ADR-0027 D2): the first 32 hex
+// ConversationID is the deterministic id of the 1:1 conversation between two users: the first 32 hex
 // characters of SHA-256("dm1|" + lowUid + "|" + highUid), the uids in byte order. The id is guessable from two uids, so
 // authorization never relies on its secrecy.
 func ConversationID(a, b string) string {
@@ -72,7 +72,7 @@ func ConversationID(a, b string) string {
 	return digest32("dm1|" + lo + "|" + hi)
 }
 
-// MessageID is the deterministic id of a message (ADR-0027 D2, Option C1): the first 32 hex characters of
+// MessageID is the deterministic id of a message (Option C1): the first 32 hex characters of
 // SHA-256(senderUid | "SendMessage" | idempotency_key). The message document is the idempotency record.
 func MessageID(senderUID, key string) string {
 	return keyDigest(senderUID, opSend, key)
@@ -86,13 +86,13 @@ const (
 
 // keyDigest is the one construction behind every stored idempotency key (C1): the first 32 hex characters of
 // SHA-256(uid | operation | idempotency_key). A message id is one; so is conversations.clearedKey.{uid} (the 2026-10-29
-// note of ADR-0027: DeleteConversation stores the digest of its key next to clearedAt, at no extra read or write).
+// note of: DeleteConversation stores the digest of its key next to clearedAt, at no extra read or write).
 func keyDigest(uid, op, key string) string {
 	return digest32(uid + "|" + op + "|" + key)
 }
 
-// requestHash is the one-way digest of a SendMessage request used to tell a replay from a reused key (ADR-0027 D1: same
-// key with a different body is VALIDATION). It binds the resolved conversation and the normalised text.
+// requestHash is the one-way digest of a SendMessage request used to tell a replay from a reused key (same key with a different body is VALIDATION).
+// It binds the resolved conversation and the normalised text.
 func requestHash(convID, text string) string {
 	return digest32("send|" + convID + "|" + text)
 }
@@ -129,7 +129,7 @@ func snippetOf(text string) string {
 // the response carried.
 func wireTime(t time.Time) time.Time { return t.UTC().Truncate(time.Microsecond) }
 
-// ConvDoc is conversations/{convId} (ADR-0027 D1). Messages are NOT counted here: an accepted conversation
+// ConvDoc is conversations/{convId}. Messages are NOT counted here: an accepted conversation
 // document is not written per message (no hot document).
 type ConvDoc struct {
 	Kind         string               `firestore:"kind"`
@@ -145,7 +145,7 @@ type ConvDoc struct {
 	Gone       []string          `firestore:"gone,omitempty"`
 	CreatedAt  time.Time         `firestore:"createdAt"`
 	UpdatedAt  time.Time         `firestore:"updatedAt"`
-	// Rev is the thread revision (ADR-0027 note 2026-10-29): incremented by a takedown and by the eraser's RewriteConversation,
+	// Rev is the thread revision: incremented by a takedown and by the eraser's RewriteConversation,
 	// sealed into ListMessages since tokens; absent = 0. Never touched by send, accept, delete or mark-read.
 	Rev int64 `firestore:"rev,omitempty"`
 }
@@ -214,12 +214,12 @@ type EntryDoc struct {
 	Silent        bool      `firestore:"silent"`
 	LastReadAt    time.Time `firestore:"lastReadAt"`
 	CreatedAt     time.Time `firestore:"createdAt"`
-	// ChangedAt is when the entry last changed in a way a cached device must see (ADR-0027 note 2026-10-29): every send (the
+	// ChangedAt is when the entry last changed in a way a cached device must see: every send (the
 	// same stamp as LastMessageAt), a takedown rewriting the preview, the eraser rewriting the peer snapshot, an accepted
 	// request moved to the inbox. The ListConversations since query orders by it. It stays on the automatic single-field
 	// index; an entry written before it existed has none and never matches a since query.
 	ChangedAt time.Time `firestore:"changedAt,omitempty"`
-	// RequestPending (ADR-0027 note) is true only on the requester's own dmInbox entry while the conversation is REQUEST
+	// RequestPending is true only on the requester's own dmInbox entry while the conversation is REQUEST
 	// (their first to third message): ListConversations then reads the row as REQUEST in the INBOX. Absent = false. Send sets it
 	// (+0) and clears it on the reply that accepts; Accept and the eraser's MarkGone delete it. Never set on dmRequests. A legacy
 	// entry has none and reads ACCEPTED. It stays on the automatic index (no query uses it).

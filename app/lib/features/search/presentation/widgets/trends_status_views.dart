@@ -5,7 +5,7 @@ import '../../data/search_repository.dart';
 import '../../../../core/network/app_exception.dart';
 
 /// A trends list older than this is labelled as such: the daily sweep runs
-/// once a day (ADR-0028 F1 B), so a list a day and a half old means the sweep
+/// once a day, so a list a day and a half old means the sweep
 /// missed a run. The caption is honest, never a failure.
 const kTrendsStaleAfter = Duration(hours: 36);
 

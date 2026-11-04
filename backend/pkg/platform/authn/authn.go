@@ -1,4 +1,4 @@
-// Package authn verifies Firebase ID tokens and Firebase App Check tokens (ADR-0006 §1-2). Both
+// Package authn verifies Firebase ID tokens and Firebase App Check tokens. Both
 // verifications are local JWT checks against cached Google public keys — no Firestore reads, no
 // per-request network call once the keys are cached. Both underlying Firebase Admin SDK clients honor
 // the emulator env vars (FIREBASE_AUTH_EMULATOR_HOST) automatically; see NewIDTokenVerifier.
@@ -24,7 +24,7 @@ type Claims struct {
 	AuthTime       time.Time
 }
 
-// Firebase `firebase.sign_in_provider` claim values the verified-identity gate knows (ADR-0010 D5 A10).
+// Firebase `firebase.sign_in_provider` claim values the verified-identity gate knows.
 const (
 	// SignInProviderPassword is email/password, the only allowed provider whose email Firebase does not itself
 	// guarantee verified (Google and Apple verify it upstream), so it also needs email_verified.
@@ -41,7 +41,7 @@ const (
 	GateProviderNotAllow = "provider_not_allowed"
 )
 
-// IdentityGate is the ADR-0010 D5 A10 allowlist predicate, the one definition shared by
+// IdentityGate is the allowlist predicate, the one definition shared by
 // VerifiedIdentityInterceptor and identity's CreateProfile. It fails closed: only google.com, apple.com and
 // password with email_verified pass, plus anonymous when allowAnonymous (Auth emulator only). It returns
 // GatePass, GateEmailUnverified (an unverified password account) or GateProviderNotAllow (everything else,
@@ -63,11 +63,11 @@ func (c Claims) IdentityGate(allowAnonymous bool) string {
 	return GateProviderNotAllow
 }
 
-// RequireVerifiedEmail is the shared "verified email before you may <action>" check (ADR-0006:
+// RequireVerifiedEmail is the shared "verified email before you may <action>" check (
 // "email verification or Google/Apple sign-in required before posting"). It applies Claims.IdentityGate to the
 // caller in ctx and returns FAILED_PRECONDITION + EMAIL_NOT_VERIFIED, "please verify your email before
 // <action>", for anyone outside the allowlist. 0 Firestore reads. action completes the sentence, for example
-// "creating a profile" or "posting". allowAnonymous must be config.AuthEmulator only (ADR-0010 D5 A10).
+// "creating a profile" or "posting". allowAnonymous must be config.AuthEmulator only.
 //
 // authn.VerifiedIdentityInterceptor already stops these callers earlier, from the same claims; modules call
 // this as defence in depth so a chain without the gate (a unit test, a future service) still refuses them.

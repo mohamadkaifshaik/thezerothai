@@ -1,6 +1,6 @@
 package identity
 
-// Tester audit of the acceptance criteria (ADR-0011 C1 and Q1-Q9):
+// Tester audit of the acceptance criteria (and Q1-Q9):
 // the cases the original tickets' tests left open. Uses the fakes of lifecycle_fakes_test.go.
 
 import (
@@ -162,7 +162,7 @@ func TestJobs_RefusalReadsFreshState(t *testing.T) {
 }
 
 // TestJobs_GateClock: the 120 s start gate is measured from deletionRequestedAt. Checkpoint writes and counter
-// increments move updatedAt and must not move the gate (ADR-0011 D-A "The start-gate clock").
+// increments move updatedAt and must not move the gate.
 func TestJobs_GateClock(t *testing.T) {
 	msg := JobMessage{Kind: JobKindAccountDelete, UID: "u1", Seq: 0}
 	t.Run("recent updatedAt does not re-close the gate", func(t *testing.T) {

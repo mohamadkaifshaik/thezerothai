@@ -8,7 +8,7 @@
 # FIREBASE_API_KEY comes from the environment or, if unset, from the web block of app/lib/firebase_options_prod.dart (public client
 # config; override the path with FIREBASE_OPTIONS_FILE).
 # SMOKE_REFERER (default https://dzeroth.com/, override allowed) is exported: the web API key is restricted by HTTP referrer and the
-# sign-in call must carry the app's own origin as Referer (see the runbook, "API key restrictions").
+# sign-in call must carry the app's own origin as Referer (the API key restrictions require it).
 # Exit codes: those of authenticated-smoke.sh (0 pass, 1 smoke failure), or 2 for a usage or environment error here.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)

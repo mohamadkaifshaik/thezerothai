@@ -2,10 +2,10 @@ import 'package:go_router/go_router.dart';
 
 import '../telemetry/usage_reporter.dart';
 
-/// The screen name for anything not in [kScreenNames] (ADR-0032 F4).
+/// The screen name for anything not in [kScreenNames].
 const kOtherScreen = 'other';
 
-/// Route template -> screen name (ADR-0032 F4). The key is the
+/// Route template -> screen name. The key is the
 /// template (`/post/:id`), never a location, so no id, handle or query can
 /// reach Analytics. A new route is `other` until it is added here; the table
 /// test (`screen_names_test.dart`) reads every `AppRouter` route.

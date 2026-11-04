@@ -7,7 +7,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// ADR-0031 D5: the page the list services hand to the handlers carries the polls-style "communities globally off" mark from
+// The page the list services hand to the handlers carries the polls-style "communities globally off" mark from
 // posts.HydrateViewer, so posts.ToView (the one converter) drops the label for the kill switch and for a hidden post, and shows it otherwise.
 func TestLists_CommunityLabel(t *testing.T) {
 	label := &posts.CommunityLabel{ID: "1000000000000000042", Name: "Go"}

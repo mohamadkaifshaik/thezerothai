@@ -245,7 +245,7 @@ func TestListListMembers_DropMatrix(t *testing.T) {
 	}
 }
 
-// ADR-0030 D4: a member who blocks the owner is absent for everyone; one who blocks only the viewer is absent for that viewer only.
+// A member who blocks the owner is absent for everyone; one who blocks only the viewer is absent for that viewer only.
 func TestListListMembers_BlockAcceptance(t *testing.T) {
 	t.Parallel()
 	snaps := map[string]graph.Snapshot{testUID: {BlockedBy: set("b-owner")}, viewerUID: {BlockedBy: set("b-viewer")}, "other": {}}

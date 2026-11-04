@@ -15,7 +15,7 @@ import (
 const rpcDeadline = 8 * time.Second
 
 // Server is the CommunityService handler. It mounts every route so the interceptor chain (App Check, ID token, account status, rate
-// limits, read budget, degraded mode) covers them, and runs the flag gate (FEATURE_COMMUNITIES, ADR-0031 D10) before anything else: a
+// limits, read budget, degraded mode) covers them, and runs the flag gate (FEATURE_COMMUNITIES) before anything else: a
 // caller outside the flag gets FAILED_PRECONDITION FEATURE_DISABLED feature=communities with 0 Firestore reads. Past the gate
 // CreateCommunity, UpdateCommunity and GetCommunity and JoinCommunity, LeaveCommunity and ListMyCommunities call the
 // Service; ListCommunities and ListCommunityMembers call it too; the four moderation methods (server_moderation.go) call it too. A Server built without a Service answers Unimplemented for the implemented ones as well.

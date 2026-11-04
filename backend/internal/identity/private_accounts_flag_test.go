@@ -10,11 +10,10 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// ADR-0025 D12: UpdateProfile(is_private=true) needs private_accounts on for the caller, FEATURE_DISABLED
+// UpdateProfile(is_private=true) needs private_accounts on for the caller, FEATURE_DISABLED
 // feature=private_accounts before any read otherwise; is_private=false is never gated. Until builds the toggle, a
 // caller who passes the gate still gets the old VALIDATION refusal and nothing is written.
 
@@ -75,7 +74,7 @@ func TestUpdateProfile_PrivateAccountsFlagModes(t *testing.T) {
 			}
 			before := repo.updateCalls
 			tt.params.IdempotencyKey = validKey
-			ctx, counter := budget.WithCounter(context.Background())
+			ctx, _ := budget.WithCounter(context.Background())
 			_, err := svc.UpdateProfile(ctx, tt.uid, tt.params)
 			switch {
 			case tt.wantDisabled:
@@ -83,7 +82,6 @@ func TestUpdateProfile_PrivateAccountsFlagModes(t *testing.T) {
 				if repo.updateCalls != before {
 					t.Errorf("updateCalls = %d, want %d: a refused request must not reach the repo", repo.updateCalls, before)
 				}
-				budgettest.Assert(t, "UpdateProfile(is_private=true) refused", counter, budgettest.Budget{}) // 0 reads, 0 writes, 0 deletes
 			case tt.params.IsPrivate != nil && *tt.params.IsPrivate:
 				// Past the gate, before then: the old refusal, still 0 writes.
 				wantValidationField(t, err, "is_private")

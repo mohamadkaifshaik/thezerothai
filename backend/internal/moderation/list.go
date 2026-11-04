@@ -1,6 +1,6 @@
 // list.go is moderation's side of "report a list" (security review M-4): the target type, the shape check
 // of the list id and the consumer-side seam through which moderation reaches a list. moderation never reads lists/* itself:
-// lists implements ListReporter and the composition root adapts it (the MessageLookup pattern, ADR-0027 D15).
+// lists implements ListReporter and the composition root adapts it (the MessageLookup pattern).
 package moderation
 
 import (
@@ -43,7 +43,7 @@ var (
 	ErrOwnList = errors.New("moderation: own list")
 )
 
-// ListLookup is the consumer-side seam to lists. ReportableList answers whether callerUID may see the list (ADR-0030 D3) and
+// ListLookup is the consumer-side seam to lists. ReportableList answers whether callerUID may see the list and
 // is not its owner, and returns its evidence. It returns ErrListNotFound, ErrOwnList or an infrastructure error. It checks no
 // flag. Firestore, worst case: list 1 + caller graph 1 + owner users 1 + owner graph 1 (all cache-first, 0 warm).
 type ListLookup interface {

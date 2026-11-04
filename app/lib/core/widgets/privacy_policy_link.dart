@@ -69,8 +69,8 @@ Future<void> launchStaticPage(
 }
 
 /// The tappable "Privacy Policy" link shown on sign-up, sign-in and Settings
-/// — the one place that knows the URL and how to open it (`reuse-first`
-/// skill: one widget, not a near-copy per screen).
+/// — the one place that knows the URL and how to open it (one
+/// widget, not a near-copy per screen).
 ///
 /// With [leadingText] set (sign-up: the 18+/consent sentence), renders a full
 /// line ending in the link. Without it (sign-in: just the link, "lighter"),

@@ -68,14 +68,14 @@ class SendClaim {
 }
 
 /// How long a stored `post` key is reused: CreatePost's idempotency record
-/// lives 24 h, so the client stops an hour early (ADR-0029 A4).
+/// lives 24 h, so the client stops an hour early.
 const kPostSendKeyWindow = Duration(hours: 23);
 
 /// A scheduled item keeps its key for 7 days after it reaches a terminal
-/// state (ADR-0029 A4); the window ends that long after its publish time.
+/// state; the window ends that long after its publish time.
 const kScheduleSendKeyAfterPublish = Duration(days: 7);
 
-/// The only reader and writer of unsent posts on this device (ADR-0029).
+/// The only reader and writer of unsent posts on this device.
 /// Drafts live in `ComposerDraftEntries`, keyed `{uid, draftId}`: every
 /// query is filtered by uid, the table survives sign-out (F7) unless the user
 /// chose "Delete them" there, and is wiped for one uid by [deleteAll] when that
@@ -241,8 +241,8 @@ class DraftsRepository {
   /// An id leaves the set only when its own empty content removes the row.
   final Set<String> _seen = {};
 
-  /// Claims the idempotency key for one send of [draft] (ADR-0029
-  /// Amendment 1 A4), in one local transaction, before the RPC leaves. 0 RPCs.
+  /// Claims the idempotency key for one send of [draft],
+  /// in one local transaction, before the RPC leaves. 0 RPCs.
   /// `updatedAt` is never touched: a claim is not an edit.
   ///
   /// - Row present with a key of the same [kind] inside its window: that key

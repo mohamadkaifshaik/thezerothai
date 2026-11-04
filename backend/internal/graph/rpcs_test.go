@@ -41,7 +41,7 @@ func TestFollow_SelfFollow(t *testing.T) {
 	assertAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 }
 
-// The target's existence is decided inside the repo transaction now (ADR-0025 D6): a missing or non-ACTIVE target comes
+// The target's existence is decided inside the repo transaction now: a missing or non-ACTIVE target comes
 // back as ErrNotFoundOrBlocked and is NOT_FOUND on the wire.
 func TestFollow_TargetMissing_NotFound(t *testing.T) {
 	repo := newFakeRepo()
@@ -214,7 +214,7 @@ func (r *recordingFollowEvents) Followed(_ context.Context, follower, followee s
 	r.calls = append(r.calls, struct{ follower, followee string }{follower, followee})
 }
 
-// TestFollow_EventsHook (ADR-0017 D2): a created edge reports Followed exactly once; replays and no-ops never do.
+// TestFollow_EventsHook: a created edge reports Followed exactly once; replays and no-ops never do.
 func TestFollow_EventsHook(t *testing.T) {
 	tests := []struct {
 		name    string

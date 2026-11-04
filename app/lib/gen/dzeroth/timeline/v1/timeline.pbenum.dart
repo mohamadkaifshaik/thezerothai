@@ -14,7 +14,7 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-/// The profile tab a GetUserTimeline call reads (ADR-0024 D5).
+/// The profile tab a GetUserTimeline call reads.
 class UserTimelineTab extends $pb.ProtobufEnum {
   /// Use include_replies (false = POSTS, true = REPLIES), exactly as before the tab field existed.
   static const UserTimelineTab USER_TIMELINE_TAB_UNSPECIFIED =

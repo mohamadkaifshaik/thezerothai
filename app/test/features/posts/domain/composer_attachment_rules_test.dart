@@ -64,7 +64,7 @@ void main() {
       final r = _rules(scheduled: true);
       expect(r.poll, ComposerBlock.scheduled);
       expect(r.poll.pollTooltip, "Polls can't be scheduled");
-      // SchedulePost refuses GIF media (VALIDATION media_ids, ADR-0029 D10).
+      // SchedulePost refuses GIF media (VALIDATION media_ids).
       expect(r.gif, ComposerBlock.scheduled);
       expect(r.gif.gifTooltip, "GIFs can't be scheduled");
       expect(r.photo, ComposerBlock.none);

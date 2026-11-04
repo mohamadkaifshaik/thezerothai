@@ -1,7 +1,7 @@
 import 'package:dzeroth/features/profile/domain/profile_extras_rules.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Mirrors `backend/internal/identity/validate.go` (ADR-0024 D2). Strings with
+/// Mirrors `backend/internal/identity/validate.go`. Strings with
 /// invisible characters are built from code points so no raw control or bidi
 /// character sits in this file (a Trojan Source risk).
 String cp(List<int> codePoints) => String.fromCharCodes(codePoints);

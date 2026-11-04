@@ -27,7 +27,7 @@ import 'widgets/follow_requests_row.dart';
 import 'widgets/notification_row.dart';
 import 'widgets/push_opt_in_card.dart';
 
-/// `/notifications` (ADR-0017): the cached list renders at once, one
+/// `/notifications`: the cached list renders at once, one
 /// throttled `since_token` refresh follows, and opening it marks everything
 /// seen (once per refresh). With the `notifications` flag off, the Phase 0
 /// placeholder shows (the route also redirects away).

@@ -4,7 +4,7 @@ package ids
 
 import "regexp"
 
-// uidRe is `^[A-Za-z0-9-]{1,128}$`. `_` is deliberately excluded (ADR-0008 A3): it is the composite-key
+// uidRe is `^[A-Za-z0-9-]{1,128}$`. `_` is deliberately excluded: it is the composite-key
 // separator in follows/likes/reposts doc ids, so a uid containing it would make `a_b_c` ambiguous. Firebase
 // Auth issues 28-char alphanumeric uids, and we never mint custom-token uids. `-` stays (test fixtures use
 // `uid-*`, and it is not a separator). Excluding `_` also implies the Firestore-reserved `__x__` shape is
@@ -20,7 +20,7 @@ func ValidUID(uid string) bool {
 // lives in one place (graph code review N2).
 const UIDMessage = "user_id must be 1-128 characters of [A-Za-z0-9-]"
 
-// ValidPostID reports whether id is a post id: the 19-digit zero-padded Snowflake decimal (ADR-0010 D18).
+// ValidPostID reports whether id is a post id: the 19-digit zero-padded Snowflake decimal.
 // Pure; never touches Firestore.
 func ValidPostID(id string) bool {
 	if len(id) != 19 {

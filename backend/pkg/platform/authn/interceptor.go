@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// AppCheckHeader is the header Flutter clients attach on every call (ADR-0006 §2).
+// AppCheckHeader is the header Flutter clients attach on every call.
 const AppCheckHeader = "X-Firebase-AppCheck"
 
 // Mode controls whether a missing/invalid App Check token blocks the request.
@@ -28,7 +28,7 @@ const (
 // AppCheckInterceptor verifies the X-Firebase-AppCheck header. In ModeMonitor a failure is recorded on
 // the request's logger.RequestInfo (M2: the one line-per-request log needs app_check_failed, and can only
 // see it via that mutable pointer — see mw.Logging's doc comment) but does not block the request, so
-// false rejects can be measured before switching to ModeEnforce (ADR-0006 §2).
+// false rejects can be measured before switching to ModeEnforce.
 func AppCheckInterceptor(verifier AppCheckVerifier, mode Mode) connect.UnaryInterceptorFunc {
 	interceptor := func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
@@ -63,7 +63,7 @@ func verifyAppCheck(ctx context.Context, verifier AppCheckVerifier, token string
 var errEmptyAppCheckToken = apierr.New(connect.CodeUnauthenticated, commonv1.ErrorReason_ERROR_REASON_APP_CHECK_REQUIRED, "missing App Check token")
 
 // IDTokenInterceptor verifies the `Authorization: Bearer <idToken>` header and attaches Claims to the
-// context for downstream handlers. Every RPC requires a valid ID token at Stage 0 (ADR-0006 §2). It also
+// context for downstream handlers. Every RPC requires a valid ID token at Stage 0. It also
 // records the verified uid on logger.RequestInfo (M2) so the one-line-per-request log can include
 // uid_hash without every handler/interceptor having to thread claims back up to mw.Logging.
 func IDTokenInterceptor(verifier IDTokenVerifier) connect.UnaryInterceptorFunc {
@@ -84,7 +84,7 @@ func IDTokenInterceptor(verifier IDTokenVerifier) connect.UnaryInterceptorFunc {
 					"invalid or expired sign-in, please sign in again",
 				).WithCause(err))
 			}
-			// ADR-0008 A3: a uid outside [A-Za-z0-9-]{1,128} (notably one containing the `_` composite-key
+			// A uid outside [A-Za-z0-9-]{1,128} (notably one containing the `_` composite-key
 			// separator) never reaches a module. Rejected before any Firestore read.
 			if !ids.ValidUID(claims.UID) {
 				slog.Default().Warn("uid_format_rejected", "uid_hash", logger.HashUID(claims.UID))
@@ -102,7 +102,7 @@ func IDTokenInterceptor(verifier IDTokenVerifier) connect.UnaryInterceptorFunc {
 	return connect.UnaryInterceptorFunc(interceptor)
 }
 
-// VerifiedIdentityInterceptor is the ADR-0010 D5 A2/A10 gate: it rejects every caller outside the sign-in
+// VerifiedIdentityInterceptor is the gate: it rejects every caller outside the sign-in
 // provider allowlist (Claims.IdentityGate) from the ID-token claims alone, with 0 Firestore reads and before
 // the rate limiter, so a minted uid never creates a limiter key or a read. allowAnonymous is true only against
 // the Auth emulator. emailGated lists the profile-exempt procedures (CheckHandleAvailability, CreateProfile)
@@ -146,7 +146,7 @@ func truncateBytes(s string, n int) string {
 }
 
 // AccountStatus mirrors identityv1.AccountStatus without importing the identity module (platform code
-// must not depend on any internal/<module>; ADR-0002). Callers pass a small adapter.
+// must not depend on any internal/<module>). Callers pass a small adapter.
 type AccountStatus int
 
 const (
@@ -157,16 +157,16 @@ const (
 )
 
 // AccountStatusProvider looks up whether uid has a profile yet and its status. Implementations should
-// be backed by an instance cache (users/{uid}, 60s TTL per ADR-0003) so this costs ~0 extra Firestore
+// be backed by an instance cache (users/{uid}, 60s TTL) so this costs ~0 extra Firestore
 // reads on the hot path.
 type AccountStatusProvider interface {
 	AccountStatus(ctx context.Context, uid string) (exists bool, status AccountStatus, err error)
 }
 
 // ProfileExemptProcedures lists the fully-qualified Connect procedures allowed before a profile exists.
-// ADR-0006 names CreateProfile explicitly; CheckHandleAvailability is exempted too because it is a
+// CreateProfile is exempt explicitly; CheckHandleAvailability is exempted too because it is a
 // read-only, side-effect-free call the sign-up form must be able to make before CreateProfile succeeds
-// (documented deviation from the ADR's literal wording — see backend-developer handoff notes).
+// (a deliberate addition beyond CreateProfile).
 func ProfileExemptProcedures(procedures ...string) map[string]struct{} {
 	set := make(map[string]struct{}, len(procedures))
 	for _, p := range procedures {
@@ -183,8 +183,8 @@ type accountStatusConfig struct {
 }
 
 // AllowRestricted lets a SUSPENDED or DELETING caller through to exactly these procedures, and no others
-// (ADR-0011 Q2/Q3: DeleteAccount only, so a user can always erase their own account and a client retry after a
-// lost response is a replay rather than ACCOUNT_RESTRICTED). The caller must still have a profile. Every other
+// (DeleteAccount only, so a user can always erase their own account and a client retry after a lost response is a replay rather than ACCOUNT_RESTRICTED).
+// The caller must still have a profile. Every other
 // procedure keeps rejecting restricted accounts.
 func AllowRestricted(procedures ...string) AccountStatusOption {
 	return func(c *accountStatusConfig) {
@@ -195,7 +195,7 @@ func AllowRestricted(procedures ...string) AccountStatusOption {
 }
 
 // AccountStatusInterceptor rejects SUSPENDED/DELETING accounts and enforces PROFILE_REQUIRED for every
-// procedure not in exempt (ADR-0006 §2, §6), except the procedures named by AllowRestricted. Must run after
+// procedure not in exempt, except the procedures named by AllowRestricted. Must run after
 // IDTokenInterceptor.
 func AccountStatusInterceptor(provider AccountStatusProvider, exempt map[string]struct{}, opts ...AccountStatusOption) connect.UnaryInterceptorFunc {
 	cfg := accountStatusConfig{allowRestricted: map[string]struct{}{}}
@@ -223,19 +223,7 @@ func AccountStatusInterceptor(provider AccountStatusProvider, exempt map[string]
 				// sees the generic "internal error" message either way.
 				return nil, apierr.New(connect.CodeInternal, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "internal error").WithCause(err)
 			}
-			if exists {
-				// ADR-0010 D5 A9: whatever the status (a SUSPENDED or DELETING user has a profile too), a
-				// found profile lets the rate limiter clear a stale profile-less mark. Never set on error.
-				if info := logger.RequestInfoFromContext(ctx); info != nil {
-					info.ProfileFound = true
-				}
-			}
 			if !exists {
-				// ADR-0010 D5 A3: tell the rate limiter (which wraps this interceptor) that a verified
-				// caller has no profile, so it charges the call to the IP key.
-				if info := logger.RequestInfoFromContext(ctx); info != nil {
-					info.ProfileRequired = true
-				}
 				return nil, apierr.ToConnect(apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROFILE_REQUIRED, "create a profile first"))
 			}
 			switch status {

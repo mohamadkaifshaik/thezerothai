@@ -327,7 +327,7 @@ type richAccount struct {
 	blockedByA, blocksA, mutedByA testUser
 	handle                        string
 	exportID                      string
-	dmConv                        string // a conversation tree with a gone peer: A's erasure deletes all of it (ADR-0027 D8)
+	dmConv                        string // a conversation tree with a gone peer: A's erasure deletes all of it
 	roles                         map[string]string
 	cohort                        []string
 }
@@ -370,13 +370,13 @@ func (e *lifecycleEnv) rich(t *testing.T) richAccount {
 	_, err = e.posts.CreatePost(ctx, authed(r.f1.token, &postsv1.CreatePostRequest{IdempotencyKey: "rich-mention-" + r.f1.uid[:12], Text: "hello @" + r.handle}))
 	e.call(t, "CreatePost (mention)", err)
 
-	// Scheduled posts live under users/{uid}/scheduled, which deleting users/{uid} does not remove (ADR-0021).
+	// Scheduled posts live under users/{uid}/scheduled, which deleting users/{uid} does not remove.
 	e.seedScheduled(t, r.a.uid, "rich-sched-pending-0001", "PENDING")
 	e.seedScheduled(t, r.a.uid, "rich-sched-cancelled-01", "CANCELLED")
-	// Bookmarks live under users/{uid}/bookmarks (ADR-0023), also not removed with users/{uid}.
+	// Bookmarks live under users/{uid}/bookmarks, also not removed with users/{uid}.
 	e.seedBookmarks(t, r.a.uid, 3)
 	// Conversations live in their own root collection and under users/{uid}/dmInbox, which deleting users/{uid} does not
-	// remove (ADR-0027 D8). This one has a peer that deleted its account already, so A's erasure deletes the whole tree.
+	// remove. This one has a peer that deleted its account already, so A's erasure deletes the whole tree.
 	r.dmConv = e.seedGoneConversation(t, r.a.uid)
 
 	exp, err := e.identity.RequestAccountExport(ctx, authed(r.a.token, &identityv1.RequestAccountExportRequest{IdempotencyKey: "rich-export-" + r.a.uid[:12]}))
@@ -406,7 +406,7 @@ func (e *lifecycleEnv) rich(t *testing.T) richAccount {
 	return r
 }
 
-// seedBookmarks writes n users/{uid}/bookmarks documents and the matching userLikes.bookmarks set (ADR-0023 D3).
+// seedBookmarks writes n users/{uid}/bookmarks documents and the matching userLikes.bookmarks set.
 func (e *lifecycleEnv) seedBookmarks(t *testing.T, uid string, n int) {
 	t.Helper()
 	ids := make([]string, n)
@@ -421,7 +421,7 @@ func (e *lifecycleEnv) seedBookmarks(t *testing.T, uid string, n int) {
 	}
 }
 
-// seedScheduled writes one users/{uid}/scheduled document in the stored shape (ADR-0021): a PENDING one holds a draft,
+// seedScheduled writes one users/{uid}/scheduled document in the stored shape: a PENDING one holds a draft,
 // a CANCELLED one does not and carries an expireAt. The key makes the id.
 func (e *lifecycleEnv) seedScheduled(t *testing.T, uid, key, status string) {
 	t.Helper()
@@ -587,7 +587,7 @@ func TestAccountLifecycle_RichAccountCrashAtEverySideEffect(t *testing.T) {
 	}
 }
 
-// assertOrder checks ADR-0011 Q1 on the recorded side effects whatever the crash: the Auth disable first, posts then
+// assertOrder checks the deletion order on the recorded side effects whatever the crash: the Auth disable first, posts then
 // graph, the identity step, the Auth user, and users/{uid} last with nothing after it.
 func assertOrder(t *testing.T, ops []string) {
 	t.Helper()
@@ -621,7 +621,6 @@ func relaxLimits(c *config.Config) {
 	c.RateLimit.GraphFollowPerMinute = 1_000_000
 	c.RateLimit.GraphBlockPerMinute = 1_000_000
 	c.RateLimit.GraphMutationsPerDay = 1_000_000
-	c.RateLimit.ReadBudgetPerUIDPerDay = 100_000_000
 	c.Quota.PostsPerDay, c.Quota.NewAccountPostsPerDay = 1_000_000, 1_000_000
 	c.Quota.FollowsPerDay, c.Quota.NewAccountFollowsPerDay = 1_000_000, 1_000_000
 	c.Quota.BlocksPerDay, c.Quota.NewAccountBlocksPerDay = 1_000_000, 1_000_000
@@ -684,7 +683,7 @@ func TestAccountLifecycle_RichAccountConcurrentDeliveries(t *testing.T) {
 }
 
 // emulatorAuth is an identity.AuthClient over the Auth emulator's REST admin API. The real Admin SDK client may only be
-// built in the files ADR-0011 control C2 allows (TestAuthAdminConfinement), so the fault-injection chain talks to the
+// built in the files TestAuthAdminConfinement allows, so the fault-injection chain talks to the
 // emulator directly. The one behavioural difference is that an already-deleted user is reported as success here,
 // instead of through the SDK's not-found error that identity's wrapper classifies; that classification against the real
 // SDK is TestAccountLifecycle_AuthUserAlreadyGone.

@@ -9,7 +9,7 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 )
 
-// ADR-0008 A1: a Mute whose target has no graph doc maps to the same NOT_FOUND as Block's, byte for
+// A Mute whose target has no graph doc maps to the same NOT_FOUND as Block's, byte for
 // byte (no oracle difference), and the service still sets no cache side effects.
 func TestMute_NotFoundIdenticalToBlock(t *testing.T) {
 	repo := newFakeRepo()
@@ -30,7 +30,7 @@ func TestMute_NotFoundIdenticalToBlock(t *testing.T) {
 	}
 }
 
-// ADR-0008 A3: edgeID is the only place a follows doc id is built and refuses `_` in either uid.
+// EdgeID is the only place a follows doc id is built and refuses `_` in either uid.
 func TestEdgeID(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

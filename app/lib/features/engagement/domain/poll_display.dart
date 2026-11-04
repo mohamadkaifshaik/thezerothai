@@ -1,6 +1,6 @@
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 
-/// What a poll card shows (ADR-0029 D4). The rules live here so the
+/// What a poll card shows. The rules live here so the
 /// widget only draws.
 enum PollMode {
   /// Open, the viewer may vote: outlined choice buttons, no counts.
@@ -22,7 +22,7 @@ enum PollMode {
   /// The server sent the counts: bars with percentages.
   results,
 
-  /// The viewer voted and tapped "Change vote" (ADR-0029 Amendment 1 A2.8):
+  /// The viewer voted and tapped "Change vote":
   /// the choice pills again, the check on the current one, the percents kept.
   change,
 }
@@ -219,5 +219,5 @@ List<int> largestRemainderPercents(List<int> votes) {
 }
 
 /// `LimitReachedException.quota` of a refused vote change (the server's
-/// `limit=poll_vote_changes`, `POLL_VOTE_CHANGES_MAX` = 5, ADR-0029 A1).
+/// `limit=poll_vote_changes`, `POLL_VOTE_CHANGES_MAX` = 5).
 const kPollVoteChangesLimit = 'poll_vote_changes';

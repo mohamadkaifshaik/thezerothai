@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// Firebase Storage rules (ADR-0005). These govern the Firebase Storage SDKs only; the app does not use them.
+// Firebase Storage rules. These govern the Firebase Storage SDKs only; the app does not use them.
 // - Uploads go to <project>-media-upload through V4 signed PUT URLs issued by the API (signed URLs bypass rules).
 //   Client SDK writes are denied everywhere.
 // - Approved images are served from <project>-media via its IAM binding allUsers:roles/storage.legacyObjectReader

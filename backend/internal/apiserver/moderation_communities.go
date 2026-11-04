@@ -1,4 +1,4 @@
-// moderation_communities.go adapts the communities service to moderation.CommunityLookup (ADR-0031 D14): the composition
+// moderation_communities.go adapts the communities service to moderation.CommunityLookup: the composition
 // root is the one place that knows both modules. moderation defines the interface and its own types and never imports communities;
 // communities never imports moderation.
 package apiserver

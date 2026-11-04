@@ -13,7 +13,6 @@ import 'package:http/http.dart' as http;
 import '../core/network/api_client.dart';
 import '../core/network/auth_token_provider.dart';
 import '../core/network/firebase_app_check_token_provider.dart';
-import '../core/network/rate_limit_hold.dart';
 import '../core/network/service_paused_cubit.dart';
 import '../core/share/share_links.dart';
 import '../core/storage/app_database.dart';
@@ -139,7 +138,7 @@ Future<void> bootstrap() async {
 
   await _activateAppCheck(config);
 
-  // ADR-0022: while the API is paused, Google's front end answers HTTP 403;
+  // While the API is paused, Google's front end answers HTTP 403;
   // the interceptor flips this cubit and the root shows the paused screen.
   final servicePaused = ServicePausedCubit(
     probe: () => probeServicePaused(http.Client(), config.apiBaseUrl),
@@ -160,7 +159,7 @@ Future<void> bootstrap() async {
     apiClient: apiClient,
     database: database,
   );
-  // "Who to follow" (ADR-0024 Amendment 2): one ListSuggestedUsers per
+  // "Who to follow": one ListSuggestedUsers per
   // 48 h and account (6 h when empty, 24 h after a limit), shared by the Home
   // card and the desktop right column.
   final suggestionsRepository = SuggestionsRepository(
@@ -179,7 +178,7 @@ Future<void> bootstrap() async {
   await graphRepository.primeFromDatabase();
 
   // The push cubit is built before the auth bloc so sign-out can unregister
-  // the device while the ID token is still valid (ADR-0017); AppWidget gives
+  // the device while the ID token is still valid; AppWidget gives
   // it the router. It is wired to the notifications repository below.
   late final PushCubit pushCubit;
   final authBloc = AuthBloc(
@@ -201,19 +200,15 @@ Future<void> bootstrap() async {
     }
   });
 
-  // Posts + timeline (ADR-0010): the gate reads `GetMe.enabled_features` via
+  // Posts + timeline: the gate reads `GetMe.enabled_features` via
   // OnboardingBloc (0 extra reads) and remembers FEATURE_DISABLED answers
   // until the next GetMe changes the flag set.
   final postsGate = buildPostsGate(onboardingBloc);
   final timelineStore = TimelineStore(database);
-  // One RATE_LIMITED hold for every read repository (ADR-0010 D5: the daily
-  // read budget is per uid across RPCs); the timeline clears it on sign-out.
-  final rateLimitHold = RateLimitHold();
   final postsRepository = PostsRepository(
     apiClient: apiClient,
     store: timelineStore,
     gate: postsGate,
-    rateLimitHold: rateLimitHold,
   );
   final articlesRepository = RpcArticlesRepository(
     apiClient: apiClient,
@@ -230,16 +225,13 @@ Future<void> bootstrap() async {
         onboardingBloc.state.enabledFeatures.contains(kFeatureMedia),
     isGifEnabled: () =>
         onboardingBloc.state.enabledFeatures.contains(kFeatureGif),
-    rateLimitHold: rateLimitHold,
     onFeatureDisabled: () =>
         onboardingBloc.add(const OnboardingRefreshRequested()),
     onUnexpectedError: reportUnexpectedError,
   );
 
-  // Notifications (ADR-0017) and reports (ADR-0016): whole-service gates
-  // over `GetMe.enabled_features`, 0 RPCs while a flag is off. The read
-  // hold is shared: ListNotifications is a read against the same per-uid
-  // daily budget as the timeline.
+  // Notifications and reports: whole-service gates
+  // over `GetMe.enabled_features`, 0 RPCs while a flag is off.
   final notificationsGate = buildServiceGate(
     onboardingBloc,
     kFeatureNotifications,
@@ -250,7 +242,7 @@ Future<void> bootstrap() async {
     kFeatureReports,
     onUnexpectedError: reportUnexpectedError,
   );
-  // Engagement (ADR-0018): likes, reposts and quotes, 0 RPCs while the
+  // Engagement: likes, reposts and quotes, 0 RPCs while the
   // `engagement` flag is off. A success is also written into the cached
   // feed rows (drift) so a restart keeps the caller's own likes.
   final engagementGate = buildServiceGate(
@@ -263,7 +255,7 @@ Future<void> bootstrap() async {
     gate: engagementGate,
     store: timelineStore,
   );
-  // Polls (ADR-0029): VotePoll rides the `engagement` gate (read only: its
+  // Polls: VotePoll rides the `engagement` gate (read only: its
   // FEATURE_DISABLED memory is the repository's own, so a refused poll vote
   // never switches off likes).
   final pollRepository = PollRepository(
@@ -271,7 +263,7 @@ Future<void> bootstrap() async {
     gate: engagementGate,
     readPost: postsRepository.getPost,
   );
-  // Bookmarks (ADR-0023): AddBookmark is gated by the `bookmarks` flag (0
+  // Bookmarks: AddBookmark is gated by the `bookmarks` flag (0
   // RPCs while off); the overlay lives in session memory and ends with the
   // shared SessionEpoch (sign-out).
   final bookmarksGate = buildServiceGate(
@@ -284,9 +276,8 @@ Future<void> bootstrap() async {
     gate: bookmarksGate,
     epoch: database.sessionEpoch,
     onUnexpectedError: reportUnexpectedError,
-    rateLimitHold: rateLimitHold,
   );
-  // The Likes tab of History (ADR-0024 D6): ListLikedPosts behind the
+  // The Likes tab of History: ListLikedPosts behind the
   // `likes_list` flag (0 RPCs while off). The gate reports nothing itself: the
   // repository reports unexpected errors, but not UNIMPLEMENTED (a server that
   // has not got the RPC yet), which only hides the tab for a while.
@@ -296,14 +287,13 @@ Future<void> bootstrap() async {
     gate: likesGate,
     epoch: database.sessionEpoch,
     onUnexpectedError: reportUnexpectedError,
-    rateLimitHold: rateLimitHold,
   );
-  // Lists (ADR-0030): one gate for ListService and SetHomeTabs LIST tabs (0
+  // Lists: one gate for ListService and SetHomeTabs LIST tabs (0
   // RPCs while `lists` is off). The pinned tabs ride on every GetMe (0 extra
   // RPCs) and every ListInfo seen refreshes a tab title; both end with the
   // shared SessionEpoch (sign-out).
   final listsGate = buildServiceGate(onboardingBloc, kFeatureLists);
-  // Communities (ADR-0031): one gate for CommunityService and COMMUNITY Home
+  // Communities: one gate for CommunityService and COMMUNITY Home
   // tabs (0 RPCs while `communities` is off). The caller's own
   // communities are a session cache that ends with the shared SessionEpoch
   // (sign-out).
@@ -335,7 +325,6 @@ Future<void> bootstrap() async {
     apiClient: apiClient,
     store: timelineStore,
     gate: postsGate,
-    rateLimitHold: rateLimitHold,
     listsGate: listsGate,
     onListSeen: listsRepository.noteListInfo,
     communitiesGate: communitiesGate,
@@ -344,11 +333,10 @@ Future<void> bootstrap() async {
     apiClient: apiClient,
     store: NotificationsStore(database),
     gate: notificationsGate,
-    rateLimitHold: rateLimitHold,
   );
-  // Direct messages (ADR-0027): the only caller of MessagingService. The
+  // Direct messages: the only caller of MessagingService. The
   // screens (onwards) take it from here; sign-out clears its in-flight
-  // work and `clearAll` wipes its tables. Its list reads share the read hold.
+  // work and `clearAll` wipes its tables.
   final messagingRepository = MessagingRepository(
     apiClient: apiClient,
     store: MessagingStore(database),
@@ -356,7 +344,6 @@ Future<void> bootstrap() async {
       onboardingBloc,
       onUnexpectedError: reportUnexpectedError,
     ),
-    rateLimitHold: rateLimitHold,
   );
   final moderationRepository = ModerationRepository(
     apiClient: apiClient,
@@ -404,7 +391,6 @@ Future<void> bootstrap() async {
       bookmarksRepository: bookmarksRepository,
       searchRepository: ConnectSearchRepository(
         apiClient: apiClient,
-        rateLimitHold: rateLimitHold,
         onUnexpectedError: reportUnexpectedError,
       ),
       likesRepository: likesRepository,
@@ -430,9 +416,9 @@ Future<void> bootstrap() async {
 /// On web, App Check needs a reCAPTCHA Enterprise (Google Cloud Fraud Defense)
 /// site key: without one there is no valid provider, and the Firebase JS SDK
 /// throws from `initializeAppCheck`. Uncaught, that happens before `runApp`
-/// and leaves a white screen. Web App Check is deferred at Stage 0 (ADR-0006
-/// amendment: Classic keys are gone, and Enterprise is a flat $8/month past 10k
-/// assessments), so web skips it while `RECAPTCHA_SITE_KEY` is empty. Any
+/// and leaves a white screen. Web App Check is deferred at Stage 0 (Classic keys are
+/// gone, and Enterprise is a flat $8/month past 10k assessments), so web skips
+/// it while `RECAPTCHA_SITE_KEY` is empty. Any
 /// activation failure is logged and startup continues: the API runs App Check
 /// in monitor mode, and `AuthHeadersInterceptor` already sends no App Check
 /// header when no token is available.

@@ -1,7 +1,7 @@
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
-/// Client mirror of the server's post-text rules (ADR-0010 D9, with the D21
-/// G2/G4 amendments). The server (`backend/internal/posts/text`) stays
+/// Client mirror of the server's post-text rules (with the D21 G2/G4 amendments).
+/// The server (`backend/internal/posts/text`) stays
 /// authoritative; this exists only so the composer's counter and Post button
 /// agree with it. Do not restate the server's regexes here; the shared
 /// fixture `testdata/post_text_grammar.json` (`normalise` rows) pins both.
@@ -159,7 +159,7 @@ PostDraft analyzePostDraft(String raw) {
 }
 
 /// Why a poll choice label is refused (the label rules of
-/// `text.NormalizeLabel`, ADR-0029 D1).
+/// `text.NormalizeLabel`).
 enum LabelProblem {
   /// Nothing visible after trimming (the server's "must not be empty").
   blank,
@@ -182,7 +182,7 @@ class NormalizedLabel {
   int get codePoints => text.runes.length;
 }
 
-/// Mirrors the Go `text.NormalizeLabel` (ADR-0029 D1): TAB becomes a space,
+/// Mirrors the Go `text.NormalizeLabel`: TAB becomes a space,
 /// NFC, trim with the post-text trim set, then refuse a label with nothing
 /// visible or with a control character, U+2028/U+2029 or a bidi control.
 /// Unlike [analyzePostDraft] it does not fold line endings: a newline is a

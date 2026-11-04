@@ -1,6 +1,6 @@
-// media_wiring.go composes the media module (ADR-0005): the Connect server, the post_delete job, the account
+// media_wiring.go composes the media module: the Connect server, the post_delete job, the account
 // Eraser/exporter and the library posts and identity consume. Consumer-side adapters live here (the BlockChecker
-// pattern, ADR-0002): media does not import identity or posts.
+// pattern): media does not import identity or posts.
 package apiserver
 
 import (
@@ -113,14 +113,14 @@ func wireMedia(cfg config.Config, log *slog.Logger, fs *firestore.Client, featur
 		server:  media.NewServer(svc, featureFlags),
 		library: media.NewLibrary(repo, cfg.MediaPublicBaseURL),
 		purger:  media.NewPurger(repo, buckets, cfg.MediaPublicBaseURL),
-		// ADR-0024 Amendment 1 A4: PROFILE_MEDIA_RETIRE (default off) gates both the publish and the handler.
+		// PROFILE_MEDIA_RETIRE (default off) gates both the publish and the handler.
 		jobs: media.NewJobs(repo, buckets, postGone{postsRepo}, publisher).WithProfileRetire(media.RetireDeps{
 			Mode: cfg.ProfileMediaRetire, Users: users, Tagger: buckets,
 		}),
 	}, nil
 }
 
-// profileMediaRetirer adapts media.Jobs to identity.MediaRetirer (ADR-0024 Amendment 1 A4, the BannerResolver pattern):
+// profileMediaRetirer adapts media.Jobs to identity.MediaRetirer (the BannerResolver pattern):
 // identity names the image, media owns the switch, the object names and the job.
 type profileMediaRetirer struct{ jobs *media.Jobs }
 
@@ -214,7 +214,7 @@ func (m postsMediaClaim) HasGIF() bool {
 
 func (m postsMediaClaim) Attach(b store.Batch, postID string) { m.c.Attach(b, postID) }
 
-// bannerResolver adapts media.Reader to identity.BannerResolver (ADR-0024 D1) and applies FEATURE_MEDIA, like
+// bannerResolver adapts media.Reader to identity.BannerResolver and applies FEATURE_MEDIA, like
 // avatarResolver: with the flag off a banner id is "not ready" like any other unusable id (one answer). The
 // profile_extras gate is identity's (it runs before this is reached). 1 Firestore read (the media doc).
 type bannerResolver struct {

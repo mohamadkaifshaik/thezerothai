@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestPostsAllowAnonymousIsWiredFromAuthEmulator (ADR-0010 D5 A10): CreatePost may accept anonymous sign-ins
+// TestPostsAllowAnonymousIsWiredFromAuthEmulator: CreatePost may accept anonymous sign-ins
 // only through an option wired from cfg.AuthEmulator in Build, never from a request or a global. Build needs a
 // live Firestore/Auth, so this pins the wiring in source; posts' own tests pin the default (false) and the
 // option's effect.

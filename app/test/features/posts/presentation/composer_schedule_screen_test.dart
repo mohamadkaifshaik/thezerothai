@@ -42,7 +42,7 @@ class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// The schedule UI of `/compose` (ADR-0021 D4): gating, the dialog,
+/// The schedule UI of `/compose`: gating, the dialog,
 /// the line above the text, the "Schedule" button, what is sent, the toast and
 /// the reset, and every error mapping.
 void main() {

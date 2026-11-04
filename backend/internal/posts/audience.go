@@ -14,7 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// Audience is THE visibility predicate for posts (ADR-0025 D3, D4). Every read path that shows a post to a viewer
+// Audience is THE visibility predicate for posts. Every read path that shows a post to a viewer
 // (GetPost, Engagement.Viewable, GetThread, lists, feeds, W4 search) calls Decide or CanSee; nothing decides from
 // the stored posts.visibility (always PUBLIC, D2) or from users.isPrivate. The expression itself is written once, on
 // identity.ProtectedSet.CanSee (AQ2).
@@ -34,11 +34,11 @@ type Surface int
 
 const (
 	// SurfaceDirect is a post asked for by id (GetPost, Viewable, GetThread's focal post): a refusal is NotFound, and a
-	// post by an author the viewer blocked or muted is still shown (ADR-0010 D6).
+	// post by an author the viewer blocked or muted is still shown.
 	SurfaceDirect Surface = iota
 	// SurfaceList is a row in a feed or list: a refusal is Drop, and rows by authors the viewer blocked or muted drop too.
 	SurfaceList
-	// SurfaceOwnProfile is a row on the caller's OWN profile (ADR-0025 note L-2): like SurfaceDirect, except the
+	// SurfaceOwnProfile is a row on the caller's OWN profile : like SurfaceDirect, except the
 	// caller's own REPOST of a post whose author they may no longer see is shown with Embed = PROTECTED so it can be
 	// undone, instead of being refused. Owner-only: no other surface ever passes it.
 	SurfaceOwnProfile
@@ -106,7 +106,7 @@ func (a *Audience) visibleAuthor(ctx context.Context, viewer, author string, sna
 	return a.CanSee(viewer, author, snap, set), nil
 }
 
-// Decide is the whole-post decision (ADR-0025 D3): moderation, ADR-0010 D6 block and mute by surface, CanSee on the
+// Decide is the whole-post decision: moderation, block and mute by surface, CanSee on the
 // post's author and CanSee on the author of the post it copies. A REPOST of an unseen author's post is NotFound or
 // Drop; a QUOTE of one is shown with Embed = PROTECTED. A set error is UNAVAILABLE. Status of the author (suspended,
 // deleting) is the caller's directory check, not this function's.
@@ -144,7 +144,7 @@ func (a *Audience) Decide(ctx context.Context, viewer string, snap graph.Snapsho
 	if ea == "" || ea == viewer || ea == p.AuthorID {
 		return Decision{Verdict: Show}, nil
 	}
-	// The block checks keep the ADR-0018 D13 exemption for the viewer's own copy; the protected check does not.
+	// The block checks keep the exemption for the viewer's own copy; the protected check does not.
 	if p.AuthorID != viewer {
 		blocked, err := a.blockedBy(ctx, snap, viewer, ea)
 		if err != nil {
@@ -277,7 +277,7 @@ func ApplyEmbedState(v *postsv1.PostView, st postsv1.EmbedViewerState) {
 	v.Post.Embedded = &postsv1.EmbeddedPost{PostId: e.PostId, Unavailable: e.Unavailable, Author: e.Author}
 }
 
-// ApplyWithheld turns v into the owner's placeholder row (ADR-0025 note L-2): the post keeps only its id, kind
+// ApplyWithheld turns v into the owner's placeholder row : the post keeps only its id, kind
 // and author snapshot, and every other field of the view is cleared (text, media, labels, hashtags, mentions, counts,
 // reply fields, visibility, embed, timestamp, embed state, reply permission, poll choice). The viewer's liked, reposted and
 // bookmarked flags are left to the caller, which knows which list the row is in. The only place this strip happens.
@@ -287,7 +287,7 @@ func ApplyWithheld(v *postsv1.PostView) {
 	}
 	v.Post = &postsv1.Post{PostId: v.Post.PostId, Kind: v.Post.Kind, Author: v.Post.Author}
 	v.EmbedViewerState = postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED
-	v.ViewerPollChoice = 0 // the placeholder carries no poll, so no choice either (ADR-0029 D4)
+	v.ViewerPollChoice = 0 // the placeholder carries no poll, so no choice either
 	v.ViewerPollVoteBlocked = false
 	v.ViewerReplyPermission = postsv1.ReplyPermission_REPLY_PERMISSION_UNSPECIFIED
 	v.Withheld = true

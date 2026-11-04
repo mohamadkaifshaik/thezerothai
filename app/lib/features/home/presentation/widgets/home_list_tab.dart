@@ -23,7 +23,7 @@ import 'home_tab_bar.dart';
 /// refresh tick meanwhile.
 ///
 /// A List the server answers NOT_FOUND shows the calm unavailable state with
-/// "Unpin from Home" (ADR-0030 D6).
+/// "Unpin from Home".
 class HomeListTab extends StatefulWidget {
   const HomeListTab({super.key, required this.tab, required this.active});
 

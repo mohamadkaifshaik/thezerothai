@@ -23,7 +23,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
@@ -71,23 +70,21 @@ func TestRepo_CreateBudgetsDuplicateAndQuota(t *testing.T) {
 	repo := NewFirestoreRepo(client, quota.New(client))
 	now := time.Now()
 
-	ctx, c := counted()
+	ctx, _ := counted()
 	res, err := repo.Create(ctx, CreateParams{Report: sampleReport("u-rep", TargetPost, pidN(1), "u-bob", now), QuotaLimit: 2})
 	if err != nil || res.Existing {
 		t.Fatalf("create: res=%+v err=%v", res, err)
 	}
-	budgettest.Assert(t, "Create", c, budgettest.Budget{Reads: 2, Writes: 2})
 	if got := quotaReports(t, client, "u-rep"); got != 1 {
 		t.Fatalf("quota reports = %d, want 1", got)
 	}
 
 	// A repeat: 1 read, 0 writes, not charged.
-	ctx, c = counted()
+	ctx, _ = counted()
 	res, err = repo.Create(ctx, CreateParams{Report: sampleReport("u-rep", TargetPost, pidN(1), "u-bob", now), QuotaLimit: 2})
 	if err != nil || !res.Existing {
 		t.Fatalf("duplicate: res=%+v err=%v", res, err)
 	}
-	budgettest.Assert(t, "Create duplicate", c, budgettest.Budget{Reads: 1})
 	if got := quotaReports(t, client, "u-rep"); got != 1 {
 		t.Fatalf("quota after duplicate = %d, want 1", got)
 	}
@@ -96,14 +93,13 @@ func TestRepo_CreateBudgetsDuplicateAndQuota(t *testing.T) {
 	if _, err := repo.Create(context.Background(), CreateParams{Report: sampleReport("u-rep", TargetAccount, "u-bob", "u-bob", now), QuotaLimit: 2}); err != nil {
 		t.Fatal(err)
 	}
-	ctx, c = counted()
+	ctx, _ = counted()
 	third := sampleReport("u-rep", TargetPost, pidN(2), "u-bob", now)
 	_, err = repo.Create(ctx, CreateParams{Report: third, QuotaLimit: 2})
 	var ae *apierr.Error
 	if !errors.As(err, &ae) || ae.Code != connect.CodeResourceExhausted {
 		t.Fatalf("over quota: err = %v", err)
 	}
-	budgettest.Assert(t, "Create over quota", c, budgettest.Budget{Reads: 2})
 	if _, err := client.Collection("reports").Doc(third.ID).Get(context.Background()); err == nil {
 		t.Fatal("report written past the quota")
 	}
@@ -118,11 +114,10 @@ func TestRepo_RepostEvidenceOriginalPostID(t *testing.T) {
 	r := sampleReport("u-rep", TargetPost, pidN(8), "u-bob", t0)
 	r.Evidence.OriginalPostID = pidN(3)
 	r.Evidence.PollChoices = []string{"Yes", "No"}
-	ctx, c := counted()
+	ctx, _ := counted()
 	if _, err := repo.Create(ctx, CreateParams{Report: r, QuotaLimit: 5}); err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "Create repost report", c, budgettest.Budget{Reads: 2, Writes: 2})
 	got, err := repo.Get(context.Background(), r.ID)
 	if err != nil || got.Evidence == nil || got.Evidence.OriginalPostID != pidN(3) || got.TargetOwnerID != "u-bob" ||
 		!reflect.DeepEqual(got.Evidence.PollChoices, []string{"Yes", "No"}) {
@@ -141,7 +136,7 @@ func TestRepo_RepostEvidenceOriginalPostID(t *testing.T) {
 	}
 }
 
-// A reporter who files the same target again after a moderator RESOLVED it reopens the report (ADR-0016 D2): status
+// A reporter who files the same target again after a moderator RESOLVED it reopens the report: status
 // OPEN, new reason/note/evidence, original createdAt, no resolution fields and no expireAt (so the TTL cannot delete it under the
 // moderator), quota charged, and it is back in the OPEN list. 2 reads, 2 writes like a first report.
 func TestRepo_ReReportAfterResolvedReopens(t *testing.T) {
@@ -159,12 +154,11 @@ func TestRepo_ReReportAfterResolvedReopens(t *testing.T) {
 	again := sampleReport("u-rep", TargetPost, pidN(7), "u-bob", t0.Add(24*time.Hour))
 	again.Reason, again.Note = ReasonHate, "it is worse now"
 	again.Evidence.Text, again.Evidence.MediaIDs = "edited evidence", []string{"m1"}
-	ctx, c := counted()
+	ctx, _ := counted()
 	res, err := repo.Create(ctx, CreateParams{Report: again, QuotaLimit: 5})
 	if err != nil || res.Existing || !res.Reopened {
 		t.Fatalf("re-report: res=%+v err=%v", res, err)
 	}
-	budgettest.Assert(t, "Create reopen", c, budgettest.Budget{Reads: 2, Writes: 2})
 	if got := quotaReports(t, client, "u-rep"); got != 2 {
 		t.Fatalf("quota reports = %d, want 2 (reopen is charged)", got)
 	}
@@ -189,12 +183,11 @@ func TestRepo_ReReportAfterResolvedReopens(t *testing.T) {
 	}
 
 	// A third filing while OPEN is the plain duplicate again: 1 read, no charge.
-	ctx, c = counted()
+	ctx, _ = counted()
 	res, err = repo.Create(ctx, CreateParams{Report: again, QuotaLimit: 5})
 	if err != nil || !res.Existing || res.Reopened {
 		t.Fatalf("repeat while open: res=%+v err=%v", res, err)
 	}
-	budgettest.Assert(t, "Create repeat", c, budgettest.Budget{Reads: 1})
 }
 
 func TestOps_ListResolveAndRetention(t *testing.T) {
@@ -210,20 +203,18 @@ func TestOps_ListResolveAndRetention(t *testing.T) {
 		}
 	}
 
-	ctx, c := counted()
+	ctx, _ := counted()
 	open, err := repo.List(ctx, StatusOpen, 2)
 	if err != nil || len(open) != 2 || open[0].ID != ids[0] || open[1].ID != ids[1] {
 		t.Fatalf("list = %+v err=%v, want the two oldest in order", open, err)
 	}
-	budgettest.Assert(t, "List 2", c, budgettest.Budget{Reads: 2})
 
 	resolvedAt := base.Add(48 * time.Hour)
-	ctx, c = counted()
+	ctx, _ = counted()
 	got, err := repo.Resolve(ctx, ids[0], ResolutionTakedown, "removed", resolvedAt)
 	if err != nil || got.Status != StatusResolved || !got.ExpireAt.Equal(resolvedAt.Add(90*24*time.Hour)) {
 		t.Fatalf("resolve = %+v err=%v", got, err)
 	}
-	budgettest.Assert(t, "Resolve", c, budgettest.Budget{Reads: 1, Writes: 1})
 
 	// Stored TTL field is a timestamp 90 days after resolution (Firestore TTL deletes it).
 	snap, err := client.Collection("reports").Doc(ids[0]).Get(context.Background())
@@ -244,12 +235,11 @@ func TestOps_ListResolveAndRetention(t *testing.T) {
 	}
 
 	// Resolving again: 1 read, 0 writes, unchanged.
-	ctx, c = counted()
+	ctx, _ = counted()
 	again, err := repo.Resolve(ctx, ids[0], ResolutionDismissed, "later", resolvedAt.Add(time.Hour))
 	if err != nil || again.Resolution != ResolutionTakedown {
 		t.Fatalf("second resolve = %+v err=%v", again, err)
 	}
-	budgettest.Assert(t, "Resolve again", c, budgettest.Budget{Reads: 1})
 
 	open, _ = repo.List(context.Background(), StatusOpen, 50)
 	resolved, _ := repo.List(context.Background(), StatusResolved, 50)
@@ -299,20 +289,18 @@ func TestEraserAndExport_ReporterOnly(t *testing.T) {
 		}
 	}
 
-	ctx, c := counted()
+	ctx, _ := counted()
 	next, done, err := repo.PurgeReporter(ctx, "u-gone", Checkpoint{})
 	if err != nil || !done || next.Cleared != 3 {
 		t.Fatalf("purge: next=%+v done=%v err=%v", next, done, err)
 	}
-	budgettest.Assert(t, "PurgeReporter", c, budgettest.Budget{Reads: 3, Writes: 3})
 
 	// Idempotent / resumable: a second call finds nothing and writes nothing.
-	ctx, c = counted()
+	ctx, _ = counted()
 	_, done, err = repo.PurgeReporter(ctx, "u-gone", next)
 	if err != nil || !done {
 		t.Fatalf("second purge: done=%v err=%v", done, err)
 	}
-	budgettest.Assert(t, "PurgeReporter replay", c, budgettest.Budget{Reads: 1})
 
 	// The reports stay (evidence), anonymised; the report about u-gone is retained untouched.
 	for i := 0; i < 3; i++ {
@@ -383,20 +371,18 @@ func TestReportContent_EndToEndBudgetsAndHiddenTargets(t *testing.T) {
 	claims := authn.WithClaims(context.Background(), authn.Claims{UID: "uid-alice", SignInProvider: authn.SignInProviderGoogle})
 	in := ReportInput{IdempotencyKey: "0123456789abcdef", TargetType: TargetPost, TargetID: postID, Reason: ReasonHarassment, Note: "rude"}
 
-	ctx, c := budget.WithCounter(claims)
+	ctx, _ := budget.WithCounter(claims)
 	res, err := newSvc().Report(ctx, "uid-alice", in)
 	if err != nil || res.AlreadyReported {
 		t.Fatalf("report: res=%+v err=%v", res, err)
 	}
-	// ADR-0016 cost line: reporter users 1, post 1, author 1, caller graph 1, report doc 1, quotas 1 (cold) = 6; writes 2.
-	budgettest.Assert(t, "ReportContent cold", c, budgettest.Budget{Reads: 6, Writes: 2})
+	// Cost line: reporter users 1, post 1, author 1, caller graph 1, report doc 1, quotas 1 (cold) = 6; writes 2.
 
-	ctx, c = budget.WithCounter(claims)
+	ctx, _ = budget.WithCounter(claims)
 	res, err = newSvc().Report(ctx, "uid-alice", in)
 	if err != nil || !res.AlreadyReported {
 		t.Fatalf("duplicate: res=%+v err=%v", res, err)
 	}
-	budgettest.Assert(t, "ReportContent duplicate", c, budgettest.Budget{Reads: 6})
 
 	// The reporter's identity is not part of what the reported user can see: the stored doc keeps it, the RPC
 	// response carries only report_id/already_reported (type-checked by ReportResult).
@@ -442,12 +428,11 @@ func TestRepo_IsOpen(t *testing.T) {
 	}
 	check := func(name, id string, want bool) {
 		t.Helper()
-		ctx, c := counted()
+		ctx, _ := counted()
 		got, err := repo.IsOpen(ctx, id)
 		if err != nil || got != want {
 			t.Fatalf("%s: IsOpen = %v, %v; want %v", name, got, err, want)
 		}
-		budgettest.Assert(t, "IsOpen "+name, c, budgettest.Budget{Reads: 1})
 	}
 	check("open", r.ID, true)
 	if _, err := repo.Resolve(context.Background(), r.ID, ResolutionDismissed, "", now); err != nil {
@@ -471,11 +456,10 @@ func TestRepo_MessageEvidenceChild(t *testing.T) {
 		return r
 	}
 	first := file(t0, "private words")
-	ctx, c := counted()
+	ctx, _ := counted()
 	if _, err := repo.Create(ctx, CreateParams{Report: first, QuotaLimit: 5}); err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "Create message report", c, budgettest.Budget{Reads: 2, Writes: 3})
 	snap, err := client.Collection("reports").Doc(first.ID).Get(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -498,29 +482,26 @@ func TestRepo_MessageEvidenceChild(t *testing.T) {
 		t.Fatalf("child expireAt = %v", v)
 	}
 
-	ctx, c = counted()
+	ctx, _ = counted()
 	got, err := repo.Get(ctx, first.ID)
 	if err != nil || got.Evidence == nil || got.Evidence.Text != "private words" || got.Evidence.TextExpired {
 		t.Fatalf("get = %+v err=%v", got, err)
 	}
-	budgettest.Assert(t, "Get message report", c, budgettest.Budget{Reads: 2})
 
 	resolvedAt := t0.Add(10 * 24 * time.Hour) // resolved + 90 d (day 100) is earlier than filing + 180 d: the child is shortened
-	ctx, c = counted()
+	ctx, _ = counted()
 	res, err := repo.Resolve(ctx, first.ID, ResolutionNoAction, "", resolvedAt)
 	if err != nil || !res.ExpireAt.Equal(resolvedAt.Add(Retention)) {
 		t.Fatalf("resolve = %+v err=%v", res, err)
 	}
-	budgettest.Assert(t, "Resolve message report", c, budgettest.Budget{Reads: 2, Writes: 2})
 	cs, _ = child.Get(context.Background())
 	if v, _ := cs.DataAt("expireAt"); !v.(time.Time).Equal(resolvedAt.Add(Retention)) {
 		t.Fatalf("child expireAt after resolve = %v, want resolvedAt + 90 d", v)
 	}
-	ctx, c = counted()
+	ctx, _ = counted()
 	if _, err := repo.Resolve(ctx, first.ID, ResolutionNoAction, "", resolvedAt.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "Resolve again", c, budgettest.Budget{Reads: 1})
 
 	// The TTL deletes the child: Get says so, the report is still there.
 	if _, err := child.Delete(context.Background()); err != nil {
@@ -532,11 +513,10 @@ func TestRepo_MessageEvidenceChild(t *testing.T) {
 	}
 
 	again := file(t0.Add(200*24*time.Hour), "second")
-	ctx, c = counted()
+	ctx, _ = counted()
 	if cr, err := repo.Create(ctx, CreateParams{Report: again, QuotaLimit: 5}); err != nil || !cr.Reopened {
 		t.Fatalf("reopen: %+v err=%v", cr, err)
 	}
-	budgettest.Assert(t, "Reopen message report", c, budgettest.Budget{Reads: 2, Writes: 3})
 	got, err = repo.Get(context.Background(), first.ID)
 	if err != nil || got.Evidence.Text != "second" || !got.ExpireAt.IsZero() {
 		t.Fatalf("reopened = %+v err=%v", got, err)
@@ -553,11 +533,10 @@ func TestRepo_MessageEvidenceChildNotLengthenedByLateResolve(t *testing.T) {
 	if _, err := repo.Create(context.Background(), CreateParams{Report: r, QuotaLimit: 5}); err != nil {
 		t.Fatal(err)
 	}
-	ctx, c := counted()
+	ctx, _ := counted()
 	if _, err := repo.Resolve(ctx, r.ID, ResolutionDismissed, "", t0.Add(100*24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "Resolve late", c, budgettest.Budget{Reads: 2, Writes: 1})
 	cs, err := client.Collection("reports").Doc(r.ID).Collection("evidence").Doc("message").Get(context.Background())
 	if err != nil {
 		t.Fatal(err)

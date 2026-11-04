@@ -1,6 +1,6 @@
-// moderate.go implements Moderator on FirestoreRepo (ADR-0016 D3, D4): the writes behind opsctl takedown-post,
+// moderate.go implements Moderator on FirestoreRepo: the writes behind opsctl takedown-post,
 // restore-post, suspend-user and unsuspend-user. It sets or clears posts/{id}.moderation (+ moderatedAt) and writes
-// the postRemovals log entry (ADR-0016 D10, removals_firestore.go) in the same transaction or batch, nothing else:
+// the postRemovals log entry (removals_firestore.go) in the same transaction or batch, nothing else:
 // counters, createdAt and every other field stay, so a restore is exact.
 //
 // HideAuthor pages Q-E (authorId == uid ORDER BY createdAt DESC, __name__ DESC, the existing index) with a
@@ -157,7 +157,7 @@ func moderationUpdates(next Moderation, now time.Time) []firestore.Update {
 // read and the commit (a concurrent takedown, an author delete) fails the batch instead of being overwritten; the
 // caller re-runs the page. opsctl's driveLoop retries a failed call up to maxConsecutiveErrors (5) times without
 // backoff, which is enough at Stage 0; once likes put a counter increment on every popular post, a hot post can
-// fail a whole page repeatedly and the loop will need jittered backoff (ADR-0016 notes).
+// fail a whole page repeatedly and the loop will need jittered backoff.
 func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp ModerationCheckpoint, now time.Time) (ModerationCheckpoint, bool, error) {
 	q := r.authorQuery(uid)
 	if !cp.Since.IsZero() {
@@ -184,7 +184,7 @@ func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp Moderatio
 	}
 	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
 	changed := 0
-	var communityPosts []CommunityPostRef // every community post of the page, changed or already hidden (ADR-0031 D14)
+	var communityPosts []CommunityPostRef // every community post of the page, changed or already hidden
 	for _, s := range docs {
 		var d struct {
 			Moderation  string `firestore:"moderation"`

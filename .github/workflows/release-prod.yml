@@ -234,7 +234,7 @@ jobs:
           version: "3.47.5"
           sha: 6a19cca56475dbfba1478ee68d7bd0c2ef891da1
 
-      - name: flutter build ios (no codesign — TestFlight signing is a separate, documented step)
+      - name: flutter build ios (no codesign — TestFlight signing is a separate, manual step)
         working-directory: app
         env:
           # Mobile talks to Cloud Run directly (no Hosting rewrite available).

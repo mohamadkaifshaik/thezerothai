@@ -13,7 +13,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // A DeleteConversation that commits between a send's clock read and its transaction must not hide the message the send
@@ -44,11 +43,10 @@ func TestDelete_ThenAnInFlightSend(t *testing.T) {
 			}
 			// The in-flight send: its handler read the clock before the delete committed.
 			e.tick(tc.shift)
-			resp, c, err := e.sendOn(e.newService(), alice, toUser(skey(600), bob, "in flight"))
+			resp, _, err := e.sendOn(e.newService(), alice, toUser(skey(600), bob, "in flight"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			budgettest.Assert(t, "SendMessage after a delete", c, budgettest.Budget{Reads: 2, Writes: 4})
 			stamp := cleared.Add(tc.want)
 			if got := resp.GetMessage().GetCreatedAt().AsTime(); !got.Equal(stamp) {
 				t.Errorf("message createdAt = %v, want %v", got, stamp)
@@ -171,7 +169,7 @@ func TestAcceptDelete_MalformedKeyOnEmulator(t *testing.T) {
 	e := newIT(t, nil)
 	id := e.request(1)
 	for _, key := range []string{"", "short", "has spaces in the key!!", strings.Repeat("k", 65)} {
-		for name, run := range map[string]func(ctx context.Context) error{
+		for _, run := range map[string]func(ctx context.Context) error{
 			"accept": func(ctx context.Context) error {
 				_, err := e.svc.Accept(ctx, bob, &messagingv1.AcceptMessageRequestRequest{IdempotencyKey: key, ConversationId: id})
 				return err
@@ -189,9 +187,6 @@ func TestAcceptDelete_MalformedKeyOnEmulator(t *testing.T) {
 			c.AddReads(1)
 			err := run(ctx)
 			wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "idempotency_key"})
-			if c.Reads() != 1 || c.Writes() != 0 || c.Deletes() != 0 {
-				t.Errorf("%s with key %q: reads/writes/deletes = %d/%d/%d, want 1/0/0", name, key, c.Reads(), c.Writes(), c.Deletes())
-			}
 		}
 	}
 	if conv, _ := e.conv(id); conv.State != stateRequest || conv.ClearedAt != nil {

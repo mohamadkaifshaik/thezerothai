@@ -17,17 +17,16 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// graphFlagName is the wire name GraphService RPCs check (ADR-0008 D6: FEATURE_GRAPH <-> "graph").
+// graphFlagName is the wire name GraphService RPCs check (FEATURE_GRAPH <-> "graph").
 const graphFlagName = "graph"
 
-// FlagChecker is the minimal seam graph needs from pkg/platform/flags.Registry (ADR-0002: depend on
-// interfaces, not the concrete platform type).
+// FlagChecker is the minimal seam graph needs from pkg/platform/flags.Registry (depend on interfaces, not the concrete platform type).
 type FlagChecker interface {
 	Enabled(uid, name string) bool
 }
 
 // MutationOutcome is Created, Replay or Noop for the state-setting mutations (Follow/Block/Mute); the
-// log field ADR-0008 calls "outcome" (created|replay|noop|rejected:<reason>).
+// log field "outcome" (created|replay|noop|rejected:<reason>).
 type MutationOutcome string
 
 const (
@@ -38,28 +37,28 @@ const (
 
 // Repo is graph's storage seam; service.go depends on this, repo_firestore.go implements it against
 // Firestore (identity.Counters is wired into the FirestoreRepo itself via SetCounters, since the counter
-// increments must land in the same transaction/batch as the edge change — ADR-0008 D3), unit tests use an
+// increments must land in the same transaction/batch as the edge change), unit tests use an
 // in-memory fake.
 type Repo interface {
 	// GetSnapshot reads graph/{uid} (Reader.Snapshot's cache-miss path). Missing doc -> empty Snapshot, no error.
 	GetSnapshot(ctx context.Context, uid string) (Snapshot, error)
 
-	// Follow runs the whole Follow transaction (ADR-0008, ADR-0025 D6: the target's users doc is read inside it, so the
+	// Follow runs the whole Follow transaction (the target's users doc is read inside it, so the
 	// repo decides edge versus request; the returned FollowState says which). dailyLimit is the caller's resolved
 	// follows/day cap (service.go picks the new-account or standard limit before calling this).
 	Follow(ctx context.Context, callerUID, targetUID string, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error)
-	// Unfollow is a blind batch (ADR-0008): changed=false, nil error means "wasn't following" (0 writes).
+	// Unfollow is a blind batch: changed=false, nil error means "wasn't following" (0 writes).
 	Unfollow(ctx context.Context, callerUID, targetUID string, now time.Time) (changed bool, err error)
-	// WithdrawRequest is Unfollow's second blind batch (ADR-0025 D7), run only when Unfollow found no edge: it deletes the
+	// WithdrawRequest is Unfollow's second blind batch, run only when Unfollow found no edge: it deletes the
 	// caller's pending follow request to targetUID and the `requested` entry. changed=false means nothing to withdraw (0 writes).
 	WithdrawRequest(ctx context.Context, callerUID, targetUID string, now time.Time) (changed bool, err error)
 
-	// Block runs the whole Block transaction (ADR-0008). limits picks the new-account vs standard quota
+	// Block runs the whole Block transaction. limits picks the new-account vs standard quota
 	// tier internally (from the graph doc's own Firestore creation time, 0 extra reads).
 	Block(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (BlockResult, error)
-	// Unblock is never quota-gated (ADR-0008 D9). changed=false means "wasn't blocking" (0 writes).
+	// Unblock is never quota-gated. changed=false means "wasn't blocking" (0 writes).
 	Unblock(ctx context.Context, callerUID, targetUID string, now time.Time) (rel Relationship, changed bool, err error)
-	// Mute runs the whole Mute transaction (ADR-0008), sharing the same quota kind/limits as Block.
+	// Mute runs the whole Mute transaction, sharing the same quota kind/limits as Block.
 	Mute(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (Relationship, MutationOutcome, error)
 	// Unmute is never quota-gated. changed=false means "wasn't muting" (0 writes).
 	Unmute(ctx context.Context, callerUID, targetUID string, now time.Time) (rel Relationship, changed bool, err error)
@@ -70,37 +69,37 @@ type Repo interface {
 	// RemoveOwnArrayEntries ArrayRemoves uids from the caller's own blocked[]/muted[]. 1 write, 0 reads.
 	RemoveOwnArrayEntries(ctx context.Context, callerUID, kind string, uids []string, now time.Time) error
 	// ListEdgesByFollowers returns the newest follow edges made by any of followers (1 to 30 uids), newest first, at
-	// most limit (1 to 50): the ListSuggestedUsers friends-of-friends query (ADR-0024 D8). <= limit reads, minimum 1.
+	// most limit (1 to 50): the ListSuggestedUsers friends-of-friends query. <= limit reads, minimum 1.
 	ListEdgesByFollowers(ctx context.Context, followers []string, limit int) ([]Edge, error)
 
 	Eraser
 
-	// ListEdges returns one page of follow edges, newest first (ADR-0008). <= q.Limit reads.
+	// ListEdges returns one page of follow edges, newest first. <= q.Limit reads.
 	ListEdges(ctx context.Context, q EdgeQuery) ([]Edge, error)
 	// FollowEdgeExists reports whether follows/{followerUID}_{followeeUID} exists: one point read, 1 read whether or
-	// not the document is there (ADR-0024 D7, GetProfileRelationship). A missing document is false, not an error.
+	// not the document is there (GetProfileRelationship). A missing document is false, not an error.
 	FollowEdgeExists(ctx context.Context, followerUID, followeeUID string) (bool, error)
 
-	// RespondToRequest answers one pending follow request in a single transaction (ADR-0025 D7): accept, decline,
+	// RespondToRequest answers one pending follow request in a single transaction: accept, decline,
 	// or a replay (the request is gone) with 0 writes. A requester at the 5,000 following cap is a LimitReachedError.
 	RespondToRequest(ctx context.Context, a RespondArgs) (RespondOutcome, error)
-	// CountRequests counts the pending requests addressed to uid, capped at 1,000: 1 read (ADR-0025 AQ3).
+	// CountRequests counts the pending requests addressed to uid, capped at 1,000: 1 read.
 	CountRequests(ctx context.Context, uid string) (int64, error)
 }
 
-// Deps are service's constructor dependencies (ADR-0008).
+// Deps are service's constructor dependencies.
 type Deps struct {
 	Repo  Repo
 	Cache *Cache
 	Flags FlagChecker
-	// CursorKey signs opaque page tokens (config.CursorHMACKey, ADR-0003).
+	// CursorKey signs opaque page tokens (config.CursorHMACKey).
 	CursorKey []byte
 	// ReadOnly is true when DEGRADED_MODE=readonly (config.DegradedReadonly). The list RPCs are
 	// NO_SIDE_EFFECTS, so the degraded interceptor lets them through; ReadOnly makes the lazy clean-up
 	// skip its one write so that mode stays write-free.
 	ReadOnly bool
-	// Events receives the post-commit FollowEvents.Followed hook (ADR-0008 D11; apiserver wires the notifications
-	// adapter). Nil keeps the no-op.
+	// Events receives the post-commit FollowEvents.Followed hook (apiserver wires the notifications adapter).
+	// Nil keeps the no-op.
 	Events FollowEvents
 
 	FollowsPerDay           int64
@@ -109,14 +108,14 @@ type Deps struct {
 	NewAccountBlocksPerDay  int64
 	NewAccountWindow        time.Duration
 
-	// Suggestions are the ListSuggestedUsers limits and curated list (ADR-0024 D8, D10); zero or out-of-range values
+	// Suggestions are the ListSuggestedUsers limits and curated list; zero or out-of-range values
 	// fall back to the config defaults and bounds (SuggestionLimits.normalized).
 	Suggestions SuggestionLimits
 	// Suggester overrides the candidate source of ListSuggestedUsers (friends of friends with the curated fallback by
-	// default). It is the seam for ADR-0024 D8 option (b) or a precomputed list: callers see no change.
+	// default). It is the seam for another candidate source or a precomputed list: callers see no change.
 	Suggester Suggester
 
-	// Protected is the one protected-author loader of the instance (ADR-0025 D3, built once in apiserver). Nil means nobody
+	// Protected is the one protected-author loader of the instance (built once in apiserver). Nil means nobody
 	// is protected (the earlier behaviour): ListFollowers and ListFollowing then never answer PROTECTED_ACCOUNT.
 	Protected identity.ProtectedAuthors
 }
@@ -129,7 +128,7 @@ type Deps struct {
 // this service as its BlockChecker and this service needs identity.Directory: apiserver.Build breaks that
 // cycle by constructing this service first (without a directory), then identity.New with this service as
 // BlockChecker, then calling SetDirectory(identitySvc) — safe because it happens once, synchronously, at
-// startup before any request is served (ADR-0002 cold-start wiring).
+// startup before any request is served (cold-start wiring).
 type service struct {
 	repo      Repo
 	cache     *Cache
@@ -204,7 +203,7 @@ var _ FollowEvents = (*service)(nil)
 var _ identity.BlockChecker = (*service)(nil)
 var _ identity.FollowRequestCounter = (*service)(nil)
 
-// Snapshot implements Reader: cache-first read of graph/{uid}, 60s TTL (ADR-0008 D8). 1 read on a miss, 0 on
+// Snapshot implements Reader: cache-first read of graph/{uid}, 60s TTL. 1 read on a miss, 0 on
 // a hit.
 func (s *service) Snapshot(ctx context.Context, uid string) (Snapshot, error) {
 	if snap, ok := s.cache.Get(uid); ok {
@@ -221,7 +220,7 @@ func (s *service) Snapshot(ctx context.Context, uid string) (Snapshot, error) {
 }
 
 // IsBlockedBy implements identity.BlockChecker: true if targetUID has blocked viewerUID, trusting the
-// viewer's own cached blockedBy set unless it may be incomplete (ADR-0008 D2 overflow fallback), in which
+// viewer's own cached blockedBy set unless it may be incomplete (overflow fallback), in which
 // case it also reads targetUID's own .blocked array directly (+1 read, cached 60s like every other read
 // path; D8).
 func (s *service) IsBlockedBy(ctx context.Context, viewerUID, targetUID string) (bool, error) {
@@ -243,7 +242,7 @@ func (s *service) IsBlockedBy(ctx context.Context, viewerUID, targetUID string) 
 }
 
 // IsFollowing implements identity.BlockChecker: whether viewerUID follows targetUID, from the viewer's cached snapshot
-// (0 reads warm, 1 cold; GetProfile has just loaded it for IsBlockedBy, so a hit). ADR-0025 AQ2.
+// (0 reads warm, 1 cold; GetProfile has just loaded it for IsBlockedBy, so a hit).
 func (s *service) IsFollowing(ctx context.Context, viewerUID, targetUID string) (bool, error) {
 	snap, err := s.Snapshot(ctx, viewerUID)
 	if err != nil {
@@ -252,15 +251,15 @@ func (s *service) IsFollowing(ctx context.Context, viewerUID, targetUID string) 
 	return snap.isFollowing(targetUID), nil
 }
 
-// Followed implements FollowEvents as the default no-op; Deps.Events replaces it (ADR-0008 D11, ADR-0017 D2).
+// Followed implements FollowEvents as the default no-op; Deps.Events replaces it.
 func (s *service) Followed(context.Context, string, string, time.Time) {}
 
-// FollowRequested and FollowRequestAccepted implement FollowEvents as default no-ops (ADR-0025 D10); Deps.Events
+// FollowRequested and FollowRequestAccepted implement FollowEvents as default no-ops; Deps.Events
 // replaces them, and the follow-request paths call them.
 func (s *service) FollowRequested(context.Context, string, string, time.Time)       {}
 func (s *service) FollowRequestAccepted(context.Context, string, string, time.Time) {}
 
-// isNewAccount reports whether p was created within s.newAccountWindow of now (ADR-0008 D7 new-account quotas).
+// isNewAccount reports whether p was created within s.newAccountWindow of now (new-account quotas).
 func (s *service) isNewAccount(p identity.Profile, now time.Time) bool {
 	if p.CreatedAt.IsZero() {
 		return false
@@ -317,7 +316,7 @@ func selfActionErr(field string) error {
 
 var _ Eraser = (*service)(nil)
 
-// PurgeUser implements Eraser by delegating to the repo (ADR-0008 D10); the local cache entry for uid is
+// PurgeUser implements Eraser by delegating to the repo; the local cache entry for uid is
 // dropped so this instance stops serving the purged graph.
 func (s *service) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	logger.SetRequestField(ctx, fieldOp, "purge")

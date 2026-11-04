@@ -1,4 +1,4 @@
-// repo_firestore.go is the Firestore implementation of moderation's storage (ADR-0016 D2).
+// repo_firestore.go is the Firestore implementation of moderation's storage.
 //
 // reports/{reportId}: the id is derived from (reporter, target type, target id), so the same reporter cannot file
 // two reports of one target, and a repeat is detected by one document read inside the transaction.
@@ -102,7 +102,7 @@ type evidenceDoc struct {
 	PostCreatedAt time.Time `firestore:"postCreatedAt"`
 	// OriginalPostID is additive: present only on a repost report (the id of the original the other fields copy).
 	OriginalPostID string `firestore:"originalPostId,omitempty"`
-	// ACCOUNT reports only (ADR-0024 Amendment 1 A3(b)); additive and omitempty, so a POST report keeps its shape. The whole
+	// ACCOUNT reports only; additive and omitempty, so a POST report keeps its shape. The whole
 	// evidence map is index-exempt.
 	DisplayName string `firestore:"displayName,omitempty"`
 	Bio         string `firestore:"bio,omitempty"`
@@ -113,11 +113,11 @@ type evidenceDoc struct {
 	// LIST reports only; additive and omitempty. Inside the index-exempt evidence map.
 	ListName        string `firestore:"listName,omitempty"`
 	ListDescription string `firestore:"listDescription,omitempty"`
-	// COMMUNITY reports only (ADR-0031 D14); additive and omitempty, inside the index-exempt evidence map.
+	// COMMUNITY reports only; additive and omitempty, inside the index-exempt evidence map.
 	CommunityName        string          `firestore:"communityName,omitempty"`
 	CommunityDescription string          `firestore:"communityDescription,omitempty"`
 	CommunityRules       []communityRule `firestore:"communityRules,omitempty"`
-	// ADR-0029 D8: the reported post's poll labels; additive, omitempty.
+	// The reported post's poll labels; additive, omitempty.
 	PollChoices []string `firestore:"pollChoices,omitempty"`
 }
 

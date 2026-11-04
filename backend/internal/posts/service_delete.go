@@ -35,12 +35,12 @@ func validatePostID(id string) error {
 }
 
 // postNotFound is the one NOT_FOUND answer GetPost gives for a missing, deleted or hidden post: the same code,
-// reason and message bytes in every case, so a caller cannot tell the causes apart (ADR-0010 D6).
+// reason and message bytes in every case, so a caller cannot tell the causes apart.
 func postNotFound() error {
 	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, postNotFoundText)
 }
 
-// Delete implements Service (ADR-0010 D4).
+// Delete implements Service.
 //
 // Firestore, worst case: reads 1 (the post; 0 when cached; the interceptor's profile read is extra), writes 1
 // (users.postsCount -1) + 1 delete (Exists precondition) and, for a post with images, one Pub/Sub publish of the
@@ -91,7 +91,7 @@ func (s *service) Delete(ctx context.Context, uid, idempotencyKey, postID string
 		logger.SetRequestField(ctx, fieldOutcome, outcomeNoop)
 		return nil
 	}
-	s.directory.Forget(uid) // users.postsCount changed by a blind increment (ADR-0008 B2)
+	s.directory.Forget(uid) // users.postsCount changed by a blind increment
 	s.releaseParent(ctx, p)
 	s.releaseEngagement(ctx, p)
 	s.events.Deleted(ctx, postID, uid)
@@ -101,7 +101,7 @@ func (s *service) Delete(ctx context.Context, uid, idempotencyKey, postID string
 }
 
 // publishPostDelete hands a deleted post to the post_delete job (after the commit, never inside it): its images
-// and its likes, reposts and quotes (ADR-0018 D6), so every deleted post publishes. A failure is logged
+// and its likes, reposts and quotes, so every deleted post publishes. A failure is logged
 // for Error Reporting and does not fail the delete: the post is gone and the dependants are removed by the
 // account purge at the latest. One Pub/Sub publish, no Firestore access.
 func (s *service) publishPostDelete(ctx context.Context, uid string, p *Post) {
@@ -120,7 +120,7 @@ func (s *service) publishPostDelete(ctx context.Context, uid string, p *Post) {
 	logger.SetRequestField(ctx, fieldMediaJob, "published")
 }
 
-// GetForViewer implements Service (ADR-0010 D6 GetPost column).
+// GetForViewer implements Service.
 //
 // Firestore, worst case: post 1 + author users 1 + caller graph 1 cold (the caller's own users read belongs to
 // the account-status interceptor) = 3 here, 4 per request; +1 author graph when the caller's blockedBy
@@ -128,7 +128,7 @@ func (s *service) publishPostDelete(ctx context.Context, uid string, p *Post) {
 // (the same cached snapshot) and, on a blockedBy overflow, 1 read for the embedded author's graph, so the
 // overflow worst case is +2. The caller's own QUOTE or REPOST is exempt from the embed check (D13, same as a
 // direct post): no graph read at all, except that with a protected-set loader wired the caller's own copy of someone
-// else's post reads the caller graph (+1 cold, ADR-0025 D4: the follow state toward the copied author decides the
+// else's post reads the caller graph (+1 cold: the follow state toward the copied author decides the
 // copy). The protected-set refresh is detached and never charged here. 0 warm; writes 0.
 func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_ *Post, err error) {
 	logger.SetRequestField(ctx, fieldOp, "get")
@@ -153,7 +153,7 @@ func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_
 }
 
 // viewable is the GetPost visibility rule set shared by GetPost, GetThread's focal post and CreatePost's reply
-// parent (ADR-0010 D6): it returns the post, or ErrNotFound for a missing, deleted, hidden, blocked-author or
+// parent: it returns the post, or ErrNotFound for a missing, deleted, hidden, blocked-author or
 // non-ACTIVE-author post (callers map that to the one NOT_FOUND answer), or a redacted internal error. It sets
 // no request-log fields. A caller who blocked or muted the author still gets the post.
 func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post, error) {
@@ -165,7 +165,7 @@ func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post
 		return nil, logger.RedactErr(fmt.Errorf("posts: get: load post: %w", err), callerUID)
 	}
 
-	// A post a moderator hid (takedown or suspension, ADR-0016) is NOT_FOUND for everyone, the author included.
+	// A post a moderator hid (takedown or suspension) is NOT_FOUND for everyone, the author included.
 	// Checked first: it is free (the field arrived with the document).
 	if p.Hidden() {
 		return nil, ErrNotFound
@@ -181,8 +181,8 @@ func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post
 	}
 
 	// A QUOTE or REPOST also carries a frozen copy of another user's post: when that author blocks the caller
-	// the copy must not leak their content, so the whole post is NOT_FOUND (ADR-0018 D13); when that author is
-	// protected and the caller may not see them (ADR-0025 D4) a REPOST is NOT_FOUND and a QUOTE is shown with its
+	// the copy must not leak their content, so the whole post is NOT_FOUND; when that author is
+	// protected and the caller may not see them a REPOST is NOT_FOUND and a QUOTE is shown with its
 	// copy stripped (ApplyEmbedState). The block check exempts the caller's own copies and tombstones (no author);
 	// the protected check exempts neither the caller's own copy nor anything else, but costs a graph read only for
 	// a caller's own REPOST/QUOTE of someone else's post while a protected-set loader is wired.
@@ -196,7 +196,7 @@ func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post
 			return nil, logger.RedactErr(fmt.Errorf("posts: get: load caller graph: %w", err), callerUID, p.AuthorID)
 		}
 	}
-	// Block, then the one visibility predicate (ADR-0025 D3). Never the stored visibility, which is always PUBLIC.
+	// Block, then the one visibility predicate. Never the stored visibility, which is always PUBLIC.
 	d, err := s.aud.Decide(ctx, callerUID, snap, p, SurfaceDirect)
 	if err != nil {
 		return nil, s.audienceErr(err, callerUID, p.AuthorID)

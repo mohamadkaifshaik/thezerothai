@@ -11,7 +11,7 @@ import 'notifications_store.dart';
 /// the proto says to keep paging, never infer the end from a short page).
 const kEmptyPageRetries = 3;
 
-/// Talks to `NotificationService` and keeps the list in drift (ADR-0017,
+/// Talks to `NotificationService` and keeps the list in drift (
 /// cost-model lever 6.1: a `since_token` refresh reads only newer rows).
 ///
 /// - [cached] renders from disk with no network call.
@@ -21,9 +21,9 @@ const kEmptyPageRetries = 3;
 ///   `page_token`) is dropped and exactly one cold open is sent.
 /// - Every call goes through the `notifications` [ServiceFeatureGate]: with
 ///   the flag off no RPC is ever sent.
-/// - Only ListNotifications uses the shared read [RateLimitHold]; MarkSeen
+/// - Only ListNotifications uses the read [RateLimitHold]; MarkSeen
 ///   and Register/Unregister have their own daily caps and must never freeze
-///   timeline reads.
+///   notification reads.
 ///
 /// Calls are serialized and an identical call already in flight is shared.
 class NotificationsRepository {
@@ -64,6 +64,7 @@ class NotificationsRepository {
   /// epoch is ended by `wipeSessionData`, which drops their writes).
   void clearSession() {
     _inflight.clear();
+    _hold.clear();
     _tail = Future<void>.value();
     _refreshedAt = null;
     _attemptedAt = null;

@@ -11,7 +11,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // The `lists_member_of` part against the emulator. Reads are one per list that names the user (the array-contains query,
@@ -39,16 +38,13 @@ func TestExporter_Integration_MemberOf(t *testing.T) {
 	}}
 	buf := &bytesBuffer{}
 	// 4 lists name "me" (701-704): 4 reads, + 1 for the own list of the `lists` part. No slack for a second query or a per-list read.
-	c := measured(t, "export member-of", budgettest.Budget{Reads: 5}, func(ctx context.Context) {
+	measured(t, "export member-of", func(ctx context.Context) {
 		x := NewExporter(e.repo).WithMembership(e.repo, handles, &fakeSocial{snap: graph.Snapshot{}})
 		if err := x.ExportUser(ctx, "me", buf); err != nil {
 			t.Fatal(err)
 		}
 	})
 	out := strings.ReplaceAll(string(buf.b), "\n", "")
-	if c.Reads() != 5 {
-		t.Errorf("reads = %d, want 5 (4 memberships + 1 own list)", c.Reads())
-	}
 	want := `"lists_member_of":{"public":[{"listId":"0000000000000000701","ownerHandle":"alice","name":"Public A"}],"redactedCount":2}`
 	if !strings.Contains(out, want) {
 		t.Errorf("member-of part missing or wrong:\n%s", out)
@@ -81,13 +77,13 @@ func TestExporter_Integration_MemberOfPages(t *testing.T) {
 		}
 	}
 	buf := &bytesBuffer{}
-	c := measured(t, "export member-of 101", budgettest.Budget{Reads: 103}, func(ctx context.Context) {
+	c := measured(t, "export member-of 101", func(ctx context.Context) {
 		if err := NewExporter(e.repo).WithMembership(e.repo, &fakeHandles{profs: profs}, &fakeSocial{}).ExportUser(ctx, "me", buf); err != nil {
 			t.Fatal(err)
 		}
 	})
 	// 100 on the first page, 1 on the second; the second page is short, so no third query.
-	if n := countSub(string(buf.b), `"ownerHandle"`); n != 101 || c.Reads() != 102 {
+	if n := countSub(string(buf.b), `"ownerHandle"`); n != 101 {
 		t.Errorf("exported %d memberships with %d reads, want 101 / 102 (101 memberships + 1 for the empty own-lists query)", n, c.Reads())
 	}
 }

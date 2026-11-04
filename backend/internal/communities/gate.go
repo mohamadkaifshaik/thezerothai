@@ -16,7 +16,7 @@ type TxMemberReader interface {
 	MemberInTx(ctx context.Context, tx *firestore.Transaction, communityID, uid string) (MemberState, error)
 }
 
-// PostGate implements posts.CommunityGate (ADR-0031 D5, A2): posts declares the seam and never imports this package, so the methods
+// PostGate implements posts.CommunityGate: posts declares the seam and never imports this package, so the methods
 // use primitives and *firestore.Transaction only. Built by apiserver and handed to posts late (communities is constructed after posts).
 type PostGate struct {
 	communities Reader
@@ -84,7 +84,7 @@ type CachedMembers interface {
 	MemberState(ctx context.Context, communityID, uid string) (MemberState, error)
 }
 
-// CanReply is the members-only reply rule (ADR-0031 D5, F8): the community status from the 60 s cache (missing or SUSPENDED is the one
+// CanReply is the members-only reply rule: the community status from the 60 s cache (missing or SUSPENDED is the one
 // NOT_FOUND, ARCHIVED is community_archived), then the caller's member doc from the 60 s cache. Not JOINED, and BANNED, is FORBIDDEN
 // not_member (a banned caller learns nothing more than a non-member). +2 reads cold, +0 warm; 0 writes.
 func (g *PostGate) CanReply(ctx context.Context, uid, cid string) error {

@@ -12,14 +12,14 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// ListFollowers (ADR-0008): who follows targetUID, newest first. Firestore: reads 2 (caller graph +
+// ListFollowers: who follows targetUID, newest first. Firestore: reads 2 (caller graph +
 // target profile, both cache-first) + <= page_size edges + <= page_size profiles (one GetAll) = 102 worst at
 // page_size 50, 42 cold at 20; writes 0.
 func (s *service) ListFollowers(ctx context.Context, callerUID, targetUID string, pageSize int32, pageToken string) (Page, error) {
 	return s.listFollowEdges(ctx, callerUID, targetUID, pageSize, pageToken, true)
 }
 
-// ListFollowing (ADR-0008): whom targetUID follows, newest first. Same budget as ListFollowers.
+// ListFollowing: whom targetUID follows, newest first. Same budget as ListFollowers.
 func (s *service) ListFollowing(ctx context.Context, callerUID, targetUID string, pageSize int32, pageToken string) (Page, error) {
 	return s.listFollowEdges(ctx, callerUID, targetUID, pageSize, pageToken, false)
 }
@@ -42,7 +42,7 @@ func (s *service) listFollowEdges(ctx context.Context, callerUID, targetUID stri
 	}
 
 	// Target visibility: a target that is missing, not ACTIVE, or has blocked the caller is NOT_FOUND, the
-	// same error GetProfile returns (ADR-0008 D9). Checked before the edge query so a hidden target costs
+	// same error GetProfile returns. Checked before the edge query so a hidden target costs
 	// no edge reads. IsBlockedBy is cache-first and applies the D2 overflow fallback.
 	blockedBy, err := s.IsBlockedBy(ctx, callerUID, targetUID)
 	if err != nil {
@@ -63,7 +63,7 @@ func (s *service) listFollowEdges(ctx context.Context, callerUID, targetUID stri
 		return Page{}, logger.RedactErr(fmt.Errorf("graph: list edges: %w", err), callerUID, targetUID)
 	}
 
-	// ADR-0025 D5: a protected account's follower and following lists belong to its approved followers. Decided
+	// A protected account's follower and following lists belong to its approved followers. Decided
 	// before any page read, from the caller's own snapshot already held (3 cold reads: interceptor, target, caller graph).
 	if err := s.refuseProtectedList(ctx, callerUID, targetUID, snap); err != nil {
 		return Page{}, err
@@ -79,12 +79,12 @@ func (s *service) listFollowEdges(ctx context.Context, callerUID, targetUID stri
 
 // edgePage turns one query result into a Page: it hydrates the other side through identity.Directory (one GetAll),
 // drops rows for deleted or inactive users and for anyone in a block relationship with the caller in either direction
-// (the page may come back short and the client follows next_page_token, ADR-0008), attaches the caller's
+// (the page may come back short and the client follows next_page_token), attaches the caller's
 // relationship from snap, and seals the next token to binding when the query returned a full page. ListFollowers,
-// ListFollowing and ListFollowRequests share it (reuse-first: one hydration, one drop rule, one cursor). redact names
+// ListFollowing and ListFollowRequests share it (one hydration, one drop rule, one cursor). redact names
 // extra uids to scrub from error text. Reads: <= len(edges) profiles.
 func (s *service) edgePage(ctx context.Context, callerUID string, snap Snapshot, edges []Edge, size int, binding string, other func(Edge) string, redact ...string) (Page, error) {
-	// ADR-0008 "List paging": Limit(page_size), not +1 - a token is issued whenever the query returned a
+	// "List paging": Limit(page_size), not +1 - a token is issued whenever the query returned a
 	// full page (one empty final call when the total is an exact multiple of the page size).
 	hasMore := len(edges) == size
 	if len(edges) == 0 {

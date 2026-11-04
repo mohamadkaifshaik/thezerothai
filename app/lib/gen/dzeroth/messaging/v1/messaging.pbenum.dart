@@ -14,7 +14,7 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-/// Additive: a group conversation would be a new value (ADR-0027 stage ladder).
+/// Additive: a group conversation would be a new value (stage ladder).
 class ConversationKind extends $pb.ProtobufEnum {
   static const ConversationKind CONVERSATION_KIND_UNSPECIFIED =
       ConversationKind._(

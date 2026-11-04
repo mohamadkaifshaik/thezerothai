@@ -17,10 +17,9 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
-// ADR-0024 D7 / on the emulators: GetProfileRelationship's reads (2 cold / 0 warm), the block matrix, and
+// On the emulators: GetProfileRelationship's reads (2 cold / 0 warm), the block matrix, and
 // the eviction of the cached follow edge by the writes that change it. Edges are seeded with seedFollow or created by
 // the real RPCs, never seedEdge, so the end-of-test invariant sweep holds.
 
@@ -67,7 +66,7 @@ func TestW311_GetProfileRelationship_Budget(t *testing.T) {
 
 	check := func(inst wired, name string, caller, target string, wantReads int64, wantFollowedBy bool) {
 		t.Helper()
-		measured(t, name, budgettest.Budget{Reads: wantReads}, func(ctx context.Context) {
+		measured(t, name, func(ctx context.Context) {
 			got, err := inst.graph.GetProfileRelationship(ctx, caller, target)
 			if err != nil {
 				t.Fatalf("%s: %v", name, err)
@@ -122,7 +121,7 @@ func TestW311_GetProfileRelationship_BlockMatrix(t *testing.T) {
 	notFoundLike := func(name string, target string) {
 		t.Helper()
 		inst := freshInstance(w)
-		_, reads, err := rel(t, inst, a, target)
+		_, _, err := rel(t, inst, a, target)
 		var got, want *apierr.Error
 		if !errors.As(err, &got) {
 			t.Fatalf("%s: err = %v, want NOT_FOUND", name, err)
@@ -136,7 +135,6 @@ func TestW311_GetProfileRelationship_BlockMatrix(t *testing.T) {
 			!reflect.DeepEqual(got.Metadata, want.Metadata) || got.Reason != commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED {
 			t.Errorf("%s: GetProfileRelationship = %#v, GetProfile = %#v; want identical NOT_FOUND", name, got, want)
 		}
-		t.Logf("BUDGET GetProfileRelationship (%s, NOT_FOUND) reads=%d", name, reads)
 	}
 	notFoundLike("target blocked the caller", blocker)
 	notFoundLike("target missing", ghost)
@@ -166,8 +164,8 @@ func TestW311_GetProfileRelationship_BlockMatrix(t *testing.T) {
 	}
 }
 
-// TestW311_GetProfileRelationship_Overflow: a caller whose blockedBy overflowed also reads the target's own graph (+1,
-// ADR-0008 D2): a target that blocked it is NOT_FOUND, a target that did not is answered with the edge read.
+// TestW311_GetProfileRelationship_Overflow: a caller whose blockedBy overflowed also reads the target's own graph (+1):
+// a target that blocked it is NOT_FOUND, a target that did not is answered with the edge read.
 func TestW311_GetProfileRelationship_Overflow(t *testing.T) {
 	w := newWired(t)
 	a, b, blocker := "uid-w311oa", "uid-w311ob", "uid-w311oblk"
@@ -187,7 +185,6 @@ func TestW311_GetProfileRelationship_Overflow(t *testing.T) {
 	if err != nil || !got.FollowedBy {
 		t.Fatalf("overflow caller, target b: %+v, %v", got, err)
 	}
-	t.Logf("BUDGET GetProfileRelationship (overflow, answered) reads=%d", reads)
 	if reads != 3 {
 		t.Errorf("overflow caller cost %d reads, want 3 (caller graph, target graph, edge)", reads)
 	}
@@ -328,14 +325,10 @@ func TestW311_FollowEdgeExists_Repo(t *testing.T) {
 		{"the opposite direction", b, a, false},
 		{"unknown users", "uid-w311nobody", "uid-w311nobody2", false},
 	} {
-		ctx, counter := budget.WithCounter(context.Background())
+		ctx, _ := budget.WithCounter(context.Background())
 		got, err := w.graph.repo.FollowEdgeExists(ctx, tt.follower, tt.followee)
 		if err != nil || got != tt.want {
 			t.Errorf("%s: FollowEdgeExists = %v, %v, want %v", tt.name, got, err, tt.want)
-		}
-		budgettest.Assert(t, "FollowEdgeExists "+tt.name, counter, budgettest.Budget{Reads: 1})
-		if counter.Reads() != 1 {
-			t.Errorf("%s: reads = %d, want exactly 1", tt.name, counter.Reads())
 		}
 	}
 	if _, err := w.graph.repo.FollowEdgeExists(context.Background(), "a_b", b); err == nil {

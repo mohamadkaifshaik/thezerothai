@@ -38,7 +38,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthRepository _authRepository;
 
   /// Best-effort work that needs the ID token (unregistering the push
-  /// device, ADR-0017), run before the Firebase sign-out. Bounded by
+  /// device), run before the Firebase sign-out. Bounded by
   /// [kBeforeSignOutTimeout]; a failure or a timeout never blocks sign-out.
   final Future<void> Function()? _beforeSignOut;
   StreamSubscription<AppUser?>? _userSubscription;

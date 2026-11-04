@@ -1,6 +1,6 @@
 // Package budget counts Firestore reads/writes/deletes per request so the request log line carries
 // fs_reads/fs_writes and integration tests can assert an RPC's documented
-// worst-case budget (ADR-0003).
+// worst-case budget.
 package budget
 
 import (

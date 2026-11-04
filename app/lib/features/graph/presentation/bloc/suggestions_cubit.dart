@@ -73,7 +73,7 @@ class SuggestionsCubit extends Cubit<SuggestionsState> {
 
   /// A follow of [userId] from the card was confirmed by the server: the row
   /// goes at once, and when it was the last visible one the list is asked for
-  /// again (ADR-0024 Amendment 2 B2 rule 4). The repository allows that once
+  /// again. The repository allows that once
   /// per session and account, so this cannot loop; both surfaces share the
   /// answer through this cubit.
   Future<void> followed(String userId) async {

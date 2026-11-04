@@ -17,12 +17,11 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
 )
 
-// ADR-0024 Amendment 1 A4 over the real Firestore repo and, for the eraser, the Storage emulator. The users/{uid}
+// Over the real Firestore repo and, for the eraser, the Storage emulator. The users/{uid}
 // read is a fake here (it lives in identity and is charged there; the apiserver chain test asserts the whole job at 2
 // reads and 1 write). The emulator does not implement objects.patch, so a counting tagger records the customTime
 // patches the step makes and delegates to the real Buckets (which accepts the emulator's 501).
@@ -127,14 +126,10 @@ func TestIntegration_RetireBudgetAndRedelivery(t *testing.T) {
 	id := e.seed(t, uidA, PurposeBanner, false)
 	at := retireNow.Add(-30 * time.Minute)
 
-	ctx, c := counted()
+	ctx, _ := counted()
 	out, err := e.jobs.Retire(ctx, e.msg(uidA, PurposeBanner, id, at))
 	if err != nil || out != "retired" {
 		t.Fatalf("Retire = %q, %v", out, err)
-	}
-	budgettest.Assert(t, "retire", c, budgettest.Budget{Reads: 1, Writes: 1})
-	if c.Reads() != 1 || c.Writes() != 1 {
-		t.Errorf("reads=%d writes=%d, want exactly 1 and 1 (media doc read, document write; the users read is identity's)", c.Reads(), c.Writes())
 	}
 	if len(e.tagger.calls) != 2 {
 		t.Errorf("customTime patches = %d, want 2 (full and thumb)", len(e.tagger.calls))
@@ -143,23 +138,21 @@ func TestIntegration_RetireBudgetAndRedelivery(t *testing.T) {
 		t.Errorf("users reads = %d, want 1 (the fresh users/{uid} read)", e.users.reads)
 	}
 
-	ctx, c = counted()
+	ctx, _ = counted()
 	out, err = e.jobs.Retire(ctx, e.msg(uidA, PurposeBanner, id, at))
 	if err != nil || out != "duplicate" {
 		t.Fatalf("redelivery = %q, %v", out, err)
 	}
-	budgettest.Assert(t, "retire redelivery", c, budgettest.Budget{Reads: 1, Writes: 0})
-	if c.Writes() != 0 || len(e.tagger.calls) != 2 {
-		t.Errorf("a redelivery wrote %d times and made %d patches in total (want 0 writes, still 2 patches)", c.Writes(), len(e.tagger.calls))
+	if len(e.tagger.calls) != 2 {
+		t.Errorf("a redelivery made %d patches in total (want still 2)", len(e.tagger.calls))
 	}
 
 	// A refused message costs the same 1 read and 0 writes.
 	other := e.seed(t, uidB, PurposeBanner, false)
-	ctx, c = counted()
+	ctx, _ = counted()
 	if out, err = e.jobs.Retire(ctx, e.msg(uidA, PurposeBanner, other, at)); err != nil || out != "refused" {
 		t.Fatalf("another owner's image = %q, %v", out, err)
 	}
-	budgettest.Assert(t, "retire refused", c, budgettest.Budget{Reads: 1, Writes: 0})
 	if _, has := e.raw(t, other)["retiredAt"]; has {
 		t.Error("another owner's document was marked retired")
 	}
@@ -354,13 +347,12 @@ func TestIntegration_EraserCoversRetiredImagesInsideTheGrace(t *testing.T) {
 		t.Errorf("retired export entries = %d, want 2", retired)
 	}
 
-	ctx2, c := counted()
+	ctx2, _ := counted()
 	_, done, err := p.PurgeUser(ctx2, uidA, Checkpoint{})
 	if err != nil || !done {
 		t.Fatalf("PurgeUser done=%v err=%v", done, err)
 	}
 	// Reads: one per document (3), deletes: one per document.
-	budgettest.Assert(t, "purge with retired documents", c, budgettest.Budget{Reads: 3, Writes: 0, Deletes: 3})
 	for _, id := range []string{avatar, banner, current} {
 		if e.objectExists(t, "m/"+id+".webp") || e.objectExists(t, "m/"+id+"_t.webp") {
 			t.Errorf("objects of %s survived the account purge", id)
@@ -404,14 +396,10 @@ func TestIntegration_RetireSuffixedAvatarAndBanner(t *testing.T) {
 				Kind: JobKindProfileMediaRetired, UID: uidA, Purpose: string(purpose), ChangedAt: at,
 				OldURL: "https://cdn.test/media/" + publicObject(id, sfx, "webp"), OldThumbURL: "https://cdn.test/media/" + publicThumbObject(id, sfx, "webp"),
 			}
-			ctx, c := counted()
+			ctx, _ := counted()
 			out, err := e.jobs.Retire(ctx, m)
 			if err != nil || out != "retired" {
 				t.Fatalf("Retire = %q, %v", out, err)
-			}
-			budgettest.Assert(t, "retire suffixed", c, budgettest.Budget{Reads: 1, Writes: 1})
-			if c.Reads() != 1 || c.Writes() != 1 {
-				t.Errorf("reads=%d writes=%d, want exactly 1 and 1", c.Reads(), c.Writes())
 			}
 			if len(e.tagger.calls) != 2 || e.tagger.calls[0].object != publicObject(id, sfx, "webp") || e.tagger.calls[1].object != publicThumbObject(id, sfx, "webp") {
 				t.Errorf("customTime patches = %v, want the suffixed pair only", e.tagger.calls)

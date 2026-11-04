@@ -76,7 +76,7 @@ func toProtoAuthorSnapshot(p identity.Profile) *commonv1.AuthorSnapshot {
 		// AuthorSnapshot.avatar_url is documented as the 96px thumbnail (common.proto).
 		AvatarUrl: p.AvatarThumbURL,
 		Verified:  p.Verified,
-		// ADR-0025 implementation note,: the lock badge, from the profile this list already hydrated (0 extra
+		// The lock badge, from the profile this list already hydrated (0 extra
 		// reads). Display only, never an access decision; at most as stale as the Directory cache (CACHE_TTL, 60 s). Set ONLY here:
 		// the frozen copies (posts.v1.Post.author, EmbeddedPost.author, Notification.actor) leave it false.
 		IsPrivate: p.IsPrivate,
@@ -227,9 +227,9 @@ func respond[M any](ctx context.Context, fn func(uid string) (*M, error)) (*conn
 	return connect.NewResponse(msg), nil
 }
 
-// ListFollowRequests and RespondToFollowRequest sit behind the ADR-0025 D12 gate, applied in the service layer
+// ListFollowRequests and RespondToFollowRequest sit behind the gate, applied in the service layer
 // (follow_requests.go): FEATURE_GRAPH, then private_accounts not globally off or the caller protected now; a refusal is
-// FEATURE_DISABLED feature=private_accounts. Budgets (ADR-0025 D7): ListFollowRequests 42 / 102 reads cold at page 20 / 50
+// FEATURE_DISABLED feature=private_accounts. Budgets: ListFollowRequests 42 / 102 reads cold at page 20 / 50
 // (21 / 51 warm), RespondToFollowRequest 3 cold / 2 warm and 4 writes + 1 delete on accept, 1 + 1 on decline, 0 on a replay.
 func (s *Server) ListFollowRequests(ctx context.Context, req *connect.Request[graphv1.ListFollowRequestsRequest]) (*connect.Response[graphv1.ListFollowRequestsResponse], error) {
 	return respond(ctx, func(uid string) (*graphv1.ListFollowRequestsResponse, error) {
@@ -248,7 +248,7 @@ func (s *Server) RespondToFollowRequest(ctx context.Context, req *connect.Reques
 	})
 }
 
-// GetProfileRelationship is behind FEATURE_GRAPH like every GraphService RPC (ADR-0024 D7); the logic is in
+// GetProfileRelationship is behind FEATURE_GRAPH like every GraphService RPC; the logic is in
 // relationship.go.
 // 3 cold reads (interceptor, caller graph, edge doc; +1 Directory if cold, +1 on blockedByOverflow), 0 warm, 0 writes.
 func (s *Server) GetProfileRelationship(ctx context.Context, req *connect.Request[graphv1.GetProfileRelationshipRequest]) (*connect.Response[graphv1.GetProfileRelationshipResponse], error) {
@@ -261,7 +261,7 @@ func (s *Server) GetProfileRelationship(ctx context.Context, req *connect.Reques
 	})
 }
 
-// ListSuggestedUsers is behind FEATURE_GRAPH and FEATURE_FOLLOW_SUGGESTIONS on for the caller (ADR-0024 D8, D9); the
+// ListSuggestedUsers is behind FEATURE_GRAPH and FEATURE_FOLLOW_SUGGESTIONS on for the caller; the
 // logic is in suggestions.go. Hard cap 32 reads cold (interceptor 1, caller graph 1, edges <= EdgeLimit 20, hydration <= 10), 12
 // on the curated path, 1 warm (2 when the 60 s snapshot has expired: every warm hit is re-filtered, L-1); 0 writes. At
 // most 5 rows, no cursor, Since unset, possibly none.

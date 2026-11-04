@@ -1,4 +1,4 @@
-// lifecycle_communities.go joins communities (ADR-0031 D9) to the account-lifecycle registry: the `communities` Eraser step (the user's
+// lifecycle_communities.go joins communities to the account-lifecycle registry: the `communities` Eraser step (the user's
 // member docs, moderator and owner roles, moderation-log entries and communityMemberships doc; none of it is removed by deleting
 // users/{uid}) and the `communities` export section. Both are registered whether or not FEATURE_COMMUNITIES is on, because documents
 // outlive the flag. The step is appended after `poll_votes`: its name is persisted in deletionJob.step, so it never joins another

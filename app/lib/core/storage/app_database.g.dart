@@ -349,7 +349,7 @@ class CachedProfile extends DataClass implements Insertable<CachedProfile> {
   final int postsCount;
 
   /// When this row was written, so callers can decide whether it is fresh
-  /// enough to render without a refresh (see the `timeline` skill).
+  /// enough to render without a refresh.
   final DateTime cachedAt;
   const CachedProfile({
     required this.userId,
@@ -2994,7 +2994,7 @@ class $ConversationEntriesTable extends ConversationEntries
 
 class CachedConversation extends DataClass
     implements Insertable<CachedConversation> {
-  /// 32-character lower-case hex id (opaque, ADR-0027 D2).
+  /// 32-character lower-case hex id (opaque).
   final String conversationId;
   final int folder;
   final String sortKey;
@@ -4597,7 +4597,7 @@ class ComposerDraftRow extends DataClass
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  /// The send in flight or lost (ADR-0029 Amendment 1 A4): the
+  /// The send in flight or lost: the
   /// idempotency key claimed for the last send of this draft, null when no
   /// send is pending. Written only by `DraftsRepository.claimSend` and cleared
   /// by `clearSend`; never touches [updatedAt]. Not personal data and

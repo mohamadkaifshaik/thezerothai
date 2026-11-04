@@ -8,7 +8,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
-// A POST report keeps the labels of the reported post's poll as evidence (ADR-0029 D8), so the review shows them; a REPOST
+// A POST report keeps the labels of the reported post's poll as evidence, so the review shows them; a REPOST
 // report keeps the original's labels from its frozen embed; a post without a poll keeps none. Labels only, no counts.
 func TestReport_EvidenceCarriesPollChoices(t *testing.T) {
 	t.Parallel()

@@ -9,7 +9,7 @@
 // In the load phases (trends_herd, typeahead_burst, hot_tag) lines are grouped by rpc, query_kind, tab and cache_hit. The
 // `trends_refresh` / `trends_skipped` / `trends_backlog` lines of the refresher are printed with their fs_reads, fs_writes, posts
 // scanned and duration. Only lines with message "request" carry the request fields (fs_reads, fs_writes, query_kind, tab, cache_hit,
-// results, dropped, code). The raw query is never logged (ADR-0028 D10), so the unsupported share is query_kind=unsupported.
+// results, dropped, code). The raw query is never logged, so the unsupported share is query_kind=unsupported.
 const fs = require('fs');
 
 const args = process.argv.slice(2);

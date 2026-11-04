@@ -2,7 +2,7 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../domain/messaging_feature_gate.dart';
 
-/// Friendly, typed text for a failed messaging call (ADR-0027 D5), for a
+/// Friendly, typed text for a failed messaging call, for a
 /// snackbar or an inline notice. Branches on the exception type and the
 /// limit name, never on the server text, so it never shows (or logs) message
 /// content. Never auto-retried by the UI.

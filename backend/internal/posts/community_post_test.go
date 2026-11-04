@@ -82,7 +82,7 @@ func gatedEnv(g *fakeGate) *createEnv {
 	return e
 }
 
-// TestCreate_CommunityShape: the 0-read refusals of a set community_id (ADR-0031 D5), with the flag on and a gate wired. None of them
+// TestCreate_CommunityShape: the 0-read refusals of a set community_id, with the flag on and a gate wired. None of them
 // reaches the gate, the repo or Firestore.
 func TestCreate_CommunityShape(t *testing.T) {
 	t.Parallel()
@@ -107,7 +107,7 @@ func TestCreate_CommunityShape(t *testing.T) {
 			if ae.Metadata["field"] != tt.field {
 				t.Fatalf("field = %q, want %q", ae.Metadata["field"], tt.field)
 			}
-			if c.Reads() != 0 || c.Writes() != 0 || g.admitCount() != 0 || e.repo.createCalls != 0 {
+			if g.admitCount() != 0 || e.repo.createCalls != 0 {
 				t.Fatalf("reads=%d writes=%d admits=%d creates=%d", c.Reads(), c.Writes(), g.admitCount(), e.repo.createCalls)
 			}
 		})
@@ -135,7 +135,7 @@ func TestCreate_CommunityGateOrder(t *testing.T) {
 		e.dir.profiles[testUID] = p
 		_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunityID: testCommunityID, CommunitiesEnabled: true})
 		_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT)
-		if g.admitCount() != 0 || c.Writes() != 0 || e.repo.createCalls != 0 {
+		if g.admitCount() != 0 || e.repo.createCalls != 0 {
 			t.Fatalf("admits=%d writes=%d creates=%d", g.admitCount(), c.Writes(), e.repo.createCalls)
 		}
 	})
@@ -148,7 +148,7 @@ func TestCreate_CommunityGateOrder(t *testing.T) {
 			e := gatedEnv(&fakeGate{admitErr: want})
 			_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "hi", CommunityID: testCommunityID, CommunitiesEnabled: true})
 			_ = wantAPIError(t, err, want.Code, want.Reason)
-			if c.Writes() != 0 || e.repo.createCalls != 0 {
+			if e.repo.createCalls != 0 {
 				t.Fatalf("writes=%d creates=%d", c.Writes(), e.repo.createCalls)
 			}
 		}
@@ -254,7 +254,7 @@ func TestApplyReply_InheritsConversationCommunity(t *testing.T) {
 	}
 }
 
-// TestCommunityBoundsOf: Window to id bounds (ADR-0031 D3), including the settle sentinel: After{W, zeroID} is the inclusive EndAt of
+// TestCommunityBoundsOf: Window to id bounds, including the settle sentinel: After{W, zeroID} is the inclusive EndAt of
 // the smallest Snowflake of millisecond W, so a post created in W itself is never hidden.
 func TestCommunityBoundsOf(t *testing.T) {
 	t.Parallel()

@@ -1,6 +1,7 @@
 // One dashboard (5 charts from free-tier-budget §5), one uptime check, and a
-// small handful of alert policies. Free at Stage 0 volumes, with one approved exception:
-// the ADR-0011 C4 log-based metric + alert policy (~$0.40/month, founder-approved).
+// small handful of alert policies. Free at Stage 0 volumes, with approved exceptions: the auth-admin log-based metric +
+// alert policy (~$0.40/month), and the prod ops alerts for dead-lettered messages, failing Scheduler jobs and the
+// daily-maintenance heartbeat (founder-approved 2026-11-04). Each billable resource carries a cost-approved marker.
 
 resource "google_monitoring_notification_channel" "email" {
   for_each = toset(var.founder_emails)
@@ -97,19 +98,19 @@ locals {
     }
   }
 
-  # ADR-0011 D-A: messages that exhausted retries on the jobs topic (dead-lettered). Any non-zero bar needs a look;
+  # Messages that exhausted retries, per subscription (dead-lettered). Any non-zero bar needs a look;
   # the daily-maintenance backstop re-publishes stuck jobs.
   dlq_tile = {
     width  = 12
     height = 4
     yPos   = 12
     widget = {
-      title = "Pub/Sub jobs DLQ: dead-lettered messages"
+      title = "Pub/Sub DLQ: dead-lettered messages"
       xyChart = {
         dataSets = [{
           timeSeriesQuery = {
             timeSeriesFilter = {
-              filter = "metric.type=\"pubsub.googleapis.com/topic/send_message_operation_count\" resource.type=\"pubsub_topic\" resource.label.\"topic_id\"=\"jobs-dlq\""
+              filter = "metric.type=\"pubsub.googleapis.com/subscription/dead_letter_message_count\" resource.type=\"pubsub_subscription\""
               aggregation = {
                 alignmentPeriod  = "3600s"
                 perSeriesAligner = "ALIGN_SUM"
@@ -211,31 +212,26 @@ resource "google_monitoring_alert_policy" "uptime_failing" {
   }
 }
 
-// 2. Cloud Run 5xx rate. NOTE: this is an absolute rate (5xx responses/sec,
-// summed across revisions), NOT a percentage of total traffic — computing a
-// true error *ratio* needs an MQL condition (dividing 5xx count by total
-// count) or a log-based metric, and the rule is not to add
-// log-based/custom metrics without an ADR (they're billable beyond a small
-// free allotment). Named honestly so on-call doesn't misread the threshold
-// as "5% of requests"; revisit with an MQL ratio query if false
-// positives/negatives at low traffic become a problem.
+// 2. Cloud Run 5xx count: a plain number of failures in 10 minutes, summed across revisions, not a percentage. A rate
+// threshold needs steady traffic: at launch volumes a full outage never reached 0.05 failures/s. A ratio is no better
+// here, because one failed request out of two is 50%. Raise run_5xx_per_10min as traffic grows.
 resource "google_monitoring_alert_policy" "run_5xx_rate" {
   count        = var.enable_ops_alerts ? 1 : 0
   project      = var.project_id
-  display_name = "api 5xx rate > 0.05 req/s for 10 min, absolute not % (${var.env})"
+  display_name = "api 5xx > ${var.run_5xx_per_10min} in 10 min (${var.env})"
   combiner     = "OR"
 
   conditions {
-    display_name = "5xx response rate (requests/sec, all revisions summed)"
+    display_name = "5xx responses, 10 min sum, all revisions"
     condition_threshold {
       filter          = "metric.type=\"run.googleapis.com/request_count\" resource.type=\"cloud_run_revision\" metric.label.\"response_code_class\"=\"5xx\""
       comparison      = "COMPARISON_GT"
-      threshold_value = 0.05
-      duration        = "600s"
+      threshold_value = var.run_5xx_per_10min
+      duration        = "0s"
 
       aggregations {
-        alignment_period     = "300s"
-        per_series_aligner   = "ALIGN_RATE"
+        alignment_period     = "600s"
+        per_series_aligner   = "ALIGN_SUM"
         cross_series_reducer = "REDUCE_SUM"
       }
     }
@@ -249,8 +245,8 @@ resource "google_monitoring_alert_policy" "run_5xx_rate" {
 }
 
 // 3. Firestore reads > 40k in a day — 80% of the 50k/day free quota, early
-// cost warning (billing budget is the hard cost backstop).
-// ADR-0022 D2: the threshold is a variable (250k/day in credit mode, back to 40k on 2026-12-22). The display name is
+// cost warning.
+// The threshold is a variable (250k/day in credit mode, back to 40k on 2026-12-22). The display name is
 // unchanged at the default so Stage 0 plans show no diff.
 resource "google_monitoring_alert_policy" "firestore_reads_near_quota" {
   count        = var.enable_ops_alerts ? 1 : 0
@@ -280,11 +276,11 @@ resource "google_monitoring_alert_policy" "firestore_reads_near_quota" {
   }
 }
 
-// 4. ADR-0011 control C4: unexpected Firebase Auth mutation volume. The runtime SA holds a custom role that can
+// 4. Control C4: unexpected Firebase Auth mutation volume. The runtime SA holds a custom role that can
 // disable/delete ANY Auth user (IAM cannot scope it to one uid); code controls C1-C3 limit it to the caller's own
 // uid, and this alert detects misuse after the fact. Expected ~9 deletions/month; the metric counts successful deletes (op=delete, outcome=ok: one per deletion) plus ERROR refusals. The read-only `get` op (export, M2 sign-up check) never matches.
-// Response (runbook): set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth binding, investigate.
-// Cost: the only recurring charge in ADR-0011, ~$0.40/month TOTAL, prod only (var.enable_auth_admin_alert; dev has no
+// Response: set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth binding, investigate.
+// Cost: the only recurring charge of account lifecycle, ~$0.40/month TOTAL, prod only (var.enable_auth_admin_alert; dev has no
 // alert and relies on log inspection). The label-free log-based counter is inside the free metric ingestion
 // allotment, so it stays in both envs at $0. Founder-approved 2026-10-07, prod-only 2026-10-08.
 resource "google_logging_metric" "auth_admin_mutations" { # cost-approved: ADR-0011
@@ -334,9 +330,9 @@ resource "google_monitoring_alert_policy" "auth_admin_mutations" { # cost-approv
   }
 }
 
-// 5. ADR-0022 D3 request-flood detector (credit mode). Cloud Run bills every request that reaches the container, even
+// 5. Request-flood detector (credit mode). Cloud Run bills every request that reaches the container, even
 // ones our limiters answer with 429, and requests are not capped by max-instances: a 1,000 req/s flood is about
-// INR 3,283/day. The billing budget lags by hours; this metric lags by minutes. Default 50,000 requests/hour is about
+// INR 3,283/day. This metric lags by minutes. Default 50,000 requests/hour is about
 // 14 req/s, 10x the 3k-DAU average. Alerting is not charged before 2027-09-01 (pricing page, 2026-10-23).
 // Off by default (var.enable_request_flood_alert) so Stage 0 plans do not change.
 resource "google_monitoring_alert_policy" "request_flood" { # cost-approved: ADR-0022 until:2026-12-26
@@ -365,7 +361,155 @@ resource "google_monitoring_alert_policy" "request_flood" { # cost-approved: ADR
 
   documentation {
     mime_type = "text/markdown"
-    content   = "Request volume above the credit-mode flood threshold (ADR-0022 D3). Requests are billed even when answered 429, and the budget alert lags by hours. Fastest cost stop: remove the allUsers run.invoker binding on the api service (IAM-denied requests are not billed; lever L2). Then investigate the abuse or cost spike. Restore the invoker afterwards."
+    content   = "Request volume above the credit-mode flood threshold (ADR-0022 D3). Requests are billed even when answered 429, Fastest cost stop: remove the allUsers run.invoker binding on the api service (IAM-denied requests are not billed; lever L2). Then investigate the abuse or cost spike. Restore the invoker afterwards."
+  }
+
+  alert_strategy {
+    auto_close = "3600s"
+  }
+}
+
+// 6. Dead-lettered Pub/Sub messages: a delivery that used up its retries. Most of these are account deletions, exports and
+// post-delete cleanup, so a silent DLQ is a privacy problem as well as a bug. The metric covers every push subscription.
+resource "google_monitoring_alert_policy" "dead_lettered_messages" { # cost-approved: founder 2026-11-04 (prod ops alerts)
+  count        = var.enable_ops_alerts ? 1 : 0
+  project      = var.project_id
+  display_name = "Pub/Sub messages dead-lettered (${var.env})"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "dead_letter_message_count, per subscription"
+    condition_threshold {
+      filter          = "metric.type=\"pubsub.googleapis.com/subscription/dead_letter_message_count\" resource.type=\"pubsub_subscription\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+
+      aggregations {
+        alignment_period     = "300s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+        group_by_fields      = ["resource.label.subscription_id"]
+      }
+    }
+  }
+
+  notification_channels = [for c in google_monitoring_notification_channel.email : c.id]
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "A message used up its delivery attempts and went to the `<topic>-dlq` topic, which keeps it for 7 days. Find the cause in Error Reporting. To replay, create a subscription on that topic and seek it back. The daily-maintenance backstop republishes stuck account jobs."
+  }
+
+  alert_strategy {
+    auto_close = "3600s"
+  }
+}
+
+// 7. Cloud Scheduler attempts that failed. The docs name the AttemptFinished entry and show debugInfo on failures, but state
+// no severity for it, so the filter accepts either signal. Free log-based metric, like auth_admin_mutations above.
+resource "google_logging_metric" "scheduler_failed_attempts" { # cost-approved: founder 2026-11-04 (prod ops alerts)
+  project     = var.project_id
+  name        = "scheduler_failed_attempts"
+  description = "Cloud Scheduler attempts that did not get a success answer from the api."
+  filter      = "resource.type=\"cloud_scheduler_job\" AND jsonPayload.\"@type\"=\"type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished\" AND (severity>=ERROR OR jsonPayload.debugInfo:*)"
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
+// Per job: 4 attempts per run (retry_count = 3), so more than 3 failures in an hour means a run used up its retries, or
+// an often-run job keeps failing; one attempt that a retry recovered stays quiet. This sees only attempts that were made and
+// failed. It does not see a job that never fired, or a step that failed while the route still answered 2xx.
+resource "google_monitoring_alert_policy" "scheduler_failed_attempts" { # cost-approved: founder 2026-11-04 (prod ops alerts)
+  count        = var.enable_ops_alerts ? 1 : 0
+  project      = var.project_id
+  display_name = "Cloud Scheduler job failing (${var.env})"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "scheduler_failed_attempts, 1 h sum"
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.scheduler_failed_attempts.name}\" resource.type=\"cloud_scheduler_job\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 3
+      duration        = "0s"
+
+      aggregations {
+        alignment_period     = "3600s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+        group_by_fields      = ["resource.label.job_id"]
+      }
+    }
+  }
+
+  notification_channels = [for c in google_monitoring_notification_channel.email : c.id]
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "A Cloud Scheduler job is failing: the incident names it. daily-maintenance is the account-deletion backstop, so treat it first. Logs Explorer: resource.type=\"cloud_scheduler_job\", then the api's Error Reporting entries for the cron route."
+  }
+
+  alert_strategy {
+    auto_close = "3600s"
+  }
+}
+
+// 8. The daily-maintenance heartbeat: its success line proves the path end to end (Scheduler, OIDC, Cloud Run, Firestore
+// reads), whatever the feature flags say and with no user traffic. /health proves none of that, and section 7 cannot see a
+// job that never fired. The line is written by the backstop step, so the later steps of the route are not covered. The
+// api writes it from CronHandler; a test there pins it. Free log-based metric, like the ones above.
+resource "google_logging_metric" "daily_maintenance_success" { # cost-approved: founder 2026-11-04 (prod ops alerts)
+  project     = var.project_id
+  name        = "daily_maintenance_success"
+  description = "Runs of the account-deletion backstop in daily-maintenance that finished without error."
+  filter      = "resource.type=\"cloud_run_revision\" AND jsonPayload.account_job=\"backstop\" AND jsonPayload.outcome=\"ok\""
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
+// A threshold condition, not metric absence: absence can look back 1 day at most (alignment plus duration), which leaves a
+// daily job no slack, while a threshold condition goes to 25 hours (Monitoring quotas). The window is 24 h 50 m: alignment
+// plus duration must stay within 25 h and leave room for ingestion delay. evaluation_missing_data needs a duration of at
+// least 60 s, or it is ignored. Not yet seen firing, and it exists only where enable_ops_alerts is on (prod): after the
+// first apply, watch the first missed run, or pause the job for a day, and confirm it opens. A new log metric has no
+// history, so the first hours after the apply may open it once before the first run lands.
+resource "google_monitoring_alert_policy" "daily_maintenance_missing" { # cost-approved: founder 2026-11-04 (prod ops alerts)
+  count        = var.enable_ops_alerts ? 1 : 0
+  project      = var.project_id
+  display_name = "daily-maintenance backstop has not succeeded in 25 hours (${var.env})"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "daily_maintenance_success, 24 h 50 m sum"
+    condition_threshold {
+      filter                  = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.daily_maintenance_success.name}\" resource.type=\"cloud_run_revision\""
+      comparison              = "COMPARISON_LT"
+      threshold_value         = 1
+      duration                = "60s"
+      evaluation_missing_data = "EVALUATION_MISSING_DATA_ACTIVE"
+
+      aggregations {
+        alignment_period     = "89400s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+    }
+  }
+
+  notification_channels = [for c in google_monitoring_notification_channel.email : c.id]
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "No successful daily-maintenance backstop run in about 25 hours. It is the account-deletion backstop. Check the Cloud Scheduler job first, then the api's Error Reporting entries for cron/daily-maintenance, then Firestore. There is one data point a day, so a lost log-metric point can open this falsely: if the job shows a good run, it closes after the next one."
   }
 
   alert_strategy {

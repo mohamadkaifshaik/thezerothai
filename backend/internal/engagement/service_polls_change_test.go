@@ -16,7 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// ADR-0029 Amendment 1,: the block rule (A1) and the vote change (A2) at the service, over fakes.
+//The block rule (A1) and the vote change (A2) at the service, over fakes.
 
 const voterKey = "viewer"
 

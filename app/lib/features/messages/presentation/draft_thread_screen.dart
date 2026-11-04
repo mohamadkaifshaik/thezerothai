@@ -20,7 +20,7 @@ import 'thread_screen.dart'
 import 'widgets/message_composer.dart';
 import 'widgets/outgoing_bubble.dart';
 
-/// `/messages/new/draft` (ADR-0027 D5): a thread with someone the
+/// `/messages/new/draft`: a thread with someone the
 /// caller has no cached conversation with. Nothing exists on the server yet,
 /// so nothing is read and nothing polls: it shows the header, an empty
 /// thread, the [MessageComposer] and the rows of the first message while it

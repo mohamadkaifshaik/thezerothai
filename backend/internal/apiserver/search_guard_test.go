@@ -17,16 +17,15 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// searchDailyProcedures are the two search RPCs that share the one search_daily cap (ADR-0028 D9). GetTrends is a cached
-// single-document read on the 60/min default bucket with its own trends_daily cap (ADR-0028 note 2026-10-31 part 4).
+// searchDailyProcedures are the two search RPCs that share the one search_daily cap. GetTrends is a cached
+// single-document read on the 60/min default bucket with its own trends_daily cap (part 4).
 var searchDailyProcedures = []string{
 	searchv1connect.SearchServiceSearchPeopleProcedure,
 	searchv1connect.SearchServiceSearchPostsProcedure,
 }
 
 // searchViolations asserts the wiring: SearchPeople and SearchPosts each have a DailyCaps entry named search_daily
-// holding the SAME DailyCap, GetTrends has its OWN non-nil trends_daily entry (review L-4) whose Cap is not that one, and all three procedures are covered by the daily read budget
-// (ADR-0010 D5; they are NO_SIDE_EFFECTS, so the generic guard also sees them).
+// holding the SAME DailyCap, GetTrends has its OWN non-nil trends_daily entry (review L-4) whose Cap is not that one.
 func searchViolations(rl ratelimit.Config) []string {
 	var out []string
 	var first *ratelimit.DailyCap
@@ -47,11 +46,6 @@ func searchViolations(rl ratelimit.Config) []string {
 		out = append(out, "GetTrends has no trends_daily DailyCaps entry")
 	case first != nil && trends.Cap == first:
 		out = append(out, "GetTrends must not be on the search_daily cap")
-	}
-	for _, p := range append(append([]string{}, searchDailyProcedures...), searchv1connect.SearchServiceGetTrendsProcedure) {
-		if !rl.ReadBudgetCovers(p) {
-			out = append(out, "search procedure "+p+" is not covered by the daily read budget")
-		}
 	}
 	if rl.PerProcedure[searchv1connect.SearchServiceSearchPeopleProcedure] == nil || rl.PerProcedure[searchv1connect.SearchServiceSearchPostsProcedure] == nil {
 		out = append(out, "SearchPeople and SearchPosts need their own per-minute buckets")
@@ -91,7 +85,6 @@ func TestSearchWiring_Guard(t *testing.T) {
 			c.DailyCaps[trends] = ratelimit.NamedDailyCap{Name: "search_daily", Cap: ratelimit.NewDailyCap(400)}
 		}, "GetTrends has no trends_daily"},
 		{"posts loses its bucket", func(c *ratelimit.Config) { delete(c.PerProcedure, posts) }, "own per-minute buckets"},
-		{"read budget off", func(c *ratelimit.Config) { c.ReadBudget = nil }, "not covered by the daily read budget"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -118,7 +111,6 @@ func TestSearchDailyCap_StopsTheCapPlusFirstCall(t *testing.T) {
 	cfg.RateLimit.PerIPPerMinute = 100000
 	cfg.RateLimit.SearchPeoplePerUserPerMinute = 100000
 	cfg.RateLimit.SearchPostsPerUserPerMinute = 100000
-	cfg.RateLimit.ReadBudgetPerUIDPerDay = 1 << 40
 	cfg.RateLimit.SearchCallsPerDay = dailyCap
 	rl := RateLimitConfig(cfg)
 
@@ -174,7 +166,6 @@ func TestSearchPosts_PerMinuteBucket(t *testing.T) {
 	cfg.RateLimit.PerIPPerMinute = 100000
 	cfg.RateLimit.SearchPeoplePerUserPerMinute = 100000
 	cfg.RateLimit.SearchPostsPerUserPerMinute = 20
-	cfg.RateLimit.ReadBudgetPerUIDPerDay = 1 << 40
 	cfg.RateLimit.SearchCallsPerDay = 100000
 	rl := RateLimitConfig(cfg)
 
@@ -229,7 +220,6 @@ func TestTrendsDailyCap_StopsTheCapPlusFirstCall(t *testing.T) {
 	cfg.RateLimit.PerIPPerMinute = 100000
 	cfg.RateLimit.SearchPeoplePerUserPerMinute = 100000
 	cfg.RateLimit.SearchPostsPerUserPerMinute = 100000
-	cfg.RateLimit.ReadBudgetPerUIDPerDay = 1 << 40
 	cfg.RateLimit.SearchCallsPerDay = 2
 	cfg.RateLimit.TrendsCallsPerDay = dailyCap
 	rl := RateLimitConfig(cfg)

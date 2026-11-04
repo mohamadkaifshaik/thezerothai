@@ -15,7 +15,7 @@ import '../../../support/messaging_fixtures.dart';
 import '../../../support/messaging_flow_rig.dart';
 import '../../../support/thread_test_support.dart';
 
-/// (ADR-0027 F6(a)): `messaging` off for this caller only. The device
+/// Read-only Messages: `messaging` off for this caller only. The device
 /// cache holds a conversation and the session probe succeeded, so Messages
 /// opens read-only: list, read, delete, report and block, but no composer, no
 /// Accept, no New message, and `/messages/new` lands on `/messages`.

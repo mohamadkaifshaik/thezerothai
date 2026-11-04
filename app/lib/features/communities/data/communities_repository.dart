@@ -54,7 +54,7 @@ class ModerationLogPage {
   bool get hasMore => nextPageToken.isNotEmpty;
 }
 
-/// The only caller of `CommunityService` (ADR-0031).
+/// The only caller of `CommunityService`.
 ///
 /// - **Flag.** Every RPC needs `communities` in `GetMe.enabled_features`
 ///   ([ServiceFeatureGate]): with it off no request is sent and a
@@ -70,7 +70,7 @@ class ModerationLogPage {
 ///   `communities_joined` / `community_moderators`), [QuotaExceededException]
 ///   (`community_joins`, `community_posts`), [RateLimitedException],
 ///   [ProtectedAccountException] (CreatePost into a community).
-/// - **Mutations** (the seven of ADR-0031 D8) take an `idempotencyKey` made
+/// - **Mutations** (all seven) take an `idempotencyKey` made
 ///   once per user action by the caller and reused on a retry (rule 4).
 ///   Nothing is retried here.
 /// - **Roles** are the server's (`Community.viewer_role`,

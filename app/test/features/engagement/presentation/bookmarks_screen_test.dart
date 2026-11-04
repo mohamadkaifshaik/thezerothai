@@ -60,7 +60,7 @@ pb.PostView _view(int n, {String? text}) => pb.PostView(
     repostCount: Int64(2),
     replyCount: Int64(3),
   ),
-  // Listed rows come hydrated (ADR-0023 D3).
+  // Listed rows come hydrated.
   bookmarkedByViewer: true,
 );
 

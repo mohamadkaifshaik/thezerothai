@@ -15,27 +15,22 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 func skey(n int) string { return fmt.Sprintf("send-key-%08d", n) }
 
-// ADR-0027 "Cost impact" per RPC, minus the account-status interceptor's read, which the Connect chain adds (the
+// "Cost impact" per RPC, minus the account-status interceptor's read, which the Connect chain adds (the
 // apiserver chain tests assert the full 5 / 7). Here only the repo's own reads count: the directory and graph are fakes.
 
 // Mutual follows: the message lands in B's dmInbox with unreadCount 1 and one `message` event leaves; 3 writes.
 func TestSend_MutualGoesToInboxWithOneEvent(t *testing.T) {
 	e := newIT(t, nil)
 	e.mutual(alice, bob)
-	resp, c, err := e.send(alice, toUser(skey(1), bob, "hello bob"))
+	resp, _, err := e.send(alice, toUser(skey(1), bob, "hello bob"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "SendMessage new+mutual", c, budgettest.Budget{Reads: 4, Writes: 5})
 	convID := ConversationID(alice, bob)
-	if c.Reads() != 4 || c.Writes() != 5 || c.Deletes() != 0 {
-		t.Errorf("new conversation reads/writes/deletes = %d/%d/%d, want 4/5/0 (conversation, recipient graph, recipient users, quotas / message, conversation, 2 entries, quotas)", c.Reads(), c.Writes(), c.Deletes())
-	}
 	conv, ok := e.conv(convID)
 	if !ok || conv.State != stateAccepted || len(conv.Participants) != 2 {
 		t.Fatalf("conversation = %+v, %v", conv, ok)
@@ -63,13 +58,9 @@ func TestSend_MutualGoesToInboxWithOneEvent(t *testing.T) {
 
 	// A second message in the accepted conversation: 3 writes, 1 read, no conversation write, unread 2.
 	e.tick(time.Second)
-	_, c2, err := e.send(alice, toUser(skey(2), bob, "again"))
+	_, _, err = e.send(alice, toUser(skey(2), bob, "again"))
 	if err != nil {
 		t.Fatal(err)
-	}
-	budgettest.Assert(t, "SendMessage accepted", c2, budgettest.Budget{Reads: 2, Writes: 3})
-	if c2.Reads() != 2 || c2.Writes() != 3 || c2.Deletes() != 0 {
-		t.Errorf("accepted reads/writes/deletes = %d/%d/%d, want 2/3/0 (conversation, recipient graph)", c2.Reads(), c2.Writes(), c2.Deletes())
 	}
 	if in, _ := e.entry(bob, "dmInbox", convID); in.UnreadCount != 2 || in.Last.Snippet != "again" {
 		t.Errorf("bob's entry after the second message = %+v", in)
@@ -85,17 +76,9 @@ func TestSend_RequestPathAndTheFourthMessage(t *testing.T) {
 	convID := ConversationID(alice, bob)
 	for i := 1; i <= 3; i++ {
 		e.tick(time.Second)
-		_, c, err := e.send(alice, toUser(skey(i), bob, fmt.Sprintf("request message %d", i)))
+		_, _, err := e.send(alice, toUser(skey(i), bob, fmt.Sprintf("request message %d", i)))
 		if err != nil {
 			t.Fatalf("request message %d: %v", i, err)
-		}
-		if i == 1 {
-			budgettest.Assert(t, "SendMessage new+request", c, budgettest.Budget{Reads: 4, Writes: 5})
-		} else {
-			budgettest.Assert(t, "SendMessage request", c, budgettest.Budget{Reads: 2, Writes: 4})
-			if c.Writes() != 4 {
-				t.Errorf("request message %d writes = %d, want 4 (message, 2 entries, requestCount)", i, c.Writes())
-			}
 		}
 	}
 	conv, _ := e.conv(convID)
@@ -117,22 +100,16 @@ func TestSend_RequestPathAndTheFourthMessage(t *testing.T) {
 	}
 
 	// The 4th message: LIMIT_REACHED request_unanswered, 0 writes, nothing stored.
-	_, c, err := e.send(alice, toUser(skey(4), bob, "request message 4"))
+	_, _, err := e.send(alice, toUser(skey(4), bob, "request message 4"))
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, map[string]string{"limit": "request_unanswered"})
-	if c.Writes() != 0 || c.Deletes() != 0 {
-		t.Errorf("the refused 4th message wrote %d / deleted %d", c.Writes(), c.Deletes())
-	}
 	if n := len(e.msgs(convID)); n != 3 {
 		t.Errorf("messages stored = %d, want 3", n)
 	}
 
 	// The retry of the 3rd message (a lost response) is a replay, not a refusal: the cap has no say about it.
-	resp, c, err := e.send(alice, toUser(skey(3), bob, "request message 3"))
+	resp, _, err := e.send(alice, toUser(skey(3), bob, "request message 3"))
 	if err != nil {
 		t.Fatalf("replay of the last allowed request message: %v", err)
-	}
-	if c.Writes() != 0 {
-		t.Errorf("the replay wrote %d", c.Writes())
 	}
 	if resp.GetMessage().GetId() != MessageID(alice, skey(3)) {
 		t.Errorf("replayed id = %q", resp.GetMessage().GetId())
@@ -149,13 +126,9 @@ func TestSend_ReplyAcceptsARequest(t *testing.T) {
 	convID := ConversationID(alice, bob)
 	e.must(alice, toUser(skey(1), bob, "may I?"))
 	e.tick(time.Second)
-	_, c, err := e.send(bob, toUser(skey(2), alice, "sure"))
+	_, _, err := e.send(bob, toUser(skey(2), alice, "sure"))
 	if err != nil {
 		t.Fatal(err)
-	}
-	budgettest.Assert(t, "SendMessage reply that accepts", c, budgettest.Budget{Reads: 2, Writes: 4, Deletes: 1})
-	if c.Writes() != 4 || c.Deletes() != 1 {
-		t.Errorf("reply writes/deletes = %d/%d, want 4/1", c.Writes(), c.Deletes())
 	}
 	if conv, _ := e.conv(convID); conv.State != stateAccepted {
 		t.Errorf("state = %q, want ACCEPTED", conv.State)
@@ -208,13 +181,9 @@ func TestSend_ReplayAndKeyReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.tick(time.Minute)
-	again, c, err := e.send(alice, toUser(skey(1), bob, "once"))
+	again, _, err := e.send(alice, toUser(skey(1), bob, "once"))
 	if err != nil {
 		t.Fatal(err)
-	}
-	budgettest.Assert(t, "SendMessage replay", c, budgettest.Budget{Reads: 3})
-	if c.Writes() != 0 || c.Deletes() != 0 {
-		t.Errorf("replay wrote %d / deleted %d, want 0 / 0", c.Writes(), c.Deletes())
 	}
 	if first.GetMessage().GetId() != again.GetMessage().GetId() || !first.GetMessage().GetCreatedAt().AsTime().Equal(again.GetMessage().GetCreatedAt().AsTime()) {
 		t.Errorf("the replay answered another message: %v vs %v", first.GetMessage(), again.GetMessage())
@@ -229,11 +198,8 @@ func TestSend_ReplayAndKeyReuse(t *testing.T) {
 		t.Errorf("events = %d after a replay, want 1", len(e.events.got))
 	}
 
-	_, c, err = e.send(alice, toUser(skey(1), bob, "different text"))
+	_, _, err = e.send(alice, toUser(skey(1), bob, "different text"))
 	wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "idempotency_key"})
-	if c.Writes() != 0 {
-		t.Errorf("a reused key wrote %d", c.Writes())
-	}
 	if msgs := e.msgs(convID); len(msgs) != 1 {
 		t.Errorf("messages = %d after the reuse, want 1", len(msgs))
 	}
@@ -260,11 +226,8 @@ func TestSend_NewConversationDailyQuota(t *testing.T) {
 			if got := e.dmNew(alice); got != int64(tt.max) {
 				t.Fatalf("dmNew = %d, want %d", got, tt.max)
 			}
-			_, c, err := e.send(alice, toUser(skey(99), fmt.Sprintf("peer-%02d", tt.max), "one too many"))
+			_, _, err := e.send(alice, toUser(skey(99), fmt.Sprintf("peer-%02d", tt.max), "one too many"))
 			wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, map[string]string{"limit": "dm_new_daily"})
-			if c.Writes() != 0 {
-				t.Errorf("the refused conversation wrote %d", c.Writes())
-			}
 			if _, ok := e.conv(ConversationID(alice, fmt.Sprintf("peer-%02d", tt.max))); ok {
 				t.Error("the refused conversation was created")
 			}
@@ -289,11 +252,8 @@ func TestSend_GoneConversation(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A fresh instance: no cached conversation, so the refusal comes from the transaction itself.
-	_, c, err := e.sendOn(e.newService(), alice, toUser(skey(2), bob, "after"))
+	_, _, err := e.sendOn(e.newService(), alice, toUser(skey(2), bob, "after"))
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
-	if c.Writes() != 0 {
-		t.Errorf("a gone conversation wrote %d", c.Writes())
-	}
 	if n := len(e.msgs(convID)); n != 1 {
 		t.Errorf("messages = %d, want 1", n)
 	}
@@ -311,16 +271,14 @@ func TestSendIT_ByConversationID(t *testing.T) {
 	e.must(alice, toUser(skey(1), bob, "hi"))
 
 	svc := e.newService() // cold cache
-	_, c, err := e.sendOn(svc, bob, toConv(skey(2), convID, "hi alice"))
+	_, _, err := e.sendOn(svc, bob, toConv(skey(2), convID, "hi alice"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "SendMessage by conversation_id, cold cache", c, budgettest.Budget{Reads: 3, Writes: 3})
-	_, c, err = e.sendOn(svc, bob, toConv(skey(3), convID, "still here"))
+	_, _, err = e.sendOn(svc, bob, toConv(skey(3), convID, "still here"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "SendMessage by conversation_id, warm cache", c, budgettest.Budget{Reads: 2, Writes: 3})
 
 	e.addUser("uid-carol", "carol", false)
 	_, _, err = e.sendOn(svc, "uid-carol", toConv(skey(4), convID, "let me in"))

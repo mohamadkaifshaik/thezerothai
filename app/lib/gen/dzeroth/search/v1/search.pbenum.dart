@@ -14,7 +14,7 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-/// The order a SearchPosts call returns (ADR-0028 D3). There is no PEOPLE value: the client's People tab calls
+/// The order a SearchPosts call returns. There is no PEOPLE value: the client's People tab calls
 /// SearchPeople with the same query. A new tab is an additive value.
 class SearchTab extends $pb.ProtobufEnum {
   /// Treated as TOP.

@@ -1,5 +1,5 @@
-// poll_vote_sweep.go is the daily step that removes expired userLikes.pollVotes entries from accounts that never come back (ADR-0029
-// D8, security L-2). It rides the daily-maintenance cron (no new Cloud Scheduler job: the free tier holds 3 per
+// poll_vote_sweep.go is the daily step that removes expired userLikes.pollVotes entries from accounts that never come back (security L-2).
+// It rides the daily-maintenance cron (no new Cloud Scheduler job: the free tier holds 3 per
 // billing account) as a step before the trends refresh, under the same status rule: its outcome is for the logs, never the HTTP
 // status. The trends step keeps its own window: the chain gets min(10 s, time left) and the sweep takes at most pollVoteSweepMax of
 // it; a partial run resumes the next day.

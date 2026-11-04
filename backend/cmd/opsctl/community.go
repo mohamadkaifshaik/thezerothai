@@ -20,7 +20,7 @@ const communityUsage = `  opsctl community suspend CID --project P [--report R] 
   opsctl community loghash [--community CID] [--post ID] [--user UID]   (no project; needs CURSOR_HMAC_KEY: the keyed community_hash, post_hash, target_hash and uid_hash of the request lines)
 `
 
-// communityCacheBound is the longest an api instance serves a cached copy of a community doc (communities cache, ADR-0031 D12). opsctl is
+// communityCacheBound is the longest an api instance serves a cached copy of a community doc (communities cache). opsctl is
 // a separate process and cannot evict another process's memory, so this is the honest bound printed to the operator.
 const communityCacheBound = "60 s"
 
@@ -49,7 +49,7 @@ func parseCommunityArgs(sub, cid string, a modArgs) error {
 	return nil
 }
 
-// communityCommand is `opsctl community suspend|restore|archive` (ADR-0031 D14). The reads already honour SUSPENDED
+// communityCommand is `opsctl community suspend|restore|archive`. The reads already honour SUSPENDED
 // (N3): a suspended community is NOT_FOUND on every RPC for everyone but, on GetCommunity and ListMyCommunities, its owner; it is out of
 // the directory and CreatePost into it is refused. The writes are communities.Platform's field-level Updates (never a Set).
 //
@@ -185,7 +185,7 @@ type removalTotals struct {
 	missing     int // communities that no longer exist
 }
 
-// appendCommunityRemovals appends the posts to each community's recentRemovals, once per community (ADR-0031 D14). A missing community is
+// appendCommunityRemovals appends the posts to each community's recentRemovals, once per community. A missing community is
 // counted, not an error: the posts are hidden either way. Any other failure is returned so the caller's checkpoint repeats (the append is
 // idempotent: a post already listed writes nothing).
 func appendCommunityRemovals(ctx context.Context, b *backends, byCommunity map[string][]string, at time.Time, tot *removalTotals) error {

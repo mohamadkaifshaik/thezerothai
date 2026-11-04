@@ -1,6 +1,6 @@
-// engagement_wiring.go composes the engagement module (ADR-0018): its lifecycle registration, its
-// notification adapter (ADR-0017 D2) and the composite post_delete job handler. Consumer-side adapters live here
-// (the BlockChecker pattern, ADR-0002): engagement imports posts' seams only, never media or notifications.
+// engagement_wiring.go composes the engagement module: its lifecycle registration, its
+// notification adapter and the composite post_delete job handler. Consumer-side adapters live here
+// (the BlockChecker pattern): engagement imports posts' seams only, never media or notifications.
 package apiserver
 
 import (
@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
-// engagementEraserStep is the engagement step (step "engagement", ADR-0018 D7): the user's likes and reposts
+// engagementEraserStep is the engagement step (step "engagement"): the user's likes and reposts
 // with their counters, then userLikes/{uid}. It runs after the posts step (the user's own REPOST posts are gone)
 // and before identity.
 func engagementEraserStep(e engagement.Eraser) identity.StepEraser {
@@ -41,7 +41,7 @@ func registerEngagementLifecycle(l *identity.Lifecycle, repo *engagement.Firesto
 }
 
 // engagementNotifier implements engagement.Events: a like notifies the post's author, a repost the original's
-// author (ADR-0017 D4, D5; ADR-0018 D9). Self-actions are never announced. Replays never reach it (engagement
+// author. Self-actions are never announced. Replays never reach it (engagement
 // calls it only for effects that were written).
 type engagementNotifier struct{ slot *emitterSlot }
 
@@ -70,7 +70,7 @@ type jobHandler interface {
 	Handle(ctx context.Context, data []byte) (string, error)
 }
 
-// postDeleteChain is the composite post_delete handler (ADR-0018 D10, ADR-0024 D3): the media step (a message without
+// postDeleteChain is the composite post_delete handler: the media step (a message without
 // images is a noop that reads nothing), the engagement step, then the identity pin step (1 post read + 1 users read,
 // a write only when the deleted post was the author's pin). All three always run, so a failure of one never leaves
 // the others' work undone for a delivery; any error nacks the message and every step is idempotent.

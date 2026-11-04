@@ -1,8 +1,8 @@
-// lifecycle_poll_votes.go joins poll votes (ADR-0029 D8) to the account-lifecycle registry: the `poll_votes` Eraser
+// lifecycle_poll_votes.go joins poll votes to the account-lifecycle registry: the `poll_votes` Eraser
 // step (pollVotes/{postId}_{uid}, a top-level collection that deleting users/{uid} does not touch) and the `poll_votes` export
 // section (post id, choice and time per row). Both are registered whether or not FEATURE_POLLS is on, because documents outlive the
 // flag. The step is appended after `messaging`, before identity: its name is persisted in deletionJob.step, so it never joins
-// engagement's checkpoint and inserting it mid-sequence would strand in-flight jobs (ADR-0011 Q1). It still runs after
+// engagement's checkpoint and inserting it mid-sequence would strand in-flight jobs. It still runs after
 // `engagement`, which deleted userLikes (and userLikes.pollVotes) already.
 package apiserver //nolint:dupl // mirrors lifecycle_bookmarks.go: the same step and section adapters over a different collection
 

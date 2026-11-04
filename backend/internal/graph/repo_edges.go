@@ -50,7 +50,7 @@ func (e Edge) otherUID(followers bool) string {
 type EdgeQuery struct {
 	UID       string
 	Followers bool // true: edges where followeeId == UID; false: where followerId == UID
-	// Requests selects followRequests instead of follows (ADR-0025 D7, ListFollowRequests): the incoming requests of UID,
+	// Requests selects followRequests instead of follows (ListFollowRequests): the incoming requests of UID,
 	// followeeId == UID, so it implies Followers. The two collections share the doc shape and the composite index.
 	Requests bool
 	Limit    int

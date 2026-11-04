@@ -101,7 +101,7 @@ class RecipientPickerDialog extends StatelessWidget {
   }
 }
 
-/// The new-message picker (ADR-0027 D5): a "To:" field over a list of
+/// The new-message picker: a "To:" field over a list of
 /// people.
 ///
 /// - Empty field: the people the caller follows (`ListFollowing` through the

@@ -303,7 +303,7 @@ func TestExportJob(t *testing.T) {
 		if e.Profile["handle"] != "Alice" || e.Profile["bio"] != "hello" || e.Profile["followersCount"] != float64(3) {
 			t.Errorf("profile = %v", e.Profile)
 		}
-		// ADR-0024 D11: the profile extras are exported (the thumbnail is derived data and is not).
+		// The profile extras are exported (the thumbnail is derived data and is not).
 		for k, want := range map[string]string{"bannerUrl": "https://m/b.webp", "location": "Pune", "website": "https://example.com", "pinnedPostId": "0000000000000000301"} {
 			if e.Profile[k] != want {
 				t.Errorf("profile[%q] = %v, want %q", k, e.Profile[k], want)

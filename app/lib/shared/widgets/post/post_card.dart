@@ -73,7 +73,7 @@ Future<bool> launchPostLink(Uri uri) async {
 const kPostTextClampLines = 6;
 
 /// One post in any list (Home, profile tabs, detail): author row, relative
-/// time, rich text and an overflow menu (ADR-0010 D7).
+/// time, rich text and an overflow menu.
 ///
 /// - Text is rendered as spans only; HTML is never interpreted. Links are
 ///   `http(s)` only and open externally. Mention spans match
@@ -85,7 +85,7 @@ const kPostTextClampLines = 6;
 ///   confirmation, via [onDelete]) and Block/Mute (or Unblock/Unmute, from
 ///   the relationship cache) on others' (reusing [RelationshipCubit] and
 ///   [showBlockConfirmationDialog]); it is absent when nothing applies.
-/// - Engagement (ADR-0018): with [engagementEnabled] (the `engagement`
+/// - Engagement: with [engagementEnabled] (the `engagement`
 ///   flag; screens pass `isFeatureEnabled(context, kFeatureEngagement)`) the
 ///   card shows the reply / repost / like row ([PostEngagementBar]); off, no
 ///   row and no engagement code runs. A REPOST item renders as the original
@@ -173,7 +173,7 @@ class PostCard extends StatelessWidget {
   final bool graphActionsEnabled;
 
   /// Whether the `reports` flag is on, i.e. "Report post" may be offered on
-  /// other people's posts (ADR-0016). Off by default: a screen opts in.
+  /// other people's posts. Off by default: a screen opts in.
   final bool reportsEnabled;
 
   /// Deletes a post after the user confirmed. Null hides Delete. A thrown
@@ -342,7 +342,7 @@ class PostCard extends StatelessWidget {
         : author.displayName;
 
     // The viewer may see this post only because the author protects their
-    // posts and the viewer is the author or an approved follower (ADR-0025 D4).
+    // posts and the viewer is the author or an approved follower.
     final protectedAuthor =
         !isRepost && _post.visibility == pb.Visibility.VISIBILITY_FOLLOWERS;
 

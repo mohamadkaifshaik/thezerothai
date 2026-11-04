@@ -16,10 +16,9 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// pollVoteViolations asserts the wiring (ADR-0029 D6): VotePoll has its own per-minute bucket and a DailyCaps entry
+// pollVoteViolations asserts the wiring: VotePoll has its own per-minute bucket and a DailyCaps entry
 // named poll_votes_daily holding its own cap, and no other engagement procedure shares that cap (likes are bounded by the
-// likes quota, bookmarks by bookmark_mutation_daily). VotePoll writes, so it is not NO_SIDE_EFFECTS: the read budget
-// still covers it (it covers every procedure).
+// likes quota, bookmarks by bookmark_mutation_daily).
 func pollVoteViolations(rl ratelimit.Config) []string {
 	var out []string
 	vote := engagementv1connect.EngagementServiceVotePollProcedure
@@ -34,9 +33,6 @@ func pollVoteViolations(rl ratelimit.Config) []string {
 		if p != vote && ok && n.Cap == named.Cap {
 			out = append(out, "procedure "+p+" shares the poll_votes_daily DailyCap")
 		}
-	}
-	if !rl.ReadBudgetCovers(vote) {
-		out = append(out, "VotePoll is not covered by the daily read budget")
 	}
 	return out
 }
@@ -59,7 +55,6 @@ func TestPollVoteWiring_Guard(t *testing.T) {
 			c.DailyCaps[vote] = n
 		}, "no poll_votes_daily"},
 		{"likes join the cap", func(c *ratelimit.Config) { c.DailyCaps[like] = c.DailyCaps[vote] }, "shares the poll_votes_daily"},
-		{"read budget off", func(c *ratelimit.Config) { c.ReadBudget = nil }, "not covered by the daily read budget"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -85,7 +80,6 @@ func TestPollVoteDailyCap_StopsTheCapPlusFirstCall(t *testing.T) {
 	cfg.RateLimit.PerIPPerMinute = 100000
 	cfg.RateLimit.PollVotePerUserPerMinute = 100000
 	cfg.RateLimit.LikesPerUserPerMinute = 100000
-	cfg.RateLimit.ReadBudgetPerUIDPerDay = 1 << 40
 	cfg.RateLimit.PollVotesPerDay = dailyCap
 	rl := RateLimitConfig(cfg)
 

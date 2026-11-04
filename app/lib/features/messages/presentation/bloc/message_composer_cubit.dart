@@ -69,7 +69,7 @@ class MessageComposerState {
     this.cannotMessage = false,
   });
 
-  /// The D9 reading of what is typed (the same rules as posts, ADR-0027 F8).
+  /// The D9 reading of what is typed (the same rules as posts).
   final PostDraft draft;
 
   /// Messages sent from this screen, oldest first.
@@ -109,7 +109,7 @@ class MessageComposerState {
   );
 }
 
-/// Drives the conversation composer (ADR-0027 D3, D4): the live D9
+/// Drives the conversation composer: the live D9
 /// reading of the draft ([analyzePostDraft], no second validator), the
 /// optimistic bubble, and one idempotency key per intent.
 ///

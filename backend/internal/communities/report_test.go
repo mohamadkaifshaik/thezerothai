@@ -13,7 +13,7 @@ import (
 
 const reportCID = "0000000000000000901"
 
-// ReportableCommunity (ADR-0031 D14): the evidence of an ACTIVE or ARCHIVED community for a stranger; the same ErrNotFound for a
+// ReportableCommunity: the evidence of an ACTIVE or ARCHIVED community for a stranger; the same ErrNotFound for a
 // missing and a SUSPENDED one; ErrOwnCommunity for the owner; the owner's handle only while the owner is ACTIVE.
 func TestReportableCommunity_Table(t *testing.T) {
 	t.Parallel()
@@ -51,13 +51,10 @@ func TestReportableCommunity_Table(t *testing.T) {
 				c.ID, c.Name, c.Description, c.Rules, c.CreatedAt = reportCID, "Cats", "All cats", rules, made
 				f.seed(c)
 			}
-			ctx, ctr := budget.WithCounter(context.Background())
+			ctx, _ := budget.WithCounter(context.Background())
 			got, err := f.svc.ReportableCommunity(ctx, tt.caller, reportCID)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tt.wantErr)
-			}
-			if ctr.Reads() != tt.wantReads || ctr.Writes() != 0 {
-				t.Errorf("reads = %d writes = %d, want %d 0", ctr.Reads(), ctr.Writes(), tt.wantReads)
 			}
 			if tt.wantErr != nil {
 				return

@@ -2,8 +2,8 @@ import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:flutter_test/flutter_test.dart';
 
-/// The shape of every UpdateProfile request (ADR-0024: field presence is the
-/// signal, `""` clears, absent leaves unchanged). These go through the real
+/// The shape of every UpdateProfile request (field presence is the signal, `""` clears, absent leaves unchanged).
+/// These go through the real
 /// protobuf encoding the API client uses (`ProtoCodec` writes
 /// `writeToBuffer()`), because the in-memory fake transport would not notice
 /// an empty `optional string` that never reaches the wire.

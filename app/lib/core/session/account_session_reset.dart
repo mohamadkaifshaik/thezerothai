@@ -25,14 +25,16 @@
 ///   (+ tables), identity and graph writes, `EngagementRepository` (writes
 ///   through the epoch-guarded timeline store, no memory of its own), recent
 ///   searches (a drift table, removed by `clearAll`, no epoch).
+/// - Rate-limit holds of `PostsRepository` and `ConnectSearchRepository`,
+///   released by their `clearSession` steps here: a daily search limit would
+///   otherwise refuse the next account until midnight without sending a call.
 /// - Safe without a reset: drafts (`DraftsRepository`: every query filters by
 ///   uid); `PushOptInCubit` (keyed by uid, reloaded on every auth
 ///   state); the theme choice and `ServicePausedCubit` (device-wide);
 ///   `MediaUploader` reservations (keyed by a per-composition intent id, never
-///   reused by another account); `IdentityRepository`, `PostsRepository`,
-///   `ConnectSearchRepository`, `ModerationRepository`, `MediaRepository`
-///   (hold only capability flags such as "the server refused X" and the shared
-///   read hold, no account data); `AccountCubit` and every screen-scoped cubit
+///   reused by another account); `IdentityRepository`,
+///   `ModerationRepository`, `MediaRepository` (hold only capability flags
+///   such as "the server refused X", no account data); `AccountCubit` and every screen-scoped cubit
 ///   (built per mount: a sign-out or switch makes `OnboardingBloc` emit its
 ///   initial state, the router redirects away from every signed-in screen, and
 ///   the screens are rebuilt for the next account); feature gates (reset by

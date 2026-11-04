@@ -8,7 +8,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestLoad_ScheduledDefaults pins every ADR-0021 default: the quota keys, the SCHEDULED_* keys and the flag.
+// TestLoad_ScheduledDefaults pins every default: the quota keys, the SCHEDULED_* keys and the flag.
 func TestLoad_ScheduledDefaults(t *testing.T) {
 	clearEnv(t)
 	cfg, err := Load()
@@ -117,7 +117,7 @@ func TestLoad_ScheduledOverridesAndValidation(t *testing.T) {
 	})
 }
 
-// TestLoad_ScheduledPostsFlag: FEATURE_SCHEDULED_POSTS (ADR-0021 D4) is overridable like the other server flags and
+// TestLoad_ScheduledPostsFlag: FEATURE_SCHEDULED_POSTS is overridable like the other server flags and
 // is listed in enabled_features only when on for the caller.
 func TestLoad_ScheduledPostsFlag(t *testing.T) {
 	clearEnv(t)

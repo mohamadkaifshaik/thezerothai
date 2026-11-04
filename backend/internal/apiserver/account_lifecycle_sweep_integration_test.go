@@ -7,7 +7,7 @@ package apiserver
 // sweepResidue reads EVERY root collection the project holds (not only the ones in the table, so a collection the
 // table does not know fails the sweep by name), every subcollection under users/{deleted uid}, and the collection
 // groups of the table's subcollection rows, and reports any document whose path, ID or nested string value contains
-// the deleted uid, minus the ADR-0011 Q10 allowlist (lifecycle_collections_guard_test.go).
+// the deleted uid, minus the allowlist (lifecycle_collections_guard_test.go).
 //
 // requireInvariants re-derives, from the documents alone, the counters and mirrors the graph and posts modules
 // maintain, for a cohort of uids (the apiserver tests share one Firestore project, so the check is scoped to the

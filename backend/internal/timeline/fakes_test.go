@@ -225,7 +225,7 @@ func (d *fakeDirectory) GetProfiles(ctx context.Context, uids []string) (map[str
 	return out, nil
 }
 
-// ByHashtag and CreatedAfter are search and trends queries (ADR-0028); the timeline never calls them.
+// ByHashtag and CreatedAfter are search and trends queries; the timeline never calls them.
 func (f *fakePosts) ByCommunity(context.Context, string, posts.Window, int) ([]*posts.Post, error) {
 	return nil, nil
 }

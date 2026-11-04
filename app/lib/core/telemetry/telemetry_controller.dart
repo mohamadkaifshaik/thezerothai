@@ -8,7 +8,7 @@ import 'telemetry_inputs.dart';
 import 'telemetry_interfaces.dart';
 
 /// The one place that decides whether crash reports and usage statistics are
-/// collected (ADR-0032).
+/// collected.
 ///
 /// Collecting a kind is on only when ALL of these hold:
 /// 1. the platform is supported (Android),
@@ -196,7 +196,7 @@ class TelemetryController {
     if (force || crash != _appliedCrash) {
       _appliedCrash = crash;
       _debugLog('telemetry: crash reports ${crash ? 'on' : 'off'}');
-      // ADR-0032 D3 step 1 (L-1): reports from before consent never
+      // Step 1 (L-1): reports from before consent never
       // upload. A no-op once native collection is on, so safe in every state.
       if (crash) unawaited(_enqueue(_crash.deleteUnsentReports));
       unawaited(_enqueue(() => _crash.setCollecting(crash)));

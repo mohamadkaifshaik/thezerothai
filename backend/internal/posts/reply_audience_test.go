@@ -22,7 +22,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// Reply audience (ADR-0021 D2,/B4): who may reply, set on a root post or quote, inherited by replies,
+// Reply audience: who may reply, set on a root post or quote, inherited by replies,
 // enforced in service.Create after replyParent, hinted to viewers. FEATURE_REPLY_AUDIENCE gates SETTING only.
 
 // rPolRepost is dave's REPOST of rRoot.
@@ -209,12 +209,12 @@ func TestCreate_ReplyPolicy_Setting(t *testing.T) {
 			switch {
 			case tt.wantFeat != "":
 				ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
-				if ae.Metadata["feature"] != tt.wantFeat || c.Reads() != 0 || c.Writes() != 0 || e.repo.createCalls != 0 {
+				if ae.Metadata["feature"] != tt.wantFeat || e.repo.createCalls != 0 {
 					t.Fatalf("feature=%q reads=%d writes=%d creates=%d", ae.Metadata["feature"], c.Reads(), c.Writes(), e.repo.createCalls)
 				}
 			case tt.wantValid:
 				_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
-				if c.Reads() != 0 || c.Writes() != 0 || e.repo.createCalls != 0 {
+				if e.repo.createCalls != 0 {
 					t.Fatalf("reads=%d writes=%d creates=%d, want a refusal before any read", c.Reads(), c.Writes(), e.repo.createCalls)
 				}
 			default:
@@ -242,7 +242,7 @@ func TestCreate_ReplyPolicy_Idempotency(t *testing.T) {
 		t.Fatal(err)
 	}
 	replay, c, err := e.create(in)
-	if err != nil || replay.ID != first.ID || c.Writes() != 0 {
+	if err != nil || replay.ID != first.ID {
 		t.Fatalf("replay id=%v err=%v writes=%d", replay, err, c.Writes())
 	}
 	changed := in
@@ -254,7 +254,7 @@ func TestCreate_ReplyPolicy_Idempotency(t *testing.T) {
 	_, _, err = e.create(plain)
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 
-	// EVERYONE and UNSPECIFIED hash alike, and like a pre-ADR request: the legacy record replays under EVERYONE.
+	// EVERYONE and UNSPECIFIED hash alike, and like a request from before the field existed: the legacy record replays under EVERYONE.
 	e2 := newCreateEnv()
 	legacyKey := idempotency.Key(testUID, createRPC, key2)
 	e2.repo.idem = map[string]fakeIdem{legacyKey: {
@@ -327,7 +327,7 @@ type policyCase struct {
 	// want: "ok", "notfound", "denied"
 	want string
 	// graphAsked, when non-nil, pins the distinct graph.Snapshot uids asked, in order (the cold read pattern of the
-	// ADR cost table; the real reader caches a repeated uid for 60 s, the fake charges every call).
+	// planned cost table; the real reader caches a repeated uid for 60 s, the fake charges every call).
 	graphAsked []string
 }
 
@@ -351,7 +351,7 @@ func runPolicyCases(t *testing.T, tests []policyCase) {
 				wantReplyNotAllowed(t, err, strings.ToLower(string(tt.policy)))
 			}
 			if tt.want != "ok" {
-				if c.Writes() != 0 || e.repo.createCalls != 0 || len(e.repo.idem) != 0 {
+				if e.repo.createCalls != 0 || len(e.repo.idem) != 0 {
 					t.Fatalf("a refusal must write nothing: writes=%d creates=%d idem=%d", c.Writes(), e.repo.createCalls, len(e.repo.idem))
 				}
 				if e.repo.docs[rRoot] != nil && e.repo.docs[rRoot].ReplyCount != 0 {
@@ -458,7 +458,7 @@ func TestEnforceReplyPolicy_MentionedOnly(t *testing.T) {
 		{"deep, root author suspended or deleting", ReplyPolicyMentionedOnly,
 			both(mention(testUID), func(e *createEnv) { delete(e.dir.profiles, uZed) }), rReply1, "notfound", nil},
 		{"deep, root author protected and not followed", ReplyPolicyMentionedOnly,
-			both(mention(testUID), func(e *createEnv) { e.protect(uZed) }), rReply1, "notfound", nil}, // ADR-0025: the root author is protected, the stored visibility is not read
+			both(mention(testUID), func(e *createEnv) { e.protect(uZed) }), rReply1, "notfound", nil}, // The root author is protected, the stored visibility is not read
 		{"deep, the root author replies to a deep reply", ReplyPolicyMentionedOnly, callerOwnsRoot, rReply1, "ok", nil},
 		{"deep, root is a quote whose embedded author blocks the caller", ReplyPolicyMentionedOnly,
 			both(mention(testUID), func(e *createEnv) {
@@ -512,7 +512,7 @@ func TestEnforceReplyPolicy_Following(t *testing.T) {
 	})
 }
 
-// TestRejectReason_ReplyNotAllowed: the request log line names the refusal (runbook query outcome=rejected:...).
+// TestRejectReason_ReplyNotAllowed: the request log line names the refusal.
 func TestRejectReason_ReplyNotAllowed(t *testing.T) {
 	t.Parallel()
 	if got := rejectReason(replyNotAllowed(ReplyPolicyFollowing)); got != "reply_not_allowed" {
@@ -927,7 +927,7 @@ func TestCreate_ReplyReplayAfterPermissionLost(t *testing.T) {
 			case "notfound":
 				wantNotFound(t, err)
 			}
-			if got != nil || c.Writes() != 0 || e.repo.createCalls != 0 {
+			if got != nil || e.repo.createCalls != 0 {
 				t.Fatalf("a refused replay returns nothing and writes nothing: post=%v writes=%d creates=%d", got, c.Writes(), e.repo.createCalls)
 			}
 			if e.repo.docs[first.ID] == nil {

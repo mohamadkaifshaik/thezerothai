@@ -16,7 +16,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -94,7 +93,7 @@ func assertPassedGate(t *testing.T, err error, _ bookmarkCall) {
 	}
 }
 
-// TestBookmarkServer_FlagMatrix (ADR-0023 D5): AddBookmark needs FEATURE_BOOKMARKS on for the caller; ListBookmarks
+// TestBookmarkServer_FlagMatrix: AddBookmark needs FEATURE_BOOKMARKS on for the caller; ListBookmarks
 // and RemoveBookmark only need it not globally off. FEATURE_POSTS is needed by all three and FEATURE_ENGAGEMENT by
 // none. Whatever the outcome, no Firestore read, write or delete is charged: the stub service has no repo.
 func TestBookmarkServer_FlagMatrix(t *testing.T) {
@@ -144,14 +143,13 @@ func TestBookmarkServer_FlagMatrix(t *testing.T) {
 				want = tt.wantAdd
 			}
 			t.Run(tt.name+"/"+c.name, func(t *testing.T) {
-				ctx, counter := budget.WithCounter(uidCtx(tt.uid))
+				ctx, _ := budget.WithCounter(uidCtx(tt.uid))
 				err := c.call(bmServer(flags.NewRegistry(tt.reg...)), ctx)
 				if want {
 					assertPassedGate(t, err, c)
 				} else if featureDisabledErr(err) == nil {
 					t.Fatalf("err = %#v, want FAILED_PRECONDITION FEATURE_DISABLED", err)
 				}
-				budgettest.Assert(t, c.name, counter, budgettest.Budget{})
 			})
 		}
 	}

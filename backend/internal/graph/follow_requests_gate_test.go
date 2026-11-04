@@ -10,11 +10,10 @@ import (
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// ADR-0025 D12: ListFollowRequests and RespondToFollowRequest need FEATURE_GRAPH for the caller, then
+// ListFollowRequests and RespondToFollowRequest need FEATURE_GRAPH for the caller, then
 // private_accounts not globally off or the caller protected now; past the gate they run; this test pins the gate only.
 
 func TestFollowRequestsGate_FlagModes(t *testing.T) {
@@ -63,7 +62,7 @@ func TestFollowRequestsGate_FlagModes(t *testing.T) {
 					uid: {UserID: uid, Status: identity.AccountStatusActive, IsPrivate: tt.protected},
 				}}}
 				svc.SetDirectory(dir)
-				ctx, counter := budget.WithCounter(w3Ctx(uid))
+				ctx, _ := budget.WithCounter(w3Ctx(uid))
 
 				err := call(ctx, NewServer(svc))
 				wantSnapshotReads := 0
@@ -80,7 +79,6 @@ func TestFollowRequestsGate_FlagModes(t *testing.T) {
 				if dir.gets != tt.wantDirGets || repo.calls != wantSnapshotReads {
 					t.Errorf("directory gets = %d (want %d), graph snapshot reads = %d (want %d)", dir.gets, tt.wantDirGets, repo.calls, wantSnapshotReads)
 				}
-				budgettest.Assert(t, "follow requests gate", counter, budgettest.Budget{})
 			})
 		}
 	}

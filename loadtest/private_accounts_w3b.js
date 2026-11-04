@@ -1,5 +1,5 @@
-// private_accounts_w3b: W3 Part B emulator smoke
-// (ADR-0025 "Cost impact"). One file, one timeline of five scenarios, all against ONE local API process (one "instance").
+// private_accounts_w3b: W3 Part B emulator smoke.
+// One file, one timeline of five scenarios, all against ONE local API process (one "instance").
 //
 //   setup Mints OWNER (P), OWNER2, N requesters, M strangers. P posts one public post, then protects the account
 //                    (UpdateProfile is_private=true: 4 cold reads / 3 writes). protects too (the 60-request page-50 owner).
@@ -28,7 +28,7 @@
 //   FEATURE_REPLIES not needed. CACHE_TTL=60s (default). Raise: RATE_LIMIT_PER_IP_PER_MIN, RATE_LIMIT_PRE_AUTH_IP_PER_MIN (every VU shares
 //   127.0.0.1), RATE_LIMIT_PER_USER_PER_MIN, RATE_LIMIT_GRAPH_FOLLOW_PER_MIN, RATE_LIMIT_GRAPH_LIST_PER_MIN,
 //   RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, RATE_LIMIT_USER_TIMELINE_PER_MIN, LIST_CALLS_PER_DAY, GRAPH_MUTATIONS_PER_DAY,
-//   QUOTA_FOLLOWS_PER_DAY, QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY, READ_BUDGET_PER_UID_PER_DAY.
+//   QUOTA_FOLLOWS_PER_DAY, QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY.
 //
 //   k6 run loadtest/private_accounts_w3b.js      # or: make loadtest SCENARIO=private_accounts_w3b
 import { check } from 'k6';

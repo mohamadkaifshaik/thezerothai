@@ -35,7 +35,7 @@ func parseTrendsArgs(sub, tag string) error {
 	return nil
 }
 
-// trendsCommand is `opsctl trends hide|unhide|list` (ADR-0028 note 2026-10-31 part 1, review M-1): the operator's fast
+// trendsCommand is `opsctl trends hide|unhide|list` (part 1, review M-1): the operator's fast
 // removal of an abusive trend, with no deploy. It writes only trends/hidden, through search.TrendsStore. The usual prod
 // confirmation (the typed project id) already ran in run().
 //

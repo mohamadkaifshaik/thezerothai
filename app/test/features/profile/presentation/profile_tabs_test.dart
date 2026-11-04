@@ -617,7 +617,7 @@ void main() {
         const RateLimitedException(
           'Slow down.',
           retryAfter: Duration(hours: 1),
-          limitName: 'read_budget_daily',
+          limitName: 'search_daily',
         ),
       );
       await open(tester);

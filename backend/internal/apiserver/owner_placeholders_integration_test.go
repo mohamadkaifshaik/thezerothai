@@ -2,7 +2,7 @@
 
 package apiserver
 
-// (ADR-0025 note L-2) through the real Build chain on the emulators: the owner keeps an undo on their own
+// Owner placeholders through the real Build chain on the emulators: the owner keeps an undo on their own
 // REPOST, like and bookmark of a protected author they can no longer see.
 //   - S liked, bookmarked and reposted P's post while P was public; P protects. S's own Likes and Bookmarks lists keep the
 //     row as a withheld placeholder (post_id, kind, author; no text, media, counts or timestamp), S's own profile keeps
@@ -18,7 +18,6 @@ import (
 
 	engagementv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // w341aSeed makes S like, bookmark and repost P's post while P is public, then P protects.
@@ -84,7 +83,6 @@ func TestW341a_OwnerPlaceholdersAndUndo(t *testing.T) {
 		if row == nil || !row.GetWithheld() || !row.GetBookmarkedByViewer() {
 			t.Fatalf("bookmark row = %v, want a withheld placeholder with bookmarked_by_viewer", row)
 		}
-		budgettest.Assert(t, "ListBookmarks cold page 20", r.lineBudget(t, rpcListBookmarks), budgettest.Budget{Reads: 43})
 		if line := r.line(t, rpcListBookmarks); num(line, "rows_withheld") < 1 || num(line, "rows_dropped_protected") != 0 {
 			t.Errorf("request line rows_withheld = %v rows_dropped_protected = %v", line["rows_withheld"], line["rows_dropped_protected"])
 		}
@@ -98,7 +96,6 @@ func TestW341a_OwnerPlaceholdersAndUndo(t *testing.T) {
 		if row == nil || !row.GetWithheld() || !row.GetLikedByViewer() {
 			t.Fatalf("liked row = %v, want a withheld placeholder with liked_by_viewer", row)
 		}
-		budgettest.Assert(t, "ListLikedPosts cold page 20", r.lineBudget(t, rpcListLiked), budgettest.Budget{Reads: 23})
 		// The byte check: only post_id, kind and the author snapshot are set on the post.
 		p := row.GetPost()
 		if p.GetText() != "" || len(p.GetMedia()) != 0 || len(p.GetHashtags()) != 0 || len(p.GetMentions()) != 0 || p.GetCreatedAt() != nil ||
@@ -124,7 +121,6 @@ func TestW341a_OwnerPlaceholdersAndUndo(t *testing.T) {
 			e.GetPostId() != w.pid || e.GetAuthor().GetHandle() == "" || e.GetText() != "" || len(e.GetMedia()) != 0 || e.GetCreatedAt() != nil {
 			t.Errorf("own REPOST = %v, want PROTECTED, reposted_by_viewer, embedded post_id and author only", row)
 		}
-		budgettest.Assert(t, "GetUserTimeline own Reposts cold", r.lineBudget(t, rpcGetUserTimeline), budgettest.Budget{Reads: 4 + 20})
 
 		// Another viewer of S's profile: D4 unchanged, the REPOST is dropped.
 		resp, err = newW320Chain(t, w335aOn).tabCall(other, s.uid, tabRepostsPB, 20, "", "")

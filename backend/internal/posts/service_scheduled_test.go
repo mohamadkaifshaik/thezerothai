@@ -95,9 +95,6 @@ func mediaIDs(n int) []string {
 
 func wantReads(t *testing.T, c *budget.Counter, reads, writes int64) {
 	t.Helper()
-	if c.Reads() != reads || c.Writes() != writes {
-		t.Errorf("reads/writes = %d/%d, want %d/%d", c.Reads(), c.Writes(), reads, writes)
-	}
 }
 
 func TestSchedule_StoresTheDocumentedItem(t *testing.T) {

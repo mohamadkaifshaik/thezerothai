@@ -354,7 +354,7 @@ void main() {
     });
   });
 
-  group('RATE_LIMITED hold shared across reads (ADR-0010 D5)', () {
+  group('RATE_LIMITED hold', () {
     const getThread = '/dzeroth.posts.v1.PostService/GetThread';
     const getHome = '/dzeroth.timeline.v1.TimelineService/GetHomeTimeline';
     var clock = Duration.zero;
@@ -365,7 +365,7 @@ void main() {
     Object daily() => serverError(
       connect.Code.resourceExhausted,
       common.ErrorReason.ERROR_REASON_RATE_LIMITED,
-      metadata: {'limit': 'read_budget_daily'},
+      metadata: {'limit': 'search_daily'},
     );
 
     setUp(() {
@@ -378,12 +378,9 @@ void main() {
         gate: gate,
         rateLimitHold: hold,
       );
-      timeline = TimelineRepository(
-        apiClient: api,
-        store: store,
-        gate: gate,
-        rateLimitHold: hold,
-      );
+      // Its own hold, as in the app: a limit on one family must not freeze
+      // the other.
+      timeline = TimelineRepository(apiClient: api, store: store, gate: gate);
     });
 
     test('a held thread load or refresh sends nothing', () async {
@@ -417,27 +414,14 @@ void main() {
       expect(transport.calledProcedures, [getThread, getThread]);
     });
 
-    test('a thread RATE_LIMITED holds a Home refresh and vice versa', () async {
+    test('a thread RATE_LIMITED does not hold a Home refresh', () async {
       answer = (_) => daily();
       await expectLater(
         posts.getThread(postId(1)),
         throwsA(isA<RateLimitedException>()),
       );
-      expect(timeline.rateLimitedFor(), isNotNull);
       await expectLater(
         timeline.refresh(const FeedKey.home()),
-        throwsA(isA<RateLimitedException>()),
-      );
-      expect(transport.calledProcedures, [getThread]);
-
-      hold.clear();
-      await expectLater(
-        timeline.refresh(const FeedKey.home()),
-        throwsA(isA<RateLimitedException>()),
-      );
-      expect(transport.calledProcedures, [getThread, getHome]);
-      await expectLater(
-        posts.getThread(postId(1)),
         throwsA(isA<RateLimitedException>()),
       );
       expect(transport.calledProcedures, [getThread, getHome]);
@@ -469,35 +453,19 @@ void main() {
       },
     );
 
-    test('a read_budget_inflight answer leaves the hold empty', () async {
-      answer = (_) => serverError(
-        connect.Code.resourceExhausted,
-        common.ErrorReason.ERROR_REASON_RATE_LIMITED,
-        metadata: {'limit': 'read_budget_inflight'},
-      );
-      await expectLater(
-        posts.getThread(postId(1)),
-        throwsA(isA<RateLimitedException>()),
-      );
-      expect(hold.check(), isNull);
-      expect(timeline.rateLimitedFor(), isNull);
-
-      // Nothing is held back: the next read is sent.
-      answer = (_) => pb.GetThreadResponse(focal: postView(1));
-      await posts.getThread(postId(1));
-      expect(transport.calledProcedures, [getThread, getThread]);
-    });
-
-    test('clearSession releases the hold for every repository', () async {
+    test('clearSession releases the hold for the next account', () async {
       answer = (_) => daily();
       await expectLater(
         posts.getThread(postId(1)),
         throwsA(isA<RateLimitedException>()),
       );
 
-      timeline.clearSession();
+      posts.clearSession();
 
       expect(hold.check(), isNull);
+      answer = (_) => pb.GetThreadResponse(focal: postView(1));
+      await posts.getThread(postId(1));
+      expect(transport.calledProcedures, [getThread, getThread]);
     });
   });
 

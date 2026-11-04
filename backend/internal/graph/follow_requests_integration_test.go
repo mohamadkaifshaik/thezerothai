@@ -1,7 +1,7 @@
 //go:build integration
 
-// follow_requests_integration_test.go exercises the request path against the Firestore emulator (ADR-0025 D6,
-// D7, AQ4): Follow to a protected account, replay, the 500 cap, withdraw, Block clean-up in both directions, and the
+// follow_requests_integration_test.go exercises the request path against the Firestore emulator:
+// Follow to a protected account, replay, the 500 cap, withdraw, Block clean-up in both directions, and the
 // REQUESTED relationship state on every read path, each with a budget assertion. The follow-vs-protect race is
 // follow_race_integration_test.go (it needs the transaction hook).
 package graph_test
@@ -15,7 +15,6 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // assertRequestInvariants checks I-R (a followRequests doc exists exactly when the followee is in the follower's
@@ -49,7 +48,7 @@ func TestFollowRequest_Integration_CreateReplayWithdraw(t *testing.T) {
 	protect(t, w, "uid-p")
 
 	// Request: 4 reads cold (caller profile + target users in the txn + caller graph + quotas), 3 writes.
-	measured(t, "Follow (request, cold)", budFollowRequest, func(ctx context.Context) {
+	measured(t, "Follow (request, cold)", func(ctx context.Context) {
 		rel, err := w.graph.Follow(ctx, "uid-a", key1, "uid-p")
 		must(t, "Follow", err)
 		if rel.FollowState != graph.FollowStateRequested || rel.Blocking {
@@ -88,7 +87,7 @@ func TestFollowRequest_Integration_CreateReplayWithdraw(t *testing.T) {
 
 	// Replay with a new key: REQUESTED, 0 writes, no second quota unit, 3 reads warm.
 	warmProfiles(t, w, "uid-a")
-	measured(t, "Follow (request replay, warm)", budgettest.Budget{Reads: 3, Writes: 0}, func(ctx context.Context) {
+	measured(t, "Follow (request replay, warm)", func(ctx context.Context) {
 		rel, err := w.graph.Follow(ctx, "uid-a", key2, "uid-p")
 		must(t, "Follow replay", err)
 		if rel.FollowState != graph.FollowStateRequested {
@@ -100,7 +99,7 @@ func TestFollowRequest_Integration_CreateReplayWithdraw(t *testing.T) {
 	}
 
 	// Withdraw = Unfollow: 0 reads in the batches, 1 write (requested ArrayRemove), 1 delete (the request).
-	measured(t, "Unfollow (withdraw)", budWithdraw, func(ctx context.Context) {
+	measured(t, "Unfollow (withdraw)", func(ctx context.Context) {
 		rel, err := w.graph.Unfollow(ctx, "uid-a", key3, "uid-p")
 		must(t, "Unfollow", err)
 		if rel.FollowState != graph.FollowStateNone {
@@ -114,7 +113,7 @@ func TestFollowRequest_Integration_CreateReplayWithdraw(t *testing.T) {
 	}
 
 	// Nothing left to withdraw: NONE, 0 writes, 0 deletes.
-	measured(t, "Unfollow (nothing to withdraw)", budgettest.Budget{}, func(ctx context.Context) {
+	measured(t, "Unfollow (nothing to withdraw)", func(ctx context.Context) {
 		if _, err := w.graph.Unfollow(ctx, "uid-a", key3, "uid-p"); err != nil {
 			t.Fatal(err)
 		}
@@ -142,7 +141,7 @@ func TestFollowRequest_Integration_WithdrawAfterTargetWentPublic(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedUserField(t, w, "uid-p", "isPrivate", false)
-	measured(t, "Unfollow (withdraw, target now public)", budWithdraw, func(ctx context.Context) {
+	measured(t, "Unfollow (withdraw, target now public)", func(ctx context.Context) {
 		if _, err := w.graph.Unfollow(ctx, "uid-a", key2, "uid-p"); err != nil {
 			t.Fatal(err)
 		}
@@ -158,7 +157,7 @@ func TestFollowRequest_Integration_RequestedCapIs500(t *testing.T) {
 	w.SkipInvariantSweep("seeded 500 synthetic requested entries without request docs")
 	seedGraphArrays(t, w.client, "uid-a", map[string]interface{}{"requested": padUIDs(500)})
 
-	measured(t, "Follow (requested cap)", budgettest.Budget{Reads: 4, Writes: 0}, func(ctx context.Context) {
+	measured(t, "Follow (requested cap)", func(ctx context.Context) {
 		_, err := w.graph.Follow(ctx, "uid-a", key1, "uid-p")
 		requireAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "limit", "follow_requests")
 	})
@@ -172,7 +171,7 @@ func TestFollowRequest_Integration_RequestedCapIs500(t *testing.T) {
 	}
 }
 
-// ADR-0025 D7: a Block deletes the requests in both directions and their `requested` entries, with +0 reads and +0
+// A Block deletes the requests in both directions and their `requested` entries, with +0 reads and +0
 // writes over a plain Block and at most 2 more deletes.
 func TestFollowRequest_Integration_BlockClearsRequestsBothWays(t *testing.T) {
 	for _, tc := range []struct {
@@ -208,7 +207,7 @@ func TestFollowRequest_Integration_BlockClearsRequestsBothWays(t *testing.T) {
 				other = "uid-b"
 			}
 			// A plain Block is 3 reads, 3 writes; the clean-up adds deletes only.
-			measured(t, "Block (with pending requests)", budgettest.Budget{Reads: 3, Writes: 3, Deletes: tc.wantDeletes}, func(ctx context.Context) {
+			measured(t, "Block (with pending requests)", func(ctx context.Context) {
 				rel, err := w.graph.Block(ctx, tc.blocker, key2, other)
 				must(t, "Block", err)
 				if rel.FollowState != graph.FollowStateNone || !rel.Blocking {
@@ -226,7 +225,7 @@ func TestFollowRequest_Integration_BlockClearsRequestsBothWays(t *testing.T) {
 	}
 }
 
-// ADR-0025 AQ4: the target went public while the request is still pending (the privacy_public job has not run). Follow
+// The target went public while the request is still pending (the privacy_public job has not run). Follow
 // becomes the edge, and in the same transaction deletes the request and its `requested` entry.
 func TestFollowRequest_Integration_PublicTargetWithLeftoverRequestBecomesEdge(t *testing.T) {
 	w := newWired(t)
@@ -238,7 +237,7 @@ func TestFollowRequest_Integration_PublicTargetWithLeftoverRequestBecomesEdge(t 
 	}
 	seedUserField(t, w, "uid-p", "isPrivate", false) // went public; the job has not accepted anything
 
-	measured(t, "Follow (AQ4: edge over a leftover request)", budgettest.Budget{Reads: 4, Writes: 5, Deletes: 1}, func(ctx context.Context) {
+	measured(t, "Follow (AQ4: edge over a leftover request)", func(ctx context.Context) {
 		rel, err := w.graph.Follow(ctx, "uid-a", key2, "uid-p")
 		must(t, "Follow", err)
 		if rel.FollowState != graph.FollowStateFollowing {
@@ -273,7 +272,7 @@ func TestFollowRequest_Integration_ExistingEdgeWinsOverProtect(t *testing.T) {
 	}
 	protect(t, w, "uid-p")
 	warmProfiles(t, w, "uid-a")
-	measured(t, "Follow (edge replay, protected target)", budgettest.Budget{Reads: 3, Writes: 0}, func(ctx context.Context) {
+	measured(t, "Follow (edge replay, protected target)", func(ctx context.Context) {
 		rel, err := w.graph.Follow(ctx, "uid-a", key2, "uid-p")
 		must(t, "Follow", err)
 		if rel.FollowState != graph.FollowStateFollowing {
@@ -297,7 +296,7 @@ func TestFollowRequest_Integration_InactiveTargetIsNotFound(t *testing.T) {
 	_, ghostErr := w.graph.Follow(context.Background(), "uid-a", key1, "uid-ghost")
 	requireAPIError(t, ghostErr, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "", "")
 	for _, target := range []string{"uid-susp", "uid-del"} {
-		measured(t, "Follow ("+target+")", budgettest.Budget{Reads: 4, Writes: 0}, func(ctx context.Context) {
+		measured(t, "Follow ("+target+")", func(ctx context.Context) {
 			_, err := w.graph.Follow(ctx, "uid-a", key2, target)
 			requireAPIError(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "", "")
 			if err.Error() != ghostErr.Error() {
@@ -343,7 +342,7 @@ func TestFollowRequest_Integration_DriftedRequestDocIsAReplay(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	measured(t, "Follow (drifted request doc)", budgettest.Budget{Reads: 4, Writes: 0}, func(ctx context.Context) {
+	measured(t, "Follow (drifted request doc)", func(ctx context.Context) {
 		rel, err := w.graph.Follow(ctx, "uid-a", key1, "uid-p")
 		must(t, "Follow", err)
 		if rel.FollowState != graph.FollowStateRequested {

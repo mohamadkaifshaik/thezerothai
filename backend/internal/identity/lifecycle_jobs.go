@@ -1,4 +1,4 @@
-// lifecycle_jobs.go is the job side of the account lifecycle (ADR-0011 D-A): the `/internal/pubsub/jobs` push
+// lifecycle_jobs.go is the job side of the account lifecycle: the `/internal/pubsub/jobs` push
 // handler, the self-chaining deletion orchestrator, and the daily-maintenance backstop. Nothing here is gated by
 // FEATURE_ACCOUNT_LIFECYCLE or DEGRADED_MODE (Q8, Q9): turning the flag off can never strand a DELETING account.
 //
@@ -66,7 +66,7 @@ type jobResult struct {
 	seq     int64
 	step    string
 	err     error
-	// Observability (ADR-0011): step calls and identity-owned deletions of a delete delivery; sections
+	// Observability: step calls and identity-owned deletions of a delete delivery; sections
 	// and bytes of an export. Counts only, never ids.
 	stepCalls, deletedDocs, deletedObjects int
 	sections                               int
@@ -158,7 +158,7 @@ func (l *Lifecycle) dispatch(ctx context.Context, d pubsubpush.Delivery) jobResu
 		}
 		res := jobResult{job: msg.Kind}
 		// Module kinds carry the owner uid too (post_delete, profile_media_retired), so the delivery line gets the same
-		// uid_hash as the account kinds and a runbook can find a user's job by it. The handler still validates the uid.
+		// uid_hash as the account kinds and an operator can find a user's job by it. The handler still validates the uid.
 		if ValidUserID(msg.UID) {
 			res.uid = msg.UID
 		}
@@ -297,7 +297,7 @@ type runner struct {
 	run  func(ctx context.Context, checkpoint []byte) (next []byte, done bool, err error)
 }
 
-// deletionSteps is the fixed order of ADR-0011 Q1: Auth disable, the registered erasers (posts, graph, later
+// deletionSteps is the fixed order of: Auth disable, the registered erasers (posts, graph, later
 // slices), the identity step, the Auth user, and users/{uid} last (it is the marker the backstop finds).
 //
 // The step names are a persisted contract: the name of the step a slice stopped at is stored in users/{uid}
@@ -392,7 +392,7 @@ func (l *Lifecycle) work(ctx context.Context, p Profile, t deletionTarget, job D
 	return DeletionJob{Seq: job.Seq + 1, Step: steps[idx].name, Checkpoint: cp, ProgressAt: l.now().UTC()}, false, nil
 }
 
-// identityStep erases what identity itself owns (ADR-0011 Q1 step 5): the user's exports (objects first, then
+// identityStep erases what identity itself owns: the user's exports (objects first, then
 // docs), users/{uid}/private/*, handles/{handleLower} (only when it is theirs) and quotas/{uid}. users/{uid} is a
 // later step. Idempotent; a page that comes back full asks for another call. Reads 2 + max(E, 1), deletes 2 + E.
 func (l *Lifecycle) identityStep(ctx context.Context, p Profile, st *jobStats) ([]byte, bool, error) {
@@ -438,7 +438,7 @@ func (l *Lifecycle) identityStep(ctx context.Context, p Profile, st *jobStats) (
 	if outcome == HandleOwnerMismatch {
 		l.log.WarnContext(ctx, "handle_owner_mismatch", append([]any{"uid_hash", logger.HashUID(p.UserID)}, logger.TraceAttrs(ctx)...)...)
 	}
-	// ADR-0025 D11: the protected set lists uids, so the entry goes before users/{uid} is deleted (this step runs before
+	// The protected set lists uids, so the entry goes before users/{uid} is deleted (this step runs before
 	// stepUserDoc). Unconditional on isPrivate so a drifted entry cannot outlive the account. At most 1 write.
 	if err := l.repo.RemoveFromProtectedSet(ctx, p.UserID); err != nil {
 		return nil, false, logger.RedactErr(fmt.Errorf("identity: remove from protected set: %w", err), p.UserID)
@@ -457,7 +457,10 @@ type BackstopResult struct {
 	ExportsFailed        int64
 }
 
-// Backstop is the daily-maintenance recovery (ADR-0011 D-A option D): it re-publishes deletion jobs with no
+// backstopPublishOp names the worker goroutines of Backstop (republishes and failed-export clean-up) in Error Reporting.
+const backstopPublishOp = "jobs/backstop_worker"
+
+// Backstop is the daily-maintenance recovery: it re-publishes deletion jobs with no
 // progress for an hour (a DLQ'd job, a lost publish, a deploy that dropped a message) and exports still PENDING
 // after an hour (including one whose lease expired in a crash), and gives up exports PENDING after 24 hours
 // (FAILED, the user may request again). It never acts on a user directly: it only re-sends the message the job
@@ -488,13 +491,13 @@ func (l *Lifecycle) Backstop(ctx context.Context) (BackstopResult, error) {
 			if p.DeletionJob == nil {
 				continue // cannot happen for a progressAt match; defensive
 			}
-			g.Go(func() error {
+			g.Go(mw.RecoverGo(ctx, l.log, backstopPublishOp, func() error {
 				if err := l.publish(ctx, JobMessage{Kind: JobKindAccountDelete, UID: p.UserID, Seq: p.DeletionJob.Seq}); err != nil {
 					return logger.RedactErr(fmt.Errorf("identity: backstop republish deletion: %w", err), p.UserID)
 				}
 				deletions.Add(1)
 				return nil
-			})
+			}))
 		}
 		if len(deleting) < backstopPage {
 			break
@@ -519,7 +522,7 @@ func (l *Lifecycle) Backstop(ctx context.Context) (BackstopResult, error) {
 		}
 		for _, e := range pending {
 			if now.Sub(e.CreatedAt) >= exportFailAfter {
-				g.Go(func() error {
+				g.Go(mw.RecoverGo(ctx, l.log, backstopPublishOp, func() error {
 					// An export that sat PENDING may still have an object (the READY write failed after the Put).
 					if l.objects != nil && e.ObjectPath != "" {
 						if err := l.objects.Delete(ctx, e.ObjectPath); err != nil {
@@ -535,16 +538,16 @@ func (l *Lifecycle) Backstop(ctx context.Context) (BackstopResult, error) {
 						return fmt.Errorf("identity: backstop fail export: %w", err)
 					}
 					return nil
-				})
+				}))
 				continue
 			}
-			g.Go(func() error {
+			g.Go(mw.RecoverGo(ctx, l.log, backstopPublishOp, func() error {
 				if err := l.publish(ctx, JobMessage{Kind: JobKindAccountExport, ExportID: e.ID}); err != nil {
 					return fmt.Errorf("identity: backstop republish export: %w", err)
 				}
 				republished.Add(1)
 				return nil
-			})
+			}))
 		}
 		if len(pending) < backstopPage {
 			break

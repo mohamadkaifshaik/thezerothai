@@ -15,7 +15,7 @@ const maxEdgesByFollowers = 30
 // maxEdgesLimit is the largest Limit a ListEdgesByFollowers call may ask for (the query-limit rule: max 50).
 const maxEdgesLimit = 50
 
-// ListEdgesByFollowers implements Repo for ListSuggestedUsers (ADR-0024 D8):
+// ListEdgesByFollowers implements Repo for ListSuggestedUsers:
 //
 //	follows where followerId in [<= 30] order by createdAt desc, __name__ desc limit N
 //
@@ -23,7 +23,7 @@ const maxEdgesLimit = 50
 // follows (followerId ASC, createdAt DESC): `in` on the first index field, then the order by createdAt, with
 // __name__ following the direction of the last field. No new index. Reads: len(result), minimum 1.
 // followers must hold 1 to 30 valid uids and limit 1 to 50; anything else is a programming error, refused without a
-// read (a snapshot array only ever holds valid uids, ADR-0008 A3).
+// read (a snapshot array only ever holds valid uids).
 func (r *FirestoreRepo) ListEdgesByFollowers(ctx context.Context, followers []string, limit int) ([]Edge, error) {
 	if len(followers) == 0 || len(followers) > maxEdgesByFollowers {
 		return nil, fmt.Errorf("graph: list edges by followers: %d followers, want 1 to %d", len(followers), maxEdgesByFollowers)

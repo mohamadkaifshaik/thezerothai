@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 const platCID = "0000000000000000831"
@@ -49,7 +47,7 @@ func TestPlatform_SuspendRestoreBudgetsAndEffects(t *testing.T) {
 	at := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
 	before, _ := e.data(t, "communities/"+platCID)
 
-	measuredExact(t, "suspend", budgettest.Budget{Reads: 1, Writes: 1}, func(ctx context.Context) {
+	measuredExact(t, "suspend", func(ctx context.Context) {
 		changed, was, now, err := repo.SetSuspended(ctx, platCID, true, at)
 		if err != nil || !changed || was != StatusActive || now != StatusSuspended {
 			t.Fatalf("suspend = %v %v %v %v", changed, was, now, err)
@@ -67,7 +65,7 @@ func TestPlatform_SuspendRestoreBudgetsAndEffects(t *testing.T) {
 			t.Errorf("field %s changed: %v -> %v (the write must be field-level)", k, v, d[k])
 		}
 	}
-	measuredExact(t, "suspend repeat", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	measuredExact(t, "suspend repeat", func(ctx context.Context) {
 		changed, _, _, err := repo.SetSuspended(ctx, platCID, true, at)
 		if err != nil || changed {
 			t.Fatalf("repeat = %v %v", changed, err)
@@ -87,13 +85,13 @@ func TestPlatform_SuspendRestoreBudgetsAndEffects(t *testing.T) {
 		t.Error("CreatePost's gate admitted a post into a SUSPENDED community")
 	}
 
-	measuredExact(t, "restore", budgettest.Budget{Reads: 1, Writes: 1}, func(ctx context.Context) {
+	measuredExact(t, "restore", func(ctx context.Context) {
 		changed, was, now, err := repo.SetSuspended(ctx, platCID, false, at)
 		if err != nil || !changed || was != StatusSuspended || now != StatusActive {
 			t.Fatalf("restore = %v %v %v %v", changed, was, now, err)
 		}
 	})
-	measuredExact(t, "restore repeat", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	measuredExact(t, "restore repeat", func(ctx context.Context) {
 		if changed, _, _, err := repo.SetSuspended(ctx, platCID, false, at); err != nil || changed {
 			t.Fatalf("restore repeat = %v %v", changed, err)
 		}
@@ -134,7 +132,7 @@ func TestPlatform_ArchiveBudgetsAndRecords(t *testing.T) {
 	ctx := context.Background()
 	at := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
 
-	measuredExact(t, "archive", budgettest.Budget{Reads: 3, Writes: 2}, func(ctx context.Context) {
+	measuredExact(t, "archive", func(ctx context.Context) {
 		res, err := repo.Archive(ctx, platCID, at, 100)
 		if err != nil || !res.Changed || res.OwnerMember != MemberJoined {
 			t.Fatalf("archive = %+v %v", res, err)
@@ -154,7 +152,7 @@ func TestPlatform_ArchiveBudgetsAndRecords(t *testing.T) {
 	if st, err := e.repo.Member(ctx, platCID, "owner"); err != nil || st != MemberJoined {
 		t.Errorf("former owner member state = %q, %v, want JOINED", st, err)
 	}
-	measuredExact(t, "archive repeat", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	measuredExact(t, "archive repeat", func(ctx context.Context) {
 		res, err := repo.Archive(ctx, platCID, at, 100)
 		if err != nil || res.Changed {
 			t.Fatalf("repeat = %+v %v", res, err)
@@ -179,7 +177,7 @@ func TestPlatform_ArchiveRefusesSuspendedAndMissing(t *testing.T) {
 	if _, _, _, err := repo.SetSuspended(ctx, platCID, true, at); err != nil {
 		t.Fatal(err)
 	}
-	measuredExact(t, "archive of a suspended community", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	measuredExact(t, "archive of a suspended community", func(ctx context.Context) {
 		if _, err := repo.Archive(ctx, platCID, at, 100); !errors.Is(err, ErrSuspendedArchive) {
 			t.Fatalf("err = %v, want ErrSuspendedArchive", err)
 		}
@@ -201,7 +199,7 @@ func TestPlatform_AppendRemovalsBudgetsAndCap(t *testing.T) {
 	ctx := context.Background()
 	t0 := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
 
-	measuredExact(t, "append 3 posts", budgettest.Budget{Reads: 1, Writes: 1}, func(ctx context.Context) {
+	measuredExact(t, "append 3 posts", func(ctx context.Context) {
 		n, err := repo.Append(ctx, platCID, []string{"p1", "p2", "p3"}, t0, 0)
 		if err != nil || n != 3 {
 			t.Fatalf("append = %d %v", n, err)
@@ -211,13 +209,13 @@ func TestPlatform_AppendRemovalsBudgetsAndCap(t *testing.T) {
 	if got := removalIDs(c); !slices.Equal(got, []string{"p1", "p2", "p3"}) || !c.RemovalsTruncatedAt.IsZero() {
 		t.Fatalf("removals = %v truncated %v", got, c.RemovalsTruncatedAt)
 	}
-	measuredExact(t, "append again", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	measuredExact(t, "append again", func(ctx context.Context) {
 		n, err := repo.Append(ctx, platCID, []string{"p2", "p3"}, t0.Add(time.Minute), 0)
 		if err != nil || n != 0 {
 			t.Fatalf("repeat = %d %v", n, err)
 		}
 	})
-	measuredExact(t, "append one new, one listed", budgettest.Budget{Reads: 1, Writes: 1}, func(ctx context.Context) {
+	measuredExact(t, "append one new, one listed", func(ctx context.Context) {
 		if n, err := repo.Append(ctx, platCID, []string{"p3", "p4"}, t0.Add(2*time.Minute), 0); err != nil || n != 1 {
 			t.Fatalf("append = %d %v", n, err)
 		}

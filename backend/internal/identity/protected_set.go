@@ -1,4 +1,4 @@
-// protected_set.go is identity's side of the protected-author set (ADR-0025 D2, D3): the immutable instance copy
+// protected_set.go is identity's side of the protected-author set: the immutable instance copy
 // (identity.ProtectedSet) and the loader that implements identity.ProtectedAuthors. The set is a derived index of
 // users.isPrivate, written only by the UpdateProfile toggle transaction and the identity eraser step.
 package identity
@@ -19,10 +19,13 @@ import (
 )
 
 const (
-	// privacyCollection holds the one derived doc privacy/protectedAuthors (ADR-0025 D2). Identity owns it.
+	// privacyCollection holds the one derived doc privacy/protectedAuthors. Identity owns it.
 	privacyCollection = "privacy"
 	// protectedAuthorsDoc is its document id.
 	protectedAuthorsDoc = "protectedAuthors"
+
+	// protectedSetLoadOp names a panic of the shared read in Error Reporting.
+	protectedSetLoadOp = "identity/protected_set_load"
 
 	protectedSetReadTimeout = 3 * time.Second
 	// protectedSetRetryBackoff is the pause after a failed refresh before the next attempt, so an outage costs one
@@ -34,7 +37,7 @@ const (
 
 // ErrProtectedSetUnavailable is returned by ProtectedAuthors.Current when the instance has no set younger than
 // PROTECTED_SET_MAX_STALE (never loaded, or every refresh failed for that long). Callers answer UNAVAILABLE
-// (retryable) and must never treat it as "everyone is public" (ADR-0025 D3). It carries no uid.
+// (retryable) and must never treat it as "everyone is public". It carries no uid.
 var ErrProtectedSetUnavailable = errors.New("identity: protected set unavailable")
 
 // protectedSet is the immutable snapshot behind ProtectedSet. Nothing mutates a published map: updates build a new one.
@@ -83,7 +86,7 @@ type ProtectedSetSource interface {
 	LoadProtectedSet(ctx context.Context) ([]string, error)
 }
 
-// ProtectedSetLoader implements ProtectedAuthors (ADR-0025 D3). Lazy: it reads only when a caller asks and its copy is
+// ProtectedSetLoader implements ProtectedAuthors. Lazy: it reads only when a caller asks and its copy is
 // older than ttl. Concurrent callers share one refresh (singleflight). The read runs on a detached counter logged as
 // protected_set_reads, never charged to a caller. Reads: at most 1 per instance per ttl (60 s), plus at most one retry
 // per 5 s while refreshes fail; 0 while idle.
@@ -206,7 +209,13 @@ func (l *ProtectedSetLoader) refresh(reqCtx context.Context) error {
 	l.inflight, l.applied = true, nil
 	l.mu.Unlock()
 	started := l.now()
-	uids, err := l.src.LoadProtectedSet(rctx)
+	// A panic here would be beyond every recover: DoChan re-raises it on a goroutine of its own. As an error it takes the
+	// failed-read path below, which clears inflight and starts the retry backoff.
+	var uids []string
+	err := mw.RecoverGo(rctx, l.log, protectedSetLoadOp, func() (err error) {
+		uids, err = l.src.LoadProtectedSet(rctx)
+		return err
+	})()
 	logger.SetRequestField(reqCtx, fieldProtectedSetReads, counter.Reads())
 	l.mu.Lock()
 	defer l.mu.Unlock()

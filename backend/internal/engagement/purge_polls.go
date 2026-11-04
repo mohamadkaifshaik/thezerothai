@@ -1,4 +1,4 @@
-// purge_polls.go is the right-to-delete and right-to-access path of pollVotes/{postId}_{uid} (ADR-0029 D8, ADR-0011).
+// purge_polls.go is the right-to-delete and right-to-access path of pollVotes/{postId}_{uid}.
 // The `poll_votes` account-deletion step (PollVoteEraser, registered BeforeIdentity after the existing steps, so it runs
 // after `engagement`, which already deleted userLikes and with it userLikes.pollVotes) deletes every vote document the user cast,
 // and the `poll_votes` export section lists post id, choice, time and (once changed) changedAt per row.
@@ -56,9 +56,9 @@ type ExportedPollVote struct {
 	PostID    string    `json:"postId"`
 	Choice    int       `json:"choice"`
 	CreatedAt time.Time `json:"createdAt"`
-	// ChangedAt is the time of the last vote change, present only once the vote was changed (ADR-0029 Amendment 1 A2.6). No earlier choice is kept.
+	// ChangedAt is the time of the last vote change, present only once the vote was changed. No earlier choice is kept.
 	ChangedAt *time.Time `json:"changedAt,omitempty"`
-	// Changes is the stored change count of the vote (ADR-0029 N12); present exactly when ChangedAt is, so a never-changed vote exports byte-identically to before.
+	// Changes is the stored change count of the vote; present exactly when ChangedAt is, so a never-changed vote exports byte-identically to before.
 	Changes *int `json:"changes,omitempty"`
 	// id is the document id, the page cursor (not exported).
 	id string
@@ -124,7 +124,7 @@ type PollVoteCheckpoint struct {
 	Deleted int
 }
 
-// PollVoteEraser is the `poll_votes` account-deletion step (ADR-0029 D8): one page of at most 500 vote documents per call. An
+// PollVoteEraser is the `poll_votes` account-deletion step: one page of at most 500 vote documents per call. An
 // account with 120 votes takes 1 invocation, 120 reads + 120 deletes (a short page ends the step, so no extra empty read).
 type PollVoteEraser struct {
 	repo PollVotePurger

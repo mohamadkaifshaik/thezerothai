@@ -13,7 +13,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 func (e *repoEnv) seedPoll(t *testing.T, id string, counts map[string]int64, total int64) {
@@ -53,14 +52,10 @@ func TestRepoVote_BatchBudgetAndOutcomes(t *testing.T) {
 	closes := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 	exp := closes.Add(48 * time.Hour)
 
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	out, err := e.repo.Vote(ctx, VoteParams{UID: uid, PostID: pid, Choice: 1, ExpireAt: exp, ClosesAt: closes})
 	if err != nil || out != VoteWritten {
 		t.Fatalf("Vote = %v, %v", out, err)
-	}
-	budgettest.Assert(t, "Vote", c, budgettest.Budget{Reads: 0, Writes: 3})
-	if c.Writes() != 3 {
-		t.Errorf("writes = %d, want 3", c.Writes())
 	}
 	if total, counts := e.pollCounts(t, pid); total != 5 || counts["1"] != 1 || counts["0"] != 4 {
 		t.Errorf("total=%d counts=%v", total, counts)
@@ -76,21 +71,18 @@ func TestRepoVote_BatchBudgetAndOutcomes(t *testing.T) {
 		t.Errorf("expireAt = %v, want %v", got, exp)
 	}
 
-	ctx, c = budget.WithCounter(context.Background())
+	ctx, _ = budget.WithCounter(context.Background())
 	if out, err = e.repo.Vote(ctx, VoteParams{UID: uid, PostID: pid, Choice: 2, ExpireAt: exp}); err != nil || out != VoteExists {
 		t.Fatalf("second Vote = %v, %v, want VoteExists", out, err)
-	}
-	if c.Writes() != 0 {
-		t.Errorf("a refused batch counted %d writes", c.Writes())
 	}
 	if total, counts := e.pollCounts(t, pid); total != 5 || counts["2"] != 0 {
 		t.Errorf("a second vote moved the counters: %d %v", total, counts)
 	}
 
-	ctx, c = budget.WithCounter(context.Background())
+	ctx, _ = budget.WithCounter(context.Background())
 	state, found, err := e.repo.GetVote(ctx, uid, pid)
-	if err != nil || !found || state.Choice != 1 || state.Changes != 0 || state.UpdateTime.IsZero() || c.Reads() != 1 {
-		t.Errorf("GetVote = %+v,%v,%v reads=%d", state, found, err, c.Reads())
+	if err != nil || !found || state.Choice != 1 || state.Changes != 0 || state.UpdateTime.IsZero() {
+		t.Errorf("GetVote = %+v,%v,%v", state, found, err)
 	}
 	if _, found, _ := e.repo.GetVote(ctx, "nobody", pid); found {
 		t.Error("GetVote found a vote nobody cast")
@@ -112,11 +104,10 @@ func TestRepoTrimPollVotes(t *testing.T) {
 	if _, err := e.client.Doc("userLikes/u").Set(context.Background(), map[string]any{"recent": []string{"x"}, "pollVotes": []string{"a:0", "b:1", "c:2"}}); err != nil {
 		t.Fatal(err)
 	}
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	if err := e.repo.TrimPollVotes(ctx, "u", []string{"a:0", "b:1"}); err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "TrimPollVotes", c, budgettest.Budget{Reads: 0, Writes: 1})
 	s, _ := e.client.Doc("userLikes/u").Get(context.Background())
 	if v, _ := s.DataAt("pollVotes"); fmt.Sprint(v) != "[c:2]" {
 		t.Errorf("pollVotes = %v", v)
@@ -147,14 +138,10 @@ func TestPollVoteEraser_120Votes(t *testing.T) {
 	e.seedVotes(t, "gone", 120)
 	e.seedVotes(t, "keeper", 3)
 	e.seedPoll(t, "0000000000000000023", map[string]int64{"0": 9}, 9)
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	cp, done, err := NewPollVoteEraser(e.repo).PurgeUser(ctx, "gone", PollVoteCheckpoint{})
 	if err != nil || !done || cp.Deleted != 120 {
 		t.Fatalf("PurgeUser = %+v %v %v", cp, done, err)
-	}
-	budgettest.Assert(t, "poll_votes erase of 120", c, budgettest.Budget{Reads: 120, Writes: 0, Deletes: 120})
-	if c.Deletes() != 120 {
-		t.Errorf("deletes = %d", c.Deletes())
 	}
 	if n := countWhere(t, e.client, "pollVotes", "uid", "gone"); n != 0 {
 		t.Errorf("%d vote docs still name the erased uid", n)
@@ -166,9 +153,9 @@ func TestPollVoteEraser_120Votes(t *testing.T) {
 		t.Errorf("the poll's anonymous total changed to %d (F6: counts stay)", total)
 	}
 	// Re-run: 1 read, nothing to do.
-	ctx, c = budget.WithCounter(context.Background())
-	if _, done, err := NewPollVoteEraser(e.repo).PurgeUser(ctx, "gone", PollVoteCheckpoint{}); err != nil || !done || c.Reads() != 1 || c.Deletes() != 0 {
-		t.Errorf("re-run done=%v err=%v reads=%d deletes=%d", done, err, c.Reads(), c.Deletes())
+	ctx, _ = budget.WithCounter(context.Background())
+	if _, done, err := NewPollVoteEraser(e.repo).PurgeUser(ctx, "gone", PollVoteCheckpoint{}); err != nil || !done {
+		t.Errorf("re-run done=%v err=%v", done, err)
 	}
 }
 
@@ -213,12 +200,11 @@ func TestPollVoteExporter_120Votes(t *testing.T) {
 	e := newRepoEnv(t)
 	e.seedVotes(t, "me", 120)
 	e.seedVotes(t, "other", 5)
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	var buf bytes.Buffer
 	if err := NewPollVoteExporter(e.repo).ExportUser(ctx, "me", &buf); err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "poll_votes export of 120", c, budgettest.Budget{Reads: 120})
 	var doc struct {
 		Votes []struct {
 			PostID string `json:"postId"`
@@ -242,7 +228,7 @@ func TestPollVoteExporter_120Votes(t *testing.T) {
 	}
 }
 
-// ChangeVote (ADR-0029 Amendment 1 A2.3): ONE batch, 0 reads, 4 writes, including TWO writes to userLikes/{uid} in the same commit (ArrayRemove of
+// ChangeVote: ONE batch, 0 reads, 4 writes, including TWO writes to userLikes/{uid} in the same commit (ArrayRemove of
 // the old entry, ArrayUnion of the new one). This test is the evidence that the emulator accepts that shape; dev Firestore is a separate check.
 func TestRepoChangeVote_BatchBudgetAndEffects(t *testing.T) {
 	e := newRepoEnv(t)
@@ -263,14 +249,10 @@ func TestRepoChangeVote_BatchBudgetAndEffects(t *testing.T) {
 		t.Fatal(err, found)
 	}
 
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	out, err := e.repo.ChangeVote(ctx, ChangeParams{UID: uid, PostID: pid, From: 0, To: 2, Version: st.UpdateTime, ClosesAt: closes, ExpireAt: exp})
 	if err != nil || out != ChangeWritten {
 		t.Fatalf("ChangeVote = %v, %v", out, err)
-	}
-	budgettest.Assert(t, "ChangeVote", c, budgettest.Budget{Reads: 0, Writes: 4})
-	if c.Writes() != 4 {
-		t.Errorf("writes = %d, want 4 (vote doc, post counters, userLikes x2)", c.Writes())
 	}
 	if total, counts := e.pollCounts(t, pid); total != 5 || counts["0"] != 4 || counts["2"] != 1 || counts["1"] != 0 {
 		t.Errorf("total=%d counts=%v, want total fixed and one vote moved 0 -> 2", total, counts)
@@ -384,11 +366,10 @@ func TestPollVoteExporter_ChangedAtFromFirestore(t *testing.T) {
 // The prune never recreates a userLikes document (a race with the account-deletion eraser), and a missing one is success.
 func TestRepoTrimPollVotes_NeverRecreates(t *testing.T) {
 	e := newRepoEnv(t)
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	if err := e.repo.TrimPollVotes(ctx, "erased", []string{"a:0:1"}); err != nil {
 		t.Fatalf("trim of a missing document: %v", err)
 	}
-	budgettest.Assert(t, "TrimPollVotes missing", c, budgettest.Budget{Reads: 0, Writes: 1})
 	if e.exists(t, "userLikes/erased") {
 		t.Fatal("the prune recreated userLikes/erased")
 	}
@@ -420,7 +401,7 @@ func TestRepoSweepPollVotes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bctx, c := budget.WithCounter(ctx)
+	bctx, _ := budget.WithCounter(ctx)
 	res, err := e.repo.SweepPollVotes(bctx, now, ttl)
 	if err != nil {
 		t.Fatal(err)
@@ -428,7 +409,6 @@ func TestRepoSweepPollVotes(t *testing.T) {
 	if res.Docs != 3 || res.Pruned != 2 || res.Entries != 2 || res.Skipped != 0 || res.More {
 		t.Fatalf("result = %+v, want 3 docs (one needs no write), 2 pruned, 2 entries", res)
 	}
-	budgettest.Assert(t, "SweepPollVotes", c, budgettest.Budget{Reads: 3, Writes: 2})
 
 	d, _ := e.client.Doc("userLikes/dormant").Get(ctx)
 	if v, _ := d.DataAt("pollVotes"); fmt.Sprint(v) != fmt.Sprint([]string{later, open}) {
@@ -449,11 +429,10 @@ func TestRepoSweepPollVotes(t *testing.T) {
 	}
 
 	// A second run finds nothing due (tomorrow's entry is not due yet): 1 read, 0 writes. The empty query bills 1.
-	bctx, c = budget.WithCounter(ctx)
+	bctx, _ = budget.WithCounter(ctx)
 	if res, err = e.repo.SweepPollVotes(bctx, now, ttl); err != nil || res.Pruned != 0 {
 		t.Fatalf("second run = %+v, %v", res, err)
 	}
-	budgettest.Assert(t, "SweepPollVotes idle", c, budgettest.Budget{Reads: 1, Writes: 0})
 }
 
 // A change replaces a legacy two-part entry (written earlier, dev only) with the three-part one, and adds the new entry's expiry

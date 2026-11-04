@@ -22,7 +22,7 @@ var _ ModerationRepo = (*FirestoreRepo)(nil)
 
 // PostModerator is the posts-side seam of Hide and Restore (A12), the identical interface to posts.CommunityModerator: posts never imports
 // communities and this package does not import posts, so it uses primitives and *firestore.Transaction only. found=false (no error) is a post
-// that is missing, is a REPOST or plain post, is a root not created into cid, or is a reply whose conversationCommunityId is not cid. reply is true for a reply of the conversation (ADR-0031 Amendment 1 D4a): its hide sets communityHidden and communityHiddenAt, a restore deletes both, and ModeratePost writes no recentRemovals entry for it. Also found=false: a post carrying `moderation` (a platform removal). guard is the F16 check, called with the post's authorId before any write. apiserver hands posts.NewCommunityModerator to WithPostModerator.
+// that is missing, is a REPOST or plain post, is a root not created into cid, or is a reply whose conversationCommunityId is not cid. reply is true for a reply of the conversation: its hide sets communityHidden and communityHiddenAt, a restore deletes both, and ModeratePost writes no recentRemovals entry for it. Also found=false: a post carrying `moderation` (a platform removal). guard is the F16 check, called with the post's authorId before any write. apiserver hands posts.NewCommunityModerator to WithPostModerator.
 type PostModerator interface {
 	SetCommunityListing(ctx context.Context, tx *firestore.Transaction, postID, cid string, listed bool, guard func(authorID string) error) (changed, found, reply bool, err error)
 }
@@ -94,10 +94,10 @@ func (r *FirestoreRepo) openForModeration(ctx context.Context, tx *firestore.Tra
 	return c, nil
 }
 
-// ModeratePost implements ModerationRepo (ADR-0031 D5, A12). One transaction. Reads, fresh and in this order: idempotency (a replay returns
+// ModeratePost implements ModerationRepo. One transaction. Reads, fresh and in this order: idempotency (a replay returns
 // here, 1 read), the community (ErrNotFound, then ErrNotModerator for anyone but the owner and moderators, then ErrArchived; nothing is
 // written and an error is not recorded), the actor's memberships, and last the post through PostModerator (ErrPostNotFound when
-// it was not created into this community and is not a reply of its conversation), then ErrNotOwner when the actor is a moderator (not the owner) and the post's author is the owner or a CURRENT moderator other than the actor (F16, ADR-0031 D4b: the author's current role decides; checked on the one post read, before any write, 0 extra reads); a post with `moderation` set is ErrPostNotFound (L-2). A post already in the wanted state writes the idempotency document only. Otherwise writes 3:
+// it was not created into this community and is not a reply of its conversation), then ErrNotOwner when the actor is a moderator (not the owner) and the post's author is the owner or a CURRENT moderator other than the actor (F16: the author's current role decides; checked on the one post read, before any write, 0 extra reads); a post with `moderation` set is ErrPostNotFound (L-2). A post already in the wanted state writes the idempotency document only. Otherwise writes 3:
 // the post (field-level, in posts), the community (one Update: for a root recentRemovals capped at RemovalsMax with removalsTruncatedAt set from the
 // entry the cap drops, the HIDE or RESTORE entry capped at ModlogMax, modlogSeq, updatedAt) and the idempotency document, +1 when the
 // community is not yet in the actor's modlogged (A6).
@@ -203,7 +203,7 @@ func removalsAfter(c Community, postID string, restore bool, now time.Time, limi
 	return list, truncated
 }
 
-// SetRole implements ModerationRepo (ADR-0031 D4). One transaction. Reads, fresh and in this order: idempotency (a replay then reads the
+// SetRole implements ModerationRepo. One transaction. Reads, fresh and in this order: idempotency (a replay then reads the
 // community and the target's member doc), the community (ErrNotFound; then the actor's right to the action: ErrNotModerator for BAN and
 // UNBAN, ErrNotOwner for MAKE and REMOVE_MODERATOR; then ErrArchived), the target checks that need no read, the target's member doc, the
 // target's memberships and the actor's memberships. Nothing more is read once the request is known to change nothing, and the idempotency
@@ -351,7 +351,7 @@ func (r *FirestoreRepo) SetRole(ctx context.Context, p SetRoleParams) (SetRoleRe
 	return res, notFoundIfNoDoc(err)
 }
 
-// actorMayActOn is the F16 rule (ADR-0031 D4b, founder 2026-11-02): the owner may hide or restore every post; a moderator may act on a post
+// actorMayActOn is the F16 rule (founder 2026-11-02): the owner may hide or restore every post; a moderator may act on a post
 // whose author is a plain member, a former moderator, a banned or departed user, or the moderator themselves, but never on the owner's post
 // or another current moderator's. The author's role is the one in c now (current role decides). An empty authorId is a plain author.
 func actorMayActOn(c Community, actor, authorID string) error {

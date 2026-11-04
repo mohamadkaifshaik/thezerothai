@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// Request-line kinds of AcceptMessageRequest and DeleteConversation (ADR-0027 D11). The line also carries
+// Request-line kinds of AcceptMessageRequest and DeleteConversation. The line also carries
 // conversation_hash, state, replay, folder (delete), refused_reason and the fs_reads / fs_writes / fs_deletes the logging
 // interceptor adds: never a uid, a conversation id, a snippet or text.
 const (
@@ -19,11 +19,11 @@ const (
 	kindDelete = "delete"
 )
 
-// Accept implements Service.Accept (ADR-0027 D4, D6, D11).
+// Accept implements Service.Accept.
 //
 // Flag: per caller (FEATURE_DISABLED before any read) and per recipient, the other participant (CANNOT_MESSAGE, the same
 // bytes as a block; evaluated without a read, inside the transaction, only when something would be written). A malformed
-// idempotency_key or conversation_id is VALIDATION with 0 reads. The key is format-validated but not stored (ADR-0021's rule for
+// idempotency_key or conversation_id is VALIDATION with 0 reads. The key is format-validated but not stored (the rule for
 // a key the RPC does not use; founder decision 2026-10-29, option (a)): the RPC is idempotent by
 // state, and a replay is success with 0 writes.
 //
@@ -73,13 +73,13 @@ func (s *service) Accept(ctx context.Context, uid string, req *messagingv1.Accep
 	return &messagingv1.AcceptMessageRequestResponse{}, nil
 }
 
-// Delete implements Service.Delete (ADR-0027 D1, D14): "delete for me", also "delete request".
+// Delete implements Service.Delete: "delete for me", also "delete request".
 //
 // Flag: not globally off (a user dropped from the allowlist can still clean up). A malformed idempotency_key or
 // conversation_id is VALIDATION with 0 reads.
 //
 // The transaction sets clearedAt[caller] = now on the conversation, stores the digest of the idempotency_key as
-// clearedKey[caller] in the same update (no extra read or write, ADR-0027 2026-10-29 note) and deletes the caller's own
+// clearedKey[caller] in the same update (no extra read or write) and deletes the caller's own
 // entry from the folder it lives in; the peer's entry, the messages and the conversation state are untouched. A deleted
 // request stays a REQUEST for the sender, whose cap still applies; a later message recreates the caller's entry, and
 // ListMessages shows only the messages newer than clearedAt. An unknown id and a non-participant answer one byte-identical
@@ -147,7 +147,7 @@ func (s *service) lifecycleErr(ctx context.Context, uid, convID, op string, err 
 }
 
 // validateKeyAndConv is step 1 of Accept, Delete and MarkRead, 0 reads: the key's format, then the conversation id. Accept
-// and MarkRead do not store the key (idempotent by state, founder decision 2026-10-29: ADR-0021's rule for a key the RPC does
+// and MarkRead do not store the key (idempotent by state, founder decision 2026-10-29: the rule for a key the RPC does
 // not use, "unused but still format-validated"); Delete stores its digest (clearedKey). A malformed key is VALIDATION
 // idempotency_key.
 func validateKeyAndConv(key, convID string) error {

@@ -1,4 +1,4 @@
-// lifecycle_export.go is the export job and composer (ADR-0011 D-B, D-D): one delivery of {account_export, id}
+// lifecycle_export.go is the export job and composer: one delivery of {account_export, id}
 // streams a single JSON object to the private exports bucket and sets exports/{id} READY. The envelope is
 // {"exportVersion":1,"generatedAt":...,"account":...,"profile":...,<registered sections: graph, posts, ...>}.
 // The object path is deterministic, so a retry overwrites the same object; the Writer is aborted on error, so a
@@ -54,14 +54,14 @@ const exportVersion = 1
 var errPermanent = errors.New("permanent export failure")
 
 // exportProfile is the profile section: user-facing fields only. By construction it has no status,
-// snapshotVersion, deletionJob or any other internal field (runbook 3a, ADR-0011 D-D).
+// snapshotVersion, deletionJob or any other internal field.
 type exportProfile struct {
 	UserID      string `json:"userId"`
 	Handle      string `json:"handle"`
 	DisplayName string `json:"displayName"`
 	Bio         string `json:"bio"`
 	AvatarURL   string `json:"avatarUrl,omitempty"`
-	// ADR-0024 D11: the profile extras, omitted when absent. The thumbnails are derived data and stay out, like avatarThumbUrl.
+	// The profile extras, omitted when absent. The thumbnails are derived data and stay out, like avatarThumbUrl.
 	BannerURL      string          `json:"bannerUrl,omitempty"`
 	Location       string          `json:"location,omitempty"`
 	Website        string          `json:"website,omitempty"`
@@ -147,7 +147,7 @@ func (l *Lifecycle) runExport(ctx context.Context, msg JobMessage, res jobResult
 	case err != nil && ctx.Err() == nil && (errors.Is(err, context.DeadlineExceeded) || cctx.Err() != nil):
 		// The export outgrew the compose budget. A redelivery would re-read everything it reached in that time (up to
 		// 10 deliveries, and again from the backstop), so this is a permanent failure: FAILED, ERROR for Error
-		// Reporting, runbook "Export fails with too_large". ctx (the handler's) still has the reserve to record it.
+		// Reporting. ctx (the handler's) still has the reserve to record it.
 		mw.ReportError(ctx, l.log.With(logger.TraceAttrs(ctx)...), "jobs/account_export_too_large",
 			logger.ScrubErr(fmt.Errorf("account_export_too_large: sections=%d bytes=%d: %w", cw.sections, cw.n, err), doc.UID))
 		return l.failExport(ctx, res, doc, "too_large")
@@ -236,7 +236,7 @@ func (l *Lifecycle) composeExport(ctx context.Context, w io.Writer, p Profile, t
 	return nil
 }
 
-// exportHomeTab is one pinned Home tab in the profile section (ADR-0030 D8). The title is the owner's own list name or "".
+// exportHomeTab is one pinned Home tab in the profile section. The title is the owner's own list name or "".
 type exportHomeTab struct {
 	Kind  string `json:"kind"`
 	ID    string `json:"id"`

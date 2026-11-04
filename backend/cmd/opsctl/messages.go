@@ -33,11 +33,11 @@ func parseTakedownMessageArgs(sub, target string, a modArgs) (convID, msgID stri
 	return convID, msgID, nil
 }
 
-// takedownMessage is `opsctl messages takedown` (ADR-0027 D12): it tombstones one direct message (state REMOVED,
+// takedownMessage is `opsctl messages takedown`: it tombstones one direct message (state REMOVED,
 // text and request digest cleared, field-level updates only) and rewrites the inbox preview of each participant whose last
 // message it was, in one transaction. It also bumps the conversation's revision and stamps the rewritten entries, so both
 // participants' devices that cached the thread or the inbox drop the text at their next poll or inbox refresh (the thread
-// token is retired and the client cold-opens; ADR-0027 note 2026-10-29). The usual prod confirmation (the typed project id) already ran in run().
+// token is retired and the client cold-opens). The usual prod confirmation (the typed project id) already ran in run().
 //
 // --dry-run reads the same documents and writes nothing. --report R (checked first: R must be a MESSAGE report of exactly
 // this message) resolves R as TAKEDOWN after the write; a report that is already RESOLVED only warns. A message that is

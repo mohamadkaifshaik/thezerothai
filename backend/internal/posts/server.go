@@ -22,13 +22,13 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// FlagChecker is the minimal seam posts and timeline need from pkg/platform/flags.Registry (ADR-0002: depend
-// on interfaces, not the concrete platform type). *flags.Registry satisfies it.
+// FlagChecker is the minimal seam posts and timeline need from pkg/platform/flags.Registry (depend on interfaces, not the concrete platform type).
+// *flags.Registry satisfies it.
 type FlagChecker interface {
 	Enabled(uid, name string) bool
 }
 
-// GuardFeature is the ADR-0010 D1 flag check shared by PostService and TimelineService: it runs before any
+// GuardFeature is the flag check shared by PostService and TimelineService: it runs before any
 // Firestore access and returns FAILED_PRECONDITION + FEATURE_DISABLED (0 reads from this code) when the posts
 // flag is off for the caller. A rejected call logs feature_disabled=true and outcome=rejected:feature_disabled.
 // A missing caller identity is UNAUTHENTICATED (unreachable: authn.IDTokenInterceptor runs first).
@@ -71,7 +71,7 @@ func NewServer(svc Service, fc FlagChecker, opts ...ServerOption) *Server {
 }
 
 // viewerSet is the caller's ViewerSet: one cached userLikes read when FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for
-// uid, else the empty set with no read (ADR-0018 D5, ADR-0023 D5; HydrateViewer).
+// uid, else the empty set with no read (HydrateViewer).
 func (s *Server) viewerSet(ctx context.Context, uid string) ViewerSet {
 	return HydrateViewer(ctx, s.flags, s.viewer, uid)
 }
@@ -122,7 +122,7 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 	}
 	view := &postsv1.PostView{Post: ToProtoForViewer(post, uid)}
 	view.Post.Community = communityRef(post, false) // the creator just passed the community gate: the flag is on for them
-	if h, ok := s.svc.(VisibilityHinter); ok {      // a protected author sees their own post as FOLLOWERS (ADR-0025 D2)
+	if h, ok := s.svc.(VisibilityHinter); ok {      // a protected author sees their own post as FOLLOWERS
 		ApplyWireVisibility(view, h.ProtectedAuthor(ctx, uid, post))
 	}
 	return connect.NewResponse(&postsv1.CreatePostResponse{Post: view}), nil
@@ -154,10 +154,10 @@ func (s *Server) DeletePost(ctx context.Context, req *connect.Request[postsv1.De
 }
 
 // GetPost is behind the flag; the visibility rules are Service.GetForViewer. Viewer flags come from one
-// cached userLikes read while FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the caller (ADR-0018 D5, ADR-0023 D5: with only
-// bookmarks on just bookmarked_by_viewer is set), else they are false and nothing is read.
-// viewer_reply_permission (ADR-0021 D2) adds 0 reads, except <= +1 cold (R's author graph) for a FOLLOWING root;
-// a reply in a restricted conversation is UNKNOWN. Never flag-gated. A post in a community conversation (ADR-0031 A7) is NOT_ALLOWED for a
+// cached userLikes read while FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the caller (with only bookmarks on just bookmarked_by_viewer is set),
+// else they are false and nothing is read.
+// viewer_reply_permission adds 0 reads, except <= +1 cold (R's author graph) for a FOLLOWING root;
+// a reply in a restricted conversation is UNKNOWN. Never flag-gated. A post in a community conversation is NOT_ALLOWED for a
 // viewer who is not a JOINED member: +1 read cold (the member doc), +0 warm, skipped while communities is globally off. PostView.post.community
 // (the label) is decided by ToView: absent when hidden or when communities is globally off. The community hint adds +1 read cold over the budget above (a community conversation has the EVERYONE policy, so it never adds to the FOLLOWING read), 0 writes.
 func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPostRequest]) (*connect.Response[postsv1.GetPostResponse], error) {
@@ -179,7 +179,7 @@ func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPo
 	if h, ok := s.svc.(ReplyHinter); ok {
 		v.ViewerReplyPermission = h.ReplyPermission(ctx, uid, post) // <= +1 read cold for a FOLLOWING root
 	}
-	if perm, ok := s.communityReplyHint(ctx, uid, post, vs); ok && perm != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED { // members only (ADR-0031 A7): NOT_ALLOWED, or UNKNOWN when the lookup failed; never loosens
+	if perm, ok := s.communityReplyHint(ctx, uid, post, vs); ok && perm != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED { // members only: NOT_ALLOWED, or UNKNOWN when the lookup failed; never loosens
 		v.ViewerReplyPermission = perm
 	}
 	if h, ok := s.svc.(EmbedHinter); ok {
@@ -200,7 +200,7 @@ func (s *Server) repliesEnabled(uid string) bool {
 	return s.flags != nil && s.flags.Enabled(uid, RepliesFlagName)
 }
 
-// QuotesFlagName is the wire name of FEATURE_QUOTES (amendment 2026-10-18 to ADR-0018 D8). It gates only quote
+// QuotesFlagName is the wire name of FEATURE_QUOTES. It gates only quote
 // CREATION; quote display (hydration, embeds) never consults it.
 const QuotesFlagName = "quotes"
 
@@ -210,7 +210,7 @@ func (s *Server) quotesEnabled(uid string) bool {
 	return s.flags != nil && s.flags.Enabled(uid, EngagementFlagName) && s.flags.Enabled(uid, QuotesFlagName)
 }
 
-// ContentDisclosureFlagName is the wire name of FEATURE_CONTENT_DISCLOSURE (ADR-0021 D3). It gates only SETTING a
+// ContentDisclosureFlagName is the wire name of FEATURE_CONTENT_DISCLOSURE. It gates only SETTING a
 // label on CreatePost; rendering the labels of existing posts never consults it.
 const ContentDisclosureFlagName = "content_disclosure"
 
@@ -219,7 +219,7 @@ func (s *Server) disclosureEnabled(uid string) bool {
 	return s.flags != nil && s.flags.Enabled(uid, ContentDisclosureFlagName)
 }
 
-// PollsFlagName is the wire name of FEATURE_POLLS (ADR-0029 D12). It gates CREATING a poll on CreatePost; voting
+// PollsFlagName is the wire name of FEATURE_POLLS. It gates CREATING a poll on CreatePost; voting
 // (engagement) needs it only not globally off, and rendering a stored poll never consults it.
 const PollsFlagName = "polls"
 
@@ -228,7 +228,7 @@ func (s *Server) pollsEnabled(uid string) bool {
 	return s.flags != nil && s.flags.Enabled(uid, PollsFlagName)
 }
 
-// CommunitiesFlagName is the wire name of FEATURE_COMMUNITIES (ADR-0031 D10; communities.FlagName, posts does not import communities).
+// CommunitiesFlagName is the wire name of FEATURE_COMMUNITIES (communities.FlagName, posts does not import communities).
 // It gates SETTING CreatePost.community_id.
 const CommunitiesFlagName = "communities"
 
@@ -245,7 +245,7 @@ func (s *Server) communitiesGloballyOff() bool {
 }
 
 // CommunityReplyHinter is implemented by the concrete service (reached by type assertion like ReplyHinter): the members-only viewer hint of a
-// community conversation (ADR-0031 A7). GetPost and GetThread ask it only while communities is not globally off; +1 read cold, +0 warm.
+// community conversation. GetPost and GetThread ask it only while communities is not globally off; +1 read cold, +0 warm.
 type CommunityReplyHinter interface {
 	CommunityReplyPermission(ctx context.Context, viewer string, p *Post) (postsv1.ReplyPermission, bool)
 }
@@ -262,7 +262,7 @@ func (s *Server) communityReplyHint(ctx context.Context, viewer string, p *Post,
 	return h.CommunityReplyPermission(ctx, viewer, p)
 }
 
-// ReplyAudienceFlagName is the wire name of FEATURE_REPLY_AUDIENCE (ADR-0021 D2). It gates only SETTING a reply
+// ReplyAudienceFlagName is the wire name of FEATURE_REPLY_AUDIENCE. It gates only SETTING a reply
 // policy on CreatePost; enforcing a stored policy and the viewer hint never consult it, so switching it off cannot
 // reopen a restricted conversation.
 const ReplyAudienceFlagName = "reply_audience"
@@ -285,13 +285,13 @@ type EmbedHinter interface {
 }
 
 // PollBlockHinter is implemented by the concrete service (reached by type assertion like ReplyHinter): the viewer's blocked set for a post with
-// a live poll by another author, for PostView.viewer_poll_vote_blocked (ADR-0029 Amendment 1 A1.5). 0 reads on the snapshot GetPost cached.
+// a live poll by another author, for PostView.viewer_poll_vote_blocked. 0 reads on the snapshot GetPost cached.
 type PollBlockHinter interface {
 	PollBlockedAuthors(ctx context.Context, viewer string, p *Post) map[string]bool
 }
 
 // VisibilityHinter is implemented by the concrete service: whether the post's author is protected, for the computed wire
-// visibility (VISIBILITY_FOLLOWERS, ADR-0025 D2). 0 reads for the caller.
+// visibility (VISIBILITY_FOLLOWERS). 0 reads for the caller.
 type VisibilityHinter interface {
 	ProtectedAuthor(ctx context.Context, viewer string, p *Post) bool
 }
@@ -317,7 +317,7 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 	}
 	vs := s.viewerSet(ctx, uid).WithBlockedAuthors(t.BlockedAuthors)
 	replyPerm := t.ReplyPermission
-	if perm, ok := s.communityReplyHint(ctx, uid, t.Focal, vs); ok && perm != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED { // members only (ADR-0031 A7); +1 read cold
+	if perm, ok := s.communityReplyHint(ctx, uid, t.Focal, vs); ok && perm != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED { // members only; +1 read cold
 		replyPerm = perm
 	}
 	view := func(p *Post) *postsv1.PostView { // the policy is per conversation: one hint for every row
@@ -349,7 +349,7 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 	return connect.NewResponse(out), nil
 }
 
-// GifFlagName is the wire name of FEATURE_GIF (ADR-0029 D12; media.GifFlagName, a test keeps them equal).
+// GifFlagName is the wire name of FEATURE_GIF (media.GifFlagName, a test keeps them equal).
 const GifFlagName = "gif"
 
 // gifEnabled is the FEATURE_GIF decision for uid (off when no checker is wired).

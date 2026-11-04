@@ -49,7 +49,7 @@ class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
 class _MockPostsRepository extends Mock implements PostsRepository {}
 
 // `private_accounts` is deliberately absent from every set: an undo is never
-// gated on it (ADR-0025).
+// gated on it.
 const _allFlags = {'posts', 'engagement', 'replies', 'bookmarks', 'likes_list'};
 const _message = 'This post is from an account that protects its posts.';
 

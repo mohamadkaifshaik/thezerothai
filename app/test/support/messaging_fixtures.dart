@@ -7,8 +7,7 @@ import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as ts;
 
 /// Reference time of the messaging fixtures: the real clock captured once
-/// (UTC, truncated to the second), never a fixed date (see the
-/// `testing-strategy` skill, "Dates in tests").
+/// (UTC, truncated to the second), never a fixed date.
 final DateTime kMsgBase = _captureBase();
 
 DateTime _captureBase() {

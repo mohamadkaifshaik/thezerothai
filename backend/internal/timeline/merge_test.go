@@ -114,7 +114,7 @@ func simulate(chunks [][]*posts.Post, limit int, after *posts.Position, keep fun
 	}
 }
 
-// TestMerge_PagesAreAStrictPrefixOfTheTrueMerge is the ADR-0004 handoff property: over adversarial chunk
+// TestMerge_PagesAreAStrictPrefixOfTheTrueMerge is the handoff property: over adversarial chunk
 // distributions (one chunk with 1,000 recent posts, sparse others, many ties on createdAt) successive pages
 // concatenate to exactly the true descending merge, no duplicates and no gaps.
 func TestMerge_PagesAreAStrictPrefixOfTheTrueMerge(t *testing.T) {
@@ -238,8 +238,8 @@ func BenchmarkTimelineMerge(b *testing.B) {
 
 func TestModerationVisible(t *testing.T) {
 	t.Parallel()
-	// ADR-0016: a post a moderator hid is dropped even though it is PUBLIC (takedown and suspension). The stored
-	// visibility is never consulted (ADR-0025 D2): a FOLLOWERS or empty value on a doc does not hide it.
+	// A post a moderator hid is dropped even though it is PUBLIC (takedown and suspension). The stored
+	// visibility is never consulted: a FOLLOWERS or empty value on a doc does not hide it.
 	for _, v := range []posts.Visibility{posts.VisibilityPublic, posts.VisibilityFollowers, ""} {
 		if !moderationVisible(&posts.Post{Visibility: v}) {
 			t.Errorf("moderationVisible dropped a post with stored visibility %q", v)

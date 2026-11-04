@@ -41,7 +41,7 @@ enum HistoryTab {
       value == 'likes' ? HistoryTab.likes : HistoryTab.bookmarks;
 }
 
-/// `/bookmarks` (ADR-0023, ADR-0024 D6): the caller's History,
+/// `/bookmarks`: the caller's History,
 /// titled "History". The Bookmarks tab is their saved posts, newest bookmark
 /// first; the Likes tab (only with the `likes_list` flag) is their most recent
 /// likes. Both are live post cards (current counts and the engagement row,

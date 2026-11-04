@@ -4,7 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../features/graph/data/graph_repository.dart';
 
-/// ADR-0010 D6: a post of an author the viewer blocks sits behind a
+/// A post of an author the viewer blocks sits behind a
 /// "You blocked @x - Show post" banner until the viewer taps Show post.
 ///
 /// Reads the block state from the local relationship cache

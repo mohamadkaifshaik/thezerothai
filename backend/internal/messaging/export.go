@@ -27,7 +27,7 @@ type HandleSource interface {
 	GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error)
 }
 
-// peerLookupChunk bounds one directory call (ADR-0008: at most 50 ids).
+// peerLookupChunk bounds one directory call (at most 50 ids).
 const peerLookupChunk = 50
 
 // exportConversation is one element of the section's `conversations` list. It names the peer by handle at export time
@@ -55,7 +55,7 @@ type exporter struct {
 	social  Social
 }
 
-// NewExporter builds the `messages` export section (ADR-0027 D8, F5) on an ExportSource, a handle lookup and the caller's social
+// NewExporter builds the `messages` export section on an ExportSource, a handle lookup and the caller's social
 // context (a peer who blocked the caller is named by the handle frozen on the caller's entry, never the live one).
 func NewExporter(src ExportSource, handles HandleSource, social Social) Exporter {
 	return &exporter{src: src, handles: handles, social: social}

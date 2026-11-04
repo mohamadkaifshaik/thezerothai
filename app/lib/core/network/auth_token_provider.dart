@@ -1,4 +1,4 @@
-/// Supplies the two tokens every API call must carry (ADR-0006 §2):
+/// Supplies the two tokens every API call must carry:
 /// the Firebase ID token (`Authorization: Bearer`) and the Firebase App
 /// Check token (`X-Firebase-AppCheck`).
 ///

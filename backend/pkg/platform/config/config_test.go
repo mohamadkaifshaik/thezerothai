@@ -30,7 +30,7 @@ func clearEnv(t *testing.T) {
 		"RATE_LIMIT_REPORT_PER_MIN", "QUOTA_REPORTS_PER_DAY", "QUOTA_NEW_ACCOUNT_REPORTS_PER_DAY",
 		"RATE_LIMIT_GRAPH_FOLLOW_PER_MIN", "RATE_LIMIT_GRAPH_BLOCK_PER_MIN", "RATE_LIMIT_GRAPH_LIST_PER_MIN",
 		"LIST_CALLS_PER_DAY", "GRAPH_MUTATIONS_PER_DAY", "BOOKMARK_MUTATIONS_PER_DAY", "K_SERVICE", "CLOUD_RUN_JOB", "FIRESTORE_EMULATOR_HOST", "PUBSUB_EMULATOR_HOST", "STORAGE_EMULATOR_HOST",
-		"READ_BUDGET_PER_UID_PER_DAY", "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY",
+		"CHECK_HANDLE_CALLS_PER_DAY",
 		"ACCOUNT_OPS_CALLS_PER_DAY", "FIREBASE_AUTH_EMULATOR_HOST", "TIMELINE_TOKEN_TTL",
 		"FEATURE_CONTENT_DISCLOSURE", "FEATURE_CONTENT_DISCLOSURE_ALLOWLIST", "FEATURE_CONTENT_DISCLOSURE_PERCENT",
 		"FEATURE_REPLY_AUDIENCE", "FEATURE_REPLY_AUDIENCE_ALLOWLIST", "FEATURE_REPLY_AUDIENCE_PERCENT",
@@ -162,7 +162,7 @@ func TestLoad_AccountLifecycle(t *testing.T) {
 	}
 }
 
-// TestLoad_AccountExportSettings (ADR-0011 D-B): the defaults and the bounds on the signed-URL lifetime and the
+// TestLoad_AccountExportSettings: the defaults and the bounds on the signed-URL lifetime and the
 // export retention, which a typo must not turn into a bearer URL valid for days.
 func TestLoad_AccountExportSettings(t *testing.T) {
 	tests := []struct {
@@ -487,7 +487,7 @@ func TestLoad_Overrides(t *testing.T) {
 	}
 }
 
-// TestLoad_CacheTTLGuard (ADR-0009): CACHE_TTL must stay <= 60 s, below the 120 s deletion start gate.
+// TestLoad_CacheTTLGuard: CACHE_TTL must stay <= 60 s, below the 120 s deletion start gate.
 func TestLoad_CacheTTLGuard(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -527,7 +527,7 @@ func TestLoad_CacheTTLGuard(t *testing.T) {
 	}
 }
 
-// TestLoad_FeatureGraphDefaults (ADR-0008 D6 rollout plan): off in prod, on in dev and local by default.
+// TestLoad_FeatureGraphDefaults (rollout plan): off in prod, on in dev and local by default.
 func TestLoad_FeatureGraphDefaults(t *testing.T) {
 	tests := []struct {
 		name string
@@ -586,7 +586,7 @@ func TestLoad_FeatureGraphOverride(t *testing.T) {
 	}
 }
 
-// TestLoad_GraphQuotaAndRateLimitDefaults locks in the ADR-0008 D7 numbers.
+// TestLoad_GraphQuotaAndRateLimitDefaults locks in the numbers.
 func TestLoad_GraphQuotaAndRateLimitDefaults(t *testing.T) {
 	clearEnv(t)
 	cfg, err := Load()
@@ -614,9 +614,8 @@ func TestLoad_GraphQuotaAndRateLimitDefaults(t *testing.T) {
 	if cfg.RateLimit.GraphMutationsPerDay != 500 {
 		t.Errorf("RateLimit.GraphMutationsPerDay = %d, want 500", cfg.RateLimit.GraphMutationsPerDay)
 	}
-	if cfg.RateLimit.ReadBudgetPerUIDPerDay != 2000 || cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay != 500 || cfg.RateLimit.CheckHandleCallsPerDay != 100 {
-		t.Errorf("read budget defaults = %d/%d/%d, want 2000/500/100",
-			cfg.RateLimit.ReadBudgetPerUIDPerDay, cfg.RateLimit.ReadBudgetPerIPNoProfilePerDay, cfg.RateLimit.CheckHandleCallsPerDay)
+	if cfg.RateLimit.CheckHandleCallsPerDay != 100 {
+		t.Errorf("RateLimit.CheckHandleCallsPerDay = %d, want 100", cfg.RateLimit.CheckHandleCallsPerDay)
 	}
 	if cfg.RateLimit.AccountOpsCallsPerDay != 20 {
 		t.Errorf("RateLimit.AccountOpsCallsPerDay = %d, want 20 (ADR-0010 D5 A6)", cfg.RateLimit.AccountOpsCallsPerDay)
@@ -638,11 +637,10 @@ func TestMustLoad_PanicsOnError(t *testing.T) {
 	MustLoad()
 }
 
-// m3: a zero or negative read-budget / check-handle cap would lock every uid out after one call, so Load
+// m3: a zero or negative check-handle or account-ops cap would lock every uid out after one call, so Load
 // rejects it instead of treating it as "disabled".
-func TestLoad_RejectsNonPositiveReadBudgetCaps(t *testing.T) {
-	for _, key := range []string{"READ_BUDGET_PER_UID_PER_DAY", "READ_BUDGET_PER_IP_NO_PROFILE_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY",
-		"ACCOUNT_OPS_CALLS_PER_DAY"} {
+func TestLoad_RejectsNonPositiveDailyCaps(t *testing.T) {
+	for _, key := range []string{"CHECK_HANDLE_CALLS_PER_DAY", "ACCOUNT_OPS_CALLS_PER_DAY"} {
 		for _, val := range []string{"0", "-5"} {
 			t.Run(key+"="+val, func(t *testing.T) {
 				clearEnv(t)
@@ -655,13 +653,13 @@ func TestLoad_RejectsNonPositiveReadBudgetCaps(t *testing.T) {
 		}
 	}
 	clearEnv(t)
-	t.Setenv("READ_BUDGET_PER_UID_PER_DAY", "1")
+	t.Setenv("CHECK_HANDLE_CALLS_PER_DAY", "1")
 	if _, err := Load(); err != nil {
 		t.Fatalf("a positive cap must load: %v", err)
 	}
 }
 
-// TestLoad_AuthEmulator (ADR-0010 D5 A10): AuthEmulator mirrors FIREBASE_AUTH_EMULATOR_HOST, and Load refuses the
+// TestLoad_AuthEmulator: AuthEmulator mirrors FIREBASE_AUTH_EMULATOR_HOST, and Load refuses the
 // variable in dev and prod, where the Admin SDK would accept unsigned emulator tokens.
 func TestLoad_AuthEmulator(t *testing.T) {
 	tests := []struct {

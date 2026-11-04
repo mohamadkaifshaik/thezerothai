@@ -9,7 +9,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 )
 
-// Field names of the VALIDATION error for a rejected token (ADR-0010 D14).
+// Field names of the VALIDATION error for a rejected token.
 const (
 	fieldSince = "since_token"
 	fieldPage  = "page_token"
@@ -17,14 +17,14 @@ const (
 
 // feed names one token family: a home feed for a caller, or one effective tab of a user's feed. Its two bindings keep
 // since tokens and page tokens in separate AEAD domains, bound to the caller (and target and tab), so no token
-// opens for another caller, feed, tab or kind (ADR-0010 D14; `|` is safe because uids never contain it).
+// opens for another caller, feed, tab or kind (`|` is safe because uids never contain it).
 type feed struct{ since, page string }
 
 func homeFeed(caller string) feed {
 	return feed{since: "tl|home|" + caller + "|since", page: "tl|home|" + caller + "|page"}
 }
 
-// userTab is the EFFECTIVE profile tab of a GetUserTimeline call (ADR-0024 D5): what the call reads and the tab part
+// userTab is the EFFECTIVE profile tab of a GetUserTimeline call: what the call reads and the tab part
 // of its token bindings. The string values are the binding values, so they never change: "posts" and "replies" are
 // the pre-W3 values, which keeps every token issued before the tab field existed valid on the tab it was issued for.
 type userTab string
@@ -37,7 +37,7 @@ const (
 	tabArticles userTab = "articles"
 )
 
-// effectiveTab resolves the request's tab and include_replies (ADR-0024 D5). UNSPECIFIED, the default and every
+// effectiveTab resolves the request's tab and include_replies. UNSPECIFIED, the default and every
 // pre-W3 client, means include_replies decides exactly as before; any other known value wins and include_replies is
 // ignored with no error. ok is false for a number this build does not know (a newer client): the caller answers
 // VALIDATION rather than guessing a tab, because the tab is part of the token binding.
@@ -62,7 +62,7 @@ func effectiveTab(tab timelinev1.UserTimelineTab, includeReplies bool) (t userTa
 	return "", false
 }
 
-// gated reports whether the tab needs FEATURE_PROFILE_TABS (ADR-0024 D5, D9): Media and Reposts. Posts and Replies
+// gated reports whether the tab needs FEATURE_PROFILE_TABS: Media and Reposts. Posts and Replies
 // stay ungated.
 func (t userTab) gated() bool { return t == tabMedia || t == tabReposts }
 
@@ -171,14 +171,14 @@ func (c codec) encodePage(f feed, upper posts.Position, lower *posts.Position) s
 	return cursor.EncodeWindowAt(c.key, f.page, w, c.now())
 }
 
-// listFeed is the token family of one list read by one caller (ADR-0030 D5): bound to the caller AND the list, so a Home or
+// listFeed is the token family of one list read by one caller: bound to the caller AND the list, so a Home or
 // user token on a list, a list token on another list or for another caller is VALIDATION with 0 reads. ids never contain a pipe.
 func listFeed(caller, listID string) feed {
 	base := "tl|list|" + caller + "|" + listID + "|"
 	return feed{since: base + "since", page: base + "page"}
 }
 
-// communityFeed is the token family of one community read by one caller (ADR-0031 D6): bound to the caller AND the community
+// communityFeed is the token family of one community read by one caller: bound to the caller AND the community
 // (`community|<uid>|<cid>`), so a Home, user or list token on a community, or a community token on another community or for another
 // caller, is VALIDATION with 0 reads. ids never contain a pipe.
 func communityFeed(caller, cid string) feed {

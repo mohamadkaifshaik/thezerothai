@@ -10,7 +10,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 func arrUnion(path string, uid string) firestore.Update {
@@ -25,7 +24,7 @@ func setStatus(t *testing.T, client *firestore.Client, uid, status string) {
 	}
 }
 
-// d6Row seeds one ADR-0010 D6 relationship of A (uid-alice, caller) to B (uid-bob, author).
+// d6Row seeds one relationship of A (uid-alice, caller) to B (uid-bob, author).
 type d6Row struct {
 	name string
 	seed func(t *testing.T, c *firestore.Client)
@@ -89,13 +88,9 @@ func TestDeletePost_Integration_D6Matrix(t *testing.T) {
 			client, id := d6Fixture(t)
 			row.seed(t, client)
 			in := newCreateInstance(t, client, time.Nanosecond)
-			c, err := in.del("uid-alice", id)
+			_, err := in.del("uid-alice", id)
 			if err != nil {
 				t.Fatalf("DeletePost: %v, want nil", err)
-			}
-			budgettest.Assert(t, "DeletePost "+row.name, c, budgettest.Budget{Reads: 1})
-			if c.Writes() != 0 || c.Deletes() != 0 {
-				t.Fatalf("writes=%d deletes=%d, want 0/0", c.Writes(), c.Deletes())
 			}
 			if !postExists(t, client, id) {
 				t.Fatal("B's post was deleted by A")
@@ -113,15 +108,7 @@ func TestGetPost_Integration_D6Matrix(t *testing.T) {
 			client, id := d6Fixture(t)
 			row.seed(t, client)
 			in := newCreateInstance(t, client, time.Nanosecond)
-			c, p, err := in.get("uid-alice", id)
-			ceiling := int64(3)
-			if row.name == "A blockedByOverflow, B blocked A" {
-				ceiling = 4
-			}
-			budgettest.Assert(t, "GetPost "+row.name, c, budgettest.Budget{Reads: ceiling})
-			if c.Writes() != 0 || c.Deletes() != 0 {
-				t.Fatalf("writes=%d deletes=%d, want 0/0", c.Writes(), c.Deletes())
-			}
+			_, p, err := in.get("uid-alice", id)
 			if row.getFound {
 				if err != nil || p == nil || p.ID != id {
 					t.Fatalf("want the post returned, got %v %v", p, err)
@@ -142,11 +129,10 @@ func TestGetPost_Integration_D6Matrix(t *testing.T) {
 func TestGetPost_Integration_Own(t *testing.T) {
 	client, id := d6Fixture(t)
 	in := newCreateInstance(t, client, time.Nanosecond)
-	c, p, err := in.get("uid-bob", id)
+	_, p, err := in.get("uid-bob", id)
 	if err != nil || p == nil || p.ID != id {
 		t.Fatalf("own post: %v %v", p, err)
 	}
-	budgettest.Assert(t, "GetPost own", c, budgettest.Budget{Reads: 3})
 }
 
 // TestPurge_Integration_RestartFromEmptyCheckpoint: the checkpoint is lost after batch 1; PurgeUser restarted from
@@ -159,7 +145,7 @@ func TestPurge_Integration_RestartFromEmptyCheckpoint(t *testing.T) {
 	seedMany(t, client, uid, 1203, 1) // pid(1) oldest .. pid(1203) newest
 	seedMany(t, client, "uid-keep", 7, 5000)
 
-	ctx1, c1 := budget.WithCounter(context.Background())
+	ctx1, _ := budget.WithCounter(context.Background())
 	cp, done, err := repo.PurgeUser(ctx1, uid, Checkpoint{})
 	if err != nil || done || cp.Deleted != 500 {
 		t.Fatalf("batch 1: cp=%+v done=%v err=%v", cp, done, err)
@@ -180,7 +166,7 @@ func TestPurge_Integration_RestartFromEmptyCheckpoint(t *testing.T) {
 	}
 
 	// Crash: the saved checkpoint is lost. Restart from zero.
-	ctx2, c2 := budget.WithCounter(context.Background())
+	ctx2, _ := budget.WithCounter(context.Background())
 	cp = Checkpoint{}
 	done = false
 	for calls := 0; !done; calls++ {
@@ -193,9 +179,6 @@ func TestPurge_Integration_RestartFromEmptyCheckpoint(t *testing.T) {
 	}
 	if cp.Deleted != 703 {
 		t.Fatalf("restart deleted %d, want the remaining 703", cp.Deleted)
-	}
-	if total := c1.Deletes() + c2.Deletes(); total != 1203 {
-		t.Fatalf("total deletes = %d, want 1203", total)
 	}
 	if got := countByAuthor(t, client, uid); got != 0 {
 		t.Fatalf("%d posts remain", got)

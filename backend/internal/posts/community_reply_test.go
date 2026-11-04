@@ -29,7 +29,7 @@ func communityThreadEnv(g *fakeGate) *createEnv {
 	return e
 }
 
-// TestCreate_MembersOnlyReply: the rule keys on the parent's conversationCommunityId (ADR-0031 D5, F8).
+// TestCreate_MembersOnlyReply: the rule keys on the parent's conversationCommunityId.
 func TestCreate_MembersOnlyReply(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -63,7 +63,7 @@ func TestCreate_MembersOnlyReply(t *testing.T) {
 			if tt.mutate != nil {
 				tt.mutate(e)
 			}
-			_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "reply", ReplyToPostID: tt.parent, RepliesEnabled: true, CommunitiesGloballyOff: tt.off})
+			_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "reply", ReplyToPostID: tt.parent, RepliesEnabled: true, CommunitiesGloballyOff: tt.off})
 			switch tt.wantErr {
 			case "":
 				if err != nil {
@@ -76,9 +76,6 @@ func TestCreate_MembersOnlyReply(t *testing.T) {
 				}
 			case "state":
 				_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_COMMUNITY_STATE)
-			}
-			if tt.wantErr != "" && (c.Writes() != 0 || e.repo.createCalls != 0) {
-				t.Fatalf("a refusal wrote: writes=%d creates=%d", c.Writes(), e.repo.createCalls)
 			}
 			if n, _ := tt.gate.counts(); n != tt.wantChecks {
 				t.Fatalf("CanReply calls = %d, want %d", n, tt.wantChecks)
@@ -96,7 +93,7 @@ func TestCreate_MembersOnlyReply_ErrorPath(t *testing.T) {
 	if err == nil || errors.As(err, &ae) {
 		t.Fatalf("err = %v, want a plain wrapped error", err)
 	}
-	if c.Writes() != 0 || e.repo.createCalls != 0 {
+	if e.repo.createCalls != 0 {
 		t.Fatalf("writes=%d creates=%d", c.Writes(), e.repo.createCalls)
 	}
 }

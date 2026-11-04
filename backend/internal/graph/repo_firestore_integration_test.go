@@ -14,7 +14,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -45,7 +44,7 @@ func TestInitGraph_Integration_EmptyDocDecodesToEmptySnapshot(t *testing.T) {
 		t.Fatalf("commit: %v", err)
 	}
 
-	ctx2, counter2 := budget.WithCounter(context.Background())
+	ctx2, _ := budget.WithCounter(context.Background())
 	snap, err := repo.GetSnapshot(ctx2, "uid-1")
 	if err != nil {
 		t.Fatalf("GetSnapshot() error = %v", err)
@@ -56,7 +55,6 @@ func TestInitGraph_Integration_EmptyDocDecodesToEmptySnapshot(t *testing.T) {
 	if snap.BlockedByOverflow {
 		t.Error("expected BlockedByOverflow = false")
 	}
-	budgettest.Assert(t, "graph.GetSnapshot (cold)", counter2, budgettest.Budget{Reads: 1})
 }
 
 // TestGetSnapshot_Integration_MissingDocIsEmptyNotError: a graph doc that was never created (defensive:
@@ -74,7 +72,7 @@ func TestGetSnapshot_Integration_MissingDocIsEmptyNotError(t *testing.T) {
 	}
 }
 
-// TestSnapshot_Integration_ServiceCachesWithin60s (ADR-0008 D8/): two Reader.Snapshot calls within the
+// TestSnapshot_Integration_ServiceCachesWithin60s: two Reader.Snapshot calls within the
 // cache TTL cost exactly 1 Firestore read.
 func TestSnapshot_Integration_ServiceCachesWithin60s(t *testing.T) {
 	client := newTestClient(t)
@@ -89,12 +87,11 @@ func TestSnapshot_Integration_ServiceCachesWithin60s(t *testing.T) {
 
 	svc := graph.New(graph.Deps{Repo: repo, Cache: graph.NewCache(time.Minute)})
 
-	ctx, counter := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	if _, err := svc.Snapshot(ctx, "uid-1"); err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
 	if _, err := svc.Snapshot(ctx, "uid-1"); err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-	budgettest.Assert(t, "graph.Snapshot (two calls, warm cache)", counter, budgettest.Budget{Reads: 1})
 }

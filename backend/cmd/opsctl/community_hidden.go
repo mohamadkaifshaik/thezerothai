@@ -16,7 +16,7 @@ const communityHiddenUsage = `  opsctl community hidden CID --project P [--page-
   opsctl community restore-hidden CID --project P [--since RFC3339] [--page-token T] [--dry-run]   (platform recovery of a rogue moderator's or a raid's hides; posts under a takedown stay hidden)
 `
 
-// hiddenPageSize is the page of both commands (Limit <= 50, ADR-0031 D14a); a variable so a test can exercise paging with a few rows.
+// hiddenPageSize is the page of both commands (Limit <= 50); a variable so a test can exercise paging with a few rows.
 var hiddenPageSize = 50
 
 // restoreHiddenMaxPages caps one run of restore-hidden (100 pages = at most 5,000 post writes, a quarter of the Firestore free write quota
@@ -85,7 +85,7 @@ func decodeHiddenToken(tok string) (string, error) {
 
 func hiddenToken(id string) string { return hiddenPageTokenPrefix + id }
 
-// hiddenCommand is `opsctl community hidden|restore-hidden` (ADR-0031 Amendment 1 D14a), the platform recovery of what a rogue or
+// hiddenCommand is `opsctl community hidden|restore-hidden`, the platform recovery of what a rogue or
 // hijacked moderator hid, or a raid cleaned badly. Output holds ids and times only: never text, a name or a uid; the community appears only as
 // community_hash. It works in any community status and any flag state (it touches documents only).
 //

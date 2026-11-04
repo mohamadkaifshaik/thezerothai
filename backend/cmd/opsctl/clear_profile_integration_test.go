@@ -17,7 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
-// End-to-end emulator test of `opsctl clear-profile-fields` (ADR-0024 Amendment 1 A3): the real run() flag handling and
+// End-to-end emulator test of `opsctl clear-profile-fields`: the real run() flag handling and
 // output over the real identity and moderation repos. The opener wires only what the commands use (openFirestore also
 // needs the Auth Admin client, which these commands do not).
 

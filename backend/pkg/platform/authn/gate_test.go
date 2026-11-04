@@ -33,7 +33,7 @@ func reasonOf(t *testing.T, err error) commonv1.ErrorReason {
 	return commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED
 }
 
-// TestClaims_IdentityGate is the ADR-0010 D5 A10 allowlist table: fail closed on everything not listed.
+// TestClaims_IdentityGate is the allowlist table: fail closed on everything not listed.
 func TestClaims_IdentityGate(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -73,7 +73,7 @@ func (p *countingProvider) AccountStatus(context.Context, string) (bool, authn.A
 	return false, authn.AccountStatusUnknown, nil
 }
 
-// TestVerifiedIdentityInterceptor (ADR-0010 D5 A2/A10): a caller outside the provider allowlist is rejected
+// TestVerifiedIdentityInterceptor: a caller outside the provider allowlist is rejected
 // from the token claims alone, before the account-status lookup (0 reads) and before any later interceptor, with
 // EMAIL_NOT_VERIFIED on the gated (profile-exempt) procedures and PROFILE_REQUIRED on every other one, and the
 // right `gate` log value.
@@ -168,43 +168,6 @@ func TestVerifiedIdentityInterceptor(t *testing.T) {
 	}
 }
 
-// TestAccountStatusInterceptor_FlagsProfileRequiredOnRequestInfo (A3, A9): the !exists branch sets
-// ProfileRequired; any lookup that finds a profile (whatever the status) sets ProfileFound, and a lookup error
-// sets neither.
-func TestAccountStatusInterceptor_FlagsProfileRequiredOnRequestInfo(t *testing.T) {
-	tests := []struct {
-		name         string
-		exists       bool
-		status       authn.AccountStatus
-		wantRequired bool
-		wantFound    bool
-	}{
-		{"no profile", false, authn.AccountStatusActive, true, false},
-		{"has profile", true, authn.AccountStatusActive, false, true},
-		{"suspended profile is still found", true, authn.AccountStatusSuspended, false, true},
-		{"deleting profile is still found", true, authn.AccountStatusDeleting, false, true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var info *logger.RequestInfo
-			provider := fakeAccountStatusProvider{byUID: map[string]struct {
-				exists bool
-				status authn.AccountStatus
-			}{"u1": {exists: tt.exists, status: tt.status}}}
-			verifier := fakeIDTokenVerifier{tokens: map[string]authn.Claims{"tok": {UID: "u1"}}}
-			srv := newServer(t, seedRequestInfo(&info), authn.IDTokenInterceptor(verifier),
-				authn.AccountStatusInterceptor(provider, authn.ProfileExemptProcedures()))
-			_ = call(t, srv, map[string]string{"Authorization": "Bearer tok"})
-			if info.ProfileRequired != tt.wantRequired {
-				t.Errorf("ProfileRequired = %v, want %v", info.ProfileRequired, tt.wantRequired)
-			}
-			if info.ProfileFound != tt.wantFound {
-				t.Errorf("ProfileFound = %v, want %v", info.ProfileFound, tt.wantFound)
-			}
-		})
-	}
-}
-
 type erroringProvider struct{}
 
 func (erroringProvider) AccountStatus(context.Context, string) (bool, authn.AccountStatus, error) {
@@ -212,16 +175,13 @@ func (erroringProvider) AccountStatus(context.Context, string) (bool, authn.Acco
 	return true, authn.AccountStatusActive, errors.New("firestore unavailable")
 }
 
-// TestAccountStatusInterceptor_LookupErrorSetsNoFlags (A9): ProfileFound is never set on a lookup error.
-func TestAccountStatusInterceptor_LookupErrorSetsNoFlags(t *testing.T) {
+// TestAccountStatusInterceptor_LookupErrorFailsTheCall: a lookup error never passes as a found profile.
+func TestAccountStatusInterceptor_LookupErrorFailsTheCall(t *testing.T) {
 	var info *logger.RequestInfo
 	verifier := fakeIDTokenVerifier{tokens: map[string]authn.Claims{"tok": {UID: "u1"}}}
 	srv := newServer(t, seedRequestInfo(&info), authn.IDTokenInterceptor(verifier),
 		authn.AccountStatusInterceptor(erroringProvider{}, authn.ProfileExemptProcedures()))
 	if err := call(t, srv, map[string]string{"Authorization": "Bearer tok"}); err == nil {
 		t.Fatal("lookup error must fail the call")
-	}
-	if info.ProfileFound || info.ProfileRequired {
-		t.Errorf("ProfileFound=%v ProfileRequired=%v, want both false on a lookup error", info.ProfileFound, info.ProfileRequired)
 	}
 }

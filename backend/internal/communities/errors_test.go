@@ -10,7 +10,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// TestErrors_Shape: the three constructors produce the code, reason and metadata communities.proto documents (ADR-0031 N1, N6),
+// TestErrors_Shape: the three constructors produce the code, reason and metadata communities.proto documents,
 // and they survive apierr.ToConnect with the ErrorDetail intact.
 func TestErrors_Shape(t *testing.T) {
 	tests := []struct {

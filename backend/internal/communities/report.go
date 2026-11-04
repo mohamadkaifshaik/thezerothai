@@ -13,7 +13,7 @@ import (
 // ErrOwnCommunity is what CommunityReporter answers when the caller owns the community they are reporting (VALIDATION target_id).
 var ErrOwnCommunity = errors.New("communities: own community")
 
-// ReportedCommunity is the evidence of one community at report time (ADR-0031 D14): the owner (the report's target owner, ""
+// ReportedCommunity is the evidence of one community at report time: the owner (the report's target owner, ""
 // when ARCHIVED), the owner's handle ("" when none or not ACTIVE) and the community's public text. No member id and no moderator id.
 type ReportedCommunity struct {
 	// OwnerUID becomes the report's TargetOwnerID. Never in a response or a log.
@@ -33,7 +33,7 @@ type CommunityReporter interface {
 
 var _ CommunityReporter = (*service)(nil)
 
-// ReportableCommunity implements CommunityReporter (ADR-0031 D14). A missing or SUSPENDED community is ErrNotFound, so the caller builds
+// ReportableCommunity implements CommunityReporter. A missing or SUSPENDED community is ErrNotFound, so the caller builds
 // the one NOT_FOUND "community not found" for both; an ARCHIVED one is reportable. The caller's own community is ErrOwnCommunity. It
 // checks no flag: the report handler has already required `reports` on and `communities` not globally off, so a user dropped from the
 // allowlist can still report what they saw. Staleness: the community comes from the 60 s instance cache (D12), the owner's handle from

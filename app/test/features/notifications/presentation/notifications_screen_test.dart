@@ -457,9 +457,8 @@ void main() {
     when(() => repo.cached()).thenAnswer(
       (_) async => snapshotOfNotifs([notif('a')], seenAt: kNotifBase),
     );
-    when(() => repo.refresh()).thenThrow(
-      const RateLimitedException('x', limitName: 'read_budget_daily'),
-    );
+    when(() => repo.refresh())
+        .thenThrow(const RateLimitedException('x', limitName: 'search_daily'));
 
     await open(tester);
 

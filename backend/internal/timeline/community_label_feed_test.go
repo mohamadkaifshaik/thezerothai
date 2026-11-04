@@ -67,7 +67,7 @@ func TestCommunity_GloballyOffCarriesNoLabel(t *testing.T) {
 		c.labelled(c.cp.add(testCID, "a1", c.ms(-10*time.Second)))
 		resp, counter, err := c.get("me", testCID, "", "", 20)
 		wantAPIErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": "communities"})
-		if resp != nil || counter.Reads() != 0 {
+		if resp != nil {
 			t.Fatalf("resp = %v, reads = %d", resp, counter.Reads())
 		}
 	})

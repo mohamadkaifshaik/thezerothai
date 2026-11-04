@@ -49,7 +49,7 @@ class RelationshipCubit extends Cubit<RelationshipState> {
   final bool targetIsPrivate;
   final Uuid _uuid;
 
-  // One idempotency key per user "intent" (the idempotency rule / ADR-0003):
+  // One idempotency key per user "intent" (the idempotency rule):
   // generated on the first attempt, reused on every retry of that same
   // intent (including a user tapping the button again after a failed
   // attempt), and cleared only once the server confirms it — so a dropped

@@ -2,7 +2,7 @@
 
 package apiserver
 
-// Follow requests through the account lifecycle (ADR-0025 D11) over the real Build chain: Firestore, Auth,
+// Follow requests through the account lifecycle over the real Build chain: Firestore, Auth,
 // Pub/Sub and Storage emulators, the real graph.RequestEraser step and the real export section.
 //
 //   - the export of an account with requests both ways: a section golden (testdata/follow_requests_export_golden.json,

@@ -1,6 +1,6 @@
-// graph_follow: Follow/Unfollow churn across NUM_USERS (default 50) users (ADR-0008).
+// graph_follow: Follow/Unfollow churn across NUM_USERS (default 50) users.
 //
-// Budget under test (ADR-0008 A2 table): Follow created = reads 4 cold / 2 warm / 3 planning, writes 5;
+// Budget under test: Follow created = reads 4 cold / 2 warm / 3 planning, writes 5;
 // Unfollow = 0 reads, 3 writes, 1 delete. Acceptance: 20 rps for 2 min, Follow p95 < 500 ms, mean fs_reads per
 // Follow <= 3 (planning/typical), 0 ERROR log lines (read fs_reads/ERROR from the API log, see README).
 //
@@ -19,7 +19,7 @@ import { mintUsers, graphCall } from './graph_common.js';
 
 const NUM_USERS = parseInt(__ENV.NUM_USERS || '50', 10);
 // MODE=churn (default): alternate Follow/Unfollow of the same target. MODE=follow_only: every call is a Follow of a
-// fresh target (no Unfollow in between), the shape closest to the ADR-0008 A2 "planning" assumption. It needs
+// fresh target (no Unfollow in between), the shape closest to the "planning" assumption. It needs
 // RATE*DURATION/NUM_USERS <= 49 follows per user (48 at the defaults; the new-account quota is 50/day).
 const MODE = __ENV.MODE || 'churn';
 const unexpected = new Counter('graph_unexpected_responses');

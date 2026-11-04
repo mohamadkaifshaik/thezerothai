@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// The disclosure every messaging surface shows (ADR-0027 D11): the
+/// The disclosure every messaging surface shows: the
 /// operator can read messages. One constant, so the Inbox empty state, the
 /// new-message screen and the request banner can never drift apart.
 const kMessagesNotEncryptedText = 'Messages are not end-to-end encrypted.';

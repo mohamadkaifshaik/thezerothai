@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// flagModes is the matrix every gate test runs (ADR-0008 D6): off, allowlist (listed and unlisted), percent 0 and 100, on.
+// flagModes is the matrix every gate test runs: off, allowlist (listed and unlisted), percent 0 and 100, on.
 func flagModes() []struct {
 	name    string
 	spec    flags.Spec

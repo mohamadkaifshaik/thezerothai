@@ -2,7 +2,7 @@ import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
 
-/// `metadata["limit"]` of a LIMIT_REACHED answer to SendMessage (ADR-0027 D5),
+/// `metadata["limit"]` of a LIMIT_REACHED answer to SendMessage,
 /// as carried by `LimitReachedException.quota`: three messages sent to a
 /// request that is not accepted yet.
 const kMessagingLimitRequestUnanswered = 'request_unanswered';
@@ -14,7 +14,7 @@ const kMessagingLimitDmNewDaily = 'dm_new_daily';
 /// (list, read, mark-read, delete, report, block; no sending), or nothing.
 enum MessagingAccess { full, readOnly, hidden }
 
-/// Client view of the `messaging` flag (ADR-0027 D6 / F6). The server flag has
+/// Client view of the `messaging` flag. The server flag has
 /// two meanings, so the gate has two entry points:
 ///
 /// - [run] is for the per-caller RPCs, SendMessage and AcceptMessageRequest.
@@ -47,7 +47,7 @@ class MessagingFeatureGate extends ServiceFeatureGate {
   bool _probeOk = false;
   int _probeGeneration = 0;
 
-  /// What Messages shows this caller (ADR-0027 F6(a)). The one place
+  /// What Messages shows this caller. The one place
   /// that decides; every screen and the router read it.
   ///
   /// - [MessagingAccess.full]: `messaging` is in `GetMe.enabled_features`. Read

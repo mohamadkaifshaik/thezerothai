@@ -1,4 +1,4 @@
-// repo_scheduled.go is the Firestore repository of users/{uid}/scheduled/{scheduledId} (ADR-0021 "Firestore model").
+// repo_scheduled.go is the Firestore repository of users/{uid}/scheduled/{scheduledId} ("Firestore model").
 //
 // Index map (firebase/firestore.indexes.json, already on main):
 //
@@ -12,7 +12,7 @@
 // so the Go tags below must match those names exactly or documents silently never expire.
 //
 // Every write is conditional on the document existing in a known state; none uses Set or merge, so a write that
-// arrives after the account eraser cannot recreate a purged document (ADR-0021 Sweep "State writes").
+// arrives after the account eraser cannot recreate a purged document.
 package posts
 
 import (
@@ -363,7 +363,7 @@ func (r *FirestoreRepo) CreateScheduled(ctx context.Context, p ScheduledCreatePa
 			if err != nil {
 				return err
 			}
-			if claim.HasGIF() { // ADR-0029 F10: a GIF is never scheduled
+			if claim.HasGIF() { // A GIF is never scheduled
 				return ErrGifNotSchedulable
 			}
 			draft.Media = mediaWithAlts(claim.Refs(), p.MediaAlts)

@@ -14,7 +14,7 @@ const bookmarksRemoveProcedure = '${bookmarksService}RemoveBookmark';
 /// next-page token [next].
 eng.ListBookmarksResponse bookmarksPage(List<int> posts, [String next = '']) =>
     eng.ListBookmarksResponse(
-      // Listed rows come hydrated: bookmarked_by_viewer is true (ADR-0023 D3).
+      // Listed rows come hydrated: bookmarked_by_viewer is true.
       bookmarks: [
         for (final n in posts)
           eng.Bookmark(post: postView(n)..bookmarkedByViewer = true),

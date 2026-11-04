@@ -7,13 +7,13 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cache"
 )
 
-// cacheTTL is the staleness bound of every cached community and member doc (ADR-0031 D12): a write updates the writing instance at
+// cacheTTL is the staleness bound of every cached community and member doc: a write updates the writing instance at
 // once, the other instances within 60 s. A suspension therefore reaches every read path within 60 s, and a rename or a changed
-// owner within 60 s. Behind the cache.LRU seam, so Memorystore can replace it by ADR.
+// owner within 60 s. Behind the cache.LRU seam, so Memorystore can replace it by a later design decision.
 const cacheTTL = 60 * time.Second
 
 // negativeTTL is the staleness bound of a negative community entry (an id whose point read found no document), the lists precedent
-// (ADR-0030 L-1): a repeat probe of a missing id then costs 0 reads and answers as fast as a cached one, so latency tells the
+// A repeat probe of a missing id then costs 0 reads and answers as fast as a cached one, so latency tells the
 // two apart no better than the byte-identical NOT_FOUND does.
 const negativeTTL = 60 * time.Second
 

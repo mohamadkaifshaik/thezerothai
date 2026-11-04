@@ -1,10 +1,10 @@
-// backfill.go is the one-off `opsctl backfill-has-media` repo helper (ADR-0024 D4): it gives every pre-W3 post
+// backfill.go is the one-off `opsctl backfill-has-media` repo helper: it gives every pre-W3 post
 // document the `hasMedia` field that the create paths have written since then, so the profile Media tab query
 // (authorId == A AND hasMedia == true) sees old posts too.
 //
 // Query:  posts ORDER BY __name__ ASC [StartAfter(checkpoint)] LIMIT page (page <= opsPage = 500). A collection-wide
 // scan in id order uses the automatic __name__ index (no firestore.indexes.json change). The Limit(500) is an ops path
-// (ADR-0003 purge rule); the query-limit rule's maximum of 50 governs RPC pagination only.
+// (purge rule); the query-limit rule's maximum of 50 governs RPC pagination only.
 //
 // Cost: 1 read per post scanned (the `Select` projection narrows the payload, not the billing) and 1 write per post whose
 // document lacks the key, never more than BackfillMaxWrites in one run. A rerun finds no missing key and writes 0.
@@ -25,7 +25,7 @@ import (
 // fieldHasMedia is the stored name of posts.hasMedia (postDoc.HasMedia).
 const fieldHasMedia = "hasMedia"
 
-// BackfillMaxWrites is the most writes one backfill run issues (ADR-0024 D4): a quarter of a day's free Firestore writes
+// BackfillMaxWrites is the most writes one backfill run issues: a quarter of a day's free Firestore writes
 // (20,000), so the backfill never starves the live API of its quota. A bigger collection is finished by rerunning the
 // next day (with `--after`, from the checkpoint the capped run printed).
 const BackfillMaxWrites = 5_000

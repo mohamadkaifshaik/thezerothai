@@ -33,7 +33,7 @@ import 'widgets/profile_edit_unavailable.dart';
 /// and uploaded on Save). With media off the avatar is shown read-only (the
 /// server answers MEDIA_NOT_READY).
 ///
-/// With `profile_extras` on (ADR-0024) it also offers the banner (above
+/// With `profile_extras` on it also offers the banner (above
 /// the avatar; it also needs media), the location and the website. Without
 /// that flag nothing can be set: a saved banner, location or website is shown
 /// read-only with Remove, which sends an exact `""` (the server accepts a clear
@@ -193,8 +193,7 @@ class _EditProfileViewState extends State<_EditProfileView> {
         final websiteHost = websiteHostPreview(state.website);
         // The banner is edited with `profile_extras` and media on. Otherwise
         // it is shown (only when the profile has one) with Remove alone: a
-        // removal is a clear, which needs neither flag (ADR-0024 Amendment 1
-        // A2).
+        // removal is a clear, which needs neither flag.
         final showBanner =
             cubit.canChangeBanner ||
             (!state.bannerRemoved && widget.bannerUrl.isNotEmpty);
@@ -340,7 +339,7 @@ class _EditProfileViewState extends State<_EditProfileView> {
                             // No `profile_extras`: a saved location or website
                             // is shown as it is, read-only, with Remove (the
                             // only change a caller outside the cohort may
-                            // make to them, ADR-0024 Amendment 1 A2).
+                            // make to them).
                             if (cubit.hasSavedLocation) ...[
                               const SizedBox(height: AppSpacing.md),
                               _RemovableField(
@@ -381,7 +380,7 @@ class _EditProfileViewState extends State<_EditProfileView> {
 }
 
 /// A saved location or website shown read-only with Remove, for a caller
-/// without `profile_extras` (ADR-0024 Amendment 1 A2): the same outlined
+/// without `profile_extras`: the same outlined
 /// `TextField` as the editable fields (so it reads and scrolls like them), with
 /// a 48dp close button in the field. It is `readOnly`, not disabled, so the
 /// button keeps taking taps. After Remove the field reads empty and says the

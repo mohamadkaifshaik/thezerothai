@@ -2,7 +2,7 @@
 
 package apiserver
 
-// (ADR-0029 D10, D11) over the real Build chain with the real Storage emulator: FinalizeUpload of a GIF (read, pre-scan,
+// GIF finalize over the real Build chain with the real Storage emulator: FinalizeUpload of a GIF (read, pre-scan,
 // sampled sheet, publish, delete), then CreatePost, the wire shape, the cost against a photo's, SchedulePost's refusal and
 // DeletePost -> post_delete removing the public objects.
 //
@@ -236,7 +236,7 @@ func TestGIFChain_FinalizePostScheduleAndDelete(t *testing.T) {
 	if got := g.visionUnits(t) - photoUnits; got != 2 {
 		t.Errorf("GIF vision units = %d, want 2 (photo spent %d)", got, photoUnits)
 	}
-	// Firestore cost: unchanged against a photo's finalize ("Firestore unchanged", runbook).
+	// Firestore cost: unchanged against a photo's finalize ("Firestore unchanged").
 	if gifCost := g.costOf(t, "/dzeroth.media.v1.MediaService/FinalizeUpload"); gifCost[1] != photoCost[1] || gifCost[0] > photoCost[0] { // reads: the photo run also loaded the Vision counter into the instance cache
 		t.Errorf("FinalizeUpload cost gif %v, photo %v: the GIF path must write the same documents and read no more", gifCost, photoCost)
 	}

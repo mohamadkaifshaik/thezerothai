@@ -79,7 +79,7 @@ class PushState {
   }
 }
 
-/// Push registration and message handling (ADR-0017 D1/D6/D11).
+/// Push registration and message handling.
 ///
 /// - Never asks for permission by itself: [start] only reads the current
 ///   status; [enable] is called from the in-app prompt (an explicit tap).
@@ -129,8 +129,8 @@ class PushCubit extends Cubit<PushState> {
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
 
   /// Android with a registered device: the server pushes each message, so a
-  /// visible thread may poll at the slower hot interval (ADR-0027 D7).
-  /// iOS gets no message push yet (ADR-0017 D11).
+  /// visible thread may poll at the slower hot interval.
+  /// iOS gets no message push yet.
   bool get pushCoversThreads =>
       state.registered &&
       _messaging.platform == DevicePlatform.DEVICE_PLATFORM_ANDROID;
@@ -282,7 +282,7 @@ class PushCubit extends Cubit<PushState> {
           }
         } catch (_) {
           // Best effort: the server prunes UNREGISTERED tokens and moves a
-          // token to the next account that registers it (ADR-0017 D1).
+          // token to the next account that registers it.
         }
       }
       await _messaging.deleteToken();

@@ -1,6 +1,6 @@
 import 'analytics_event.dart';
 
-/// Crash and non-fatal reporting behind the seam (ADR-0032). Only
+/// Crash and non-fatal reporting behind the seam. Only
 /// `firebase_crash_reporter.dart` talks to the SDK; a web or other-vendor
 /// reporter replaces an implementation with no caller change.
 ///
@@ -19,7 +19,7 @@ abstract interface class CrashReporter {
   Future<void> deleteUnsentReports();
 }
 
-/// Usage analytics behind the seam (ADR-0032). Same rules as
+/// Usage analytics behind the seam. Same rules as
 /// [CrashReporter].
 abstract interface class UsageAnalytics {
   Future<void> log(AnalyticsEvent event);

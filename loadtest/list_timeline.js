@@ -1,4 +1,4 @@
-// list_timeline: W5 Part A emulator load smoke (ADR-0030 "Cost impact").
+// list_timeline: W5 Part A emulator load smoke.
 // One file, one timeline, ONE local API process ("one instance") and the Firebase emulators. Never point it at dzeroth-dev or
 // dzeroth-prod: it mints about 300 users and raises every list, post, graph and read-budget cap.
 //
@@ -25,7 +25,7 @@
 // 127.0.0.1): RATE_LIMIT_PER_IP_PER_MIN, RATE_LIMIT_PRE_AUTH_IP_PER_MIN, RATE_LIMIT_PER_USER_PER_MIN, RATE_LIMIT_LISTS_WRITE_PER_MIN,
 // RATE_LIMIT_LISTS_READ_PER_MIN, RATE_LIMIT_LIST_TIMELINE_PER_MIN, RATE_LIMIT_TIMELINE_PER_MIN, RATE_LIMIT_GRAPH_FOLLOW_PER_MIN,
 // LIST_MUTATIONS_PER_DAY, QUOTA_NEW_ACCOUNT_LIST_ADDS_PER_DAY, QUOTA_LIST_ADDS_PER_DAY, QUOTA_NEW_ACCOUNT_LIST_CREATES_PER_DAY,
-// QUOTA_LIST_CREATES_PER_DAY, READ_BUDGET_PER_UID_PER_DAY, RATE_LIMIT_POST_CREATE_PER_MIN, QUOTA_POSTS_PER_DAY,
+// QUOTA_LIST_CREATES_PER_DAY, RATE_LIMIT_POST_CREATE_PER_MIN, QUOTA_POSTS_PER_DAY,
 // QUOTA_NEW_ACCOUNT_POSTS_PER_DAY, QUOTA_FOLLOWS_PER_DAY, QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY.
 //
 //   k6 run loadtest/list_timeline.js      # or: make loadtest SCENARIO=list_timeline
@@ -191,7 +191,7 @@ export function coldCalls(d) {
   mark('PHASE', 'idle_2');
   sleep(COLD_SETTLE);
   // A refresh with the first call's since_token, now two idles old, from a cold viewer on a cold list. With FEATURE_REMOVED_IDS on this
-  // is the path the ADR prices at +107 (the removal-log window query, ADR-0016); with it off it is a plain cold refresh (3 + C).
+  // is the path the cost model prices at +107 (the removal-log window query); with it off it is a plain cold refresh (3 + C).
   lt(v[1], la, { sinceToken: since1 }, 'lt_la_refresh_old_token_cold', [200, 400]);
 
   // --- SetHomeTabs / GetMe -------------------------------------------------------------------------------------------
@@ -225,7 +225,7 @@ export function coldCalls(d) {
   sleep(COLD_SETTLE);
 
   // --- List reads -------------------------------------------------------------------------------------
-  // GetMe of the viewer who pinned tabs earlier, now cold again (ADR-0030: GetMe.home_tabs adds 0 reads over the profile read).
+  // GetMe of the viewer who pinned tabs earlier, now cold again (GetMe.home_tabs adds 0 reads over the profile read).
   mark('STEP', 'getme_with_tabs_cold');
   expect(rpcCall(IDENTITY, 'GetMe', {}, T.idToken, 'GetMe'), 'getme');
   const R = v[8];

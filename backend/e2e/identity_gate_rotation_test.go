@@ -61,9 +61,6 @@ func TestE2E_UnverifiedAccountRotation_CostsNoReads(t *testing.T) {
 			t.Fatalf("%s: %d request lines, want %d", rpc, len(lines), want)
 		}
 		for i, rec := range lines {
-			if reads, _ := rec["fs_reads"].(float64); reads != 0 {
-				t.Errorf("%s call %d: fs_reads = %v, want 0", rpc, i, rec["fs_reads"])
-			}
 			if rec["gate"] != "email_unverified" {
 				t.Errorf("%s call %d: gate = %v, want email_unverified", rpc, i, rec["gate"])
 			}

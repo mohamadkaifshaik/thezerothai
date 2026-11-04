@@ -20,7 +20,7 @@ const TraceKey = "logging.googleapis.com/trace"
 
 // LevelNotice is Cloud Logging's NOTICE severity (between INFO and WARNING) for audit lines that are normal but
 // must stay greppable and alertable, such as the identity module's one-line-per-Firebase-Auth-mutation record
-// (ADR-0011 IAM control C3). New renders it as severity "NOTICE"; slog.Level(2) would otherwise print "INFO+2".
+// New renders it as severity "NOTICE"; slog.Level(2) would otherwise print "INFO+2".
 const LevelNotice = slog.LevelInfo + 2
 
 // New builds the process-wide slog.Logger. Cheap: no I/O, safe to call before ListenAndServe.
@@ -132,18 +132,10 @@ type RequestInfo struct {
 	XFFHops    int
 	ViaHosting bool
 	// LimitName identifies which in-memory limiter rejected the request (set by ratelimit.Interceptor,
-	// e.g. "graph_list_daily" for the ADR-0008 per-uid daily list cap), empty when nothing was rejected
-	// or the rejection came from elsewhere (a Firestore quota). ADR-0008: every graph
+	// e.g. "graph_list_daily" for the per-uid daily list cap), empty when nothing was rejected
+	// or the rejection came from elsewhere (a Firestore quota). Every graph
 	// RPC logs limit_name so `abuse-spike.md` can query rejections by limiter.
 	LimitName string
-	// ProfileRequired is set by authn.AccountStatusInterceptor when the verified caller has no profile
-	// (ADR-0010 D5 A3); ratelimit.Interceptor reads it after next to charge the IP key. Written and read on
-	// the request goroutine only (the interceptor chain is synchronous).
-	ProfileRequired bool
-	// ProfileFound is set by authn.AccountStatusInterceptor when the status lookup finds a profile (any status;
-	// ADR-0010 D5 A9, never on a lookup error). ratelimit.Interceptor uses it to clear a stale profile-less mark.
-	ProfileFound bool
-
 	// mu guards fields: handlers may fan out under errgroup, and Logging reads after next() returns.
 	mu     sync.Mutex
 	fields []slog.Attr

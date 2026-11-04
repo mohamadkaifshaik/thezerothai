@@ -1,4 +1,4 @@
-// guards (ADR-0032, Q10 (f)): the rules that keep crash reports and usage
+// guards: the rules that keep crash reports and usage
 // statistics anonymous, behind the seam and off by default. Each guard fails
 // the build when its rule breaks. Every scanner is also proven on synthetic
 // input first, so a guard cannot pass because its pattern stopped matching.
@@ -38,7 +38,7 @@ String _read(String path) {
   return f.readAsStringSync();
 }
 
-/// Expected off values (ADR-0032 A5).
+/// Expected off values.
 const _androidOff = <String, String>{
   'firebase_crashlytics_collection_enabled': 'false',
   'firebase_analytics_collection_enabled': 'false',

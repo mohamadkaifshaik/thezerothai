@@ -1,10 +1,10 @@
-// Package moderation owns reports/{reportId} (ADR-0016). It exposes Service (the
+// Package moderation owns reports/{reportId}. It exposes Service (the
 // Connect handler's dependency: ReportContent), Ops (the moderator-facing list/show/resolve that opsctl uses; there
 // are no moderator RPCs at Stage 0) and the Eraser/Exporter seams the account-lifecycle job joins.
 //
 // moderation depends on posts and identity only through the small consumer-side interfaces below
 // (posts.Service.GetForViewer and identity.Service.GetProfile satisfy them), so it re-uses their visibility and
-// block rules instead of repeating them (reuse-first, ADR-0002).
+// block rules instead of repeating them.
 package moderation
 
 import (
@@ -57,7 +57,7 @@ const (
 	ResolutionTakedown  Resolution = "TAKEDOWN"
 	ResolutionSuspended Resolution = "SUSPENDED"
 	// ResolutionProfileCleared closes a report about an account whose profile fields an operator cleared with `opsctl
-	// clear-profile-fields --report` (ADR-0024 Amendment 1 A3). A Go and Firestore string only; no proto carries it.
+	// clear-profile-fields --report`. A Go and Firestore string only; no proto carries it.
 	ResolutionProfileCleared Resolution = "PROFILE_CLEARED"
 )
 
@@ -72,12 +72,12 @@ func (r Resolution) Valid() bool {
 
 // Limits.
 const (
-	// MaxNoteRunes is the longest report note, in code points (ADR-0016 D1).
+	// MaxNoteRunes is the longest report note, in code points.
 	MaxNoteRunes = 500
-	// Retention is how long a resolved report is kept before the Firestore TTL deletes it (ADR-0016 D5).
+	// Retention is how long a resolved report is kept before the Firestore TTL deletes it.
 	Retention = 90 * 24 * time.Hour
-	// MessageEvidenceRetention is how long the copied text of a MESSAGE report is kept (ADR-0016 note 2026-10-30, security
-	// L-6): the child document reports/{id}/evidence/message carries expireAt = filing + 180 days and a Firestore TTL
+	// MessageEvidenceRetention is how long the copied text of a MESSAGE report is kept (security L-6):
+	// the child document reports/{id}/evidence/message carries expireAt = filing + 180 days and a Firestore TTL
 	// deletes it, open or not; resolving the report shortens it to at most resolvedAt + Retention. The report itself stays.
 	MessageEvidenceRetention = 180 * 24 * time.Hour
 	// MaxListLimit is the largest page of Ops.List (the query-limit rule: every query Limit <= 50).
@@ -91,7 +91,7 @@ const (
 // they ride on the post the report already read). Deleting the post deletes the objects (The post_delete job), so this keeps the ids only; see
 // for what a takedown does and does not preserve.
 //
-// A MESSAGE report (ADR-0027 D12) keeps that one message: Text is its text (private content, ADR-0016 note 2026-10-28),
+// A MESSAGE report keeps that one message: Text is its text (private content),
 // AuthorHandle the sender's handle ("" when the sender is no longer ACTIVE), PostCreatedAt the time it was sent (the
 // stored field keeps its name; no new field). MediaIDs is empty. Nothing else of the conversation is copied.
 type Evidence struct {
@@ -103,7 +103,7 @@ type Evidence struct {
 	// post (from the repost's frozen Embedded snapshot, 0 extra reads) and this is its id, the id takedown-post
 	// takes. "" for every other report. TargetOwnerID still names the reposter.
 	OriginalPostID string
-	// ACCOUNT reports only (ADR-0024 Amendment 1 A3(b)): the reported profile as the reporter saw it (the presented view,
+	// ACCOUNT reports only: the reported profile as the reporter saw it (the presented view,
 	// so no website while FEATURE_PROFILE_EXTRAS is globally off), copied from the profile the report already loaded (0
 	// extra reads). AuthorHandle above holds the handle; Text, MediaIDs and PostCreatedAt stay empty. None of these
 	// holds a uid (media URLs are m/{mediaId}). Empty for every POST report.
@@ -117,12 +117,12 @@ type Evidence struct {
 	// handle and PostCreatedAt the list's creation time. No member id is copied. Empty for every other report.
 	ListName        string
 	ListDescription string
-	// COMMUNITY reports only (ADR-0031 D14): the community's public text as the reporter saw it. AuthorHandle holds the owner's
+	// COMMUNITY reports only: the community's public text as the reporter saw it. AuthorHandle holds the owner's
 	// handle (empty when archived) and PostCreatedAt the community's creation time. No member or moderator id is copied. Empty for every other report.
 	CommunityName        string
 	CommunityDescription string
 	CommunityRules       []CommunityRule
-	// PollChoices are the labels of the reported post's poll (ADR-0029 D8), empty for a post without one; for a REPOST report they are
+	// PollChoices are the labels of the reported post's poll, empty for a post without one; for a REPOST report they are
 	// the original's (from its frozen embed). Labels only: no counts, no voters.
 	PollChoices []string
 	// TextExpired is set only by Ops.Get on a MESSAGE report whose child evidence document is gone (its TTL ran):
@@ -166,21 +166,21 @@ type ReportResult struct {
 // Service is the Connect handler's dependency.
 type Service interface {
 	// Report records uid's report of one post, account or message. Firestore, worst case: caller profile (cached) 0-1,
-	// POST: post 1 + author users 1 + caller graph 1 cold; ACCOUNT: target users 1 cold (+ graph); MESSAGE (ADR-0027 D12):
+	// POST: post 1 + author users 1 + caller graph 1 cold; ACCOUNT: target users 1 cold (+ graph); MESSAGE:
 	// conversation 1 + message 1 + sender users 1 cold, so 3 reads of the lookup cold and 1 warm (the message is never
 	// cached); then the transaction: report doc 1 + quotas 1. With the interceptor's own read the whole call is 6 reads
 	// cold and 3 warm for a MESSAGE. LIST: list 1 + caller graph 1 + owner users 1 + owner graph 1 cold (all cache-first, 0 warm), so 4 reads of the
-	// lookup cold, 7 for the whole call with the interceptor and 2 warm; no evidence child. COMMUNITY (ADR-0031 D14): community 1 + owner users 1 cold (cache-first, 0 warm; an ARCHIVED community has no owner read), so 5 for the whole call with the interceptor and 2 warm; no graph read, no evidence child. Writes 2 (report, quotas); a repeat writes 0.
+	// lookup cold, 7 for the whole call with the interceptor and 2 warm; no evidence child. COMMUNITY: community 1 + owner users 1 cold (cache-first, 0 warm; an ARCHIVED community has no owner read), so 5 for the whole call with the interceptor and 2 warm; no graph read, no evidence child. Writes 2 (report, quotas); a repeat writes 0.
 	Report(ctx context.Context, uid string, in ReportInput) (ReportResult, error)
 }
 
-// PostViewer is posts.Service's GetForViewer (ADR-0010 D6): the post as the caller sees it, or the one
+// PostViewer is posts.Service's GetForViewer: the post as the caller sees it, or the one
 // "post not found" error.
 type PostViewer interface {
 	GetForViewer(ctx context.Context, callerUID, postID string) (*posts.Post, error)
 }
 
-// AccountViewer is identity.Service's GetProfile (ADR-0008 D9): the profile as the caller sees it, or NOT_FOUND
+// AccountViewer is identity.Service's GetProfile: the profile as the caller sees it, or NOT_FOUND
 // for a missing, non-ACTIVE or caller-blocking account.
 type AccountViewer interface {
 	GetProfile(ctx context.Context, callerUID string, target identity.ProfileTarget) (identity.Profile, error)
@@ -189,7 +189,7 @@ type AccountViewer interface {
 // ErrNotFound is returned by Ops.Get and Ops.Resolve for a missing report.
 var ErrNotFound = errors.New("moderation: report not found")
 
-// Ops is the moderator-side seam opsctl uses (ADR-0016 D4).
+// Ops is the moderator-side seam opsctl uses.
 type Ops interface {
 	// List returns reports with the given status, oldest first, at most limit (clamped to 1..MaxListLimit).
 	// Reads: len(result), minimum 1.
@@ -209,7 +209,7 @@ type Checkpoint struct {
 	Cleared int
 }
 
-// Eraser is moderation's step in the account-deletion cascade (ADR-0011 Q1, ADR-0016 D5). It anonymises the
+// Eraser is moderation's step in the account-deletion cascade. It anonymises the
 // reports the account FILED (reporterId := ""); the reports stay as safety evidence about third-party content.
 // Reports ABOUT the account are retained until resolved + 90 days and are a documented Q10 residue.
 type Eraser interface {

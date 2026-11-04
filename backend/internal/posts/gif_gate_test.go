@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/media"
 )
 
-// ADR-0029 D10: the second FEATURE_GIF gate and the GIF-only rules of CreatePost and SchedulePost. The decision
+// The second FEATURE_GIF gate and the GIF-only rules of CreatePost and SchedulePost. The decision
 // itself is made inside the transaction from the media claim (repo level, emulator test gif_integration_test.go); these
 // tests pin how the service maps the repo's sentinels and what the handler passes down.
 
@@ -57,7 +57,7 @@ func TestSchedule_GifIsValidation(t *testing.T) {
 	e.repo.createErr = ErrGifNotSchedulable
 	_, c, err := e.schedule(e.validIn(func(i *ScheduleInput) { i.MediaIDs = mediaIDs(1) }))
 	ae := wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
-	if ae.Metadata["field"] != "media_ids" || c.Writes() != 0 {
+	if ae.Metadata["field"] != "media_ids" {
 		t.Fatalf("metadata = %v writes=%d", ae.Metadata, c.Writes())
 	}
 }

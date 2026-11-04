@@ -1,6 +1,6 @@
 // Package apierr is the single place domain/service errors get shaped into Connect codes plus a
-// dzeroth.common.v1.ErrorDetail (ADR-0002: "map errors to Connect codes at the handler
-// boundary only"). Services return *apierr.Error (or a plain wrapped error for truly unexpected
+// dzeroth.common.v1.ErrorDetail ("map errors to Connect codes at the handler boundary only").
+// Services return *apierr.Error (or a plain wrapped error for truly unexpected
 // failures); the error-mapping interceptor (see pkg/platform/mw) converts it to a *connect.Error
 // exactly once, right at the handler boundary.
 package apierr

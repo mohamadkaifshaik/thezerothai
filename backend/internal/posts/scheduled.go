@@ -1,4 +1,4 @@
-// scheduled.go is the domain model of scheduled posts (ADR-0021 D4 and "Firestore model"): the document shape the
+// scheduled.go is the domain model of scheduled posts (and "Firestore model"): the document shape the
 // repository stores at users/{uid}/scheduled/{scheduledId}, the deterministic document id, the path-shape check the
 // publish sweep applies to collection-group results, and the opaque list cursor. It holds no request validation and
 // no sweep logic: the Schedule/List/Cancel service and the sweep build on it in later changes.
@@ -61,12 +61,12 @@ func (f ScheduledFailure) Valid() bool {
 
 const (
 	// ScheduledSchemaVersion is the schemaVersion this revision writes. A sweep that reads a higher one fails the item
-	// UNSUPPORTED instead of publishing a partial post, which keeps a revision rollback safe (ADR-0021 D4).
+	// UNSUPPORTED instead of publishing a partial post, which keeps a revision rollback safe.
 	ScheduledSchemaVersion = 1
 	// ScheduledRPC scopes the document id (idempotency.Key(uid, ScheduledRPC, key)).
 	ScheduledRPC = "SchedulePost"
 	// ScheduledWindowRadius is the half-width of the per-author window cap: at most config.Scheduled.PerAuthorPerRun
-	// PENDING items within +/-ScheduledWindowRadius of a new publish_at (review L-3; fixed by the ADR, not config).
+	// PENDING items within +/-ScheduledWindowRadius of a new publish_at (review L-3; fixed by design, not config).
 	ScheduledWindowRadius = 4 * time.Minute
 	// ScheduledDefaultPage and ScheduledMaxPage are the ListScheduledPosts page sizes (0 means the default; rule 5).
 	ScheduledDefaultPage = 20
@@ -132,7 +132,7 @@ type ScheduledRef struct {
 var ErrInvalidScheduledID = errors.New("posts: invalid scheduled id input")
 
 // ScheduledID derives the document id of a SchedulePost call: the first 32 hex characters of
-// SHA-256(uid|"SchedulePost"|idempotency_key), the same natural-key pattern as reports/* (ADR-0021 D4, review L-6).
+// SHA-256(uid|"SchedulePost"|idempotency_key), the same natural-key pattern as reports/* (review L-6).
 //
 // The separator is safe by construction: a uid matches ^[A-Za-z0-9-]{1,128}$ and a key ^[A-Za-z0-9_-]{16,64}$, so
 // neither can contain "|" and two different (uid, key) pairs never share a preimage. Anything else is refused here
@@ -163,7 +163,7 @@ func ValidScheduledID(id string) bool {
 // to VALIDATION field=page_token.
 var ErrInvalidScheduledToken = errors.New("posts: invalid scheduled page token")
 
-// scheduledBinding is the context a ListScheduledPosts page token is bound to: "scheduled|<uid>" (ADR-0021 D4), so a
+// scheduledBinding is the context a ListScheduledPosts page token is bound to: "scheduled|<uid>", so a
 // token issued to one user opens nothing for another.
 func scheduledBinding(uid string) string { return "scheduled|" + uid }
 

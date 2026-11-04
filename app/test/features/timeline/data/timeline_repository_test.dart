@@ -1185,7 +1185,7 @@ void main() {
 
     test('a daily RATE_LIMITED is remembered with the time left, then '
         'released', () async {
-      script[_home]!.add(rateLimited('read_budget_daily'));
+      script[_home]!.add(rateLimited('search_daily'));
       expect(timed.rateLimitedFor(), isNull);
 
       await expectLater(
@@ -1195,7 +1195,7 @@ void main() {
 
       final held = timed.rateLimitedFor()!;
       expect(held.isDaily, isTrue);
-      expect(held.limitName, 'read_budget_daily');
+      expect(held.limitName, 'search_daily');
       expect(held.retryAfter, const Duration(minutes: 5));
 
       clock = const Duration(minutes: 2);
@@ -1205,21 +1205,10 @@ void main() {
       expect(timed.rateLimitedFor(), isNull);
     });
 
-    test('the short in-flight hold is not remembered', () async {
-      script[_home]!.add(rateLimited('read_budget_inflight'));
-
-      await expectLater(
-        timed.refresh(home),
-        throwsA(isA<RateLimitedException>()),
-      );
-
-      expect(timed.rateLimitedFor(), isNull);
-    });
-
     test('clearSession forgets the stamp and the hold', () async {
       giveHome([5], since: 's1');
       await timed.refresh(home);
-      script[_home]!.add(rateLimited('read_budget_daily'));
+      script[_home]!.add(rateLimited('search_daily'));
       await expectLater(
         timed.refresh(home),
         throwsA(isA<RateLimitedException>()),
@@ -1232,7 +1221,7 @@ void main() {
     });
   });
 
-  // `author_protected` (ADR-0025 D4) replaces every cached tab of the
+  // `author_protected` replaces every cached tab of the
   // author with the protected view.
   group('author_protected', () {
     final protectedFeeds = [

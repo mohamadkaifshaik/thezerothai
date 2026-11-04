@@ -16,8 +16,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// ADR-0024 D10 wiring: ListSuggestedUsers, ListLikedPosts and GetProfileRelationship each draw on their
-// own per-user bucket, only ListSuggestedUsers has a daily call cap, and none is read-budget exempt or charge-only.
+// Wiring: ListSuggestedUsers, ListLikedPosts and GetProfileRelationship each draw on their
+// own per-user bucket, and only ListSuggestedUsers has a daily call cap.
 var (
 	w3SuggestionsProc = graphv1connect.GraphServiceListSuggestedUsersProcedure
 	w3LikesListProc   = engagementv1connect.EngagementServiceListLikedPostsProcedure
@@ -37,12 +37,6 @@ func TestProfileGraphBuckets_AreSeparateAndUnexempt(t *testing.T) {
 		if rl.PerProcedure[p] == rl.Default {
 			t.Errorf("%s must not share the default bucket", p)
 		}
-		if _, exempt := rl.ReadBudgetExempt[p]; exempt {
-			t.Errorf("%s is on the read-budget exemption list; the list must stay empty", p)
-		}
-		if _, charge := rl.ReadBudgetChargeOnly[p]; charge {
-			t.Errorf("%s is charge-only; only the account operations may be", p)
-		}
 	}
 	named, ok := rl.DailyCaps[w3SuggestionsProc]
 	if !ok || named.Cap == nil || named.Name != "suggestions_daily" {
@@ -50,7 +44,7 @@ func TestProfileGraphBuckets_AreSeparateAndUnexempt(t *testing.T) {
 	}
 	for _, p := range []string{w3LikesListProc, w3RelationProc} {
 		if _, ok := rl.DailyCaps[p]; ok {
-			t.Errorf("%s must not have a daily call cap (a read: the read budget covers it)", p)
+			t.Errorf("%s must not have a daily call cap (a read)", p)
 		}
 	}
 }
@@ -65,7 +59,6 @@ func TestSuggestionsDailyCap_StopsTheCapPlusFirstCall(t *testing.T) {
 	cfg.RateLimit.PerIPPerMinute = 100000
 	cfg.RateLimit.SuggestionsPerUserPerMinute = 100000
 	cfg.RateLimit.LikesListPerUserPerMinute = 100000
-	cfg.RateLimit.ReadBudgetPerUIDPerDay = 1 << 40
 	cfg.RateLimit.SuggestionsCallsPerDay = dailyCap
 	rl := RateLimitConfig(cfg)
 

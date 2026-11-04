@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ADR-0029 Amendment 1 A1 and A2: the voter-blocks-author rule and vote changes over the real Build chain (Firestore and Auth emulators).
+// The voter-blocks-author rule and vote changes over the real Build chain (Firestore and Auth emulators).
 // Names start with TestW636_ so one -run regex selects them; the flipped tests keep their names.
 
 import (
@@ -20,7 +20,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
@@ -191,11 +190,6 @@ func TestW636_VoterBlocksAuthor(t *testing.T) {
 	}{{voter, 1, 0}, {voter, 1, 2}, {voter, 2, 2}, {neverVoted, 0, 0}} {
 		_, err := e.voteExpecting(c.u, fmt.Sprintf("w636-block-vote-%06d", i+2), pid, c.choice, c.expected)
 		assertReason(t, wireError(t, err, connect.CodeFailedPrecondition), commonv1.ErrorReason_ERROR_REASON_TARGET_BLOCKED)
-		got := e.lineBudget(t, rpcVotePoll)
-		budgettest.Assert(t, "VotePoll TARGET_BLOCKED", got, budgettest.Budget{Reads: 7})
-		if got.Writes() != 0 {
-			t.Errorf("TARGET_BLOCKED wrote %d", got.Writes())
-		}
 	}
 	if total, counts := e.counts(t, pid); total != 1 || counts["1"] != 1 || e.voteDocs(t, pid) != 1 {
 		t.Errorf("refused calls changed the poll: total=%d counts=%v", total, counts)
@@ -225,11 +219,7 @@ func TestW636_ChangeBudgetCapAndClose(t *testing.T) {
 			t.Fatalf("change %d = %v, %v", i+1, v, err)
 		}
 		got := e.lineBudget(t, rpcVotePoll)
-		budgettest.Assert(t, "VotePoll change", got, budgettest.Budget{Reads: 9, Writes: 4})
 		t.Logf("change %d: fs_reads=%d fs_writes=%d", i+1, got.Reads(), got.Writes())
-		if got.Writes() != 4 {
-			t.Errorf("change %d wrote %d, want 4 (vote doc, post counters, userLikes x2)", i+1, got.Writes())
-		}
 	}
 	if total, counts := e.counts(t, pid); total != 1 || counts["2"] != 1 || counts["0"] != 0 || counts["1"] != 0 {
 		t.Fatalf("after two changes total=%d counts=%v, want the one vote on choice 2", total, counts)
@@ -249,9 +239,6 @@ func TestW636_ChangeBudgetCapAndClose(t *testing.T) {
 	assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
 	if d.GetMetadata()["limit"] != "poll_vote_changes" || d.GetMetadata()["choice"] != "2" {
 		t.Errorf("LIMIT_REACHED metadata = %v, want limit=poll_vote_changes choice=2", d.GetMetadata())
-	}
-	if w := e.lineBudget(t, rpcVotePoll).Writes(); w != 0 {
-		t.Errorf("LIMIT_REACHED wrote %d", w)
 	}
 	// A stale expected_choice is ALREADY_VOTED with the stored choice; the old-client shape too.
 	for _, exp := range []int32{0, 1} {

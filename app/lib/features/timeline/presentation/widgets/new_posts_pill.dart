@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 
 /// The "N new posts" pill a feed shows instead of inserting posts above what
-/// the user is reading (ADR-0004 section 7). Tap to show them.
+/// the user is reading (section 7). Tap to show them.
 class NewPostsPill extends StatelessWidget {
   const NewPostsPill({super.key, required this.count, required this.onTap});
 

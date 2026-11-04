@@ -102,7 +102,7 @@ func idemKey(op string) string { return fmt.Sprintf("e2e-graph-%s-%d", op, rand.
 
 // eventually polls cond until it returns true or the timeout passes. Emulator mode is single-instance and
 // read-your-writes, so it passes on the first try; remote mode allows for a peer Cloud Run instance's
-// 60 s graph cache (ADR-0008) to expire.
+// 60 s graph cache to expire.
 func (e graphSmokeEnv) eventually(t *testing.T, what string, cond func() (bool, string)) {
 	t.Helper()
 	timeout := 3 * time.Second
@@ -176,7 +176,7 @@ func TestE2E_GraphSmoke_FollowListBlockUnblock(t *testing.T) {
 		t.Fatalf("GetProfile(B) as A before block: %v", err)
 	}
 
-	// 3. B blocks A -> A's GetProfile(B) is NOT_FOUND (byte-identical to a missing profile, ADR-0008 D9).
+	// 3. B blocks A -> A's GetProfile(B) is NOT_FOUND (byte-identical to a missing profile).
 	if _, err := env.graph.Block(ctx, authedRequest(env.tokenB, &graphv1.BlockRequest{IdempotencyKey: idemKey("block"), UserId: env.uidA})); err != nil {
 		t.Fatalf("Block(B->A): %v", err)
 	}
@@ -198,7 +198,7 @@ func TestE2E_GraphSmoke_FollowListBlockUnblock(t *testing.T) {
 	}))
 	assertCode(t, err, connect.CodeNotFound)
 
-	// B's own view: blocking A is reported, and Block removed A's follow of B (ADR-0008 Q3).
+	// B's own view: blocking A is reported, and Block removed A's follow of B.
 	relB, err := env.graph.GetRelationships(ctx, authedRequest(env.tokenB, &graphv1.GetRelationshipsRequest{UserIds: []string{env.uidA}}))
 	if err != nil {
 		t.Fatalf("GetRelationships(B,[A]): %v", err)

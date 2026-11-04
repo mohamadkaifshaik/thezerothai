@@ -4,7 +4,7 @@
 // 	protoc        (unknown)
 // source: dzeroth/media/v1/media.proto
 
-// Media: images only at Stage 0 (ADR-0005; animated GIF for post media behind FEATURE_GIF, ADR-0029). Owner module:
+// Media: images only at Stage 0 (animated GIF for post media behind FEATURE_GIF). Owner module:
 // backend/internal/media.
 // Collections owned: media/{mediaId} (TTL on expireAt while PENDING), admin/vision-{yyyymm} (SafeSearch counter).
 // Bytes never pass through the API: clients PUT to a private upload bucket with V4 signed URLs; approved
@@ -36,11 +36,11 @@ const (
 	// Attach to a post (max 4).
 	MediaPurpose_MEDIA_PURPOSE_POST MediaPurpose = 1
 	// Profile avatar (exactly 1; full 400 px, thumb 96 px). Once replaced or removed it is retired: its two public
-	// objects are deleted 24-48 h later when PROFILE_MEDIA_RETIRE=all (ADR-0024 Amendment 1 A4), and it cannot be set again.
+	// objects are deleted 24-48 h later when PROFILE_MEDIA_RETIRE=all, and it cannot be set again.
 	MediaPurpose_MEDIA_PURPOSE_AVATAR MediaPurpose = 2
-	// Profile banner (cover image; exactly 1; 3:1, full 1500 x 500, thumb 600 x 200; ADR-0024 D1). Needs
+	// Profile banner (cover image; exactly 1; 3:1, full 1500 x 500, thumb 600 x 200). Needs
 	// FEATURE_PROFILE_EXTRAS as well as FEATURE_MEDIA. Set with IdentityService.UpdateProfile(banner_media_id). Once
-	// replaced or removed it is retired like an avatar, when PROFILE_MEDIA_RETIRE is banner or all (ADR-0024 Amendment 1 A4).
+	// replaced or removed it is retired like an avatar, when PROFILE_MEDIA_RETIRE is banner or all.
 	MediaPurpose_MEDIA_PURPOSE_BANNER MediaPurpose = 3
 )
 
@@ -149,7 +149,7 @@ func (MediaStatus) EnumDescriptor() ([]byte, []int) {
 type UploadItem struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// image/webp or image/jpeg (client re-encodes everything else on device); or image/gif for MEDIA_PURPOSE_POST behind
-	// FEATURE_GIF (ADR-0029 D10), uploaded unchanged so it keeps its animation.
+	// FEATURE_GIF, uploaded unchanged so it keeps its animation.
 	ContentType    string `protobuf:"bytes,1,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	FullSizeBytes  int64  `protobuf:"varint,2,opt,name=full_size_bytes,json=fullSizeBytes,proto3" json:"full_size_bytes,omitempty"`
 	ThumbSizeBytes int64  `protobuf:"varint,3,opt,name=thumb_size_bytes,json=thumbSizeBytes,proto3" json:"thumb_size_bytes,omitempty"`
@@ -158,7 +158,7 @@ type UploadItem struct {
 	// Base64 MD5 of each file; bound into the signed URL so GCS rejects altered bytes.
 	FullMd5  string `protobuf:"bytes,6,opt,name=full_md5,json=fullMd5,proto3" json:"full_md5,omitempty"`
 	ThumbMd5 string `protobuf:"bytes,7,opt,name=thumb_md5,json=thumbMd5,proto3" json:"thumb_md5,omitempty"`
-	// The thumbnail's content type (ADR-0029 D10). Empty => the same as content_type (the behaviour before W6, so an
+	// The thumbnail's content type. Empty => the same as content_type (the behaviour before W6, so an
 	// older client is unchanged). For content_type image/gif it is required and must be "image/jpeg" or "image/webp"
 	// (a still first frame); for image/jpeg and image/webp it must be empty or equal to content_type. Bound into the
 	// thumbnail's signed URL like content_type is for the full image.

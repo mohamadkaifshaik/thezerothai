@@ -10,7 +10,7 @@ import 'profile_state.dart';
 
 /// Loads `GetProfile(handle)` and, when the graph flag is on and the profile
 /// isn't the viewer's own, the viewer's relationship to it plus whether it
-/// follows the viewer (ADR-0024 D7: `GetProfileRelationship`, replacing
+/// follows the viewer (`GetProfileRelationship`, replacing
 /// `GetRelationships` here; cached, so a repeat view of the same profile
 /// within a few minutes costs 0 network calls).
 class ProfileCubit extends Cubit<ProfileState> {
@@ -131,7 +131,7 @@ class ProfileCubit extends Cubit<ProfileState> {
   /// Reflects a relationship change (e.g. after Block/Unblock/Mute) without
   /// a full reload.
   void relationshipChanged(graph.Relationship relationship) {
-    // A block removes both follow edges (ADR-0008 D9); the viewer's own
+    // A block removes both follow edges; the viewer's own
     // follow and unfollow never change whether they follow back.
     emit(
       state.copyWith(

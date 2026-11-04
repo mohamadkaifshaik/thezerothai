@@ -7,7 +7,7 @@ import (
 )
 
 // idempotencyKeyIssue mirrors the common.proto convention (16-64 chars, [A-Za-z0-9_-]), delegating to the
-// shared validator (reuse-first: identity/validate.go uses the same one).
+// shared validator (identity/validate.go uses the same one).
 func idempotencyKeyIssue(key string) bool {
 	return !idempotency.KeyFormatValid(key)
 }
@@ -18,7 +18,7 @@ func targetUserIDIssue(id string) bool {
 	return id == "" || !identity.ValidUserID(id)
 }
 
-// relationshipIDsIssue validates GetRelationshipsRequest.user_ids (ADR-0008: "1-50 ids").
+// relationshipIDsIssue validates GetRelationshipsRequest.user_ids ("1-50 ids").
 func relationshipIDsIssue(userIDs []string) (field, reason string) {
 	if len(userIDs) == 0 {
 		return "user_ids", "at least one user_id is required"

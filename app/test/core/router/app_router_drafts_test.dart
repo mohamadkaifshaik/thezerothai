@@ -47,7 +47,7 @@ class _NoThemeStore implements ThemeModeStore {
 }
 
 /// `/drafts`, the `/scheduled` alias and the composer's way into the list, on
-/// the real [AppRouter] (ADR-0029).
+/// the real [AppRouter].
 void main() {
   const user = AppUser(
     uid: 'uid-1',

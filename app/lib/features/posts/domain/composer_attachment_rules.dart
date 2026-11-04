@@ -1,9 +1,9 @@
 /// Name of the polls flag as exposed through `GetMeResponse.enabled_features`
-/// (ADR-0029 D12, `FEATURE_POLLS`). The Poll button needs this and
+/// (`FEATURE_POLLS`). The Poll button needs this and
 /// `engagement`. A missing name means off. Never hardcode `'polls'` elsewhere.
 const kFeaturePolls = 'polls';
 
-/// Name of the GIF flag (ADR-0029 D12, `FEATURE_GIF`). The GIF button needs
+/// Name of the GIF flag (`FEATURE_GIF`). The GIF button needs
 /// this and `media`. A missing name means off. Never hardcode `'gif'`
 /// elsewhere.
 const kFeatureGif = 'gif';
@@ -19,7 +19,7 @@ enum ComposerBlock {
   hasPhotos,
 
   /// A community is chosen as the audience: SchedulePost takes no
-  /// `community_id` (ADR-0031 D5).
+  /// `community_id`.
   inCommunity;
 
   /// The tooltip of a button that this block disables.
@@ -53,7 +53,7 @@ enum ComposerBlock {
 }
 
 /// What the composer's bottom bar offers, in X's order (photo, GIF, poll,
-/// schedule): one place decides it (ADR-0029 F4/F5); widgets read the
+/// schedule): one place decides it; widgets read the
 /// answer and never restate a rule.
 ///
 /// Inputs are facts about the draft: [hasPhotos], [hasGif] and [hasPoll] say

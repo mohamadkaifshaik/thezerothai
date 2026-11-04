@@ -1,6 +1,6 @@
 //go:build integration
 
-// invariants_integration_test.go is the reusable posts invariant checker (ADR-0010 D12 /, modelled on graph's
+// invariants_integration_test.go is the reusable posts invariant checker (modelled on graph's
 // invariants_integration_test.go). The pure checker (postsInvariantViolations) has negative self-tests proving it can
 // fail; the Firestore loader backs assertPostsInvariants, which newCreateInstance registers as a t.Cleanup so every
 // create/delete emulator scenario ends with a full sweep.

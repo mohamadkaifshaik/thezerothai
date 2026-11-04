@@ -12,7 +12,7 @@ import '../../domain/media_feature_flag.dart';
 import '../../domain/processed_image.dart';
 
 /// What an attachment is. A post has up to [kMaxPostImages] photos, or one
-/// GIF, never both (ADR-0029 F5; the rule lives in `ComposerAttachmentRules`).
+/// GIF, never both (the rule lives in `ComposerAttachmentRules`).
 enum AttachmentKind { photo, gif }
 
 enum AttachmentStatus {
@@ -34,7 +34,7 @@ enum AttachmentStatus {
   /// Uploaded, but the server could not check it (image checks were
   /// unavailable after the automatic retries). The upload is kept: the tile's
   /// Retry repeats FinalizeUpload for the same media id, with no re-upload
-  /// (ADR-0029 Amendment 1 A5.6). Post waits until it is checked.
+  ///Post waits until it is checked.
   unchecked,
 
   /// The server refused the image; remove it.
@@ -455,7 +455,7 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     );
   }
 
-  /// The tile's Retry (ADR-0029 Amendment 1 A5.6): FinalizeUpload again for
+  /// The tile's Retry: FinalizeUpload again for
   /// the same media id. The uploader remembers the finished PUTs, so nothing
   /// is re-uploaded and no upload quota is spent.
   Future<void> retryCheck(String id) async {

@@ -27,7 +27,7 @@ AppException searchErrorToApp(Object error) {
   return const UnknownApiException('Something went wrong.');
 }
 
-/// One results tab (ADR-0028): `SearchPeople` for People, one
+/// One results tab: `SearchPeople` for People, one
 /// `SearchPosts` per post tab, nothing else.
 ///
 /// - **Cost.** One call on first show; a post tab asks the next page only on
@@ -151,7 +151,7 @@ class SearchResultsCubit extends Cubit<SearchResultsState> {
           SearchResultsState(
             status: SearchResultsStatus.ready,
             posts: page.posts,
-            // Top is one page with no token (ADR-0028).
+            // Top is one page with no token.
             nextPageToken: tab == SearchResultsTab.top
                 ? null
                 : page.nextPageToken,

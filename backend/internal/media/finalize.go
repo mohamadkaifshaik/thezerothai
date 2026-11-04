@@ -11,7 +11,14 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
+)
+
+// The Error Reporting operations of the two goroutine kinds below.
+const (
+	finalizeWorkerOp = "media/finalize_worker"
+	screenWorkerOp   = "media/screen_worker"
 )
 
 // FinalizeUpload implements Service.
@@ -143,7 +150,7 @@ func validateFinalize(items []FinalizeItem) error {
 // request's own deadline is the 20 s finalizeDeadline (server.go), and that binds first: it ends the request, and with it the claim window, at 20 s
 // from the start, well under this 30 s TTL and under Cloud Run's 30 s request timeout. What the slot wait takes is taken from the Vision calls,
 // which get the lesser of their own 10 s and what is left (about 8 s in that worst case): screenAll does not start them with under minVisionBudget (3 s)
-// left, so the tail costs a retry, not units (L-3; the shape of the worst case is ADR-0029 N4, the founder's decision to measure it
+// left, so the tail costs a retry, not units (L-3; the founder decided to measure that worst case
 // before raising the deadline). A GIF that runs past the TTL degrades exactly as described above: it is correct, only the double-spend guard is lost.
 const screeningClaimTTL = 30 * time.Second
 
@@ -182,8 +189,22 @@ func (s *service) finalizeShared(ctx context.Context, uid string, d *Doc, blurha
 	return out.r, out.spent, err
 }
 
+// recoverWorker, deferred directly in work that runs on a goroutine of its own (the request's recover interceptor does not
+// cover those), turns a panic into *err and reports it, so that it fails one call instead of ending the instance and every
+// request on it. Only the panic's type is logged: its value may hold a uid.
+func (s *service) recoverWorker(ctx context.Context, op, uid string, err *error) {
+	if v := recover(); v != nil {
+		*err = fmt.Errorf("%s: panic of type %T", op, v)
+		mw.ReportError(ctx, s.Log.With(logger.TraceAttrs(ctx)...), op, logger.ScrubErr(*err, uid))
+	}
+}
+
 // finalizeOne verifies, screens and publishes one image. spent is the Vision units it consumed.
+//
+// It recovers its own panics: under finalizeShared's singleflight one that escapes is re-raised once per waiting caller,
+// and its error text carries the panic value, which may hold a uid.
 func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash string) (_ Result, spent int64, err error) {
+	defer s.recoverWorker(ctx, finalizeWorkerOp, uid, &err)
 	if d.Status != string(StatusPending) {
 		return s.resultOf(d), 0, nil // idempotent: already READY / REJECTED
 	}
@@ -193,7 +214,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	if d.ScreeningUntil != nil && d.ScreeningUntil.After(s.Now()) {
 		return s.screeningElsewhere(ctx, uid, d)
 	}
-	// 0b. Attempt cap (security H-3, revised later, ADR-0029 Amendment 1 A5.4): a document with MEDIA_MAX_SCREEN_ATTEMPTS assessed attempts, or
+	// 0b. Attempt cap (security H-3, revised later): a document with MEDIA_MAX_SCREEN_ATTEMPTS assessed attempts, or
 	// that took MEDIA_MAX_SCREEN_ATTEMPTS + MEDIA_MAX_SCREEN_RETRIES claims, is REJECTED here, before verify, the units cap, the claim and any
 	// Vision call, so a looped FinalizeUpload cannot bill forever. Outages and busy slots consume no attempt, only (at most) a retry.
 	if which := s.attemptsExhausted(d); which != "" {
@@ -270,8 +291,12 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 			}
 		}
 	}()
+	// Runs before the defer above, so a panic from here on still releases the claim. The units spent reach the counter only
+	// for a panic after screening returns: one inside screening leaves spent at 0 and the daily units refunded, a loss the
+	// attempt cap bounds. The recover at the top of this function only sees panics from before the claim.
+	defer s.recoverWorker(ctx, finalizeWorkerOp, uid, &err)
 
-	// 2. Moderate: every image is screened while the monthly cap lasts (ADR-0005).
+	// 2. Moderate: every image is screened while the monthly cap lasts.
 	status := StatusReady
 	ok, err := s.vision.reserve(ctx, units)
 	if err != nil {
@@ -323,7 +348,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	} else {
 		logger.SetRequestField(ctx, fieldExhausted, true)
 		if d.ContentType == ContentTypeGIF {
-			// ADR-0029 F11 point 4: at the cap a GIF is REJECTED for every account, never READY_UNSCREENED (a GIF is not
+			// Point 4: at the cap a GIF is REJECTED for every account, never READY_UNSCREENED (a GIF is not
 			// screened by anything but Vision, and report-driven review is slower for an animation).
 			r, err := s.reject(ctx, d, reasonCapacity)
 			return r, 0, err
@@ -541,8 +566,8 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verif
 	return "", gens, nil
 }
 
-// screensThumb reports whether the thumbnail is screened too: always for a BANNER (ADR-0024 D1: 2 Vision units, the
-// thumb is a separate upload) and for a GIF (ADR-0029 D11,: sheet by bytes + thumbnail = 2 units; the thumbnail is
+// screensThumb reports whether the thumbnail is screened too: always for a BANNER (2 Vision units, the thumb is a separate upload)
+// and for a GIF (: sheet by bytes + thumbnail = 2 units; the thumbnail is
 // a client-made still that lists show, and nothing ties it to the GIF's frames), otherwise per VISION_SCREEN_THUMB.
 func (s *service) screensThumb(d *Doc) bool {
 	return s.ScreenThumb || d.Purpose == string(PurposeBanner) || d.ContentType == ContentTypeGIF
@@ -610,6 +635,7 @@ func (s *service) screenAll(ctx context.Context, d *Doc, calls []func(context.Co
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer s.recoverWorker(ctx, screenWorkerOp, d.OwnerID, &outs[i].err)
 			outs[i].ss, outs[i].err = call(ctx)
 		}()
 	}
@@ -644,8 +670,8 @@ func (s *service) screenAll(ctx context.Context, d *Doc, calls []func(context.Co
 	return res, err
 }
 
-// blockedBySafeSearch is ADR-0005's policy: LIKELY or VERY_LIKELY adult or violence, and racy for avatars and
-// banners (ADR-0024 D1).
+// blockedBySafeSearch is the policy: LIKELY or VERY_LIKELY adult or violence, and racy for avatars and
+// banners.
 func blockedBySafeSearch(ss SafeSearch, p Purpose) bool {
 	if ss.Adult >= LikelihoodLikely || ss.Violence >= LikelihoodLikely {
 		return true
@@ -653,7 +679,7 @@ func blockedBySafeSearch(ss SafeSearch, p Purpose) bool {
 	return (p == PurposeAvatar || p == PurposeBanner) && ss.Racy >= LikelihoodLikely
 }
 
-// establishedAccount reports whether uid may publish unscreened once the cap is spent (ADR-0005): the policy
+// establishedAccount reports whether uid may publish unscreened once the cap is spent: the policy
 // allows it and the account is older than 7 days. There is no upheld-report signal until the reports slice.
 func (s *service) establishedAccount(ctx context.Context, uid string) (bool, error) {
 	if s.Policy != config.VisionPolicyEstablished {

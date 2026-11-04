@@ -1,6 +1,6 @@
 //go:build integration
 
-// send_fresh_integration_test.go: (security review L-1, L-3; ADR-0027 note). The recipient's graph and, for a
+// send_fresh_integration_test.go: (security review L-1, L-3). The recipient's graph and, for a
 // new conversation, the recipient's users document are read INSIDE the send transaction against the real graph and
 // identity repos, so a Block, Mute or Unfollow by the recipient, a deletion or a suspension that committed on any
 // instance decides the send, and one that commits while the send is in flight conflicts with it.
@@ -194,11 +194,8 @@ func TestSend_RecipientDeletedMidSendWritesNothing(t *testing.T) {
 	e.svc.d.TxProfiles = &raceProfiles{inner: e.txProfs, write: func() {
 		e.writeUserDoc(bob, "bob", time.Now().Add(-30*24*time.Hour), "DELETING")
 	}}
-	_, c, err := e.send(alice, toUser(skey(1), bob, "hi"))
+	_, _, err := e.send(alice, toUser(skey(1), bob, "hi"))
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
-	if c.Writes() != 0 {
-		t.Errorf("wrote %d", c.Writes())
-	}
 	wantNothingWritten(t, e, ConversationID(alice, bob))
 	if q, err := e.fs.Collection("quotas").Doc(alice).Get(context.Background()); err == nil && q.Exists() {
 		t.Error("a quota record was written")

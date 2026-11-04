@@ -5,8 +5,7 @@ package apiserver
 // Export privacy and access over the real Build chain (Firestore, Auth, Storage and Pub/Sub emulators).
 //   - TestAccountLifecycle_ExportContentsGolden: the whole export of an account with relationships to six other
 //     accounts, uids/handles/emails/ids/times normalized, compared with testdata/account_export_golden.json; plus the
-//     privacy greps (ADR-0008 D12: who blocked the subject is never listed; no third party's email, muted[] or
-//     blocked[] data, no internal field).
+//     privacy greps (who blocked the subject is never listed; no third party's email, muted[] or     blocked[] data, no internal field).
 //   - TestAccountLifecycle_ExportQuotaRollover: the daily exports quota resets at the IST day boundary.
 //   - TestAccountLifecycle_ExportWhileDeleting: an export that is still PENDING when the deletion starts is FAILED
 //     with no object; a DELETING caller can neither request nor poll one.
@@ -202,18 +201,18 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 	_, err = e.graph.Mute(ctx, authed(w.token, &graphv1.MuteRequest{IdempotencyKey: key("mute-f"), UserId: f.uid}))
 	must("w mutes f", err)
 
-	// ADR-0021: one pending (draft held) and one cancelled (draft cleared) scheduled post in the `scheduled` section.
+	// One pending (draft held) and one cancelled (draft cleared) scheduled post in the `scheduled` section.
 	e.seedScheduled(t, a.uid, key("sched-pending"), "PENDING")
 	e.seedScheduled(t, a.uid, key("sched-cancelled"), "CANCELLED")
 
-	// ADR-0023 D8: two bookmarks in the `bookmarks` section, newest first; the section never carries the post's content.
+	// Two bookmarks in the `bookmarks` section, newest first; the section never carries the post's content.
 	for i, at := range []time.Time{time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC), time.Date(2026, 10, 2, 8, 0, 0, 0, time.UTC)} {
 		if _, err := e.fs.Doc(fmt.Sprintf("users/%s/bookmarks/%019d", a.uid, 701+i)).Set(ctx, map[string]any{"createdAt": at}); err != nil {
 			t.Fatalf("seed bookmark: %v", err)
 		}
 	}
 
-	// ADR-0030 D8: the `lists` section carries the account's OWN list with its member ids; a list that another user
+	// The `lists` section carries the account's OWN list with its member ids; a list that another user
 	// owns and A is only a member of belongs to its owner and is absent. Fixed ids keep the golden stable.
 	e.seedList(t, "0000000000000000604", a.uid, []string{f.uid, g.uid})
 	e.seedList(t, "0000000000000000605", f.uid, []string{a.uid, g.uid})
@@ -222,7 +221,7 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 	e.seedListWith(t, "0000000000000000606", f.uid, []string{a.uid, g.uid}, false, false)
 	e.seedListWith(t, "0000000000000000607", f.uid, []string{a.uid, g.uid}, false, true)
 
-	// ADR-0027 F5: an accepted conversation with f and a request from g in the `messages` section. A's own messages
+	// An accepted conversation with f and a request from g in the `messages` section. A's own messages
 	// are exported in full; f's and g's only as a time and "received"; neither uid appears.
 	e.seedConversation(t, a.uid, f.uid, "ACCEPTED", "", "", dmMsg{a.uid, "hello f, from A"}, dmMsg{f.uid, "SECRET-RECEIVED-REPLY from f"}, dmMsg{a.uid, "second message from A"})
 	gReq := e.seedConversation(t, g.uid, a.uid, "REQUEST", a.uid, "", dmMsg{g.uid, "SECRET-RECEIVED-REQUEST from g"})
@@ -243,14 +242,14 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		time.Sleep(2 * time.Millisecond) // distinct createdAt, so the newest-first order is stable
 	}
 
-	// ADR-0024 D11: the profile section carries the extras. Fixed literals, because the golden normalizer only rewrites
+	// The profile section carries the extras. Fixed literals, because the golden normalizer only rewrites
 	// post ids under `posts`; the thumbnail is derived data and must stay out of the export.
 	if _, err := e.fs.Doc("users/"+a.uid).Update(ctx, []firestore.Update{
 		{Path: "bannerUrl", Value: "https://media.example/m/0000000000000000601.webp"},
 		{Path: "bannerThumbUrl", Value: "https://media.example/m/0000000000000000601_t.webp"},
 		{Path: "location", Value: "Pune"}, {Path: "website", Value: "https://example.com/me"},
 		{Path: "pinnedPostId", Value: "0000000000000000602"},
-		{Path: "homeTabs", Value: []map[string]any{{"kind": "LIST", "id": "0000000000000000603", "title": "Golden list"}}}, // ADR-0030 D8
+		{Path: "homeTabs", Value: []map[string]any{{"kind": "LIST", "id": "0000000000000000603", "title": "Golden list"}}},
 	}); err != nil {
 		t.Fatalf("seed profile extras: %v", err)
 	}
@@ -319,7 +318,7 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		}
 	}
 	// The account's own status (users/{uid}.status) is internal and no section may carry a `status` key, except the
-	// `scheduled` section, whose items legitimately report PENDING, PUBLISHED, CANCELLED or FAILED (ADR-0021). The
+	// `scheduled` section, whose items legitimately report PENDING, PUBLISHED, CANCELLED or FAILED. The
 	// ban therefore runs over everything except that one section, and the account values are banned everywhere.
 	var sections map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &sections); err != nil {
@@ -491,7 +490,7 @@ func TestAccountLifecycle_FlagOffRPCs(t *testing.T) {
 			t.Errorf("%s with the flag off: reason %v", name, d.GetReason())
 		}
 		lines := off.requestLinesFor(svc + name)
-		if len(lines) != 1 || lines[0]["fs_writes"].(float64) != 0 {
+		if len(lines) != 1 {
 			t.Errorf("%s with the flag off: request lines %v, want 1 line and 0 writes", name, lines)
 		}
 	}

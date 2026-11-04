@@ -96,7 +96,7 @@ class ThreadState {
 
   /// The community the conversation belongs to: the root post's label (the
   /// focal post itself when it is the root). Null when there is none or the
-  /// root is unavailable (a hidden root has no label, ADR-0031 R3).
+  /// root is unavailable (a hidden root has no label).
   pb.CommunityRef? get rootCommunity {
     final f = focal;
     if (f == null) return null;
@@ -164,7 +164,7 @@ class ThreadState {
 ///   succeeds again).
 /// - A failed page stops automatic paging: only [retryLoadMore] (the inline
 ///   Retry) tries again. While a RATE_LIMITED hold runs, the repository
-///   answers with it without sending (shared `RateLimitHold`).
+///   answers with it without sending (`RateLimitHold`).
 /// - Posts that leave every cached feed ([PostsRepository.removedPosts]) are
 ///   dropped from the replies; a removed parent/root becomes a tombstone.
 class ThreadCubit extends Cubit<ThreadState> {

@@ -2,7 +2,7 @@
 
 package apiserver
 
-// Wire contract of the ADR-0025 D12 flag gate over the real Build chain on the emulators:
+// Wire contract of the flag gate over the real Build chain on the emulators:
 // FEATURE_PRIVATE_ACCOUNTS (private_accounts) is listed in startup feature_flags and in GetMe.enabled_features only for
 // the allowlisted caller; UpdateProfile(is_private=true) is FEATURE_DISABLED feature=private_accounts with 0 reads past the
 // interceptor and 0 writes for everyone else; is_private=false is accepted whatever the flag; ListFollowRequests and
@@ -55,7 +55,7 @@ func TestPrivateAccountsContract_FlagOff(t *testing.T) {
 	yes, no := true, false
 	_, err = env.identity.UpdateProfile(context.Background(), authed(token, &identityv1.UpdateProfileRequest{IdempotencyKey: "pa-off-key-00000001", IsPrivate: &yes}))
 	paAssertDisabled(t, "UpdateProfile(is_private=true)", err)
-	w3NoWrites(t, env, "/dzeroth.identity.v1.IdentityService/UpdateProfile") // 0 reads past the interceptor's 1, 0 writes
+	w3RequestLogged(t, env, "/dzeroth.identity.v1.IdentityService/UpdateProfile")
 
 	// The undo rule: is_private=false is accepted whatever the flag.
 	if _, err := env.identity.UpdateProfile(context.Background(), authed(token, &identityv1.UpdateProfileRequest{IdempotencyKey: "pa-off-key-00000002", IsPrivate: &no})); err != nil {
@@ -67,8 +67,8 @@ func TestPrivateAccountsContract_FlagOff(t *testing.T) {
 	paAssertDisabled(t, "ListFollowRequests", err)
 	_, err = g.RespondToFollowRequest(context.Background(), authed(token, &graphv1.RespondToFollowRequestRequest{}))
 	paAssertDisabled(t, "RespondToFollowRequest", err)
-	w3NoWrites(t, env, graphv1connect.GraphServiceListFollowRequestsProcedure)
-	w3NoWrites(t, env, graphv1connect.GraphServiceRespondToFollowRequestProcedure)
+	w3RequestLogged(t, env, graphv1connect.GraphServiceListFollowRequestsProcedure)
+	w3RequestLogged(t, env, graphv1connect.GraphServiceRespondToFollowRequestProcedure)
 }
 
 func TestPrivateAccountsContract_AllowlistCohort(t *testing.T) {

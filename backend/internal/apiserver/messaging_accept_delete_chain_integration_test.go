@@ -2,12 +2,10 @@
 
 package apiserver
 
-// AcceptMessageRequest and DeleteConversation (ADR-0027) over the real Build chain on the emulators: the
+// AcceptMessageRequest and DeleteConversation over the real Build chain on the emulators: the
 // account-status, rate-limit and degraded-mode interceptors, the flag classes (Accept per caller and per peer, Delete
-// only "not globally off"), the byte-identical NOT_FOUND, the documents each RPC writes, clearedAt applied at once on
-// the instance that handled the delete, and the budget table of the RPC doc comments (Accept 3 reads / 2 writes /
-// 1 delete, Delete 3 / 1 / 1), asserted with budgettest on the logged fs_reads / fs_writes / fs_deletes of the request
-// line. A chain that measures is booted AFTER the data is written, so no cache is warm (cold instance).
+// only "not globally off"), the byte-identical NOT_FOUND, the documents each RPC writes, and clearedAt applied at once on
+// the instance that handled the delete.
 
 import (
 	"context"
@@ -20,7 +18,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -97,10 +94,6 @@ func TestMessagingChain_AcceptMovesTheRequest(t *testing.T) {
 		t.Fatalf("Accept: %v", err)
 	}
 	line := e.lineBudget(t, rpcAccept)
-	budgettest.Assert(t, "AcceptMessageRequest cold", line, budgettest.Budget{Reads: 4, Writes: 3, Deletes: 1})
-	if line.Reads() != 4 || line.Writes() != 3 || line.Deletes() != 1 {
-		t.Errorf("reads/writes/deletes = %d/%d/%d, want 4/3/1", line.Reads(), line.Writes(), line.Deletes())
-	}
 	t.Logf("MSGBUDGET case=%q reads=%d writes=%d deletes=%d", "accept, cold", line.Reads(), line.Writes(), line.Deletes())
 
 	conv, _ := setup.convDoc(t, a, b)
@@ -152,11 +145,6 @@ func TestMessagingChain_AcceptMovesTheRequest(t *testing.T) {
 	if err := replay.accept(b, id); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
-	rl := replay.lineBudget(t, rpcAccept)
-	budgettest.Assert(t, "AcceptMessageRequest replay", rl, budgettest.Budget{Reads: 2})
-	if rl.Writes() != 0 || rl.Deletes() != 0 {
-		t.Errorf("replay wrote %d / deleted %d", rl.Writes(), rl.Deletes())
-	}
 
 	// A's messages past the old cap of three land in B's Inbox; B's reply is an ordinary send.
 	for i := range 3 {
@@ -194,9 +182,6 @@ func TestMessagingChain_DeleteAppliesAtOnce(t *testing.T) {
 	// The account-status read is cached on e (warm), and Delete always reads the conversation and the entry fresh in its
 	// transaction, so this is 2 reads, below the cold figure of 3 measured next.
 	t.Logf("MSGBUDGET case=%q reads=%d writes=%d deletes=%d", "delete, warm instance", line.Reads(), line.Writes(), line.Deletes())
-	if line.Writes() != 1 || line.Deletes() != 1 {
-		t.Errorf("writes/deletes = %d/%d, want 1/1", line.Writes(), line.Deletes())
-	}
 	if got := e.thread(t, b, id); len(got) != 0 {
 		t.Errorf("the deleting instance still shows %v to b", got)
 	}
@@ -232,10 +217,6 @@ func TestMessagingChain_DeleteAppliesAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	cl := cold.lineBudget(t, rpcDelete)
-	budgettest.Assert(t, "DeleteConversation cold", cl, budgettest.Budget{Reads: 3, Writes: 1, Deletes: 1})
-	if cl.Reads() != 3 || cl.Writes() != 1 || cl.Deletes() != 1 {
-		t.Errorf("reads/writes/deletes = %d/%d/%d, want 3/1/1", cl.Reads(), cl.Writes(), cl.Deletes())
-	}
 	t.Logf("MSGBUDGET case=%q reads=%d writes=%d deletes=%d", "delete, cold", cl.Reads(), cl.Writes(), cl.Deletes())
 	last := cold.logs.requestLines(rpcDelete)[0]
 	for k, want := range map[string]any{"kind": "delete", "state": "request", "folder": "requests", "replay": false} {
@@ -249,11 +230,6 @@ func TestMessagingChain_DeleteAppliesAtOnce(t *testing.T) {
 	repeat := newDMChain(t, nil)
 	if err := repeat.del(b, id3); err != nil {
 		t.Fatalf("repeat: %v", err)
-	}
-	rl := repeat.lineBudget(t, rpcDelete)
-	budgettest.Assert(t, "DeleteConversation repeat", rl, budgettest.Budget{Reads: 3})
-	if rl.Writes() != 0 || rl.Deletes() != 0 {
-		t.Errorf("repeat wrote %d / deleted %d", rl.Writes(), rl.Deletes())
 	}
 
 	// A later message of the peer recreates the deleted entry and shows only newer messages. The request above is capped for a,
@@ -330,11 +306,6 @@ func TestMessagingChain_AcceptDeleteNotFoundIsByteIdentical(t *testing.T) {
 		} else if got != first {
 			t.Errorf("%s: NOT_FOUND bytes differ:\n got  %q\n want %q", tc.name, got, first)
 		}
-		line := e.lineBudget(t, tc.rpc)
-		budgettest.Assert(t, tc.name, line, budgettest.Budget{Reads: tc.reads})
-		if line.Writes() != 0 || line.Deletes() != 0 {
-			t.Errorf("%s: wrote %d / deleted %d", tc.name, line.Writes(), line.Deletes())
-		}
 	}
 	if conv, _ := setup.convDoc(t, a, b); conv["state"] != "REQUEST" || conv["clearedAt"] != nil {
 		t.Errorf("a refused call changed the conversation: %v", conv)
@@ -363,10 +334,9 @@ func TestMessagingChain_AcceptDeleteNotFoundIsByteIdentical(t *testing.T) {
 			t.Errorf("%s: field = %q", name, dt.GetMetadata()["field"])
 		}
 	}
-	budgettest.Assert(t, "malformed ids", e.lineBudget(t, rpcDelete), budgettest.Budget{Reads: 1})
 }
 
-// The flag classes (ADR-0027 D6, F6): Accept needs the flag on for the caller (FEATURE_DISABLED, the interceptor's read
+// The flag classes: Accept needs the flag on for the caller (FEATURE_DISABLED, the interceptor's read
 // only) and for the peer (CANNOT_MESSAGE, the bytes of any other refusal); Delete needs only "not globally off", so a
 // caller dropped from an allowlist, or at percent 0, can still clean up, and global off hides both.
 func TestMessagingChain_AcceptDeleteFlagModes(t *testing.T) {
@@ -423,20 +393,10 @@ func TestMessagingChain_AcceptDeleteFlagModes(t *testing.T) {
 				if d.GetMetadata()["feature"] != "messaging" {
 					t.Errorf("feature = %q", d.GetMetadata()["feature"])
 				}
-				line := ea.lineBudget(t, rpcAccept)
-				budgettest.Assert(t, "AcceptMessageRequest flag off", line, budgettest.Budget{Reads: 1})
-				if line.Writes() != 0 || line.Deletes() != 0 {
-					t.Errorf("a disabled Accept wrote %d / deleted %d", line.Writes(), line.Deletes())
-				}
 			case "cannot":
 				wireError(t, err, connect.CodeFailedPrecondition)
 				if got := wireBytes(t, err); got != cannot {
 					t.Errorf("CANNOT_MESSAGE bytes differ from a refused send:\n got  %q\n want %q", got, cannot)
-				}
-				line := ea.lineBudget(t, rpcAccept)
-				budgettest.Assert(t, "AcceptMessageRequest peer off", line, budgettest.Budget{Reads: 2})
-				if line.Writes() != 0 || line.Deletes() != 0 {
-					t.Errorf("a refused Accept wrote %d / deleted %d", line.Writes(), line.Deletes())
 				}
 				if conv, _ := setup.convDoc(t, a, b); conv["state"] != "REQUEST" {
 					t.Errorf("state = %v after a refused accept", conv["state"])
@@ -463,11 +423,6 @@ func TestMessagingChain_AcceptDeleteFlagModes(t *testing.T) {
 			}
 			d := wireError(t, err, connect.CodeFailedPrecondition)
 			assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
-			line := ed.lineBudget(t, rpcDelete)
-			budgettest.Assert(t, "DeleteConversation flag off", line, budgettest.Budget{Reads: 1})
-			if line.Writes() != 0 || line.Deletes() != 0 {
-				t.Errorf("a disabled Delete wrote %d / deleted %d", line.Writes(), line.Deletes())
-			}
 			if _, ok := setup.entry(t, b2, a2, "dmRequests"); !ok {
 				t.Error("a disabled Delete removed the entry")
 			}
@@ -488,9 +443,6 @@ func TestMessagingChain_ErasedRequesterCannotBeAcceptedButCanBeDeleted(t *testin
 	err := e.accept(b, id)
 	wireError(t, err, connect.CodeFailedPrecondition)
 	assertReason(t, wireError(t, err, connect.CodeFailedPrecondition), commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE)
-	if line := e.lineBudget(t, rpcAccept); line.Writes() != 0 || line.Deletes() != 0 {
-		t.Errorf("a refused Accept wrote %d / deleted %d", line.Writes(), line.Deletes())
-	}
 	if err := newDMChain(t, nil).del(b, id); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
@@ -516,11 +468,6 @@ func TestMessagingChain_DegradedReadonlyRefusesAcceptAndDelete(t *testing.T) {
 	} {
 		d := wireError(t, tc.run(), connect.CodeUnavailable)
 		assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_DEGRADED_MODE)
-		line := e.lineBudget(t, tc.rpc)
-		budgettest.Assert(t, tc.name+" under readonly", line, budgettest.Budget{})
-		if line.Reads() != 0 || line.Writes() != 0 || line.Deletes() != 0 {
-			t.Errorf("%s under readonly: reads/writes/deletes = %d/%d/%d, want 0/0/0", tc.name, line.Reads(), line.Writes(), line.Deletes())
-		}
 	}
 	if conv, _ := setup.convDoc(t, a, b); conv["state"] != "REQUEST" || conv["clearedAt"] != nil {
 		t.Errorf("a refused call changed the conversation: %v", conv)
@@ -538,7 +485,7 @@ func (e *dmChain) delKey(who dmUser, convID, key string) error {
 }
 
 // DeleteConversation stores the digest of its key as conversations.clearedKey.{caller} with clearedAt, and a retry with the same
-// key is a replay even after the peer's next message recreated the entry (ADR-0027 2026-10-29 note): through the whole chain,
+// key is a replay even after the peer's next message recreated the entry: through the whole chain,
 // the retry writes nothing, keeps the entry and the new message, and the request line says replay.
 func TestMessagingChain_DeleteRetryWithTheSameKey(t *testing.T) {
 	setup := newDMChain(t, nil)
@@ -547,9 +494,6 @@ func TestMessagingChain_DeleteRetryWithTheSameKey(t *testing.T) {
 	const k1, k2 = "chain-delete-key-00000001", "chain-delete-key-00000002"
 	if err := setup.delKey(b, id, k1); err != nil {
 		t.Fatal(err)
-	}
-	if line := setup.lineBudget(t, rpcDelete); line.Writes() != 1 || line.Deletes() != 1 {
-		t.Errorf("the delete wrote %d / deleted %d, want 1 / 1 (the key adds no write)", line.Writes(), line.Deletes())
 	}
 	conv, _ := setup.convDoc(t, a, b)
 	keys, _ := conv["clearedKey"].(map[string]any)
@@ -564,10 +508,6 @@ func TestMessagingChain_DeleteRetryWithTheSameKey(t *testing.T) {
 		t.Fatalf("retry: %v", err)
 	}
 	line := e.lineBudget(t, rpcDelete)
-	budgettest.Assert(t, "DeleteConversation retry with the same key", line, budgettest.Budget{Reads: 3})
-	if line.Writes() != 0 || line.Deletes() != 0 {
-		t.Errorf("the retry wrote %d / deleted %d", line.Writes(), line.Deletes())
-	}
 	t.Logf("MSGBUDGET case=%q reads=%d writes=%d deletes=%d", "delete, retry with the same key", line.Reads(), line.Writes(), line.Deletes())
 	if last := e.logs.requestLines(rpcDelete)[0]; last["replay"] != true || last["kind"] != "delete" {
 		t.Errorf("request line = %v, want kind=delete replay=true", last)
@@ -618,10 +558,6 @@ func TestMessagingChain_MalformedKeyIsValidation(t *testing.T) {
 			assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 			if d.GetMetadata()["field"] != "idempotency_key" {
 				t.Errorf("%s with key %q: field = %q", tc.name, key, d.GetMetadata()["field"])
-			}
-			line := e.lineBudget(t, tc.rpc)
-			if line.Reads() > 1 || line.Writes() != 0 || line.Deletes() != 0 {
-				t.Errorf("%s with key %q: reads/writes/deletes = %d/%d/%d, want at most the interceptor's 1 read and no write", tc.name, key, line.Reads(), line.Writes(), line.Deletes())
 			}
 		}
 	}

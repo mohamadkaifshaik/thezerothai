@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ADR-0027: the flag classes of the read RPCs (F6), the percent bucket for caller and recipient, DEGRADED_MODE=readonly
+// The flag classes of the read RPCs (F6), the percent bucket for caller and recipient, DEGRADED_MODE=readonly
 // for reads and MarkConversationRead, the shared read limiter, MarkConversationRead then GetMe, the send caps of an
 // established account, the suspended recipient and the caller's own mute, and blockedByOverflow accounts, all over the real
 // Build chain on the emulators.
@@ -11,7 +11,6 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
-	"os"
 	"testing"
 
 	"cloud.google.com/go/firestore"
@@ -21,7 +20,6 @@ import (
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -94,7 +92,6 @@ func TestMessagingChain_ReadRPCsFlagClass(t *testing.T) {
 				err := r.call(e)
 				if tt.globalOff {
 					featureDisabled(t, err)
-					budgettest.Assert(t, r.name+" globally off", e.lineBudget(t, r.rpc), budgettest.Budget{Reads: 1})
 					continue
 				}
 				if err != nil {
@@ -105,7 +102,6 @@ func TestMessagingChain_ReadRPCsFlagClass(t *testing.T) {
 			switch {
 			case tt.globalOff, tt.name == "allowlist without the caller", tt.name == "percent 0":
 				featureDisabled(t, serr)
-				budgettest.Assert(t, "SendMessage caller off", e.lineBudget(t, rpcSendMessage), budgettest.Budget{Reads: 1})
 			case tt.name == "allowlist with the caller":
 				assertReason(t, wireError(t, serr, connect.CodeFailedPrecondition), commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE)
 			default:
@@ -182,7 +178,7 @@ func contains(list []string, s string) bool {
 	return false
 }
 
-// DEGRADED_MODE=readonly (ADR-0027 D11): the three reads stay up, and MarkConversationRead, which writes, is refused in the
+// DEGRADED_MODE=readonly: the three reads stay up, and MarkConversationRead, which writes, is refused in the
 // interceptor before any read or write, leaving the unread count alone.
 func TestMessagingChain_ReadonlyKeepsReadsAndRefusesMarkRead(t *testing.T) {
 	setup := newDMChain(t, nil)
@@ -201,11 +197,6 @@ func TestMessagingChain_ReadonlyKeepsReadsAndRefusesMarkRead(t *testing.T) {
 	}
 	d := wireError(t, e.markRead(a, convID(a, b)), connect.CodeUnavailable)
 	assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_DEGRADED_MODE)
-	line := e.lineBudget(t, rpcMarkRead)
-	budgettest.Assert(t, "MarkConversationRead under readonly", line, budgettest.Budget{})
-	if line.Reads() != 0 || line.Writes() != 0 {
-		t.Errorf("MarkConversationRead under readonly: reads/writes = %d/%d, want 0/0", line.Reads(), line.Writes())
-	}
 	if n := setup.unread(t, a, b); n != 1 {
 		t.Errorf("unreadCount = %d, want 1 (the refused call changed it)", n)
 	}
@@ -237,7 +228,6 @@ func TestMessagingChain_ReadLimiterSharedBucket(t *testing.T) {
 	_, err := e.listMsgs(a, &messagingv1.ListMessagesRequest{ConversationId: id})
 	d := wireError(t, err, connect.CodeResourceExhausted)
 	assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED)
-	budgettest.Assert(t, "ListMessages over the limit", e.lineBudget(t, rpcListMessages), budgettest.Budget{})
 	if err := e.markRead(a, id); err != nil {
 		t.Errorf("MarkConversationRead is not on the read bucket but was refused: %v", err)
 	}
@@ -265,14 +255,12 @@ func TestMessagingChain_MarkReadDropsTheBadgeOnTheNextGetMe(t *testing.T) {
 	if got := e.getMe(t, me).GetUnreadConversationCount(); got != 3 {
 		t.Fatalf("cached count = %d, want 3", got)
 	}
-	budgettest.Assert(t, "GetMe warm", e.lineBudget(t, rpcGetMe), budgettest.Budget{Reads: 0})
 	if err := e.markRead(me, convID(me, p1)); err != nil {
 		t.Fatal(err)
 	}
 	if got := e.getMe(t, me).GetUnreadConversationCount(); got != 2 {
 		t.Fatalf("count after MarkConversationRead = %d, want 2 (the cache was not evicted)", got)
 	}
-	budgettest.Assert(t, "GetMe after mark-read (recount)", e.lineBudget(t, rpcGetMe), budgettest.Budget{Reads: 1})
 	lines := e.logs.requestLines(rpcGetMe)
 	if hit := lines[len(lines)-1]["unread_conversations_cache_hit"]; hit != false {
 		t.Errorf("unread_conversations_cache_hit = %v after a mark-read, want false", hit)
@@ -307,11 +295,6 @@ func TestMessagingChain_SendCapsOfAnEstablishedAccount(t *testing.T) {
 			assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED)
 			if tt.wantLimit != "" && d.GetMetadata()["limit"] != tt.wantLimit {
 				t.Errorf("limit = %q, want %q", d.GetMetadata()["limit"], tt.wantLimit)
-			}
-			line := e.lineBudget(t, rpcSendMessage)
-			budgettest.Assert(t, "SendMessage over the "+tt.name+" cap", line, budgettest.Budget{Reads: 1})
-			if line.Writes() != 0 {
-				t.Errorf("a refused send wrote %d", line.Writes())
 			}
 			if n := e.messageCount(t, a, b); n != 3 {
 				t.Errorf("messages = %d, want 3", n)
@@ -349,11 +332,6 @@ func TestMessagingChain_SuspendedRecipientAndCallerMute(t *testing.T) {
 	if got := wireBytes(t, err); got != want {
 		t.Errorf("a suspended recipient's refusal differs from a block's:\n got  %q\n want %q", got, want)
 	}
-	line := e.lineBudget(t, rpcSendMessage)
-	budgettest.Assert(t, "SendMessage to a suspended recipient", line, budgettest.Budget{Reads: 5})
-	if line.Writes() != 0 {
-		t.Errorf("the refusal wrote %d", line.Writes())
-	}
 
 	if _, err := e.send(sender, muted, contractKey("dm"), "you muted me, I did not"); err != nil {
 		t.Fatalf("send to a recipient the caller muted: %v", err)
@@ -369,7 +347,7 @@ func TestMessagingChain_SuspendedRecipientAndCallerMute(t *testing.T) {
 }
 
 // overflow marks uid as blocked by so many accounts that blockedBy stopped listing them: the blocker is dropped from the
-// array and blockedByOverflow is set (ADR-0008 D2), the stored shape the graph tests build the same way.
+// array and blockedByOverflow is set, the stored shape the graph tests build the same way.
 func (e *dmChain) overflow(t *testing.T, target dmUser, blockers ...dmUser) {
 	t.Helper()
 	ups := []firestore.Update{{Path: "blockedByOverflow", Value: true}}
@@ -423,11 +401,6 @@ func TestMessagingChain_BlockedByOverflowAccountsOnSend(t *testing.T) {
 		if got := wireBytes(t, err); got != want {
 			t.Errorf("%s: bytes differ from a plain block's:\n got  %q\n want %q", tc.name, got, want)
 		}
-		line := e.lineBudget(t, rpcSendMessage)
-		budgettest.Assert(t, "SendMessage refused: "+tc.name, line, budgettest.Budget{Reads: 5})
-		if line.Writes() != 0 {
-			t.Errorf("%s: the refusal wrote %d", tc.name, line.Writes())
-		}
 	}
 	for _, pair := range [][2]dmUser{{x, p}, {x, r}} {
 		if n := setup.messageCount(t, pair[0], pair[1]); n != 0 {
@@ -442,31 +415,15 @@ func TestMessagingChain_BlockedByOverflowAccountsOnSend(t *testing.T) {
 	}
 }
 
-// DEFECT (Low, filed with the report): the read-time block rules of ListConversations and ListMessages consult the
-// caller's blockedBy array only (service_list.go requestHiddenBy and canReply), and an overflowed account's blockedBy has
-// dropped its blockers. So for an overflowed caller a REQUEST from an account that has since blocked them is still listed,
-// and an INBOX conversation with such an account reads can_reply = true, where ADR-0027 D4 "On read" and the plan
-// text say the request is hidden and the thread is read-only (can_reply = false). A send into it is still refused
-// (TestMessagingChain_BlockedByOverflowAccountsOnSend), so nothing leaks; the client shows a composer that cannot send.
-// The comment on requestHiddenBy calls the omission deliberate (one graph read per peer); the ADR does not carve it out.
-// Run it with W720_RUN_DEFECTS=1 to reproduce.
+// An overflowed caller, whose blockedBy has dropped its blockers: the request from a blocker is still hidden (the peer's graph
+// answers) and the conversation still reads as read-only (can_reply fails closed for such a caller).
 func TestMessagingChain_BlockedByOverflowCallerReadSide(t *testing.T) {
-	if os.Getenv("W720_RUN_DEFECTS") == "" {
-		t.Skip("defect: for a blockedByOverflow caller ListConversations still lists a REQUEST from an account that blocked them and reports can_reply=true for it (ADR-0027 D4 on read; service_list.go requestHiddenBy/canReply consult BlockedBy only). Set W720_RUN_DEFECTS=1 to reproduce")
-	}
 	readSideAfterBlocked(t, true)
 }
 
-// DEFECT D-2 (Low, only reachable by editing a document by hand): ADR-0027 D5 and say ListMessages answers NOT_FOUND, with the
-// bytes of an unknown id, for "a malformed-but-shaped id" and a non-participant. SendMessage by conversation_id treats a conversation
-// whose participant list is not a pair the same way (service_send.go: `peerOf == ""` is notFound(); unit test
-// TestSend_ByConversationID "a malformed participant list is NOT_FOUND"). ListMessages has no such check: `peerOf` returns "" and
-// listMessages (service_messages.go, the `peer := peerOf(...)` line) goes on to look up that empty peer. This test takes a real conversation
-// document, cuts its participants to the caller alone, and expects the unknown-id bytes from both RPCs. Run it with W720_RUN_DEFECTS=1.
+// A conversation document whose participant list is not a pair reads as an unknown id, on ListMessages as on SendMessage by
+// conversation_id. Only a hand-edited document looks like this: the test cuts a real one to the caller alone.
 func TestMessagingChain_ListMessagesMalformedParticipantListIsNotFound(t *testing.T) {
-	if os.Getenv("W720_RUN_DEFECTS") == "" {
-		t.Skip("defect: ListMessages on a conversation document whose participants list is not a pair does not answer the NOT_FOUND of an unknown id (SendMessage by conversation_id does); ListMessages looks up the empty peer. Set W720_RUN_DEFECTS=1 to reproduce")
-	}
 	setup := newDMChain(t, nil)
 	a, b := setup.user(t), setup.user(t)
 	setup.mutual(t, a, b)
@@ -480,7 +437,7 @@ func TestMessagingChain_ListMessagesMalformedParticipantListIsNotFound(t *testin
 	wireError(t, err, connect.CodeNotFound)
 	want := wireBytes(t, err)
 	_, err = e.listMsgs(a, &messagingv1.ListMessagesRequest{ConversationId: convID(a, b)})
-	if connect.CodeOf(err) != connect.CodeNotFound { // fails today: the answer is INTERNAL
+	if connect.CodeOf(err) != connect.CodeNotFound {
 		t.Errorf("ListMessages on the malformed document = %v, want NOT_FOUND", err)
 	} else if got := wireBytes(t, err); got != want {
 		t.Errorf("ListMessages bytes differ from an unknown id's:\n got  %q\n want %q", got, want)

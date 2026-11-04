@@ -17,8 +17,8 @@ import (
 // fcmTTL is how long FCM keeps an undelivered push for an offline device: a day-old "new follower" is noise.
 const fcmTTL = 24 * time.Hour
 
-// pushText is the generic, localization-free title/body per type (ADR-0017 D6: no post text, no handle: a lock
-// screen is a public surface). The app localizes from `data.type` when it is in the foreground.
+// pushText is the generic, localization-free title/body per type (no post text, no handle: a lock screen is a public surface).
+// The app localizes from `data.type` when it is in the foreground.
 func pushText(t Type) (title, body string) {
 	switch t {
 	case TypeFollow:
@@ -38,7 +38,7 @@ func pushText(t Type) (title, body string) {
 	case TypeFollowAccepted:
 		return "Follow request accepted", "Your follow request was accepted"
 	case TypeMessage:
-		return "New message", "You have a new message" // generic by design (ADR-0027 D9): no sender, no text
+		return "New message", "You have a new message" // generic by design: no sender, no text
 	}
 	return "Notification", "You have a new notification"
 }
@@ -51,7 +51,7 @@ type fcmClass struct {
 }
 
 // fcmClasses is the classification table, first match wins. Only a token FCM says is dead is pruned
-// (ADR-0017 D6): UNREGISTERED and SENDER_ID_MISMATCH. INVALID_ARGUMENT is deliberately NOT pruned: it can mean a
+// UNREGISTERED and SENDER_ID_MISMATCH. INVALID_ARGUMENT is deliberately NOT pruned: it can mean a
 // payload or project misconfiguration of ours, and pruning on it would silently delete every user's device.
 var fcmClasses = []fcmClass{
 	{"UNREGISTERED", true, messaging.IsUnregistered},
@@ -124,7 +124,7 @@ func buildMessage(token string, p Push) *messaging.Message {
 	collapse := string(p.Type)
 	data := map[string]string{"type": string(p.Type), "notificationId": p.NotificationID, "postId": p.PostID, "actorId": p.ActorID}
 	if p.Type.pushOnly() {
-		// A direct-message push names the conversation only: no actor id, no post, no notification id (ADR-0027 D9).
+		// A direct-message push names the conversation only: no actor id, no post, no notification id.
 		data = map[string]string{"type": string(p.Type), "conversationId": p.ConversationID}
 	}
 	return &messaging.Message{

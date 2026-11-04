@@ -42,7 +42,7 @@ class _LeakyRepository extends DraftsRepository {
 
 /// The composer cubit over a REAL drafts store (in-memory drift): autosave,
 /// "killed mid-typing", the leave decision, loading a saved draft, and one
-/// account never reaching another's rows (ADR-0029 F7).
+/// account never reaching another's rows.
 void main() {
   late AppDatabase db;
   late DraftsRepository drafts;

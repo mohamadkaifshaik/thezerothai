@@ -2,7 +2,7 @@
 
 package apiserver
 
-// lifecycle chain tests for poll votes (ADR-0029 D8): real votes cast through VotePoll, then the account deletes itself
+// lifecycle chain tests for poll votes: real votes cast through VotePoll, then the account deletes itself
 // through the production jobs handler (Build's lifecycle registry, which holds the poll_votes step), with the export taken first.
 // The developers' tests cover the eraser and exporter at repo level with seeded votes (engagement/repo_polls_integration_test.go).
 //

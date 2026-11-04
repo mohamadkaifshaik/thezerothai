@@ -1,4 +1,4 @@
-// retire.go is the `profile_media_retired` job (ADR-0024 Amendment 1 A4): when a profile's avatar or banner is replaced
+// retire.go is the `profile_media_retired` job: when a profile's avatar or banner is replaced
 // or removed, the old image's public objects (full and thumbnail) are scheduled for deletion after a grace of at least
 // 24 h. It rides the shared `jobs` Pub/Sub topic like `post_delete` (no new topic, Scheduler job, collection or index):
 // identity.Lifecycle routes messages of this kind to RetireHandler.
@@ -120,8 +120,9 @@ type RetireHandler struct{ j *Jobs }
 // RetireHandler returns the handler apiserver registers with identity.Lifecycle.RegisterJobHandler.
 func (j *Jobs) RetireHandler() *RetireHandler { return &RetireHandler{j: j} }
 
-// Handle decodes one delivery and runs Retire. A malformed message is acknowledged and dropped (the DLQ, not a retry
-// storm, holds poison); a Firestore or GCS error nacks so Pub/Sub redelivers.
+// Handle decodes one delivery and runs Retire. A malformed message is acknowledged and dropped, because no retry can fix it:
+// it never reaches the DLQ, and the dropped:* outcome on the delivery log line is its only trace. A Firestore or GCS error
+// nacks so Pub/Sub redelivers.
 func (h *RetireHandler) Handle(ctx context.Context, data []byte) (string, error) {
 	var m RetireMessage
 	if err := json.Unmarshal(data, &m); err != nil {

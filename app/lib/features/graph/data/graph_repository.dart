@@ -8,7 +8,7 @@ import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 
 /// One page of `UserListItem`s from any of the graph list RPCs
 /// (ListFollowers, ListFollowing, ListBlockedUsers, ListMutedUsers), all of
-/// which share the same page shape (ADR-0008 "List paging").
+/// which share the same page shape ("List paging").
 class GraphPage {
   const GraphPage({required this.items, required this.nextPageToken});
 
@@ -31,12 +31,12 @@ typedef FetchGraphPage = Future<GraphPage> Function({
 /// answered FEATURE_DISABLED or UNIMPLEMENTED.
 const kFollowRequestsBackoff = Duration(minutes: 10);
 
-/// The most `GetRelationships` accepts per call (ADR-0008).
+/// The most `GetRelationships` accepts per call.
 const _maxRelationshipsPerCall = 50;
 
 /// How long a "does the target follow the caller?" answer is reused before the
 /// profile header asks again. The server keeps its own 60 s edge cache
-/// (ADR-0024 D7); a profile revisited within this window costs no request.
+///A profile revisited within this window costs no request.
 const kFollowedByTtl = Duration(minutes: 5);
 
 /// How long the client stops asking `GetProfileRelationship` after the server
@@ -61,7 +61,7 @@ class ProfileRelationship {
 /// user?" for an id it already knows this session (cost-first
 /// directive: the client is our cheapest cache). Follow rows and list rows
 /// prime this cache for free from data the server already sent
-/// (`UserListItem.relationship`, ADR-0008 D4), so most profile/list views
+/// (`UserListItem.relationship`), so most profile/list views
 /// cost 0 additional `GetRelationships` calls.
 ///
 /// The caller's own `following` set also survives across app restarts in a
@@ -117,7 +117,7 @@ class GraphRepository {
     _relationships[relationship.userId] = relationship;
   }
 
-  /// Primes the cache from a list row's `relationship` field (ADR-0008 D4):
+  /// Primes the cache from a list row's `relationship` field:
   /// the server fills it from the caller's own graph at 0 extra reads, so
   /// followers/following/blocked/muted list rows never need a separate
   /// `GetRelationships` call.
@@ -170,7 +170,7 @@ class GraphRepository {
   }
 
   /// The viewer's relationship to [userId] for the profile header, plus
-  /// whether [userId] follows the viewer (ADR-0024 D7): one
+  /// whether [userId] follows the viewer: one
   /// `GetProfileRelationship` call replaces the header's `GetRelationships`.
   ///
   /// The cached relationship is not enough on its own (it has no
@@ -255,7 +255,7 @@ class GraphRepository {
     );
     final relationship = _withUserId(response.relationship, userId);
     _cache(relationship, epoch);
-    // A protected account answers REQUESTED (ADR-0025 D6): nothing is followed
+    // A protected account answers REQUESTED: nothing is followed
     // yet, so the local following set (what Home and the lists trust) must not
     // gain the account until an accept turns it into FOLLOWING.
     if (relationship.followState == graph.FollowState.FOLLOW_STATE_REQUESTED) {
@@ -294,7 +294,7 @@ class GraphRepository {
     );
     final relationship = _withUserId(response.relationship, userId);
     _cache(relationship, epoch);
-    // Block always cuts both follow directions (ADR-0008 D9): drop it from
+    // Block always cuts both follow directions: drop it from
     // the local following cache too so a warm start never shows "Following"
     // for someone the caller just blocked, and they no longer follow back.
     if (_database.sessionEpoch.allows(epoch)) {
@@ -351,7 +351,7 @@ class GraphRepository {
 
   /// Followers of [userId], newest first. Throws [NotFoundException] (via
   /// [guardApiCall]) if the target is missing, not active, or blocked the
-  /// caller (ADR-0008 D9).
+  /// caller.
   Future<GraphPage> listFollowers({
     required String userId,
     required int pageSize,
@@ -389,8 +389,7 @@ class GraphRepository {
   }
 
   /// The caller's own blocked accounts, newest first. Never includes users
-  /// who blocked the caller back (ADR-0008 D9: showing them would leak the
-  /// block to the caller before the caller's block is undone).
+  /// who blocked the caller back (showing them would leak the block to the caller before the caller's block is undone).
   Future<GraphPage> listBlockedUsers({
     required int pageSize,
     required String pageToken,

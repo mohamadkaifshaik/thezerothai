@@ -27,11 +27,11 @@ void _wireGateReset(OnboardingBloc onboardingBloc, ServiceFeatureGate gate) {
   });
 }
 
-/// Builds the posts flag gate wired to [onboardingBloc] (ADR-0010 D1/D2):
+/// Builds the posts flag gate wired to [onboardingBloc]:
 ///
 /// - enabled iff `GetMe.enabled_features` contains `posts`;
 /// - FEATURE_DISABLED with no feature named dispatches
-///   [OnboardingRefreshRequested] (ADR-0008 D6), so a fresh `GetMe` decides;
+///   [OnboardingRefreshRequested], so a fresh `GetMe` decides;
 /// - every successful `GetMe` (it emits a new flag-set instance) resets what
 ///   earlier FEATURE_DISABLED answers taught the gate, so a whole-service
 ///   disable can never stick for the session.
@@ -50,7 +50,7 @@ PostsFeatureGate buildPostsGate(OnboardingBloc onboardingBloc) {
 /// `reports`) wired to [onboardingBloc], the same way [buildPostsGate] is:
 ///
 /// - enabled iff `GetMe.enabled_features` contains [flagName];
-/// - FEATURE_DISABLED dispatches [OnboardingRefreshRequested] (ADR-0008 D6);
+/// - FEATURE_DISABLED dispatches [OnboardingRefreshRequested];
 /// - every fresh `GetMe` resets what earlier FEATURE_DISABLED answers taught.
 ServiceFeatureGate buildServiceGate(
   OnboardingBloc onboardingBloc,
@@ -67,7 +67,7 @@ ServiceFeatureGate buildServiceGate(
   return gate;
 }
 
-/// Builds the `messaging` gate (ADR-0027 D6 / F6) wired to [onboardingBloc]:
+/// Builds the `messaging` gate wired to [onboardingBloc]:
 /// [MessagingFeatureGate.run] (SendMessage, AcceptMessageRequest) needs
 /// `messaging` in `GetMe.enabled_features`; [MessagingFeatureGate.runRead]
 /// (the other four RPCs) needs only "not globally off", which the server
@@ -126,7 +126,7 @@ Future<void> wipeSessionData({
 
 /// Bridges auth state into the session (L-4): OnboardingBloc reacts to
 /// sign-in/sign-out but never talks to AuthBloc directly (the two features stay
-/// decoupled, see the `flutter-feature` skill).
+/// decoupled).
 ///
 /// - A user going to null or to a different uid (a direct A to B switch counts)
 ///   dispatches [OnboardingUserSignedOut], ends the session epoch and wipes the

@@ -199,7 +199,7 @@ class _GraphTab extends StatefulWidget {
   final String emptyMessage;
 
   /// Shown when the account is protected and the viewer is not approved
-  /// (`PROTECTED_ACCOUNT`, ADR-0025 D4).
+  /// (`PROTECTED_ACCOUNT`).
   final String protectedMessage;
 
   @override

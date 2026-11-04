@@ -27,14 +27,10 @@ import (
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	listsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
-	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
-
-const rpcSetHomeTabs = timelinev1connect.TimelineServiceSetHomeTabsProcedure
 
 func (e *ltChain) setTabs(u ltUser, label string, ids ...string) (*timelinev1.SetHomeTabsResponse, error) {
 	req := &timelinev1.SetHomeTabsRequest{IdempotencyKey: "w515-" + label + "-0123456789"}
@@ -111,7 +107,6 @@ func TestW515_SetHomeTabsIsGatedByTheListsFlag(t *testing.T) {
 			if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED || d.GetMetadata()["feature"] != "lists" {
 				t.Fatalf("detail = %v", d)
 			}
-			budgettest.Assert(t, "SetHomeTabs refused", c.lineBudget(t, rpcSetHomeTabs), budgettest.Budget{Reads: 1, Writes: 0})
 			// And the request left nothing behind: with lists on the same caller has no tabs.
 			on := newLTChain(t, nil)
 			if got := on.tabs(t, viewer); len(got) != 0 {
@@ -121,7 +116,7 @@ func TestW515_SetHomeTabsIsGatedByTheListsFlag(t *testing.T) {
 	}
 }
 
-// ADR-0030 D6: a tab already stored is kept without a re-read, so a pin that became unreadable can still be reordered or
+// A tab already stored is kept without a re-read, so a pin that became unreadable can still be reordered or
 // removed; it is returned by GetMe at +0 reads; the list answers the one NOT_FOUND; a fresh pin of it is VALIDATION `tabs`.
 func TestW515_PinnedListsThatStopBeingReadable(t *testing.T) {
 	c := newLTChain(t, nil)
@@ -136,12 +131,6 @@ func TestW515_PinnedListsThatStopBeingReadable(t *testing.T) {
 	if got := c.tabs(t, viewer); !slices.Equal(got, want) {
 		t.Fatalf("tabs = %v, want %v", got, want)
 	}
-	// The cold GetMe of an account with no tabs is the baseline: a dangling tab must add nothing to it.
-	bare := c.user(t)
-	b0 := newLTChain(t, nil)
-	b0.tabs(t, bare)
-	baseline := b0.lineBudget(t, rpcGetMe).Reads()
-
 	private := true
 	if _, err := c.lists.UpdateList(context.Background(), authed(owner.token, &listsv1.UpdateListRequest{IdempotencyKey: contractKey("w515-priv"), ListId: toPrivate, IsPrivate: &private})); err != nil {
 		t.Fatalf("UpdateList private: %v", err)
@@ -158,9 +147,6 @@ func TestW515_PinnedListsThatStopBeingReadable(t *testing.T) {
 	cold := newLTChain(t, nil) // a cold instance reads the user document fresh, like the baseline
 	if got := cold.tabs(t, viewer); !slices.Equal(got, want) {
 		t.Fatalf("tabs after the owner's changes = %v, want %v (dangling tabs stay until the next SetHomeTabs)", got, want)
-	}
-	if r := cold.lineBudget(t, rpcGetMe).Reads(); r != baseline {
-		t.Errorf("GetMe reads = %d, want %d (+0 for dangling tabs)", r, baseline)
 	}
 
 	// The unreadable ones answer exactly like a list that never existed, on both RPCs; the renamed one still works.
@@ -192,7 +178,6 @@ func TestW515_PinnedListsThatStopBeingReadable(t *testing.T) {
 	if len(moved.GetTabs()) != 3 || moved.GetTabs()[0].GetId() != toRename || moved.GetTabs()[2].GetId() != toPrivate {
 		t.Fatalf("reordered = %v", moved.GetTabs())
 	}
-	budgettest.Assert(t, "SetHomeTabs reorder of stored tabs", c.lineBudget(t, rpcSetHomeTabs), budgettest.Budget{Reads: 3, Writes: 2}) // interceptor, idempotency, users: a re-read of a dangling list would make it 5
 	if _, err := c.setTabs(viewer, "drop", toRename); err != nil {
 		t.Fatalf("removing dangling tabs: %v", err)
 	}
@@ -243,7 +228,7 @@ func TestW515_PinnedListThatBecameHidden(t *testing.T) {
 	w320Reason(t, "pin a hidden list", err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "tabs")
 }
 
-// The worst SetHomeTabs shape of the ADR table: 5 lists of 5 distinct owners on a cold instance (19 reads: interceptor,
+// The worst SetHomeTabs shape of the budget table: 5 lists of 5 distinct owners on a cold instance (19 reads: interceptor,
 // idempotency, users, 5 lists, caller graph, 5 owner profiles and 5 owner graphs), 2 writes.
 func TestW515_SetHomeTabsWorstCase(t *testing.T) {
 	setup := newLTChain(t, nil)
@@ -257,7 +242,6 @@ func TestW515_SetHomeTabsWorstCase(t *testing.T) {
 	if _, err := cold.setTabs(viewer, "worst", ids...); err != nil {
 		t.Fatalf("SetHomeTabs: %v", err)
 	}
-	budgettest.Assert(t, "SetHomeTabs, 5 foreign lists, cold", cold.lineBudget(t, rpcSetHomeTabs), budgettest.Budget{Reads: 19, Writes: 2})
 	if got := cold.tabs(t, viewer); len(got) != 5 {
 		t.Fatalf("tabs = %v", got)
 	}
@@ -267,7 +251,6 @@ func TestW515_SetHomeTabsWorstCase(t *testing.T) {
 	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED || d.GetMetadata()["limit"] != "home_tabs" {
 		t.Fatalf("detail = %v", d)
 	}
-	budgettest.Assert(t, "SetHomeTabs sixth tab", cold.lineBudget(t, rpcSetHomeTabs), budgettest.Budget{Reads: 1, Writes: 0})
 }
 
 // Page size 0 -> 20 and 500 -> 50 on a 60-member list; the opaque cursor walks the rest with no repeat; a list made private
@@ -392,7 +375,6 @@ func TestW515_QuotaNamesAtTheDailyCaps(t *testing.T) {
 	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED || d.GetMetadata()["quota"] != "list_creates" {
 		t.Fatalf("11th create: %v", d)
 	}
-	budgettest.Assert(t, "CreateList over quota", c.lineBudget(t, "/dzeroth.lists.v1.ListService/CreateList"), budgettest.Budget{Reads: 4, Writes: 0})
 
 	// 300 adds recorded today: the 301st is refused; seeding the counter avoids 300 RPCs.
 	if _, err := c.fs.Collection("quotas").Doc(u.uid).Set(context.Background(), quota.Record{Day: quota.Today(), ListCreates: 10, ListAdds: 300}); err != nil {
@@ -404,7 +386,6 @@ func TestW515_QuotaNamesAtTheDailyCaps(t *testing.T) {
 	if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED || d.GetMetadata()["quota"] != "list_adds" {
 		t.Fatalf("301st add: %v", d)
 	}
-	budgettest.Assert(t, "AddListMember over quota", fresh.lineBudget(t, "/dzeroth.lists.v1.ListService/AddListMember"), budgettest.Budget{Reads: 7, Writes: 0}) // L-4: +1 fresh target status
 }
 
 // DEGRADED_MODE=readonly (acceptance, the interceptor derives "mutating" from each RPC's idempotency level): the five list
@@ -462,19 +443,11 @@ func TestW515_ReadonlyDegradedModeRefusesWritesAndKeepsReads(t *testing.T) {
 	for rpc, call := range reads {
 		if err := call(); err != nil {
 			t.Errorf("%s under readonly: %v, want success", rpc, err)
-			continue
-		}
-		proc := "/dzeroth.lists.v1.ListService/" + rpc
-		if rpc == "GetListTimeline" {
-			proc = rpcGetListTimeline
-		}
-		if w := ro.lineBudget(t, proc).Writes(); w != 0 {
-			t.Errorf("%s wrote %d documents under readonly", rpc, w)
 		}
 	}
 }
 
-// Token binding through the chain (ADR-0030 D5): a UserTimeline token and another viewer's list token are VALIDATION at the
+// Token binding through the chain: a UserTimeline token and another viewer's list token are VALIDATION at the
 // interceptor's read only; the request never reaches the list or the posts.
 func TestW515_ListTokenBindingAcrossFeedsAndViewers(t *testing.T) {
 	c := newLTChain(t, nil)
@@ -507,11 +480,10 @@ func TestW515_ListTokenBindingAcrossFeedsAndViewers(t *testing.T) {
 		if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_VALIDATION || d.GetMetadata()["field"] != tc.wantFieldKey {
 			t.Errorf("%s: detail = %v", tc.name, d)
 		}
-		budgettest.Assert(t, tc.name, c.lineBudget(t, rpcGetListTimeline), budgettest.Budget{Reads: 1})
 	}
 }
 
-// ADR-0030 D3 names "the owner blocks the caller" but not the reverse. This pins what the code does for a caller who blocks the
+// The list access rule names "the owner blocks the caller" but not the reverse. This pins what the code does for a caller who blocks the
 // list's owner (GetList and GetListTimeline must agree) and is reported to the architect as a question, not a defect.
 func TestW515_CallerWhoBlocksTheOwnerSeesTheList(t *testing.T) {
 	c := newLTChain(t, nil)

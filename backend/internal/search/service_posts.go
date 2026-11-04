@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	// tagEntrySize is the newest posts per tag held in the shared tag entry (ADR-0028 D3).
+	// tagEntrySize is the newest posts per tag held in the shared tag entry.
 	tagEntrySize = 30
 	// tagEntryTTL is the staleness bound of the tag entry: a new tagged post reaches Top, Latest page 1 and Media page 1
 	// within this long on an instance, and a moderation takedown reaches a warm entry within it too (serve-time
@@ -30,12 +30,12 @@ const (
 	tagEntryTTL = 60 * time.Second
 	// defaultTagEntries is the entry capacity when PostsDeps.TagEntries is unset (CACHE_SEARCH_TAG_ENTRIES default).
 	defaultTagEntries = 500
-	// topWindow is how far back TOP looks (ADR-0028 D3), and topMaxPage its one page.
+	// topWindow is how far back TOP looks, and topMaxPage its one page.
 	topWindow  = 7 * 24 * time.Hour
 	topMaxPage = 20
 	// mediaScan is how many older tagged posts one MEDIA call scans.
 	mediaScan = 30
-	// LATEST query windows are fixed tiers independent of page_size (ADR-0028 note 2026-10-31 part 3, review L-1): page 1 is
+	// LATEST query windows are fixed tiers independent of page_size (part 3, review L-1): page 1 is
 	// the whole tag entry (tagEntrySize rows) for page_size <= tagEntrySize and latestWide beyond it; an older page is
 	// latestOlderSmall for page_size <= latestOlderSmall and latestWide beyond it; a tail page reads the whole rest (latestWide).
 	latestOlderSmall = 20
@@ -44,7 +44,7 @@ const (
 	entryLoadTimeout = 5 * time.Second
 )
 
-// Request-line fields (counts and kinds only; never the query, a tag, an id or a uid; ADR-0028 D10).
+// Request-line fields (counts and kinds only; never the query, a tag, an id or a uid).
 const (
 	fieldQueryKind        = "query_kind"
 	fieldQueryLen         = "query_len"
@@ -58,14 +58,14 @@ const (
 	fieldCacheHit         = "cache_hit"
 )
 
-// tagStore is the tag-entry cache seam (ADR-0028 D4: small interfaces so Memorystore can replace the instance LRU by ADR
-// at Stage 2 with no caller change). Values are shared and immutable.
+// tagStore is the tag-entry cache seam (small interfaces so Memorystore can replace the instance LRU at Stage 2 with no caller change).
+// Values are shared and immutable.
 type tagStore interface {
 	Get(tag string) ([]*posts.Post, bool)
 	Set(tag string, ps []*posts.Post)
 }
 
-// PostsDeps are what SearchPosts needs beyond the flag checker (ADR-0028 D11). Posts, Graph and CursorKey are required:
+// PostsDeps are what SearchPosts needs beyond the flag checker. Posts, Graph and CursorKey are required:
 // without them an enabled caller gets Unimplemented.
 type PostsDeps struct {
 	// Posts is the only way to read posts (ByHashtag).
@@ -74,7 +74,7 @@ type PostsDeps struct {
 	Graph graph.Reader
 	// Viewer supplies liked/reposted/bookmarked flags through posts.HydrateViewer. Nil: every flag false, no read.
 	Viewer posts.ViewerFlags
-	// Audience is THE visibility predicate (posts.NewSnapshotAudience(protectedAuthors), ADR-0025). Nil is "nobody is
+	// Audience is THE visibility predicate (posts.NewSnapshotAudience(protectedAuthors)). Nil is "nobody is
 	// protected"; apiserver refuses to start without it.
 	Audience *posts.Audience
 	// CursorKey seals page tokens (config.CursorHMACKey).
@@ -145,13 +145,13 @@ func tabOf(t searchv1.SearchTab) tabKind {
 	return tabTop
 }
 
-// binding ties a page token to its caller, tag and tab (ADR-0028 D5). Tags never contain '|'.
+// binding ties a page token to its caller, tag and tab. Tags never contain '|'.
 func binding(uid, tag string, t tabKind) string {
 	return "search|" + uid + "|" + tag + "|" + t.String()
 }
 
 // tailBinding is the binding of a LATEST tail token: the page that issued it came from a window that was not full, so the
-// end of the tag was reached and every later page depends only on visible rows (ADR-0028 note 2026-10-31 part 3). The
+// end of the tag was reached and every later page depends only on visible rows (part 3). The
 // decoder tries binding(LATEST), then tailBinding, so both tokens stay opaque and need no new codec.
 func tailBinding(uid, tag string) string {
 	return "search|" + uid + "|" + tag + "|LATEST_TAIL"
@@ -174,11 +174,11 @@ type fetched struct {
 	hit  bool
 }
 
-// search implements SearchPosts (ADR-0028 D3, D5).
+// search implements SearchPosts.
 //
 // Worst-case Firestore reads, interceptor included (writes 0): TOP, LATEST page 1 and MEDIA page 1 at page_size <= 30
 // cold 33 (interceptor 1, caller graph 1, userLikes 1, the tag entry 30), warm 0 to 3; LATEST page 1 at page_size 31 to 50:
-// 53 (query 50). LATEST windows are fixed tiers, never the page size itself (ADR-0028 note 2026-10-31 part 3, review L-1):
+// 53 (query 50). LATEST windows are fixed tiers, never the page size itself (part 3, review L-1):
 // an older page is 23 at page_size <= 20 (query 20) and 53 at 21 to 50 (query 50); a tail page (the token of a window that
 // was not full, the end of the tag) reads 3 + the rows left, at most 32 after a page-1 entry and 52 after a 50-row window.
 // The client sends 20, so its cost is 33 / 23 / <= 32. MEDIA older scan 33 (scan 30).
@@ -374,7 +374,7 @@ func within(rows []*posts.Post, cutoff time.Time) []*posts.Post {
 }
 
 // withOwnMedia keeps the rows that carry their own images (len(media) > 0), not hasMedia (which needs the one-off
-// backfill) and not a QUOTE's embedded media (ADR-0028 D3).
+// backfill) and not a QUOTE's embedded media.
 func withOwnMedia(rows []*posts.Post) []*posts.Post {
 	out := make([]*posts.Post, 0, len(rows))
 	for _, p := range rows {
@@ -385,7 +385,7 @@ func withOwnMedia(rows []*posts.Post) []*posts.Post {
 	return out
 }
 
-// topScore is the TOP ranking (ADR-0028 D3): likes + 2 x reposts + 2 x quotes + replies, as cached (at most 60 s stale).
+// topScore is the TOP ranking: likes + 2 x reposts + 2 x quotes + replies, as cached (at most 60 s stale).
 func topScore(p *posts.Post) int64 {
 	return p.LikeCount + 2*p.RepostCount + 2*p.QuoteCount + p.ReplyCount
 }
@@ -404,7 +404,7 @@ func rankTop(rows []*posts.Post) {
 	})
 }
 
-// filter applies the per-viewer rules after the shared entry (ADR-0028 D3, ADR-0010 D6, ADR-0025 D4), in this order per
+// filter applies the per-viewer rules after the shared entry, in this order per
 // row: moderation (!Visible), the blockedBy-overflow fail-closed rule, the author's and a QUOTE's embedded author's
 // block / blocked-by / mute state, then posts.Audience.Decide on the list surface (protected authors; a QUOTE of one is
 // kept with embed PROTECTED). The caller's own posts are kept. The graph snapshot is read once (cached 60 s) and only
@@ -459,7 +459,7 @@ const (
 	causeMuted   = "muted"
 )
 
-// blockCause is the ADR-0010 D6 Home column for a visible post: causeBlocked when the author or a QUOTE's embedded
+// blockCause is the Home-feed rule for a visible post: causeBlocked when the author or a QUOTE's embedded
 // author is blocked by the caller or blocks the caller, causeMuted when muted, "" otherwise. The caller's own posts are
 // kept, copies of others included. When the caller's blockedBy set overflowed it cannot prove a foreign author does not
 // block it, so only the caller's posts and followed authors' posts stay and a foreign embed is dropped (no extra read;

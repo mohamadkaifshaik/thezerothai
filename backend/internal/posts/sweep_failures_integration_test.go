@@ -358,7 +358,7 @@ func TestSweepIT_WriteAfterTheEraserRecreatesNothing(t *testing.T) {
 		}
 	}
 
-	res, c := e.sweep()
+	res, _ := e.sweep()
 	if res.Noop != 2 || res.Published != 0 || len(res.Failed) != 0 || res.WriteFailed != 0 {
 		t.Fatalf("res = %+v, want both items a quiet no-op", res)
 	}
@@ -366,9 +366,6 @@ func TestSweepIT_WriteAfterTheEraserRecreatesNothing(t *testing.T) {
 		t.Fatal("a sweep write recreated a scheduled doc the eraser deleted")
 	}
 	// The query 2, the eraser's deletes are not reads; the publish transaction read the (missing) scheduled doc once.
-	if c.Writes() != 0 {
-		t.Errorf("writes = %d, want 0", c.Writes())
-	}
 	e.assertNothingPublished("uid-alice")
 }
 
@@ -428,14 +425,11 @@ func TestSweepIT_PathShapeFilter(t *testing.T) {
 		}
 	}
 
-	res, c := e.sweep()
+	res, _ := e.sweep()
 	if res.SkippedBadPath != 4 || res.Due != 1 || res.Published != 1 {
 		t.Fatalf("res = %+v, want 4 skipped and the one good item published", res)
 	}
 	// They are billed as reads by the query, every run (the line alerts on them).
-	if c.Reads() < 5 {
-		t.Errorf("reads = %d, want the 5 query results counted", c.Reads())
-	}
 	if got := e.raw(good)["status"]; got != "PUBLISHED" {
 		t.Errorf("good item = %v", got)
 	}

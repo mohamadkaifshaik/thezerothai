@@ -285,7 +285,7 @@ func cursorAt(pos int64, uid string) cursor.Cursor {
 	return cursor.Cursor{CreatedAt: time.UnixMicro(pos).UTC(), DocID: uid}
 }
 
-// ADR-0008 D9 (own lists): users in caller.blockedBy are hidden, never hydrated, and the page still paginates.
+// Own lists: users in caller.blockedBy are hidden, never hydrated, and the page still paginates.
 func TestListOwnArray_HidesBlockedByUsers(t *testing.T) {
 	repo, dir := ownListFixture(6)
 	l := repo.lists["uid-1"]

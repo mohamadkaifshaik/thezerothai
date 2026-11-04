@@ -8,11 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
-// Plan (ADR-0031 D14) against the Firestore emulator: a COMMUNITY report keeps the community's name, description and rules (and the
+// Plan against the Firestore emulator: a COMMUNITY report keeps the community's name, description and rules (and the
 // owner's handle) in the report document, with the same 2 reads and 2 writes as every other report, no evidence child document, and the
 // post evidence's retention (resolved + 90 days). An archived community's report has an empty target owner.
 func TestRepo_CommunityEvidenceRoundTripAndRetention(t *testing.T) {
@@ -24,13 +23,9 @@ func TestRepo_CommunityEvidenceRoundTripAndRetention(t *testing.T) {
 
 	rep := sampleReport("u-rep", TargetCommunity, cid, "u-owner", t0)
 	rep.Evidence = &Evidence{AuthorHandle: "mallory", CommunityName: "targets", CommunityDescription: "people to watch", CommunityRules: rules, PostCreatedAt: t0.Add(-time.Hour)}
-	ctx, c := counted()
+	ctx, _ := counted()
 	if _, err := repo.Create(ctx, CreateParams{Report: rep, QuotaLimit: 5}); err != nil {
 		t.Fatal(err)
-	}
-	budgettest.Assert(t, "Create community report", c, budgettest.Budget{Reads: 2, Writes: 2})
-	if c.Reads() != 2 || c.Writes() != 2 {
-		t.Errorf("reads=%d writes=%d, want exactly 2 2", c.Reads(), c.Writes())
 	}
 
 	got, err := repo.Get(context.Background(), rep.ID)

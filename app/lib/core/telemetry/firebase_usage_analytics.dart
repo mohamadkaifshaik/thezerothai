@@ -7,7 +7,7 @@ import 'telemetry_interfaces.dart';
 /// files that import an SDK. Never constructed on web or iOS (see
 /// `createTelemetry`). No user id or property is ever set (Q10 (f)).
 ///
-/// ADR-0032 C3: on, `setConsent(analytics_storage: granted)` then collection
+/// On, `setConsent(analytics_storage: granted)` then collection
 /// on; off, collection off then `setConsent(denied)`.
 class FirebaseUsageAnalytics implements UsageAnalytics {
   FirebaseUsageAnalytics([FirebaseAnalytics? analytics])

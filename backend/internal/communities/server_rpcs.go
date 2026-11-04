@@ -12,7 +12,7 @@ import (
 
 // CreateCommunity is gated by FEATURE_COMMUNITIES and needs the caller in COMMUNITY_CREATORS (FORBIDDEN not_creator otherwise).
 //
-// Firestore (ADR-0031 Cost impact, the account-status interceptor's read included): reads 3 cold / 2 warm (interceptor, idempotency,
+// Firestore (the account-status interceptor's read included): reads 3 cold / 2 warm (interceptor, idempotency,
 // memberships); writes 4 (community, owner member doc, memberships, idempotency) + 1 TTL delete of the idempotency doc 24 h later;
 // replay reads 3, writes 0; refused 0 writes.
 func (s *Server) CreateCommunity(ctx context.Context, req *connect.Request[communitiesv1.CreateCommunityRequest]) (*connect.Response[communitiesv1.CreateCommunityResponse], error) {
@@ -103,7 +103,7 @@ func rulesToProto(in []Rule) []*communitiesv1.CommunityRule {
 	return out
 }
 
-// toProtoCommunity renders the light header (ADR-0031 N2): the document and the caller's role, 0 extra reads.
+// toProtoCommunity renders the light header: the document and the caller's role, 0 extra reads.
 func toProtoCommunity(v View) *communitiesv1.Community {
 	c := v.Community
 	return &communitiesv1.Community{

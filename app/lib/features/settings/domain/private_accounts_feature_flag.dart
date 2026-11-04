@@ -1,5 +1,5 @@
 /// Name of the protected-accounts flag as exposed through
-/// `GetMeResponse.enabled_features` (ADR-0025, `FEATURE_PRIVATE_ACCOUNTS`). A
+/// `GetMeResponse.enabled_features` (`FEATURE_PRIVATE_ACCOUNTS`). A
 /// missing name means off.
 ///
 /// It gates only TURNING PROTECTION ON (the Settings "Protect your posts"

@@ -10,7 +10,7 @@ import '../../domain/bookmark_entry.dart';
 import '../../domain/engagement_entry.dart' show engagementTargetId;
 import 'bookmarks_list_state.dart';
 
-/// The rows of the Bookmarks screen (ADR-0023 D2): live posts,
+/// The rows of the Bookmarks screen: live posts,
 /// newest bookmark first, in session memory only (no drift table; a later
 /// offline cache replaces this class's source and no caller).
 ///

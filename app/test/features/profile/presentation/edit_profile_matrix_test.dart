@@ -21,7 +21,7 @@ import '../../../support/theme_harness.dart';
 /// the screen does not overflow; this file also checks that every control is
 /// reachable by scrolling, inside the screen, and a 48 dp target.
 ///
-/// M-1 (c) (ADR-0024 Amendment 1 A2): without `profile_extras` a saved
+/// M-1 (c): without `profile_extras` a saved
 /// banner, location and website are shown read-only with Remove, and a saved
 /// banner has Remove (no Change) when media is off; the two groups below that
 /// cover those cells assert the Remove affordance and that nothing editable is

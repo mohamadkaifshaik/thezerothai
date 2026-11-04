@@ -8,12 +8,12 @@ class ReportReceipt {
   const ReportReceipt({required this.reportId, required this.alreadyReported});
   final String reportId;
 
-  /// The same reporter already reported this target (a free no-op, ADR-0016
-  /// D4): the UI says so instead of "thanks".
+  /// The same reporter already reported this target (a free no-op):
+  /// the UI says so instead of "thanks".
   final bool alreadyReported;
 }
 
-/// `ModerationService` client (ADR-0016). Every call goes through the
+/// `ModerationService` client. Every call goes through the
 /// `reports` [ServiceFeatureGate]: with the flag off no RPC is sent.
 ///
 /// Reports are never cached and never retried automatically; the caller owns

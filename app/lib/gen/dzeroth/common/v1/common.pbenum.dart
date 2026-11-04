@@ -23,7 +23,7 @@ class HomeTabKind extends $pb.ProtobufEnum {
   static const HomeTabKind HOME_TAB_KIND_LIST =
       HomeTabKind._(1, _omitEnumNames ? '' : 'HOME_TAB_KIND_LIST');
 
-  /// A community (dzeroth.communities.v1, ADR-0031 D6, FEATURE_COMMUNITIES). The tab reads
+  /// A community (dzeroth.communities.v1, FEATURE_COMMUNITIES). The tab reads
   /// TimelineService.GetCommunityTimeline. Any ACTIVE or ARCHIVED community may be pinned, member or not (communities
   /// are public); leaving a community does not unpin it. GetMe omits these tabs while FEATURE_COMMUNITIES is off for the
   /// caller and keeps them in storage. Until GetCommunityTimeline ships, SetHomeTabs answers VALIDATION
@@ -54,12 +54,8 @@ class ErrorReason extends $pb.ProtobufEnum {
       ErrorReason._(1, _omitEnumNames ? '' : 'ERROR_REASON_VALIDATION');
 
   /// RESOURCE_EXHAUSTED: short-window per-user/IP token bucket (in memory), or an in-memory daily cap. Daily caps
-  /// set metadata["limit"] (e.g. "read_budget_daily": the per-uid daily Firestore read budget, ADR-0010 D5;
-  /// "check_handle_daily"; "account_ops_daily": the 20 calls/day shared by DeleteAccount, RequestAccountExport and
-  /// GetAccountExport) and a retry_after that runs to the next IST midnight.
-  /// metadata["limit"] = "read_budget_inflight" is TRANSIENT (ADR-0010 D5 A1): the budget is not spent, another call
-  /// of the same user is in flight near the cap. retry_after is 1 s; retry ONCE, silently, and show an error only
-  /// if the retry also fails.
+  /// set metadata["limit"] (e.g. "check_handle_daily"; "account_ops_daily": the 20 calls/day shared by DeleteAccount,
+  /// RequestAccountExport and GetAccountExport) and a retry_after that runs to the next IST midnight.
   static const ErrorReason ERROR_REASON_RATE_LIMITED =
       ErrorReason._(2, _omitEnumNames ? '' : 'ERROR_REASON_RATE_LIMITED');
 
@@ -88,7 +84,7 @@ class ErrorReason extends $pb.ProtobufEnum {
       ErrorReason._(8, _omitEnumNames ? '' : 'ERROR_REASON_HANDLE_TAKEN');
 
   /// FAILED_PRECONDITION: a fixed cap was reached (e.g. following 5,000 accounts). Also VotePoll when the caller has
-  /// already changed this vote POLL_VOTE_CHANGES_MAX times (ADR-0029 Amendment 1 A2): metadata["limit"] =
+  /// already changed this vote POLL_VOTE_CHANGES_MAX times: metadata["limit"] =
   /// "poll_vote_changes" and metadata["choice"] = the stored choice as a 0-based index.
   static const ErrorReason ERROR_REASON_LIMIT_REACHED =
       ErrorReason._(9, _omitEnumNames ? '' : 'ERROR_REASON_LIMIT_REACHED');
@@ -105,16 +101,16 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_ACCOUNT_RESTRICTED = ErrorReason._(
       12, _omitEnumNames ? '' : 'ERROR_REASON_ACCOUNT_RESTRICTED');
 
-  /// FAILED_PRECONDITION: the caller blocks the target (e.g. Follow). Unblock first; never auto-unblocked (ADR-0008).
-  /// Also EngagementService.VotePoll when the caller blocks the poll's author (ADR-0029 Amendment 1 A1): refused for a
+  /// FAILED_PRECONDITION: the caller blocks the target (e.g. Follow). Unblock first; never auto-unblocked.
+  /// Also EngagementService.VotePoll when the caller blocks the poll's author: refused for a
   /// cast, a change and a replay; the vote already cast is kept and counted.
   static const ErrorReason ERROR_REASON_TARGET_BLOCKED =
       ErrorReason._(13, _omitEnumNames ? '' : 'ERROR_REASON_TARGET_BLOCKED');
 
   /// FAILED_PRECONDITION: the feature is not enabled for this caller (server feature flag, or not built yet). Hide the
-  /// feature and refresh GetMe.enabled_features; do not retry (ADR-0008 D6).
-  /// metadata["feature"], when set, names a sub-feature (e.g. "replies", "quotes", "media"): hide only that one
-  /// (ADR-0010 D2). When absent, the whole feature behind the called service is off.
+  /// feature and refresh GetMe.enabled_features; do not retry.
+  /// metadata["feature"], when set, names a sub-feature (e.g. "replies", "quotes", "media"): hide only that one.
+  /// When absent, the whole feature behind the called service is off.
   static const ErrorReason ERROR_REASON_FEATURE_DISABLED =
       ErrorReason._(14, _omitEnumNames ? '' : 'ERROR_REASON_FEATURE_DISABLED');
 
@@ -124,39 +120,39 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_REAUTH_REQUIRED =
       ErrorReason._(15, _omitEnumNames ? '' : 'ERROR_REASON_REAUTH_REQUIRED');
 
-  /// PERMISSION_DENIED: the conversation's reply policy does not include the caller (ADR-0021 D2). metadata["policy"]
+  /// PERMISSION_DENIED: the conversation's reply policy does not include the caller. metadata["policy"]
   /// names the conversation's policy. Only returned once the conversation root is visible to the caller;
   /// an unusable root (deleted, hidden, a block in either direction) answers NOT_FOUND instead. Do not retry; show
   /// the policy label.
   static const ErrorReason ERROR_REASON_REPLY_NOT_ALLOWED =
       ErrorReason._(16, _omitEnumNames ? '' : 'ERROR_REASON_REPLY_NOT_ALLOWED');
 
-  /// FAILED_PRECONDITION: the account's posts are protected (ADR-0025). Returned for ListFollowers or ListFollowing of
+  /// FAILED_PRECONDITION: the account's posts are protected. Returned for ListFollowers or ListFollowing of
   /// a protected account to a non-follower, and for a repost or quote of a protected account's post. Do not retry.
   static const ErrorReason ERROR_REASON_PROTECTED_ACCOUNT =
       ErrorReason._(17, _omitEnumNames ? '' : 'ERROR_REASON_PROTECTED_ACCOUNT');
 
-  /// FAILED_PRECONDITION: this account cannot be messaged (ADR-0027 D4). One reason with identical bytes for a block in
+  /// FAILED_PRECONDITION: this account cannot be messaged. One reason with identical bytes for a block in
   /// either direction, a recipient with messaging off, a recipient who is gone or not ACTIVE, and a conversation whose
   /// peer deleted the account, so it reveals no more than GetProfile's NOT_FOUND. Do not retry; show "You can't
   /// message this account".
   static const ErrorReason ERROR_REASON_CANNOT_MESSAGE =
       ErrorReason._(18, _omitEnumNames ? '' : 'ERROR_REASON_CANNOT_MESSAGE');
 
-  /// FAILED_PRECONDITION: the poll has closed (ADR-0029 D6; server time is the authority). Refresh the post (GetPost)
+  /// FAILED_PRECONDITION: the poll has closed (server time is the authority). Refresh the post (GetPost)
   /// and show its final results; do not retry.
   static const ErrorReason ERROR_REASON_POLL_CLOSED =
       ErrorReason._(19, _omitEnumNames ? '' : 'ERROR_REASON_POLL_CLOSED');
 
   /// FAILED_PRECONDITION: the caller already voted in this poll with another choice and the request did not name that vote
-  /// in expected_choice (ADR-0029 D6, F4; Amendment 1 A2.2). Since Amendment 1 a vote is changeable until the poll closes,
+  /// in expected_choice. A vote is changeable until the poll closes,
   /// so this is now only a stale or missing expected_choice (an older client, a second device, a late retry).
   /// metadata["choice"] is the caller's own stored choice as a 0-based index (decimal). Call VotePoll once more with
   /// that choice (or, with a current expected_choice, to change it): a vote with the same choice is not an error, it returns the current state with results (0 writes).
   static const ErrorReason ERROR_REASON_ALREADY_VOTED =
       ErrorReason._(20, _omitEnumNames ? '' : 'ERROR_REASON_ALREADY_VOTED');
 
-  /// PERMISSION_DENIED: the caller's role does not allow this action (ADR-0031 D4; communities.v1 header). Never sent for
+  /// PERMISSION_DENIED: the caller's role does not allow this action (communities.v1 header). Never sent for
   /// an account suspension (that is ACCOUNT_RESTRICTED). metadata["reason"] names why: "banned", "not_member",
   /// "not_moderator", "not_owner" or "not_creator". Do not retry; show a fixed message per reason ("not_member" on a
   /// reply: "Only members can reply"). A client built before this value sees UNSPECIFIED and falls back to the
@@ -165,8 +161,8 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_FORBIDDEN =
       ErrorReason._(21, _omitEnumNames ? '' : 'ERROR_REASON_FORBIDDEN');
 
-  /// FAILED_PRECONDITION: the action conflicts with the community's state or a role held in it (ADR-0031 D4; communities.v1
-  /// header). metadata["reason"] is "owner" (the owner cannot leave), "moderator" (remove the moderator role before a ban)
+  /// FAILED_PRECONDITION: the action conflicts with the community's state or a role held in it (communities.v1 header).
+  /// metadata["reason"] is "owner" (the owner cannot leave), "moderator" (remove the moderator role before a ban)
   /// or "community_archived" (an ARCHIVED community is read-only). Do not retry. A client built before this value sees
   /// UNSPECIFIED and falls back to the FAILED_PRECONDITION code mapping; it can reach this value only on a reply in an
   /// ARCHIVED community's conversation (CreatePost).

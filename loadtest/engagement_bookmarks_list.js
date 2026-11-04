@@ -1,13 +1,13 @@
-// engagement_bookmarks_list: ListBookmarks paging smoke (ADR-0023).
+// engagement_bookmarks_list: ListBookmarks paging smoke.
 //
 // Budget under test (engagement.proto ListBookmarks, ADR-0023 "Cost impact"): a COLD first page is 43 reads at page
 // 20 and 103 at page 50 (interceptor 1 + query page + GetMany page + caller graph 1 + userLikes 1); with the posts in
 // the instance cache it is 1 + page (graph and userLikes cached 60 s). A list whose size is an exact multiple of the
 // page size ends with one extra EMPTY page (1 read: the sealed token is issued whenever the query came back full).
-// Reads are NOT a k6 metric: they come from the API log (`fs_reads`, `read_budget_spent`), see
+// Reads are NOT a k6 metric: they come from the API log (`fs_reads`), see
 // loadtest/analyze_bookmarks.js. Latency here is emulator latency, indicative only.
 //
-// MODE=latency (default)
+// Run
 //   Setup: PAIRS x 2 viewers (default 1 pair) and AUTHORS_PER_VIEWER authors per viewer (default 5), each author creating
 //   POSTS_PER_AUTHOR posts (default 20); every viewer bookmarks its own authors' posts (disjoint sets, 100 bookmarks per
 //   viewer); then setup sleeps SETTLE seconds (default 75 > CACHE_TTL 60 s) so every instance cache
@@ -15,19 +15,14 @@
 //     cold_pass  even viewers page at page_size 20, odd viewers at 50, a first pass (tag pass:cold) then an immediate second
 //                pass (tag pass:warm, posts now cached);
 //     warm_load  RATE passes/s (default 2) for DURATION (default 30s) round-robin over the viewers.
-//
-// MODE=budget
-//   One viewer with 100 bookmarks pages at 50 over and over (sequentially) until the server answers RATE_LIMITED
-//   limit=read_budget_daily (ADR-0010 D5; default READ_BUDGET_PER_UID_PER_DAY 2000), to show ListBookmarks is charged
-//   to the per-uid daily read budget. Each call is logged by the API with `read_budget_spent`.
+
 //
 // API requirements (a local `go run ./cmd/api` against the emulators, nothing else):
 //   FEATURE_POSTS=on FEATURE_BOOKMARKS=on FEATURE_ENGAGEMENT=on
 //   RATE_LIMIT_PER_IP_PER_MIN and RATE_LIMIT_PRE_AUTH_IP_PER_MIN raised (every VU shares 127.0.0.1)
 //   seed only: RATE_LIMIT_POST_CREATE_PER_MIN, QUOTA_NEW_ACCOUNT_POSTS_PER_DAY, RATE_LIMIT_BOOKMARKS_PER_MIN,
 //   QUOTA_NEW_ACCOUNT_BOOKMARKS_PER_DAY and QUOTA_BOOKMARKS_PER_DAY raised (new accounts: 20 posts/day, 50 bookmarks/day)
-//   MODE=latency: RATE_LIMIT_BOOKMARKS_LIST_PER_MIN (default 10/min/uid) and READ_BUDGET_PER_UID_PER_DAY raised (the
-//   load loops one viewer far past 2,000 reads); MODE=budget: only RATE_LIMIT_BOOKMARKS_LIST_PER_MIN raised.
+//   RATE_LIMIT_BOOKMARKS_LIST_PER_MIN raised (default 10/min/uid).
 //
 //   k6 run loadtest/engagement_bookmarks_list.js      # or: make loadtest SCENARIO=engagement_bookmarks_list
 import { check, sleep } from 'k6';
@@ -35,18 +30,15 @@ import exec from 'k6/execution';
 import { Counter } from 'k6/metrics';
 import { mintUsers, rpcCall } from './graph_common.js';
 
-const MODE = __ENV.MODE || 'latency';
 // Viewers come in PAIRS (even index lists at page_size 20, odd at 50); each viewer bookmarks the posts of its own
 // AUTHORS_PER_VIEWER authors (default 5 x POSTS_PER_AUTHOR 20 = 100 bookmarks), so no viewer warms another's post cache.
 const PAIRS = parseInt(__ENV.PAIRS || '1', 10);
 const AUTHORS_PER_VIEWER = parseInt(__ENV.AUTHORS_PER_VIEWER || '5', 10);
 const POSTS_PER_AUTHOR = parseInt(__ENV.POSTS_PER_AUTHOR || '20', 10);
 const SETTLE = parseInt(__ENV.SETTLE || '75', 10);
-const MAX_BUDGET_CALLS = parseInt(__ENV.MAX_BUDGET_CALLS || '120', 10);
 const POSTS = 'dzeroth.posts.v1.PostService';
 const ENG = 'dzeroth.engagement.v1.EngagementService';
 const unexpected = new Counter('bookmarks_unexpected_responses');
-const budgetRejected = new Counter('bookmarks_read_budget_rejections');
 
 const durationThresholds = {};
 for (const pass of ['cold', 'warm']) {
@@ -55,33 +47,26 @@ for (const pass of ['cold', 'warm']) {
   }
 }
 
-export const options =
-  MODE === 'budget'
-    ? {
-        setupTimeout: '300s',
-        scenarios: { budget: { executor: 'shared-iterations', exec: 'budgetLoop', vus: 1, iterations: 1, maxDuration: '5m' } },
-        thresholds: { bookmarks_unexpected_responses: ['count==0'] },
-      }
-    : {
-        setupTimeout: '300s',
-        scenarios: {
-          cold_pass: { executor: 'shared-iterations', exec: 'coldPass', vus: 2 * PAIRS, iterations: 2 * PAIRS, maxDuration: '2m' },
-          warm_load: {
-            executor: 'constant-arrival-rate',
-            exec: 'warmLoad',
-            startTime: '20s',
-            rate: Number(__ENV.RATE || 2),
-            timeUnit: '1s',
-            duration: __ENV.DURATION || '30s',
-            preAllocatedVUs: 10,
-            maxVUs: 40,
-          },
-        },
-        thresholds: Object.assign(
-          { http_req_failed: ['rate<0.01'], bookmarks_unexpected_responses: ['count==0'] },
-          durationThresholds,
-        ),
-      };
+export const options = {
+  setupTimeout: '300s',
+  scenarios: {
+    cold_pass: { executor: 'shared-iterations', exec: 'coldPass', vus: 2 * PAIRS, iterations: 2 * PAIRS, maxDuration: '2m' },
+    warm_load: {
+      executor: 'constant-arrival-rate',
+      exec: 'warmLoad',
+      startTime: '20s',
+      rate: Number(__ENV.RATE || 2),
+      timeUnit: '1s',
+      duration: __ENV.DURATION || '30s',
+      preAllocatedVUs: 10,
+      maxVUs: 40,
+    },
+  },
+  thresholds: Object.assign(
+    { http_req_failed: ['rate<0.01'], bookmarks_unexpected_responses: ['count==0'] },
+    durationThresholds,
+  ),
+};
 
 // seedViewer makes `viewer` bookmark every post id in `postIds`, oldest first (so the list shows the last id first).
 function seedViewer(viewer, postIds, run, tag) {
@@ -93,7 +78,7 @@ function seedViewer(viewer, postIds, run, tag) {
 
 export function setup() {
   const run = Math.floor(Date.now() / 1000).toString(36);
-  const viewerCount = MODE === 'budget' ? 1 : 2 * PAIRS;
+  const viewerCount = 2 * PAIRS;
   const authorCount = viewerCount * AUTHORS_PER_VIEWER;
   const users = mintUsers(authorCount + viewerCount, 'ltbm');
   const authors = users.slice(0, authorCount);
@@ -167,22 +152,3 @@ export function warmLoad(data) {
   pass(data.viewers[v], v % 2 === 0 ? 20 : 50, 'warm', data.total);
 }
 
-// budgetLoop pages at 50 until the per-uid daily read budget rejects (or MAX_BUDGET_CALLS).
-export function budgetLoop(data) {
-  const viewer = data.viewers[0];
-  for (let n = 1; n <= MAX_BUDGET_CALLS; n++) {
-    const res = rpcCall(ENG, 'ListBookmarks', { pageSize: 50 }, viewer.idToken, 'ListBookmarks', { pass: n === 1 ? 'cold' : 'warm', page_size: '50' });
-    if (res.status === 200) continue;
-    let limit = '';
-    try {
-      limit = JSON.stringify(res.json('details') || res.json('metadata') || '');
-    } catch (e) {
-      limit = String(res.body).slice(0, 200);
-    }
-    console.log(`budget: call ${n} -> status ${res.status} code=${res.json('code')} body=${String(res.body).slice(0, 300)} ${limit}`);
-    budgetRejected.add(1);
-    return;
-  }
-  unexpected.add(1);
-  console.error(`budget: no rejection in ${MAX_BUDGET_CALLS} calls`);
-}

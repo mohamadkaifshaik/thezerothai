@@ -1,4 +1,4 @@
-// repo_privacy_public.go is the Firestore side of the privacy_public job (ADR-0025 D8): one page of a protected
+// repo_privacy_public.go is the Firestore side of the privacy_public job: one page of a protected
 // account's pending follow requests, accepted in a single transaction through the pieces (classifyAccept,
 // queueAccept). No second accept path exists: this file only reads the page and feeds those pieces.
 package graph
@@ -49,7 +49,7 @@ type PendingPageResult struct {
 	Last            *PendingCursor
 }
 
-// AcceptPendingPage accepts one page of uid's pending requests in one transaction (ADR-0025 D8). In order, all reads
+// AcceptPendingPage accepts one page of uid's pending requests in one transaction. In order, all reads
 // first: the target's users doc fresh (re-protected, gone or not ACTIVE = Stop, nothing written, so a protect that
 // commits mid-run conflicts with the page and wins), the page query INSIDE the transaction (so a concurrent withdraw,
 // decline or Block conflicts and the retry sees the request gone), the requesters' status (Active), then each

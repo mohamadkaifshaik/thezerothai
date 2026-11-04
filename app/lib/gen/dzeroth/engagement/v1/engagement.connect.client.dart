@@ -65,7 +65,7 @@ extension type EngagementServiceClient (connect.Transport _transport) {
   /// users/{uid}.postsCount, userLikes/{uid}.recentReposts and quotas/{uid}. Firestore: reads 1 in the transaction
   /// (+ visibility check 3 cold / 0 warm, + interceptor; +2 when post_id is a REPOST), writes 6. Replay: +1 read
   /// (reposts/{id}), 0 writes.
-  /// Protected authors (ADR-0025 D5): reposting a protected account's post is refused for everyone but that account. A
+  /// Protected authors: reposting a protected account's post is refused for everyone but that account. A
   /// caller who may not see the post gets NOT_FOUND "post not found" (the visibility check); an approved follower gets
   /// FAILED_PRECONDITION + PROTECTED_ACCOUNT; both 0 writes. The account may repost its own post.
   Future<dzerothengagementv1engagement.RepostPostResponse> repostPost(
@@ -120,7 +120,7 @@ extension type EngagementServiceClient (connect.Transport _transport) {
   /// metadata["quota"] = "bookmarks". A replay or an already bookmarked post is not charged.
   /// One transaction: reads idempotency, quotas and userLikes fresh; Create users/{uid}/bookmarks/{postId}, Create
   /// the idempotency doc, set quotas/{uid}.bookmarks, ArrayUnion userLikes/{uid}.bookmarks (the complete set of the
-  /// caller's bookmarked post ids, which hydrates viewer state with no extra read; ADR-0023 D3).
+  /// caller's bookmarked post ids, which hydrates viewer state with no extra read).
   /// Firestore: reads 7 cold / 3 warm, planning 4 (interceptor 1, visibility check post + author users + caller graph
   /// 3 cold / 0 warm, idempotency 1, quotas 1, userLikes 1; +2 when post_id is a REPOST, +1 on blockedBy overflow);
   /// writes 4 (bookmark, idempotency, quotas, userLikes) + 1 TTL delete later. Replay: reads 5 cold / 1 warm, writes
@@ -174,15 +174,15 @@ extension type EngagementServiceClient (connect.Transport _transport) {
   /// VALIDATION metadata["field"] = "page_token", 0 reads: drop it and reload the first page.
   /// Client contract: there is no since_token and no removed_ids. On every open, REPLACE the cached first page with
   /// the response, then scroll with next_page_token.
-  /// Rows are dropped after the read (ADR-0023 D2): the post is missing (deleted, or its author's account was
+  /// Rows are dropped after the read: the post is missing (deleted, or its author's account was
   /// purged), hidden by a moderator (takedown or author suspension), or its author (or a QUOTE's embedded author) is
-  /// blocked by, blocks, or is muted by the caller (the ADR-0010 D6 Home column). A page may therefore be short or
+  /// blocked by, blocks, or is muted by the caller (the same drop rule as Home). A page may therefore be short or
   /// empty while next_page_token is non-empty: keep following it while it is non-empty. A post whose author is
   /// DELETING is shown until the purge deletes it, as in Home.
   /// A row whose post no longer exists is pruned (its bookmark doc deleted and its id removed from
   /// userLikes.bookmarks, best effort, once); hidden and blocked rows are kept, because a restore or an unblock
   /// brings them back. No pruning under DEGRADED_MODE=readonly.
-  /// Protected authors (ADR-0025 D4): a post by a protected account the caller does not follow, or a REPOST of one, is
+  /// Protected authors: a post by a protected account the caller does not follow, or a REPOST of one, is
   /// dropped too, and kept, not pruned: it comes back when the caller follows the account or the account unprotects.
   /// A QUOTE of such a post is shown with embed_viewer_state = PROTECTED and its embed stripped. 0 extra reads.
   /// Firestore: reads 1 + page + <= page + 2 cold (interceptor, the bookmarks query, one posts GetMany cache-first,
@@ -206,7 +206,7 @@ extension type EngagementServiceClient (connect.Transport _transport) {
     );
   }
 
-  /// The caller's own likes, most recently liked first (ADR-0024 D6). OWNER-ONLY: the request has no user id and
+  /// The caller's own likes, most recently liked first. OWNER-ONLY: the request has no user id and
   /// must never get one; the source is userLikes/{caller}.recent (the newest 1,000 likes, read through engagement's
   /// 60 s cache), so nobody can list another user's likes. Likes older than the newest 1,000 are not listed, and there
   /// is no liked-at time (recent[] stores none). Each row is the LIVE post (one cache-first posts GetMany of the
@@ -214,11 +214,11 @@ extension type EngagementServiceClient (connect.Transport _transport) {
   /// Needs FEATURE_LIKES_LIST (wire name "likes_list") on for the caller, and FEATURE_POSTS; it does not need
   /// FEATURE_ENGAGEMENT (it lists likes made while that was on). Otherwise FAILED_PRECONDITION + FEATURE_DISABLED,
   /// metadata["feature"] = "likes_list", 0 reads. Rate limit: RATE_LIMIT_LIKES_LIST_PER_MIN, 10/min/uid per instance
-  /// (at most 30/min with 3 instances). Charged to the per-uid daily read budget (ADR-0010 D5).
+  /// (at most 30/min with 3 instances).
   /// Rows are dropped after the read, as in ListBookmarks: the post is missing, hidden by a moderator, or its author
   /// (or a QUOTE's or REPOST's embedded author) is blocked by, blocks, or is muted by the caller. Nothing is pruned
   /// (the like path owns recent[]), so a page may be short or empty while next_page_token is non-empty: keep
-  /// following it while it is non-empty. Protected authors (ADR-0025 D4): the ListBookmarks rule (dropped, never
+  /// following it while it is non-empty. Protected authors: the ListBookmarks rule (dropped, never
   /// pruned; a QUOTE kept with embed_viewer_state = PROTECTED), 0 extra reads.
   /// page_size 0 => 20, clamped to 1..50. page_token is opaque, bound to the caller ("likes" feed), 24 h TTL; it
   /// resumes by post id (the next and last returned ids, then an offset from the newest end), so an unlike, re-like
@@ -244,7 +244,7 @@ extension type EngagementServiceClient (connect.Transport _transport) {
     );
   }
 
-  /// Vote in a post's poll (ADR-0029 D6, D7). One vote per account per poll, final: it cannot be changed or withdrawn.
+  /// Vote in a post's poll. One vote per account per poll, final: it cannot be changed or withdrawn.
   /// Owns pollVotes/{postId}_{uid} {postId, uid, choice, createdAt, expireAt = closes_at + 30 d, TTL}. Nobody, the
   /// author included, can list who voted or for what; no notification is sent.
   /// Order (each refusal writes nothing):
@@ -268,7 +268,7 @@ extension type EngagementServiceClient (connect.Transport _transport) {
   ///    => FAILED_PRECONDITION + ALREADY_VOTED with metadata["choice"] = the stored 0-based index; call again with that
   ///    choice to get the results view. The response's viewer_poll_choice and results come from the vote, never from
   ///    userLikes.
-  /// Amendment 1 (ADR-0029, accepted in principle 2026-10-31; behaviour arrives later): a vote is changeable until
+  /// Accepted in principle 2026-10-31, behaviour arrives later: a vote is changeable until
   /// closes_at, and a caller who blocks the poll's author cannot vote or change. Step 5 gains, after the choice_index
   /// check: the caller blocks the poll's author (a REPOST id: the original's author) => FAILED_PRECONDITION +
   /// TARGET_BLOCKED, 0 writes, for a cast, a change and a replay alike. An author who blocks the caller, or a mutual
@@ -285,13 +285,12 @@ extension type EngagementServiceClient (connect.Transport _transport) {
   /// expected_choice and keeps a vote final, as steps 6 and 7 below say.
   /// 8. Write contention on a hot poll after the server's bounded retry => UNAVAILABLE with retry_after; retry once with
   ///    the same idempotency_key.
-  /// Idempotency (the idempotency rule, bend recorded in ADR-0029 D7, founder decision 2026-10-27): the key is validated
+  /// Idempotency (the idempotency rule is bent here, founder decision 2026-10-27): the key is validated
   /// but not stored; pollVotes/{postId}_{uid} is the record.
   /// Firestore: reads 8 worst cold (interceptor 1, post 1, author users 1, caller graph 1, +2 when post_id is a REPOST,
   /// +1 on blockedBy overflow, userLikes 1 for the response's viewer flags; all but the interceptor cached 60 s),
   /// planning 3; writes 3 (vote doc, post counters, userLikes) + 1 TTL delete at closes_at + 30 d. Replay or
-  /// ALREADY_VOTED: +1 read (the vote doc), 0 writes. Refused at step 5: <= 7 reads, 0 writes. Charged to the per-uid
-  /// daily read budget (ADR-0010 D5).
+  /// ALREADY_VOTED: +1 read (the vote doc), 0 writes. Refused at step 5: <= 7 reads, 0 writes.
   Future<dzerothengagementv1engagement.VotePollResponse> votePoll(
     dzerothengagementv1engagement.VotePollRequest input, {
     connect.Headers? headers,

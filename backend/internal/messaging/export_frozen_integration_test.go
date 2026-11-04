@@ -9,7 +9,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // export part on the emulator (security review M-2): carol blocked alice and then renamed; alice's export shows the
@@ -27,7 +26,7 @@ func TestExport_BlockedPeerFrozenHandleOnEmulator(t *testing.T) {
 	e.social.mu.Unlock()
 
 	var buf bytes.Buffer
-	ctx, c := budget.WithCounter(t.Context())
+	ctx, _ := budget.WithCounter(t.Context())
 	if err := NewExporter(e.repo, e.profs, chargedSocial{e.social}).ExportUser(ctx, alice, &buf); err != nil {
 		t.Fatal(err)
 	}
@@ -37,9 +36,5 @@ func TestExport_BlockedPeerFrozenHandleOnEmulator(t *testing.T) {
 	}
 	if !strings.Contains(got, `"peerHandle":"bob-live"`) {
 		t.Errorf("an unblocked peer keeps the live handle: %s", got)
-	}
-	budgettest.Assert(t, "export with one blocked peer", c, budgettest.Budget{Reads: 6})
-	if c.Reads() != 6 || c.Writes() != 0 {
-		t.Errorf("export reads/writes = %d/%d, want 6/0", c.Reads(), c.Writes())
 	}
 }

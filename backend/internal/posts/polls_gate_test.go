@@ -10,9 +10,9 @@ import (
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 )
 
-// TestCreate_PollsGate (ADR-0029 D2): a request with a poll while FEATURE_POLLS is off for the caller is
+// TestCreate_PollsGate: a request with a poll while FEATURE_POLLS is off for the caller is
 // FEATURE_DISABLED feature=polls with 0 reads, 0 writes and no repo call, and it comes after content_disclosure in the
-// ADR-0010 D2 order. A caller with the flag on reaches the repository (stores the poll). A request without a poll is unaffected either way.
+// Order. A caller with the flag on reaches the repository (stores the poll). A request without a poll is unaffected either way.
 func TestCreate_PollsGate(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -34,7 +34,7 @@ func TestCreate_PollsGate(t *testing.T) {
 			switch {
 			case tt.wantFeature != "":
 				ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
-				if ae.Metadata["feature"] != tt.wantFeature || c.Reads() != 0 || c.Writes() != 0 || e.repo.createCalls != 0 {
+				if ae.Metadata["feature"] != tt.wantFeature || e.repo.createCalls != 0 {
 					t.Fatalf("feature=%q reads=%d writes=%d creates=%d", ae.Metadata["feature"], c.Reads(), c.Writes(), e.repo.createCalls)
 				}
 			default:

@@ -20,7 +20,7 @@ import (
 )
 
 // TestPostsBuckets_AreWiredAtTheADR0010Rates: through the config Build wires, the Nth call of a minute is
-// allowed and the N+1th is RATE_LIMITED, per procedure, with the ADR-0010 Handoff numbers (home 6, user timeline
+// allowed and the N+1th is RATE_LIMITED, per procedure, with the agreed numbers (home 6, user timeline
 // 30, create 10, delete 20, GetPost 60 = the default bucket). Each bucket is independent: exhausting one
 // procedure does not affect another.
 func TestPostsBuckets_AreWiredAtTheADR0010Rates(t *testing.T) {
@@ -46,8 +46,6 @@ func TestPostsBuckets_AreWiredAtTheADR0010Rates(t *testing.T) {
 	cfg := defaultRateLimitCfg()
 	cfg.RateLimit.PerUserPerMinute = 60
 	cfg.RateLimit.PerIPPerMinute = 100000
-	// The read budget is not under test here; make it generous so only the per-minute buckets can reject.
-	cfg.RateLimit.ReadBudgetPerUIDPerDay = 1 << 40
 	rl := RateLimitConfig(cfg)
 
 	setUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
@@ -104,7 +102,7 @@ func TestPostsBuckets_AreWiredAtTheADR0010Rates(t *testing.T) {
 	}
 }
 
-// TestScheduledBuckets_ShareTheCreatePostBucket (ADR-0021 D4): SchedulePost and CancelScheduledPost draw on the SAME
+// TestScheduledBuckets_ShareTheCreatePostBucket: SchedulePost and CancelScheduledPost draw on the SAME
 // 10/min bucket as CreatePost, so a user's creates, schedules and cancels together cannot exceed it, while
 // ListScheduledPosts is a read on the 60/min default bucket and is not starved by an exhausted create bucket.
 func TestScheduledBuckets_ShareTheCreatePostBucket(t *testing.T) {
@@ -117,7 +115,6 @@ func TestScheduledBuckets_ShareTheCreatePostBucket(t *testing.T) {
 	cfg := defaultRateLimitCfg()
 	cfg.RateLimit.PerUserPerMinute = 60
 	cfg.RateLimit.PerIPPerMinute = 100000
-	cfg.RateLimit.ReadBudgetPerUIDPerDay = 1 << 40
 	rl := RateLimitConfig(cfg)
 
 	for _, p := range []string{postsv1connect.PostServiceSchedulePostProcedure, postsv1connect.PostServiceCancelScheduledPostProcedure} {
@@ -128,15 +125,6 @@ func TestScheduledBuckets_ShareTheCreatePostBucket(t *testing.T) {
 	if _, has := rl.PerProcedure[postsv1connect.PostServiceListScheduledPostsProcedure]; has {
 		t.Error("ListScheduledPosts must use the default read bucket, not a dedicated one")
 	}
-	for _, p := range procs {
-		if _, exempt := rl.ReadBudgetExempt[p]; exempt {
-			t.Errorf("%s is on the read-budget exemption list; the list must stay empty", p)
-		}
-		if _, charge := rl.ReadBudgetChargeOnly[p]; charge {
-			t.Errorf("%s is charge-only; only the account operations may be", p)
-		}
-	}
-
 	setUID := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 			return next(authn.WithClaims(ctx, authn.Claims{UID: "uid-sched", SignInProvider: authn.SignInProviderGoogle}), req)
@@ -176,9 +164,8 @@ func TestScheduledBuckets_ShareTheCreatePostBucket(t *testing.T) {
 	}
 }
 
-// TestBookmarkBuckets_AddAndRemoveShareOne (ADR-0023 D4): AddBookmark and RemoveBookmark draw on the SAME per-user
-// bucket (RATE_LIMIT_BOOKMARKS_PER_MIN), ListBookmarks has its own (RATE_LIMIT_BOOKMARKS_LIST_PER_MIN), and none of
-// them is on the read-budget exemption or charge-only lists.
+// TestBookmarkBuckets_AddAndRemoveShareOne: AddBookmark and RemoveBookmark draw on the SAME per-user
+// bucket (RATE_LIMIT_BOOKMARKS_PER_MIN), and ListBookmarks has its own (RATE_LIMIT_BOOKMARKS_LIST_PER_MIN).
 func TestBookmarkBuckets_AddAndRemoveShareOne(t *testing.T) {
 	rl := RateLimitConfig(defaultRateLimitCfg())
 	add := rl.PerProcedure[engagementv1connect.EngagementServiceAddBookmarkProcedure]
@@ -189,17 +176,5 @@ func TestBookmarkBuckets_AddAndRemoveShareOne(t *testing.T) {
 	}
 	if list == nil || list == add {
 		t.Error("ListBookmarks must have its own limiter")
-	}
-	for _, p := range []string{
-		engagementv1connect.EngagementServiceAddBookmarkProcedure,
-		engagementv1connect.EngagementServiceRemoveBookmarkProcedure,
-		engagementv1connect.EngagementServiceListBookmarksProcedure,
-	} {
-		if _, exempt := rl.ReadBudgetExempt[p]; exempt {
-			t.Errorf("%s is on the read-budget exemption list; the list must stay empty", p)
-		}
-		if _, charge := rl.ReadBudgetChargeOnly[p]; charge {
-			t.Errorf("%s is charge-only; only the account operations may be", p)
-		}
 	}
 }

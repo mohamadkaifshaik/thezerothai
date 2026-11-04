@@ -8,7 +8,7 @@ import (
 
 // visionBudget is the SafeSearch cost meter: the month's unit count is read from admin/vision-{yyyymm} at most
 // once per 60 s per instance and advanced locally by what this instance reserves, so up to max-instances (3)
-// instances may overshoot the cap by a few units, which the cap's headroom already covers (ADR-0005).
+// instances may overshoot the cap by a few units, which the cap's headroom already covers.
 type visionBudget struct {
 	repo Repo
 	cap  int64

@@ -27,7 +27,7 @@ type PostGone interface {
 	PostGone(ctx context.Context, postID string) (bool, error)
 }
 
-// PinJobs is the identity step of the post_delete job (ADR-0024 D3): when the deleted post is the author's pinned
+// PinJobs is the identity step of the post_delete job: when the deleted post is the author's pinned
 // post, the pin is cleared. apiserver runs it next to the media and engagement steps on the same message. It is
 // never flag-gated (a pin set while profile_extras was on must still be cleaned up when the flag is off), and a
 // takedown does not run it (a restore brings the pin back).
@@ -47,8 +47,9 @@ func NewPinJobs(p Pins, gone PostGone, forget func(uids ...string)) *PinJobs {
 // Handle implements JobHandler. Reads: 2 per message (the post, fresh; then users/{uid}, fresh, in the transaction),
 // writes: 1 only when the stored pin is exactly this post (outcome "pin_cleared"), otherwise 0 ("noop"). A message
 // for a post that still exists is "refused" (nothing read or written beyond the existence check). The step can never
-// unpin anything but that exact post id. A malformed message is acknowledged and dropped (the DLQ, not a retry storm,
-// holds poison); a Firestore error nacks so Pub/Sub redelivers, and the step is idempotent. The profile cache of
+// unpin anything but that exact post id. A malformed message is acknowledged and dropped, because no retry can fix it: it
+// never reaches the DLQ. This step's outcome is not logged: postDeleteChain keeps only pin_cleared. A Firestore error nacks
+// so Pub/Sub redelivers, and the step is idempotent. The profile cache of
 // other instances keeps showing the pin for at most CACHE_TTL; clients hide the row when GetPost answers NOT_FOUND.
 func (j *PinJobs) Handle(ctx context.Context, data []byte) (string, error) {
 	var m pinJobMessage

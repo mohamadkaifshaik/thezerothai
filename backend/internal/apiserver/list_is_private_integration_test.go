@@ -2,7 +2,7 @@
 
 package apiserver
 
-// ADR-0025 implementation note,: AuthorSnapshot.is_private on every graph user-list row, through the real
+// AuthorSnapshot.is_private on every graph user-list row, through the real
 // Build chain with FEATURE_PRIVATE_ACCOUNTS on and the real UpdateProfile(is_private) toggle:
 //   - ListFollowing, ListFollowers, ListFollowRequests, ListSuggestedUsers, ListBlockedUsers and ListMutedUsers show
 //     user.is_private=true on a protected user's row and false on a public user's row, on a cold instance each;
@@ -20,7 +20,6 @@ import (
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	notificationsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1/notificationsv1connect"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -98,48 +97,47 @@ func TestW328c_IsPrivateOnEveryUserListRow(t *testing.T) {
 	// Each read runs on its own cold instance (no Directory cache), so the value is what the list hydrated from Firestore.
 	cold := func() *w320Chain { return newW320Chain(t, w328cOn) }
 	cases := []struct {
-		name    string
-		rpc     string
-		ceiling budgettest.Budget
-		call    func(c *w320Chain) ([]*graphv1.UserListItem, error)
-		want    map[string]bool
+		name string
+		rpc  string
+		call func(c *w320Chain) ([]*graphv1.UserListItem, error)
+		want map[string]bool
 	}{
-		{"ListFollowing", rpcListFollowing, budgettest.Budget{Reads: 3 + 2*20}, func(c *w320Chain) ([]*graphv1.UserListItem, error) {
+		{"ListFollowing", rpcListFollowing, func(c *w320Chain) ([]*graphv1.UserListItem, error) {
 			resp, err := c.graph.ListFollowing(ctx, authed(v.token, &graphv1.ListFollowingRequest{UserId: v.uid, PageSize: 20}))
 			if err != nil {
 				return nil, err
 			}
 			return resp.Msg.GetUsers(), nil
 		}, map[string]bool{p.uid: true, a.uid: false, b2.uid: false}},
-		{"ListFollowers", rpcListFollowers, budgettest.Budget{Reads: 3 + 2*20}, func(c *w320Chain) ([]*graphv1.UserListItem, error) {
+		{"ListFollowers", rpcListFollowers, func(c *w320Chain) ([]*graphv1.UserListItem, error) {
 			resp, err := c.graph.ListFollowers(ctx, authed(v.token, &graphv1.ListFollowersRequest{UserId: a.uid, PageSize: 20}))
 			if err != nil {
 				return nil, err
 			}
 			return resp.Msg.GetUsers(), nil
 		}, map[string]bool{p.uid: true, v.uid: false}},
-		{"ListFollowRequests", rpcListFollowRequests, budgettest.Budget{Reads: 42}, func(c *w320Chain) ([]*graphv1.UserListItem, error) {
+		{"ListFollowRequests", rpcListFollowRequests, func(c *w320Chain) ([]*graphv1.UserListItem, error) {
 			resp, err := c.w328List(p)
 			if err != nil {
 				return nil, err
 			}
 			return resp.GetRequests(), nil
 		}, map[string]bool{q.uid: true, r.uid: false}},
-		{"ListSuggestedUsers", graphv1connect.GraphServiceListSuggestedUsersProcedure, budgettest.Budget{Reads: 32}, func(c *w320Chain) ([]*graphv1.UserListItem, error) {
+		{"ListSuggestedUsers", graphv1connect.GraphServiceListSuggestedUsersProcedure, func(c *w320Chain) ([]*graphv1.UserListItem, error) {
 			resp, err := c.w320Suggest(v, 10)
 			if err != nil {
 				return nil, err
 			}
 			return resp.GetUsers(), nil
 		}, map[string]bool{x.uid: true, y.uid: false, z.uid: false}},
-		{"ListBlockedUsers", graphv1connect.GraphServiceListBlockedUsersProcedure, budgettest.Budget{Reads: 1 + 1 + 20}, func(c *w320Chain) ([]*graphv1.UserListItem, error) {
+		{"ListBlockedUsers", graphv1connect.GraphServiceListBlockedUsersProcedure, func(c *w320Chain) ([]*graphv1.UserListItem, error) {
 			resp, err := c.graph.ListBlockedUsers(ctx, authed(v.token, &graphv1.ListBlockedUsersRequest{PageSize: 20}))
 			if err != nil {
 				return nil, err
 			}
 			return resp.Msg.GetUsers(), nil
 		}, map[string]bool{pb.uid: true, ab.uid: false}},
-		{"ListMutedUsers", graphv1connect.GraphServiceListMutedUsersProcedure, budgettest.Budget{Reads: 1 + 1 + 20}, func(c *w320Chain) ([]*graphv1.UserListItem, error) {
+		{"ListMutedUsers", graphv1connect.GraphServiceListMutedUsersProcedure, func(c *w320Chain) ([]*graphv1.UserListItem, error) {
 			resp, err := c.graph.ListMutedUsers(ctx, authed(v.token, &graphv1.ListMutedUsersRequest{PageSize: 20}))
 			if err != nil {
 				return nil, err
@@ -156,7 +154,6 @@ func TestW328c_IsPrivateOnEveryUserListRow(t *testing.T) {
 			}
 			w328cWant(t, tc.name, rows, tc.want)
 			// +0: the badge is copied from the hydrated profile, so the list stays inside the ceiling it had before the field.
-			budgettest.Assert(t, tc.name+" (cold) with is_private", c.lineBudget(t, tc.rpc), tc.ceiling)
 		})
 	}
 

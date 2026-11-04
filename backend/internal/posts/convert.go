@@ -14,7 +14,7 @@ import (
 // MediaRef carries thumb_url (lists render it).
 func ToProto(p *Post) *postsv1.Post { return toProtoAt(p, ViewerSet{}, "", time.Now()) }
 
-// ToProtoForViewer is ToProto for a known viewer: the author sees the per-choice counts of their own poll (ADR-0029 D4).
+// ToProtoForViewer is ToProto for a known viewer: the author sees the per-choice counts of their own poll.
 func ToProtoForViewer(p *Post, viewer string) *postsv1.Post {
 	return toProtoAt(p, ViewerSet{}, viewer, time.Now())
 }
@@ -37,7 +37,7 @@ func toProtoAt(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.Pos
 		RepostCount:    p.RepostCount,
 		ReplyCount:     p.ReplyCount,
 		QuoteCount:     p.QuoteCount,
-		// The wire visibility is computed, never read from the stored field (always PUBLIC, ADR-0025 D2): PUBLIC here, and
+		// The wire visibility is computed, never read from the stored field (always PUBLIC): PUBLIC here, and
 		// ApplyWireVisibility raises it to FOLLOWERS while the author is in the protected set. Every converter caller that can
 		// reach a protected author must apply it (GetPost, GetThread, CreatePost today; the lists and feeds).
 		Visibility: postsv1.Visibility_VISIBILITY_PUBLIC,
@@ -92,12 +92,12 @@ func embeddedToProto(e *Embedded, now time.Time) *postsv1.EmbeddedPost {
 // ToView converts a Post to the PostView the clients render, with the viewer's like/repost/bookmark flags from vs
 // (the zero ViewerSet gives false/false/false, which is what every response carried before then) and the viewer's reply
 // hint (replyPermissionFor, 0 reads; never flag-gated, it only describes stored data). bookmarked_by_viewer is
-// ViewerSet.Bookmarked (ADR-0023 D3): HydrateViewer decides whether the set is filled, so this adds no read.
+// ViewerSet.Bookmarked: HydrateViewer decides whether the set is filled, so this adds no read.
 func ToView(p *Post, vs ViewerSet, viewer string) *postsv1.PostView {
 	return ToViewAt(p, vs, viewer, time.Now())
 }
 
-// ToViewAt is ToView with the server clock passed in: the seam for poll closing in tests (ADR-0029 D4). Production callers use ToView.
+// ToViewAt is ToView with the server clock passed in: the seam for poll closing in tests. Production callers use ToView.
 func ToViewAt(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.PostView {
 	liked, reposted := vs.Flags(p)
 	v := &postsv1.PostView{Post: toProtoAt(p, vs, viewer, now), LikedByViewer: liked, RepostedByViewer: reposted,
@@ -106,12 +106,12 @@ func ToViewAt(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.Post
 	v.Post.Community = communityRef(p, vs.communitiesOff)
 	v.ViewerPollVoteBlocked = vs.PollVoteBlocked(p, viewer, now)
 	if i, voted := vs.PollChoice(p); voted {
-		v.ViewerPollChoice = int32(i) + 1 //nolint:gosec // i is 0..3 (WithPollVotes drops anything else); index + 1, 0 = none (ADR-0029 D4); for a REPOST row the original's choice
+		v.ViewerPollChoice = int32(i) + 1 //nolint:gosec // i is 0..3 (WithPollVotes drops anything else); index + 1, 0 = none; for a REPOST row the original's choice
 	}
 	return v
 }
 
-// replyPermissionFor is the viewer hint the timelines compute with 0 reads (ADR-0021 D2, review I-6). It is
+// replyPermissionFor is the viewer hint the timelines compute with 0 reads (review I-6). It is
 // advisory: CreatePost decides.
 //   - a REPOST row has no policy of its own and EmbeddedPost has no mentions: the embedded policy decides, EVERYONE
 //     is ALLOWED, anything restricted (or a tombstone) is UNKNOWN;
@@ -170,10 +170,10 @@ func kindToProto(k Kind) postsv1.PostKind {
 	}
 }
 
-// pollToProto is the one rule for what a viewer may see of a post's poll (ADR-0029 D4). Hidden is the default: every
+// pollToProto is the one rule for what a viewer may see of a post's poll. Hidden is the default: every
 // per-choice votes is 0 and results_visible false, so the bytes are the same whatever the real counts; total_votes is
 // always the real total. The counts are shown when the poll is closed (by the server clock passed in) or the viewer is the
-// author, has voted (vs.PollChoice), or FEATURE_POLLS is globally off (vs, ADR-0029 D4). A new proto is built on every call: the cached *Post is
+// author, has voted (vs.PollChoice), or FEATURE_POLLS is globally off (vs). A new proto is built on every call: the cached *Post is
 // shared by viewers and is never written to. nil for a post without a poll.
 func pollToProto(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.Poll {
 	po := p.Poll
@@ -197,7 +197,7 @@ func pollToProto(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.P
 	return out
 }
 
-// embeddedPollToProto is the frozen definition of an embed (ADR-0029 D5): labels and closes_at, every count 0, total 0 and
+// embeddedPollToProto is the frozen definition of an embed: labels and closes_at, every count 0, total 0 and
 // results_visible false always; closed is the server clock against closes_at.
 func embeddedPollToProto(e *EmbeddedPoll, now time.Time) *postsv1.Poll {
 	if e == nil {
@@ -210,7 +210,7 @@ func embeddedPollToProto(e *EmbeddedPoll, now time.Time) *postsv1.Poll {
 	return out
 }
 
-// communityRef is the one decision about the community label on the wire (ADR-0031 D5): the post carries a label, a moderator has not hidden
+// communityRef is the one decision about the community label on the wire: the post carries a label, a moderator has not hidden
 // it (communityHidden) and communities is not globally off (the kill switch). 0 reads. ToViewAt calls it for every PostView; CreatePost's
 // own response calls it with off=false (its caller just passed the community gate, so the flag is on).
 func communityRef(p *Post, off bool) *postsv1.CommunityRef {

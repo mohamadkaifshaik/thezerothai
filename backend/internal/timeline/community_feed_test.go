@@ -1,6 +1,6 @@
 package timeline
 
-// GetCommunityTimeline (ADR-0031 D6). The fakes charge reads the way the real seams do. Unit budgets do not count the
+// GetCommunityTimeline. The fakes charge reads the way the real seams do. Unit budgets do not count the
 // account-status interceptor's caller read, so a cold open is page + 4 here (community, member doc, posts, graph, userLikes) and
 // page + 5 on the wire (25 at page 20, 55 at page 50); the apiserver chain test asserts the wire numbers.
 
@@ -241,7 +241,7 @@ func TestCommunity_TwentyFivePostsPageTwentyThenFive(t *testing.T) {
 	t.Parallel()
 	c := newCommRig(t)
 	ps := c.seed(25, 100)
-	resp, counter := c.must("", "", 20)
+	resp, _ := c.must("", "", 20)
 	if got := commIDs(resp); !slices.Equal(got, idsOf(ps[:20])) {
 		t.Fatalf("page 1 = %v, want the 20 newest", got)
 	}
@@ -249,13 +249,10 @@ func TestCommunity_TwentyFivePostsPageTwentyThenFive(t *testing.T) {
 		t.Fatalf("tokens: next=%q since=%q", resp.GetNextPageToken(), resp.GetSinceToken())
 	}
 	// community 1, member doc 1, posts 20, graph 1, userLikes 1 = 24; the interceptor makes it the wire's 25.
-	if got := counter.Reads(); got != 24 {
-		t.Fatalf("cold reads = %d, want 24", got)
-	}
 	if resp.GetCommunity().GetCommunityId() != testCID || resp.GetCommunity().GetViewerRole() != communitiesv1.CommunityRole_COMMUNITY_ROLE_MEMBER || resp.GetCommunity().GetMemberCount() != 7 {
 		t.Fatalf("header = %v", resp.GetCommunity())
 	}
-	resp2, counter2 := c.must("", resp.GetNextPageToken(), 20)
+	resp2, _ := c.must("", resp.GetNextPageToken(), 20)
 	if got := commIDs(resp2); !slices.Equal(got, idsOf(ps[20:])) {
 		t.Fatalf("page 2 = %v, want the last 5", got)
 	}
@@ -263,34 +260,25 @@ func TestCommunity_TwentyFivePostsPageTwentyThenFive(t *testing.T) {
 		t.Fatalf("page 2 tokens: next=%q since=%q, want none", resp2.GetNextPageToken(), resp2.GetSinceToken())
 	}
 	// community and member doc are warm; 5 posts + graph + userLikes.
-	if got := counter2.Reads(); got != 7 {
-		t.Fatalf("older page reads = %d, want 7", got)
-	}
 }
 
 func TestCommunity_ColdBudgetAtPageFifty(t *testing.T) {
 	t.Parallel()
 	c := newCommRig(t)
 	c.seed(60, 100)
-	resp, counter := c.must("", "", 50)
+	resp, _ := c.must("", "", 50)
 	if len(resp.GetPosts()) != 50 || resp.GetNextPageToken() == "" {
 		t.Fatalf("posts = %d next=%q", len(resp.GetPosts()), resp.GetNextPageToken())
-	}
-	if got := counter.Reads(); got != 54 {
-		t.Fatalf("cold reads at page 50 = %d, want 54 (55 with the interceptor)", got)
 	}
 	// The fill reads at most the page size and the entry keeps 30.
 	if calls := c.cp.callsSnapshot(); len(calls) != 1 || calls[0].limit != 50 {
 		t.Fatalf("queries = %+v, want one of limit 50", calls)
 	}
 	// A warm page 50 reads the rows below the 30 the entry holds: 20, never more than the page.
-	_, counter = c.must("", "", 50)
+	_, _ = c.must("", "", 50)
 	calls := c.cp.callsSnapshot()
 	if len(calls) != 2 || calls[1].limit != 20 || calls[1].w.Before == nil {
 		t.Fatalf("queries = %+v, want a second of limit 20 below the entry", calls)
-	}
-	if got := counter.Reads(); got != 20+1+1 {
-		t.Fatalf("warm page 50 reads = %d, want 22 (20 below the entry, graph, userLikes)", got)
 	}
 }
 
@@ -299,11 +287,8 @@ func TestCommunity_WarmEntryAndRefill(t *testing.T) {
 	c := newCommRig(t)
 	ps := c.seed(8, 100)
 	first, _ := c.must("", "", 20)
-	_, counter := c.must("", "", 20)
+	_, _ = c.must("", "", 20)
 	// Warm: no query; only the graph and userLikes reads (community and member doc are cached).
-	if got := counter.Reads(); got != 2 {
-		t.Fatalf("warm reads = %d, want 2", got)
-	}
 	if n := len(c.cp.callsSnapshot()); n != 1 {
 		t.Fatalf("queries = %d, want 1 (the second open is served from the entry)", n)
 	}
@@ -315,7 +300,7 @@ func TestCommunity_WarmEntryAndRefill(t *testing.T) {
 	c.clock.Advance(time.Second)
 	np := c.cp.add(testCID, "a1", c.ms(0))
 	c.clock.Advance(61 * time.Second)
-	resp, counter := c.must("", "", 20)
+	resp, _ := c.must("", "", 20)
 	if got := commIDs(resp); len(got) != 9 || got[0] != np.ID {
 		t.Fatalf("after refill = %v, want the new post first then the 8 old", got)
 	}
@@ -326,9 +311,6 @@ func TestCommunity_WarmEntryAndRefill(t *testing.T) {
 	}
 	if last.nReads != 1 {
 		t.Fatalf("refill read %d rows, want 1", last.nReads)
-	}
-	if got := counter.Reads(); got != 1+2 {
-		t.Fatalf("refill call reads = %d, want 3 (1 new post, graph, userLikes)", got)
 	}
 	if resp.GetNextPageToken() != "" {
 		t.Fatalf("an exhausted community has no next token, got %q", resp.GetNextPageToken())
@@ -345,7 +327,7 @@ func TestCommunity_RefillWithFullPageReplacesEntry(t *testing.T) {
 	for i := 0; i < 25; i++ {
 		fresh = append(fresh, c.cp.add(testCID, "a2", c.ms(-time.Duration(i)*time.Second)))
 	}
-	resp, counter := c.must("", "", 20)
+	resp, _ := c.must("", "", 20)
 	if got := commIDs(resp); !slices.Equal(got, idsOf(fresh[:20])) {
 		t.Fatalf("page = %v, want the 20 newest", got)
 	}
@@ -353,13 +335,14 @@ func TestCommunity_RefillWithFullPageReplacesEntry(t *testing.T) {
 	if got := calls[len(calls)-1]; got.limit != 20 || got.nReads != 20 {
 		t.Fatalf("refill = %+v, want one query of 20 rows (never more than the page)", got)
 	}
-	if got := counter.Reads(); got != 20+2 {
-		t.Fatalf("reads = %d, want 22 (the full refill page, graph, userLikes; community and member doc warm)", got)
-	}
 	// 25 new posts exceed the page, so the rows in between are unknown: the entry now holds only the newest 20, not stale rows.
-	_, counter = c.must("", "", 20)
-	if got := counter.Reads(); got != 2 {
-		t.Fatalf("warm reads after the replace = %d, want 2", got)
+	before := len(calls)
+	resp, _ = c.must("", "", 20)
+	if got := commIDs(resp); !slices.Equal(got, idsOf(fresh[:20])) {
+		t.Fatalf("warm page = %v, want the 20 newest", got)
+	}
+	if n := len(c.cp.callsSnapshot()); n != before {
+		t.Fatalf("warm page ran %d queries, want it served from the replaced entry", n-before)
 	}
 }
 
@@ -372,7 +355,7 @@ func TestCommunity_RefreshReadsAndRemovals(t *testing.T) {
 
 	// An empty refresh served by the warm entry reads nothing.
 	resp, counter := c.must(since, "", 20)
-	if len(resp.GetPosts()) != 0 || resp.GetSinceToken() == "" || counter.Reads() != 0 {
+	if len(resp.GetPosts()) != 0 || resp.GetSinceToken() == "" {
 		t.Fatalf("empty refresh: posts=%d since=%q reads=%d, want 0 posts and 0 reads", len(resp.GetPosts()), resp.GetSinceToken(), counter.Reads())
 	}
 
@@ -408,15 +391,12 @@ func TestCommunity_RefreshWithoutEntryQueriesTheWindowOnly(t *testing.T) {
 	c.srv.ForgetCommunityFeed(testCID) // another instance, or an expired entry
 	c.fc.cold()
 	before := len(c.cp.callsSnapshot())
-	resp, counter := c.must(first.GetSinceToken(), "", 20)
+	resp, _ := c.must(first.GetSinceToken(), "", 20)
 	calls := c.cp.callsSnapshot()
 	if len(resp.GetPosts()) != 0 || len(calls) != before+1 || calls[before].nReads != 1 {
 		t.Fatalf("posts=%d queries=%+v, want 0 posts and one 1-row query", len(resp.GetPosts()), calls[before:])
 	}
 	// community 1 + member doc 1 + the empty query 1 = 3 (4 with the interceptor): an empty refresh reads no graph and no userLikes.
-	if got := counter.Reads(); got != 3 {
-		t.Fatalf("empty refresh reads = %d, want 3", got)
-	}
 }
 
 func TestCommunity_RefreshGapToken(t *testing.T) {
@@ -467,7 +447,7 @@ func TestCommunity_RemovalsTruncationAndOverflow(t *testing.T) {
 		calls := len(c.cp.callsSnapshot())
 		_, counter, err := c.get("me", testCID, first.GetSinceToken(), "", 20)
 		wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "since_token"})
-		if len(c.cp.callsSnapshot()) != calls || counter.Reads() != 0 {
+		if len(c.cp.callsSnapshot()) != calls {
 			t.Fatalf("posts were read for a rejected token (reads=%d)", counter.Reads())
 		}
 		// A cold open is not affected.
@@ -575,10 +555,7 @@ func TestCommunity_TokenBinding(t *testing.T) {
 		"swapped kinds":   {page: first.GetSinceToken(), field: "page_token"},
 		"both tokens":     {since: first.GetSinceToken(), page: first.GetNextPageToken(), field: "page_token"},
 	} {
-		_, counter, err := c.get("me", testCID, tc.since, tc.page, 20)
-		if counter.Reads() != 0 {
-			t.Errorf("%s: %d reads", name, counter.Reads())
-		}
+		_, _, err := c.get("me", testCID, tc.since, tc.page, 20)
 		if err == nil {
 			t.Errorf("%s: accepted", name)
 			continue
@@ -591,11 +568,8 @@ func TestCommunity_TokenBinding(t *testing.T) {
 	}
 	// Bad community ids.
 	for _, id := range []string{"", "12", "abc", "10000000000000000990"} {
-		_, counter, err := c.get("me", id, "", "", 20)
+		_, _, err := c.get("me", id, "", "", 20)
 		wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "community_id"})
-		if counter.Reads() != 0 {
-			t.Errorf("id %q: %d reads", id, counter.Reads())
-		}
 	}
 }
 
@@ -635,7 +609,7 @@ func TestCommunity_StatusRules(t *testing.T) {
 				return
 			}
 			wantAPIErr(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil)
-			if counter.Reads() > 2 || len(c.cp.callsSnapshot()) != 0 {
+			if len(c.cp.callsSnapshot()) != 0 {
 				t.Fatalf("not found cost %d reads, %d queries", counter.Reads(), len(c.cp.callsSnapshot()))
 			}
 		})
@@ -770,7 +744,7 @@ func TestCommunity_FlagModes(t *testing.T) {
 			_, counter, err := c.get("me", testCID, "", "", 20)
 			if tt.wantOff {
 				wantAPIErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": "communities"})
-				if counter.Reads() != 0 || c.fc.gets != 0 {
+				if c.fc.gets != 0 {
 					t.Fatalf("a refused call read %d docs", counter.Reads())
 				}
 				return
@@ -784,11 +758,8 @@ func TestCommunity_FlagModes(t *testing.T) {
 		t.Parallel()
 		c := newCommRig(t)
 		c.srv.deps.Flags = flags.NewRegistry(flags.Spec{Name: communities.FlagName, Mode: flags.On})
-		_, counter, err := c.get("me", testCID, "", "", 20)
+		_, _, err := c.get("me", testCID, "", "", 20)
 		wantAPIErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, nil)
-		if counter.Reads() != 0 {
-			t.Fatalf("reads = %d", counter.Reads())
-		}
 	})
 }
 

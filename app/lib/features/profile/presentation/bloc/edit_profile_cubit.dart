@@ -60,7 +60,7 @@ class EditProfileState {
   /// the caller). It only ever turns off: the server answered FEATURE_DISABLED
   /// `profile_extras`, and from then on none of them can be set. They can
   /// still be REMOVED (an exact `""`, which the server accepts from any caller
-  /// whatever the flag, ADR-0024 Amendment 1 A2), so without this flag Edit
+  /// whatever the flag), so without this flag Edit
   /// profile shows each saved one read-only with Remove
   /// ([locationRemoved], [websiteRemoved], [bannerRemoved]).
   final bool extrasEnabled;
@@ -108,7 +108,7 @@ class EditProfileState {
   final bool websiteRemoved;
 
   /// The server answered FEATURE_DISABLED `profile_extras` to a request that
-  /// only cleared extras (a revision that predates ADR-0024 Amendment 1): from
+  /// only cleared extras (an older server revision): from
   /// then on none of them can be removed here and Remove is hidden.
   final bool removalRefused;
 
@@ -208,7 +208,7 @@ class EditProfileState {
 
 /// Drives Edit profile: display name and bio, the avatar when
 /// `FEATURE_MEDIA` is on, and with `profile_extras` also the banner,
-/// location and website (ADR-0024).
+/// location and website.
 ///
 /// - Sends just the fields that changed (field presence is the signal: absent
 ///   leaves a field alone, `""` clears it), with one idempotency key per
@@ -219,8 +219,8 @@ class EditProfileState {
 /// - **An extra is never SET unless `extrasEnabled`**: the server refuses a
 ///   set (a non-empty banner id, location or website) when `profile_extras`
 ///   is off for the caller, which would fail every name or bio save too. A
-///   **clear** (an exact `""`) is accepted whatever the flag (ADR-0024
-///   Amendment 1 A2, M-1), so without the flag the screen offers Remove
+///   **clear** (an exact `""`) is accepted whatever the flag,
+/// so without the flag the screen offers Remove
 ///   for each saved one ([removeBanner], [removeLocation], [removeWebsite])
 ///   and the only extras a request can then carry are `""`. A server
 ///   FEATURE_DISABLED `profile_extras` switches the setting off for good here
@@ -459,8 +459,8 @@ class EditProfileCubit extends Cubit<EditProfileState> {
 
   /// Drops the chosen banner and, when the profile has one, removes it on
   /// Save (`banner_media_id: ""`). The result is always "no banner". Needs
-  /// neither `profile_extras` nor media: a removal is a clear (ADR-0024
-  /// Amendment 1 A2), and without media there is no slot to discard.
+  /// neither `profile_extras` nor media: a removal is a clear,
+  /// and without media there is no slot to discard.
   void removeBanner() {
     if (state.isSaving || state.removalRefused) return;
     _banner?.discard();
@@ -641,8 +641,8 @@ class EditProfileCubit extends Cubit<EditProfileState> {
       if (bannerDropped || extrasOff) _banner?.discard();
       if (isClosed) return;
       // Switched off: forget every pending extra (a removal asked for with
-      // the flag already off included: only a server that predates ADR-0024
-      // Amendment 1 refuses it) and keep the name and bio.
+      // the flag already off included: only an older server
+      // refuses it) and keep the name and bio.
       final base = extrasOff
           ? state.copyWith(
               extrasEnabled: false,

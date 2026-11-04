@@ -6,7 +6,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestLoad_EngagementDefaults locks the ADR-0018 numbers: FEATURE_ENGAGEMENT off, 30 engagement calls/min, 500
+// TestLoad_EngagementDefaults locks the numbers: FEATURE_ENGAGEMENT off, 30 engagement calls/min, 500
 // likes/day (100 for new accounts), and that the env vars override them.
 func TestLoad_EngagementDefaults(t *testing.T) {
 	clearEnv(t)
@@ -31,7 +31,7 @@ func TestLoad_EngagementDefaults(t *testing.T) {
 	}
 }
 
-// TestLoad_QuotesFlag: FEATURE_QUOTES (quote creation, ADR-0018 amendment 2026-10-18) defaults off, is
+// TestLoad_QuotesFlag: FEATURE_QUOTES (quote creation) defaults off, is
 // independent of FEATURE_ENGAGEMENT, takes the allowlist and percent like the other flags, and rejects bad values.
 func TestLoad_QuotesFlag(t *testing.T) {
 	clearEnv(t)

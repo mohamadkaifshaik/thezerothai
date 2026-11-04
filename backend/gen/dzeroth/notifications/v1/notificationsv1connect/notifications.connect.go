@@ -2,12 +2,12 @@
 //
 // Source: dzeroth/notifications/v1/notifications.proto
 
-// In-app notifications and push-device registration (ADR-0017, Phase 1).
+// In-app notifications and push-device registration (Phase 1).
 // Owner module: backend/internal/notifications. Owns users/{uid}/notifications/{id}, users/{uid}/devices/{deviceId}
 // and the deviceTokens/{sha256(token)} reverse index. The unread badge is GetMeResponse.unread_notification_count
 // (identity); mark-seen writes users/{uid}.notificationsSeenAt through identity.
 //
-// Token contract for ListNotifications (same shape as the timelines, ADR-0010 D14; all tokens opaque):
+// Token contract for ListNotifications (same shape as the timelines; all tokens opaque):
 //   - First open, no local cache: send neither token.
 //   - Pull-to-refresh / app resume / push received: send since_token from the last response. Only notifications newer
 //     than it are read (cost-model lever 6.1). since_token trails the newest item by a short settle window, so a
@@ -77,7 +77,7 @@ type NotificationServiceClient interface {
 	// Firestore: reads = rows scanned (minimum 1; 20 at the default page, 50 at the maximum) + the caller's graph
 	// snapshot (cached 60 s, 0 on a hit, +1 cold, skipped on an empty page); the seen_at profile is cached by the
 	// account-status interceptor. Refresh with 0 new items 1 (+1 graph); planning 21 cold / 5 refresh; writes 0.
-	// Rate limit: default per-minute bucket. Counted against the per-uid daily read budget.
+	// Rate limit: default per-minute bucket.
 	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
 	// Sets users/{uid}.notificationsSeenAt = now (the badge count drops to 0 within the 30 s GetMe cache; this
 	// instance's cache is evicted at once). Naturally idempotent: a replay just moves seen_at forward, and a call
@@ -181,7 +181,7 @@ type NotificationServiceHandler interface {
 	// Firestore: reads = rows scanned (minimum 1; 20 at the default page, 50 at the maximum) + the caller's graph
 	// snapshot (cached 60 s, 0 on a hit, +1 cold, skipped on an empty page); the seen_at profile is cached by the
 	// account-status interceptor. Refresh with 0 new items 1 (+1 graph); planning 21 cold / 5 refresh; writes 0.
-	// Rate limit: default per-minute bucket. Counted against the per-uid daily read budget.
+	// Rate limit: default per-minute bucket.
 	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
 	// Sets users/{uid}.notificationsSeenAt = now (the badge count drops to 0 within the 30 s GetMe cache; this
 	// instance's cache is evicted at once). Naturally idempotent: a replay just moves seen_at forward, and a call

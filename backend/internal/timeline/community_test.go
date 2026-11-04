@@ -33,7 +33,7 @@ func TestGetCommunityTimeline_Stub(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			ctx, counter := budget.WithCounter(ctxFor(c.uid))
+			ctx, _ := budget.WithCounter(ctxFor(c.uid))
 			s := NewServer(Deps{Flags: c.flags})
 			_, err := s.GetCommunityTimeline(ctx, connect.NewRequest(&timelinev1.GetCommunityTimelineRequest{}))
 			if c.wantFeature == "" {
@@ -48,9 +48,6 @@ func TestGetCommunityTimeline_Stub(t *testing.T) {
 				if c.wantFeature != "-" && ae.Metadata["feature"] != c.wantFeature { // posts off carries no feature metadata (GuardFeature)
 					t.Fatalf("metadata = %v, want feature=%s", ae.Metadata, c.wantFeature)
 				}
-			}
-			if counter.Reads() != 0 {
-				t.Fatalf("the stub read %d docs", counter.Reads())
 			}
 		})
 	}

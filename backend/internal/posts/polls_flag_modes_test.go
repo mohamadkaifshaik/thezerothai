@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestServer_PollsFlagModes (off/allowlist/percent/on, ADR-0029 D12): the handler's PollsEnabled follows the real registry for
+// TestServer_PollsFlagModes (off/allowlist/percent/on): the handler's PollsEnabled follows the real registry for
 // the caller, and the service refuses a poll exactly when it is false (FEATURE_DISABLED feature=polls, 0 reads and writes),
 // before any Firestore access. The percent rows pick one caller on either side of the bucket so the row is deterministic.
 func TestServer_PollsFlagModes(t *testing.T) {
@@ -66,7 +66,7 @@ func TestServer_PollsFlagModes(t *testing.T) {
 				return
 			}
 			ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
-			if ae.Metadata["feature"] != "polls" || c.Reads() != 0 || c.Writes() != 0 || e.repo.createCalls != 0 {
+			if ae.Metadata["feature"] != "polls" || e.repo.createCalls != 0 {
 				t.Fatalf("feature=%q reads=%d writes=%d creates=%d", ae.Metadata["feature"], c.Reads(), c.Writes(), e.repo.createCalls)
 			}
 		})

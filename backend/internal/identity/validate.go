@@ -15,7 +15,7 @@ import (
 )
 
 // reservedHandles blocks a small, obvious set of confusable/system handles. Extend via config later if
-// abuse shows up (ADR-0006 abuse-spike runbook), not by redeploying this list under pressure.
+// abuse shows up, not by redeploying this list under pressure.
 var reservedHandles = map[string]struct{}{
 	"admin": {}, "administrator": {}, "api": {}, "www": {}, "root": {},
 	"dzeroth": {}, "support": {}, "help": {}, "about": {}, "settings": {},
@@ -34,7 +34,7 @@ func handleFormatIssue(h string) string {
 	return ""
 }
 
-// Profile text rules (ADR-0024 D2, L-2). One family for display name, bio, location and website; the Dart
+// Profile text rules. One family for display name, bio, location and website; the Dart
 // client mirrors them and both sides run the vectors in testdata/profile_text/ (see its README.md). They apply to new
 // writes only: nothing re-validates a stored value on read, and no migration rewrites one.
 //
@@ -167,9 +167,9 @@ func userIDIssue(id string) bool {
 }
 
 // ValidUserID reports whether id is an acceptable uid: it delegates to ids.ValidUID (`^[A-Za-z0-9-]{1,128}$`;
-// `_` is reserved as the composite-key separator, ADR-0008 A3), which authn also applies to the caller uid. Exported so
+// `_` is reserved as the composite-key separator), which authn also applies to the caller uid. Exported so
 // other modules that accept a caller-supplied user id in their own requests (e.g. graph's Follow/Block
-// target) can reuse this instead of duplicating the regex (reuse-first) — graph already depends on this
+// target) can reuse this instead of duplicating the regex — graph already depends on this
 // package for identity.Directory/Counters.
 func ValidUserID(id string) bool {
 	return ids.ValidUID(id)
@@ -177,25 +177,25 @@ func ValidUserID(id string) bool {
 
 // reservedDocID reports whether id has the form __x__, which Firestore rejects as a document id (security
 // review L3). Handles (handles/{lower}) still need this check; for uids it is implied by ids.ValidUID
-// (no `_` at all, ADR-0008 A3).
+// (no `_` at all).
 func reservedDocID(id string) bool {
 	return len(id) >= 4 && strings.HasPrefix(id, "__") && strings.HasSuffix(id, "__")
 }
 
 // idempotencyKeyIssue mirrors the common.proto convention: 16-64 chars, [A-Za-z0-9_-]. Delegates to the
-// shared pkg/platform/idempotency validator (reuse-first: this used to be a local copy of the same regex).
+// shared pkg/platform/idempotency validator (this used to be a local copy of the same regex).
 func idempotencyKeyIssue(key string) bool {
 	return !idempotency.KeyFormatValid(key)
 }
 
-// Profile extras limits (ADR-0024 D2).
+// Profile extras limits.
 const (
 	maxLocationRunes = 30
 	maxWebsiteRunes  = 100
 )
 
 // isBidiControl reports the explicit bidi formatting controls U+202A-U+202E and U+2066-U+2069 (the same set the post
-// text rules reject, ADR-0010 D9; kept local because identity cannot import posts).
+// text rules reject; kept local because identity cannot import posts).
 func isBidiControl(r rune) bool {
 	return (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069)
 }
@@ -231,7 +231,7 @@ func normalizeWebsite(s string) (stored string, ok bool) {
 	return stored, ok
 }
 
-// parseWebsite is the server twin of the client's parseProfileWebsite (ADR-0024 D2, L-2b/L-3): it accepts a
+// parseWebsite is the server twin of the client's parseProfileWebsite: it accepts a
 // website only if the client would show and open it, so a saved website never silently disappears, and it adds the
 // host-class rules of L-3 (the client adopts them too; both run testdata/profile_text/website.json).
 //

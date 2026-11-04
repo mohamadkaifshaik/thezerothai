@@ -22,7 +22,7 @@ declare -A module_of=(
   [firebase_messaging]=messaging
 )
 
-# FlutterFire plugins that inject no loader script on web, so script-src carries no hash for them (ADR-0032 D10).
+# FlutterFire plugins that inject no loader script on web, so script-src carries no hash for them.
 # Each exception is re-proven on every run; when its condition fails the plugin needs a module_of entry instead.
 #   no-web-plugin:   the resolved plugin's own pubspec (flutter.plugin.platforms) declares no web platform, and the
 #                    app resolves no <name>_web package.

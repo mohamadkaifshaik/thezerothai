@@ -12,7 +12,7 @@ abstract final class ListService {
 
   /// Create a list owned by the caller. The new list is private unless is_private is sent as false (F3).
   /// name: 1-25 code points after NFC and trim; description: 0-100 code points; both single line, no control or bidi
-  /// formatting characters (the bio rules, ADR-0010 D9); else VALIDATION "name" / "description", 0 reads.
+  /// formatting characters (the bio rules); else VALIDATION "name" / "description", 0 reads.
   /// One transaction: idempotency doc, quotas/{uid} (list_creates), a count() of the caller's lists (ownerId == caller,
   /// 1 read per 1,000 matches, so the cap is exact), then Create lists/{id} with a fresh Snowflake id.
   /// At LISTS_MAX_PER_USER (20) => LIMIT_REACHED "lists"; over the daily quota => QUOTA_EXCEEDED "list_creates".
@@ -79,7 +79,7 @@ abstract final class ListService {
   /// member ids are in the list docs already read).
   /// Paging: the caller's own lists page by page_size (0 => 20, max 50, clamped) with an opaque sealed next_page_token.
   /// Another owner's lists are never paged: every public list comes back in one response and next_page_token is "",
-  /// whatever page_size is (a token or a short page would reveal the owner's private lists, ADR-0030 D3). The owner has at
+  /// whatever page_size is (a token or a short page would reveal the owner's private lists). The owner has at
   /// most LISTS_MAX_PER_USER (20) lists.
   /// Query: lists where ownerId == owner, Limit(page_size + 1) for the caller, Limit(LISTS_MAX_PER_USER) for another owner,
   /// the automatic single-field index (no composite index).

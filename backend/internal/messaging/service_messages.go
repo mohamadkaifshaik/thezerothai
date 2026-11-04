@@ -18,7 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// Request-line fields of ListMessages and MarkConversationRead (ADR-0027 D11). Counts and booleans only: never
+// Request-line fields of ListMessages and MarkConversationRead. Counts and booleans only: never
 // message text, a uid or a conversation id in clear (conversation_hash is the one-way hash).
 const (
 	kindListMessages = "list_messages"
@@ -38,7 +38,7 @@ func messagesPageBinding(uid, convID string) string {
 	return "messaging|messages|page|" + uid + "|" + convID
 }
 
-// ListMessages implements Service.ListMessages (ADR-0027 D4 "On read", D7, D11).
+// ListMessages implements Service.ListMessages ("On read", D7, D11).
 //
 // Flag: not globally off. Validation before any read: conversation_id is 32 lower-case hex (VALIDATION
 // "conversation_id"), page_token and since_token not both, then the token itself (sealed, bound to the uid, the
@@ -48,7 +48,7 @@ func messagesPageBinding(uid, convID string) string {
 // within 60 s; a non-participant never reads from or writes to it). A missing document and a non-participant answer one
 // byte-identical NOT_FOUND after exactly 2 reads (interceptor, conversation), warm or cold.
 //
-// Thread revision (ADR-0027 note 2026-10-29): a since token carries the conversation's `rev` as its issuer saw it. After the
+// Thread revision: a since token carries the conversation's `rev` as its issuer saw it. After the
 // participant check, a token with a lower rev (a takedown or an erasure changed the thread) is VALIDATION since_token with
 // the bytes of an expired token, at most 2 reads (interceptor, conversation), no query; a higher rev means this instance's
 // 60 s copy is stale, so the copy is dropped (0 reads) and the higher rev is sealed again. A foreign or tampered token is
@@ -154,15 +154,18 @@ func (s *service) validateMessages(uid string, req *messagingv1.ListMessagesRequ
 func (s *service) listMessages(ctx context.Context, uid string, in messagesInput) (*messagingv1.ListMessagesResponse, error) {
 	conv, hit, err := s.conversationHit(ctx, uid, in.convID)
 	logger.SetRequestField(ctx, fieldCacheHit, hit)
-	if err == nil && !conv.hasParticipant(uid) {
-		err = ErrNotFound
+	// peerOf is "" for a non-participant and for a document whose participants are not a pair: both read as an unknown id.
+	var peer string
+	if err == nil {
+		if peer = peerOf(conv.Participants, uid); peer == "" {
+			err = ErrNotFound
+		}
 	}
 	if err != nil {
 		return nil, s.messagesErr(ctx, uid, in.convID, err)
 	}
-	peer := peerOf(conv.Participants, uid)
 
-	// The thread revision (ADR-0027 note 2026-10-29). A since token issued before the conversation changed under a cached
+	// The thread revision. A since token issued before the conversation changed under a cached
 	// device (a takedown, an erasure) carries a lower revision: it is retired with the very answer of an expired token, so
 	// the client makes the one cold open the token contract already prescribes. A higher revision means this instance's
 	// 60 s copy is the stale one: accept the token, drop the copy and seal the higher revision (no read). Checked after the
@@ -195,31 +198,31 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(4)
 	if first {
-		g.Go(func() (err error) {
+		g.Go(s.recovered(ctx, func() (err error) {
 			entry, found, err = s.d.Repo.GetEntry(gctx, uid, in.convID, entryFolder(conv, uid))
 			return err
-		})
+		}))
 	}
-	g.Go(func() (err error) {
+	g.Go(s.recovered(ctx, func() (err error) {
 		rows, err = s.d.Repo.ListMessages(gctx, in.convID, MessageQuery{Limit: in.limit, Before: in.before, After: in.after, ClearedAt: conv.ClearedAt[uid]})
 		return err
-	})
+	}))
 	if withConv && peer != DeletedUID {
-		g.Go(func() error {
+		g.Go(s.recovered(ctx, func() error {
 			got, err := s.d.Profiles.GetProfiles(gctx, []string{peer})
 			prof, live = got[peer], err == nil && got[peer].UserID != ""
 			if err != nil {
 				return fmt.Errorf("messaging: peer profile: %w", err)
 			}
 			return nil
-		})
-		g.Go(func() (err error) {
+		}))
+		g.Go(s.recovered(ctx, func() (err error) {
 			snap, err = s.d.Social.Snapshot(gctx, uid)
 			if err != nil {
 				return fmt.Errorf("messaging: caller graph: %w", err)
 			}
 			return nil
-		})
+		}))
 	}
 	if err := g.Wait(); err != nil {
 		return nil, s.messagesErr(ctx, uid, in.convID, err, peer)
@@ -352,10 +355,10 @@ func (s *service) messagesErr(ctx context.Context, uid, convID string, err error
 	return s.failure(ctx, "list_messages", uid, convID, err, redact...)
 }
 
-// MarkRead implements Service.MarkRead (ADR-0027 D4, D10).
+// MarkRead implements Service.MarkRead.
 //
 // Flag: not globally off. idempotency_key (16-64 of [A-Za-z0-9_-]) and conversation_id (32 lower-case hex) are VALIDATION with 0
-// reads; the key is format-validated but not stored (founder decision 2026-10-29, option (a): ADR-0021's rule for a key the
+// reads; the key is format-validated but not stored (founder decision 2026-10-29, option (a): the rule for a key the
 // RPC does not use). The RPC is idempotent by state, and the accepted risk is that a late retry sets unreadCount to 0 over
 // a newer message (the badge and the Inbox miss it until the next message or open). The write is a field-level
 // Update of the caller's own dmInbox entry, else dmRequests, with an Exists precondition: the path comes from the token

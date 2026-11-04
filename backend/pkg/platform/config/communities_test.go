@@ -7,7 +7,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestLoad_CommunitiesDefaults pins every ADR-0031 D10, D11 and D12 default and the flag (off, wire name communities).
+// TestLoad_CommunitiesDefaults pins every default and the flag (off, wire name communities).
 func TestLoad_CommunitiesDefaults(t *testing.T) {
 	clearEnv(t)
 	cfg, err := Load()
@@ -156,7 +156,7 @@ func TestLoad_CommunityCreators(t *testing.T) {
 	}
 }
 
-// TestLoad_CommunitiesFlagModes: off, allowlist, percent and on (ADR-0008 D6) as the registry decides them for a caller.
+// TestLoad_CommunitiesFlagModes: off, allowlist, percent and on as the registry decides them for a caller.
 func TestLoad_CommunitiesFlagModes(t *testing.T) {
 	tests := []struct {
 		name      string

@@ -2,7 +2,7 @@
 
 package messaging
 
-// ADR-0027 "concurrent first messages", D13: sends racing on one conversation from several Cloud Run
+// "concurrent first messages", D13: sends racing on one conversation from several Cloud Run
 // instances (one service per goroutine, one shared Firestore). The invariants are the ones a client relies on: one message
 // per idempotency key, the request cap never exceeded, and no lost unread increment. The 50 sends/s load shape comes later.
 

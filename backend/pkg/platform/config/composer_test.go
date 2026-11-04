@@ -9,7 +9,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// TestLoad_ComposerDefaults pins every ADR-0029 default and the three flags (off, wire names polls, drafts and gif).
+// TestLoad_ComposerDefaults pins every default and the three flags (off, wire names polls, drafts and gif).
 func TestLoad_ComposerDefaults(t *testing.T) {
 	clearEnv(t)
 	cfg, err := Load()

@@ -4,23 +4,23 @@
 // 	protoc        (unknown)
 // source: dzeroth/engagement/v1/engagement.proto
 
-// Engagement: likes and reposts (Phase 1, ADR-0018), bookmarks (ADR-0023) and poll votes (ADR-0029). Owner
+// Engagement: likes and reposts (Phase 1), bookmarks and poll votes. Owner
 // module: backend/internal/engagement.
-// Collections owned: likes/{postId}_{uid}, reposts/{postId}_{uid}, userLikes/{uid}, and (ADR-0023) bookmarks at
-// users/{uid}/bookmarks/{postId}, and (ADR-0029) pollVotes/{postId}_{uid}. The counters (likeCount,
+// Collections owned: likes/{postId}_{uid}, reposts/{postId}_{uid}, userLikes/{uid}, and bookmarks at
+// users/{uid}/bookmarks/{postId}, and pollVotes/{postId}_{uid}. The counters (likeCount,
 // repostCount) live on the parent posts/{postId} doc and are changed with FieldValue.Increment in the same atomic
 // unit as the like/repost doc. A repost is also a posts/{id} doc with kind REPOST so pull timelines include it with
-// no extra query (ADR-0003); a quote is CreatePost(quote_of_post_id) in dzeroth.posts.v1, not an RPC here.
+// no extra query; a quote is CreatePost(quote_of_post_id) in dzeroth.posts.v1, not an RPC here.
 //
 // Likes and reposts are behind FEATURE_ENGAGEMENT (wire name "engagement"): with the flag off for the caller every
 // like/repost RPC is FAILED_PRECONDITION + FEATURE_DISABLED, 0 reads. FEATURE_POSTS must also be on. The bookmark
 // RPCs have their own flag, FEATURE_BOOKMARKS (see "Bookmarks" below), and do not need FEATURE_ENGAGEMENT; nor does
-// ListLikedPosts, which has FEATURE_LIKES_LIST (ADR-0024 D6).
+// ListLikedPosts, which has FEATURE_LIKES_LIST.
 //
 // Common to every RPC: post_id is a 19-digit post id (else VALIDATION); idempotency_key is 16-64 characters of
 // [A-Za-z0-9_-]. The like/repost operations are state-setting and keyed by (post_id, caller) so a replay or ten
-// concurrent calls converge on one effect; for them the key is validated but needs no stored record (ADR-0018). The
-// bookmark mutations store it (the idempotency rule, ADR-0023 D4). Acting on a REPOST post id acts
+// concurrent calls converge on one effect; for them the key is validated but needs no stored record. The
+// bookmark mutations store it (the idempotency rule). Acting on a REPOST post id acts
 // on the post it reposts (the original), never on the repost document. Like and Repost need the target to be
 // visible to the caller by the GetPost rules (missing, deleted, hidden, suspended or blocking author => NOT_FOUND
 // "post not found").
@@ -517,7 +517,7 @@ func (x *UndoRepostResponse) GetEngagement() *PostEngagement {
 	return nil
 }
 
-// The caller's bookmark state of one post after AddBookmark or RemoveBookmark (ADR-0023).
+// The caller's bookmark state of one post after AddBookmark or RemoveBookmark.
 type BookmarkState struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The post the action applied to: the original when AddBookmark named a REPOST. Pass this id to RemoveBookmark.
@@ -1039,14 +1039,14 @@ func (x *ListLikedPostsResponse) GetNextPageToken() string {
 
 type VotePollRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Validated (16-64 characters of [A-Za-z0-9_-]) but not stored; one key per tap (ADR-0029 Amendment 1 A2.2): reuse it
+	// Validated (16-64 characters of [A-Za-z0-9_-]) but not stored; one key per tap: reuse it
 	// only to retry that tap, and use a new key for every new tap.
 	IdempotencyKey string `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	// The post with the poll; a REPOST id votes in its original.
 	PostId string `protobuf:"bytes,2,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
 	// 0-based index into Poll.choices.
 	ChoiceIndex int32 `protobuf:"varint,3,opt,name=choice_index,json=choiceIndex,proto3" json:"choice_index,omitempty"`
-	// Compare-and-set for a vote change (ADR-0029 Amendment 1 A2.2). 0 = "I hold no vote, as far as I know"; 1-4 = the
+	// Compare-and-set for a vote change. 0 = "I hold no vote, as far as I know"; 1-4 = the
 	// caller's current vote as choice index + 1, i.e. the viewer_poll_choice the client is rendering. A change to another
 	// choice applies only when this equals the stored vote; otherwise ALREADY_VOTED. Older clients send 0 and keep the
 	// behaviour before the amendment.

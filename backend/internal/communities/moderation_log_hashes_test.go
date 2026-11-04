@@ -10,7 +10,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// ADR-0031 D13a: the keyed community_hash, post_hash and target_hash on the moderation request lines, and no raw id.
+// The keyed community_hash, post_hash and target_hash on the moderation request lines, and no raw id.
 // Not parallel: the log key is process-wide.
 
 func installLogKey(t *testing.T, secret string) {

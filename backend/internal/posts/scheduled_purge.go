@@ -1,5 +1,5 @@
-// scheduled_purge.go is the right-to-delete and right-to-access path of users/{uid}/scheduled (ADR-0021 "Right to
-// delete"). Deleting users/{uid} does not delete its subcollections, so the `scheduled` account-deletion step
+// scheduled_purge.go is the right-to-delete and right-to-access path of users/{uid}/scheduled ("Right to delete").
+// Deleting users/{uid} does not delete its subcollections, so the `scheduled` account-deletion step
 // (ScheduledEraser, registered BeforeIdentity after the existing steps) removes the documents, and the `scheduled`
 // export section lists every document with the draft wherever one is still held (only PENDING items hold one: FAILED clears it).
 package posts
@@ -83,7 +83,7 @@ type ScheduledCheckpoint struct {
 	Deleted int
 }
 
-// ScheduledEraser is the `scheduled` account-deletion step (ADR-0021): it deletes every users/{uid}/scheduled
+// ScheduledEraser is the `scheduled` account-deletion step: it deletes every users/{uid}/scheduled
 // document, one page of at most 500 per call. Normally a handful (at most 25 pending plus seven days of finished
 // items).
 type ScheduledEraser struct {

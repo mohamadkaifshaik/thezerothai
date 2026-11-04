@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
 
-/// The small lock after the name of a protected account (ADR-0025): the profile
+/// The small lock after the name of a protected account: the profile
 /// header, and the author line of a post only approved followers can see. A
 /// 16dp glyph in the secondary text colour, announced as "Protected account".
 /// It is a plain inline glyph, not a button, so it adds no tap target; put it

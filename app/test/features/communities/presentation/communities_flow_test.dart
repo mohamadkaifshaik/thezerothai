@@ -617,8 +617,7 @@ void main() {
                 find.byTooltip('Community options'),
                 reportsOn ? findsOneWidget : findsNothing,
               );
-              // Pin to Home does not depend on `lists` (ADR-0031: a community
-              // tab is gated by `communities` only).
+              // Pin to Home does not depend on `lists` (a community tab is gated by `communities` only).
               expect(find.text('Pin to Home'), findsOneWidget);
             });
 

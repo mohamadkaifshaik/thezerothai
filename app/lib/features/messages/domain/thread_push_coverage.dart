@@ -2,7 +2,7 @@ import '../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 
 /// Whether a message push can reach the open thread, so its poll may use the
-/// slower 30 s hot interval (ADR-0027 D7, D9).
+/// slower 30 s hot interval.
 ///
 /// True only on Android with the device registered ([deviceRegistered], from
 /// `PushCubit.pushCoversThreads`), with the `notifications` flag on, and for a

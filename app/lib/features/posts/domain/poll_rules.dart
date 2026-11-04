@@ -3,8 +3,8 @@ import 'package:unorm_dart/unorm_dart.dart' as unorm;
 import 'composer_draft.dart';
 import 'post_text_rules.dart';
 
-/// Client mirror of the server's poll creation rules (ADR-0029 D1/F4,
-/// `backend/internal/posts/poll.go`). The server stays authoritative; this
+/// Client mirror of the server's poll creation rules (`backend/internal/posts/poll.go`).
+/// The server stays authoritative; this
 /// exists so the builder and the Post button agree with it. The shared
 /// fixture `testdata/poll_rules.json` pins both sides.
 const kPollMinChoices = 2;

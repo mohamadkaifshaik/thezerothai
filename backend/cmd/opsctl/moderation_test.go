@@ -78,7 +78,7 @@ type fakeModerator struct {
 	takedowns, restores []string
 	hideCalls, restCall int
 	releaseRepost       bool // Takedown reports a REPOST that was removed (issue #153)
-	// takedownCommunity is the communityId Takedown reports (ADR-0031 D14).
+	// takedownCommunity is the communityId Takedown reports.
 	takedownCommunity string
 	err               error
 	posts             []*fakePost

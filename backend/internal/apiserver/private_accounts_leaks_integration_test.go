@@ -2,7 +2,7 @@
 
 package apiserver
 
-// (ADR-0025 D4, D12, AQ5; plan Part B rules 9 and 10) through the real Build chain on the emulators:
+// Protected-account leak checks through the real Build chain on the emulators:
 //   - flag off keeps protection: with FEATURE_PRIVATE_ACCOUNTS off everywhere a protected P stays protected on every
 //     read path, and can still unprotect, list and answer requests (undo is never gated);
 //   - the stale set: a set that cannot be refreshed is served for PROTECTED_SET_MAX_STALE, then UNAVAILABLE for a viewer
@@ -235,12 +235,12 @@ func TestW335a_ProtectingRetiresNothingAndBannerReplacementRetiresAsForAPublicAc
 	}
 }
 
-// ADR-0025 D4 rows ListSuggestedUsers and GetProfileRelationship: P may be suggested (header data only) and following P
+// Rows ListSuggestedUsers and GetProfileRelationship: P may be suggested (header data only) and following P
 // from the suggestion creates a request.
 func TestW335a_SuggestedProtectedAccountAndFollowCreatesARequest(t *testing.T) {
 	w := newW335aWorld(t)
 	v, c1, c2 := w.w.user(t), w.w.user(t), w.w.user(t)
-	for i := 0; i < 3; i++ { // friends of friends needs three followees and three candidates (ADR-0024 D8)
+	for i := 0; i < 3; i++ { // friends of friends needs three followees and three candidates
 		fe := w.w.user(t)
 		w.w.w320Follow(t, fe, c1.uid)
 		w.w.w320Follow(t, fe, c2.uid)

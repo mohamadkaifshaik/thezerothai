@@ -38,7 +38,7 @@ type fakePollRepo struct {
 	trimErr error
 	last    VoteParams
 
-	// Vote changes (ADR-0029 Amendment 1): per-document change counts and versions (the model of UpdateTime), the recorded batches, an injected
+	// Vote changes: per-document change counts and versions (the model of UpdateTime), the recorded batches, an injected
 	// error, and a hook that lets a concurrent writer land between a read and the next write.
 	changes      map[string]int
 	ver          map[string]int64
@@ -441,7 +441,7 @@ func TestVotePoll_NewAccountDailyCap(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dc := ratelimit.NewDailyCap(1000)
-			dc.Charge("viewer", tt.spent)
+			dc.AllowN("viewer", tt.spent)
 			e := newPollEnv(t, func(d *Deps, pe *pollEnv) {
 				pe.created = pe.now.Add(-tt.created)
 				if tt.cap {

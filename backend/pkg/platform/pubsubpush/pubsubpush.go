@@ -1,5 +1,5 @@
 // Package pubsubpush verifies the Google-signed OIDC tokens Pub/Sub push subscriptions and Cloud
-// Scheduler attach to requests against /internal/* (ADR-0002, ADR-0006 §5). These endpoints are never
+// Scheduler attach to requests against /internal/*. These endpoints are never
 // reachable through the public Connect handlers; they're plain http.Handlers behind this middleware.
 package pubsubpush
 

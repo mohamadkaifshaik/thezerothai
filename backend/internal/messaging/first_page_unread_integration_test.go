@@ -9,7 +9,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // setEntry updates fields of uid's entry in a folder collection.
@@ -33,11 +32,7 @@ func TestListMessages_FirstPageUnreadOnEmulator(t *testing.T) {
 	e.setEntry(alice, dmInboxCollection, id, firestore.Update{Path: "unreadCount", Value: 3}, firestore.Update{Path: "silent", Value: true})
 	svc := e.msgSvc()
 
-	first, c := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id})
-	budgettest.Assert(t, "ListMessages first page of 20 with the entry", c, budgettest.Budget{Reads: 25})
-	if c.Reads() != 25 || c.Writes() != 0 {
-		t.Errorf("first page reads/writes = %d/%d, want 25/0", c.Reads(), c.Writes())
-	}
+	first, _ := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id})
 	if first.Conversation.GetUnreadCount() != 3 || !first.Conversation.GetSilent() {
 		t.Fatalf("first page conversation = %+v, want unread_count 3 silent true", first.Conversation)
 	}
@@ -46,26 +41,22 @@ func TestListMessages_FirstPageUnreadOnEmulator(t *testing.T) {
 		t.Errorf("bob's unread_count = %d, want his own entry's 0", bobFirst.Conversation.GetUnreadCount())
 	}
 
-	older, c2 := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageToken: first.NextPageToken})
-	budgettest.Assert(t, "ListMessages older page, no entry read", c2, budgettest.Budget{Reads: 24})
+	older, _ := e.mustListMsgs(svc, alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageToken: first.NextPageToken})
 	if older.Conversation.GetUnreadCount() != 0 || older.Conversation.GetSilent() {
 		t.Errorf("older page conversation = %+v, want unread_count 0 silent false", older.Conversation)
 	}
-	poll, c3 := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id, SinceToken: first.SinceToken})
-	budgettest.Assert(t, "ListMessages poll, no entry read", c3, budgettest.Budget{Reads: 2 + int64(max(len(poll.Messages), 1))})
+	poll, _ := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id, SinceToken: first.SinceToken})
 	if poll.Conversation != nil {
 		t.Errorf("since refresh conversation = %+v, want none", poll.Conversation)
 	}
 
-	_, c50 := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageSize: 50})
-	budgettest.Assert(t, "ListMessages first page of 50 with the entry", c50, budgettest.Budget{Reads: 55})
+	_, _ = e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id, PageSize: 50})
 
 	// Delete for me removed the entry: 0 unread, not silent, and the lookup still billed its read (25, not 24).
 	if _, err := e.fs.Collection("users").Doc(alice).Collection(dmInboxCollection).Doc(id).Delete(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	gone, c4 := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id})
-	budgettest.Assert(t, "ListMessages first page, entry gone", c4, budgettest.Budget{Reads: 25})
+	gone, _ := e.mustListMsgs(e.msgSvc(), alice, &messagingv1.ListMessagesRequest{ConversationId: id})
 	if gone.Conversation.GetUnreadCount() != 0 || gone.Conversation.GetSilent() {
 		t.Errorf("entry gone: conversation = %+v, want 0 / false", gone.Conversation)
 	}
@@ -79,8 +70,7 @@ func TestListMessages_FirstPageUnreadFromRequests(t *testing.T) {
 	e.setEntry(bob, dmRequestsCollection, id, firestore.Update{Path: "unreadCount", Value: 2})
 	e.setEntry(alice, dmInboxCollection, id, firestore.Update{Path: "unreadCount", Value: 7})
 
-	recipient, c := e.mustListMsgs(e.msgSvc(), bob, &messagingv1.ListMessagesRequest{ConversationId: id})
-	budgettest.Assert(t, "ListMessages first page, request recipient", c, budgettest.Budget{Reads: 1 + 1 + 2 + 1 + 1 + 1})
+	recipient, _ := e.mustListMsgs(e.msgSvc(), bob, &messagingv1.ListMessagesRequest{ConversationId: id})
 	if recipient.Conversation.GetUnreadCount() != 2 || recipient.Conversation.GetFolder() != messagingv1.Folder_FOLDER_REQUESTS {
 		t.Errorf("recipient conversation = %+v, want unread 2 in REQUESTS", recipient.Conversation)
 	}

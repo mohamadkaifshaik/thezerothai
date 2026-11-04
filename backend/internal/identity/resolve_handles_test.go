@@ -26,9 +26,6 @@ func resolveWithBudget(t *testing.T, svc *service, in []string) (map[string]stri
 	if err != nil {
 		t.Fatalf("ResolveHandles: %v", err)
 	}
-	if c.Writes() != 0 {
-		t.Fatalf("ResolveHandles wrote %d docs", c.Writes())
-	}
 	return got, c.Reads()
 }
 

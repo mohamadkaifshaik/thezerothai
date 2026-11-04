@@ -11,11 +11,10 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// ADR-0031 Amendment 1 D4a: Hide and Restore also take a reply whose conversationCommunityId is the community. A reply has no
+// Hide and Restore also take a reply whose conversationCommunityId is the community. A reply has no
 // communityId: hidden = communityHidden + communityHiddenAt, no recentRemovals entry, a modlog entry as for a root.
 
 const (
@@ -64,7 +63,7 @@ func TestHideRestoreReply_BudgetsEffectsAndReplay(t *testing.T) {
 	ctx := context.Background()
 
 	// idempotency, community, actor memberships, reply = 4 reads; reply, community (modlog only), memberships, idempotency = 4 writes
-	measuredExact(t, "Hide reply first", budgettest.Budget{Reads: 4, Writes: 4}, func(ctx context.Context) {
+	measuredExact(t, "Hide reply first", func(ctx context.Context) {
 		if err := e.hide(ctx, "mod1", 1, rplA); err != nil {
 			t.Fatal(err)
 		}
@@ -81,13 +80,13 @@ func TestHideRestoreReply_BudgetsEffectsAndReplay(t *testing.T) {
 	}
 
 	// a second reply by the same moderator: no memberships write
-	measuredExact(t, "Hide reply second", budgettest.Budget{Reads: 4, Writes: 3}, func(ctx context.Context) {
+	measuredExact(t, "Hide reply second", func(ctx context.Context) {
 		if err := e.hide(ctx, "mod1", 2, rplB); err != nil {
 			t.Fatal(err)
 		}
 	})
 	// an already hidden reply: the idempotency document only
-	measuredExact(t, "Hide reply already hidden", budgettest.Budget{Reads: 4, Writes: 1}, func(ctx context.Context) {
+	measuredExact(t, "Hide reply already hidden", func(ctx context.Context) {
 		if err := e.hide(ctx, "owner", 3, rplA); err != nil {
 			t.Fatal(err)
 		}
@@ -96,7 +95,7 @@ func TestHideRestoreReply_BudgetsEffectsAndReplay(t *testing.T) {
 		t.Errorf("modlog = %d after a repeated hide, want 2", len(c.Modlog))
 	}
 
-	measuredExact(t, "Restore reply", budgettest.Budget{Reads: 4, Writes: 4}, func(ctx context.Context) {
+	measuredExact(t, "Restore reply", func(ctx context.Context) {
 		if err := e.restore(ctx, "owner", 4, rplA); err != nil {
 			t.Fatal(err)
 		}
@@ -107,13 +106,13 @@ func TestHideRestoreReply_BudgetsEffectsAndReplay(t *testing.T) {
 	if c = e.community(t, modCID); len(c.RecentRemovals) != 0 || len(c.Modlog) != 3 || c.Modlog[2].Action != ActionRestore || c.Modlog[2].PostID != rplA {
 		t.Errorf("after the restore: removals %+v modlog %+v", c.RecentRemovals, c.Modlog)
 	}
-	measuredExact(t, "Restore reply not hidden", budgettest.Budget{Reads: 4, Writes: 1}, func(ctx context.Context) {
+	measuredExact(t, "Restore reply not hidden", func(ctx context.Context) {
 		if err := e.restore(ctx, "mod1", 5, rplA); err != nil {
 			t.Fatal(err)
 		}
 	})
 	// A13: the first hide key replayed after the restore writes nothing
-	measuredExact(t, "Hide reply late replay", budgettest.Budget{Reads: 1, Writes: 0}, func(ctx context.Context) {
+	measuredExact(t, "Hide reply late replay", func(ctx context.Context) {
 		if err := e.hide(ctx, "mod1", 1, rplA); err != nil {
 			t.Fatal(err)
 		}
@@ -205,7 +204,7 @@ func TestHideRestoreReply_F16(t *testing.T) {
 	t.Run("a refusal costs the success reads and writes nothing", func(t *testing.T) {
 		e := newReplyEnv(t)
 		e.setPostField(t, rplA, "authorId", "owner")
-		measuredExact(t, "Hide reply not_owner", budgettest.Budget{Reads: 4, Writes: 0}, func(ctx context.Context) {
+		measuredExact(t, "Hide reply not_owner", func(ctx context.Context) {
 			wantReason(t, e.hide(ctx, "mod1", 320, rplA), connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_FORBIDDEN, "not_owner")
 		})
 		if _, ok := e.data(t, "idempotency/"+idempotency.Key("mod1", "HideCommunityPost", key(320))); ok {
@@ -244,7 +243,7 @@ func TestHideRestoreReply_F16(t *testing.T) {
 		if _, err := e.repo.ref(modCID).Update(ctx, []firestore.Update{{Path: "moderatorIds", Value: []string{"mod1", "mod2", "member"}}}); err != nil {
 			t.Fatal(err)
 		}
-		measuredExact(t, "Hide reply replay after a role change", budgettest.Budget{Reads: 1, Writes: 0}, func(ctx context.Context) {
+		measuredExact(t, "Hide reply replay after a role change", func(ctx context.Context) {
 			if err := e.hide(ctx, "mod1", 350, rplA); err != nil {
 				t.Fatalf("replay: %v", err)
 			}

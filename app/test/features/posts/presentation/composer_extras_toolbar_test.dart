@@ -49,7 +49,7 @@ class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-/// The Poll and GIF buttons of `/compose` (ADR-0029): flag gates, the
+/// The Poll and GIF buttons of `/compose`: flag gates, the
 /// disabled reasons, and the layout across widths, themes and text scales.
 /// The poll builder is tested here too; the GIF picker comes later.
 void main() {

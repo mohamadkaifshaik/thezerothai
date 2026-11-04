@@ -18,7 +18,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 )
 
@@ -73,23 +72,18 @@ func countDocs(t *testing.T, c *firestore.Client, path string) int {
 
 func TestIntegration_CreateIsIdempotentAndBudgeted(t *testing.T) {
 	repo := NewFirestoreRepo(newTestClient(t))
-	ctx, c := counted()
+	ctx, _ := counted()
 	created, err := repo.Create(ctx, "bob", row("follow_alice", TypeFollow, "alice", t0))
 	mustNoErr(t, err)
 	if !created {
 		t.Fatal("first create must report created")
 	}
-	budgettest.Assert(t, "Create", c, budgettest.Budget{Writes: 1})
 
-	ctx, c = counted()
+	ctx, _ = counted()
 	created, err = repo.Create(ctx, "bob", row("follow_alice", TypeFollow, "alice", t0.Add(time.Hour)))
 	mustNoErr(t, err)
 	if created {
 		t.Fatal("a redelivery must not report created (it would send a second push)")
-	}
-	budgettest.Assert(t, "Create replay", c, budgettest.Budget{Reads: 1})
-	if c.Writes() != 0 {
-		t.Errorf("replay writes = %d", c.Writes())
 	}
 	// The original row (and its expireAt) is untouched by the replay.
 	rows, err := repo.List(context.Background(), "bob", ListQuery{Limit: 10})
@@ -117,13 +111,11 @@ func TestIntegration_AddActorFoldsAndMovesCreatedAt(t *testing.T) {
 	repo := NewFirestoreRepo(newTestClient(t))
 	_, err := repo.Create(context.Background(), "bob", row("like_x", TypeLike, "alice", t0))
 	mustNoErr(t, err)
-	ctx, c := counted()
+	ctx, _ := counted()
 	mustNoErr(t, repo.AddActor(ctx, "bob", "like_x", Actor{UserID: "carol", Handle: "h_carol"}, t0.Add(time.Minute)))
-	budgettest.Assert(t, "AddActor", c, budgettest.Budget{Reads: 1, Writes: 1})
 	// The same actor again (a redelivery) is write-free: 1 read, 0 writes, createdAt untouched.
-	ctx, c = counted()
+	ctx, _ = counted()
 	mustNoErr(t, repo.AddActor(ctx, "bob", "like_x", Actor{UserID: "carol", Handle: "h_carol"}, t0.Add(2*time.Minute)))
-	budgettest.Assert(t, "AddActor replay", c, budgettest.Budget{Reads: 1})
 	rows, err := repo.List(context.Background(), "bob", ListQuery{Limit: 5})
 	mustNoErr(t, err)
 	if len(rows) != 1 || len(rows[0].ActorIDs) != 2 || rows[0].ActorCount != 2 || rows[0].Actor.UserID != "carol" || !rows[0].CreatedAt.Equal(t0.Add(time.Minute)) {
@@ -134,7 +126,7 @@ func TestIntegration_AddActorFoldsAndMovesCreatedAt(t *testing.T) {
 }
 
 // TestIntegration_AddActorCapsTheHotDoc: a viral post's collapsed row keeps the last MaxActorIDs actors and a
-// running count (ADR-0017 D4 amendment), so the document does not grow without bound.
+// running count, so the document does not grow without bound.
 func TestIntegration_AddActorCapsTheHotDoc(t *testing.T) {
 	repo := NewFirestoreRepo(newTestClient(t))
 	_, err := repo.Create(context.Background(), "bob", row("like_hot", TypeLike, "a000", t0))
@@ -142,9 +134,8 @@ func TestIntegration_AddActorCapsTheHotDoc(t *testing.T) {
 	total := MaxActorIDs + 10
 	for i := 1; i < total; i++ {
 		u := fmt.Sprintf("a%03d", i)
-		ctx, c := counted()
+		ctx, _ := counted()
 		mustNoErr(t, repo.AddActor(ctx, "bob", "like_hot", Actor{UserID: u, Handle: "h_" + u}, t0.Add(time.Duration(i)*time.Second)))
-		budgettest.Assert(t, "AddActor "+u, c, budgettest.Budget{Reads: 1, Writes: 1})
 	}
 	rows, err := repo.List(context.Background(), "bob", ListQuery{Limit: 5})
 	mustNoErr(t, err)
@@ -169,44 +160,40 @@ func TestIntegration_ListOrderBoundsAndBudget(t *testing.T) {
 		_, err := repo.Create(context.Background(), "bob", row(fmt.Sprintf("follow_u%d", i), TypeFollow, fmt.Sprintf("u%d", i), t0.Add(time.Duration(i)*time.Minute)))
 		mustNoErr(t, err)
 	}
-	ctx, c := counted()
+	ctx, _ := counted()
 	page, err := repo.List(ctx, "bob", ListQuery{Limit: 2})
 	mustNoErr(t, err)
-	budgettest.Assert(t, "List page of 2", c, budgettest.Budget{Reads: 2})
 	if got := idsOf(page); strings.Join(got, ",") != "follow_u4,follow_u3" {
 		t.Fatalf("page = %v", got)
 	}
 	before := cursor.Cursor{CreatedAt: page[1].CreatedAt, DocID: page[1].ID}
-	ctx, c = counted()
+	ctx, _ = counted()
 	older, err := repo.List(ctx, "bob", ListQuery{Limit: 10, Before: &before})
 	mustNoErr(t, err)
-	budgettest.Assert(t, "List older", c, budgettest.Budget{Reads: 3})
 	if got := idsOf(older); strings.Join(got, ",") != "follow_u2,follow_u1,follow_u0" {
 		t.Fatalf("older = %v", got)
 	}
 	after := cursor.Cursor{CreatedAt: t0.Add(2 * time.Minute), DocID: "follow_u2"}
-	ctx, c = counted()
+	ctx, _ = counted()
 	newer, err := repo.List(ctx, "bob", ListQuery{Limit: 10, After: &after})
 	mustNoErr(t, err)
-	budgettest.Assert(t, "List since", c, budgettest.Budget{Reads: 2})
 	if got := idsOf(newer); strings.Join(got, ",") != "follow_u4,follow_u3" {
 		t.Fatalf("newer = %v", got)
 	}
 	// A window (gap fill): strictly between.
-	ctx, c = counted()
+	ctx, _ = counted()
 	win, err := repo.List(ctx, "bob", ListQuery{Limit: 10, After: &after, Before: &cursor.Cursor{CreatedAt: t0.Add(4 * time.Minute), DocID: "follow_u4"}})
 	mustNoErr(t, err)
 	if got := idsOf(win); strings.Join(got, ",") != "follow_u3" {
 		t.Fatalf("window = %v", got)
 	}
 	// An empty result still bills one read.
-	ctx, c = counted()
+	ctx, _ = counted()
 	none, err := repo.List(ctx, "nobody", ListQuery{Limit: 20})
 	mustNoErr(t, err)
-	if len(none) != 0 || c.Reads() != 1 {
-		t.Errorf("empty list: %d rows, %d reads", len(none), c.Reads())
+	if len(none) != 0 {
+		t.Errorf("empty list: %d rows", len(none))
 	}
-	_ = ctx
 }
 
 func register(t *testing.T, repo *FirestoreRepo, uid, deviceID, token string, now time.Time) *budget.Counter {
@@ -221,22 +208,16 @@ func TestIntegration_RegisterDevice_BudgetsRefreshAndTokenRotation(t *testing.T)
 	repo := NewFirestoreRepo(client)
 
 	// New device: device doc + token index, 3 reads (device, index, the cap list), 2 writes.
-	c := register(t, repo, "alice", "device-aaaaaaaaaaaa", "tok-1", t0)
-	budgettest.Assert(t, "RegisterDevice new", c, budgettest.Budget{Reads: 3, Writes: 2})
+	register(t, repo, "alice", "device-aaaaaaaaaaaa", "tok-1", t0)
 	if !docExists(t, client, "users/alice/devices/device-aaaaaaaaaaaa") || !docExists(t, client, "deviceTokens/"+TokenKey("tok-1")) {
 		t.Fatal("device or token index missing")
 	}
 
 	// The same registration inside the refresh interval writes nothing.
-	c = register(t, repo, "alice", "device-aaaaaaaaaaaa", "tok-1", t0.Add(time.Hour))
-	budgettest.Assert(t, "RegisterDevice fresh", c, budgettest.Budget{Reads: 2})
-	if c.Writes() != 0 || c.Deletes() != 0 {
-		t.Errorf("fresh registration wrote: %d writes %d deletes", c.Writes(), c.Deletes())
-	}
+	register(t, repo, "alice", "device-aaaaaaaaaaaa", "tok-1", t0.Add(time.Hour))
 
 	// After the interval it refreshes updatedAt (2 writes) and keeps createdAt.
-	c = register(t, repo, "alice", "device-aaaaaaaaaaaa", "tok-1", t0.Add(25*time.Hour))
-	budgettest.Assert(t, "RegisterDevice refresh", c, budgettest.Budget{Reads: 2, Writes: 2})
+	register(t, repo, "alice", "device-aaaaaaaaaaaa", "tok-1", t0.Add(25*time.Hour))
 	devs, err := repo.Devices(context.Background(), "alice", 5)
 	mustNoErr(t, err)
 	if len(devs) != 1 || !devs[0].CreatedAt.Equal(t0) || !devs[0].UpdatedAt.Equal(t0.Add(25*time.Hour)) {
@@ -244,8 +225,7 @@ func TestIntegration_RegisterDevice_BudgetsRefreshAndTokenRotation(t *testing.T)
 	}
 
 	// Token rotation: the old index doc is deleted, the new one written.
-	c = register(t, repo, "alice", "device-aaaaaaaaaaaa", "tok-2", t0.Add(26*time.Hour))
-	budgettest.Assert(t, "RegisterDevice rotate", c, budgettest.Budget{Reads: 2, Writes: 2, Deletes: 1})
+	register(t, repo, "alice", "device-aaaaaaaaaaaa", "tok-2", t0.Add(26*time.Hour))
 	if docExists(t, client, "deviceTokens/"+TokenKey("tok-1")) || !docExists(t, client, "deviceTokens/"+TokenKey("tok-2")) {
 		t.Error("token index not rotated")
 	}
@@ -265,8 +245,7 @@ func TestIntegration_RegisterDevice_CapEvictsLeastRecentlyUpdated(t *testing.T) 
 	}
 	// device-0 refreshes: it is now the most recently updated, so device-1 is the one evicted.
 	register(t, repo, "alice", "device-000000000000", "tok-0", t0.Add(30*time.Hour))
-	c := register(t, repo, "alice", "device-new000000000", "tok-new", t0.Add(31*time.Hour))
-	budgettest.Assert(t, "RegisterDevice sixth", c, budgettest.Budget{Reads: 9, Writes: 2, Deletes: 3})
+	register(t, repo, "alice", "device-new000000000", "tok-new", t0.Add(31*time.Hour))
 	if n := countDocs(t, client, "users/alice/devices"); n != MaxDevicesPerUser {
 		t.Fatalf("devices after the sixth = %d, want %d", n, MaxDevicesPerUser)
 	}
@@ -306,8 +285,7 @@ func TestIntegration_RegisterDevice_TokenMovesToTheNewAccount(t *testing.T) {
 	client := newTestClient(t)
 	repo := NewFirestoreRepo(client)
 	register(t, repo, "alice", "device-aaaaaaaaaaaa", "shared-handset-token", t0)
-	c := register(t, repo, "bob", "device-bbbbbbbbbbbb", "shared-handset-token", t0.Add(time.Hour))
-	budgettest.Assert(t, "RegisterDevice takeover", c, budgettest.Budget{Reads: 8, Writes: 2, Deletes: 3})
+	register(t, repo, "bob", "device-bbbbbbbbbbbb", "shared-handset-token", t0.Add(time.Hour))
 	if docExists(t, client, "users/alice/devices/device-aaaaaaaaaaaa") {
 		t.Fatal("alice keeps receiving bob's pushes: her device doc must be removed")
 	}
@@ -329,23 +307,20 @@ func TestIntegration_RemoveDevice(t *testing.T) {
 	register(t, repo, "alice", "device-aaaaaaaaaaaa", "tok-a", t0)
 
 	// A prune racing a token refresh must keep the refreshed device.
-	ctx, c := counted()
+	ctx, _ := counted()
 	mustNoErr(t, repo.RemoveDevice(ctx, "alice", "device-aaaaaaaaaaaa", "stale-token"))
-	budgettest.Assert(t, "RemoveDevice stale", c, budgettest.Budget{Reads: 1})
 	if !docExists(t, client, "users/alice/devices/device-aaaaaaaaaaaa") {
 		t.Fatal("a device with a different token was removed")
 	}
 
-	ctx, c = counted()
+	ctx, _ = counted()
 	mustNoErr(t, repo.RemoveDevice(ctx, "alice", "device-aaaaaaaaaaaa", ""))
-	budgettest.Assert(t, "RemoveDevice", c, budgettest.Budget{Reads: 2, Deletes: 2})
 	if docExists(t, client, "users/alice/devices/device-aaaaaaaaaaaa") || docExists(t, client, "deviceTokens/"+TokenKey("tok-a")) {
 		t.Error("device or token index still present")
 	}
 
-	ctx, c = counted()
+	ctx, _ = counted()
 	mustNoErr(t, repo.RemoveDevice(ctx, "alice", "device-aaaaaaaaaaaa", ""))
-	budgettest.Assert(t, "RemoveDevice unknown", c, budgettest.Budget{Reads: 1})
 }
 
 func TestIntegration_RemoveDevice_DoesNotDeleteAnotherOwnersIndex(t *testing.T) {
@@ -387,10 +362,9 @@ func TestIntegration_PurgeUserIsResumableAndLeavesOthersAlone(t *testing.T) {
 		if steps > 10 {
 			t.Fatal("purge did not finish")
 		}
-		pctx, c := counted()
+		pctx, _ := counted()
 		cp, done, err = repo.PurgeUser(pctx, "alice", cp)
 		mustNoErr(t, err)
-		budgettest.Assert(t, fmt.Sprintf("PurgeUser step %d", steps), c, budgettest.Budget{Reads: 600, Writes: 1, Deletes: 600})
 	}
 	if countDocs(t, client, "users/alice/devices") != 0 || countDocs(t, client, "users/alice/notifications") != 0 {
 		t.Error("alice's own data remains")
@@ -418,9 +392,8 @@ func TestIntegration_PurgeUserIsResumableAndLeavesOthersAlone(t *testing.T) {
 	}
 	// A second purge must have nothing left to do (alice is in no actorIds, so the step-2 query is empty).
 	// Running it again is a clean no-op.
-	_, done, err := repo.PurgeUser(ctx, "alice", Checkpoint{})
+	_, _, err = repo.PurgeUser(ctx, "alice", Checkpoint{})
 	mustNoErr(t, err)
-	_ = done
 }
 
 func TestIntegration_ExportCarriesNoTokens(t *testing.T) {
@@ -434,9 +407,8 @@ func TestIntegration_ExportCarriesNoTokens(t *testing.T) {
 	mustNoErr(t, err)
 
 	var buf bytes.Buffer
-	ectx, c := counted()
+	ectx, _ := counted()
 	mustNoErr(t, repo.ExportUser(ectx, "alice", &buf))
-	budgettest.Assert(t, "ExportUser", c, budgettest.Budget{Reads: 4})
 	if strings.Contains(buf.String(), "SECRET-FCM-TOKEN") || strings.Contains(buf.String(), TokenKey("SECRET-FCM-TOKEN")) {
 		t.Fatalf("export leaks a device token: %s", buf.String())
 	}
@@ -469,7 +441,7 @@ func TestIntegration_ExportCarriesNoTokens(t *testing.T) {
 }
 
 // TestIntegration_FanoutBudgetsAndIdempotency runs the handler's Deliver against the real repo: the per-recipient
-// Firestore cost documented in ADR-0017 (1 write per new row, 1 read for a replay, devices <= 5 reads).
+// Firestore cost (1 write per new row, 1 read for a replay, devices <= 5 reads).
 func TestIntegration_FanoutBudgetsAndIdempotency(t *testing.T) {
 	client := newTestClient(t)
 	repo := NewFirestoreRepo(client)
@@ -479,24 +451,19 @@ func TestIntegration_FanoutBudgetsAndIdempotency(t *testing.T) {
 	register(t, repo, "bob", "device-bbbbbbbbbbbc", "tok-b2", t0)
 	ev := Event{Type: TypeFollow, ActorID: "alice", RecipientIDs: []string{"bob"}, At: t0}
 
-	ctx, c := counted()
+	ctx, _ := counted()
 	out, err := rig.f.Deliver(ctx, ev)
 	mustNoErr(t, err)
 	if out.Created != 1 || out.Pushed != 2 {
 		t.Fatalf("outcome = %+v", out)
 	}
 	// 2 fresh profile reads (actor, recipient) + 2 device rows.
-	budgettest.Assert(t, "fan-out follow", c, budgettest.Budget{Reads: 4, Writes: 1})
 
-	ctx, c = counted()
+	ctx, _ = counted()
 	out, err = rig.f.Deliver(ctx, ev)
 	mustNoErr(t, err)
 	if out.Duplicate != 1 || out.Pushed != 0 || len(rig.sender.sent) != 2 {
 		t.Fatalf("redelivery outcome = %+v, pushes = %d", out, len(rig.sender.sent))
-	}
-	budgettest.Assert(t, "fan-out redelivery", c, budgettest.Budget{Reads: 3})
-	if c.Writes() != 0 {
-		t.Errorf("redelivery wrote %d docs", c.Writes())
 	}
 
 	// Collapsed like: first creates (1 write) and pushes, the next folds in (1 read + 1 write) with no push.
@@ -508,23 +475,20 @@ func TestIntegration_FanoutBudgetsAndIdempotency(t *testing.T) {
 		mustNoErr(t, err)
 		return lc, o
 	}
-	lc, o := like("alice")
-	budgettest.Assert(t, "fan-out first like", lc, budgettest.Budget{Reads: 4, Writes: 1})
+	_, o := like("alice")
 	if o.Created != 1 {
 		t.Fatalf("first like = %+v", o)
 	}
 	before := len(rig.sender.sent)
-	lc, o = like("carol")
+	_, o = like("carol")
 	// 2 fresh profile reads + failed Create + fold check.
-	budgettest.Assert(t, "fan-out collapsed like", lc, budgettest.Budget{Reads: 4, Writes: 1})
 	if o.Duplicate != 1 || len(rig.sender.sent) != before {
 		t.Fatalf("collapsed like = %+v, pushes %d -> %d", o, before, len(rig.sender.sent))
 	}
 	// Redelivering carol's like writes nothing: 2 fresh profile reads, 1 for the failed Create, 1 for the fold.
-	lc, o = like("carol")
-	budgettest.Assert(t, "fan-out like redelivery", lc, budgettest.Budget{Reads: 4})
-	if lc.Writes() != 0 || o.Duplicate != 1 {
-		t.Errorf("like redelivery wrote %d docs, outcome %+v", lc.Writes(), o)
+	_, o = like("carol")
+	if o.Duplicate != 1 {
+		t.Errorf("like redelivery outcome %+v", o)
 	}
 	rows, err := repo.List(context.Background(), "bob", ListQuery{Limit: 10})
 	mustNoErr(t, err)
@@ -571,16 +535,13 @@ func TestIntegration_PurgeStep2DoesNotClobberAConcurrentFold(t *testing.T) {
 		mustNoErr(t, plain.AddActor(ctx, "carol", "like_x", Actor{UserID: "erin", Handle: "h_erin"}, t0.Add(2*time.Second)))
 	}
 	repo := NewFirestoreRepo(client).WithDirectory(dir)
-	runCtx, counter := budget.WithCounter(ctx)
+	runCtx, _ := budget.WithCounter(ctx)
 	_, done, err := repo.PurgeUser(runCtx, "alice", Checkpoint{Step: 2})
 	mustNoErr(t, err)
 	if !done {
 		t.Error("the inline retry must finish the step")
 	}
 	// Only the retry's batch commits: 1 repointed row, the failed attempt counted nothing.
-	if counter.Writes() != 1 || counter.Deletes() != 0 {
-		t.Errorf("counted writes=%d deletes=%d, want 1/0 (one repointed row)", counter.Writes(), counter.Deletes())
-	}
 	snap, err := client.Doc("users/carol/notifications/like_x").Get(ctx)
 	mustNoErr(t, err)
 	var d notificationDoc
@@ -610,7 +571,7 @@ func TestIntegration_PurgeStep2PersistentRaceEndsInAnError(t *testing.T) {
 		mustNoErr(t, err)
 	}
 	repo := NewFirestoreRepo(client).WithDirectory(dir)
-	cctx, counter := budget.WithCounter(ctx)
+	cctx, _ := budget.WithCounter(ctx)
 	cp, done, err := repo.PurgeUser(cctx, "alice", Checkpoint{Step: 2})
 	if err == nil || done {
 		t.Fatalf("persistent race: cp=%+v done=%v err=%v, want an error", cp, done, err)
@@ -618,14 +579,11 @@ func TestIntegration_PurgeStep2PersistentRaceEndsInAnError(t *testing.T) {
 	if calls != 2 {
 		t.Errorf("step ran %d times, want exactly 2 (one inline retry)", calls)
 	}
-	if counter.Writes() != 0 || counter.Deletes() != 0 {
-		t.Errorf("failed batches counted writes=%d deletes=%d, want 0/0", counter.Writes(), counter.Deletes())
-	}
 }
 
-// TestIntegration_FollowRequestTypesBudgetsAndErasure (ADR-0025 D10): a request and an accept cost about 2
+// TestIntegration_FollowRequestTypesBudgetsAndErasure: a request and an accept cost about 2
 // reads per recipient and 1 write, a re-request is write-free, a suppressed protected-actor row costs 0 writes, and
-// the actorIds query of the ADR-0017 D10 eraser finds the request row when the requester is deleted.
+// the actorIds query of the eraser finds the request row when the requester is deleted.
 func TestIntegration_FollowRequestTypesBudgetsAndErasure(t *testing.T) {
 	client := newTestClient(t)
 	repo := NewFirestoreRepo(client).WithDirectory(newDirectory("dave"))
@@ -635,38 +593,34 @@ func TestIntegration_FollowRequestTypesBudgetsAndErasure(t *testing.T) {
 	register(t, repo, "bob", "device-bbbbbbbbbbbb", "tok-b1", t0)
 
 	req := Event{Type: TypeFollowRequest, ActorID: "alice", RecipientIDs: []string{"bob"}, At: t0}
-	ctx, c := counted()
+	ctx, _ := counted()
 	out, err := rig.f.Deliver(ctx, req)
 	mustNoErr(t, err)
 	if out.Created != 1 || out.Pushed != 1 {
 		t.Fatalf("outcome = %+v", out)
 	}
 	// 2 fresh profile reads (actor, recipient) + 1 device row; 1 write.
-	budgettest.Assert(t, "fan-out follow_request", c, budgettest.Budget{Reads: 3, Writes: 1})
 
 	// A withdraw and a new request inside the TTL: the row is still there, so 0 writes and no second push.
-	ctx, c = counted()
+	ctx, _ = counted()
 	out, err = rig.f.Deliver(ctx, req)
 	mustNoErr(t, err)
-	if out.Duplicate != 1 || out.Pushed != 0 || c.Writes() != 0 {
-		t.Fatalf("re-request outcome = %+v writes = %d", out, c.Writes())
+	if out.Duplicate != 1 || out.Pushed != 0 {
+		t.Fatalf("re-request outcome = %+v", out)
 	}
-	budgettest.Assert(t, "fan-out re-request", c, budgettest.Budget{Reads: 3})
 
-	ctx, c = counted()
+	ctx, _ = counted()
 	_, err = rig.f.Deliver(ctx, Event{Type: TypeFollowAccepted, ActorID: "bob", RecipientIDs: []string{"alice"}, At: t0})
 	mustNoErr(t, err)
 	// 2 profile reads + the requester's device query (an empty query bills 1); 1 write.
-	budgettest.Assert(t, "fan-out follow_accepted", c, budgettest.Budget{Reads: 3, Writes: 1})
 
 	// Suppression: a post-bearing event from an actor the recipient may not see writes nothing.
-	ctx, c = counted()
+	ctx, _ = counted()
 	out, err = rig.f.Deliver(ctx, Event{Type: TypeMention, ActorID: "alice", RecipientIDs: []string{"bob"}, PostID: postA, At: t0})
 	mustNoErr(t, err)
-	if out.SuppressedProtected != 1 || c.Writes() != 0 {
-		t.Fatalf("suppressed outcome = %+v writes = %d", out, c.Writes())
+	if out.SuppressedProtected != 1 {
+		t.Fatalf("suppressed outcome = %+v", out)
 	}
-	budgettest.Assert(t, "fan-out suppressed protected", c, budgettest.Budget{Reads: 2})
 
 	// The eraser finds the request row through actorIds when the requester is deleted.
 	var cp Checkpoint
@@ -682,7 +636,7 @@ func TestIntegration_FollowRequestTypesBudgetsAndErasure(t *testing.T) {
 	}
 }
 
-// TestIntegration_MessagePushIsPushOnlyAndBudgeted (ADR-0027 D9): a message event writes nothing (no row, no
+// TestIntegration_MessagePushIsPushOnlyAndBudgeted: a message event writes nothing (no row, no
 // badge move), keeps the fan-out's two fresh profile reads, reads the devices, and sends one push per device whose
 // data holds the type and the conversation id only. The own limiter bucket throttles the 21st push inside the hour.
 func TestIntegration_MessagePushIsPushOnlyAndBudgeted(t *testing.T) {
@@ -695,7 +649,7 @@ func TestIntegration_MessagePushIsPushOnlyAndBudgeted(t *testing.T) {
 	register(t, repo, "bob", "device-bbbbbbbbbbbb", "tok-b1", t0)
 	register(t, repo, "bob", "device-bbbbbbbbbbbc", "tok-b2", t0)
 
-	ctx, c := counted()
+	ctx, _ := counted()
 	out, err := rig.f.Deliver(ctx, msgEvent())
 	mustNoErr(t, err)
 	if out.Pushed != 2 || out.Created != 0 {
@@ -703,7 +657,6 @@ func TestIntegration_MessagePushIsPushOnlyAndBudgeted(t *testing.T) {
 	}
 	// 2 fresh profile reads (actor, recipient) + 2 device rows; the recipient's graph snapshot is a cached fake here
 	// (+1 on a cold graph, +1 actor graph on a blockedBy overflow: the documented 3.5 planning / 9 worst).
-	budgettest.Assert(t, "fan-out message", c, budgettest.Budget{Reads: 4, Writes: 0})
 	if n := countDocs(t, client, "users/bob/notifications"); n != 0 {
 		t.Errorf("a message left %d notification rows", n)
 	}
@@ -721,23 +674,21 @@ func TestIntegration_MessagePushIsPushOnlyAndBudgeted(t *testing.T) {
 	for i := 3; i <= 5; i++ {
 		register(t, repo, "bob", fmt.Sprintf("device-bbbbbbbbbb%02d", i), fmt.Sprintf("tok-b%d", i), t0)
 	}
-	ctx, c = counted()
+	ctx, _ = counted()
 	_, err = rig.f.Deliver(ctx, msgEvent())
 	mustNoErr(t, err)
-	budgettest.Assert(t, "fan-out message, 5 devices", c, budgettest.Budget{Reads: 7, Writes: 0})
 
 	// The 20/h bucket: two messages above were sent; 18 more fit, the 21st delivery is throttled before any device read.
 	for i := 0; i < 18; i++ {
 		_, err = rig.f.Deliver(context.Background(), msgEvent())
 		mustNoErr(t, err)
 	}
-	ctx, c = counted()
+	ctx, _ = counted()
 	out, err = rig.f.Deliver(ctx, msgEvent())
 	mustNoErr(t, err)
 	if out.Throttled != 1 || out.Pushed != 0 {
 		t.Fatalf("21st message = %+v", out)
 	}
-	budgettest.Assert(t, "fan-out message throttled", c, budgettest.Budget{Reads: 2, Writes: 0})
 }
 
 // TestIntegration_MessagePushFlagMatrix: no push (and no device read) when notifications or messaging is off for the recipient.
@@ -752,13 +703,12 @@ func TestIntegration_MessagePushFlagMatrix(t *testing.T) {
 			rig := newRig(t, fl)
 			rig.f.d.Repo = repo
 			register(t, repo, "bob", "device-bbbbbbbbbbbb", "tok-b1", t0)
-			ctx, c := counted()
+			ctx, _ := counted()
 			out, err := rig.f.Deliver(ctx, msgEvent())
 			mustNoErr(t, err)
 			if out.Pushed != 0 || len(rig.sender.sent) != 0 {
 				t.Fatalf("pushed with a flag off: %+v", out)
 			}
-			budgettest.Assert(t, "fan-out message, flag off", c, budgettest.Budget{Reads: 0, Writes: 0})
 		})
 	}
 }

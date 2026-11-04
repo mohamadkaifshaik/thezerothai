@@ -4,7 +4,7 @@
 // 	protoc        (unknown)
 // source: dzeroth/lists/v1/lists.proto
 
-// Lists (ADR-0030, W5 Part A): a named set of up to LIST_MAX_MEMBERS (150) accounts whose root posts, reposts and
+// Lists (W5 Part A): a named set of up to LIST_MAX_MEMBERS (150) accounts whose root posts, reposts and
 // quotes are read as one chronological feed (TimelineService.GetListTimeline) and may be pinned as a Home tab
 // (TimelineService.SetHomeTabs, IdentityService.GetMe home_tabs). Owner module: backend/internal/lists.
 // Collection owned: lists/{listId} (ownerId, name, description, isPrivate, memberIds[], hidden, createdAt, updatedAt).
@@ -15,25 +15,25 @@
 // time-ordered and therefore guessable, so authorization never relies on it. A list_id that is not 19 digits =>
 // INVALID_ARGUMENT + VALIDATION, metadata["field"] = "list_id", 0 reads.
 //
-// Who sees a list (ADR-0030 D3, founder decision F3): a list is created PRIVATE unless the request says otherwise. A
+// Who sees a list (founder decision F3): a list is created PRIVATE unless the request says otherwise. A
 // private list, a list hidden by the platform (opsctl), a list whose owner blocks the caller, a list whose owner
-// is not ACTIVE, and a list whose owner's blockedBy overflowed (ADR-0008 D2, fail closed) all answer ONE NOT_FOUND to
+// is not ACTIVE, and a list whose owner's blockedBy overflowed (fail closed) all answer ONE NOT_FOUND to
 // everyone but the owner, byte-identical to the NOT_FOUND for a list id that never existed. The owner always sees
 // their own lists. Members are never told they were added (F4: no notification).
 //
-// Member rules (ADR-0030 D4, F4): the owner cannot add an account that blocks the owner or that the owner blocks
+// Member rules: the owner cannot add an account that blocks the owner or that the owner blocks
 // (NOT_FOUND, byte-identical to a missing user, so the call is no block oracle), nor a protected account the owner
-// does not follow (FAILED_PRECONDITION + PROTECTED_ACCOUNT; ADR-0025 D4 left this to the W5 ADR; is_private is already
+// does not follow (FAILED_PRECONDITION + PROTECTED_ACCOUNT; is_private is already
 // public on GetProfile, so this reveals nothing new). At read time, for every viewer, members who block the OWNER are
 // dropped; for each viewer, members the viewer blocks or mutes and members who block the viewer are dropped; a
-// protected member's posts are shown only to viewers that member has approved (posts.Audience, ADR-0025 D3). A
+// protected member's posts are shown only to viewers that member has approved (posts.Audience). A
 // dropped member stays in storage; the owner's next write to the list removes members who block the owner.
 //
-// Flag FEATURE_LISTS (wire name "lists", default off; ADR-0030 D9): every RPC here needs it on for the caller, else
+// Flag FEATURE_LISTS (wire name "lists", default off): every RPC here needs it on for the caller, else
 // FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "lists", 0 reads. Clients learn it from
 // IdentityService.GetMe enabled_features.
 //
-// Idempotency (rule 4, ADR-0030 D7): every mutation takes idempotency_key (16-64 characters of [A-Za-z0-9_-], else
+// Idempotency (rule 4): every mutation takes idempotency_key (16-64 characters of [A-Za-z0-9_-], else
 // VALIDATION "idempotency_key", 0 reads) and stores the standard TTL'd idempotency/{sha256(uid|rpc|key)} document
 // (24 h) in the same transaction as its effect. A retry with the same key returns the stored outcome with 0 writes,
 // whatever happened since; the same key with a different request body => INVALID_ARGUMENT +
@@ -53,12 +53,11 @@
 // - RESOURCE_EXHAUSTED + RATE_LIMITED: the per-minute buckets RATE_LIMIT_LISTS_WRITE_PER_MIN (30) and
 //   RATE_LIMIT_LISTS_READ_PER_MIN (30) per uid per instance (x 3 instances), the daily call cap
 //   LIST_MUTATIONS_PER_DAY (500 per uid per instance, metadata["limit"] = "list_mutation_daily", shared by the six
-//   list and Home-tab mutations) and the per-uid daily read budget (ADR-0010 D5); honour retry_after.
+//   list and Home-tab mutations); honour retry_after.
 // - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
 //
-// Firestore budgets below are ADR-0030 "Cost impact" (per RPC). Worst-case reads include the account-status
-// interceptor; every call is charged to the per-uid daily read budget (2,000 reads/uid/IST day per instance), and no
-// call can exceed config.ReadBudgetMaxCallReads (269).
+// Firestore budgets below are per RPC. Worst-case reads include the account-status
+// interceptor.
 
 package listsv1
 

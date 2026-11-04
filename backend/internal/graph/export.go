@@ -1,4 +1,4 @@
-// export.go builds the manual data-export view of one user's social graph (ADR-0008 D12).
+// export.go builds the manual data-export view of one user's social graph.
 package graph
 
 import (
@@ -18,7 +18,7 @@ type ExportUser struct {
 }
 
 // Export is the subject's own graph data. By construction it has no field for who blocked the subject
-// (ADR-0008 D12: "data export should never list who blocked the user"); blockedBy is never read here.
+// ("data export should never list who blocked the user"); blockedBy is never read here.
 type Export struct {
 	UserID    string       `json:"userId"`
 	Following []ExportUser `json:"following"`

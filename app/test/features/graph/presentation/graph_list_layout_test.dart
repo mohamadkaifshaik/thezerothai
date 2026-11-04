@@ -421,7 +421,7 @@ void main() {
       final requested = tester.widget<OutlinedButton>(
         find.widgetWithText(OutlinedButton, 'Requested'),
       );
-      // Tapping it asks to cancel the request (ADR-0025 D7), so it is live.
+      // Tapping it asks to cancel the request, so it is live.
       expect(requested.onPressed, isNotNull);
       for (final b in tester.widgetList<ButtonStyleButton>(
         find.byWidgetPredicate((w) => w is ButtonStyleButton),

@@ -18,7 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// communityMutationProcedures share the community_mutation_daily cap (ADR-0031 D11); communityModProcedures share
+// communityMutationProcedures share the community_mutation_daily cap; communityModProcedures share
 // community_mod_actions_daily; all seven share the one write bucket.
 var (
 	communityMutationProcedures = []string{
@@ -32,7 +32,7 @@ var (
 		communitiesv1connect.CommunityServiceRestoreCommunityPostProcedure,
 		communitiesv1connect.CommunityServiceSetMemberRoleProcedure,
 	}
-	// communityReadProcedures share the read bucket and have no daily cap (the read budget covers them).
+	// communityReadProcedures share the read bucket and have no daily cap.
 	communityReadProcedures = []string{
 		communitiesv1connect.CommunityServiceGetCommunityProcedure,
 		communitiesv1connect.CommunityServiceListCommunitiesProcedure,
@@ -42,7 +42,7 @@ var (
 	}
 )
 
-// communitiesRateLimitViolations asserts the wiring (ADR-0031 D11): the seven mutations share one limiter; the four member
+// communitiesRateLimitViolations asserts the wiring: the seven mutations share one limiter; the four member
 // mutations share one named DailyCap and the three moderator actions another, and the two caps are different counters; the five
 // reads share a second limiter with no daily cap; GetCommunityTimeline has its own limiter and no daily cap; the three limiters are
 // three different objects; and every CommunityService procedure is covered.
@@ -75,7 +75,7 @@ func communitiesRateLimitViolations(rl ratelimit.Config) []string {
 	readBucket := rl.PerProcedure[communityReadProcedures[0]]
 	for _, p := range communityReadProcedures {
 		if _, ok := rl.DailyCaps[p]; ok {
-			out = append(out, "community read "+p+" must not be on a daily cap (the read budget covers it)")
+			out = append(out, "community read "+p+" must not be on a daily cap")
 		}
 		if rl.PerProcedure[p] == nil || rl.PerProcedure[p] != readBucket {
 			out = append(out, "community read "+p+" does not share the communities read bucket")
@@ -160,7 +160,6 @@ func TestCommunityDailyCaps_StopTheCapPlusFirstCall(t *testing.T) {
 	cfg.RateLimit.PerIPPerMinute = 100000
 	cfg.RateLimit.CommunitiesWritePerUserPerMinute = 100000
 	cfg.RateLimit.CommunitiesReadPerUserPerMinute = 100000
-	cfg.RateLimit.ReadBudgetPerUIDPerDay = 1 << 40
 	cfg.RateLimit.CommunityMutationsPerDay = memberCap
 	cfg.RateLimit.CommunityModActionsPerDay = modCap
 	rl := RateLimitConfig(cfg)

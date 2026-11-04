@@ -37,7 +37,7 @@ type TakedownResult struct {
 	Wrote bool
 }
 
-// Moderator is messaging's operator seam (ADR-0027 D12): `opsctl messages takedown` takes one message down. The
+// Moderator is messaging's operator seam: `opsctl messages takedown` takes one message down. The
 // FirestoreRepo implements it; it is not part of the Repo the service uses.
 type Moderator interface {
 	// TakedownMessage tombstones one message. Reads: the message 1, and for a VISIBLE one the conversation 1 and each
@@ -52,7 +52,7 @@ var _ Moderator = (*FirestoreRepo)(nil)
 // with its text and request digest cleared (field-level Update, never Set, so a message deleted meanwhile is never
 // recreated), and every participant's entry whose preview (`last.messageId`) is this message gets its snippet replaced and
 // its `last.state` set to REMOVED. lastMessageAt is not touched (the inbox keeps its order). A takedown reaches devices that
-// cached the thread or the inbox (ADR-0027 note 2026-10-29): the conversation gets `rev` +1 (a ListMessages since token
+// cached the thread or the inbox: the conversation gets `rev` +1 (a ListMessages since token
 // issued before it is retired at the next poll, the client cold-opens and drops the cached text) and `updatedAt` strictly
 // forward, the message `removedAt`, and each rewritten entry `changedAt` in server time (the next ListConversations since
 // refresh returns it). The revision is bumped even when no entry previews the message.

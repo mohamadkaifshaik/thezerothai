@@ -19,7 +19,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
 
-// TestUpdateProfile_ClearIsRefusedInReadonlyMode (ADR-0024 Amendment 1 A2): clears are exempt from the profile_extras
+// TestUpdateProfile_ClearIsRefusedInReadonlyMode: clears are exempt from the profile_extras
 // gate, not from DEGRADED_MODE=readonly. A clear is a write like any other, so the platform interceptor refuses it
 // before the handler runs; this follows UpdateProfile's proto idempotency_level (mutating), no list to go stale. The
 // service is built with a nil repo and no flags: if the interceptor let the call through the test would fail on the

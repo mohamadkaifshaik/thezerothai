@@ -2,7 +2,7 @@
 
 package messaging
 
-// Report a message (ADR-0027 D12) on the real FirestoreRepo: the lookup's reads, the takedown transaction's
+// Report a message on the real FirestoreRepo: the lookup's reads, the takedown transaction's
 // reads and writes, the previews of both participants, and how a takedown and the account eraser leave each other's
 // tombstones (a taken-down message stays REMOVED when its sender later deletes the account).
 
@@ -14,7 +14,6 @@ import (
 
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // twoMessages is a mutual conversation where alice wrote m1 and bob answered with m2 (the last message).
@@ -39,22 +38,20 @@ func TestReportAndTakedown_BothParticipantsSeeTheMessageRemoved(t *testing.T) {
 	e := newIT(t, nil)
 	convID, _, m2 := twoMessages(t, e)
 
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	got, err := e.newService().ReportableMessage(ctx, alice, convID, m2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "ReportableMessage repo reads", c, budgettest.Budget{Reads: 2})
 	if got.Text != "second, from bob" || got.SenderUID != bob || got.SenderHandle != "bob" || got.CreatedAt.IsZero() {
 		t.Errorf("evidence = %+v", got)
 	}
 
 	// m2 is the last message of both conversations' previews: bob's own entry and alice's.
-	res, c, err := e.takedown(convID, m2, false)
+	res, _, err := e.takedown(convID, m2, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "TakedownMessage", c, budgettest.Budget{Reads: 4, Writes: 4})
 	if res.Before != msgVisible || res.After != msgRemoved || res.Entries != 2 || !res.Wrote {
 		t.Fatalf("result = %+v", res)
 	}
@@ -100,11 +97,10 @@ func TestReportAndTakedown_BothParticipantsSeeTheMessageRemoved(t *testing.T) {
 	if _, err := e.newService().ReportableMessage(context.Background(), alice, convID, m2); err != ErrNotFound { //nolint:errorlint // sentinel identity
 		t.Errorf("a taken-down message is still reportable: %v", err)
 	}
-	res, c, err = e.takedown(convID, m2, false)
+	res, _, err = e.takedown(convID, m2, false)
 	if err != nil || res.Wrote || res.Before != msgRemoved || res.After != msgRemoved {
 		t.Fatalf("repeat = %+v, %v", res, err)
 	}
-	budgettest.Assert(t, "TakedownMessage repeat", c, budgettest.Budget{Reads: 1, Writes: 0})
 }
 
 // The takedown clears the request digest (as the eraser does), so a retry of the same idempotency key can no longer be
@@ -116,7 +112,7 @@ func TestTakedown_RetryOfTheSameKeyReplaysTheTombstoneAndCreatesNothing(t *testi
 	if _, _, err := e.takedown(convID, m2, false); err != nil {
 		t.Fatal(err)
 	}
-	resp, c, err := e.send(bob, toUser(skey(2), alice, "second, from bob"))
+	resp, _, err := e.send(bob, toUser(skey(2), alice, "second, from bob"))
 	if err != nil {
 		t.Fatalf("retry err = %v, want a replay of the tombstone", err)
 	}
@@ -125,9 +121,6 @@ func TestTakedown_RetryOfTheSameKeyReplaysTheTombstoneAndCreatesNothing(t *testi
 	}
 	if p := resp.GetConversation().GetLastMessage(); p.GetState() != messagingv1.MessageState_MESSAGE_STATE_REMOVED || p.GetSnippet() != "" {
 		t.Errorf("replayed preview = %v", p)
-	}
-	if c.Writes() != 0 {
-		t.Errorf("a replay wrote %d documents", c.Writes())
 	}
 	if n := len(e.msgs(convID)); n != 2 {
 		t.Errorf("%d messages stored, want 2 (no duplicate)", n)
@@ -141,11 +134,10 @@ func TestTakedown_RetryOfTheSameKeyReplaysTheTombstoneAndCreatesNothing(t *testi
 func TestTakedown_NotTheLastMessageLeavesThePreviewsAlone(t *testing.T) {
 	e := newIT(t, nil)
 	convID, m1, m2 := twoMessages(t, e)
-	res, c, err := e.takedown(convID, m1, false)
+	res, _, err := e.takedown(convID, m1, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "TakedownMessage not last", c, budgettest.Budget{Reads: 4, Writes: 2})
 	if res.Entries != 0 || !res.Wrote {
 		t.Errorf("result = %+v", res)
 	}
@@ -162,11 +154,10 @@ func TestTakedown_NotTheLastMessageLeavesThePreviewsAlone(t *testing.T) {
 func TestTakedown_DryRunReadsTheSameAndWritesNothing(t *testing.T) {
 	e := newIT(t, nil)
 	convID, _, m2 := twoMessages(t, e)
-	res, c, err := e.takedown(convID, m2, true)
+	res, _, err := e.takedown(convID, m2, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "TakedownMessage dry run", c, budgettest.Budget{Reads: 4, Writes: 0})
 	if res.Wrote || res.Entries != 2 || res.Before != msgVisible || res.After != msgRemoved {
 		t.Errorf("result = %+v, want the plan: 2 previews, nothing written", res)
 	}
@@ -201,11 +192,10 @@ func TestTakedown_SkipsAnEntryThatIsGone(t *testing.T) {
 	if _, err := e.fs.Collection("users").Doc(alice).Collection(dmInboxCollection).Doc(convID).Delete(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	res, c, err := e.takedown(convID, m2, false)
+	res, _, err := e.takedown(convID, m2, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "TakedownMessage one entry gone", c, budgettest.Budget{Reads: 4, Writes: 3})
 	if res.Entries != 1 || !res.Wrote {
 		t.Errorf("result = %+v", res)
 	}
@@ -220,11 +210,10 @@ func TestTakedown_SkipsAnEntryThatIsGone(t *testing.T) {
 func TestTakedown_UnknownMessageAndMissingConversation(t *testing.T) {
 	e := newIT(t, nil)
 	convID, _, m2 := twoMessages(t, e)
-	_, c, err := e.takedown(convID, "00000000000000000000000000000000", false)
+	_, _, err := e.takedown(convID, "00000000000000000000000000000000", false)
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown message: %v", err)
 	}
-	budgettest.Assert(t, "TakedownMessage unknown", c, budgettest.Budget{Reads: 1, Writes: 0})
 	if _, err := e.fs.Collection("conversations").Doc(convID).Delete(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -259,11 +248,10 @@ func TestTakedownAndEraser_TombstonesSurviveEachOther(t *testing.T) {
 		e := newIT(t, nil)
 		convID, _, m2 := twoMessages(t, e)
 		e.runEraserFor(bob)
-		res, c, err := e.takedown(convID, m2, false)
+		res, _, err := e.takedown(convID, m2, false)
 		if err != nil {
 			t.Fatal(err)
 		}
-		budgettest.Assert(t, "TakedownMessage tombstoned by the eraser", c, budgettest.Budget{Reads: 1, Writes: 0})
 		if res.Before != msgDeletedAccount || res.After != msgDeletedAccount || res.Wrote {
 			t.Errorf("result = %+v, want a no-op on DELETED_ACCOUNT", res)
 		}

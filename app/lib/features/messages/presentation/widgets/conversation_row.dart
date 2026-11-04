@@ -6,7 +6,7 @@ import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../../../shared/format/relative_time.dart';
 import '../../../../shared/widgets/primitives/app_avatar.dart';
 
-/// Text shown for a last message that has no text (ADR-0027 D5 tombstones).
+/// Text shown for a last message that has no text (tombstones).
 const kConversationDeletedSnippet = 'Message deleted';
 const kConversationRemovedSnippet = 'This message was removed';
 

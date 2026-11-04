@@ -114,7 +114,7 @@ class AppWidget extends StatefulWidget {
   final IdentityRepository identityRepository;
   final GraphRepository graphRepository;
 
-  /// The 48 h "Who to follow" list (ADR-0024 Amendment 2) behind the
+  /// The 48 h "Who to follow" list behind the
   /// Home card and the desktop right column.
   final SuggestionsRepository suggestionsRepository;
   final AccountRepository accountRepository;
@@ -126,7 +126,7 @@ class AppWidget extends StatefulWidget {
   final PostsFeatureGate postsGate;
   final NotificationsRepository notificationsRepository;
 
-  /// Direct messages (ADR-0027): the inbox and the screens after it.
+  /// Direct messages: the inbox and the screens after it.
   final MessagingRepository messagingRepository;
   final ModerationRepository moderationRepository;
 
@@ -140,7 +140,7 @@ class AppWidget extends StatefulWidget {
   /// Search (`FEATURE_SEARCH`); null in tests that do not search.
   final SearchRepository? searchRepository;
 
-  /// Poll votes (ADR-0029): `VotePoll` behind the `engagement` flag;
+  /// Poll votes: `VotePoll` behind the `engagement` flag;
   /// null in tests that do not vote (cards then show polls read-only).
   final PollRepository? pollRepository;
 
@@ -148,13 +148,13 @@ class AppWidget extends StatefulWidget {
   /// in session memory; sign-out forgets it.
   final LikesRepository likesRepository;
 
-  /// Lists (ADR-0030): the only `ListService` caller and the pinned
+  /// Lists: the only `ListService` caller and the pinned
   /// Home tabs (`GetMe.home_tabs`, `SetHomeTabs`). Null in tests that do not
   /// need them; screens arrive later.
   final ListsRepository? listsRepository;
   final HomeTabsRepository? homeTabsRepository;
 
-  /// Communities (ADR-0031): the only `CommunityService` caller. Null in
+  /// Communities: the only `CommunityService` caller. Null in
   /// tests that do not need it; screens arrive later onwards.
   final CommunitiesRepository? communitiesRepository;
 
@@ -168,7 +168,7 @@ class AppWidget extends StatefulWidget {
   /// The unread badge, seeded from `GetMe`.
   final UnreadBadgeCubit unreadBadgeCubit;
 
-  /// Drives the full-screen "service paused" state (ADR-0022); bootstrap
+  /// Drives the full-screen "service paused" state; bootstrap
   /// shares it with the API client. Null (tests) means never paused.
   final ServicePausedCubit? servicePausedCubit;
 
@@ -227,7 +227,7 @@ class _AppWidgetState extends State<AppWidget> {
   late final SuggestionsCubit _suggestions = SuggestionsCubit(
     repository: widget.suggestionsRepository,
   );
-  // The session's trends list (ADR-0028): one app-level cubit, one
+  // The session's trends list: one app-level cubit, one
   // GetTrends per 5 minutes for Explore and the side column; null without a
   // search repository (tests). Sign-out forgets it.
   late final TrendsCubit? _trends = widget.searchRepository == null
@@ -304,6 +304,8 @@ class _AppWidgetState extends State<AppWidget> {
       ..register('trends', () => _trends?.reset())
       ..register('graph', widget.graphRepository.clearCache)
       ..register('likes', widget.likesRepository.clearSession)
+      ..register('posts', () => widget.postsRepository.clearSession())
+      ..register('search', () => widget.searchRepository?.clearSession())
       ..register('home tabs', () => widget.homeTabsRepository?.clearSession())
       ..register('lists', () => widget.listsRepository?.clearSession())
       ..register('badges', () {
@@ -592,7 +594,7 @@ class _AppWidgetState extends State<AppWidget> {
   }
 }
 
-/// Shows [ServicePausedView] over the app while the API is paused (ADR-0022).
+/// Shows [ServicePausedView] over the app while the API is paused.
 /// The app underneath stays mounted (hidden and out of semantics), so the
 /// current screen is exactly where it was when the service comes back.
 class _PausedOverlay extends StatelessWidget {

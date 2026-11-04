@@ -1,4 +1,4 @@
-// messaging_wiring.go adapts messaging's outbound seams to the rest of the monolith (ADR-0027 D4 step 6, D9): the
+// messaging_wiring.go adapts messaging's outbound seams to the rest of the monolith (D9): the
 // composition root is the one place that knows both messaging.Events and notifications.Emitter.
 package apiserver
 
@@ -10,7 +10,7 @@ import (
 )
 
 // messageNotifier implements messaging.Events: a delivered message to an accepted, non-silent recipient becomes one
-// push-only `message` event (generic push, ADR-0027 D9) that names the conversation and nothing else.
+// push-only `message` event (generic push) that names the conversation and nothing else.
 type messageNotifier struct{ slot *emitterSlot }
 
 var _ messaging.Events = messageNotifier{}

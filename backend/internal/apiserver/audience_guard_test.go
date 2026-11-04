@@ -1,6 +1,6 @@
 package apiserver
 
-// The audience guard (ADR-0025 D3, D4, AQ2; plan Part B rules 5 and 6). A source scan of every non-test Go file
+// The audience guard (plan Part B rules 5 and 6). A source scan of every non-test Go file
 // under backend/internal that fails `make ci` the day a new read path (W4 search, W5 lists, W7 DMs) decides post
 // visibility on its own. No emulator is needed. It fails when any of these is true:
 //

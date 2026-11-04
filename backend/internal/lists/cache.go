@@ -7,9 +7,9 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cache"
 )
 
-// cacheTTL is the staleness bound of every cached list doc (ADR-0030 D11): a write updates the writing instance at once, the
+// cacheTTL is the staleness bound of every cached list doc: a write updates the writing instance at once, the
 // other instances within 60 s. A list made private or hidden therefore stops serving non-owners within 60 s everywhere (at
-// once on the instance that took the write). Behind the cache.LRU seam, so Memorystore can replace it by ADR.
+// once on the instance that took the write). Behind the cache.LRU seam, so Memorystore can replace it by a later design decision.
 const cacheTTL = 60 * time.Second
 
 // negativeTTL is the staleness bound of a negative entry (a missing list id),.

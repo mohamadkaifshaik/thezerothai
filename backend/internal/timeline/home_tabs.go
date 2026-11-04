@@ -23,7 +23,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// SetHomeTabs (ADR-0030 D6) lives in this file so it stays out of the feed code. The timeline never touches users/{uid}:
+// SetHomeTabs lives in this file so it stays out of the feed code. The timeline never touches users/{uid}:
 // the pinned tabs are stored by identity behind HomeTabsStore.
 
 // limitHomeTabs is the `limit` metadata of the LIMIT_REACHED answer.
@@ -32,7 +32,7 @@ const limitHomeTabs = "home_tabs"
 // maxHomeTabsFallback is the cap when HomeTabsDeps.Max is unset (HOME_TABS_MAX_PINNED default).
 const maxHomeTabsFallback = 5
 
-// HomeTabsStore is the consumer-side seam to users/{uid}.homeTabs (ADR-0030 D1, D6); identity implements it
+// HomeTabsStore is the consumer-side seam to users/{uid}.homeTabs; identity implements it
 // (*identity.HomeTabsAdapter), so the storage can move without changing a caller.
 type HomeTabsStore interface {
 	// Current is the caller's stored tabs, cache-first (0 reads when the account-status interceptor loaded the profile).
@@ -141,7 +141,7 @@ func tabsHash(tabs []tabKey) string {
 // already stored, then one identity transaction. Stored tabs of a kind that is off for the caller are kept after the sent
 // ones and count toward the cap.
 //
-// Budget (ADR-0030 table; reads count the account-status interceptor's caller `users` read): worst 19 cold (interceptor 1,
+// Budget (table; reads count the account-status interceptor's caller `users` read): worst 19 cold (interceptor 1,
 // idempotency 1, users 1, <= 5 new list docs, caller graph 1, and for another user's list its owner's profile and graph, all
 // cache-first), typical 4; writes 2 (users field-level, idempotency), 1 when the order is unchanged, + 1 TTL delete later;
 // a replay reads 2 (idempotency, users) and writes 0.
@@ -215,8 +215,8 @@ func limitReached(ctx context.Context) error {
 }
 
 // validateNewTabs reads each sent tab that is not already stored (cache-first profile) through lists.Reader and returns the
-// title to store for it: the list's name when the caller owns it, "" for another user's list (ADR-0030 D6: no foreign text
-// on users/{uid}). A list the caller may not read is the one VALIDATION answer.
+// title to store for it: the list's name when the caller owns it, "" for another user's list (no foreign text on users/{uid}).
+// A list the caller may not read is the one VALIDATION answer.
 func (s *Server) validateNewTabs(ctx context.Context, h *HomeTabsDeps, uid string, sent []tabKey, useStored bool) (map[tabKey]string, error) {
 	have := map[tabKey]bool{}
 	if useStored { // the second pass (the cached profile was behind the document) validates every sent tab
@@ -234,7 +234,7 @@ func (s *Server) validateNewTabs(ctx context.Context, h *HomeTabsDeps, uid strin
 			continue
 		}
 		if k.kind == identity.HomeTabKindCommunity {
-			// ADR-0031 D6: any ACTIVE or ARCHIVED community; the title is always "" (the client labels the tab from the timeline header).
+			// Any ACTIVE or ARCHIVED community; the title is always "" (the client labels the tab from the timeline header).
 			c, err := h.Communities.Get(ctx, k.id)
 			if err != nil {
 				if errors.Is(err, communities.ErrNotFound) {

@@ -209,7 +209,7 @@ void main() {
         throw const RateLimitedException(
           'slow down',
           retryAfter: Duration(seconds: 30),
-          limitName: 'read_budget_daily',
+          limitName: 'search_daily',
         );
       }
       return thread(replies: [3]);

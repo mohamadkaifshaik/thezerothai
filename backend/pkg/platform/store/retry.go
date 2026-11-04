@@ -17,10 +17,10 @@ import (
 // ErrContended is returned (wrapping the last Aborted error) when CommitWithRetry exhausted its attempts.
 var ErrContended = errors.New("store: write contention")
 
-// TxnWarnAttempts is the ADR-0008/ADR-0010 contention threshold: more attempts than this log one WARN.
+// TxnWarnAttempts is the contention threshold: more attempts than this log one WARN.
 const TxnWarnAttempts = 3
 
-// NoteTxnAttempts records txn_attempts on the request's log line (ADR-0010 D20) and WARNs under real
+// NoteTxnAttempts records txn_attempts on the request's log line and WARNs under real
 // contention. event names the module's WARN (e.g. "graph_txn_contention"); no ids are logged.
 func NoteTxnAttempts(ctx context.Context, event string, attempts int) {
 	logger.SetRequestField(ctx, "txn_attempts", attempts)

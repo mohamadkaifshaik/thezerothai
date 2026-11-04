@@ -17,7 +17,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 )
 
-// listMutationProcedures are the six ADR-0030 mutations: each stores an idempotency document even when it changes nothing, so
+// listMutationProcedures are the six list mutations: each stores an idempotency document even when it changes nothing, so
 // they share one per-minute bucket and ONE per-uid daily call cap (limit_name "list_mutation_daily").
 var listMutationProcedures = []string{
 	listsv1connect.ListServiceCreateListProcedure,
@@ -28,14 +28,14 @@ var listMutationProcedures = []string{
 	timelinev1connect.TimelineServiceSetHomeTabsProcedure,
 }
 
-// listReadProcedures share the RATE_LIMIT_LISTS_READ_PER_MIN bucket and have no daily cap (the read budget covers them).
+// listReadProcedures share the RATE_LIMIT_LISTS_READ_PER_MIN bucket and have no daily cap.
 var listReadProcedures = []string{
 	listsv1connect.ListServiceGetListProcedure,
 	listsv1connect.ListServiceListUserListsProcedure,
 	listsv1connect.ListServiceListListMembersProcedure,
 }
 
-// listsRateLimitViolations asserts the wiring (ADR-0030 D10): the six mutations share one limiter and one named DailyCap;
+// listsRateLimitViolations asserts the wiring: the six mutations share one limiter and one named DailyCap;
 // the three reads share another limiter and have no daily cap; GetListTimeline has its own limiter and no daily cap; the three
 // limiters are three different objects.
 func listsRateLimitViolations(rl ratelimit.Config) []string {
@@ -57,7 +57,7 @@ func listsRateLimitViolations(rl ratelimit.Config) []string {
 	}
 	for _, p := range listReadProcedures {
 		if _, ok := rl.DailyCaps[p]; ok {
-			out = append(out, "list read "+p+" must not be on a daily cap (the read budget covers it)")
+			out = append(out, "list read "+p+" must not be on a daily cap")
 		}
 		if rl.PerProcedure[p] == nil || rl.PerProcedure[p] != rl.PerProcedure[listReadProcedures[0]] {
 			out = append(out, "list read "+p+" does not share the lists read bucket")
@@ -130,7 +130,6 @@ func TestListMutationDailyCap_StopsTheCapPlusFirstCall(t *testing.T) {
 	cfg.RateLimit.PerIPPerMinute = 100000
 	cfg.RateLimit.ListsWritePerUserPerMinute = 100000
 	cfg.RateLimit.ListsReadPerUserPerMinute = 100000
-	cfg.RateLimit.ReadBudgetPerUIDPerDay = 1 << 40
 	cfg.RateLimit.ListMutationsPerDay = dailyCap
 	rl := RateLimitConfig(cfg)
 

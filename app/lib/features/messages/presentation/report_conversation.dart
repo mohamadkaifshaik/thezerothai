@@ -10,12 +10,12 @@ import 'bloc/thread_cubit.dart' show isConversationId;
 const kReportSentText = 'Report sent';
 
 /// The sentence the message report sheet adds under its intro: the reviewers
-/// get this one message (ADR-0027 D12), nothing else of the conversation.
+/// get this one message, nothing else of the conversation.
 const kReportMessageDetail =
     'Only this message is shared with our reviewers, not the rest of the '
     'conversation.';
 
-/// Whether [message] can be reported (ADR-0027 D12): the peer's own, still
+/// Whether [message] can be reported: the peer's own, still
 /// visible message. The caller's messages and tombstones (no text is left to
 /// review) are not offered; the server answers VALIDATION for the first and
 /// NOT_FOUND for the second.
@@ -25,7 +25,7 @@ bool canReportMessage(pb.Message message) =>
     isConversationId(message.id);
 
 /// The `target_id` of a message report: `"<convId>:<msgId>"`, 32 lower-case hex
-/// each (ADR-0027 D12). Throws [ArgumentError] for a message that cannot be
+/// each. Throws [ArgumentError] for a message that cannot be
 /// reported or an id of the wrong shape, so a malformed request is never sent.
 String messageReportTargetId(String conversationId, pb.Message message) {
   if (!canReportMessage(message) || !isConversationId(conversationId)) {

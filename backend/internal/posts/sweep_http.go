@@ -1,5 +1,5 @@
-// sweep_http.go is the `/internal/cron/publish-scheduled` route (ADR-0021 D1 "The route", Sweep steps 6 and 7): POST
-// only, a 25 s context deadline, a budget.Counter of its own (system reads, never charged to a user's ADR-0010 D5
+// sweep_http.go is the `/internal/cron/publish-scheduled` route ("The route", Sweep steps 6 and 7): POST
+// only, a 25 s context deadline, a budget.Counter of its own (system reads, never charged to a user's read
 // budget), route-level panic recovery, and the one `scheduled_sweep` line per run. Mount it behind the OIDC verifier
 // (apiserver's routeTable.internal does).
 //

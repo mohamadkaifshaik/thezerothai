@@ -21,14 +21,14 @@ enum ReportOutcome {
   sent,
 
   /// The server already had this reporter's report for the target (a free
-  /// no-op, ADR-0016): nothing new was sent, and the sheet said so.
+  /// no-op): nothing new was sent, and the sheet said so.
   alreadyReported,
 
   /// Sent, and the user asked to block the account next.
   blockRequested,
 }
 
-/// Opens the report sheet for one post or account (ADR-0016).
+/// Opens the report sheet for one post or account.
 ///
 /// [subject] is the sentence fragment shown in the title ("@alice's post",
 /// "@alice"). [offerBlock] adds a "Block" action after a successful report;

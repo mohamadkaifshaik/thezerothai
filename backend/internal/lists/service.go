@@ -22,7 +22,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Request-line fields (ADR-0030 D12): counts and enums only, never a list id, name or description.
+// Request-line fields: counts and enums only, never a list id, name or description.
 const (
 	fieldOp      = "list_op"
 	fieldOutcome = "outcome"
@@ -40,7 +40,7 @@ const limitLists = "lists"
 // limitListMembers is the LIMIT_REACHED metadata["limit"] value of the per-list member cap.
 const limitListMembers = "list_members"
 
-// notFoundText is the one message of every NOT_FOUND this module answers (ADR-0030 D3: byte-identical for every cause).
+// notFoundText is the one message of every NOT_FOUND this module answers (byte-identical for every cause).
 const notFoundText = "list not found"
 
 // Limits are the caps and quota tiers the write path needs, from config (rule 11).
@@ -234,7 +234,7 @@ func mapErr(ctx context.Context, op, uid, listID string, err error) error {
 	return logger.RedactErr(fmt.Errorf("lists: %s: %w", op, err), uid, listID)
 }
 
-// CreateList implements Service (ADR-0030 D2, D3, D7). Validation first (0 reads), the caller's profile (cache-first; it
+// CreateList implements Service. Validation first (0 reads), the caller's profile (cache-first; it
 // decides the new-account quota tier and is the response's owner row), then one repository transaction. The new list's data
 // fills the instance cache.
 func (s *service) CreateList(ctx context.Context, uid string, in CreateInput) (View, error) {

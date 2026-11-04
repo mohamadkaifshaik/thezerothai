@@ -5,8 +5,7 @@ import '../../../../app/app_config.dart';
 import '../../../../core/theme/app_theme.dart';
 
 /// Google + Apple sign-in buttons. Apple is only shown on iOS, macOS and web
-/// per Apple's guidelines and the task brief (no phone/SMS, no Apple button
-/// on Android).
+/// per Apple's guidelines. There is no phone/SMS sign-in.
 class SocialSignInButtons extends StatelessWidget {
   const SocialSignInButtons({
     super.key,

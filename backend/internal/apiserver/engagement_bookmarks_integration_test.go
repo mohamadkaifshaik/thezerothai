@@ -2,7 +2,7 @@
 
 package apiserver
 
-// Wire contract of the bookmark flag gate (ADR-0023 D5) over the real Build chain: GetMe.enabled_features
+// Wire contract of the bookmark flag gate over the real Build chain: GetMe.enabled_features
 // lists "bookmarks" only for the allowlisted caller; with the flag off all three RPCs answer FAILED_PRECONDITION +
 // FEATURE_DISABLED (metadata feature=bookmarks) with 0 Firestore reads; in allowlist mode a caller outside the list is
 // refused AddBookmark only, while Remove and List pass the gate (a passed gate shows as INVALID_ARGUMENT from Add and Remove,

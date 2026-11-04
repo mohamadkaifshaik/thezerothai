@@ -7,7 +7,7 @@ import '../network/app_exception.dart';
 const kServiceGateRefreshInterval = Duration(seconds: 60);
 
 /// Client-side view of one whole-service server flag (`notifications`,
-/// `reports`; ADR-0017 D7 / ADR-0016). `PostsFeatureGate` extends it and adds
+/// `reports`). `PostsFeatureGate` extends it and adds
 /// only the sub-feature set.
 ///
 /// - The flag comes from `GetMe.enabled_features` via [isEnabled]. While it

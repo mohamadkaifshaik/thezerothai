@@ -1,4 +1,4 @@
-// lifecycle_moderation.go joins the moderation module to the account-lifecycle registry (ADR-0016 D5): the reports
+// lifecycle_moderation.go joins the moderation module to the account-lifecycle registry: the reports
 // Eraser step (anonymise the reports the account filed) and the `reports` export section (the reports the account
 // filed, never reports about it). Kept apart from registerLifecycleModules so slices that add their own lines
 // there do not collide with this one.
@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 )
 
-// reportsEraserStep is the reports step (step "reports"): ADR-0011 Q1 runs it with the other module steps, before
+// reportsEraserStep is the reports step (step "reports"): it runs with the other module steps, before
 // the identity step.
 func reportsEraserStep(e moderation.Eraser) identity.StepEraser {
 	return eraserStep[moderation.Checkpoint]{name: "reports", purge: e.PurgeReporter}

@@ -22,13 +22,13 @@ const (
 	DefaultPageSize = 20
 	MaxPageSize     = 50
 	// SettleWindow is how far since_token trails the newest returned entry, so an entry committed by another instance a
-	// moment after this read is still returned by the next refresh (ADR-0027 D7; the same 5 s as notifications).
+	// moment after this read is still returned by the next refresh (the same 5 s as notifications).
 	SettleWindow = 5 * time.Second
 	// RefreshTokenTTL is how long a persisted since or page token is accepted (30 days, the notifications value).
 	RefreshTokenTTL = 30 * 24 * time.Hour
 )
 
-// Request-line fields of a list (ADR-0027 D11). Counts only: never a uid, a conversation id or a snippet.
+// Request-line fields of a list. Counts only: never a uid, a conversation id or a snippet.
 const (
 	kindListConversations = "list_conversations"
 	fieldFolder           = "folder"
@@ -40,9 +40,9 @@ const (
 	folderLabelRequests   = "requests"
 )
 
-// Token bindings: a token opens only for the uid, the folder and the token kind it was issued for (ADR-0027 D7).
+// Token bindings: a token opens only for the uid, the folder and the token kind it was issued for.
 //
-// The since kind is "since-changed" (ADR-0027 note 2026-10-29): the position is a changedAt, not a lastMessageAt. A token
+// The since kind is "since-changed": the position is a changedAt, not a lastMessageAt. A token
 // of the older kind fails to open (VALIDATION since_token, 0 reads) and the client cold-opens the folder once; an entry
 // written before changedAt existed would otherwise be skipped by a query on it.
 func sinceBinding(uid, folder string) string {
@@ -62,25 +62,27 @@ func clampPageSize(n int32) int {
 	return int(n)
 }
 
-// ListConversations implements Service.ListConversations (ADR-0027 D4 "On read", D7).
+// ListConversations implements Service.ListConversations ("On read", D7).
 //
 // Flag: not globally off (a caller dropped from the allowlist can still read). Validation, in this order and before any
 // read: folder INBOX or REQUESTS (VALIDATION "folder"), page_token and since_token not both (VALIDATION "page_token"),
 // then the token itself (sealed, bound to the uid, the folder and the token kind, 30 days; a foreign, tampered or expired
 // token is VALIDATION "page_token" or "since_token", 0 reads).
 //
-// Read-time rules from the caller's graph snapshot (cached 60 s): REQUESTS drops an entry whose peer the caller blocks or
-// mutes or who blocks the caller; INBOX keeps every entry, with can_reply false when either side blocks the other. An
+// Read-time rules from the graph snapshots (cached 60 s; the peer's only past the blockedBy cap): REQUESTS drops an entry whose
+// peer the caller blocks or mutes or who blocks the caller; INBOX keeps every entry, with can_reply false when either side blocks the other. An
 // erased peer (DeletedUID) is a "Deleted account" snapshot, never looked up, and can_reply is false. Filtering runs after
 // the page query, so a page may be short or empty while next_page_token is set; both tokens come from the scanned rows,
 // not the shown ones. There is no refill loop and no gap token: a since refresh returns at most page_size entries.
 //
 // Worst-case Firestore cost (budget.Counter; the account-status interceptor read is counted as the proto comment does):
 //   - first INBOX page of 20: 23 reads (interceptor 1, query 20, caller graph 1, requests count() 1), planning 9
-//   - REQUESTS page, or an older INBOX page: 22 (no count(); request_count is 0)
+//   - REQUESTS page, or an older INBOX page: 22 (no count(); request_count is 0). A caller past the blockedBy cap adds up
+//     to one peer graph read per REQUESTS row (cached 60 s)
 //   - INBOX since refresh: 4 with one entry (interceptor, query min 1, caller graph, requests count() 1), planning 3; an
 //     empty one 3 (no graph read).: request_count rides every INBOX first page and since refresh (the count runs in
-//     parallel with the query; a failed count() fails the call, never answers 0). REQUESTS since refresh: 3, no count()
+//     parallel with the query; a failed count() fails the call, never answers 0). REQUESTS since refresh: 3, no count(), plus
+//     the peer graph reads of a caller past the blockedBy cap
 //   - writes 0
 func (s *service) ListConversations(ctx context.Context, uid string, req *messagingv1.ListConversationsRequest) (*messagingv1.ListConversationsResponse, error) {
 	if err := s.guard(ctx, uid, notGloballyOff); err != nil {
@@ -155,15 +157,15 @@ func (s *service) listConversations(ctx context.Context, uid string, in listInpu
 	)
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(2)
-	g.Go(func() (err error) {
+	g.Go(s.recovered(ctx, func() (err error) {
 		rows, err = s.d.Repo.ListEntries(gctx, uid, in.folder, ListQuery{Limit: in.limit, Before: in.before, After: in.since})
 		return err
-	})
+	}))
 	if in.withCount {
-		g.Go(func() (err error) {
+		g.Go(s.recovered(ctx, func() (err error) {
 			count, err = s.d.Repo.CountRequests(gctx, uid)
 			return err
-		})
+		}))
 	}
 	if err := g.Wait(); err != nil {
 		return nil, s.listErr(ctx, uid, err)
@@ -181,7 +183,17 @@ func (s *service) listConversations(ctx context.Context, uid string, in listInpu
 	shown := make([]*messagingv1.Conversation, 0, len(rows))
 	for _, r := range rows {
 		if in.folder == dmRequestsCollection {
-			if cause := requestHiddenBy(r.PeerID, snap); cause != "" {
+			cause := requestHiddenBy(r.PeerID, snap)
+			if cause == "" {
+				blocked, err := s.requestBlockedByPeer(ctx, uid, r.PeerID, snap)
+				if err != nil {
+					return nil, s.listErr(ctx, uid, err)
+				}
+				if blocked {
+					cause = causeBlockedBy
+				}
+			}
+			if cause != "" {
 				dropped.add(cause)
 				continue
 			}
@@ -255,8 +267,8 @@ func (d *droppedCounts) add(cause string) {
 	}
 }
 
-// requestHiddenBy is the REQUESTS read-time rule (ADR-0027 D4 "On read"): the cause that hides the entry, or "". The
-// blockedBy overflow flag is not consulted (it would cost a graph read per peer), like the notifications list.
+// requestHiddenBy is the REQUESTS read-time rule ("On read") as far as the caller's own graph can answer it: the
+// cause that hides the entry, or "". An overflowed caller also needs requestBlockedByPeer.
 func requestHiddenBy(peer string, snap graph.Snapshot) string {
 	switch {
 	case snap.Blocked[peer]:
@@ -269,9 +281,23 @@ func requestHiddenBy(peer string, snap graph.Snapshot) string {
 	return ""
 }
 
+// requestBlockedByPeer closes the gap requestHiddenBy leaves for a caller past the blockedBy cap, whose own list no longer
+// names every blocker: it asks the peer's graph, as notifications' Fanout does. Only such a caller pays the read (cached
+// 60 s, at most one per row of the page); a deleted peer has no graph to ask.
+func (s *service) requestBlockedByPeer(ctx context.Context, uid, peer string, snap graph.Snapshot) (bool, error) {
+	if !snap.BlockedByOverflow || peer == DeletedUID {
+		return false, nil
+	}
+	ps, err := s.d.Social.Snapshot(ctx, peer)
+	if err != nil {
+		return false, redactErr(fmt.Errorf("messaging: peer graph: %w", err), peer)
+	}
+	return ps.Blocked[uid], nil
+}
+
 // conversationOf maps an entry to the wire Conversation. The state comes from the folder (the entry holds none, and a
 // conversation read per row would break the budget): REQUESTS is REQUEST, INBOX is ACCEPTED, except an INBOX row with
-// RequestPending (the requester's own entry while the peer has not accepted, ADR-0027 note), which is REQUEST in the
+// RequestPending (the requester's own entry while the peer has not accepted), which is REQUEST in the
 // INBOX, the same pair the ListMessages header returns for the requester. +0 reads.
 func conversationOf(r EntryRow, folder string, snap graph.Snapshot) *messagingv1.Conversation {
 	c := &messagingv1.Conversation{

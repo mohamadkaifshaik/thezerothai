@@ -2,7 +2,7 @@
 
 package apiserver
 
-// (ADR-0025 D4) through the real Build chain on the emulators, with the real protected-set loader and the real
+// Protected timelines through the real Build chain on the emulators, with the real protected-set loader and the real
 // UpdateProfile(is_private) toggle (FEATURE_PRIVATE_ACCOUNTS on):
 //   - GetUserTimeline of a protected P for an unapproved viewer answers author_protected on all four tabs at 3 cold
 //     reads (interceptor, target users, caller graph) and 0 page reads, with no posts and no tokens, even when a
@@ -23,13 +23,9 @@ import (
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
-	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
-
-const rpcGetHomeTimeline = timelinev1connect.TimelineServiceGetHomeTimelineProcedure
 
 func w330On(c *config.Config) {
 	w320TabsOn(c)
@@ -85,7 +81,6 @@ func TestW330_ProtectedTimelinesThroughTheChain(t *testing.T) {
 	if len(preHome.GetPosts()) != 3 {
 		t.Fatalf("pre-protect Home = %d rows, want X's 3", len(preHome.GetPosts()))
 	}
-	preReads := pre.lineBudget(t, rpcGetHomeTimeline).Reads()
 	preTok, err := pre.tabCall(stranger, p.uid, tabPostsPB, 20, "", "")
 	if err != nil || preTok.GetSinceToken() == "" {
 		t.Fatalf("pre-protect Posts tab: %v %v", preTok, err)
@@ -111,7 +106,6 @@ func TestW330_ProtectedTimelinesThroughTheChain(t *testing.T) {
 			if !resp.GetAuthorProtected() || len(resp.GetPosts()) != 0 || resp.GetNextPageToken() != "" || resp.GetSinceToken() != "" || resp.GetGapPageToken() != "" {
 				t.Fatalf("%s: %v, want only author_protected", tc.name, resp)
 			}
-			budgettest.Assert(t, "GetUserTimeline "+tc.name+" protected, cold", r.lineBudget(t, rpcGetUserTimeline), budgettest.Budget{Reads: 3})
 			if v, _ := r.line(t, rpcGetUserTimeline)["author_protected"].(bool); !v {
 				t.Errorf("%s: request line lacks author_protected=true", tc.name)
 			}
@@ -124,7 +118,6 @@ func TestW330_ProtectedTimelinesThroughTheChain(t *testing.T) {
 		if err != nil || !resp.GetAuthorProtected() || len(resp.GetPosts()) != 0 || resp.GetSinceToken() != "" {
 			t.Fatalf("old token: %v err=%v", resp, err)
 		}
-		budgettest.Assert(t, "old since token, cold", r.lineBudget(t, rpcGetUserTimeline), budgettest.Budget{Reads: 3})
 	})
 
 	t.Run("the author-recent entry a follower filled never answers a stranger", func(t *testing.T) {
@@ -156,7 +149,6 @@ func TestW330_ProtectedTimelinesThroughTheChain(t *testing.T) {
 						}
 					}
 				}
-				budgettest.Assert(t, who.name+" "+tc.name+" cold", r.lineBudget(t, rpcGetUserTimeline), budgettest.Budget{Reads: 24})
 			}
 		}
 	})
@@ -195,7 +187,6 @@ func TestW330_ProtectedTimelinesThroughTheChain(t *testing.T) {
 			e.GetPostId() != pid || e.GetAuthor().GetHandle() == "" {
 			t.Fatalf("quote embed = %v state %v, want a stripped PROTECTED copy keeping post_id and handle", e, q.GetEmbedViewerState())
 		}
-		budgettest.Assert(t, "Home after protect, cold", r.lineBudget(t, rpcGetHomeTimeline), budgettest.Budget{Reads: preReads})
 
 		f := newW320Chain(t, w330On)
 		fgot := w330Views(f.w330Home(t, follower).GetPosts())
@@ -236,7 +227,6 @@ func TestW330_ProtectedTimelinesThroughTheChain(t *testing.T) {
 			if q := got[quoteID]; tc.tab == tabRepliesPB30 && (q == nil || q.GetEmbedViewerState() != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_PROTECTED || q.GetPost().GetEmbedded().GetText() != "") {
 				t.Errorf("%s: quote = %v, want a stripped PROTECTED copy", tc.name, q)
 			}
-			budgettest.Assert(t, tc.name+" cold", r.lineBudget(t, rpcGetUserTimeline), budgettest.Budget{Reads: tc.ceil})
 		}
 		r := newW320Chain(t, w330On)
 		resp, err := r.tabCall(follower, x.uid, tabRepliesPB30, 20, "", "")

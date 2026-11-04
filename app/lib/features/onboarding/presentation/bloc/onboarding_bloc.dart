@@ -123,7 +123,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       emit(state.copyWith(status: OnboardingStatus.profileRequired));
     } on EmailNotVerifiedException catch (e) {
       if (stale()) return;
-      // Provider/verification gate (ADR-0010 D5 A2/A10) answered on an exempt
+      // Provider/verification gate answered on an exempt
       // RPC: same verify-your-email state as CreateProfile.
       emit(
         state.copyWith(

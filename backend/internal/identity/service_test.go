@@ -372,7 +372,7 @@ func TestGetProfile_NotFound(t *testing.T) {
 	assertNotFound(t, err)
 }
 
-// fakeBlockChecker is a table-driven-friendly BlockChecker fake (ADR-0008): the ONLY fake in
+// fakeBlockChecker is a table-driven-friendly BlockChecker fake: the ONLY fake in
 // service_test.go (table-driven, fakes) exercising the GetProfile block-enforcement
 // path independent of graph.Service, whose emulator-backed transactions are exercised separately.
 type fakeBlockChecker struct {
@@ -398,7 +398,7 @@ func (f *fakeBlockChecker) IsFollowing(_ context.Context, viewerUID, targetUID s
 	return f.following[viewerUID][targetUID], nil
 }
 
-// TestGetProfile_BlockedByTarget_NotFound (ADR-0008 D9): byte-identical NOT_FOUND to a missing profile.
+// TestGetProfile_BlockedByTarget_NotFound: byte-identical NOT_FOUND to a missing profile.
 func TestGetProfile_BlockedByTarget_NotFound(t *testing.T) {
 	repo := newFakeRepo()
 	if _, _, err := repo.CreateProfile(context.Background(), "uid-b", "Bob", "bob", "Bob", time.Now(), nil); err != nil {
@@ -421,7 +421,7 @@ func TestGetProfile_BlockedByTarget_NotFound(t *testing.T) {
 	}
 }
 
-// TestGetProfile_CallerBlocksTarget_StillVisible (ADR-0008 D9): "the caller can still view a target they
+// TestGetProfile_CallerBlocksTarget_StillVisible: "the caller can still view a target they
 // blocked, so they can unblock" — IsBlockedBy is asked "did the TARGET block the VIEWER", never the reverse.
 func TestGetProfile_CallerBlocksTarget_StillVisible(t *testing.T) {
 	repo := newFakeRepo()
@@ -429,7 +429,7 @@ func TestGetProfile_CallerBlocksTarget_StillVisible(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	// uid-b never blocked uid-a; only uid-a -> uid-b's block would live in graph.blocked, which this
-	// BlockChecker fake has no notion of (Block enforcement here is one-directional by design, ADR-0008 D9).
+	// BlockChecker fake has no notion of (Block enforcement here is one-directional by design).
 	bc := &fakeBlockChecker{blockedBy: map[string]map[string]bool{}}
 	svc := New(repo, NewCache(time.Minute), 7*24*time.Hour, WithBlockChecker(bc)).(*service)
 
@@ -468,7 +468,7 @@ func TestGetProfile_OwnProfile_SkipsBlockCheck(t *testing.T) {
 	}
 }
 
-// fakeFeatureFlags is a minimal FeatureFlags fake for GetMe tests (ADR-0008/D6).
+// fakeFeatureFlags is a minimal FeatureFlags fake for GetMe tests.
 type fakeFeatureFlags struct{ enabled []string }
 
 func (f *fakeFeatureFlags) EnabledFeatures(string) []string { return f.enabled }
@@ -503,7 +503,7 @@ func TestGetMe_NilFeatureFlags_NoOp(t *testing.T) {
 	}
 }
 
-// TestGetProfiles_CacheFirstThenBatch (ADR-0008): cached hits cost 0 repo calls; misses go through one
+// TestGetProfiles_CacheFirstThenBatch: cached hits cost 0 repo calls; misses go through one
 // GetProfiles (GetAll) call; missing/non-ACTIVE ids are silently dropped.
 func TestGetProfiles_CacheFirstThenBatch(t *testing.T) {
 	repo := newFakeRepo()
@@ -654,7 +654,7 @@ func TestUpdateProfile_Success(t *testing.T) {
 	}
 	newName := "Alice B."
 	newBio := "hello world"
-	isPrivate := false // ADR-0008 D1 (L9): true is rejected; false stays accepted.
+	isPrivate := false // true is rejected; false stays accepted.
 
 	got, err := svc.UpdateProfile(context.Background(), "uid-1", UpdateProfileParams{
 		IdempotencyKey: validKey, DisplayName: &newName, Bio: &newBio, IsPrivate: &isPrivate,
@@ -892,7 +892,7 @@ func assertNotFound(t *testing.T, err error) {
 	}
 }
 
-// TestLookupProfiles_MissingVsInactive (ADR-0008): missing means "GetAll confirmed no doc"; SUSPENDED and
+// TestLookupProfiles_MissingVsInactive: missing means "GetAll confirmed no doc"; SUSPENDED and
 // DELETING are in neither found nor missing; a uid only negatively cached is not reported missing again.
 func TestLookupProfiles_MissingVsInactive(t *testing.T) {
 	repo := newFakeRepo()
@@ -923,7 +923,7 @@ func TestLookupProfiles_MissingVsInactive(t *testing.T) {
 	}
 }
 
-// TestProfileNotFoundError_IsTheGetProfileError: other modules reuse the exact NOT_FOUND bytes (ADR-0010).
+// TestProfileNotFoundError_IsTheGetProfileError: other modules reuse the exact NOT_FOUND bytes.
 func TestProfileNotFoundError_IsTheGetProfileError(t *testing.T) {
 	var a, b *apierr.Error
 	if !errors.As(ProfileNotFoundError(), &a) || !errors.As(notFoundErr(), &b) || a.Code != b.Code || a.Reason != b.Reason || a.Message != b.Message {

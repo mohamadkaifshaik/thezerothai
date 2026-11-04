@@ -57,7 +57,7 @@ resource "google_storage_bucket" "media" {
     max_age_seconds = 3600
   }
 
-  // ADR-0024 Amendment 1 A4: delete a replaced or removed avatar or banner after the grace. The API's retire step sets
+  // Delete a replaced or removed avatar or banner after the grace. The API's retire step sets
   // customTime on the two public objects of a retired image (nothing else in the app sets it, pinned by
   // backend/internal/media/retire_invariant_test.go) and this rule deletes them once daysSinceCustomTime reaches 1,
   // so an object goes 24-48 h after the change (lifecycle acts within about a day of the condition). Objects without a
@@ -111,7 +111,7 @@ resource "google_storage_bucket_iam_member" "runtime_media_admin" {
   member = "serviceAccount:${var.runtime_service_account_email}"
 }
 
-// Account-export bucket (ADR-0011 D-B, option B). Private, never served publicly: the API writes one export object
+// Account-export bucket. Private, never served publicly: the API writes one export object
 // per request and hands the user a short-lived V4 signed GET URL. The 7-day lifecycle matches EXPORT_RETENTION
 // (168h); it lives on its own bucket so it can never touch upload/ (2 days) or media/ objects. No CORS: downloads
 // are plain navigations, not XHR. Same US region as the other buckets for the GCS free tier.

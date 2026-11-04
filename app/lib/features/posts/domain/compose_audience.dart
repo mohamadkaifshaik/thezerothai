@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../../gen/dzeroth/communities/v1/communities.pb.dart' as pbc;
 
-/// Where a new post goes (ADR-0031 D5): to everyone, or into one
+/// Where a new post goes: to everyone, or into one
 /// community the caller has joined. This is the seam for later audience kinds
 /// (a list, a circle): the composer state holds one value and the widgets ask
 /// it for a [label] and a [communityId], so a new kind adds a subclass here

@@ -121,8 +121,8 @@ class MediaUploader {
   final List<Duration> gifBusyDelays;
 
   /// How many times a FinalizeUpload that answered "image checks are
-  /// temporarily unavailable" is repeated automatically (ADR-0029 Amendment 1
-  /// A5.6), after the server's `retry_after`. The same call and media id:
+  /// temporarily unavailable" is repeated automatically,
+  /// after the server's `retry_after`. The same call and media id:
   /// nothing is re-signed or re-PUT, and the server counts it as a retry, not
   /// a screening attempt. After the last repeat the exception is rethrown and
   /// the tile offers a manual Retry.

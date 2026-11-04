@@ -54,7 +54,7 @@ var (
 	// docPathRe matches a Firestore document path as the SDK prints it in errors ("documents/users/<uid>/...").
 	docPathRe = regexp.MustCompile(`documents/\S+`)
 	// edgeIDRe matches a composite edge/like doc id "<uid>_<uid>" (uids are 20-128 chars of [A-Za-z0-9-] and never
-	// contain "_", ADR-0008 A3).
+	// contain "_").
 	edgeIDRe = regexp.MustCompile(`[A-Za-z0-9-]{20,128}_[A-Za-z0-9-]{20,128}`)
 	// hexIDRe matches a 64-char hex id (an export id, or an object path "<id>.json").
 	hexIDRe = regexp.MustCompile(`[0-9a-f]{64}`)

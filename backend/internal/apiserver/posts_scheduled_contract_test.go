@@ -2,7 +2,7 @@
 
 package apiserver
 
-// Wire contract of scheduled posts (ADR-0021 D4,/D3) over the real Build chain: the flag is advertised in
+// Wire contract of scheduled posts over the real Build chain: the flag is advertised in
 // GetMe.enabled_features only when on for the caller; with it off the three RPCs answer FAILED_PRECONDITION +
 // FEATURE_DISABLED (metadata feature=scheduled_posts); with it on a caller can schedule, list and cancel, a replay
 // returns the same item, and another user's id is NOT_FOUND. Helpers come from posts_contract_test.go.

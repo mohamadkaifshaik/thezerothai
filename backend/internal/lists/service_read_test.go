@@ -77,7 +77,7 @@ func missingErr(t *testing.T) error {
 	return err
 }
 
-// ADR-0030 D3: one byte-identical NOT_FOUND for every cause, and the owner always sees the list.
+// One byte-identical NOT_FOUND for every cause, and the owner always sees the list.
 func TestGetList_D3Matrix(t *testing.T) {
 	t.Parallel()
 	want := missingErr(t)

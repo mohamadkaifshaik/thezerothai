@@ -49,7 +49,7 @@ class AppErrorView extends StatelessWidget {
         false,
       ),
       // Provider-not-allowed / unverified-password gates reuse these codes
-      // (ADR-0010 D5 A10): EMAIL_NOT_VERIFIED on exempt RPCs.
+      //EMAIL_NOT_VERIFIED on exempt RPCs.
       EmailNotVerifiedException() => (
         Icons.mark_email_unread_outlined,
         'Please verify your email address to continue.',
@@ -70,7 +70,7 @@ class AppErrorView extends StatelessWidget {
         'This account is restricted.',
         false,
       ),
-      // Byte-identical wording for "missing" and "blocked me" (ADR-0008 D9):
+      // Byte-identical wording for "missing" and "blocked me":
       // never let the UI hint at which one it actually was.
       NotFoundException() => (
         Icons.person_off_outlined,

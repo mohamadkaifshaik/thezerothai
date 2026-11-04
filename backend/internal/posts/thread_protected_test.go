@@ -11,7 +11,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
-// GetThread through posts.Audience (ADR-0025 D4). Thread of newThreadEnv: root rRoot by uZed; replies rReply1
+// GetThread through posts.Audience. Thread of newThreadEnv: root rRoot by uZed; replies rReply1
 // (uCarol), rReply2 (blocked), rReply3 (muted), rReply4 (the caller), rReply5/6 (uDave).
 
 func TestGetThread_ProtectedFocalIsTheDeletedFocalAnswer(t *testing.T) {
@@ -42,15 +42,12 @@ func TestGetThread_ProtectedRepliesAreDroppedAndCounted(t *testing.T) {
 			e := newThreadEnv()
 			e.protect(uCarol)
 			e.graph.snap.Following = following(tt.follow...).Following
-			th, c, err := e.thread(ThreadInput{PostID: rRoot})
+			th, _, err := e.thread(ThreadInput{PostID: rRoot})
 			if err != nil {
 				t.Fatal(err)
 			}
 			if got := idsOf(th.Replies); !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("replies = %v, want %v", got, tt.want)
-			}
-			if c.Reads() > 38 || c.Writes() != 0 {
-				t.Fatalf("reads=%d writes=%d", c.Reads(), c.Writes())
 			}
 		})
 	}

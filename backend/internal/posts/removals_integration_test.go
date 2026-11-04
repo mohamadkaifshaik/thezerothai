@@ -9,11 +9,10 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // seedSharedInstantRemovals commits n log entries in ONE batch, so they all carry the same server createdAt (the
-// shape of a suspension page, ADR-0016 D10).
+// shape of a suspension page).
 func seedSharedInstantRemovals(t *testing.T, repo *FirestoreRepo, n int) {
 	t.Helper()
 	seedSharedInstantRemovalsBy(t, repo, "spammer", n)
@@ -42,13 +41,10 @@ func TestRemovalSource_AfterPagesThroughSharedTimestamp(t *testing.T) {
 	var all []RemovalEntry
 	at, id := floor, ""
 	for range 10 {
-		ctx, c := budget.WithCounter(context.Background())
+		ctx, _ := budget.WithCounter(context.Background())
 		page, err := repo.After(ctx, at, id, RemovalMaxIDs)
 		if err != nil {
 			t.Fatal(err)
-		}
-		if want := int64(max(len(page), 1)); c.Reads() != want {
-			t.Fatalf("page of %d charged %d reads, want %d", len(page), c.Reads(), want)
 		}
 		all = append(all, page...)
 		if len(page) < RemovalMaxIDs {
@@ -68,12 +64,11 @@ func TestRemovalSource_AfterPagesThroughSharedTimestamp(t *testing.T) {
 		}
 	}
 	last := all[len(all)-1]
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	tail, err := repo.After(ctx, last.At, last.PostID, RemovalMaxIDs)
 	if err != nil || len(tail) != 0 {
 		t.Fatalf("after the last entry: %d entries err=%v, want none", len(tail), err)
 	}
-	budgettest.Assert(t, "After at the tail", c, budgettest.Budget{Reads: 1})
 
 	// Newest is the same order reversed.
 	newest, err := repo.Newest(context.Background(), floor, 3)

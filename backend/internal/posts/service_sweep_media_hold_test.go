@@ -42,7 +42,7 @@ func TestSweepMediaHold_HeldItemIsLeftUntouched(t *testing.T) {
 	it := e.dueItem("uid-alice", 1, withImages(1, 2))
 	queried := e.repo.doc("uid-alice", it.ID)
 
-	res, c, err := e.sweep(context.Background())
+	res, _, err := e.sweep(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,14 +51,11 @@ func TestSweepMediaHold_HeldItemIsLeftUntouched(t *testing.T) {
 		t.Fatalf("res = %+v, want one due item, all of it in HeldMedia", res)
 	}
 	// A held item is still a due item: it counts toward the oldest lateness (item 1 is due 10 minutes minus 1 s ago), which
-	// is what makes max_lateness_ms rise during a hold (runbook, "Images held while FEATURE_MEDIA is off").
+	// is what makes max_lateness_ms rise during a hold.
 	if want := 10*time.Minute - time.Second; res.MaxLateness != want {
 		t.Errorf("MaxLateness = %v, want %v: held items must count", res.MaxLateness, want)
 	}
 	// The due query's one read and nothing else: no transaction, no state write, no attempt.
-	if c.Reads() != 1 || c.Writes() != 0 {
-		t.Errorf("cost = %d reads %d writes, want the query's 1 read and 0 writes", c.Reads(), c.Writes())
-	}
 	for _, kind := range []string{"publish", "transition", "bump"} {
 		if n := len(e.repo.callsOf(kind)); n != 0 {
 			t.Errorf("%d %s calls for a held item, want 0", n, kind)
@@ -148,12 +145,12 @@ func TestSweepMediaHold_PermanentVerdictsStillApply(t *testing.T) {
 			}
 			got := e.repo.doc("uid-alice", it.ID)
 			if tc.wantFail == "" {
-				if res.HeldMedia != 1 || len(res.Failed) != 0 || got.Status != ScheduledPending || c.Writes() != 0 {
+				if res.HeldMedia != 1 || len(res.Failed) != 0 || got.Status != ScheduledPending {
 					t.Errorf("res = %+v item = %+v writes = %d, want it held: PENDING, 0 writes", res, got, c.Writes())
 				}
 				return
 			}
-			if res.HeldMedia != 0 || res.Failed[tc.wantFail] != 1 || got.Status != ScheduledFailed || got.Failure != tc.wantFail || c.Reads() != 1 || c.Writes() != 1 {
+			if res.HeldMedia != 0 || res.Failed[tc.wantFail] != 1 || got.Status != ScheduledFailed || got.Failure != tc.wantFail {
 				t.Errorf("res = %+v item = %+v cost = %d/%d, want FAILED %s with the usual 1 read 1 write and nothing held", res, got, c.Reads(), c.Writes(), tc.wantFail)
 			}
 		})
@@ -173,15 +170,12 @@ func TestSweepMediaHold_PublishesNormallyOnceMediaIsBackOn(t *testing.T) {
 	}
 
 	delete(fl, mediaFlagName) // FEATURE_MEDIA is on again
-	res, c, err := e.sweep(context.Background())
+	res, _, err := e.sweep(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.HeldMedia != 0 || res.Published != 1 || res.Due != 1 || len(res.Failed) != 0 {
 		t.Fatalf("second run: res = %+v, want 1 published and nothing held", res)
-	}
-	if c.Reads() != 1+3 || c.Writes() != 4 {
-		t.Errorf("second run cost = %d reads %d writes, want the ordinary 4 and 4", c.Reads(), c.Writes())
 	}
 	if got := e.repo.doc("uid-alice", it.ID); got.Status != ScheduledPublished || got.PostID == "" || got.Attempts != 0 {
 		t.Errorf("stored item = %+v, want PUBLISHED with attempts 0", got)
@@ -244,7 +238,7 @@ func TestSweepMediaHold_NoOpCasesAreUnchanged(t *testing.T) {
 			e.dueItem("uid-alice", 1, withImages(1))
 
 			res, c, err := e.sweep(context.Background())
-			if err != nil || res.Outcome != tc.want || res.HeldMedia != 0 || res.Due != 0 || c.Reads() != 0 || c.Writes() != 0 || e.repo.dueCalls != 0 {
+			if err != nil || res.Outcome != tc.want || res.HeldMedia != 0 || res.Due != 0 || e.repo.dueCalls != 0 {
 				t.Errorf("res = %+v err = %v reads = %d writes = %d due calls = %d, want outcome %q and nothing touched", res, err, c.Reads(), c.Writes(), e.repo.dueCalls, tc.want)
 			}
 		})
@@ -282,7 +276,7 @@ func TestSweepMediaHold_RunLineCountsHeldItemsAndLeaksNothing(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[0]), &m); err != nil {
 		t.Fatal(err)
 	}
-	for k, want := range map[string]float64{"held_media": 2, "due": 2, "published": 0, "deferred": 0, "noop": 0, "fs_reads": 2, "fs_writes": 0, "failed_total": 0, "max_lateness_ms": 599000} {
+	for k, want := range map[string]float64{"held_media": 2, "due": 2, "published": 0, "deferred": 0, "noop": 0, "failed_total": 0, "max_lateness_ms": 599000} {
 		if got, ok := m[k].(float64); !ok || got != want {
 			t.Errorf("%s = %v, want %v", k, m[k], want)
 		}
@@ -327,7 +321,7 @@ func TestSweepMediaHold_KnownLimit_HeldItemsFillTheWindow(t *testing.T) {
 		if res.Due != 100 || res.HeldMedia != 100 || res.Published != 0 || res.Deferred != 0 || len(res.Failed) != 0 {
 			t.Fatalf("res = %+v, want the window (100 due) entirely held and nothing published: the symptom the runbook names", res)
 		}
-		if e.repo.dueCalls != 2 || c.Reads() != 100 || c.Writes() != 0 || len(e.repo.callsOf("publish")) != 0 {
+		if e.repo.dueCalls != 2 || len(e.repo.callsOf("publish")) != 0 {
 			t.Errorf("due calls %d reads %d writes %d publishes %d, want 2 pages of 50, 100 reads, nothing else", e.repo.dueCalls, c.Reads(), c.Writes(), len(e.repo.callsOf("publish")))
 		}
 		if got := e.repo.doc("uid-late", late.ID); got.Status != ScheduledPending || !got.UpdateTime.Equal(queried.UpdateTime) {

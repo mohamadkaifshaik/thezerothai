@@ -9,11 +9,11 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// ErrOwnMessage is a message the caller wrote: it cannot be reported (ADR-0027 D12). moderation turns it into VALIDATION
+// ErrOwnMessage is a message the caller wrote: it cannot be reported. moderation turns it into VALIDATION
 // target_id; every other "unreportable" cause is ErrNotFound.
 var ErrOwnMessage = errors.New("messaging: own message")
 
-// ReportedMessage is the evidence of one message at report time (ADR-0027 D12): that message's text, the sender's handle
+// ReportedMessage is the evidence of one message at report time: that message's text, the sender's handle
 // and the time it was sent, and nothing else of the conversation. The text is private content; it is never logged.
 type ReportedMessage struct {
 	// SenderUID is the peer who wrote it (the report's target owner). It never reaches a client or a log.
@@ -26,20 +26,20 @@ type ReportedMessage struct {
 }
 
 // MessageReporter is the part of the service a message report needs. The apiserver adapts it to moderation.MessageLookup
-// (moderation defines the interface and never imports messaging, ADR-0027 D15); the service returned by New implements it.
+// (moderation defines the interface and never imports messaging); the service returned by New implements it.
 type MessageReporter interface {
 	ReportableMessage(ctx context.Context, callerUID, convID, msgID string) (ReportedMessage, error)
 }
 
 var _ MessageReporter = (*service)(nil)
 
-// ReportableMessage implements MessageReporter (ADR-0027 D12): the caller must be a participant of the
+// ReportableMessage implements MessageReporter: the caller must be a participant of the
 // conversation and the message must be the peer's and VISIBLE. It checks no flag: the report handler has already required
 // `reports` on and `messaging` not globally off (F6), so a user dropped from the allowlist can still report. It does not
 // look at the caller's graph either: a conversation with a blocked peer stays open so the user can still report it (D4).
 //
 // Order: the conversation (instance cache for a participant, so membership is checked against a copy at most 60 s old; membership of a 1:1
-// conversation never changes, ADR-0027 D14), then the message (never cached). A missing conversation, a conversation the
+// conversation never changes), then the message (never cached). A missing conversation, a conversation the
 // caller is not in, a missing message, a message that is no longer VISIBLE (REMOVED, or its sender deleted the account)
 // and a message whose sender is not the peer all answer ErrNotFound after at most 2 reads, so the wire answer cannot tell
 // them apart. The caller's own message is ErrOwnMessage, checked before the state so a taken-down own message is no

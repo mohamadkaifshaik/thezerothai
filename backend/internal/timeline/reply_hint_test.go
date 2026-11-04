@@ -12,7 +12,7 @@ import (
 const mentionedOnly = "MENTIONED_ONLY"
 
 // TestTimelines_PassTheViewerToTheReplyHint: toViews hands the caller to posts.ToView, so a MENTIONED_ONLY root
-// the caller wrote is ALLOWED and another viewer's is NOT_ALLOWED (ADR-0021 D2); an unrestricted root stays ALLOWED.
+// the caller wrote is ALLOWED and another viewer's is NOT_ALLOWED; an unrestricted root stays ALLOWED.
 func TestTimelines_PassTheViewerToTheReplyHint(t *testing.T) {
 	t.Parallel()
 	allowed, notAllowed := postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED, postsv1.ReplyPermission_REPLY_PERMISSION_NOT_ALLOWED

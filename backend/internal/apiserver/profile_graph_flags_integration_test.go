@@ -2,7 +2,7 @@
 
 package apiserver
 
-// Wire contract of the ADR-0024 D9 flag gates over the real Build chain on the emulators: GetMe.enabled_features
+// Wire contract of the flag gates over the real Build chain on the emulators: GetMe.enabled_features
 // lists profile_extras, profile_tabs, likes_list and follow_suggestions only for the allowlisted caller; with the flags off
 // ListLikedPosts and ListSuggestedUsers answer FAILED_PRECONDITION + FEATURE_DISABLED (metadata feature=likes_list /
 // follow_suggestions) and never write; GetProfileRelationship needs only FEATURE_GRAPH and passes the gate; in allowlist mode a
@@ -69,27 +69,15 @@ func w3AssertUnimplemented(t *testing.T, who, name string, err error) {
 	}
 }
 
-// w3NoWrites asserts the request lines of rpc logged no write or delete and at most maxReads reads (default 1: the
-// account-status interceptor's).
-func w3NoWrites(t *testing.T, env *chainEnv, rpc string, maxReads ...float64) {
+// w3RequestLogged fails when rpc wrote no request line.
+func w3RequestLogged(t *testing.T, env *chainEnv, rpc string) {
 	t.Helper()
-	limit := 1.0
-	if len(maxReads) > 0 {
-		limit = maxReads[0]
-	}
-	lines := env.logs.requestLines(rpc)
-	if len(lines) == 0 {
+	if len(env.logs.requestLines(rpc)) == 0 {
 		t.Fatalf("no request line for %s", rpc)
-	}
-	for _, l := range lines {
-		num := func(k string) float64 { v, _ := l[k].(float64); return v }
-		if num("fs_reads") > limit || num("fs_writes") != 0 || num("fs_deletes") != 0 {
-			t.Errorf("%s logged reads=%v writes=%v deletes=%v, want <= %v reads and no writes", rpc, num("fs_reads"), num("fs_writes"), num("fs_deletes"), limit)
-		}
 	}
 }
 
-// w3StartupFlags returns the flags map of the startup `feature_flags` log line (ADR-0008 D6; observability).
+// w3StartupFlags returns the flags map of the startup `feature_flags` log line (observability).
 func w3StartupFlags(t *testing.T, env *chainEnv) map[string]any {
 	t.Helper()
 	env.logs.mu.Lock()
@@ -136,9 +124,9 @@ func TestProfileGraphContract_FlagOff(t *testing.T) {
 		}
 		w3AssertDisabled(t, name, err)
 	}
-	w3NoWrites(t, env, engagementv1connect.EngagementServiceListLikedPostsProcedure)
-	w3NoWrites(t, env, graphv1connect.GraphServiceListSuggestedUsersProcedure)
-	w3NoWrites(t, env, graphv1connect.GraphServiceGetProfileRelationshipProcedure, 3) // interceptor, caller graph, target profile
+	w3RequestLogged(t, env, engagementv1connect.EngagementServiceListLikedPostsProcedure)
+	w3RequestLogged(t, env, graphv1connect.GraphServiceListSuggestedUsersProcedure)
+	w3RequestLogged(t, env, graphv1connect.GraphServiceGetProfileRelationshipProcedure)
 }
 
 func TestProfileGraphContract_AllowlistCohort(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// ADR-0025 D7: the service layer of ListFollowRequests, RespondToFollowRequest and the request count, over fakes.
+// The service layer of ListFollowRequests, RespondToFollowRequest and the request count, over fakes.
 
 func w328Flags() FlagChecker {
 	return flags.NewRegistry(flags.Spec{Name: graphFlagName, Mode: flags.On}, flags.Spec{Name: PrivateAccountsFlagName, Mode: flags.On})
@@ -352,7 +352,7 @@ func (f *fakeProtected) Current(context.Context) (identity.ProtectedSet, error) 
 	return fakeProtectedSet{uids: f.uids}, nil
 }
 
-// ListFollowers and ListFollowing of a protected account (ADR-0025 D5): approved viewers and the owner see the page, anyone
+// ListFollowers and ListFollowing of a protected account: approved viewers and the owner see the page, anyone
 // else gets PROTECTED_ACCOUNT before any page read, and the set is asked only when it can matter.
 func TestListFollowLists_ProtectedAccount(t *testing.T) {
 	tests := []struct {

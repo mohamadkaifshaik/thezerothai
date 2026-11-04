@@ -15,7 +15,7 @@ enum SearchResultsNote {
   none,
 
   /// The query is neither a handle prefix nor one hashtag: "Search posts by
-  /// #hashtag" (Stage 0 has no full-text search, ADR-0028).
+  /// #hashtag" (Stage 0 has no full-text search).
   unsupported,
 
   /// People tab, a one-character query: no call (enumeration guard).

@@ -268,35 +268,27 @@ void main() {
       expect(unexpected, 0);
     });
 
-    test(
-      'the per-minute bucket of this RPC holds only this repository',
-      () async {
-        server.pages[''] = () => throw serverError(
-          connect.Code.resourceExhausted,
-          common.ErrorReason.ERROR_REASON_RATE_LIMITED,
-        );
-
-        await expectLater(
-          repo.fetchPage(),
-          throwsA(isA<RateLimitedException>()),
-        );
-        // Held: the next ask is answered without a call...
-        await expectLater(
-          repo.fetchPage(),
-          throwsA(isA<RateLimitedException>()),
-        );
-        expect(server.listCalls, 1);
-        // ...and Home / Bookmarks are not frozen with it.
-        expect(shared.check(), isNull);
-      },
-    );
-
-    test('the daily read budget is the shared hold: it freezes every read '
-        'screen', () async {
+    test('a per-minute RATE_LIMITED is held by this repository', () async {
       server.pages[''] = () => throw serverError(
         connect.Code.resourceExhausted,
         common.ErrorReason.ERROR_REASON_RATE_LIMITED,
-        metadata: {'limit': 'read_budget_daily'},
+      );
+
+      await expectLater(repo.fetchPage(), throwsA(isA<RateLimitedException>()));
+      // Held: the next ask is answered without a call...
+      await expectLater(repo.fetchPage(), throwsA(isA<RateLimitedException>()));
+      expect(server.listCalls, 1);
+      expect(shared.check(), isNotNull);
+
+      repo.clearSession();
+      expect(shared.check(), isNull);
+    });
+
+    test('a named daily cap is held too', () async {
+      server.pages[''] = () => throw serverError(
+        connect.Code.resourceExhausted,
+        common.ErrorReason.ERROR_REASON_RATE_LIMITED,
+        metadata: {'limit': 'list_liked_daily'},
       );
 
       await expectLater(repo.fetchPage(), throwsA(isA<RateLimitedException>()));
@@ -307,13 +299,13 @@ void main() {
     });
 
     test(
-      'a hold the shared budget already has stops the call before it',
+      'a hold the repository already has stops the call before it',
       () async {
         shared.record(
           const RateLimitedException(
             'slow down',
             retryAfter: Duration(minutes: 10),
-            limitName: 'read_budget_daily',
+            limitName: 'list_liked_daily',
           ),
         );
 

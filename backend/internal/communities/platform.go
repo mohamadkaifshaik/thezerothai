@@ -1,4 +1,4 @@
-// platform.go is the platform's side of communities (ADR-0031 D14): the writes behind `opsctl community suspend|restore|archive`
+// platform.go is the platform's side of communities: the writes behind `opsctl community suspend|restore|archive`
 // and the removal-log appends of `opsctl takedown-post` and `suspend-user`. They run in the operator's process, never in the API, so they
 // touch no instance cache: a serving instance converges within the 60 s community cache (D12). Every write is a field-level Update inside a
 // transaction (never a Set), so a community deleted meanwhile is never recreated. The methods need only the Firestore client: opsctl
@@ -51,7 +51,7 @@ type ArchiveResult struct {
 }
 
 // PlatformRemovals appends platform removals to a community's recentRemovals (D14, A3): a takedown of a community post and the hide loop
-// of suspend-user. It is a batch form of the ADR's Append(ctx, cid, postID, at): suspend-user appends once per community per page, and a
+// of suspend-user. It is a batch form of the designed Append(ctx, cid, postID, at): suspend-user appends once per community per page, and a
 // page can hold several posts of one community (as-built note N10).
 type PlatformRemovals interface {
 	// Append adds the posts as the newest recentRemovals entries of cid at `at`: one transaction, 1 read, and 1 write (a field-level Update

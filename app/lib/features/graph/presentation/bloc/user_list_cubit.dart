@@ -9,7 +9,7 @@ import 'user_list_state.dart';
 /// `ListMutedUsers` via a [FetchGraphPage] closure supplied by the caller —
 /// one cubit implementation for every graph list screen (followers/
 /// following, and Settings → Blocked/Muted accounts), so pagination,
-/// loading and error handling are written once (reuse-first).
+/// loading and error handling are written once.
 class UserListCubit extends Cubit<UserListState> {
   UserListCubit({required FetchGraphPage fetchPage, this.pageSize = 20})
     : _fetchPage = fetchPage,

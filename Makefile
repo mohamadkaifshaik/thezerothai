@@ -13,7 +13,7 @@ APP_DIR     := app
 export BACKEND_DIR
 export APP_DIR
 
-# buf 1.73 may not be on PATH; fall back to the Go-installed location noted in the task brief.
+# buf may not be on PATH; fall back to where `go install` puts it.
 BUF := $(shell command -v buf 2>/dev/null || echo "$$HOME/go/bin/buf")
 
 # N9: -race requires cgo (a real C compiler on PATH). CI's Linux images have one, so CGO_ENABLED=1 there by
@@ -25,8 +25,9 @@ RACE_FLAG := $(shell go env CGO_ENABLED 2>/dev/null | grep -qx 1 && echo -race |
 
 # firebase-tools is not installed globally in this environment (and CI installs it fresh each run);
 # use npx so `make emulators`/`make test-int`/`make dev` work the same locally and in CI without
-# requiring `npm install -g firebase-tools`. -y avoids the interactive "ok to install" prompt.
-FIREBASE := $(shell command -v firebase 2>/dev/null || echo "npx -y firebase-tools@latest")
+# requiring `npm install -g firebase-tools`. -y avoids the interactive "ok to install" prompt. The version matches the
+# one the workflows install: keep them together.
+FIREBASE := $(shell command -v firebase 2>/dev/null || echo "npx -y firebase-tools@15.32.0")
 
 # Fixed demo-* project for every emulator run ("demo-* projects are offline").
 # Without an explicit --project, firebase-tools falls back to .firebaserc's "default" alias
@@ -83,8 +84,8 @@ vet:
 ## test: unit tests only (no emulator needed) with the race detector. Coverage
 ## is gated here at 70% but only over pkg/platform (-coverpkg): internal/<module>'s repo_firestore.go paths
 ## need the Firestore emulator to exercise at all, so a unit-only run can never reach 70% honestly on
-## internal/ — that combined (unit + integration) number is gated in test-int instead (testing-strategy
-## skill: "coverage gate 70% on internal/"). pkg/platform has no such gap (fakes/emulator-free by design),
+## internal/ — that combined (unit + integration) number is gated in test-int instead.
+## pkg/platform has no such gap (fakes/emulator-free by design),
 ## so it can hold the line in every plain `go test` run, local or CI.
 COVERAGE_THRESHOLD := 70
 test:

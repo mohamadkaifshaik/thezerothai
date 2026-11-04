@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-/// One tab of a user's timeline (`GetUserTimeline`, ADR-0024 D5). The enum
+/// One tab of a user's timeline (`GetUserTimeline`). The enum
 /// names are part of the drift `feed_key` (`user:<uid>:<name>`), so the first
 /// two never change: caches written before Reposts and Media existed stay
 /// valid.
@@ -27,8 +27,8 @@ enum UserFeedTab {
 
 /// Identifies one cached timeline feed: the caller's home feed, or one tab of
 /// one user's timeline. Its [value] is the drift `feed_key` and is also what
-/// the server binds timeline tokens to (ADR-0010 D14, ADR-0024 D5: bound to
-/// caller, target and effective tab), so a token is never reused across feeds
+/// the server binds timeline tokens to (bound to caller, target and effective tab),
+/// so a token is never reused across feeds
 /// or tabs: every tab has its own cached rows, tokens and refresh clock.
 @immutable
 class FeedKey {
@@ -43,14 +43,14 @@ class FeedKey {
   /// The caller's home timeline (followees + self).
   const FeedKey.home() : this._('home');
 
-  /// The timeline of list [listId] (ADR-0030, `GetListTimeline`). The drift
+  /// The timeline of list [listId] (`GetListTimeline`). The drift
   /// `feed_key` is `list:<id>`, and the server binds its tokens to the same
   /// feed, so a list never shares rows, tokens or a refresh clock with Home or
   /// a profile. Not user-scoped: [userId] and [tab] stay null.
   factory FeedKey.list(String listId) =>
       FeedKey._('list:$listId', listId: listId);
 
-  /// The timeline of community [communityId] (ADR-0031, `GetCommunityTimeline`).
+  /// The timeline of community [communityId] (`GetCommunityTimeline`).
   /// The drift `feed_key` is `community:<id>`, and the server binds its tokens
   /// to the same feed, so a community never shares rows, tokens or a refresh
   /// clock with Home, a list or a profile. Not user-scoped: [userId] and [tab]

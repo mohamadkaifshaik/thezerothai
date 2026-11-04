@@ -1,4 +1,4 @@
-// server_likes_list.go holds the Connect handler of ListLikedPosts (ADR-0024 D6): the flag gate,
+// server_likes_list.go holds the Connect handler of ListLikedPosts: the flag gate,
 // then LikesList.ListLikedPosts, each row rendered with posts.ToView.
 package engagement
 
@@ -16,7 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// LikesListFlagName is the wire name of FEATURE_LIKES_LIST (ADR-0024 D9). ListLikedPosts needs it on for the caller.
+// LikesListFlagName is the wire name of FEATURE_LIKES_LIST. ListLikedPosts needs it on for the caller.
 // It is independent of FlagName (engagement): the list shows likes made while that flag was on.
 const LikesListFlagName = "likes_list"
 
@@ -35,7 +35,7 @@ func (s *Server) guardLikesList(ctx context.Context) (string, error) {
 	return uid, nil
 }
 
-// ListLikedPosts is the caller's own likes, newest first (ADR-0024 D6; owner-only: the request has no user id, so the
+// ListLikedPosts is the caller's own likes, newest first (owner-only: the request has no user id, so the
 // source is always userLikes/{token uid} and the page token is bound to likes|<uid>). It is behind FEATURE_POSTS and
 // FEATURE_LIKES_LIST on for the caller (not FEATURE_ENGAGEMENT); the rules are LikesList.ListLikedPosts. Worst case
 // reads cold: 23 at page 20 and 53 at page 50 (interceptor 1, userLikes 1, posts GetMany <= page, caller graph 1), 2
@@ -59,7 +59,7 @@ func (s *Server) ListLikedPosts(ctx context.Context, req *connect.Request[engage
 	for i, p := range page.Posts {
 		v := posts.ToView(p, page.Viewer, uid)
 		if i < len(page.Hints) {
-			page.Hints[i].Apply(v) // PROTECTED strips a QUOTE's copy; FOLLOWERS for a protected author (ADR-0025 D2, D4)
+			page.Hints[i].Apply(v) // PROTECTED strips a QUOTE's copy; FOLLOWERS for a protected author
 		}
 		v.LikedByViewer = v.LikedByViewer || v.Withheld // a placeholder row is a like by definition
 		out.Posts = append(out.Posts, v)

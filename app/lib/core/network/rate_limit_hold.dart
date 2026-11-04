@@ -1,16 +1,12 @@
 import 'app_exception.dart';
 
-/// The RATE_LIMITED answer read RPCs are held back for (ADR-0010 D5: the
-/// daily read budget is one budget per uid across every RPC, so a limit
-/// answered to one read screen holds all of them; there are no exemptions).
+/// Remembers a RATE_LIMITED answer so a repository stops sending the same
+/// read until its `retry_after` has passed.
 ///
-/// One instance is created per app session and shared by the timeline,
-/// posts/threads and bookmarks-list reads only (see `bootstrap.dart`); other repositories'
-/// reads (profile, graph lists) do not consult it yet. Writes never do.
-/// Sign-out [clear]s it.
-/// Callers [check] before sending (and throw what it returns) and [record]
-/// every RateLimitedException they receive. The short in-flight hold
-/// (`read_budget_inflight`) is not remembered: the API client retries it once.
+/// Each repository owns its own instance (a limit answered to one RPC family
+/// must not freeze unrelated reads). Sign-out [clear]s it. Callers [check]
+/// before sending (and throw what it returns) and [record] every
+/// RateLimitedException they receive.
 class RateLimitHold {
   RateLimitHold({Duration Function()? monotonic})
     : _elapsed = monotonic ?? _stopwatchClock();
@@ -22,7 +18,6 @@ class RateLimitHold {
   /// Remembers [error] until its `retry_after` (5 minutes for a daily limit
   /// and 30 seconds otherwise when the server sent none).
   void record(RateLimitedException error) {
-    if (error.isInflightHold) return;
     _limit = error;
     _until =
         _elapsed() +

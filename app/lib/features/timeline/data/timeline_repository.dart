@@ -17,25 +17,25 @@ import '../domain/profile_tabs_feature_flag.dart';
 import 'timeline_store.dart';
 
 /// Talks to `TimelineService` and keeps feeds in drift (project rule: the client
-/// is the cheapest cache; ADR-0004 / ADR-0010 D13-D14).
+/// is the cheapest cache).
 ///
 /// - [cached] renders from disk with no network call (offline cold start).
 /// - [refresh] sends the stored `since_token` (never refetches what it has),
 ///   dedupes by `post_id`, and persists a gap marker for `gap_page_token`.
 /// - A token the server rejects (INVALID_ARGUMENT + VALIDATION with
 ///   `field` = `since_token` / `page_token`) is dropped and exactly one cold
-///   open is sent that REPLACES the cached feed (ADR-0010 D14 amendment
+///   open is sent that REPLACES the cached feed (amendment
 ///   2026-10-18: a since_token is also rejected when the removal log cannot
 ///   list `removed_ids`, so merging could keep a removed card). Cached items
 ///   stay visible until that cold open succeeds.
 /// - A `since_token` refresh also drops the post ids in `removed_ids`
-///   (moderation removals, ADR-0016 D10) from the cached feed; the field is
+///   (moderation removals) from the cached feed; the field is
 ///   empty while `FEATURE_REMOVED_IDS` is off, so that is a no-op.
 /// - Every call goes through [PostsFeatureGate.run]: with the posts flag off
 ///   no timeline RPC is ever sent.
 /// - Each tab of a user's timeline is its own feed ([FeedKey.tab]): its own
 ///   rows, tokens and refresh clock, so a token is never sent to another tab
-///   (ADR-0024 D5). Posts and Replies are requested with `include_replies`
+///Posts and Replies are requested with `include_replies`
 ///   only; Reposts and Media set `tab` and need `profile_tabs` (after one
 ///   FEATURE_DISABLED answer for it no further call is sent).
 ///
@@ -98,8 +98,7 @@ class TimelineRepository {
 
   final Map<String, Future<void>> _lockTails = {};
 
-  /// Authors the server reported as protected for this viewer (`author_protected`,
-  /// ADR-0025 D4), with the session they were learned in. Memory only: the
+  /// Authors the server reported as protected for this viewer (`author_protected`), with the session they were learned in. Memory only: the
   /// cached rows of such an author are deleted, so a screen opened inside the
   /// refresh throttle still knows to show the protected view, not an empty feed.
   final Map<String, int> _protectedAuthors = {};
@@ -120,7 +119,7 @@ class TimelineRepository {
 
   /// Time since the last successful [refresh] of [feed] in this session, or
   /// null when it was never refreshed. Screens use it to throttle automatic
-  /// refreshes (ADR-0004: at most one per 60 s) across screen re-creations.
+  /// refreshes (at most one per 60 s) across screen re-creations.
   Duration? sinceRefresh(FeedKey feed) {
     final at = _refreshedAt[feed.value];
     return at == null ? null : _elapsed() - at;
@@ -136,7 +135,7 @@ class TimelineRepository {
   }
 
   /// The RATE_LIMITED answer timeline calls are still held back for
-  /// (ADR-0010 D5: no timeline RPC before `retry_after`), with `retryAfter`
+  /// (no timeline RPC before `retry_after`), with `retryAfter`
   /// reduced to the time left; null when nothing is held back. The short
   /// in-flight hold is excluded: the API client already retries it once.
   RateLimitedException? rateLimitedFor() => _hold.check();
@@ -156,7 +155,7 @@ class TimelineRepository {
 
   /// The server answered `author_protected` for [userId]: forget the cached
   /// rows of every tab (a warm start must never show what the server now
-  /// hides, ADR-0025 D4) and remember the answer for this session.
+  /// hides) and remember the answer for this session.
   Future<void> _markProtected(String userId, int session) async {
     if (_store.session != session) return;
     _protectedAuthors[userId] = session;
@@ -190,7 +189,7 @@ class TimelineRepository {
     );
     if (page == null) {
       await _store.clearSince(feed, session: session);
-      // Replace, never merge (ADR-0010 D14 amendment 2026-10-18).
+      // Replace, never merge.
       return _coldOpen(feed, session, replace: true);
     }
     await _store.applyRefresh(
@@ -273,7 +272,7 @@ class TimelineRepository {
   }
 
   /// [_fetch], or null when the server rejected the token named [field]
-  /// (ADR-0010 D14). The caller drops that token and cold-opens.
+  ///The caller drops that token and cold-opens.
   Future<_Page?> _fetchUnlessRejected(
     FeedKey feed,
     String field, {
@@ -370,13 +369,13 @@ class TimelineRepository {
       rethrow;
     } on NotFoundException {
       // The user vanished or blocks the caller: forget their feed so a
-      // warm start never shows what the server now hides (ADR-0010 D6).
+      // warm start never shows what the server now hides.
       if (!feed.isHome) await _store.removeFeed(feed);
       rethrow;
     }
   }
 
-  /// `GetListTimeline` through the `lists` gate (ADR-0030). UNIMPLEMENTED (the
+  /// `GetListTimeline` through the `lists` gate. UNIMPLEMENTED (the
   /// server does not have it yet) is read inside the gate callback and turned
   /// into "not available yet" after the gate returns, so it neither trips the
   /// gate shared with `ListService` / `SetHomeTabs` nor reaches the crash
@@ -418,7 +417,7 @@ class TimelineRepository {
     );
   }
 
-  /// `GetCommunityTimeline` through the `communities` gate (ADR-0031), the
+  /// `GetCommunityTimeline` through the `communities` gate, the
   /// twin of [_fetchList]: UNIMPLEMENTED is "not available yet", not reported
   /// and not tripping the gate. Every answer's `community` header goes to
   /// `onCommunitySeen`.

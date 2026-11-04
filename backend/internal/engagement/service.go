@@ -60,41 +60,41 @@ type Deps struct {
 	NewAccountPostsPerDay int64
 	NewAccountWindow      time.Duration
 
-	// BookmarkRepo is the storage of AddBookmark and RemoveBookmark (ADR-0023); nil answers them with an internal error.
+	// BookmarkRepo is the storage of AddBookmark and RemoveBookmark; nil answers them with an internal error.
 	// BookmarksPerDay and NewAccountBookmarksPerDay are the daily AddBookmark quota (200 / 50), BookmarksMaxPerUser the
 	// per-user cap (1,000); all come from config.Quota.
 	BookmarkRepo              BookmarkRepo
 	BookmarksPerDay           int64
 	NewAccountBookmarksPerDay int64
 	BookmarksMaxPerUser       int
-	// ListBookmarks (ADR-0023 D2, D6): Graph filters blocked and muted authors (one cached snapshot per page), Flags
+	// ListBookmarks: Graph filters blocked and muted authors (one cached snapshot per page), Flags
 	// decides viewer-state hydration (posts.HydrateViewer), CursorKey seals the page tokens (config.CursorHMACKey) and
 	// ReadOnly (DEGRADED_MODE=readonly) skips the lazy prune. Without Graph or CursorKey the list answers an internal
 	// error; Flags nil hydrates nothing.
 	Graph graph.Reader
-	// Audience decides the protected-account rows of both lists (ADR-0025 D4): apiserver passes
-	// posts.AudienceOf(postsSvc). Nil drops no row for a protected author (the pre-ADR-0025 state).
+	// Audience decides the protected-account rows of both lists: apiserver passes
+	// posts.AudienceOf(postsSvc). Nil drops no row for a protected author (the earlier behaviour).
 	Audience  RowAudience
 	Flags     posts.FlagChecker
 	CursorKey []byte
 	ReadOnly  bool
 
 	// CacheTTL and CacheEntries size the userLikes cache (config.CacheTTL; 0 entries = default).
-	// VotePoll (ADR-0029 D6): PollRepo is its storage (FirestoreRepo), PollVoteTTLAfterClose the vote doc TTL beyond closesAt
+	// VotePoll: PollRepo is its storage (FirestoreRepo), PollVoteTTLAfterClose the vote doc TTL beyond closesAt
 	// (POLL_VOTE_TTL_AFTER_CLOSE), PollViewerVotesKept the lazy trim size of userLikes.pollVotes (POLL_VIEWER_VOTES_KEPT, 0 = never
 	// trim). PollVoteCap is the interceptor's poll_votes_daily counter and NewAccountPollVotesPerDay the lower limit it is compared
 	// with for an account inside NewAccountWindow (POLL_VOTES_PER_DAY_NEW_ACCOUNT, 0 or a nil cap = not enforced here).
 	PollRepo              PollRepo
 	PollVoteTTLAfterClose time.Duration
 	PollViewerVotesKept   int
-	// PollVoteChangesMax is POLL_VOTE_CHANGES_MAX: the most vote changes one voter may make in one poll (ADR-0029 Amendment 1 A2.4). 0 = votes final.
+	// PollVoteChangesMax is POLL_VOTE_CHANGES_MAX: the most vote changes one voter may make in one poll. 0 = votes final.
 	PollVoteChangesMax        int
 	PollVoteCap               DailySpent
 	NewAccountPollVotesPerDay int64
 
 	CacheTTL     time.Duration
 	CacheEntries int
-	// AllowAnonymous is config.AuthEmulator only (ADR-0010 D5 A10).
+	// AllowAnonymous is config.AuthEmulator only.
 	AllowAnonymous bool
 	// Now is overridable for tests; nil means time.Now.
 	Now func() time.Time
@@ -151,7 +151,7 @@ func (m *Module) UndoRepost(ctx context.Context, uid, key, postID string) (Resul
 	return m.s.undoRepost(ctx, uid, key, postID)
 }
 
-// Viewer implements posts.ViewerFlags: one userLikes read per request, cached (ADR-0018 D5). A failed read
+// Viewer implements posts.ViewerFlags: one userLikes read per request, cached. A failed read
 // degrades to the zero ViewerSet (logged), never to a failed GetPost or timeline.
 func (m *Module) Viewer(ctx context.Context, uid string) posts.ViewerSet {
 	st, err := m.s.state(ctx, uid)
@@ -339,7 +339,7 @@ func noteRejected(ctx context.Context, err error) {
 	logger.SetRequestField(ctx, fieldOutcome, "error")
 }
 
-// like implements Service.Like (ADR-0018 D3).
+// like implements Service.Like.
 func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, err error) {
 	logger.SetRequestField(ctx, fieldOp, "like")
 	defer func() {
@@ -549,7 +549,7 @@ func (s *service) unlike(ctx context.Context, uid, key, postID string) (_ Result
 	return s.result(ctx, uid, target, delta, 0), nil
 }
 
-// repost implements Service.Repost (ADR-0018 D3, D5).
+// repost implements Service.Repost.
 func (s *service) repost(ctx context.Context, uid, key, postID string) (_ Result, err error) {
 	logger.SetRequestField(ctx, fieldOp, "repost")
 	defer func() {
@@ -567,7 +567,7 @@ func (s *service) repost(ctx context.Context, uid, key, postID string) (_ Result
 	if err != nil {
 		return Result{}, err
 	}
-	// ADR-0025 D5: a protected author's post is reposted only by that author; any other caller who can see it (an
+	// A protected author's post is reposted only by that author; any other caller who can see it (an
 	// approved follower) gets PROTECTED_ACCOUNT, 0 writes. Undo (UndoRepost) never reaches this.
 	if err := s.d.Posts.RefuseShare(ctx, uid, target); err != nil {
 		return Result{}, err

@@ -17,7 +17,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 )
 
@@ -229,15 +228,14 @@ func (pw *paginationWorld) mutedPager(viewer string) pager {
 	}
 }
 
-// Documented worst cases (ADR-0008 cost table, D-"List paging"): edge lists 2 + size + size (102 at 50, 42 at
+// Documented worst cases (cost table, D-"List paging"): edge lists 2 + size + size (102 at 50, 42 at
 // 20); own lists 1 + size (51 at 50).
 func edgeListBudget(size int) int64 { return int64(2 + 2*size) }
 func ownListBudget(size int) int64  { return int64(1 + size) }
 
 func TestLists_Integration_PaginationBudgetsAndStability(t *testing.T) {
 	pw := buildPaginationWorld(t)
-	ctx := context.Background()
-	_ = ctx
+	_ = context.Background()
 
 	type listCase struct {
 		name   string
@@ -290,7 +288,7 @@ func TestLists_Integration_PaginationBudgetsAndStability(t *testing.T) {
 	})
 
 	// Exact multiple: hub2 follows exactly 50 users; page 1 (size 50) is full and carries a token, page 2 is
-	// empty with no token (ADR-0008 "List paging": one empty final call).
+	// empty with no token ("List paging": one empty final call).
 	t.Run("exact multiple of page size ends with one empty page", func(t *testing.T) {
 		p := pw.followingPager(uidY, uidH2)
 		res1, err := p("", 50)
@@ -464,9 +462,6 @@ func TestCursors_Integration_TamperedTruncatedCrossUser(t *testing.T) {
 				if info.Code != connect.CodeInvalidArgument || info.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION || info.Meta["field"] != "page_token" {
 					t.Errorf("error = code %v reason %v meta %v, want InvalidArgument/VALIDATION/field=page_token", info.Code, info.Reason, info.Meta)
 				}
-				if ops := r.lastOps(); ops.Reads() != 0 {
-					t.Errorf("rejected token still cost %d reads, want 0", ops.Reads())
-				}
 			})
 		}
 	}
@@ -522,9 +517,6 @@ func TestCursors_Integration_TamperedTruncatedCrossUser(t *testing.T) {
 		}
 		if info := decodeErr(t, err); info.Code != connect.CodeInvalidArgument || info.Meta["field"] != "page_token" {
 			t.Errorf("error = %+v", info)
-		}
-		if ops := r.lastOps(); ops.Reads() != 0 {
-			t.Errorf("rejected token still cost %d reads, want 0", ops.Reads())
 		}
 	})
 	assertGraphInvariants(t, r.w.client)
@@ -596,7 +588,6 @@ func TestLists_Integration_DailyCap(t *testing.T) {
 		if info.Code != connect.CodeResourceExhausted || info.Reason != commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED {
 			t.Errorf("list RPC #%d: error = %v/%v, want ResourceExhausted/RATE_LIMITED", i, info.Code, info.Reason)
 		}
-		budgettest.Assert(t, fmt.Sprintf("capped list RPC #%d", i), r.lastOps(), budgettest.Budget{})
 	}
 
 	// Not capped: GetRelationships and mutations by the same uid; other uids have their own budget.

@@ -4,9 +4,9 @@
 // 	protoc        (unknown)
 // source: dzeroth/communities/v1/communities.proto
 
-// Communities (ADR-0031, W5 Part B): a public place where people who need not follow each other post about one
+// Communities (W5 Part B): a public place where people who need not follow each other post about one
 // interest, under rules that the community's own owner and moderators enforce inside the community view only. The
-// platform keeps every global lever (ADR-0016: takedown, suspension, reports). Owner module: backend/internal/communities.
+// platform keeps every global lever (takedown, suspension, reports). Owner module: backend/internal/communities.
 // Collections owned: communities/{cid} (name, description, rules[], ownerId, moderatorIds[], memberCount, status,
 // visibility, recentRemovals[], removalsTruncatedAt, modlog[], modlogSeq, createdAt, updatedAt),
 // communities/{cid}/communityMembers/{uid} (uid, state JOINED | BANNED, joinedAt or bannedAt) and
@@ -26,7 +26,7 @@
 // Community posts are ordinary public posts: they also show on the author's profile and in followers' Home (F7). A
 // protected account may join and read a community but not post into one (CreatePost: PROTECTED_ACCOUNT).
 //
-// Status (ADR-0031 D2, D14, F12):
+// Status:
 // - ACTIVE.
 // - ARCHIVED: read-only and out of the directory, but readable by everyone. A community is archived when its owner
 //   deletes the account and no ACTIVE moderator can take over (owner_id is cleared), or by `opsctl community archive`
@@ -37,12 +37,12 @@
 //   GetCommunity and ListMyCommunities, which show a SUSPENDED community to its owner (status SUSPENDED), so the owner
 //   learns why it is gone. The same NOT_FOUND bytes answer a missing community.
 //
-// Roles (ADR-0031 D4). viewer_role and CommunityMember.role are computed by the server; the client never infers a role.
+// Roles. viewer_role and CommunityMember.role are computed by the server; the client never infers a role.
 // OWNER and MODERATOR come from the community doc, MEMBER and BANNED from the member doc.
 // - Everyone (members, banned users and outsiders): read the community, its feed, its members and its About.
 // - Members: post (root posts and quotes) and reply in its conversations.
 // - Owner and moderators: hide and restore posts in this community's view, and replies in its conversations
-//   (HideCommunityPost, RestoreCommunityPost; ADR-0031 Amendment 1); ban and unban plain members and non-members
+//   (HideCommunityPost, RestoreCommunityPost); ban and unban plain members and non-members
 //   (SetMemberRole); read the BANNED member page and the moderation log. A moderator never acts on the owner or on
 //   another moderator: not on their membership and not on their posts or replies (F16).
 // - Owner only: appoint and remove moderators (at most COMMUNITY_MAX_MODERATORS, 10), edit the name, description and
@@ -52,7 +52,7 @@
 //   platform (opsctl) levers. A hide never takes a post down: the post stays on the author's profile, in Home and in
 //   search, with its thread and counters. A ban never hides earlier posts.
 //
-// Blocks (ADR-0031 D7, F14; NOT_FOUND bytes as ADR-0008 D9):
+// Blocks (NOT_FOUND bytes as in the graph module's block rules):
 // - A block never refuses Join, posting into a community, a report of it, or a moderation action. Refusing would be a
 //   block oracle, and moderators must reach raiders.
 // - GetCommunity shows every role holder to every viewer, whatever the blocks.
@@ -63,13 +63,13 @@
 //   muted member is shown; the OWNER and MODERATORs see every member either way, so they can ban.
 // - Replies keep the existing reply rules (a block either way => NOT_FOUND) before the members-only check.
 //
-// Flag FEATURE_COMMUNITIES (wire name "communities", default off; ADR-0031 D10): every RPC here needs it on for the
+// Flag FEATURE_COMMUNITIES (wire name "communities", default off): every RPC here needs it on for the
 // caller, else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", 0 reads beyond the
 // account-status interceptor. Clients learn it from IdentityService.GetMe enabled_features. Creation (F1) is not a
 // flag: CreateCommunity also needs the caller in the COMMUNITY_CREATORS config (at most 10 uids); clients learn it
 // from ListMyCommunitiesResponse.can_create.
 //
-// Idempotency (rule 4, ADR-0031 D8): all seven mutations (CreateCommunity, UpdateCommunity, JoinCommunity,
+// Idempotency (rule 4): all seven mutations (CreateCommunity, UpdateCommunity, JoinCommunity,
 // LeaveCommunity, HideCommunityPost, RestoreCommunityPost, SetMemberRole) take idempotency_key (16-64 characters of
 // [A-Za-z0-9_-], else VALIDATION "idempotency_key", 0 reads) and store the standard TTL'd
 // idempotency/{sha256(uid|rpc|key)} document (24 h) in the same transaction as their effect. A retry with the same key
@@ -78,10 +78,10 @@
 // IDEMPOTENCY_KEY_REUSED. A mutation that changes nothing (Join by a member, Leave by a non-member, a repeated hide or
 // ban) still stores the idempotency document (1 write), so a late retry can never undo a newer change.
 //
-// Text rules (ADR-0031 D2), after NFC and trim:
+// Text rules, after NFC and trim:
 // - name: 1-30 code points, single line (no control or bidi formatting characters, at least one visible character;
-//   the list-name rules, ADR-0030 L-2);
-// - description: 0-160 code points, the bio rules (ADR-0010 D9);
+//   the list-name rules);
+// - description: 0-160 code points, the bio rules;
 // - rules: at most COMMUNITY_MAX_RULES (10); each title 1-60 code points, single line; each text 0-300 code points, the
 //   bio rules.
 // Otherwise VALIDATION "name" / "description" / "rules", 0 reads beyond the interceptor.
@@ -94,19 +94,19 @@
 //   of their own RPCs: a post or reply that is missing, not in this community, or removed by the platform (Hide and
 //   Restore) => "post not found" (GetPost's), and a SetMemberRole target that is missing or not ACTIVE => "user not
 //   found" (GetProfile's).
-// - PERMISSION_DENIED + FORBIDDEN (ADR-0031 D4), metadata["reason"]:
+// - PERMISSION_DENIED + FORBIDDEN, metadata["reason"]:
 //   - "banned": a BANNED user joins or posts;
 //   - "not_member": a non-member or BANNED user posts or replies;
 //   - "not_moderator": a member, a banned user or an outsider hides, restores, bans, unbans, asks for the BANNED member
 //     page or reads the moderation log;
 //   - "not_owner": anyone but the owner updates the community or appoints or removes a moderator, or a moderator acts
 //     on the owner or on a moderator: a ban, or a hide or restore of a post or reply whose author is the owner or
-//     another moderator now (ADR-0031 Amendment 1, F16);
+//     another moderator now;
 //   - "not_creator": CreateCommunity, and UpdateCommunity while creation is allowlisted, by a caller outside
 //     COMMUNITY_CREATORS (0 reads beyond the interceptor). On UpdateCommunity it is checked before the owner, so it
 //     wins over "not_owner" for every caller outside the list.
 //   Do not retry. Show a fixed message per reason.
-// - FAILED_PRECONDITION + COMMUNITY_STATE (ADR-0031 D4), metadata["reason"]:
+// - FAILED_PRECONDITION + COMMUNITY_STATE, metadata["reason"]:
 //   - "owner": the owner leaves (the owner cannot leave);
 //   - "moderator": the owner bans a moderator (remove the role first);
 //   - "community_archived": a write to an ARCHIVED community (Status above).
@@ -130,12 +130,10 @@
 //     Join, Leave), "community_mod_actions_daily" (COMMUNITY_MOD_ACTIONS_PER_DAY 200 per actor: Hide, Restore,
 //     SetMemberRole) and "community_posts_per_community_daily" (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY 20 per uid and
 //     community, CreatePost);
-//   - the per-uid daily read budget (ADR-0010 D5).
 // - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
 //
-// Firestore budgets below are ADR-0031 "Cost impact" (per RPC). Worst-case reads include the account-status
-// interceptor. Every call is charged to the per-uid daily read budget (2,000 reads/uid/IST day per instance), and no
-// call can exceed config.ReadBudgetMaxCallReads (269); the worst here is 103.
+// Firestore budgets below are per RPC. Worst-case reads include the account-status
+// interceptor. The worst here is 103.
 
 package communitiesv1
 
@@ -157,7 +155,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// The caller's role in a community (ADR-0031 D4). Returned as viewer_role and CommunityMember.role; the client never
+// The caller's role in a community. Returned as viewer_role and CommunityMember.role; the client never
 // infers one. A new value is additive: a client that does not know a value treats it as NONE.
 type CommunityRole int32
 
@@ -325,7 +323,7 @@ func (CommunityVisibility) EnumDescriptor() ([]byte, []int) {
 	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{2}
 }
 
-// Which rows ListCommunityMembers returns. Named after the member doc's state, not a role (ADR-0031 D2).
+// Which rows ListCommunityMembers returns. Named after the member doc's state, not a role.
 type CommunityMemberFilter int32
 
 const (
@@ -378,7 +376,7 @@ func (CommunityMemberFilter) EnumDescriptor() ([]byte, []int) {
 	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{3}
 }
 
-// What SetMemberRole does to its target (ADR-0031 D4).
+// What SetMemberRole does to its target.
 type MemberRoleAction int32
 
 const (
@@ -438,7 +436,7 @@ func (MemberRoleAction) EnumDescriptor() ([]byte, []int) {
 	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{4}
 }
 
-// One moderation-log action (ADR-0031 D2). A new value is additive: a client that does not know one shows a generic
+// One moderation-log action. A new value is additive: a client that does not know one shows a generic
 // "Moderation action".
 type ModerationLogAction int32
 
@@ -448,7 +446,7 @@ const (
 	ModerationLogAction_MODERATION_LOG_ACTION_HIDE ModerationLogAction = 1
 	// A hidden post or reply was restored (post_id set). With the platform as actor (ModerationLogEntry.actor) and
 	// post_id "": one bulk restore by `opsctl community restore-hidden`, one entry per run however many posts it
-	// restored (ADR-0031 Amendment 1, D14a).
+	// restored.
 	ModerationLogAction_MODERATION_LOG_ACTION_RESTORE ModerationLogAction = 2
 	// target was banned.
 	ModerationLogAction_MODERATION_LOG_ACTION_BAN ModerationLogAction = 3
@@ -789,7 +787,7 @@ func (x *CommunityMember) GetRole() CommunityRole {
 	return CommunityRole_COMMUNITY_ROLE_UNSPECIFIED
 }
 
-// One moderation-log entry (ADR-0031 D2). Never names a post's author.
+// One moderation-log entry. Never names a post's author.
 type ModerationLogEntry struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Increases by one per entry in this community; the page cursor carries it.
@@ -798,7 +796,7 @@ type ModerationLogEntry struct {
 	At     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=at,proto3" json:"at,omitempty"`
 	Action ModerationLogAction    `protobuf:"varint,3,opt,name=action,proto3,enum=dzeroth.communities.v1.ModerationLogAction" json:"action,omitempty"`
 	// Who acted: a live row (identity.Directory, up to 60 s stale; is_private unset). Unset when actor_deleted. Unset
-	// with actor_deleted false: the platform acted (opsctl, ADR-0031 Amendment 1 D14a); render it as the platform,
+	// with actor_deleted false: the platform acted (opsctl); render it as the platform,
 	// never as a person.
 	Actor *v11.AuthorSnapshot `protobuf:"bytes,4,opt,name=actor,proto3" json:"actor,omitempty"`
 	// True when the actor deleted the account: render "Deleted account".

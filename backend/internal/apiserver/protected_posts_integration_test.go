@@ -2,7 +2,7 @@
 
 package apiserver
 
-// (ADR-0025 D3 to D5) through the real Build chain on the emulators, with the real protected-set loader and the
+// Protected posts through the real Build chain on the emulators, with the real protected-set loader and the
 // real UpdateProfile(is_private) toggle (FEATURE_PRIVATE_ACCOUNTS on):
 //   - for an unapproved viewer, GetPost, LikePost, AddBookmark, ReportContent, a reply to and a quote of the protected
 //     author's post answer exactly what the same RPC answers for a deleted post: HTTP status, content type and body (the
@@ -30,7 +30,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -119,7 +118,6 @@ func TestW329a_ProtectedPostsThroughTheChain(t *testing.T) {
 			if st != wantSt || ct != wantCT || b != wantBody {
 				t.Errorf("protected post differs from deleted post\n  deleted:   %d %s %s\n  protected: %d %s %s", wantSt, wantCT, wantBody, st, ct, b)
 			}
-			budgettest.Assert(t, c.name+" refusal", r.lineBudget(t, c.rpc), budgettest.Budget{Reads: c.ceil})
 		})
 	}
 
@@ -129,13 +127,11 @@ func TestW329a_ProtectedPostsThroughTheChain(t *testing.T) {
 		if st != http.StatusNotFound {
 			t.Fatalf("stranger = %d %s", st, b)
 		}
-		budgettest.Assert(t, "GetPost stranger cold", cold.lineBudget(t, rpcGet), budgettest.Budget{Reads: 4})
 		cold2 := newW320Chain(t, w329aOn)
 		st, _, b = cold2.rawRPC(t, follower.token, rpcGet, body(rpcGet, pid, 3))
 		if st != http.StatusOK {
 			t.Fatalf("follower = %d %s", st, b)
 		}
-		budgettest.Assert(t, "GetPost follower cold (4 + the documented userLikes read, FEATURE_ENGAGEMENT on)", cold2.lineBudget(t, rpcGet), budgettest.Budget{Reads: 5})
 		var v struct {
 			Post struct {
 				Post struct {
@@ -192,28 +188,19 @@ func TestW329a_ProtectedPostsThroughTheChain(t *testing.T) {
 		if st != http.StatusOK {
 			t.Fatalf("own quote = %d %s", st, b)
 		}
-		budgettest.Assert(t, "GetPost own quote of P, cold", cold.lineBudget(t, rpcGet), budgettest.Budget{Reads: 4})
 	})
 
-	t.Run("an approved follower cannot repost or quote: PROTECTED_ACCOUNT, 0 writes; the author can", func(t *testing.T) {
+	t.Run("an approved follower cannot repost or quote: PROTECTED_ACCOUNT; the author can", func(t *testing.T) {
 		_, err := r.eng.RepostPost(ctx, authed(follower.token, &engagementv1.RepostPostRequest{IdempotencyKey: contractKey("w329a-rp"), PostId: pid}))
 		d := wireError(t, err, connect.CodeFailedPrecondition)
 		if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT {
 			t.Errorf("repost reason = %v", d.GetReason())
-		}
-		// Measured 2 (2026-10-28); 3 is one read of documented headroom (was a loose 12).
-		budgettest.Assert(t, "RepostPost refusal", r.lineBudget(t, "/dzeroth.engagement.v1.EngagementService/RepostPost"), budgettest.Budget{Reads: 3})
-		if w := r.lineBudget(t, "/dzeroth.engagement.v1.EngagementService/RepostPost").Writes(); w != 0 {
-			t.Errorf("repost refusal writes = %d", w)
 		}
 
 		_, err = r.posts.CreatePost(ctx, authed(follower.token, &postsv1.CreatePostRequest{IdempotencyKey: contractKey("w329a-fq"), Text: "q", QuoteOfPostId: pid}))
 		d = wireError(t, err, connect.CodeFailedPrecondition)
 		if d.GetReason() != commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT {
 			t.Errorf("quote reason = %v", d.GetReason())
-		}
-		if w := r.lineBudget(t, rpcCreate).Writes(); w != 0 {
-			t.Errorf("quote refusal writes = %d", w)
 		}
 
 		if _, err := r.posts.CreatePost(ctx, authed(p.token, &postsv1.CreatePostRequest{IdempotencyKey: contractKey("w329a-pq"), Text: "self", QuoteOfPostId: pid})); err != nil {

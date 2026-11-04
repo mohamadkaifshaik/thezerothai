@@ -34,7 +34,7 @@ class ConversationsResult {
 }
 
 /// Talks to `MessagingService` and keeps the inbox, requests and the newest
-/// 200 messages per conversation in drift (ADR-0027 D5, D7, D14). It is the
+/// 200 messages per conversation in drift. It is the
 /// only caller of the messaging RPCs.
 ///
 /// - `cached*` render from disk with no network call.
@@ -46,10 +46,9 @@ class ConversationsResult {
 /// - Sends and Accept go through [MessagingFeatureGate.run] (per caller); the
 ///   other four RPCs through [MessagingFeatureGate.runRead] (not globally
 ///   off), so a user dropped from the allowlist can still read and clean up.
-/// - ListConversations and ListMessages share the read [RateLimitHold]
-///   (ADR-0010 D5: one daily read budget per uid); a RATE_LIMITED answer is
-///   recorded there, which also holds [TimerThreadPoller]. Mutations never
-///   use it.
+/// - ListConversations and ListMessages share a read [RateLimitHold]; a
+///   RATE_LIMITED answer is recorded there, which also holds
+///   [TimerThreadPoller]. Mutations never use it.
 /// - Messages carry no sender uid, only `from_self` (D5). Nothing here logs
 ///   or reports message text.
 ///
@@ -102,6 +101,7 @@ class MessagingRepository {
   void clearSession() {
     _gate.endSession();
     _inflight.clear();
+    _hold.clear();
     _tail = Future<void>.value();
   }
 
@@ -109,7 +109,7 @@ class MessagingRepository {
   /// left; null when nothing is held.
   RateLimitedException? rateLimitedFor() => _hold.check();
 
-  /// The shared read hold, for building a [ThreadPoller] that pauses on it
+  /// The read hold, for building a [ThreadPoller] that pauses on it
   /// (`TimerThreadPoller(pull: ..., rateLimitHold: repo.rateLimitHold)`).
   RateLimitHold get rateLimitHold => _hold;
 
@@ -118,8 +118,8 @@ class MessagingRepository {
   /// Whether the cache holds any conversation. Local only.
   Future<bool> hasCachedConversations() => _store.hasConversations();
 
-  /// The one session-start probe of a caller outside the rollout
-  /// (ADR-0027 F6(a)): [MessagingFeatureGate.probe] with the cache check and
+  /// The one session-start probe of a caller outside the rollout:
+  /// [MessagingFeatureGate.probe] with the cache check and
   /// one INBOX refresh. Sends nothing when messaging is enabled or the cache
   /// is empty. Never throws.
   Future<void> probeAccess() => _gate.probe(
@@ -321,7 +321,7 @@ class MessagingRepository {
 
   /// One pull for [ThreadPoller] (`pull: () => repo.pollThread(id)`): the
   /// same refresh, answering whether it brought messages not held before.
-  /// A RATE_LIMITED answer is recorded in the shared hold and rethrown, so
+  /// A RATE_LIMITED answer is recorded in the hold and rethrown, so
   /// the poller stops until the hold clears.
   Future<PollResult> pollThread(String conversationId) async {
     final refresh = await _refreshThreadShared(conversationId);
@@ -558,7 +558,7 @@ class MessagingRepository {
 
   /// The peer's first reply reached a request the caller sent. Only
   /// the recipient's reply can add a peer message, and it accepts the request
-  /// (ADR-0027 D4 step 5), so the cached row becomes an ACCEPTED inbox row now
+  ///So the cached row becomes an ACCEPTED inbox row now
   /// instead of at the next Inbox refresh. Local only, no RPC. A conversation
   /// that is not a cached sent request (REQUEST in INBOX) is left alone, and
   /// the request count is not touched (it counts received requests).
@@ -658,7 +658,7 @@ class MessagingRepository {
     );
   }
 
-  /// A list read: held while the shared RATE_LIMITED hold is set, and a
+  /// A list read: held while the RATE_LIMITED hold is set, and a
   /// RATE_LIMITED answer is recorded in it.
   Future<T> _readCall<T>(Future<T> Function() call) async {
     final held = _hold.check();

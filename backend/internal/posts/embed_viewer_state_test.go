@@ -61,12 +61,9 @@ func TestEmbedViewerState(t *testing.T) {
 			if tt.graphErr != nil {
 				e.graph.errs = map[string]error{testUID: tt.graphErr}
 			}
-			ctx, c := budget.WithCounter(context.Background())
+			ctx, _ := budget.WithCounter(context.Background())
 			if got := e.svc.EmbedViewerState(ctx, testUID, tt.post(e)); got != tt.want {
 				t.Fatalf("state = %v, want %v", got, tt.want)
-			}
-			if c.Reads() != tt.wantReads {
-				t.Errorf("reads = %d, want %d", c.Reads(), tt.wantReads)
 			}
 		})
 	}

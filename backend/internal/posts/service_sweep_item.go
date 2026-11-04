@@ -1,4 +1,4 @@
-// service_sweep_item.go is the per-item rule set of the publish sweep (ADR-0021 "Sweep" steps 3 to 5), cheapest and
+// service_sweep_item.go is the per-item rule set of the publish sweep ("Sweep" steps 3 to 5), cheapest and
 // most decisive check first (review L-4):
 //
 //  1. expiry: now - publishAt > SCHEDULED_MAX_LATENESS -> FAILED EXPIRED (0 reads)
@@ -56,7 +56,7 @@ func (s *service) heldForMedia(it *ScheduledPost, now time.Time) bool {
 func (s *service) sweepItem(ctx context.Context, run runRef, it *ScheduledPost, tally *sweepTally) {
 	// The only trace an unrecoverable crash (a fatal runtime error, an OOM kill) leaves: written before the transaction.
 	// uid_hash is one-way and the scheduled id is itself a SHA-256 prefix. Never the draft text. INFO, not DEBUG: the
-	// process logger drops DEBUG, and the crash-isolation runbook step reads this line.
+	// process logger drops DEBUG, and an operator isolating a crash reads this line.
 	s.sweep.Log.InfoContext(ctx, "scheduled_item_start", append(itemAttrs(it), logger.TraceAttrs(ctx)...)...)
 
 	// 1. Expiry: the catch-up bound. After an outage stale posts are not dumped onto feeds hours late.

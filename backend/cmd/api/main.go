@@ -1,4 +1,4 @@
-// Command api is the dzeroth modular monolith (ADR-0002): one Cloud Run service, one cold start, every
+// Command api is the dzeroth modular monolith: one Cloud Run service, one cold start, every
 // module behind Connect-RPC. main() only wires dependencies — nothing heavy runs before ListenAndServe
 // (cold-start budget: container start < 500ms, cold start incl. first request < 1.5s). The actual mux
 // wiring lives in backend/internal/apiserver.Build so backend/e2e can boot the identical handler (a
@@ -66,7 +66,7 @@ func run(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		Handler:           mux,
 		Protocols:         protocols,
 		ReadHeaderTimeout: 5 * time.Second,
-		// ADR-0010 D5 A5: bound the header size (default 1 MiB) so a huge X-Forwarded-For cannot be pushed
+		// Bound the header size (default 1 MiB) so a huge X-Forwarded-For cannot be pushed
 		// through the IP-keyed structures.
 		MaxHeaderBytes: 64 << 10,
 		// IdleTimeout bounds how long a kept-alive connection with no in-flight request may sit open;

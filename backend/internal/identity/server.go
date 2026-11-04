@@ -24,7 +24,7 @@ import (
 // RequestAccountExport and GetAccountExport.
 const AccountLifecycleFlag = "account_lifecycle"
 
-// FlagChecker is the minimal seam identity's server needs from pkg/platform/flags.Registry (ADR-0002). It is
+// FlagChecker is the minimal seam identity's server needs from pkg/platform/flags.Registry. It is
 // separate from FeatureFlags (api.go, used by the service for GetMe.enabled_features): the handler guards RPCs
 // before the service is called, and each consumer-side interface stays one method wide. *flags.Registry
 // satisfies both.
@@ -68,8 +68,8 @@ func WithFlagChecker(fc FlagChecker) ServerOption {
 // ServerOption configures NewServer.
 type ServerOption func(*Server)
 
-// WithAllowAnonymous lets anonymous sign-ins create a profile. Wire it from config.AuthEmulator only (ADR-0010
-// D5 A10): the e2e helpers mint anonymous users against the Auth emulator.
+// WithAllowAnonymous lets anonymous sign-ins create a profile. Wire it from config.AuthEmulator only:
+// the e2e helpers mint anonymous users against the Auth emulator.
 func WithAllowAnonymous(allow bool) ServerOption {
 	return func(s *Server) { s.allowAnonymous = allow }
 }
@@ -95,7 +95,7 @@ func callerUID(ctx context.Context) (string, error) {
 }
 
 // CreateProfile: worst case Firestore reads 2, writes 3; replay reads 1, writes 0 and no Auth call. One Firebase Auth
-// users.get of the token's own uid, only on a real sign-up (ADR-0011 amendment M2: a deleted or disabled Auth user is
+// users.get of the token's own uid, only on a real sign-up (amendment M2: a deleted or disabled Auth user is
 // refused with PERMISSION_DENIED, an Auth outage with UNAVAILABLE; nothing is written).
 func (s *Server) CreateProfile(ctx context.Context, req *connect.Request[identityv1.CreateProfileRequest]) (*connect.Response[identityv1.CreateProfileResponse], error) {
 	uid, err := callerUID(ctx)
@@ -190,7 +190,7 @@ func (s *Server) ChangeHandle(ctx context.Context, req *connect.Request[identity
 	return connect.NewResponse(&identityv1.ChangeHandleResponse{Profile: toProtoProfile(profile)}), nil
 }
 
-// DeleteAccount, RequestAccountExport and GetAccountExport sit behind FEATURE_ACCOUNT_LIFECYCLE (ADR-0011).
+// DeleteAccount, RequestAccountExport and GetAccountExport sit behind FEATURE_ACCOUNT_LIFECYCLE.
 // Flag off for the caller: FAILED_PRECONDITION + FEATURE_DISABLED before any Firestore access (0 reads). They stay
 // in the charge-only set and account_ops_daily (apiserver/ratelimit_config.go), so a rejected call still counts
 // against the daily cap. The job handlers behind them are never gated (Q9).
@@ -216,7 +216,7 @@ func (s *Server) DeleteAccount(ctx context.Context, req *connect.Request[identit
 		return nil, connect.NewError(connect.CodeUnimplemented, errUnimplementedPhase1)
 	}
 	// Destructive and irreversible: the token's own sign-in must be recent (also on a replay). The uid is the
-	// token's; DeleteAccountRequest has no uid field and must never get one (ADR-0011 IAM control C1).
+	// token's; DeleteAccountRequest has no uid field and must never get one (IAM control C1).
 	if err := authn.RequireRecentSignIn(ctx, s.reauthMaxAge, s.now()); err != nil {
 		return nil, err
 	}

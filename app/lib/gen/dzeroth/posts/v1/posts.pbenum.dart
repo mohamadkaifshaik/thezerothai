@@ -52,7 +52,7 @@ class Visibility extends $pb.ProtobufEnum {
   static const Visibility VISIBILITY_PUBLIC =
       Visibility._(1, _omitEnumNames ? '' : 'VISIBILITY_PUBLIC');
 
-  /// The author is protected (ADR-0025): only the author and approved followers see the post. Computed at read time
+  /// The author is protected: only the author and approved followers see the post. Computed at read time
   /// from the author's current setting (within 60 s); the stored post keeps PUBLIC, so the value follows the account
   /// when it protects or unprotects.
   static const Visibility VISIBILITY_FOLLOWERS =
@@ -72,10 +72,10 @@ class Visibility extends $pb.ProtobufEnum {
   const Visibility._(super.value, super.name);
 }
 
-/// Who may reply in a conversation (ADR-0021 D2). Set on the first post of a conversation (a root post or a quote);
+/// Who may reply in a conversation. Set on the first post of a conversation (a root post or a quote);
 /// replies carry the effective policy inherited from their parent. The conversation root's author may always reply.
 class ReplyPolicy extends $pb.ProtobufEnum {
-  /// Same as EVERYONE. Every post written before ADR-0021 has it.
+  /// Same as EVERYONE. Every post written before reply policies existed has it.
   static const ReplyPolicy REPLY_POLICY_UNSPECIFIED =
       ReplyPolicy._(0, _omitEnumNames ? '' : 'REPLY_POLICY_UNSPECIFIED');
   static const ReplyPolicy REPLY_POLICY_EVERYONE =
@@ -115,7 +115,7 @@ class ReplyPolicy extends $pb.ProtobufEnum {
   const ReplyPolicy._(super.value, super.name);
 }
 
-/// Whether the viewer may reply, as far as the server can tell without extra reads (ADR-0021 D2). Advisory only:
+/// Whether the viewer may reply, as far as the server can tell without extra reads. Advisory only:
 /// CreatePost decides.
 class ReplyPermission extends $pb.ProtobufEnum {
   /// An older server that does not compute it: treat as allowed.
@@ -124,7 +124,7 @@ class ReplyPermission extends $pb.ProtobufEnum {
   static const ReplyPermission REPLY_PERMISSION_ALLOWED =
       ReplyPermission._(1, _omitEnumNames ? '' : 'REPLY_PERMISSION_ALLOWED');
 
-  /// The viewer may not reply. On a post that carries `community` (ADR-0031 D5, A7) it means members only: the
+  /// The viewer may not reply. On a post that carries `community` it means members only: the
   /// conversation belongs to that community and the viewer is not a JOINED member (or is banned); show "Only members of
   /// <community.name> can reply". A community conversation takes no reply_policy, so this is unambiguous, and there is no
   /// separate value: a client that predates communities already hides the reply box for it. On a post without the label
@@ -153,9 +153,9 @@ class ReplyPermission extends $pb.ProtobufEnum {
 }
 
 /// Why the viewer should not see a REPOST or QUOTE's embedded original (issue #152). Decided by the server from the
-/// viewer's OWN block and mute lists (BLOCKED, MUTED) and, since ADR-0025, from whether the viewer may see a protected
+/// viewer's OWN block and mute lists (BLOCKED, MUTED) and, since private accounts, from whether the viewer may see a protected
 /// embedded author (PROTECTED); an author who blocks the viewer is never reported here (GetPost answers NOT_FOUND for
-/// that, ADR-0008).
+/// that).
 class EmbedViewerState extends $pb.ProtobufEnum {
   /// The embed may be shown, or the server did not compute it (older server, or the row has no embed): fall back to
   /// the client's local relationship cache.
@@ -171,11 +171,11 @@ class EmbedViewerState extends $pb.ProtobufEnum {
   static const EmbedViewerState EMBED_VIEWER_STATE_MUTED =
       EmbedViewerState._(2, _omitEnumNames ? '' : 'EMBED_VIEWER_STATE_MUTED');
 
-  /// The embedded author is protected and the viewer is neither that author nor a follower (ADR-0025 D4). The server
+  /// The embedded author is protected and the viewer is neither that author nor a follower. The server
   /// stripped the embed's text and media (and its hashtags and mentions), keeping post_id and the author snapshot;
   /// render a protected-post placeholder. A QUOTE row carries it. A REPOST of such a post is dropped from feeds and
   /// lists, except on the caller's own profile, where the caller's REPOST is kept with this state (and
-  /// reposted_by_viewer = true) so it can be undone (ADR-0025 note L-2); GetPost answers NOT_FOUND for it.
+  /// reposted_by_viewer = true) so it can be undone; GetPost answers NOT_FOUND for it.
   static const EmbedViewerState EMBED_VIEWER_STATE_PROTECTED =
       EmbedViewerState._(
           3, _omitEnumNames ? '' : 'EMBED_VIEWER_STATE_PROTECTED');
@@ -195,7 +195,7 @@ class EmbedViewerState extends $pb.ProtobufEnum {
   const EmbedViewerState._(super.value, super.name);
 }
 
-/// Lifecycle of a scheduled post (ADR-0021 D4).
+/// Lifecycle of a scheduled post.
 class ScheduledPostStatus extends $pb.ProtobufEnum {
   static const ScheduledPostStatus SCHEDULED_POST_STATUS_UNSPECIFIED =
       ScheduledPostStatus._(

@@ -1,4 +1,4 @@
-// media_retire.go is the identity side of the profile_media_retired job (ADR-0024 Amendment 1 A4): when an UpdateProfile
+// media_retire.go is the identity side of the profile_media_retired job: when an UpdateProfile
 // commit replaces or removes the avatar or the banner, the old image's public objects are scheduled for deletion after a
 // grace. identity only says "this image was replaced"; the media module (behind MediaRetirer, the BannerResolver
 // pattern) owns the object names, the switch PROFILE_MEDIA_RETIRE and the job.
@@ -22,7 +22,7 @@ const (
 	ProfileImageBanner ProfileImage = "BANNER"
 )
 
-// MediaRetirer is the consumer-side seam to the media module (ADR-0002; apiserver adapts media.Jobs). RetireProfileImage
+// MediaRetirer is the consumer-side seam to the media module (apiserver adapts media.Jobs). RetireProfileImage
 // hands over an image that an UpdateProfile commit replaced or removed: oldURL and oldThumbURL are the values the profile
 // held (the thumbnail URL may be empty) and changedAt is the commit time. It runs after the commit, costs identity 0
 // extra reads (the old values come from the document the transaction already read), and is best effort: an error means
@@ -60,7 +60,7 @@ type mediaRetire struct {
 	log *slog.Logger
 }
 
-// WithMediaRetirer wires the retire step (ADR-0024 Amendment 1 A4). Nil keeps UpdateProfile publishing nothing, which is
+// WithMediaRetirer wires the retire step. Nil keeps UpdateProfile publishing nothing, which is
 // the pre-A4 behaviour (an image is deleted with the account). log receives the ERROR for a failed hand-over; nil means
 // slog.Default().
 func WithMediaRetirer(r MediaRetirer, log *slog.Logger) Option {

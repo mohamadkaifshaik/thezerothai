@@ -22,7 +22,7 @@ class _MockOnboarding extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
 /// A "Who to follow"
-/// row can sit on the device for up to 48 hours (ADR-0024 Amendment 2), so
+/// row can sit on the device for up to 48 hours, so
 /// its `is_private` badge can be older than the account. The badge is a hint
 /// from the row's own field and nothing else; a Follow from a stale row is
 /// answered by the server (REQUESTED for an account that has since been

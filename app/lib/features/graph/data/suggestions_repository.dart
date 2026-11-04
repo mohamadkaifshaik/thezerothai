@@ -11,19 +11,19 @@ import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'graph_repository.dart';
 
 /// How long one non-empty answer of `ListSuggestedUsers` is reused per
-/// account, in memory and on disk (ADR-0024 D8 and Amendment 2 B1(a): 48 h;
+/// account, in memory and on disk (48 h;
 /// it was 24 h). The other lifetimes are [kSuggestionsEmptyTtl] and
 /// [kSuggestionsLimitBackoff].
 const kSuggestionsTtl = Duration(hours: 48);
 
-/// How long an answer with no rows is reused (ADR-0024 Amendment 2 B2 rule 2).
+/// How long an answer with no rows is reused.
 /// Short on purpose: a new account that opened Home before its third follow
 /// sees friends of friends within this time of following 3 accounts, instead
 /// of looking at no card for [kSuggestionsTtl]. At most 4 calls a day.
 const kSuggestionsEmptyTtl = Duration(hours: 6);
 
 /// How long the RPC is left alone after a limit answer (RESOURCE_EXHAUSTED: a
-/// rate limit, a quota or a limit reached; ADR-0024 Amendment 2 B2 rule 3). It
+/// rate limit, a quota or a limit reached). It
 /// is today's 24 h, kept apart from [kSuggestionsTtl] so the back-off still
 /// reaches past the IST-day reset of the 50/day cap.
 const kSuggestionsLimitBackoff = Duration(hours: 24);
@@ -37,8 +37,8 @@ const kSuggestionsMax = 5;
 /// a screen that is opened again and again cannot become a retry loop.
 const kSuggestionsFailureBackoff = Duration(minutes: 10);
 
-/// The "Who to follow" list of the signed-in account (ADR-0024 D8 and
-/// Amendment 2): one `ListSuggestedUsers` call per [kSuggestionsTtl] and uid
+/// The "Who to follow" list of the signed-in account:
+/// one `ListSuggestedUsers` call per [kSuggestionsTtl] and uid
 /// (less when the answer is empty or a limit, see below), shared by every
 /// surface that shows it (the Home card, the desktop right column and, later,
 /// Explore). A server-side change of how suggestions are produced touches this
@@ -175,8 +175,7 @@ class SuggestionsRepository {
   /// A follow of [userId] from the card went through (the server confirmed it).
   /// Hides the row like [hide] and returns whether the list should be asked
   /// for again: true when that row was the last visible one of a non-empty
-  /// answer and [uid] has not been refilled yet this session (ADR-0024
-  /// Amendment 2 B2 rule 4).
+  /// answer and [uid] has not been refilled yet this session.
   ///
   /// On true the entry is already gone, from memory at once and from disk
   /// behind a delete that [suggestionsFor] waits for, so the next call goes to
@@ -300,7 +299,7 @@ class SuggestionsRepository {
       for (final item in response.users) {
         // Seeds the relationship cache for accounts it knows nothing about, so
         // a profile opened from a row needs no GetRelationships call
-        // (ADR-0008 D4). Never overwrites what the client already knows: the
+        //Never overwrites what the client already knows: the
         // server's answer can be up to an hour stale (its per-viewer cache),
         // and a follow or block made here must survive it.
         if (_graph.cached(item.user.userId) == null) {
@@ -343,9 +342,6 @@ class SuggestionsRepository {
     switch (mapped) {
       case FeatureDisabledException():
         _unavailable = true;
-      case RateLimitedException(isInflightHold: true):
-        // Transient, and already retried once by the API client.
-        _retryNotBefore = _now().add(kSuggestionsFailureBackoff);
       case RateLimitedException() ||
           QuotaExceededException() ||
           LimitReachedException():
@@ -434,7 +430,7 @@ class SuggestionsRepository {
   }
 }
 
-/// How long an entry is reused (ADR-0024 Amendment 2 B2). The [name] is what
+/// How long an entry is reused. The [name] is what
 /// the disk entry stores, so a later change of a constant applies to entries
 /// already stored.
 enum _Life {

@@ -16,8 +16,8 @@ import 'engagement_error_messages.dart';
 import 'widgets/history_post_list.dart';
 
 /// Empty list: a heading and one line of guidance (our own wording). It says
-/// how many likes are kept (the server keeps the 1,000 most recent, ADR-0024
-/// D6) and that a like made on another device can take a minute to appear
+/// how many likes are kept (the server keeps the 1,000 most recent)
+/// and that a like made on another device can take a minute to appear
 /// (the server caches the list for 60 s).
 const kLikesEmptyTitle = 'No likes yet';
 const kLikesEmptyBody =
@@ -33,8 +33,8 @@ const kLikesEndNote =
 const kLikesUnavailableTitle = "Likes aren't available right now";
 const kLikesUnavailableBody = 'Please check back later.';
 
-/// The Likes tab of the History screen (`/bookmarks`, ADR-0024
-/// D6): the caller's most recent likes as live post cards, newest like first.
+/// The Likes tab of the History screen (`/bookmarks`):
+/// the caller's most recent likes as live post cards, newest like first.
 ///
 /// - Created the first time the tab is selected (not with the screen), and
 ///   asks the server for page 1 then: 1 `ListLikedPosts` per open, plus one

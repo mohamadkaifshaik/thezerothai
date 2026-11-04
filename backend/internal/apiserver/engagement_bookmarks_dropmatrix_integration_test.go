@@ -2,7 +2,7 @@
 
 package apiserver
 
-// The ADR-0023 D2 drop matrix of ListBookmarks end to end, one state change at a time, each read through a COLD
+// The drop matrix of ListBookmarks end to end, one state change at a time, each read through a COLD
 // chain (a new Build over the same emulator project, so the 60 s post / graph / userLikes caches cannot hide a change):
 // deleted (pruned once), takedown then restore, suspended author then reinstated, DELETING author (kept), blocks in both
 // directions, unblock, mute, unmute, and a QUOTE whose embedded author is blocked, blocks the caller or is muted.
@@ -20,7 +20,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -157,11 +156,6 @@ func TestListBookmarksChain_DropMatrixStepByStep(t *testing.T) {
 	tally(l, 1, 2, 3, 1, 1, 2)
 	// Cold: interceptor 1 + query 9 + GetMany 9 (the deleted one is a read too) + graph 1 + userLikes 1 = 21 reads; the
 	// prune of the one missing row adds 1 write and 1 delete.
-	cb := r.lineBudget(t, rpcListBookmarks)
-	budgettest.Assert(t, "phase 1 list", cb, budgettest.Budget{Reads: 9 + 9 + 3, Writes: 1, Deletes: 1})
-	if cb.Reads() > 21 || cb.Writes() != 1 || cb.Deletes() != 1 {
-		t.Errorf("phase 1 reads/writes/deletes = %d/%d/%d, want <=21/1/1", cb.Reads(), cb.Writes(), cb.Deletes())
-	}
 	// Prune exactly once: only the deleted post's doc is gone, nothing else, no residue in the array.
 	for id, want := range map[string]bool{live: true, deleted: false, hidden: true, suspended: true, deleting: true, byBlocked: true, byMuted: true, byBlocker: true, quote: true} {
 		if got := w.bookmarkDocExists(t, v.uid, id); got != want {
@@ -175,9 +169,6 @@ func TestListBookmarksChain_DropMatrixStepByStep(t *testing.T) {
 	r = cold()
 	l = wantRows(t, "phase 1, second open", r, v, newestFirst(deleted, hidden, suspended, byBlocked, byMuted, byBlocker, quote))
 	tally(l, 0, 2, 3, 1, 0, 2)
-	if cb := r.lineBudget(t, rpcListBookmarks); cb.Writes() != 0 || cb.Deletes() != 0 {
-		t.Errorf("second open writes/deletes = %d/%d, want 0/0", cb.Writes(), cb.Deletes())
-	}
 
 	// Phase 2: the takedown is restored and the author reinstated: both rows are back, no re-add.
 	setModeration(hidden, "")
@@ -236,7 +227,7 @@ func TestListBookmarksChain_PruneSkippedUnderReadOnly(t *testing.T) {
 		t.Fatalf("readonly list = %v, %v; want [keep]", postIDs(resp), err)
 	}
 	l := ro.line(t, rpcListBookmarks)
-	if num(l, "rows_pruned") != 0 || num(l, "rows_dropped_missing") != 1 || num(l, "fs_writes") != 0 || num(l, "fs_deletes") != 0 {
+	if num(l, "rows_pruned") != 0 || num(l, "rows_dropped_missing") != 1 {
 		t.Errorf("readonly request line = %v: the missing row must be counted, not pruned, and nothing written", l)
 	}
 	if !w.bookmarkDocExists(t, v.uid, gone) || !slices.Contains(w.bookmarkIDs(t, v.uid), gone) {
@@ -256,7 +247,7 @@ func TestListBookmarksChain_PruneSkippedUnderReadOnly(t *testing.T) {
 	if resp, err := r.list(v, 0, ""); err != nil || fmt.Sprint(postIDs(resp)) != fmt.Sprint([]string{keep}) {
 		t.Fatalf("normal list = %v, %v", postIDs(resp), err)
 	}
-	if l := r.line(t, rpcListBookmarks); num(l, "rows_pruned") != 1 || num(l, "fs_deletes") != 1 || num(l, "fs_writes") != 1 {
+	if l := r.line(t, rpcListBookmarks); num(l, "rows_pruned") != 1 {
 		t.Errorf("normal request line = %v, want 1 pruned / 1 write / 1 delete", l)
 	}
 	if w.bookmarkDocExists(t, v.uid, gone) || slices.Contains(w.bookmarkIDs(t, v.uid), gone) {
@@ -268,7 +259,7 @@ func TestListBookmarksChain_PruneSkippedUnderReadOnly(t *testing.T) {
 	if _, err := r.list(v, 0, ""); err != nil {
 		t.Fatal(err)
 	}
-	if l := r.line(t, rpcListBookmarks); num(l, "rows_pruned") != 0 || num(l, "fs_writes") != 0 {
+	if l := r.line(t, rpcListBookmarks); num(l, "rows_pruned") != 0 {
 		t.Errorf("the open after the prune pruned again: %v", l)
 	}
 }

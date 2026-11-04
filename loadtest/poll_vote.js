@@ -1,4 +1,4 @@
-// poll_vote: W6 emulator load smoke (ADR-0029 "Cost impact"). One file, one
+// poll_vote: W6 emulator load smoke. One file, one
 // timeline of phases, all against ONE local API process (one "instance") and the Firebase emulators. Never point it at dzeroth-dev or
 // dzeroth-prod: it creates about 3,500 users and raises every vote, post and read-budget cap.
 //
@@ -29,7 +29,7 @@
 // API requirements (a local API against the emulators): ENV=local FEATURE_POSTS=on FEATURE_ENGAGEMENT=on
 // FEATURE_POLLS=on, POLL_MIN_DURATION=1m, and these raised (they are per instance and per user, and every virtual user shares
 // 127.0.0.1): RATE_LIMIT_PER_IP_PER_MIN, RATE_LIMIT_PRE_AUTH_IP_PER_MIN, RATE_LIMIT_PER_USER_PER_MIN, RATE_LIMIT_POLL_VOTE_PER_MIN,
-// POLL_VOTES_PER_DAY, POLL_VOTES_PER_DAY_NEW_ACCOUNT, READ_BUDGET_PER_UID_PER_DAY, RATE_LIMIT_POST_CREATE_PER_MIN,
+// POLL_VOTES_PER_DAY, POLL_VOTES_PER_DAY_NEW_ACCOUNT, RATE_LIMIT_POST_CREATE_PER_MIN,
 // QUOTA_POSTS_PER_DAY, QUOTA_NEW_ACCOUNT_POSTS_PER_DAY.
 // section 16.
 //

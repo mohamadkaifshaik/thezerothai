@@ -1,7 +1,7 @@
 import '../../../gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 
 /// A person's role in one community, exactly as the server sent it
-/// (`Community.viewer_role`, `CommunityMember.role`; ADR-0031 D4). The client
+/// (`Community.viewer_role`, `CommunityMember.role`). The client
 /// never derives a role from anything else (not from `owner_id`, a member
 /// list or its own actions): after a Join or Leave it takes the role from the
 /// answer. A value this build does not know reads as [none] (additive proto).

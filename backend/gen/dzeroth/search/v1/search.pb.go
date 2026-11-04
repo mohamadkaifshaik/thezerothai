@@ -4,15 +4,15 @@
 // 	protoc        (unknown)
 // source: dzeroth/search/v1/search.proto
 
-// Search, hashtag results and trends at Stage 0 (ADR-0028, W4). Owner module: backend/internal/search.
+// Search, hashtag results and trends at Stage 0. Owner module: backend/internal/search.
 // Collection owned: trends (trends/current: tags and counts; trends/hidden: the operator hide list; no uid). People come from identity
 // (Directory.SearchHandles over users.handleLower) and posts from posts.Reader.ByHashtag; search never queries another
 // module's collection directly. There is no search engine at Stage 0: people are found by handle prefix and posts by
-// one exact hashtag. Words in post text and display names are not searchable (ADR-0028 F2, F4; the Stage ladder names
-// the engine and its trigger). Every RPC is read-only (NO_SIDE_EFFECTS), so none takes an idempotency_key and all keep
+// one exact hashtag. Words in post text and display names are not searchable (the Stage ladder names the engine and its trigger).
+// Every RPC is read-only (NO_SIDE_EFFECTS), so none takes an idempotency_key and all keep
 // answering under DEGRADED_MODE=readonly. Signed-in callers only (App Check plus a Firebase ID token, like every RPC).
 //
-// Query grammar (ADR-0028 D1; the shared cases are testdata/search_query_grammar.json), applied before any read:
+// Query grammar (the shared cases are testdata/search_query_grammar.json), applied before any read:
 // - Normalise: NFC, trim, lower-case. Then remove at most one leading sigil, '@' or '#'.
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] = "query", 0 reads, when nothing is left (empty, "@" or "#"
 //   alone), when more than 50 code points are left (the sigil does NOT count: '#' plus a 50-code-point tag is valid),
@@ -20,12 +20,12 @@
 // - People: a '#' sigil => unsupported. Otherwise the rest must match [a-z0-9_]{1,15}: 1 character => VALIDATION
 //   "query" (too short; "@a" and "a" alike); 2 to 15 => a handle prefix ("@ab" and "ab" are valid; full handles are
 //   3 to 15). Anything else => an empty answer with unsupported_query = true and 0 Firestore reads.
-// - Posts: an '@' sigil => unsupported. Otherwise the rest must be exactly one hashtag body as posts define it
-//   (ADR-0010 D8), 1 to 50 code points: "#a" and the plain word "a" both search the tag "a", so a one-character plain
+// - Posts: an '@' sigil => unsupported. Otherwise the rest must be exactly one hashtag body as posts define it,
+// 1 to 50 code points: "#a" and the plain word "a" both search the tag "a", so a one-character plain
 //   word is valid for posts while it is too short for people. Anything else (several words, "#123" with no letter,
 //   "#go!") => an empty answer with unsupported_query = true and 0 Firestore reads; show "Search posts by #hashtag".
 //
-// Flags (ADR-0028 D8; clients learn them from IdentityService.GetMe enabled_features):
+// Flags (clients learn them from IdentityService.GetMe enabled_features):
 // - FEATURE_SEARCH (wire name "search") gates SearchPeople and SearchPosts per caller; FEATURE_TRENDS (wire name
 //   "trends") gates GetTrends per caller. Off => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "search"
 //   or "trends", 0 reads.
@@ -34,13 +34,13 @@
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in query | page_token | page_size | limit | prefix; 0 reads.
 //   A negative page_size or limit is VALIDATION; values above the maximum are clamped.
 // - FAILED_PRECONDITION + FEATURE_DISABLED (above).
-// - RESOURCE_EXHAUSTED + RATE_LIMITED: the per-minute buckets, the shared daily cap metadata["limit"] = "search_daily"
-//   and the per-uid daily read budget (ADR-0010 D5, "read_budget_daily"); honour retry_after.
-// - UNAVAILABLE: SearchPosts only, when the server cannot trust its copy of the protected-accounts set (ADR-0025;
-//   PROTECTED_SET_MAX_STALE), as every list does. Retry later.
+// - RESOURCE_EXHAUSTED + RATE_LIMITED: the per-minute buckets, the shared daily cap metadata["limit"] = "search_daily";
+//   honour retry_after.
+// - UNAVAILABLE: SearchPosts only, when the server cannot trust its copy of the protected-accounts set (PROTECTED_SET_MAX_STALE),
+// as every list does. Retry later.
 //
-// Firestore budgets below are ADR-0028 "Cost impact" (per RPC). Worst-case reads include the account-status
-// interceptor; every call is charged to the per-uid daily read budget.
+// Firestore budgets below are per RPC. Worst-case reads include the account-status
+// interceptor.
 
 package searchv1
 
@@ -62,7 +62,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// The order a SearchPosts call returns (ADR-0028 D3). There is no PEOPLE value: the client's People tab calls
+// The order a SearchPosts call returns. There is no PEOPLE value: the client's People tab calls
 // SearchPeople with the same query. A new tab is an additive value.
 type SearchTab int32
 

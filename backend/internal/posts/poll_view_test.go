@@ -13,7 +13,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// ADR-0029 D3, D4: per-viewer redaction of a poll and the viewer's choice. The clock is passed to ToViewAt, so the
+// Per-viewer redaction of a poll and the viewer's choice. The clock is passed to ToViewAt, so the
 // tests do not depend on the real date.
 
 const (

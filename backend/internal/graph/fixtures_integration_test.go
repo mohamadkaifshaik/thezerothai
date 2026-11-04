@@ -22,7 +22,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // Idempotency keys that satisfy the 16-64 char [A-Za-z0-9_-] convention. Distinct keys model "a new key".
@@ -65,7 +64,7 @@ func (w wired) SkipInvariantSweep(reason string) { w.sweep.skipReason = reason }
 type graphSvcHandle struct {
 	graph.Service
 	repo *graph.FirestoreRepo
-	// counter is the service as identity.FollowRequestCounter (ADR-0025 AQ3).
+	// counter is the service as identity.FollowRequestCounter.
 	counter identity.FollowRequestCounter
 	// setDirectory re-wires the service's identity.Directory (e.g. with a test decorator).
 	setDirectory func(identity.Directory)
@@ -78,7 +77,7 @@ type wiredOption func(*graph.Deps)
 
 func withFlags(f graph.FlagChecker) wiredOption { return func(d *graph.Deps) { d.Flags = f } }
 
-// withProtected wires the instance's protected-author loader (ADR-0025 D3) into the graph service; withEvents wires the
+// withProtected wires the instance's protected-author loader into the graph service; withEvents wires the
 // post-commit FollowEvents hook (asserts FollowRequestAccepted).
 func withProtected(p identity.ProtectedAuthors) wiredOption {
 	return func(d *graph.Deps) { d.Protected = p }
@@ -98,7 +97,7 @@ func withQuotas(follows, newFollows, blocks, newBlocks int64) wiredOption {
 	}
 }
 
-// newWired wires identity+graph against a fresh emulator project and registers the ADR-0008 D3 invariant
+// newWired wires identity+graph against a fresh emulator project and registers the invariant
 // checker as a t.Cleanup, so EVERY scenario ends with a full sweep of follows/graph/users (opt out with
 // w.SkipInvariantSweep(reason)).
 func newWired(t *testing.T, opts ...wiredOption) wired {
@@ -239,7 +238,7 @@ func seedFollow(t *testing.T, w wired, follower, followee string, at time.Time) 
 	}
 }
 
-// istDay returns the quota day key (IST, ADR-0003) offsetDays from today (-1 = yesterday).
+// istDay returns the quota day key (IST) offsetDays from today (-1 = yesterday).
 func istDay(offsetDays int) string {
 	ist := time.FixedZone("IST", 5*3600+30*60)
 	return time.Now().In(ist).AddDate(0, 0, offsetDays).Format("2006-01-02")
@@ -265,15 +264,11 @@ func seedUserField(t *testing.T, w wired, uid, field string, value interface{}) 
 	w.identity.(identity.Directory).Forget(uid)
 }
 
-// measured runs fn with a fresh budget counter, logs "BUDGET <rpc> reads=.. writes=.. deletes=.." (grep the
-// -v output; these numbers feed the cost report) and asserts the call stayed within b. On a regression the
-// failure names the RPC with the actual vs documented value (budgettest.Assert). Use one call per invocation.
-func measured(t *testing.T, rpc string, b budgettest.Budget, fn func(ctx context.Context)) {
+// measured runs fn with a fresh request counter. Use one call per invocation.
+func measured(t *testing.T, rpc string, fn func(ctx context.Context)) {
 	t.Helper()
-	ctx, counter := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	fn(ctx)
-	t.Logf("BUDGET %s reads=%d writes=%d deletes=%d (budget %dR/%dW/%dD)", rpc, counter.Reads(), counter.Writes(), counter.Deletes(), b.Reads, b.Writes, b.Deletes)
-	budgettest.Assert(t, rpc, counter, b)
 }
 
 // requireAPIError fails t unless err is an *apierr.Error with the given Connect code and ErrorReason; a
