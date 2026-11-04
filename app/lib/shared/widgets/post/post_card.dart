@@ -452,6 +452,7 @@ class PostCard extends StatelessWidget {
         PostMedia(
           media: media,
           useFullImage: fullContent,
+          showPageIndicator: PostMedia.hasNoText(text),
           onOpenImage: (index) => context.push(
             AppRouter.postPhotoPath(
               isRepost ? embedded!.postId : _post.postId,

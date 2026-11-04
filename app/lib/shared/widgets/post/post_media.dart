@@ -31,10 +31,20 @@ class PostMedia extends StatelessWidget {
     required this.media,
     this.useFullImage = false,
     this.onOpenImage,
+    this.showPageIndicator = false,
   });
 
   final List<common.MediaRef> media;
   final ValueChanged<int>? onOpenImage;
+
+  /// Dots under the pager with "Image 2 of 4" for screen readers. Callers
+  /// turn it on only for a post with no text, where nothing else tells the
+  /// reader there are more images to swipe to. Ignored for a single image.
+  final bool showPageIndicator;
+
+  /// True when [text] is empty after trimming, so a whitespace-only post is
+  /// treated like an image-only one.
+  static bool hasNoText(String text) => text.trim().isEmpty;
 
   /// Show the full-size `url` (detail view). Lists leave this false.
   final bool useFullImage;
@@ -54,35 +64,128 @@ class PostMedia extends StatelessWidget {
         ? (first.width / first.height).clamp(_minAspect, _maxAspect)
         : _maxAspect;
 
-    return DecoratedBox(
+    Widget tile(int index) => _MediaTile(
+      media: items[index],
+      useFullImage: useFullImage,
+      onOpen: onOpenImage == null ? null : () => onOpenImage!(index),
+    );
+
+    Widget framed(Widget child) => DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(color: colors.outlineVariant),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        child: AspectRatio(
-          aspectRatio: aspect.toDouble(),
-          child: _layout(items),
+        child: AspectRatio(aspectRatio: aspect.toDouble(), child: child),
+      ),
+    );
+
+    if (single) return framed(tile(0));
+    return _MediaPager(
+      count: items.length,
+      showIndicator: showPageIndicator,
+      framed: framed,
+      tile: tile,
+      gap: _gap,
+    );
+  }
+}
+
+/// The swipeable pages plus, optionally, the dots below them. The dots sit
+/// under the viewport rather than over the image so the 16:9 frame and the
+/// ALT chip stay uncovered.
+class _MediaPager extends StatefulWidget {
+  const _MediaPager({
+    required this.count,
+    required this.showIndicator,
+    required this.framed,
+    required this.tile,
+    required this.gap,
+  });
+
+  final int count;
+  final bool showIndicator;
+  final Widget Function(Widget child) framed;
+  final Widget Function(int index) tile;
+  final double gap;
+
+  @override
+  State<_MediaPager> createState() => _MediaPagerState();
+}
+
+class _MediaPagerState extends State<_MediaPager> {
+  int _page = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final pager = widget.framed(
+      PageView.builder(
+        itemCount: widget.count,
+        onPageChanged: widget.showIndicator
+            ? (page) => setState(() => _page = page)
+            : null,
+        itemBuilder: (context, index) => Padding(
+          padding: EdgeInsetsDirectional.only(
+            end: index == widget.count - 1 ? 0 : widget.gap,
+          ),
+          child: widget.tile(index),
         ),
       ),
     );
-  }
-
-  Widget _layout(List<common.MediaRef> items) {
-    Widget tile(int index) => _MediaTile(
-      media: items[index],
-      useFullImage: useFullImage,
-      onOpen: onOpenImage == null ? null : () => onOpenImage!(index),
+    if (!widget.showIndicator) return pager;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        pager,
+        _PageDots(count: widget.count, page: _page),
+      ],
     );
-    if (items.length == 1) return tile(0);
-    return PageView.builder(
-      itemCount: items.length,
-      itemBuilder: (context, index) => Padding(
-        padding: EdgeInsetsDirectional.only(
-          end: index == items.length - 1 ? 0 : _gap,
+  }
+}
+
+/// One semantics node ("Image 2 of 4") announced as it changes; the dots are
+/// decoration for sighted users and stay out of the tree.
+class _PageDots extends StatelessWidget {
+  const _PageDots({required this.count, required this.page});
+
+  final int count;
+  final int page;
+
+  static const _dot = 6.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      label: 'Image ${page + 1} of $count',
+      excludeSemantics: true,
+      child: Padding(
+        padding: const EdgeInsets.only(top: AppSpacing.sm),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (var i = 0; i < count; i++)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.xs / 2,
+                ),
+                child: DecoratedBox(
+                  key: ValueKey(i == page ? 'media-dot-current' : 'media-dot'),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: i == page
+                        ? colors.onSurface
+                        : colors.onSurfaceVariant.withValues(alpha: 0.4),
+                  ),
+                  child: const SizedBox.square(dimension: _dot),
+                ),
+              ),
+          ],
         ),
-        child: tile(index),
       ),
     );
   }
