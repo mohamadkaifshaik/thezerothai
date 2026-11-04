@@ -119,6 +119,10 @@ abstract class SearchRepository {
 
   /// Trending hashtags; [prefix] filters for typeahead.
   Future<TrendsResult> getTrends({int limit = 10, String prefix = ''});
+
+  /// Sign-out or a switch of account: the next account must not inherit the
+  /// previous one's rate-limit hold.
+  void clearSession();
 }
 
 class ConnectSearchRepository implements SearchRepository {
@@ -133,6 +137,9 @@ class ConnectSearchRepository implements SearchRepository {
   final ApiClient _apiClient;
   final RateLimitHold _hold;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
+
+  @override
+  void clearSession() => _hold.clear();
 
   Future<T> _read<T>(Future<T> Function() call) async {
     final held = _hold.check();

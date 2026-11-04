@@ -299,6 +299,8 @@ class _AppWidgetState extends State<AppWidget> {
       ..register('trends', () => _trends?.reset())
       ..register('graph', widget.graphRepository.clearCache)
       ..register('likes', widget.likesRepository.clearSession)
+      ..register('posts', () => widget.postsRepository.clearSession())
+      ..register('search', () => widget.searchRepository?.clearSession())
       ..register('home tabs', () => widget.homeTabsRepository?.clearSession())
       ..register('lists', () => widget.listsRepository?.clearSession())
       ..register('badges', () {

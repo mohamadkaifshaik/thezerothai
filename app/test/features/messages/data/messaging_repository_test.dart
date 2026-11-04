@@ -1059,6 +1059,12 @@ void main() {
       metadata: {'limit': 'search_daily'},
     );
 
+    test('clearSession releases the read hold', () {
+      hold.record(const RateLimitedException('slow down'));
+      repo.clearSession();
+      expect(hold.check(), isNull);
+    });
+
     test(
       'is held in the shared RateLimitHold; reads send no RPC until it clears',
       () async {

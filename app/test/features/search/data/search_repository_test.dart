@@ -132,6 +132,24 @@ void main() {
       expect(transport.calledProcedures, hasLength(1));
     });
 
+    test('clearSession releases the hold for the next account', () async {
+      answer = (_, _) => throw withDetail(
+        connect.Code.resourceExhausted,
+        common.ErrorReason.ERROR_REASON_RATE_LIMITED,
+        metadata: {'limit': 'search_daily'},
+      );
+      await expectLater(
+        repo.searchPeople('ab'),
+        throwsA(isA<SearchRateLimitedException>()),
+      );
+
+      repo.clearSession();
+
+      answer = (_, _) => pb.SearchPeopleResponse();
+      await repo.searchPeople('ab');
+      expect(transport.calledProcedures, hasLength(2));
+    });
+
     test('other errors pass through as AppException', () async {
       answer = (_, _) =>
           throw connect.ConnectException(connect.Code.unavailable, 'down');

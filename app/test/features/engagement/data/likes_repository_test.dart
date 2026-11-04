@@ -279,6 +279,9 @@ void main() {
       await expectLater(repo.fetchPage(), throwsA(isA<RateLimitedException>()));
       expect(server.listCalls, 1);
       expect(shared.check(), isNotNull);
+
+      repo.clearSession();
+      expect(shared.check(), isNull);
     });
 
     test('a named daily cap is held too', () async {

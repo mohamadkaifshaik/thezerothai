@@ -74,6 +74,12 @@ void main() {
   });
   tearDown(() => db.close());
 
+  test('clearSession releases the read hold', () {
+    hold.record(const RateLimitedException('slow down'));
+    repo.clearSession();
+    expect(hold.check(), isNull);
+  });
+
   test('first open sends no token and caches rows with the tokens', () async {
     answers.add(
       listResponse(
