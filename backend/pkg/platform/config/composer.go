@@ -38,8 +38,8 @@ const (
 	mediaVisionUnitsDayNewAccountCeiling = 60
 )
 
-// ComposerConfig holds the poll and GIF limits of the composer extras. The VotePoll bucket and
-// the poll_votes_daily cap live in RateLimitConfig (PollVotePerUserPerMinute, PollVotesPerDay, PollVotesPerDayNewAccount).
+// ComposerConfig holds the poll and GIF limits of the composer extras. The VotePoll
+// bucket lives in RateLimitConfig (PollVotePerUserPerMinute).
 // Every value is validated at startup (rule 11: limits are config, never literals in code).
 type ComposerConfig struct {
 	// PollMaxChoices is the most choices a poll may have, 2..4 (POLL_MAX_CHOICES, default 4). The minimum is always 2.

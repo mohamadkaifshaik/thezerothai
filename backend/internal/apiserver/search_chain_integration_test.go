@@ -530,10 +530,10 @@ func TestSearchChain_PageTokenBinding(t *testing.T) {
 	// "Expired" needs a clock: it is proved below the chain (internal/search TestPageToken_Rejections, a fake clock).
 }
 
-// --- Rate limits and search_daily --------------------------------------------------------------------------
+// --- Rate limits ---
 
 func TestSearchChain_PerMinuteDefaults(t *testing.T) {
-	e := newSearchChain(t, func(c *config.Config) { c.RateLimit.SearchCallsPerDay = 1_000_000 })
+	e := newSearchChain(t, nil)
 	// The shipped defaults: 30 / min for people, 20 / min for posts, counted per caller. The bucket refills 0.5 and 0.33
 	// tokens a second, so a fast loop can win at most one extra token.
 	for _, tc := range []struct {
@@ -566,39 +566,6 @@ func TestSearchChain_PerMinuteDefaults(t *testing.T) {
 				t.Errorf("a second caller is limited by the first one's bucket: %v", err)
 			}
 		})
-	}
-}
-
-func TestSearchChain_SearchDailyIsOneSharedCap(t *testing.T) {
-	e := newSearchChain(t, func(c *config.Config) {
-		c.RateLimit.SearchPeoplePerUserPerMinute = 1_000_000
-		c.RateLimit.SearchPostsPerUserPerMinute = 1_000_000
-		c.RateLimit.SearchCallsPerDay = 4
-	})
-	u, other := e.user(t), e.user(t)
-	post := func(who sUser) error {
-		_, err := e.posts(who, "#"+uniqueTag(), searchv1.SearchTab_SEARCH_TAB_LATEST, 0, "")
-		return err
-	}
-	person := func(who sUser) error { _, err := e.people(who, "ab", 5); return err }
-	// Two of each spend the cap of 4 together.
-	for i, call := range []func(sUser) error{person, post, person, post} {
-		if err := call(u); err != nil {
-			t.Fatalf("call %d inside the cap: %v", i+1, err)
-		}
-	}
-	for _, call := range []func(sUser) error{person, post} {
-		wantReason(t, call(u), connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED, "limit", "search_daily")
-	}
-	if l := e.lastLine(t, searchv1connect.SearchServiceSearchPostsProcedure); l["limit_name"] != "search_daily" {
-		t.Errorf("request line limit_name = %v, want search_daily", l["limit_name"])
-	}
-	// GetTrends is not on the cap; another caller is not either.
-	if _, err := e.trends(u, 0, ""); err != nil {
-		t.Errorf("GetTrends after the cap: %v", err)
-	}
-	if err := person(other); err != nil {
-		t.Errorf("another caller after the first one's cap: %v", err)
 	}
 }
 

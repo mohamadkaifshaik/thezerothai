@@ -50,7 +50,6 @@ func w320Base(c *config.Config) {
 	c.RateLimit.UserTimelinePerMinute = 1_000_000
 	c.RateLimit.LikesListPerUserPerMinute = 1_000_000
 	c.RateLimit.SuggestionsPerUserPerMinute = 1_000_000
-	c.RateLimit.SuggestionsCallsPerDay = 1_000_000
 	c.RateLimit.ProfileRelationshipPerUserPerMinute = 1_000_000
 	// L-4: UpdateProfile's per-uid daily call cap (default 100) must never be what a matrix row measures; its own
 	// test (TestW320_UpdateProfileDailyCapAndNoOpWrites) sets it low.

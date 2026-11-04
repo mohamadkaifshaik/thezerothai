@@ -17,8 +17,8 @@ func TestLoad_CommunitiesDefaults(t *testing.T) {
 	if rl := cfg.RateLimit; rl.CommunitiesWritePerUserPerMinute != 20 || rl.CommunitiesReadPerUserPerMinute != 30 || rl.CommunityTimelinePerUserPerMinute != 12 {
 		t.Errorf("community buckets = %d/%d/%d, want 20/30/12", rl.CommunitiesWritePerUserPerMinute, rl.CommunitiesReadPerUserPerMinute, rl.CommunityTimelinePerUserPerMinute)
 	}
-	if rl := cfg.RateLimit; rl.CommunityMutationsPerDay != 200 || rl.CommunityModActionsPerDay != 200 || rl.CommunityPostsPerCommunityPerDay != 20 {
-		t.Errorf("community daily caps = %d/%d/%d, want 200/200/20", rl.CommunityMutationsPerDay, rl.CommunityModActionsPerDay, rl.CommunityPostsPerCommunityPerDay)
+	if rl := cfg.RateLimit; rl.CommunityModActionsPerDay != 200 || rl.CommunityPostsPerCommunityPerDay != 20 {
+		t.Errorf("community daily caps = %d/%d, want 200/20", rl.CommunityModActionsPerDay, rl.CommunityPostsPerCommunityPerDay)
 	}
 	c := cfg.Communities
 	if c.MaxOwned != 2 || c.MaxJoined != 50 || c.MaxModerators != 10 || c.MaxRules != 10 || c.RecentRemovalsMax != 50 || c.ModlogMax != 100 {
@@ -42,7 +42,7 @@ func TestLoad_CommunitiesOverridesAndValidation(t *testing.T) {
 		clearEnv(t)
 		for k, v := range map[string]string{
 			"RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN": "7", "RATE_LIMIT_COMMUNITIES_READ_PER_MIN": "8", "RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN": "9",
-			"COMMUNITY_MUTATIONS_PER_DAY": "11", "COMMUNITY_MOD_ACTIONS_PER_DAY": "12", "COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY": "13",
+			"COMMUNITY_MOD_ACTIONS_PER_DAY": "12", "COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY": "13",
 			"COMMUNITIES_MAX_OWNED": "3", "COMMUNITIES_MAX_JOINED": "12", "COMMUNITY_MAX_MODERATORS": "4", "COMMUNITY_MAX_RULES": "5",
 			"COMMUNITY_RECENT_REMOVALS_MAX": "21", "COMMUNITY_MODLOG_MAX": "22",
 			"CACHE_COMMUNITIES_ENTRIES": "10", "CACHE_COMMUNITY_FEED_ENTRIES": "11", "CACHE_COMMUNITY_MEMBERS_ENTRIES": "12",
@@ -55,7 +55,7 @@ func TestLoad_CommunitiesOverridesAndValidation(t *testing.T) {
 			t.Fatalf("Load() error = %v", err)
 		}
 		if rl := cfg.RateLimit; rl.CommunitiesWritePerUserPerMinute != 7 || rl.CommunitiesReadPerUserPerMinute != 8 || rl.CommunityTimelinePerUserPerMinute != 9 ||
-			rl.CommunityMutationsPerDay != 11 || rl.CommunityModActionsPerDay != 12 || rl.CommunityPostsPerCommunityPerDay != 13 {
+			rl.CommunityModActionsPerDay != 12 || rl.CommunityPostsPerCommunityPerDay != 13 {
 			t.Errorf("rate limit override = %+v", rl)
 		}
 		c := cfg.Communities
@@ -77,7 +77,7 @@ func TestLoad_CommunitiesOverridesAndValidation(t *testing.T) {
 
 	for _, key := range []string{
 		"RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN", "RATE_LIMIT_COMMUNITIES_READ_PER_MIN", "RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN",
-		"COMMUNITY_MUTATIONS_PER_DAY", "COMMUNITY_MOD_ACTIONS_PER_DAY", "COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY",
+		"COMMUNITY_MOD_ACTIONS_PER_DAY", "COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY",
 		"COMMUNITIES_MAX_OWNED", "COMMUNITIES_MAX_JOINED", "COMMUNITY_MAX_MODERATORS", "COMMUNITY_MAX_RULES",
 		"COMMUNITY_RECENT_REMOVALS_MAX", "COMMUNITY_MODLOG_MAX",
 		"CACHE_COMMUNITIES_ENTRIES", "CACHE_COMMUNITY_FEED_ENTRIES", "CACHE_COMMUNITY_MEMBERS_ENTRIES",

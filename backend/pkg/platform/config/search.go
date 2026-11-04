@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// SearchConfig holds the SEARCH_*-adjacent values of search and trends that are neither a rate limit nor a daily cap
-// The per-minute buckets and the shared daily cap live in RateLimitConfig (SearchPeoplePerUserPerMinute,
-// SearchPostsPerUserPerMinute, SearchCallsPerDay). Every number is > 0: a 0 would disable a cache or lock the feature out,
+// SearchConfig holds the SEARCH_*-adjacent values of search and trends that are not a rate limit
+// The per-minute buckets live in RateLimitConfig (SearchPeoplePerUserPerMinute and
+// SearchPostsPerUserPerMinute). Every number is > 0: a 0 would disable a cache or lock the feature out,
 // so startup fails instead.
 type SearchConfig struct {
 	// PrefixCacheEntries is the size of the per-instance handle-prefix cache keyed by (prefix, limit)

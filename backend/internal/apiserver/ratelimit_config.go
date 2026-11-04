@@ -11,7 +11,6 @@ import (
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
 	messagingv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1/messagingv1connect"
 	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
-	notificationsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1/notificationsv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	searchv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1/searchv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
@@ -33,28 +32,14 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlIP := ratelimit.NewLimiter(cfg.RateLimit.PerIPPerMinute, idleBucketTTL)
 
 	// Follow/Unfollow 30/min, Block/Unblock/Mute/Unmute 20/min, lists 20/min; GetRelationships
-	// uses rlDefault (the 60/min default). A shared DailyCap (not a second limiter) backs the per-uid daily
-	// list cap, logged as limit_name "graph_list_daily".
+	// uses rlDefault (the 60/min default).
 	rlGraphFollow := ratelimit.NewLimiter(cfg.RateLimit.GraphFollowPerMinute, idleBucketTTL)
 	rlGraphBlock := ratelimit.NewLimiter(cfg.RateLimit.GraphBlockPerMinute, idleBucketTTL)
 	rlGraphList := ratelimit.NewLimiter(cfg.RateLimit.GraphListPerMinute, idleBucketTTL)
-	graphListDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.GraphListCallsPerDay)
 	// M2: ONE shared cap across every graph mutation (same DailyCap type, one counter per uid): replays and
 	// no-ops reserve no Firestore quota but still read 1-3 docs. See config.RateLimitConfig.GraphMutationsPerDay
 	// for the default's math. Logged as limit_name "graph_mutation_daily".
 	graphMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.GraphMutationsPerDay)
-	// CheckHandleAvailability call cap, limit_name "check_handle_daily".
-	checkHandleDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.CheckHandleCallsPerDay)
-	// limit_name "account_ops_daily", shared by DeleteAccount, RequestAccountExport, GetAccountExport.
-	accountOpsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.AccountOpsCallsPerDay)
-
-	// RegisterDevice and UnregisterDevice share one per-uid daily call cap, limit_name
-	// "notification_devices_daily" (each call is a transaction). The other three
-	// notification RPCs use the 60/min default bucket.
-	notificationDevicesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.NotificationDevicesCallsPerDay)
-	// MarkNotificationsSeen has its own cap, limit_name "notification_seen_daily": it is called on every tab focus,
-	// so sharing the 50/day devices cap would lock device registration out.
-	notificationSeenDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.NotificationSeenCallsPerDay)
 
 	// Home 6/min (the existing RATE_LIMIT_TIMELINE_PER_MIN), user timeline 30/min, CreatePost 10/min,
 	// DeletePost 20/min; GetPost uses rlDefault (60/min). Posts have no daily
@@ -74,12 +59,10 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// removed): only this per-minute bucket limits them.
 	rlEngagement := ratelimit.NewLimiter(cfg.RateLimit.LikesPerUserPerMinute, idleBucketTTL)
 
-	// VotePoll has its own per-user bucket (RATE_LIMIT_POLL_VOTE_PER_MIN, 30/min per instance) and the poll_votes_daily
-	// DailyCap (POLL_VOTES_PER_DAY, 300). Both run in the interceptor, so a refused vote is also counted. The cap is in memory
-	// (option D): the natural key admits one vote per account per poll, so the writes are bounded by 3 x the open polls the
-	// account can see whatever the cap does after a restart. POLL_VOTES_PER_DAY_NEW_ACCOUNT is applied by the service.
+	// VotePoll has its own per-user bucket (RATE_LIMIT_POLL_VOTE_PER_MIN, 30/min per instance). The natural key admits one
+	// vote per account per poll plus POLL_VOTE_CHANGES_MAX changes, so writes are bounded per poll, across the open polls
+	// the account can see.
 	rlPollVote := ratelimit.NewLimiter(cfg.RateLimit.PollVotePerUserPerMinute, idleBucketTTL)
-	pollVotesDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.PollVotesPerDay)
 
 	// AddBookmark and RemoveBookmark share one per-user bucket (RATE_LIMIT_BOOKMARKS_PER_MIN, 30/min); ListBookmarks
 	// has its own (RATE_LIMIT_BOOKMARKS_LIST_PER_MIN, 10/min). Adds are bounded by the
@@ -90,23 +73,21 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 
 	// ListSuggestedUsers (RATE_LIMIT_SUGGESTIONS_PER_MIN, 10/min), ListLikedPosts (RATE_LIMIT_LIKES_LIST_PER_MIN,
 	// 10/min) and GetProfileRelationship (RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN, 60/min) each have their own per-user bucket;
-	// the last is not rlDefault so the header call cannot be starved by, or starve, the shared default. Suggestions also have a
-	// per-uid daily call cap (SUGGESTIONS_CALLS_PER_DAY, limit_name "suggestions_daily"); the likes list and the relationship
-	// are reads. Tabs share the existing GetUserTimeline bucket.
+	// the last is not rlDefault so the header call cannot be starved by, or starve, the shared default. Tabs share the existing
+	// GetUserTimeline bucket.
 	rlSuggestions := ratelimit.NewLimiter(cfg.RateLimit.SuggestionsPerUserPerMinute, idleBucketTTL)
 	rlLikesList := ratelimit.NewLimiter(cfg.RateLimit.LikesListPerUserPerMinute, idleBucketTTL)
 	rlProfileRelationship := ratelimit.NewLimiter(cfg.RateLimit.ProfileRelationshipPerUserPerMinute, idleBucketTTL)
-	suggestionsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.SuggestionsCallsPerDay)
 	// SearchPeople (30/min) and SearchPosts (20/min) have their own per-user buckets; GetTrends uses the 60/min
-	// default. ONE shared DailyCap over both search RPCs (limit_name "search_daily", SEARCH_CALLS_PER_DAY, default 300).
+	// default. SearchPeople alone also has a daily cap (limit_name "search_people_daily", SEARCH_PEOPLE_CALLS_PER_DAY).
 	rlSearchPeople := ratelimit.NewLimiter(cfg.RateLimit.SearchPeoplePerUserPerMinute, idleBucketTTL)
 	rlSearchPosts := ratelimit.NewLimiter(cfg.RateLimit.SearchPostsPerUserPerMinute, idleBucketTTL)
-	searchDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.SearchCallsPerDay)
-	// Part 4 (review L-4): GetTrends keeps the 60/min default bucket and gains its OWN daily
-	// cap (limit_name "trends_daily", TRENDS_CALLS_PER_DAY, default 400), never the search_daily one.
-	trendsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.TrendsCallsPerDay)
+	searchPeopleDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.SearchPeopleCallsPerDay)
+	// ListFollowers and ListFollowing share ONE daily cap (limit_name "follow_list_daily", FOLLOW_LIST_CALLS_PER_DAY); the
+	// blocked, muted and follow-request lists are only held by the graph list bucket.
+	followListDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.FollowListCallsPerDay)
 	// RespondToFollowRequest has its own per-user bucket (RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, 60/min per
-	// instance). ListFollowRequests shares the graph list bucket (20/min) and the graph_list_daily cap.
+	// instance). ListFollowRequests shares the graph list bucket (20/min).
 	// Responses need no quota (the pending requests bound them).
 	rlFollowRequestsRespond := ratelimit.NewLimiter(cfg.RateLimit.FollowRequestsRespondPerUserPerMinute, idleBucketTTL)
 	// L-4: UpdateProfile had only the 60/min default bucket and rewrote the whole users document on every call, so a
@@ -134,27 +115,24 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	messagesMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMutationsPerDay)
 
 	// The six list mutations (CreateList, UpdateList, DeleteList, AddListMember, RemoveListMember and the timeline module's
-	// SetHomeTabs) share one per-user bucket (RATE_LIMIT_LISTS_WRITE_PER_MIN, 30/min per instance) and ONE per-uid daily call cap
-	// (LIST_MUTATIONS_PER_DAY, limit_name "list_mutation_daily"; a replay or a no-op still stores an idempotency doc). GetList,
+	// SetHomeTabs) share one per-user bucket (RATE_LIMIT_LISTS_WRITE_PER_MIN, 30/min per instance). GetList,
 	// ListUserLists and ListListMembers share a read bucket (RATE_LIMIT_LISTS_READ_PER_MIN, 30/min); GetListTimeline has its own
 	// (RATE_LIMIT_LIST_TIMELINE_PER_MIN, 12/min), because tabs switch quickly while Home stays at 6.
 	rlListsWrite := ratelimit.NewLimiter(cfg.RateLimit.ListsWritePerUserPerMinute, idleBucketTTL)
 	rlListsRead := ratelimit.NewLimiter(cfg.RateLimit.ListsReadPerUserPerMinute, idleBucketTTL)
 	rlListTimeline := ratelimit.NewLimiter(cfg.RateLimit.ListTimelinePerUserPerMinute, idleBucketTTL)
-	listMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.ListMutationsPerDay)
 
 	// The seven community mutations (CreateCommunity, UpdateCommunity, JoinCommunity, LeaveCommunity,
 	// HideCommunityPost, RestoreCommunityPost, SetMemberRole) share one per-user bucket (RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN, 20/min per
-	// instance). Two per-uid daily call caps split them by who acts: Create, Update, Join and Leave share "community_mutation_daily"
-	// (COMMUNITY_MUTATIONS_PER_DAY, 200; a replay or a no-op still stores an idempotency doc), and the three moderator actions share
-	// "community_mod_actions_daily" (COMMUNITY_MOD_ACTIONS_PER_DAY, 200 per actor). GetCommunity, ListCommunities, ListMyCommunities,
+	// instance). HideCommunityPost and SetMemberRole (bans go through it) also share one per-uid daily cap, limit_name
+	// "community_mod_actions_daily" (COMMUNITY_MOD_ACTIONS_PER_DAY, 200 per actor); RestoreCommunityPost is left uncapped so an
+	// owner can always undo hidden posts. GetCommunity, ListCommunities, ListMyCommunities,
 	// ListCommunityMembers and ListModerationLog share a read bucket (RATE_LIMIT_COMMUNITIES_READ_PER_MIN, 30/min);
 	// GetCommunityTimeline has its own (RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN, 12/min).
-	// The third cap, uid|cid "community_posts_per_community_daily", is drawn on by the posts gate, not here.
+	// The uid|cid cap "community_posts_per_community_daily" is drawn on by the posts gate, not here.
 	rlCommunitiesWrite := ratelimit.NewLimiter(cfg.RateLimit.CommunitiesWritePerUserPerMinute, idleBucketTTL)
 	rlCommunitiesRead := ratelimit.NewLimiter(cfg.RateLimit.CommunitiesReadPerUserPerMinute, idleBucketTTL)
 	rlCommunityTimeline := ratelimit.NewLimiter(cfg.RateLimit.CommunityTimelinePerUserPerMinute, idleBucketTTL)
-	communityMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.CommunityMutationsPerDay)
 	communityModActionsDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.CommunityModActionsPerDay)
 
 	// CreateUpload keeps the CreatePost rate (a post with images is two media calls plus one CreatePost). Vision spend is
@@ -230,12 +208,6 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			timelinev1connect.TimelineServiceGetCommunityTimelineProcedure:     rlCommunityTimeline,
 		},
 		DailyCaps: map[string]ratelimit.NamedDailyCap{
-			graphv1connect.GraphServiceListFollowersProcedure:      {Name: "graph_list_daily", Cap: graphListDailyCap},
-			graphv1connect.GraphServiceListFollowingProcedure:      {Name: "graph_list_daily", Cap: graphListDailyCap},
-			graphv1connect.GraphServiceListBlockedUsersProcedure:   {Name: "graph_list_daily", Cap: graphListDailyCap},
-			graphv1connect.GraphServiceListMutedUsersProcedure:     {Name: "graph_list_daily", Cap: graphListDailyCap},
-			graphv1connect.GraphServiceListFollowRequestsProcedure: {Name: "graph_list_daily", Cap: graphListDailyCap},
-
 			graphv1connect.GraphServiceFollowProcedure:   {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
 			graphv1connect.GraphServiceUnfollowProcedure: {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
 			graphv1connect.GraphServiceBlockProcedure:    {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
@@ -243,49 +215,23 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			graphv1connect.GraphServiceMuteProcedure:     {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
 			graphv1connect.GraphServiceUnmuteProcedure:   {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
 
-			engagementv1connect.EngagementServiceVotePollProcedure: {Name: "poll_votes_daily", Cap: pollVotesDailyCap},
-
 			engagementv1connect.EngagementServiceAddBookmarkProcedure:    {Name: "bookmark_mutation_daily", Cap: bookmarkMutationDailyCap},
 			engagementv1connect.EngagementServiceRemoveBookmarkProcedure: {Name: "bookmark_mutation_daily", Cap: bookmarkMutationDailyCap},
-
-			graphv1connect.GraphServiceListSuggestedUsersProcedure: {Name: "suggestions_daily", Cap: suggestionsDailyCap},
-
-			searchv1connect.SearchServiceSearchPeopleProcedure: {Name: "search_daily", Cap: searchDailyCap},
-			searchv1connect.SearchServiceSearchPostsProcedure:  {Name: "search_daily", Cap: searchDailyCap},
-			searchv1connect.SearchServiceGetTrendsProcedure:    {Name: "trends_daily", Cap: trendsDailyCap},
 
 			messagingv1connect.MessagingServiceSendMessageProcedure:          {Name: "messages_daily", Cap: messagesDailyCap},
 			messagingv1connect.MessagingServiceMarkConversationReadProcedure: {Name: "messages_mark_read_daily", Cap: messagesMarkReadDailyCap},
 			messagingv1connect.MessagingServiceAcceptMessageRequestProcedure: {Name: "messages_mutation_daily", Cap: messagesMutationDailyCap},
 			messagingv1connect.MessagingServiceDeleteConversationProcedure:   {Name: "messages_mutation_daily", Cap: messagesMutationDailyCap},
 
-			listsv1connect.ListServiceCreateListProcedure:         {Name: "list_mutation_daily", Cap: listMutationDailyCap},
-			listsv1connect.ListServiceUpdateListProcedure:         {Name: "list_mutation_daily", Cap: listMutationDailyCap},
-			listsv1connect.ListServiceDeleteListProcedure:         {Name: "list_mutation_daily", Cap: listMutationDailyCap},
-			listsv1connect.ListServiceAddListMemberProcedure:      {Name: "list_mutation_daily", Cap: listMutationDailyCap},
-			listsv1connect.ListServiceRemoveListMemberProcedure:   {Name: "list_mutation_daily", Cap: listMutationDailyCap},
-			timelinev1connect.TimelineServiceSetHomeTabsProcedure: {Name: "list_mutation_daily", Cap: listMutationDailyCap},
-
-			communitiesv1connect.CommunityServiceCreateCommunityProcedure:      {Name: communities.LimitMutationDaily, Cap: communityMutationDailyCap},
-			communitiesv1connect.CommunityServiceUpdateCommunityProcedure:      {Name: communities.LimitMutationDaily, Cap: communityMutationDailyCap},
-			communitiesv1connect.CommunityServiceJoinCommunityProcedure:        {Name: communities.LimitMutationDaily, Cap: communityMutationDailyCap},
-			communitiesv1connect.CommunityServiceLeaveCommunityProcedure:       {Name: communities.LimitMutationDaily, Cap: communityMutationDailyCap},
-			communitiesv1connect.CommunityServiceHideCommunityPostProcedure:    {Name: communities.LimitModActionsDaily, Cap: communityModActionsDailyCap},
-			communitiesv1connect.CommunityServiceRestoreCommunityPostProcedure: {Name: communities.LimitModActionsDaily, Cap: communityModActionsDailyCap},
-			communitiesv1connect.CommunityServiceSetMemberRoleProcedure:        {Name: communities.LimitModActionsDaily, Cap: communityModActionsDailyCap},
-
 			identityv1connect.IdentityServiceUpdateProfileProcedure: {Name: "profile_update_daily", Cap: profileUpdateDailyCap},
 
-			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure: {Name: "check_handle_daily", Cap: checkHandleDailyCap},
+			communitiesv1connect.CommunityServiceHideCommunityPostProcedure: {Name: communities.LimitModActionsDaily, Cap: communityModActionsDailyCap},
+			communitiesv1connect.CommunityServiceSetMemberRoleProcedure:     {Name: communities.LimitModActionsDaily, Cap: communityModActionsDailyCap},
 
-			notificationsv1connect.NotificationServiceRegisterDeviceProcedure:        {Name: "notification_devices_daily", Cap: notificationDevicesDailyCap},
-			notificationsv1connect.NotificationServiceUnregisterDeviceProcedure:      {Name: "notification_devices_daily", Cap: notificationDevicesDailyCap},
-			notificationsv1connect.NotificationServiceMarkNotificationsSeenProcedure: {Name: "notification_seen_daily", Cap: notificationSeenDailyCap},
+			searchv1connect.SearchServiceSearchPeopleProcedure: {Name: "search_people_daily", Cap: searchPeopleDailyCap},
 
-			// ONE shared call cap for the three account operations.
-			identityv1connect.IdentityServiceDeleteAccountProcedure:        {Name: "account_ops_daily", Cap: accountOpsDailyCap},
-			identityv1connect.IdentityServiceRequestAccountExportProcedure: {Name: "account_ops_daily", Cap: accountOpsDailyCap},
-			identityv1connect.IdentityServiceGetAccountExportProcedure:     {Name: "account_ops_daily", Cap: accountOpsDailyCap},
+			graphv1connect.GraphServiceListFollowersProcedure: {Name: "follow_list_daily", Cap: followListDailyCap},
+			graphv1connect.GraphServiceListFollowingProcedure: {Name: "follow_list_daily", Cap: followListDailyCap},
 		},
 		IP:               rlIP,
 		TrustedProxyHops: cfg.TrustedProxyHops,

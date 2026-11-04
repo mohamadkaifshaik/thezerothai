@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	notificationsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1/notificationsv1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
@@ -127,16 +126,6 @@ func TestPostNotifierReplies(t *testing.T) {
 	}
 }
 
-// TestNotificationDeviceCallsAreCapped: Register and Unregister share one per-uid daily cap.
-func TestNotificationDeviceCallsAreCapped(t *testing.T) {
-	rl := RateLimitConfig(defaultRateLimitCfg())
-	reg := rl.DailyCaps[notificationsv1connect.NotificationServiceRegisterDeviceProcedure]
-	unreg := rl.DailyCaps[notificationsv1connect.NotificationServiceUnregisterDeviceProcedure]
-	if reg.Cap == nil || reg.Name != "notification_devices_daily" || unreg.Name != reg.Name || unreg.Cap != reg.Cap {
-		t.Fatalf("daily caps = %+v / %+v, want one shared cap named notification_devices_daily", reg, unreg)
-	}
-}
-
 // TestNotificationsFlagNameMatchesModule: a drift between the config spec and the name the module checks would
 // silently leave the feature off (or on) for everyone.
 func TestNotificationsFlagNameMatchesModule(t *testing.T) {
@@ -149,17 +138,6 @@ func TestNotificationsFlagNameMatchesModule(t *testing.T) {
 	}
 	if cfg.FeatureNotifications.Mode != "off" {
 		t.Errorf("FEATURE_NOTIFICATIONS default = %q, want off", cfg.FeatureNotifications.Mode)
-	}
-}
-
-// TestNotificationSeenHasItsOwnDailyCap: MarkNotificationsSeen is called on every tab focus; it must not share
-// (and exhaust) the 50/day device-registration cap.
-func TestNotificationSeenHasItsOwnDailyCap(t *testing.T) {
-	rl := RateLimitConfig(defaultRateLimitCfg())
-	seen := rl.DailyCaps[notificationsv1connect.NotificationServiceMarkNotificationsSeenProcedure]
-	reg := rl.DailyCaps[notificationsv1connect.NotificationServiceRegisterDeviceProcedure]
-	if seen.Cap == nil || seen.Name != "notification_seen_daily" || seen.Cap == reg.Cap {
-		t.Fatalf("daily caps = %+v / %+v, want a separate cap named notification_seen_daily", seen, reg)
 	}
 }
 

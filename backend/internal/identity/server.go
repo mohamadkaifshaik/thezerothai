@@ -191,9 +191,7 @@ func (s *Server) ChangeHandle(ctx context.Context, req *connect.Request[identity
 }
 
 // DeleteAccount, RequestAccountExport and GetAccountExport sit behind FEATURE_ACCOUNT_LIFECYCLE.
-// Flag off for the caller: FAILED_PRECONDITION + FEATURE_DISABLED before any Firestore access. They stay
-// in the charge-only set and account_ops_daily (apiserver/ratelimit_config.go), so a rejected call still counts
-// against the daily cap. The job handlers behind them are never gated (Q9).
+// Flag off for the caller: FAILED_PRECONDITION + FEATURE_DISABLED before any Firestore access. The job handlers behind them are never gated (Q9).
 
 // guardAccountLifecycle returns the flag rejection (and the caller uid), or nil when the flag is on for the caller.
 func (s *Server) guardAccountLifecycle(ctx context.Context) (string, error) {

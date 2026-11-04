@@ -11,8 +11,8 @@ import (
 const MaxSuggestedUserIDs = 20
 
 // SuggestionsConfig holds the SUGGESTIONS_* limits and the curated fallback list of GraphService.ListSuggestedUsers
-// The RPC's per-minute bucket and daily call cap live in RateLimitConfig
-// (RATE_LIMIT_SUGGESTIONS_PER_MIN, SUGGESTIONS_CALLS_PER_DAY). These values bound the work of one call: friends of friends
+// The RPC's per-minute bucket lives in RateLimitConfig
+// (RATE_LIMIT_SUGGESTIONS_PER_MIN). These values bound the work of one call: friends of friends
 // reads the caller's graph, at most EdgeLimit edges and at most HydrateMax profiles; the curated path reads only the profiles.
 type SuggestionsConfig struct {
 	// SampleFollowees is how many of the caller's newest followees seed the friends-of-friends query

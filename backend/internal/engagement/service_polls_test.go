@@ -21,7 +21,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -164,11 +163,10 @@ func (g *pollGraph) block(uid string, others ...string) {
 // pollEnv is an env whose module has a PollRepo and a poll post (pidA, authored by "author", 3 choices, counts 5/2/0).
 type pollEnv struct {
 	*env
-	pr      *fakePollRepo
-	graph   *pollGraph
-	now     time.Time
-	closes  time.Time
-	created time.Time
+	pr     *fakePollRepo
+	graph  *pollGraph
+	now    time.Time
+	closes time.Time
 }
 
 type pollEnvOpt func(*Deps, *pollEnv)
@@ -178,23 +176,22 @@ func newPollEnv(t *testing.T, opts ...pollEnvOpt) *pollEnv {
 	pe := &pollEnv{env: &env{repo: &fakeRepo{}, events: &fakeEvents{}}, pr: &fakePollRepo{}, graph: &pollGraph{}}
 	pe.now = time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
 	pe.closes = pe.now.Add(24 * time.Hour)
-	pe.created = pe.now.Add(-72 * time.Hour)
 	pe.posts = &fakePosts{docs: map[string]*posts.Post{
 		pidA:   {ID: pidA, AuthorID: "author", Kind: posts.KindPost, Poll: &posts.Poll{Options: []string{"a", "b", "c"}, DurationMin: 1440, ClosesAt: pe.closes, Counts: []int64{5, 2, 0}, Total: 7}},
 		pidB:   {ID: pidB, AuthorID: "author", Kind: posts.KindPost},
 		pidRep: {ID: pidRep, AuthorID: "other", Kind: posts.KindRepost, RepostOfID: pidA, Embedded: &posts.Embedded{PostID: pidA}},
 	}, hidden: map[string]bool{}}
 	d := Deps{
-		Repo: pe.repo, Posts: pe.posts, Reader: pe.posts, Events: pe.events, NewAccountWindow: 24 * time.Hour, CacheTTL: time.Minute,
+		Repo: pe.repo, Posts: pe.posts, Reader: pe.posts, Events: pe.events, CacheTTL: time.Minute,
 		AllowAnonymous: true, PollRepo: pe.pr, PollVoteTTLAfterClose: 30 * 24 * time.Hour, PollViewerVotesKept: 10, PollVoteChangesMax: 5,
-		NewAccountPollVotesPerDay: 50, Now: func() time.Time { return pe.now },
+		Now:   func() time.Time { return pe.now },
 		Graph: pe.graph,
 	}
 	for _, o := range opts {
 		o(&d, pe)
 	}
 	if d.Directory == nil {
-		d.Directory = fakeDir{created: pe.created}
+		d.Directory = fakeDir{}
 	}
 	m, err := New(d)
 	if err != nil {
@@ -420,50 +417,6 @@ func TestVotePoll_Contention(t *testing.T) {
 			}
 		}
 	})
-}
-
-// POLL_VOTES_PER_DAY_NEW_ACCOUNT (50) is applied here, against the interceptor's own poll_votes_daily counter (which already counted
-// this call).
-func TestVotePoll_NewAccountDailyCap(t *testing.T) {
-	tests := []struct {
-		name    string
-		created time.Duration // account age
-		spent   int64         // the interceptor's count, including this call
-		cap     bool
-		refused bool
-	}{
-		{"new account at its 50th", time.Hour, 50, true, false},
-		{"new account at its 51st", time.Hour, 51, true, true},
-		{"established account at 51 (general cap is the interceptor's)", 48 * time.Hour, 51, true, false},
-		{"established account at 300", 48 * time.Hour, 300, true, false},
-		{"no cap wired: not enforced", time.Hour, 500, false, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dc := ratelimit.NewDailyCap(1000)
-			dc.AllowN("viewer", tt.spent)
-			e := newPollEnv(t, func(d *Deps, pe *pollEnv) {
-				pe.created = pe.now.Add(-tt.created)
-				if tt.cap {
-					d.PollVoteCap = dc
-				}
-			})
-			_, err := e.m.VotePoll(e.ctx, "viewer", keyOK, pidA, 0, 0)
-			if !tt.refused {
-				if err != nil {
-					t.Fatalf("err = %v, want a vote", err)
-				}
-				return
-			}
-			ae := requireCode(t, err, connect.CodeResourceExhausted)
-			if ae.Reason != commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED || ae.Metadata["limit"] != "poll_votes_daily" || ae.RetryAfter <= 0 {
-				t.Fatalf("rejection = %+v, want the interceptor's RATE_LIMITED poll_votes_daily with a retry_after", ae)
-			}
-			if e.posts.viewCalls != 0 || e.pr.writes != 0 {
-				t.Errorf("a cap refusal read posts (%d) or wrote (%d)", e.posts.viewCalls, e.pr.writes)
-			}
-		})
-	}
 }
 
 // The lazy trim (D3, A3): a cached list over kept + slack loses its oldest entries in one field-level write; under it, nothing.

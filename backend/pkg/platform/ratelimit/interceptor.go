@@ -35,7 +35,7 @@ type Config struct {
 	// on top of the per-minute limiters above, keyed by
 	// fully-qualified Connect procedure. Checked after PerProcedure/Default so a burst is still rejected by
 	// the per-minute bucket first; a rejection here sets logger.RequestInfo.LimitName so mw.Logging's
-	// per-request line can be queried by limiter (e.g. "graph_list_daily").
+	// per-request line can be queried by limiter (e.g. "graph_mutation_daily").
 	DailyCaps map[string]NamedDailyCap
 }
 

@@ -234,7 +234,7 @@ func (s *service) sinceToken(uid string, rows []Notification, prev *cursor.Curso
 const MarkSeenMinInterval = 10 * time.Second
 
 // MarkSeen: the profile is the account-status interceptor's cached entry. It writes the seen_at, but nothing when the cached seen_at is younger than MarkSeenMinInterval (the cached value is returned and
-// nothing is evicted). The per-uid daily call cap is limit_name "notification_seen_daily" (apiserver).
+// nothing is evicted).
 func (s *service) MarkSeen(ctx context.Context, uid, idempotencyKey string) (time.Time, error) {
 	if !idempotency.KeyFormatValid(idempotencyKey) {
 		return time.Time{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")

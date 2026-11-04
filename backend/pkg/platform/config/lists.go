@@ -7,8 +7,7 @@ import "fmt"
 // read). Raising it needs a design decision.
 const MaxListMembersCeiling = 500
 
-// ListsConfig holds the list values that are neither a rate limit nor a daily quota. The list buckets and the
-// daily mutation cap are RateLimitConfig fields; the create and add quotas are QuotaConfig fields. Every value is > 0: a 0
+// ListsConfig holds the list values that are not a rate limit. The list buckets are RateLimitConfig fields. Every value is > 0: a 0
 // would lock every user out of the feature or disable a cap, so startup fails instead.
 type ListsConfig struct {
 	// MaxPerUser is the most lists one account owns (LISTS_MAX_PER_USER, default 20), checked exactly with a count() inside the

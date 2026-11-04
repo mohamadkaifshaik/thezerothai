@@ -10,9 +10,9 @@ import (
 // founders, not a rollout, so a longer list is a mistake and fails startup.
 const MaxCommunityCreators = 10
 
-// CommunitiesConfig holds the community values that are neither a rate limit nor a daily quota. The
-// community buckets and the three daily caps are RateLimitConfig fields; the join and community-post quotas are QuotaConfig
-// fields. Every count is > 0: a 0 would lock every user out of the feature or disable a cap, so startup fails instead.
+// CommunitiesConfig holds the community values that are neither a rate limit nor a daily cap. The
+// community buckets and the two daily caps are RateLimitConfig fields. Every count is > 0: a 0 would lock every user out of the feature or disable a cap,
+// so startup fails instead.
 type CommunitiesConfig struct {
 	// Creators are the uids that may call CreateCommunity (COMMUNITY_CREATORS, at most MaxCommunityCreators, each ids.ValidUID,
 	// duplicates dropped, default none). CreateCommunity also needs FEATURE_COMMUNITIES on for the caller. Only the count is ever

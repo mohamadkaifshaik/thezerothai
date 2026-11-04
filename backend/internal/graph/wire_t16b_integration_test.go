@@ -2,9 +2,9 @@
 
 // wire_t16b_integration_test.go is a scenario-specific rig: the real generated Connect handlers for
 // identity + graph, served from an httptest.Server over the already-wired services, with the interceptor
-// order that matters for these tests (caller uid -> daily list cap -> error mapping). It
+// order that matters for these tests (caller uid -> rate limit -> error mapping). It
 // exists so can assert on serialized wire bytes (byte-identical NOT_FOUND, no `blockedBy` in any JSON
-// response) and on the interceptor-level list cap. It seeds nothing.
+// response) and on the interceptor-level graph mutation cap. It seeds nothing.
 package graph_test
 
 import (
@@ -118,16 +118,16 @@ func (r *rig) errorLines() []string {
 	return out
 }
 
-// newRig serves the wired services over HTTP. listDailyCap <= 0 disables the daily list cap.
-func newRig(t *testing.T, w wired, listDailyCap int64) *rig {
+// newRig serves the wired services over HTTP.
+func newRig(t *testing.T, w wired) *rig {
 	t.Helper()
-	return newRigWithMutationCap(t, w, listDailyCap, 0)
+	return newRigWithMutationCap(t, w, 0)
 }
 
 // newRigWithMutationCap is newRig plus the shared graph_mutation_daily cap over the six graph mutations,
 // wired exactly like apiserver.Build does. mutationDailyCap <= 0 disables it.
 // mods adjust the ratelimit.Config last.
-func newRigWithMutationCap(t *testing.T, w wired, listDailyCap, mutationDailyCap int64, mods ...func(*ratelimit.Config)) *rig {
+func newRigWithMutationCap(t *testing.T, w wired, mutationDailyCap int64, mods ...func(*ratelimit.Config)) *rig {
 	t.Helper()
 	r := &rig{w: w, errLog: &syncBuffer{}}
 
@@ -138,18 +138,6 @@ func newRigWithMutationCap(t *testing.T, w wired, listDailyCap, mutationDailyCap
 		}
 	})
 	rl := ratelimit.Config{}
-	if listDailyCap > 0 {
-		dc := ratelimit.NewDailyCap(listDailyCap)
-		rl.DailyCaps = map[string]ratelimit.NamedDailyCap{}
-		for _, p := range []string{
-			graphv1connect.GraphServiceListFollowersProcedure,
-			graphv1connect.GraphServiceListFollowingProcedure,
-			graphv1connect.GraphServiceListBlockedUsersProcedure,
-			graphv1connect.GraphServiceListMutedUsersProcedure,
-		} {
-			rl.DailyCaps[p] = ratelimit.NamedDailyCap{Name: "graph_list_daily", Cap: dc}
-		}
-	}
 	if mutationDailyCap > 0 {
 		mc := ratelimit.NewDailyCap(mutationDailyCap)
 		if rl.DailyCaps == nil {
