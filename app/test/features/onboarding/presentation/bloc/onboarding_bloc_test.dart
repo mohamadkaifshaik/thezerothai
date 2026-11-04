@@ -412,6 +412,7 @@ void main() {
           avatarThumbUrl: '',
           isPrivate: false,
           verified: false,
+          subscriptionVerified: false,
           followersCount: 0,
           followingCount: 0,
           postsCount: 0,

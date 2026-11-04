@@ -39,23 +39,24 @@ func (e *ErrHandleChangeCooldown) Error() string {
 
 // userDoc is the users/{uid} shape. PII stays out of this doc (email lives in Firebase Auth).
 type userDoc struct {
-	Handle              string    `firestore:"handle"`
-	HandleLower         string    `firestore:"handleLower"`
-	DisplayName         string    `firestore:"displayName"`
-	Bio                 string    `firestore:"bio"`
-	AvatarURL           string    `firestore:"avatarUrl"`
-	AvatarThumbURL      string    `firestore:"avatarThumbUrl"`
-	IsPrivate           bool      `firestore:"isPrivate"`
-	Verified            bool      `firestore:"verified"`
-	Status              string    `firestore:"status"`
-	FollowersCount      int64     `firestore:"followersCount"`
-	FollowingCount      int64     `firestore:"followingCount"`
-	PostsCount          int64     `firestore:"postsCount"`
-	NotificationsSeenAt time.Time `firestore:"notificationsSeenAt"`
-	HandleChangedAt     time.Time `firestore:"handleChangedAt"`
-	SnapshotVersion     int64     `firestore:"snapshotVersion"`
-	CreatedAt           time.Time `firestore:"createdAt"`
-	UpdatedAt           time.Time `firestore:"updatedAt"`
+	Handle               string    `firestore:"handle"`
+	HandleLower          string    `firestore:"handleLower"`
+	DisplayName          string    `firestore:"displayName"`
+	Bio                  string    `firestore:"bio"`
+	AvatarURL            string    `firestore:"avatarUrl"`
+	AvatarThumbURL       string    `firestore:"avatarThumbUrl"`
+	IsPrivate            bool      `firestore:"isPrivate"`
+	Verified             bool      `firestore:"verified"`
+	SubscriptionVerified bool      `firestore:"subscriptionVerified,omitempty"`
+	Status               string    `firestore:"status"`
+	FollowersCount       int64     `firestore:"followersCount"`
+	FollowingCount       int64     `firestore:"followingCount"`
+	PostsCount           int64     `firestore:"postsCount"`
+	NotificationsSeenAt  time.Time `firestore:"notificationsSeenAt"`
+	HandleChangedAt      time.Time `firestore:"handleChangedAt"`
+	SnapshotVersion      int64     `firestore:"snapshotVersion"`
+	CreatedAt            time.Time `firestore:"createdAt"`
+	UpdatedAt            time.Time `firestore:"updatedAt"`
 	// Profile extras: absent = none, never backfilled, index-exempt, not in the author snapshot.
 	// omitempty keeps a whole-doc rewrite (ChangeHandle) from adding empty fields to a doc that has none.
 	BannerURL      string `firestore:"bannerUrl,omitempty"`
@@ -75,62 +76,64 @@ type userDoc struct {
 
 func (d userDoc) toProfile(uid string) Profile {
 	return Profile{
-		UserID:              uid,
-		Handle:              d.Handle,
-		HandleLower:         d.HandleLower,
-		DisplayName:         d.DisplayName,
-		Bio:                 d.Bio,
-		AvatarURL:           d.AvatarURL,
-		AvatarThumbURL:      d.AvatarThumbURL,
-		BannerURL:           d.BannerURL,
-		BannerThumbURL:      d.BannerThumbURL,
-		Location:            d.Location,
-		Website:             d.Website,
-		PinnedPostID:        d.PinnedPostID,
-		HomeTabsEnc:         encodeHomeTabs(d.HomeTabs),
-		IsPrivate:           d.IsPrivate,
-		Verified:            d.Verified,
-		Status:              statusFromString(d.Status),
-		FollowersCount:      d.FollowersCount,
-		FollowingCount:      d.FollowingCount,
-		PostsCount:          d.PostsCount,
-		NotificationsSeenAt: d.NotificationsSeenAt,
-		HandleChangedAt:     d.HandleChangedAt,
-		SnapshotVersion:     d.SnapshotVersion,
-		CreatedAt:           d.CreatedAt,
-		UpdatedAt:           d.UpdatedAt,
-		DeletionRequestedAt: derefTime(d.DeletionRequestedAt),
-		DeletionJob:         d.DeletionJob.toDomain(),
+		UserID:               uid,
+		Handle:               d.Handle,
+		HandleLower:          d.HandleLower,
+		DisplayName:          d.DisplayName,
+		Bio:                  d.Bio,
+		AvatarURL:            d.AvatarURL,
+		AvatarThumbURL:       d.AvatarThumbURL,
+		BannerURL:            d.BannerURL,
+		BannerThumbURL:       d.BannerThumbURL,
+		Location:             d.Location,
+		Website:              d.Website,
+		PinnedPostID:         d.PinnedPostID,
+		HomeTabsEnc:          encodeHomeTabs(d.HomeTabs),
+		IsPrivate:            d.IsPrivate,
+		Verified:             d.Verified,
+		SubscriptionVerified: d.SubscriptionVerified,
+		Status:               statusFromString(d.Status),
+		FollowersCount:       d.FollowersCount,
+		FollowingCount:       d.FollowingCount,
+		PostsCount:           d.PostsCount,
+		NotificationsSeenAt:  d.NotificationsSeenAt,
+		HandleChangedAt:      d.HandleChangedAt,
+		SnapshotVersion:      d.SnapshotVersion,
+		CreatedAt:            d.CreatedAt,
+		UpdatedAt:            d.UpdatedAt,
+		DeletionRequestedAt:  derefTime(d.DeletionRequestedAt),
+		DeletionJob:          d.DeletionJob.toDomain(),
 	}
 }
 
 func profileToDoc(p Profile) userDoc {
 	return userDoc{
-		Handle:              p.Handle,
-		HandleLower:         p.HandleLower,
-		DisplayName:         p.DisplayName,
-		Bio:                 p.Bio,
-		AvatarURL:           p.AvatarURL,
-		AvatarThumbURL:      p.AvatarThumbURL,
-		BannerURL:           p.BannerURL,
-		BannerThumbURL:      p.BannerThumbURL,
-		Location:            p.Location,
-		Website:             p.Website,
-		PinnedPostID:        p.PinnedPostID,
-		HomeTabs:            decodeHomeTabs(p.HomeTabsEnc),
-		IsPrivate:           p.IsPrivate,
-		Verified:            p.Verified,
-		Status:              statusToString(p.Status),
-		FollowersCount:      p.FollowersCount,
-		FollowingCount:      p.FollowingCount,
-		PostsCount:          p.PostsCount,
-		NotificationsSeenAt: p.NotificationsSeenAt,
-		HandleChangedAt:     p.HandleChangedAt,
-		SnapshotVersion:     p.SnapshotVersion,
-		CreatedAt:           p.CreatedAt,
-		UpdatedAt:           p.UpdatedAt,
-		DeletionRequestedAt: ptrTime(p.DeletionRequestedAt),
-		DeletionJob:         deletionJobToDoc(p.DeletionJob),
+		Handle:               p.Handle,
+		HandleLower:          p.HandleLower,
+		DisplayName:          p.DisplayName,
+		Bio:                  p.Bio,
+		AvatarURL:            p.AvatarURL,
+		AvatarThumbURL:       p.AvatarThumbURL,
+		BannerURL:            p.BannerURL,
+		BannerThumbURL:       p.BannerThumbURL,
+		Location:             p.Location,
+		Website:              p.Website,
+		PinnedPostID:         p.PinnedPostID,
+		HomeTabs:             decodeHomeTabs(p.HomeTabsEnc),
+		IsPrivate:            p.IsPrivate,
+		Verified:             p.Verified,
+		SubscriptionVerified: p.SubscriptionVerified,
+		Status:               statusToString(p.Status),
+		FollowersCount:       p.FollowersCount,
+		FollowingCount:       p.FollowingCount,
+		PostsCount:           p.PostsCount,
+		NotificationsSeenAt:  p.NotificationsSeenAt,
+		HandleChangedAt:      p.HandleChangedAt,
+		SnapshotVersion:      p.SnapshotVersion,
+		CreatedAt:            p.CreatedAt,
+		UpdatedAt:            p.UpdatedAt,
+		DeletionRequestedAt:  ptrTime(p.DeletionRequestedAt),
+		DeletionJob:          deletionJobToDoc(p.DeletionJob),
 	}
 }
 

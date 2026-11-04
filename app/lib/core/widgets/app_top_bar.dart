@@ -22,7 +22,14 @@ import 'app_shell_scope.dart';
 /// Use [AppTopBar.new] as a `Scaffold.appBar`, or [AppTopBar.sliver] at the
 /// top of a `CustomScrollView` (floating and snapping, like the Home feed).
 class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
-  const AppTopBar({super.key, this.title, this.subtitle, this.actions});
+  const AppTopBar({
+    super.key,
+    this.title,
+    this.subtitle,
+    this.actions,
+    this.showAccountAvatar = true,
+    this.centerTitle = false,
+  });
 
   final String? title;
 
@@ -31,17 +38,28 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
 
   final List<Widget>? actions;
 
+  /// Whether narrow layouts show the account drawer button. Home owns this
+  /// affordance; other primary destinations can leave the leading slot clear.
+  final bool showAccountAvatar;
+
+  /// Centers the title independently of the leading and trailing controls.
+  final bool centerTitle;
+
   /// The same bar as a floating, snapping sliver.
   static Widget sliver({
     Key? key,
     String? title,
     String? subtitle,
     List<Widget>? actions,
+    bool showAccountAvatar = true,
+    bool centerTitle = false,
   }) => _SliverTopBar(
     key: key,
     title: title,
     subtitle: subtitle,
     actions: actions,
+    showAccountAvatar: showAccountAvatar,
+    centerTitle: centerTitle,
   );
 
   @override
@@ -67,6 +85,8 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
               title: title,
               subtitle: subtitle,
               actions: actions,
+              showAccountAvatar: showAccountAvatar,
+              centerTitle: centerTitle,
               fitText: true,
             ),
           ),
@@ -79,11 +99,20 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
 const double _alpha = 0.92;
 
 class _SliverTopBar extends StatelessWidget {
-  const _SliverTopBar({super.key, this.title, this.subtitle, this.actions});
+  const _SliverTopBar({
+    super.key,
+    this.title,
+    this.subtitle,
+    this.actions,
+    this.showAccountAvatar = true,
+    this.centerTitle = false,
+  });
 
   final String? title;
   final String? subtitle;
   final List<Widget>? actions;
+  final bool showAccountAvatar;
+  final bool centerTitle;
 
   @override
   Widget build(BuildContext context) {
@@ -100,7 +129,13 @@ class _SliverTopBar extends StatelessWidget {
       toolbarHeight: height < AppSize.headerRow ? AppSize.headerRow : height,
       titleSpacing: 0,
       backgroundColor: colors.surface.withValues(alpha: _alpha),
-      title: _BarRow(title: title, subtitle: subtitle, actions: actions),
+      title: _BarRow(
+        title: title,
+        subtitle: subtitle,
+        actions: actions,
+        showAccountAvatar: showAccountAvatar,
+        centerTitle: centerTitle,
+      ),
     );
   }
 }
@@ -111,12 +146,16 @@ class _BarRow extends StatelessWidget {
     this.title,
     this.subtitle,
     this.actions,
+    this.showAccountAvatar = true,
+    this.centerTitle = false,
     this.fitText = false,
   });
 
   final String? title;
   final String? subtitle;
   final List<Widget>? actions;
+  final bool showAccountAvatar;
+  final bool centerTitle;
 
   /// Scale the title block down to the row height (fixed-height bars).
   final bool fitText;
@@ -126,7 +165,7 @@ class _BarRow extends StatelessWidget {
     final theme = Theme.of(context);
     final narrow = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
     final scope = AppShellScope.maybeOf(context);
-    final showAvatar = narrow && scope != null;
+    final showAvatar = showAccountAvatar && narrow && scope != null;
     Widget titleBlock(double? width) {
       final block = Column(
         mainAxisSize: MainAxisSize.min,
@@ -161,15 +200,42 @@ class _BarRow extends StatelessWidget {
       );
     }
 
-    return Row(
-      children: [
-        if (showAvatar)
-          const Padding(
+    final leading = showAvatar
+        ? const Padding(
             padding: EdgeInsets.only(left: AppSpacing.sm),
             child: AppAvatarButton(),
           )
-        else
-          const SizedBox(width: AppSpacing.md),
+        : const SizedBox(width: AppSpacing.md);
+    final trailing = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ...?actions,
+        const SizedBox(width: AppSpacing.xs),
+      ],
+    );
+    if (centerTitle) {
+      return Row(
+        children: [
+          Expanded(
+            child: Align(alignment: Alignment.centerLeft, child: leading),
+          ),
+          Expanded(
+            flex: 2,
+            child: LayoutBuilder(
+              builder: (context, constraints) => Center(
+                child: titleBlock(fitText ? constraints.maxWidth : null),
+              ),
+            ),
+          ),
+          Expanded(
+            child: Align(alignment: Alignment.centerRight, child: trailing),
+          ),
+        ],
+      );
+    }
+    return Row(
+      children: [
+        leading,
         if (showAvatar) const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: fitText

@@ -67,7 +67,7 @@ class ConversationsScreen extends StatelessWidget {
       builder: (context, access) {
         if (access == MessagingAccess.hidden) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Messages')),
+            appBar: AppBar(title: const Text('Messages'), centerTitle: true),
             body: const Center(
               child: AppEmptyView(
                 icon: Icons.mail_outline,
@@ -242,6 +242,8 @@ class _ConversationsViewState extends State<_ConversationsView>
                       if (_isInbox)
                         AppTopBar.sliver(
                           title: 'Messages',
+                          showAccountAvatar: false,
+                          centerTitle: true,
                           actions: [
                             if (widget.canCompose)
                               IconButton(

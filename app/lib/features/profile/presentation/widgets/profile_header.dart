@@ -287,6 +287,20 @@ class _ProfileHeaderBody extends StatelessWidget {
                           TextSpan(
                             children: [
                               TextSpan(text: profile.displayName),
+                              if (profile.subscriptionVerified) ...[
+                                const TextSpan(text: '  '),
+                                WidgetSpan(
+                                  alignment: PlaceholderAlignment.middle,
+                                  child: Semantics(
+                                    label: 'Verified subscription account',
+                                    child: Icon(
+                                      Icons.verified,
+                                      size: AppIconSize.sm,
+                                      color: theme.colorScheme.primary,
+                                    ),
+                                  ),
+                                ),
+                              ],
                               if (profile.isPrivate) ...[
                                 const TextSpan(text: ' '),
                                 const WidgetSpan(

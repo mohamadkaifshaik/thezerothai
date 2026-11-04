@@ -69,11 +69,17 @@ void main() {
   group('drawer rows (under 600 dp)', () {
     for (final brightness in Brightness.values) {
       for (final scale in kMatrixTextScalesLarge) {
-        shellsTest('four rows after the feature rows, before Settings, under a '
+        shellsTest('drawer rows follow the requested navigation order under a '
             'divider [${brightness.name} x$scale]', (tester) async {
           final open = await pumpBareDrawer(
             tester,
-            flags: {...kShellFlags, 'posts', 'bookmarks'},
+            flags: {
+              ...kShellFlags,
+              'posts',
+              'bookmarks',
+              'lists',
+              'communities',
+            },
             brightness: brightness,
             textScale: scale,
           );
@@ -83,13 +89,19 @@ void main() {
               tester.getTopLeft(find.text(label).last).dy;
           final order = [
             top('Profile'),
+            top('Calls'),
+            top('Articles'),
+            top('Lists'),
+            top('Communities'),
             top('History'),
-            for (final label in _labels) top(label),
-            top('Settings'),
+            top('Premium'),
+            top('Creator tools'),
+            top('Advertise'),
+            top('Settings and Privacy'),
             top('Sign out'),
           ];
           expect(order, orderedEquals([...order]..sort()));
-          // The divider sits between History and Creator tools, 1dp thick.
+          // The divider sits between History and Premium, 1dp thick.
           final dividers = find.descendant(
             of: find.byType(AppDrawer),
             matching: find.byType(Divider),
@@ -98,7 +110,7 @@ void main() {
           final divider = tester.getRect(dividers);
           expect(divider.height, 1);
           expect(divider.top, greaterThan(top('History')));
-          expect(divider.top, lessThan(top('Creator tools')));
+          expect(divider.top, lessThan(top('Premium')));
           expectNoOverflow(tester);
         });
       }

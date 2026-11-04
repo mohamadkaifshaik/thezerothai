@@ -204,6 +204,9 @@ message Profile {
   // Also empty for a caller who may not see a protected account's posts: neither the account nor a
   // follower of it.
   string pinned_post_id = 17;
+  // Paid subscription verification entitlement. Set only by trusted subscription administration after confirming
+  // an active paid subscription; unrelated to verified identity or email status.
+  bool subscription_verified = 18;
 }
 
 message CreateProfileRequest {
