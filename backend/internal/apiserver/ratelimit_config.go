@@ -59,7 +59,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlEngagement := ratelimit.NewLimiter(cfg.RateLimit.LikesPerUserPerMinute, idleBucketTTL)
 
 	// VotePoll has its own per-user bucket (RATE_LIMIT_POLL_VOTE_PER_MIN, 30/min per instance). The natural key admits one
-	// vote per account per poll, so the writes are bounded by 3 x the open polls the account can see.
+	// vote per account per poll plus POLL_VOTE_CHANGES_MAX changes, so writes are bounded per poll, across the open polls
+	// the account can see.
 	rlPollVote := ratelimit.NewLimiter(cfg.RateLimit.PollVotePerUserPerMinute, idleBucketTTL)
 
 	// AddBookmark and RemoveBookmark share one per-user bucket (RATE_LIMIT_BOOKMARKS_PER_MIN, 30/min); ListBookmarks
