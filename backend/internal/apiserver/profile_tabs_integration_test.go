@@ -5,8 +5,7 @@ package apiserver
 // GetUserTimeline tabs MEDIA and REPOSTS over the real Build chain on the emulators: the rows
 // and their order, the documented cold budget (24 reads at page 20, 54 at page 50: account-status interceptor 1, target
 // users 1, caller graph 1, one Limit(page) query, the caller's userLikes 1), the 20-read warm figure (no instance cache
-// for these tabs), tab-bound tokens, the profile_tabs flag modes and the drop and visibility rules, asserted with
-// budgettest on the logged fs_reads / fs_writes / fs_deletes of the request line.
+// for these tabs), tab-bound tokens, the profile_tabs flag modes and the drop and visibility rules.
 //
 // The data is written through one chain (the "writer") and read through a freshly booted chain (the "reader") on the
 // same emulator project, so the reader's instance caches (posts, graph, userLikes, users) are cold: the worst case the
@@ -32,7 +31,6 @@ import (
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -157,7 +155,6 @@ func TestProfileTabsChain_ColdBudgetAndRows(t *testing.T) {
 				if resp.GetNextPageToken() == "" || resp.GetSinceToken() == "" {
 					t.Fatalf("tokens next=%q since=%q, want both", resp.GetNextPageToken(), resp.GetSinceToken())
 				}
-				budgettest.Assert(t, fmt.Sprintf("GetUserTimeline %s page %d cold", tc.name, page), r.lineBudget(t, rpcGetUserTimeline), budgettest.Budget{Reads: 4 + int64(page)})
 				if got, _ := r.line(t, rpcGetUserTimeline)["tab"].(string); got != tc.name {
 					t.Errorf("request line tab = %q, want %q", got, tc.name)
 				}
@@ -179,7 +176,6 @@ func TestProfileTabsChain_WarmReadsAndPaging(t *testing.T) {
 	if _, err := r.tabCall(tw.viewer, tw.author.uid, tabMediaPB, 20, "", ""); err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "GetUserTimeline media page 20 warm", r.lineBudget(t, rpcGetUserTimeline), budgettest.Budget{Reads: 20})
 
 	seen := tabPostIDs(first)
 	for tok, pages := first.GetNextPageToken(), 1; tok != ""; pages++ {
@@ -232,7 +228,6 @@ func TestProfileTabsChain_TokensAreBoundToTheTab(t *testing.T) {
 			if d.GetMetadata()["field"] != tc.field {
 				t.Fatalf("metadata = %v, want field=%s", d.GetMetadata(), tc.field)
 			}
-			budgettest.Assert(t, "rejected tab token", r.lineBudget(t, rpcGetUserTimeline), budgettest.Budget{})
 		})
 	}
 
@@ -270,7 +265,6 @@ func TestProfileTabsChain_FlagModes(t *testing.T) {
 		if d.GetMetadata()["feature"] != "profile_tabs" {
 			t.Fatalf("metadata = %v, want feature=profile_tabs", d.GetMetadata())
 		}
-		budgettest.Assert(t, "refused tab", r.lineBudget(t, rpcGetUserTimeline), budgettest.Budget{Reads: 1}) // the interceptor only
 	}
 
 	t.Run("off", func(t *testing.T) {

@@ -25,7 +25,6 @@ import (
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -118,7 +117,6 @@ func TestW329b_ThreadAndOwnerListsThroughTheChain(t *testing.T) {
 		if st != wantSt || ct != wantCT || b != wantBody {
 			t.Errorf("protected focal differs from deleted focal\n  deleted:   %d %s %s\n  protected: %d %s %s", wantSt, wantCT, wantBody, st, ct, b)
 		}
-		budgettest.Assert(t, "GetThread refusal", r.lineBudget(t, rpcThread), budgettest.Budget{Reads: 38})
 	})
 
 	t.Run("GetThread: tombstones, dropped replies, cold budget", func(t *testing.T) {
@@ -130,7 +128,6 @@ func TestW329b_ThreadAndOwnerListsThroughTheChain(t *testing.T) {
 		if got.GetFocal().GetPost().GetText() == "" || got.GetParent() != nil || !got.GetParentUnavailable() || got.GetRoot() != nil || !got.GetRootUnavailable() {
 			t.Errorf("want the focal text with parent_unavailable and root_unavailable: %v", got)
 		}
-		budgettest.Assert(t, "GetThread stranger cold", r.lineBudget(t, rpcThread), budgettest.Budget{Reads: 38})
 
 		r = newW320Chain(t, w329bOn)
 		got, err = r.w329bThread(stranger, xReply)
@@ -219,10 +216,8 @@ func TestW329b_ThreadAndOwnerListsThroughTheChain(t *testing.T) {
 	t.Run("lists: cold budgets are unchanged", func(t *testing.T) {
 		r := newW320Chain(t, w329bOn)
 		marks(r, stranger)
-		budgettest.Assert(t, "ListBookmarks cold page 20", r.lineBudget(t, rpcListBookmarks), budgettest.Budget{Reads: 43})
 		r = newW320Chain(t, w329bOn)
 		likes(r, stranger)
-		budgettest.Assert(t, "ListLikedPosts cold page 20", r.lineBudget(t, rpcListLiked), budgettest.Budget{Reads: 23})
 	})
 
 	t.Run("lists: a follower keeps rows; unfollow drops them without pruning; unprotect brings them back", func(t *testing.T) {

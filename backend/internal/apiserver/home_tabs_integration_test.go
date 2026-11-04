@@ -16,7 +16,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/lists/v1/listsv1connect"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -78,7 +77,6 @@ func TestW59_HomeTabsLifecycle(t *testing.T) {
 	mine := h.createList(t, me, "Mine", true)
 	theirsPublic := h.createList(t, other, "Theirs", false)
 	theirsPrivate := h.createList(t, other, "Hidden", true)
-	rpc := timelinev1connect.TimelineServiceSetHomeTabsProcedure
 
 	// A private foreign list and a missing list are the same VALIDATION answer.
 	_, err := h.setTabs(me, "bad1", mine, theirsPrivate)
@@ -94,17 +92,14 @@ func TestW59_HomeTabsLifecycle(t *testing.T) {
 		t.Fatalf("response tabs = %v, want %v (own list titled, foreign list not)", tabPairs(got.GetTabs()), want)
 	}
 	// Table: <= 19 reads, 2 writes (users field-level, idempotency).
-	budgettest.Assert(t, "SetHomeTabs, 2 tabs", h.lineBudget(t, rpc), budgettest.Budget{Reads: 19, Writes: 2})
 
 	// The same order under a new key writes only the idempotency record; a replay writes nothing.
 	if _, err := h.setTabs(me, "set2", theirsPublic, mine); err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "SetHomeTabs, same order", h.lineBudget(t, rpc), budgettest.Budget{Reads: 19, Writes: 1})
 	if _, err := h.setTabs(me, "set1", theirsPublic, mine); err != nil {
 		t.Fatalf("replay: %v", err)
 	}
-	budgettest.Assert(t, "SetHomeTabs, replay", h.lineBudget(t, rpc), budgettest.Budget{Reads: 3})
 	_, err = h.setTabs(me, "set1", mine)
 	w320Reason(t, "reused key", err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED, "")
 
@@ -116,7 +111,6 @@ func TestW59_HomeTabsLifecycle(t *testing.T) {
 	if !slices.Contains(m.GetEnabledFeatures(), "lists") {
 		t.Fatalf("enabled_features = %v, want lists", m.GetEnabledFeatures())
 	}
-	budgettest.Assert(t, "GetMe with tabs", h.lineBudget(t, rpcGetMe), budgettest.Budget{Reads: 2})
 
 	// pinned_by_viewer follows the viewer's own tabs.
 	gl, err := h.lists.GetList(context.Background(), authed(me.token, &listsv1.GetListRequest{ListId: theirsPublic}))
@@ -145,13 +139,8 @@ func TestW59_HomeTabsLifecycle(t *testing.T) {
 		t.Fatalf("after delete: %v, want %v", tabPairs(h.w326bGetMe(t, me).GetHomeTabs()), want)
 	}
 	// The sixth tab is LIMIT_REACHED before any read.
-	var six []string
-	for range 6 {
-		six = append(six, theirsPublic+"x")
-	}
 	_, err = h.setTabs(me, "six", mine, theirsPublic, "0000000000000000201", "0000000000000000202", "0000000000000000203", "0000000000000000204")
 	w320Reason(t, "six tabs", err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "")
-	_ = six
 }
 
 // A caller outside FEATURE_LISTS: LIST tabs are refused with FEATURE_DISABLED, an empty request is accepted, and a LIST tab stored

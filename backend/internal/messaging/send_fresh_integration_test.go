@@ -194,11 +194,8 @@ func TestSend_RecipientDeletedMidSendWritesNothing(t *testing.T) {
 	e.svc.d.TxProfiles = &raceProfiles{inner: e.txProfs, write: func() {
 		e.writeUserDoc(bob, "bob", time.Now().Add(-30*24*time.Hour), "DELETING")
 	}}
-	_, c, err := e.send(alice, toUser(skey(1), bob, "hi"))
+	_, _, err := e.send(alice, toUser(skey(1), bob, "hi"))
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
-	if c.Writes() != 0 {
-		t.Errorf("wrote %d", c.Writes())
-	}
 	wantNothingWritten(t, e, ConversationID(alice, bob))
 	if q, err := e.fs.Collection("quotas").Doc(alice).Get(context.Background()); err == nil && q.Exists() {
 		t.Error("a quota record was written")

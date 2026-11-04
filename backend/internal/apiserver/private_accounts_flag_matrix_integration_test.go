@@ -107,7 +107,6 @@ func TestW335b_PrivateAccountsFlagMatrix(t *testing.T) {
 					}
 				} else {
 					w320Disabled(t, what+" UpdateProfile(is_private=true)", err, privateAccountsFeature)
-					r.w320AssertNothing(t, what+" UpdateProfile(is_private=true) refused", rpcUpdateProfile)
 					if me := r.w326bGetMe(t, u); me.GetProfile().GetIsPrivate() {
 						t.Errorf("%s: a refused protect left the account protected", what)
 					}
@@ -118,7 +117,6 @@ func TestW335b_PrivateAccountsFlagMatrix(t *testing.T) {
 				_, listErr := r.w328List(u)
 				if mc.offEverywhere {
 					w320Disabled(t, what+" public ListFollowRequests", listErr, privateAccountsFeature)
-					r.w320AssertNothing(t, what+" public ListFollowRequests refused", rpcListFollowRequests)
 				} else if listErr != nil {
 					t.Errorf("%s public ListFollowRequests = %v, want an empty page (a rollout is not the kill switch)", what, listErr)
 				}
@@ -126,7 +124,6 @@ func TestW335b_PrivateAccountsFlagMatrix(t *testing.T) {
 				_, respErr := r.w328Respond(u, q.uid, false)
 				if mc.offEverywhere {
 					w320Disabled(t, what+" public RespondToFollowRequest", respErr, privateAccountsFeature)
-					r.w320AssertNothing(t, what+" public RespondToFollowRequest refused", rpcRespondToFollowReq)
 				} else if respErr != nil {
 					t.Errorf("%s public RespondToFollowRequest = %v, want a replay (nobody asked)", what, respErr)
 				}

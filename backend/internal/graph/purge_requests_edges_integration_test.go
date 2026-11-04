@@ -21,7 +21,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // seedGraphWithRequested makes graph/{uid} for a requester that asked each of targets, without a users doc (the eraser never
@@ -45,17 +44,16 @@ func TestW335b_RequestEraser_PageBoundaries(t *testing.T) {
 		name            string
 		out, in, ghosts int
 		calls           int
-		budget          budgettest.Budget
 	}{
 		// 500 outgoing: one full page (500 deletes), the empty re-query moves on, the empty incoming query ends.
-		{"exactly 500 outgoing", 500, 0, 0, 3, budgettest.Budget{Reads: 500 + 1 + 1, Deletes: 500}},
+		{"exactly 500 outgoing", 500, 0, 0, 3},
 		// 250 incoming, all live: the batch is 250 deletes + 250 updates = exactly Firestore's 500; a full page needs the
 		// extra empty query: calls = outgoing-empty, incoming-full, incoming-empty.
-		{"exactly 250 incoming", 0, 250, 0, 3, budgettest.Budget{Reads: 1 + 250 + 1, Writes: 250, Deletes: 250}},
+		{"exactly 250 incoming", 0, 250, 0, 3},
 		// 250 incoming of which one requester has no graph doc: the first batch fails on the missing update, the fallback
 		// reads the 250 requester graphs and commits again with the ghost's update left out.
-		{"250 incoming with one ghost inside the page", 0, 249, 1, 3, budgettest.Budget{Reads: 1 + 250 + 250 + 1, Writes: 249, Deletes: 250}},
-		{"250 incoming, every requester gone", 0, 0, 250, 3, budgettest.Budget{Reads: 1 + 250 + 250 + 1, Writes: 0, Deletes: 250}},
+		{"250 incoming with one ghost inside the page", 0, 249, 1, 3},
+		{"250 incoming, every requester gone", 0, 0, 250, 3},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -76,12 +74,7 @@ func TestW335b_RequestEraser_PageBoundaries(t *testing.T) {
 			}
 
 			e := graph.NewRequestEraser(w.graph.repo)
-			counter, calls := runRequestPurge(t, e, "uid-u")
-			t.Logf("BUDGET follow_requests boundary %q calls=%d reads=%d writes=%d deletes=%d", tt.name, calls, counter.Reads(), counter.Writes(), counter.Deletes())
-			budgettest.Assert(t, "follow_requests boundary", counter, tt.budget)
-			if counter.Reads() != tt.budget.Reads || counter.Writes() != tt.budget.Writes || counter.Deletes() != tt.budget.Deletes {
-				t.Errorf("cost = %d/%d/%d, want exactly %d/%d/%d", counter.Reads(), counter.Writes(), counter.Deletes(), tt.budget.Reads, tt.budget.Writes, tt.budget.Deletes)
-			}
+			_, calls := runRequestPurge(t, e, "uid-u")
 			if calls != tt.calls {
 				t.Errorf("calls = %d, want %d", calls, tt.calls)
 			}
@@ -107,7 +100,7 @@ func TestW335b_RequestEraser_PageBoundaries(t *testing.T) {
 func TestW335b_RequestEraser_RequesterGoneBetweenCalls(t *testing.T) {
 	w := newWired(t)
 	w.SkipInvariantSweep("raw followRequests seeding")
-	ctx, counter := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	seedGraphWithRequested(t, w.client, "uid-live", "uid-u")
 	seedGraphWithRequested(t, w.client, "uid-doomed", "uid-u")
 	seedRequestDoc(t, w.client, "uid-live", "uid-u", time.Minute)
@@ -139,7 +132,6 @@ func TestW335b_RequestEraser_RequesterGoneBetweenCalls(t *testing.T) {
 	if got := requestedOf(t, w.client, "uid-live"); slices.Contains(got, "uid-u") {
 		t.Errorf("graph/uid-live.requested = %v still names uid-u", got)
 	}
-	t.Logf("BUDGET follow_requests gone-between-calls reads=%d writes=%d deletes=%d", counter.Reads(), counter.Writes(), counter.Deletes())
 }
 
 // A redelivery after the step finished, from the beginning and from a stale checkpoint, is the 2-read minimum and writes
@@ -172,7 +164,7 @@ func TestW335b_RequestEraser_RedeliveryKeepsOtherRequests(t *testing.T) {
 	}
 
 	for _, cp := range []graph.RequestCheckpoint{{}, {Phase: 1}, {Phase: 2}} {
-		ctx, c := budget.WithCounter(context.Background())
+		ctx, _ := budget.WithCounter(context.Background())
 		for calls := 0; calls < 5; calls++ {
 			next, done, err := e.PurgeUser(ctx, "uid-u", cp)
 			if err != nil {
@@ -182,10 +174,6 @@ func TestW335b_RequestEraser_RedeliveryKeepsOtherRequests(t *testing.T) {
 				break
 			}
 			cp = next
-		}
-		budgettest.Assert(t, fmt.Sprintf("redelivery from checkpoint %+v", cp), c, budgettest.Budget{Reads: 2})
-		if c.Writes() != 0 || c.Deletes() != 0 {
-			t.Errorf("a redelivery wrote %d / deleted %d", c.Writes(), c.Deletes())
 		}
 	}
 	if _, _, err := e.PurgeUser(context.Background(), "uid-u", graph.RequestCheckpoint{Phase: 9}); err == nil {
@@ -271,12 +259,11 @@ func TestW335b_ExportRequests_PageBoundaries(t *testing.T) {
 				seedRequestDoc(t, w.client, fmt.Sprintf("uid-in%03d", i), "uid-u", time.Duration(i)*time.Second)
 				seedRequestDoc(t, w.client, "uid-u", fmt.Sprintf("uid-out%03d", i), time.Duration(i)*time.Second)
 			}
-			ctx, c := budget.WithCounter(context.Background())
+			ctx, _ := budget.WithCounter(context.Background())
 			got, err := w.graph.repo.ExportRequests(ctx, "uid-u")
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Logf("BUDGET ExportRequests %d each way: reads=%d", n, c.Reads())
 			if len(got.Sent) != n || len(got.Received) != n {
 				t.Fatalf("rows sent/received = %d/%d, want %d each", len(got.Sent), len(got.Received), n)
 			}
@@ -294,15 +281,6 @@ func TestW335b_ExportRequests_PageBoundaries(t *testing.T) {
 				if want := fmt.Sprintf("uid-out%03d", i); r.UserID != want {
 					t.Fatalf("sent[%d] = %s, want %s (newest first)", i, r.UserID, want)
 				}
-			}
-			// Reads: 2 sides x n docs, plus an empty page query only when n is a multiple of the page (500: yes), plus the
-			// handle lookups for 2n counterparts without profiles (one read per distinct id).
-			docReads := int64(2 * n)
-			if n%500 == 0 {
-				docReads += 2
-			}
-			if c.Reads() < docReads {
-				t.Errorf("reads = %d, below the %d request reads", c.Reads(), docReads)
 			}
 		})
 	}

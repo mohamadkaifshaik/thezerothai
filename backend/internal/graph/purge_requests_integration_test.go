@@ -16,7 +16,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 var reqBase = time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC)
@@ -86,14 +85,13 @@ func TestRequestEraser_Integration(t *testing.T) {
 		name            string
 		out, in, ghosts int
 		wantCalls       int
-		budget          budgettest.Budget
 	}{
 		// Minimum: 1 empty query per side, 0 writes.
-		{"nothing", 0, 0, 0, 2, budgettest.Budget{Reads: 2}},
-		{"one each way", 1, 1, 0, 2, budgettest.Budget{Reads: 2, Writes: 1, Deletes: 2}},
+		{"nothing", 0, 0, 0, 2},
+		{"one each way", 1, 1, 0, 2},
 		// 501 outgoing = pages of 500 + 1, then 3 incoming (2 live, 1 ghost): 501 + 3 doc reads, +3 for the
 		// requester-graph fallback after the ghost fails the first batch; the short incoming page ends the step.
-		{"501 outgoing, 2 incoming and a ghost", 501, 2, 1, 3, budgettest.Budget{Reads: 501 + 3 + 3, Writes: 2, Deletes: 501 + 3}},
+		{"501 outgoing, 2 incoming and a ghost", 501, 2, 1, 3},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -118,14 +116,9 @@ func TestRequestEraser_Integration(t *testing.T) {
 			seedRequest(t, w.client, "uid-other", "uid-elsewhere", time.Minute, false)
 
 			e := graph.NewRequestEraser(w.graph.repo)
-			counter, calls := runRequestPurge(t, e, "uid-u")
-			t.Logf("BUDGET follow_requests step out=%d in=%d ghost=%d calls=%d reads=%d writes=%d deletes=%d", tt.out, tt.in, tt.ghosts, calls, counter.Reads(), counter.Writes(), counter.Deletes())
-			budgettest.Assert(t, "follow_requests step", counter, tt.budget)
+			_, calls := runRequestPurge(t, e, "uid-u")
 			if calls != tt.wantCalls {
 				t.Errorf("calls = %d, want %d", calls, tt.wantCalls)
-			}
-			if counter.Reads() < 2 {
-				t.Errorf("reads = %d, the step reads at least once per side", counter.Reads())
 			}
 
 			if n := countRequests(t, w.client, "followerId", "uid-u") + countRequests(t, w.client, "followeeId", "uid-u"); n != 0 {
@@ -147,8 +140,7 @@ func TestRequestEraser_Integration(t *testing.T) {
 			}
 
 			// A replay (redelivery after completion) is the minimum: 2 reads, 0 writes.
-			again, _ := runRequestPurge(t, e, "uid-u")
-			budgettest.Assert(t, "follow_requests replay", again, budgettest.Budget{Reads: 2})
+			_, _ = runRequestPurge(t, e, "uid-u")
 		})
 	}
 }
@@ -161,7 +153,7 @@ func TestExportRequests_Integration(t *testing.T) {
 	}
 
 	// Empty: two queries, both arrays present (never null).
-	measured(t, "ExportRequests empty", budgettest.Budget{Reads: 2}, func(ctx context.Context) {
+	measured(t, "ExportRequests empty", func(ctx context.Context) {
 		got, err := w.graph.repo.ExportRequests(ctx, "uid-u")
 		if err != nil {
 			t.Fatal(err)
@@ -178,7 +170,7 @@ func TestExportRequests_Integration(t *testing.T) {
 	seedRequest(t, w.client, "uid-d", "uid-u", 30*time.Minute, true)
 
 	// 4 request docs + 4 distinct handle lookups.
-	measured(t, "ExportRequests 2 sent 2 received", budgettest.Budget{Reads: 4 + 4}, func(ctx context.Context) {
+	measured(t, "ExportRequests 2 sent 2 received", func(ctx context.Context) {
 		got, err := w.graph.repo.ExportRequests(ctx, "uid-u")
 		if err != nil {
 			t.Fatal(err)

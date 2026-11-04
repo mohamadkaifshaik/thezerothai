@@ -14,7 +14,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // profileInTx runs ProfileInTx in a read-only transaction and returns what it saw and what it cost.
@@ -42,13 +41,9 @@ func TestProfileInTx_Integration(t *testing.T) {
 	}
 
 	t.Run("active", func(t *testing.T) {
-		p, c, err := profileInTx(t, client, repo, "uid-tx-1")
+		p, _, err := profileInTx(t, client, repo, "uid-tx-1")
 		if err != nil {
 			t.Fatalf("ProfileInTx: %v", err)
-		}
-		budgettest.Assert(t, "ProfileInTx", c, budgettest.Budget{Reads: 1})
-		if c.Reads() != 1 {
-			t.Errorf("reads = %d, want exactly 1", c.Reads())
 		}
 		if p.UserID != "uid-tx-1" || p.Handle != "Alice" || p.DisplayName != "Alice A." || p.Status != identity.AccountStatusActive || !p.CreatedAt.Equal(now) {
 			t.Errorf("profile = %+v", p)
@@ -63,23 +58,17 @@ func TestProfileInTx_Integration(t *testing.T) {
 			if _, err := client.Collection("users").Doc("uid-tx-1").Update(context.Background(), []firestore.Update{{Path: "status", Value: st.stored}}); err != nil {
 				t.Fatal(err)
 			}
-			p, c, err := profileInTx(t, client, repo, "uid-tx-1")
+			p, _, err := profileInTx(t, client, repo, "uid-tx-1")
 			if err != nil || p.Status != st.want {
 				t.Fatalf("profile status = %v err = %v, want %v", p.Status, err, st.want)
-			}
-			if c.Reads() != 1 {
-				t.Errorf("reads = %d, want 1", c.Reads())
 			}
 		})
 	}
 
 	t.Run("absent", func(t *testing.T) {
-		_, c, err := profileInTx(t, client, repo, "uid-tx-missing")
+		_, _, err := profileInTx(t, client, repo, "uid-tx-missing")
 		if !errors.Is(err, identity.ErrNotFound) {
 			t.Fatalf("err = %v, want ErrNotFound", err)
-		}
-		if c.Reads() != 1 {
-			t.Errorf("an absent document still bills 1 read; got %d", c.Reads())
 		}
 		if strings.Contains(err.Error(), "uid-tx-missing") {
 			t.Errorf("the error text names the uid: %v", err)

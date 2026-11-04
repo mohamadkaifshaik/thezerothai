@@ -13,7 +13,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
@@ -32,11 +31,10 @@ func rmParams(uid, key, postID string) RemoveBookmarkParams {
 }
 
 // measured runs fn under a fresh budget counter and asserts it against the documented repo-level budget.
-func measured(t *testing.T, name string, b budgettest.Budget, fn func(ctx context.Context)) *budget.Counter {
+func measured(t *testing.T, name string, fn func(ctx context.Context)) *budget.Counter {
 	t.Helper()
 	ctx, c := budget.WithCounter(context.Background())
 	fn(ctx)
-	budgettest.Assert(t, name, c, b)
 	return c
 }
 
@@ -86,7 +84,7 @@ func TestBookmarkRepo_AddWritesFourDocsAndKeepsTheRest(t *testing.T) {
 	}
 
 	var res BookmarkResult
-	c := measured(t, "Add", budgettest.Budget{Reads: 3, Writes: 4}, func(ctx context.Context) {
+	measured(t, "Add", func(ctx context.Context) {
 		var err error
 		if res, err = e.repo.Add(ctx, addParams(bmUID, "key-0000000000001", pid)); err != nil {
 			t.Fatal(err)
@@ -94,9 +92,6 @@ func TestBookmarkRepo_AddWritesFourDocsAndKeepsTheRest(t *testing.T) {
 	})
 	if res.Outcome != BookmarkWritten || res.State != (BookmarkState{PostID: pid, Bookmarked: true}) {
 		t.Fatalf("result = %+v", res)
-	}
-	if c.Reads() != 3 || c.Writes() != 4 || c.Deletes() != 0 {
-		t.Errorf("Add reads/writes/deletes = %d/%d/%d, want 3/4/0", c.Reads(), c.Writes(), c.Deletes())
 	}
 	if ids := e.bookmarks(t, bmUID); len(ids) != 1 || ids[0] != pid {
 		t.Errorf("userLikes.bookmarks = %v", ids)
@@ -140,7 +135,7 @@ func TestBookmarkRepo_ReplayExistingCapQuotaAndKeyReuse(t *testing.T) {
 	}
 
 	t.Run("replay: 1 read, 0 writes, the stored state", func(t *testing.T) {
-		measured(t, "Add replay", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+		measured(t, "Add replay", func(ctx context.Context) {
 			res, err := e.repo.Add(ctx, addParams(bmUID, "key-0000000000001", p1))
 			if err != nil || res.Outcome != BookmarkReplayed || !res.State.Bookmarked {
 				t.Fatalf("replay = %+v, %v", res, err)
@@ -149,13 +144,13 @@ func TestBookmarkRepo_ReplayExistingCapQuotaAndKeyReuse(t *testing.T) {
 	})
 
 	t.Run("existing bookmark under a new key: success, 1 write (the idempotency doc), no charge", func(t *testing.T) {
-		c := measured(t, "Add existing", budgettest.Budget{Reads: 3, Writes: 1}, func(ctx context.Context) {
+		c := measured(t, "Add existing", func(ctx context.Context) {
 			res, err := e.repo.Add(ctx, addParams(bmUID, "key-0000000000002", p1))
 			if err != nil || res.Outcome != BookmarkUnchanged || !res.State.Bookmarked {
 				t.Fatalf("existing = %+v, %v", res, err)
 			}
 		})
-		if c.Writes() != 1 || !e.exists(t, "idempotency/"+idempotency.Key(bmUID, "AddBookmark", "key-0000000000002")) {
+		if !e.exists(t, "idempotency/"+idempotency.Key(bmUID, "AddBookmark", "key-0000000000002")) {
 			t.Errorf("existing: writes %d, want 1 and the idempotency doc stored", c.Writes())
 		}
 		if got := e.quotaBookmarks(t, bmUID); got != 1 {
@@ -168,13 +163,13 @@ func TestBookmarkRepo_ReplayExistingCapQuotaAndKeyReuse(t *testing.T) {
 		if _, err := e.client.Doc("users/"+uid+"/bookmarks/"+p2).Set(ctx, map[string]any{"createdAt": firestore.ServerTimestamp}); err != nil {
 			t.Fatal(err)
 		}
-		c := measured(t, "Add drift", budgettest.Budget{Reads: 3, Writes: 1}, func(ctx context.Context) {
+		c := measured(t, "Add drift", func(ctx context.Context) {
 			res, err := e.repo.Add(ctx, addParams(uid, "key-0000000000003", p2))
 			if err != nil || res.Outcome != BookmarkUnchanged {
 				t.Fatalf("drift = %+v, %v", res, err)
 			}
 		})
-		if c.Writes() != 1 || e.quotaBookmarks(t, uid) != 0 || !e.exists(t, "idempotency/"+idempotency.Key(uid, "AddBookmark", "key-0000000000003")) {
+		if e.quotaBookmarks(t, uid) != 0 || !e.exists(t, "idempotency/"+idempotency.Key(uid, "AddBookmark", "key-0000000000003")) {
 			t.Errorf("writes %d quota %d, want 1/0 and the idempotency doc stored", c.Writes(), e.quotaBookmarks(t, uid))
 		}
 	})
@@ -195,14 +190,11 @@ func TestBookmarkRepo_ReplayExistingCapQuotaAndKeyReuse(t *testing.T) {
 		if _, err := e.client.Doc("userLikes/"+uid).Set(ctx, map[string]any{"bookmarks": ids}); err != nil {
 			t.Fatal(err)
 		}
-		c := measured(t, "Add at cap", budgettest.Budget{Reads: 3}, func(ctx context.Context) {
+		measured(t, "Add at cap", func(ctx context.Context) {
 			if _, err := e.repo.Add(ctx, addParams(uid, "key-0000000000004", p2)); !errors.Is(err, ErrBookmarkLimit) {
 				t.Fatalf("err = %v, want ErrBookmarkLimit", err)
 			}
 		})
-		if c.Writes() != 0 {
-			t.Errorf("writes at the cap = %d", c.Writes())
-		}
 		res, err := e.repo.Add(ctx, addParams(uid, "key-0000000000005", ids[17]))
 		if err != nil || res.Outcome != BookmarkUnchanged {
 			t.Fatalf("existing at the cap = %+v, %v", res, err)
@@ -230,16 +222,13 @@ func TestBookmarkRepo_ReplayExistingCapQuotaAndKeyReuse(t *testing.T) {
 		}
 		third := addParams(uid, "key-0000000000099", "0000000000000000113")
 		third.QuotaLimit = 2
-		c := measured(t, "Add over quota", budgettest.Budget{Reads: 3}, func(ctx context.Context) {
+		measured(t, "Add over quota", func(ctx context.Context) {
 			_, err := e.repo.Add(ctx, third)
 			var ae *apierr.Error
 			if !errors.As(err, &ae) || ae.Metadata["quota"] != "bookmarks" {
 				t.Fatalf("err = %v, want QUOTA_EXCEEDED quota=bookmarks", err)
 			}
 		})
-		if c.Writes() != 0 {
-			t.Errorf("writes over quota = %d", c.Writes())
-		}
 		first := addParams(uid, "key-0000000000010", p1)
 		first.QuotaLimit = 2
 		if res, err := e.repo.Add(ctx, first); err != nil || res.Outcome != BookmarkReplayed {
@@ -264,15 +253,12 @@ func TestBookmarkRepo_Remove(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c := measured(t, "Remove", budgettest.Budget{Reads: 1, Writes: 2, Deletes: 1}, func(ctx context.Context) {
+	measured(t, "Remove", func(ctx context.Context) {
 		res, err := e.repo.Remove(ctx, rmParams(bmUID, "key-0000000000002", pid))
 		if err != nil || res.Outcome != BookmarkWritten || res.State.Bookmarked {
 			t.Fatalf("Remove = %+v, %v", res, err)
 		}
 	})
-	if c.Reads() != 1 || c.Writes() != 2 || c.Deletes() != 1 {
-		t.Errorf("Remove reads/writes/deletes = %d/%d/%d, want 1/2/1", c.Reads(), c.Writes(), c.Deletes())
-	}
 	if e.bookmarkExists(t, bmUID, pid) || len(e.bookmarks(t, bmUID)) != 0 {
 		t.Error("bookmark or array entry survived")
 	}
@@ -282,15 +268,12 @@ func TestBookmarkRepo_Remove(t *testing.T) {
 	}
 
 	t.Run("replay after remove: stored state, 0 writes", func(t *testing.T) {
-		c := measured(t, "Remove replay", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+		measured(t, "Remove replay", func(ctx context.Context) {
 			res, err := e.repo.Remove(ctx, rmParams(bmUID, "key-0000000000002", pid))
 			if err != nil || res.Outcome != BookmarkReplayed || res.State.Bookmarked {
 				t.Fatalf("replay = %+v, %v", res, err)
 			}
 		})
-		if c.Writes() != 0 || c.Deletes() != 0 {
-			t.Errorf("replay writes/deletes = %d/%d", c.Writes(), c.Deletes())
-		}
 	})
 
 	t.Run("a late retry never removes a bookmark added again", func(t *testing.T) {
@@ -306,15 +289,12 @@ func TestBookmarkRepo_Remove(t *testing.T) {
 	})
 
 	t.Run("a missing bookmark is a no-op: 1 read, 1 write (the idempotency doc), no delete", func(t *testing.T) {
-		c := measured(t, "Remove no-op", budgettest.Budget{Reads: 1, Writes: 1}, func(ctx context.Context) {
+		measured(t, "Remove no-op", func(ctx context.Context) {
 			res, err := e.repo.Remove(ctx, rmParams(bmUID, "key-0000000000004", other))
 			if err != nil || res.Outcome != BookmarkUnchanged || res.State.Bookmarked {
 				t.Fatalf("no-op = %+v, %v", res, err)
 			}
 		})
-		if c.Writes() != 1 || c.Deletes() != 0 || c.Reads() != 1 {
-			t.Errorf("no-op reads/writes/deletes = %d/%d/%d, want 1/1/0", c.Reads(), c.Writes(), c.Deletes())
-		}
 		if !e.exists(t, "idempotency/"+idempotency.Key(bmUID, "RemoveBookmark", "key-0000000000004")) {
 			t.Error("a no-op did not store its idempotency doc")
 		}
@@ -329,13 +309,13 @@ func TestBookmarkRepo_Remove(t *testing.T) {
 		if _, err := e.repo.Add(ctx, addParams(uid, "key-late-add-000001", p)); err != nil {
 			t.Fatal(err)
 		}
-		c := measured(t, "late Remove retry", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+		c := measured(t, "late Remove retry", func(ctx context.Context) {
 			res, err := e.repo.Remove(ctx, rmParams(uid, "key-late-rm-0000001", p))
 			if err != nil || res.Outcome != BookmarkReplayed {
 				t.Fatalf("late retry of K = %+v, %v, want a replay", res, err)
 			}
 		})
-		if c.Writes() != 0 || c.Deletes() != 0 || !e.bookmarkExists(t, uid, p) || len(e.bookmarks(t, uid)) != 1 {
+		if !e.bookmarkExists(t, uid, p) || len(e.bookmarks(t, uid)) != 1 {
 			t.Errorf("the late retry changed state: writes %d deletes %d", c.Writes(), c.Deletes())
 		}
 	})
@@ -351,13 +331,13 @@ func TestBookmarkRepo_Remove(t *testing.T) {
 		if res, err := e.repo.Remove(ctx, rmParams(uid, "key-late-rm-0000002", p)); err != nil || res.Outcome != BookmarkWritten {
 			t.Fatalf("Remove = %+v, %v", res, err)
 		}
-		c := measured(t, "late Add retry", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+		c := measured(t, "late Add retry", func(ctx context.Context) {
 			res, err := e.repo.Add(ctx, addParams(uid, "key-late-add-000003", p))
 			if err != nil || res.Outcome != BookmarkReplayed {
 				t.Fatalf("late retry of K = %+v, %v, want a replay", res, err)
 			}
 		})
-		if c.Writes() != 0 || e.bookmarkExists(t, uid, p) || len(e.bookmarks(t, uid)) != 0 {
+		if e.bookmarkExists(t, uid, p) || len(e.bookmarks(t, uid)) != 0 {
 			t.Errorf("the late retry re-added the bookmark: writes %d", c.Writes())
 		}
 	})

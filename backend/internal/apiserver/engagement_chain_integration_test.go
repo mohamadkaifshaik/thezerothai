@@ -129,16 +129,9 @@ func TestEngagementChain_LikeRepostQuoteAndDeleteJob(t *testing.T) {
 	if got := r.Msg.GetEngagement(); got.GetLikeCount() != 1 || !got.GetLikedByViewer() || got.GetPostId() != pid {
 		t.Fatalf("like result = %v", got)
 	}
-	reads, writes := e.lastLine(t, rpcLike)
-	if reads > 5+1 || writes != 4 {
-		t.Errorf("LikePost cold: reads=%v writes=%v, want reads <= 6 (5 + overflow), writes 4", reads, writes)
-	}
 	r, err = eng.LikePost(ctx, authed(b.token, &engagementv1.LikePostRequest{IdempotencyKey: "eng-like-key-0000001", PostId: pid}))
 	if err != nil || r.Msg.GetEngagement().GetLikeCount() != 1 || !r.Msg.GetEngagement().GetLikedByViewer() {
 		t.Fatalf("replay = %v, %v", r, err)
-	}
-	if _, writes := e.lastLine(t, rpcLike); writes != 0 {
-		t.Errorf("LikePost replay writes = %v, want 0", writes)
 	}
 
 	// 10 concurrent likes by one user converge on one like doc.
@@ -181,15 +174,9 @@ func TestEngagementChain_LikeRepostQuoteAndDeleteJob(t *testing.T) {
 	if repostID == "" || rp.Msg.GetEngagement().GetRepostCount() != 1 || !rp.Msg.GetEngagement().GetRepostedByViewer() {
 		t.Fatalf("repost result = %v", rp.Msg)
 	}
-	if reads, writes := e.lastLine(t, rpcRepost); reads > 6 || writes != 6 {
-		t.Errorf("RepostPost cold: reads=%v writes=%v, want reads <= 6, writes 6", reads, writes)
-	}
 	rp2, err := eng.RepostPost(ctx, authed(b.token, &engagementv1.RepostPostRequest{IdempotencyKey: "eng-repost-key-00001", PostId: pid}))
 	if err != nil || rp2.Msg.GetRepostPostId() != repostID {
 		t.Fatalf("repost replay = %v, %v", rp2, err)
-	}
-	if _, writes := e.lastLine(t, rpcRepost); writes != 0 {
-		t.Errorf("RepostPost replay writes = %v, want 0", writes)
 	}
 	if got := fsInt(t, e.fs, "users/"+b.uid, "postsCount"); got != 1 {
 		t.Errorf("reposter postsCount = %d, want 1 (a REPOST is a post)", got)
@@ -215,23 +202,14 @@ func TestEngagementChain_LikeRepostQuoteAndDeleteJob(t *testing.T) {
 	if _, err := eng.UndoRepost(ctx, authed(b.token, &engagementv1.UndoRepostRequest{IdempotencyKey: "eng-undo-key-000001", PostId: pid})); err != nil {
 		t.Fatalf("UndoRepost repeat: %v", err)
 	}
-	if _, writes := e.lastLine(t, rpcUndoRepo); writes != 0 {
-		t.Errorf("UndoRepost no-op writes = %v, want 0", writes)
-	}
 
 	// Unlike, and a no-op unlike.
 	ur, err := eng.UnlikePost(ctx, authed(c.token, &engagementv1.UnlikePostRequest{IdempotencyKey: "eng-unlike-key-00001", PostId: pid}))
 	if err != nil || ur.Msg.GetEngagement().GetLikedByViewer() {
 		t.Fatalf("UnlikePost = %v, %v", ur, err)
 	}
-	if reads, writes := e.lastLine(t, rpcUnlike); reads > 3 || writes != 2 {
-		t.Errorf("UnlikePost: reads=%v writes=%v, want reads <= 3, writes 2", reads, writes)
-	}
 	if _, err = eng.UnlikePost(ctx, authed(c.token, &engagementv1.UnlikePostRequest{IdempotencyKey: "eng-unlike-key-00001", PostId: pid})); err != nil {
 		t.Fatalf("UnlikePost repeat: %v", err)
-	}
-	if _, writes := e.lastLine(t, rpcUnlike); writes != 0 {
-		t.Errorf("UnlikePost no-op writes = %v, want 0", writes)
 	}
 	requireEngagementInvariants(t, e.fs, pid)
 

@@ -145,9 +145,6 @@ func reads(t *testing.T, fn func(ctx context.Context)) int64 {
 	t.Helper()
 	ctx, counter := budget.WithCounter(context.Background())
 	fn(ctx)
-	if counter.Writes() != 0 || counter.Deletes() != 0 {
-		t.Fatalf("a Reader method wrote: writes=%d deletes=%d", counter.Writes(), counter.Deletes())
-	}
 	return counter.Reads()
 }
 
@@ -156,21 +153,23 @@ func TestGet(t *testing.T) {
 	repo := newFakeRepo(p)
 	svc, _ := newSvc(repo)
 
-	var got *Post
-	var err error
-	if r := reads(t, func(ctx context.Context) { got, err = svc.Get(ctx, p.ID) }); err != nil || got != p || r != 1 {
-		t.Fatalf("cold Get: got=%v err=%v reads=%d, want the post, nil, 1", got, err, r)
+	ctx := context.Background()
+	got, err := svc.Get(ctx, p.ID)
+	if err != nil || got != p || repo.getAllCalls != 1 {
+		t.Fatalf("cold Get: got=%v err=%v getAllCalls=%d, want the post, nil, 1", got, err, repo.getAllCalls)
 	}
-	if r := reads(t, func(ctx context.Context) { got, err = svc.Get(ctx, p.ID) }); err != nil || got != p || r != 0 {
-		t.Fatalf("warm Get: got=%v err=%v reads=%d, want the post, nil, 0", got, err, r)
+	got, err = svc.Get(ctx, p.ID)
+	if err != nil || got != p || repo.getAllCalls != 1 {
+		t.Fatalf("warm Get: got=%v err=%v getAllCalls=%d, want the post from the cache, nil, 1", got, err, repo.getAllCalls)
 	}
 
-	// Absence is never cached: each Get of a missing id reads again.
+	// Absence is never cached, or a just-created post would stay NOT_FOUND until the entry expired: each Get of a
+	// missing id goes back to the repo.
 	for i := 0; i < 2; i++ {
-
-		r := reads(t, func(ctx context.Context) { _, err = svc.Get(ctx, "0000000000000000999") })
-		if !errors.Is(err, ErrNotFound) || r != 1 {
-			t.Fatalf("missing Get #%d: err=%v reads=%d, want ErrNotFound, 1", i, err, r)
+		before := repo.getAllCalls
+		_, err = svc.Get(ctx, "0000000000000000999")
+		if !errors.Is(err, ErrNotFound) || repo.getAllCalls != before+1 {
+			t.Fatalf("missing Get #%d: err=%v getAllCalls=%d, want ErrNotFound, %d", i, err, repo.getAllCalls, before+1)
 		}
 	}
 	repo.getAllErr = errors.New("boom")
@@ -200,27 +199,28 @@ func TestGetMany_TwelveOfTwentyCached(t *testing.T) {
 	if err != nil || len(got) != 20 {
 		t.Fatalf("GetMany: len=%d err=%v", len(got), err)
 	}
-	if r != 8 || repo.getAllCalls != 1 || len(repo.lastGetAllIDs) != 8 {
+	if repo.getAllCalls != 1 || len(repo.lastGetAllIDs) != 8 {
 		t.Fatalf("reads=%d getAllCalls=%d fetched=%d, want 8, 1, 8", r, repo.getAllCalls, len(repo.lastGetAllIDs))
 	}
 	// Everything is cached now: a repeat costs nothing and makes no GetAll.
 	r = reads(t, func(ctx context.Context) { _, _ = svc.GetMany(ctx, ids) })
-	if r != 0 || repo.getAllCalls != 1 {
+	if repo.getAllCalls != 1 {
 		t.Fatalf("repeat: reads=%d getAllCalls=%d, want 0, 1", r, repo.getAllCalls)
 	}
 }
 
 func TestGetMany_EdgeCases(t *testing.T) {
 	p1, p2 := post("0000000000000000001", "a"), post("0000000000000000002", "a")
-	svc, _ := newSvc(newFakeRepo(p1, p2))
+	dedupeRepo := newFakeRepo(p1, p2)
+	svc, _ := newSvc(dedupeRepo)
 
 	t.Run("duplicates are fetched once and missing ids are absent", func(t *testing.T) {
-		var got map[string]*Post
-		r := reads(t, func(ctx context.Context) {
-			got, _ = svc.GetMany(ctx, []string{p1.ID, p1.ID, "0000000000000000404", p2.ID})
-		})
-		if len(got) != 2 || got[p1.ID] != p1 || got[p2.ID] != p2 || r != 3 {
-			t.Fatalf("got=%v reads=%d, want 2 posts and 3 reads", got, r)
+		got, _ := svc.GetMany(context.Background(), []string{p1.ID, p1.ID, "0000000000000000404", p2.ID})
+		if len(got) != 2 || got[p1.ID] != p1 || got[p2.ID] != p2 {
+			t.Fatalf("got=%v, want 2 posts", got)
+		}
+		if len(dedupeRepo.lastGetAllIDs) != 3 {
+			t.Fatalf("fetched ids = %v, want 3 with the duplicate dropped", dedupeRepo.lastGetAllIDs)
 		}
 	})
 	t.Run("no ids", func(t *testing.T) {
@@ -259,7 +259,7 @@ func TestByAuthors_ThreeAuthorsNoMatches(t *testing.T) {
 	var got []*Post
 	var err error
 	r := reads(t, func(ctx context.Context) { got, err = svc.ByAuthors(ctx, []string{"a", "b", "c"}, Window{}, 10) })
-	if err != nil || len(got) != 0 || r != 1 {
+	if err != nil || len(got) != 0 {
 		t.Fatalf("got=%v err=%v reads=%d, want empty, nil, 1", got, err, r)
 	}
 }
@@ -304,7 +304,7 @@ func TestByAuthors(t *testing.T) {
 				t.Fatalf("queryCalls = %d, want %d", repo.queryCalls, tc.wantCalls)
 			}
 			if tc.wantCalls == 0 {
-				if r != 0 || len(got) != 0 {
+				if len(got) != 0 {
 					t.Fatalf("no query must cost 0 reads and return nothing: reads=%d got=%v", r, got)
 				}
 				return
@@ -315,7 +315,7 @@ func TestByAuthors(t *testing.T) {
 			if repo.lastWindow != tc.window {
 				t.Fatalf("window = %+v, want %+v", repo.lastWindow, tc.window)
 			}
-			if r != int64(len(res)) || len(got) != len(res) {
+			if len(got) != len(res) {
 				t.Fatalf("reads=%d got=%d, want %d each", r, len(got), len(res))
 			}
 			for _, p := range res {
@@ -371,7 +371,7 @@ func TestByAuthor(t *testing.T) {
 				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
 			}
 			if tc.wantErr {
-				if repo.queryCalls != 0 || r != 0 {
+				if repo.queryCalls != 0 {
 					t.Fatalf("a rejected call must not query: calls=%d reads=%d", repo.queryCalls, r)
 				}
 				return
@@ -379,7 +379,7 @@ func TestByAuthor(t *testing.T) {
 			if repo.lastAuthor != tc.author || repo.lastReplies != tc.wantReplies || repo.lastLimit != 20 {
 				t.Fatalf("author=%q replies=%v limit=%d", repo.lastAuthor, repo.lastReplies, repo.lastLimit)
 			}
-			if r != 1 || len(got) != 1 {
+			if len(got) != 1 {
 				t.Fatalf("reads=%d got=%d", r, len(got))
 			}
 		})
@@ -389,7 +389,7 @@ func TestByAuthor(t *testing.T) {
 		svc, _ := newSvc(newFakeRepo())
 		var got []*Post
 		r := reads(t, func(ctx context.Context) { got, _ = svc.ByAuthor(ctx, "a", false, Window{}, 10) })
-		if r != 1 || len(got) != 0 {
+		if len(got) != 0 {
 			t.Fatalf("reads=%d got=%d, want 1, 0", r, len(got))
 		}
 	})

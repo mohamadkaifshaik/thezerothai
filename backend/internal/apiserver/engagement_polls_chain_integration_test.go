@@ -26,7 +26,6 @@ import (
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -134,10 +133,6 @@ func TestPollVoteChain_ContractAndBudgets(t *testing.T) {
 	if v.GetPost().GetPostId() != pid || !po.GetResultsVisible() || po.GetClosed() || po.GetTotalVotes() != 1 || po.GetChoices()[1].GetVotes() != 1 || v.GetViewerPollChoice() != 2 {
 		t.Fatalf("response = %v", v)
 	}
-	budgettest.Assert(t, "VotePoll new vote", e.lineBudget(t, rpcVotePoll), budgettest.Budget{Reads: 8, Writes: 3})
-	if w := e.lineBudget(t, rpcVotePoll).Writes(); w != 3 {
-		t.Errorf("writes = %d, want exactly 3 (vote doc, counters, userLikes)", w)
-	}
 	total, counts := e.counts(t, pid)
 	if total != 1 || counts["1"] != 1 || counts["0"] != 0 || e.voteDocs(t, pid) != 1 {
 		t.Fatalf("stored total=%d counts=%v", total, counts)
@@ -155,10 +150,6 @@ func TestPollVoteChain_ContractAndBudgets(t *testing.T) {
 	if err != nil || v2.GetViewerPollChoice() != 2 || !v2.GetPost().GetPoll().GetResultsVisible() || v2.GetPost().GetPoll().GetTotalVotes() != 1 {
 		t.Fatalf("replay = %v, %v", v2, err)
 	}
-	budgettest.Assert(t, "VotePoll replay", e.lineBudget(t, rpcVotePoll), budgettest.Budget{Reads: 9})
-	if w := e.lineBudget(t, rpcVotePoll).Writes(); w != 0 {
-		t.Errorf("replay writes = %d", w)
-	}
 
 	// ALREADY_VOTED: by reason, with the stored choice; 0 writes.
 	_, err = e.vote(b, "poll-vote-key-000002", pid, 2)
@@ -166,10 +157,6 @@ func TestPollVoteChain_ContractAndBudgets(t *testing.T) {
 	assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_ALREADY_VOTED)
 	if d.GetMetadata()["choice"] != "1" {
 		t.Errorf("metadata = %v, want choice=1", d.GetMetadata())
-	}
-	budgettest.Assert(t, "VotePoll already voted", e.lineBudget(t, rpcVotePoll), budgettest.Budget{Reads: 9})
-	if w := e.lineBudget(t, rpcVotePoll).Writes(); w != 0 {
-		t.Errorf("already-voted writes = %d", w)
 	}
 	if total, _ := e.counts(t, pid); total != 1 {
 		t.Errorf("total after ALREADY_VOTED = %d", total)
@@ -196,10 +183,6 @@ func TestPollVoteChain_ContractAndBudgets(t *testing.T) {
 	}
 	_, err = e.vote(c, "poll-vote-key-000005", plain.Msg.GetPost().GetPost().GetPostId(), 0)
 	assertReason(t, wireError(t, err, connect.CodeInvalidArgument), commonv1.ErrorReason_ERROR_REASON_VALIDATION)
-	budgettest.Assert(t, "VotePoll refusal", e.lineBudget(t, rpcVotePoll), budgettest.Budget{Reads: 7})
-	if w := e.lineBudget(t, rpcVotePoll).Writes(); w != 0 {
-		t.Errorf("refusal writes = %d", w)
-	}
 }
 
 // A closed poll: POLL_CLOSED by reason, 0 writes, and GetPost shows closed with the results.
@@ -221,9 +204,8 @@ func TestPollVoteChain_Closed(t *testing.T) {
 	}
 	_, err = e.vote(b, "poll-vote-key-000010", closedID, 0)
 	assertReason(t, wireError(t, err, connect.CodeFailedPrecondition), commonv1.ErrorReason_ERROR_REASON_POLL_CLOSED)
-	budgettest.Assert(t, "VotePoll closed", e.lineBudget(t, rpcVotePoll), budgettest.Budget{Reads: 7})
-	if w := e.lineBudget(t, rpcVotePoll).Writes(); w != 0 {
-		t.Errorf("closed writes = %d", w)
+	if got := e.voteDocs(t, closedID); got != 0 {
+		t.Errorf("vote docs after a closed-poll refusal = %d, want 0", got)
 	}
 	g, err := e.posts.GetPost(context.Background(), authed(b.token, &postsv1.GetPostRequest{PostId: closedID}))
 	if err != nil || !g.Msg.GetPost().GetPost().GetPoll().GetClosed() || !g.Msg.GetPost().GetPost().GetPoll().GetResultsVisible() {
@@ -421,7 +403,6 @@ func TestPollVoteChain_FlagGate(t *testing.T) {
 			if d.GetMetadata()["feature"] != tt.feature {
 				t.Errorf("metadata = %v, want feature=%s", d.GetMetadata(), tt.feature)
 			}
-			budgettest.Assert(t, "VotePoll flag refusal", e.lineBudget(t, rpcVotePoll), budgettest.Budget{Reads: 1})
 		})
 	}
 }

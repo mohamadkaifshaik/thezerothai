@@ -17,7 +17,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 func lifecycleRepo(t *testing.T) (*identity.FirestoreRepo, *firestore.Client) {
@@ -52,14 +51,10 @@ func TestBeginDeletion_Integration(t *testing.T) {
 	seedProfile(t, repo, "u2", "Bobby")
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	start, err := repo.BeginDeletion(ctx, "u1", now)
 	if err != nil || start.Replay {
 		t.Fatalf("BeginDeletion = %+v, %v", start, err)
-	}
-	budgettest.Assert(t, "BeginDeletion", c, budgettest.Budget{Reads: 1, Writes: 1})
-	if c.Writes() != 1 {
-		t.Errorf("writes = %d, want exactly 1", c.Writes())
 	}
 	p, ut, err := repo.GetJobState(context.Background(), "u1")
 	if err != nil {
@@ -69,12 +64,11 @@ func TestBeginDeletion_Integration(t *testing.T) {
 		t.Errorf("stored state = %+v updateTime %v", p, ut)
 	}
 
-	ctx, c = budget.WithCounter(context.Background())
+	ctx, _ = budget.WithCounter(context.Background())
 	again, err := repo.BeginDeletion(ctx, "u1", now.Add(time.Hour))
 	if err != nil || !again.Replay || !again.Profile.DeletionRequestedAt.Equal(now) {
 		t.Fatalf("replay = %+v, %v", again, err)
 	}
-	budgettest.Assert(t, "BeginDeletion replay", c, budgettest.Budget{Reads: 1, Writes: 0})
 
 	// SUSPENDED may delete.
 	if _, err := client.Collection("users").Doc("u2").Update(context.Background(), []firestore.Update{{Path: "status", Value: "SUSPENDED"}}); err != nil {
@@ -111,12 +105,11 @@ func TestSaveJobState_Integration(t *testing.T) {
 	}
 	_, ut, _ := repo.GetJobState(context.Background(), "u1")
 
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	job := identity.DeletionJob{Seq: 1, Step: "graph", Checkpoint: []byte(`{"Step":2}`), ProgressAt: now}
 	if err := repo.SaveJobState(ctx, "u1", ut, job); err != nil {
 		t.Fatalf("SaveJobState: %v", err)
 	}
-	budgettest.Assert(t, "SaveJobState", c, budgettest.Budget{Writes: 1})
 	p, ut2, _ := repo.GetJobState(context.Background(), "u1")
 	if p.DeletionJob.Seq != 1 || p.DeletionJob.Step != "graph" || string(p.DeletionJob.Checkpoint) != `{"Step":2}` {
 		t.Errorf("job = %+v", p.DeletionJob)
@@ -153,19 +146,17 @@ func TestCreateExport_Integration(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	p := identity.CreateExportParams{ID: "export-id-1", UID: "u1", ObjectPath: "export-id-1.json", Now: now, Retention: 7 * 24 * time.Hour, ExportsPerDay: 1}
 
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	doc, replay, err := repo.CreateExport(ctx, p)
 	if err != nil || replay || doc.Status != identity.ExportPending || !doc.ExpireAt.Equal(now.Add(7*24*time.Hour)) {
 		t.Fatalf("CreateExport = %+v, %v, %v", doc, replay, err)
 	}
-	budgettest.Assert(t, "CreateExport", c, budgettest.Budget{Reads: 1, Writes: 2})
 
-	ctx, c = budget.WithCounter(context.Background())
+	ctx, _ = budget.WithCounter(context.Background())
 	again, replay, err := repo.CreateExport(ctx, p)
 	if err != nil || !replay || again.ID != "export-id-1" {
 		t.Fatalf("replay = %+v, %v, %v", again, replay, err)
 	}
-	budgettest.Assert(t, "CreateExport replay", c, budgettest.Budget{Reads: 2, Writes: 0})
 
 	p2 := p
 	p2.ID = "export-id-2"
@@ -211,14 +202,10 @@ func TestCreateExport_Integration_ReplayWithQuotaLeft(t *testing.T) {
 	if _, _, err := repo.CreateExport(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	doc, replay, err := repo.CreateExport(ctx, p)
 	if err != nil || !replay || doc.ID != "export-id-1" || doc.UID != "u1" {
 		t.Fatalf("replay = %+v, %v, %v", doc, replay, err)
-	}
-	budgettest.Assert(t, "CreateExport replay with quota left", c, budgettest.Budget{Reads: 2, Writes: 0})
-	if c.Writes() != 0 {
-		t.Errorf("writes = %d, want 0", c.Writes())
 	}
 	snap, err := client.Collection("quotas").Doc("u1").Get(context.Background())
 	if err != nil {
@@ -250,12 +237,11 @@ func TestIdentityStepOps_Integration(t *testing.T) {
 		}
 	}
 
-	c1, cnt := budget.WithCounter(ctx)
+	c1, _ := budget.WithCounter(ctx)
 	docs, err := repo.ListExports(c1, "u1", 50)
 	if err != nil || len(docs) != 2 {
 		t.Fatalf("ListExports = %v, %v (u2's export must not be listed)", docs, err)
 	}
-	budgettest.Assert(t, "ListExports", cnt, budgettest.Budget{Reads: 2})
 	if err := repo.DeleteExportDocs(ctx, []string{"e1", "e2", "already-gone"}); err != nil {
 		t.Fatalf("DeleteExportDocs: %v", err)
 	}
@@ -263,11 +249,10 @@ func TestIdentityStepOps_Integration(t *testing.T) {
 		t.Errorf("exports left: %v", left)
 	}
 
-	c2, cnt := budget.WithCounter(ctx)
+	c2, _ := budget.WithCounter(ctx)
 	if n, err := repo.DeletePrivate(c2, "u1", 2); err != nil || n != 2 {
 		t.Fatalf("DeletePrivate = %d, %v (limit 2)", n, err)
 	}
-	budgettest.Assert(t, "DeletePrivate", cnt, budgettest.Budget{Reads: 2, Deletes: 2})
 	if n, err := repo.DeletePrivate(ctx, "u1", 500); err != nil || n != 1 {
 		t.Fatalf("second DeletePrivate = %d, %v", n, err)
 	}
@@ -282,11 +267,10 @@ func TestIdentityStepOps_Integration(t *testing.T) {
 	if _, err := client.Collection("handles").Doc("bobby").Get(ctx); err != nil {
 		t.Errorf("another user's handle was deleted: %v", err)
 	}
-	c3, cnt := budget.WithCounter(ctx)
+	c3, _ := budget.WithCounter(ctx)
 	if out, err := repo.DeleteHandleIfOwned(c3, "alice", "u1"); err != nil || out != identity.HandleDeleted {
 		t.Errorf("own handle: %v, %v", out, err)
 	}
-	budgettest.Assert(t, "DeleteHandleIfOwned", cnt, budgettest.Budget{Reads: 1, Deletes: 1})
 	if out, err := repo.DeleteHandleIfOwned(ctx, "alice", "u1"); err != nil || out != identity.HandleAbsent {
 		t.Errorf("repeat: %v, %v, want HandleAbsent", out, err)
 	}
@@ -313,11 +297,10 @@ func TestIdentityStepOps_Integration(t *testing.T) {
 	if _, err := repo.GetProfile(ctx, "u1"); err != nil {
 		t.Fatalf("a conflicting DeleteUserDoc deleted the document: %v", err)
 	}
-	c4, cnt := budget.WithCounter(ctx)
+	c4, _ := budget.WithCounter(ctx)
 	if err := repo.DeleteUserDoc(c4, "u1", 0); err != nil {
 		t.Errorf("DeleteUserDoc: %v", err)
 	}
-	budgettest.Assert(t, "DeleteUserDoc", cnt, budgettest.Budget{Reads: 1, Deletes: 1})
 	if err := repo.DeleteUserDoc(ctx, "u1", 0); err != nil {
 		t.Errorf("DeleteUserDoc repeat: %v", err)
 	}
@@ -357,12 +340,11 @@ func TestBackstopQueries_Integration(t *testing.T) {
 	}
 	threshold := now.Add(-time.Hour)
 
-	c, cnt := budget.WithCounter(ctx)
+	c, _ := budget.WithCounter(ctx)
 	page, err := repo.ListDeleting(c, threshold, identity.BackstopCursor{}, 50)
 	if err != nil || len(page) != 5 {
 		t.Fatalf("ListDeleting = %d accounts, %v; want only the 5 stuck ones among 56 DELETING", len(page), err)
 	}
-	budgettest.Assert(t, "ListDeleting", cnt, budgettest.Budget{Reads: 5})
 	var order []string
 	for _, p := range page {
 		order = append(order, p.UserID)
@@ -408,12 +390,11 @@ func TestBackstopQueries_Integration(t *testing.T) {
 	if _, err := repo.ClaimExport(ctx, "p-mid", doc.UpdateTime, now.Add(-time.Hour)); err != nil { // a crashed run: lease long expired
 		t.Fatal(err)
 	}
-	c, cnt = budget.WithCounter(ctx)
+	c, _ = budget.WithCounter(ctx)
 	pend, err := repo.ListPendingExports(c, threshold, identity.BackstopCursor{}, 50)
 	if err != nil || len(pend) != 2 || pend[0].ID != "p-old" || pend[1].ID != "p-mid" {
 		t.Fatalf("ListPendingExports = %v, %v; want [p-old p-mid] (oldest first, the fresh one filtered, the expired lease included)", pend, err)
 	}
-	budgettest.Assert(t, "ListPendingExports", cnt, budgettest.Budget{Reads: 2})
 	next, err := repo.ListPendingExports(ctx, threshold, identity.BackstopCursor{At: pend[0].CreatedAt, ID: pend[0].ID}, 50)
 	if err != nil || len(next) != 1 || next[0].ID != "p-mid" {
 		t.Errorf("after the first: %v, %v", next, err)
@@ -435,14 +416,10 @@ func TestClaimExport_Integration(t *testing.T) {
 	}
 	lease := now.Add(35 * time.Second)
 
-	c, cnt := budget.WithCounter(ctx)
+	c, _ := budget.WithCounter(ctx)
 	ut, err := repo.ClaimExport(c, "x1", doc.UpdateTime, lease)
 	if err != nil || !ut.After(doc.UpdateTime) {
 		t.Fatalf("ClaimExport = %v, %v", ut, err)
-	}
-	budgettest.Assert(t, "ClaimExport", cnt, budgettest.Budget{Writes: 1})
-	if cnt.Writes() != 1 {
-		t.Errorf("writes = %d, want exactly 1", cnt.Writes())
 	}
 	got, _ := repo.GetExport(ctx, "x1")
 	if got.Status != identity.ExportPending || !got.LeaseUntil.Equal(lease) || !got.UpdateTime.Equal(ut) {

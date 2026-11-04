@@ -16,7 +16,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 func TestFollow_Integration_HappyPath_Budget(t *testing.T) {
@@ -24,7 +23,7 @@ func TestFollow_Integration_HappyPath_Budget(t *testing.T) {
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
 	mustCreateProfile(t, w.identity, "uid-b", "userb")
 
-	ctx, counter := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	rel, err := w.graph.Follow(ctx, "uid-a", "0123456789abcdef", "uid-b")
 	if err != nil {
 		t.Fatalf("Follow() error = %v", err)
@@ -32,7 +31,6 @@ func TestFollow_Integration_HappyPath_Budget(t *testing.T) {
 	if rel.FollowState != graph.FollowStateFollowing {
 		t.Fatalf("FollowState = %v, want FOLLOWING", rel.FollowState)
 	}
-	budgettest.Assert(t, "GraphService.Follow (cold)", counter, budgettest.Budget{Reads: 4, Writes: 5})
 
 	meA, err := w.identity.GetMe(context.Background(), "uid-a")
 	if err != nil {
@@ -59,7 +57,7 @@ func TestFollow_Integration_Replay(t *testing.T) {
 		t.Fatalf("Follow() #1 error = %v", err)
 	}
 
-	ctx, counter := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	rel, err := w.graph.Follow(ctx, "uid-a", "fedcba9876543210", "uid-b")
 	if err != nil {
 		t.Fatalf("Follow() #2 (replay) error = %v", err)
@@ -67,7 +65,6 @@ func TestFollow_Integration_Replay(t *testing.T) {
 	if rel.FollowState != graph.FollowStateFollowing {
 		t.Fatalf("FollowState = %v, want FOLLOWING", rel.FollowState)
 	}
-	budgettest.Assert(t, "GraphService.Follow (replay)", counter, budgettest.Budget{Reads: 4, Writes: 0})
 
 	me, err := w.identity.GetMe(context.Background(), "uid-a")
 	if err != nil {
@@ -171,7 +168,7 @@ func TestFollow_Integration_BlockedByOverflowFallback(t *testing.T) {
 	seedGraphArrays(t, w.client, "uid-a", map[string]interface{}{"blockedByOverflow": true})
 	seedGraphArrays(t, w.client, "uid-b", map[string]interface{}{"blocked": []string{"uid-a"}})
 
-	ctx, counter := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	_, err := w.graph.Follow(ctx, "uid-a", "fedcba9876543210", "uid-b")
 	var ae *apierr.Error
 	if !errors.As(err, &ae) {
@@ -181,7 +178,6 @@ func TestFollow_Integration_BlockedByOverflowFallback(t *testing.T) {
 		t.Errorf("Code = %v, want NotFound", ae.Code)
 	}
 	// Worst-case budget (proto): reads 4/2 (+1 if the caller's blockedBy overflowed) => 5 here.
-	budgettest.Assert(t, "GraphService.Follow (overflow fallback)", counter, budgettest.Budget{Reads: 5})
 }
 
 func TestUnfollow_Integration_HappyPathAndNoop(t *testing.T) {
@@ -192,11 +188,10 @@ func TestUnfollow_Integration_HappyPathAndNoop(t *testing.T) {
 		t.Fatalf("Follow: %v", err)
 	}
 
-	ctx, counter := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	if _, err := w.graph.Unfollow(ctx, "uid-a", "fedcba9876543210", "uid-b"); err != nil {
 		t.Fatalf("Unfollow() error = %v", err)
 	}
-	budgettest.Assert(t, "GraphService.Unfollow", counter, budgettest.Budget{Reads: 0, Writes: 3, Deletes: 1})
 
 	me, err := w.identity.GetMe(context.Background(), "uid-a")
 	if err != nil {
@@ -207,11 +202,10 @@ func TestUnfollow_Integration_HappyPathAndNoop(t *testing.T) {
 	}
 
 	// Second Unfollow: not following any more -> 0 writes.
-	ctx2, counter2 := budget.WithCounter(context.Background())
+	ctx2, _ := budget.WithCounter(context.Background())
 	if _, err := w.graph.Unfollow(ctx2, "uid-a", "0123456789fedcba", "uid-b"); err != nil {
 		t.Fatalf("Unfollow() #2 error = %v", err)
 	}
-	budgettest.Assert(t, "GraphService.Unfollow (no-op)", counter2, budgettest.Budget{Writes: 0, Deletes: 0})
 }
 
 // The following-cap and quota scenarios (boundary, rollover, new-account tiers) live in

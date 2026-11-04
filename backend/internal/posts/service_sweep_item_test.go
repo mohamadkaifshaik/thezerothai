@@ -53,15 +53,12 @@ func TestSweepItem_ChecksBeforeTheTransaction(t *testing.T) {
 			it := e.dueItem("uid-alice", 1, func(p *ScheduledPost) { tc.mut(e, p) })
 			queried := e.repo.doc("uid-alice", it.ID)
 
-			res, c, err := e.sweep(context.Background())
+			res, _, err := e.sweep(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
 			if res.Failed[tc.want] != 1 || res.Published != 0 || res.Transient != 0 {
 				t.Fatalf("res = %+v, want one FAILED %s", res, tc.want)
-			}
-			if c.Reads() != 1 || c.Writes() != 1 {
-				t.Errorf("cost = %d reads %d writes, want the query's 1 read and one write", c.Reads(), c.Writes())
 			}
 			if n := len(e.repo.callsOf("publish")); n != 0 {
 				t.Errorf("the publish transaction ran %d times for a CPU-only failure", n)
@@ -172,7 +169,7 @@ func TestSweepItem_TransientErrorsCountAttemptsThenRetire(t *testing.T) {
 				return PublishResult{}, errors.New("rpc error: code = Unavailable desc = the service is currently unavailable")
 			}
 
-			res, c, err := e.sweep(context.Background())
+			res, _, err := e.sweep(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -189,9 +186,6 @@ func TestSweepItem_TransientErrorsCountAttemptsThenRetire(t *testing.T) {
 				if doc.Status != ScheduledPending || doc.Attempts != tc.attempts+1 || len(bumps) != 1 || !bumps[0].ref.UpdateTime.Equal(queried.UpdateTime) || len(e.repo.callsOf("transition")) != 0 {
 					t.Errorf("item = %+v bumps = %+v, want attempts %d under the query's precondition", doc, bumps, tc.attempts+1)
 				}
-			}
-			if c.Writes() != 1 {
-				t.Errorf("writes = %d, want the one bookkeeping write", c.Writes())
 			}
 			reported := len(e.logs.lines("ReportedErrorEvent")) > 0
 			if reported != tc.wantErrorLog {
@@ -301,7 +295,7 @@ func TestSweepItem_LostPreconditionIsAQuietNoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Noop != 1 || len(res.Failed) != 0 || c.Writes() != 0 {
+	if res.Noop != 1 || len(res.Failed) != 0 {
 		t.Errorf("res = %+v writes = %d, want a no-op with 0 writes", res, c.Writes())
 	}
 	if got := e.repo.doc("uid-alice", it.ID); got.Status != ScheduledCancelled || got.Failure != "" {

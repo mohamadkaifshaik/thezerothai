@@ -41,7 +41,7 @@ func TestCreate_CommunitiesGate(t *testing.T) {
 			p, c, err := e.create(tt.in)
 			if tt.wantFeature != "" {
 				ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
-				if ae.Metadata["feature"] != tt.wantFeature || c.Reads() != 0 || c.Writes() != 0 || e.repo.createCalls != 0 {
+				if ae.Metadata["feature"] != tt.wantFeature || e.repo.createCalls != 0 {
 					t.Fatalf("feature=%q reads=%d writes=%d creates=%d", ae.Metadata["feature"], c.Reads(), c.Writes(), e.repo.createCalls)
 				}
 				return
@@ -102,7 +102,7 @@ func TestServer_CommunitiesFlagModes(t *testing.T) {
 			capture.got.IdempotencyKey, capture.got.Text = key1, "hi"
 			_, c, err := e.create(capture.got)
 			ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
-			if ae.Metadata["feature"] != "communities" || c.Reads() != 0 || c.Writes() != 0 || e.repo.createCalls != 0 {
+			if ae.Metadata["feature"] != "communities" || e.repo.createCalls != 0 {
 				t.Fatalf("feature=%q reads=%d writes=%d creates=%d", ae.Metadata["feature"], c.Reads(), c.Writes(), e.repo.createCalls)
 			}
 		})

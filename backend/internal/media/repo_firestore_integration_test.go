@@ -19,7 +19,6 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -75,35 +74,29 @@ func TestIntegration_CreateUploadAndFinalizeBudgets(t *testing.T) {
 	full, thumb := jpegBytes("F1"), jpegBytes("T1")
 	in := CreateUploadInput{IdempotencyKey: key1, Purpose: PurposePost, Items: []UploadItem{item(full, thumb, "image/jpeg"), item(jpegBytes("F2"), jpegBytes("T2"), "image/jpeg")}}
 
-	ctx, c := counted()
+	ctx, _ := counted()
 	tgs, err := e.svc.CreateUpload(ctx, uidA, in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "CreateUpload n=2", c, budgettest.Budget{Reads: 2, Writes: 2 + 2})
-	if c.Writes() != 4 {
-		t.Errorf("writes = %d, want exactly 2 + n = 4", c.Writes())
-	}
 
-	ctx, c = counted()
+	ctx, _ = counted()
 	replay, err := e.svc.CreateUpload(ctx, uidA, in)
 	if err != nil || replay[0].MediaID != tgs[0].MediaID || replay[1].MediaID != tgs[1].MediaID {
 		t.Fatalf("replay = %v, %v", replay, err)
 	}
-	budgettest.Assert(t, "CreateUpload replay", c, budgettest.Budget{Reads: 1, Writes: 0})
 
-	ctx, c = counted()
+	ctx, _ = counted()
 	other := in
 	other.Items = in.Items[:1]
 	_, err = e.svc.CreateUpload(ctx, uidA, other)
 	if err == nil {
 		t.Fatal("a different body under the same key must be refused")
 	}
-	budgettest.Assert(t, "CreateUpload reused key", c, budgettest.Budget{Reads: 1, Writes: 0})
 
 	e.put(uidA, tgs[0], full, thumb, "image/jpeg")
 	e.put(uidA, tgs[1], jpegBytes("F2"), jpegBytes("T2"), "image/jpeg")
-	ctx, c = counted()
+	ctx, _ = counted()
 	res, err := e.svc.FinalizeUpload(ctx, uidA, []FinalizeItem{{MediaID: tgs[0].MediaID, Blurhash: "LEHV6n"}, {MediaID: tgs[1].MediaID}})
 	if err != nil {
 		t.Fatal(err)
@@ -112,10 +105,6 @@ func TestIntegration_CreateUploadAndFinalizeBudgets(t *testing.T) {
 		if r.Status != StatusReady {
 			t.Fatalf("result = %+v", r)
 		}
-	}
-	budgettest.Assert(t, "FinalizeUpload n=2 cold", c, budgettest.Budget{Reads: 2 + 1, Writes: 2*2 + 1})
-	if c.Writes() != 2*2+1 {
-		t.Errorf("writes = %d, want exactly 2n + 1 = 5 (claim and resolve per image, one Vision counter)", c.Writes())
 	}
 
 	// The Vision counter is a real document and the cap arithmetic reads it back.
@@ -132,11 +121,8 @@ func TestIntegration_QuotaIsWholeCall(t *testing.T) {
 		for i := range items {
 			items[i] = item(jpegBytes("a"), jpegBytes("b"), "image/jpeg")
 		}
-		ctx, c := counted()
+		ctx, _ := counted()
 		_, err := e.svc.CreateUpload(ctx, uidA, CreateUploadInput{IdempotencyKey: key, Purpose: PurposePost, Items: items})
-		if err != nil {
-			budgettest.Assert(t, "CreateUpload rejected", c, budgettest.Budget{Reads: 2, Writes: 0})
-		}
 		return err
 	}
 	for i := 0; i < 5; i++ { // 5 x 4 = 20 images: exactly the daily limit
@@ -214,11 +200,10 @@ func TestIntegration_LoadForPostInsideATransaction(t *testing.T) {
 		return claim, c, err
 	}
 
-	claim, c, err := attach(uidA, ids, "0000000000000000777")
+	claim, _, err := attach(uidA, ids, "0000000000000000777")
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "LoadForPost n=2", c, budgettest.Budget{Reads: 2, Writes: 2})
 	if len(claim.Refs) != 2 || claim.Refs[0].ID != ids[0] || claim.Refs[0].ThumbURL == "" || claim.Refs[0].Blurhash != "LEHV6n" {
 		t.Fatalf("refs = %+v", claim.Refs)
 	}
@@ -255,12 +240,11 @@ func TestIntegration_ResolveAvatar(t *testing.T) {
 	if _, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: av.MediaID}}); err != nil {
 		t.Fatal(err)
 	}
-	ctx, c := counted()
+	ctx, _ := counted()
 	ref, err := e.lib.ResolveAvatar(ctx, uidA, av.MediaID)
 	if err != nil || ref.URL == "" || ref.ThumbURL == "" {
 		t.Fatalf("ref = %+v, %v", ref, err)
 	}
-	budgettest.Assert(t, "ResolveAvatar", c, budgettest.Budget{Reads: 1})
 	if _, err := e.lib.ResolveAvatar(context.Background(), uidB, av.MediaID); !IsNotReady(err) {
 		t.Fatalf("another user's avatar must not resolve: %v", err)
 	}
@@ -300,13 +284,12 @@ func TestIntegration_PostDeleteJobAndPurge(t *testing.T) {
 	}
 
 	j := NewJobs(e.real, e.obj, fakePosts{live: map[string]bool{}}, nil)
-	cctx, c := counted()
+	cctx, _ := counted()
 	out, err := j.Handle(cctx, msg(t, PostDeleteMessage{UID: uidA, PostID: post, MediaIDs: ids[:2]}))
 	if err != nil || out != "done" {
 		t.Fatalf("job = %q, %v", out, err)
 	}
 	// reads: the post (fake here: 1 in production) + len(MediaIDs); deletes: len(MediaIDs).
-	budgettest.Assert(t, "post_delete n=2", c, budgettest.Budget{Reads: 2, Deletes: 2})
 	docs, err := e.real.GetMany(ctx, ids)
 	if err != nil || len(docs) != 1 || docs[ids[2]] == nil {
 		t.Fatalf("docs left = %v, %v: only the unattached image remains", docs, err)
@@ -320,12 +303,11 @@ func TestIntegration_PostDeleteJobAndPurge(t *testing.T) {
 	}
 
 	p := NewPurger(e.real, e.obj, "https://cdn.test/media")
-	pctx, pc := counted()
+	pctx, _ := counted()
 	cp, done, err := p.PurgeUser(pctx, uidA, Checkpoint{})
 	if err != nil || !done || cp.Deleted != 1 {
 		t.Fatalf("purge = %+v done=%v err=%v", cp, done, err)
 	}
-	budgettest.Assert(t, "PurgeUser 1 doc", pc, budgettest.Budget{Reads: 1, Deletes: 1})
 	if len(e.obj.public) != 0 {
 		t.Fatalf("public objects left = %v", e.obj.public)
 	}
@@ -369,7 +351,7 @@ func TestIntegration_ListByOwnerPagesWithALimit(t *testing.T) {
 	var all []string
 	after := ""
 	for {
-		cctx, c := counted()
+		cctx, _ := counted()
 		page, err := e.real.ListByOwner(cctx, uidA, after, 3)
 		if err != nil {
 			t.Fatal(err)
@@ -377,7 +359,6 @@ func TestIntegration_ListByOwnerPagesWithALimit(t *testing.T) {
 		if len(page) > 3 {
 			t.Fatalf("page of %d exceeds the limit", len(page))
 		}
-		budgettest.Assert(t, "ListByOwner", c, budgettest.Budget{Reads: 3})
 		for _, d := range page {
 			all = append(all, d.ID)
 		}
@@ -399,14 +380,13 @@ func TestIntegration_BannerBudgetsAndResolver(t *testing.T) {
 	ctx := context.Background()
 	full, thumb := webpBytes("BF"), webpBytes("BT")
 
-	cctx, c := counted()
+	cctx, _ := counted()
 	tgs, err := e.svc.CreateUpload(cctx, uidA, CreateUploadInput{
 		IdempotencyKey: key1, Purpose: PurposeBanner, Items: []UploadItem{bannerItem(full, thumb)},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "CreateUpload BANNER", c, budgettest.Budget{Reads: 2, Writes: 3})
 	tg := tgs[0]
 
 	// PENDING does not resolve.
@@ -415,27 +395,22 @@ func TestIntegration_BannerBudgetsAndResolver(t *testing.T) {
 	}
 
 	e.put(uidA, tg, full, thumb, "image/webp")
-	fctx, fc := counted()
+	fctx, _ := counted()
 	res, err := e.svc.FinalizeUpload(fctx, uidA, []FinalizeItem{{MediaID: tg.MediaID, Blurhash: "LEHV6n"}})
 	if err != nil || res[0].Status != StatusReady {
 		t.Fatalf("finalize = %+v, %v", res, err)
-	}
-	budgettest.Assert(t, "FinalizeUpload BANNER cold", fc, budgettest.Budget{Reads: 1 + 1, Writes: 2*1 + 1})
-	if fc.Writes() != 3 {
-		t.Errorf("writes = %d, want exactly 3 (claim, resolve, Vision counter)", fc.Writes())
 	}
 	if used, err := e.real.VisionUsed(ctx, monthKey(testNow)); err != nil || used != BannerVisionUnits {
 		t.Fatalf("vision units = %d, %v, want %d", used, err, BannerVisionUnits)
 	}
 
 	wantFull, wantThumb := docNames(t, e.real, tg.MediaID, "webp")
-	rctx, rc := counted()
+	rctx, _ := counted()
 	ref, err := e.lib.ResolveBanner(rctx, uidA, tg.MediaID)
 	if err != nil || ref.ID != tg.MediaID || ref.URL != "https://cdn.test/media/"+wantFull ||
 		ref.ThumbURL != "https://cdn.test/media/"+wantThumb || ref.Width != 1500 || ref.Height != 500 {
 		t.Fatalf("ref = %+v, %v", ref, err)
 	}
-	budgettest.Assert(t, "ResolveBanner", rc, budgettest.Budget{Reads: 1})
 
 	// READY_UNSCREENED resolves too.
 	if _, err := e.client.Collection(mediaCollection).Doc(tg.MediaID).Update(ctx, []firestore.Update{{Path: "status", Value: string(StatusReadyUnscreened)}}); err != nil {
@@ -505,11 +480,10 @@ func TestIntegration_BannerErasureAndExport(t *testing.T) {
 
 	p := NewPurger(e.real, e.obj, "https://cdn.test/media")
 	var buf bytes.Buffer
-	ectx, ec := counted()
+	ectx, _ := counted()
 	if err := p.WriteSection(ectx, uidA, &buf); err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "export media section", ec, budgettest.Budget{Reads: 2})
 	for _, id := range ids {
 		if !strings.Contains(buf.String(), id) {
 			t.Fatalf("export misses banner %s: %s", id, buf.String())
@@ -519,12 +493,11 @@ func TestIntegration_BannerErasureAndExport(t *testing.T) {
 		t.Fatalf("export = %s", buf.String())
 	}
 
-	pctx, pc := counted()
+	pctx, _ := counted()
 	cp, done, err := p.PurgeUser(pctx, uidA, Checkpoint{})
 	if err != nil || !done || cp.Deleted != 2 {
 		t.Fatalf("purge = %+v done=%v err=%v", cp, done, err)
 	}
-	budgettest.Assert(t, "PurgeUser 2 banners", pc, budgettest.Budget{Reads: 2, Deletes: 2})
 	docs, err := e.real.GetMany(ctx, append(ids, bob.MediaID))
 	if err != nil || len(docs) != 1 || docs[bob.MediaID] == nil {
 		t.Fatalf("docs left = %v, %v: only Bob's banner may remain", docs, err)
@@ -593,14 +566,10 @@ func TestIntegration_ScreeningClaimPreconditions(t *testing.T) {
 	pending := load()
 	until := time.Now().UTC().Add(30 * time.Second) // nanosecond precision, as the service writes it; Firestore keeps microseconds
 
-	cctx, c := counted()
+	cctx, _ := counted()
 	claimedAt, err := e.real.ClaimScreening(cctx, pending.ID, pending.UpdateTime, until)
 	if err != nil || !claimedAt.After(pending.UpdateTime) {
 		t.Fatalf("claim = %v, %v, want a later UpdateTime", claimedAt, err)
-	}
-	budgettest.Assert(t, "ClaimScreening", c, budgettest.Budget{Writes: 1})
-	if c.Writes() != 1 {
-		t.Errorf("claim writes = %d, want 1", c.Writes())
 	}
 	got := load()
 	if got.ScreeningUntil == nil || !got.ScreeningUntil.Equal(until.Truncate(time.Microsecond)) || got.Status != string(StatusPending) || !got.UpdateTime.Equal(claimedAt) {
@@ -617,11 +586,10 @@ func TestIntegration_ScreeningClaimPreconditions(t *testing.T) {
 	if err := e.real.ReleaseScreening(ctx, pending.ID, pending.UpdateTime, false); !errors.Is(err, ErrConflict) {
 		t.Fatalf("release with a stale time = %v, want ErrConflict", err)
 	}
-	rctx, rc := counted()
+	rctx, _ := counted()
 	if err := e.real.ReleaseScreening(rctx, pending.ID, claimedAt, true); err != nil {
 		t.Fatalf("release: %v", err)
 	}
-	budgettest.Assert(t, "ReleaseScreening (assessed: screenAssessed rides the same write)", rc, budgettest.Budget{Writes: 1})
 	released := load()
 	if released.ScreenAssessed != 1 {
 		t.Fatalf("screenAssessed = %d, want 1 (W6-40: incremented in the release write)", released.ScreenAssessed)

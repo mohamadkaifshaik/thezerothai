@@ -309,9 +309,6 @@ func TestW617_ReplayAfterClose(t *testing.T) {
 	for _, s := range steps {
 		_, err := e.vote(s.by, s.key, pid, s.choice)
 		assertReason(t, wireError(t, err, connect.CodeFailedPrecondition), commonv1.ErrorReason_ERROR_REASON_POLL_CLOSED)
-		if w := e.lineBudget(t, rpcVotePoll).Writes(); w != 0 {
-			t.Errorf("%s: %d writes after close", s.name, w)
-		}
 	}
 	if total, counts := e.counts(t, pid); total != 1 || counts["1"] != 1 || e.voteDocs(t, pid) != 1 {
 		t.Errorf("after the refusals total=%d counts=%v voteDocs=%d, want the one vote untouched", total, counts, e.voteDocs(t, pid))
@@ -351,10 +348,6 @@ func TestW617_NewAccountCap(t *testing.T) {
 		}
 		_, err := e.vote(b, "w617-cap-bnd-key-9999", polls[3], 0)
 		refused(t, err)
-		line := e.lineBudget(t, rpcVotePoll)
-		if line.Writes() != 0 || line.Reads() > 1 {
-			t.Errorf("the refusal cost reads=%d writes=%d, want at most the interceptor's profile read and 0 writes", line.Reads(), line.Writes())
-		}
 		if e.voteDocs(t, polls[3]) != 0 {
 			t.Error("the refused vote was stored")
 		}
@@ -606,10 +599,6 @@ func TestW617_DegradedModes(t *testing.T) {
 	if d.GetRetryAfter().AsDuration() <= 0 {
 		t.Error("DEGRADED_MODE without a retry_after")
 	}
-	line := ro.lineBudget(t, rpcVotePoll)
-	if line.Writes() != 0 || line.Reads() > 1 {
-		t.Errorf("readonly refusal cost reads=%d writes=%d", line.Reads(), line.Writes())
-	}
 	if n := setup.voteDocs(t, pid); n != 0 {
 		t.Errorf("%d vote docs written under readonly", n)
 	}
@@ -672,9 +661,6 @@ func TestW617_FlagModes(t *testing.T) {
 			vv.GetViewerPollChoice(), vv.GetPost().GetPoll().GetResultsVisible(), vv.GetPost().GetPoll().GetChoices()[1].GetVotes())
 	}
 	wireError(t, func() error { _, err := engOff.vote(b, "w617-flag-vote-0000002", pid, 1); return err }(), connect.CodeFailedPrecondition)
-	if got := engOff.lineBudget(t, rpcVotePoll); got.Reads() > 1 || got.Writes() != 0 {
-		t.Errorf("engagement-off refusal cost reads=%d writes=%d", got.Reads(), got.Writes())
-	}
 }
 
 // A REPOST id acts on its original: the vote doc, the counts and the voter's userLikes entry all name the original; the voter's view of

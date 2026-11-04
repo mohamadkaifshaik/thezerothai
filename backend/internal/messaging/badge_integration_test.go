@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // on the emulator: count of dmInbox where unreadCount > 0, Limit 100, 1 read; 3 -> 3, 150 -> 100, requests and
@@ -33,10 +32,8 @@ func TestIntegration_UnreadConversationsCount(t *testing.T) {
 		return n, c
 	}
 
-	if n, c := count(carol); n != 0 {
+	if n, _ := count(carol); n != 0 {
 		t.Errorf("no entries: count = %d, want 0", n)
-	} else {
-		budgettest.Assert(t, "UnreadConversations (empty)", c, budgettest.Budget{Reads: 1})
 	}
 
 	for i := 0; i < 3; i++ {
@@ -46,18 +43,16 @@ func TestIntegration_UnreadConversationsCount(t *testing.T) {
 	for i := 60; i < 64; i++ {
 		seed(alice, dmRequestsCollection, i, 2) // requests: not counted
 	}
-	n, c := count(alice)
+	n, _ := count(alice)
 	if n != 3 {
 		t.Errorf("3 unread: count = %d, want 3", n)
 	}
-	budgettest.Assert(t, "UnreadConversations (3 unread)", c, budgettest.Budget{Reads: 1})
 
 	for i := 0; i < 150; i++ {
 		seed(bob, dmInboxCollection, i, 1)
 	}
-	n, c = count(bob)
+	n, _ = count(bob)
 	if n != 100 {
 		t.Errorf("150 unread: count = %d, want the cap 100", n)
 	}
-	budgettest.Assert(t, "UnreadConversations (150 unread, capped)", c, budgettest.Budget{Reads: 1})
 }

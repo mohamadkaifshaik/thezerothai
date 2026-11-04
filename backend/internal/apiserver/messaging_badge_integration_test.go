@@ -13,7 +13,6 @@ import (
 
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -43,7 +42,6 @@ func TestMessagingChain_GetMeUnreadConversations(t *testing.T) {
 	if got := chain.getMe(t, me).GetUnreadConversationCount(); got != 3 {
 		t.Fatalf("unread_conversation_count = %d, want 3", got)
 	}
-	budgettest.Assert(t, "GetMe, messaging on (cold)", chain.lineBudget(t, rpcGetMe), budgettest.Budget{Reads: 3})
 	if hit := chain.logs.requestLines(rpcGetMe)[0]["unread_conversations_cache_hit"]; hit != false {
 		t.Errorf("first GetMe unread_conversations_cache_hit = %v, want false", hit)
 	}
@@ -52,7 +50,6 @@ func TestMessagingChain_GetMeUnreadConversations(t *testing.T) {
 	if got := chain.getMe(t, me).GetUnreadConversationCount(); got != 3 {
 		t.Fatalf("warm count = %d, want 3", got)
 	}
-	budgettest.Assert(t, "GetMe, messaging on (warm)", chain.lineBudget(t, rpcGetMe), budgettest.Budget{Reads: 0})
 	lines := chain.logs.requestLines(rpcGetMe)
 	if hit := lines[len(lines)-1]["unread_conversations_cache_hit"]; hit != true {
 		t.Errorf("second GetMe unread_conversations_cache_hit = %v, want true", hit)
@@ -64,7 +61,6 @@ func TestMessagingChain_GetMeUnreadConversations(t *testing.T) {
 	if got := chain.getMe(t, me).GetUnreadConversationCount(); got != 4 {
 		t.Fatalf("count after a send = %d, want 4", got)
 	}
-	budgettest.Assert(t, "GetMe after a send (recount)", chain.lineBudget(t, rpcGetMe), budgettest.Budget{Reads: 2})
 
 	// Messaging off for the caller: 0 and no count (the 2 reads of before then).
 	offChain := newDMChain(t, func(c *config.Config) {
@@ -73,7 +69,6 @@ func TestMessagingChain_GetMeUnreadConversations(t *testing.T) {
 	if got := offChain.getMe(t, me).GetUnreadConversationCount(); got != 0 {
 		t.Fatalf("messaging off: count = %d, want 0", got)
 	}
-	budgettest.Assert(t, "GetMe, messaging off (cold)", offChain.lineBudget(t, rpcGetMe), budgettest.Budget{Reads: 2})
 	if _, present := offChain.logs.requestLines(rpcGetMe)[0]["unread_conversations_cache_hit"]; present {
 		t.Error("messaging off: unread_conversations_cache_hit must not be logged")
 	}

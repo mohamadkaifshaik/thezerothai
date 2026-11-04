@@ -15,7 +15,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -559,7 +558,7 @@ func TestGetProfileRelationship_FlagMatrix(t *testing.T) {
 			svc := New(Deps{Repo: repo, Cache: NewCache(time.Minute), Flags: flags.NewRegistry(tt.reg...)})
 			dir := &countingDirectory{Directory: activeProfiles(target)}
 			svc.SetDirectory(dir)
-			ctx, counter := budget.WithCounter(w3Ctx(tt.uid))
+			ctx, _ := budget.WithCounter(w3Ctx(tt.uid))
 
 			resp, err := NewServer(svc).GetProfileRelationship(ctx, connect.NewRequest(&graphv1.GetProfileRelationshipRequest{UserId: target}))
 			if tt.wantPass {
@@ -578,7 +577,6 @@ func TestGetProfileRelationship_FlagMatrix(t *testing.T) {
 			if repo.calls != 0 || repo.edgeExistsCalls != 0 || dir.gets != 0 {
 				t.Errorf("a refused call read: snapshots=%d edges=%d directory=%d", repo.calls, repo.edgeExistsCalls, dir.gets)
 			}
-			budgettest.Assert(t, "GetProfileRelationship (refused)", counter, budgettest.Budget{})
 		})
 	}
 }

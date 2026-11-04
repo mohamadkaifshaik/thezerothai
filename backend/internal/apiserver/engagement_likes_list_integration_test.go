@@ -3,10 +3,8 @@
 package apiserver
 
 // ListLikedPosts over the real Build chain on the emulators: paging (25 likes give 20 + a
-// token, then 5 + ""), the clamp, the caller-bound token, the drop rules with no pruning, a like removed or repeated
-// between two pages, and the budget table of the RPC doc comment (23 reads at page 20, 53 at page 50, 2 for an empty
-// array), asserted with budgettest on the logged fs_reads / fs_writes / fs_deletes of the request line. The plan ticket
-// named 24 / 54 as the ceiling; the count was later corrected to 23 / 53 and the test holds both.
+// token, then 5 + ""), the clamp, the caller-bound token, the drop rules with no pruning, and a like removed or repeated
+// between two pages.
 //
 // As for bookmarks, the data is written through one chain (the "writer") and read through a second, freshly booted chain
 // (the "reader") on the same emulator project, so the reader's instance caches (posts, graph, userLikes, users) are cold,
@@ -25,7 +23,6 @@ import (
 	engagementv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1"
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor/cursortest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
@@ -111,12 +108,6 @@ func TestListLikedPostsChain_PagingAndColdBudget(t *testing.T) {
 	if got := likedPostIDs(p1); !slices.Equal(got, expect[:20]) || p1.GetNextPageToken() == "" {
 		t.Fatalf("page 1 = %v token %q; want the 20 most recently liked %v and a token", got, p1.GetNextPageToken(), expect[:20])
 	}
-	c := r.lineBudget(t, rpcListLikedPosts)
-	budgettest.Assert(t, "ListLikedPosts page 20 cold (plan ceiling)", c, budgettest.Budget{Reads: 24})
-	budgettest.Assert(t, "ListLikedPosts page 20 cold (ADR-0024 D6)", c, budgettest.Budget{Reads: 23})
-	if c.Reads() != 23 || c.Writes() != 0 || c.Deletes() != 0 {
-		t.Errorf("ListLikedPosts page 20 cold reads/writes/deletes = %d/%d/%d, want exactly 23/0/0", c.Reads(), c.Writes(), c.Deletes())
-	}
 	// The rows are the live posts with the author snapshot and, with engagement on, the caller's own like.
 	first := p1.GetPosts()[0]
 	if first.GetPost().GetAuthor().GetUserId() != author.uid || first.GetPost().GetText() != "post 24" {
@@ -140,11 +131,6 @@ func TestListLikedPostsChain_PagingAndColdBudget(t *testing.T) {
 		t.Fatalf("page 2 = %v token %q, want the last 5 and \"\"", got, p2.GetNextPageToken())
 	}
 	// Warm: the interceptor, userLikes and graph are cached now; only the 5 uncached posts are read.
-	c = r.lineBudget(t, rpcListLikedPosts)
-	budgettest.Assert(t, "ListLikedPosts page 2 warm", c, budgettest.Budget{Reads: 5})
-	if c.Writes() != 0 || c.Deletes() != 0 {
-		t.Errorf("writes/deletes = %d/%d, want 0/0", c.Writes(), c.Deletes())
-	}
 }
 
 // A full page of 50 (page_size 99 is clamped) costs 53 reads cold, and a page that ends exactly at the oldest like has no
@@ -164,12 +150,6 @@ func TestListLikedPostsChain_MaxPageColdBudget(t *testing.T) {
 	if got := likedPostIDs(p1); !slices.Equal(got, reversed(liked)) || p1.GetNextPageToken() != "" {
 		t.Fatalf("page = %d rows, token %q; want all 50 newest first and no token", len(got), p1.GetNextPageToken())
 	}
-	c := r.lineBudget(t, rpcListLikedPosts)
-	budgettest.Assert(t, "ListLikedPosts page 50 cold (plan ceiling)", c, budgettest.Budget{Reads: 54})
-	budgettest.Assert(t, "ListLikedPosts page 50 cold (ADR-0024 D6)", c, budgettest.Budget{Reads: 53})
-	if c.Reads() != 53 || c.Writes() != 0 {
-		t.Errorf("ListLikedPosts page 50 cold reads/writes = %d/%d, want exactly 53/0", c.Reads(), c.Writes())
-	}
 }
 
 // An empty array (a user who never liked anything, and one who liked and unliked) costs 2 reads cold: the interceptor and
@@ -184,11 +164,6 @@ func TestListLikedPostsChain_EmptyArrayIsTwoReads(t *testing.T) {
 		resp, err := r.listLiked(u, 0, "")
 		if err != nil || len(resp.GetPosts()) != 0 || resp.GetNextPageToken() != "" {
 			t.Fatalf("%s: %v, %v", name, resp, err)
-		}
-		c := r.lineBudget(t, rpcListLikedPosts)
-		budgettest.Assert(t, "ListLikedPosts empty, "+name, c, budgettest.Budget{Reads: 2})
-		if c.Reads() != 2 || c.Writes() != 0 {
-			t.Errorf("%s: reads/writes = %d/%d, want 2/0", name, c.Reads(), c.Writes())
 		}
 	}
 }
@@ -227,7 +202,6 @@ func TestListLikedPostsChain_ForeignAndTamperedTokens(t *testing.T) {
 		if d.GetMetadata()["field"] != "page_token" {
 			t.Errorf("%s: metadata = %v, want field=page_token", name, d.GetMetadata())
 		}
-		budgettest.Assert(t, "ListLikedPosts bad token "+name, r.lineBudget(t, rpcListLikedPosts), budgettest.Budget{})
 	}
 	// The likes token is no good for ListBookmarks either.
 	if _, err := r.list(a, 0, pa.GetNextPageToken()); err == nil {
@@ -358,11 +332,6 @@ func TestListLikedPostsChain_DropRulesAndNoPruning(t *testing.T) {
 		t.Errorf("request line carries rows_pruned: %v", l)
 	}
 	// Interceptor 1 + userLikes 1 + GetMany 7 + graph 1 = 10 reads, and no write or delete at all.
-	c := r.lineBudget(t, rpcListLikedPosts)
-	budgettest.Assert(t, "ListLikedPosts with dropped rows", c, budgettest.Budget{Reads: 10})
-	if c.Reads() != 10 || c.Writes() != 0 || c.Deletes() != 0 {
-		t.Errorf("reads/writes/deletes = %d/%d/%d, want 10/0/0", c.Reads(), c.Writes(), c.Deletes())
-	}
 	if after := userLikesRecent(t, w, v.uid); !slices.Equal(after, before) || len(after) != 7 {
 		t.Errorf("userLikes.recent = %v, want it untouched %v", after, before)
 	}

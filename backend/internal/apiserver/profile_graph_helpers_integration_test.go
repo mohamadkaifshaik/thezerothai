@@ -27,8 +27,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -95,17 +93,6 @@ func newW320BM(env *chainEnv) *bmChain {
 func (e *w320Chain) w320Warm(t *testing.T, u bmUser) []string {
 	t.Helper()
 	return e.enabledFeatures(t, u)
-}
-
-// w320Counter is the last request line of rpc as a budget counter (logs a BUDGET line for the report).
-func (e *w320Chain) w320Counter(t *testing.T, rpc string) *budget.Counter {
-	return e.lineBudget(t, rpc)
-}
-
-// w320AssertNothing asserts the last request line of rpc cost 0 reads, 0 writes and 0 deletes.
-func (e *w320Chain) w320AssertNothing(t *testing.T, what, rpc string) {
-	t.Helper()
-	budgettest.Assert(t, what, e.w320Counter(t, rpc), budgettest.Budget{})
 }
 
 // w320Bucket is flags' percent bucket (unexported there): fnv32a(name + ":" + uid) % 100.

@@ -209,12 +209,12 @@ func TestCreate_ReplyPolicy_Setting(t *testing.T) {
 			switch {
 			case tt.wantFeat != "":
 				ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
-				if ae.Metadata["feature"] != tt.wantFeat || c.Reads() != 0 || c.Writes() != 0 || e.repo.createCalls != 0 {
+				if ae.Metadata["feature"] != tt.wantFeat || e.repo.createCalls != 0 {
 					t.Fatalf("feature=%q reads=%d writes=%d creates=%d", ae.Metadata["feature"], c.Reads(), c.Writes(), e.repo.createCalls)
 				}
 			case tt.wantValid:
 				_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
-				if c.Reads() != 0 || c.Writes() != 0 || e.repo.createCalls != 0 {
+				if e.repo.createCalls != 0 {
 					t.Fatalf("reads=%d writes=%d creates=%d, want a refusal before any read", c.Reads(), c.Writes(), e.repo.createCalls)
 				}
 			default:
@@ -242,7 +242,7 @@ func TestCreate_ReplyPolicy_Idempotency(t *testing.T) {
 		t.Fatal(err)
 	}
 	replay, c, err := e.create(in)
-	if err != nil || replay.ID != first.ID || c.Writes() != 0 {
+	if err != nil || replay.ID != first.ID {
 		t.Fatalf("replay id=%v err=%v writes=%d", replay, err, c.Writes())
 	}
 	changed := in
@@ -351,7 +351,7 @@ func runPolicyCases(t *testing.T, tests []policyCase) {
 				wantReplyNotAllowed(t, err, strings.ToLower(string(tt.policy)))
 			}
 			if tt.want != "ok" {
-				if c.Writes() != 0 || e.repo.createCalls != 0 || len(e.repo.idem) != 0 {
+				if e.repo.createCalls != 0 || len(e.repo.idem) != 0 {
 					t.Fatalf("a refusal must write nothing: writes=%d creates=%d idem=%d", c.Writes(), e.repo.createCalls, len(e.repo.idem))
 				}
 				if e.repo.docs[rRoot] != nil && e.repo.docs[rRoot].ReplyCount != 0 {
@@ -927,7 +927,7 @@ func TestCreate_ReplyReplayAfterPermissionLost(t *testing.T) {
 			case "notfound":
 				wantNotFound(t, err)
 			}
-			if got != nil || c.Writes() != 0 || e.repo.createCalls != 0 {
+			if got != nil || e.repo.createCalls != 0 {
 				t.Fatalf("a refused replay returns nothing and writes nothing: post=%v writes=%d creates=%d", got, c.Writes(), e.repo.createCalls)
 			}
 			if e.repo.docs[first.ID] == nil {

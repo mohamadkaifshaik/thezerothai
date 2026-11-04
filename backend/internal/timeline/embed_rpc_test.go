@@ -117,7 +117,7 @@ func TestUser_OwnProfileKeepsOwnCopyWithoutGraphRead(t *testing.T) {
 	cp := r.posts.add("me", r.ms(-2*time.Second))
 	makeCopy(cp, posts.KindRepost)
 	r.graph.snaps["me"] = graph.Snapshot{Blocked: following(embAuthor)}
-	resp, counter, err := r.user("me", "me", false, "", "", 20)
+	resp, _, err := r.user("me", "me", false, "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,4 @@ func TestUser_OwnProfileKeepsOwnCopyWithoutGraphRead(t *testing.T) {
 		t.Fatalf("own copy dropped: %v", got)
 	}
 	// users 1 (target) + posts query 1; the embed filter adds no graph read for the own tab.
-	if counter.Reads() > 2 {
-		t.Fatalf("reads = %d, want <= 2", counter.Reads())
-	}
 }

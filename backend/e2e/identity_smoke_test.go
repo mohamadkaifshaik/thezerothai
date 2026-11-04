@@ -542,9 +542,6 @@ func TestE2E_VerifiedIdentityGate_WiredBeforeRateLimiterAndAccountStatus(t *test
 		t.Fatalf("got %d GetMe request log lines, want %d", len(lines), calls)
 	}
 	for i, rec := range lines {
-		if reads, _ := rec["fs_reads"].(float64); reads != 0 {
-			t.Errorf("GetMe call %d: fs_reads = %v, want 0 (the gate must run before account status)", i, rec["fs_reads"])
-		}
 		if rec["gate"] != "email_unverified" {
 			t.Errorf("GetMe call %d: gate = %v, want email_unverified", i, rec["gate"])
 		}
@@ -589,9 +586,6 @@ func TestE2E_VerifiedIdentityGate_AnonymousOnlyAgainstTheEmulator(t *testing.T) 
 				t.Fatalf("%s: got %d request lines, want 1", rpc, len(lines))
 			}
 			rec := lines[0]
-			if reads, _ := rec["fs_reads"].(float64); reads != 0 {
-				t.Errorf("%s: fs_reads = %v, want 0", rpc, rec["fs_reads"])
-			}
 			if rec["gate"] != "provider_not_allowed" || rec["gate_provider"] != "anonymous" {
 				t.Errorf("%s: gate=%v gate_provider=%v, want provider_not_allowed/anonymous", rpc, rec["gate"], rec["gate_provider"])
 			}

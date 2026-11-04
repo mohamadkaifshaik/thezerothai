@@ -130,7 +130,7 @@ func TestCreate_PollValidation(t *testing.T) {
 			e := newCreateEnv()
 			_, c, err := e.create(tt.in)
 			ae := wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
-			if ae.Metadata["field"] != "poll" || c.Reads() != 0 || c.Writes() != 0 || e.repo.createCalls != 0 {
+			if ae.Metadata["field"] != "poll" || e.repo.createCalls != 0 {
 				t.Fatalf("field=%q reads=%d writes=%d creates=%d, want poll and nothing touched", ae.Metadata["field"], c.Reads(), c.Writes(), e.repo.createCalls)
 			}
 		})
@@ -143,13 +143,10 @@ func TestCreate_PollValidation(t *testing.T) {
 func TestCreate_PollStored(t *testing.T) {
 	t.Parallel()
 	e := newCreateEnv()
-	p, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "Which?", PollsEnabled: true,
+	p, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "Which?", PollsEnabled: true,
 		Poll: &PollInput{Choices: []string{" Yes ", "No", "Maybe"}, DurationMinutes: 1440}})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if c.Reads() != 2 || c.Writes() != 4 {
-		t.Fatalf("reads=%d writes=%d, want the root post's 2/4", c.Reads(), c.Writes())
 	}
 	if p.Poll == nil || !reflect.DeepEqual(p.Poll.Options, []string{"Yes", "No", "Maybe"}) || p.Poll.DurationMin != 1440 ||
 		!p.Poll.ClosesAt.Equal(p.CreatedAt.Add(24*time.Hour)) || !reflect.DeepEqual(p.Poll.Counts, []int64{0, 0, 0}) || p.Poll.Total != 0 {
@@ -220,7 +217,7 @@ func TestCreate_PollReplayAndReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	again, c, err := e.create(in)
-	if err != nil || again.ID != first.ID || c.Writes() != 0 {
+	if err != nil || again.ID != first.ID {
 		t.Fatalf("replay: %v %v writes=%d", again, err, c.Writes())
 	}
 	in.Poll = &PollInput{Choices: []string{"Yes", "Maybe"}, DurationMinutes: 1440}

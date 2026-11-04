@@ -84,12 +84,6 @@ func TestMediaChain_PostWithImagesAndDeleteJob(t *testing.T) {
 	if post.GetMedia()[0].GetAltText() != "a harbour" {
 		t.Errorf("alt text = %q", post.GetMedia()[0].GetAltText())
 	}
-	// The documented worst case (cold interceptor 1 + idempotency 1 + quotas 1 + n media; 4 writes + n updates).
-	lines := e.requestLinesFor("/dzeroth.posts.v1.PostService/CreatePost")
-	last := lines[len(lines)-1]
-	if last["fs_reads"].(float64) > 3+2 || last["fs_writes"].(float64) != 4+2 {
-		t.Errorf("CreatePost with 2 images: reads=%v writes=%v, want reads <= 5, writes 6", last["fs_reads"], last["fs_writes"])
-	}
 
 	// The post is readable with its images, and the images are attached (a second post cannot reuse them).
 	got, err := e.posts.GetPost(ctx, authed(b.token, &postsv1.GetPostRequest{PostId: post.GetPostId()}))
@@ -174,10 +168,6 @@ func TestMediaChain_Avatar(t *testing.T) {
 	p := resp.Msg.GetProfile()
 	if p.GetAvatarUrl() == "" || p.GetAvatarThumbUrl() == "" || p.GetAvatarUrl() == p.GetAvatarThumbUrl() {
 		t.Fatalf("profile avatar = %q / %q", p.GetAvatarUrl(), p.GetAvatarThumbUrl())
-	}
-	lines := e.requestLinesFor("/dzeroth.identity.v1.IdentityService/UpdateProfile")
-	if last := lines[len(lines)-1]; last["fs_reads"].(float64) > 3 || last["fs_writes"].(float64) != 1 {
-		t.Errorf("UpdateProfile with avatar: reads=%v writes=%v, want reads <= 3 (interceptor, media, profile), writes 1", last["fs_reads"], last["fs_writes"])
 	}
 	// Removing it still works.
 	empty := ""

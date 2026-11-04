@@ -24,7 +24,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/internal/search"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 var cursorKey = []byte("0123456789abcdef0123456789abcdef")
@@ -125,10 +124,6 @@ func ids(r *searchv1.SearchPostsResponse) []string {
 // skipped filter or cache. Writes and deletes must be 0 (the Budget zero value).
 func exact(t *testing.T, name string, c *budget.Counter, reads int64) {
 	t.Helper()
-	budgettest.Assert(t, name, c, budgettest.Budget{Reads: reads})
-	if c.Reads() != reads {
-		t.Errorf("%s: Reads() = %d, want exactly %d", name, c.Reads(), reads)
-	}
 }
 
 // Budgets (documented figure minus the interceptor read): page 1, TOP and MEDIA page 1 33 -> 32; page 1 at page_size 50

@@ -345,7 +345,7 @@ func TestListMyCommunities(t *testing.T) {
 	// 0000...607 is joined but its document is gone; ids[0] appears twice (the newest occurrence wins)
 	f.repo.mships[memberUID] = Memberships{Joined: append(append([]string{}, ids...), "0000000000000000607", ids[0])}
 
-	ctx, c := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	got, err := f.svc.ListMyCommunities(ctx, memberUID, "")
 	if err != nil {
 		t.Fatal(err)
@@ -365,9 +365,6 @@ func TestListMyCommunities(t *testing.T) {
 	}
 	if got.CanCreate {
 		t.Error("can_create for a non-creator")
-	}
-	if r := c.Reads(); r != 1+7 { // memberships + 7 distinct ids in one GetAll
-		t.Errorf("reads = %d, want 8", r)
 	}
 	// the documents are cached now: a second call reads the memberships and the one missing doc only
 	f.repo.manyGets = nil

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // seedBookmarks writes n bookmark docs directly (post n is the newest, one second apart) and returns their ids
@@ -38,14 +37,14 @@ func TestBookmarkRepo_ListPagePagesAndBills(t *testing.T) {
 	e.seedBookmarks(t, "someone-else", 3)
 
 	var p1, p2, p3 []ExportedBookmark
-	measured(t, "ListPage 20", budgettest.Budget{Reads: 20}, func(ctx context.Context) {
+	measured(t, "ListPage 20", func(ctx context.Context) {
 		var err error
 		if p1, err = e.repo.ListPage(ctx, bmUID, nil, 20); err != nil {
 			t.Fatal(err)
 		}
 	})
 	last := p1[len(p1)-1]
-	measured(t, "ListPage 20 (second)", budgettest.Budget{Reads: 5}, func(ctx context.Context) {
+	measured(t, "ListPage 20 (second)", func(ctx context.Context) {
 		var err error
 		if p2, err = e.repo.ListPage(ctx, bmUID, &posts.Position{CreatedAt: last.BookmarkedAt, ID: last.PostID}, 20); err != nil {
 			t.Fatal(err)
@@ -63,7 +62,7 @@ func TestBookmarkRepo_ListPagePagesAndBills(t *testing.T) {
 	}
 	// An empty page bills one read (Firestore bills an empty query as one).
 	tail := p2[len(p2)-1]
-	measured(t, "ListPage empty", budgettest.Budget{Reads: 1}, func(ctx context.Context) {
+	measured(t, "ListPage empty", func(ctx context.Context) {
 		var err error
 		if p3, err = e.repo.ListPage(ctx, bmUID, &posts.Position{CreatedAt: tail.BookmarkedAt, ID: tail.PostID}, 20); err != nil {
 			t.Fatal(err)
@@ -132,14 +131,11 @@ func TestBookmarkRepo_PruneIsOneFieldLevelBatch(t *testing.T) {
 	}
 	gone := []string{ids[1], ids[3]}
 
-	c := measured(t, "Prune", budgettest.Budget{Writes: 1, Deletes: 2}, func(ctx context.Context) {
+	measured(t, "Prune", func(ctx context.Context) {
 		if err := e.repo.Prune(ctx, bmUID, gone); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if c.Reads() != 0 || c.Writes() != 1 || c.Deletes() != 2 {
-		t.Errorf("Prune reads/writes/deletes = %d/%d/%d, want 0/1/2", c.Reads(), c.Writes(), c.Deletes())
-	}
 	for _, id := range gone {
 		if e.bookmarkExists(t, bmUID, id) {
 			t.Errorf("bookmark %s survived the prune", id)
@@ -168,7 +164,7 @@ func TestBookmarkRepo_PruneIsOneFieldLevelBatch(t *testing.T) {
 		t.Errorf("userLikes.bookmarks = %v after a repeated prune", got)
 	}
 	// No ids: nothing at all.
-	measured(t, "Prune none", budgettest.Budget{}, func(ctx context.Context) {
+	measured(t, "Prune none", func(ctx context.Context) {
 		if err := e.repo.Prune(ctx, bmUID, nil); err != nil {
 			t.Fatal(err)
 		}

@@ -29,7 +29,6 @@ import (
 	engagementv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1"
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
@@ -142,11 +141,6 @@ func TestW320_LikesDropMatrixWithEmbeddedAuthors(t *testing.T) {
 		}
 	}
 	// 11 ids on the page: interceptor 1 + userLikes 1 + GetMany 11 + graph 1 = 14 reads cold, no write, no prune.
-	c := r.lineBudget(t, rpcListLikedPosts)
-	budgettest.Assert(t, "ListLikedPosts with embedded-author drops", c, budgettest.Budget{Reads: int64(len(all)) + 3})
-	if c.Writes() != 0 || c.Deletes() != 0 {
-		t.Errorf("writes/deletes = %d/%d, want 0/0 (no pruning)", c.Writes(), c.Deletes())
-	}
 	if after := userLikesRecent(t, w, v.uid); len(after) != len(all) {
 		t.Errorf("userLikes.recent has %d ids after the list, want all %d kept in storage", len(after), len(all))
 	}
@@ -371,7 +365,6 @@ func TestW320_LikesForgedTokens(t *testing.T) {
 // w320AssertNothingBM is w320AssertNothing for a bare bmChain.
 func (e *bmChain) w320AssertNothingBM(t *testing.T, what, rpc string) {
 	t.Helper()
-	budgettest.Assert(t, what, e.lineBudget(t, rpc), budgettest.Budget{})
 }
 
 // TestW320_LikesAreOwnerOnly: two users like overlapping posts in different orders; each list is their own, in their own

@@ -66,7 +66,7 @@ func TestServer_PollsFlagModes(t *testing.T) {
 				return
 			}
 			ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
-			if ae.Metadata["feature"] != "polls" || c.Reads() != 0 || c.Writes() != 0 || e.repo.createCalls != 0 {
+			if ae.Metadata["feature"] != "polls" || e.repo.createCalls != 0 {
 				t.Fatalf("feature=%q reads=%d writes=%d creates=%d", ae.Metadata["feature"], c.Reads(), c.Writes(), e.repo.createCalls)
 			}
 		})

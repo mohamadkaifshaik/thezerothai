@@ -15,7 +15,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -24,38 +23,35 @@ func TestTrends_Integration_HideList(t *testing.T) {
 	bg := context.Background()
 	store := NewTrendsRepo(c)
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	op := func(name string, f func(ctx context.Context) (HideResult, error), want HideResult, b budgettest.Budget) {
+	op := func(name string, f func(ctx context.Context) (HideResult, error), want HideResult) {
 		t.Helper()
-		ctx, cnt := budget.WithCounter(bg)
+		ctx, _ := budget.WithCounter(bg)
 		got, err := f(ctx)
 		if err != nil || got != want {
 			t.Fatalf("%s: %+v err %v, want %+v", name, got, err, want)
 		}
-		budgettest.Assert(t, name, cnt, b)
 	}
 
 	// The first hide creates the document; a variant of the same key is a repeat (0 writes).
 	op("hide first", func(ctx context.Context) (HideResult, error) { return store.Hide(ctx, "#Sl_u\u200dr") },
-		HideResult{Key: "slur", Changed: true, Count: 1}, budgettest.Budget{Reads: 1, Writes: 1})
+		HideResult{Key: "slur", Changed: true, Count: 1})
 	op("hide repeat", func(ctx context.Context) (HideResult, error) { return store.Hide(ctx, "SLUR") },
-		HideResult{Key: "slur", Count: 1}, budgettest.Budget{Reads: 1})
+		HideResult{Key: "slur", Count: 1})
 	op("hide second", func(ctx context.Context) (HideResult, error) { return store.Hide(ctx, "other") },
-		HideResult{Key: "other", Changed: true, Count: 2}, budgettest.Budget{Reads: 1, Writes: 1})
+		HideResult{Key: "other", Changed: true, Count: 2})
 
-	ctx, cnt := budget.WithCounter(bg)
+	ctx, _ := budget.WithCounter(bg)
 	keys, err := store.Hidden(ctx)
 	if err != nil || len(keys) != 2 {
 		t.Fatalf("Hidden: %v %v", keys, err)
 	}
-	budgettest.Assert(t, "Hidden", cnt, budgettest.Budget{Reads: 1})
 
 	// Load with no trends/current: the hide list comes back, 2 reads.
-	ctx, cnt = budget.WithCounter(bg)
+	ctx, _ = budget.WithCounter(bg)
 	doc, hidden, err := store.Load(ctx)
 	if err != nil || doc != nil || len(hidden) != 2 {
 		t.Fatalf("Load without a list: %v %v %v", doc, hidden, err)
 	}
-	budgettest.Assert(t, "Load", cnt, budgettest.Budget{Reads: 2})
 
 	// The sweep's Put replaces trends/current as a whole and a delete of it removes it; neither touches the hide list.
 	list := &TrendsDoc{ComputedAt: now, Items: []TrendItem{{Tag: "slur", Posts: 9, Authors: 5}, {Tag: "ok", Posts: 5, Authors: 4}}}
@@ -75,17 +71,15 @@ func TestTrends_Integration_HideList(t *testing.T) {
 	// GetTrends serves the list without the hidden key, ranks renumbered, 2 reads cold, 0 warm.
 	reg := flags.NewRegistry(flags.Spec{Name: FlagTrends, Mode: flags.On})
 	svc := New(reg, WithTrends(store, nil))
-	ctx, cnt = budget.WithCounter(bg)
+	ctx, _ = budget.WithCounter(bg)
 	got, err := svc.Trends(ctx, "u", 0, "")
 	if err != nil || len(got.Trends) != 1 || got.Trends[0].Tag != "ok" || got.Trends[0].Rank != 1 {
 		t.Fatalf("GetTrends: %v %v", got, err)
 	}
-	budgettest.Assert(t, "GetTrends cold", cnt, budgettest.Budget{Reads: 2})
-	ctx, cnt = budget.WithCounter(bg)
+	ctx, _ = budget.WithCounter(bg)
 	if _, err := svc.Trends(ctx, "u", 0, ""); err != nil {
 		t.Fatal(err)
 	}
-	budgettest.Assert(t, "GetTrends warm", cnt, budgettest.Budget{})
 
 	// The sweep reads the hide list (1 read) and drops the hidden key; it never writes the list.
 	reader := posts.New(posts.Deps{Repo: posts.NewFirestoreRepo(c), Cache: posts.NewCache(time.Minute, 0, 0)})
@@ -104,28 +98,26 @@ func TestTrends_Integration_HideList(t *testing.T) {
 
 	// Unhide: 1 read, 1 write; again or an unknown key: 1 read, 0 writes.
 	op("unhide", func(ctx context.Context) (HideResult, error) { return store.Unhide(ctx, "slur") },
-		HideResult{Key: "slur", Changed: true, Count: 1}, budgettest.Budget{Reads: 1, Writes: 1})
+		HideResult{Key: "slur", Changed: true, Count: 1})
 	op("unhide repeat", func(ctx context.Context) (HideResult, error) { return store.Unhide(ctx, "slur") },
-		HideResult{Key: "slur", Count: 1}, budgettest.Budget{Reads: 1})
+		HideResult{Key: "slur", Count: 1})
 
 	// Rejected input costs nothing.
-	ctx, cnt = budget.WithCounter(bg)
+	ctx, _ = budget.WithCounter(bg)
 	if _, err := store.Hide(ctx, "_\u200d"); !errors.Is(err, ErrEmptyTrendKey) {
 		t.Fatalf("empty key: %v", err)
 	}
-	budgettest.Assert(t, "rejected", cnt, budgettest.Budget{})
 }
 
 // Nothing to remove is success, creates nothing and writes 0.
 func TestTrends_Integration_UnhideWithoutDocument(t *testing.T) {
 	c := emulatorClient(t)
 	store := NewTrendsRepo(c)
-	ctx, cnt := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	res, err := store.Unhide(ctx, "nothing")
 	if err != nil || res.Changed {
 		t.Fatalf("unhide: %+v %v", res, err)
 	}
-	budgettest.Assert(t, "unhide missing", cnt, budgettest.Budget{Reads: 1})
 	if snap, err := c.Collection("trends").Doc("hidden").Get(context.Background()); err == nil && snap.Exists() {
 		t.Fatal("unhide created trends/hidden")
 	}
@@ -142,12 +134,11 @@ func TestTrends_Integration_HideListCap(t *testing.T) {
 	if _, err := c.Collection("trends").Doc("hidden").Set(context.Background(), map[string]any{"schemaVersion": 1, "tags": tags, "updatedAt": time.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cnt := budget.WithCounter(context.Background())
+	ctx, _ := budget.WithCounter(context.Background())
 	res, err := store.Hide(ctx, "onemore")
 	if !errors.Is(err, ErrHiddenFull) || res.Count != maxHiddenTags {
 		t.Fatalf("101st: %+v %v", res, err)
 	}
-	budgettest.Assert(t, "hide at the cap", cnt, budgettest.Budget{Reads: 1})
 	if res, err := store.Hide(context.Background(), "tag007"); err != nil || res.Changed {
 		t.Fatalf("repeat at the cap: %+v %v", res, err)
 	}

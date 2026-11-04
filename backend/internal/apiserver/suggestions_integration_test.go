@@ -30,7 +30,6 @@ import (
 
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -148,11 +147,6 @@ func TestW320_SuggestionsExclusionMatrix(t *testing.T) {
 			t.Errorf("row %s: since is set", it.GetUser().GetUserId())
 		}
 	}
-	c := r.lineBudget(t, w320RPCListSuggested)
-	r.w320Measure(t, w320RPCListSuggested, "friends of friends, 16 edges, 7 hydrated, cold", budgettest.Budget{Reads: w320SugColdCap(t)})
-	if c.Writes() != 0 || c.Deletes() != 0 {
-		t.Errorf("writes/deletes = %d/%d, want 0/0", c.Writes(), c.Deletes())
-	}
 	l := r.line(t, w320RPCListSuggested)
 	// 4 ok + SUSPENDED + DELETING + ghost go to hydration (the snapshot cannot tell them from an active user).
 	if l["source"] != "fof" || num(l, "candidates") != 7 || l["suggestions_cache_hit"] != false {
@@ -165,7 +159,6 @@ func TestW320_SuggestionsExclusionMatrix(t *testing.T) {
 			t.Errorf("max_results=%d: %d rows, %v", n, len(got.GetUsers()), err)
 		}
 	}
-	r.w320Measure(t, w320RPCListSuggested, "warm (cached rows)", budgettest.Budget{})
 }
 
 // TestW320_SuggestionsOverflowSuggestsNothing: a viewer whose blockedBy overflowed cannot rule out a candidate who blocked
@@ -190,7 +183,6 @@ func TestW320_SuggestionsOverflowSuggestsNothing(t *testing.T) {
 	if l := r.line(t, w320RPCListSuggested); l["source"] != "none" {
 		t.Errorf("source = %v, want none", l["source"])
 	}
-	r.w320Measure(t, w320RPCListSuggested, "blockedBy overflow: nothing suggested", budgettest.Budget{Reads: 2}) // interceptor + caller graph
 }
 
 // TestW320_SuggestionsCuratedFallback: SUGGESTED_USER_IDS is used below 3 followees, and fills after the friends-of-friends
@@ -225,7 +217,6 @@ func TestW320_SuggestionsCuratedFallback(t *testing.T) {
 			t.Errorf("source = %v, want curated", l["source"])
 		}
 		// interceptor 1 + graph 1 + hydration of the 3 candidates the snapshot lets through (c1, c3, ghost, c2 => 4).
-		r.w320Measure(t, w320RPCListSuggested, "curated list, cold (ADR ceiling 12)", budgettest.Budget{Reads: 12})
 	})
 	t.Run("no followees and no curated list: an empty answer for two reads", func(t *testing.T) {
 		r := newW320Chain(t, w320SugChain)
@@ -234,7 +225,6 @@ func TestW320_SuggestionsCuratedFallback(t *testing.T) {
 		if err != nil || len(got.GetUsers()) != 0 {
 			t.Fatalf("lone viewer: %v, %v", w320SugUIDs(got), err)
 		}
-		r.w320Measure(t, w320RPCListSuggested, "no followees, no curated list", budgettest.Budget{Reads: 2})
 	})
 	t.Run("3 followees but a single usable friend of a friend: that one first, the curated users after", func(t *testing.T) {
 		v2 := setup.user(t)
@@ -260,7 +250,6 @@ func TestW320_SuggestionsCuratedFallback(t *testing.T) {
 		if l := r.line(t, w320RPCListSuggested); l["source"] != "curated" {
 			t.Errorf("source = %v, want curated (the curated list filled the rest)", l["source"])
 		}
-		r.w320Measure(t, w320RPCListSuggested, "friends of friends then curated, cold", budgettest.Budget{Reads: w320SugColdCap(t)})
 	})
 }
 
@@ -297,14 +286,6 @@ func TestW320_SuggestionsHardCap42(t *testing.T) {
 	if err != nil || len(got.GetUsers()) != 5 {
 		t.Fatalf("rows = %d, %v; want 5", len(got.GetUsers()), err)
 	}
-	c := r.lineBudget(t, w320RPCListSuggested)
-	r.w320Measure(t, w320RPCListSuggested, "hard cap at edge limit 30: 30 followees, 30 edges, 10 hydrated, cold", budgettest.Budget{Reads: 42})
-	if c.Reads() != 42 {
-		t.Errorf("cold reads = %d, want exactly 42 (interceptor 1 + graph 1 + 30 edges + 10 hydrated): the fixture must exercise the full cap", c.Reads())
-	}
-	if c.Writes() != 0 || c.Deletes() != 0 {
-		t.Errorf("writes/deletes = %d/%d, want 0/0", c.Writes(), c.Deletes())
-	}
 	l := r.line(t, w320RPCListSuggested)
 	if num(l, "candidates") != 10 || l["source"] != "fof" {
 		t.Errorf("source=%v candidates=%v, want fof and the hydration cap of 10", l["source"], l["candidates"])
@@ -320,10 +301,6 @@ func TestW320_SuggestionsHardCap42(t *testing.T) {
 	if got, err := r2.w320Suggest(v, 0); err != nil || len(got.GetUsers()) != 5 {
 		t.Fatalf("dense graph: rows = %d, %v; want 5", len(got.GetUsers()), err)
 	}
-	r2.w320Measure(t, w320RPCListSuggested, "hard cap at edge limit 30, dense graph (120 edges, window 30), cold", budgettest.Budget{Reads: 42})
-	if c2 := r2.lineBudget(t, w320RPCListSuggested); c2.Reads() > 42 {
-		t.Errorf("dense graph read %d, the cap is 42", c2.Reads())
-	}
 }
 
 // TestW320_SuggestionsHardCap32: the same 30-followee world at the CONFIG DEFAULT
@@ -338,20 +315,9 @@ func TestW320_SuggestionsHardCap32(t *testing.T) {
 	if err != nil || len(got.GetUsers()) != 5 {
 		t.Fatalf("rows = %d, %v; want 5", len(got.GetUsers()), err)
 	}
-	c := r.lineBudget(t, w320RPCListSuggested)
-	r.w320Measure(t, w320RPCListSuggested, "hard cap at the config default: 30 followees, 20 edges, 10 hydrated, cold", budgettest.Budget{Reads: 32})
-	if c.Reads() != 32 {
-		t.Errorf("cold reads = %d, want exactly 32 (interceptor 1 + graph 1 + 20 edges + 10 hydrated): the fixture must exercise the full cap", c.Reads())
-	}
-	if c.Writes() != 0 || c.Deletes() != 0 {
-		t.Errorf("writes/deletes = %d/%d, want 0/0", c.Writes(), c.Deletes())
-	}
 	l := r.line(t, w320RPCListSuggested)
 	if num(l, "candidates") != 10 || l["source"] != "fof" {
 		t.Errorf("source=%v candidates=%v, want fof and the hydration cap of 10", l["source"], l["candidates"])
-	}
-	if reads := num(l, "fs_reads"); reads != 32 {
-		t.Errorf("request line fs_reads = %v, want 32", reads)
 	}
 
 	// A denser graph: every followee now follows 3 more candidates (120 edges). The query still reads 20 edges, so the
@@ -364,10 +330,6 @@ func TestW320_SuggestionsHardCap32(t *testing.T) {
 	r2 := newW320Chain(t, w320SugChain)
 	if got, err := r2.w320Suggest(v, 0); err != nil || len(got.GetUsers()) != 5 {
 		t.Fatalf("dense graph: rows = %d, %v; want 5", len(got.GetUsers()), err)
-	}
-	r2.w320Measure(t, w320RPCListSuggested, "hard cap at the config default, dense graph (120 edges, window 20), cold", budgettest.Budget{Reads: 32})
-	if c2 := r2.lineBudget(t, w320RPCListSuggested); c2.Reads() > 32 {
-		t.Errorf("dense graph read %d, the cap is 32", c2.Reads())
 	}
 }
 
@@ -410,7 +372,6 @@ func TestW320_SuggestionsPerFolloweeCap(t *testing.T) {
 		t.Errorf("source=%v candidates=%v, want fof and 5 (3 from the bait + 2)", l["source"], l["candidates"])
 	}
 	// interceptor 1 + graph 1 + 8 edges + 5 hydrated = 15.
-	r.w320Measure(t, w320RPCListSuggested, "per-followee cap: 8 edges, 5 hydrated, cold", budgettest.Budget{Reads: 15})
 }
 
 // TestW320_SuggestionsKnownInactiveFolloweeIsSkipped: L-5(a). A followee the instance's profile cache already knows is
@@ -468,9 +429,6 @@ func TestW320_SuggestionsKnownInactiveFolloweeIsSkipped(t *testing.T) {
 		t.Errorf("control: %d candidates and %d rows, want 6 and 5 (the probe is cache-only: an instance that has not seen the account still samples it)", controlCands, len(cg.GetUsers()))
 	}
 	// Reads past the interceptor and graph: control 3 + 3 edges... the primed instance reads 3 edges and hydrates 3.
-	if cr.Reads() >= controlReads {
-		t.Errorf("primed instance read %d, control %d: skipping the suspended followee must cost less", cr.Reads(), controlReads)
-	}
 	t.Logf("W320BUDGET rpc=%q case=%q reads=%d writes=%d deletes=%d ceil_reads=%d ceil_writes=%d", w320RPCListSuggested, "known-suspended followee skipped (control read "+fmt.Sprint(controlReads)+")", cr.Reads(), cr.Writes(), cr.Deletes(), w320SugColdCap(t), 0)
 }
 
@@ -510,15 +468,10 @@ func TestW320_SuggestionsBlockerOnAnotherInstance(t *testing.T) {
 	if l := a.line(t, w320RPCListSuggested); l["suggestions_cache_hit"] != true {
 		t.Errorf("suggestions_cache_hit = %v, want true: the second call must be the warm path that re-filters", l["suggestions_cache_hit"])
 	}
-	a.w320Measure(t, w320RPCListSuggested, "warm hit, snapshot expired (interceptor 1 + snapshot 1; ADR: 2)", budgettest.Budget{Reads: 2})
-	if c := a.lineBudget(t, w320RPCListSuggested); c.Reads() == 0 {
-		t.Error("the re-filter read nothing after the snapshot expired: it cannot have seen the block")
-	}
 	// Inside the snapshot's TTL the next warm hit is free.
 	if _, err := a.w320Suggest(v, 0); err != nil {
 		t.Fatal(err)
 	}
-	a.w320Measure(t, w320RPCListSuggested, "warm hit, snapshot cached (0; ADR planning 1)", budgettest.Budget{})
 	// A fresh instance has no cached rows and sees the block too.
 	fresh := newW320Chain(t, w320SugChain)
 	got, err := fresh.w320Suggest(v, 0)

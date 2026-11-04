@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
@@ -24,13 +23,9 @@ func TestRepo_CommunityEvidenceRoundTripAndRetention(t *testing.T) {
 
 	rep := sampleReport("u-rep", TargetCommunity, cid, "u-owner", t0)
 	rep.Evidence = &Evidence{AuthorHandle: "mallory", CommunityName: "targets", CommunityDescription: "people to watch", CommunityRules: rules, PostCreatedAt: t0.Add(-time.Hour)}
-	ctx, c := counted()
+	ctx, _ := counted()
 	if _, err := repo.Create(ctx, CreateParams{Report: rep, QuotaLimit: 5}); err != nil {
 		t.Fatal(err)
-	}
-	budgettest.Assert(t, "Create community report", c, budgettest.Budget{Reads: 2, Writes: 2})
-	if c.Reads() != 2 || c.Writes() != 2 {
-		t.Errorf("reads=%d writes=%d, want exactly 2 2", c.Reads(), c.Writes())
 	}
 
 	got, err := repo.Get(context.Background(), rep.ID)

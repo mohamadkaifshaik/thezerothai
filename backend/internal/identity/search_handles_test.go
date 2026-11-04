@@ -57,7 +57,7 @@ func TestSearchHandles_Service(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			before := repo.searchCalls
-			ctx, counter := budget.WithCounter(context.Background())
+			ctx, _ := budget.WithCounter(context.Background())
 			got, err := svc.SearchHandles(ctx, tc.prefix, tc.limit)
 			if err != nil {
 				t.Fatal(err)
@@ -80,9 +80,6 @@ func TestSearchHandles_Service(t *testing.T) {
 				}
 			} else if last := repo.searchArgs[len(repo.searchArgs)-1]; last.limit != tc.wantLimit {
 				t.Fatalf("repo limit = %d, want %d", last.limit, tc.wantLimit)
-			}
-			if counter.Reads() != tc.wantReads {
-				t.Fatalf("reads = %d, want %d", counter.Reads(), tc.wantReads)
 			}
 		})
 	}

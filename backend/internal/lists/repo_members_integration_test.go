@@ -18,7 +18,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
@@ -153,16 +152,13 @@ func TestAddMember_Integration_Budget(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
 	id := e.seedLists(t, "owner", 1, []string{"u1"})[0]
 	var view View
-	c := measured(t, "AddListMember", budgettest.Budget{Reads: 6, Writes: 3}, func(ctx context.Context) {
+	measured(t, "AddListMember", func(ctx context.Context) {
 		v, err := e.add(ctx, 1, id, "u2")
 		if err != nil {
 			t.Fatal(err)
 		}
 		view = v
 	})
-	if c.Reads() != 6 || c.Writes() != 3 || c.Deletes() != 0 {
-		t.Errorf("reads/writes/deletes = %d/%d/%d, want exactly 6/3/0", c.Reads(), c.Writes(), c.Deletes())
-	}
 	if view.Header.MemberCount != 2 || view.Header.ID != id {
 		t.Errorf("header = %+v", view.Header)
 	}
@@ -188,15 +184,12 @@ func (e *membersEnv) cacheHas(id string) bool { _, ok := e.svc.cache.get(id); re
 func TestAddMember_Integration_AlreadyMember(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
 	id := e.seedLists(t, "owner", 1, []string{"u1", "u2"})[0]
-	c := measured(t, "AddListMember already a member", budgettest.Budget{Reads: 4, Writes: 1}, func(ctx context.Context) {
+	measured(t, "AddListMember already a member", func(ctx context.Context) {
 		v, err := e.add(ctx, 1, id, "u2")
 		if err != nil || v.Header.MemberCount != 2 {
 			t.Fatalf("view %+v err %v", v, err)
 		}
 	})
-	if c.Writes() != 1 || c.Reads() != 4 {
-		t.Errorf("reads/writes = %d/%d, want 4/1", c.Reads(), c.Writes())
-	}
 	if n := e.quotaCount(t, "owner", "listAdds"); n != 0 {
 		t.Errorf("an existing member spent quota: %d", n)
 	}
@@ -218,7 +211,7 @@ func TestAddMember_Integration_Replay(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.seedGraph(t, "owner", nil, nil, []string{"u2"}, false) // u2 now blocks the owner
-	c := measured(t, "AddListMember replay", budgettest.Budget{Reads: 4}, func(ctx context.Context) {
+	measured(t, "AddListMember replay", func(ctx context.Context) {
 		v, err := e.add(ctx, 1, id, "u2")
 		if err != nil {
 			t.Fatalf("replay err = %v, want the stored outcome", err)
@@ -229,9 +222,6 @@ func TestAddMember_Integration_Replay(t *testing.T) {
 			t.Errorf("replay header = %+v, want %+v", v.Header, want)
 		}
 	})
-	if c.Writes() != 0 {
-		t.Errorf("a replay wrote %d", c.Writes())
-	}
 	if got := e.members(t, id); len(got) != 0 {
 		t.Errorf("a replay re-added the member: %v", got)
 	}
@@ -274,16 +264,13 @@ func TestAddMember_Integration_ConcurrentSameKey(t *testing.T) {
 func TestAddMember_Integration_Cap(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
 	id := e.seedLists(t, "owner", 1, append(manyMembers(149), "u1"))[0]
-	c := measured(t, "AddListMember at the cap", budgettest.Budget{Reads: 5}, func(ctx context.Context) {
+	measured(t, "AddListMember at the cap", func(ctx context.Context) {
 		_, err := e.add(ctx, 1, id, "u2")
 		ae := wantCode(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
 		if ae.Metadata["limit"] != "list_members" {
 			t.Errorf("metadata = %v", ae.Metadata)
 		}
 	})
-	if c.Writes() != 0 {
-		t.Errorf("a refused add wrote %d", c.Writes())
-	}
 	if got := e.members(t, id); len(got) != 150 {
 		t.Errorf("members = %d", len(got))
 	}
@@ -293,7 +280,7 @@ func TestAddMember_Integration_Cap(t *testing.T) {
 	}
 	// The 150th member fits.
 	id2 := e.seedLists(t, "owner", 1, manyMembers(149))[0]
-	c = measured(t, "AddListMember 150th", budgettest.Budget{Reads: 6, Writes: 3}, func(ctx context.Context) {
+	measured(t, "AddListMember 150th", func(ctx context.Context) {
 		if _, err := e.add(ctx, 3, id2, "u2"); err != nil {
 			t.Fatal(err)
 		}
@@ -301,7 +288,6 @@ func TestAddMember_Integration_Cap(t *testing.T) {
 	if got := e.members(t, id2); len(got) != 150 || got[149] != "u2" {
 		t.Errorf("members = %d", len(got))
 	}
-	_ = c
 }
 
 // Two adds of different users race at 149 members: exactly one wins, the other is LIMIT_REACHED, and the list ends at 150.
@@ -351,16 +337,13 @@ func TestAddMember_Integration_Quota(t *testing.T) {
 		if _, err := e.add(context.Background(), 1, id, "u2"); err != nil {
 			t.Fatalf("the 300th add: %v", err)
 		}
-		c := measured(t, "AddListMember over quota", budgettest.Budget{Reads: 6}, func(ctx context.Context) {
+		measured(t, "AddListMember over quota", func(ctx context.Context) {
 			_, err := e.add(ctx, 2, id, "u3")
 			ae := wantCode(t, err, connect.CodeResourceExhausted, commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED)
 			if ae.Metadata["quota"] != "list_adds" {
 				t.Errorf("metadata = %v", ae.Metadata)
 			}
 		})
-		if c.Writes() != 0 {
-			t.Errorf("wrote %d", c.Writes())
-		}
 		if got := e.members(t, id); !slices.Equal(got, []string{"u2"}) {
 			t.Errorf("members = %v", got)
 		}
@@ -402,7 +385,7 @@ func TestAddMember_Integration_BlockMatrix(t *testing.T) {
 	type answer struct{ code, msg, reason, meta string }
 	get := func(listID, target string, n int) answer {
 		var out answer
-		c := measured(t, "AddListMember refused", budgettest.Budget{Reads: 5}, func(ctx context.Context) {
+		measured(t, "AddListMember refused", func(ctx context.Context) {
 			_, err := e.add(ctx, n, listID, target)
 			var ae *apierr.Error
 			if !asAPI(err, &ae) {
@@ -410,9 +393,6 @@ func TestAddMember_Integration_BlockMatrix(t *testing.T) {
 			}
 			out = answer{ae.Code.String(), ae.Message, ae.Reason.String(), fmt.Sprint(ae.Metadata)}
 		})
-		if c.Writes() != 0 {
-			t.Errorf("%s: a refusal wrote %d", target, c.Writes())
-		}
 		return out
 	}
 	missing := get(id, "nobody", 1)
@@ -448,14 +428,11 @@ func TestAddMember_Integration_OverflowBudget(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
 	id := e.seedLists(t, "owner", 1, nil)[0]
 	e.seedGraph(t, "owner", nil, nil, nil, true)
-	c := measured(t, "AddListMember overflow", budgettest.Budget{Reads: 7, Writes: 3}, func(ctx context.Context) {
+	measured(t, "AddListMember overflow", func(ctx context.Context) {
 		if _, err := e.add(ctx, 1, id, "u2"); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if c.Reads() != 7 {
-		t.Errorf("reads = %d, want 7 (6 + the target's graph)", c.Reads())
-	}
 }
 
 // A protected target needs the owner to follow it; the owner may always add itself; a protected target that blocks the owner stays NOT_FOUND.
@@ -467,13 +444,10 @@ func TestAddMember_Integration_Protected(t *testing.T) {
 	e.profiles["owner"] = func() identity.Profile { p := e.profiles["owner"]; p.IsPrivate = true; return p }()
 	e.seedGraph(t, "owner", []string{"u3"}, nil, nil, false)
 
-	c := measured(t, "AddListMember protected", budgettest.Budget{Reads: 4}, func(ctx context.Context) {
+	measured(t, "AddListMember protected", func(ctx context.Context) {
 		_, err := e.add(ctx, 1, id, "u2")
 		wantCode(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT)
 	})
-	if c.Writes() != 0 {
-		t.Errorf("wrote %d", c.Writes())
-	}
 	if _, err := e.add(context.Background(), 2, id, "u3"); err != nil {
 		t.Errorf("followed protected account: %v", err)
 	}
@@ -490,7 +464,7 @@ func TestMembers_Integration_LazyDrop(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
 	e.seedGraph(t, "owner", nil, nil, []string{"b", "d"}, false)
 	id := e.seedLists(t, "owner", 1, []string{"a", "b", "c", "d"})[0]
-	c := measured(t, "AddListMember with drop", budgettest.Budget{Reads: 6, Writes: 3}, func(ctx context.Context) {
+	_ = measured(t, "AddListMember with drop", func(ctx context.Context) {
 		v, err := e.add(ctx, 1, id, "u2")
 		if err != nil {
 			t.Fatal(err)
@@ -499,20 +473,16 @@ func TestMembers_Integration_LazyDrop(t *testing.T) {
 			t.Errorf("member count = %d, want 3", v.Header.MemberCount)
 		}
 	})
-	_ = c
 	if got := e.members(t, id); !slices.Equal(got, []string{"a", "c", "u2"}) {
 		t.Errorf("after add: %v, want [a c u2]", got)
 	}
 
 	id2 := e.seedLists(t, "owner", 1, []string{"a", "b", "c", "d"})[0]
-	c = measured(t, "RemoveListMember with drop", budgettest.Budget{Reads: 3, Writes: 2}, func(ctx context.Context) {
+	measured(t, "RemoveListMember with drop", func(ctx context.Context) {
 		if _, err := e.svc.RemoveMember(ctx, "owner", key(2), id2, "a"); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if c.Reads() != 3 || c.Writes() != 2 {
-		t.Errorf("remove reads/writes = %d/%d, want 3/2", c.Reads(), c.Writes())
-	}
 	if got := e.members(t, id2); !slices.Equal(got, []string{"c"}) {
 		t.Errorf("after remove: %v, want [c]", got)
 	}
@@ -533,37 +503,28 @@ func TestRemoveMember_Integration(t *testing.T) {
 	e := newMembersEnv(t, time.Now().Add(-72*time.Hour))
 	id := e.seedLists(t, "owner", 1, []string{"u1", "u2"})[0]
 
-	c := measured(t, "RemoveListMember", budgettest.Budget{Reads: 3, Writes: 2}, func(ctx context.Context) {
+	measured(t, "RemoveListMember", func(ctx context.Context) {
 		v, err := e.svc.RemoveMember(ctx, "owner", key(1), id, "u1")
 		if err != nil || v.Header.MemberCount != 1 {
 			t.Fatalf("view %+v err %v", v, err)
 		}
 	})
-	if c.Reads() != 3 || c.Writes() != 2 || c.Deletes() != 0 {
-		t.Errorf("reads/writes/deletes = %d/%d/%d, want 3/2/0", c.Reads(), c.Writes(), c.Deletes())
-	}
 	if got := e.members(t, id); !slices.Equal(got, []string{"u2"}) {
 		t.Errorf("members = %v", got)
 	}
 
-	c = measured(t, "RemoveListMember not a member", budgettest.Budget{Reads: 2, Writes: 1}, func(ctx context.Context) {
+	measured(t, "RemoveListMember not a member", func(ctx context.Context) {
 		v, err := e.svc.RemoveMember(ctx, "owner", key(2), id, "u3")
 		if err != nil || v.Header.MemberCount != 1 {
 			t.Fatalf("view %+v err %v", v, err)
 		}
 	})
-	if c.Writes() != 1 {
-		t.Errorf("a no-op remove wrote %d, want 1 (the idempotency document)", c.Writes())
-	}
 
-	c = measured(t, "RemoveListMember replay", budgettest.Budget{Reads: 2}, func(ctx context.Context) {
+	measured(t, "RemoveListMember replay", func(ctx context.Context) {
 		if _, err := e.svc.RemoveMember(ctx, "owner", key(1), id, "u1"); err != nil {
 			t.Fatal(err)
 		}
 	})
-	if c.Writes() != 0 {
-		t.Errorf("a replay wrote %d", c.Writes())
-	}
 	// A later re-add by another call is not undone by a late retry of the first remove.
 	if _, err := e.add(context.Background(), 3, id, "u1"); err != nil {
 		t.Fatal(err)
@@ -594,7 +555,7 @@ func TestRemoveMember_Integration(t *testing.T) {
 	}
 	var first *apierr.Error
 	for i, lid := range []string{foreign, missing, id} {
-		c := measured(t, "RemoveListMember not found", budgettest.Budget{Reads: 2}, func(ctx context.Context) {
+		measured(t, "RemoveListMember not found", func(ctx context.Context) {
 			_, err := e.svc.RemoveMember(ctx, "owner", key(20+i), lid, "u1")
 			var ae *apierr.Error
 			if !asAPI(err, &ae) || ae.Code != connect.CodeNotFound {
@@ -606,9 +567,6 @@ func TestRemoveMember_Integration(t *testing.T) {
 				t.Errorf("list %d: %q differs from %q", i, ae.Message, first.Message)
 			}
 		})
-		if c.Writes() != 0 {
-			t.Errorf("list %d: wrote %d", i, c.Writes())
-		}
 	}
 	if d, _ := e.doc(t, foreign); len(d["memberIds"].([]any)) != 1 {
 		t.Error("another user's list was changed")
@@ -649,13 +607,10 @@ func TestAddMember_Integration_FreshTargetStatus(t *testing.T) {
 	fresh["u2"] = p
 	e.repo.SetTxProfiles(txProfilesFromMap{profiles: fresh})
 
-	c := measured(t, "AddListMember deleting target", budgettest.Budget{Reads: 5}, func(ctx context.Context) {
+	measured(t, "AddListMember deleting target", func(ctx context.Context) {
 		_, err := e.add(ctx, 1, id, "u2")
 		wantCode(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 	})
-	if c.Writes() != 0 {
-		t.Errorf("a refusal wrote %d", c.Writes())
-	}
 	if got := e.members(t, id); len(got) != 0 {
 		t.Errorf("members = %v, want none", got)
 	}

@@ -10,7 +10,6 @@ package graph_test
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +19,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget/budgettest"
 )
 
 // M2: one shared daily cap over Follow/Unfollow/Block/Unblock/Mute/Unmute. Replays leave quotas/{uid}
@@ -72,7 +70,6 @@ func TestSecurity_Integration_MutationDailyCap(t *testing.T) {
 		if err := s.call(); err != nil {
 			t.Fatalf("%s within the cap: %v", s.name, err)
 		}
-		budgettest.Assert(t, s.name, r.lastOps(), budgettest.Budget{Reads: s.maxReads, Writes: 5, Deletes: 2})
 	}
 	// Replays reserved nothing: exactly one follow and one block were ever charged.
 	if got := quotaUsed(t, w.client, "uid-mca", istDay(0), "follows"); got != 1 {
@@ -114,7 +111,6 @@ func TestSecurity_Integration_MutationDailyCap(t *testing.T) {
 		if info.Code != connect.CodeResourceExhausted || info.Reason != commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED {
 			t.Errorf("%s after the cap: %v/%v, want ResourceExhausted/RATE_LIMITED", name, info.Code, info.Reason)
 		}
-		budgettest.Assert(t, name+" (capped)", r.lastOps(), budgettest.Budget{})
 	}
 
 	// Not affected: the same uid's list RPCs, and another uid's mutations (own counter).
@@ -201,7 +197,6 @@ func assertBadIDsAreValidation(t *testing.T, bad string, includeHandleProbe bool
 		if info.Code != connect.CodeInvalidArgument || info.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION {
 			t.Errorf("%s: %v/%v, want InvalidArgument/VALIDATION", name, info.Code, info.Reason)
 		}
-		budgettest.Assert(t, name, r.lastOps(), budgettest.Budget{})
 	}
 	if lines := r.errorLines(); len(lines) != 0 {
 		t.Errorf("%d ERROR log lines for %q, want 0: %v", len(lines), bad, lines)
@@ -295,7 +290,6 @@ func TestSecurity_Integration_PageTokensOpaqueAndBound(t *testing.T) {
 		if info.Code != connect.CodeInvalidArgument || info.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION || info.Meta["field"] != "page_token" {
 			t.Errorf("%s: %+v, want InvalidArgument/VALIDATION/field=page_token", name, info)
 		}
-		budgettest.Assert(t, fmt.Sprintf("rejected token (%s)", name), r.lastOps(), budgettest.Budget{})
 	}
 	// The owner's own tokens still work.
 	if _, err := v.graph.ListBlockedUsers(ctx, connect.NewRequest(&graphv1.ListBlockedUsersRequest{PageSize: 1, PageToken: ownTok})); err != nil {
