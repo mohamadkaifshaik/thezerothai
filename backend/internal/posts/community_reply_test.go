@@ -63,7 +63,7 @@ func TestCreate_MembersOnlyReply(t *testing.T) {
 			if tt.mutate != nil {
 				tt.mutate(e)
 			}
-			_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "reply", ReplyToPostID: tt.parent, RepliesEnabled: true, CommunitiesGloballyOff: tt.off})
+			_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "reply", ReplyToPostID: tt.parent, RepliesEnabled: true, CommunitiesGloballyOff: tt.off})
 			switch tt.wantErr {
 			case "":
 				if err != nil {
@@ -84,27 +84,27 @@ func TestCreate_MembersOnlyReply(t *testing.T) {
 	}
 }
 
-// TestCreate_MembersOnlyReply_ErrorPath: a gate failure that is not a refusal is an internal error, not a leaked FORBIDDEN, and writes nothing.
+// TestCreate_MembersOnlyReply_ErrorPath: a gate failure that is not a refusal is an internal error, not a leaked FORBIDDEN, and creates nothing.
 func TestCreate_MembersOnlyReply_ErrorPath(t *testing.T) {
 	t.Parallel()
 	e := communityThreadEnv(&fakeGate{replyErr: errors.New("firestore unavailable")})
-	_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "reply", ReplyToPostID: rRoot, RepliesEnabled: true})
+	_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "reply", ReplyToPostID: rRoot, RepliesEnabled: true})
 	var ae *apierr.Error
 	if err == nil || errors.As(err, &ae) {
 		t.Fatalf("err = %v, want a plain wrapped error", err)
 	}
 	if e.repo.createCalls != 0 {
-		t.Fatalf("writes=%d creates=%d", c.Writes(), e.repo.createCalls)
+		t.Fatalf("creates=%d, want 0", e.repo.createCalls)
 	}
 }
 
-// TestCreate_ReplyToPlainPostNeverAsksTheGate: the existing reply path is unchanged (+0 reads) even with a gate wired.
+// TestCreate_ReplyToPlainPostNeverAsksTheGate: the existing reply path is unchanged even with a gate wired.
 func TestCreate_ReplyToPlainPostNeverAsksTheGate(t *testing.T) {
 	t.Parallel()
 	g := &fakeGate{replyErr: notMember()}
 	e := newThreadEnv()
 	e.svc.community = g
-	if _, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "reply", ReplyToPostID: rRoot, RepliesEnabled: true}); err != nil {
+	if _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "reply", ReplyToPostID: rRoot, RepliesEnabled: true}); err != nil {
 		t.Fatal(err)
 	}
 	if n, m := g.counts(); n != 0 || m != 0 {

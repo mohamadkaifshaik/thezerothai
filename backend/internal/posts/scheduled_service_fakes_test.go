@@ -5,15 +5,11 @@ import (
 	"errors"
 	"time"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
 // fakeSchedRepo is an in-memory ScheduledRepo for the Scheduler unit tests. It extends fakeScheduledStore (list,
-// export, purge) with the schedule/count/cancel methods and charges the same reads and writes as FirestoreRepo:
-// Get 1 read; the pending count 1 read; Create 1 read (quotas) + 1 (the window count, exact and inside the
-// transaction) + len(MediaIDs) and 2 writes (a full window adds 1 read, the document of this id; the daily cap is
-// checked after the window and before the media read); Cancel 1 read and 1 write (0 writes when already terminal).
+// export, purge) with the schedule/count/cancel methods.
 type fakeSchedRepo struct {
 	*fakeScheduledStore
 
@@ -76,7 +72,6 @@ func (f *fakeSchedRepo) GetScheduled(ctx context.Context, uid, id string) (*Sche
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.gets++
-	budget.FromContext(ctx).AddReads(1)
 	if f.getErr != nil {
 		return nil, f.getErr
 	}
@@ -92,7 +87,6 @@ func (f *fakeSchedRepo) CountPending(ctx context.Context, uid string, limit int)
 	defer f.mu.Unlock()
 	f.pendingCounts++
 	f.lastPendingLimit = limit
-	budget.FromContext(ctx).AddReads(1)
 	if f.countPendingErr != nil {
 		return 0, f.countPendingErr
 	}
@@ -138,18 +132,14 @@ func (f *fakeSchedRepo) CreateScheduled(ctx context.Context, p ScheduledCreatePa
 // createAttempt is one transaction attempt. conflicted reports that a concurrent winner committed while it was open,
 // so the caller must run another attempt (nothing of this one was written).
 func (f *fakeSchedRepo) createAttempt(ctx context.Context, p ScheduledCreateParams, attempt int) (doc *ScheduledPost, conflicted bool, err error) {
-	c := budget.FromContext(ctx)
-	c.AddReads(1) // quotas
 	if f.createErr != nil {
 		return nil, false, f.createErr
 	}
 	f.windowEvals++
-	c.AddReads(1) // the window count
 	if f.windowErr != nil {
 		return nil, false, f.windowErr
 	}
 	if f.windowCount(p.UID, p.PublishAt.UTC().Truncate(time.Minute), p.WindowCap+1) >= int64(p.WindowCap) {
-		c.AddReads(1) // the document of this id: a concurrent duplicate is a replay, not a full window
 		if f.find(p.UID, p.ID) != nil {
 			return nil, false, ErrScheduledExists
 		}
@@ -160,7 +150,6 @@ func (f *fakeSchedRepo) createAttempt(ctx context.Context, p ScheduledCreatePara
 	}
 	var refs []MediaRef
 	if len(p.MediaIDs) > 0 {
-		c.AddReads(int64(len(p.MediaIDs)))
 		if f.mediaNotReady {
 			return nil, false, ErrMediaNotReady
 		}
@@ -189,7 +178,6 @@ func (f *fakeSchedRepo) createAttempt(ctx context.Context, p ScheduledCreatePara
 	}
 	f.docs[p.UID] = append(f.docs[p.UID], created)
 	f.schedules[p.UID]++
-	c.AddWrites(2)
 	return copyScheduled(created), false, nil
 }
 
@@ -198,8 +186,6 @@ func (f *fakeSchedRepo) CancelScheduled(ctx context.Context, uid, id string, now
 	defer f.mu.Unlock()
 	f.cancels++
 	f.lastCancelTTL = ttl
-	c := budget.FromContext(ctx)
-	c.AddReads(1)
 	if f.cancelErr != nil {
 		return nil, false, f.cancelErr
 	}
@@ -211,7 +197,6 @@ func (f *fakeSchedRepo) CancelScheduled(ctx context.Context, uid, id string, now
 		return copyScheduled(p), false, nil
 	}
 	ScheduledTransition{To: ScheduledCancelled}.apply(p, now, ttl)
-	c.AddWrites(1)
 	return copyScheduled(p), true, nil
 }
 

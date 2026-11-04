@@ -23,7 +23,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -67,7 +66,6 @@ type ExportedPollVote struct {
 // PurgePollVotesPage implements PollVotePurger.
 func (r *FirestoreRepo) PurgePollVotesPage(ctx context.Context, uid string) (int, error) {
 	docs, err := r.client.Collection(pollVotesCollection).Where("uid", "==", uid).Select().Limit(pollVotePage).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return 0, logger.RedactErr(fmt.Errorf("engagement: purge poll votes %s: query: %w", logger.HashUID(uid), err), uid)
 	}
@@ -75,7 +73,7 @@ func (r *FirestoreRepo) PurgePollVotesPage(ctx context.Context, uid string) (int
 		return 0, nil
 	}
 	ids := make([]string, len(docs))
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	for i, d := range docs {
 		ids[i] = d.Ref.ID
 		b.Delete(d.Ref)
@@ -95,7 +93,6 @@ func (r *FirestoreRepo) ExportPollVotesPage(ctx context.Context, uid, afterID st
 		q = q.StartAfter(col.Doc(afterID))
 	}
 	docs, err := q.Limit(min(max(limit, 1), pollVotePage)).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return nil, logger.RedactErrPostDocs(fmt.Errorf("engagement: export poll votes %s: query: %w", logger.HashUID(uid), err), uid, afterID)
 	}
@@ -125,7 +122,7 @@ type PollVoteCheckpoint struct {
 }
 
 // PollVoteEraser is the `poll_votes` account-deletion step: one page of at most 500 vote documents per call. An
-// account with 120 votes takes 1 invocation, 120 reads + 120 deletes (a short page ends the step, so no extra empty read).
+// account with 120 votes takes 1 invocation (a short page ends the step, so no extra empty read).
 type PollVoteEraser struct {
 	repo PollVotePurger
 }
@@ -134,8 +131,8 @@ type PollVoteEraser struct {
 func NewPollVoteEraser(repo PollVotePurger) *PollVoteEraser { return &PollVoteEraser{repo: repo} }
 
 // PurgeUser deletes one page. done is true when the page was short, which includes the empty page of an account that never voted
-// or whose documents a previous run already deleted (idempotent re-run: 1 read, 0 writes). Reads: one per document (minimum 1);
-// deletes: one per document; writes: 0.
+// or whose documents a previous run already deleted (idempotent re-run: nothing is written). It
+// deletes the documents of the page.
 func (e *PollVoteEraser) PurgeUser(ctx context.Context, uid string, cp PollVoteCheckpoint) (PollVoteCheckpoint, bool, error) {
 	n, err := e.repo.PurgePollVotesPage(ctx, uid)
 	if err != nil {
@@ -164,7 +161,7 @@ func NewPollVoteExporter(src PollVoteExportSource) *PollVoteExporter {
 }
 
 // WithChoices adds the account's own record, userLikes.pollVotes, to the section as `current_choices` (security L-2): the
-// voter's current choice per poll, {postId, choice}, with no time. load is Repo.LoadUserLikes (1 read, also for a missing
+// voter's current choice per poll, {postId, choice}, with no time. load is Repo.LoadUserLikes (also for a missing
 // document), read fresh and never from the cache; ttl and now decide which entries are still live (an expired one is not
 // exported, as it is not shown). A nil now means time.Now.
 func (x *PollVoteExporter) WithChoices(load func(ctx context.Context, uid string) (UserLikes, error), ttl time.Duration, now func() time.Time) *PollVoteExporter {

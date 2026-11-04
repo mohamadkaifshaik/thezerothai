@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 func TestPrepare(t *testing.T) {
@@ -72,7 +70,7 @@ func TestPubSubEmitter(t *testing.T) {
 		em := NewPubSubEmitter(pub, fakeFlags{}, nil)
 		mustNoErr(t, em.Emit(context.Background(), Event{Type: TypeFollow, ActorID: "alice", RecipientIDs: []string{"bob"}}))
 		if len(pub.data) != 0 {
-			t.Errorf("publishes = %d, want 0 (flag off: 0 cost)", len(pub.data))
+			t.Errorf("publishes = %d, want 0 (flag off)", len(pub.data))
 		}
 	})
 	t.Run("a publish failure is logged and returned", func(t *testing.T) {
@@ -98,18 +96,15 @@ func TestInlineEmitter(t *testing.T) {
 			t.Fatalf("rows = %+v", r.repo.rows)
 		}
 	})
-	t.Run("the delivery's reads never land on the producer's budget counter", func(t *testing.T) {
+	t.Run("the delivery outlives the producer's cancelled context", func(t *testing.T) {
 		r := newRig(t, nil)
-		r.dir.cold = map[string]bool{"alice": true, "bob": true} // the fan-out reads both profiles
-		ctx, producer := budget.WithCounter(context.Background())
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // the request that produced the event is already over
 		em := NewInlineEmitter(r.f, allFlags{}, nil)
 		mustNoErr(t, em.Emit(ctx, Event{Type: TypeFollow, ActorID: "alice", RecipientIDs: []string{"bob"}, At: t0}))
 		em.Wait()
-		if len(r.dir.cold) == 2 {
-			t.Fatal("control: the fan-out read no profile")
-		}
-		if got := producer.Reads(); got != 0 {
-			t.Errorf("producer reads = %d, want 0 (the inline delivery is its own unit of work)", got)
+		if _, ok := r.repo.rows["bob"]["follow_alice"]; !ok {
+			t.Fatalf("a cancelled producer context ended the delivery: rows = %+v", r.repo.rows)
 		}
 	})
 	t.Run("work is bounded: a full emitter drops instead of spawning", func(t *testing.T) {

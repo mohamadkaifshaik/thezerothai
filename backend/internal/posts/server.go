@@ -29,7 +29,7 @@ type FlagChecker interface {
 }
 
 // GuardFeature is the flag check shared by PostService and TimelineService: it runs before any
-// Firestore access and returns FAILED_PRECONDITION + FEATURE_DISABLED (0 reads from this code) when the posts
+// Firestore access and returns FAILED_PRECONDITION + FEATURE_DISABLED when the posts
 // flag is off for the caller. A rejected call logs feature_disabled=true and outcome=rejected:feature_disabled.
 // A missing caller identity is UNAUTHENTICATED (unreachable: authn.IDTokenInterceptor runs first).
 func GuardFeature(ctx context.Context, fc FlagChecker) error {
@@ -156,10 +156,10 @@ func (s *Server) DeletePost(ctx context.Context, req *connect.Request[postsv1.De
 // GetPost is behind the flag; the visibility rules are Service.GetForViewer. Viewer flags come from one
 // cached userLikes read while FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the caller (with only bookmarks on just bookmarked_by_viewer is set),
 // else they are false and nothing is read.
-// viewer_reply_permission adds 0 reads, except <= +1 cold (R's author graph) for a FOLLOWING root;
+// viewer_reply_permission reads R's author graph only for a FOLLOWING root;
 // a reply in a restricted conversation is UNKNOWN. Never flag-gated. A post in a community conversation is NOT_ALLOWED for a
-// viewer who is not a JOINED member: +1 read cold (the member doc), +0 warm, skipped while communities is globally off. PostView.post.community
-// (the label) is decided by ToView: absent when hidden or when communities is globally off. The community hint adds +1 read cold over the budget above (a community conversation has the EVERYONE policy, so it never adds to the FOLLOWING read), 0 writes.
+// viewer who is not a JOINED member (a member doc lookup), skipped while communities is globally off. PostView.post.community
+// (the label) is decided by ToView: absent when hidden or when communities is globally off. A community conversation has the EVERYONE policy, so the community hint never adds to the FOLLOWING lookup.
 func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPostRequest]) (*connect.Response[postsv1.GetPostResponse], error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
 		return nil, err
@@ -173,17 +173,17 @@ func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPo
 	}
 	vs := s.viewerSet(ctx, uid)
 	if h, ok := s.svc.(PollBlockHinter); ok {
-		vs = vs.WithBlockedAuthors(h.PollBlockedAuthors(ctx, uid, post)) // a poll by an author the viewer blocks: viewer_poll_vote_blocked, 0 reads
+		vs = vs.WithBlockedAuthors(h.PollBlockedAuthors(ctx, uid, post)) // a poll by an author the viewer blocks: viewer_poll_vote_blocked
 	}
 	v := ToView(post, vs, uid)
 	if h, ok := s.svc.(ReplyHinter); ok {
-		v.ViewerReplyPermission = h.ReplyPermission(ctx, uid, post) // <= +1 read cold for a FOLLOWING root
+		v.ViewerReplyPermission = h.ReplyPermission(ctx, uid, post) // reads R's author graph for a FOLLOWING root
 	}
 	if perm, ok := s.communityReplyHint(ctx, uid, post, vs); ok && perm != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED { // members only: NOT_ALLOWED, or UNKNOWN when the lookup failed; never loosens
 		v.ViewerReplyPermission = perm
 	}
 	if h, ok := s.svc.(EmbedHinter); ok {
-		ApplyEmbedState(v, h.EmbedViewerState(ctx, uid, post)) // 0 reads without an embed, else the cached graph; PROTECTED strips the copy
+		ApplyEmbedState(v, h.EmbedViewerState(ctx, uid, post)) // no lookup without an embed, else the cached graph; PROTECTED strips the copy
 	}
 	if h, ok := s.svc.(VisibilityHinter); ok {
 		ApplyWireVisibility(v, h.ProtectedAuthor(ctx, uid, post))
@@ -245,7 +245,7 @@ func (s *Server) communitiesGloballyOff() bool {
 }
 
 // CommunityReplyHinter is implemented by the concrete service (reached by type assertion like ReplyHinter): the members-only viewer hint of a
-// community conversation. GetPost and GetThread ask it only while communities is not globally off; +1 read cold, +0 warm.
+// community conversation. GetPost and GetThread ask it only while communities is not globally off.
 type CommunityReplyHinter interface {
 	CommunityReplyPermission(ctx context.Context, viewer string, p *Post) (postsv1.ReplyPermission, bool)
 }
@@ -285,13 +285,13 @@ type EmbedHinter interface {
 }
 
 // PollBlockHinter is implemented by the concrete service (reached by type assertion like ReplyHinter): the viewer's blocked set for a post with
-// a live poll by another author, for PostView.viewer_poll_vote_blocked. 0 reads on the snapshot GetPost cached.
+// a live poll by another author, for PostView.viewer_poll_vote_blocked. It uses the snapshot GetPost cached.
 type PollBlockHinter interface {
 	PollBlockedAuthors(ctx context.Context, viewer string, p *Post) map[string]bool
 }
 
 // VisibilityHinter is implemented by the concrete service: whether the post's author is protected, for the computed wire
-// visibility (VISIBILITY_FOLLOWERS). 0 reads for the caller.
+// visibility (VISIBILITY_FOLLOWERS). It costs the caller no lookup.
 type VisibilityHinter interface {
 	ProtectedAuthor(ctx context.Context, viewer string, p *Post) bool
 }
@@ -317,7 +317,7 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 	}
 	vs := s.viewerSet(ctx, uid).WithBlockedAuthors(t.BlockedAuthors)
 	replyPerm := t.ReplyPermission
-	if perm, ok := s.communityReplyHint(ctx, uid, t.Focal, vs); ok && perm != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED { // members only; +1 read cold
+	if perm, ok := s.communityReplyHint(ctx, uid, t.Focal, vs); ok && perm != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED { // members only
 		replyPerm = perm
 	}
 	view := func(p *Post) *postsv1.PostView { // the policy is per conversation: one hint for every row

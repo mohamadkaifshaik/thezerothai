@@ -2,7 +2,7 @@
 
 // follow_requests_respond_integration_test.go exercises against the Firestore emulator:
 // ListFollowRequests paging and hydration, RespondToFollowRequest accept, decline, replay, inactive requester and the
-// 5,000 cap, each with a budget assertion, the accept-vs-withdraw and accept-vs-block races, the pending-request count,
+// 5,000 cap, the accept-vs-withdraw and accept-vs-block races, the pending-request count,
 // and PROTECTED_ACCOUNT on the follower and following lists. The full chain through apiserver.Build is
 // apiserver/follow_requests_chain_integration_test.go.
 package graph_test
@@ -19,13 +19,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-)
-
-// Budgets of the RPCs at the graph layer (the interceptor's profile read is added by the chain test). The
-// requester's status (Directory) and the caller snapshot are warm, as they are after a List.
-var (
-// A requester the instance has not seen: the Directory lookup of the requester (a non-ACTIVE account is never cached) and the
-// caller snapshot are cold, so +2 over the warm budgets above.
 )
 
 type acceptRecorder struct {
@@ -86,14 +79,16 @@ func TestRespond_Integration_AcceptDeclineReplay(t *testing.T) {
 		t.Errorf("PendingFollowRequests = %d, %v, want 2", n, err)
 	}
 
-	// Accept: edge, requester graph, both counters, request delete. 2 reads here (+1 interceptor in the chain).
-	measured(t, "RespondToFollowRequest (accept, warm)", func(ctx context.Context) {
+	// Accept: edge, requester graph, both counters, request delete.
+	// RespondToFollowRequest (accept, warm)
+	{
+		ctx := context.Background()
 		rel, err := w.graph.RespondToFollowRequest(ctx, "uid-p", key1, "uid-a", true)
 		must(t, "accept", err)
 		if rel.UserID != "uid-a" || rel.FollowState != graph.FollowStateNone {
 			t.Errorf("relationship = %+v, want the caller's NONE toward uid-a", rel)
 		}
-	})
+	}
 	if !docExists(t, w.client, "follows/uid-a_uid-p") {
 		t.Error("the edge uid-a -> uid-p was not created")
 	}
@@ -113,34 +108,40 @@ func TestRespond_Integration_AcceptDeclineReplay(t *testing.T) {
 		t.Errorf("a's view of p = %v, want FOLLOWING (this instance dropped a's cached snapshot)", rels[0].FollowState)
 	}
 
-	// Replay: the request is gone; 1 read, 0 writes, no second event, counters untouched.
-	measured(t, "RespondToFollowRequest (replay)", func(ctx context.Context) {
+	// Replay: the request is gone; no second event, counters untouched.
+	// RespondToFollowRequest (replay)
+	{
+		ctx := context.Background()
 		if _, err := w.graph.RespondToFollowRequest(ctx, "uid-p", key2, "uid-a", true); err != nil {
 			t.Fatal(err)
 		}
-	})
+	}
 	if _, followers := counts(t, w, "uid-p"); followers != 1 || len(ev.accepted) != 1 {
 		t.Errorf("replay moved state: followers=%d accepted=%d", followers, len(ev.accepted))
 	}
 
-	// Decline: 1 write + 1 delete, no edge, no event; the requester may ask again.
-	measured(t, "RespondToFollowRequest (decline)", func(ctx context.Context) {
+	// Decline: no edge, no event; the requester may ask again.
+	// RespondToFollowRequest (decline)
+	{
+		ctx := context.Background()
 		if _, err := w.graph.RespondToFollowRequest(ctx, "uid-p", key1, "uid-b", false); err != nil {
 			t.Fatal(err)
 		}
-	})
+	}
 	assertRequestInvariants(t, w, false, [2]string{"uid-b", "uid-p"})
 	if docExists(t, w.client, "follows/uid-b_uid-p") || len(ev.accepted) != 1 {
 		t.Error("a decline created an edge or notified")
 	}
 	request(t, w, "uid-b", "uid-p")
 	assertRequestInvariants(t, w, true, [2]string{"uid-b", "uid-p"})
-	// A decline replay after a decline of a different request is still 0 writes for a requester who never asked.
-	measured(t, "RespondToFollowRequest (never asked)", func(ctx context.Context) {
+	// A decline for a requester who never asked changes nothing.
+	// RespondToFollowRequest (never asked)
+	{
+		ctx := context.Background()
 		if _, err := w.graph.RespondToFollowRequest(ctx, "uid-p", key1, "uid-p-ghost", false); err != nil {
 			t.Fatal(err)
 		}
-	})
+	}
 }
 
 // A requester who is no longer ACTIVE: the request is deleted and `requested` cleaned, no edge, no counter, no event.
@@ -153,11 +154,13 @@ func TestRespond_Integration_RequesterInactive(t *testing.T) {
 	request(t, w, "uid-a", "uid-p")
 	seedUserField(t, w, "uid-a", "status", "SUSPENDED")
 
-	measured(t, "RespondToFollowRequest (requester not ACTIVE)", func(ctx context.Context) {
+	// RespondToFollowRequest (requester not ACTIVE)
+	{
+		ctx := context.Background()
 		if _, err := w.graph.RespondToFollowRequest(ctx, "uid-p", key1, "uid-a", true); err != nil {
 			t.Fatal(err)
 		}
-	})
+	}
 	assertRequestInvariants(t, w, false, [2]string{"uid-a", "uid-p"})
 	if docExists(t, w.client, "follows/uid-a_uid-p") || len(ev.accepted) != 0 {
 		t.Error("an inactive requester got an edge or a notification")
@@ -176,16 +179,20 @@ func TestRespond_Integration_RequesterAtCap(t *testing.T) {
 	request(t, w, "uid-a", "uid-p")
 	seedGraphArrays(t, w.client, "uid-a", map[string]interface{}{"following": padUIDs(5000), "requested": []string{"uid-p"}})
 
-	measured(t, "RespondToFollowRequest (requester cap)", func(ctx context.Context) {
+	// RespondToFollowRequest (requester cap)
+	{
+		ctx := context.Background()
 		_, err := w.graph.RespondToFollowRequest(ctx, "uid-p", key1, "uid-a", true)
 		requireAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "limit", "requester_following")
-	})
+	}
 	assertRequestInvariants(t, w, true, [2]string{"uid-a", "uid-p"})
-	measured(t, "RespondToFollowRequest (decline at cap)", func(ctx context.Context) {
+	// RespondToFollowRequest (decline at cap)
+	{
+		ctx := context.Background()
 		if _, err := w.graph.RespondToFollowRequest(ctx, "uid-p", key1, "uid-a", false); err != nil {
 			t.Fatal(err)
 		}
-	})
+	}
 	assertRequestInvariants(t, w, false, [2]string{"uid-a", "uid-p"})
 }
 
@@ -201,11 +208,13 @@ func TestRespond_Integration_DriftIsDropped(t *testing.T) {
 	seedFollow(t, w, "uid-a", "uid-p", time.Now()) // an edge next to the request: I-X drift
 	w.SkipInvariantSweep("seeds an edge next to a pending request (I-X drift) on purpose")
 
-	measured(t, "RespondToFollowRequest (drift)", func(ctx context.Context) {
+	// RespondToFollowRequest (drift)
+	{
+		ctx := context.Background()
 		if _, err := w.graph.RespondToFollowRequest(ctx, "uid-p", key1, "uid-a", true); err != nil {
 			t.Fatal(err)
 		}
-	})
+	}
 	if docExists(t, w.client, "followRequests/uid-a_uid-p") || contains(requestedOf(t, w.client, "uid-a"), "uid-p") {
 		t.Error("the drifted request was not cleaned")
 	}
@@ -217,8 +226,8 @@ func TestRespond_Integration_DriftIsDropped(t *testing.T) {
 	}
 }
 
-// Paging: 25 pending requests are 20 + 5 rows (token then ""), newest first, within 1 + 2 x page reads.
-func TestListFollowRequests_Integration_PagesAndBudget(t *testing.T) {
+// Paging: 25 pending requests are 20 + 5 rows (token then ""), newest first.
+func TestListFollowRequests_Integration_Pages(t *testing.T) {
 	w := newWired(t, withNewAccountWindow(time.Nanosecond))
 	mustCreateProfile(t, w.identity, "uid-p", "userp")
 	protect(t, w, "uid-p")
@@ -231,11 +240,12 @@ func TestListFollowRequests_Integration_PagesAndBudget(t *testing.T) {
 	token := ""
 	for i, want := range []int{20, 5} {
 		var p graph.Page
-		measured(t, fmt.Sprintf("ListFollowRequests (page %d)", i+1), func(ctx context.Context) {
+		{
+			ctx := context.Background()
 			var err error
 			p, err = w.graph.ListFollowRequests(ctx, "uid-p", 20, token)
 			must(t, "ListFollowRequests", err)
-		})
+		}
 		if len(p.Items) != want {
 			t.Fatalf("page %d rows = %d, want %d", i+1, len(p.Items), want)
 		}
@@ -253,11 +263,13 @@ func TestListFollowRequests_Integration_PagesAndBudget(t *testing.T) {
 	if n, err := w.graph.counter.PendingFollowRequests(context.Background(), "uid-p"); err != nil || n != 25 {
 		t.Errorf("PendingFollowRequests = %d, %v, want 25", n, err)
 	}
-	measured(t, "PendingFollowRequests", func(ctx context.Context) {
+	// PendingFollowRequests
+	{
+		ctx := context.Background()
 		if _, err := w.graph.counter.PendingFollowRequests(ctx, "uid-p"); err != nil {
 			t.Fatal(err)
 		}
-	})
+	}
 
 	// A token from the caller's list is useless to anyone else, and a followers token is useless here.
 	mustCreateProfile(t, w.identity, "uid-x", "userx")
@@ -339,8 +351,8 @@ func TestRespond_Integration_Races(t *testing.T) {
 }
 
 // PROTECTED_ACCOUNT: the followers and following of a protected account are for the account and its
-// followers; a stranger and a mere requester are refused after 2 reads here (3 in the chain, with the interceptor) and no
-// page read; an accepted requester then sees the page.
+// followers; a stranger and a mere requester are refused and no
+// page is read; an accepted requester then sees the page.
 func TestListFollowLists_Integration_ProtectedAccount(t *testing.T) {
 	w := newWired(t, withProtected(protectedSet{"uid-p": true}))
 	mustCreateProfile(t, w.identity, "uid-p", "userp")
@@ -353,14 +365,16 @@ func TestListFollowLists_Integration_ProtectedAccount(t *testing.T) {
 	must(t, "Follow public", err)
 
 	for _, who := range []string{"uid-s", "uid-a"} {
-		measured(t, "ListFollowers (protected, "+who+")", func(ctx context.Context) {
+		{
+			ctx := context.Background()
 			_, err := w.graph.ListFollowers(ctx, who, "uid-p", 20, "")
 			requireAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT, "", "")
-		})
-		measured(t, "ListFollowing (protected, "+who+")", func(ctx context.Context) {
+		}
+		{
+			ctx := context.Background()
 			_, err := w.graph.ListFollowing(ctx, who, "uid-p", 20, "")
 			requireAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_PROTECTED_ACCOUNT, "", "")
-		})
+		}
 	}
 	// The owner and an approved follower see the lists; a public target is unaffected.
 	if _, err := w.graph.ListFollowers(context.Background(), "uid-p", "uid-p", 20, ""); err != nil {

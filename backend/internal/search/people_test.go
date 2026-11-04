@@ -267,7 +267,7 @@ func TestPeopleCache(t *testing.T) {
 	}
 }
 
-// TestPeopleEmptyEntrySkipsGraph: no match, no graph read (7 reads at limit 5 become interceptor + 1).
+// TestPeopleEmptyEntrySkipsGraph: no match, no graph read.
 func TestPeopleEmptyEntrySkipsGraph(t *testing.T) {
 	g := &peopleFakeGraph{snaps: map[string]graph.Snapshot{}}
 	srv := newTestService(t, &fakeDir{}, g, 10)
@@ -327,7 +327,7 @@ func TestPeopleLimit(t *testing.T) {
 	}
 }
 
-// TestPeopleQueryRules: validation and unsupported answers cost 0 identity and graph reads.
+// TestPeopleQueryRules: validation and unsupported answers make no identity or graph call.
 func TestPeopleQueryRules(t *testing.T) {
 	tests := []struct {
 		name            string

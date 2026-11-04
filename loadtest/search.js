@@ -1,6 +1,6 @@
 // search: W4 emulator load smoke. One file, one timeline of
 // phases, all against ONE local API process (one "instance") and the Firebase emulators. Never point it at dzeroth-dev or dzeroth-prod:
-// it creates about 2,300 posts and raises every search, post and read-budget cap.
+// it creates about 2,300 posts and raises every search, post and rate-limit cap.
 //
 //   setup()          Mints NUM_USERS users (default 60: the first AUTHORS (20) are authors, the rest are viewers who have never made a
 //                    call), seeds COLD_TAGS (6) tags with TAG_POSTS (40) posts each (tag 3, the MEDIA scan, LONG_TAG_POSTS 70) (every third post gets one image, media + hasMedia, through the
@@ -17,16 +17,16 @@
 //                    TRENDS_MAX_POSTS_PER_RUN), a second run for the rest, a third and an immediate repeat (skipped "fresh"),
 //                    /internal/cron/daily-maintenance (also fresh), then 31 s later (TRENDS_MIN_INTERVAL 30 s) daily-maintenance with
 //                    nothing new, then NEW_POSTS (120) new posts over 12 tags, 31 s and a last run, so the list GetTrends serves has 12
-//                    tags. ENV=local makes /internal/* unauthenticated. Reads are the trends_refresh / trends_skipped lines.
+//                    tags. ENV=local makes /internal/* unauthenticated. The refresher outcome is in the trends_refresh / trends_skipped lines.
 //   trends           t=TRENDS_START (default 190): GetTrends from a cold viewer (with and without `prefix`), then a herd of TRENDS_RATE
-//                    calls/s (default 30) for TRENDS_DURATION s (default 40) from all viewers: one document read per instance per 10 min.
+//                    calls/s (default 30) for TRENDS_DURATION s (default 40) from all viewers.
 //   typeahead_burst  t=BURST_START (default 250): BURST_N (default 600) SearchPeople limit-5 calls at BURST_RATE/s (default 40). Odd
 //                    calls type the progressive prefixes (2 to 7 characters) of one shared handle (the prefix entries are shared by
 //                    every viewer); even calls are random 2 character prefixes (diverse, mostly empty).
 //   hot_tag          t=HOT_START (default 275): HOT_DURATION s (default 75, longer than the 60 s tag TTL): the hot tag takes 50 new
 //                    posts a minute and HOT_RATE (default 8) SearchPosts TOP / LATEST page-1 calls a second from the viewers.
 //
-// Reads are NOT a k6 metric: they come from the API request log (`fs_reads`, `query_kind`, `tab`, `cache_hit`, `results`, `dropped`),
+// Server time and behaviour are NOT k6 metrics: they come from the API request log (`query_kind`, `tab`, `cache_hit`, `results`, `dropped`),
 // see loadtest/analyze_search.js. k6 prints `W4 PHASE <name> <iso>` and `W4 STEP <name> <iso>` lines (stdout/stderr) that the analyzer uses
 // to cut the log. Latency is emulator latency, indicative only.
 //

@@ -23,7 +23,7 @@ func TestRepo_CommunityEvidenceRoundTripAndRetention(t *testing.T) {
 
 	rep := sampleReport("u-rep", TargetCommunity, cid, "u-owner", t0)
 	rep.Evidence = &Evidence{AuthorHandle: "mallory", CommunityName: "targets", CommunityDescription: "people to watch", CommunityRules: rules, PostCreatedAt: t0.Add(-time.Hour)}
-	ctx, _ := counted()
+	ctx := context.Background()
 	if _, err := repo.Create(ctx, CreateParams{Report: rep, QuotaLimit: 5}); err != nil {
 		t.Fatal(err)
 	}

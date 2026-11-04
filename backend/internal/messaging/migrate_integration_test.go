@@ -8,14 +8,10 @@ import (
 	"testing"
 
 	"cloud.google.com/go/firestore"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-func (e *itEnv) migrate(after string, dryRun bool) (PlaceholderPage, *budget.Counter, error) {
-	ctx, c := budget.WithCounter(context.Background())
-	p, err := e.repo.MigratePlaceholder(ctx, after, dryRun)
-	return p, c, err
+func (e *itEnv) migrate(after string, dryRun bool) (PlaceholderPage, error) {
+	return e.repo.MigratePlaceholder(context.Background(), after, dryRun)
 }
 
 // legacyErase turns a seeded conversation into what the earlier eraser left behind for `erased`: the legacy placeholder in
@@ -55,7 +51,7 @@ func (e *itEnv) legacyErase(id, erased, survivor, folder string) {
 
 // L-2: the dev data migration. Two legacy conversations (an accepted one with 2 erased-sender messages, a request whose
 // requester was erased with 1) and one untouched conversation. A dry run reads and writes nothing; the real run rewrites exactly
-// the documents that hold the legacy value (1 write each); a rerun is 1 read and 0 writes.
+// the documents that hold the legacy value; a rerun writes nothing.
 func TestMigratePlaceholder_RewritesOnlyLegacyDocumentsAndIsIdempotent(t *testing.T) {
 	e := newIT(t, nil)
 	const carol, dave = "uid-carol", "uid-dave"
@@ -77,13 +73,13 @@ func TestMigratePlaceholder_RewritesOnlyLegacyDocumentsAndIsIdempotent(t *testin
 	}
 	before1, before2, m1, m2 := snapshot()
 
-	// Dry run: same reads as the real run, no writes, nothing changes.
-	p, c, err := e.migrate("", true)
+	// Dry run: the same page as the real run, nothing changes.
+	p, err := e.migrate("", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if p.Conversations != 2 || p.Messages != 3 || p.Entries != 2 || p.More {
-		t.Fatalf("dry run: page=%+v reads=%d writes=%d, want 2 conversations, 3 messages, 2 entries, 0 writes", p, c.Reads(), c.Writes())
+		t.Fatalf("dry run: page=%+v, want 2 conversations, 3 messages, 2 entries", p)
 	}
 	after1, after2, am1, am2 := snapshot()
 	if !equalConv(before1, after1) || !equalConv(before2, after2) || len(am1) != len(m1) || len(am2) != len(m2) {
@@ -93,8 +89,8 @@ func TestMigratePlaceholder_RewritesOnlyLegacyDocumentsAndIsIdempotent(t *testin
 		t.Fatalf("a dry run changed alice's entry: peerId %q", in.PeerID)
 	}
 
-	// Real run: 7 reads (query 2, c1 messages 2, c1 entry 1, c2 messages 1, c2 entry 1) and 7 writes (c1: 2+1+1, c2: 1+1+1).
-	p, _, err = e.migrate("", false)
+	// Real run.
+	p, err = e.migrate("", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,18 +129,18 @@ func TestMigratePlaceholder_RewritesOnlyLegacyDocumentsAndIsIdempotent(t *testin
 		t.Errorf("the unaffected conversation changed: %+v", c3conv)
 	}
 
-	// Idempotent: nothing left, one empty query, no writes.
-	p, c, err = e.migrate("", false)
+	// Idempotent: nothing left, nothing written.
+	p, err = e.migrate("", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if p != (PlaceholderPage{}) {
-		t.Errorf("rerun: page=%+v writes=%d, want nothing", p, c.Writes())
+		t.Errorf("rerun: page=%+v, want nothing", p)
 	}
 }
 
 // A run that died after the messages and the entry but before the conversation (the conversation is rewritten last) finishes on
-// the rerun: the already rewritten documents cost their reads and no writes.
+// the rerun: the already rewritten documents are left as they are.
 func TestMigratePlaceholder_ResumesAfterAPartialRun(t *testing.T) {
 	e := newIT(t, nil)
 	c1 := e.seedConversation(alice, bob, stateAccepted, base, [2]string{bob, "x"}, [2]string{alice, "y"})
@@ -160,7 +156,7 @@ func TestMigratePlaceholder_ResumesAfterAPartialRun(t *testing.T) {
 	}
 	e.setEntry(alice, dmInboxCollection, c1, firestore.Update{Path: "peerId", Value: DeletedUID})
 
-	p, _, err := e.migrate("", false)
+	p, err := e.migrate("", false)
 	if err != nil {
 		t.Fatal(err)
 	}

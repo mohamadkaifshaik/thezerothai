@@ -13,8 +13,8 @@ import (
 
 const testCommunityID = "1234567890123456789"
 
-// TestCreate_CommunitiesGate: a request with community_id set is FEATURE_DISABLED feature=communities with 0
-// reads, 0 writes and no repo call. With the flag off for the caller that is the permanent answer; with it on it is the temporary
+// TestCreate_CommunitiesGate: a request with community_id set is FEATURE_DISABLED feature=communities with
+// no repo call. With the flag off for the caller that is the permanent answer; with it on it is the temporary
 // "not built yet" refusal (builds the gate), so a set community_id can never create an ordinary public post. It comes after
 // polls in the order. A request without community_id is unaffected either way.
 func TestCreate_CommunitiesGate(t *testing.T) {
@@ -38,11 +38,11 @@ func TestCreate_CommunitiesGate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newCreateEnv()
 			tt.in.IdempotencyKey, tt.in.Text = key1, "hello"
-			p, c, err := e.create(tt.in)
+			p, err := e.create(tt.in)
 			if tt.wantFeature != "" {
 				ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
 				if ae.Metadata["feature"] != tt.wantFeature || e.repo.createCalls != 0 {
-					t.Fatalf("feature=%q reads=%d writes=%d creates=%d", ae.Metadata["feature"], c.Reads(), c.Writes(), e.repo.createCalls)
+					t.Fatalf("feature=%q creates=%d", ae.Metadata["feature"], e.repo.createCalls)
 				}
 				return
 			}
@@ -55,7 +55,7 @@ func TestCreate_CommunitiesGate(t *testing.T) {
 
 // TestServer_CommunitiesFlagModes (off/allowlist/percent/on): the handler maps community_id from the request and
 // CommunitiesEnabled from the registry for the caller, never from the request; the service then refuses a set community_id with
-// FEATURE_DISABLED feature=communities in every mode, 0 reads and writes.
+// FEATURE_DISABLED feature=communities in every mode and touches no repo.
 func TestServer_CommunitiesFlagModes(t *testing.T) {
 	t.Parallel()
 	in, out := "uid-in", "uid-out"
@@ -100,10 +100,10 @@ func TestServer_CommunitiesFlagModes(t *testing.T) {
 			}
 			e := newCreateEnv()
 			capture.got.IdempotencyKey, capture.got.Text = key1, "hi"
-			_, c, err := e.create(capture.got)
+			_, err = e.create(capture.got)
 			ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
 			if ae.Metadata["feature"] != "communities" || e.repo.createCalls != 0 {
-				t.Fatalf("feature=%q reads=%d writes=%d creates=%d", ae.Metadata["feature"], c.Reads(), c.Writes(), e.repo.createCalls)
+				t.Fatalf("feature=%q creates=%d", ae.Metadata["feature"], e.repo.createCalls)
 			}
 		})
 	}

@@ -371,7 +371,7 @@ func TestLatest_PageSizeEdges(t *testing.T) {
 	}
 }
 
-// A tampered, foreign (another caller, tag or tab), expired or TOP-bound token is VALIDATION page_token with 0 reads.
+// A tampered, foreign (another caller, tag or tab), expired or TOP-bound token is VALIDATION page_token without a query.
 func TestPageToken_Rejections(t *testing.T) {
 	t.Parallel()
 	byTag := map[string][]*posts.Post{"go": newestFirst(45), "rust": newestFirst(45)}
@@ -919,7 +919,7 @@ func withGloballyOff(name string) rigOpt {
 }
 
 // Search results are built by posts.ToView, so a community post carries its label, a hidden one and every post while
-// communities is globally off do not, and the row's viewer_reply_permission is never decided by the community rule (UNKNOWN timelines, 0 reads).
+// communities is globally off do not, and the row's viewer_reply_permission is never decided by the community rule (UNKNOWN timelines, no community lookup).
 func TestPosts_CommunityLabel(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

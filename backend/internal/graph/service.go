@@ -47,26 +47,26 @@ type Repo interface {
 	// repo decides edge versus request; the returned FollowState says which). dailyLimit is the caller's resolved
 	// follows/day cap (service.go picks the new-account or standard limit before calling this).
 	Follow(ctx context.Context, callerUID, targetUID string, dailyLimit int64, now time.Time) (Relationship, MutationOutcome, error)
-	// Unfollow is a blind batch: changed=false, nil error means "wasn't following" (0 writes).
+	// Unfollow is a blind batch: changed=false, nil error means "wasn't following" (nothing is written).
 	Unfollow(ctx context.Context, callerUID, targetUID string, now time.Time) (changed bool, err error)
 	// WithdrawRequest is Unfollow's second blind batch, run only when Unfollow found no edge: it deletes the
-	// caller's pending follow request to targetUID and the `requested` entry. changed=false means nothing to withdraw (0 writes).
+	// caller's pending follow request to targetUID and the `requested` entry. changed=false means nothing to withdraw (nothing is written).
 	WithdrawRequest(ctx context.Context, callerUID, targetUID string, now time.Time) (changed bool, err error)
 
 	// Block runs the whole Block transaction. limits picks the new-account vs standard quota
 	// tier internally (from the graph doc's own Firestore creation time, 0 extra reads).
 	Block(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (BlockResult, error)
-	// Unblock is never quota-gated. changed=false means "wasn't blocking" (0 writes).
+	// Unblock is never quota-gated. changed=false means "wasn't blocking" (nothing is written).
 	Unblock(ctx context.Context, callerUID, targetUID string, now time.Time) (rel Relationship, changed bool, err error)
 	// Mute runs the whole Mute transaction, sharing the same quota kind/limits as Block.
 	Mute(ctx context.Context, callerUID, targetUID string, limits dailyLimits, now time.Time) (Relationship, MutationOutcome, error)
-	// Unmute is never quota-gated. changed=false means "wasn't muting" (0 writes).
+	// Unmute is never quota-gated. changed=false means "wasn't muting" (nothing is written).
 	Unmute(ctx context.Context, callerUID, targetUID string, now time.Time) (rel Relationship, changed bool, err error)
 
-	// GetLists reads graph/{uid} once (1 read) and returns the ordered blocked/muted arrays (insertion order,
+	// GetLists reads graph/{uid} once and returns the ordered blocked/muted arrays (insertion order,
 	// oldest first) plus the same doc as a Snapshot. Missing doc -> empty Lists, no error.
 	GetLists(ctx context.Context, uid string) (Lists, error)
-	// RemoveOwnArrayEntries ArrayRemoves uids from the caller's own blocked[]/muted[]. 1 write, 0 reads.
+	// RemoveOwnArrayEntries ArrayRemoves uids from the caller's own blocked[]/muted[]. One write, no read.
 	RemoveOwnArrayEntries(ctx context.Context, callerUID, kind string, uids []string, now time.Time) error
 	// ListEdgesByFollowers returns the newest follow edges made by any of followers (1 to 30 uids), newest first, at
 	// most limit (1 to 50): the ListSuggestedUsers friends-of-friends query. <= limit reads, minimum 1.
@@ -76,14 +76,14 @@ type Repo interface {
 
 	// ListEdges returns one page of follow edges, newest first. <= q.Limit reads.
 	ListEdges(ctx context.Context, q EdgeQuery) ([]Edge, error)
-	// FollowEdgeExists reports whether follows/{followerUID}_{followeeUID} exists: one point read, 1 read whether or
+	// FollowEdgeExists reports whether follows/{followerUID}_{followeeUID} exists: one point read whether or
 	// not the document is there (GetProfileRelationship). A missing document is false, not an error.
 	FollowEdgeExists(ctx context.Context, followerUID, followeeUID string) (bool, error)
 
 	// RespondToRequest answers one pending follow request in a single transaction: accept, decline,
-	// or a replay (the request is gone) with 0 writes. A requester at the 5,000 following cap is a LimitReachedError.
+	// or a replay (the request is gone) that writes nothing. A requester at the 5,000 following cap is a LimitReachedError.
 	RespondToRequest(ctx context.Context, a RespondArgs) (RespondOutcome, error)
-	// CountRequests counts the pending requests addressed to uid, capped at 1,000: 1 read.
+	// CountRequests counts the pending requests addressed to uid, capped at 1,000.
 	CountRequests(ctx context.Context, uid string) (int64, error)
 }
 
@@ -203,8 +203,7 @@ var _ FollowEvents = (*service)(nil)
 var _ identity.BlockChecker = (*service)(nil)
 var _ identity.FollowRequestCounter = (*service)(nil)
 
-// Snapshot implements Reader: cache-first read of graph/{uid}, 60s TTL. 1 read on a miss, 0 on
-// a hit.
+// Snapshot implements Reader: cache-first read of graph/{uid}, 60s TTL.
 func (s *service) Snapshot(ctx context.Context, uid string) (Snapshot, error) {
 	if snap, ok := s.cache.Get(uid); ok {
 		noteCacheHit(ctx, true)
@@ -221,7 +220,7 @@ func (s *service) Snapshot(ctx context.Context, uid string) (Snapshot, error) {
 
 // IsBlockedBy implements identity.BlockChecker: true if targetUID has blocked viewerUID, trusting the
 // viewer's own cached blockedBy set unless it may be incomplete (overflow fallback), in which
-// case it also reads targetUID's own .blocked array directly (+1 read, cached 60s like every other read
+// case it also reads targetUID's own .blocked array directly (cached 60s like every other read
 // path; D8).
 func (s *service) IsBlockedBy(ctx context.Context, viewerUID, targetUID string) (bool, error) {
 	viewerSnap, err := s.Snapshot(ctx, viewerUID)
@@ -242,7 +241,7 @@ func (s *service) IsBlockedBy(ctx context.Context, viewerUID, targetUID string) 
 }
 
 // IsFollowing implements identity.BlockChecker: whether viewerUID follows targetUID, from the viewer's cached snapshot
-// (0 reads warm, 1 cold; GetProfile has just loaded it for IsBlockedBy, so a hit).
+// (GetProfile has just loaded it for IsBlockedBy, so it is normally a cache hit).
 func (s *service) IsFollowing(ctx context.Context, viewerUID, targetUID string) (bool, error) {
 	snap, err := s.Snapshot(ctx, viewerUID)
 	if err != nil {

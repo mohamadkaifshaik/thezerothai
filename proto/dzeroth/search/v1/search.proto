@@ -10,33 +10,30 @@ syntax = "proto3";
 //
 // Query grammar (the shared cases are testdata/search_query_grammar.json), applied before any read:
 // - Normalise: NFC, trim, lower-case. Then remove at most one leading sigil, '@' or '#'.
-// - INVALID_ARGUMENT + VALIDATION, metadata["field"] = "query", 0 reads, when nothing is left (empty, "@" or "#"
+// - INVALID_ARGUMENT + VALIDATION, metadata["field"] = "query", before any lookup, when nothing is left (empty, "@" or "#"
 //   alone), when more than 50 code points are left (the sigil does NOT count: '#' plus a 50-code-point tag is valid),
 //   or when the query holds a control character or a bidi formatting control.
 // - People: a '#' sigil => unsupported. Otherwise the rest must match [a-z0-9_]{1,15}: 1 character => VALIDATION
 //   "query" (too short; "@a" and "a" alike); 2 to 15 => a handle prefix ("@ab" and "ab" are valid; full handles are
-//   3 to 15). Anything else => an empty answer with unsupported_query = true and 0 Firestore reads.
+//   3 to 15). Anything else => an empty answer with unsupported_query = true and no Firestore read.
 // - Posts: an '@' sigil => unsupported. Otherwise the rest must be exactly one hashtag body as posts define it,
 // 1 to 50 code points: "#a" and the plain word "a" both search the tag "a", so a one-character plain
 //   word is valid for posts while it is too short for people. Anything else (several words, "#123" with no letter,
-//   "#go!") => an empty answer with unsupported_query = true and 0 Firestore reads; show "Search posts by #hashtag".
+//   "#go!") => an empty answer with unsupported_query = true and no Firestore read; show "Search posts by #hashtag".
 //
 // Flags (clients learn them from IdentityService.GetMe enabled_features):
 // - FEATURE_SEARCH (wire name "search") gates SearchPeople and SearchPosts per caller; FEATURE_TRENDS (wire name
 //   "trends") gates GetTrends per caller. Off => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "search"
-//   or "trends", 0 reads.
+//   or "trends", before any lookup.
 //
 // Errors (clients branch on ErrorDetail.reason):
-// - INVALID_ARGUMENT + VALIDATION, metadata["field"] in query | page_token | page_size | limit | prefix; 0 reads.
+// - INVALID_ARGUMENT + VALIDATION, metadata["field"] in query | page_token | page_size | limit | prefix, before any lookup.
 //   A negative page_size or limit is VALIDATION; values above the maximum are clamped.
 // - FAILED_PRECONDITION + FEATURE_DISABLED (above).
 // - RESOURCE_EXHAUSTED + RATE_LIMITED: the per-minute buckets, the shared daily cap metadata["limit"] = "search_daily";
 //   honour retry_after.
 // - UNAVAILABLE: SearchPosts only, when the server cannot trust its copy of the protected-accounts set (PROTECTED_SET_MAX_STALE),
 // as every list does. Retry later.
-//
-// Firestore budgets below are per RPC. Worst-case reads include the account-status
-// interceptor. 
 package dzeroth.search.v1;
 
 import "dzeroth/graph/v1/graph.proto";
@@ -51,16 +48,14 @@ service SearchService {
   // Rows: accounts that are not ACTIVE and accounts that block the caller are left out (the answer is then the same
   // as for a handle nobody has); accounts the caller blocks or mutes stay, with relationship.blocking / muting set.
   // Protected accounts are listed, with user.is_private set. Each row carries the caller's relationship (follow
-  // state incl. REQUESTED, from the caller's graph, 0 extra reads); since is unset. The caller appears when matched.
+  // state incl. REQUESTED, from the caller's graph); since is unset. The caller appears when matched.
   // A caller whose blocked-by list overflowed sees only accounts they follow and themselves.
   // Staleness: matches are cached per instance for 60 s and shared across callers, so a new handle or a rename shows
   // within 60 s; block and relationship filtering is per caller, from the 60 s graph snapshot.
   // Flag: "search". Rate limits: RATE_LIMIT_SEARCH_PEOPLE_PER_MIN 30/min/uid per instance (90/min at 3 instances);
   // SEARCH_CALLS_PER_DAY 300 calls/uid/IST day per instance shared with SearchPosts (<= 900 at 3) => RATE_LIMITED,
   // metadata["limit"] = "search_daily".
-  // Firestore: reads 7 cold at limit 5 / 22 at limit 20 (interceptor 1, caller graph 1, query <= limit, min 1),
-  // 0-2 warm (the prefix entry is cached); a grammar rejection or an unsupported query reads nothing beyond the
-  // interceptor. Writes 0.
+  // The prefix entry is cached. A grammar rejection or an unsupported query does no lookup. Writes nothing.
   rpc SearchPeople(SearchPeopleRequest) returns (SearchPeopleResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
@@ -88,18 +83,15 @@ service SearchService {
   // Viewer flags (liked, reposted, bookmarked) follow FEATURE_ENGAGEMENT and FEATURE_BOOKMARKS as on timelines.
   // page_size 0 => 20, max 50 (clamped); TOP returns at most 20 whatever page_size says.
   // page_token: opaque, sealed, bound to the caller, the tag and the tab, 24 h TTL. Expired, foreign, tampered, or
-  // sent with another query or tab => INVALID_ARGUMENT + VALIDATION, metadata["field"] = "page_token", 0 reads: drop it
+  // sent with another query or tab => INVALID_ARGUMENT + VALIDATION, metadata["field"] = "page_token", before any lookup: drop it
   // and search again with no token.
   // Staleness: the newest 30 posts per tag are cached per instance for 60 s and shared across callers (a new tagged
   // post shows on Top, Latest page 1 and Media page 1 within 60 s); every filter above is applied per caller after the
   // cache, so a takedown or a new block applies at once on that instance.
   // Flag: "search". Rate limits: RATE_LIMIT_SEARCH_POSTS_PER_MIN 20/min/uid per instance (60/min at 3 instances) and
   // the shared "search_daily" cap (see SearchPeople).
-  // Firestore: TOP, LATEST first page and MEDIA first page (page_size <= 30): reads 33 cold (interceptor 1, caller
-  // graph 1, userLikes 1, the tag entry 30), 0-3 warm; LATEST first page at page_size 31..50: 53; LATEST older page 23 / 53
-  // at page_size <= 20 / 21..50 (fixed windows of 20 / 50); a LATEST tail page 3 + the rows left (at most 32 after a page-1
-  // entry, 52 after a 50-row window); MEDIA older call 33 (scan cap 30). An unsupported query or a grammar rejection reads nothing
-  // beyond the interceptor. Writes 0.
+  // LATEST pages use fixed windows of 20 rows (page_size <= 20) or 50 (21..50); MEDIA scans at most 30 rows. An
+  // unsupported query or a grammar rejection does no lookup. Writes nothing.
   rpc SearchPosts(SearchPostsRequest) returns (SearchPostsResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
@@ -114,14 +106,13 @@ service SearchService {
   // The list is computed by a scheduled sweep (daily at Stage 0: "Trending today"); computed_at says when.
   // limit 0 => 10, max 30 (clamped). prefix (optional; one leading '#' ignored; at most 50 code points after it; a control or
   // bidi formatting character => VALIDATION "prefix") keeps only tags that start with it, in rank order, for typeahead
-  // hashtag suggestions at 0 extra reads. No list yet => an empty answer and computed_at unset.
+  // hashtag suggestions without an extra lookup. No list yet => an empty answer and computed_at unset.
   // Staleness: the list is cached per instance for 10 min; a tag can be up to one sweep interval plus 10 min old. A tag
   // hidden by an operator leaves every server within 10 min (the client copy lives 5 more).
   // Flag: "trends". Rate limits: the 60/min/uid default bucket per instance (180/min at 3 instances) and TRENDS_CALLS_PER_DAY
   // 400 calls/uid/IST day per instance (<= 1,200 at 3), its own cap apart from SearchPeople/SearchPosts => RATE_LIMITED,
   // metadata["limit"] = "trends_daily".
-  // Firestore: reads 3 cold (interceptor 1, trends/current and trends/hidden 2 in one GetAll), 0-1 warm; at most one
-  // load (2 reads) per instance per 10 min (<= 864 a day at 3 instances, whatever the number of callers). Writes 0.
+  // The list is loaded at most once per instance per 10 min, whatever the number of callers. Writes nothing.
   rpc GetTrends(GetTrendsRequest) returns (GetTrendsResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }

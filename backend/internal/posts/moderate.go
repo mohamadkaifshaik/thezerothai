@@ -18,7 +18,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -27,15 +26,14 @@ var _ Moderator = (*FirestoreRepo)(nil)
 
 const fieldModeration = "moderation"
 
-// hidePage is the page of HideAuthor and RestoreAuthor: each post in it costs two batch operations (the moderation
+// hidePage is the page of HideAuthor and RestoreAuthor: each post in it takes two batch operations (the moderation
 // update and its removal-log entry), and a batch holds at most 500.
 const hidePage = opsPage / 2
 
-// Takedown implements Moderator. One transaction: 1 read, 2 writes (the post and its removal-log entry; 0 when already TAKEN_DOWN).
-// A REPOST is removed instead (issue #153): the transaction only reads it (1 read), then one batch deletes the doc and
-// its reposts record, decrements the original's repostCount and the reposter's postsCount and writes the REMOVED
-// log entry (writes: 2 + 1 for the counters, 1 for the log entry, deletes: 2; fewer counters when the original or the
-// reposter's users doc is gone). Restore of a removed REPOST is ErrNotFound: the user can repost again.
+// Takedown implements Moderator. One transaction writes the post and its removal-log entry, and nothing when it is already
+// TAKEN_DOWN. A REPOST is removed instead (issue #153): the transaction only reads it, then one batch deletes the doc
+// and its reposts record, decrements the original's repostCount and the reposter's postsCount and writes the REMOVED
+// log entry (fewer counters when the original or the reposter's users doc is gone). Restore of a removed REPOST is ErrNotFound: the user can repost again.
 func (r *FirestoreRepo) Takedown(ctx context.Context, postID string, now time.Time) (ModerationResult, error) {
 	res, row, err := r.setModerationX(ctx, postID, func(cur Moderation) (Moderation, bool) {
 		return ModerationTakenDown, cur != ModerationTakenDown
@@ -56,7 +54,7 @@ func (r *FirestoreRepo) Takedown(ctx context.Context, postID string, now time.Ti
 	return res, nil
 }
 
-// Restore implements Moderator. One transaction: 1 read, 2 writes (post + RESTORED log entry; 0 unless the post is TAKEN_DOWN).
+// Restore implements Moderator. One transaction writes the post and a RESTORED log entry, and nothing unless the post is TAKEN_DOWN.
 // now is the operator's clock; it only sets the log entry's expireAt.
 func (r *FirestoreRepo) Restore(ctx context.Context, postID string, now time.Time) (ModerationResult, error) {
 	return r.setModeration(ctx, postID, func(cur Moderation) (Moderation, bool) {
@@ -78,9 +76,7 @@ func (r *FirestoreRepo) setModerationX(ctx context.Context, postID string, decid
 	var out ModerationResult
 	var repost *repostRow
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(r.ref(postID))
-		counter.AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				return ErrNotFound
@@ -102,7 +98,7 @@ func (r *FirestoreRepo) setModerationX(ctx context.Context, postID string, decid
 		if !change {
 			return nil
 		}
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		b.Update(r.ref(postID), moderationUpdates(next, now))
 		r.setRemoval(b, postID, d.AuthorID, removalStateFor(next), now)
 		if err := b.Err(); err != nil {
@@ -152,7 +148,7 @@ func moderationUpdates(next Moderation, now time.Time) []firestore.Update {
 // HideAuthor implements Moderator. One call: one query page (<= hidePage = 250 posts) and one batch for the posts
 // that are still visible: each change is the moderation update plus its removal-log entry, in the same atomic batch
 // (a crash cannot hide a post without logging it; a re-run skips posts that are already hidden, which are already
-// logged). Reads: one per post in the page (1 for an empty page); writes: two per change.
+// logged). A change writes two documents.
 // Each update carries the LastUpdateTime of the snapshot it was decided from, so a post that changed between the
 // read and the commit (a concurrent takedown, an author delete) fails the batch instead of being overwritten; the
 // caller re-runs the page. opsctl's driveLoop retries a failed call up to maxConsecutiveErrors (5) times without
@@ -167,11 +163,6 @@ func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp Moderatio
 		q = q.StartAfter(cp.After.CreatedAt, r.ref(cp.After.ID))
 	}
 	docs, err := q.Limit(hidePage).Documents(ctx).GetAll()
-	reads := int64(len(docs))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
 		return cp, false, fmt.Errorf("posts: hide %s: query: %w", logger.HashUID(uid), err)
 	}
@@ -182,7 +173,7 @@ func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp Moderatio
 	if r.moderationReadHook != nil {
 		r.moderationReadHook()
 	}
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	changed := 0
 	var communityPosts []CommunityPostRef // every community post of the page, changed or already hidden
 	for _, s := range docs {
@@ -220,17 +211,12 @@ func (r *FirestoreRepo) HideAuthor(ctx context.Context, uid string, cp Moderatio
 	return next, len(docs) < hidePage, nil
 }
 
-// RestoreAuthor implements Moderator. Reads one per post returned (1 for an empty page), writes two per post (update + RESTORED log entry, same batch).
+// RestoreAuthor implements Moderator. It writes two documents per post (update + RESTORED log entry, same batch).
 func (r *FirestoreRepo) RestoreAuthor(ctx context.Context, uid string, cp ModerationCheckpoint, now time.Time) (ModerationCheckpoint, bool, error) {
 	docs, err := r.client.Collection(postsCollection).
 		Where("authorId", "==", uid).
 		Where(fieldModeration, "==", string(ModerationSuspendedAuthor)).
 		Select().Limit(hidePage).Documents(ctx).GetAll()
-	reads := int64(len(docs))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
 		return cp, false, fmt.Errorf("posts: restore %s: query: %w", logger.HashUID(uid), err)
 	}
@@ -240,7 +226,7 @@ func (r *FirestoreRepo) RestoreAuthor(ctx context.Context, uid string, cp Modera
 	if r.moderationReadHook != nil {
 		r.moderationReadHook()
 	}
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	for _, s := range docs {
 		// Select() keeps UpdateTime, so a post a moderator took down meanwhile fails the batch (and is re-read).
 		b.Update(s.Ref, moderationUpdates(ModerationNone, now), firestore.LastUpdateTime(s.UpdateTime))

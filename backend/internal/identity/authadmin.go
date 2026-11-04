@@ -152,7 +152,7 @@ func (a *authAdmin) outcomeOf(err error) string {
 }
 
 // disableAndRevoke disables the Firebase Auth user and revokes its refresh tokens (two SDK calls, one audit line).
-// A user that no longer exists counts as done. Idempotent; 0 Firestore operations.
+// A user that no longer exists counts as done. Idempotent; touches no Firestore.
 func (a *authAdmin) disableAndRevoke(ctx context.Context, t deletionTarget) error {
 	disabled := true
 	_, err := a.client.UpdateUser(ctx, t.uid, (&fbauth.UserToUpdate{}).Disabled(disabled))

@@ -61,7 +61,7 @@ func serve(doc *TrendsDoc, hidden []string, deny map[string]struct{}) *trendsSer
 
 // trendsCache is the instance copy of the served list: one entry (a missing document is cached too, as no list), a TTL
 // measured by an injectable clock, and singleflight so concurrent cold callers cost one load. It loads trends/current
-// and trends/hidden together (2 reads) and caches the list after the filter. Staleness: the TTL above, for the list and
+// and trends/hidden together and caches the list after the filter. Staleness: the TTL above, for the list and
 // for a hide alike (a hide reaches every server within 10 min and every screen within 15 min). It sits behind this small
 // type so Memorystore can replace it at Stage 2 with no caller change.
 type trendsCache struct {
@@ -92,8 +92,8 @@ func (c *trendsCache) get(ctx context.Context) (list *trendsServed, hit bool, er
 	if l, ok := c.fresh(); ok {
 		return l, true, nil
 	}
-	// The shared load runs on the first caller's context (and its budget counter): the others wait for it and are not
-	// charged, which matches "one load per instance per TTL". The copy is checked again inside the load: a caller that
+	// The shared load runs on the first caller's context: the others wait for it, which
+	// matches "one load per instance per TTL". The copy is checked again inside the load: a caller that
 	// saw it stale just before another load finished would otherwise start a second read (D-1).
 	v, err, _ := c.sf.Do("current", func() (any, error) {
 		if l, ok := c.fresh(); ok {
@@ -133,12 +133,6 @@ func (c *trendsCache) fresh() (*trendsServed, bool) {
 }
 
 // Trends is GetTrends. Flag: trends.
-//
-// Firestore, worst case: 3 reads cold (the interceptor's profile read, then trends/current and trends/hidden in one
-// GetAll), 1 warm (the interceptor alone; the instance copy serves the list with 0 reads) and 0 writes. A flag refusal
-// and a validation error read nothing beyond the interceptor. At most one load (2 reads) per instance per 10 minutes, so
-// <= 864 a day at 3 instances whatever the number of callers. The served list
-// has the denylisted and hidden tags dropped and is ranked 1..n after that.
 func (s *service) Trends(ctx context.Context, uid string, limit int32, prefix string) (*searchv1.GetTrendsResponse, error) {
 	if err := s.guard(ctx, uid, FlagTrends); err != nil {
 		return nil, err
@@ -180,7 +174,7 @@ func (s *service) Trends(ctx context.Context, uid string, limit int32, prefix st
 }
 
 // logTrends adds the GetTrends fields to the request line: results, cache_hit and computed_age_s (-1 when
-// there is no list). fs_reads comes from the request counter. No uid, no prefix text.
+// there is no list). No uid, no prefix text.
 func (s *service) logTrends(ctx context.Context, results int, hit bool, ageSeconds int64) {
 	logger.SetRequestField(ctx, "results", results)
 	logger.SetRequestField(ctx, "cache_hit", hit)

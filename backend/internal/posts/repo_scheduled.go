@@ -26,7 +26,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -57,41 +56,41 @@ type ScheduledRepo interface {
 	ScheduledLister
 	ScheduledPurger
 	ScheduledExportSource
-	// GetScheduled reads one document outside any transaction. Reads 1; ErrScheduledNotFound when absent.
+	// GetScheduled reads one document outside any transaction. ErrScheduledNotFound when absent.
 	GetScheduled(ctx context.Context, uid, id string) (*ScheduledPost, error)
 	// CountPending counts uid's PENDING items OUTSIDE any transaction, stopping at limit (callers pass
-	// SCHEDULED_MAX_PENDING+1). Reads 1, charged by hand: the store wrappers do not see aggregation queries. It is soft
+	// SCHEDULED_MAX_PENDING+1). It is soft
 	// on purpose (see CreateScheduled).
 	CountPending(ctx context.Context, uid string, limit int) (int64, error)
-	// CreateScheduled runs the schedule transaction. Reads, in this order: quotas 1, the window count() 1 (PENDING items
-	// within +/-ScheduledWindowRadius of PublishAt, limit WindowCap+1), then the media (len(MediaIDs)); writes 2 (the
-	// document and quotas.schedules). Every one of those reads repeats on each retry of a conflicted attempt.
+	// CreateScheduled runs the schedule transaction. It reads, in this order: quotas, the window count() (PENDING items
+	// within +/-ScheduledWindowRadius of PublishAt, limit WindowCap+1), then the media (MediaIDs); it writes the
+	// document and quotas.schedules. Every one of those reads repeats on each retry of a conflicted attempt.
 	//
 	// The window cap is EXACT, because of how racing transactions conflict, not because of the count itself: the count
 	// runs inside the transaction AFTER the quotas read, and every schedule by one user reads and writes quotas/{uid}, so
 	// of two racing calls only one commits. The loser is rejected (ABORTED at commit under the OPTIMISTIC concurrency mode
 	// of dev and prod; a lock wait or timeout on the emulator), the transaction retries, and the retried attempt counts
 	// the winner's committed document. The pending cap is not checked here: reading up to MaxPending+1 documents inside the
-	// transaction would blow the read budget, so it stays a soft count() outside (CountPending).
+	// transaction is too costly, so it stays a soft count() outside (CountPending).
 	//
 	// Errors, each with nothing written: ErrScheduledWindowFull, ErrScheduledExists, ErrMediaNotReady, or the quota
 	// package's QUOTA_EXCEEDED error. The window check comes before the daily cap, as it did when the count ran outside.
-	// A full window costs 1 more read, the document of this very id: when it exists (a concurrent first call of the same
+	// A full window also reads the document of this very id: when it exists (a concurrent first call of the same
 	// idempotency key committed it), the answer is ErrScheduledExists (a replay), not ErrScheduledWindowFull. The count
 	// includes that document only while it is PENDING and inside the window; the existence read does not depend on that,
-	// so the outcome is the stored-item answer either way. That read is on the window rejection path only (3 reads in
-	// all). The daily cap is checked before the media read, so a call at the cap costs 2 reads (quotas, window) however
-	// many images it names.
+	// so the outcome is the stored-item answer either way. That read is on the window rejection path only.
+	// The daily cap is checked before the media read, so a call at the cap never reads media however many images it
+	// names.
 	CreateScheduled(ctx context.Context, p ScheduledCreateParams) (*ScheduledPost, error)
-	// CancelScheduled moves a PENDING or FAILED item to CANCELLED, clearing its draft. Reads 1, writes 1 (0 and
-	// changed=false when the item is already PUBLISHED or CANCELLED: the current state is returned).
+	// CancelScheduled moves a PENDING or FAILED item to CANCELLED, clearing its draft. Nothing is written and
+	// changed=false when the item is already PUBLISHED or CANCELLED: the current state is returned.
 	CancelScheduled(ctx context.Context, uid, id string, now time.Time, ttl time.Duration) (post *ScheduledPost, changed bool, err error)
 	// TransitionScheduled applies a transition outside the publish transaction, conditional on the document being
-	// unchanged since ref.UpdateTime. Reads 0, writes 1; applied=false (and nothing written) when it changed or vanished.
+	// unchanged since ref.UpdateTime. applied=false (and nothing written) when it changed or vanished.
 	TransitionScheduled(ctx context.Context, ref ScheduledRef, t ScheduledTransition, now time.Time, ttl time.Duration) (next ScheduledRef, applied bool, err error)
-	// BumpScheduledAttempts adds one transient failure under the same precondition. Reads 0, writes 1.
+	// BumpScheduledAttempts adds one transient failure under the same precondition.
 	BumpScheduledAttempts(ctx context.Context, ref ScheduledRef, now time.Time) (next ScheduledRef, applied bool, err error)
-	// DueScheduled is the sweep's collection-group query. Reads len(docs), minimum 1.
+	// DueScheduled is the sweep's collection-group query.
 	DueScheduled(ctx context.Context, now time.Time, limit int, after *ScheduledDueCursor) (ScheduledDuePage, error)
 }
 
@@ -328,7 +327,7 @@ func (r *FirestoreRepo) CreateScheduled(ctx context.Context, p ScheduledCreatePa
 		// of two racing calls commits: the other is rejected at commit (ABORTED, optimistic mode) and its retry runs this
 		// count after the winner committed and sees the winner's document. The count itself is not what makes it exact. It
 		// must stay AFTER the quotas read: in optimistic mode a count placed above it could miss a winner that commits
-		// between the two reads, and the quotas read would then no longer guard it. 1 read, limit WindowCap+1 (rule 5).
+		// between the two reads, and the quotas read would then no longer guard it. The count has limit WindowCap+1.
 		inWindow, err := countQuery(ctx, windowQuery(ref.Parent, publishAt, p.WindowCap+1), tx)
 		if err != nil {
 			return fmt.Errorf("posts: window count: %w", err)
@@ -338,7 +337,6 @@ func (r *FirestoreRepo) CreateScheduled(ctx context.Context, p ScheduledCreatePa
 			// replay (the caller answers from it), not a full window. The count includes it only while it is PENDING and
 			// inside the window, so this read is what decides, not the count. Rejection path only.
 			_, serr := tx.Get(ref)
-			budget.FromContext(ctx).AddReads(1)
 			switch {
 			case serr == nil:
 				return ErrScheduledExists
@@ -348,7 +346,7 @@ func (r *FirestoreRepo) CreateScheduled(ctx context.Context, p ScheduledCreatePa
 			return ErrScheduledWindowFull
 		}
 		// The daily cap is checked before the media read: a call at the cap costs no media read however many images it
-		// names (the SchedulePost proto budget), and nothing has been written yet. CheckAndReserve below repeats the same
+		// names, and nothing has been written yet. CheckAndReserve below repeats the same
 		// rule when it stages the quota write.
 		if qrec.Schedules >= p.QuotaLimit {
 			return quota.ExceededError(quota.Schedules, p.Now)
@@ -373,7 +371,7 @@ func (r *FirestoreRepo) CreateScheduled(ctx context.Context, p ScheduledCreatePa
 			PublishAt: publishAt, Status: ScheduledPending, RequestHash: p.RequestHash,
 			CreatedAt: p.Now.UTC(), UpdatedAt: p.Now.UTC(),
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		if err := quota.CheckAndReserve(b, r.w.Quotas.Ref(p.UID), qrec, quota.Schedules, p.QuotaLimit); err != nil {
 			return err
 		}
@@ -400,7 +398,6 @@ func (r *FirestoreRepo) GetScheduled(ctx context.Context, uid, id string) (*Sche
 		return nil, err
 	}
 	snap, err := ref.Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if status.Code(err) == codes.NotFound {
 		return nil, ErrScheduledNotFound
 	}
@@ -422,15 +419,13 @@ func (r *FirestoreRepo) ListScheduled(ctx context.Context, uid string, after *Po
 		q = q.StartAfter(after.CreatedAt, col.Doc(after.ID))
 	}
 	docs, err := q.Limit(min(max(limit, 1), MaxLimit)).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return nil, fmt.Errorf("posts: list scheduled: %w", err)
 	}
 	return decodeScheduledAll(docs, uid)
 }
 
-// countQuery runs a count aggregation and charges it by hand: Firestore bills one read per 1,000 index entries
-// counted, minimum 1, and the store wrappers do not see aggregation queries. A non-nil tx runs the count inside that
+// countQuery runs a count aggregation. A non-nil tx runs the count inside that
 // transaction (the schedule window check); nil runs it on its own (the soft pending count).
 func countQuery(ctx context.Context, q firestore.Query, tx *firestore.Transaction) (int64, error) {
 	agg := q.NewAggregationQuery().WithCount("n")
@@ -447,7 +442,6 @@ func countQuery(ctx context.Context, q firestore.Query, tx *firestore.Transactio
 	if err := res.DataTo(&out); err != nil {
 		return 0, fmt.Errorf("posts: count decode: %w", err)
 	}
-	budget.FromContext(ctx).AddReads(out.N/1000 + 1)
 	return out.N, nil
 }
 
@@ -490,7 +484,6 @@ func (r *FirestoreRepo) CancelScheduled(ctx context.Context, uid, id string, now
 	_, err = store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
 		changed = false
 		snap, err := tx.Get(ref)
-		budget.FromContext(ctx).AddReads(1)
 		if status.Code(err) == codes.NotFound {
 			return ErrScheduledNotFound
 		}
@@ -503,9 +496,9 @@ func (r *FirestoreRepo) CancelScheduled(ctx context.Context, uid, id string, now
 		}
 		out = cur
 		if cur.Status != ScheduledPending && cur.Status != ScheduledFailed {
-			return nil // PUBLISHED (too late) or already CANCELLED: the current state, 0 writes
+			return nil // PUBLISHED (too late) or already CANCELLED: the current state, nothing written
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		b.Update(ref, ups)
 		if err := b.Err(); err != nil {
 			return err
@@ -521,14 +514,13 @@ func (r *FirestoreRepo) CancelScheduled(ctx context.Context, uid, id string, now
 }
 
 // GetScheduledInTx reads one document inside the caller's transaction (the publish transaction re-reads the item and
-// requires PENDING before it writes). Reads 1; ErrScheduledNotFound when absent.
+// requires PENDING before it writes). ErrScheduledNotFound when absent.
 func (r *FirestoreRepo) GetScheduledInTx(ctx context.Context, tx *firestore.Transaction, uid, id string) (*ScheduledPost, error) {
 	ref, err := r.scheduledRef(uid, id)
 	if err != nil {
 		return nil, err
 	}
 	snap, err := tx.Get(ref)
-	budget.FromContext(ctx).AddReads(1)
 	if status.Code(err) == codes.NotFound {
 		return nil, ErrScheduledNotFound
 	}
@@ -539,7 +531,7 @@ func (r *FirestoreRepo) GetScheduledInTx(ctx context.Context, tx *firestore.Tran
 }
 
 // StageScheduledTransition appends the transition to b (a transaction batch that already read the document as
-// PENDING). The update carries the implicit exists precondition of a transactional Update. Writes 1.
+// PENDING). The update carries the implicit exists precondition of a transactional Update.
 func (r *FirestoreRepo) StageScheduledTransition(b store.Batch, uid, id string, t ScheduledTransition, now time.Time, ttl time.Duration) error {
 	ref, err := r.scheduledRef(uid, id)
 	if err != nil {
@@ -553,8 +545,8 @@ func (r *FirestoreRepo) StageScheduledTransition(b store.Batch, uid, id string, 
 	return nil
 }
 
-// updateIfUnchanged applies ups with a LastUpdateTime precondition (0 reads, 1 write). A document that changed
-// since the query read it, or that is gone (the eraser, a TTL delete), is not an error: applied=false, nothing written.
+// updateIfUnchanged applies ups with a LastUpdateTime precondition. A document that changed
+// since the query read it, or that is gone (the eraser, a TTL expiry), is not an error: applied=false, nothing written.
 func (r *FirestoreRepo) updateIfUnchanged(ctx context.Context, ref ScheduledRef, ups []firestore.Update) (ScheduledRef, bool, error) {
 	if ref.UpdateTime.IsZero() {
 		return ref, false, fmt.Errorf("%w: reference has no update time", errScheduledTransition)
@@ -566,7 +558,6 @@ func (r *FirestoreRepo) updateIfUnchanged(ctx context.Context, ref ScheduledRef,
 	wr, err := dr.Update(ctx, ups, firestore.LastUpdateTime(ref.UpdateTime))
 	switch status.Code(err) {
 	case codes.OK:
-		budget.FromContext(ctx).AddWrites(1)
 		return ScheduledRef{UID: ref.UID, ID: ref.ID, UpdateTime: wr.UpdateTime}, true, nil
 	case codes.FailedPrecondition, codes.NotFound:
 		return ref, false, nil
@@ -603,7 +594,7 @@ type ScheduledDuePage struct {
 	// precondition of the sweep writes outside the publish transaction.
 	Items []*ScheduledPost
 	// SkippedBadPath counts results whose ref is not exactly users/{uid}/scheduled/{32 hex} (review L-7); Undecodable
-	// counts well-shaped documents that do not decode. Both are re-read every run (1 read each), so the sweep alerts.
+	// counts well-shaped documents that do not decode. Both are re-read every run, so the sweep alerts.
 	SkippedBadPath, Undecodable int
 	// Next resumes after this page; nil when the page was short (nothing more is due).
 	Next *ScheduledDueCursor
@@ -651,7 +642,6 @@ func (r *FirestoreRepo) DueScheduled(ctx context.Context, now time.Time, limit i
 			break
 		}
 		if err != nil {
-			budget.FromContext(ctx).AddQueryReads(n)
 			return ScheduledDuePage{}, fmt.Errorf("posts: due scheduled: %w", err)
 		}
 		n++
@@ -668,7 +658,6 @@ func (r *FirestoreRepo) DueScheduled(ctx context.Context, now time.Time, limit i
 		}
 		page.Items = append(page.Items, p)
 	}
-	budget.FromContext(ctx).AddQueryReads(n)
 	if n >= limit && last != nil {
 		v, err := last.DataAt("publishAt")
 		at, isTime := v.(time.Time)

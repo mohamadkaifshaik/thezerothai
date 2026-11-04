@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // The fakes of the publish sweep's unit tests. Everything is goroutine-safe: the sweep runs author workers in parallel.
@@ -57,8 +56,7 @@ type fakeSweepRepo struct {
 	// query and the item.
 	afterDue func()
 	// transitionPanic, when set, makes TransitionScheduled panic with it (a second panic while an item's panic is handled).
-	transitionPanic            any
-	publishReads, publishWrite int64 // charged by the default publish
+	transitionPanic any
 	// authorCreatedAt is what the default publish reports as the author's account creation time.
 	authorCreatedAt time.Time
 }
@@ -66,7 +64,7 @@ type fakeSweepRepo struct {
 func newFakeSweepRepo() *fakeSweepRepo {
 	return &fakeSweepRepo{
 		docs: map[string]*ScheduledPost{}, cursorPos: map[*ScheduledDueCursor]int{},
-		inflightBy: map[string]int{}, maxInflightBy: map[string]int{}, publishReads: 3, publishWrite: 4,
+		inflightBy: map[string]int{}, maxInflightBy: map[string]int{},
 	}
 }
 
@@ -153,12 +151,9 @@ func (f *fakeSweepRepo) duePage(ctx context.Context, now time.Time, limit int, a
 	for _, d := range due[start:end] {
 		page.Items = append(page.Items, copyScheduled(d))
 	}
-	read := len(page.Items)
 	if after == nil {
 		page.SkippedBadPath, page.Undecodable = f.bad, f.undecodable
-		read += f.bad + f.undecodable
 	}
-	budget.FromContext(ctx).AddQueryReads(read)
 	if end-start >= limit {
 		next := &ScheduledDueCursor{}
 		f.cursorPos[next] = end
@@ -186,7 +181,6 @@ func (f *fakeSweepRepo) TransitionScheduled(ctx context.Context, ref ScheduledRe
 	}
 	t.apply(d, now, ttl)
 	f.touch(d)
-	budget.FromContext(ctx).AddWrites(1)
 	return d.Ref(), true, nil
 }
 
@@ -204,7 +198,6 @@ func (f *fakeSweepRepo) BumpScheduledAttempts(ctx context.Context, ref Scheduled
 	d.Attempts++
 	d.UpdatedAt = now
 	f.touch(d)
-	budget.FromContext(ctx).AddWrites(1)
 	return d.Ref(), true, nil
 }
 
@@ -246,7 +239,6 @@ func (f *fakeSweepRepo) publishDefault(ctx context.Context, p PublishParams) (Pu
 	defer f.mu.Unlock()
 	d := f.docs[p.UID+"/"+p.ID]
 	if d == nil || d.Status != ScheduledPending {
-		budget.FromContext(ctx).AddReads(1)
 		return PublishResult{Outcome: PublishNoop, Attempts: 1}, nil
 	}
 	f.published++
@@ -258,9 +250,6 @@ func (f *fakeSweepRepo) publishDefault(ctx context.Context, p PublishParams) (Pu
 	(ScheduledTransition{To: ScheduledPublished, PostID: id}).apply(d, p.Now, p.TerminalTTL)
 	f.touch(d)
 	f.publishedPosts = append(f.publishedPosts, &post)
-	c := budget.FromContext(ctx)
-	c.AddReads(f.publishReads)
-	c.AddWrites(f.publishWrite)
 	return PublishResult{Outcome: PublishPublished, Post: &post, Attempts: 1, AuthorCreatedAt: f.authorCreatedAt}, nil
 }
 
@@ -380,7 +369,7 @@ type sweepEnv struct {
 // defaultSweepLimits are the documented defaults of the SCHEDULED_* keys.
 func defaultSweepLimits() SweepLimits {
 	return SweepLimits{
-		PerAuthorPerRun: 3, AuthorReadsWarn: 40, Limit: 50, MaxPages: 2, Concurrency: 4,
+		PerAuthorPerRun: 3, Limit: 50, MaxPages: 2, Concurrency: 4,
 		MaxLateness: 6 * time.Hour, MaxAttempts: 3, TerminalTTL: 168 * time.Hour,
 	}
 }
@@ -423,11 +412,9 @@ func (e *sweepEnv) dueItem(uid string, n int, mut ...func(*ScheduledPost)) *Sche
 	return e.repo.put(p)
 }
 
-// sweep runs one sweep with a budget counter and returns the result and the counter.
-func (e *sweepEnv) sweep(ctx context.Context) (SweepResult, *budget.Counter, error) {
-	ctx, c := budget.WithCounter(ctx)
-	res, err := e.svc.Sweep(ctx)
-	return res, c, err
+// sweep runs one sweep and returns the result.
+func (e *sweepEnv) sweep(ctx context.Context) (SweepResult, error) {
+	return e.svc.Sweep(ctx)
 }
 
 // SearchHandles satisfies identity.Directory; this fake never serves handle-prefix search.

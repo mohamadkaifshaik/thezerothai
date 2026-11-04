@@ -18,7 +18,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
@@ -116,10 +115,9 @@ func (r *FirestoreRepo) ready() error {
 	return nil
 }
 
-// LoadUserLikes implements Repo. Reads 1.
+// LoadUserLikes implements Repo.
 func (r *FirestoreRepo) LoadUserLikes(ctx context.Context, uid string) (UserLikes, error) {
 	snap, err := r.userLikesRef(uid).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return UserLikes{}, nil
@@ -133,7 +131,7 @@ func (r *FirestoreRepo) LoadUserLikes(ctx context.Context, uid string) (UserLike
 	return UserLikes(d), nil
 }
 
-// runTx runs fn in a transaction with correct budget accounting, re-running it a bounded number of times when
+// runTx runs fn in a transaction, re-running it a bounded number of times when
 // Firestore reports contention (Aborted) after its own attempts. It returns the number of body runs.
 func (r *FirestoreRepo) runTx(ctx context.Context, fn store.TxnFunc) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, txTimeout)
@@ -156,7 +154,7 @@ func (r *FirestoreRepo) runTx(ctx context.Context, fn store.TxnFunc) (int, error
 	return total, err
 }
 
-// Like implements Repo: one transaction, 1 read (quotas) and 4 writes (like doc, likeCount, userLikes, quota).
+// Like implements Repo: one transaction that reads quotas and writes the like doc, likeCount, userLikes and the quota.
 func (r *FirestoreRepo) Like(ctx context.Context, p LikeParams) (bool, error) {
 	if err := r.ready(); err != nil {
 		return false, err
@@ -166,7 +164,7 @@ func (r *FirestoreRepo) Like(ctx context.Context, p LikeParams) (bool, error) {
 		if err != nil {
 			return fmt.Errorf("engagement: quota lookup: %w", err)
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		if err := quota.CheckAndReserve(b, r.w.Quotas.Ref(p.UID), rec, quota.Likes, p.QuotaLimit); err != nil {
 			return err
 		}
@@ -191,8 +189,8 @@ func (r *FirestoreRepo) Like(ctx context.Context, p LikeParams) (bool, error) {
 	}
 }
 
-func (r *FirestoreRepo) newBatch(c *budget.Counter) *store.FirestoreBatch {
-	return store.NewFirestoreBatch(r.client, c)
+func (r *FirestoreRepo) newBatch() *store.FirestoreBatch {
+	return store.NewFirestoreBatch(r.client)
 }
 
 func (r *FirestoreRepo) retryConfig() store.RetryConfig {
@@ -233,8 +231,8 @@ func (r *FirestoreRepo) Unlike(ctx context.Context, uid, postID string) (bool, e
 	return res.Committed, nil
 }
 
-// Repost implements Repo: one transaction, 1 read (quotas) and 6 writes (reposts doc, REPOST post, repostCount,
-// postsCount, userLikes, quota). The REPOST id is drawn inside every attempt (the settle watermark).
+// Repost implements Repo: one transaction that reads quotas and writes the reposts doc, REPOST post, repostCount,
+// postsCount, userLikes and the quota. The REPOST id is drawn inside every attempt (the settle watermark).
 func (r *FirestoreRepo) Repost(ctx context.Context, p RepostParams) (RepostResult, error) {
 	if err := r.ready(); err != nil {
 		return RepostResult{}, err
@@ -255,7 +253,7 @@ func (r *FirestoreRepo) Repost(ctx context.Context, p RepostParams) (RepostResul
 				return fmt.Errorf("engagement: %w", err)
 			}
 			np := posts.NewRepostPost(id, createdAt, p.Author, p.SnapshotVersion, p.Original)
-			b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+			b := store.NewFirestoreTxBatch(tx)
 			if err := quota.CheckAndReserve(b, r.w.Quotas.Ref(p.UID), rec, quota.Posts, p.QuotaLimit); err != nil {
 				return err
 			}
@@ -282,7 +280,6 @@ func (r *FirestoreRepo) Repost(ctx context.Context, p RepostParams) (RepostResul
 			// Either the reposts doc exists (a replay: return the repost it points to) or the drawn REPOST id
 			// collided (practically never: draw again).
 			snap, gerr := r.repostRef(p.Original.ID, p.UID).Get(ctx)
-			budget.FromContext(ctx).AddReads(1)
 			if gerr == nil {
 				var d repostDoc
 				if derr := snap.DataTo(&d); derr != nil {
@@ -301,14 +298,13 @@ func (r *FirestoreRepo) Repost(ctx context.Context, p RepostParams) (RepostResul
 	return RepostResult{}, fmt.Errorf("engagement: repost id collided %d times: %w", maxIDCollisionRuns+1, err)
 }
 
-// UndoRepost implements Repo: 1 read of reposts/{id}, then one batch (3 writes, 2 deletes). The reposts doc's
+// UndoRepost implements Repo: it reads reposts/{id}, then commits one batch. The reposts doc's
 // Exists precondition is the batch's only guard; the REPOST post is deleted blind.
 func (r *FirestoreRepo) UndoRepost(ctx context.Context, uid, originalID string) (UndoResult, error) {
 	if err := r.ready(); err != nil {
 		return UndoResult{}, err
 	}
 	snap, err := r.repostRef(originalID, uid).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return UndoResult{}, nil
@@ -356,7 +352,7 @@ func (r *FirestoreRepo) TrimLikes(ctx context.Context, uid string, recent, repos
 	if len(reposts) > 0 {
 		upd["recentReposts"] = firestore.ArrayRemove(toAny(reposts)...)
 	}
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	b.Set(r.userLikesRef(uid), upd, firestore.MergeAll)
 	if err := b.Commit(ctx); err != nil {
 		return fmt.Errorf("engagement: trim userLikes: %w", err)
@@ -386,7 +382,7 @@ func (r *FirestoreRepo) release(ctx context.Context, originalID, uid string) err
 	}
 	upd := map[string]any{"recentReposts": firestore.ArrayRemove(originalID), "updatedAt": r.now().UTC()}
 	for _, withCount := range []bool{true, false} {
-		b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+		b := store.NewFirestoreBatch(r.client)
 		if withCount {
 			r.w.Writer.StageRepostCount(b, originalID, -1)
 		}

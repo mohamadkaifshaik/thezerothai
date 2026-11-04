@@ -82,9 +82,7 @@ func NewEraser(repo Purger, log *slog.Logger) Eraser {
 // rewrite commits there is nothing left to do. `gone` keeps blocking sends throughout (the uid first, DeletedUID after),
 // and the peer's own eraser still finds the conversation by the peer's uid and sees DeletedUID in `gone`.
 //
-// Cost for the reference account (20 conversations, 300 own messages, peers alive): about 380 reads (21 cursor queries,
-// 20 conversation and 20 peer-entry reads in the gone transactions, 20 conversation reads in the rewrites, 300
-// messages), 360 writes (20 gone marks, 20 peer entries, 300 tombstones, 20 rewrites), 20 deletes. Every step is idempotent: a call repeated after a crash re-does at most one
+// Every step is idempotent: a call repeated after a crash re-does at most one
 // unit of work and never a half-erased conversation.
 func (e *eraser) PurgeUser(ctx context.Context, uid string, raw []byte) ([]byte, bool, error) {
 	var cp Checkpoint

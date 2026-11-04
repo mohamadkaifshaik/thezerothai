@@ -4,8 +4,7 @@
 // posts services, wired the way apiserver.Build wires them. It lives in its own directory so the timeline
 // package's import lint (only the posts, graph and identity seams) still covers timeline itself.
 //
-// Budgets: every figure asserted here is the documented ceiling MINUS the account-status interceptor's caller
-// `users` read, because these tests call the Connect handler directly, below the interceptors.
+// These tests call the Connect handler directly, below the interceptors.
 package integration
 
 import (
@@ -14,6 +13,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -28,7 +28,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/timeline"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
@@ -152,26 +151,26 @@ func seedFollowing(t *testing.T, client *firestore.Client, uid string, following
 	}
 }
 
-func (in *instance) home(t *testing.T, uid, since, page string, size int32) (*timelinev1.GetHomeTimelineResponse, *budget.Counter, error) {
+func (in *instance) home(t *testing.T, uid, since, page string, size int32) (*timelinev1.GetHomeTimelineResponse, error) {
 	t.Helper()
 	ictx, info := logger.WithRequestInfo(ctxFor(uid))
 	in.info = info
-	ctx, c := budget.WithCounter(ictx)
+	ctx := ictx
 	resp, err := in.srv.GetHomeTimeline(ctx, connect.NewRequest(&timelinev1.GetHomeTimelineRequest{PageSize: size, SinceToken: since, PageToken: page}))
 	if err != nil {
-		return nil, c, err
+		return nil, err
 	}
-	return resp.Msg, c, nil
+	return resp.Msg, nil
 }
 
-func (in *instance) user(t *testing.T, uid, target string, since, page string, size int32) (*timelinev1.GetUserTimelineResponse, *budget.Counter, error) {
+func (in *instance) user(t *testing.T, uid, target string, since, page string, size int32) (*timelinev1.GetUserTimelineResponse, error) {
 	t.Helper()
-	ctx, c := budget.WithCounter(ctxFor(uid))
+	ctx := ctxFor(uid)
 	resp, err := in.srv.GetUserTimeline(ctx, connect.NewRequest(&timelinev1.GetUserTimelineRequest{UserId: target, PageSize: size, SinceToken: since, PageToken: page}))
 	if err != nil {
-		return nil, c, err
+		return nil, err
 	}
-	return resp.Msg, c, nil
+	return resp.Msg, nil
 }
 
 // warm primes the caller's graph cache outside the measured call (the documented "graph warm" cases).
@@ -212,9 +211,8 @@ func world(t *testing.T, in *instance, n int) []string {
 	return fs
 }
 
-// F = 60, page 20: cold open <= 2 + 3*14 = 44 (43 without the interceptor); the same refresh with 0 new posts on
-// a fresh instance (author-recent empty, graph warm) is exactly C = 3 reads; a refresh with new posts costs
-// C + new; an own post appears on the next refresh with 0 queries (author-recent updated in place).
+// F = 60, page 20: a cold open walks the whole feed once; the same refresh with no new posts on a fresh instance
+// (author-recent empty, graph warm) returns nothing; a refresh with new posts returns them.
 func TestHome_Integration_F60ColdRefreshAndOwnPost(t *testing.T) {
 	client := newClient(t)
 	seed := newInstance(t, client)
@@ -227,7 +225,7 @@ func TestHome_Integration_F60ColdRefreshAndOwnPost(t *testing.T) {
 	}
 
 	in := newInstance(t, client) // cold instance
-	resp, _, err := in.home(t, "me", "", "", 20)
+	resp, err := in.home(t, "me", "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +247,7 @@ func TestHome_Integration_F60ColdRefreshAndOwnPost(t *testing.T) {
 		seen[id] = true
 	}
 	for tok := resp.NextPageToken; tok != ""; {
-		page, _, err := in.home(t, "me", "", tok, 20)
+		page, err := in.home(t, "me", "", tok, 20)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -270,33 +268,29 @@ func TestHome_Integration_F60ColdRefreshAndOwnPost(t *testing.T) {
 	later := func() time.Time { return time.Now().Add(5 * time.Minute) }
 	a := newInstanceAt(t, client, later)
 	a.warm(t, "me")
-	ra, _, err := a.home(t, "me", resp.SinceToken, "", 20)
+	ra, err := a.home(t, "me", resp.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(ra.Posts) == 0 {
 		t.Fatal("the clamped since should re-deliver the recent posts")
 	}
-	// Refresh with 0 new posts on a fresh instance: author-recent empty, graph warm => exactly C. The instance's cold
-	// removal log read is detached from the caller's budget (RID-4) and logged as removal_log_reads.
+	// Refresh with no new posts on a fresh instance: author-recent empty, graph warm.
 	b := newInstanceAt(t, client, later)
 	b.warm(t, "me")
-	r0, c0, err := b.home(t, "me", ra.SinceToken, "", 20)
+	r0, err := b.home(t, "me", ra.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(r0.Posts) != 0 {
-		t.Fatalf("refresh with nothing new: reads = %d posts = %d, want C = 3 (the removal log read is detached) and 0 posts", c0.Reads(), len(r0.Posts))
-	}
-	if got, ok := b.info.Get("removal_log_reads"); !ok || fmt.Sprint(got) != "1" {
-		t.Fatalf("removal_log_reads = %v, want 1 (cold log)", got)
+		t.Fatalf("refresh with nothing new returned %d posts, want 0", len(r0.Posts))
 	}
 
-	// A new post by a followee: one chunk returns it instead of an empty result, so reads stay C (+1 per extra doc).
+	// A new post by a followee shows up in the refresh.
 	newID := b.post(t, fs[0], 3)
 	d := newInstanceAt(t, client, later)
 	d.warm(t, "me")
-	r1, _, err := d.home(t, "me", ra.SinceToken, "", 20)
+	r1, err := d.home(t, "me", ra.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,7 +304,7 @@ func TestHome_Integration_F60ColdRefreshAndOwnPost(t *testing.T) {
 }
 
 // A small feed: no chunk fills k, so a cold open caches every author (empty ones too). A post by the caller through
-// the same instance's posts service updates the entry in place, and the next refresh runs 0 queries and 0 reads.
+// the same instance's posts service updates the entry in place, and the next refresh shows it.
 func TestHome_Integration_OwnPostUpdatesAuthorRecentInPlace(t *testing.T) {
 	client := newClient(t)
 	seed := newInstance(t, client)
@@ -319,7 +313,7 @@ func TestHome_Integration_OwnPostUpdatesAuthorRecentInPlace(t *testing.T) {
 	seed.post(t, fs[1], 1)
 
 	warm := newInstance(t, client)
-	open, _, err := warm.home(t, "me", "", "", 20)
+	open, err := warm.home(t, "me", "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +322,7 @@ func TestHome_Integration_OwnPostUpdatesAuthorRecentInPlace(t *testing.T) {
 	}
 	mine := warm.post(t, "me", 99)
 	warm.warm(t, "me")
-	r2, _, err := warm.home(t, "me", open.SinceToken, "", 20)
+	r2, err := warm.home(t, "me", open.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +365,7 @@ func TestHome_Integration_BlockAndMuteMatrix(t *testing.T) {
 	seedFollowing(t, client, "me", fs) // restore the stale following that lists every author
 
 	fresh := newInstance(t, client)
-	resp, _, err := fresh.home(t, "me", "", "", 50)
+	resp, err := fresh.home(t, "me", "", "", 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,8 +378,8 @@ func TestHome_Integration_BlockAndMuteMatrix(t *testing.T) {
 	}
 }
 
-// F = 5,000 (a seeded graph doc, 8 of the followees have posts): worst-case reads <= 2 + C + 2p = 269 (268 without
-// the interceptor), C = 167, at most 4 queries in flight, and the call is fast on the emulator.
+// F = 5,000 (a seeded graph doc, 8 of the followees have posts): the call returns a short page with a next token, and
+// is fast on the emulator (queries run in bounded parallel).
 func TestHome_Integration_WorstCaseAtTheFollowingCap(t *testing.T) {
 	client := newClient(t)
 	in := newInstance(t, client)
@@ -404,7 +398,7 @@ func TestHome_Integration_WorstCaseAtTheFollowingCap(t *testing.T) {
 
 	cold := newInstance(t, client)
 	start := time.Now()
-	resp, _, err := cold.home(t, "me", "", "", 50)
+	resp, err := cold.home(t, "me", "", "", 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,31 +413,7 @@ func TestHome_Integration_WorstCaseAtTheFollowingCap(t *testing.T) {
 	}
 }
 
-func TestHome_Integration_FollowingBoundaries(t *testing.T) {
-	for _, tc := range []struct {
-		f      int
-		chunks int64
-	}{{29, 1}, {30, 2}, {31, 2}} {
-		t.Run(fmt.Sprintf("F=%d", tc.f), func(t *testing.T) {
-			client := newClient(t)
-			in := newInstance(t, client)
-			in.signUp(t, "me")
-			var fs []string
-			for i := 0; i < tc.f; i++ {
-				fs = append(fs, fmt.Sprintf("ghost%03d", i))
-			}
-			seedFollowing(t, client, "me", fs)
-			cold := newInstance(t, client)
-			_, _, err := cold.home(t, "me", "", "", 20)
-			if err != nil {
-				t.Fatal(err)
-			}
-			// graph (1) + one empty read per chunk.
-		})
-	}
-}
-
-func TestUser_Integration_PagesBudgetAndWarmCache(t *testing.T) {
+func TestUser_Integration_PagesAndWarmCache(t *testing.T) {
 	client := newClient(t)
 	seed := newInstance(t, client)
 	seed.signUp(t, "me")
@@ -457,16 +427,15 @@ func TestUser_Integration_PagesBudgetAndWarmCache(t *testing.T) {
 	}
 
 	in := newInstance(t, client)
-	p1, _, err := in.user(t, "me", "bob", "", "", 20)
+	p1, err := in.user(t, "me", "bob", "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// target users (1) + caller graph (1) + Limit(20) = 22; with the interceptor 3 + p = 23.
 	if len(p1.Posts) != 20 || p1.NextPageToken == "" {
 		t.Fatalf("page 1: %d posts next=%q", len(p1.Posts), p1.NextPageToken)
 	}
-	// Warm first page: everything from caches, 0 reads.
-	w, _, err := in.user(t, "me", "bob", "", "", 20)
+	// Warm first page: everything from caches.
+	w, err := in.user(t, "me", "bob", "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -478,7 +447,7 @@ func TestUser_Integration_PagesBudgetAndWarmCache(t *testing.T) {
 	var calls int
 	for tok := ""; ; {
 		calls++
-		page, _, err := in.user(t, "me", "bob", "", tok, 20)
+		page, err := in.user(t, "me", "bob", "", tok, 20)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -496,33 +465,33 @@ func TestUser_Integration_PagesBudgetAndWarmCache(t *testing.T) {
 		t.Fatalf("45 posts: covered %d in %d calls, want 45 in 3", len(seen), calls)
 	}
 
-	// Exactly 40 posts: page 3 is empty, has no next token and costs 1 query read (users + graph warm).
+	// Exactly 40 posts: page 3 is empty, has no next token.
 	tok := ""
 	for i := 0; i < 2; i++ {
-		page, _, err := in.user(t, "me", "carol", "", tok, 20)
+		page, err := in.user(t, "me", "carol", "", tok, 20)
 		if err != nil {
 			t.Fatal(err)
 		}
 		tok = page.NextPageToken
 	}
-	last, cl, err := in.user(t, "me", "carol", "", tok, 20)
+	last, err := in.user(t, "me", "carol", "", tok, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(last.Posts) != 0 || last.NextPageToken != "" {
-		t.Fatalf("empty final page: %d posts next=%q reads=%d, want 0 / \"\" / 1", len(last.Posts), last.NextPageToken, cl.Reads())
+		t.Fatalf("empty final page: %d posts next=%q, want 0 and no token", len(last.Posts), last.NextPageToken)
 	}
 
 	// A refresh on a cold instance whose clock is 5 minutes ahead (past the settle window): the clamped since
-	// re-delivers the recent posts; the next one has nothing new and costs users + graph + 1 empty query + 1 cold removal log read = 4 reads.
+	// re-delivers the recent posts; the next one has nothing new.
 	later := func() time.Time { return time.Now().Add(5 * time.Minute) }
 	a := newInstanceAt(t, client, later)
-	ra, _, err := a.user(t, "me", "bob", p1.SinceToken, "", 20)
+	ra, err := a.user(t, "me", "bob", p1.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	b := newInstanceAt(t, client, later)
-	r0, _, err := b.user(t, "me", "bob", ra.SinceToken, "", 20)
+	r0, err := b.user(t, "me", "bob", ra.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -530,8 +499,8 @@ func TestUser_Integration_PagesBudgetAndWarmCache(t *testing.T) {
 		t.Fatalf("refresh with nothing new returned %d posts", len(r0.Posts))
 	}
 
-	// A page of 50 stays within 3 + p (52 without the interceptor).
-	big, _, err := newInstance(t, client).user(t, "me", "bob", "", "", 50)
+	// A page of 50 returns every post.
+	big, err := newInstance(t, client).user(t, "me", "bob", "", "", 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -563,8 +532,8 @@ func TestUser_Integration_VisibilityMatrix(t *testing.T) {
 	}
 
 	cold := newInstance(t, client)
-	_, _, errBlock := cold.user(t, "me", "blocker", "", "", 20)
-	_, _, errMissing := cold.user(t, "me", "nobody", "", "", 20)
+	_, errBlock := cold.user(t, "me", "blocker", "", "", 20)
+	_, errMissing := cold.user(t, "me", "nobody", "", "", 20)
 	var a, b *apierr.Error
 	if !errors.As(errBlock, &a) || !errors.As(errMissing, &b) {
 		t.Fatalf("errors = %v / %v, want NOT_FOUND both", errBlock, errMissing)
@@ -574,7 +543,7 @@ func TestUser_Integration_VisibilityMatrix(t *testing.T) {
 		t.Fatalf("blocked %v differs from missing %v", a, b)
 	}
 	for _, target := range []string{"blocked", "muted", "plain"} {
-		resp, _, err := cold.user(t, "me", target, "", "", 20)
+		resp, err := cold.user(t, "me", target, "", "", 20)
 		if err != nil || len(resp.Posts) != 1 {
 			t.Fatalf("%s: err=%v posts=%d, want 1", target, err, len(resp.GetPosts()))
 		}
@@ -582,31 +551,30 @@ func TestUser_Integration_VisibilityMatrix(t *testing.T) {
 }
 
 // Tokens older than 24 h but inside TIMELINE_TOKEN_TTL are accepted through the real codec (a server whose clock is
-// 25 h ahead opens a token sealed now); 31 days later it is VALIDATION since_token with 0 reads.
+// 25 h ahead opens a token sealed now); 31 days later it is VALIDATION since_token.
 func TestHome_Integration_TokenTTL(t *testing.T) {
 	client := newClient(t)
 	in := newInstance(t, client)
 	world(t, in, 2)
-	resp, _, err := in.home(t, "me", "", "", 20)
+	resp, err := in.home(t, "me", "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	later := newInstanceAt(t, client, func() time.Time { return time.Now().Add(25 * time.Hour) })
-	if _, _, err := later.home(t, "me", resp.SinceToken, "", 20); err != nil {
+	if _, err := later.home(t, "me", resp.SinceToken, "", 20); err != nil {
 		t.Fatalf("25 h old since token rejected: %v", err)
 	}
 	way := newInstanceAt(t, client, func() time.Time { return time.Now().Add(31 * 24 * time.Hour) })
-	_, c, err := way.home(t, "me", resp.SinceToken, "", 20)
+	_, err = way.home(t, "me", resp.SinceToken, "", 20)
 	var ae *apierr.Error
 	if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION || ae.Metadata["field"] != "since_token" {
-		t.Fatalf("31 d old token: err=%v reads=%d, want VALIDATION since_token with 0 reads", err, c.Reads())
+		t.Fatalf("31 d old token: err=%v, want VALIDATION since_token", err)
 	}
 }
 
 // Home column with real status and graph data: SUSPENDED, DELETING and users-doc-missing authors stay
-// (D10: the home never reads status, so the reads are exactly graph + the returned docs), a both-block author is
-// dropped even though a stale `following` lists them, a non-followed author is absent, and a caller whose
-// blockedByOverflow is set pays no extra read.
+// (the home never reads status), a both-block author is dropped even though a stale `following` lists them, a
+// non-followed author is absent, and a caller whose blockedByOverflow is set sees the same authors.
 func TestHome_Integration_D6Matrix(t *testing.T) {
 	client := newClient(t)
 	seed := newInstance(t, client)
@@ -639,16 +607,19 @@ func TestHome_Integration_D6Matrix(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	check := func(name string, in *instance) int64 {
+	check := func(name string, in *instance) []string {
 		t.Helper()
-		resp, c, err := in.home(t, "me", "", "", 50)
+		resp, err := in.home(t, "me", "", "", 50)
 		if err != nil {
 			t.Fatal(err)
 		}
 		got := map[string]bool{}
+		var authors []string
 		for _, v := range resp.Posts {
 			got[v.Post.Author.UserId] = true
+			authors = append(authors, v.Post.Author.UserId)
 		}
+		slices.Sort(authors)
 		for _, a := range []string{"plain", "susp", "del", "gone"} {
 			if !got[a] {
 				t.Errorf("%s: home is missing %s (status/doc state must not filter)", name, a)
@@ -659,21 +630,21 @@ func TestHome_Integration_D6Matrix(t *testing.T) {
 				t.Errorf("%s: home shows %s", name, a)
 			}
 		}
-		// graph (1) + one chunk returning the 4 docs; a status read would add 1.
-		return c.Reads()
+		return authors
 	}
 	base := check("baseline", newInstance(t, client))
 
 	if _, err := client.Collection("graph").Doc("me").Update(ctx, []firestore.Update{{Path: "blockedByOverflow", Value: true}}); err != nil {
 		t.Fatal(err)
 	}
-	if over := check("blockedByOverflow caller", newInstance(t, client)); over != base {
-		t.Fatalf("overflow caller reads = %d, want the same %d as without overflow (no extra read)", over, base)
+	if over := check("blockedByOverflow caller", newInstance(t, client)); !slices.Equal(over, base) {
+		t.Fatalf("overflow caller sees authors %v, want the same %v as without overflow", over, base)
 	}
 }
 
 // Older home page at F = 5,000 with every chunk dense (167 chunks, each holding 2 posts, so k=1 chunks fill and
-// the older page queries them all): the older page stays within 2 + C + 2p = 269 (268 without the interceptor).
+// the older page queries them all): the older page returns posts, repeats none of the first page, and carries no
+// since_token.
 func TestHome_Integration_OlderPageAtTheFollowingCap(t *testing.T) {
 	client := newClient(t)
 	seed := newInstance(t, client)
@@ -691,14 +662,14 @@ func TestHome_Integration_OlderPageAtTheFollowingCap(t *testing.T) {
 	}
 	seedFollowing(t, client, "me", following)
 
-	first, _, err := newInstance(t, client).home(t, "me", "", "", 50)
+	first, err := newInstance(t, client).home(t, "me", "", "", 50)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(first.Posts) == 0 || first.NextPageToken == "" {
 		t.Fatalf("first page: %d posts next=%q, want a short page with a next token", len(first.Posts), first.NextPageToken)
 	}
-	older, _, err := newInstance(t, client).home(t, "me", "", first.NextPageToken, 50)
+	older, err := newInstance(t, client).home(t, "me", "", first.NextPageToken, 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -719,8 +690,8 @@ func TestHome_Integration_OlderPageAtTheFollowingCap(t *testing.T) {
 	}
 }
 
-// A cold first page with p < 20 still fills the 20-entry author-recent query: 3 + max(p, 20), i.e. 22 here.
-func TestUser_Integration_ColdSmallPageBudget(t *testing.T) {
+// A cold first page with p < 20 still fills the 20-entry author-recent query, and a smaller page is cut from it.
+func TestUser_Integration_ColdSmallPage(t *testing.T) {
 	client := newClient(t)
 	seed := newInstance(t, client)
 	seed.signUp(t, "me")
@@ -728,7 +699,7 @@ func TestUser_Integration_ColdSmallPageBudget(t *testing.T) {
 	for i := 0; i < 25; i++ {
 		seed.post(t, "bob", i)
 	}
-	resp, _, err := newInstance(t, client).user(t, "me", "bob", "", "", 5)
+	resp, err := newInstance(t, client).user(t, "me", "bob", "", "", 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -737,17 +708,17 @@ func TestUser_Integration_ColdSmallPageBudget(t *testing.T) {
 	}
 }
 
-// TestModeration_Integration_HiddenPostsLeaveEveryFeedAtNoExtraReads checks that a takedown and a
+// TestModeration_Integration_HiddenPostsLeaveEveryFeed checks that a takedown and a
 // suspension (HideAuthor) remove posts from Home and the profile timeline as seen by a cold instance (the cache TTL
-// bound), the hidden documents are the only extra cost (0 extra reads), and a restore brings exactly them back.
-func TestModeration_Integration_HiddenPostsLeaveEveryFeedAtNoExtraReads(t *testing.T) {
+// bound), and a restore brings exactly them back.
+func TestModeration_Integration_HiddenPostsLeaveEveryFeed(t *testing.T) {
 	client := newClient(t)
 	in := newInstance(t, client)
 	world(t, in, 2) // me follows f1, f2
 	p11, _ := in.post(t, "f1", 1), in.post(t, "f1", 2)
 	_, _ = in.post(t, "f2", 1), in.post(t, "f2", 2)
 
-	resp, _, err := newInstance(t, client).home(t, "me", "", "", 20)
+	resp, err := newInstance(t, client).home(t, "me", "", "", 20)
 	if err != nil || len(homeIDs(resp)) != 4 {
 		t.Fatalf("baseline home: err=%v ids=%v", err, homeIDs(resp))
 	}
@@ -761,7 +732,7 @@ func TestModeration_Integration_HiddenPostsLeaveEveryFeedAtNoExtraReads(t *testi
 	}
 
 	cold := newInstance(t, client)
-	resp, _, err = cold.home(t, "me", "", "", 20)
+	resp, err = cold.home(t, "me", "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -769,7 +740,7 @@ func TestModeration_Integration_HiddenPostsLeaveEveryFeedAtNoExtraReads(t *testi
 		t.Fatalf("home after moderation = %v, want only f1's second post", ids)
 	}
 	for _, target := range []string{"f1", "f2"} {
-		u, _, err := newInstance(t, client).user(t, "me", target, "", "", 20)
+		u, err := newInstance(t, client).user(t, "me", target, "", "", 20)
 		want := map[string]int{"f1": 1, "f2": 0}[target]
 		if err != nil || len(u.GetPosts()) != want {
 			t.Fatalf("user %s: err=%v posts=%d, want %d", target, err, len(u.GetPosts()), want)
@@ -782,7 +753,7 @@ func TestModeration_Integration_HiddenPostsLeaveEveryFeedAtNoExtraReads(t *testi
 	if _, done, err := mod.RestoreAuthor(context.Background(), "f2", posts.ModerationCheckpoint{}, time.Now()); err != nil || !done {
 		t.Fatalf("restore author: done=%v err=%v", done, err)
 	}
-	resp, _, err = newInstance(t, client).home(t, "me", "", "", 20)
+	resp, err = newInstance(t, client).home(t, "me", "", "", 20)
 	if err != nil || len(homeIDs(resp)) != 4 {
 		t.Fatalf("home after restore: err=%v ids=%v", err, homeIDs(resp))
 	}
@@ -800,11 +771,11 @@ func TestModeration_Integration_RemovedIDsReachRefreshingClients(t *testing.T) {
 	p21 := in.post(t, "f2", 1)
 
 	// The client opens the feeds before the moderator acts: these are its since tokens.
-	coldHome, _, err := newInstance(t, client).home(t, "me", "", "", 20)
+	coldHome, err := newInstance(t, client).home(t, "me", "", "", 20)
 	if err != nil || len(coldHome.GetRemovedIds()) != 0 || coldHome.GetSinceToken() == "" {
 		t.Fatalf("cold home: err=%v removed=%v", err, coldHome.GetRemovedIds())
 	}
-	coldUser, _, err := newInstance(t, client).user(t, "me", "f1", "", "", 20)
+	coldUser, err := newInstance(t, client).user(t, "me", "f1", "", "", 20)
 	if err != nil || len(coldUser.GetRemovedIds()) != 0 {
 		t.Fatalf("cold user: err=%v removed=%v", err, coldUser.GetRemovedIds())
 	}
@@ -818,31 +789,31 @@ func TestModeration_Integration_RemovedIDsReachRefreshingClients(t *testing.T) {
 	}
 
 	// A client whose token predates the hide: a fresh instance (cold log cache) lists both.
-	resp, _, err := newInstance(t, client).home(t, "me", coldHome.GetSinceToken(), "", 20)
+	resp, err := newInstance(t, client).home(t, "me", coldHome.GetSinceToken(), "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := resp.GetRemovedIds(); len(got) != 2 || !contains(got, p11) || !contains(got, p21) || contains(got, p12) {
 		t.Fatalf("home removed_ids = %v, want {%s, %s}", got, p11, p21)
 	}
-	uresp, _, err := newInstance(t, client).user(t, "me", "f1", coldUser.GetSinceToken(), "", 20)
+	uresp, err := newInstance(t, client).user(t, "me", "f1", coldUser.GetSinceToken(), "", 20)
 	if err != nil || !contains(uresp.GetRemovedIds(), p11) {
 		t.Fatalf("user removed_ids = %v err=%v, want it to list %s", uresp.GetRemovedIds(), err, p11)
 	}
 
 	// Other modes never carry removed_ids.
-	if page, _, err := newInstance(t, client).home(t, "me", "", "", 20); err != nil || len(page.GetRemovedIds()) != 0 {
+	if page, err := newInstance(t, client).home(t, "me", "", "", 20); err != nil || len(page.GetRemovedIds()) != 0 {
 		t.Fatalf("cold open after the hide: err=%v removed=%v", err, page.GetRemovedIds())
 	}
 
 	// A client whose token was issued well after the hide (beyond the lag) is not told again. The timeline clocks
 	// of the instance that issues the token and of the one that serves the refresh are 10 and 11 minutes ahead.
 	later := func(d time.Duration) func() time.Time { return func() time.Time { return time.Now().Add(d) } }
-	issued, _, err := newInstanceAt(t, client, later(10*time.Minute)).home(t, "me", "", "", 20)
+	issued, err := newInstanceAt(t, client, later(10*time.Minute)).home(t, "me", "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	after, _, err := newInstanceAt(t, client, later(11*time.Minute)).home(t, "me", issued.GetSinceToken(), "", 20)
+	after, err := newInstanceAt(t, client, later(11*time.Minute)).home(t, "me", issued.GetSinceToken(), "", 20)
 	if err != nil || len(after.GetRemovedIds()) != 0 {
 		t.Fatalf("token issued after the hide: err=%v removed=%v, want none", err, after.GetRemovedIds())
 	}
@@ -854,7 +825,7 @@ func TestModeration_Integration_RemovedIDsReachRefreshingClients(t *testing.T) {
 	if _, done, err := mod.RestoreAuthor(context.Background(), "f2", posts.ModerationCheckpoint{}, time.Now()); err != nil || !done {
 		t.Fatalf("restore author: done=%v err=%v", done, err)
 	}
-	resp, _, err = newInstance(t, client).home(t, "me", coldHome.GetSinceToken(), "", 20)
+	resp, err = newInstance(t, client).home(t, "me", coldHome.GetSinceToken(), "", 20)
 	if err != nil || len(resp.GetRemovedIds()) != 0 {
 		t.Fatalf("after restore: err=%v removed=%v, want none", err, resp.GetRemovedIds())
 	}
@@ -872,11 +843,11 @@ func TestModeration_Integration_SuspensionOfAnUnfollowedUserDoesNotResetOthers(t
 	in.signUp(t, "spam")
 	p11 := in.post(t, "f1", 1)
 
-	coldHome, _, err := newInstance(t, client).home(t, "me", "", "", 20)
+	coldHome, err := newInstance(t, client).home(t, "me", "", "", 20)
 	if err != nil || coldHome.GetSinceToken() == "" {
 		t.Fatalf("cold home: err=%v", err)
 	}
-	coldSpam, _, err := newInstance(t, client).user(t, "me", "spam", "", "", 20)
+	coldSpam, err := newInstance(t, client).user(t, "me", "spam", "", "", 20)
 	if err != nil {
 		t.Fatalf("cold user: %v", err)
 	}
@@ -896,7 +867,7 @@ func TestModeration_Integration_SuspensionOfAnUnfollowedUserDoesNotResetOthers(t
 		t.Fatal(err)
 	}
 
-	resp, _, err := newInstance(t, client).home(t, "me", coldHome.GetSinceToken(), "", 20)
+	resp, err := newInstance(t, client).home(t, "me", coldHome.GetSinceToken(), "", 20)
 	if err != nil {
 		t.Fatalf("a suspension of a user the viewer does not follow reset the viewer's feed: %v", err)
 	}
@@ -904,37 +875,9 @@ func TestModeration_Integration_SuspensionOfAnUnfollowedUserDoesNotResetOthers(t
 		t.Fatalf("home removed_ids = %v, want only the followed author's takedown %s", got, p11)
 	}
 
-	_, _, err = newInstance(t, client).user(t, "me", "spam", coldSpam.GetSinceToken(), "", 20)
+	_, err = newInstance(t, client).user(t, "me", "spam", coldSpam.GetSinceToken(), "", 20)
 	if err == nil {
 		t.Fatal("the suspended account's own profile feed must be reset (60 ids cannot be listed)")
-	}
-}
-
-// TestModeration_Integration_RemovalLogReadsOnARefresh pins the documented cost: with an empty log a refresh adds
-// one read on a cold instance and none on a warm one (plus the post reads it would cost anyway).
-func TestModeration_Integration_RemovalLogReadsOnARefresh(t *testing.T) {
-	client := newClient(t)
-	in := newInstance(t, client)
-	world(t, in, 2)
-	in.post(t, "f1", 1)
-	cold, _, err := in.home(t, "me", "", "", 20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	probe := newInstance(t, client)
-	probe.warm(t, "me")
-	_, _, err = probe.home(t, "me", cold.GetSinceToken(), "", 20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _, err = probe.home(t, "me", cold.GetSinceToken(), "", 20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// RID-4: the shared refresh is detached from the caller's budget, so both calls cost the caller the same; the
-	// cold instance's single log read shows up as removal_log_reads on the first call only.
-	if got, ok := probe.info.Get("removal_log_reads"); ok && fmt.Sprint(got) != "0" {
-		t.Fatalf("warm-log refresh logged removal_log_reads=%v, want none", got)
 	}
 }
 
@@ -948,26 +891,25 @@ func contains(xs []string, s string) bool {
 }
 
 // userTab is user() with the tab field.
-func (in *instance) userTab(t *testing.T, uid, target string, tab timelinev1.UserTimelineTab, since, page string, size int32) (*timelinev1.GetUserTimelineResponse, *budget.Counter, error) {
+func (in *instance) userTab(t *testing.T, uid, target string, tab timelinev1.UserTimelineTab, since, page string, size int32) (*timelinev1.GetUserTimelineResponse, error) {
 	t.Helper()
 	return in.userTabOn(t, in.srv, uid, target, tab, since, page, size)
 }
 
-func (in *instance) userTabOn(t *testing.T, srv *timeline.Server, uid, target string, tab timelinev1.UserTimelineTab, since, page string, size int32) (*timelinev1.GetUserTimelineResponse, *budget.Counter, error) {
+func (in *instance) userTabOn(t *testing.T, srv *timeline.Server, uid, target string, tab timelinev1.UserTimelineTab, since, page string, size int32) (*timelinev1.GetUserTimelineResponse, error) {
 	t.Helper()
-	ctx, c := budget.WithCounter(ctxFor(uid))
+	ctx := ctxFor(uid)
 	resp, err := srv.GetUserTimeline(ctx, connect.NewRequest(&timelinev1.GetUserTimelineRequest{UserId: target, Tab: tab, PageSize: size, SinceToken: since, PageToken: page}))
 	if err != nil {
-		return nil, c, err
+		return nil, err
 	}
-	return resp.Msg, c, nil
+	return resp.Msg, nil
 }
 
 // Against the real posts repo: the Media tab is the author's hasMedia posts (replies and quotes with
 // images included), the Reposts tab the author's REPOST items, both newest first, one Limit(page) query each with no
-// instance cache, so a cold or warm open costs target users 1 + caller graph 1 + the rows (22 at page 20, 32 for the 30
-// media rows at page 50, 8 for 6 reposts; the interceptor and the engagement viewer, absent here, add 2 more to the
-// documented 24 / 54 asserted in internal/apiserver/profile_tabs_integration_test.go). The emulator does not enforce the
+// instance cache. The same tabs through the real interceptor chain are in
+// internal/apiserver/profile_tabs_integration_test.go. The emulator does not enforce the
 // two composite indexes, so this proves the query shape and the window, not index coverage.
 func TestUser_Integration_MediaAndRepostsTabs(t *testing.T) {
 	client := newClient(t)
@@ -1007,31 +949,31 @@ func TestUser_Integration_MediaAndRepostsTabs(t *testing.T) {
 	tabMedia, tabReposts := timelinev1.UserTimelineTab_USER_TIMELINE_TAB_MEDIA, timelinev1.UserTimelineTab_USER_TIMELINE_TAB_REPOSTS
 
 	in := newInstance(t, client)
-	p1, _, err := in.userTab(t, "me", "bob", tabMedia, "", "", 20)
+	p1, err := in.userTab(t, "me", "bob", tabMedia, "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := userIDs(p1); fmt.Sprint(got) != fmt.Sprint(rev(media)[:20]) || p1.NextPageToken == "" {
 		t.Fatalf("media page 1 = %v next=%q, want the newest 20 media posts and a token", got, p1.NextPageToken)
 	}
-	// No instance cache: a warm repeat reads the 20 rows again (users and graph are cached).
-	_, _, err = in.userTab(t, "me", "bob", tabMedia, "", "", 20)
+	// No instance cache: a warm repeat queries the 20 rows again.
+	_, err = in.userTab(t, "me", "bob", tabMedia, "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p2, _, err := in.userTab(t, "me", "bob", tabMedia, "", p1.NextPageToken, 20)
+	p2, err := in.userTab(t, "me", "bob", tabMedia, "", p1.NextPageToken, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := userIDs(p2); fmt.Sprint(got) != fmt.Sprint(rev(media)[20:]) || p2.NextPageToken != "" {
 		t.Fatalf("media page 2 = %v next=%q, want the last 10 media posts and no token", got, p2.NextPageToken)
 	}
-	_, _, err = newInstance(t, client).userTab(t, "me", "bob", tabMedia, "", "", 50)
+	_, err = newInstance(t, client).userTab(t, "me", "bob", tabMedia, "", "", 50)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	r1, _, err := newInstance(t, client).userTab(t, "me", "bob", tabReposts, "", "", 20)
+	r1, err := newInstance(t, client).userTab(t, "me", "bob", tabReposts, "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1039,8 +981,8 @@ func TestUser_Integration_MediaAndRepostsTabs(t *testing.T) {
 		t.Fatalf("reposts = %v next=%q, want the 6 reposts newest first and no token", got, r1.NextPageToken)
 	}
 
-	// A Posts-tab token (and a Media token) is VALIDATION on the other tab with 0 reads.
-	posts1, _, err := in.user(t, "me", "bob", "", "", 20)
+	// A Posts-tab token (and a Media token) is VALIDATION on the other tab.
+	posts1, err := in.user(t, "me", "bob", "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1054,27 +996,27 @@ func TestUser_Integration_MediaAndRepostsTabs(t *testing.T) {
 		"media page token on reposts": {tabReposts, "", p1.NextPageToken, "page_token"},
 		"media since token on posts":  {timelinev1.UserTimelineTab_USER_TIMELINE_TAB_POSTS, p1.SinceToken, "", "since_token"},
 	} {
-		_, c, err := in.userTab(t, "me", "bob", tc.tab, tc.since, tc.page, 20)
+		_, err := in.userTab(t, "me", "bob", tc.tab, tc.since, tc.page, 20)
 		var ae *apierr.Error
 		if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_VALIDATION || ae.Metadata["field"] != tc.field {
-			t.Fatalf("%s: err=%v reads=%d, want VALIDATION field=%s and 0 reads", name, err, c.Reads(), tc.field)
+			t.Fatalf("%s: err=%v, want VALIDATION field=%s", name, err, tc.field)
 		}
 	}
 
-	// profile_tabs off: MEDIA and REPOSTS are FEATURE_DISABLED (feature=profile_tabs) with 0 reads; the Posts tab is open.
+	// profile_tabs off: MEDIA and REPOSTS are FEATURE_DISABLED (feature=profile_tabs); the Posts tab is open.
 	off := timeline.NewServer(timeline.Deps{
 		Flags: noProfileTabs{}, Posts: in.posts, Graph: in.graph, Directory: in.dir,
 		CursorKey: cursorKey, TokenTTL: 720 * time.Hour, SettleWindow: 15 * time.Second,
 	})
 	for _, tab := range []timelinev1.UserTimelineTab{tabMedia, tabReposts} {
-		_, c, err := in.userTabOn(t, off, "me", "bob", tab, "", "", 20)
+		_, err := in.userTabOn(t, off, "me", "bob", tab, "", "", 20)
 		var ae *apierr.Error
 		if !errors.As(err, &ae) || ae.Code != connect.CodeFailedPrecondition || ae.Reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED ||
 			ae.Metadata["feature"] != "profile_tabs" {
-			t.Fatalf("flag off, tab %v: err=%v reads=%d, want FEATURE_DISABLED feature=profile_tabs and 0 reads", tab, err, c.Reads())
+			t.Fatalf("flag off, tab %v: err=%v, want FEATURE_DISABLED feature=profile_tabs", tab, err)
 		}
 	}
-	if resp, _, err := in.userTabOn(t, off, "me", "bob", timelinev1.UserTimelineTab_USER_TIMELINE_TAB_POSTS, "", "", 20); err != nil || len(resp.Posts) == 0 {
+	if resp, err := in.userTabOn(t, off, "me", "bob", timelinev1.UserTimelineTab_USER_TIMELINE_TAB_POSTS, "", "", 20); err != nil || len(resp.Posts) == 0 {
 		t.Fatalf("flag off, Posts tab: err=%v", err)
 	}
 }

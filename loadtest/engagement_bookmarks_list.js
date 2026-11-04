@@ -1,10 +1,8 @@
 // engagement_bookmarks_list: ListBookmarks paging smoke.
 //
-// Budget under test (engagement.proto ListBookmarks, ADR-0023 "Cost impact"): a COLD first page is 43 reads at page
-// 20 and 103 at page 50 (interceptor 1 + query page + GetMany page + caller graph 1 + userLikes 1); with the posts in
-// the instance cache it is 1 + page (graph and userLikes cached 60 s). A list whose size is an exact multiple of the
-// page size ends with one extra EMPTY page (1 read: the sealed token is issued whenever the query came back full).
-// Reads are NOT a k6 metric: they come from the API log (`fs_reads`), see
+// Under test (engagement.proto ListBookmarks): a COLD first page (posts not in the instance cache) against a warm one.
+// A list whose size is an exact multiple of the page size ends with one extra EMPTY page (the sealed token is issued
+// whenever the query came back full). Server latency per page position comes from the API log, see
 // loadtest/analyze_bookmarks.js. Latency here is emulator latency, indicative only.
 //
 // Run

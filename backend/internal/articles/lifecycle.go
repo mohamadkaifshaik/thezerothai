@@ -6,7 +6,6 @@ import (
 	"io"
 
 	"cloud.google.com/go/firestore"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -18,18 +17,13 @@ func NewLifecycle(client *firestore.Client) *Lifecycle { return &Lifecycle{clien
 func (*Lifecycle) Name() string                        { return "articles" }
 func (l *Lifecycle) Run(ctx context.Context, uid string, _ []byte) ([]byte, bool, error) {
 	docs, err := l.client.Collection("articles").Where("authorId", "==", uid).Limit(100).Documents(ctx).GetAll()
-	reads := int64(len(docs))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
 		return nil, false, err
 	}
 	if len(docs) == 0 {
 		return nil, true, nil
 	}
-	b := store.NewFirestoreBatch(l.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(l.client)
 	for _, d := range docs {
 		b.Delete(d.Ref)
 	}
@@ -50,11 +44,6 @@ func (l *Lifecycle) WriteSection(ctx context.Context, uid string, w io.Writer) e
 			q = q.StartAfter(after)
 		}
 		docs, err := q.Documents(ctx).GetAll()
-		reads := int64(len(docs))
-		if reads == 0 {
-			reads = 1
-		}
-		budget.FromContext(ctx).AddReads(reads)
 		if err != nil {
 			return err
 		}

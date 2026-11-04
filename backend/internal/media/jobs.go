@@ -35,7 +35,7 @@ type JobPublisher interface {
 }
 
 // PostGone reports, from a fresh read, whether the post no longer exists. Implemented by a consumer-side adapter
-// in apiserver over the posts repo (1 read).
+// in apiserver over the posts repo.
 type PostGone interface {
 	PostGone(ctx context.Context, postID string) (bool, error)
 }
@@ -68,8 +68,8 @@ func (j *Jobs) PostDeleted(ctx context.Context, uid, postID string, mediaIDs []s
 	return j.pub.Publish(ctx, data)
 }
 
-// Handle implements identity.JobHandler. Reads: len(MediaIDs) + 1 (the post), 0 for a post without images
-// ("noop"); deletes: len(MediaIDs) documents; GCS: free deletes, up to 4 per image (2 public + 2 private upload).
+// Handle implements identity.JobHandler. It checks the post, then deletes the post's media documents (a post without
+// images is a "noop" and reads nothing); GCS: free deletes, up to 4 per image (2 public + 2 private upload).
 func (j *Jobs) Handle(ctx context.Context, data []byte) (string, error) {
 	var m PostDeleteMessage
 	if err := json.Unmarshal(data, &m); err != nil {
@@ -80,7 +80,7 @@ func (j *Jobs) Handle(ctx context.Context, data []byte) (string, error) {
 	}
 	if len(m.MediaIDs) == 0 {
 		// Since every deleted post publishes this job; a post without images has nothing
-		// here. Acknowledged before any read, so a post's likes/reposts clean-up costs media 0 reads.
+		// here. Acknowledged before any read, so media does no work for a post's likes/reposts clean-up.
 		return "noop", nil
 	}
 	if len(m.MediaIDs) > MaxPerPost {

@@ -14,9 +14,9 @@ abstract final class MessagingService {
   /// conversation with that user; self => VALIDATION "recipient_user_id"; [A-Za-z0-9-]{1,128}) or conversation_id (an
   /// existing conversation the caller is a participant of, else NOT_FOUND).
   /// text: the post grammar (NFC, <= 280 code points, <= 10 lines; testdata fixtures), validated before any read
-  /// (VALIDATION "text", 0 reads).
+  /// (VALIDATION "text").
   /// Flag: per caller AND per recipient. Caller off => FEATURE_DISABLED; recipient off => CANNOT_MESSAGE.
-  /// The caller needs a verified email (FAILED_PRECONDITION EMAIL_NOT_VERIFIED, 0 reads), as for posts.
+  /// The caller needs a verified email (FAILED_PRECONDITION EMAIL_NOT_VERIFIED, before any lookup), as for posts.
   /// Refusals, all CANNOT_MESSAGE with identical bytes: either side blocks the other (the caller's graph
   /// snapshot, cached 60 s, and the recipient's graph read inside the send transaction, so the recipient's Block applies
   /// at once on every instance),
@@ -26,7 +26,7 @@ abstract final class MessagingService {
   /// LIMIT_REACHED "request_unanswered"; a message from the recipient of the request accepts it (as on X). The
   /// recipient muted the caller => delivered silently (no unread increment, no push).
   /// Idempotency (the bend of rules 1 and 4): the message id is derived from (caller,
-  /// idempotency_key) and Created in the send transaction, so a retry returns the stored message with 0 writes; the
+  /// idempotency_key) and Created in the send transaction, so a retry returns the stored message and writes nothing; the
   /// same key with a different body => VALIDATION "idempotency_key". Clients dedupe by message id.
   /// Caps: RATE_LIMIT_MESSAGES_SEND_PER_MIN 20/min/uid per instance (60/min at 3 instances);
   /// MESSAGES_SENDS_PER_DAY 300 (50 for new accounts) per instance (<= 900/day at 3) => RATE_LIMITED metadata["limit"]
@@ -36,11 +36,7 @@ abstract final class MessagingService {
   /// Push: after the commit one `message` event through notifications.Emitter (one Pub/Sub publish, 0 Firestore on
   /// this path), only when the recipient's side is accepted and not silent; a request never pushes. The push is
   /// generic ("New message") and carries only the conversation id (NOTIFICATION_TYPE_MESSAGE).
-  /// Firestore: accepted conversation reads 5 worst cold (interceptor, caller graph, recipient
-  /// users via the directory, conversation and recipient graph in the transaction), planning 3.5; writes 3 (message,
-  /// 2 entries), 4 while REQUEST (+ requestCount). New conversation reads 7 worst (+ the recipient's users doc in the transaction, quotas),
-  /// writes 5 (message, conversation, 2 entries, quotas.dmNew). Replay +1 read (the stored message), 0 writes.
-  /// Refused <= 5 reads, 0 writes; a validation rejection 0 reads. Deletes 0.
+  /// A refused send writes nothing.
   static const sendMessage = connect.Spec(
     '/$name/SendMessage',
     connect.StreamType.unary,
@@ -51,17 +47,14 @@ abstract final class MessagingService {
   /// The caller's conversations in one folder, most recent activity first. The path comes from the caller's token;
   /// there is no user id parameter. folder must be INBOX or REQUESTS, else VALIDATION "folder".
   /// Read-time rules (caller graph, cached 60 s): REQUESTS drops entries whose peer the caller blocks or mutes, or who
-  /// blocks the caller; INBOX keeps every entry, with can_reply = false when either side blocks. Filtering runs after
+  /// blocks the caller (a caller past the blockedBy cap also checks each REQUESTS peer's graph, cached 60 s); INBOX
+  /// keeps every entry, with can_reply = false when either side blocks. Filtering runs after
   /// the page query, so a page may be short or empty while next_page_token is non-empty: keep following it.
   /// request_count is set on every INBOX first page and since refresh (an empty refresh included); 0 on an older page and
   /// on REQUESTS. Clients treat the INBOX value as authoritative, 0 included.
   /// There is no gap_page_token here: a since refresh returns at most page_size entries.
   /// Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),
   /// shared with ListMessages.
-  /// Firestore: first INBOX page 20: reads 23 worst cold (interceptor, query 20, caller graph, requests count()),
-  /// planning 9; REQUESTS the same without the count(), plus one peer graph read per row (cached 60 s) for a caller past the
-  /// blockedBy cap. INBOX since refresh reads 4 worst (interceptor, query min 1, caller
-  /// graph, requests count()), planning 3; an empty one 3. Writes 0.
   static const listConversations = connect.Spec(
     '/$name/ListConversations',
     connect.StreamType.unary,
@@ -85,9 +78,6 @@ abstract final class MessagingService {
   /// RATE_LIMITED answer pauses polling.
   /// Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),
   /// shared with ListConversations.
-  /// Firestore: first page 20 / 50: reads 25 / 55 worst cold (interceptor, conversation, query, peer users, caller
-  /// graph for can_reply, the caller's entry), planning 16; older page 24 / 54 (no entry), planning 15. since poll:
-  /// reads 3 cold (interceptor, conversation, query min 1) + 1 per new message returned, planning 1.2. NOT_FOUND after <= 2 reads. Writes 0.
   static const listMessages = connect.Spec(
     '/$name/ListMessages',
     connect.StreamType.unary,
@@ -98,10 +88,9 @@ abstract final class MessagingService {
 
   /// Marks the conversation read for the caller: unread count 0 and the read time on the caller's own entry (a field
   /// update with an Exists precondition). The read time is never shown to the peer (no read receipts, F4). A missing
-  /// entry (unknown id, non-participant, deleted for the caller) => success, 0 writes. Evicts the caller's
+  /// entry (unknown id, non-participant, deleted for the caller) => success, writing nothing. Evicts the caller's
   /// unread_conversation_count cache on this instance. Call only when the client holds unread_count > 0.
   /// Flag: not globally off. Refused under DEGRADED_MODE=readonly.
-  /// Firestore: reads 1 (interceptor), planning 0.3; writes 1 (0 when the entry is missing); deletes 0.
   static const markConversationRead = connect.Spec(
     '/$name/MarkConversationRead',
     connect.StreamType.unary,
@@ -111,12 +100,11 @@ abstract final class MessagingService {
 
   /// Accepts a message request: the conversation becomes ACCEPTED and the caller's entry moves from REQUESTS to INBOX
   /// (unread count kept). Only the recipient of the request may accept; the requester (or a non-participant) gets
-  /// NOT_FOUND. Already accepted => success, 0 writes. Emits nothing.
+  /// NOT_FOUND. Already accepted => success, writing nothing. Emits nothing.
   /// Flag: per caller AND per recipient (the peer); peer off => CANNOT_MESSAGE. Refused under DEGRADED_MODE=readonly.
-  /// The caller needs a verified email (FAILED_PRECONDITION EMAIL_NOT_VERIFIED, 0 reads), as for posts.
-  /// Firestore: reads 4 worst (interceptor, conversation, request entry, the requester's entry), planning 3.5; writes 3
-  /// (conversation state, dmInbox entry, the requester's entry: request flag cleared, changedAt moved; 2 when the requester
-  /// deleted that entry); deletes 1 (dmRequests entry).
+  /// The caller needs a verified email (FAILED_PRECONDITION EMAIL_NOT_VERIFIED, before any lookup), as for posts.
+  /// Accepting updates the conversation state, the dmInbox entry and the requester's entry (request flag cleared,
+  /// changedAt moved; skipped when the requester deleted that entry), and deletes the dmRequests entry.
   static const acceptMessageRequest = connect.Spec(
     '/$name/AcceptMessageRequest',
     connect.StreamType.unary,
@@ -129,7 +117,7 @@ abstract final class MessagingService {
   /// a REQUEST for the sender, whose cap still applies; a later message recreates the caller's entry showing only newer
   /// messages. Blocking from a thread uses GraphService.Block and does not delete the conversation.
   /// Flag: not globally off. Refused under DEGRADED_MODE=readonly.
-  /// Firestore: reads 3 worst, planning 2.5; writes 1 (clearedAt on the conversation); deletes 1 (the caller's entry).
+  /// Sets clearedAt on the conversation and deletes the caller's entry.
   static const deleteConversation = connect.Spec(
     '/$name/DeleteConversation',
     connect.StreamType.unary,

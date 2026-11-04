@@ -18,8 +18,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// Request-line fields of the owner-only lists (counts only; never ids, uids or text). fs_reads / fs_writes / fs_deletes
-// are added by mw.Logging.
+// Request-line fields of the owner-only lists (counts only; never ids, uids or text).
 const (
 	fieldRowsDropped        = "rows_dropped"
 	fieldRowsDroppedMissing = "rows_dropped_missing"
@@ -50,7 +49,7 @@ var errListToken = errors.New("engagement: invalid list page token")
 func listBinding(kind, uid string) string { return kind + "|" + uid }
 
 // openListToken opens a non-empty page token against binding with the cursor package's 24 h TTL. A foreign, expired,
-// tampered or malformed token, and the zero cursor, are errListToken. Pure: 0 reads. The caller validates the payload
+// tampered or malformed token, and the zero cursor, are errListToken. Pure. The caller validates the payload
 // (the doc id for bookmarks, the versioned anchors for likes).
 func (s *service) openListToken(binding, token string) (cursor.Cursor, error) {
 	cur, err := cursor.DecodeAt(s.d.CursorKey, binding, token, s.now())
@@ -137,7 +136,7 @@ type dropResult struct {
 // answer): missing, then !Visible (taken down or its author suspended: kept in storage, a restore brings it back), then
 // blockCause, then Audience.Decide on the list surface (protected authors; it replaced the stored-visibility
 // privateToViewer, which never fired because stored visibility is always PUBLIC). The caller's graph snapshot is read lazily, only when a live post of someone else is
-// met (1 read, cached 60 s), so a page of the caller's own posts costs none. It returns the graph error unredacted;
+// met (cached 60 s), so a page of the caller's own posts never loads it. It returns the graph error unredacted;
 // callers wrap and redact it.
 func (s *service) dropRows(ctx context.Context, uid string, ids []string, live map[string]*posts.Post) (dropResult, error) {
 	var (

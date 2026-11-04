@@ -17,7 +17,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -67,30 +66,30 @@ func (r *rig) follow(caller string, n int) []string {
 	return out
 }
 
-func (r *rig) home(caller, since, page string, size int32) (*timelinev1.GetHomeTimelineResponse, *budget.Counter, error) {
+func (r *rig) home(caller, since, page string, size int32) (*timelinev1.GetHomeTimelineResponse, error) {
 	r.t.Helper()
 	ictx, info := logger.WithRequestInfo(ctxFor(caller))
 	r.info = info
-	ctx, counter := budget.WithCounter(ictx)
+	ctx := ictx
 	resp, err := r.srv.GetHomeTimeline(ctx, connect.NewRequest(&timelinev1.GetHomeTimelineRequest{PageSize: size, SinceToken: since, PageToken: page}))
 	if err != nil {
-		return nil, counter, err
+		return nil, err
 	}
-	return resp.Msg, counter, nil
+	return resp.Msg, nil
 }
 
-func (r *rig) user(caller, target string, replies bool, since, page string, size int32) (*timelinev1.GetUserTimelineResponse, *budget.Counter, error) {
+func (r *rig) user(caller, target string, replies bool, since, page string, size int32) (*timelinev1.GetUserTimelineResponse, error) {
 	r.t.Helper()
 	ictx, info := logger.WithRequestInfo(ctxFor(caller))
 	r.info = info
-	ctx, counter := budget.WithCounter(ictx)
+	ctx := ictx
 	resp, err := r.srv.GetUserTimeline(ctx, connect.NewRequest(&timelinev1.GetUserTimelineRequest{
 		UserId: target, IncludeReplies: replies, PageSize: size, SinceToken: since, PageToken: page,
 	}))
 	if err != nil {
-		return nil, counter, err
+		return nil, err
 	}
-	return resp.Msg, counter, nil
+	return resp.Msg, nil
 }
 
 func homeIDs(r *timelinev1.GetHomeTimelineResponse) []string {
@@ -111,7 +110,7 @@ func userIDs(r *timelinev1.GetUserTimelineResponse) []string {
 
 func (r *rig) mustHome(since, page string, size int32) *timelinev1.GetHomeTimelineResponse {
 	r.t.Helper()
-	resp, _, err := r.home("me", since, page, size)
+	resp, err := r.home("me", since, page, size)
 	if err != nil {
 		r.t.Fatalf("unexpected error: %v", err)
 	}
@@ -120,7 +119,7 @@ func (r *rig) mustHome(since, page string, size int32) *timelinev1.GetHomeTimeli
 
 func (r *rig) mustUser(caller, target string, replies bool, since, page string, size int32) *timelinev1.GetUserTimelineResponse {
 	r.t.Helper()
-	resp, _, err := r.user(caller, target, replies, since, page, size)
+	resp, err := r.user(caller, target, replies, since, page, size)
 	if err != nil {
 		r.t.Fatalf("unexpected error: %v", err)
 	}
@@ -130,19 +129,18 @@ func (r *rig) mustUser(caller, target string, replies bool, since, page string, 
 // ms returns the clock's current time in ms plus d.
 func (r *rig) ms(d time.Duration) int64 { return r.clock.Now().Add(d).UnixMilli() }
 
-func TestHome_ColdBudgetAndChunking(t *testing.T) {
+func TestHome_ColdOpenChunking(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name       string
 		following  int
 		wantChunks int
-		maxReads   int64 // excluding the interceptor read
 	}{
-		{"F=0 only self", 0, 1, 1 + 40},
-		{"F=29 -> 30 authors, 1 chunk", 29, 1, 1 + 40},
-		{"F=30 -> 31 authors, 2 chunks", 30, 2, 1 + 40 + 2},
-		{"F=31 -> 32 authors, 2 chunks", 31, 2, 1 + 40 + 2},
-		{"F=60 page 20: 2 + 3*14 = 44 with the interceptor", 60, 3, 43},
+		{"F=0 only self", 0, 1},
+		{"F=29 -> 30 authors, 1 chunk", 29, 1},
+		{"F=30 -> 31 authors, 2 chunks", 30, 2},
+		{"F=31 -> 32 authors, 2 chunks", 31, 2},
+		{"F=60 page 20", 60, 3},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -154,7 +152,7 @@ func TestHome_ColdBudgetAndChunking(t *testing.T) {
 					r.posts.add(a, r.ms(-time.Duration(1+i*30+j)*time.Millisecond*10))
 				}
 			}
-			resp, _, err := r.home("me", "", "", 20)
+			resp, err := r.home("me", "", "", 20)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -171,7 +169,7 @@ func TestHome_ColdBudgetAndChunking(t *testing.T) {
 	}
 }
 
-func TestHome_RefreshWithNothingNewCostsC(t *testing.T) {
+func TestHome_RefreshWithNothingNew(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.follow("me", 60) // 61 authors -> C = 3
@@ -180,22 +178,21 @@ func TestHome_RefreshWithNothingNewCostsC(t *testing.T) {
 	r.posts.recent = map[string]posts.Recent{}
 	r.posts.queries = nil
 	r.clock.Advance(5 * time.Minute)
-	resp, _, err := r.home("me", cold.SinceToken, "", 20)
+	resp, err := r.home("me", cold.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(resp.Posts) != 0 || resp.GapPageToken != "" || resp.NextPageToken != "" {
 		t.Fatalf("expected an empty refresh, got %+v", resp)
 	}
-	// graph read (1) + C empty queries (3 x 1 read).
 	if resp.SinceToken == "" {
 		t.Fatal("an empty refresh still returns a since_token")
 	}
 }
 
-// A cold open caches every author of an unfilled chunk (empty ones too), so the next refresh inside 60 s reads
-// 0 posts (authors_from_cache) and runs no chunk query.
-func TestHome_ColdOpenFillsAuthorRecentAndRefreshIsFree(t *testing.T) {
+// A cold open caches every author of an unfilled chunk (empty ones too), so the next refresh inside 60 s takes
+// its posts from the cache (authors_from_cache) and runs no chunk query.
+func TestHome_ColdOpenFillsAuthorRecentAndRefreshRunsNoQuery(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	authors := r.follow("me", 10)
@@ -213,7 +210,7 @@ func TestHome_ColdOpenFillsAuthorRecentAndRefreshIsFree(t *testing.T) {
 	}
 	r.posts.queries = nil
 	r.clock.Advance(20 * time.Second)
-	resp, _, err := r.home("me", cold.SinceToken, "", 20)
+	resp, err := r.home("me", cold.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,8 +256,8 @@ func TestHome_FiltersBlockedMutedBlockedByAndKeepsSelf(t *testing.T) {
 }
 
 // D6 home column: SUSPENDED, DELETING and users-doc-missing authors stay in the home (D10: the home never reads
-// status, so the Directory is armed to fail if it is touched), an overflowed caller costs no extra read, both-block
-// drops the author, and a non-followed author is absent. Reads are exactly graph (1) + the docs returned.
+// status, so the Directory is armed to fail if it is touched), an overflowed caller sees the same authors, both-block
+// drops the author, and a non-followed author is absent.
 func TestHome_D6Matrix(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -296,7 +293,7 @@ func TestHome_D6Matrix(t *testing.T) {
 			for _, a := range []string{"me", "f1", "f2", "f3", "s1"} { // s1 is nobody's followee
 				r.posts.add(a, r.ms(-time.Minute))
 			}
-			resp, _, err := r.home("me", "", "", 50)
+			resp, err := r.home("me", "", "", 50)
 			if err != nil {
 				t.Fatalf("home read status or failed: %v", err)
 			}
@@ -411,9 +408,9 @@ func TestHome_SettleWindowDeliversALateCommit(t *testing.T) {
 	}
 }
 
-// The settle window's price (D13): the refresh that re-delivers p1 alongside the late p2 reads graph (1) + the
-// two docs of ONE chunk (C = 1), and once the window has passed the following refresh is back to C with 0 posts.
-func TestHome_SettleWindowReReadCost(t *testing.T) {
+// The settle window: the refresh that re-delivers p1 alongside the late p2 runs ONE chunk query (C = 1), and once
+// the window has passed the following refresh returns 0 posts.
+func TestHome_SettleWindowReRead(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.follow("me", 2) // 3 authors: C = 1
@@ -426,7 +423,7 @@ func TestHome_SettleWindowReReadCost(t *testing.T) {
 	r.clock.Advance(30 * time.Second)
 	r.posts.recent = map[string]posts.Recent{}
 	r.posts.queries = nil
-	resp2, _, err := r.home("me", resp1.SinceToken, "", 20)
+	resp2, err := r.home("me", resp1.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,15 +433,15 @@ func TestHome_SettleWindowReReadCost(t *testing.T) {
 	if n := r.posts.queryCount("ByAuthors"); n != 1 {
 		t.Fatalf("refresh 2 ran %d chunk queries, want C = 1", n)
 	}
-	// The overlap is paid once: the next refresh (window passed, nothing new) is graph + C empty = 2 reads.
+	// The overlap is paid once: the next refresh (window passed, nothing new) returns nothing.
 	r.clock.Advance(time.Minute)
 	r.posts.recent = map[string]posts.Recent{}
-	resp3, c3, err := r.home("me", resp2.SinceToken, "", 20)
+	resp3, err := r.home("me", resp2.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(resp3.Posts) != 0 {
-		t.Fatalf("refresh 3: %d posts, %d reads, want 0 posts and 2 reads (the overlap must not repeat)", len(resp3.Posts), c3.Reads())
+		t.Fatalf("refresh 3: %d posts, want 0 (the overlap must not repeat)", len(resp3.Posts))
 	}
 }
 
@@ -470,10 +467,10 @@ func TestHome_TokenRejectionsCostNothing(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, counter, err := r.home(tc.caller, tc.since, tc.page, 20)
+			_, err := r.home(tc.caller, tc.since, tc.page, 20)
 			wantField(t, err, tc.field)
 			if len(r.graph.calls) != 0 || len(r.posts.queries) != 0 {
-				t.Fatalf("a rejected token read %d docs, graph %v, queries %v", counter.Reads(), r.graph.calls, r.posts.queries)
+				t.Fatalf("a rejected token reached storage: graph %v, queries %v", r.graph.calls, r.posts.queries)
 			}
 		})
 	}
@@ -490,26 +487,26 @@ func TestHome_TokensOlderThan24hAreAcceptedUntilTheTTL(t *testing.T) {
 	r.posts.add("f1", r.ms(-time.Hour))
 	cold := r.mustHome("", "", 1)
 	r.clock.Advance(25 * time.Hour)
-	if _, _, err := r.home("me", cold.SinceToken, "", 20); err != nil {
+	if _, err := r.home("me", cold.SinceToken, "", 20); err != nil {
 		t.Fatalf("since token of 25 h: %v", err)
 	}
 	r.clock.Advance(720 * time.Hour)
-	_, _, err := r.home("me", cold.SinceToken, "", 20)
+	_, err := r.home("me", cold.SinceToken, "", 20)
 	wantField(t, err, fieldSince)
 }
 
-func TestHome_ClosedGapReturnsEmptyWithZeroReads(t *testing.T) {
+func TestHome_ClosedGapReturnsEmptyWithoutStorage(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.follow("me", 2)
 	f := homeFeed("me")
 	tok := newCodec(r.clock).encodePage(f, pos(1000, 1), ptr(pos(5000, 5))) // Lower newer than Upper
-	resp, counter, err := r.home("me", "", tok, 20)
+	resp, err := r.home("me", "", tok, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(resp.Posts) != 0 || resp.NextPageToken != "" || len(r.graph.calls) != 0 {
-		t.Fatalf("closed gap: %+v reads=%d", resp, counter.Reads())
+		t.Fatalf("closed gap: %+v graph calls %v, want an empty page and no graph read", resp, r.graph.calls)
 	}
 }
 
@@ -533,7 +530,7 @@ func TestHome_WorstCaseAtTheFollowingCapAndBoundedConcurrency(t *testing.T) {
 		}
 	}
 	start := time.Now()
-	resp, _, err := r.home("me", "", "", 50)
+	resp, err := r.home("me", "", "", 50)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -620,7 +617,7 @@ func TestUser_PagesCoverAllPostsExactlyOnce(t *testing.T) {
 			tok, calls := "", 0
 			for {
 				calls++
-				resp, counter, err := r.user("me", "bob", false, "", tok, 20)
+				resp, err := r.user("me", "bob", false, "", tok, 20)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -632,7 +629,7 @@ func TestUser_PagesCoverAllPostsExactlyOnce(t *testing.T) {
 				}
 				if tc.total == 40 && calls == 3 {
 					if len(resp.Posts) != 0 || resp.NextPageToken != "" {
-						t.Fatalf("empty final call: %d posts next=%q reads=%d, want 0/\"\"/3 (target + graph + 1 empty query)", len(resp.Posts), resp.NextPageToken, counter.Reads())
+						t.Fatalf("empty final call: %d posts next=%q, want 0 and no token", len(resp.Posts), resp.NextPageToken)
 					}
 				}
 				if tok = resp.NextPageToken; tok == "" {
@@ -649,27 +646,25 @@ func TestUser_PagesCoverAllPostsExactlyOnce(t *testing.T) {
 	}
 }
 
-func TestUser_ColdBudgetWarmFirstPageAndCacheHit(t *testing.T) {
+func TestUser_ColdWarmFirstPageAndCacheHit(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.seedUser("bob", 30)
-	resp, _, err := r.user("me", "bob", false, "", "", 20)
+	resp, err := r.user("me", "bob", false, "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The fakes charge target users + caller graph + Limit(20) = 2 + 20; the account-status interceptor (not in
-	// this rig) adds the 3rd fixed read, giving the documented 3 + p = 23 at p = 20.
 	if len(resp.Posts) != 20 || resp.NextPageToken == "" {
 		t.Fatalf("first page: %d posts next=%q", len(resp.Posts), resp.NextPageToken)
 	}
 	wantCacheHit(t, r, false) // the cold open queried
 	r.posts.queries = nil
-	resp2, counter2, err := r.user("me", "bob", false, "", "", 20)
+	resp2, err := r.user("me", "bob", false, "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.posts.queries) != 0 { // users + graph are always charged by the fakes
-		t.Fatalf("warm first page ran queries %v reads %d, want 0 queries", r.posts.queries, counter2.Reads())
+	if len(r.posts.queries) != 0 {
+		t.Fatalf("warm first page ran queries %v, want 0 queries", r.posts.queries)
 	}
 	wantCacheHit(t, r, true) // AC: the warm first page is served from the author-recent entry
 	if fmt.Sprint(userIDs(resp2)) != fmt.Sprint(userIDs(resp)) {
@@ -680,10 +675,10 @@ func TestUser_ColdBudgetWarmFirstPageAndCacheHit(t *testing.T) {
 	if len(small.Posts) != 5 || small.NextPageToken == "" || len(r.posts.queries) != 0 {
 		t.Fatalf("page 5: %d posts next=%q queries=%v", len(small.Posts), small.NextPageToken, r.posts.queries)
 	}
-	// Page 50 queries directly: 3 + p.
-	_, c50, err := r.user("me", "bob", false, "", "", 50)
-	if err != nil {
-		t.Fatalf("page 50 reads = %d err=%v, want 32 (30 posts)", c50.Reads(), err)
+	// Page 50 queries directly.
+	resp50, err := r.user("me", "bob", false, "", "", 50)
+	if err != nil || len(resp50.Posts) != 30 || len(r.posts.queries) == 0 {
+		t.Fatalf("page 50: err=%v posts=%d queries=%v, want 30 posts from a direct query", err, len(resp50.GetPosts()), r.posts.queries)
 	}
 	// Deep paging never touches the entry.
 	r.posts.queries = nil
@@ -700,13 +695,12 @@ func TestUser_SinceRefresh(t *testing.T) {
 	cold := r.mustUser("me", "bob", false, "", "", 20)
 	r.clock.Advance(2 * time.Minute) // entry expired
 	r.posts.queries = nil
-	resp, counter, err := r.user("me", "bob", false, cold.SinceToken, "", 20)
+	resp, err := r.user("me", "bob", false, cold.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// target + graph + 1 empty query = 3 (+1 interceptor = 4 cold).
 	if len(resp.Posts) != 0 {
-		t.Fatalf("refresh: %d posts reads=%d, want 0 posts and 3 reads", len(resp.Posts), counter.Reads())
+		t.Fatalf("refresh: %d posts, want 0", len(resp.Posts))
 	}
 	// Now the entry is stale; fill it with a cold open and refresh again: served from the entry, 0 queries.
 	cold2 := r.mustUser("me", "bob", false, "", "", 20)
@@ -748,7 +742,7 @@ func TestUser_RefreshGapAndRepliesTab(t *testing.T) {
 		}
 	}
 	// The Posts-tab gap token does not open on the Replies tab.
-	_, _, err := r.user("me", "bob", true, "", resp.GapPageToken, 5)
+	_, err := r.user("me", "bob", true, "", resp.GapPageToken, 5)
 	wantField(t, err, fieldPage)
 	total := len(resp.Posts)
 	tok := resp.GapPageToken
@@ -774,25 +768,25 @@ func notFound(t *testing.T, err error) []byte {
 func TestUser_VisibilityMatrix(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name      string
-		setup     func(r *rig)
-		wantFound bool
-		maxReads  int64 // excluding the interceptor
+		name        string
+		setup       func(r *rig)
+		wantFound   bool
+		targetGraph bool // the caller's blockedBy overflowed, so the target's own graph is read too
 	}{
-		{"stranger", func(r *rig) {}, true, 2 + 3},
-		{"missing user", func(r *rig) { delete(r.dir.profiles, "bob") }, false, 1},
-		{"suspended (Directory drops it)", func(r *rig) { delete(r.dir.profiles, "bob") }, false, 1},
-		{"B blocks A", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{BlockedBy: following("bob")} }, false, 2},
+		{"stranger", func(r *rig) {}, true, false},
+		{"missing user", func(r *rig) { delete(r.dir.profiles, "bob") }, false, false},
+		{"suspended (Directory drops it)", func(r *rig) { delete(r.dir.profiles, "bob") }, false, false},
+		{"B blocks A", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{BlockedBy: following("bob")} }, false, false},
 		{"both block each other", func(r *rig) {
 			r.graph.snaps["me"] = graph.Snapshot{BlockedBy: following("bob"), Blocked: following("bob")}
-		}, false, 2},
-		{"A blocks B: posts returned", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{Blocked: following("bob")} }, true, 5},
-		{"A mutes B: posts returned", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{Muted: following("bob")} }, true, 5},
+		}, false, false},
+		{"A blocks B: posts returned", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{Blocked: following("bob")} }, true, false},
+		{"A mutes B: posts returned", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{Muted: following("bob")} }, true, false},
 		{"overflow, B blocks A (target graph)", func(r *rig) {
 			r.graph.snaps["me"] = graph.Snapshot{BlockedByOverflow: true}
 			r.graph.snaps["bob"] = graph.Snapshot{Blocked: following("me")}
-		}, false, 3},
-		{"overflow, no block: +1 read", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{BlockedByOverflow: true} }, true, 6},
+		}, false, true},
+		{"overflow, no block: the target graph is read too", func(r *rig) { r.graph.snaps["me"] = graph.Snapshot{BlockedByOverflow: true} }, true, true},
 	}
 	var wire []byte
 	for _, tc := range tests {
@@ -800,7 +794,10 @@ func TestUser_VisibilityMatrix(t *testing.T) {
 			r := newRig(t)
 			r.seedUser("bob", 3)
 			tc.setup(r)
-			resp, _, err := r.user("me", "bob", false, "", "", 3)
+			resp, err := r.user("me", "bob", false, "", "", 3)
+			if read := contains(r.graph.calls, "bob"); read != tc.targetGraph && (tc.wantFound || tc.targetGraph) {
+				t.Fatalf("target graph read = %v, want %v (calls %v)", read, tc.targetGraph, r.graph.calls)
+			}
 			if tc.wantFound {
 				if err != nil || len(resp.Posts) != 3 {
 					t.Fatalf("err=%v posts=%d, want 3 posts", err, len(resp.GetPosts()))
@@ -836,7 +833,7 @@ func TestUser_SettleWindowDeliversALateCommit(t *testing.T) {
 	p2 := r.posts.add("bob", r.ms(-5*time.Second))
 	r.clock.Advance(30 * time.Second)
 	r.posts.recent = map[string]posts.Recent{}
-	resp2, _, err := r.user("me", "bob", false, resp1.SinceToken, "", 20)
+	resp2, err := r.user("me", "bob", false, resp1.SinceToken, "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -853,7 +850,7 @@ func TestUser_SettleWindowDeliversALateCommit(t *testing.T) {
 }
 
 // D14 through the service: a user-feed token opens only for the caller, target and tab it was issued for; a
-// rejection costs 0 reads.
+// rejection reaches no storage.
 func TestUser_TokensBoundToCallerTargetAndTab(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
@@ -880,7 +877,7 @@ func TestUser_TokensBoundToCallerTargetAndTab(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, err := r.user(tc.caller, tc.target, tc.replies, tc.since, tc.page, 20)
+			_, err := r.user(tc.caller, tc.target, tc.replies, tc.since, tc.page, 20)
 			wantField(t, err, tc.wantFiel)
 		})
 	}
@@ -891,23 +888,23 @@ func TestUser_ValidationAndTokensOlderThan24h(t *testing.T) {
 	r := newRig(t)
 	r.seedUser("bob", 3)
 	for _, bad := range []string{"", "a_b", "x/y"} {
-		_, _, err := r.user("me", bad, false, "", "", 20)
+		_, err := r.user("me", bad, false, "", "", 20)
 		wantField(t, err, "user_id")
 	}
 	cold := r.mustUser("me", "bob", false, "", "", 20)
-	_, _, err := r.user("me", "bob", false, cold.SinceToken, cold.SinceToken, 20)
+	_, err := r.user("me", "bob", false, cold.SinceToken, cold.SinceToken, 20)
 	wantField(t, err, fieldPage)
 	r.clock.Advance(25 * time.Hour)
-	if _, _, err := r.user("me", "bob", false, cold.SinceToken, "", 20); err != nil {
+	if _, err := r.user("me", "bob", false, cold.SinceToken, "", 20); err != nil {
 		t.Fatalf("25 h old since: %v", err)
 	}
 	r.clock.Advance(721 * time.Hour)
-	_, _, err = r.user("me", "bob", false, cold.SinceToken, "", 20)
+	_, err = r.user("me", "bob", false, cold.SinceToken, "", 20)
 	wantField(t, err, fieldSince)
 	// Another caller's token and another target's token.
-	_, _, err = r.user("mallory", "bob", false, cold.SinceToken, "", 20)
+	_, err = r.user("mallory", "bob", false, cold.SinceToken, "", 20)
 	wantField(t, err, fieldSince)
-	_, _, err = r.user("me", "carol", false, cold.SinceToken, "", 20)
+	_, err = r.user("me", "carol", false, cold.SinceToken, "", 20)
 	wantField(t, err, fieldSince)
 }
 
@@ -915,12 +912,12 @@ func TestUser_OwnTimelineSkipsTheGraphRead(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
 	r.seedUser("me", 2)
-	resp, counter, err := r.user("me", "me", false, "", "", 20)
+	resp, err := r.user("me", "me", false, "", "", 20)
 	if err != nil || len(resp.Posts) != 2 {
 		t.Fatalf("err=%v posts=%d", err, len(resp.GetPosts()))
 	}
 	if len(r.graph.calls) != 0 {
-		t.Fatalf("graph calls %v reads %d, want 0 graph reads, 3 total", r.graph.calls, counter.Reads())
+		t.Fatalf("graph calls %v, want no graph read for the caller's own timeline", r.graph.calls)
 	}
 }
 
@@ -989,16 +986,16 @@ func TestTimeline_ErrorsNeverCarryRawUids(t *testing.T) {
 		call  func(r *rig) error
 	}{
 		{"home caller graph", func(r *rig) { r.graph.errs[callerUID] = leak(callerUID) },
-			func(r *rig) error { _, _, err := r.home(callerUID, "", "", 20); return err }},
+			func(r *rig) error { _, err := r.home(callerUID, "", "", 20); return err }},
 		{"user target profile", func(r *rig) { r.dir.err = leak(targetUID) },
-			func(r *rig) error { _, _, err := r.user(callerUID, targetUID, false, "", "", 20); return err }},
+			func(r *rig) error { _, err := r.user(callerUID, targetUID, false, "", "", 20); return err }},
 		{"user caller graph", func(r *rig) { r.seedUser(targetUID, 1); r.graph.errs[callerUID] = leak(callerUID) },
-			func(r *rig) error { _, _, err := r.user(callerUID, targetUID, false, "", "", 20); return err }},
+			func(r *rig) error { _, err := r.user(callerUID, targetUID, false, "", "", 20); return err }},
 		{"user target graph", func(r *rig) {
 			r.seedUser(targetUID, 1)
 			r.graph.snaps[callerUID] = graph.Snapshot{BlockedByOverflow: true}
 			r.graph.errs[targetUID] = leak(targetUID)
-		}, func(r *rig) error { _, _, err := r.user(callerUID, targetUID, false, "", "", 20); return err }},
+		}, func(r *rig) error { _, err := r.user(callerUID, targetUID, false, "", "", 20); return err }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

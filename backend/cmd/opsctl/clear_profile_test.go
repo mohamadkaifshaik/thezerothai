@@ -17,7 +17,7 @@ import (
 )
 
 // `opsctl clear-profile-fields`, over fakes. The Firestore behaviour (one field-level
-// update, skip empty, DELETING refused, 1 read / 1 write) is in internal/identity's integration test and the CLI end to
+// update, skip empty, DELETING refused) is in internal/identity's integration test and the CLI end to
 // end in clear_profile_integration_test.go.
 
 const clearUID = "uid-victim"
@@ -165,7 +165,6 @@ func TestClearProfileFields_RunClearsAndPrintsTheImageObjects(t *testing.T) {
 		"banner retire: done.",
 		"banner object (public until the lifecycle rule deletes it): m/123.webp in bucket dzeroth-dev-media",
 		"banner object (public until the lifecycle rule deletes it): m/123_t.webp in bucket dzeroth-dev-media",
-		"cost: reads=",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q:\n%s", want, stdout)
@@ -544,9 +543,6 @@ func TestClearProfileFields_RetireFailureIsExit1ButTheReportStillResolves(t *tes
 	}
 	if len(c.clearer.calls) != 1 || c.ops.resolved[testReportID] != moderation.ResolutionProfileCleared {
 		t.Errorf("the clear and the report resolution must both have happened: clears=%d resolved=%v", len(c.clearer.calls), c.ops.resolved)
-	}
-	if !strings.Contains(stdout, "cost: reads=") {
-		t.Errorf("the cost line is printed before the failure is returned:\n%s", stdout)
 	}
 }
 

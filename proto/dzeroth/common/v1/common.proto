@@ -10,7 +10,6 @@ syntax = "proto3";
 // - List RPCs take `page_size` (0 => 20, max 50, larger values are clamped) and an opaque `page_token`,
 //   and return `next_page_token` ("" => no more). Tokens are opaque base64; never parse them on the client.
 // - Errors use Connect codes; machine-readable detail is attached as an `ErrorDetail` (below).
-// - Each RPC comment carries its Firestore budget: "reads worst/typical, writes worst/typical".
 //
 package dzeroth.common.v1;
 
@@ -35,7 +34,7 @@ message AuthorSnapshot {
   // badge, never an access decision.
   // Set ONLY on live rows: `graph.v1.UserListItem.user` in every graph user list (ListFollowers, ListFollowing,
   // ListFollowRequests, ListSuggestedUsers, ListBlockedUsers, ListMutedUsers) and in `search.v1.SearchPeople`,
-  // copied from the hydrated profile at 0 extra reads; up to 60 s stale on the server, plus however long the client keeps the row.
+  // copied from the hydrated profile without an extra lookup; up to 60 s stale on the server, plus however long the client keeps the row.
   // ALWAYS false (unset) in frozen copies: `posts.v1.Post.author`, `posts.v1.EmbeddedPost.author` and
   // `notifications.v1.Notification.actor`.
   // Clients must never infer "public" from false. The authoritative signals are `identity.v1.Profile.is_private`
@@ -169,7 +168,8 @@ enum ErrorReason {
   // in expected_choice. A vote is changeable until the poll closes,
   // so this is now only a stale or missing expected_choice (an older client, a second device, a late retry).
   // metadata["choice"] is the caller's own stored choice as a 0-based index (decimal). Call VotePoll once more with
-  // that choice (or, with a current expected_choice, to change it): a vote with the same choice is not an error, it returns the current state with results (0 writes).
+  // that choice (or, with a current expected_choice, to change it): a vote with the same choice is not an error, it returns the current state with results
+  // and writes nothing.
   ERROR_REASON_ALREADY_VOTED = 20;
   // PERMISSION_DENIED: the caller's role does not allow this action (communities.v1 header). Never sent for
   // an account suspension (that is ACCOUNT_RESTRICTED). metadata["reason"] names why: "banned", "not_member",

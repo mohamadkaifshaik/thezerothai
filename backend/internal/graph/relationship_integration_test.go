@@ -16,25 +16,21 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-// On the emulators: GetProfileRelationship's reads (2 cold / 0 warm), the block matrix, and
+// On the emulators: GetProfileRelationship's answers on cold and warm instances, the block matrix, and
 // the eviction of the cached follow edge by the writes that change it. Edges are seeded with seedFollow or created by
 // the real RPCs, never seedEdge, so the end-of-test invariant sweep holds.
 
-// rel runs GetProfileRelationship as caller on inst with a fresh budget counter and returns the answer, the reads it
-// cost and the error.
-func rel(t *testing.T, inst wired, caller, target string) (graph.ProfileRelationship, int64, error) {
+// rel runs GetProfileRelationship as caller on inst and returns the answer and the error.
+func rel(t *testing.T, inst wired, caller, target string) (graph.ProfileRelationship, error) {
 	t.Helper()
-	ctx, counter := budget.WithCounter(context.Background())
-	got, err := inst.graph.GetProfileRelationship(ctx, caller, target)
-	return got, counter.Reads(), err
+	return inst.graph.GetProfileRelationship(context.Background(), caller, target)
 }
 
 func mustRel(t *testing.T, inst wired, caller, target string) graph.ProfileRelationship {
 	t.Helper()
-	got, _, err := rel(t, inst, caller, target)
+	got, err := rel(t, inst, caller, target)
 	if err != nil {
 		t.Fatalf("GetProfileRelationship(%s -> %s): %v", caller, target, err)
 	}
@@ -54,9 +50,10 @@ func warmDirectory(t *testing.T, inst wired, uids ...string) {
 // instance.
 func freshInstance(w wired) wired { return newInstance(w.client) }
 
-// TestW311_GetProfileRelationship_Budget: 2 reads cold (caller graph + edge, target profile warm), 0 warm; 3 on an
-// instance with nothing cached; 1 when the header's GetProfile already loaded the caller graph; the other paths.
-func TestW311_GetProfileRelationship_Budget(t *testing.T) {
+// TestW311_GetProfileRelationship_ColdAndWarm: the answer is the same on an instance with nothing cached, with only the
+// target profile warm, after the header's GetProfile, and on the repeat. That the repeat and the blocked pair read no
+// edge is checked against the fake repo's call tallies in relationship_test.go.
+func TestW311_GetProfileRelationship_ColdAndWarm(t *testing.T) {
 	w := newWired(t)
 	a, b, c := "uid-w311a", "uid-w311b", "uid-w311c"
 	mustCreateProfile(t, w.identity, a, "w311a")
@@ -64,48 +61,44 @@ func TestW311_GetProfileRelationship_Budget(t *testing.T) {
 	mustCreateProfile(t, w.identity, c, "w311c")
 	seedFollow(t, w, b, a, time.Now().Add(-time.Hour)) // b follows a
 
-	check := func(inst wired, name string, caller, target string, wantReads int64, wantFollowedBy bool) {
+	check := func(inst wired, name string, caller, target string, wantFollowedBy bool) {
 		t.Helper()
-		measured(t, name, func(ctx context.Context) {
-			got, err := inst.graph.GetProfileRelationship(ctx, caller, target)
-			if err != nil {
-				t.Fatalf("%s: %v", name, err)
-			}
-			if got.FollowedBy != wantFollowedBy || got.Relationship.UserID != target {
-				t.Fatalf("%s: got %+v, want followed_by=%v for %s", name, got, wantFollowedBy, target)
-			}
-		})
+		got, err := inst.graph.GetProfileRelationship(context.Background(), caller, target)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got.FollowedBy != wantFollowedBy || got.Relationship.UserID != target {
+			t.Fatalf("%s: got %+v, want followed_by=%v for %s", name, got, wantFollowedBy, target)
+		}
 	}
 
 	// Nothing cached at all: caller graph + target users doc + edge.
 	cold := freshInstance(w)
-	check(cold, "GetProfileRelationship (nothing cached)", a, b, 3, true)
-	check(cold, "GetProfileRelationship (warm)", a, b, 0, true)
+	check(cold, "GetProfileRelationship (nothing cached)", a, b, true)
+	check(cold, "GetProfileRelationship (warm)", a, b, true)
 
-	// The Directory warm (the header's GetProfile loaded the target), the caller graph and the edge cold: the
-	// ticket's "2 cold / 0 warm".
+	// The Directory warm (the header's GetProfile loaded the target), the caller graph and the edge cold.
 	cold2 := freshInstance(w)
 	warmDirectory(t, cold2, b, c)
-	check(cold2, "GetProfileRelationship (cold, profile warm)", a, b, 2, true)
-	check(cold2, "GetProfileRelationship (warm)", a, b, 0, true)
-	// A non-follower is cached too: the repeat is 0 reads for the false answer as well.
-	check(cold2, "GetProfileRelationship (non-follower, cold edge)", a, c, 1, false)
-	check(cold2, "GetProfileRelationship (non-follower, warm)", a, c, 0, false)
+	check(cold2, "GetProfileRelationship (cold, profile warm)", a, b, true)
+	check(cold2, "GetProfileRelationship (warm)", a, b, true)
+	// A non-follower is cached too: the repeat gives the false answer as well.
+	check(cold2, "GetProfileRelationship (non-follower, cold edge)", a, c, false)
+	check(cold2, "GetProfileRelationship (non-follower, warm)", a, c, false)
 
-	// The header flow: GetProfile has just loaded the caller graph (the block check) and the target profile, so the
-	// RPC adds only the edge read.
+	// The header flow: GetProfile has just loaded the caller graph (the block check) and the target profile.
 	cold3 := freshInstance(w)
 	if _, err := cold3.identity.GetProfile(context.Background(), a, identity.ProfileTarget{UserID: b}); err != nil {
 		t.Fatalf("GetProfile: %v", err)
 	}
-	check(cold3, "GetProfileRelationship (after the header's GetProfile)", a, b, 1, true)
+	check(cold3, "GetProfileRelationship (after the header's GetProfile)", a, b, true)
 
-	// The caller's own id: nothing is read.
-	check(cold, "GetProfileRelationship (own id)", a, a, 0, false)
+	// The caller's own id.
+	check(cold, "GetProfileRelationship (own id)", a, a, false)
 }
 
 // TestW311_GetProfileRelationship_BlockMatrix: the target blocked the caller is NOT_FOUND byte-identical to GetProfile and
-// reads no edge; the caller blocking the target is Blocking with followed_by=false; the missing and non-ACTIVE targets
+// the caller blocking the target is Blocking with followed_by=false; the missing and non-ACTIVE targets
 // answer the same NOT_FOUND.
 func TestW311_GetProfileRelationship_BlockMatrix(t *testing.T) {
 	w := newWired(t)
@@ -121,7 +114,7 @@ func TestW311_GetProfileRelationship_BlockMatrix(t *testing.T) {
 	notFoundLike := func(name string, target string) {
 		t.Helper()
 		inst := freshInstance(w)
-		_, _, err := rel(t, inst, a, target)
+		_, err := rel(t, inst, a, target)
 		var got, want *apierr.Error
 		if !errors.As(err, &got) {
 			t.Fatalf("%s: err = %v, want NOT_FOUND", name, err)
@@ -140,32 +133,23 @@ func TestW311_GetProfileRelationship_BlockMatrix(t *testing.T) {
 	notFoundLike("target missing", ghost)
 	notFoundLike("target suspended", suspended)
 
-	// Blocked by the target: the caller graph (1 read) answers; the Directory and the edge are never read.
-	_, reads, _ := rel(t, freshInstance(w), a, blocker)
-	if reads != 1 {
-		t.Errorf("blocked-by target cost %d reads, want 1 (the caller graph only)", reads)
-	}
-
-	// The caller blocks the target (a real Block, which deletes b -> a): Blocking, followed_by=false, no edge read.
+	// The caller blocks the target (a real Block, which deletes b -> a): Blocking, followed_by=false.
 	inst := freshInstance(w)
 	if _, err := inst.graph.Block(context.Background(), a, key1, b); err != nil {
 		t.Fatalf("Block: %v", err)
 	}
 	warmDirectory(t, inst, b)
-	got, reads, err := rel(t, inst, a, b)
+	got, err := rel(t, inst, a, b)
 	if err != nil {
 		t.Fatalf("GetProfileRelationship after Block: %v", err)
 	}
 	if !got.Relationship.Blocking || got.FollowedBy || got.Relationship.FollowState != graph.FollowStateNone {
 		t.Errorf("after Block: %+v, want blocking, not following, followed_by=false", got)
 	}
-	if reads > 1 {
-		t.Errorf("caller blocks the target cost %d reads, want <= 1 (caller graph, no edge)", reads)
-	}
 }
 
-// TestW311_GetProfileRelationship_Overflow: a caller whose blockedBy overflowed also reads the target's own graph (+1):
-// a target that blocked it is NOT_FOUND, a target that did not is answered with the edge read.
+// TestW311_GetProfileRelationship_Overflow: a caller whose blockedBy overflowed also checks the target's own graph:
+// a target that blocked it is NOT_FOUND, a target that did not is answered normally.
 func TestW311_GetProfileRelationship_Overflow(t *testing.T) {
 	w := newWired(t)
 	a, b, blocker := "uid-w311oa", "uid-w311ob", "uid-w311oblk"
@@ -181,20 +165,14 @@ func TestW311_GetProfileRelationship_Overflow(t *testing.T) {
 
 	inst := freshInstance(w)
 	warmDirectory(t, inst, b)
-	got, reads, err := rel(t, inst, a, b)
+	got, err := rel(t, inst, a, b)
 	if err != nil || !got.FollowedBy {
 		t.Fatalf("overflow caller, target b: %+v, %v", got, err)
 	}
-	if reads != 3 {
-		t.Errorf("overflow caller cost %d reads, want 3 (caller graph, target graph, edge)", reads)
-	}
 
-	_, reads, err = rel(t, freshInstance(w), a, blocker)
+	_, err = rel(t, freshInstance(w), a, blocker)
 	if !isNotFound(err) {
 		t.Fatalf("overflow caller, blocker: err = %v, want NOT_FOUND", err)
-	}
-	if reads != 2 {
-		t.Errorf("overflow blocked-by cost %d reads, want 2 (caller graph, target graph)", reads)
 	}
 }
 
@@ -217,17 +195,14 @@ func TestW311_GetProfileRelationship_EvictionAfterTheTargetsFollow(t *testing.T)
 	if got := mustRel(t, w, a, b); got.FollowedBy {
 		t.Fatalf("before any follow: %+v", got)
 	}
-	// a's own Follow of b: b -> a is untouched, so the cached false stands (and costs no read).
+	// a's own Follow of b: b -> a is untouched, so the cached false stands.
 	if _, err := w.graph.Follow(ctx, a, key1, b); err != nil {
 		t.Fatalf("a follows b: %v", err)
 	}
 	warmDirectory(t, w, b) // the Follow forgot the target's cached profile; the header's GetProfile would reload it
-	got, reads, err := rel(t, w, a, b)
+	got, err := rel(t, w, a, b)
 	if err != nil || got.FollowedBy || got.Relationship.FollowState != graph.FollowStateFollowing {
 		t.Fatalf("after the caller's own Follow: %+v, %v, want FOLLOWING and followed_by=false", got, err)
-	}
-	if reads > 1 { // the caller graph was invalidated by the Follow; the edge itself is a cache hit
-		t.Errorf("after the caller's own Follow cost %d reads, want <= 1 (caller graph, no edge read)", reads)
 	}
 
 	// Another instance writes c -> a: this instance keeps the cached false until the entry expires (<= the cache TTL).
@@ -245,17 +220,14 @@ func TestW311_GetProfileRelationship_EvictionAfterTheTargetsFollow(t *testing.T)
 		t.Errorf("the writing instance does not see its own Follow: %+v", got)
 	}
 
-	// The target's Follow on THIS instance evicts the pair: the next view re-reads (1 read) and sees true.
+	// The target's Follow on THIS instance evicts the pair: the next view re-reads and sees true.
 	if _, err := w.graph.Follow(ctx, b, key2, a); err != nil {
 		t.Fatalf("b follows a: %v", err)
 	}
 	warmDirectory(t, w, b)
-	got, reads, err = rel(t, w, a, b)
+	got, err = rel(t, w, a, b)
 	if err != nil || !got.FollowedBy || got.Relationship.FollowState != graph.FollowStateFollowing {
 		t.Fatalf("after the target's Follow: %+v, %v, want followed_by", got, err)
-	}
-	if reads != 1 {
-		t.Errorf("view after the target's Follow cost %d reads, want 1 (the edge)", reads)
 	}
 	if got := mustRel(t, w, a, b); !got.FollowedBy {
 		t.Errorf("repeat view lost followed_by: %+v", got)
@@ -291,7 +263,7 @@ func TestW311_GetProfileRelationship_EvictionAfterBlock(t *testing.T) {
 	if got := mustRel(t, w, a, b); !got.Relationship.Blocking || got.FollowedBy {
 		t.Errorf("blocker's view: %+v", got)
 	}
-	if _, _, err := rel(t, w, b, a); !isNotFound(err) {
+	if _, err := rel(t, w, b, a); !isNotFound(err) {
 		t.Errorf("blocked user's view: err = %v, want NOT_FOUND", err)
 	}
 	if _, err := w.graph.Unblock(ctx, a, key2, b); err != nil {
@@ -307,8 +279,8 @@ func TestW311_GetProfileRelationship_EvictionAfterBlock(t *testing.T) {
 
 }
 
-// TestW311_FollowEdgeExists_Repo: the point read costs exactly 1 read whether or not the document exists, and its
-// direction is follower then followee.
+// TestW311_FollowEdgeExists_Repo: the point read answers false for a missing document, and its direction is follower
+// then followee.
 func TestW311_FollowEdgeExists_Repo(t *testing.T) {
 	w := newWired(t)
 	a, b := "uid-w311ra", "uid-w311rb"
@@ -325,7 +297,7 @@ func TestW311_FollowEdgeExists_Repo(t *testing.T) {
 		{"the opposite direction", b, a, false},
 		{"unknown users", "uid-w311nobody", "uid-w311nobody2", false},
 	} {
-		ctx, _ := budget.WithCounter(context.Background())
+		ctx := context.Background()
 		got, err := w.graph.repo.FollowEdgeExists(ctx, tt.follower, tt.followee)
 		if err != nil || got != tt.want {
 			t.Errorf("%s: FollowEdgeExists = %v, %v, want %v", tt.name, got, err, tt.want)

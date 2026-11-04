@@ -85,15 +85,9 @@ var _ timelinev1connect.TimelineServiceHandler = (*Server)(nil)
 
 // GetHomeTimeline returns the caller's chronological home feed (root posts of followees plus the caller).
 //
-// Budget, reads, counting the account-status interceptor's caller `users` read:
-// ceiling 2 + C + 2*page where C = ceil((F+1)/30), 269 at F = 5,000 and page 50 (2 = interceptor + caller
-// graph; +1 userLikes with FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS on, cached 60 s). Authors covered by a fresh author-recent entry are removed
-// before chunking, so the queries are ceil(uncovered/30). Planning: refresh 4 + new posts, older page and cold
-// open 30 (F = 60, page 20). Writes 0.
-//
-// A since_token refresh also reads the moderation removal log (removed_ids): 0 reads on a warm
-// instance cache hit, +1 to +50 once per instance per CACHE_TTL, +100 worst (a full incremental page reloads the
-// newest 50). Cold, older and gap calls read nothing from it.
+// A since_token refresh also reads the moderation removal log (removed_ids): a warm
+// instance cache hit reads nothing, otherwise it refreshes the log once per instance per CACHE_TTL (a full incremental
+// page reloads the newest 50). Cold, older and gap calls read nothing from it.
 //
 //nolint:dupl // mirrors GetUserTimeline over distinct generated proto types
 func (s *Server) GetHomeTimeline(ctx context.Context, req *connect.Request[timelinev1.GetHomeTimelineRequest]) (*connect.Response[timelinev1.GetHomeTimelineResponse], error) {
@@ -117,32 +111,18 @@ func (s *Server) GetHomeTimeline(ctx context.Context, req *connect.Request[timel
 // UNSPECIFIED (the default and every pre-W3 client) reads include_replies exactly as before; any other tab wins and
 // include_replies is ignored with no error. A page_token, gap_page_token or since_token is bound to the caller, the
 // target and the EFFECTIVE tab (posts, replies, media or reposts): a token used on another tab is VALIDATION
-// field=page_token|since_token with 0 reads, and an unknown `tab` number is VALIDATION field=tab. Media and Reposts
-// need FEATURE_PROFILE_TABS on for the caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata feature=profile_tabs,
-// 0 reads); Posts and Replies are ungated. The request log carries tab=<effective tab>.
+// field=page_token|since_token, and an unknown `tab` number is VALIDATION field=tab. Media and Reposts
+// need FEATURE_PROFILE_TABS on for the caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata feature=profile_tabs);
+// Posts and Replies are ungated. The request log carries tab=<effective tab>. The Media and Reposts tabs
+// query the hasMedia and kind composite indexes: those must be READY and the backfill run before the flag leaves off.
 //
-// Budget, Posts tab, reads: 3 + max(page, 20) cold (interceptor + target users + caller graph +
-// Limit(max(page, 20)): a cold Posts tab fills the 20-post author-recent entry, so page < 20 still reads 20;
-// 53 at page 50; +1 when the caller's blockedBy overflowed), 0 warm for a Posts-tab first page (<= 20) or an
-// empty refresh served by a fresh author-recent entry, 4 for a cold refresh with 0 new posts. Planning 11.
-// Writes 0.
-//
-// Budget, Media and Reposts tabs: 4 + page cold (interceptor, target users, caller graph, one
-// Limit(page) query on the hasMedia or kind composite index, and the caller's userLikes when FEATURE_ENGAGEMENT or
-// FEATURE_BOOKMARKS is on): 24 at page 20, 54 at page 50, +1 when the caller's blockedBy overflowed; 20 warm at
-// page 20 (users, graph and userLikes cached 60 s, but no instance cache for the query: every open reads
-// Firestore); an empty tab reads 1 row. Planning 20. Writes 0. The two indexes must be READY and the
-// backfill run before the flag leaves off.
-//
-// A since_token refresh also reads the removal log (removed_ids), same cost as GetHomeTimeline: 0 warm,
-// +1 to +50 once per instance per CACHE_TTL, +100 worst.
+// A since_token refresh also reads the removal log (removed_ids), the same way as GetHomeTimeline.
 //
 // Protected accounts: for a caller who is neither the target nor a follower of a protected target, every tab
-// answers author_protected = true with no posts and no tokens at 3 cold reads (interceptor, target users, caller graph)
-// and 0 page reads, decided before the author-recent cache. In every tab a REPOST of a protected author the caller does
+// answers author_protected = true with no posts and no tokens without reading any page, decided before the author-recent cache. In every tab a REPOST of a protected author the caller does
 // not follow is dropped and a QUOTE of one gets embed_viewer_state PROTECTED (stripped). A caller's own profile page
-// holding a copy of another user's post reads the caller's graph once (+1 cold, cached 60 s). The set is a detached
-// instance cache (protected_set_reads); an unknown set is UNAVAILABLE.
+// holding a copy of another user's post reads the caller's graph once (cached 60 s). The set is a detached
+// instance cache; an unknown set is UNAVAILABLE.
 //
 //nolint:dupl // mirrors GetHomeTimeline over distinct generated proto types
 func (s *Server) GetUserTimeline(ctx context.Context, req *connect.Request[timelinev1.GetUserTimelineRequest]) (*connect.Response[timelinev1.GetUserTimelineResponse], error) {

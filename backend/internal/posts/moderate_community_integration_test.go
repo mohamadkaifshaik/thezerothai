@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // setCommunity gives the seeded post a communityId (the field a platform removal appends to the community's recentRemovals).
@@ -22,7 +20,7 @@ func setCommunity(t *testing.T, repo *FirestoreRepo, id, cid string) {
 	}
 }
 
-// Takedown reports the post's communityId from the document it already reads (1 read, 2 writes as before), also
+// Takedown reports the post's communityId from the document it already reads, also
 // on a repeat that changes nothing, and "" for a post without one.
 func TestModerator_TakedownReportsTheCommunity(t *testing.T) {
 	client := newTestClient(t)
@@ -32,13 +30,13 @@ func TestModerator_TakedownReportsTheCommunity(t *testing.T) {
 	setCommunity(t, repo, pid(1), "0000000000000000700")
 	now := time.Unix(1_800_000_000, 0)
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	res, err := repo.Takedown(ctx, pid(1), now)
 	if err != nil || res.CommunityID != "0000000000000000700" || res.After != ModerationTakenDown {
 		t.Fatalf("takedown = %+v err=%v", res, err)
 	}
 
-	ctx, _ = budget.WithCounter(context.Background())
+	ctx = context.Background()
 	if res, err = repo.Takedown(ctx, pid(1), now); err != nil || res.CommunityID != "0000000000000000700" || res.Before != ModerationTakenDown {
 		t.Fatalf("repeat = %+v err=%v", res, err)
 	}
@@ -68,7 +66,7 @@ func TestModerator_HideAuthorListsTheCommunityPosts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	next, done, err := repo.HideAuthor(ctx, "u-bad", ModerationCheckpoint{}, now)
 	if err != nil || !done || next.Changed != 4 {
 		t.Fatalf("hide: next=%+v done=%v err=%v", next, done, err)
@@ -86,7 +84,7 @@ func TestModerator_HideAuthorListsTheCommunityPosts(t *testing.T) {
 	}
 
 	// A re-run changes nothing but still lists them, and an input value is ignored (the field is an output).
-	ctx, _ = budget.WithCounter(context.Background())
+	ctx = context.Background()
 	next, _, err = repo.HideAuthor(ctx, "u-bad", ModerationCheckpoint{PageCommunityPosts: []CommunityPostRef{{"x", "y"}}}, now)
 	if err != nil || next.Changed != 0 || len(next.PageCommunityPosts) != 3 {
 		t.Fatalf("re-run: next=%+v err=%v", next, err)

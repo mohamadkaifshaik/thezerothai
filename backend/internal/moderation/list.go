@@ -45,7 +45,7 @@ var (
 
 // ListLookup is the consumer-side seam to lists. ReportableList answers whether callerUID may see the list and
 // is not its owner, and returns its evidence. It returns ErrListNotFound, ErrOwnList or an infrastructure error. It checks no
-// flag. Firestore, worst case: list 1 + caller graph 1 + owner users 1 + owner graph 1 (all cache-first, 0 warm).
+// flag. It reads the list, the caller's graph, the owner's user and the owner's graph (all cache-first).
 type ListLookup interface {
 	ReportableList(ctx context.Context, callerUID, listID string) (ReportedList, error)
 }

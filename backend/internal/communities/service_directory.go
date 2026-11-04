@@ -30,8 +30,7 @@ const (
 
 // sharedDirectory is the Stage 0 Directory: one Firestore query behind one instance entry for DirectoryTTL. Concurrent cold callers
 // share one refill (singleflight), so a burst on a cold instance costs one refill, not one per request. The refill runs detached from
-// the first caller's cancellation (a follower must not inherit a canceled context) but keeps its values, so its reads are charged to
-// that first caller's budget counter.
+// the first caller's cancellation (a follower must not inherit a canceled context) but keeps its values.
 type sharedDirectory struct {
 	repo Repo
 	now  func() time.Time
@@ -107,8 +106,8 @@ func (s *service) membershipsCached(ctx context.Context, uid string) (Membership
 	return m, nil
 }
 
-// ListCommunities implements Service. Not paged at Stage 0: a non-empty page_token is VALIDATION "page_token" with
-// 0 reads. The list is the shared Directory entry (ACTIVE only, no block filtering: D7); viewer_role comes from the community doc
+// ListCommunities implements Service. Not paged at Stage 0: a non-empty page_token is VALIDATION "page_token" before
+// any lookup. The list is the shared Directory entry (ACTIVE only, no block filtering: D7); viewer_role comes from the community doc
 // (OWNER, MODERATOR) and the caller's memberships (MEMBER, BANNED), cached 60 s.
 func (s *service) ListCommunities(ctx context.Context, uid, pageToken string) ([]View, error) {
 	begin(ctx, "directory")
@@ -155,9 +154,9 @@ func membersBinding(uid, cid string, f MemberFilter) string {
 func errPageToken() *apierr.Error { return apierr.Validation("page_token", "invalid page_token") }
 
 // ListCommunityMembers implements Service. Order, cheapest first: the community id and the sealed page token
-// (both 0 reads: a tampered, expired, foreign or wrong-filter token stops here), the community (cache or 1 read; missing and SUSPENDED
-// are the one NOT_FOUND), the BANNED gate (the community document alone decides, so a member asking for BANNED costs the community
-// read only), the page query, the live profiles (Directory drops accounts that are not ACTIVE) and the caller's graph.
+// (a tampered, expired, foreign or wrong-filter token stops here), the community (cache first; missing and SUSPENDED
+// are the one NOT_FOUND), the BANNED gate (the community document alone decides, so a member asking for BANNED stops after the community
+// read), the page query, the live profiles (Directory drops accounts that are not ACTIVE) and the caller's graph.
 //
 // D7 drops for a caller who is not the owner or a moderator: a member the caller blocks or who blocks the caller; a muted member is
 // shown. The owner and moderators see every member either way (F14), so they can ban. A token is issued whenever the query returned a

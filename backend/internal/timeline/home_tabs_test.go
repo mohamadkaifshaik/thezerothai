@@ -75,7 +75,7 @@ func (f *fakeTabsStore) Replace(_ context.Context, _, key, hash string, next fun
 	return slices.Clone(nxt), nil
 }
 
-// fakeReader is lists.Reader over a map; gets counts the Get calls (the cost driver).
+// fakeReader is lists.Reader over a map; gets counts the Get calls.
 type fakeReader struct {
 	mu    sync.Mutex
 	views map[string]lists.ListView
@@ -350,7 +350,7 @@ func TestSetHomeTabs_NotWiredAndUnauthenticated(t *testing.T) {
 }
 
 // TestSetHomeTabs_EmptyRequestCost (security M-3): with lists off for the caller an empty request touches the store
-// not at all (0 reads, 0 writes, no idempotency document) and answers the empty visible order; with lists on it is the
+// not at all (no store access, no idempotency document) and answers the empty visible order; with lists on it is the
 // transaction as before and unpins.
 func TestSetHomeTabs_EmptyRequestCost(t *testing.T) {
 	t.Parallel()

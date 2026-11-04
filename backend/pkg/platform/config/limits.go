@@ -31,12 +31,10 @@ type RateLimitConfig struct {
 	// BookmarkMutationsPerDay is the in-memory daily cap on AddBookmark + RemoveBookmark calls combined (one counter per
 	// uid per instance, ratelimit.DailyCap), env BOOKMARK_MUTATIONS_PER_DAY, logged as limit_name "bookmark_mutation_daily"
 	// (security review M-1). An already bookmarked Add and a Remove of a missing bookmark reserve no quota but each
-	// store an idempotency doc (1 write + 1 TTL delete), so the 30/min bucket alone left them unbounded.
+	// store an idempotency doc, so the 30/min bucket alone left them unbounded.
 	//
 	// Default 1,500: QUOTA_BOOKMARKS_PER_DAY 200 adds + a full clear-out of the BOOKMARKS_MAX_PER_USER 1,000 cap = 1,200
-	// legitimate calls, plus 300 for retries and undo churn. Worst case per account per day: 1,500 calls x 3 instances
-	// (max-instances 3, the cap is per instance) = 4,500 idempotency writes + 4,500 TTL deletes, against the 20k writes
-	// and 20k deletes a day free quotas.
+	// legitimate calls, plus 300 for retries and undo churn. The cap is per instance, so with 3 instances an account can make at most 4,500 calls a day.
 	BookmarkMutationsPerDay int64
 
 	// MessagesSendPerUserPerMinute is the SendMessage bucket, env RATE_LIMIT_MESSAGES_SEND_PER_MIN, default 20;
@@ -52,17 +50,17 @@ type RateLimitConfig struct {
 
 	// MessagesMarkReadPerDay is the in-memory daily cap on MarkConversationRead calls (one counter per uid per instance,
 	// ratelimit.DailyCap), env MESSAGES_MARK_READ_PER_DAY, default 500, logged as limit_name "messages_mark_read_daily"
-	// (security review M-1). Every call on an existing entry is 1 write, a repeat included, and the call sat on the 60/min
-	// default bucket (180/min at 3 instances = 259,200 writes a day for one account). Default 500: a few dozen thread opens and
-	// foreground pushes a day for an active user, with a wide margin. Worst case per account: 500 x 3 instances = 1,500 writes
-	// a day, against the 20k a day free quota.
+	// (security review M-1). Every call on an existing entry writes, a repeat included, and the call sat on the 60/min
+	// default bucket (180/min at 3 instances). Default 500: a few dozen thread opens and
+	// foreground pushes a day for an active user, with a wide margin. The cap is per instance, so with 3 instances
+	// an account can make at most 1,500 calls a day.
 	MessagesMarkReadPerDay int64
 
 	// MessagesMutationsPerDay is the in-memory daily cap shared by AcceptMessageRequest and DeleteConversation (one counter per
 	// uid per instance, ratelimit.DailyCap), env MESSAGES_MUTATIONS_PER_DAY, default 500, logged as limit_name
 	// "messages_mutation_daily" (M-1). Sized like GraphMutationsPerDay (500): both are state changes on a social edge,
-	// idempotent by state, and a person answers a handful of requests a day. A repeat writes nothing; a first Accept is 4 writes
-	// and 1 delete, so the bound is 500 x 3 instances x 5 = 7,500 operations per account per day, and real work is bounded
+	// idempotent by state, and a person answers a handful of requests a day. A repeat writes nothing; the cap is per instance, so with 3 instances
+	// an account can make at most 1,500 calls a day, and real work is bounded
 	// further by the requests there are to answer (3 unanswered per sender, 20 new conversations per sender per day).
 	MessagesMutationsPerDay int64
 
@@ -77,9 +75,8 @@ type RateLimitConfig struct {
 
 	// ListMutationsPerDay is the in-memory daily cap shared by the six list mutations (one counter per uid per instance,
 	// ratelimit.DailyCap), env LIST_MUTATIONS_PER_DAY, default 500, logged as limit_name "list_mutation_daily".
-	// Without it 30/min x 3 instances x 1,440 min of UpdateList calls a day would be about 130k idempotency-plus-list writes. Each
-	// mutation writes at most 3 documents, so the bound is 500 x 3 instances x 3 = 4,500 writes per account per day against the
-	// 20k a day free quota, and real work is bounded further by the caps (20 lists, 150 members, 10 creates, 300 adds).
+	// Without it 30/min x 3 instances x 1,440 min of UpdateList calls a day would be about 130k list mutations. The cap is per instance, so with 3 instances an
+	// account can make at most 1,500 calls a day, and real work is bounded further by the caps (20 lists, 150 members, 10 creates, 300 adds).
 	ListMutationsPerDay int64
 
 	// CommunitiesWritePerUserPerMinute is the bucket shared by the seven community mutations (CreateCommunity, UpdateCommunity,
@@ -104,7 +101,7 @@ type RateLimitConfig struct {
 
 	// SuggestionsPerUserPerMinute is the ListSuggestedUsers bucket, env RATE_LIMIT_SUGGESTIONS_PER_MIN, default 10;
 	// LikesListPerUserPerMinute is ListLikedPosts, env RATE_LIMIT_LIKES_LIST_PER_MIN, default 10; ProfileRelationshipPerUserPerMinute
-	// is GetProfileRelationship, env RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN, default 60 (0 reads warm). All are per instance, so the
+	// is GetProfileRelationship, env RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN, default 60. All are per instance, so the
 	// effective ceiling is x max-instances (30, 30 and 180 per minute with 3).
 	SuggestionsPerUserPerMinute         int
 	LikesListPerUserPerMinute           int
@@ -126,7 +123,7 @@ type RateLimitConfig struct {
 	// ratelimit interceptor cannot tell account age, so the VotePoll service applies it; the interceptor cap uses
 	// PollVotesPerDay. A cap in memory is sound here because the natural key admits ONE vote per account per poll: writes are
 	// bounded by 3 x the open polls the account can see whatever the cap does after a restart. At most 300 x 3 instances = 900
-	// calls (2,700 writes) per account per day.
+	// calls per account per day.
 	PollVotesPerDay           int64
 	PollVotesPerDayNewAccount int64
 
@@ -154,20 +151,18 @@ type RateLimitConfig struct {
 	// SuggestionsCallsPerDay is the in-memory daily cap on ListSuggestedUsers calls (one counter per uid per instance,
 	// ratelimit.DailyCap), env SUGGESTIONS_CALLS_PER_DAY, logged as limit_name "suggestions_daily".
 	//
-	// Default 50. At most 50 calls x 3 instances (the cap is per instance) per account per day. A warm call
-	// costs 1 read (the per-viewer cache, SUGGESTIONS_CACHE_TTL).
+	// Default 50. At most 50 calls x 3 instances (the cap is per instance) per account per day. Results are cached per viewer (SUGGESTIONS_CACHE_TTL).
 	SuggestionsCallsPerDay int64
 
 	// ProfileUpdatesPerDay is the in-memory daily cap on UpdateProfile calls (one counter per uid per instance,
 	// ratelimit.DailyCap), env PROFILE_UPDATES_PER_DAY, logged as limit_name "profile_update_daily" (L-4).
 	// Before it, UpdateProfile had only the 60/min default bucket, and rewrote the whole users
-	// document on every call even when nothing changed, so a save loop cost about 6,000 writes and 6,000 reads a day
-	// per account at 3 instances.
+	// document on every call even when nothing changed, so a save loop could rewrite it thousands of times a day
+	// per account.
 	//
 	// Default 100. A real user changes their profile a handful of times a day (name, bio, avatar, banner, location,
-	// website, pin, plus retries), so 100 is generous. Worst case per account per day: 100 calls x 3 instances (the cap
-	// is per instance) = 300 calls, each at most 1 write (0 when the call changes nothing) and 4 reads (cold: the
-	// interceptor profile, the users doc, a banner resolve, a pin check) = 300 writes and 1,200 reads.
+	// website, pin, plus retries), so 100 is generous. The cap is per instance, so with 3 instances an account
+	// can make at most 300 calls a day, each writing at most once (not at all when nothing changes).
 	ProfileUpdatesPerDay int64
 
 	// PreAuthIPPerMinute is the coarse, pre-auth per-IP token bucket (M1):
@@ -188,13 +183,11 @@ type RateLimitConfig struct {
 
 	// GraphMutationsPerDay is the in-memory daily cap on ALL graph mutations (Follow, Unfollow, Block,
 	// Unblock, Mute, Unmute share one counter) per uid per instance, ratelimit.DailyCap, logged as
-	// limit_name "graph_mutation_daily" (security review M2). It bounds the read cost of replays and no-ops,
-	// which reserve no Firestore quota but still read 1-4 docs each.
+	// limit_name "graph_mutation_daily" (security review M2). It bounds replays and no-ops,
+	// which reserve no Firestore quota but still read documents.
 	//
-	// Default 500. Worst case per account per day: 500 calls x 4 reads (Follow replay is the most expensive
-	// mutation, 4 cold: caller + target profiles, caller graph, quotas) x 3 instances (the cap is per
-	// instance, max-instances 3) = 6,000 reads (500x4x3), versus 172.8k/day (Follow + Block replay loops at the per-minute buckets) before the cap,
-	// and the accepted 30.6k/day list-scraping bound. Legitimate use fits with room: 200 follows +
+	// Default 500. The cap is per instance, so with 3 instances an account can make at most 1,500 calls a day,
+	// far below what replay loops at the per-minute buckets allowed before the cap. Legitimate use fits with room: 200 follows +
 	// 200 blocks/mutes (the Firestore quotas) plus their undos is under 500.
 	GraphMutationsPerDay int64
 
@@ -208,18 +201,15 @@ type RateLimitConfig struct {
 	// NotificationDevicesCallsPerDay is the per-uid daily call cap shared by RegisterDevice and UnregisterDevice
 	// (a ratelimit.DailyCap, limit_name "notification_devices_daily"), env
 	// NOTIFICATION_DEVICES_CALLS_PER_DAY, default 10 (security audit N-5: a handful of launches and token refreshes per
-	// day; each call is at most 9 reads and 5 writes, so 10 bounds one uid to 90 reads and 50 writes).
+	// day).
 	NotificationDevicesCallsPerDay int64
 	// NotificationSeenCallsPerDay is the per-uid daily call cap of MarkNotificationsSeen (a ratelimit.DailyCap,
 	// limit_name "notification_seen_daily"), env NOTIFICATION_SEEN_CALLS_PER_DAY, default 200. A call inside the
-	// 10 s no-op window writes nothing; otherwise 1 write, so the worst case is 200 writes per uid per day (1% of
-	// the 20k/day free quota for one uid; the per-minute bucket bounds the rest).
+	// 10 s no-op window writes nothing; otherwise it writes once (the per-minute bucket bounds the rest).
 	NotificationSeenCallsPerDay int64
 	// NotificationRecipientsPerActorPerDay is the per-actor daily cap on notification recipients, charged at the
 	// producer before anything is published (security audit N-1; a notifications.RecipientCap), env
-	// NOTIFICATION_RECIPIENTS_PER_ACTOR_PER_DAY, default 200. Each recipient costs the fan-out handler 1 + R reads
-	// (typically 2) and 1 write, so 200 bounds one actor to about 600 reads and 200 writes a day (1.2% and 1% of the
-	// free quota). NotificationRecipientsPerNewActorPerDay is the tier for accounts younger than
+	// NOTIFICATION_RECIPIENTS_PER_ACTOR_PER_DAY, default 200. Each recipient costs the fan-out handler a few reads and a write, which bounds the work one actor can cause in a day. NotificationRecipientsPerNewActorPerDay is the tier for accounts younger than
 	// Quota.NewAccountWindow (NOTIFICATION_RECIPIENTS_PER_NEW_ACTOR_PER_DAY, default 50).
 	NotificationRecipientsPerActorPerDay    int64
 	NotificationRecipientsPerNewActorPerDay int64

@@ -1,8 +1,6 @@
 // graph_follow: Follow/Unfollow churn across NUM_USERS (default 50) users.
 //
-// Budget under test: Follow created = reads 4 cold / 2 warm / 3 planning, writes 5;
-// Unfollow = 0 reads, 3 writes, 1 delete. Acceptance: 20 rps for 2 min, Follow p95 < 500 ms, mean fs_reads per
-// Follow <= 3 (planning/typical), 0 ERROR log lines (read fs_reads/ERROR from the API log, see README).
+// Acceptance: 20 rps for 2 min, Follow p95 < 500 ms, 0 ERROR log lines (count ERROR from the API log, see README).
 //
 // Churn design: iteration i (global, ordered) picks user u = i % N and round r = floor(i / N). Even rounds Follow,
 // odd rounds Unfollow the SAME target, so half of all calls are Follow and every Follow is a real create (never a

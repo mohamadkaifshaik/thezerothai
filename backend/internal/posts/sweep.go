@@ -15,9 +15,9 @@ import (
 const (
 	// SweepOK: the run queried the due items and processed them (some may have failed individually).
 	SweepOK = "ok"
-	// SweepFlagOff: FEATURE_SCHEDULED_POSTS or FEATURE_POSTS is switched off for everyone (the kill switch). 0 reads.
+	// SweepFlagOff: FEATURE_SCHEDULED_POSTS or FEATURE_POSTS is switched off for everyone (the kill switch).
 	SweepFlagOff = "flag_off"
-	// SweepDegraded: DEGRADED_MODE=readonly. 0 reads.
+	// SweepDegraded: DEGRADED_MODE=readonly.
 	SweepDegraded = "degraded"
 	// SweepError: a due query page failed. Page 1: Sweep returns the error, nothing was processed and the route answers 500
 	// (Cloud Scheduler retries, which is harmless). A later page: the earlier pages were processed, Sweep returns a nil
@@ -43,13 +43,12 @@ const (
 // SweepRepo is the sweep's storage seam. *FirestoreRepo implements it; the sweep depends on this narrow interface (not
 // on ScheduledRepo) so its fakes stay small and a test can wrap the real repository to inject a fault between two steps.
 type SweepRepo interface {
-	// DueScheduled is the collection-group query of PENDING items due at now (path-shape filtered). Reads len(items),
-	// minimum 1, per page.
+	// DueScheduled is the collection-group query of PENDING items due at now (path-shape filtered).
 	DueScheduled(ctx context.Context, now time.Time, limit int, after *ScheduledDueCursor) (ScheduledDuePage, error)
 	// TransitionScheduled moves an item to a terminal state, conditional on it being unchanged since ref.UpdateTime
-	// (applied=false is a quiet no-op). Reads 0, writes 1.
+	// (applied=false is a quiet no-op).
 	TransitionScheduled(ctx context.Context, ref ScheduledRef, t ScheduledTransition, now time.Time, ttl time.Duration) (next ScheduledRef, applied bool, err error)
-	// BumpScheduledAttempts counts one transient failure under the same precondition. Reads 0, writes 1.
+	// BumpScheduledAttempts counts one transient failure under the same precondition.
 	BumpScheduledAttempts(ctx context.Context, ref ScheduledRef, now time.Time) (next ScheduledRef, applied bool, err error)
 	// PublishScheduled is the publish transaction (repo_publish_scheduled.go).
 	PublishScheduled(ctx context.Context, p PublishParams) (PublishResult, error)
@@ -59,17 +58,13 @@ var _ SweepRepo = (*FirestoreRepo)(nil)
 
 // SweepLimits are the plain-value SCHEDULED_* limits of the sweep, filled by the wiring from config.Scheduled (posts
 // does not import config). PerAuthorPerRun, Limit (also capped at MaxLimit), MaxPages, Concurrency and MaxAttempts are
-// clamped to at least 1 when used and a zero AuthorReadsWarn disables that warning, but MaxLateness and TerminalTTL are NOT
-// clamped: a zero MaxLateness expires every due item and a zero TerminalTTL makes every terminal transition fail its
+// clamped to at least 1 when used, but MaxLateness and TerminalTTL are NOT clamped: a zero MaxLateness expires every due item and a zero TerminalTTL makes every terminal transition fail its
 // validation. config.loadScheduled enforces the ranges of every SCHEDULED_* key at startup, so only a hand-built SweepLimits
 // can get that wrong.
 type SweepLimits struct {
 	// PerAuthorPerRun is the most items of one author a run processes (SCHEDULED_PER_AUTHOR_PER_RUN, review L-3); the
 	// rest are deferred to the next run without a write.
 	PerAuthorPerRun int
-	// AuthorReadsWarn is the reads one author's items may spend in a run before a scheduled_author_reads warning
-	// (SCHEDULED_AUTHOR_READS_WARN, review L-4).
-	AuthorReadsWarn int
 	// Limit is the due query's Limit (SCHEDULED_SWEEP_LIMIT, at most MaxLimit), MaxPages the pages per run
 	// (SCHEDULED_SWEEP_MAX_PAGES) and Concurrency the author workers at once (SCHEDULED_SWEEP_CONCURRENCY).
 	Limit, MaxPages, Concurrency int
@@ -90,11 +85,11 @@ type SweepDeps struct {
 	// sweep is a no-op. Besides the two scheduling flags it is asked once per run whether FEATURE_MEDIA is globally off,
 	// which holds the items that carry images (SweepResult.HeldMedia).
 	Flags GloballyOffChecker
-	// ReadOnly is DEGRADED_MODE=readonly: the sweep is a no-op with 0 reads.
+	// ReadOnly is DEGRADED_MODE=readonly: the sweep is a no-op without any read.
 	ReadOnly bool
 	// Log carries the per-item and per-author lines and the Error Reporting entries (nil: discarded).
 	Log *slog.Logger
-	// RecordAuthorAge (optional) is told the author's createdAt, from the publish transaction's own read (0 reads), right
+	// RecordAuthorAge (optional) is told the author's createdAt, from the publish transaction's own read, right
 	// before the post event is emitted. The wiring points it at the memo the notification recipient cap consults: a post
 	// published by a sweep has no authenticated request behind it, and the profile cache entry was just evicted, so
 	// without this a first-day account would be charged to the ESTABLISHED recipient bucket.
@@ -120,8 +115,7 @@ type SweepResult struct {
 	Transient int
 	// Deferred counts items left PENDING without a write: over the per-author cap, or not started for lack of time.
 	Deferred int
-	// HeldMedia counts due items left PENDING, with no write and no publish transaction (each still costs its 1 read in the
-	// due query), because they carry images while FEATURE_MEDIA is globally off (the kill switch; allowlist and percent are
+	// HeldMedia counts due items left PENDING, with no write and no publish transaction, because they carry images while FEATURE_MEDIA is globally off (the kill switch; allowlist and percent are
 	// rollouts and hold nothing). They are in Due, not in Deferred, and do not count toward the per-author cap. An item the
 	// expiry, UNSUPPORTED or INVALID_CONTENT check would retire is retired as always, not held. The verdicts that need the
 	// publish transaction (ACCOUNT_RESTRICTED, CANCELLED, QUOTA_EXCEEDED, MEDIA_UNAVAILABLE) wait until the item is released
@@ -154,11 +148,5 @@ type Sweeper interface {
 	// page failed (nothing was processed: the route answers 500 and Cloud Scheduler retries). An item that fails is counted
 	// in the result, never returned. When a LATER page fails the earlier pages are processed and the failure comes back as
 	// SweepResult.LaterPageErr with a nil error (the route answers 204: a retry would burn the items' attempt ladder).
-	//
-	// Firestore, worst case: flag off, readonly: 0 reads. Nothing due: 1 read. N due: N (<= SCHEDULED_SWEEP_LIMIT x
-	// SCHEDULED_SWEEP_MAX_PAGES = 100; deferred, held (FEATURE_MEDIA globally off: 1 query read each, 0 writes) and
-	// skipped items are re-read next run) + per item: publish 17 worst /
-	// 3 typical reads and 4 writes + media; an expiry, UNSUPPORTED, INVALID_CONTENT, transient or panic outcome 0 reads
-	// and 1 write (LastUpdateTime precondition); a failure inside the publish transaction 2 to 7 reads and 1 write.
 	Sweep(ctx context.Context) (SweepResult, error)
 }

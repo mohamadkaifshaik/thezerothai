@@ -61,7 +61,7 @@ func NewServer(svc Service, fc posts.FlagChecker, opts ...ServerOption) *Server 
 
 var _ engagementv1connect.EngagementServiceHandler = (*Server)(nil)
 
-// guard runs FEATURE_POSTS (the posts guard) and FEATURE_ENGAGEMENT, in that order, with 0 reads from this code,
+// guard runs FEATURE_POSTS (the posts guard) and FEATURE_ENGAGEMENT, in that order, without reading Firestore itself,
 // and returns the caller's uid with a deadline-bound context.
 func (s *Server) guard(ctx context.Context) (context.Context, context.CancelFunc, string, error) {
 	if err := posts.GuardFeature(ctx, s.flags); err != nil {

@@ -240,7 +240,7 @@ func TestMessagingChain_ReadLimiterSharedBucket(t *testing.T) {
 }
 
 // Given a mark-read on this instance, then the next GetMe recounts (the count drops), and without one the second GetMe in
-// 30 s is served from the cache with 0 reads.
+// 30 s is served from the cache.
 func TestMessagingChain_MarkReadDropsTheBadgeOnTheNextGetMe(t *testing.T) {
 	setup := newDMChain(t, nil)
 	me, p1, p2, p3 := setup.user(t), setup.user(t), setup.user(t), setup.user(t)
@@ -268,8 +268,7 @@ func TestMessagingChain_MarkReadDropsTheBadgeOnTheNextGetMe(t *testing.T) {
 }
 
 // The caps of an established account through the chain: RATE_LIMIT_MESSAGES_SEND_PER_MIN (the 4th send of 3 a minute) and
-// MESSAGES_SENDS_PER_DAY (messages_daily) are RESOURCE_EXHAUSTED + RATE_LIMITED and write nothing; the refusal costs at most
-// the interceptor's read, and another account is untouched.
+// MESSAGES_SENDS_PER_DAY (messages_daily) are RESOURCE_EXHAUSTED + RATE_LIMITED and write nothing, and another account is untouched.
 func TestMessagingChain_SendCapsOfAnEstablishedAccount(t *testing.T) {
 	tests := []struct {
 		name      string

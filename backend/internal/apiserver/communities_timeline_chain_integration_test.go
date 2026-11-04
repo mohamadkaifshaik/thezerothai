@@ -20,6 +20,7 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
+	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -108,10 +109,9 @@ func feedIDs(r *timelinev1.GetCommunityTimelineResponse) []string {
 	return out
 }
 
-// TestCommunityTimelineChain_Budgets asserts the read budgets over the whole chain: a cold open at page 20 and 50 (page + 5: the
-// interceptor, the community, the member doc, the posts, the caller graph, userLikes), the older page, a warm repeat, and an empty since
-// refresh (4 cold), each from a fresh Build so no cache is warm.
-func TestCommunityTimelineChain_Budgets(t *testing.T) {
+// TestCommunityTimelineChain_ColdPagesWarmRepeatAndSince covers the whole chain: a cold open at page 20 and 50, the older
+// page, a warm repeat answered from the entry, and an empty since refresh, each from a fresh Build so no cache is warm.
+func TestCommunityTimelineChain_ColdPagesWarmRepeatAndSince(t *testing.T) {
 	setup := newCMChain(t)
 	owner, viewer := setup.user(t), setup.user(t)
 	cid := seedCommunity(t, setup.fs, owner.uid, viewer.uid, "ACTIVE")
@@ -133,18 +133,28 @@ func TestCommunityTimelineChain_Budgets(t *testing.T) {
 	if r20.GetCommunity().GetCommunityId() != cid || r20.GetCommunity().GetViewerRole().String() != "COMMUNITY_ROLE_MEMBER" {
 		t.Fatalf("header = %v", r20.GetCommunity())
 	}
-	cold(t, "page 50 cold", 50, "", "")
-
-	// Warm: the same instance again. The community, the member doc, the graph and userLikes are cached, and the entry answers the page.
-	if _, err := warm.feed(viewer, cid, 20, "", ""); err != nil {
-		t.Fatal(err)
+	r50, _ := cold(t, "page 50 cold", 50, "", "")
+	if !slices.Equal(feedIDs(r50), ids[:50]) {
+		t.Fatalf("page 50: ids=%v", feedIDs(r50))
 	}
 
-	// An older page (the second of 20 + 20 + 20): one query of at most 20 rows plus the fixed reads.
-	_, _ = cold(t, "older page cold", 20, "", r20.GetNextPageToken())
+	// Warm: the same instance again. The entry answers the page.
+	again, err := warm.feed(viewer, cid, 20, "", "")
+	if err != nil || !slices.Equal(feedIDs(again), ids[:20]) {
+		t.Fatalf("warm repeat: ids=%v err=%v", feedIDs(again), err)
+	}
+	lines := warm.logs.requestLines(timelinev1connect.TimelineServiceGetCommunityTimelineProcedure)
+	if hit := lines[len(lines)-1]["timeline_cache_hit"]; hit != true {
+		t.Errorf("warm repeat: timeline_cache_hit = %v, want true", hit)
+	}
 
-	// An empty since refresh on an instance with no entry: the interceptor, the community, the member doc and the one empty query. It
-	// reads no graph and no userLikes.
+	// An older page (the second of 20 + 20 + 20).
+	older, _ := cold(t, "older page cold", 20, "", r20.GetNextPageToken())
+	if !slices.Equal(feedIDs(older), ids[20:40]) {
+		t.Errorf("older page: ids=%v, want the second 20", feedIDs(older))
+	}
+
+	// An empty since refresh on an instance with no entry.
 	first, _ := cold(t, "page 50 for the since token", 50, "", "")
 	newest := first.GetSinceToken()
 	// The seeded posts are 30 s old, so the settle watermark (15 s) is newer than every one of them: nothing is newer than the token.
@@ -154,8 +164,8 @@ func TestCommunityTimelineChain_Budgets(t *testing.T) {
 	}
 }
 
-// TestCommunityTimelineChain_StatusAndTokens: a SUSPENDED and a missing community answer the same NOT_FOUND within 2 reads; a token of
-// another feed is VALIDATION with only the interceptor's read.
+// TestCommunityTimelineChain_StatusAndTokens: a SUSPENDED and a missing community answer the same NOT_FOUND; a token of
+// another feed is VALIDATION.
 func TestCommunityTimelineChain_StatusAndTokens(t *testing.T) {
 	c := newCMChain(t)
 	owner, viewer := c.user(t), c.user(t)
@@ -179,7 +189,7 @@ func TestCommunityTimelineChain_StatusAndTokens(t *testing.T) {
 	if _, err := c.feed(owner, suspended, 20, "", ""); connect.CodeOf(err) != connect.CodeNotFound {
 		t.Fatalf("owner of a suspended community: %v", err)
 	}
-	// A Home token on a community is VALIDATION with 0 reads beyond the interceptor.
+	// A Home token on a community is VALIDATION.
 	home, err := c.timeline.GetHomeTimeline(context.Background(), authed(viewer.token, &timelinev1.GetHomeTimelineRequest{}))
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +198,7 @@ func TestCommunityTimelineChain_StatusAndTokens(t *testing.T) {
 	wireError(t, err, connect.CodeInvalidArgument)
 }
 
-// TestCommunityTimelineChain_HomeTab: SetHomeTabs accepts a community the caller has not joined, at +1 read, and GetMe returns the tab
+// TestCommunityTimelineChain_HomeTab: SetHomeTabs accepts a community the caller has not joined, and GetMe returns the tab
 // with an empty title while communities is on.
 func TestCommunityTimelineChain_HomeTab(t *testing.T) {
 	c := newCMChain(t)

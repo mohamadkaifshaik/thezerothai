@@ -152,7 +152,7 @@ func TestPostsInvariants_LoaderSeesTamperedEmulatorState(t *testing.T) {
 	in := newCreateInstance(t, client, 1)
 	in.skipInvariantSweep("tampers postsCount on purpose")
 	in.signUp(t, "uid-alice", "alice")
-	if _, _, err := in.create(t, "uid-alice", key(1), "one"); err != nil {
+	if _, err := in.create(t, "uid-alice", key(1), "one"); err != nil {
 		t.Fatal(err)
 	}
 	st, err := loadPostsState(context.Background(), client)

@@ -10,7 +10,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -29,7 +28,7 @@ func (r *FirestoreRepo) DeleteOwn(ctx context.Context, id, authorID string, stag
 	// A failed Exists precondition (post already gone) is a correct 0-write no-op; a contended retry either wins
 	// or sees the post gone.
 	res, err := store.CommitWithRetry(ctx,
-		func(c *budget.Counter) *store.FirestoreBatch { return store.NewFirestoreBatch(r.client, c) },
+		func() *store.FirestoreBatch { return store.NewFirestoreBatch(r.client) },
 		store.RetryConfig{MaxAttempts: maxDeleteAttempts, Backoff: deleteRetryBackoff, Commit: r.commitBatch, Sleep: r.backoff},
 		func(b store.Batch) {
 			b.Delete(r.ref(id), firestore.Exists)

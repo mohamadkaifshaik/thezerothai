@@ -9,7 +9,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -21,13 +20,12 @@ func (r *FirestoreRepo) readable() error {
 	return nil
 }
 
-// Get implements Repo: one point read of lists/{id}, outside any transaction, charged as 1 read whether or not it exists.
+// Get implements Repo: one point read of lists/{id}, outside any transaction.
 func (r *FirestoreRepo) Get(ctx context.Context, id string) (List, error) {
 	if err := r.readable(); err != nil {
 		return List{}, err
 	}
 	snap, err := r.ref(id).Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
 			return List{}, ErrNotFound
@@ -53,7 +51,6 @@ func (r *FirestoreRepo) ListByOwner(ctx context.Context, owner, after string, li
 		q = q.StartAfter(r.ref(after))
 	}
 	docs, err := q.Limit(min(max(limit, 1), 51)).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return nil, logger.RedactErr(fmt.Errorf("lists: list by owner: %w", err), owner, after)
 	}

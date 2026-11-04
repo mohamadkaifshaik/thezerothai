@@ -19,7 +19,7 @@ import (
 
 // The Vision attempt cap and the per-uid Vision-units cap (revises, security H-3).
 //
-// Counters on the media doc, at +0 writes (A5.4):
+// Counters on the media doc, kept in writes that already happen (A5.4):
 //   - screenAttempts counts CLAIMS. ClaimScreening increments it before any Vision call, so a lost release write or a dead instance cannot
 //     escape the ceiling MEDIA_MAX_SCREEN_ATTEMPTS + MEDIA_MAX_SCREEN_RETRIES.
 //   - screenAssessed counts the claims that produced a valid assessment and did not end the document. ReleaseScreening increments it in the

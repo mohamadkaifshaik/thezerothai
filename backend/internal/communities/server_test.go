@@ -22,7 +22,7 @@ func call[Q, R any](m func(*Server, context.Context, *connect.Request[Q]) (*conn
 }
 
 // TestServer_FlagGateOnEveryRPC: all twelve CommunityService methods run the FEATURE_COMMUNITIES gate first, in every flag mode.
-// Outside the flag the answer is FEATURE_DISABLED feature=communities (0 reads: the skeleton holds no repository); inside it with no Service wired the
+// Outside the flag the answer is FEATURE_DISABLED feature=communities; inside it with no Service wired the
 // skeleton answers Unimplemented (the real service comes later); a request with no uid is Unauthenticated.
 func TestServer_FlagGateOnEveryRPC(t *testing.T) {
 	calls := map[string]func(*Server, context.Context) error{

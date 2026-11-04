@@ -1,8 +1,7 @@
 package timeline
 
-// GetListTimeline. The fakes charge reads the way the real seams do, so the assertions here cover what
-// timeline itself reads: the caller graph (1, a cache hit in production) and the member queries. The fixed reads of the list
-// (list, owner profile, owner graph) belong to lists.Reader and are asserted by the emulator budget test.
+// GetListTimeline over fakes. The assertions here cover what timeline itself asks for: the caller graph and the member
+// queries. Loading the list, its owner and the owner graph belongs to lists.Reader.
 
 import (
 	"context"
@@ -22,25 +21,22 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/lists"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 const testListID = "1000000000000000001"
 
-// fakeLists is a lists.Reader with one list. calls counts Members calls; reads are charged to the request budget.
+// fakeLists is a lists.Reader with one list. calls counts Members calls.
 type fakeLists struct {
 	lists.Reader
 	owner   string
 	members []string
 	err     error
-	reads   int64
 	calls   int
 }
 
-func (f *fakeLists) Members(ctx context.Context, _, id string) (lists.ListMembers, error) {
+func (f *fakeLists) Members(_ context.Context, _, id string) (lists.ListMembers, error) {
 	f.calls++
-	budget.FromContext(ctx).AddReads(f.reads)
 	if f.err != nil {
 		return lists.ListMembers{}, f.err
 	}
@@ -55,7 +51,7 @@ func (f *fakeLists) Members(ctx context.Context, _, id string) (lists.ListMember
 func listRig(t *testing.T, members ...string) (*rig, *fakeLists) {
 	t.Helper()
 	r := newRig(t)
-	fl := &fakeLists{owner: "me", members: members, reads: 3}
+	fl := &fakeLists{owner: "me", members: members}
 	r.srv.deps.Lists = fl
 	for _, m := range members {
 		r.dir.profiles[m] = identity.Profile{UserID: m, Status: identity.AccountStatusActive}
@@ -71,21 +67,21 @@ func names(prefix string, n int) []string {
 	return out
 }
 
-func (r *rig) list(caller, listID, since, page string, size int32) (*timelinev1.GetListTimelineResponse, *budget.Counter, error) {
+func (r *rig) list(caller, listID, since, page string, size int32) (*timelinev1.GetListTimelineResponse, error) {
 	r.t.Helper()
 	ictx, info := logger.WithRequestInfo(ctxFor(caller))
 	r.info = info
-	ctx, counter := budget.WithCounter(ictx)
+	ctx := ictx
 	resp, err := r.srv.GetListTimeline(ctx, connect.NewRequest(&timelinev1.GetListTimelineRequest{ListId: listID, PageSize: size, SinceToken: since, PageToken: page}))
 	if err != nil {
-		return nil, counter, err
+		return nil, err
 	}
-	return resp.Msg, counter, nil
+	return resp.Msg, nil
 }
 
 func (r *rig) mustList(since, page string, size int32) *timelinev1.GetListTimelineResponse {
 	r.t.Helper()
-	resp, _, err := r.list("me", testListID, since, page, size)
+	resp, err := r.list("me", testListID, since, page, size)
 	if err != nil {
 		r.t.Fatalf("unexpected error: %v", err)
 	}
@@ -109,7 +105,7 @@ func TestList_FortyFiveMembersTwoChunksInHomeOrder(t *testing.T) {
 		p := r.posts.add(m, r.ms(-time.Duration(i+1)*time.Second))
 		want = append(want, p.ID)
 	}
-	resp, _, err := r.list("me", testListID, "", "", 20)
+	resp, err := r.list("me", testListID, "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +130,7 @@ func TestList_FortyFiveMembersTwoChunksInHomeOrder(t *testing.T) {
 func TestList_EmptyListAnswersAnEmptyPageWithTokens(t *testing.T) {
 	t.Parallel()
 	r, _ := listRig(t)
-	resp, _, err := r.list("me", testListID, "", "", 20)
+	resp, err := r.list("me", testListID, "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +141,7 @@ func TestList_EmptyListAnswersAnEmptyPageWithTokens(t *testing.T) {
 		t.Fatalf("an empty list queried %d times", n)
 	}
 	// The since token it issued is usable for a refresh.
-	if _, _, err := r.list("me", testListID, resp.GetSinceToken(), "", 20); err != nil {
+	if _, err := r.list("me", testListID, resp.GetSinceToken(), "", 20); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
 }
@@ -160,7 +156,7 @@ func TestList_SinceRefreshWithNothingNewCostsOneQueryPerChunk(t *testing.T) {
 	cold := r.mustList("", "", 20)
 	r.clock.Advance(2 * time.Minute) // the author-recent entries (60 s) expire
 	before := r.posts.queryCount("ByAuthors")
-	resp, _, err := r.list("me", testListID, cold.GetSinceToken(), "", 20)
+	resp, err := r.list("me", testListID, cold.GetSinceToken(), "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,14 +271,14 @@ func TestList_TokenBindingAndMalformedIDCostNothing(t *testing.T) {
 	}
 	for _, c := range cases {
 		before := fl.calls
-		_, counter, err := r.list(c.caller, c.list, c.since, c.page, 10)
+		_, err := r.list(c.caller, c.list, c.since, c.page, 10)
 		wantField(t, err, c.field)
 		if fl.calls != before {
-			t.Errorf("%s: reads=%d members calls=%d, want 0", c.name, counter.Reads(), fl.calls-before)
+			t.Errorf("%s: members calls=%d, want 0", c.name, fl.calls-before)
 		}
 	}
 	// And a list token on Home is rejected the other way round.
-	if _, _, err := r.home("me", cold.GetSinceToken(), "", 10); err == nil {
+	if _, err := r.home("me", cold.GetSinceToken(), "", 10); err == nil {
 		t.Fatal("a list token opened on Home")
 	}
 }
@@ -291,7 +287,7 @@ func TestList_NotFoundIsTheListsSentinelAnswer(t *testing.T) {
 	t.Parallel()
 	r, fl := listRig(t, "a")
 	fl.err = fmt.Errorf("wrapped: %w", lists.ErrNotFound)
-	_, counter, err := r.list("me", testListID, "", "", 20)
+	_, err := r.list("me", testListID, "", "", 20)
 	var got *apierr.Error
 	if !errors.As(err, &got) || got.Code != connect.CodeNotFound || got.Reason != commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED {
 		t.Fatalf("err = %#v", err)
@@ -301,7 +297,7 @@ func TestList_NotFoundIsTheListsSentinelAnswer(t *testing.T) {
 		t.Fatalf("answer %#v differs from lists.NotFoundError() %#v", got, want)
 	}
 	if r.posts.queryCount("ByAuthors") != 0 || r.graph.calls != nil {
-		t.Fatalf("a refused list read posts or the graph: reads=%d graph=%v", counter.Reads(), r.graph.calls)
+		t.Fatalf("a refused list read posts or the graph: graph=%v", r.graph.calls)
 	}
 }
 
@@ -309,7 +305,7 @@ func TestList_OtherMembersErrorsAreRedactedInternals(t *testing.T) {
 	t.Parallel()
 	r, fl := listRig(t, "a")
 	fl.err = errors.New("firestore: lists/" + testListID + " boom for me")
-	_, _, err := r.list("me", testListID, "", "", 20)
+	_, err := r.list("me", testListID, "", "", 20)
 	if err == nil || strings.Contains(err.Error(), testListID) {
 		t.Fatalf("err = %v, want a redacted error", err)
 	}
@@ -343,7 +339,7 @@ func TestList_RemovedIDsAreScopedToTheMembers(t *testing.T) {
 	}
 	// The takedown token reset is the same VALIDATION as Home.
 	withRemovals(r, &fakeRemovals{truncated: true})
-	_, _, err := r.list("me", testListID, cold.GetSinceToken(), "", 20)
+	_, err := r.list("me", testListID, cold.GetSinceToken(), "", 20)
 	wantField(t, err, "since_token")
 }
 
@@ -353,7 +349,7 @@ func TestList_ClosedGapReturnsHeaderOnly(t *testing.T) {
 	f := listFeed("me", testListID)
 	up := posts.Position{CreatedAt: r.clock.Now().Add(-time.Hour), ID: pid(5)}
 	tok := r.srv.codec.encodePage(f, up, &up)
-	resp, counter, err := r.list("me", testListID, "", tok, 20)
+	resp, err := r.list("me", testListID, "", tok, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -361,14 +357,14 @@ func TestList_ClosedGapReturnsHeaderOnly(t *testing.T) {
 		t.Fatalf("resp = %v", resp)
 	}
 	if r.posts.queryCount("ByAuthors") != 0 {
-		t.Fatalf("reads = %d", counter.Reads())
+		t.Fatalf("an empty page ran %d author queries, want none", r.posts.queryCount("ByAuthors"))
 	}
 }
 
 func TestList_ProtectedMembers(t *testing.T) {
 	t.Parallel()
 	r, fp := protectedRig(t)
-	fl := &fakeLists{owner: "o", members: []string{"P", "q"}, reads: 3}
+	fl := &fakeLists{owner: "o", members: []string{"P", "q"}}
 	r.srv.deps.Lists = fl
 	r.dir.profiles["q"] = identity.Profile{UserID: "q", Status: identity.AccountStatusActive}
 	pp := pPost(r, 5)
@@ -391,7 +387,7 @@ func TestList_ProtectedMembers(t *testing.T) {
 	fp.mu.Lock()
 	fp.err = errors.New("set unknown")
 	fp.mu.Unlock()
-	_, _, err := r.list("me", testListID, "", "", 20)
+	_, err := r.list("me", testListID, "", "", 20)
 	if codeOf(err) != connect.CodeUnavailable {
 		t.Fatalf("err = %v, want UNAVAILABLE", err)
 	}
@@ -430,7 +426,7 @@ func TestList_FlagModes(t *testing.T) {
 			r, fl := listRig(t, "a")
 			r.srv.deps.Flags = c.flags
 			r.posts.add("a", r.ms(-time.Second))
-			resp, counter, err := r.list(c.uid, testListID, "", "", 20)
+			resp, err := r.list(c.uid, testListID, "", "", 20)
 			if c.ok {
 				if err != nil || len(resp.GetPosts()) != 1 {
 					t.Fatalf("err=%v resp=%v", err, resp)
@@ -445,7 +441,7 @@ func TestList_FlagModes(t *testing.T) {
 				t.Fatalf("metadata = %v, want feature=lists", ae.Metadata)
 			}
 			if fl.calls != 0 || r.graph.calls != nil {
-				t.Fatalf("a disabled call read: reads=%d members=%d graph=%v", counter.Reads(), fl.calls, r.graph.calls)
+				t.Fatalf("a disabled call reached storage: members=%d graph=%v", fl.calls, r.graph.calls)
 			}
 		})
 	}
@@ -454,12 +450,12 @@ func TestList_FlagModes(t *testing.T) {
 func TestList_UnwiredListsIsUnimplementedBehindTheFlag(t *testing.T) {
 	t.Parallel()
 	r := newRig(t)
-	_, _, err := r.list("me", testListID, "", "", 20)
+	_, err := r.list("me", testListID, "", "", 20)
 	if connect.CodeOf(err) != connect.CodeUnimplemented {
 		t.Fatalf("err = %v, want UNIMPLEMENTED", err)
 	}
 	r.srv.deps.Flags = nil
-	_, _, err = r.list("me", testListID, "", "", 20)
+	_, err = r.list("me", testListID, "", "", 20)
 	var ae *apierr.Error
 	if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED {
 		t.Fatalf("nil flags: err = %v, want FEATURE_DISABLED (off for everyone)", err)

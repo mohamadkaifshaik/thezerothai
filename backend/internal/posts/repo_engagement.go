@@ -20,7 +20,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -33,13 +32,13 @@ const CleanupPage = 100
 // batch (the identity.Counters pattern: posts appends, engagement commits). *FirestoreRepo implements it.
 type EngagementWriter interface {
 	// StageLikeCount appends FieldValue.Increment(delta) on posts/{id}.likeCount. The Update carries an implicit
-	// Exists precondition, so a post deleted in between fails the commit with NotFound (0 writes).
+	// Exists precondition, so a post deleted in between fails the commit with NotFound.
 	StageLikeCount(b store.Batch, postID string, delta int64)
 	// StageRepostCount is StageLikeCount for repostCount.
 	StageRepostCount(b store.Batch, postID string, delta int64)
 	// StagePollVote appends the blind counter bump of one vote: Increment(poll.counts.<choice>) and Increment(poll.total) on
 	// posts/{id} in ONE Update (one write), with the implicit Exists precondition, so a post deleted in between fails the commit
-	// with NotFound (0 writes). The field paths are firestore.FieldPath values, not dotted strings: the counts keys are numeric
+	// with NotFound. The field paths are firestore.FieldPath values, not dotted strings: the counts keys are numeric
 	// strings. The one counter helper of polls: sharding replaces its body, not its callers.
 	StagePollVote(b store.Batch, postID string, choice int)
 	// StagePollChange appends the blind counter move of one vote change: Increment(poll.counts.<from>, -1) and
@@ -58,11 +57,10 @@ type EngagementWriter interface {
 type Cleanup interface {
 	// RemoveReposts deletes up to max REPOST posts of originalID with their reposts docs (through RepostLinks) and
 	// the reposters' postsCount -1; when originalExists it also decrements the original's repostCount in the same
-	// batch (a takedown keeps the post, so the invariant must hold). Reads len(page), minimum 1; writes 2 per
-	// repost + 1, deletes 2 per repost.
+	// batch (a takedown keeps the post, so the invariant must hold).
 	RemoveReposts(ctx context.Context, originalID string, originalExists bool, max int) (removed int, more bool, err error)
 	// TombstoneQuotes replaces the embed of up to max quotes of originalID with {postId, unavailable}, clearing
-	// quoteOfId and embeddedAuthorId. Reads len(page), minimum 1; writes len(page).
+	// quoteOfId and embeddedAuthorId.
 	TombstoneQuotes(ctx context.Context, originalID string, max int) (changed int, more bool, err error)
 }
 
@@ -70,8 +68,7 @@ type Cleanup interface {
 // can clean the copies up (issue #151). *FirestoreRepo implements it.
 type CopiedLister interface {
 	// ListCopied pages uid's posts newest first (up to hidePage = 250 per call) and returns the ids of those whose
-	// repostCount or quoteCount is above zero. next is where to resume; done reports the last page. Reads one per post
-	// paged (minimum 1), no writes. The counters are written in the same batch as the copy, so they are not stale.
+	// repostCount or quoteCount is above zero. next is where to resume; done reports the last page. It writes nothing. The counters are written in the same batch as the copy, so they are not stale.
 	ListCopied(ctx context.Context, uid string, after *Position) (ids []string, next *Position, done bool, err error)
 }
 
@@ -125,14 +122,9 @@ func (r *FirestoreRepo) StageDelete(b store.Batch, postID string, mustExist bool
 	b.Delete(r.ref(postID))
 }
 
-// pageDocs runs a single-equality query with a Limit and charges the reads (minimum 1: an empty query bills 1).
+// pageDocs runs a single-equality query with a Limit.
 func (r *FirestoreRepo) pageDocs(ctx context.Context, field, value string, limit int) ([]*firestore.DocumentSnapshot, error) {
 	docs, err := r.client.Collection(postsCollection).Where(field, "==", value).Limit(limit).Documents(ctx).GetAll()
-	n := int64(len(docs))
-	if n == 0 {
-		n = 1
-	}
-	budget.FromContext(ctx).AddReads(n)
 	if err != nil {
 		return nil, fmt.Errorf("posts: %s query: %w", field, err)
 	}
@@ -167,16 +159,14 @@ func (r *FirestoreRepo) RemoveReposts(ctx context.Context, originalID string, or
 	return removed, len(docs) >= limit, err
 }
 
-// removeRepostRows deletes the rows in one batch (3 writes each, +1) and falls back to one batch per row, with
+// removeRepostRows deletes the rows in one batch and falls back to one batch per row, with
 // fewer counters each time, when the batch fails with a precondition error: a REPOST deleted concurrently, a
 // reposter's users doc that is gone, or an original that is gone.
 func (r *FirestoreRepo) removeRepostRows(ctx context.Context, rows []repostRow, originalExists bool) (int, error) {
 	if len(rows) == 0 {
 		return 0, nil
 	}
-	c := budget.FromContext(ctx)
-	var scratch budget.Counter
-	b := store.NewFirestoreBatch(r.client, &scratch)
+	b := store.NewFirestoreBatch(r.client)
 	for _, row := range rows {
 		r.stageRepostRemoval(b, row, true)
 	}
@@ -186,8 +176,6 @@ func (r *FirestoreRepo) removeRepostRows(ctx context.Context, rows []repostRow, 
 	err := b.Commit(ctx)
 	switch {
 	case err == nil:
-		c.AddWrites(scratch.Writes())
-		c.AddDeletes(scratch.Deletes())
 		return len(rows), nil
 	case !store.IsPreconditionFailed(err):
 		return 0, fmt.Errorf("posts: remove reposts: %w", err)
@@ -222,15 +210,13 @@ func (r *FirestoreRepo) removeOneRepost(ctx context.Context, row repostRow, orig
 // removeOneRepostWith is removeOneRepost; extra, when set, stages more writes in the same batch of every variant
 // (Takedown adds the removal-log entry, so a REPOST is never deleted without being logged).
 func (r *FirestoreRepo) removeOneRepostWith(ctx context.Context, row repostRow, originalExists bool, extra func(store.Batch)) (bool, error) {
-	c := budget.FromContext(ctx)
 	for _, v := range []struct{ postsCount, repostCount bool }{
 		{true, originalExists}, {false, originalExists}, {true, false}, {false, false},
 	} {
 		if !originalExists && v.repostCount {
 			continue
 		}
-		var scratch budget.Counter
-		b := store.NewFirestoreBatch(r.client, &scratch)
+		b := store.NewFirestoreBatch(r.client)
 		r.stageRepostRemoval(b, row, v.postsCount)
 		if extra != nil {
 			extra(b)
@@ -241,8 +227,6 @@ func (r *FirestoreRepo) removeOneRepostWith(ctx context.Context, row repostRow, 
 		err := b.Commit(ctx)
 		switch {
 		case err == nil:
-			c.AddWrites(scratch.Writes())
-			c.AddDeletes(scratch.Deletes())
 			return true, nil
 		case !store.IsPreconditionFailed(err):
 			return false, fmt.Errorf("posts: remove repost: %w", logger.RedactErr(err, row.authorID))
@@ -292,28 +276,23 @@ func (r *FirestoreRepo) tombstoneItems(ctx context.Context, items []quoteItem) (
 	if len(items) == 0 {
 		return 0, nil
 	}
-	c := budget.FromContext(ctx)
-	var scratch budget.Counter
-	b := store.NewFirestoreBatch(r.client, &scratch)
+	b := store.NewFirestoreBatch(r.client)
 	for _, it := range items {
 		b.Update(it.ref, tombstoneUpdates(it.originalID))
 	}
 	err := b.Commit(ctx)
 	switch {
 	case err == nil:
-		c.AddWrites(scratch.Writes())
 		return len(items), nil
 	case !store.IsPreconditionFailed(err):
 		return 0, fmt.Errorf("posts: tombstone quotes: %w", err)
 	}
 	n := 0
 	for _, it := range items {
-		var one budget.Counter
-		sb := store.NewFirestoreBatch(r.client, &one)
+		sb := store.NewFirestoreBatch(r.client)
 		sb.Update(it.ref, tombstoneUpdates(it.originalID))
 		switch err := sb.Commit(ctx); {
 		case err == nil:
-			c.AddWrites(one.Writes())
 			n++
 		case store.IsPreconditionFailed(err):
 			// the quote itself was deleted in the meantime
@@ -331,11 +310,6 @@ func (r *FirestoreRepo) ListCopied(ctx context.Context, uid string, after *Posit
 		q = q.StartAfter(after.CreatedAt, r.ref(after.ID))
 	}
 	docs, err := q.Limit(hidePage).Documents(ctx).GetAll()
-	reads := int64(len(docs))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
 		return nil, after, false, fmt.Errorf("posts: list copied %s: %w", logger.HashUID(uid), err)
 	}

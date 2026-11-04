@@ -13,8 +13,7 @@ import (
 )
 
 // End-to-end emulator test of `opsctl trends`: the real run flag handling and output over the real
-// search.TrendsStore. The cost line is the budget assertion: hide and unhide 1 read and, when the list changes, 1 write;
-// list 1 read.
+// search.TrendsStore.
 func TestTrends_Integration_CLI(t *testing.T) {
 	client, project := backfillTestClient(t)
 	ctx := context.Background()
@@ -31,12 +30,12 @@ func TestTrends_Integration_CLI(t *testing.T) {
 		args []string
 		want []string
 	}{
-		{"hide", []string{"trends", "hide", "#Sl_u\u200dr"}, []string{`hidden: "slur" (1 on the list)`, "wrote=true", "cost: reads=1 writes=1"}},
-		{"hide again", []string{"trends", "hide", "slur"}, []string{"already hidden", "wrote=false", "cost: reads=1 writes=0"}},
-		{"list", []string{"trends", "list"}, []string{"1 hidden key(s)", "slur", "cost: reads=1 writes=0"}},
-		{"unhide", []string{"trends", "unhide", "SLUR"}, []string{`unhidden: "slur" (0 on the list)`, "wrote=true", "cost: reads=1 writes=1"}},
-		{"unhide again", []string{"trends", "unhide", "slur"}, []string{"not on the hide list", "wrote=false", "cost: reads=1 writes=0"}},
-		{"list empty", []string{"trends", "list"}, []string{"0 hidden key(s)", "cost: reads=1 writes=0"}},
+		{"hide", []string{"trends", "hide", "#Sl_u\u200dr"}, []string{`hidden: "slur" (1 on the list)`, "wrote=true"}},
+		{"hide again", []string{"trends", "hide", "slur"}, []string{"already hidden", "wrote=false"}},
+		{"list", []string{"trends", "list"}, []string{"1 hidden key(s)", "slur"}},
+		{"unhide", []string{"trends", "unhide", "SLUR"}, []string{`unhidden: "slur" (0 on the list)`, "wrote=true"}},
+		{"unhide again", []string{"trends", "unhide", "slur"}, []string{"not on the hide list", "wrote=false"}},
+		{"list empty", []string{"trends", "list"}, []string{"0 hidden key(s)"}},
 	}
 	for _, s := range steps {
 		code, out, errOut := runCLI(append(s.args, "--project", project)...)

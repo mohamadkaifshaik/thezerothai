@@ -14,7 +14,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -65,7 +64,7 @@ func classifyAccept(requester doc, exists, active bool, targetUID string) accept
 
 // queueAccept queues the writes of one accepted request on b: for acceptEdge, Create follows/{requester}_{target}, the
 // requester's graph (`following` += target, `requested` -= target) and followingCount +1 on the requester, plus the
-// request delete (3 writes + 1 delete). acceptInactive and acceptDrift only delete the request and, when the requester's
+// request delete. acceptInactive and acceptDrift only delete the request and, when the requester's
 // graph doc exists, remove the target from `requested` (I-R); acceptAtCap queues nothing. It does NOT touch the
 // target's followersCount: the caller adds +1 (RespondToFollowRequest) or +n once per page (the privacy_public job).
 // It reads nothing, so the job can call it for every request of a page after reading the page.
@@ -95,8 +94,8 @@ func (r *FirestoreRepo) queueAccept(b store.Batch, kind acceptKind, targetUID, r
 	return r.queueDrop(b, reqRef, requesterUID, targetUID, requesterGraphExists, now)
 }
 
-// queueDecline queues a decline: delete the request and remove the target from the requester's `requested` (1 write +
-// 1 delete). When the requester's graph doc is gone (a purge in progress) only the delete is queued: an Update on a
+// queueDecline queues a decline: delete the request and remove the target from the requester's `requested`.
+// When the requester's graph doc is gone (a purge in progress) only the delete is queued: an Update on a
 // missing doc would fail the whole transaction, and the doc is never recreated.
 func (r *FirestoreRepo) queueDecline(b store.Batch, targetUID, requesterUID string, requesterGraphExists bool, now time.Time) error {
 	reqRef, err := r.requestRef(requesterUID, targetUID)
@@ -129,10 +128,10 @@ type RespondArgs struct {
 	Now             time.Time
 }
 
-// RespondToRequest implements Repo. One transaction: the request is read fresh (absent = replay, 0 writes),
+// RespondToRequest implements Repo. One transaction: the request is read fresh (absent = replay, nothing written),
 // then the requester's graph fresh; an accept then classifies (classifyAccept) and queues queueAccept plus
-// followersCount +1 on the target, a decline queues queueDecline. Reads 2 (+ the Directory lookup the caller supplies,
-// cache-first). Writes: accept 4 + 1 delete, decline 1 + 1 delete, inactive or drift 1 + 1 delete, cap or replay 0.
+// followersCount +1 on the target, a decline queues queueDecline. It reads the request and the requester's graph (the caller also supplies a cache-first
+// Directory lookup). A cap or a replay writes nothing.
 // A requester at the following cap is LimitReachedError{requester_following} with nothing written.
 func (r *FirestoreRepo) RespondToRequest(ctx context.Context, a RespondArgs) (RespondOutcome, error) {
 	reqRef, err := r.requestRef(a.RequesterUID, a.TargetUID)
@@ -141,10 +140,8 @@ func (r *FirestoreRepo) RespondToRequest(ctx context.Context, a RespondArgs) (Re
 	}
 	outcome := RespondReplay
 	err = r.runTx(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
-		counter := budget.FromContext(ctx)
 		outcome = RespondReplay
 		_, err := tx.Get(reqRef)
-		counter.AddReads(1)
 		switch {
 		case status.Code(err) == codes.NotFound:
 			return nil
@@ -161,7 +158,7 @@ func (r *FirestoreRepo) RespondToRequest(ctx context.Context, a RespondArgs) (Re
 		if err != nil {
 			return err
 		}
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		if !a.Accept {
 			outcome = RespondDecline
 			if err := r.queueDecline(b, a.TargetUID, a.RequesterUID, exists, a.Now); err != nil {
@@ -200,7 +197,7 @@ func (r *FirestoreRepo) RespondToRequest(ctx context.Context, a RespondArgs) (Re
 }
 
 // pendingRequestsCap bounds CountRequests (rule 5: every query has a Limit, aggregations included): Firestore bills a
-// count() as 1 read per 1,000 matches, so the cap keeps the badge at 1 read. The client shows "999+" past it.
+// count() per 1,000 matches, so the cap keeps the badge cheap. The client shows "999+" past it.
 const pendingRequestsCap = 1000
 
 // CountRequests implements Repo: count() on followRequests where followeeId == uid, capped at pendingRequestsCap. Reads
@@ -208,7 +205,6 @@ const pendingRequestsCap = 1000
 func (r *FirestoreRepo) CountRequests(ctx context.Context, uid string) (int64, error) {
 	q := r.client.Collection(followRequestsCollection).Where("followeeId", "==", uid).Limit(pendingRequestsCap)
 	res, err := q.NewAggregationQuery().WithCount("count").Get(ctx)
-	budget.FromContext(ctx).AddReads(1)
 	if err != nil {
 		return 0, fmt.Errorf("graph: count follow requests: %w", err)
 	}

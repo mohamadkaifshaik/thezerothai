@@ -117,7 +117,7 @@ func TestMessagesTakedown_TakesDownAndResolvesTheReport(t *testing.T) {
 		t.Errorf("resolved = %v notes = %v", f.ops.resolved, f.ops.notes)
 	}
 	for _, want := range []string{"VISIBLE -> REMOVED", "2 inbox preview(s) rewritten", "audit: messages takedown project=dzeroth-dev",
-		"before=VISIBLE after=REMOVED previews=2 wrote=true dry_run=false report=" + testReportID, "RESOLVED (TAKEDOWN)", "cost: reads=0 writes=0"} {
+		"before=VISIBLE after=REMOVED previews=2 wrote=true dry_run=false report=" + testReportID, "RESOLVED (TAKEDOWN)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}

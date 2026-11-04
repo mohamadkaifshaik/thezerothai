@@ -29,7 +29,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/internal/search"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/fsclient"
 )
@@ -482,19 +481,17 @@ func purge(ctx context.Context, b *backends, uid string, dryRun, skipGate bool, 
 
 // purgeLoop drives one resumable purge to completion: call step with the last checkpoint until it reports done,
 // retrying a failed call (a concurrent run can fail a batch precondition; the purge re-queries) and giving up
-// after maxConsecutiveErrors. One policy for purge-graph and purge-posts. Prints the final cost line.
+// after maxConsecutiveErrors. One policy for purge-graph and purge-posts. Prints a final done line.
 func purgeLoop[C any](ctx context.Context, out io.Writer, cp C,
 	step func(context.Context, C) (C, bool, error), describe func(C) string,
 ) error {
-	ctx, _ = budget.WithCounter(ctx)
 	return driveLoop(ctx, out, cp, step, describe, "purged")
 }
 
-// driveLoop is purgeLoop on the counter already in ctx, with the label of the final cost line ("purged", "hidden"...).
+// driveLoop is purgeLoop with the label of the final line ("purged", "hidden"...).
 func driveLoop[C any](ctx context.Context, out io.Writer, cp C,
 	step func(context.Context, C) (C, bool, error), describe func(C) string, label string,
 ) error {
-	counter := budget.FromContext(ctx)
 	failures := 0
 	for calls := 1; calls <= maxPurgeCalls; calls++ {
 		cctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -511,7 +508,7 @@ func driveLoop[C any](ctx context.Context, out io.Writer, cp C,
 		failures = 0
 		fmt.Fprintf(out, "call %d: %s -> %s done=%v\n", calls, describe(cp), describe(next), done)
 		if done {
-			fmt.Fprintf(out, "%s: reads=%d writes=%d deletes=%d\n", label, counter.Reads(), counter.Writes(), counter.Deletes())
+			fmt.Fprintf(out, "%s: done\n", label)
 			return nil
 		}
 		cp = next

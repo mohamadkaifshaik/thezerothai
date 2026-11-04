@@ -4,8 +4,6 @@ import (
 	"context"
 	"testing"
 	"time"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 func TestPrefixSucc(t *testing.T) {
@@ -45,20 +43,18 @@ func TestSearchHandles_Service(t *testing.T) {
 		limit     int
 		want      []string
 		wantLimit int // limit passed to the repo; 0 = repo not called
-		wantReads int64
 	}{
-		{"order and exact first, status kept", "AB", 20, []string{"ab", "ab_c", "abc", "abd", "abx"}, 20, 5},
-		{"limit clamped to 20", "ab", 50, []string{"ab", "ab_c", "abc", "abd", "abx"}, 20, 5},
-		{"limit below 1 clamped to 1", "ab", 0, []string{"ab"}, 1, 1},
-		{"limit respected", "ab", 2, []string{"ab", "ab_c"}, 2, 2},
-		{"no match bills 1", "q", 5, nil, 5, 1},
-		{"empty prefix: nothing, 0 reads", "", 5, nil, 0, 0},
+		{"order and exact first, status kept", "AB", 20, []string{"ab", "ab_c", "abc", "abd", "abx"}, 20},
+		{"limit clamped to 20", "ab", 50, []string{"ab", "ab_c", "abc", "abd", "abx"}, 20},
+		{"limit below 1 clamped to 1", "ab", 0, []string{"ab"}, 1},
+		{"limit respected", "ab", 2, []string{"ab", "ab_c"}, 2},
+		{"no match", "q", 5, nil, 5},
+		{"empty prefix: nothing, the repo is not called", "", 5, nil, 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			before := repo.searchCalls
-			ctx, _ := budget.WithCounter(context.Background())
-			got, err := svc.SearchHandles(ctx, tc.prefix, tc.limit)
+			got, err := svc.SearchHandles(context.Background(), tc.prefix, tc.limit)
 			if err != nil {
 				t.Fatal(err)
 			}

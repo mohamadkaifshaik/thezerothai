@@ -12,12 +12,11 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // A DeleteConversation that commits between a send's clock read and its transaction must not hide the message the send
 // recreates (B2): the send stamps the message and the entries strictly after either participant's clearedAt, read in
-// its own transaction (0 extra reads). The clock is fake and never ticks between the delete and the send, so the ordering
+// its own transaction. The clock is fake and never ticks between the delete and the send, so the ordering
 // does not depend on real concurrency: Now == clearedAt, Now < clearedAt (another instance's slower clock) and the control
 // Now > clearedAt.
 func TestDelete_ThenAnInFlightSend(t *testing.T) {
@@ -34,7 +33,7 @@ func TestDelete_ThenAnInFlightSend(t *testing.T) {
 			e := newIT(t, nil)
 			id := e.request(2)
 			e.tick(time.Minute)
-			if _, err := e.del(e.newService(), bob, id); err != nil {
+			if err := e.del(e.newService(), bob, id); err != nil {
 				t.Fatal(err)
 			}
 			cleared := e.now().Truncate(time.Microsecond)
@@ -43,7 +42,7 @@ func TestDelete_ThenAnInFlightSend(t *testing.T) {
 			}
 			// The in-flight send: its handler read the clock before the delete committed.
 			e.tick(tc.shift)
-			resp, _, err := e.sendOn(e.newService(), alice, toUser(skey(600), bob, "in flight"))
+			resp, err := e.sendOn(e.newService(), alice, toUser(skey(600), bob, "in flight"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -62,7 +61,7 @@ func TestDelete_ThenAnInFlightSend(t *testing.T) {
 				t.Errorf("alice reads %v, want all three messages", got)
 			}
 			// A second delete clears the stamped message too: clearedAt is never before the entry's lastMessageAt.
-			if _, err := e.del(e.newService(), bob, id); err != nil {
+			if err := e.del(e.newService(), bob, id); err != nil {
 				t.Fatal(err)
 			}
 			if got := e.threadTexts(e.newService(), bob, id); len(got) != 0 {
@@ -82,12 +81,12 @@ func TestDelete_ThenAnInFlightSend(t *testing.T) {
 		e.must(bob, toUser(skey(2), alice, "old 2"))
 		id := ConversationID(alice, bob)
 		e.tick(time.Minute)
-		if _, err := e.del(e.newService(), alice, id); err != nil {
+		if err := e.del(e.newService(), alice, id); err != nil {
 			t.Fatal(err)
 		}
 		cleared := e.now().Truncate(time.Microsecond)
 		e.tick(-2 * time.Second) // the send's handler read a slower clock
-		resp, _, err := e.sendOn(e.newService(), alice, toUser(skey(3), bob, "mine, in flight"))
+		resp, err := e.sendOn(e.newService(), alice, toUser(skey(3), bob, "mine, in flight"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -112,17 +111,17 @@ func TestDelete_ThenAnInFlightSend(t *testing.T) {
 		e.must(alice, toUser(skey(1), bob, "old"))
 		id := ConversationID(alice, bob)
 		e.tick(time.Minute)
-		if _, err := e.del(e.newService(), alice, id); err != nil {
+		if err := e.del(e.newService(), alice, id); err != nil {
 			t.Fatal(err)
 		}
 		e.tick(time.Second)
-		if _, err := e.del(e.newService(), bob, id); err != nil {
+		if err := e.del(e.newService(), bob, id); err != nil {
 			t.Fatal(err)
 		}
 		conv, _ := e.conv(id)
 		later := conv.ClearedAt[bob]
 		e.tick(-time.Hour)
-		resp, _, err := e.sendOn(e.newService(), alice, toUser(skey(2), bob, "after both"))
+		resp, err := e.sendOn(e.newService(), alice, toUser(skey(2), bob, "after both"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -145,10 +144,10 @@ func TestSend_ReplayAfterAPeerDeleteKeepsTheStoredStamp(t *testing.T) {
 	first := e.must(alice, toUser(skey(1), bob, "once"))
 	id := ConversationID(alice, bob)
 	e.tick(time.Minute)
-	if _, err := e.del(e.newService(), bob, id); err != nil {
+	if err := e.del(e.newService(), bob, id); err != nil {
 		t.Fatal(err)
 	}
-	again, _, err := e.sendOn(e.newService(), alice, toUser(skey(1), bob, "once"))
+	again, err := e.sendOn(e.newService(), alice, toUser(skey(1), bob, "once"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +157,7 @@ func TestSend_ReplayAfterAPeerDeleteKeepsTheStoredStamp(t *testing.T) {
 	if n := len(e.msgs(id)); n != 1 {
 		t.Errorf("messages = %d, want 1", n)
 	}
-	if _, _, err := e.sendOn(e.newService(), alice, toUser(skey(1), bob, "another body")); codeOf(err) != connect.CodeInvalidArgument {
+	if _, err := e.sendOn(e.newService(), alice, toUser(skey(1), bob, "another body")); codeOf(err) != connect.CodeInvalidArgument {
 		t.Errorf("same key, other body: %v, want VALIDATION", err)
 	}
 }
@@ -183,9 +182,7 @@ func TestAcceptDelete_MalformedKeyOnEmulator(t *testing.T) {
 				return err
 			},
 		} {
-			ctx, c := budget.WithCounter(verifiedCtx())
-			c.AddReads(1)
-			err := run(ctx)
+			err := run(verifiedCtx())
 			wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "idempotency_key"})
 		}
 	}

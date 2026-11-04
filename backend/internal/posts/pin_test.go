@@ -59,19 +59,18 @@ func TestPinChecker_CanPin(t *testing.T) {
 	}
 }
 
-// TestPinChecker_ReadsAndErrors: 1 read cold and 0 warm (the Reader's cache), and an infrastructure failure is an
-// error, never the "no" answer.
-func TestPinChecker_ReadsAndErrors(t *testing.T) {
+// TestPinChecker_CacheAndErrors: the post is fetched once cold and served from the Reader's cache when warm, and an
+// infrastructure failure is an error, never the "no" answer.
+func TestPinChecker_CacheAndErrors(t *testing.T) {
 	t.Parallel()
 	p := post("0000000000000000001", "uid-me")
 	repo := newFakeRepo(p)
 	svc, _ := newSvc(repo)
 	pc := NewPinChecker(svc)
-	for i, want := range []int64{1, 0} {
-		var ok bool
-		var err error
-		if r := reads(t, func(ctx context.Context) { ok, err = pc.CanPin(ctx, "uid-me", p.ID) }); err != nil || !ok || r != want {
-			t.Fatalf("call %d: ok=%v err=%v reads=%d, want true, nil and %d", i, ok, err, r, want)
+	for i := range 2 {
+		ok, err := pc.CanPin(context.Background(), "uid-me", p.ID)
+		if err != nil || !ok || repo.getAllCalls != 1 {
+			t.Fatalf("call %d: ok=%v err=%v getAllCalls=%d, want true, nil and one fetch in total", i, ok, err, repo.getAllCalls)
 		}
 	}
 

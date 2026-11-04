@@ -15,7 +15,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 var reqBase = time.Date(2026, 10, 28, 9, 0, 0, 0, time.UTC)
@@ -59,10 +58,10 @@ func requestedOf(t *testing.T, client *firestore.Client, uid string) []string {
 	return d.Requested
 }
 
-// runRequestPurge loops the step to completion on one counter and returns it with the number of calls.
-func runRequestPurge(t *testing.T, e *graph.RequestEraser, uid string) (*budget.Counter, int) {
+// runRequestPurge loops the step to completion and returns the number of calls.
+func runRequestPurge(t *testing.T, e *graph.RequestEraser, uid string) int {
 	t.Helper()
-	ctx, counter := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	var cp graph.RequestCheckpoint
 	for calls := 1; calls <= 20; calls++ {
 		next, done, err := e.PurgeUser(ctx, uid, cp)
@@ -70,12 +69,12 @@ func runRequestPurge(t *testing.T, e *graph.RequestEraser, uid string) (*budget.
 			t.Fatalf("PurgeUser call %d: %v", calls, err)
 		}
 		if done {
-			return counter, calls
+			return calls
 		}
 		cp = next
 	}
 	t.Fatal("the follow_requests step did not finish in 20 calls")
-	return nil, 0
+	return 0
 }
 
 func TestRequestEraser_Integration(t *testing.T) {
@@ -86,11 +85,11 @@ func TestRequestEraser_Integration(t *testing.T) {
 		out, in, ghosts int
 		wantCalls       int
 	}{
-		// Minimum: 1 empty query per side, 0 writes.
+		// Minimum: 1 empty query per side, nothing to write.
 		{"nothing", 0, 0, 0, 2},
 		{"one each way", 1, 1, 0, 2},
-		// 501 outgoing = pages of 500 + 1, then 3 incoming (2 live, 1 ghost): 501 + 3 doc reads, +3 for the
-		// requester-graph fallback after the ghost fails the first batch; the short incoming page ends the step.
+		// 501 outgoing = pages of 500 + 1, then 3 incoming (2 live, 1 ghost): the ghost fails the first batch and the
+		// requester-graph fallback finishes it; the short incoming page ends the step.
 		{"501 outgoing, 2 incoming and a ghost", 501, 2, 1, 3},
 	}
 	for _, tt := range tests {
@@ -116,7 +115,7 @@ func TestRequestEraser_Integration(t *testing.T) {
 			seedRequest(t, w.client, "uid-other", "uid-elsewhere", time.Minute, false)
 
 			e := graph.NewRequestEraser(w.graph.repo)
-			_, calls := runRequestPurge(t, e, "uid-u")
+			calls := runRequestPurge(t, e, "uid-u")
 			if calls != tt.wantCalls {
 				t.Errorf("calls = %d, want %d", calls, tt.wantCalls)
 			}
@@ -139,8 +138,14 @@ func TestRequestEraser_Integration(t *testing.T) {
 				t.Errorf("unrelated request count = %d, want 1", n)
 			}
 
-			// A replay (redelivery after completion) is the minimum: 2 reads, 0 writes.
-			_, _ = runRequestPurge(t, e, "uid-u")
+			// A replay (redelivery after completion) finds nothing to do: the minimum of one empty query per side, and the
+			// unrelated request is still untouched.
+			if replay := runRequestPurge(t, e, "uid-u"); replay != 2 {
+				t.Errorf("replay calls = %d, want 2", replay)
+			}
+			if n := countRequests(t, w.client, "followerId", "uid-other"); n != 1 {
+				t.Errorf("unrelated request count after the replay = %d, want 1", n)
+			}
 		})
 	}
 }
@@ -153,7 +158,9 @@ func TestExportRequests_Integration(t *testing.T) {
 	}
 
 	// Empty: two queries, both arrays present (never null).
-	measured(t, "ExportRequests empty", func(ctx context.Context) {
+	// ExportRequests empty
+	{
+		ctx := context.Background()
 		got, err := w.graph.repo.ExportRequests(ctx, "uid-u")
 		if err != nil {
 			t.Fatal(err)
@@ -161,7 +168,7 @@ func TestExportRequests_Integration(t *testing.T) {
 		if got.Sent == nil || got.Received == nil || len(got.Sent)+len(got.Received) != 0 {
 			t.Errorf("empty export = %+v, want two empty non-nil slices", got)
 		}
-	})
+	}
 
 	// u asked a (older) and b (newer); c (older) and d (newer) asked u.
 	seedRequest(t, w.client, "uid-u", "uid-a", 2*time.Hour, true)
@@ -170,7 +177,9 @@ func TestExportRequests_Integration(t *testing.T) {
 	seedRequest(t, w.client, "uid-d", "uid-u", 30*time.Minute, true)
 
 	// 4 request docs + 4 distinct handle lookups.
-	measured(t, "ExportRequests 2 sent 2 received", func(ctx context.Context) {
+	// ExportRequests 2 sent 2 received
+	{
+		ctx := context.Background()
 		got, err := w.graph.repo.ExportRequests(ctx, "uid-u")
 		if err != nil {
 			t.Fatal(err)
@@ -191,5 +200,5 @@ func TestExportRequests_Integration(t *testing.T) {
 		if !got.Sent[0].RequestedAt.Equal(reqBase.Add(-time.Hour)) {
 			t.Errorf("requestedAt = %v, want %v", got.Sent[0].RequestedAt, reqBase.Add(-time.Hour))
 		}
-	})
+	}
 }

@@ -76,7 +76,7 @@ func TestBackfillHasMedia_Integration_CLI(t *testing.T) {
 	}
 	t.Logf("dry run output:\n%s", stdout)
 	for _, want := range []string{
-		"backfill-has-media: reads=5 writes=0 deletes=0",
+		"backfill-has-media: done",
 		"dry-run: scanned=5 missing=3 would_update=3 runs_needed=1 (nothing written)",
 	} {
 		if !strings.Contains(stdout, want) {
@@ -94,7 +94,7 @@ func TestBackfillHasMedia_Integration_CLI(t *testing.T) {
 	}
 	t.Logf("real run output:\n%s", stdout)
 	for _, want := range []string{
-		"backfill-has-media: reads=5 writes=3 deletes=0",
+		"backfill-has-media: done",
 		"backfill-has-media: complete: scanned=5 updated=3 checkpoint=1000000000000000005",
 	} {
 		if !strings.Contains(stdout, want) {
@@ -114,7 +114,7 @@ func TestBackfillHasMedia_Integration_CLI(t *testing.T) {
 	}
 	t.Logf("rerun output:\n%s", stdout)
 	for _, want := range []string{
-		"backfill-has-media: reads=5 writes=0 deletes=0",
+		"backfill-has-media: done",
 		"backfill-has-media: complete: scanned=5 updated=0 checkpoint=1000000000000000005",
 	} {
 		if !strings.Contains(stdout, want) {
@@ -124,7 +124,7 @@ func TestBackfillHasMedia_Integration_CLI(t *testing.T) {
 
 	// --after resumes: only the posts after the checkpoint are read.
 	code, stdout, stderr = runBackfillCLI(t, client, "backfill-has-media", "--project", project, "--after", "1000000000000000003")
-	if code != 0 || !strings.Contains(stdout, "backfill-has-media: reads=2 writes=0 deletes=0") ||
+	if code != 0 ||
 		!strings.Contains(stdout, "complete: scanned=2 updated=0") {
 		t.Errorf("--after run: code=%d stdout=\n%s\nstderr=%q", code, stdout, stderr)
 	}

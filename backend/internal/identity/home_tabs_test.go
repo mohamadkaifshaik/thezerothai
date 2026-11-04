@@ -33,7 +33,7 @@ func TestHomeTabs_EncodeRoundTripAndComparable(t *testing.T) {
 	}
 }
 
-// GetMe returns home_tabs from the profile it already read (0 extra reads) and omits a tab whose kind's flag is off for the
+// GetMe returns home_tabs from the profile it already read (no extra repo fetch) and omits a tab whose kind's flag is off for the
 // caller; a dangling tab is kept (the client learns it from GetListTimeline).
 func TestGetMe_HomeTabsAndFlags(t *testing.T) {
 	t.Parallel()

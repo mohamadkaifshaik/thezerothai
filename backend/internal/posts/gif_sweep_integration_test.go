@@ -19,7 +19,7 @@ func TestSweepIT_GIFDraftIsUnavailableNotPublished(t *testing.T) {
 		p.Draft = &ScheduledDraft{Text: "a photo", Media: []MediaRef{{ID: sweepMediaID(2)}}}
 	})
 
-	res, _ := e.sweep()
+	res := e.sweep()
 	if res.Published != 1 || res.Failed[FailureMediaUnavailable] != 1 {
 		t.Fatalf("res = %+v, want 1 published and 1 FAILED MEDIA_UNAVAILABLE", res)
 	}

@@ -9,7 +9,6 @@ import (
 
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -24,7 +23,7 @@ func TestEmbedViewerState(t *testing.T) {
 		graphErr  error
 		post      func(e *createEnv) *Post
 		want      postsv1.EmbedViewerState
-		wantReads int64
+		wantGraph int
 	}{
 		{"plain post: no graph read", graph.Snapshot{Blocked: map[string]bool{uZed: true}},
 			nil, func(e *createEnv) *Post { return e.repo.docs[rRoot] }, unspec, 0},
@@ -61,9 +60,11 @@ func TestEmbedViewerState(t *testing.T) {
 			if tt.graphErr != nil {
 				e.graph.errs = map[string]error{testUID: tt.graphErr}
 			}
-			ctx, _ := budget.WithCounter(context.Background())
-			if got := e.svc.EmbedViewerState(ctx, testUID, tt.post(e)); got != tt.want {
+			if got := e.svc.EmbedViewerState(context.Background(), testUID, tt.post(e)); got != tt.want {
 				t.Fatalf("state = %v, want %v", got, tt.want)
+			}
+			if e.graph.calls != tt.wantGraph {
+				t.Fatalf("graph snapshots = %d, want %d", e.graph.calls, tt.wantGraph)
 			}
 		})
 	}

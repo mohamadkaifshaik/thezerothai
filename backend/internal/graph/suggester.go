@@ -19,7 +19,7 @@ const (
 	// friends found come first, curated rows fill after them.
 	SuggestionSourceCurated = "curated"
 	// SuggestionSourceNone: nothing is suggested at all, because the viewer's blockedBy list is incomplete
-	// (Snapshot.BlockedByOverflow) and a candidate who blocked the viewer could not be ruled out at 0 reads.
+	// (Snapshot.BlockedByOverflow) and a candidate who blocked the viewer could not be ruled out without a read.
 	SuggestionSourceNone = "none"
 )
 
@@ -49,7 +49,7 @@ type Suggestion struct {
 // Suggester is the candidate source behind ListSuggestedUsers. The default is friends of friends with
 // the curated fallback (option a, c); option (b) or a precomputed list implements this interface and is passed as
 // Deps.Suggester, and the RPC, its cache and its read cap do not change. Suggest receives the viewer's cached
-// Snapshot (0 reads); the RPC's hard cap (32 reads cold at the default EdgeLimit 20; 42 at 30) assumes it makes at
+// Snapshot; the RPC's read bound assumes it makes at
 // most one query of at most SuggestionLimits.EdgeLimit documents and returns at most SuggestionLimits.HydrateMax
 // candidates.
 type Suggester interface {
@@ -57,7 +57,7 @@ type Suggester interface {
 }
 
 // inactiveProber is an optional extension of identity.Directory: which of uids its profile cache ALREADY knows are not
-// ACTIVE (SUSPENDED, DELETING) or are gone. Cache only: 0 reads, and a uid the cache has not seen is absent, never
+// ACTIVE (SUSPENDED, DELETING) or are gone. Cache only, no read, and a uid the cache has not seen is absent, never
 // "active". identity's service implements it (KnownInactive); a Directory that does not (a fake, a future source) simply
 // reports nothing. It is asserted lazily on service.directory, which is only set after construction (SetDirectory).
 type inactiveProber interface {
@@ -74,7 +74,7 @@ type friendsOfFriends struct {
 	edges  followerEdgeLister
 	limits SuggestionLimits // normalized
 	now    func() time.Time
-	// inactive reports which of the given uids are already known not to be ACTIVE, at 0 reads (see inactiveProber).
+	// inactive reports which of the given uids are already known not to be ACTIVE, without a read (see inactiveProber).
 	// nil, or a nil result, means nothing is known.
 	inactive func(uids []string) map[string]bool
 }
@@ -83,9 +83,9 @@ func newFriendsOfFriends(edges followerEdgeLister, limits SuggestionLimits, now 
 	return &friendsOfFriends{edges: edges, limits: limits, now: now}
 }
 
-// Suggest implements Suggester. Reads: 0 when the viewer follows fewer than minSuggestions accounts (curated only) or
-// when every sampled followee is already known to be non-ACTIVE, else one query of at most EdgeLimit follow documents
-// (minimum 1). The "fewer than 3 candidates" test is made after
+// Suggest implements Suggester. It reads nothing when the viewer follows fewer than minSuggestions accounts (curated only) or
+// when every sampled followee is already known to be non-ACTIVE, else it runs one query of at most EdgeLimit follow
+// documents. The "fewer than 3 candidates" test is made after
 // the exclusion matrix, so a candidate the viewer could not be shown does not count.
 func (f *friendsOfFriends) Suggest(ctx context.Context, viewer string, snap Snapshot) (Suggestion, error) {
 	if snap.BlockedByOverflow {
@@ -126,7 +126,7 @@ func (f *friendsOfFriends) Suggest(ctx context.Context, viewer string, snap Snap
 // by that count, then by a hash of (viewer, candidate, IST day) so the order is stable within a day and shuffles
 // across days. A count of one is the common case with the default 20-edge window, so the hash is the real order.
 //
-// L-5, both at 0 reads: a sampled followee the Directory cache already knows is not ACTIVE is left out of the
+// L-5, both without a read: a sampled followee the Directory cache already knows is not ACTIVE is left out of the
 // query's follower list (a suspended spam account no longer steers, and its share of the window goes to the others),
 // and each remaining followee contributes at most maxCandidatesPerFollowee candidates, its newest usable edges (the
 // query returns edges newest first; an edge the exclusion matrix refuses takes no slot).
@@ -199,7 +199,7 @@ func tieBreak(viewer, candidate, day string) uint64 {
 	return h.Sum64()
 }
 
-// suggestable is the final filter, at 0 reads from the viewer's snapshot: never the viewer, anyone the viewer
+// suggestable is the final filter, from the viewer's snapshot with no read: never the viewer, anyone the viewer
 // follows or has requested, blocks or mutes, or is blocked by. blockedBy is never serialized to a client; here it only
 // removes a row (a user who blocked the viewer must not appear, while GetProfile says NOT_FOUND for them).
 func suggestable(viewer string, snap Snapshot, uid string) bool {

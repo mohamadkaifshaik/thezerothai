@@ -33,9 +33,6 @@ var _ ListReporter = (*service)(nil)
 // private list answers like a missing one). The caller's own list is ErrOwnList. It checks no flag: the report handler has
 // already required `reports` on and `lists` not globally off, so a user dropped from the lists allowlist can still report what
 // they saw.
-//
-// Firestore, worst case: the list 1 (instance cache, 0 warm), the caller's graph 1, the owner's profile 1 (directory cache,
-// 0 warm), the owner's graph 1 (cache-first); the owner as caller reads the list and their profile only (2).
 func (s *service) ReportableList(ctx context.Context, callerUID, listID string) (ReportedList, error) {
 	a, err := s.resolve(ctx, callerUID, listID, false)
 	if err != nil {

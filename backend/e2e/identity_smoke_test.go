@@ -149,7 +149,7 @@ func newTestServerCfg(t *testing.T, mutate func(*config.Config)) (client identit
 }
 
 // newTestServerCfgLog is newTestServerCfg with an explicit logger (nil = the production JSON logger on stdout),
-// so a test can read the one request line mw.Logging writes (fs_reads, gate, code, ...).
+// so a test can read the one request line mw.Logging writes (gate, code, ...).
 func newTestServerCfgLog(t *testing.T, mutate func(*config.Config), log *slog.Logger) (client identityv1connect.IdentityServiceClient, baseURL string) {
 	t.Helper()
 	cfg, err := config.Load()
@@ -514,8 +514,7 @@ func captureLogger() (*slog.Logger, *syncBuffer) {
 //     this RPC (identity's defence in depth sits on CreateProfile), so it proves the gate is wired;
 //   - with PerUserPerMinute = 1, repeated GetMe always answers PROFILE_REQUIRED and never RESOURCE_EXHAUSTED, so
 //     the gate runs BEFORE the rate limiter (no limiter key is created);
-//   - every GetMe line logs fs_reads = 0 and gate=email_unverified, so the gate also runs before account status
-//     (the account-status lookup would be 1 cold read).
+//   - every GetMe line logs gate=email_unverified, so the gate is what answered the call.
 func TestE2E_VerifiedIdentityGate_WiredBeforeRateLimiterAndAccountStatus(t *testing.T) {
 	skipIfNoEmulators(t)
 	log, logs := captureLogger()
@@ -553,7 +552,7 @@ func TestE2E_VerifiedIdentityGate_WiredBeforeRateLimiterAndAccountStatus(t *test
 
 // TestE2E_VerifiedIdentityGate_AnonymousOnlyAgainstTheEmulator: with config.AuthEmulator off
 // (what a deployed environment has), an anonymous-provider token is outside the allowlist and gets the A2
-// answers at 0 reads, logging gate=provider_not_allowed and gate_provider=anonymous; with it on (this test
+// answers from the token claims, logging gate=provider_not_allowed and gate_provider=anonymous; with it on (this test
 // environment) the same token passes the gate.
 func TestE2E_VerifiedIdentityGate_AnonymousOnlyAgainstTheEmulator(t *testing.T) {
 	skipIfNoEmulators(t)

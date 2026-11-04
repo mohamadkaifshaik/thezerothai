@@ -204,8 +204,8 @@ func assertBadIDsAreValidation(t *testing.T, bad string, includeHandleProbe bool
 }
 
 // M1: with page_size 1 over a list whose newest row is hidden by a block, the page comes back empty but carries
-// a token; no token (raw or decoded) contains any uid, and a token issued to one caller is rejected for another
-// at 0 reads. Own-list tokens are bound too.
+// a token; no token (raw or decoded) contains any uid, and a token issued to one caller is rejected for another.
+// Own-list tokens are bound too.
 func TestSecurity_Integration_PageTokensOpaqueAndBound(t *testing.T) {
 	w := newWired(t)
 	const viewer, other, target, hidden, vis1, vis2 = "uid-tkviewer", "uid-tkother", "uid-tktarget", "uid-tkhidden", "uid-tkvis1", "uid-tkvis2"

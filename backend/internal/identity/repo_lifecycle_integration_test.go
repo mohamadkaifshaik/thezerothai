@@ -16,7 +16,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 func lifecycleRepo(t *testing.T) (*identity.FirestoreRepo, *firestore.Client) {
@@ -42,8 +41,8 @@ func lower(s string) string {
 	return string(b)
 }
 
-// TestBeginDeletion_Integration: DeleteAccount's sync part is 1 read and 1 write (budget table); a replay
-// is 1 read and 0 writes; SUSPENDED may delete; and the deletion state survives UpdateProfile's whole-document write.
+// TestBeginDeletion_Integration: DeleteAccount's sync part marks the account DELETING; a replay
+// changes nothing; SUSPENDED may delete; and the deletion state survives UpdateProfile's whole-document write.
 func TestBeginDeletion_Integration(t *testing.T) {
 	repo, client := lifecycleRepo(t)
 	svc := identity.New(repo, identity.NewCache(time.Minute), time.Hour)
@@ -51,7 +50,7 @@ func TestBeginDeletion_Integration(t *testing.T) {
 	seedProfile(t, repo, "u2", "Bobby")
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	start, err := repo.BeginDeletion(ctx, "u1", now)
 	if err != nil || start.Replay {
 		t.Fatalf("BeginDeletion = %+v, %v", start, err)
@@ -64,7 +63,7 @@ func TestBeginDeletion_Integration(t *testing.T) {
 		t.Errorf("stored state = %+v updateTime %v", p, ut)
 	}
 
-	ctx, _ = budget.WithCounter(context.Background())
+	ctx = context.Background()
 	again, err := repo.BeginDeletion(ctx, "u1", now.Add(time.Hour))
 	if err != nil || !again.Replay || !again.Profile.DeletionRequestedAt.Equal(now) {
 		t.Fatalf("replay = %+v, %v", again, err)
@@ -94,7 +93,7 @@ func TestBeginDeletion_Integration(t *testing.T) {
 
 func strPtr(s string) *string { return &s }
 
-// TestSaveJobState_Integration: the save is 1 write, carries the UpdateTime precondition, and an unrelated counter
+// TestSaveJobState_Integration: the save carries the UpdateTime precondition, and an unrelated counter
 // increment between the read and the save is a conflict (the orchestrator re-reads and retries).
 func TestSaveJobState_Integration(t *testing.T) {
 	repo, client := lifecycleRepo(t)
@@ -105,7 +104,7 @@ func TestSaveJobState_Integration(t *testing.T) {
 	}
 	_, ut, _ := repo.GetJobState(context.Background(), "u1")
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	job := identity.DeletionJob{Seq: 1, Step: "graph", Checkpoint: []byte(`{"Step":2}`), ProgressAt: now}
 	if err := repo.SaveJobState(ctx, "u1", ut, job); err != nil {
 		t.Fatalf("SaveJobState: %v", err)
@@ -138,7 +137,7 @@ func TestSaveJobState_Integration(t *testing.T) {
 	}
 }
 
-// TestCreateExport_Integration: first request 1 read and 2 writes; a replay 2 reads and 0 writes (also with quota left
+// TestCreateExport_Integration: a first request creates the export; a replay writes nothing (also with quota left
 // and the next IST day, via the AlreadyExists rollback); the quota is
 // enforced across keys; the export doc carries the TTL field.
 func TestCreateExport_Integration(t *testing.T) {
@@ -146,13 +145,13 @@ func TestCreateExport_Integration(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	p := identity.CreateExportParams{ID: "export-id-1", UID: "u1", ObjectPath: "export-id-1.json", Now: now, Retention: 7 * 24 * time.Hour, ExportsPerDay: 1}
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	doc, replay, err := repo.CreateExport(ctx, p)
 	if err != nil || replay || doc.Status != identity.ExportPending || !doc.ExpireAt.Equal(now.Add(7*24*time.Hour)) {
 		t.Fatalf("CreateExport = %+v, %v, %v", doc, replay, err)
 	}
 
-	ctx, _ = budget.WithCounter(context.Background())
+	ctx = context.Background()
 	again, replay, err := repo.CreateExport(ctx, p)
 	if err != nil || !replay || again.ID != "export-id-1" {
 		t.Fatalf("replay = %+v, %v, %v", again, replay, err)
@@ -202,7 +201,7 @@ func TestCreateExport_Integration_ReplayWithQuotaLeft(t *testing.T) {
 	if _, _, err := repo.CreateExport(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	doc, replay, err := repo.CreateExport(ctx, p)
 	if err != nil || !replay || doc.ID != "export-id-1" || doc.UID != "u1" {
 		t.Fatalf("replay = %+v, %v, %v", doc, replay, err)
@@ -216,7 +215,7 @@ func TestCreateExport_Integration_ReplayWithQuotaLeft(t *testing.T) {
 	}
 }
 
-// TestIdentityStepOps_Integration: the identity-step repo operations on real documents, with their read/delete costs.
+// TestIdentityStepOps_Integration: the identity-step repo operations on real documents.
 func TestIdentityStepOps_Integration(t *testing.T) {
 	repo, client := lifecycleRepo(t)
 	ctx := context.Background()
@@ -237,8 +236,7 @@ func TestIdentityStepOps_Integration(t *testing.T) {
 		}
 	}
 
-	c1, _ := budget.WithCounter(ctx)
-	docs, err := repo.ListExports(c1, "u1", 50)
+	docs, err := repo.ListExports(ctx, "u1", 50)
 	if err != nil || len(docs) != 2 {
 		t.Fatalf("ListExports = %v, %v (u2's export must not be listed)", docs, err)
 	}
@@ -249,8 +247,7 @@ func TestIdentityStepOps_Integration(t *testing.T) {
 		t.Errorf("exports left: %v", left)
 	}
 
-	c2, _ := budget.WithCounter(ctx)
-	if n, err := repo.DeletePrivate(c2, "u1", 2); err != nil || n != 2 {
+	if n, err := repo.DeletePrivate(ctx, "u1", 2); err != nil || n != 2 {
 		t.Fatalf("DeletePrivate = %d, %v (limit 2)", n, err)
 	}
 	if n, err := repo.DeletePrivate(ctx, "u1", 500); err != nil || n != 1 {
@@ -267,8 +264,7 @@ func TestIdentityStepOps_Integration(t *testing.T) {
 	if _, err := client.Collection("handles").Doc("bobby").Get(ctx); err != nil {
 		t.Errorf("another user's handle was deleted: %v", err)
 	}
-	c3, _ := budget.WithCounter(ctx)
-	if out, err := repo.DeleteHandleIfOwned(c3, "alice", "u1"); err != nil || out != identity.HandleDeleted {
+	if out, err := repo.DeleteHandleIfOwned(ctx, "alice", "u1"); err != nil || out != identity.HandleDeleted {
 		t.Errorf("own handle: %v, %v", out, err)
 	}
 	if out, err := repo.DeleteHandleIfOwned(ctx, "alice", "u1"); err != nil || out != identity.HandleAbsent {
@@ -297,8 +293,7 @@ func TestIdentityStepOps_Integration(t *testing.T) {
 	if _, err := repo.GetProfile(ctx, "u1"); err != nil {
 		t.Fatalf("a conflicting DeleteUserDoc deleted the document: %v", err)
 	}
-	c4, _ := budget.WithCounter(ctx)
-	if err := repo.DeleteUserDoc(c4, "u1", 0); err != nil {
+	if err := repo.DeleteUserDoc(ctx, "u1", 0); err != nil {
 		t.Errorf("DeleteUserDoc: %v", err)
 	}
 	if err := repo.DeleteUserDoc(ctx, "u1", 0); err != nil {
@@ -310,7 +305,7 @@ func TestIdentityStepOps_Integration(t *testing.T) {
 }
 
 // TestBackstopQueries_Integration (L-6): the backstop scans are ordered by progress timestamp with the age filter in
-// the query, so fresh jobs cost nothing and cannot hide a stuck one, and a cursor walks the rest. The emulator does
+// the query, so fresh jobs cannot hide a stuck one, and a cursor walks the rest. The emulator does
 // not enforce composite indexes; firebase/firestore.indexes.json carries users(status, deletionJob.progressAt) and
 // exports(status, createdAt) for the deployed database.
 func TestBackstopQueries_Integration(t *testing.T) {
@@ -340,8 +335,7 @@ func TestBackstopQueries_Integration(t *testing.T) {
 	}
 	threshold := now.Add(-time.Hour)
 
-	c, _ := budget.WithCounter(ctx)
-	page, err := repo.ListDeleting(c, threshold, identity.BackstopCursor{}, 50)
+	page, err := repo.ListDeleting(ctx, threshold, identity.BackstopCursor{}, 50)
 	if err != nil || len(page) != 5 {
 		t.Fatalf("ListDeleting = %d accounts, %v; want only the 5 stuck ones among 56 DELETING", len(page), err)
 	}
@@ -390,8 +384,7 @@ func TestBackstopQueries_Integration(t *testing.T) {
 	if _, err := repo.ClaimExport(ctx, "p-mid", doc.UpdateTime, now.Add(-time.Hour)); err != nil { // a crashed run: lease long expired
 		t.Fatal(err)
 	}
-	c, _ = budget.WithCounter(ctx)
-	pend, err := repo.ListPendingExports(c, threshold, identity.BackstopCursor{}, 50)
+	pend, err := repo.ListPendingExports(ctx, threshold, identity.BackstopCursor{}, 50)
 	if err != nil || len(pend) != 2 || pend[0].ID != "p-old" || pend[1].ID != "p-mid" {
 		t.Fatalf("ListPendingExports = %v, %v; want [p-old p-mid] (oldest first, the fresh one filtered, the expired lease included)", pend, err)
 	}
@@ -416,8 +409,7 @@ func TestClaimExport_Integration(t *testing.T) {
 	}
 	lease := now.Add(35 * time.Second)
 
-	c, _ := budget.WithCounter(ctx)
-	ut, err := repo.ClaimExport(c, "x1", doc.UpdateTime, lease)
+	ut, err := repo.ClaimExport(ctx, "x1", doc.UpdateTime, lease)
 	if err != nil || !ut.After(doc.UpdateTime) {
 		t.Fatalf("ClaimExport = %v, %v", ut, err)
 	}

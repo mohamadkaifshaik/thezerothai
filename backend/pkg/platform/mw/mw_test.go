@@ -15,7 +15,6 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
@@ -204,8 +203,6 @@ func TestLogging_RecordsRequestLine(t *testing.T) {
 	log := slog.New(slog.NewJSONHandler(&buf, nil))
 
 	srv := newTestServer(t, testProcedure, func(ctx context.Context, req *connect.Request[commonv1.ErrorDetail]) (*connect.Response[commonv1.ErrorDetail], error) {
-		budget.FromContext(ctx).AddReads(3)
-		budget.FromContext(ctx).AddWrites(1)
 		return connect.NewResponse(&commonv1.ErrorDetail{}), nil
 	}, mw.Logging(log, "demo-project"))
 
@@ -214,7 +211,7 @@ func TestLogging_RecordsRequestLine(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{`"rpc":"` + testProcedure, `"fs_reads":3`, `"fs_writes":1`, `"code":"ok"`} {
+	for _, want := range []string{`"rpc":"` + testProcedure, `"code":"ok"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("log output missing %q; got: %s", want, out)
 		}
@@ -403,7 +400,7 @@ func TestLogging_DoesNotDoubleReportWhenErrorMappingAlreadyReported(t *testing.T
 }
 
 // TestLogging_EmitsRequestLineWhenRecoverCatchesPanic (N5): Logging must be outermost so a panicking
-// request still gets exactly one per-request log line (with trace/code/fs_reads) instead of the panic
+// request still gets exactly one per-request log line (with trace/code) instead of the panic
 // unwinding straight past Logging's post-call code to Recover's defer, skipping the log line entirely.
 func TestLogging_EmitsRequestLineWhenRecoverCatchesPanic(t *testing.T) {
 	var buf bytes.Buffer

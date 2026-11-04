@@ -16,7 +16,7 @@ import (
 )
 
 // UpdateProfile's banner, location, website and pinned_post_id, over fakeRepo. The
-// Firestore-backed paths are covered by the integration tests (repo budgets) and the apiserver chain test.
+// Firestore-backed paths are covered by the integration tests (the repo) and the apiserver chain test.
 
 const (
 	extrasUID  = "uid-1"

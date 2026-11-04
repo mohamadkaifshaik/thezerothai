@@ -12,8 +12,6 @@ import (
 	"fmt"
 
 	"cloud.google.com/go/firestore"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // Batch is the write-only unit-of-work interface modules depend on. Each method mutates the batch in
@@ -23,7 +21,7 @@ type Batch interface {
 	Create(ref *firestore.DocumentRef, data interface{}) Batch
 	Update(ref *firestore.DocumentRef, updates []firestore.Update, preconditions ...firestore.Precondition) Batch
 	// Delete's variadic preconditions let a caller require firestore.Exists so
-	// a whole atomic batch/transaction fails (0 writes) instead of silently deleting nothing when the
+	// a whole atomic batch/transaction fails (nothing is written) instead of silently deleting nothing when the
 	// document is already gone — Unfollow's blind-batch replay safety and the purge cascade's
 	// two-concurrent-runs safety both depend on this. Existing callers passing no preconditions are
 	// unaffected (backward compatible).
@@ -32,36 +30,31 @@ type Batch interface {
 
 // FirestoreBatch adapts *firestore.WriteBatch to Batch and owns committing it.
 type FirestoreBatch struct {
-	wb      *firestore.WriteBatch //nolint:staticcheck // SA1019: still the only atomic, non-transactional multi-doc write; BulkWriter is non-atomic (unit of work)
-	counter *budget.Counter
+	wb *firestore.WriteBatch //nolint:staticcheck // SA1019: still the only atomic, non-transactional multi-doc write; BulkWriter is non-atomic (unit of work)
 }
 
 // NewFirestoreBatch starts a new atomic batch (<= 500 writes; Firestore's own limit).
-func NewFirestoreBatch(client *firestore.Client, counter *budget.Counter) *FirestoreBatch {
-	return &FirestoreBatch{wb: client.Batch(), counter: counter} //nolint:staticcheck // SA1019: see FirestoreBatch.wb
+func NewFirestoreBatch(client *firestore.Client) *FirestoreBatch {
+	return &FirestoreBatch{wb: client.Batch()} //nolint:staticcheck // SA1019: see FirestoreBatch.wb
 }
 
 func (b *FirestoreBatch) Set(ref *firestore.DocumentRef, data interface{}, opts ...firestore.SetOption) Batch {
 	b.wb.Set(ref, data, opts...)
-	b.counter.AddWrites(1)
 	return b
 }
 
 func (b *FirestoreBatch) Create(ref *firestore.DocumentRef, data interface{}) Batch {
 	b.wb.Create(ref, data)
-	b.counter.AddWrites(1)
 	return b
 }
 
 func (b *FirestoreBatch) Update(ref *firestore.DocumentRef, updates []firestore.Update, preconditions ...firestore.Precondition) Batch {
 	b.wb.Update(ref, updates, preconditions...)
-	b.counter.AddWrites(1)
 	return b
 }
 
 func (b *FirestoreBatch) Delete(ref *firestore.DocumentRef, preconditions ...firestore.Precondition) Batch {
 	b.wb.Delete(ref, preconditions...)
-	b.counter.AddDeletes(1)
 	return b
 }
 
@@ -82,14 +75,13 @@ func (b *FirestoreBatch) Commit(ctx context.Context) error {
 // must be checked with Err() before the transaction callback returns nil.
 type FirestoreTxBatch struct {
 	tx       *firestore.Transaction
-	counter  *budget.Counter
 	firstErr error
 }
 
 // NewFirestoreTxBatch wraps an in-flight transaction. The transaction's own reads must go through tx.Get
-// directly (Batch has no read methods by design); repo code should count those reads on the same counter.
-func NewFirestoreTxBatch(tx *firestore.Transaction, counter *budget.Counter) *FirestoreTxBatch {
-	return &FirestoreTxBatch{tx: tx, counter: counter}
+// directly (Batch has no read methods by design).
+func NewFirestoreTxBatch(tx *firestore.Transaction) *FirestoreTxBatch {
+	return &FirestoreTxBatch{tx: tx}
 }
 
 // Err returns the first error, if any, raised by a Set/Create/Update/Delete call. Repo code must check
@@ -104,24 +96,20 @@ func (b *FirestoreTxBatch) noteErr(err error) {
 
 func (b *FirestoreTxBatch) Set(ref *firestore.DocumentRef, data interface{}, opts ...firestore.SetOption) Batch {
 	b.noteErr(b.tx.Set(ref, data, opts...))
-	b.counter.AddWrites(1)
 	return b
 }
 
 func (b *FirestoreTxBatch) Create(ref *firestore.DocumentRef, data interface{}) Batch {
 	b.noteErr(b.tx.Create(ref, data))
-	b.counter.AddWrites(1)
 	return b
 }
 
 func (b *FirestoreTxBatch) Update(ref *firestore.DocumentRef, updates []firestore.Update, preconditions ...firestore.Precondition) Batch {
 	b.noteErr(b.tx.Update(ref, updates, preconditions...))
-	b.counter.AddWrites(1)
 	return b
 }
 
 func (b *FirestoreTxBatch) Delete(ref *firestore.DocumentRef, preconditions ...firestore.Precondition) Batch {
 	b.noteErr(b.tx.Delete(ref, preconditions...))
-	b.counter.AddDeletes(1)
 	return b
 }

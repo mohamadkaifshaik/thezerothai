@@ -76,7 +76,7 @@ type MeResult struct {
 	Profile                 Profile
 	UnreadNotificationCount int64
 	// EnabledFeatures is the caller's server feature flags, e.g. ["graph"]. Nil when no
-	// FeatureFlags provider was wired (Phase 0 default) — GetMe still returns 0 reads either way.
+	// FeatureFlags provider was wired (Phase 0 default) — GetMe still answers without a read either way.
 	EnabledFeatures []string
 	// PendingFollowRequestCount is the number of follow requests waiting for a protected caller, capped at
 	// 1,000 by the counter; 0 for every other caller and when the count failed (WARN, never an error).
@@ -101,7 +101,7 @@ type UpdateProfileParams struct {
 	// value is rejected with ERROR_REASON_MEDIA_NOT_READY.
 	AvatarMediaID *string
 	// Setting any of the four (a non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS on
-	// for the caller (FEATURE_DISABLED feature=profile_extras, 0 reads; a request that mixes a clear with a set is refused
+	// for the caller (FEATURE_DISABLED feature=profile_extras, no read; a request that mixes a clear with a set is refused
 	// whole). The exact value "" is a clear and is accepted from any authenticated caller whatever the flag, globally off
 	// included. nil = unchanged.
 	//
@@ -150,7 +150,7 @@ type Counters interface {
 // than identity ever reads or writes users/{uid} directly. Unlike Directory.GetProfiles it does NOT filter by status:
 // SUSPENDED and DELETING profiles come back with their Status so the caller can decide.
 type TxProfiles interface {
-	// ProfileInTx reads users/{uid} through tx. Reads 1 (charged to ctx's budget.Counter). ErrNotFound when the
+	// ProfileInTx reads users/{uid} through tx. ErrNotFound when the
 	// document is absent. The error text never includes the uid.
 	ProfileInTx(ctx context.Context, tx *firestore.Transaction, uid string) (Profile, error)
 }
@@ -163,9 +163,9 @@ type Repo interface {
 	// ResolveHandle reads handles/{handleLower} and returns the owning uid. Returns ErrNotFound if free.
 	ResolveHandle(ctx context.Context, handleLower string) (string, error)
 	// ResolveHandles batch-reads handles/{h} for every handle in handleLowers via one GetAll (<=
-	// MaxResolveHandles). Reads: len(handleLowers). Handles with no document are absent from the result.
+	// MaxResolveHandles). Handles with no document are absent from the result.
 	ResolveHandles(ctx context.Context, handleLowers []string) (map[string]string, error)
-	// SearchHandles runs the handleLower prefix range query (limit already clamped 1..20). Reads: len(result), min 1.
+	// SearchHandles runs the handleLower prefix range query (limit already clamped 1..20).
 	SearchHandles(ctx context.Context, prefix string, limit int) ([]Profile, error)
 	// CreateProfile runs the signup transaction: read users/{uid}+handles/{h}; on first call,
 	// create users, handles, and (via graphInit) graph. A replay (users/{uid} already exists) returns the
@@ -174,23 +174,21 @@ type Repo interface {
 	// its error aborts the transaction unchanged and nothing is written. It never runs on a replay.
 	CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) error) (profile Profile, replay bool, err error)
 	// UpdateProfile reads users/{uid}, applies mutate, writes the result back and returns the new Profile. When mutate
-	// leaves the profile unchanged (the caller must not touch UpdatedAt then) nothing is written: 1 read, 0 writes
-	// (L-4).
+	// leaves the profile unchanged (the caller must not touch UpdatedAt then) nothing is written.
 	UpdateProfile(ctx context.Context, uid string, mutate func(*Profile)) (Profile, error)
-	// ChangeHandle runs the rename transaction: reads users/{uid} + handles/{new} (worst case 2
-	// reads, matching the proto doc comment). Every invariant — no-op (identical handle), case-only rename
+	// ChangeHandle runs the rename transaction: reads users/{uid} + handles/{new}. Every invariant — no-op (identical handle), case-only rename
 	// (same lower, different case), the handle-change cooldown, and handle uniqueness — is checked here,
 	// against the doc read fresh inside this same transaction (M4: never against a value the caller
 	// cached earlier, which could be stale relative to a change committed on another instance):
-	//   - identical handle: 0 writes, returns the current profile unchanged.
-	//   - same handleLower, different case: 1 write (users only); handles/{} is untouched since the
+	//   - identical handle: writes nothing, returns the current profile unchanged.
+	//   - same handleLower, different case: updates users only; handles/{} is untouched since the
 	//     uniqueness key didn't change.
-	//   - different handleLower, cooldown not yet elapsed: ErrHandleChangeCooldown, 0 writes.
+	//   - different handleLower, cooldown not yet elapsed: ErrHandleChangeCooldown, nothing written.
 	//   - different handleLower, handles/{new} exists and is owned by a different uid: ErrHandleTaken.
 	//   - different handleLower, handles/{new} exists and is already owned by uid: treated as a successful
 	//     idempotent retry (not ErrHandleTaken) — creates/updates handles/{new}, deletes handles/{old},
-	//     updates users; same 2 writes + 1 delete as the common case.
-	//   - otherwise: creates handles/{new}, deletes handles/{old}, updates users (2 writes, 1 delete).
+	//     updates users; same writes as the common case.
+	//   - otherwise: creates handles/{new}, deletes handles/{old}, updates users.
 	// Returns the resulting profile and the old handleLower the caller should invalidate from its own
 	// cache ("" for the no-op/case-only-rename paths, which never free a handle).
 	ChangeHandle(ctx context.Context, uid, newHandle, newHandleLower string, now time.Time, cooldown time.Duration) (profile Profile, invalidateOldHandleLower string, err error)
@@ -203,7 +201,7 @@ type Repo interface {
 }
 
 // FeatureFlags reports which server feature flags are enabled for a caller, for
-// GetMeResponse.enabled_features. 0 Firestore reads. Implemented by pkg/platform/flags.Registry; declared
+// GetMeResponse.enabled_features. It reads nothing from Firestore. Implemented by pkg/platform/flags.Registry; declared
 // here (rather than identity importing that package's concrete type into its exported API) so identity's
 // dependency stays interface-shaped.
 type FeatureFlags interface {
@@ -217,7 +215,7 @@ type FeatureFlags interface {
 // overflow fallback may add one read on the rare account that has been blocked by more than 10,000 users).
 type BlockChecker interface {
 	IsBlockedBy(ctx context.Context, viewerUID, targetUID string) (bool, error)
-	// IsFollowing reports whether viewerUID follows targetUID, from the viewer's own cached graph snapshot (0 reads on a hit).
+	// IsFollowing reports whether viewerUID follows targetUID, from the viewer's own cached graph snapshot (no read on a hit).
 	// GetProfile uses it to decide, before it touches the protected set, whether a viewer is an
 	// approved follower who keeps the pin.
 	IsFollowing(ctx context.Context, viewerUID, targetUID string) (bool, error)
@@ -237,15 +235,13 @@ type Directory interface {
 	LookupProfiles(ctx context.Context, uids []string) (found map[string]Profile, missing []string, err error)
 	// ResolveHandles maps lower-case handles to their owning uids for @mention resolution: at
 	// most MaxResolveHandles distinct handles, cache-first (the handle->uid cache, then the 10 s negative
-	// handle cache), then one GetAll on handles/* for the rest, so reads = the number of uncached handles
-	// (<= 10, typically 0-4). Handles that are unknown, reserved or malformed are absent from the map and cost
-	// nothing; the caller leaves them as plain text. It does not check account status.
+	// handle cache), then one GetAll on handles/* for the rest (at most 10). Handles that are unknown, reserved or malformed are
+	// absent from the map and are never looked up; the caller leaves them as plain text. It does not check account status.
 	ResolveHandles(ctx context.Context, lowers []string) (map[string]string, error)
 	// SearchHandles lists users whose handleLower starts with prefix (lower-cased by the service), in handleLower
 	// order so an exact match comes first, raw profiles including status (SUSPENDED and DELETING included;
-	// filtering is the caller's job, as with posts.Reader). limit is clamped to 1..20. Firestore: reads =
-	// len(result), minimum 1, so at most 20; writes 0; an empty prefix returns nothing with 0 reads. Not cached
-	// here; the search module caches by (prefix, limit) for 60 s.
+	// filtering is the caller's job, as with posts.Reader). limit is clamped to 1..20. It never writes, and an
+	// empty prefix returns nothing without a query. Not cached here; the search module caches by (prefix, limit) for 60 s.
 	SearchHandles(ctx context.Context, prefix string, limit int) ([]Profile, error)
 	Forget(uids ...string)
 	// ForgetUnread evicts only uid's cached unread count, leaving the profile cached (for a caller that just
@@ -277,7 +273,7 @@ type AvatarRef struct {
 var ErrAvatarNotReady = errors.New("identity: avatar media not ready")
 
 // AvatarResolver is the consumer-side seam to the media module; apiserver adapts media.Library and
-// the FEATURE_MEDIA check. 1 Firestore read.
+// the FEATURE_MEDIA check.
 type AvatarResolver interface {
 	ResolveAvatar(ctx context.Context, uid, mediaID string) (AvatarRef, error)
 }
@@ -288,7 +284,7 @@ type AvatarResolver interface {
 // website, which are omitted while the flag is globally off (D3, Amendment 1 A1).
 const ProfileExtrasFlag = "profile_extras"
 
-// ExtrasFlags is the consumer-side flag seam of the profile extras (*flags.Registry satisfies it). 0 Firestore reads.
+// ExtrasFlags is the consumer-side flag seam of the profile extras (*flags.Registry satisfies it). It reads nothing from Firestore.
 // Enabled is the per-caller answer that gates the writes; GloballyOff is the kill switch: only mode off, never a
 // rollout, so an allowlisted user's pin and website keep showing to everyone while the flag ramps. A nil ExtrasFlags
 // means off for every caller (fail closed) and globally off.
@@ -310,8 +306,8 @@ type BannerRef struct {
 var ErrBannerNotReady = errors.New("identity: banner media not ready")
 
 // BannerResolver is the consumer-side seam to the media module, mirroring AvatarResolver. It uses
-// media.Reader.ResolveBanner and apiserver adapts it (including the FEATURE_MEDIA check). 1 Firestore read (the media
-// doc). A nil resolver (WithBannerResolver not called) keeps every non-empty banner_media_id rejected as not ready.
+// media.Reader.ResolveBanner and apiserver adapts it (including the FEATURE_MEDIA check); it reads the media
+// doc. A nil resolver (WithBannerResolver not called) keeps every non-empty banner_media_id rejected as not ready.
 type BannerResolver interface {
 	ResolveBanner(ctx context.Context, uid, mediaID string) (BannerRef, error)
 }
@@ -320,14 +316,14 @@ type BannerResolver interface {
 // CanPin reports whether postID is uid's own POST, QUOTE or REPLY that is still visible (not a
 // REPOST, not deleted or taken down, not owned by anyone else). Every "no" is the same (false, nil): the caller
 // answers one VALIDATION field=pinned_post_id for every cause, so the call is no existence oracle. A non-nil error is
-// an infrastructure failure, not a verdict. Read cache-first: 1 Firestore read cold, 0 warm. A nil checker (the
+// an infrastructure failure, not a verdict. Read cache-first. A nil checker (the
 // WithPinChecker default) turns every non-empty pinned_post_id into that same VALIDATION answer.
 type PinChecker interface {
 	CanPin(ctx context.Context, uid, postID string) (bool, error)
 }
 
 // Pins is the identity step of the post_delete job. ClearIfPinned runs one transaction: it reads
-// users/{uid} fresh (1 read) and only when pinnedPostId == postID updates it to "" (1 write, field-level, so a purged
+// users/{uid} fresh and only when pinnedPostId == postID updates it to "" (field-level, so a purged
 // users doc is never recreated; NotFound is "not pinned"). It never touches a newer pin. cleared reports whether it
 // wrote. A takedown does not call it: a restore brings the pin back. *FirestoreRepo implements it.
 type Pins interface {
@@ -348,7 +344,7 @@ type ProtectedSet interface {
 
 // ProtectedAuthors is the loader of the protected set, declared here so every consumer depends on this
 // interface only (the Stage 2 sharded set or Memorystore changes no caller). The implementation is lazy, singleflight,
-// at most one read per instance per CACHE_TTL on a detached counter (protected_set_reads), never charged to a caller.
+// at most one load per instance per CACHE_TTL, never on a caller's behalf.
 type ProtectedAuthors interface {
 	// Current returns the instance's copy of the set. A missing doc is an empty set. When a refresh fails it keeps the
 	// last good copy for at most PROTECTED_SET_MAX_STALE; past that, or when the instance never loaded a set, it returns
@@ -373,18 +369,18 @@ type PrivacyListener interface {
 
 // FollowRequestCounter is the consumer-side seam GetMe uses for pending_follow_request_count (the
 // BlockChecker pattern: identity cannot query graph's collection). graph implements it with a count() on
-// followRequests where followeeId == uid (1 read per 1,000 matches, minimum 1). identity caches the answer 30 s per uid.
+// followRequests where followeeId == uid. identity caches the answer 30 s per uid.
 type FollowRequestCounter interface {
 	PendingFollowRequests(ctx context.Context, uid string) (int64, error)
 }
 
 // MessagingFlag is the wire name of FEATURE_MESSAGING in GetMe.enabled_features. identity cannot import
-// messaging, so GetMe reads the per-caller answer from the enabled_features list it already computed (0 reads).
+// messaging, so GetMe reads the per-caller answer from the enabled_features list it already computed (no read).
 const MessagingFlag = "messaging"
 
 // MessageBadge is the consumer-side seam to the messaging module for GetMe.unread_conversation_count (
 // the BlockChecker / PinChecker pattern, so identity never imports messaging). messaging implements it with a
-// count() of users/{uid}/dmInbox where unreadCount > 0, Limit 100: 1 read (minimum 1). Requests do not count. identity
+// count() of users/{uid}/dmInbox where unreadCount > 0, Limit 100. Requests do not count. identity
 // caches the answer 30 s per uid and calls it only for a caller with messaging on. A nil MessageBadge
 // (WithMessageBadge not called) leaves the count 0.
 type MessageBadge interface {

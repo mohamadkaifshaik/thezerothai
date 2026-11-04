@@ -13,7 +13,7 @@ import (
 )
 
 // End-to-end emulator test of `opsctl lists hide|restore`: the real run flag handling and output over the real
-// lists.FirestoreRepo. The cost line is the budget assertion: 1 read and, when the flag changes, 1 write.
+// lists.FirestoreRepo.
 func TestLists_Integration_CLI(t *testing.T) {
 	client, project := backfillTestClient(t)
 	ctx := context.Background()
@@ -39,11 +39,11 @@ func TestLists_Integration_CLI(t *testing.T) {
 		want       []string
 		wantHidden any // value of the stored field after the step (nil = absent)
 	}{
-		{"hide", []string{"lists", "hide", id}, 0, []string{"hidden: list_hash=", "wrote=true", "cost: reads=1 writes=1"}, true},
-		{"hide again", []string{"lists", "hide", id}, 0, []string{"already hidden", "wrote=false", "cost: reads=1 writes=0"}, true},
-		{"dry-run restore", []string{"lists", "restore", id, "--dry-run"}, 0, []string{"currently hidden=true", "cost: reads=1 writes=0"}, true},
-		{"restore", []string{"lists", "restore", id}, 0, []string{"restored: list_hash=", "wrote=true", "cost: reads=1 writes=1"}, nil},
-		{"restore again", []string{"lists", "restore", id}, 0, []string{"not hidden", "wrote=false", "cost: reads=1 writes=0"}, nil},
+		{"hide", []string{"lists", "hide", id}, 0, []string{"hidden: list_hash=", "wrote=true"}, true},
+		{"hide again", []string{"lists", "hide", id}, 0, []string{"already hidden", "wrote=false"}, true},
+		{"dry-run restore", []string{"lists", "restore", id, "--dry-run"}, 0, []string{"currently hidden=true"}, true},
+		{"restore", []string{"lists", "restore", id}, 0, []string{"restored: list_hash=", "wrote=true"}, nil},
+		{"restore again", []string{"lists", "restore", id}, 0, []string{"not hidden", "wrote=false"}, nil},
 	}
 	for _, s := range steps {
 		code, out, errOut := runCLI(append(s.args, "--project", project)...)
@@ -74,7 +74,7 @@ func TestLists_Integration_CLI(t *testing.T) {
 
 	// A missing list is refused with exit 1, writes nothing and creates nothing.
 	code, out, errOut := runCLI("lists", "hide", "0000000000000009999", "--project", project)
-	if code != 1 || !strings.Contains(errOut, "no such list") || !strings.Contains(out, "cost: reads=1 writes=0") {
+	if code != 1 || !strings.Contains(errOut, "no such list") {
 		t.Errorf("missing: code=%d stdout=%q stderr=%q", code, out, errOut)
 	}
 	if _, err := client.Collection("lists").Doc("0000000000000009999").Get(ctx); err == nil {

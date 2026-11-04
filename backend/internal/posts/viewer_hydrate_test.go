@@ -109,7 +109,7 @@ func TestToView_BookmarkedByViewer(t *testing.T) {
 
 // GetPost end to end through the handler, one case per flag mode (off / bookmarks only / engagement only / both):
 // bookmarked_by_viewer is set for the bookmarked post only, the like and repost flags never leak with only bookmarks
-// on, and with both flags off Firestore's userLikes seam is never called (0 reads).
+// on, and with both flags off Firestore's userLikes seam is never called.
 func TestServer_GetPost_BookmarkedByViewer(t *testing.T) {
 	t.Parallel()
 	set := NewViewerSetWithBookmarks([]string{pidOther}, []string{pidOther}, []string{pidOther})

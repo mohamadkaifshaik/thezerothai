@@ -10,7 +10,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 const (
@@ -33,7 +32,6 @@ func newPlatform(status communities.Status, owner string) *fakePlatform {
 }
 
 func (f *fakePlatform) Get(ctx context.Context, id string) (communities.Community, error) {
-	budget.FromContext(ctx).AddReads(1)
 	if !f.exists {
 		return communities.Community{}, communities.ErrNotFound
 	}
@@ -41,7 +39,6 @@ func (f *fakePlatform) Get(ctx context.Context, id string) (communities.Communit
 }
 
 func (f *fakePlatform) SetSuspended(ctx context.Context, _ string, suspend bool, _ time.Time) (bool, communities.Status, communities.Status, error) {
-	budget.FromContext(ctx).AddReads(1)
 	if f.err != nil {
 		return false, "", "", f.err
 	}
@@ -61,12 +58,10 @@ func (f *fakePlatform) SetSuspended(ctx context.Context, _ string, suspend bool,
 		return false, before, before, nil
 	}
 	f.sets++
-	budget.FromContext(ctx).AddWrites(1)
 	return true, before, f.status, nil
 }
 
 func (f *fakePlatform) Archive(ctx context.Context, _ string, _ time.Time, _ int) (communities.ArchiveResult, error) {
-	budget.FromContext(ctx).AddReads(1)
 	if !f.exists {
 		return communities.ArchiveResult{}, communities.ErrNotFound
 	}
@@ -76,8 +71,6 @@ func (f *fakePlatform) Archive(ctx context.Context, _ string, _ time.Time, _ int
 	if f.owner == "" {
 		return communities.ArchiveResult{}, nil
 	}
-	budget.FromContext(ctx).AddReads(2)
-	budget.FromContext(ctx).AddWrites(2)
 	f.owner, f.status = "", communities.StatusArchived
 	f.archives++
 	return communities.ArchiveResult{Changed: true, OwnerMember: communities.MemberJoined}, nil
@@ -158,18 +151,18 @@ func TestCommunity_UsageAndValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			p := newPlatform(communities.StatusActive, "owner")
-			code, out, errOut := runCommunity(p, &fakeOps{}, "", tt.args...)
+			code, _, errOut := runCommunity(p, &fakeOps{}, "", tt.args...)
 			if code != 2 || !strings.Contains(errOut, tt.want) {
 				t.Fatalf("code=%d stderr=%q, want 2 containing %q", code, errOut, tt.want)
 			}
-			if p.sets != 0 || strings.Contains(out, "cost:") {
-				t.Errorf("a usage error did work: sets=%d out=%q", p.sets, out)
+			if p.sets != 0 {
+				t.Errorf("a usage error did work: sets=%d", p.sets)
 			}
 		})
 	}
 }
 
-func TestCommunity_SuspendRestoreCostAndOutput(t *testing.T) {
+func TestCommunity_SuspendRestoreAndOutput(t *testing.T) {
 	t.Parallel()
 	p := newPlatform(communities.StatusActive, "owner")
 	hash := communityHashForAudit(testCommunityID)
@@ -179,12 +172,12 @@ func TestCommunity_SuspendRestoreCostAndOutput(t *testing.T) {
 		want []string
 		not  []string
 	}{
-		{"dry-run suspend writes nothing", []string{"community", "suspend", testCommunityID, "--dry-run"}, []string{"currently ACTIVE", "would write status SUSPENDED", "cost: reads=1 writes=0"}, []string{"audit:"}},
-		{"suspend", []string{"community", "suspend", testCommunityID}, []string{"suspended: community_hash=" + hash, "within 60 s", "wrote=true", "cost: reads=1 writes=1"}, nil},
-		{"suspend again", []string{"community", "suspend", testCommunityID}, []string{"already suspended", "wrote=false", "cost: reads=1 writes=0"}, nil},
-		{"dry-run restore", []string{"community", "restore", testCommunityID, "--dry-run"}, []string{"currently SUSPENDED", "would write status ACTIVE", "cost: reads=1 writes=0"}, []string{"audit:"}},
-		{"restore", []string{"community", "restore", testCommunityID}, []string{"restored: community_hash=" + hash, "status=ACTIVE", "wrote=true", "cost: reads=1 writes=1"}, nil},
-		{"restore again", []string{"community", "restore", testCommunityID}, []string{"not suspended", "wrote=false", "cost: reads=1 writes=0"}, nil},
+		{"dry-run suspend writes nothing", []string{"community", "suspend", testCommunityID, "--dry-run"}, []string{"currently ACTIVE", "would write status SUSPENDED"}, []string{"audit:"}},
+		{"suspend", []string{"community", "suspend", testCommunityID}, []string{"suspended: community_hash=" + hash, "within 60 s", "wrote=true"}, nil},
+		{"suspend again", []string{"community", "suspend", testCommunityID}, []string{"already suspended", "wrote=false"}, nil},
+		{"dry-run restore", []string{"community", "restore", testCommunityID, "--dry-run"}, []string{"currently SUSPENDED", "would write status ACTIVE"}, []string{"audit:"}},
+		{"restore", []string{"community", "restore", testCommunityID}, []string{"restored: community_hash=" + hash, "status=ACTIVE", "wrote=true"}, nil},
+		{"restore again", []string{"community", "restore", testCommunityID}, []string{"not suspended", "wrote=false"}, nil},
 	}
 	for _, s := range steps {
 		code, out, errOut := runCommunity(p, &fakeOps{}, "", append(s.args, "--project", "dzeroth-dev")...)
@@ -232,9 +225,9 @@ func TestCommunity_Archive(t *testing.T) {
 		code int
 		want []string
 	}{
-		{"dry-run", []string{"community", "archive", testCommunityID, "--dry-run"}, 0, []string{"would write status ARCHIVED and clear the owner", "cost: reads=1 writes=0"}},
-		{"archive", []string{"community", "archive", testCommunityID}, 0, []string{"archived: community_hash=", "restore does NOT undo this", "wrote=true", "cost: reads=3 writes=2"}},
-		{"archive again", []string{"community", "archive", testCommunityID}, 0, []string{"already ownerless", "wrote=false", "cost: reads=1 writes=0"}},
+		{"dry-run", []string{"community", "archive", testCommunityID, "--dry-run"}, 0, []string{"would write status ARCHIVED and clear the owner"}},
+		{"archive", []string{"community", "archive", testCommunityID}, 0, []string{"archived: community_hash=", "restore does NOT undo this", "wrote=true"}},
+		{"archive again", []string{"community", "archive", testCommunityID}, 0, []string{"already ownerless", "wrote=false"}},
 	}
 	for _, s := range steps {
 		code, out, errOut := runCommunity(p, &fakeOps{}, "", append(s.args, "--project", "dzeroth-dev")...)
@@ -292,8 +285,7 @@ func TestCommunity_SuspendWithReport(t *testing.T) {
 		if code != 0 || p.status != communities.StatusSuspended || ops.resolved[testReportID] != moderation.ResolutionTakedown || ops.notes[testReportID] != "hate speech" {
 			t.Fatalf("code=%d stderr=%q status=%s resolved=%v notes=%v", code, errOut, p.status, ops.resolved, ops.notes)
 		}
-		// check 1 read + suspend 1 read + 1 write (the fake report store is outside the counter).
-		if !strings.Contains(out, "report="+testReportID) || !strings.Contains(out, "cost: reads=1 writes=1") {
+		if !strings.Contains(out, "report="+testReportID) {
 			t.Errorf("out=%q", out)
 		}
 	})

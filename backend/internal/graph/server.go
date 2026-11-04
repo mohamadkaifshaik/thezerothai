@@ -229,8 +229,7 @@ func respond[M any](ctx context.Context, fn func(uid string) (*M, error)) (*conn
 
 // ListFollowRequests and RespondToFollowRequest sit behind the gate, applied in the service layer
 // (follow_requests.go): FEATURE_GRAPH, then private_accounts not globally off or the caller protected now; a refusal is
-// FEATURE_DISABLED feature=private_accounts. Budgets: ListFollowRequests 42 / 102 reads cold at page 20 / 50
-// (21 / 51 warm), RespondToFollowRequest 3 cold / 2 warm and 4 writes + 1 delete on accept, 1 + 1 on decline, 0 on a replay.
+// FEATURE_DISABLED feature=private_accounts.
 func (s *Server) ListFollowRequests(ctx context.Context, req *connect.Request[graphv1.ListFollowRequestsRequest]) (*connect.Response[graphv1.ListFollowRequestsResponse], error) {
 	return respond(ctx, func(uid string) (*graphv1.ListFollowRequestsResponse, error) {
 		page, err := s.svc.ListFollowRequests(ctx, uid, req.Msg.GetPageSize(), req.Msg.GetPageToken())
@@ -250,7 +249,8 @@ func (s *Server) RespondToFollowRequest(ctx context.Context, req *connect.Reques
 
 // GetProfileRelationship is behind FEATURE_GRAPH like every GraphService RPC; the logic is in
 // relationship.go.
-// 3 cold reads (interceptor, caller graph, edge doc; +1 Directory if cold, +1 on blockedByOverflow), 0 warm, 0 writes.
+// It reads the caller graph and the edge doc (plus the Directory profile if cold and the target graph on
+// blockedByOverflow) and writes nothing.
 func (s *Server) GetProfileRelationship(ctx context.Context, req *connect.Request[graphv1.GetProfileRelationshipRequest]) (*connect.Response[graphv1.GetProfileRelationshipResponse], error) {
 	return respond(ctx, func(uid string) (*graphv1.GetProfileRelationshipResponse, error) {
 		pr, err := s.svc.GetProfileRelationship(ctx, uid, req.Msg.GetUserId())
@@ -262,8 +262,8 @@ func (s *Server) GetProfileRelationship(ctx context.Context, req *connect.Reques
 }
 
 // ListSuggestedUsers is behind FEATURE_GRAPH and FEATURE_FOLLOW_SUGGESTIONS on for the caller; the
-// logic is in suggestions.go. Hard cap 32 reads cold (interceptor 1, caller graph 1, edges <= EdgeLimit 20, hydration <= 10), 12
-// on the curated path, 1 warm (2 when the 60 s snapshot has expired: every warm hit is re-filtered, L-1); 0 writes. At
+// logic is in suggestions.go. Reads are bounded: the caller graph, at most EdgeLimit follow edges (default 20) and at most 10 hydrated
+// profiles; a warm hit is re-filtered against the 60 s snapshot (L-1). It writes nothing. At
 // most 5 rows, no cursor, Since unset, possibly none.
 func (s *Server) ListSuggestedUsers(ctx context.Context, req *connect.Request[graphv1.ListSuggestedUsersRequest]) (*connect.Response[graphv1.ListSuggestedUsersResponse], error) {
 	return respond(ctx, func(uid string) (*graphv1.ListSuggestedUsersResponse, error) {

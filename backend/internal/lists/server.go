@@ -44,7 +44,7 @@ func (s *Server) gate(ctx context.Context) error {
 	return Guard(ctx, s.flags, uid)
 }
 
-// entry is the shared front of the write handlers: the flag gate (0 reads), the wiring check and the RPC deadline.
+// entry is the shared front of the write handlers: the flag gate, the wiring check and the RPC deadline.
 func (s *Server) entry(ctx context.Context, rpc string) (context.Context, context.CancelFunc, string, error) {
 	if err := s.gate(ctx); err != nil {
 		return nil, nil, "", err

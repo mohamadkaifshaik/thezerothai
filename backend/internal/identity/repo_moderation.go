@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -25,8 +24,8 @@ import (
 var ErrStatusConflict = errors.New("identity: account status does not allow this change")
 
 // SetAccountStatus moves users/{uid} from `from` to `to`, where the pair is ACTIVE/SUSPENDED in either direction.
-// It returns changed=false (0 writes) when the account is already in `to`. Any other current status is
-// ErrStatusConflict; a missing user is ErrNotFound. One transaction: 1 read, 1 write (0 on no-op).
+// It returns changed=false (and writes nothing) when the account is already in `to`. Any other current status is
+// ErrStatusConflict; a missing user is ErrNotFound. One transaction.
 func (r *FirestoreRepo) SetAccountStatus(ctx context.Context, uid string, from, to AccountStatus, now time.Time) (changed bool, err error) {
 	valid := (from == AccountStatusActive && to == AccountStatusSuspended) ||
 		(from == AccountStatusSuspended && to == AccountStatusActive)
@@ -35,9 +34,7 @@ func (r *FirestoreRepo) SetAccountStatus(ctx context.Context, uid string, from, 
 	}
 	_, err = store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
 		changed = false
-		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(r.userRef(uid))
-		counter.AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				return ErrNotFound
@@ -55,7 +52,7 @@ func (r *FirestoreRepo) SetAccountStatus(ctx context.Context, uid string, from, 
 		default:
 			return ErrStatusConflict
 		}
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		b.Update(r.userRef(uid), []firestore.Update{
 			{Path: "status", Value: statusToString(to)},
 			{Path: "updatedAt", Value: now},
@@ -147,10 +144,10 @@ type ClearResult struct {
 // ErrNotFound and a DELETING one is ErrStatusConflict, because the deletion job's UpdateTime-preconditioned
 // checkpoints must not race an operator write. It then writes one field-level Update that sets each requested field
 // that holds a value to "" plus updatedAt (banner and avatar clear both their URLs; either one set counts as set).
-// Fields that are already empty are skipped, so nothing to clear writes nothing and a rerun writes 0. It never uses
+// Fields that are already empty are skipped, so nothing to clear writes nothing and a rerun writes nothing. It never uses
 // Set, so it cannot recreate a purged document, and it does not touch snapshotVersion (none of these fields is part
 // of the author snapshot, as in UpdateProfile) or enqueue any job. dryRun reads and reports the same plan and writes
-// nothing. Reads 1, writes 1 (0 when nothing to clear, on a dry run, and on an error). The caches of running API
+// nothing. It writes nothing when there is nothing to clear, on a dry run, or on an error. The caches of running API
 // instances keep the old values for up to CACHE_TTL (60 s): a separate process cannot evict them.
 func (r *FirestoreRepo) ClearProfileFields(ctx context.Context, uid string, fields []ProfileField, now time.Time, dryRun bool) (ClearResult, error) {
 	if len(fields) == 0 {
@@ -159,9 +156,7 @@ func (r *FirestoreRepo) ClearProfileFields(ctx context.Context, uid string, fiel
 	var res ClearResult
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
 		res = ClearResult{}
-		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(r.userRef(uid))
-		counter.AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				return ErrNotFound
@@ -199,7 +194,7 @@ func (r *FirestoreRepo) ClearProfileFields(ctx context.Context, uid string, fiel
 			return nil
 		}
 		updates = append(updates, firestore.Update{Path: "updatedAt", Value: now})
-		b := store.NewFirestoreTxBatch(tx, counter)
+		b := store.NewFirestoreTxBatch(tx)
 		b.Update(r.userRef(uid), updates)
 		if err := b.Err(); err != nil {
 			return err

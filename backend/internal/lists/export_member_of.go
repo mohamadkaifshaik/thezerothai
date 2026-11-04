@@ -10,7 +10,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -52,7 +51,6 @@ func (r *FirestoreRepo) MemberOfPage(ctx context.Context, uid, after string, lim
 		q = q.StartAfter(r.ref(after))
 	}
 	docs, err := q.Limit(limit).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return nil, "", false, logger.RedactErr(fmt.Errorf("lists: export member-of %s: query: %w", logger.HashUID(uid), err), uid, after)
 	}

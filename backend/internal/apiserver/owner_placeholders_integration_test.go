@@ -10,7 +10,6 @@ package apiserver
 //     Home still drop the REPOST (GetPost stays the deleted post's NOT_FOUND: TestW335a_VisibilityMatrix);
 //   - Unlike, Remove bookmark and Undo repost from those ids land and the next page no longer holds the rows;
 //   - a follower and an unprotect bring the full rows back;
-//   - every list and tab stays inside its documented cold budget (+0 reads, +0 writes).
 
 import (
 	"context"
@@ -68,7 +67,7 @@ func TestW341a_OwnerPlaceholdersAndUndo(t *testing.T) {
 	s, repostID := w341aSeed(t, w)
 	other := w.w.user(t)
 
-	t.Run("lists: withheld placeholders, flags true, cold budgets unchanged", func(t *testing.T) {
+	t.Run("lists: withheld placeholders, flags true", func(t *testing.T) {
 		r := newW320Chain(t, w335aOn)
 		bm, err := r.list(s, 20, "")
 		if err != nil {

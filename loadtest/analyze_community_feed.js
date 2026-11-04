@@ -1,11 +1,11 @@
-// analyze_community_feed.js: W5 Part B reads, writes and server time per call from the API's JSON request log (scenario
+// analyze_community_feed.js: W5 Part B server time per call from the API's JSON request log (scenario
 // community_feed.js). Plain Node, no dependencies.
 //
 //   node loadtest/analyze_community_feed.js api.log k6.out
 //
 // api.log is the API process's stdout (JSON lines); k6.out is the k6 console output (stdout and stderr together), which carries the
 // `CF PHASE <name> <iso>` and `CF STEP <name> <iso>` markers. In the serial phase the i-th request line is the i-th STEP (one RPC per step,
-// one virtual user), so each case prints its own reads. Request lines after `cold_calls_done` are the herds and the join burst: they are
+// one virtual user), so each case prints its own line. Request lines after `cold_calls_done` are the herds and the join burst: they are
 // grouped by rpc, timeline_op, timeline_mode and cache_hit, with the server-side latency percentiles; the JoinCommunity group adds the
 // histogram of `community_txn_attempts`, the codes, and the count of WARN `community_txn_contention` lines (the ABORTED retries above 3).
 const fs = require('fs');
@@ -77,12 +77,12 @@ for (const line of fs.readFileSync(apiLog, 'utf8').split(/\r?\n/)) {
 // herd starts at COLD_HERD_START, after the serial phase ends, so it cannot interleave.
 if (seq.length !== steps.length) console.error(`WARNING: ${steps.length} steps but ${seq.length} request lines in the serial phase`);
 const f = (x) => (x === undefined ? '-' : x);
-console.log('step | rpc | code | reads | writes | deletes | latency_ms | mode | cache_hit | returned | filtered | removed | role | txn_attempts');
+console.log('step | rpc | code | latency_ms | mode | cache_hit | returned | filtered | removed | role | txn_attempts');
 steps.forEach((st, i) => {
   const o = seq[i];
   if (!o) return;
   console.log(
-    [st.name, short(o.rpc), f(o.code), f(o.fs_reads), f(o.fs_writes), f(o.fs_deletes), f(o.latency_ms), f(o.timeline_mode), f(o.cache_hit), f(o.items_returned), f(o.items_filtered), f(o.removed), f(o.viewer_role), f(o.community_txn_attempts)].join(' | '),
+    [st.name, short(o.rpc), f(o.code), f(o.latency_ms), f(o.timeline_mode), f(o.cache_hit), f(o.items_returned), f(o.items_filtered), f(o.removed), f(o.viewer_role), f(o.community_txn_attempts)].join(' | '),
   );
 });
 
@@ -95,11 +95,10 @@ for (const o of later) {
 }
 for (const [k, rows] of [...groups.entries()].sort()) {
   const lat = rows.map((r) => r.latency_ms || 0);
-  const reads = rows.map((r) => r.fs_reads || 0);
   const codes = {};
   for (const r of rows) codes[r.code] = (codes[r.code] || 0) + 1;
   console.log(
-    `${k}: calls=${rows.length} latency_ms mean=${mean(lat).toFixed(1)} p50=${pct(lat, 50)} p95=${pct(lat, 95)} max=${Math.max(...lat)} | fs_reads mean=${mean(reads).toFixed(2)} max=${Math.max(...reads)} hist=${hist(reads)} | fs_writes mean=${mean(rows.map((r) => r.fs_writes || 0)).toFixed(2)} hist=${hist(rows.map((r) => r.fs_writes || 0))} | codes=${JSON.stringify(codes)}${rows.some((r) => r.community_txn_attempts !== undefined) ? ` | community_txn_attempts hist=${hist(rows.map((r) => r.community_txn_attempts))}` : ''}`,
+    `${k}: calls=${rows.length} latency_ms mean=${mean(lat).toFixed(1)} p50=${pct(lat, 50)} p95=${pct(lat, 95)} p99=${pct(lat, 99)} max=${Math.max(...lat)} | codes=${JSON.stringify(codes)}${rows.some((r) => r.community_txn_attempts !== undefined) ? ` | community_txn_attempts hist=${hist(rows.map((r) => r.community_txn_attempts))}` : ''}`,
   );
 }
 const joins = later.filter((o) => /JoinCommunity$/.test(o.rpc));

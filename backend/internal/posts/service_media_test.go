@@ -51,7 +51,7 @@ func TestCreate_MediaPassedToRepo(t *testing.T) {
 			e := newCreateEnv()
 			in := tt.in
 			in.IdempotencyKey, in.MediaEnabled = key1, true
-			p, c, err := e.create(in)
+			p, err := e.create(in)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -60,7 +60,7 @@ func TestCreate_MediaPassedToRepo(t *testing.T) {
 				t.Fatalf("repo got ids=%v alts=%v", got.MediaIDs, got.MediaAlts)
 			}
 			if p == nil {
-				t.Fatalf("post=%v writes=%d (the fake models the base 4)", p, c.Writes())
+				t.Fatal("no post returned")
 			}
 		})
 	}
@@ -89,10 +89,10 @@ func TestCreate_MediaValidation(t *testing.T) {
 			e := newCreateEnv()
 			in := tt.in
 			in.IdempotencyKey, in.MediaEnabled = key1, true
-			_, c, err := e.create(in)
+			_, err := e.create(in)
 			ae := wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 			if ae.Metadata["field"] != tt.field || e.repo.createCalls != 0 {
-				t.Fatalf("field=%q reads=%d createCalls=%d", ae.Metadata["field"], c.Reads(), e.repo.createCalls)
+				t.Fatalf("field=%q createCalls=%d", ae.Metadata["field"], e.repo.createCalls)
 			}
 		})
 	}
@@ -100,34 +100,34 @@ func TestCreate_MediaValidation(t *testing.T) {
 
 func TestCreate_MediaDisabledByFlag(t *testing.T) {
 	e := newCreateEnv()
-	_, c, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", MediaIDs: []string{mid1}, MediaEnabled: false})
+	_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", MediaIDs: []string{mid1}, MediaEnabled: false})
 	ae := wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
 	if ae.Metadata["feature"] != "media" || e.repo.createCalls != 0 {
-		t.Fatalf("feature=%q reads=%d", ae.Metadata["feature"], c.Reads())
+		t.Fatalf("feature=%q createCalls=%d", ae.Metadata["feature"], e.repo.createCalls)
 	}
 }
 
 func TestCreate_MediaNotReadyIsOneAnswer(t *testing.T) {
 	e := newCreateEnv()
 	e.repo.createErr = fmt.Errorf("wrapped: %w", ErrMediaNotReady)
-	_, _, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", MediaIDs: []string{mid1}, MediaEnabled: true})
+	_, err := e.create(CreateInput{IdempotencyKey: key1, Text: "x", MediaIDs: []string{mid1}, MediaEnabled: true})
 	_ = wantAPIError(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY)
 }
 
 func TestCreate_MediaIdempotency(t *testing.T) {
 	e := newCreateEnv()
 	in := CreateInput{IdempotencyKey: key1, Text: "x", MediaIDs: []string{mid1}, MediaEnabled: true}
-	first, _, err := e.create(in)
+	first, err := e.create(in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	replay, c, err := e.create(in)
-	if err != nil || replay.ID != first.ID {
-		t.Fatalf("replay: id=%v err=%v writes=%d", replay, err, c.Writes())
+	replay, err := e.create(in)
+	if err != nil || replay.ID != first.ID || e.repo.postsCount != 1 {
+		t.Fatalf("replay: id=%v err=%v postsCount=%d, want the first post and one stored", replay, err, e.repo.postsCount)
 	}
 	other := in
 	other.MediaIDs = []string{mid2}
-	_, _, err = e.create(other)
+	_, err = e.create(other)
 	_ = wantAPIError(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED)
 }
 
@@ -159,7 +159,7 @@ func TestDelete_PublishesPostDeleteJob(t *testing.T) {
 			e := newDeleteEnv()
 			e.svc.jobs = jobs
 			e.repo.docs[pidMine].Media = tt.media
-			_, outcome, err := e.del(pidMine)
+			outcome, err := e.del(pidMine)
 			if err != nil || outcome != outcomeDeleted {
 				t.Fatalf("err=%v outcome=%s", err, outcome)
 			}
@@ -181,10 +181,10 @@ func TestDelete_NoJobForNoopCases(t *testing.T) {
 	e := newDeleteEnv()
 	e.svc.jobs = jobs
 	e.repo.docs[pidOther].Media = []MediaRef{{ID: mid1}}
-	if _, _, err := e.del(pidOther); err != nil { // someone else's post
+	if _, err := e.del(pidOther); err != nil { // someone else's post
 		t.Fatal(err)
 	}
-	if _, _, err := e.del("0000000000000000999"); err != nil { // unknown post
+	if _, err := e.del("0000000000000000999"); err != nil { // unknown post
 		t.Fatal(err)
 	}
 	if len(jobs.calls) != 0 {

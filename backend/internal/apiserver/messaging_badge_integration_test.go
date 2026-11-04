@@ -2,9 +2,9 @@
 
 package apiserver
 
-// GetMe.unread_conversation_count over the real Build chain on the emulators. Cold: 3 reads
-// (account-status profile, notification count, the dmInbox count()), warm 0, a send on this instance evicts it through
-// messaging.Deps.Badge so the next GetMe recounts (2 with the send's own notification-count eviction), messaging off for the caller 2 reads and 0.
+// GetMe.unread_conversation_count over the real Build chain on the emulators. Cold counts
+// the dmInbox, a warm repeat is served from the cache, a send on this instance evicts it through
+// messaging.Deps.Badge so the next GetMe recounts, and messaging off for the caller gives 0.
 
 import (
 	"context"
@@ -37,7 +37,7 @@ func TestMessagingChain_GetMeUnreadConversations(t *testing.T) {
 	setup.mustSend(t, p2, me, "two")
 	setup.mustSend(t, p3, me, "three")
 
-	// A fresh chain (cold caches): 3 unread conversations -> 3, 3 reads.
+	// A fresh chain (cold caches): 3 unread conversations -> 3.
 	chain := newDMChain(t, nil)
 	if got := chain.getMe(t, me).GetUnreadConversationCount(); got != 3 {
 		t.Fatalf("unread_conversation_count = %d, want 3", got)
@@ -62,7 +62,7 @@ func TestMessagingChain_GetMeUnreadConversations(t *testing.T) {
 		t.Fatalf("count after a send = %d, want 4", got)
 	}
 
-	// Messaging off for the caller: 0 and no count (the 2 reads of before then).
+	// Messaging off for the caller: 0 and no count.
 	offChain := newDMChain(t, func(c *config.Config) {
 		c.FeatureMessaging = flags.Spec{Name: "messaging", Mode: flags.Allowlist, Allowlist: map[string]struct{}{p1.uid: {}}}
 	})

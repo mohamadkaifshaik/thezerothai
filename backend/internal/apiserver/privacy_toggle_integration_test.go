@@ -2,10 +2,9 @@
 
 package apiserver
 
-// The is_private toggle through the real Build chain on the emulators, budgets asserted from the
-// request lines: protect 4 reads cold (interceptor + users, quotas, set doc) and 3 writes; an equal value 0 writes and no
-// quota charge; unprotect from a caller outside the cohort accepted; the 5th toggle of an IST day QUOTA_EXCEEDED with 0
-// writes; the cap LIMIT_REACHED limit=private_accounts with 0 writes; the set doc and users.isPrivate agree throughout.
+// The is_private toggle through the real Build chain on the emulators: protect; an equal value writes nothing and is not
+// charged to the quota; unprotect from a caller outside the cohort accepted; the 5th toggle of an IST day QUOTA_EXCEEDED and
+// writes nothing; the cap LIMIT_REACHED limit=private_accounts and writes nothing; the set doc and users.isPrivate agree throughout.
 
 import (
 	"context"
@@ -75,7 +74,7 @@ func TestPrivacyToggle_Chain(t *testing.T) {
 		t.Errorf("request line privacy_toggle = %v, want on", line[len(line)-1]["privacy_toggle"])
 	}
 
-	// The same value again: 1 read (users), 0 writes, quota unchanged.
+	// The same value again: nothing written, quota unchanged.
 	if err := call(cold, "ptoggle-key-0000002", true); err != nil {
 		t.Fatalf("protect again: %v", err)
 	}
@@ -95,7 +94,7 @@ func TestPrivacyToggle_Chain(t *testing.T) {
 		t.Fatalf("after unprotect: isPrivate=%v quota=%d set=%v, want false / 2 / without uid", priv, n, ptoggleSetUIDs(t, off.chainEnv))
 	}
 
-	// Toggles 3 and 4 pass, the 5th is QUOTA_EXCEEDED with 0 writes.
+	// Toggles 3 and 4 pass, the 5th is QUOTA_EXCEEDED and writes nothing.
 	for i, v := range []bool{true, false} {
 		if err := call(cold, "ptoggle-key-000001"+string(rune('0'+i)), v); err != nil {
 			t.Fatalf("toggle %d: %v", i+3, err)
@@ -113,7 +112,7 @@ func TestPrivacyToggle_Chain(t *testing.T) {
 }
 
 // TestPrivacyToggle_Cap: with the cap at the set's current size, a further protect is LIMIT_REACHED limit=private_accounts
-// with 0 writes (the set size is read from the shared emulator, so other tests' entries do not matter).
+// and writes nothing (the set size is read from the shared emulator, so other tests' entries do not matter).
 func TestPrivacyToggle_Cap(t *testing.T) {
 	ctx := context.Background()
 	token, uid := mintToken(t, "")

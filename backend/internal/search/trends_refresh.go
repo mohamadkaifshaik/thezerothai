@@ -13,7 +13,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
@@ -53,7 +52,6 @@ type PostScanner interface {
 
 // AuthorDirectory is the part of identity.Directory the sweep uses to check authors (identity.Directory satisfies it).
 // GetProfiles is cache-first, takes at most 50 ids, and omits users that are missing, SUSPENDED or DELETING.
-// Its reads are charged to ctx's budget.Counter.
 type AuthorDirectory interface {
 	GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error)
 }
@@ -135,8 +133,6 @@ type RunResult struct {
 	Backlog      bool
 	// WatermarkReset is true when a stale watermark (older than 48 h) was dropped (trends_backlog_skipped).
 	WatermarkReset bool
-	// FsReads and FsWrites are the run's own Firestore counts (the same numbers as the log line).
-	FsReads, FsWrites int64
 	// LaterPageErr is a failure after the first page: the run wrote what it had, as a backlog, and succeeded.
 	LaterPageErr error
 	// AuthorsChecked is the number of distinct authors whose profile batch was read; AuthorsUnverified the candidate
@@ -147,16 +143,6 @@ type RunResult struct {
 }
 
 // Refresh recomputes trends/current from the posts created since the last run.
-//
-// Firestore, worst case: flag globally off or DEGRADED_MODE=readonly 0 reads, 0 writes; a run inside TRENDS_MIN_INTERVAL
-// of the last list 1 read (the document), 0 writes; otherwise 2 + new posts (the document, the hide list, then one read per
-// projected post, an empty page bills 1: <= 2 + TRENDS_MAX_POSTS_PER_RUN = 2,002) plus the author check and 1 write. The
-// author check (part 2) reads the profiles of the distinct authors of the candidate tags with
-// identity.Directory.GetProfiles, at most TRENDS_MAX_AUTHOR_CHECKS (500) authors in batches of 50 (<= 10 calls, cache-first,
-// about 1 read per author on a cold cron instance): <= 2 + 2,000 + 500 = 2,502 reads in all, still 1 write. No candidate tag
-// means 0 extra reads. The protected set comes through the identity loader on its detached counter and is never charged
-// here. Refresh owns its budget counter and writes the one trends_refresh (or trends_skipped) line. The error is non-nil only when nothing was written because the document read, the hide list, the first page or
-// the protected set failed; a later-page failure writes the partial list as a backlog and is reported, not returned.
 func (r *Refresher) Refresh(ctx context.Context) error {
 	_, err := r.Run(ctx)
 	return err
@@ -165,11 +151,8 @@ func (r *Refresher) Refresh(ctx context.Context) error {
 // Run is Refresh with the result.
 func (r *Refresher) Run(ctx context.Context) (RunResult, error) {
 	started := r.cfg.Now()
-	ctx, counter := budget.WithCounter(ctx)
 	res, err := r.run(ctx, started)
-	res.FsReads, res.FsWrites = counter.Reads(), counter.Writes()
 	attrs := []any{
-		"fs_reads", counter.Reads(), "fs_writes", counter.Writes(),
 		"duration_ms", r.cfg.Now().Sub(started).Milliseconds(),
 	}
 	attrs = append(attrs, logger.TraceAttrs(ctx)...)

@@ -120,8 +120,6 @@ func TestClearProfileFields_Integration_RetiresClearedImages(t *testing.T) {
 		"avatar retire: not run (PROFILE_MEDIA_RETIRE=banner in this shell does not cover it)",
 		"banner object (public until the lifecycle rule deletes it): m/" + bannerID + ".webp in bucket " + project + "-media",
 		"avatar object (still public until deleted): m/" + avatarID + ".webp in bucket " + project + "-media",
-		// The clear (1 read, 1 write) plus one retire (users read, media doc read, 1 write).
-		"cost: reads=3 writes=2",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q", want)
@@ -140,7 +138,7 @@ func TestClearProfileFields_Integration_RetiresClearedImages(t *testing.T) {
 	// The avatar was cleared above without a retire; the profile now holds nothing, so the operator can still retire it
 	// by hand through a message, and a rerun of the command clears nothing and retires nothing (0 writes).
 	code, stdout, stderr = run(config.ProfileMediaRetireAll, nil, args("banner,avatar")...)
-	if code != 0 || !strings.Contains(stdout, "nothing to clear: 0 writes") || !strings.Contains(stdout, "cost: reads=1 writes=0") {
+	if code != 0 || !strings.Contains(stdout, "nothing to clear: 0 writes") {
 		t.Fatalf("rerun: code=%d stdout=\n%s\nstderr=%q", code, stdout, stderr)
 	}
 	if len(tags.calls) != 2 {
@@ -154,7 +152,7 @@ func TestClearProfileFields_Integration_RetiresClearedImages(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, stdout, stderr = run(config.ProfileMediaRetireAll, nil, args("avatar")...)
-	if code != 0 || !strings.Contains(stdout, "avatar retire: done.") || !strings.Contains(stdout, "cost: reads=3 writes=2") {
+	if code != 0 || !strings.Contains(stdout, "avatar retire: done.") {
 		t.Fatalf("mode all: code=%d stdout=\n%s\nstderr=%q", code, stdout, stderr)
 	}
 	if _, ok := retiredAt(avatarID); !ok {

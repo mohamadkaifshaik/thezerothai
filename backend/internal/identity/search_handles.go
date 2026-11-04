@@ -8,8 +8,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 	"google.golang.org/api/iterator"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // Handle-prefix reader limits (limit clamped 1..20).
@@ -32,10 +30,9 @@ func prefixSucc(p string) (string, bool) {
 
 // SearchHandles implements Directory: users whose handleLower starts with the lower-cased prefix, in handleLower
 // order (an exact match sorts first), raw profiles including status (filtering is the caller's job).
-// Firestore: reads = len(result), minimum 1 (an empty query bills 1), at most MaxSearchHandlesLimit (20);
-// writes 0. Query: handleLower >= p AND handleLower < succ(p) ORDER BY handleLower LIMIT n on the automatic
+// It returns at most MaxSearchHandlesLimit (20) rows and never writes. Query: handleLower >= p AND handleLower < succ(p) ORDER BY handleLower LIMIT n on the automatic
 // single-field index. No cache: the search module caches by (prefix, limit) for 60 s. An empty prefix returns
-// nothing with 0 reads.
+// nothing without a query.
 func (s *service) SearchHandles(ctx context.Context, prefix string, limit int) ([]Profile, error) {
 	prefix = strings.ToLower(prefix)
 	if _, ok := prefixSucc(prefix); !ok {
@@ -66,16 +63,13 @@ func (r *FirestoreRepo) SearchHandles(ctx context.Context, prefix string, limit 
 			break
 		}
 		if err != nil {
-			budget.FromContext(ctx).AddReads(int64(max(len(out), 1)))
 			return nil, fmt.Errorf("identity: search handles: %w", err)
 		}
 		var d userDoc
 		if err := snap.DataTo(&d); err != nil {
-			budget.FromContext(ctx).AddReads(int64(max(len(out)+1, 1)))
 			return nil, fmt.Errorf("identity: decode profile %s: %w", snap.Ref.ID, err)
 		}
 		out = append(out, d.toProfile(snap.Ref.ID))
 	}
-	budget.FromContext(ctx).AddReads(int64(max(len(out), 1)))
 	return out, nil
 }

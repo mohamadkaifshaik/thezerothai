@@ -64,7 +64,7 @@ func (a directoryAge) AccountCreatedAt(ctx context.Context, uid string) (time.Ti
 	return p.CreatedAt, nil
 }
 
-// postGone adapts the posts repo to media.PostGone: a fresh read that bypasses every cache (1 read).
+// postGone adapts the posts repo to media.PostGone: a fresh read that bypasses every cache.
 type postGone struct{ repo *posts.FirestoreRepo }
 
 func (p postGone) PostGone(ctx context.Context, postID string) (bool, error) {
@@ -216,7 +216,7 @@ func (m postsMediaClaim) Attach(b store.Batch, postID string) { m.c.Attach(b, po
 
 // bannerResolver adapts media.Reader to identity.BannerResolver and applies FEATURE_MEDIA, like
 // avatarResolver: with the flag off a banner id is "not ready" like any other unusable id (one answer). The
-// profile_extras gate is identity's (it runs before this is reached). 1 Firestore read (the media doc).
+// profile_extras gate is identity's (it runs before this is reached). It reads the media doc.
 type bannerResolver struct {
 	lib   media.Reader
 	flags *flags.Registry

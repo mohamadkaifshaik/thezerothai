@@ -16,8 +16,8 @@ import (
 // Unit tests of the per-item rules ("Sweep" steps 3 to 5): the cheapest-first checks, the outcomes a committed
 // transaction reports, the transient-attempts ladder, both panic recovery sites and the L-8 scrubbing of every error.
 
-// A check that fails outside the transaction costs 0 reads (beyond the query) and exactly one precondition write; the
-// publish transaction is never opened.
+// A check that fails outside the transaction makes exactly one precondition write and never opens the publish
+// transaction.
 func TestSweepItem_ChecksBeforeTheTransaction(t *testing.T) {
 	longText := strings.Repeat("a", 281)
 	tests := []struct {
@@ -53,7 +53,7 @@ func TestSweepItem_ChecksBeforeTheTransaction(t *testing.T) {
 			it := e.dueItem("uid-alice", 1, func(p *ScheduledPost) { tc.mut(e, p) })
 			queried := e.repo.doc("uid-alice", it.ID)
 
-			res, _, err := e.sweep(context.Background())
+			res, err := e.sweep(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -79,7 +79,7 @@ func TestSweepItem_BoundaryAndImageOnlyPublish(t *testing.T) {
 	t.Run("exactly SCHEDULED_MAX_LATENESS late is not expired", func(t *testing.T) {
 		e := newSweepEnv(t)
 		e.dueItem("uid-alice", 1, func(p *ScheduledPost) { p.PublishAt = e.now.Add(-6 * time.Hour) })
-		res, _, _ := e.sweep(context.Background())
+		res, _ := e.sweep(context.Background())
 		if res.Published != 1 || res.Expired() != 0 {
 			t.Errorf("res = %+v, want published", res)
 		}
@@ -87,7 +87,7 @@ func TestSweepItem_BoundaryAndImageOnlyPublish(t *testing.T) {
 	t.Run("an image-only post publishes (empty text with media is valid)", func(t *testing.T) {
 		e := newSweepEnv(t)
 		e.dueItem("uid-alice", 1, func(p *ScheduledPost) { p.Draft = &ScheduledDraft{Media: []MediaRef{{ID: sweepMediaID(7)}}} })
-		res, _, _ := e.sweep(context.Background())
+		res, _ := e.sweep(context.Background())
 		if res.Published != 1 {
 			t.Errorf("res = %+v, want published", res)
 		}
@@ -98,7 +98,7 @@ func TestSweepItem_BoundaryAndImageOnlyPublish(t *testing.T) {
 	t.Run("a text-only post sends no media to the transaction", func(t *testing.T) {
 		e := newSweepEnv(t)
 		e.dueItem("uid-alice", 1)
-		_, _, _ = e.sweep(context.Background())
+		_, _ = e.sweep(context.Background())
 		if p := e.repo.params[0]; p.MediaIDs != nil || p.MediaAlts != nil || p.ResolveMentions != nil {
 			t.Errorf("params = %+v, want no media and no mention resolver", p)
 		}
@@ -126,7 +126,7 @@ func TestSweepItem_CommittedOutcomes(t *testing.T) {
 			e := newSweepEnv(t)
 			e.dueItem("uid-alice", 1)
 			e.repo.publish = func(context.Context, PublishParams) (PublishResult, error) { return tc.res, nil }
-			res, _, err := e.sweep(context.Background())
+			res, err := e.sweep(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -169,7 +169,7 @@ func TestSweepItem_TransientErrorsCountAttemptsThenRetire(t *testing.T) {
 				return PublishResult{}, errors.New("rpc error: code = Unavailable desc = the service is currently unavailable")
 			}
 
-			res, _, err := e.sweep(context.Background())
+			res, err := e.sweep(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -203,7 +203,7 @@ func TestSweepItem_PanicInsideTheCallbackIsNotTransient(t *testing.T) {
 	e.repo.publish = func(context.Context, PublishParams) (PublishResult, error) {
 		return PublishResult{}, fmt.Errorf("wrapped: %w", &publishPanicError{typ: "*errors.errorString"})
 	}
-	res, _, err := e.sweep(context.Background())
+	res, err := e.sweep(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestSweepItem_PanicInTheWorkerIsRecoveredAndOthersPublish(t *testing.T) {
 		return e.repo.publishDefault(ctx, p)
 	}
 
-	res, _, err := e.sweep(context.Background())
+	res, err := e.sweep(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestSweepItem_PanicAfterTheCommitLeavesItPublished(t *testing.T) {
 	it := e.dueItem("uid-alice", 1)
 	e.events.panicOn = func(*Post) bool { return true }
 
-	res, _, err := e.sweep(context.Background())
+	res, err := e.sweep(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,12 +291,12 @@ func TestSweepItem_LostPreconditionIsAQuietNoop(t *testing.T) {
 		(ScheduledTransition{To: ScheduledCancelled}).apply(d, e.now, time.Hour)
 		e.repo.touch(d)
 	}
-	res, c, err := e.sweep(context.Background())
+	res, err := e.sweep(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.Noop != 1 || len(res.Failed) != 0 {
-		t.Errorf("res = %+v writes = %d, want a no-op with 0 writes", res, c.Writes())
+		t.Errorf("res = %+v, want a no-op", res)
 	}
 	if got := e.repo.doc("uid-alice", it.ID); got.Status != ScheduledCancelled || got.Failure != "" {
 		t.Errorf("item = %+v, want the user's CANCELLED untouched", got)
@@ -310,7 +310,7 @@ func TestSweepItem_ABookkeepingWriteThatErrorsIsCountedAndLogged(t *testing.T) {
 	e := newSweepEnv(t)
 	e.dueItem("uid-alice", 1, func(p *ScheduledPost) { p.SchemaVersion = 9 })
 	e.repo.transitionErr = errors.New("unavailable")
-	res, _, err := e.sweep(context.Background())
+	res, err := e.sweep(context.Background())
 	if err != nil || res.WriteFailed != 1 || len(res.Failed) != 0 {
 		t.Fatalf("res = %+v err = %v, want one failed write", res, err)
 	}
@@ -327,7 +327,7 @@ func TestSweepItem_ItemStartLineBeforeTheTransaction(t *testing.T) {
 		logged = len(e.logs.lines(`"scheduled_item_start"`)) == 1 // already written when the transaction starts
 		return e.repo.publishDefault(ctx, p)
 	}
-	if _, _, err := e.sweep(context.Background()); err != nil {
+	if _, err := e.sweep(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if !logged {
@@ -373,7 +373,7 @@ func TestSweep_ErrorsNeverLeakUIDs(t *testing.T) {
 		e := newSweepEnv(t)
 		e.dueItem(uidA, 1)
 		e.repo.publish = func(context.Context, PublishParams) (PublishResult, error) { return PublishResult{}, leaky() }
-		if _, _, err := e.sweep(context.Background()); err != nil {
+		if _, err := e.sweep(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		if len(e.logs.lines("scheduled_item_transient")) != 1 {
@@ -385,7 +385,7 @@ func TestSweep_ErrorsNeverLeakUIDs(t *testing.T) {
 		e := newSweepEnv(t)
 		e.dueItem(uidA, 1, func(p *ScheduledPost) { p.Attempts = 2 })
 		e.repo.publish = func(context.Context, PublishParams) (PublishResult, error) { return PublishResult{}, leaky() }
-		if _, _, err := e.sweep(context.Background()); err != nil {
+		if _, err := e.sweep(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		if len(e.logs.lines("ReportedErrorEvent")) != 1 {
@@ -399,7 +399,7 @@ func TestSweep_ErrorsNeverLeakUIDs(t *testing.T) {
 		e.dueItem(uidB, 2)
 		e.repo.publish = func(context.Context, PublishParams) (PublishResult, error) { return PublishResult{}, leaky() }
 		e.repo.transitionErr, e.repo.bumpErr = leaky(), leaky()
-		if _, _, err := e.sweep(context.Background()); err != nil {
+		if _, err := e.sweep(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		if len(e.logs.lines("scheduled_item_bookkeeping_failed")) != 2 {
@@ -410,7 +410,7 @@ func TestSweep_ErrorsNeverLeakUIDs(t *testing.T) {
 	t.Run("the due query fails and the error is returned", func(t *testing.T) {
 		e := newSweepEnv(t)
 		e.repo.dueErr, e.repo.dueErrAt = leaky(), 1
-		_, _, err := e.sweep(context.Background())
+		_, err := e.sweep(context.Background())
 		if err == nil {
 			t.Fatal("want the query error")
 		}
@@ -422,7 +422,7 @@ func TestSweep_ErrorsNeverLeakUIDs(t *testing.T) {
 		e.repo.publish = func(ctx context.Context, p PublishParams) (PublishResult, error) {
 			return PublishResult{}, fmt.Errorf("posts: resolve mentions: %w", leaky())
 		}
-		if _, _, err := e.sweep(context.Background()); err != nil {
+		if _, err := e.sweep(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		assertClean(t, e, nil)
@@ -453,7 +453,7 @@ func TestSweepItem_RecordsTheAuthorAgeBeforeThePostEvent(t *testing.T) {
 		e.repo.authorCreatedAt = signedUp
 		e.dueItem("uid-alice", 1)
 
-		if res, _, err := e.sweep(context.Background()); err != nil || res.Published != 1 {
+		if res, err := e.sweep(context.Background()); err != nil || res.Published != 1 {
 			t.Fatalf("res = %+v err = %v, want 1 published", res, err)
 		}
 		want := []string{"age uid-alice " + signedUp.UTC().Format(time.RFC3339), "created"}
@@ -471,7 +471,7 @@ func TestSweepItem_RecordsTheAuthorAgeBeforeThePostEvent(t *testing.T) {
 			return PublishResult{Outcome: PublishFailed, Failure: FailureQuotaExceeded}, nil
 		}
 		e.dueItem("uid-alice", 1)
-		if _, _, err := e.sweep(context.Background()); err != nil {
+		if _, err := e.sweep(context.Background()); err != nil {
 			t.Fatal(err)
 		}
 		if calls != 0 {
@@ -514,7 +514,7 @@ func TestSweepItem_WarningsAndErrorEntriesIdentifyTheItem(t *testing.T) {
 			}
 			it := e.dueItem("uid-alice", 1, muts...)
 			tc.setup(e, it)
-			if _, _, err := e.sweep(context.Background()); err != nil {
+			if _, err := e.sweep(context.Background()); err != nil {
 				t.Fatal(err)
 			}
 
@@ -559,7 +559,7 @@ func TestSweepItem_SecondPanicWhileHandlingIsLoggedNotSilent(t *testing.T) {
 		return e.repo.publishDefault(ctx, p)
 	}
 
-	res, _, err := e.sweep(context.Background()) // must not panic
+	res, err := e.sweep(context.Background()) // must not panic
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -590,7 +590,7 @@ func TestSweepItem_PostEventContextSurvivesTheRunContext(t *testing.T) {
 		return res, err
 	}
 
-	res, _, err := e.sweep(ctx)
+	res, err := e.sweep(ctx)
 	if err != nil || res.Published != 1 {
 		t.Fatalf("res = %+v err = %v, want 1 published", res, err)
 	}

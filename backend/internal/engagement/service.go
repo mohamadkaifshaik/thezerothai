@@ -21,7 +21,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
-// Request-log fields (counts, booleans and enums only; fs_reads/fs_writes/fs_deletes come from mw.Logging).
+// Request-log fields (counts, booleans and enums only).
 const (
 	fieldOp      = "engagement_op"
 	fieldOutcome = "outcome"
@@ -220,8 +220,8 @@ func validate(key, postID string) error {
 }
 
 // resolveViewable returns the post an action applies to: the target when visible to uid, and for a REPOST id the
-// original, also visible (D4, D13). Every refusal is the one NOT_FOUND. Reads: post 1 + author 1 + caller graph 1
-// cold, 0 warm; +1 on blockedBy overflow (author graph), +1 more for a QUOTE/REPOST (embedded author), +2 for a REPOST id.
+// original, also visible (D4, D13). Every refusal is the one NOT_FOUND. It reads the post, its author and the caller graph (cached); a blockedBy overflow
+// adds the author graph, a QUOTE/REPOST adds the embedded author, and a REPOST id adds the original.
 func (s *service) resolveViewable(ctx context.Context, uid, postID string) (*posts.Post, error) {
 	p, err := s.d.Posts.Viewable(ctx, uid, postID)
 	if errors.Is(err, posts.ErrNotFound) {
@@ -257,7 +257,7 @@ func (s *service) resolveViewable(ctx context.Context, uid, postID string) (*pos
 // the caller then answers the missing-post shape with id, byte-identical to a deleted original (the same PostID for a
 // REPOST id whose original is gone and one whose original is hidden), so the counts of a post the caller
 // cannot see are no oracle. id is still the id to write on (the original behind a REPOST id), so an undo always lands.
-// Reads: +0 warm, +1 cold (the caller's graph snapshot, cached 60 s); a protected-set error answers as not visible.
+// The caller's graph snapshot is cached for 60 s; a protected-set error answers as not visible.
 func (s *service) resolveForCounts(ctx context.Context, uid, postID string) (p *posts.Post, id string, found, visible bool, err error) {
 	p, err = s.d.Reader.Get(ctx, postID)
 	if errors.Is(err, posts.ErrNotFound) {
@@ -369,7 +369,7 @@ func (s *service) like(ctx context.Context, uid, key, postID string) (_ Result, 
 	// instance: they would only contend on the same like, post and quota docs. The followers did not write, so
 	// they are replays (no counter bump, no notification).
 	//
-	// The flight runs on a context detached from the leader's cancellation (values such as the budget counter
+	// The flight runs on a context detached from the leader's cancellation (values such as the
 	// and request log are kept; the repo's runTx supplies the transaction deadline). The leader always waits for
 	// its own flight (bounded by txTimeout): the transaction commits regardless, and the post-commit effects
 	// below (counter hook, cache, trim, notification) must run for a committed like. Only a follower, which
@@ -568,7 +568,7 @@ func (s *service) repost(ctx context.Context, uid, key, postID string) (_ Result
 		return Result{}, err
 	}
 	// A protected author's post is reposted only by that author; any other caller who can see it (an
-	// approved follower) gets PROTECTED_ACCOUNT, 0 writes. Undo (UndoRepost) never reaches this.
+	// approved follower) gets PROTECTED_ACCOUNT and nothing is written. Undo (UndoRepost) never reaches this.
 	if err := s.d.Posts.RefuseShare(ctx, uid, target); err != nil {
 		return Result{}, err
 	}

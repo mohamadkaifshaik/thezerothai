@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -25,7 +24,7 @@ const (
 )
 
 // refreshInterval is how long a registration with an unchanged token and index is treated as fresh: a
-// RegisterDevice inside it writes nothing ("once per app start" must not cost 2 writes each time).
+// RegisterDevice inside it writes nothing ("once per app start" must not rewrite the documents each time).
 const refreshInterval = 24 * time.Hour
 
 // ListQuery is one ListNotifications page: rows strictly older than Before (when set) and strictly newer than
@@ -39,15 +38,15 @@ type ListQuery struct {
 // Repo is the storage seam service.go and fanout.go depend on; FirestoreRepo is the implementation.
 type Repo interface {
 	// Create writes the row if it does not exist. created=false means it already existed (a redelivery, or the
-	// next like of a collapsed row). Reads 0, writes 1 (a failed create is billed as 1 read).
+	// next like of a collapsed row).
 	Create(ctx context.Context, recipientUID string, n Notification) (created bool, err error)
 	// AddActor folds a further actor into a collapsed row (actorIds capped at the last MaxActorIDs, actorCount
 	// incremented) and moves createdAt to at; an actor already in the row writes nothing. A missing row is not an
-	// error. Reads 1, writes 0-1.
+	// error.
 	AddActor(ctx context.Context, recipientUID, id string, a Actor, at time.Time) error
-	// List runs the query described by q. Reads: rows returned, minimum 1.
+	// List runs the query described by q.
 	List(ctx context.Context, uid string, q ListQuery) ([]Notification, error)
-	// Devices returns up to limit registered devices of uid. Reads: rows returned, minimum 1.
+	// Devices returns up to limit registered devices of uid.
 	Devices(ctx context.Context, uid string, limit int) ([]Device, error)
 	// RegisterDevice upserts d (transaction, see the method doc on FirestoreRepo).
 	RegisterDevice(ctx context.Context, uid string, d Device, now time.Time) error
@@ -152,12 +151,10 @@ func (r *FirestoreRepo) Create(ctx context.Context, recipientUID string, n Notif
 	_, err := r.notifications(recipientUID).Doc(n.ID).Create(ctx, doc)
 	if err != nil {
 		if status.Code(err) == codes.AlreadyExists {
-			budget.FromContext(ctx).AddReads(1)
 			return false, nil
 		}
 		return false, fmt.Errorf("notifications: create %s for %s: %w", n.ID, logger.HashUID(recipientUID), err)
 	}
-	budget.FromContext(ctx).AddWrites(1)
 	return true, nil
 }
 
@@ -176,15 +173,13 @@ func foldActor(ids []string, actorID string) ([]string, bool) {
 	return out, true
 }
 
-// AddActor implements Repo: one transaction, 1 read always, 1 write only when the actor is new to the row.
+// AddActor implements Repo: one transaction that writes only when the actor is new to the row.
 // actorIds is capped at the last MaxActorIDs (hot-doc bound) and actorCount keeps counting through
 // firestore.Increment. A missing row is not an error (expired or erased between the failed create and this call).
 func (r *FirestoreRepo) AddActor(ctx context.Context, recipientUID, id string, a Actor, at time.Time) error {
 	ref := r.notifications(recipientUID).Doc(id)
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(ref)
-		counter.AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				return nil
@@ -208,7 +203,6 @@ func (r *FirestoreRepo) AddActor(ctx context.Context, recipientUID, id string, a
 		}); err != nil {
 			return err
 		}
-		counter.AddWrites(1)
 		return nil
 	})
 	if err != nil {
@@ -227,7 +221,6 @@ func (r *FirestoreRepo) List(ctx context.Context, uid string, q ListQuery) ([]No
 		query = query.EndBefore(q.After.CreatedAt, r.notifications(uid).Doc(q.After.DocID))
 	}
 	docs, err := query.Limit(q.Limit).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return nil, fmt.Errorf("notifications: list for %s: %w", logger.HashUID(uid), err)
 	}
@@ -245,7 +238,6 @@ func (r *FirestoreRepo) List(ctx context.Context, uid string, q ListQuery) ([]No
 // Devices implements Repo.
 func (r *FirestoreRepo) Devices(ctx context.Context, uid string, limit int) ([]Device, error) {
 	docs, err := r.devices(uid).Limit(limit).Documents(ctx).GetAll()
-	budget.FromContext(ctx).AddQueryReads(len(docs))
 	if err != nil {
 		return nil, fmt.Errorf("notifications: devices for %s: %w", logger.HashUID(uid), err)
 	}
@@ -263,9 +255,9 @@ func (r *FirestoreRepo) Devices(ctx context.Context, uid string, limit int) ([]D
 // RegisterDevice upserts users/{uid}/devices/{d.ID} and deviceTokens/{sha256(token)} in one transaction.
 //
 // Reads (all before any write): the device doc, the token index, the previous owner's device when the index points
-// elsewhere, and, only for a new device, the 5 least recently updated devices of uid (to enforce the cap). Worst
-// case 8 reads, typical 2. Writes: the device and the index (2); worst case 5 (new device that also takes a token
-// over from another account and evicts the oldest device, with that device's index). A call that finds the same
+// elsewhere, and, only for a new device, the 5 least recently updated devices of uid (to enforce the cap).
+// Writes: the device and the index; a new device that also takes a token over from another account and evicts the
+// oldest device writes more (with that device's index). A call that finds the same
 // token, the same index and an updatedAt younger than refreshInterval writes nothing.
 //
 // Invariant kept by every writer: deviceTokens/{h}.{uid,deviceId} names the one device whose token hashes to h, so
@@ -274,18 +266,10 @@ func (r *FirestoreRepo) RegisterDevice(ctx context.Context, uid string, d Device
 	devRef := r.devices(uid).Doc(d.ID)
 	idxRef := r.tokenRef(d.Token)
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		// The body's ctx carries the per-attempt scratch counter: store.RunTransaction folds reads always and
-		// writes/deletes only for the attempt that commits (an aborted attempt wrote nothing).
-		counter := budget.FromContext(ctx)
-		var reads, writes, deletes int64
 		defer func() {
-			counter.AddReads(reads)
-			counter.AddWrites(writes)
-			counter.AddDeletes(deletes)
 		}()
 
 		devSnap, err := tx.Get(devRef)
-		reads++
 		exists := true
 		if err != nil {
 			if status.Code(err) != codes.NotFound {
@@ -294,7 +278,6 @@ func (r *FirestoreRepo) RegisterDevice(ctx context.Context, uid string, d Device
 			exists = false
 		}
 		idxSnap, err := tx.Get(idxRef)
-		reads++
 		idxExists := true
 		if err != nil {
 			if status.Code(err) != codes.NotFound {
@@ -315,7 +298,7 @@ func (r *FirestoreRepo) RegisterDevice(ctx context.Context, uid string, d Device
 				return fmt.Errorf("notifications: decode device: %w", err)
 			}
 			if cur.Token == d.Token && idxExists && idx.UID == uid && idx.DeviceID == d.ID && now.Sub(cur.UpdatedAt) < refreshInterval {
-				return nil // fresh: 0 writes
+				return nil // fresh: nothing to write
 			}
 		}
 
@@ -324,7 +307,6 @@ func (r *FirestoreRepo) RegisterDevice(ctx context.Context, uid string, d Device
 		if idxExists && (idx.UID != uid || idx.DeviceID != d.ID) {
 			prevRef := r.devices(idx.UID).Doc(idx.DeviceID)
 			prevSnap, err := tx.Get(prevRef)
-			reads++
 			switch {
 			case err == nil:
 				var prev deviceDoc
@@ -343,7 +325,6 @@ func (r *FirestoreRepo) RegisterDevice(ctx context.Context, uid string, d Device
 		var evictIdx *firestore.DocumentRef // set only when the index still names the evicted device
 		if !exists {
 			docs, err := tx.Documents(r.devices(uid).OrderBy("updatedAt", firestore.Asc).Limit(MaxDevicesPerUser)).GetAll()
-			reads += int64(max(len(docs), 1))
 			if err != nil {
 				return fmt.Errorf("notifications: list devices: %w", err)
 			}
@@ -366,7 +347,6 @@ func (r *FirestoreRepo) RegisterDevice(ctx context.Context, uid string, d Device
 				if err := evict.DataTo(&ed); err == nil && ed.Token != "" && ed.Token != d.Token {
 					ref := r.tokenRef(ed.Token)
 					snap, err := tx.Get(ref)
-					reads++
 					switch {
 					case err == nil:
 						var eidx tokenIndexDoc
@@ -390,47 +370,39 @@ func (r *FirestoreRepo) RegisterDevice(ctx context.Context, uid string, d Device
 		if err := tx.Set(devRef, deviceDoc{Token: d.Token, Platform: string(d.Platform), CreatedAt: createdAt, UpdatedAt: now}); err != nil {
 			return err
 		}
-		writes++
 		if err := tx.Set(idxRef, tokenIndexDoc{UID: uid, DeviceID: d.ID, UpdatedAt: now}); err != nil {
 			return err
 		}
-		writes++
 		if exists && cur.Token != d.Token {
 			if err := tx.Delete(r.tokenRef(cur.Token)); err != nil {
 				return err
 			}
-			deletes++
 		}
 		if takeOver != nil {
 			if err := tx.Delete(takeOver); err != nil {
 				return err
 			}
-			deletes++
 		}
 		if evictIdx != nil {
 			if err := tx.Delete(evictIdx); err != nil {
 				return err
 			}
-			deletes++
 		}
 		if evict != nil {
 			if err := tx.Delete(evict.Ref); err != nil {
 				return err
 			}
-			deletes++
 		}
 		return nil
 	})
 	return err
 }
 
-// RemoveDevice implements Repo. Reads 2 (device, index), writes 0 or 1-2 (deletes).
+// RemoveDevice implements Repo. It reads the device and the index, and deletes only what is there to remove.
 func (r *FirestoreRepo) RemoveDevice(ctx context.Context, uid, deviceID, onlyIfToken string) error {
 	devRef := r.devices(uid).Doc(deviceID)
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
-		counter := budget.FromContext(ctx)
 		snap, err := tx.Get(devRef)
-		counter.AddReads(1)
 		if err != nil {
 			if status.Code(err) == codes.NotFound {
 				return nil
@@ -446,7 +418,6 @@ func (r *FirestoreRepo) RemoveDevice(ctx context.Context, uid, deviceID, onlyIfT
 		}
 		idxRef := r.tokenRef(d.Token)
 		idxSnap, err := tx.Get(idxRef)
-		counter.AddReads(1)
 		ownsIndex := false
 		switch {
 		case err == nil:
@@ -461,12 +432,10 @@ func (r *FirestoreRepo) RemoveDevice(ctx context.Context, uid, deviceID, onlyIfT
 		if err := tx.Delete(devRef); err != nil {
 			return err
 		}
-		counter.AddDeletes(1)
 		if ownsIndex {
 			if err := tx.Delete(idxRef); err != nil {
 				return err
 			}
-			counter.AddDeletes(1)
 		}
 		return nil
 	})

@@ -101,7 +101,7 @@ func TestSchedulerIT_ConcurrentWindowCap(t *testing.T) {
 				go func() {
 					defer done.Done()
 					in := e.in(n, func(i *ScheduleInput) { i.PublishAt = target })
-					ctx, _ := e.ctx("alice")
+					ctx := e.ctx("alice")
 					ready.Done()
 					<-start
 					_, err := e.svc.Schedule(ctx, "alice", in)

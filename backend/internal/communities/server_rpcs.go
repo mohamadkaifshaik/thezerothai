@@ -11,10 +11,6 @@ import (
 )
 
 // CreateCommunity is gated by FEATURE_COMMUNITIES and needs the caller in COMMUNITY_CREATORS (FORBIDDEN not_creator otherwise).
-//
-// Firestore (the account-status interceptor's read included): reads 3 cold / 2 warm (interceptor, idempotency,
-// memberships); writes 4 (community, owner member doc, memberships, idempotency) + 1 TTL delete of the idempotency doc 24 h later;
-// replay reads 3, writes 0; refused 0 writes.
 func (s *Server) CreateCommunity(ctx context.Context, req *connect.Request[communitiesv1.CreateCommunityRequest]) (*connect.Response[communitiesv1.CreateCommunityResponse], error) {
 	ctx, cancel, uid, err := s.entry(ctx, "CreateCommunity")
 	if err != nil {
@@ -32,10 +28,6 @@ func (s *Server) CreateCommunity(ctx context.Context, req *connect.Request[commu
 }
 
 // UpdateCommunity is gated by FEATURE_COMMUNITIES; owner only, and only the fields that are set change.
-//
-// Firestore (interceptor included): reads 4 cold / 3 warm (interceptor, idempotency, community, owner memberships); writes 2
-// (community, idempotency), +1 for the first log entry that names the owner in this community (memberships modlogged), 1 when nothing
-// changes, + 1 TTL delete later; replay reads 3, writes 0.
 func (s *Server) UpdateCommunity(ctx context.Context, req *connect.Request[communitiesv1.UpdateCommunityRequest]) (*connect.Response[communitiesv1.UpdateCommunityResponse], error) {
 	ctx, cancel, uid, err := s.entry(ctx, "UpdateCommunity")
 	if err != nil {
@@ -57,9 +49,6 @@ func (s *Server) UpdateCommunity(ctx context.Context, req *connect.Request[commu
 
 // GetCommunity is gated by FEATURE_COMMUNITIES. Any signed-in user reads a community (F6); a SUSPENDED one is NOT_FOUND except to its
 // owner.
-//
-// Firestore (interceptor included): reads 15 cold (interceptor, community, caller member doc, caller graph, owner + <= 10 moderator
-// profiles) / 0 warm, planning 4; writes 0.
 func (s *Server) GetCommunity(ctx context.Context, req *connect.Request[communitiesv1.GetCommunityRequest]) (*connect.Response[communitiesv1.GetCommunityResponse], error) {
 	ctx, cancel, uid, err := s.entry(ctx, "GetCommunity")
 	if err != nil {
@@ -103,7 +92,7 @@ func rulesToProto(in []Rule) []*communitiesv1.CommunityRule {
 	return out
 }
 
-// toProtoCommunity renders the light header: the document and the caller's role, 0 extra reads.
+// toProtoCommunity renders the light header: the document and the caller's role.
 func toProtoCommunity(v View) *communitiesv1.Community {
 	c := v.Community
 	return &communitiesv1.Community{
@@ -143,10 +132,6 @@ func roleToProto(r Role) communitiesv1.CommunityRole {
 // reason=community_archived; the 51st joined community is LIMIT_REACHED communities_joined; over the daily quota is QUOTA_EXCEEDED
 // community_joins. Already a member (the owner and moderators included) is success and spends no quota. member_count may lag other
 // instances by up to 60 s (the transaction never reads the community document).
-//
-// Firestore (interceptor included): reads 6 cold (interceptor, community via the cache, idempotency, member doc, memberships, quotas) /
-// 4 warm; writes 5 (member doc, memberships, memberCount, quotas, idempotency) + 1 TTL delete later; already a member 3 cold reads and
-// 1 write; banned, at the cap or over the quota 0 writes; replay 0 writes.
 func (s *Server) JoinCommunity(ctx context.Context, req *connect.Request[communitiesv1.JoinCommunityRequest]) (*connect.Response[communitiesv1.JoinCommunityResponse], error) {
 	v, err := s.membership(ctx, "JoinCommunity", MembershipInput{Key: req.Msg.GetIdempotencyKey(), CommunityID: req.Msg.GetCommunityId()}, Service.JoinCommunity)
 	if err != nil {
@@ -155,13 +140,9 @@ func (s *Server) JoinCommunity(ctx context.Context, req *connect.Request[communi
 	return connect.NewResponse(&communitiesv1.JoinCommunityResponse{Community: toProtoCommunity(v)}), nil
 }
 
-// LeaveCommunity is gated by FEATURE_COMMUNITIES. The owner is COMMUNITY_STATE reason=owner (0 writes); a moderator also leaves
+// LeaveCommunity is gated by FEATURE_COMMUNITIES. The owner is COMMUNITY_STATE reason=owner; a moderator also leaves
 // moderator_ids, logged MODERATOR_LEFT; a non-member (a banned user included, the ban stays) is success with the idempotency document
 // only. Allowed in an ARCHIVED community.
-//
-// Firestore (interceptor included): reads 5 cold (interceptor, community via the cache, idempotency, member doc, memberships) / 3 warm,
-// 6 / 4 for a moderator (the community read fresh in the transaction); writes 3 (memberships, community, idempotency) + 1 delete (member
-// doc) + 1 TTL delete later; not a member 4 cold reads and 1 write; the owner 0 writes; replay 0 writes.
 func (s *Server) LeaveCommunity(ctx context.Context, req *connect.Request[communitiesv1.LeaveCommunityRequest]) (*connect.Response[communitiesv1.LeaveCommunityResponse], error) {
 	v, err := s.membership(ctx, "LeaveCommunity", MembershipInput{Key: req.Msg.GetIdempotencyKey(), CommunityID: req.Msg.GetCommunityId()}, Service.LeaveCommunity)
 	if err != nil {
@@ -171,10 +152,7 @@ func (s *Server) LeaveCommunity(ctx context.Context, req *connect.Request[commun
 }
 
 // ListMyCommunities is gated by FEATURE_COMMUNITIES. Not paged at Stage 0: page_size is ignored and a non-empty page_token is VALIDATION
-// "page_token" with 0 reads beyond the interceptor.
-//
-// Firestore (interceptor included): reads 52 cold (interceptor, memberships, at most 50 community documents) / 2 warm (interceptor +
-// memberships, the documents come from the 60 s cache), planning 4; writes 0.
+// "page_token" before any lookup.
 func (s *Server) ListMyCommunities(ctx context.Context, req *connect.Request[communitiesv1.ListMyCommunitiesRequest]) (*connect.Response[communitiesv1.ListMyCommunitiesResponse], error) {
 	ctx, cancel, uid, err := s.entry(ctx, "ListMyCommunities")
 	if err != nil {

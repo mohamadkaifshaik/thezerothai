@@ -16,7 +16,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
@@ -89,7 +88,7 @@ func (e *repoEnv) intField(t *testing.T, path, field string) int64 {
 // counter retried with the userLikes part alone).
 func TestRelease_NotFoundFallback(t *testing.T) {
 	e := newRepoEnv(t)
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	const orig, gone, uid = "0000000000000000011", "0000000000000000012", "u1"
 	e.seedPost(t, orig, "author", 0, 3)
 	if _, err := e.client.Doc("userLikes/"+uid).Set(ctx, map[string]any{"recentReposts": []string{orig, gone}}); err != nil {
@@ -166,7 +165,7 @@ func TestRepo_LikeRepostCycle(t *testing.T) {
 // userLikes doc goes last. ExportUser then lists nothing for the user.
 func TestPurgeUser_FallbackAndExport(t *testing.T) {
 	e := newRepoEnv(t)
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	const live, dead, uid = "0000000000000000031", "0000000000000000032", "u4"
 	e.seedPost(t, live, "author", 1, 0)
 	e.seedPost(t, dead, "author", 1, 0)
@@ -277,18 +276,22 @@ func TestRepo_Rule4Replays(t *testing.T) {
 	params := RepostParams{UID: uid, Original: &posts.Post{ID: pid, AuthorID: "author"}, QuotaLimit: 10,
 		Author: posts.AuthorSnapshot{UserID: uid, Handle: "h"}}
 
-	firstCtx, _ := budget.WithCounter(context.Background())
+	firstCtx := context.Background()
 	res, err := e.repo.Repost(firstCtx, params)
 	if err != nil || res.Post == nil {
 		t.Fatalf("Repost: %+v %v", res, err)
 	}
-	replayCtx, _ := budget.WithCounter(context.Background())
+	replayCtx := context.Background()
 	again, err := e.repo.Repost(replayCtx, params)
 	if err != nil || again.Post != nil || again.ReplayPostID != res.Post.ID {
 		t.Fatalf("replay: %+v err=%v, want ReplayPostID %s", again, err, res.Post.ID)
 	}
 	if got := e.intField(t, "posts/"+pid, "repostCount"); got != 1 {
 		t.Errorf("repostCount = %d, want 1", got)
+	}
+	// the replay wrote nothing: the one repost post is the only one by this user
+	if n := countWhere(t, e.client, "posts", "authorId", uid); n != 1 {
+		t.Errorf("posts by the reposter after a replay = %d, want 1", n)
 	}
 
 	if replayed, err := e.repo.Like(context.Background(), LikeParams{UID: uid, PostID: pid, QuotaLimit: 10}); err != nil || replayed {
@@ -351,10 +354,9 @@ func TestRepo_LoadUserLikesReturnsPollVotes(t *testing.T) {
 		uid  string
 		want int
 	}{{"u1", 2}, {"u2", 0}, {"nobody", 0}} {
-		cctx, c := budget.WithCounter(ctx)
-		ul, err := e.repo.LoadUserLikes(cctx, tt.uid)
+		ul, err := e.repo.LoadUserLikes(ctx, tt.uid)
 		if err != nil || len(ul.PollVotes) != tt.want {
-			t.Fatalf("%s: votes=%v err=%v reads=%d writes=%d, want %d votes in 1 read", tt.uid, ul.PollVotes, err, c.Reads(), c.Writes(), tt.want)
+			t.Fatalf("%s: votes=%v err=%v, want %d votes", tt.uid, ul.PollVotes, err, tt.want)
 		}
 	}
 }

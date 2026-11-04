@@ -1,7 +1,7 @@
 //go:build integration
 
 // follows_list_integration_test.go exercises ListFollowers/ListFollowing against the Firestore emulator
-// (acceptance criteria and budgets).
+// (acceptance criteria).
 package graph_test
 
 import (
@@ -12,10 +12,9 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-func TestListFollowers_Integration_PagesAndBudget(t *testing.T) {
+func TestListFollowers_Integration_Pages(t *testing.T) {
 	w := newWired(t)
 	w.SkipInvariantSweep("edge-only seeding (seedEdge) for read-path paging")
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
@@ -32,7 +31,7 @@ func TestListFollowers_Integration_PagesAndBudget(t *testing.T) {
 	var sizes []int
 	token := ""
 	for pageNo := 0; ; pageNo++ {
-		ctx, _ := budget.WithCounter(context.Background())
+		ctx := context.Background()
 		page, err := w.graph.ListFollowers(ctx, "uid-a", "uid-b", 20, token)
 		if err != nil {
 			t.Fatal(err)

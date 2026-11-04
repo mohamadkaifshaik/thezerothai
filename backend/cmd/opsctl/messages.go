@@ -9,7 +9,6 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -41,20 +40,18 @@ func parseTakedownMessageArgs(sub, target string, a modArgs) (convID, msgID stri
 //
 // --dry-run reads the same documents and writes nothing. --report R (checked first: R must be a MESSAGE report of exactly
 // this message) resolves R as TAKEDOWN after the write; a report that is already RESOLVED only warns. A message that is
-// already REMOVED, or tombstoned by its sender's account deletion, is left alone (0 writes) and --report still resolves.
+// already REMOVED, or tombstoned by its sender's account deletion, is left alone (nothing is written) and --report still resolves.
 // An unknown message, or one whose conversation is gone, is an error (exit 1).
 //
 // Output never contains the message text or a uid. Ids are printed only as one-way hashes (conversation_hash and
-// message_hash, the same fields messaging logs; conversation_hash is the keyed hash and needs CURSOR_HMAC_KEY in the shell); the last line before the cost line is a fixed-shape audit line.
+// message_hash, the same fields messaging logs; conversation_hash is the keyed hash and needs CURSOR_HMAC_KEY in the shell); the last line is a fixed-shape audit line.
 //
-// Cost: the transaction reads the message (1) and, for a VISIBLE one, the conversation (1) and each participant's entry that
-// still exists (at most 2), and writes the message (1), the conversation revision (1) and each preview that named it (at most 2): at most 4 reads, 4
-// writes. --report adds 1 read to check it, then the resolve (1 read, 1 write).
+// One transaction reads the message and, for a VISIBLE one, the conversation and each participant's entry that still exists, then writes
+// the message, the conversation revision and each preview that named it. --report checks the report first, then resolves it.
 func takedownMessage(ctx context.Context, b *backends, project, convID, msgID string, a modArgs, out io.Writer, now func() time.Time) error {
 	if b.messages == nil {
 		return errors.New("messages takedown: no message moderator configured")
 	}
-	ctx, counter := budget.WithCounter(ctx)
 	cctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 	if a.report != "" {
@@ -95,6 +92,5 @@ func takedownMessage(ctx context.Context, b *backends, project, convID, msgID st
 			return err
 		}
 	}
-	fmt.Fprintf(out, "cost: reads=%d writes=%d\n", counter.Reads(), counter.Writes())
 	return nil
 }

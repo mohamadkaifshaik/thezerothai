@@ -12,7 +12,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -80,8 +79,8 @@ type RestoreHiddenResult struct {
 	EntryWritten    bool   // this page wrote the run's modlog entry
 }
 
-// ListHidden is one page of the community's hidden posts and replies after `after` (read-only). Reads: 1 (the community, so a wrong id is
-// ErrNotFound; the SUSPENDED rule is not applied) + max(1, rows). next is the last row's id when the page is full, else "".
+// ListHidden is one page of the community's hidden posts and replies after `after` (read-only). The community is read first, so a wrong id is
+// ErrNotFound (the SUSPENDED rule is not applied). next is the last row's id when the page is full, else "".
 func (r *FirestoreRepo) ListHidden(ctx context.Context, cid, after string, limit int) (rows []HiddenRow, next string, err error) {
 	if err := r.needClient(); err != nil {
 		return nil, "", err
@@ -109,7 +108,7 @@ func (r *FirestoreRepo) ListHidden(ctx context.Context, cid, after string, limit
 // page fresh through the posts seam, a field-level Update per restored post, and one community Update that deletes the restored roots'
 // recentRemovals entries (a reply has none, R1; a skipped platform removal keeps its entry) and, when WriteEntry is set and the page restored
 // something, appends the run's single RESTORE entry with actor PlatformMarker (no postId, no target, no modlogged: it is not a uid).
-// Reads 1 + max(1, rows) (<= 51); writes <= rows + 1. ErrNotFound for a missing community.
+// ErrNotFound for a missing community.
 func (r *FirestoreRepo) RestoreHidden(ctx context.Context, p RestoreHiddenParams) (RestoreHiddenResult, error) {
 	if err := r.needClient(); err != nil {
 		return RestoreHiddenResult{}, err
@@ -161,7 +160,7 @@ func (r *FirestoreRepo) RestoreHidden(ctx context.Context, p RestoreHiddenParams
 		if len(ups) == 0 {
 			return nil
 		}
-		b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+		b := store.NewFirestoreTxBatch(tx)
 		b.Update(r.ref(p.CID), ups)
 		return b.Err()
 	})

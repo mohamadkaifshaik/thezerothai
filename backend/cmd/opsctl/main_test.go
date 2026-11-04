@@ -205,7 +205,7 @@ func TestPurge_ResumesFromReturnedCheckpointsAndRetries(t *testing.T) {
 			t.Errorf("call %d checkpoint = %+v, want %+v", i, er.calls[i], want[i])
 		}
 	}
-	if !strings.Contains(stdout, "purged: reads=") {
+	if !strings.Contains(stdout, "purged: done") {
 		t.Errorf("stdout = %q, want the ops summary", stdout)
 	}
 }
@@ -323,7 +323,7 @@ func TestPurgePosts_ResumesFromCheckpointsAndRetries(t *testing.T) {
 			t.Errorf("call %d checkpoint = %+v, want %+v", i, er.calls[i], want[i])
 		}
 	}
-	if !strings.Contains(stdout, "purged: reads=") || !strings.Contains(stdout, "deleted=500") {
+	if !strings.Contains(stdout, "purged: done") || !strings.Contains(stdout, "deleted=500") {
 		t.Errorf("stdout = %q", stdout)
 	}
 }

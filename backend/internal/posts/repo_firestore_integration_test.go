@@ -4,6 +4,7 @@ package posts
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"os"
@@ -12,8 +13,6 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 func newTestClient(t *testing.T) *firestore.Client {
@@ -69,8 +68,6 @@ func idList(ps []*Post) []string {
 	return out
 }
 
-func measured(ctx context.Context) (context.Context, *budget.Counter) { return budget.WithCounter(ctx) }
-
 // TestRepo_Integration_DocRoundTrip: every stored field survives a write and a read, including the nested
 // author snapshot and mentions.
 func TestRepo_Integration_DocRoundTrip(t *testing.T) {
@@ -91,9 +88,9 @@ func TestRepo_Integration_DocRoundTrip(t *testing.T) {
 	}
 }
 
-// TestRepo_Integration_GetManyBudget (acceptance): 20 ids with 12 cached = 8 reads in one GetAll; a missing
-// id is billed too, and absence is not cached.
-func TestRepo_Integration_GetManyBudget(t *testing.T) {
+// TestRepo_Integration_GetManyAndAbsence: 20 ids with 12 cached all come back; a missing id is NOT_FOUND, and
+// absence is not cached, so a post created afterwards is found at once.
+func TestRepo_Integration_GetManyAndAbsence(t *testing.T) {
 	client := newTestClient(t)
 	svc, cache := integrationSvc(client)
 	var ids []string
@@ -104,25 +101,29 @@ func TestRepo_Integration_GetManyBudget(t *testing.T) {
 			cache.SetPost(p)
 		}
 	}
-	ctx, _ := measured(context.Background())
+	ctx := context.Background()
 	got, err := svc.GetMany(ctx, ids)
 	if err != nil || len(got) != 20 {
 		t.Fatalf("GetMany: len=%d err=%v", len(got), err)
 	}
 
-	ctx, _ = measured(context.Background())
-	if _, err := svc.Get(ctx, pid(999)); err == nil {
-		t.Fatal("missing post found")
+	for range 2 {
+		if _, err := svc.Get(ctx, pid(999)); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("missing post: err = %v, want ErrNotFound", err)
+		}
 	}
-	ctx, _ = measured(context.Background())
-	_, _ = svc.Get(ctx, pid(999))
-	ctx, _ = measured(context.Background())
-	_, _ = svc.Get(ctx, pid(3))
+	seedPost(t, client, pid(999), "a", false, 1999)
+	if p, err := svc.Get(ctx, pid(999)); err != nil || p == nil {
+		t.Fatalf("post created after two misses: p=%v err=%v, want it found (absence must not be cached)", p, err)
+	}
+	if _, err := svc.Get(ctx, pid(3)); err != nil {
+		t.Fatalf("cached post: %v", err)
+	}
 }
 
 // TestRepo_Integration_QueryShapes runs Q-H, Q-P and Q-R with the explicit `createdAt DESC, __name__ DESC`
 // order against the emulator (the emulator does not enforce composite indexes; the shapes map to the declared
-// ones, see repo_firestore.go) and checks order, the isReply filter, windows and the read budget.
+// ones, see repo_firestore.go) and checks order, the isReply filter, windows and limits.
 func TestRepo_Integration_QueryShapes(t *testing.T) {
 	client := newTestClient(t)
 	svc, _ := integrationSvc(client)
@@ -138,7 +139,7 @@ func TestRepo_Integration_QueryShapes(t *testing.T) {
 	seedPost(t, client, pid(7), "c", false, 7000)
 
 	t.Run("Q-H authors in, roots only, newest first", func(t *testing.T) {
-		ctx, _ := measured(context.Background())
+		ctx := context.Background()
 		got, err := svc.ByAuthors(ctx, []string{"a", "b"}, Window{}, 50)
 		if err != nil {
 			t.Fatal(err)
@@ -197,8 +198,8 @@ func TestRepo_Integration_QueryShapes(t *testing.T) {
 		}
 	})
 
-	t.Run("Q-H no matches costs 1 read", func(t *testing.T) {
-		ctx, _ := measured(context.Background())
+	t.Run("Q-H no matches", func(t *testing.T) {
+		ctx := context.Background()
 		got, err := svc.ByAuthors(ctx, []string{"x", "y", "z"}, Window{}, 20)
 		if err != nil || len(got) != 0 {
 			t.Fatalf("got=%v err=%v", got, err)
@@ -206,7 +207,7 @@ func TestRepo_Integration_QueryShapes(t *testing.T) {
 	})
 
 	t.Run("Q-H respects Limit", func(t *testing.T) {
-		ctx, _ := measured(context.Background())
+		ctx := context.Background()
 		got, err := svc.ByAuthors(ctx, []string{"a", "b", "c"}, Window{}, 3)
 		if err != nil || len(got) != 3 {
 			t.Fatalf("got=%d err=%v", len(got), err)
@@ -214,7 +215,7 @@ func TestRepo_Integration_QueryShapes(t *testing.T) {
 	})
 
 	t.Run("Q-P Posts tab excludes replies", func(t *testing.T) {
-		ctx, _ := measured(context.Background())
+		ctx := context.Background()
 		got, err := svc.ByAuthor(ctx, "a", false, Window{}, 50)
 		if err != nil {
 			t.Fatal(err)
@@ -255,9 +256,8 @@ func TestRepo_Integration_QueryShapes(t *testing.T) {
 		if err != nil || len(got) != 1 {
 			t.Fatal(err)
 		}
-		ctx, c := measured(context.Background())
-		if _, err := svc2.Get(ctx, pid(7)); err != nil {
-			t.Fatalf("Get after query: err=%v reads=%d, want a cache hit", err, c.Reads())
+		if _, err := svc2.Get(context.Background(), pid(7)); err != nil {
+			t.Fatalf("Get after query: %v", err)
 		}
 		if _, ok := cache.GetPost(pid(7)); !ok {
 			t.Fatal("not cached")

@@ -210,8 +210,8 @@ func (r communityResult) empty() bool {
 // userLikes.
 func (s *Server) communityRead(ctx context.Context, cid string, tok request, limit int, start time.Time) (communityResult, error) {
 	var res communityResult
-	// Older and gap pages run the query directly. So does a refresh on an instance with no entry: it costs 1 + new posts, where filling the
-	// entry would read a whole page (an empty refresh is 1 read).
+	// Older and gap pages run the query directly. So does a refresh on an instance with no entry: it reads only the new posts, where filling the
+	// entry would read a whole page.
 	if md := tok.mode(); md == modeOlder || md == modeGap || (md == modeRefresh && !s.community.hasEntry(cid)) {
 		ps, err := s.deps.Posts.ByCommunity(ctx, cid, tok.window(), limit)
 		if err != nil {
@@ -247,7 +247,7 @@ func (s *Server) communityRead(ctx context.Context, cid string, tok request, lim
 }
 
 // communityEntryRows returns the shared entry's rows (newest first, complete down to the last row), refilling it when it is missing or
-// older than communityEntryTTL. The fill is charged to the request that triggers it and reads at most `limit` rows:
+// older than communityEntryTTL. The fill is done by the request that triggers it and reads at most `limit` rows:
 //   - no entry: ByCommunity(none, limit);
 //   - an expired entry: ByCommunity(After = the entry's settle watermark, limit). Fewer than limit rows come back: they are merged with
 //     the old rows. A full page: the rows in between are unknown, so they replace the entry;
@@ -310,7 +310,7 @@ func removalIDs(c communities.Community) map[string]bool {
 }
 
 // communityRemovals is the community's removed_ids for a since refresh: the recentRemovals entries newer than the
-// token's cutoff (its issue time minus posts.RemovalLag, as Home), newest first, at most 50. 0 reads: the document is already held. A
+// token's cutoff (its issue time minus posts.RemovalLag, as Home), newest first, at most 50. The document is already held. A
 // removal the capped array has dropped since the cutoff (removalsTruncatedAt newer than it) cannot be listed, so the token is rejected
 // exactly like an expired one, before any post is read; the client cold-opens.
 func communityRemovals(ctx context.Context, c communities.Community, tok request) ([]string, error) {
@@ -359,7 +359,7 @@ func communityAuthorAllowed(uid string, snap graph.Snapshot, mod bool, a string)
 	return !snap.BlockedByOverflow || snap.Following[a]
 }
 
-// applyCommunityReplyHint sets viewer_reply_permission on community rows from the role already read, in both directions (0 reads;
+// applyCommunityReplyHint sets viewer_reply_permission on community rows from the role already read, in both directions (no read;
 // the literal wording of A7, so it does not depend on what posts.ToView puts there for a community post): ALLOWED for the OWNER, MODERATORS and
 // MEMBERS of an ACTIVE community, NOT_ALLOWED for everyone else (not a member, banned, or the community is ARCHIVED). A community post cannot
 // carry a reply policy other than EVERYONE (CreatePost refuses it), so no stricter hint is overwritten. Known edge: a moderator whose

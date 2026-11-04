@@ -1,10 +1,8 @@
 // timeline_read: GetHomeTimeline (refresh with since_token, older page) + GetUserTimeline
 // (ADR-0004/0010).
 //
-// Budget under test (timeline.proto): home refresh planning 4 + new posts (F=60), older page / cold open ~30
-// (page 20); GetUserTimeline planning 11 (3 + 20 cold / 0 warm). Acceptance: home refresh p95 < 400 ms warm
-// (emulator, note the machine), 0 ERROR lines. Reads per call are NOT a k6 metric: take mean fs_reads per rpc from
-// the API log (also the since_clamped rate and interceptor cold share, see README):
+// Acceptance: home refresh p95 < 400 ms warm (emulator, note the machine), 0 ERROR lines. Server latency per rpc is
+// not a k6 metric: take it from the API log (also the since_clamped rate and interceptor cold share, see README):
 //   node loadtest/analyze_logs.js api.log GetHomeTimeline GetUserTimeline
 //
 // Data (setup, outside the timed window): NUM_USERS (default 200) users; the first NUM_AUTHORS (60) are authors

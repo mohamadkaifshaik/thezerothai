@@ -58,16 +58,13 @@ func newReplyEnv(t *testing.T) *env {
 	return e
 }
 
-func TestHideRestoreReply_BudgetsEffectsAndReplay(t *testing.T) {
+func TestHideRestoreReply_EffectsAndReplay(t *testing.T) {
 	e := newReplyEnv(t)
 	ctx := context.Background()
 
-	// idempotency, community, actor memberships, reply = 4 reads; reply, community (modlog only), memberships, idempotency = 4 writes
-	measuredExact(t, "Hide reply first", func(ctx context.Context) {
-		if err := e.hide(ctx, "mod1", 1, rplA); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if err := e.hide(context.Background(), "mod1", 1, rplA); err != nil {
+		t.Fatal(err)
+	}
 	if hidden, hasAt, hasCID := e.replyState(t, rplA); !hidden || !hasAt || hasCID {
 		t.Errorf("after the hide: hidden=%v hiddenAt=%v communityId=%v", hidden, hasAt, hasCID)
 	}
@@ -79,44 +76,37 @@ func TestHideRestoreReply_BudgetsEffectsAndReplay(t *testing.T) {
 		t.Errorf("modlog = %+v", c.Modlog)
 	}
 
-	// a second reply by the same moderator: no memberships write
-	measuredExact(t, "Hide reply second", func(ctx context.Context) {
-		if err := e.hide(ctx, "mod1", 2, rplB); err != nil {
-			t.Fatal(err)
-		}
-	})
-	// an already hidden reply: the idempotency document only
-	measuredExact(t, "Hide reply already hidden", func(ctx context.Context) {
-		if err := e.hide(ctx, "owner", 3, rplA); err != nil {
-			t.Fatal(err)
-		}
-	})
+	// a second reply by the same moderator
+	if err := e.hide(context.Background(), "mod1", 2, rplB); err != nil {
+		t.Fatal(err)
+	}
+	// an already hidden reply: nothing more is logged
+	if err := e.hide(context.Background(), "owner", 3, rplA); err != nil {
+		t.Fatal(err)
+	}
 	if c = e.community(t, modCID); len(c.Modlog) != 2 {
 		t.Errorf("modlog = %d after a repeated hide, want 2", len(c.Modlog))
 	}
 
-	measuredExact(t, "Restore reply", func(ctx context.Context) {
-		if err := e.restore(ctx, "owner", 4, rplA); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if err := e.restore(context.Background(), "owner", 4, rplA); err != nil {
+		t.Fatal(err)
+	}
 	if hidden, hasAt, _ := e.replyState(t, rplA); hidden || hasAt {
 		t.Errorf("after the restore: hidden=%v hiddenAt=%v", hidden, hasAt)
 	}
 	if c = e.community(t, modCID); len(c.RecentRemovals) != 0 || len(c.Modlog) != 3 || c.Modlog[2].Action != ActionRestore || c.Modlog[2].PostID != rplA {
 		t.Errorf("after the restore: removals %+v modlog %+v", c.RecentRemovals, c.Modlog)
 	}
-	measuredExact(t, "Restore reply not hidden", func(ctx context.Context) {
-		if err := e.restore(ctx, "mod1", 5, rplA); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if err := e.restore(context.Background(), "mod1", 5, rplA); err != nil {
+		t.Fatal(err)
+	}
+	if c = e.community(t, modCID); len(c.Modlog) != 3 {
+		t.Errorf("restoring a listed reply logged: modlog = %d, want 3", len(c.Modlog))
+	}
 	// A13: the first hide key replayed after the restore writes nothing
-	measuredExact(t, "Hide reply late replay", func(ctx context.Context) {
-		if err := e.hide(ctx, "mod1", 1, rplA); err != nil {
-			t.Fatal(err)
-		}
-	})
+	if err := e.hide(context.Background(), "mod1", 1, rplA); err != nil {
+		t.Fatal(err)
+	}
 	if hidden, _, _ := e.replyState(t, rplA); hidden {
 		t.Error("the replay re-hid the reply")
 	}
@@ -201,12 +191,10 @@ func TestHideRestoreReply_F16(t *testing.T) {
 			t.Errorf("a refusal wrote the modlog: %+v", c.Modlog)
 		}
 	})
-	t.Run("a refusal costs the success reads and writes nothing", func(t *testing.T) {
+	t.Run("a refusal writes nothing", func(t *testing.T) {
 		e := newReplyEnv(t)
 		e.setPostField(t, rplA, "authorId", "owner")
-		measuredExact(t, "Hide reply not_owner", func(ctx context.Context) {
-			wantReason(t, e.hide(ctx, "mod1", 320, rplA), connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_FORBIDDEN, "not_owner")
-		})
+		wantReason(t, e.hide(context.Background(), "mod1", 320, rplA), connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_FORBIDDEN, "not_owner")
 		if _, ok := e.data(t, "idempotency/"+idempotency.Key("mod1", "HideCommunityPost", key(320))); ok {
 			t.Error("a refusal left an idempotency record")
 		}
@@ -243,11 +231,9 @@ func TestHideRestoreReply_F16(t *testing.T) {
 		if _, err := e.repo.ref(modCID).Update(ctx, []firestore.Update{{Path: "moderatorIds", Value: []string{"mod1", "mod2", "member"}}}); err != nil {
 			t.Fatal(err)
 		}
-		measuredExact(t, "Hide reply replay after a role change", func(ctx context.Context) {
-			if err := e.hide(ctx, "mod1", 350, rplA); err != nil {
-				t.Fatalf("replay: %v", err)
-			}
-		})
+		if err := e.hide(context.Background(), "mod1", 350, rplA); err != nil {
+			t.Fatalf("replay: %v", err)
+		}
 		wantReason(t, e.restore(ctx, "mod1", 351, rplA), connect.CodePermissionDenied, commonv1.ErrorReason_ERROR_REASON_FORBIDDEN, "not_owner")
 		if err := e.restore(ctx, "owner", 352, rplA); err != nil {
 			t.Fatalf("owner restore: %v", err)

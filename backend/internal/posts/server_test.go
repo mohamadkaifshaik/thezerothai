@@ -12,7 +12,6 @@ import (
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
@@ -84,7 +83,7 @@ func TestGuardFeature_LogsTheRejection(t *testing.T) {
 	}
 }
 
-// TestServer_RPCsAreBehindTheFlag: off => FEATURE_DISABLED with 0 Firestore reads; GetThread reaches the service when on.
+// TestServer_RPCsAreBehindTheFlag: off => FEATURE_DISABLED with no repo call; GetThread reaches the service when on.
 func TestServer_RPCsAreBehindTheFlag(t *testing.T) {
 	calls := map[string]func(*Server, context.Context) error{
 		"CreatePost": func(s *Server, ctx context.Context) error {
@@ -109,14 +108,14 @@ func TestServer_RPCsAreBehindTheFlag(t *testing.T) {
 
 	for name, call := range calls {
 		t.Run(name+" flag off", func(t *testing.T) {
-			ctx, counter := budget.WithCounter(callerCtx("u1"))
+			ctx := callerCtx("u1")
 			err := call(NewServer(svc, &fakeFlags{}), ctx)
 			var ae *apierr.Error
 			if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED || ae.Code != connect.CodeFailedPrecondition {
 				t.Fatalf("err = %#v, want FAILED_PRECONDITION + FEATURE_DISABLED", err)
 			}
 			if repo.getAllCalls != 0 || repo.queryCalls != 0 {
-				t.Fatalf("a disabled call touched Firestore: reads=%d writes=%d", counter.Reads(), counter.Writes())
+				t.Fatalf("a disabled call reached the repo: getAllCalls=%d queryCalls=%d", repo.getAllCalls, repo.queryCalls)
 			}
 		})
 		if name != "GetThread" {

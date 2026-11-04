@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -29,23 +28,17 @@ const refreshAttempts = 3
 // already at or above version are skipped, so a replay writes nothing. Only the two fields are updated (field
 // paths, never a whole-document write), so concurrent counter increments are not clobbered.
 //
-// Firestore: reads one per post returned (<= 100; an author with no posts costs 1), writes one per stale post
-// (<= 100, one batch). It uses the existing (authorId, createdAt DESC) index (Q-E, purge.go).
+// It writes one batch of at most 100 stale posts. It uses the existing (authorId, createdAt DESC) index (Q-E, purge.go).
 //
 // userId, handle, displayName, avatarUrl and verified are written exactly as AuthorSnapshot carries them.
 func (r *FirestoreRepo) RefreshAuthor(ctx context.Context, uid string, author AuthorSnapshot, version int64) (int, error) {
 	author.UserID = uid
 	for attempt := 0; attempt < refreshAttempts; attempt++ {
 		docs, err := r.authorQuery(uid).Select("snapshotVersion").Limit(SnapshotRefreshLimit).Documents(ctx).GetAll()
-		reads := int64(len(docs))
-		if reads == 0 {
-			reads = 1
-		}
-		budget.FromContext(ctx).AddReads(reads)
 		if err != nil {
 			return 0, fmt.Errorf("posts: refresh author %s: query: %w", logger.HashUID(uid), err)
 		}
-		b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+		b := store.NewFirestoreBatch(r.client)
 		stale := 0
 		for _, d := range docs {
 			var cur struct {

@@ -20,7 +20,6 @@ import (
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 const (
@@ -341,7 +340,7 @@ func TestVisibilityMatrix_Integration_MutationCells(t *testing.T) {
 	for _, c := range cells {
 		t.Run(c.name, func(t *testing.T) {
 			r := buildMatrixWorld(t, c.ops)
-			cctx, _ := budget.WithCounter(ctx)
+			cctx := ctx
 			rel, err := c.call(cctx, r.w)
 			if err != nil {
 				t.Fatalf("error = %v", err)
@@ -499,9 +498,9 @@ func TestBlockedBy_Integration_NeverSerialized(t *testing.T) {
 	assertGraphInvariants(t, r.w.client)
 }
 
-// TestUpdateProfile_Integration_PrivateRejected closes L9: is_private=true is rejected with 0
-// writes (FEATURE_DISABLED while private_accounts is off); is_private=false is accepted; the follow-request RPCs
-// answer Unimplemented past the gate with 0 reads; Follow on
+// TestUpdateProfile_Integration_PrivateRejected closes L9: is_private=true is rejected
+// (FEATURE_DISABLED while private_accounts is off); is_private=false is accepted; the follow-request RPCs
+// answer Unimplemented past the gate; Follow on
 // a legacy private target is FEATURE_DISABLED while lists treat it as public.
 func TestUpdateProfile_Integration_PrivateRejected(t *testing.T) {
 	w := newWired(t)

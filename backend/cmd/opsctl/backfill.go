@@ -8,22 +8,18 @@ import (
 	"strings"
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // backfillHasMedia is `opsctl backfill-has-media`: it gives every post document that lacks `hasMedia`
 // the field, through posts.HasMediaBackfiller (the one definition, posts.HasMediaFor). Pages of <= 500 posts by __name__;
 // at most posts.BackfillMaxWrites (5,000) writes per run, after which it stops, prints the checkpoint and says to rerun
-// with --after on another day. A rerun (or a run after it finished) finds nothing missing and writes 0. --dry-run scans
-// and counts for the same reads and writes nothing. The shared driveLoop retries a failed page (a post deleted between
+// with --after on another day. A rerun (or a run after it finished) finds nothing missing and writes nothing. --dry-run scans
+// and counts the same posts and writes nothing. The shared driveLoop retries a failed page (a post deleted between
 // the read and the commit) and prints one progress line per page; the backfiller logs one `backfill_has_media` line each.
-//
-// Cost: 1 read per post scanned, 1 write per post lacking the field (<= 5,000 per run).
 func backfillHasMedia(ctx context.Context, b *backends, after string, dryRun bool, out io.Writer) error {
 	if b.backfiller == nil {
 		return errors.New("backfill-has-media: no backfiller configured")
 	}
-	ctx, _ = budget.WithCounter(ctx)
 	opts := posts.BackfillOptions{DryRun: dryRun}
 	var last posts.BackfillCheckpoint
 	var state posts.BackfillState

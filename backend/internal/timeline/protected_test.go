@@ -102,9 +102,8 @@ func TestProtected_UserTimelineMatrix(t *testing.T) {
 			makeCopy(rp, posts.KindRepost) // an unprotected original: only P's own tab is under test
 			fp.protect("P")
 
-			// An unapproved viewer: author_protected, nothing else, 2 reads here (users + graph; 3 with the
-			// interceptor), no query.
-			resp, counter, err := r.tabPage("stranger", "P", tab, 20, "", "")
+			// An unapproved viewer: author_protected, nothing else, no query.
+			resp, err := r.tabPage("stranger", "P", tab, 20, "", "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -113,7 +112,7 @@ func TestProtected_UserTimelineMatrix(t *testing.T) {
 				t.Fatalf("response = %v, want only author_protected", resp)
 			}
 			if len(r.posts.queries) != 0 {
-				t.Fatalf("reads = %d, queries = %v, want 2 and none", counter.Reads(), r.posts.queries)
+				t.Fatalf("queries = %v, want none", r.posts.queries)
 			}
 			if v, _ := r.info.Get(fieldAuthorProtected); v != true {
 				t.Fatalf("request log author_protected = %v", v)
@@ -121,10 +120,10 @@ func TestProtected_UserTimelineMatrix(t *testing.T) {
 
 			// A follower, and P itself: unchanged.
 			r.graph.snaps["fan"] = graph.Snapshot{Following: following("P")}
-			if resp, _, err := r.tabPage("fan", "P", tab, 20, "", ""); err != nil || resp.GetAuthorProtected() || len(resp.GetPosts()) == 0 {
+			if resp, err := r.tabPage("fan", "P", tab, 20, "", ""); err != nil || resp.GetAuthorProtected() || len(resp.GetPosts()) == 0 {
 				t.Fatalf("follower: err=%v protected=%v rows=%d", err, resp.GetAuthorProtected(), len(resp.GetPosts()))
 			}
-			if resp, _, err := r.tabPage("P", "P", tab, 20, "", ""); err != nil || resp.GetAuthorProtected() || len(resp.GetPosts()) == 0 {
+			if resp, err := r.tabPage("P", "P", tab, 20, "", ""); err != nil || resp.GetAuthorProtected() || len(resp.GetPosts()) == 0 {
 				t.Fatalf("author: err=%v protected=%v rows=%d", err, resp.GetAuthorProtected(), len(resp.GetPosts()))
 			}
 		})
@@ -138,7 +137,7 @@ func TestProtected_DecidedBeforeCacheAndTokens(t *testing.T) {
 	r, fp := protectedRig(t)
 	pPost(r, 5)
 	r.graph.snaps["fan"] = graph.Snapshot{Following: following("P")}
-	if resp, _, err := r.user("fan", "P", false, "", "", 20); err != nil || len(resp.GetPosts()) != 1 {
+	if resp, err := r.user("fan", "P", false, "", "", 20); err != nil || len(resp.GetPosts()) != 1 {
 		t.Fatalf("follower fill: %v %v", resp, err)
 	}
 	if _, ok := r.posts.AuthorRecent("P"); !ok {
@@ -149,11 +148,11 @@ func TestProtected_DecidedBeforeCacheAndTokens(t *testing.T) {
 		t.Fatal("no since token while P was public")
 	}
 	fp.protect("P")
-	resp, counter, err := r.user("stranger", "P", false, "", "", 20)
+	resp, err := r.user("stranger", "P", false, "", "", 20)
 	if err != nil || !resp.GetAuthorProtected() || len(resp.GetPosts()) != 0 {
-		t.Fatalf("stranger after cache fill: %v err=%v reads=%d", resp, err, counter.Reads())
+		t.Fatalf("stranger after cache fill: %v err=%v", resp, err)
 	}
-	resp, _, err = r.tabPage("stranger", "P", pbPosts, 20, since, "")
+	resp, err = r.tabPage("stranger", "P", pbPosts, 20, since, "")
 	if err != nil || !resp.GetAuthorProtected() || resp.GetSinceToken() != "" {
 		t.Fatalf("token issued before P protected: %v err=%v", resp, err)
 	}
@@ -165,10 +164,10 @@ func TestProtected_NotFoundRulesFirst(t *testing.T) {
 	r, fp := protectedRig(t)
 	fp.protect("P", "ghost")
 	r.graph.snaps["blocked"] = graph.Snapshot{BlockedBy: following("P")}
-	if _, _, err := r.user("blocked", "P", false, "", "", 20); err == nil || codeOf(err) != connect.CodeNotFound {
+	if _, err := r.user("blocked", "P", false, "", "", 20); err == nil || codeOf(err) != connect.CodeNotFound {
 		t.Fatalf("blocked caller err = %v, want NOT_FOUND", err)
 	}
-	if _, _, err := r.user("stranger", "ghost", false, "", "", 20); err == nil || codeOf(err) != connect.CodeNotFound {
+	if _, err := r.user("stranger", "ghost", false, "", "", 20); err == nil || codeOf(err) != connect.CodeNotFound {
 		t.Fatalf("missing user err = %v, want NOT_FOUND", err)
 	}
 }
@@ -179,19 +178,19 @@ func TestProtected_SetUnavailableFailsClosed(t *testing.T) {
 	r, fp := protectedRig(t)
 	pPost(r, 5)
 	fp.err = errors.New("set unavailable")
-	if resp, _, err := r.user("stranger", "P", false, "", "", 20); err == nil || codeOf(err) != connect.CodeUnavailable {
+	if resp, err := r.user("stranger", "P", false, "", "", 20); err == nil || codeOf(err) != connect.CodeUnavailable {
 		t.Fatalf("user timeline: resp=%v err=%v, want UNAVAILABLE", resp, err)
 	}
 	// A follower and the author never ask the set.
 	r.graph.snaps["fan"] = graph.Snapshot{Following: following("P")}
-	if resp, _, err := r.user("fan", "P", false, "", "", 20); err != nil || len(resp.GetPosts()) != 1 {
+	if resp, err := r.user("fan", "P", false, "", "", 20); err != nil || len(resp.GetPosts()) != 1 {
 		t.Fatalf("follower with the set down: %v %v", resp, err)
 	}
 	// Home: a quote of P's post by a followee needs the set.
 	r.follow("me", 1)
 	cp := r.posts.add("f1", r.ms(-2*time.Second))
 	copyOfP(cp, posts.KindQuote)
-	if resp, _, err := r.home("me", "", "", 20); err == nil || codeOf(err) != connect.CodeUnavailable {
+	if resp, err := r.home("me", "", "", 20); err == nil || codeOf(err) != connect.CodeUnavailable {
 		t.Fatalf("home: resp=%v err=%v, want UNAVAILABLE", resp, err)
 	}
 }
@@ -227,7 +226,7 @@ func TestProtected_HomeDropsRepostStripsQuote(t *testing.T) {
 				own = r.posts.add("P", r.ms(-2*time.Second))
 			}
 
-			resp, _, err := r.home("me", "", "", 20)
+			resp, err := r.home("me", "", "", 20)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -285,7 +284,7 @@ func TestProtected_ProfileFeedsDropCopiesOfProtectedAuthors(t *testing.T) {
 		seeded[who] = rows{rep, qt, r.posts.add(who, r.ms(-2*time.Second))}
 	}
 	for who, s := range seeded {
-		resp, _, err := r.tabPage("me", who, pbReplies, 20, "", "")
+		resp, err := r.tabPage("me", who, pbReplies, 20, "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -309,7 +308,7 @@ func TestProtected_ProfileFeedsDropCopiesOfProtectedAuthors(t *testing.T) {
 	}
 	// A viewer who follows P keeps all three of bob's rows.
 	r.graph.snaps["me"] = graph.Snapshot{Following: following("P")}
-	resp, _, err := r.tabPage("me", "bob", pbReplies, 20, "", "")
+	resp, err := r.tabPage("me", "bob", pbReplies, 20, "", "")
 	if err != nil || len(resp.GetPosts()) != 3 {
 		t.Fatalf("approved viewer: %d rows err=%v", len(resp.GetPosts()), err)
 	}
@@ -321,7 +320,7 @@ func TestProtected_NoLoaderChangesNothing(t *testing.T) {
 	r := newRig(t)
 	r.dir.profiles["P"] = identity.Profile{UserID: "P", Status: identity.AccountStatusActive}
 	pPost(r, 5)
-	if resp, _, err := r.user("stranger", "P", false, "", "", 20); err != nil || resp.GetAuthorProtected() || len(resp.GetPosts()) != 1 {
+	if resp, err := r.user("stranger", "P", false, "", "", 20); err != nil || resp.GetAuthorProtected() || len(resp.GetPosts()) != 1 {
 		t.Fatalf("%v %v", resp, err)
 	}
 }
@@ -365,7 +364,7 @@ func TestProtected_WireVisibilityHintSkipsSetForFollowedAndOwn(t *testing.T) {
 			plain := r.posts.add("f1", r.ms(-5*time.Second))
 			own := r.posts.add("P", r.ms(-2*time.Second))
 
-			resp, _, err := r.home("me", "", "", 20)
+			resp, err := r.home("me", "", "", 20)
 			if err != nil {
 				t.Fatal(err)
 			}

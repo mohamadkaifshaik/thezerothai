@@ -56,8 +56,7 @@ func (s *service) RepostRemoved(authorID, repostID string) {
 // viewableResolved is the one REPOST resolver (for quotes, D17 for replies and GetThread): it returns
 // the post by the viewable rules and, when that post is a REPOST, its original by the same rules. The REPOST's own
 // counters are never touched. A REPOST without an original id is treated as gone. Errors are those of viewable
-// (ErrNotFound for every refusal). Reads: target 1 + its author 1 + caller graph 1 cold, +2 for a REPOST (the
-// original and its author); 0 warm.
+// (ErrNotFound for every refusal).
 func (s *service) viewableResolved(ctx context.Context, uid, id string) (*Post, error) {
 	p, err := s.viewable(ctx, uid, id)
 	if err != nil || p.Kind != KindRepost {
@@ -80,9 +79,8 @@ func (s *service) resolveTarget(ctx context.Context, uid, id string) (*Post, err
 
 // quoteTarget resolves and validates a quote target for CreatePost: the id shape, then the GetPost visibility
 // rules. A REPOST target resolves to the original (D4) and is checked with the same rules. Every refusal is the
-// one NOT_FOUND "post not found" answer. Reads: target 1 + its author 1 + caller graph 1 cold (+2 for a REPOST); the embedded-author
-// check reuses the same caller snapshot (0 extra), +1 more on a blockedBy overflow (overflow worst case +2); the
-// caller's own copy is exempt.
+// one NOT_FOUND "post not found" answer. The embedded-author
+// check reuses the same caller snapshot; the caller's own copy is exempt.
 func (s *service) quoteTarget(ctx context.Context, uid, id string) (*Post, error) {
 	if !ids.ValidPostID(id) {
 		return nil, apierr.Validation("quote_of_post_id", "quote_of_post_id must be a 19-digit post id")
@@ -91,7 +89,7 @@ func (s *service) quoteTarget(ctx context.Context, uid, id string) (*Post, error
 	if err != nil {
 		return nil, err
 	}
-	// An approved caller may not quote a protected author's post (PROTECTED_ACCOUNT, 0 writes); 0 reads.
+	// An approved caller may not quote a protected author's post (PROTECTED_ACCOUNT, nothing written).
 	if err := s.aud.RefuseShare(ctx, uid, q); err != nil {
 		return nil, err
 	}

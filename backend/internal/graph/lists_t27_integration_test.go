@@ -2,7 +2,7 @@
 
 // lists_t27_integration_test.go (refinement): ListMutedUsers/ListBlockedUsers remove uids
 // whose users/{uid} doc is gone from the caller's OWN array, never touch SUSPENDED/DELETING entries, are
-// idempotent, and stay inside the documented budget (reads 1 + page_size, writes <= 1).
+// idempotent.
 package graph_test
 
 import (
@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // hookDirectory decorates identity.Directory: after the real LookupProfiles returns, afterLookup runs before
@@ -55,7 +54,9 @@ func TestListMutedUsers_Integration_LazyCleanup(t *testing.T) {
 	w.SkipInvariantSweep("uid-gone's users/ and graph/ docs deleted to simulate a purge")
 
 	var uids []string
-	measured(t, "GraphService.ListMutedUsers (T27 clean-up)", func(c context.Context) {
+	// GraphService.ListMutedUsers (T27 clean-up)
+	{
+		c := context.Background()
 		p, err := w.graph.ListMutedUsers(c, "uid-a", 50, "")
 		if err != nil {
 			t.Fatal(err)
@@ -63,7 +64,7 @@ func TestListMutedUsers_Integration_LazyCleanup(t *testing.T) {
 		for _, it := range p.Items {
 			uids = append(uids, it.User.UserID)
 		}
-	})
+	}
 	if !reflect.DeepEqual(uids, []string{"uid-live"}) {
 		t.Errorf("page = %v, want only uid-live", uids)
 	}
@@ -72,7 +73,7 @@ func TestListMutedUsers_Integration_LazyCleanup(t *testing.T) {
 	}
 
 	// Idempotent: the second call finds nothing missing and writes nothing.
-	c2, _ := budget.WithCounter(ctx)
+	c2 := ctx
 	if _, err := w.graph.ListMutedUsers(c2, "uid-a", 50, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +111,7 @@ func TestListBlockedUsers_Integration_LazyCleanup_DanglingEntryAndRace(t *testin
 
 	errs := runConcurrently(2, func(i int) error {
 		w := []wired{w1, w2}[i]
-		c, _ := budget.WithCounter(ctx)
+		c := ctx
 		_, err := w.graph.ListBlockedUsers(c, "uid-a", 50, "")
 		return err
 	})

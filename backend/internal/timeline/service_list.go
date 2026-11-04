@@ -35,15 +35,8 @@ func (listFlags) GloballyOff(string) bool { return false }
 // Home's pull-merge over the members instead of the followees (homeSources, Merge, removedIDs, the audience filter, the
 // codec; no new merge, cursor or cache), with tokens bound to the caller and the list.
 //
-// Order: FEATURE_LISTS and FEATURE_POSTS (0 reads), list_id shape and tokens (0 reads), then lists.Reader.Members, which
-// applies the D3 visibility rules and answers the one NOT_FOUND (the fixed reads), then the pull.
-//
-// Budget, reads including the account-status interceptor's caller `users` read; C = ceil(members / 30) <= 5 at
-// LIST_MAX_MEMBERS 150, k as Home. Non-owner, cold: 6 + C + 2*page (interceptor, list, caller graph, owner profile, owner
-// graph, userLikes) = 51 at page 20, 111 at page 50; the owner 4 + C + 2*page. An empty since refresh by the owner, cold:
-// 3 + C. A since_token older than the instance's removal-log cache adds at most 107 (window query): 218 worst.
-// Authors covered by a fresh author-recent entry (shared with Home) cost 0. Planning: refresh 4 + new posts, cold open or
-// older page 30. Writes 0. The removal-log refresh is detached, as for Home.
+// Order: FEATURE_LISTS and FEATURE_POSTS, list_id shape and tokens (all before any read), then lists.Reader.Members, which
+// applies the D3 visibility rules and answers the one NOT_FOUND, then the pull.
 func (s *Server) GetListTimeline(ctx context.Context, req *connect.Request[timelinev1.GetListTimelineRequest]) (*connect.Response[timelinev1.GetListTimelineResponse], error) {
 	uid, ok := authn.UIDFromContext(ctx)
 	if !ok {

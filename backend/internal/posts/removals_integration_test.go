@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"testing"
 	"time"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // seedSharedInstantRemovals commits n log entries in ONE batch, so they all carry the same server createdAt (the
@@ -41,7 +39,7 @@ func TestRemovalSource_AfterPagesThroughSharedTimestamp(t *testing.T) {
 	var all []RemovalEntry
 	at, id := floor, ""
 	for range 10 {
-		ctx, _ := budget.WithCounter(context.Background())
+		ctx := context.Background()
 		page, err := repo.After(ctx, at, id, RemovalMaxIDs)
 		if err != nil {
 			t.Fatal(err)
@@ -64,7 +62,7 @@ func TestRemovalSource_AfterPagesThroughSharedTimestamp(t *testing.T) {
 		}
 	}
 	last := all[len(all)-1]
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	tail, err := repo.After(ctx, last.At, last.PostID, RemovalMaxIDs)
 	if err != nil || len(tail) != 0 {
 		t.Fatalf("after the last entry: %d entries err=%v, want none", len(tail), err)

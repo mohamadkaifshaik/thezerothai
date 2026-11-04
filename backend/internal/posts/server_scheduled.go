@@ -30,7 +30,7 @@ type GloballyOffChecker interface {
 // (perCaller) needs the flag on for the caller. ListScheduledPosts and CancelScheduledPost only need it not globally
 // off, so a user dropped from the allowlist or percent bucket can still see and cancel what they already scheduled
 // (security review L-A, option b). A checker that cannot tell (no GloballyOff) gets the per-caller check for all
-// three. Disabled is FAILED_PRECONDITION + FEATURE_DISABLED with metadata feature=scheduled_posts, 0 reads.
+// three. Disabled is FAILED_PRECONDITION + FEATURE_DISABLED with metadata feature=scheduled_posts.
 func (s *Server) guardScheduled(ctx context.Context, perCaller bool) (uid string, err error) {
 	if err := GuardFeature(ctx, s.flags); err != nil {
 		return "", err
@@ -50,7 +50,7 @@ func (s *Server) guardScheduled(ctx context.Context, perCaller bool) (uid string
 }
 
 // SchedulePost is behind FEATURE_POSTS and FEATURE_SCHEDULED_POSTS. It shares the CreatePost rate-limit bucket (the
-// apiserver rate-limit config). Worst case 9 reads, 2 writes (Scheduler.Schedule).
+// apiserver rate-limit config).
 func (s *Server) SchedulePost(ctx context.Context, req *connect.Request[postsv1.SchedulePostRequest]) (*connect.Response[postsv1.SchedulePostResponse], error) {
 	uid, err := s.guardScheduled(ctx, true)
 	if err != nil {
@@ -86,7 +86,7 @@ func (s *Server) SchedulePost(ctx context.Context, req *connect.Request[postsv1.
 	return connect.NewResponse(&postsv1.SchedulePostResponse{ScheduledPost: ScheduledToProto(p)}), nil
 }
 
-// ListScheduledPosts is behind FEATURE_POSTS and not-globally-off FEATURE_SCHEDULED_POSTS (guardScheduled); reads 1 + page.
+// ListScheduledPosts is behind FEATURE_POSTS and not-globally-off FEATURE_SCHEDULED_POSTS (guardScheduled).
 func (s *Server) ListScheduledPosts(ctx context.Context, req *connect.Request[postsv1.ListScheduledPostsRequest]) (*connect.Response[postsv1.ListScheduledPostsResponse], error) {
 	uid, err := s.guardScheduled(ctx, false)
 	if err != nil {
@@ -108,8 +108,8 @@ func (s *Server) ListScheduledPosts(ctx context.Context, req *connect.Request[po
 	return connect.NewResponse(out), nil
 }
 
-// CancelScheduledPost is behind FEATURE_POSTS and not-globally-off FEATURE_SCHEDULED_POSTS; reads 1 (+ the interceptor's), writes 1
-// (0 when already terminal). It shares the CreatePost rate-limit bucket.
+// CancelScheduledPost is behind FEATURE_POSTS and not-globally-off FEATURE_SCHEDULED_POSTS; an item that is already
+// terminal is returned without a write. It shares the CreatePost rate-limit bucket.
 func (s *Server) CancelScheduledPost(ctx context.Context, req *connect.Request[postsv1.CancelScheduledPostRequest]) (*connect.Response[postsv1.CancelScheduledPostResponse], error) {
 	uid, err := s.guardScheduled(ctx, false)
 	if err != nil {

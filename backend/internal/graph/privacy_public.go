@@ -125,10 +125,10 @@ func (j *PrivacyPublicJob) Handle(ctx context.Context, data []byte) (string, err
 // redelivery re-reads only what is left, and a crash between pages loses nothing and doubles nothing, because the
 // followersCount increment is in the same transaction as the edges it counts.
 //
-// Firestore, per page: 1 read (users) + 2 per request (the request inside the transaction, the requester's graph) + the
-// cache-first Directory lookup of the requesters; per accepted request 3 writes (edge, requester graph, requester
-// followingCount) + 1 delete, plus 1 write per page (target followersCount += n). 500 pending: about 1,005 reads (+ the
-// Directory's cold lookups), 1,505 writes, 500 deletes. Notifications (FollowRequestAccepted) are emitted after each page
+// Per page, it reads the target's users doc, then each request inside the transaction with the requester's graph,
+// plus the cache-first Directory lookup of the requesters. Each accepted request writes the edge, the requester graph
+// and the requester followingCount and deletes the request; the page adds one write for the target followersCount.
+// Notifications (FollowRequestAccepted) are emitted after each page
 // commits.
 func (j *PrivacyPublicJob) Run(ctx context.Context, uid string) (string, error) {
 	var cur *PendingCursor

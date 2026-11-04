@@ -22,19 +22,15 @@ const (
 // `modlog` collection changes no caller. *service implements it, and Service embeds it.
 type Moderation interface {
 	// HideCommunityPost removes the post from the community's view (A12). Owner or moderator (FORBIDDEN not_moderator otherwise), ARCHIVED is
-	// COMMUNITY_STATE, a post that was not created into this community is NOT_FOUND. Firestore (interceptor excluded): reads 4 (idempotency,
-	// community, actor memberships, post; all fresh); writes 3 (post, community, idempotency) + 1 on the actor's first log entry in this community
-	// (memberships modlogged); already hidden 1 write (the idempotency doc); replay 1 read, 0 writes; refused 0 writes.
+	// COMMUNITY_STATE, a post that was not created into this community is NOT_FOUND. All reads are fresh. Already hidden writes only the
+	// idempotency doc; a replay and a refused request write nothing.
 	HideCommunityPost(ctx context.Context, uid string, in PostActionInput) error
-	// RestoreCommunityPost is the reverse of HideCommunityPost, with the same roles, errors and budget.
+	// RestoreCommunityPost is the reverse of HideCommunityPost, with the same roles and errors.
 	RestoreCommunityPost(ctx context.Context, uid string, in PostActionInput) error
-	// SetMemberRole bans, unbans, appoints or removes a moderator (D4). Firestore (interceptor excluded): reads 6 (target profile via the
-	// directory cache, idempotency, community, target member doc, target memberships, actor memberships); writes BAN 4, UNBAN 3 + 1 delete,
-	// MAKE or REMOVE_MODERATOR 2 to 3, +1 on the actor's first log entry in this community, worst 5; a request that changes nothing 1 write (the
-	// idempotency doc); replay 3 reads, 0 writes; refused 0 writes.
+	// SetMemberRole bans, unbans, appoints or removes a moderator (D4). A request that changes nothing writes only the idempotency
+	// doc; a replay and a refused request write nothing.
 	SetMemberRole(ctx context.Context, uid string, in RoleInput) (RoleResult, error)
-	// ListModerationLog is one page of the log, newest first, for the owner and moderators (FORBIDDEN not_moderator otherwise). Firestore
-	// (interceptor excluded): reads 1 community + <= 50 profiles cold, 0 warm; writes 0.
+	// ListModerationLog is one page of the log, newest first, for the owner and moderators (FORBIDDEN not_moderator otherwise).
 	ListModerationLog(ctx context.Context, uid string, in LogInput) (LogPage, error)
 }
 

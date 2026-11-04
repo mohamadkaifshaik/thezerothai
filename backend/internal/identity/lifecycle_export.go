@@ -84,9 +84,9 @@ func profileSection(p Profile) exportProfile {
 	}
 }
 
-// runExport handles one {account_export} delivery. Reads 1 (the exports doc, also the job state) + 1 (users) + the
-// sections' own; writes 2 (the lease claim, then the status). A delivery that finds a live lease costs 1 read, 0
-// writes; one that loses the claim race costs 2 reads, 0 writes. Both answer 429, a nack Pub/Sub redelivers after
+// runExport handles one {account_export} delivery. It reads the exports doc (also the job state), then users, then the
+// sections' own, and writes twice: the lease claim, then the status. A delivery that finds a live lease, or that
+// loses the claim race, writes nothing. Both answer 429, a nack Pub/Sub redelivers after
 // its 60 s backoff, when the lease has expired or the export is done. Only the claimant composes: concurrent or
 // replayed deliveries no longer each stream the whole export (L-4).
 func (l *Lifecycle) runExport(ctx context.Context, msg JobMessage, res jobResult) jobResult {
@@ -97,9 +97,9 @@ func (l *Lifecycle) runExport(ctx context.Context, msg JobMessage, res jobResult
 	case err != nil:
 		return retry(res, "error", fmt.Errorf("identity: read export: %w", err))
 	case doc.Status != ExportPending:
-		return ack(res, "duplicate") // already READY or FAILED: a redelivery costs 1 read
+		return ack(res, "duplicate") // already READY or FAILED: a redelivery changes nothing
 	case l.now().Before(doc.LeaseUntil):
-		return leased(res) // another delivery is composing: 1 read, 0 writes
+		return leased(res) // another delivery is composing: nothing written
 	}
 	res.uid = doc.UID
 	target, err := l.auth.exportTarget(ctx, doc)

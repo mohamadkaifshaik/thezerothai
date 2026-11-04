@@ -14,12 +14,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // bumpReplyCount appends the replyCount increment to a batch or transaction. The Update has an implicit Exists
-// precondition, so a deleted parent fails the whole commit with NotFound (0 writes).
+// precondition, so a deleted parent fails the whole commit with NotFound.
 func bumpReplyCount(b store.Batch, parent *firestore.DocumentRef, delta int64) {
 	bumpCount(b, parent, "replyCount", delta)
 }
@@ -29,7 +28,7 @@ func bumpCount(b store.Batch, ref *firestore.DocumentRef, field string, delta in
 	b.Update(ref, []firestore.Update{{Path: field, Value: firestore.Increment(delta)}})
 }
 
-// Conversation implements Repo (Q-T). Reads: len(result), minimum 1.
+// Conversation implements Repo (Q-T).
 func (r *FirestoreRepo) Conversation(ctx context.Context, conversationID string, after *Position, limit int) ([]*Post, error) {
 	q := r.client.Collection(postsCollection).
 		Where("conversationId", "==", conversationID).
@@ -38,11 +37,6 @@ func (r *FirestoreRepo) Conversation(ctx context.Context, conversationID string,
 		q = q.StartAfter(after.CreatedAt, r.ref(after.ID))
 	}
 	docs, err := q.Limit(limit).Documents(ctx).GetAll()
-	reads := int64(len(docs))
-	if reads == 0 {
-		reads = 1
-	}
-	budget.FromContext(ctx).AddReads(reads)
 	if err != nil {
 		return nil, fmt.Errorf("posts: conversation query: %w", err)
 	}
@@ -58,7 +52,7 @@ func (r *FirestoreRepo) Conversation(ctx context.Context, conversationID string,
 }
 
 // AddReplyCount implements Repo: one Update with FieldValue.Increment on the parent. A parent that no longer
-// exists is not an error (the counter died with it). Writes 1 (0 when the parent is gone).
+// exists is not an error (the counter died with it). Nothing is written when the parent is gone.
 func (r *FirestoreRepo) AddReplyCount(ctx context.Context, parentID string, delta int64) error {
 	return r.addCount(ctx, parentID, "replyCount", delta)
 }
@@ -69,7 +63,7 @@ func (r *FirestoreRepo) AddQuoteCount(ctx context.Context, quotedID string, delt
 }
 
 func (r *FirestoreRepo) addCount(ctx context.Context, id, field string, delta int64) error {
-	b := store.NewFirestoreBatch(r.client, budget.FromContext(ctx))
+	b := store.NewFirestoreBatch(r.client)
 	bumpCount(b, r.ref(id), field, delta)
 	if err := b.Commit(ctx); err != nil {
 		if status.Code(err) == codes.NotFound {

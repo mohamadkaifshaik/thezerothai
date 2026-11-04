@@ -86,35 +86,20 @@ type Scheduler interface {
 	// Schedule stores a root post to publish at in.PublishAt (truncated to the minute) and returns the stored item,
 	// or, for a replayed idempotency key, the stored item of the first call.
 	//
-	// Firestore, worst case (keep the SchedulePost proto comment and the integration budget assertions in sync):
-	//
-	//	reads : interceptor 1 (caller users, cached) + scheduled doc 1 + pending count() 1 + quotas 1 + window count() 1
-	//	        (both inside the transaction) + media <= 4 = 9. A create that loses a race (AlreadyExists) adds 1 read of
-	//	        the winner's doc, and a transaction retry under contention re-reads quotas, the window count and the
-	//	        media (up to 6 more per retry)
-	//	typical (no media): 5 with a cold interceptor read, 4 of them the service's own; replay 2; at the pending cap 3;
-	//	        at the window cap 6 (+ the document of this key: a full window that holds it is a concurrent duplicate,
-	//	        answered as a replay); at the daily cap 5 (checked after the window, before the media read)
-	//	writes: scheduled doc + quotas.schedules = 2 (replay and every cap: 0); + 1 TTL delete when it reaches a
-	//	        terminal state. The posts daily quota is charged at publish, not here.
-	//
 	// Exact and soft: the window cap (WindowCap items within +/-4 min) and the daily quota are exact, both decided
 	// inside the transaction after the quotas read. Every schedule by one user reads and writes quotas/{uid}, so of two
 	// racing calls only one commits; the loser is rejected at commit (ABORTED under the OPTIMISTIC mode of dev and prod,
 	// a lock wait on the emulator), retries, and counts the winner's committed document. The pending cap is soft: its
-	// count() runs outside the transaction (reading up to MaxPending+1 documents inside it would blow the read budget),
+	// count() runs outside the transaction (reading up to MaxPending+1 documents inside it is too costly),
 	// so concurrent calls can overshoot it by the number in flight, bounded by the daily quota and the rate bucket's
 	// burst of 10.
-	//
-	// Both count() calls are charged to the request's budget.Counter by hand (the store wrappers do not see
-	// aggregations). The service's own reads exclude the interceptor's, so a unit budget is one less than above.
 	Schedule(ctx context.Context, uid string, in ScheduleInput) (*ScheduledPost, error)
 	// ListScheduled returns one page of uid's PENDING and FAILED items, publish_at ascending (page size rule:
-	// ScheduledPageSize). Reads 1 + page (minimum 1); writes 0.
+	// ScheduledPageSize).
 	ListScheduled(ctx context.Context, uid string, pageSize int, pageToken string) (ScheduledPage, error)
 	// CancelScheduled cancels a PENDING item or dismisses a FAILED one and returns its current state without text or
-	// media. An item already PUBLISHED or CANCELLED is returned unchanged with 0 writes. Reads 1 (the interceptor's
-	// profile read is extra); writes 1 (0 when already terminal) + 1 TTL delete after SCHEDULED_TERMINAL_TTL.
+	// media. An item already PUBLISHED or CANCELLED is returned unchanged with nothing written.
+	// Otherwise the document is kept until the TTL expires it after SCHEDULED_TERMINAL_TTL.
 	CancelScheduled(ctx context.Context, uid, idempotencyKey, scheduledID string) (*ScheduledPost, error)
 }
 
@@ -148,7 +133,7 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 		return nil, featureDisabled("content_disclosure")
 	}
 
-	// 2. Shape, 0 reads. A root post only: SchedulePostRequest has no reply, quote or poll field.
+	// 2. Shape, no reads. A root post only: SchedulePostRequest has no reply, quote or poll field.
 	if !idempotency.KeyFormatValid(in.IdempotencyKey) {
 		return nil, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
 	}
@@ -177,7 +162,7 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 
 	// 3. Normalise (pure): publish_at to the whole minute in UTC, the policy to absent for EVERYONE (validateReplyPolicy),
 	// the doc id and the request hash from these effective values. Mentions are NOT resolved here: they resolve at
-	// publish (handle reads would break the 9-read budget).
+	// publish (handle reads would add a read per mention).
 	publishAt := in.PublishAt.UTC().Truncate(time.Minute)
 	id, err := ScheduledID(uid, in.IdempotencyKey)
 	if err != nil {
@@ -185,7 +170,7 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 	}
 	hash := scheduledRequestHash(parsed.Text, in.MediaIDs, in.MediaAltTexts, policy, in.PaidPartnership, in.MadeWithAI, publishAt)
 
-	// 4. The replay lookup (1 read): the stored item answers a repeat of the key whatever the clock or the caps say.
+	// 4. The replay lookup: the stored item answers a repeat of the key whatever the clock or the caps say.
 	stored, err := s.scheduled.GetScheduled(ctx, uid, id)
 	switch {
 	case err == nil:
@@ -204,8 +189,8 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 	}
 
 	// 6. The caps. What is exact and what is soft:
-	//   - The pending cap is SOFT. Its count() runs here, outside the transaction (1 read, charged by the repository),
-	//     because reading up to MaxPending+1 documents inside it would blow the read budget. Concurrent calls can overshoot
+	//   - The pending cap is SOFT. Its count() runs here, outside the transaction,
+	//     because reading up to MaxPending+1 documents inside it is too costly. Concurrent calls can overshoot
 	//     it by the number in flight, which the exact daily quota (SchedulesPerDay, a transactional counter) and the
 	//     CreatePost-shared rate bucket's burst of 10 per instance bound.
 	//   - The window cap (WindowCap items within +/-ScheduledWindowRadius) is EXACT. It is not checked here: step 8's
@@ -220,7 +205,7 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 		return nil, limitReached(ctx, limitScheduledPending, "you have too many scheduled posts; cancel one first")
 	}
 
-	// 7. The account age picks the daily quota tier. The profile is the interceptor's cached read (0 extra reads).
+	// 7. The account age picks the daily quota tier. The profile is the interceptor's cached read.
 	profiles, err := s.directory.GetProfiles(ctx, []string{uid})
 	if err != nil {
 		return nil, logger.ScrubErr(fmt.Errorf("posts: schedule load author: %w", err), uid)
@@ -234,8 +219,8 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 		quotaLimit = s.schedule.NewAccountSchedulesPerDay
 	}
 
-	// 8. The transaction: quotas (1 read), the window count (1 read, the exact window cap), media (<= 4 reads), then
-	// Create + quotas.schedules (2 writes).
+	// 8. The transaction: quotas, the window count (the exact window cap), media (at most 4 images), then
+	// Create + quotas.schedules.
 	created, err := s.scheduled.CreateScheduled(ctx, ScheduledCreateParams{
 		UID: uid, ID: id, PublishAt: publishAt, RequestHash: hash, Now: now, QuotaLimit: quotaLimit, WindowCap: s.schedule.WindowCap,
 		Draft:    ScheduledDraft{Text: parsed.Text, ReplyPolicy: policy, PaidPartnership: in.PaidPartnership, MadeWithAI: in.MadeWithAI},
@@ -246,7 +231,7 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 		logger.SetRequestField(ctx, fieldOutcome, outcomeScheduled)
 		return created, nil
 	case errors.Is(err, ErrScheduledExists):
-		// A concurrent first call of the same key won the create: answer from its document (1 read), as in step 4.
+		// A concurrent first call of the same key won the create: answer from its document, as in step 4.
 		winner, gerr := s.scheduled.GetScheduled(ctx, uid, id)
 		if gerr != nil {
 			return nil, logger.ScrubErr(fmt.Errorf("posts: schedule concurrent duplicate lookup: %w", gerr), uid)
@@ -267,7 +252,7 @@ func (s *service) Schedule(ctx context.Context, uid string, in ScheduleInput) (_
 	return nil, logger.ScrubErr(fmt.Errorf("posts: schedule: %w", err), uid)
 }
 
-// answerStored answers a repeat of a key from the stored item: the same effective request is a replay (0 writes), a
+// answerStored answers a repeat of a key from the stored item: the same effective request is a replay (nothing written), a
 // different one is IDEMPOTENCY_KEY_REUSED.
 func (s *service) answerStored(ctx context.Context, stored *ScheduledPost, hash string) (*ScheduledPost, error) {
 	if stored.RequestHash != hash {

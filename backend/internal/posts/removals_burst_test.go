@@ -5,14 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 )
 
-// TestRemovalLog_SharedInstantBurstCostsOneReadPerTTL is the B1 regression: 250 entries (a suspension batch) share
-// one commit timestamp. The cold load reads the newest 50; every later TTL must cost exactly one read (the
-// incremental query starts after the last entry seen), not a 100-read reload forever.
-func TestRemovalLog_SharedInstantBurstCostsOneReadPerTTL(t *testing.T) {
+// TestRemovalLog_SharedInstantBurstRefreshesIncrementally is the B1 regression: 250 entries (a suspension batch)
+// share one commit timestamp. The cold load takes the newest 50; every later TTL must run only the incremental
+// query that starts after the last entry seen, never reload the newest entries again.
+func TestRemovalLog_SharedInstantBurstRefreshesIncrementally(t *testing.T) {
 	t.Parallel()
 	r := newRemovalRig()
 	at := r.now.Add(-time.Minute)
@@ -20,14 +21,14 @@ func TestRemovalLog_SharedInstantBurstCostsOneReadPerTTL(t *testing.T) {
 		r.src.put(fmt.Sprintf("b%03d", i), RemovalRemoved, at)
 	}
 	cutoff := at.Add(-time.Second)
-	if _, trunc, reads := r.since(t, cutoff); !trunc || reads != RemovalMaxIDs {
-		t.Fatalf("cold load: trunc=%v reads=%d, want truncated/%d", trunc, reads, RemovalMaxIDs)
+	if _, trunc, queries := r.since(t, cutoff); !trunc || queries[0] != "newest" {
+		t.Fatalf("cold load: trunc=%v queries=%v, want truncated after loading the newest entries", trunc, queries)
 	}
 	for step := 1; step <= 5; step++ {
 		r.now = r.now.Add(testTTL)
-		_, trunc, reads := r.since(t, cutoff)
-		if reads != 1 {
-			t.Fatalf("TTL step %d: reads = %d, want 1 (no reload of the burst)", step, reads)
+		_, trunc, queries := r.since(t, cutoff)
+		if len(queries) == 0 || queries[0] != "after" || slices.Contains(queries, "newest") {
+			t.Fatalf("TTL step %d: queries = %v, want an incremental after query and no reload of the burst", step, queries)
 		}
 		if !trunc {
 			t.Fatalf("TTL step %d: a token from before the burst must still be rejected", step)
@@ -41,13 +42,13 @@ func TestRemovalLog_SharedInstantBurstCostsOneReadPerTTL(t *testing.T) {
 	// later is listed.
 	r.src.put("zzz", RemovalRemoved, at)
 	r.now = r.now.Add(testTTL)
-	if ids, _, reads := r.since(t, at); reads != 1 || len(ids) != 0 {
-		t.Fatalf("same-instant newcomer: ids=%v reads=%d, want none (not newer than the cutoff) and 1 read", ids, reads)
+	if ids, _, queries := r.since(t, at); len(queries) == 0 || queries[0] != "after" || len(ids) != 0 {
+		t.Fatalf("same-instant newcomer: ids=%v queries=%v, want none (not newer than the cutoff) after one incremental query", ids, queries)
 	}
 	r.src.put("late", RemovalRemoved, r.now.Add(-time.Second))
 	r.now = r.now.Add(testTTL)
-	if ids, trunc, reads := r.since(t, at); trunc || !reflect.DeepEqual(ids, []string{"late"}) || reads != 1 {
-		t.Fatalf("later entry: ids=%v trunc=%v reads=%d, want [late]/false/1", ids, trunc, reads)
+	if ids, trunc, queries := r.since(t, at); trunc || !reflect.DeepEqual(ids, []string{"late"}) || len(queries) == 0 || queries[0] != "after" {
+		t.Fatalf("later entry: ids=%v trunc=%v queries=%v, want [late]/false after an incremental query", ids, trunc, queries)
 	}
 }
 

@@ -20,7 +20,6 @@ import (
 	"cloud.google.com/go/firestore"
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // seedGraphWithRequested makes graph/{uid} for a requester that asked each of targets, without a users doc (the eraser never
@@ -74,7 +73,7 @@ func TestW335b_RequestEraser_PageBoundaries(t *testing.T) {
 			}
 
 			e := graph.NewRequestEraser(w.graph.repo)
-			_, calls := runRequestPurge(t, e, "uid-u")
+			calls := runRequestPurge(t, e, "uid-u")
 			if calls != tt.calls {
 				t.Errorf("calls = %d, want %d", calls, tt.calls)
 			}
@@ -100,7 +99,7 @@ func TestW335b_RequestEraser_PageBoundaries(t *testing.T) {
 func TestW335b_RequestEraser_RequesterGoneBetweenCalls(t *testing.T) {
 	w := newWired(t)
 	w.SkipInvariantSweep("raw followRequests seeding")
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	seedGraphWithRequested(t, w.client, "uid-live", "uid-u")
 	seedGraphWithRequested(t, w.client, "uid-doomed", "uid-u")
 	seedRequestDoc(t, w.client, "uid-live", "uid-u", time.Minute)
@@ -134,8 +133,7 @@ func TestW335b_RequestEraser_RequesterGoneBetweenCalls(t *testing.T) {
 	}
 }
 
-// A redelivery after the step finished, from the beginning and from a stale checkpoint, is the 2-read minimum and writes
-// nothing; a requester that also asked someone else keeps that request and that `requested` entry; the pair asked in
+// A redelivery after the step finished, from the beginning and from a stale checkpoint, finds nothing to do; a requester that also asked someone else keeps that request and that `requested` entry; the pair asked in
 // both directions loses both docs.
 func TestW335b_RequestEraser_RedeliveryKeepsOtherRequests(t *testing.T) {
 	w := newWired(t)
@@ -164,7 +162,7 @@ func TestW335b_RequestEraser_RedeliveryKeepsOtherRequests(t *testing.T) {
 	}
 
 	for _, cp := range []graph.RequestCheckpoint{{}, {Phase: 1}, {Phase: 2}} {
-		ctx, _ := budget.WithCounter(context.Background())
+		ctx := context.Background()
 		for calls := 0; calls < 5; calls++ {
 			next, done, err := e.PurgeUser(ctx, "uid-u", cp)
 			if err != nil {
@@ -259,7 +257,7 @@ func TestW335b_ExportRequests_PageBoundaries(t *testing.T) {
 				seedRequestDoc(t, w.client, fmt.Sprintf("uid-in%03d", i), "uid-u", time.Duration(i)*time.Second)
 				seedRequestDoc(t, w.client, "uid-u", fmt.Sprintf("uid-out%03d", i), time.Duration(i)*time.Second)
 			}
-			ctx, _ := budget.WithCounter(context.Background())
+			ctx := context.Background()
 			got, err := w.graph.repo.ExportRequests(ctx, "uid-u")
 			if err != nil {
 				t.Fatal(err)

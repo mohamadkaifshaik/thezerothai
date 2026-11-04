@@ -4,7 +4,7 @@ package apiserver
 
 // Shared helpers of the matrix. Every
 // package-level name here carries the w320 / W320 prefix so a symbol added by a parallel fix branch can never
-// collide with it. The chain, the clients, the budget-from-log helper, rawRPC, tabCall, listLiked, like, unlike and the
+// collide with it. The chain, the clients, the log-line helper, rawRPC, tabCall, listLiked, like, unlike and the
 // rest are reused from the earlier files of this package.
 //
 // The one open gap named by a constant is w320LikesRepeatsAfterLastGoneAndNextRelike beside its only reader (defect D-1
@@ -89,7 +89,7 @@ func newW320BM(env *chainEnv) *bmChain {
 }
 
 // w320Warm makes the account-status read of u warm on this chain (GetMe is ungated and reads the same profile), so a
-// refused call that follows can be asserted at exactly 0 reads.
+// refused call that follows is answered by the gate alone.
 func (e *w320Chain) w320Warm(t *testing.T, u bmUser) []string {
 	t.Helper()
 	return e.enabledFeatures(t, u)
@@ -209,14 +209,13 @@ func w320Str(s string) *string { return &s }
 
 const (
 	// w320ClearsNeedProfileExtras is M-1(b) (Amendment 1 A2). false (after #354): the exact value "" for banner,
-	// location, website or pin is accepted from any authenticated caller whatever the flag, globally off included (1 read,
-	// 1 write); only SETTING a value (whitespace-only included) stays gated, and a request that mixes a clear with a set is
+	// location, website or pin is accepted from any authenticated caller whatever the flag, globally off included; only SETTING a value (whitespace-only included) stays gated, and a request that mixes a clear with a set is
 	// refused whole. (Before the fix: every one of these was FEATURE_DISABLED outside the cohort.)
 	w320ClearsNeedProfileExtras = false
 
 	// w320WebsiteShownWhileExtrasGloballyOff is M-1(a) (Amendment 1 A1). false (after #354): with profile_extras
 	// globally off (mode off only) present() blanks the website together with the pin in every Profile identity returns,
-	// 0 reads, so the kill switch also kills the link; the banner and the location keep rendering. (Before the fix only the
+	// so the kill switch also kills the link; the banner and the location keep rendering. (Before the fix only the
 	// pin was blanked.)
 	w320WebsiteShownWhileExtrasGloballyOff = false
 )

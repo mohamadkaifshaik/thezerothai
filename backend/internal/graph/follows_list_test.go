@@ -117,7 +117,7 @@ func TestListFollowers_TargetVisibility(t *testing.T) {
 				assertAPIErr(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 			}
 			if repo.edgeCalls != 0 {
-				t.Error("a hidden target must cost no edge reads")
+				t.Error("a hidden target must not reach the edge query")
 			}
 		})
 	}
@@ -212,7 +212,7 @@ func TestListFollowers_EmptyAndFlagOff(t *testing.T) {
 	}
 }
 
-// "List paging": a full page always carries a token; the exact-multiple total costs one empty call.
+// "List paging": a full page always carries a token; the exact-multiple total ends with one empty call.
 func TestListFollowers_ExactMultipleEndsWithEmptyPage(t *testing.T) {
 	repo, dir := followersFixture(4)
 	svc := newTestServiceWithDirectory(repo, dir, Deps{CursorKey: []byte("k")})

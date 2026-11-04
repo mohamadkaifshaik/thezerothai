@@ -1,7 +1,7 @@
 //go:build integration
 
 // lists_integration_test.go exercises GetRelationships and the own-list RPCs against the Firestore emulator
-// (acceptance criteria and budgets).
+// (acceptance criteria).
 package graph_test
 
 import (
@@ -12,10 +12,9 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
-func TestGetRelationships_Integration_BudgetAndBlockedByInvisible(t *testing.T) {
+func TestGetRelationships_Integration_BlockedByInvisible(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
 	mustCreateProfile(t, w.identity, "uid-b", "userb")
@@ -25,7 +24,7 @@ func TestGetRelationships_Integration_BudgetAndBlockedByInvisible(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	rels, err := w.graph.GetRelationships(ctx, "uid-a", []string{"uid-b", "uid-c"})
 	if err != nil {
 		t.Fatal(err)
@@ -34,13 +33,17 @@ func TestGetRelationships_Integration_BudgetAndBlockedByInvisible(t *testing.T) 
 		t.Errorf("blocked-by user %+v distinguishable from stranger %+v", rels[0], rels[1])
 	}
 
-	ctx2, _ := budget.WithCounter(context.Background())
-	if _, err := w.graph.GetRelationships(ctx2, "uid-a", []string{"uid-b", "uid-c"}); err != nil {
+	// Served again from the instance cache, the answer is the same.
+	again, err := w.graph.GetRelationships(context.Background(), "uid-a", []string{"uid-b", "uid-c"})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if again[0] != rels[0] || again[1] != rels[1] {
+		t.Errorf("repeat answer %+v differs from the first %+v", again, rels)
 	}
 }
 
-func TestListBlockedUsers_Integration_PagesAndBudget(t *testing.T) {
+func TestListBlockedUsers_Integration_Pages(t *testing.T) {
 	w := newWired(t)
 	mustCreateProfile(t, w.identity, "uid-a", "usera")
 	const n = 45
@@ -61,7 +64,7 @@ func TestListBlockedUsers_Integration_PagesAndBudget(t *testing.T) {
 	token := ""
 	var sizes []int
 	for {
-		ctx, _ := budget.WithCounter(context.Background())
+		ctx := context.Background()
 		page, err := w.graph.ListBlockedUsers(ctx, "uid-a", 20, token)
 		if err != nil {
 			t.Fatal(err)

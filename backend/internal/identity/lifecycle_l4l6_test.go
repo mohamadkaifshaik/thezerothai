@@ -304,9 +304,15 @@ func TestBackstop_ExportsCursorAndOrder(t *testing.T) {
 	if h.repo.exports["old"].Status != ExportFailed {
 		t.Error("the 30 h old export was not given up")
 	}
-	// 56 stuck docs returned (a full page of 50, then 6) + 1 read for the empty deletion scan.
-	if h.repo.reads != 56+1 {
-		t.Errorf("reads = %d, want 57", h.repo.reads)
+	// The age filter is part of the query, so the fresh exports are never read: every page asks only for docs
+	// created before the cutoff, which all of them are after.
+	if len(h.repo.pendingBefore) < 2 {
+		t.Fatalf("pending-export pages = %d, want at least 2 (a full page of 50, then the rest)", len(h.repo.pendingBefore))
+	}
+	for i, cutoff := range h.repo.pendingBefore {
+		if !cutoff.Before(now.Add(-time.Minute)) {
+			t.Errorf("page %d asked for exports created before %v, which includes the fresh ones", i, cutoff)
+		}
 	}
 }
 

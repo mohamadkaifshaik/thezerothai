@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
@@ -18,13 +19,9 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 )
-
-// The budgets below are the service's own reads on top of the account-status interceptor's one profile read (the interceptor is not
-// part of this harness): the per-RPC budgets are Create 3 / Update 4 / Get 15 including it.
 
 type env struct {
 	client *firestore.Client
@@ -60,13 +57,6 @@ func newEnv(t *testing.T, modlogMax int) *env {
 		Limits: Limits{MaxOwned: 2, MaxJoined: 50, MaxRules: 10, ModlogMax: modlogMax, CacheEntries: 100, MembersCacheEntries: 100},
 	}).(*service)
 	return &env{client: client, repo: repo, svc: svc, dir: dir, gr: gr, node: node}
-}
-
-func measured(t *testing.T, name string, fn func(ctx context.Context)) *budget.Counter {
-	t.Helper()
-	ctx, c := budget.WithCounter(context.Background())
-	fn(ctx)
-	return c
 }
 
 func key(n int) string { return fmt.Sprintf("integration-key-%04d", n) }
@@ -144,18 +134,14 @@ func (e *env) seedMemberships(t *testing.T, uid string, m Memberships) {
 	}
 }
 
-func TestCreate_WritesThreeDocsAndTheRecordWithinBudget(t *testing.T) {
+func TestCreate_WritesThreeDocsAndTheRecord(t *testing.T) {
 	e := newEnv(t, 100)
-	var got View
-	measured(t, "CreateCommunity", func(ctx context.Context) {
-		var err error
-		got, err = e.svc.CreateCommunity(ctx, "owner", CreateInput{
-			Key: key(1), Name: "Cricket", Description: "Talk cricket", Rules: []Rule{{Title: "Be kind", Text: "Always."}, {Title: "No spam"}},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
+	got, err := e.svc.CreateCommunity(context.Background(), "owner", CreateInput{
+		Key: key(1), Name: "Cricket", Description: "Talk cricket", Rules: []Rule{{Title: "Be kind", Text: "Always."}, {Title: "No spam"}},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	id := got.Community.ID
 	if len(id) != 19 {
 		t.Fatalf("id = %q, want a 19-digit Snowflake", id)
@@ -203,23 +189,27 @@ func TestCreate_WritesThreeDocsAndTheRecordWithinBudget(t *testing.T) {
 func TestCreate_ReplayWritesNothingAndAnotherBodyIsRefused(t *testing.T) {
 	e := newEnv(t, 100)
 	first := e.create(t, "owner", 1, "Cricket")
-	var again View
-	measured(t, "CreateCommunity replay", func(ctx context.Context) {
-		var err error
-		again, err = e.svc.CreateCommunity(ctx, "owner", CreateInput{Key: key(1), Name: "Cricket"})
-		if err != nil {
-			t.Fatal(err)
-		}
-	})
+	stored := e.community(t, first.ID)
+	again, err := e.svc.CreateCommunity(context.Background(), "owner", CreateInput{Key: key(1), Name: "Cricket"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if again.Community.ID != first.ID || again.Role != RoleOwner {
 		t.Errorf("replay answered %+v, want the first community", again)
+	}
+	// the replay wrote nothing: one community, untouched
+	if docs, _ := e.client.Collection("communities").Documents(context.Background()).GetAll(); len(docs) != 1 {
+		t.Errorf("communities after a replay = %d, want 1", len(docs))
+	}
+	if after := e.community(t, first.ID); !reflect.DeepEqual(after, stored) {
+		t.Errorf("the replay changed the community: %+v -> %+v", stored, after)
 	}
 	// a replay re-reads: a rename in between shows
 	newName := "Test cricket"
 	if _, err := e.svc.UpdateCommunity(context.Background(), "owner", UpdateInput{Key: key(2), CommunityID: first.ID, Name: &newName}); err != nil {
 		t.Fatal(err)
 	}
-	again, err := e.svc.CreateCommunity(context.Background(), "owner", CreateInput{Key: key(1), Name: "Cricket"})
+	again, err = e.svc.CreateCommunity(context.Background(), "owner", CreateInput{Key: key(1), Name: "Cricket"})
 	if err != nil || again.Community.Name != "Test cricket" {
 		t.Errorf("replay after a rename = %+v, %v, want the current name", again.Community, err)
 	}
@@ -228,10 +218,14 @@ func TestCreate_ReplayWritesNothingAndAnotherBodyIsRefused(t *testing.T) {
 		"name": {Key: key(1), Name: "Football"}, "description": {Key: key(1), Name: "Cricket", Description: "x"},
 		"rules": {Key: key(1), Name: "Cricket", Rules: []Rule{{Title: "r"}}},
 	} {
-		_ = measured(t, "reused "+name, func(ctx context.Context) {
-			_, err := e.svc.CreateCommunity(ctx, "owner", in)
+		t.Run(name, func(t *testing.T) {
+			_, err := e.svc.CreateCommunity(context.Background(), "owner", in)
 			wantAPIErr(t, err, connect.CodeInvalidArgument, rKeyReused, nil)
 		})
+	}
+	// a refused key reuse stored nothing new: still the one community, still under its current name
+	if docs, _ := e.client.Collection("communities").Documents(context.Background()).GetAll(); len(docs) != 1 || e.community(t, first.ID).Name != "Test cricket" {
+		t.Errorf("communities after the refused reuses = %d, name %q", len(docs), e.community(t, first.ID).Name)
 	}
 	// a replay of a community that went SUSPENDED is the one NOT_FOUND
 	if _, err := e.repo.ref(first.ID).Update(context.Background(), []firestore.Update{{Path: "status", Value: "SUSPENDED"}}); err != nil {
@@ -299,10 +293,8 @@ func TestCreate_CapsAreExactAndWriteNothing(t *testing.T) {
 	e := newEnv(t, 100)
 	e.create(t, "owner", 1, "One")
 	e.create(t, "owner", 2, "Two")
-	measured(t, "owned cap", func(ctx context.Context) {
-		_, err := e.svc.CreateCommunity(ctx, "owner", CreateInput{Key: key(3), Name: "Three"})
-		wantAPIErr(t, err, connect.CodeFailedPrecondition, rLimit, map[string]string{"limit": "communities_owned"})
-	})
+	_, err := e.svc.CreateCommunity(context.Background(), "owner", CreateInput{Key: key(3), Name: "Three"})
+	wantAPIErr(t, err, connect.CodeFailedPrecondition, rLimit, map[string]string{"limit": "communities_owned"})
 	if _, ok := e.data(t, "idempotency/"+idempotency.Key("owner", "CreateCommunity", key(3))); ok {
 		t.Error("a refusal stored an idempotency record")
 	}
@@ -315,10 +307,14 @@ func TestCreate_CapsAreExactAndWriteNothing(t *testing.T) {
 		joined[i] = fmt.Sprintf("%019d", 9000+i)
 	}
 	e.seedMemberships(t, "stranger", Memberships{Joined: joined})
-	measured(t, "joined cap", func(ctx context.Context) {
-		_, err := e.svc.CreateCommunity(ctx, "stranger", CreateInput{Key: key(4), Name: "Late"})
-		wantAPIErr(t, err, connect.CodeFailedPrecondition, rLimit, map[string]string{"limit": "communities_joined"})
-	})
+	_, err = e.svc.CreateCommunity(context.Background(), "stranger", CreateInput{Key: key(4), Name: "Late"})
+	wantAPIErr(t, err, connect.CodeFailedPrecondition, rLimit, map[string]string{"limit": "communities_joined"})
+	if _, ok := e.data(t, "idempotency/"+idempotency.Key("stranger", "CreateCommunity", key(4))); ok {
+		t.Error("the joined-cap refusal stored an idempotency record")
+	}
+	if docs, _ := e.client.Collection("communities").Documents(context.Background()).GetAll(); len(docs) != 2 {
+		t.Errorf("communities after the joined-cap refusal = %d, want 2", len(docs))
+	}
 	// 49 joined: the 50th is allowed, and appends to the existing doc (field-level Update)
 	e.seedMemberships(t, "stranger", Memberships{Joined: joined[:49], Banned: []string{"b1"}, Modlogged: []string{"m1"}})
 	v, err := e.svc.CreateCommunity(context.Background(), "stranger", CreateInput{Key: key(5), Name: "Fifty"})
@@ -332,19 +328,15 @@ func TestCreate_CapsAreExactAndWriteNothing(t *testing.T) {
 	}
 }
 
-func TestUpdate_BudgetsModlogAndMemberships(t *testing.T) {
+func TestUpdate_ModlogAndMemberships(t *testing.T) {
 	e := newEnv(t, 3)
 	com := e.create(t, "owner", 1, "Old name")
 	str := func(s string) *string { return &s }
-	// the first edit: community + idempotency + memberships.modlogged
-	var v View
-	measured(t, "UpdateCommunity first edit", func(ctx context.Context) {
-		var err error
-		v, err = e.svc.UpdateCommunity(ctx, "owner", UpdateInput{Key: key(2), CommunityID: com.ID, Name: str("New name"), Rules: &[]Rule{{Title: "One"}}})
-		if err != nil {
-			t.Fatal(err)
-		}
-	})
+	// the first edit: the community, the idempotency record and memberships.modlogged
+	v, err := e.svc.UpdateCommunity(context.Background(), "owner", UpdateInput{Key: key(2), CommunityID: com.ID, Name: str("New name"), Rules: &[]Rule{{Title: "One"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if v.Community.Name != "New name" || len(v.Community.Rules) != 1 || v.Role != RoleOwner {
 		t.Errorf("view = %+v", v)
 	}
@@ -356,30 +348,28 @@ func TestUpdate_BudgetsModlogAndMemberships(t *testing.T) {
 	if ms, _ := e.memberships(t, "owner"); !slices.Equal(ms.Modlogged, []string{com.ID}) || !slices.Equal(ms.Owned, []string{com.ID}) {
 		t.Errorf("memberships = %+v, want modlogged to hold the community (I-L)", ms)
 	}
-	// a later edit: community + idempotency only
-	measured(t, "UpdateCommunity later edit", func(ctx context.Context) {
-		if _, err := e.svc.UpdateCommunity(ctx, "owner", UpdateInput{Key: key(3), CommunityID: com.ID, Description: str("About us")}); err != nil {
-			t.Fatal(err)
-		}
-	})
-	// nothing changes: the idempotency record only, and no log entry
-	measured(t, "UpdateCommunity unchanged", func(ctx context.Context) {
-		if _, err := e.svc.UpdateCommunity(ctx, "owner", UpdateInput{Key: key(4), CommunityID: com.ID, Name: str("New name"), Description: str("About us")}); err != nil {
-			t.Fatal(err)
-		}
-	})
+	// a later edit: the community and the idempotency record
+	if _, err := e.svc.UpdateCommunity(context.Background(), "owner", UpdateInput{Key: key(3), CommunityID: com.ID, Description: str("About us")}); err != nil {
+		t.Fatal(err)
+	}
+	// nothing changes: no log entry
+	if _, err := e.svc.UpdateCommunity(context.Background(), "owner", UpdateInput{Key: key(4), CommunityID: com.ID, Name: str("New name"), Description: str("About us")}); err != nil {
+		t.Fatal(err)
+	}
 	if cm = e.community(t, com.ID); cm.ModlogSeq != 2 || len(cm.Modlog) != 2 {
 		t.Errorf("an unchanged request logged: seq %d, %d entries", cm.ModlogSeq, len(cm.Modlog))
 	}
-	// replay: 0 writes, and it re-reads the community
-	measured(t, "UpdateCommunity replay", func(ctx context.Context) {
-		got, err := e.svc.UpdateCommunity(ctx, "owner", UpdateInput{Key: key(3), CommunityID: com.ID, Description: str("About us")})
-		if err != nil || got.Community.Description != "About us" {
-			t.Errorf("replay = %+v, %v", got.Community, err)
-		}
-	})
+	// replay: it re-reads the community and writes nothing, so the log and the document stay as they were
+	beforeReplay := e.community(t, com.ID)
+	got, err := e.svc.UpdateCommunity(context.Background(), "owner", UpdateInput{Key: key(3), CommunityID: com.ID, Description: str("About us")})
+	if err != nil || got.Community.Description != "About us" {
+		t.Errorf("replay = %+v, %v", got.Community, err)
+	}
+	if after := e.community(t, com.ID); !reflect.DeepEqual(after, beforeReplay) {
+		t.Errorf("the replay changed the community: %+v -> %+v", beforeReplay, after)
+	}
 	// the same key, another body
-	_, err := e.svc.UpdateCommunity(context.Background(), "owner", UpdateInput{Key: key(3), CommunityID: com.ID, Description: str("Other")})
+	_, err = e.svc.UpdateCommunity(context.Background(), "owner", UpdateInput{Key: key(3), CommunityID: com.ID, Description: str("Other")})
 	wantAPIErr(t, err, connect.CodeInvalidArgument, rKeyReused, nil)
 	// an empty rule list is a value: it removes every rule; unset leaves them
 	empty := []Rule{}
@@ -431,14 +421,20 @@ func TestUpdate_RefusalsWriteNothing(t *testing.T) {
 	}
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			measured(t, tt.name, func(ctx context.Context) {
-				_, err := e.svc.UpdateCommunity(ctx, tt.uid, UpdateInput{Key: key(100 + i), CommunityID: tt.id, Name: str("Hijack")})
-				wantAPIErr(t, err, tt.code, tt.reason, tt.meta)
-			})
+			_, err := e.svc.UpdateCommunity(context.Background(), tt.uid, UpdateInput{Key: key(100 + i), CommunityID: tt.id, Name: str("Hijack")})
+			wantAPIErr(t, err, tt.code, tt.reason, tt.meta)
+			if _, ok := e.data(t, "idempotency/"+idempotency.Key(tt.uid, "UpdateCommunity", key(100+i))); ok {
+				t.Error("a refused update stored an idempotency record")
+			}
 		})
 	}
 	if cm := e.community(t, com.ID); cm.Name != "Mine" || cm.ModlogSeq != 0 {
 		t.Errorf("a refused update changed the community: %+v", cm)
+	}
+	for id, name := range map[string]string{archived.ID: "Quiet", suspended.ID: "Gone", ownerless: "Orphan"} {
+		if cm := e.community(t, id); cm.Name != name {
+			t.Errorf("a refused update renamed %s to %q", id, cm.Name)
+		}
 	}
 	// nothing was recorded for a refusal: the same key now works for the owner
 	if _, err := e.svc.UpdateCommunity(context.Background(), "owner", UpdateInput{Key: key(100), CommunityID: com.ID, Name: str("Hijack")}); err != nil {
@@ -446,7 +442,7 @@ func TestUpdate_RefusalsWriteNothing(t *testing.T) {
 	}
 }
 
-func TestGet_ColdAndWarmReads(t *testing.T) {
+func TestGet_ColdRolesAndDetail(t *testing.T) {
 	e := newEnv(t, 100)
 	com := e.create(t, "owner", 1, "Cricket")
 	e.seedCommunity(t, Community{ID: "0000000000000000900", Name: "Seeded", OwnerID: "owner", ModeratorIDs: []string{"mod1", "mod2", "mod3"}, MemberCount: 5},
@@ -463,32 +459,25 @@ func TestGet_ColdAndWarmReads(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.uid, func(t *testing.T) {
 			s := cold()
-			var d Detail
-			_ = measured(t, "GetCommunity cold", func(ctx context.Context) {
-				var err error
-				if d, err = s.GetCommunity(ctx, tt.uid, cid); err != nil {
-					t.Fatal(err)
-				}
-			})
+			d, err := s.GetCommunity(context.Background(), tt.uid, cid)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if d.View.Role != tt.want || d.View.Community.Name != "Seeded" || len(d.Moderators) != 3 || d.Owner == nil {
 				t.Errorf("detail = %+v", d)
 			}
-			measured(t, "GetCommunity warm", func(ctx context.Context) { // profiles and graph are charged by the fakes every time
-				if _, err := s.GetCommunity(ctx, tt.uid, cid); err != nil {
-					t.Fatal(err)
-				}
-			})
 		})
 	}
-	// the community created through the service was cached on the writing instance
-	_ = measured(t, "GetCommunity after the write", func(ctx context.Context) {
-		if _, err := e.svc.GetCommunity(ctx, "owner", com.ID); err != nil {
-			t.Fatal(err)
-		}
-	})
+	// the community created through the service was cached on the writing instance: it is served even with the document gone
+	if _, err := e.repo.ref(com.ID).Delete(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if d, err := e.svc.GetCommunity(context.Background(), "owner", com.ID); err != nil || d.View.Community.Name != "Cricket" {
+		t.Errorf("GetCommunity after the write = %+v, %v, want the cached community", d.View.Community, err)
+	}
 }
 
-func TestGet_SuspendedAndMissingCostTheSame(t *testing.T) {
+func TestGet_SuspendedAndMissingAreIndistinguishable(t *testing.T) {
 	e := newEnv(t, 100)
 	com := e.create(t, "owner", 1, "Cricket")
 	if _, err := e.repo.ref(com.ID).Update(context.Background(), []firestore.Update{{Path: "status", Value: "SUSPENDED"}}); err != nil {
@@ -497,14 +486,13 @@ func TestGet_SuspendedAndMissingCostTheSame(t *testing.T) {
 	fresh := func() *service {
 		return New(Deps{Repo: e.repo, Directory: e.dir, Graph: e.gr, IDs: e.node, Limits: Limits{CacheEntries: 10, MembersCacheEntries: 10}}).(*service)
 	}
-	measured(t, "suspended", func(ctx context.Context) {
-		_, err := fresh().GetCommunity(ctx, "stranger", com.ID)
-		wantAPIErr(t, err, connect.CodeNotFound, rNone, nil)
-	})
-	measured(t, "missing", func(ctx context.Context) {
-		_, err := fresh().GetCommunity(ctx, "stranger", fmt.Sprintf("%019d", 4242))
-		wantAPIErr(t, err, connect.CodeNotFound, rNone, nil)
-	})
+	_, errSuspended := fresh().GetCommunity(context.Background(), "stranger", com.ID)
+	wantAPIErr(t, errSuspended, connect.CodeNotFound, rNone, nil)
+	_, errMissing := fresh().GetCommunity(context.Background(), "stranger", fmt.Sprintf("%019d", 4242))
+	wantAPIErr(t, errMissing, connect.CodeNotFound, rNone, nil)
+	if errSuspended.Error() != errMissing.Error() {
+		t.Errorf("SUSPENDED answers %q, missing answers %q: the answers tell them apart", errSuspended, errMissing)
+	}
 	d, err := fresh().GetCommunity(context.Background(), "owner", com.ID)
 	if err != nil || d.View.Community.Status != StatusSuspended {
 		t.Errorf("owner of a SUSPENDED community: %+v, %v", d.View.Community.Status, err)
@@ -515,12 +503,10 @@ func TestRepo_MemberStates(t *testing.T) {
 	e := newEnv(t, 100)
 	e.seedCommunity(t, Community{ID: testCID, Name: "x", OwnerID: "owner"}, map[string]MemberState{"member": MemberJoined, "banned": MemberBanned})
 	for uid, want := range map[string]MemberState{"member": MemberJoined, "banned": MemberBanned, "stranger": MemberNone} {
-		measured(t, "Member "+uid, func(ctx context.Context) {
-			got, err := e.repo.Member(ctx, testCID, uid)
-			if err != nil || got != want {
-				t.Errorf("Member(%s) = %q, %v, want %q", uid, got, err, want)
-			}
-		})
+		got, err := e.repo.Member(context.Background(), testCID, uid)
+		if err != nil || got != want {
+			t.Errorf("Member(%s) = %q, %v, want %q", uid, got, err, want)
+		}
 	}
 	if _, err := e.repo.Get(context.Background(), "0000000000000000001"); err != ErrNotFound {
 		t.Errorf("Get(missing) = %v", err)

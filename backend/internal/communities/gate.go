@@ -34,7 +34,7 @@ func NewPostGate(r Reader, m TxMemberReader, cap *ratelimit.DailyCap) *PostGate 
 	return g
 }
 
-// Admit is step 2: the community from the 60 s cache (1 read cold, 0 warm; staleness bound 60 s, D12). Missing or SUSPENDED is the one
+// Admit is step 2: the community from the 60 s cache (staleness bound 60 s). Missing or SUSPENDED is the one
 // byte-identical NOT_FOUND; ARCHIVED is COMMUNITY_STATE community_archived. It returns the name for the label snapshot.
 func (g *PostGate) Admit(ctx context.Context, cid string) (string, error) {
 	c, err := g.communities.Get(ctx, cid)
@@ -78,7 +78,7 @@ func (g *PostGate) AllowPost(ctx context.Context, uid, cid string) error {
 	return g.cap.ExceededError(ctx, LimitPostsPerCommunityDaily)
 }
 
-// CachedMembers is the cached member-doc lookup the reply paths use (*service implements it): 1 read cold, 0 warm, staleness bound 60 s.
+// CachedMembers is the cached member-doc lookup the reply paths use (*service implements it), staleness bound 60 s.
 // NewPostGate takes it from the Reader when the Reader provides it, else it falls back to Reader.Role.
 type CachedMembers interface {
 	MemberState(ctx context.Context, communityID, uid string) (MemberState, error)
@@ -86,7 +86,7 @@ type CachedMembers interface {
 
 // CanReply is the members-only reply rule: the community status from the 60 s cache (missing or SUSPENDED is the one
 // NOT_FOUND, ARCHIVED is community_archived), then the caller's member doc from the 60 s cache. Not JOINED, and BANNED, is FORBIDDEN
-// not_member (a banned caller learns nothing more than a non-member). +2 reads cold, +0 warm; 0 writes.
+// not_member (a banned caller learns nothing more than a non-member).
 func (g *PostGate) CanReply(ctx context.Context, uid, cid string) error {
 	if _, err := g.Admit(ctx, cid); err != nil {
 		return err
@@ -101,7 +101,7 @@ func (g *PostGate) CanReply(ctx context.Context, uid, cid string) error {
 	return nil
 }
 
-// IsMember reports whether uid is JOINED in cid from the cached member doc, without loading the community (+1 read cold, +0 warm).
+// IsMember reports whether uid is JOINED in cid from the cached member doc, without loading the community.
 // The owner and every moderator hold a JOINED member doc (D4), so they pass.
 func (g *PostGate) IsMember(ctx context.Context, uid, cid string) (bool, error) {
 	if g.cached != nil {

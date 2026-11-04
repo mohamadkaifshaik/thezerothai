@@ -3,8 +3,8 @@
 package apiserver
 
 // VotePoll over the real Build chain (Firestore and Auth emulators): the wire contract the poll card maps by reason, the
-// vote batch, replay, ALREADY_VOTED, concurrency, the new-account cap, the byte-identical NOT_FOUND, the flag gate and the budgets
-// (logged fs_reads / fs_writes of the request line). The emulator serialises writes, so the concurrency here is
+// vote batch, replay, ALREADY_VOTED, concurrency, the new-account cap, the byte-identical NOT_FOUND, and the flag gate.
+// The emulator serialises writes, so the concurrency here is
 // not proof for production OPTIMISTIC concurrency (runs a dev smoke).
 
 import (
@@ -119,8 +119,8 @@ func (p *pollChain) voteDocs(t *testing.T, postID string) int {
 	return len(docs)
 }
 
-// The contract the poll card relies on, plus the budgets.
-func TestPollVoteChain_ContractAndBudgets(t *testing.T) {
+// The contract the poll card relies on.
+func TestPollVoteChain_Contract(t *testing.T) {
 	e := newPollChain(t)
 	a, b, c := e.user(t), e.user(t), e.user(t)
 	pid := e.poll(t, a)
@@ -145,13 +145,13 @@ func TestPollVoteChain_ContractAndBudgets(t *testing.T) {
 		t.Errorf("userLikes.pollVotes = %v", got)
 	}
 
-	// Replay: same view, 0 writes, the vote doc read once more (9 worst).
+	// Replay: same view.
 	v2, err := e.vote(b, "poll-vote-key-000001", pid, 1)
 	if err != nil || v2.GetViewerPollChoice() != 2 || !v2.GetPost().GetPoll().GetResultsVisible() || v2.GetPost().GetPoll().GetTotalVotes() != 1 {
 		t.Fatalf("replay = %v, %v", v2, err)
 	}
 
-	// ALREADY_VOTED: by reason, with the stored choice; 0 writes.
+	// ALREADY_VOTED: by reason, with the stored choice.
 	_, err = e.vote(b, "poll-vote-key-000002", pid, 2)
 	d := wireError(t, err, connect.CodeFailedPrecondition)
 	assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_ALREADY_VOTED)
@@ -172,7 +172,7 @@ func TestPollVoteChain_ContractAndBudgets(t *testing.T) {
 		t.Fatalf("GetPost by the voter = %v, %v", gb, err)
 	}
 
-	// Refusals: the author, a choice beyond the poll, a post without a poll. 0 writes, at most 7 reads.
+	// Refusals: the author, a choice beyond the poll, a post without a poll.
 	_, err = e.vote(a, "poll-vote-key-000003", pid, 0)
 	assertReason(t, wireError(t, err, connect.CodeInvalidArgument), commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 	_, err = e.vote(c, "poll-vote-key-000004", pid, 3)
@@ -185,7 +185,7 @@ func TestPollVoteChain_ContractAndBudgets(t *testing.T) {
 	assertReason(t, wireError(t, err, connect.CodeInvalidArgument), commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 }
 
-// A closed poll: POLL_CLOSED by reason, 0 writes, and GetPost shows closed with the results.
+// A closed poll: POLL_CLOSED by reason, and GetPost shows closed with the results.
 func TestPollVoteChain_Closed(t *testing.T) {
 	e := newPollChain(t)
 	a, b := e.user(t), e.user(t)

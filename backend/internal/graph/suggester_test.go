@@ -14,16 +14,12 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 )
 
-// Unit tests of ListSuggestedUsers over fakes. The reads the fakes charge to the budget
-// counter mirror the real repo and Directory (a snapshot read 1, an edge query one per document with a minimum of 1,
-// hydration one per uid), so the cold and warm read caps are asserted here too. The interceptor's read is not part of
-// the service: the documented 32 is 31 here plus that one (the config default EdgeLimit 20
-// B1(b); 42 and 41 when a test pins EdgeLimit to 30).
+// Unit tests of ListSuggestedUsers over fakes. The fake repo records every edge query and the fake directory every
+// hydration call, so the edge and hydration caps and the warm path are asserted on those recordings.
 
 const sugViewer = "uid-v"
 
@@ -39,10 +35,9 @@ type sugQuery struct {
 	limit     int
 }
 
-// ListEdgesByFollowers satisfies Repo for the tests that never ask for suggestions: no edges, and the one read an
-// empty query bills. sugRepo below replaces it with a real filter.
-func (f *fakeRepo) ListEdgesByFollowers(ctx context.Context, _ []string, _ int) ([]Edge, error) {
-	budget.FromContext(ctx).AddReads(1)
+// ListEdgesByFollowers satisfies Repo for the tests that never ask for suggestions: no edges. sugRepo below
+// replaces it with a real filter.
+func (f *fakeRepo) ListEdgesByFollowers(context.Context, []string, int) ([]Edge, error) {
 	return nil, nil
 }
 
@@ -54,10 +49,9 @@ type sugRepo struct {
 	edgeErr error
 }
 
-func (r *sugRepo) ListEdgesByFollowers(ctx context.Context, followers []string, limit int) ([]Edge, error) {
+func (r *sugRepo) ListEdgesByFollowers(_ context.Context, followers []string, limit int) ([]Edge, error) {
 	r.queries = append(r.queries, sugQuery{followers: slices.Clone(followers), limit: limit})
 	if r.edgeErr != nil {
-		budget.FromContext(ctx).AddReads(1)
 		return nil, r.edgeErr
 	}
 	var out []Edge
@@ -66,16 +60,14 @@ func (r *sugRepo) ListEdgesByFollowers(ctx context.Context, followers []string, 
 			out = append(out, e)
 		}
 	}
-	budget.FromContext(ctx).AddReads(int64(max(len(out), 1)))
 	return out, nil
 }
 
 func (r *sugRepo) GetSnapshot(ctx context.Context, uid string) (Snapshot, error) {
-	budget.FromContext(ctx).AddReads(1)
 	return r.fakeRepo.GetSnapshot(ctx, uid)
 }
 
-// sugDir is fakeDirectory that records each hydration call and charges one read per uid (all cold).
+// sugDir is fakeDirectory that records each hydration call.
 type sugDir struct {
 	*fakeDirectory
 	calls [][]string
@@ -87,7 +79,6 @@ func (d *sugDir) GetProfiles(ctx context.Context, uids []string) (map[string]ide
 	if !d.pause {
 		d.calls = append(d.calls, slices.Clone(uids))
 	}
-	budget.FromContext(ctx).AddReads(int64(len(uids)))
 	return d.fakeDirectory.GetProfiles(ctx, uids)
 }
 
@@ -147,14 +138,13 @@ func newSugEnv(t *testing.T, lim SuggestionLimits, snap Snapshot, follows []Edge
 	return env
 }
 
-func (e *sugEnv) list(t *testing.T, viewer string, maxRes int32) ([]string, *budget.Counter) {
+func (e *sugEnv) list(t *testing.T, viewer string, maxRes int32) []string {
 	t.Helper()
-	ctx, counter := budget.WithCounter(context.Background())
-	items, err := e.svc.ListSuggestedUsers(ctx, viewer, maxRes)
+	items, err := e.svc.ListSuggestedUsers(context.Background(), viewer, maxRes)
 	if err != nil {
 		t.Fatalf("ListSuggestedUsers: %v", err)
 	}
-	return rowUIDs(items), counter
+	return rowUIDs(items)
 }
 
 // follow, block and mute run the caller's mutation on this instance without recording its own Directory calls as
@@ -203,7 +193,7 @@ func names(prefix string, n int) []string {
 }
 
 // TestListSuggestedUsers_ExclusionMatrix: self, following, requested, blocked, blockedBy and muted never come back,
-// each on its own, and an excluded uid is not even sent to hydration (0 reads spent on it).
+// each on its own, and an excluded uid is not even sent to hydration.
 func TestListSuggestedUsers_ExclusionMatrix(t *testing.T) {
 	tests := []struct {
 		name string
@@ -226,7 +216,7 @@ func TestListSuggestedUsers_ExclusionMatrix(t *testing.T) {
 				[2]string{"fe-01", "ca-2"}, [2]string{"fe-02", "ca-3"},
 			)
 			env := newSugEnv(t, SuggestionLimits{}, snap, follows, []string{tt.x, "ca-1", "ca-2", "ca-3"})
-			got, _ := env.list(t, sugViewer, 5)
+			got := env.list(t, sugViewer, 5)
 			if slices.Contains(got, tt.x) {
 				t.Fatalf("result %v contains the excluded %s", got, tt.x)
 			}
@@ -273,14 +263,14 @@ func TestListSuggestedUsers_Ranking(t *testing.T) {
 	for day := 0; day < 6; day++ {
 		env.now = time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC).AddDate(0, 0, day)
 		env.svc.suggested = newSuggestionCache(time.Hour) // a new day starts without the previous day's cache
-		got, _ := env.list(t, sugViewer, 5)
+		got := env.list(t, sugViewer, 5)
 		want := wantOn(env.now)[:5]
 		if !slices.Equal(got, want) {
 			t.Fatalf("day +%d: got %v, want %v", day, got, want)
 		}
 		again := slices.Clone(got)
 		env.svc.suggested = newSuggestionCache(time.Hour)
-		if got2, _ := env.list(t, sugViewer, 5); !slices.Equal(got2, again) {
+		if got2 := env.list(t, sugViewer, 5); !slices.Equal(got2, again) {
 			t.Fatalf("day +%d: a second computation changed the order: %v then %v", day, again, got2)
 		}
 		orders[strings.Join(got, ",")] = true
@@ -372,7 +362,6 @@ func TestListSuggestedUsers_Sources(t *testing.T) {
 			env := newSugEnv(t, lim, tt.snap, tt.follows, tt.active)
 			env.dir.profiles["cu-susp"] = identity.Profile{UserID: "cu-susp", Status: identity.AccountStatusSuspended}
 			ctx, info := obsCtx()
-			ctx, _ = budget.WithCounter(ctx)
 			items, err := env.svc.ListSuggestedUsers(ctx, sugViewer, 10)
 			if err != nil {
 				t.Fatalf("ListSuggestedUsers: %v", err)
@@ -401,22 +390,21 @@ func TestListSuggestedUsers_Sources(t *testing.T) {
 }
 
 // TestListSuggestedUsers_CapsAndCache: with 40 followees and 60 candidates the sample is the newest 30 followees, the
-// query asks for EdgeLimit edges, hydration is ONE call of HydrateMax uids, the cold call reads exactly 1 + EdgeLimit +
-// HydrateMax (31 at the config default 20, whose documented cap is 32 with the interceptor; 41 with EdgeLimit pinned to
-// 30, cap 42) and the warm call reads nothing.
+// query asks for EdgeLimit edges, hydration is ONE call of HydrateMax uids, and the warm call runs no query and no
+// hydration.
 func TestListSuggestedUsers_CapsAndCache(t *testing.T) {
 	for _, tt := range []struct {
-		name                        string
-		edgeLimit, wantLimit, reads int // edgeLimit 0 is the default that normalized() fills in
+		name                 string
+		edgeLimit, wantLimit int // edgeLimit 0 is the default that normalized() fills in
 	}{
-		{"config default edge limit 20: cold cap 32", 0, 20, 31},
-		{"edge limit pinned to 30: cold cap 42", 30, 30, 41},
+		{"config default edge limit 20", 0, 20},
+		{"edge limit pinned to 30", 30, 30},
 	} {
-		t.Run(tt.name, func(t *testing.T) { checkCapsAndCache(t, tt.edgeLimit, tt.wantLimit, int64(tt.reads)) })
+		t.Run(tt.name, func(t *testing.T) { checkCapsAndCache(t, tt.edgeLimit, tt.wantLimit) })
 	}
 }
 
-func checkCapsAndCache(t *testing.T, edgeLimit, wantLimit int, wantCold int64) {
+func checkCapsAndCache(t *testing.T, edgeLimit, wantLimit int) {
 	t.Helper()
 	followees := names("fe", 40) // oldest first, the stored order
 	snap := mkSnap(followees...)
@@ -428,7 +416,6 @@ func checkCapsAndCache(t *testing.T, edgeLimit, wantLimit int, wantCold int64) {
 	env := newSugEnv(t, SuggestionLimits{SampleFollowees: 30, EdgeLimit: edgeLimit, HydrateMax: 10, MaxResults: 5}, snap, edgesOf(pairs...), cands)
 
 	ctx, info := obsCtx()
-	ctx, _ = budget.WithCounter(ctx)
 	items, err := env.svc.ListSuggestedUsers(ctx, sugViewer, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -451,7 +438,6 @@ func checkCapsAndCache(t *testing.T, edgeLimit, wantLimit int, wantCold int64) {
 	}
 
 	ctx2, info2 := obsCtx()
-	ctx2, _ = budget.WithCounter(ctx2)
 	again, err := env.svc.ListSuggestedUsers(ctx2, sugViewer, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -468,17 +454,16 @@ func checkCapsAndCache(t *testing.T, edgeLimit, wantLimit int, wantCold int64) {
 
 	// The caller cannot reach the cache through the returned slice.
 	again[0] = ListItem{}
-	if third, _ := env.list(t, sugViewer, 0); third[0] != items[0].User.UserID {
+	if third := env.list(t, sugViewer, 0); third[0] != items[0].User.UserID {
 		t.Errorf("mutating a returned slice changed the cache: %v", third)
 	}
 }
 
-// TestListSuggestedUsers_CuratedReadCap: the curated path reads the snapshot and hydration only (12 with the
-// interceptor).
-func TestListSuggestedUsers_CuratedReadCap(t *testing.T) {
+// TestListSuggestedUsers_CuratedNoEdgeQuery: the curated path runs no edge query.
+func TestListSuggestedUsers_CuratedNoEdgeQuery(t *testing.T) {
 	curated := names("cu", 20)
 	env := newSugEnv(t, SuggestionLimits{CuratedUIDs: curated}, mkSnap(), nil, curated)
-	got, _ := env.list(t, sugViewer, 5)
+	got := env.list(t, sugViewer, 5)
 	if len(got) != 5 {
 		t.Fatalf("rows = %v, want 5", got)
 	}
@@ -496,14 +481,14 @@ func TestListSuggestedUsers_MaxResults(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(fmt.Sprint(tt.req), func(t *testing.T) {
 			env := newSugEnv(t, SuggestionLimits{CuratedUIDs: curated}, mkSnap(), nil, curated)
-			if got, _ := env.list(t, sugViewer, tt.req); len(got) != tt.want {
+			if got := env.list(t, sugViewer, tt.req); len(got) != tt.want {
 				t.Errorf("max_results %d => %d rows, want %d", tt.req, len(got), tt.want)
 			}
 		})
 	}
 	t.Run("a smaller configured cap wins", func(t *testing.T) {
 		env := newSugEnv(t, SuggestionLimits{CuratedUIDs: curated, MaxResults: 2}, mkSnap(), nil, curated)
-		if got, _ := env.list(t, sugViewer, 5); len(got) != 2 {
+		if got := env.list(t, sugViewer, 5); len(got) != 2 {
 			t.Errorf("rows = %v, want 2", got)
 		}
 	})
@@ -523,22 +508,21 @@ func TestListSuggestedUsers_CacheEviction(t *testing.T) {
 
 	t.Run("Follow removes the followed uid and the tail refills", func(t *testing.T) {
 		env := build(t)
-		first, _ := env.list(t, sugViewer, 5)
+		first := env.list(t, sugViewer, 5)
 		if !slices.Equal(first, curated[:5]) {
 			t.Fatalf("first = %v", first)
 		}
 		env.follow(t, "cu-00")
-		got, _ := env.list(t, sugViewer, 5)
+		got := env.list(t, sugViewer, 5)
 		if want := curated[1:6]; !slices.Equal(got, want) {
 			t.Errorf("after Follow = %v, want %v (cu-00 gone, the sixth row moved up)", got, want)
 		}
-		// Follow invalidated the caller's 60 s snapshot, so the re-filter of this warm hit loads graph/{viewer} once
-		// (L-1: the documented +1 on a warm hit without a cached snapshot). Nothing else is read: no edge query,
-		// no hydration; the next call finds the refilled snapshot cache and costs 0.
+		// Follow invalidated the caller's 60 s snapshot, so the re-filter of this warm hit reloads graph/{viewer}; it
+		// runs no edge query and no second hydration.
 		if len(env.repo.queries) != 0 || len(env.dir.calls) != 1 {
 			t.Errorf("storage touched again: %d hydrations", len(env.dir.calls))
 		}
-		_, _ = env.list(t, sugViewer, 5)
+		env.list(t, sugViewer, 5)
 	})
 
 	t.Run("Block removes both directions", func(t *testing.T) {
@@ -548,7 +532,7 @@ func TestListSuggestedUsers_CacheEviction(t *testing.T) {
 		env.svc.suggested.put("uid-t", suggestionEntry{items: []ListItem{{User: identity.Profile{UserID: sugViewer}}, {User: identity.Profile{UserID: "cu-07"}}}}, env.now)
 		env.repo.blockResult = BlockResult{Outcome: OutcomeCreated, Relationship: Relationship{UserID: "cu-00", Blocking: true}}
 		env.block(t, "cu-00")
-		if got, _ := env.list(t, sugViewer, 5); slices.Contains(got, "cu-00") {
+		if got := env.list(t, sugViewer, 5); slices.Contains(got, "cu-00") {
 			t.Errorf("blocked user still suggested: %v", got)
 		}
 		env.repo.blockResult = BlockResult{Outcome: OutcomeCreated, Relationship: Relationship{UserID: "uid-t", Blocking: true}}
@@ -564,7 +548,7 @@ func TestListSuggestedUsers_CacheEviction(t *testing.T) {
 		env.list(t, sugViewer, 5)
 		env.repo.muteResult, env.repo.muteOutcome = Relationship{UserID: "cu-01", Muting: true}, OutcomeCreated
 		env.mute(t, "cu-01")
-		if got, _ := env.list(t, sugViewer, 5); slices.Contains(got, "cu-01") {
+		if got := env.list(t, sugViewer, 5); slices.Contains(got, "cu-01") {
 			t.Errorf("muted user still suggested: %v", got)
 		}
 	})
@@ -574,7 +558,7 @@ func TestListSuggestedUsers_CacheEviction(t *testing.T) {
 		env.list(t, sugViewer, 5)
 		env.repo.followOutcome = OutcomeReplay
 		env.follow(t, "cu-00")
-		if got, _ := env.list(t, sugViewer, 5); !slices.Equal(got, curated[:5]) {
+		if got := env.list(t, sugViewer, 5); !slices.Equal(got, curated[:5]) {
 			t.Errorf("after a replay = %v", got)
 		}
 	})
@@ -601,14 +585,14 @@ func TestListSuggestedUsers_CacheEviction(t *testing.T) {
 		snap := mkSnap()
 		snap.BlockedBy["cu-02"] = true
 		env.svc.cache.Set(sugViewer, snap)
-		got, _ := env.list(t, sugViewer, 5)
+		got := env.list(t, sugViewer, 5)
 		if want := []string{"cu-00", "cu-01", "cu-03", "cu-04", "cu-05"}; !slices.Equal(got, want) {
 			t.Errorf("rows = %v, want %v (cu-02 hidden, the tail refilled)", got, want)
 		}
 		// With an overflowed blockedBy nothing is shown from the cache either.
 		snap.BlockedByOverflow = true
 		env.svc.cache.Set(sugViewer, snap)
-		if got, _ := env.list(t, sugViewer, 5); len(got) != 0 {
+		if got := env.list(t, sugViewer, 5); len(got) != 0 {
 			t.Errorf("rows = %v with BlockedByOverflow, want none", got)
 		}
 	})
@@ -616,7 +600,7 @@ func TestListSuggestedUsers_CacheEviction(t *testing.T) {
 	t.Run("an empty answer is cached too", func(t *testing.T) {
 		env := newSugEnv(t, SuggestionLimits{}, mkSnap(), nil, nil)
 		env.list(t, sugViewer, 5)
-		_, _ = env.list(t, sugViewer, 5)
+		env.list(t, sugViewer, 5)
 		if len(env.dir.calls) != 0 {
 			t.Errorf("hydration called for no candidates: %v", env.dir.calls)
 		}
@@ -627,10 +611,10 @@ func TestListSuggestedUsers_CacheEviction(t *testing.T) {
 		env.repo.snapshots["uid-w"] = mkSnap()
 		env.list(t, sugViewer, 5)
 		env.svc.suggested.put("uid-w", suggestionEntry{items: []ListItem{{User: identity.Profile{UserID: "only-w"}}}}, env.now)
-		if got, _ := env.list(t, "uid-w", 5); !slices.Equal(got, []string{"only-w"}) {
+		if got := env.list(t, "uid-w", 5); !slices.Equal(got, []string{"only-w"}) {
 			t.Errorf("uid-w rows = %v", got)
 		}
-		if got, _ := env.list(t, sugViewer, 5); slices.Contains(got, "only-w") {
+		if got := env.list(t, sugViewer, 5); slices.Contains(got, "only-w") {
 			t.Errorf("viewer rows = %v leak uid-w's entry", got)
 		}
 	})
@@ -672,7 +656,7 @@ func TestListSuggestedUsers_Errors(t *testing.T) {
 			}
 		}
 		env.repo.edgeErr = nil
-		if got, _ := env.list(t, sugViewer, 5); len(got) != 1 {
+		if got := env.list(t, sugViewer, 5); len(got) != 1 {
 			t.Errorf("retry after the failure = %v, want the one candidate (a failure must not be cached)", got)
 		}
 		if len(env.repo.queries) != 2 {
@@ -888,7 +872,7 @@ func TestListSuggestedUsers_WarmHitReloadsSnapshot(t *testing.T) {
 
 	t.Run("a blocker added on another instance is dropped on the next call", func(t *testing.T) {
 		env := build(t)
-		first, _ := env.list(t, sugViewer, 5)
+		first := env.list(t, sugViewer, 5)
 		if !slices.Equal(first, curated[:5]) {
 			t.Fatalf("first = %v", first)
 		}
@@ -896,15 +880,19 @@ func TestListSuggestedUsers_WarmHitReloadsSnapshot(t *testing.T) {
 		env.repo.snapshots[sugViewer] = blockedBySnapshot("cu-02")
 		env.svc.cache.Invalidate(sugViewer)
 
-		got, _ := env.list(t, sugViewer, 5)
+		got := env.list(t, sugViewer, 5)
 		if want := []string{"cu-00", "cu-01", "cu-03", "cu-04", "cu-05"}; !slices.Equal(got, want) {
 			t.Errorf("rows = %v, want %v (cu-02 hidden, the tail refilled)", got, want)
 		}
 		if len(env.repo.queries) != 0 || len(env.dir.calls) != 1 {
 			t.Errorf("the re-filter touched storage beyond the snapshot: %d queries, %d hydrations", len(env.repo.queries), len(env.dir.calls))
 		}
-		// The loaded snapshot is cached for 60 s: the next warm call is free again.
-		_, _ = env.list(t, sugViewer, 5)
+		// The loaded snapshot is cached for 60 s: the next warm call does not load it again.
+		loads := env.repo.calls
+		env.list(t, sugViewer, 5)
+		if env.repo.calls != loads {
+			t.Errorf("snapshot loads after the next warm call = %d, want %d (cached for 60 s)", env.repo.calls, loads)
+		}
 	})
 
 	t.Run("a block of the viewer by an uncached viewer entry is hidden although the entry was built before it", func(t *testing.T) {
@@ -914,7 +902,7 @@ func TestListSuggestedUsers_WarmHitReloadsSnapshot(t *testing.T) {
 		env.now = env.now.Add(59 * time.Minute)
 		env.repo.snapshots[sugViewer] = blockedBySnapshot("cu-00", "cu-01")
 		env.svc.cache.Invalidate(sugViewer)
-		got, _ := env.list(t, sugViewer, 5)
+		got := env.list(t, sugViewer, 5)
 		if want := []string{"cu-02", "cu-03", "cu-04", "cu-05", "cu-06"}; !slices.Equal(got, want) {
 			t.Errorf("rows = %v, want %v", got, want)
 		}
@@ -944,7 +932,7 @@ func TestListSuggestedUsers_WarmHitReloadsSnapshot(t *testing.T) {
 
 	t.Run("a snapshot read error is an error without raw uids, and the entry survives it", func(t *testing.T) {
 		env := build(t)
-		first, _ := env.list(t, sugViewer, 5)
+		first := env.list(t, sugViewer, 5)
 		env.svc.cache.Invalidate(sugViewer)
 		env.repo.err = errors.New("rpc error: documents/graph/" + sugViewer + " unavailable")
 		items, err := env.svc.ListSuggestedUsers(context.Background(), sugViewer, 5)
@@ -955,7 +943,7 @@ func TestListSuggestedUsers_WarmHitReloadsSnapshot(t *testing.T) {
 			t.Errorf("error %q names the raw uid", err.Error())
 		}
 		env.repo.err = nil
-		got, _ := env.list(t, sugViewer, 5)
+		got := env.list(t, sugViewer, 5)
 		if !slices.Equal(got, first) || len(env.dir.calls) != 1 {
 			t.Errorf("after the failure rows = %v (hydrations %d), want the same entry %v", got, len(env.dir.calls), first)
 		}
@@ -968,15 +956,19 @@ func TestListSuggestedUsers_WarmHitReloadsSnapshot(t *testing.T) {
 		snap.BlockedByOverflow = true
 		env.repo.snapshots[sugViewer] = snap
 		env.svc.cache.Invalidate(sugViewer)
-		got, _ := env.list(t, sugViewer, 5)
+		got := env.list(t, sugViewer, 5)
 		if len(got) != 0 {
 			t.Errorf("rows = %v with BlockedByOverflow, want none", got)
 		}
 	})
 
-	t.Run("a cached snapshot still costs nothing", func(t *testing.T) {
+	t.Run("a cached snapshot is not loaded again", func(t *testing.T) {
 		env := build(t)
 		env.list(t, sugViewer, 5)
-		_, _ = env.list(t, sugViewer, 5)
+		loads := env.repo.calls
+		env.list(t, sugViewer, 5)
+		if env.repo.calls != loads {
+			t.Errorf("snapshot loads = %d after the second call, want %d", env.repo.calls, loads)
+		}
 	})
 }

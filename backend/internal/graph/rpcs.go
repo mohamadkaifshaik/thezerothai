@@ -23,11 +23,11 @@ func (s *service) checkFlag(callerUID string) error {
 // request path or the edge path; see repo_firestore.go's Follow doc comment for that precedence). The target's users doc
 // is read inside the transaction, so only the caller's profile goes through identity.Directory (cache-first).
 //
-// Firestore: reads 4 cold / 3 warm (+1 on an overflowed caller): target users, caller graph and quotas in the
-// transaction, plus the caller's profile (cold only; the account-status interceptor loads it on the request line).
-// Writes: 5 for an edge (follows doc, caller graph, 2 counters, quota), 3 for a request to a protected target
-// (followRequests Create, caller `requested`, quota), +1 delete when a leftover request to a now-public target is
-// removed (AQ4); a replay (already following, or already requested) 0 writes. Planning value 4.
+// The transaction reads the target users doc, the caller graph and quotas (plus the target graph for an overflowed
+// caller); the caller's profile comes from the cache the account-status interceptor fills. It writes an edge (follows
+// doc, caller graph, 2 counters, quota) or, for a protected target, a request (followRequests Create, caller
+// `requested`, quota), and deletes a leftover request to a now-public target (AQ4); a replay (already following,
+// or already requested) writes nothing.
 // A request counts against the follows quota and returns FOLLOW_STATE_REQUESTED; FEATURE_PRIVATE_ACCOUNTS never gates it.
 func (s *service) Follow(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "follow")(&err)
@@ -104,9 +104,9 @@ func (s *service) mapFollowErr(callerUID, targetUID string, err error) error {
 // Unfollow: two blind batches, idempotent. The edge batch runs first; on its failed
 // precondition the withdraw batch deletes a pending follow request (WithdrawRequest). Both failing is NONE with 0
 // writes (not following, nothing requested, or a replayed/racing Unfollow). Undo is never gated: withdrawing needs no
-// FEATURE_PRIVATE_ACCOUNTS, only the module flag every graph RPC checks. Firestore: both batches read 0; an edge removal
-// writes 3 and deletes 1, a withdraw writes 1 and deletes 1, a no-op 0; the request line logs 1 read (the caller's
-// AccountStatusInterceptor profile read, cold after a Forget).
+// FEATURE_PRIVATE_ACCOUNTS, only the module flag every graph RPC checks. Both batches are blind (no reads); an edge removal
+// updates the graph docs and counters and deletes the follows doc, a withdraw updates the caller's `requested` and
+// deletes the request, and a no-op writes nothing.
 func (s *service) Unfollow(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "unfollow")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -155,8 +155,8 @@ func (s *service) blockLimits() dailyLimits {
 	return dailyLimits{Standard: s.blocksPerDay, NewAccount: s.newAccountBlocksPerDay, NewAccountWindow: s.newAccountWindow}
 }
 
-// Block. Firestore: reads 3/3, writes 5/3, deletes 2/0, plus at most 2 deletes for pending
-// follow requests in either direction (so at most 4): +0 reads, +0 writes.
+// Block. It deletes the follow edges in both directions, plus at most 2 pending follow requests in either direction
+// (so at most 4 deletes), without extra reads or writes.
 func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "block")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -206,7 +206,7 @@ func (s *service) Block(ctx context.Context, callerUID, idempotencyKey, targetUI
 	return result.Relationship, nil
 }
 
-// Unblock. Firestore: reads 1/1, writes 2/2 (0 on no-op).
+// Unblock. A no-op writes nothing.
 func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "unblock")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -235,8 +235,8 @@ func (s *service) Unblock(ctx context.Context, callerUID, idempotencyKey, target
 	return rel, nil
 }
 
-// Mute. Firestore: reads 3 (caller graph, target graph existence, quotas), writes 2 (0 on replay);
-// target without a graph doc => NOT_FOUND after 2 reads, 0 writes (same rule as Block; no blockedBy branching).
+// Mute. It reads the caller graph, the target graph (existence) and quotas; a replay writes nothing.
+// A target without a graph doc => NOT_FOUND before the quota read, nothing written (same rule as Block; no blockedBy branching).
 func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "mute")(&err)
 	if err := s.checkFlag(callerUID); err != nil {
@@ -271,7 +271,7 @@ func (s *service) Mute(ctx context.Context, callerUID, idempotencyKey, targetUID
 	return rel, nil
 }
 
-// Unmute. Firestore: reads 1/1, writes 1/1 (0 on no-op).
+// Unmute. A no-op writes nothing.
 func (s *service) Unmute(ctx context.Context, callerUID, idempotencyKey, targetUID string) (_ Relationship, err error) {
 	defer begin(ctx, "unmute")(&err)
 	if err := s.checkFlag(callerUID); err != nil {

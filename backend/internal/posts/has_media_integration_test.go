@@ -12,7 +12,7 @@ import (
 )
 
 // Emulator tests for: hasMedia is written, as an explicit boolean, by every create path, and the two
-// tab queries return the right posts in the right order within their read budget. The emulator does not enforce composite
+// tab queries return the right posts in the right order. The emulator does not enforce composite
 // indexes, so these prove the query shape (filters, order, window, Limit) and the stored field names; the shapes map to the
 // indexes in firebase/firestore.indexes.json (see repo_firestore.go Q-M and Q-B).
 
@@ -60,7 +60,7 @@ func TestHasMedia_Integration_CreatePostPaths(t *testing.T) {
 		}
 		ci := CreateInput{IdempotencyKey: key(n), Text: "post " + key(n), MediaEnabled: true, RepliesEnabled: true, QuotesEnabled: true}
 		mut(&ci)
-		ctx, _ := measured(googleCtx(context.Background(), uid))
+		ctx := googleCtx(context.Background(), uid)
 		p, err := in.svc.Create(ctx, uid, ci)
 		if err != nil {
 			t.Fatalf("Create %d: %v", n, err)
@@ -120,7 +120,7 @@ func TestHasMedia_Integration_CreatePostPaths(t *testing.T) {
 }
 
 // TestHasMedia_Integration_PublishSweep: the publish sweep writes hasMedia like CreatePost (true with a draft image,
-// an explicit false without), in the same 4 + n writes as before.
+// an explicit false without).
 func TestHasMedia_Integration_PublishSweep(t *testing.T) {
 	e := newSweepIT(t)
 	e.signUp("uid-alice", "alice")
@@ -130,13 +130,11 @@ func TestHasMedia_Integration_PublishSweep(t *testing.T) {
 	})
 	textOnly := e.seedDue("uid-alice", 2)
 
-	res, c := e.sweep()
+	res := e.sweep()
 	if res.Outcome != SweepOK || res.Published != 2 || len(res.Failed) != 0 {
 		t.Fatalf("sweep: %+v, want 2 published", res)
 	}
-	t.Logf("two publishes cost %d reads %d writes", c.Reads(), c.Writes())
-	// The publish budgets are pinned by TestSweepIT_PublishBudget; this one only guards that hasMedia added no write: the
-	// image post writes post + postsCount + quotas + scheduled + media.postId = 5, the text-only one the same minus the media = 4.
+	// hasMedia is stored on the published post: true with a draft image, an explicit false without.
 	for _, tt := range []struct {
 		name string
 		it   *ScheduledPost
@@ -196,7 +194,7 @@ func seedTabPost(t *testing.T, client *firestore.Client, id, author string, kind
 }
 
 // TestRepo_Integration_TabQueries runs Q-M (ByAuthorMedia) and Q-B (ByAuthorKind) against the emulator: filters, the explicit
-// `createdAt DESC, __name__ DESC` order with a createdAt tie, windows, Limit and the read budget (len(result), 1 when empty).
+// `createdAt DESC, __name__ DESC` order with a createdAt tie, windows, and Limit.
 func TestRepo_Integration_TabQueries(t *testing.T) {
 	client := newTestClient(t)
 	svc, cache := integrationSvc(client)
@@ -223,7 +221,7 @@ func TestRepo_Integration_TabQueries(t *testing.T) {
 	}
 
 	t.Run("Q-M media tab: own images only, newest first, tie by __name__ DESC, no REPOST, no legacy doc", func(t *testing.T) {
-		ctx, _ := measured(context.Background())
+		ctx := context.Background()
 		got, err := svc.ByAuthorMedia(ctx, "a", Window{}, 50)
 		if err != nil {
 			t.Fatal(err)
@@ -284,7 +282,7 @@ func TestRepo_Integration_TabQueries(t *testing.T) {
 	})
 
 	t.Run("Q-M respects Limit", func(t *testing.T) {
-		ctx, _ := measured(context.Background())
+		ctx := context.Background()
 		got, err := svc.ByAuthorMedia(ctx, "a", Window{}, 2)
 		if err != nil || len(got) != 2 {
 			t.Fatalf("got=%d err=%v", len(got), err)
@@ -296,7 +294,7 @@ func TestRepo_Integration_TabQueries(t *testing.T) {
 		if err != nil || !reflect.DeepEqual(idList(got), []string{pid(9)}) {
 			t.Fatalf("b: ids=%v err=%v, want [%s]", idList(got), err, pid(9))
 		}
-		ctx, _ := measured(context.Background())
+		ctx := context.Background()
 		got, err = svc.ByAuthorMedia(ctx, "nobody", Window{}, 20)
 		if err != nil || len(got) != 0 {
 			t.Fatalf("nobody: got=%v err=%v", got, err)
@@ -304,7 +302,7 @@ func TestRepo_Integration_TabQueries(t *testing.T) {
 	})
 
 	t.Run("Q-B reposts tab: only kind REPOST, newest first", func(t *testing.T) {
-		ctx, _ := measured(context.Background())
+		ctx := context.Background()
 		got, err := svc.ByAuthorKind(ctx, "a", KindRepost, Window{}, 50)
 		if err != nil {
 			t.Fatal(err)
@@ -330,8 +328,8 @@ func TestRepo_Integration_TabQueries(t *testing.T) {
 		}
 	})
 
-	t.Run("Q-B no reposts costs 1 read, and another kind uses the same index shape", func(t *testing.T) {
-		ctx, _ := measured(context.Background())
+	t.Run("Q-B no reposts, and another kind uses the same index shape", func(t *testing.T) {
+		ctx := context.Background()
 		got, err := svc.ByAuthorKind(ctx, "b", KindRepost, Window{}, 20)
 		if err != nil || len(got) != 0 {
 			t.Fatalf("b reposts: got=%v err=%v", got, err)

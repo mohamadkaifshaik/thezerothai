@@ -1,8 +1,7 @@
 package timeline
 
-// GetCommunityTimeline. The fakes charge reads the way the real seams do. Unit budgets do not count the
-// account-status interceptor's caller read, so a cold open is page + 4 here (community, member doc, posts, graph, userLikes) and
-// page + 5 on the wire (25 at page 20, 55 at page 50); the apiserver chain test asserts the wire numbers.
+// GetCommunityTimeline over fakes. The fake post reader records every query (window, limit, rows returned), which is what
+// the cache and refill checks assert on.
 
 import (
 	"context"
@@ -23,7 +22,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
@@ -47,10 +45,10 @@ type commPosts struct {
 }
 
 type commCall struct {
-	cid    string
-	w      posts.Window
-	limit  int
-	nReads int
+	cid   string
+	w     posts.Window
+	limit int
+	rows  int // rows the query returned
 }
 
 func (c *commPosts) ByCommunity(ctx context.Context, cid string, w posts.Window, limit int) ([]*posts.Post, error) {
@@ -67,9 +65,7 @@ func (c *commPosts) ByCommunity(ctx context.Context, cid string, w posts.Window,
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	n := max(len(out), 1)
-	budget.FromContext(ctx).AddReads(int64(n))
-	c.calls = append(c.calls, commCall{cid: cid, w: w, limit: limit, nReads: n})
+	c.calls = append(c.calls, commCall{cid: cid, w: w, limit: limit, rows: len(out)})
 	return out, nil
 }
 
@@ -94,16 +90,13 @@ func (c *commPosts) add(cid, author string, ms int64) *posts.Post {
 	return p
 }
 
-// fakeCommunities is communities.Reader over one community: the first Get and the first Role of each uid are cold (1 read), the rest
-// are cache hits (0), like the real 60 s caches.
+// fakeCommunities is communities.Reader over one community: it counts Get and Role calls.
 type fakeCommunities struct {
 	communities.Reader
 	mu       sync.Mutex
 	c        communities.Community
 	missing  bool
 	roles    map[string]communities.Role
-	gotC     bool
-	gotRole  map[string]bool
 	gets     int
 	roleGets int
 	err      error
@@ -115,22 +108,12 @@ func (f *fakeCommunities) set(fn func(*communities.Community)) {
 	fn(&f.c)
 }
 
-func (f *fakeCommunities) cold() {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.gotC, f.gotRole = false, map[string]bool{}
-}
-
 func (f *fakeCommunities) Get(ctx context.Context, id string) (communities.Community, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.gets++
 	if f.err != nil {
 		return communities.Community{}, f.err
-	}
-	if !f.gotC {
-		f.gotC = true
-		budget.FromContext(ctx).AddReads(1)
 	}
 	if f.missing || id != f.c.ID {
 		return communities.Community{}, communities.ErrNotFound
@@ -148,10 +131,6 @@ func (f *fakeCommunities) Role(ctx context.Context, id, uid string) (communities
 	if r := f.c.RoleOf(uid); r != communities.RoleNone {
 		return r, nil // owner and moderators come from the community document: no member doc read
 	}
-	if !f.gotRole[uid] {
-		f.gotRole[uid] = true
-		budget.FromContext(ctx).AddReads(1)
-	}
 	return f.roles[uid], nil
 }
 
@@ -167,11 +146,10 @@ func (g *lockedGraph) Snapshot(ctx context.Context, uid string) (graph.Snapshot,
 	return g.inner.Snapshot(ctx, uid)
 }
 
-// commViewer is the userLikes read: 1 read, no flags set.
+// commViewer is the userLikes lookup: no flags set.
 type commViewer struct{}
 
 func (commViewer) Viewer(ctx context.Context, _ string) posts.ViewerSet {
-	budget.FromContext(ctx).AddReads(1)
 	return posts.ViewerSet{}
 }
 
@@ -193,31 +171,31 @@ func newCommRig(t *testing.T) *commRig {
 			ID: testCID, Name: "Go", Status: communities.StatusActive, OwnerID: testOwnerUID, ModeratorIDs: []string{testModUID},
 			MemberCount: 7, CreatedAt: r.clock.Now().Add(-time.Hour),
 		},
-		roles: map[string]communities.Role{"me": communities.RoleMember}, gotRole: map[string]bool{},
+		roles: map[string]communities.Role{"me": communities.RoleMember},
 	}
 	r.srv.SetCommunities(fc, 100)
 	return &commRig{rig: r, cp: cp, fc: fc}
 }
 
-func (c *commRig) get(caller, cid, since, page string, size int32) (*timelinev1.GetCommunityTimelineResponse, *budget.Counter, error) {
+func (c *commRig) get(caller, cid, since, page string, size int32) (*timelinev1.GetCommunityTimelineResponse, error) {
 	c.t.Helper()
 	ictx, info := logger.WithRequestInfo(ctxFor(caller))
 	c.info = info
-	ctx, counter := budget.WithCounter(ictx)
+	ctx := ictx
 	resp, err := c.srv.GetCommunityTimeline(ctx, connect.NewRequest(&timelinev1.GetCommunityTimelineRequest{CommunityId: cid, PageSize: size, SinceToken: since, PageToken: page}))
 	if err != nil {
-		return nil, counter, err
+		return nil, err
 	}
-	return resp.Msg, counter, nil
+	return resp.Msg, nil
 }
 
-func (c *commRig) must(since, page string, size int32) (*timelinev1.GetCommunityTimelineResponse, *budget.Counter) {
+func (c *commRig) must(since, page string, size int32) *timelinev1.GetCommunityTimelineResponse {
 	c.t.Helper()
-	resp, counter, err := c.get("me", testCID, since, page, size)
+	resp, err := c.get("me", testCID, since, page, size)
 	if err != nil {
 		c.t.Fatalf("unexpected error: %v", err)
 	}
-	return resp, counter
+	return resp
 }
 
 func commIDs(r *timelinev1.GetCommunityTimelineResponse) []string {
@@ -241,7 +219,7 @@ func TestCommunity_TwentyFivePostsPageTwentyThenFive(t *testing.T) {
 	t.Parallel()
 	c := newCommRig(t)
 	ps := c.seed(25, 100)
-	resp, _ := c.must("", "", 20)
+	resp := c.must("", "", 20)
 	if got := commIDs(resp); !slices.Equal(got, idsOf(ps[:20])) {
 		t.Fatalf("page 1 = %v, want the 20 newest", got)
 	}
@@ -252,21 +230,20 @@ func TestCommunity_TwentyFivePostsPageTwentyThenFive(t *testing.T) {
 	if resp.GetCommunity().GetCommunityId() != testCID || resp.GetCommunity().GetViewerRole() != communitiesv1.CommunityRole_COMMUNITY_ROLE_MEMBER || resp.GetCommunity().GetMemberCount() != 7 {
 		t.Fatalf("header = %v", resp.GetCommunity())
 	}
-	resp2, _ := c.must("", resp.GetNextPageToken(), 20)
+	resp2 := c.must("", resp.GetNextPageToken(), 20)
 	if got := commIDs(resp2); !slices.Equal(got, idsOf(ps[20:])) {
 		t.Fatalf("page 2 = %v, want the last 5", got)
 	}
 	if resp2.GetNextPageToken() != "" || resp2.GetSinceToken() != "" {
 		t.Fatalf("page 2 tokens: next=%q since=%q, want none", resp2.GetNextPageToken(), resp2.GetSinceToken())
 	}
-	// community and member doc are warm; 5 posts + graph + userLikes.
 }
 
-func TestCommunity_ColdBudgetAtPageFifty(t *testing.T) {
+func TestCommunity_ColdPageFifty(t *testing.T) {
 	t.Parallel()
 	c := newCommRig(t)
 	c.seed(60, 100)
-	resp, _ := c.must("", "", 50)
+	resp := c.must("", "", 50)
 	if len(resp.GetPosts()) != 50 || resp.GetNextPageToken() == "" {
 		t.Fatalf("posts = %d next=%q", len(resp.GetPosts()), resp.GetNextPageToken())
 	}
@@ -274,8 +251,8 @@ func TestCommunity_ColdBudgetAtPageFifty(t *testing.T) {
 	if calls := c.cp.callsSnapshot(); len(calls) != 1 || calls[0].limit != 50 {
 		t.Fatalf("queries = %+v, want one of limit 50", calls)
 	}
-	// A warm page 50 reads the rows below the 30 the entry holds: 20, never more than the page.
-	_, _ = c.must("", "", 50)
+	// A warm page 50 queries the rows below the 30 the entry holds: 20, never more than the page.
+	c.must("", "", 50)
 	calls := c.cp.callsSnapshot()
 	if len(calls) != 2 || calls[1].limit != 20 || calls[1].w.Before == nil {
 		t.Fatalf("queries = %+v, want a second of limit 20 below the entry", calls)
@@ -286,8 +263,8 @@ func TestCommunity_WarmEntryAndRefill(t *testing.T) {
 	t.Parallel()
 	c := newCommRig(t)
 	ps := c.seed(8, 100)
-	first, _ := c.must("", "", 20)
-	_, _ = c.must("", "", 20)
+	first := c.must("", "", 20)
+	c.must("", "", 20)
 	// Warm: no query; only the graph and userLikes reads (community and member doc are cached).
 	if n := len(c.cp.callsSnapshot()); n != 1 {
 		t.Fatalf("queries = %d, want 1 (the second open is served from the entry)", n)
@@ -300,7 +277,7 @@ func TestCommunity_WarmEntryAndRefill(t *testing.T) {
 	c.clock.Advance(time.Second)
 	np := c.cp.add(testCID, "a1", c.ms(0))
 	c.clock.Advance(61 * time.Second)
-	resp, _ := c.must("", "", 20)
+	resp := c.must("", "", 20)
 	if got := commIDs(resp); len(got) != 9 || got[0] != np.ID {
 		t.Fatalf("after refill = %v, want the new post first then the 8 old", got)
 	}
@@ -309,8 +286,8 @@ func TestCommunity_WarmEntryAndRefill(t *testing.T) {
 	if last.w.After == nil || last.w.After.ID != zeroID || last.w.Before != nil {
 		t.Fatalf("refill window = %+v, want After = the settle sentinel", last.w)
 	}
-	if last.nReads != 1 {
-		t.Fatalf("refill read %d rows, want 1", last.nReads)
+	if last.rows != 1 {
+		t.Fatalf("refill returned %d rows, want 1", last.rows)
 	}
 	if resp.GetNextPageToken() != "" {
 		t.Fatalf("an exhausted community has no next token, got %q", resp.GetNextPageToken())
@@ -327,17 +304,17 @@ func TestCommunity_RefillWithFullPageReplacesEntry(t *testing.T) {
 	for i := 0; i < 25; i++ {
 		fresh = append(fresh, c.cp.add(testCID, "a2", c.ms(-time.Duration(i)*time.Second)))
 	}
-	resp, _ := c.must("", "", 20)
+	resp := c.must("", "", 20)
 	if got := commIDs(resp); !slices.Equal(got, idsOf(fresh[:20])) {
 		t.Fatalf("page = %v, want the 20 newest", got)
 	}
 	calls := c.cp.callsSnapshot()
-	if got := calls[len(calls)-1]; got.limit != 20 || got.nReads != 20 {
+	if got := calls[len(calls)-1]; got.limit != 20 || got.rows != 20 {
 		t.Fatalf("refill = %+v, want one query of 20 rows (never more than the page)", got)
 	}
 	// 25 new posts exceed the page, so the rows in between are unknown: the entry now holds only the newest 20, not stale rows.
 	before := len(calls)
-	resp, _ = c.must("", "", 20)
+	resp = c.must("", "", 20)
 	if got := commIDs(resp); !slices.Equal(got, idsOf(fresh[:20])) {
 		t.Fatalf("warm page = %v, want the 20 newest", got)
 	}
@@ -350,13 +327,14 @@ func TestCommunity_RefreshReadsAndRemovals(t *testing.T) {
 	t.Parallel()
 	c := newCommRig(t)
 	ps := c.seed(3, 100)
-	first, _ := c.must("", "", 20)
+	first := c.must("", "", 20)
 	since := first.GetSinceToken()
 
-	// An empty refresh served by the warm entry reads nothing.
-	resp, counter := c.must(since, "", 20)
-	if len(resp.GetPosts()) != 0 || resp.GetSinceToken() == "" {
-		t.Fatalf("empty refresh: posts=%d since=%q reads=%d, want 0 posts and 0 reads", len(resp.GetPosts()), resp.GetSinceToken(), counter.Reads())
+	// An empty refresh served by the warm entry runs no query.
+	queries := len(c.cp.callsSnapshot())
+	resp := c.must(since, "", 20)
+	if len(resp.GetPosts()) != 0 || resp.GetSinceToken() == "" || len(c.cp.callsSnapshot()) != queries {
+		t.Fatalf("empty refresh: posts=%d since=%q new queries=%d, want 0 posts and no query", len(resp.GetPosts()), resp.GetSinceToken(), len(c.cp.callsSnapshot())-queries)
 	}
 
 	// A moderator hides ps[1]: it is dropped everywhere and listed in removed_ids on the next refresh.
@@ -366,7 +344,7 @@ func TestCommunity_RefreshReadsAndRemovals(t *testing.T) {
 		cm.RecentRemovals = []communities.Removal{{PostID: hidden, At: c.clock.Now()}}
 	})
 	// The entry still holds the post, and a refresh whose window reaches back over it drops it through keep.
-	resp, _ = c.must(since, "", 20)
+	resp = c.must(since, "", 20)
 	if !slices.Equal(resp.GetRemovedIds(), []string{hidden}) {
 		t.Fatalf("removed_ids = %v, want [%s]", resp.GetRemovedIds(), hidden)
 	}
@@ -377,7 +355,7 @@ func TestCommunity_RefreshReadsAndRemovals(t *testing.T) {
 		t.Fatalf("log removed = %v, want 1", got)
 	}
 	// A cold open drops it too, with no removed_ids.
-	resp, _ = c.must("", "", 20)
+	resp = c.must("", "", 20)
 	if slices.Contains(commIDs(resp), hidden) || len(resp.GetRemovedIds()) != 0 || len(resp.GetPosts()) != 2 {
 		t.Fatalf("cold open: ids=%v removed=%v", commIDs(resp), resp.GetRemovedIds())
 	}
@@ -387,33 +365,31 @@ func TestCommunity_RefreshWithoutEntryQueriesTheWindowOnly(t *testing.T) {
 	t.Parallel()
 	c := newCommRig(t)
 	c.seed(3, 100)
-	first, _ := c.must("", "", 20)
+	first := c.must("", "", 20)
 	c.srv.ForgetCommunityFeed(testCID) // another instance, or an expired entry
-	c.fc.cold()
 	before := len(c.cp.callsSnapshot())
-	resp, _ := c.must(first.GetSinceToken(), "", 20)
+	resp := c.must(first.GetSinceToken(), "", 20)
 	calls := c.cp.callsSnapshot()
-	if len(resp.GetPosts()) != 0 || len(calls) != before+1 || calls[before].nReads != 1 {
-		t.Fatalf("posts=%d queries=%+v, want 0 posts and one 1-row query", len(resp.GetPosts()), calls[before:])
+	if len(resp.GetPosts()) != 0 || len(calls) != before+1 || calls[before].rows != 0 {
+		t.Fatalf("posts=%d queries=%+v, want 0 posts and one query that returned no row", len(resp.GetPosts()), calls[before:])
 	}
-	// community 1 + member doc 1 + the empty query 1 = 3 (4 with the interceptor): an empty refresh reads no graph and no userLikes.
 }
 
 func TestCommunity_RefreshGapToken(t *testing.T) {
 	t.Parallel()
 	c := newCommRig(t)
 	c.seed(2, 500)
-	first, _ := c.must("", "", 20)
+	first := c.must("", "", 20)
 	c.clock.Advance(10 * time.Second)
 	for i := 0; i < 25; i++ {
 		c.cp.add(testCID, "a3", c.ms(-time.Duration(i)*time.Second)) // all after the entry loaded, inside its settle window
 	}
 	c.clock.Advance(2 * time.Minute)
-	resp, _ := c.must(first.GetSinceToken(), "", 20)
+	resp := c.must(first.GetSinceToken(), "", 20)
 	if len(resp.GetPosts()) != 20 || resp.GetGapPageToken() == "" || resp.GetNextPageToken() != "" {
 		t.Fatalf("refresh: posts=%d gap=%q next=%q, want 20 posts and a gap token", len(resp.GetPosts()), resp.GetGapPageToken(), resp.GetNextPageToken())
 	}
-	gap, _ := c.must("", resp.GetGapPageToken(), 20)
+	gap := c.must("", resp.GetGapPageToken(), 20)
 	if len(gap.GetPosts()) != 5 || gap.GetGapPageToken() != "" || gap.GetNextPageToken() != "" {
 		t.Fatalf("gap page: posts=%d gap=%q next=%q, want the remaining 5 and a closed gap", len(gap.GetPosts()), gap.GetGapPageToken(), gap.GetNextPageToken())
 	}
@@ -425,14 +401,14 @@ func TestCommunity_RemovalsTruncationAndOverflow(t *testing.T) {
 		t.Parallel()
 		c := newCommRig(t)
 		c.seed(2, 100)
-		first, _ := c.must("", "", 20)
+		first := c.must("", "", 20)
 		c.clock.Advance(time.Minute)
 		var rs []communities.Removal
 		for i := 0; i < 50; i++ {
 			rs = append(rs, communities.Removal{PostID: pid(int64(9000 + i)), At: c.clock.Now().Add(-time.Duration(i) * time.Second)})
 		}
 		c.fc.set(func(cm *communities.Community) { cm.RecentRemovals = rs })
-		resp, _ := c.must(first.GetSinceToken(), "", 20)
+		resp := c.must(first.GetSinceToken(), "", 20)
 		if len(resp.GetRemovedIds()) != 50 || resp.GetRemovedIds()[0] != rs[0].PostID {
 			t.Fatalf("removed_ids = %d, want all 50 newest first", len(resp.GetRemovedIds()))
 		}
@@ -441,17 +417,17 @@ func TestCommunity_RemovalsTruncationAndOverflow(t *testing.T) {
 		t.Parallel()
 		c := newCommRig(t)
 		c.seed(2, 100)
-		first, _ := c.must("", "", 20)
+		first := c.must("", "", 20)
 		c.clock.Advance(time.Minute)
 		c.fc.set(func(cm *communities.Community) { cm.RemovalsTruncatedAt = c.clock.Now() })
 		calls := len(c.cp.callsSnapshot())
-		_, counter, err := c.get("me", testCID, first.GetSinceToken(), "", 20)
+		_, err := c.get("me", testCID, first.GetSinceToken(), "", 20)
 		wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "since_token"})
 		if len(c.cp.callsSnapshot()) != calls {
-			t.Fatalf("posts were read for a rejected token (reads=%d)", counter.Reads())
+			t.Fatalf("posts were queried for a rejected token")
 		}
 		// A cold open is not affected.
-		if _, _, err := c.get("me", testCID, "", "", 20); err != nil {
+		if _, err := c.get("me", testCID, "", "", 20); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -460,8 +436,8 @@ func TestCommunity_RemovalsTruncationAndOverflow(t *testing.T) {
 		c := newCommRig(t)
 		c.seed(2, 100)
 		c.fc.set(func(cm *communities.Community) { cm.RemovalsTruncatedAt = c.clock.Now().Add(-time.Hour) })
-		first, _ := c.must("", "", 20)
-		if _, _, err := c.get("me", testCID, first.GetSinceToken(), "", 20); err != nil {
+		first := c.must("", "", 20)
+		if _, err := c.get("me", testCID, first.GetSinceToken(), "", 20); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -506,13 +482,13 @@ func TestCommunity_BlockedAuthorsDroppedPerViewer(t *testing.T) {
 	c.cp.add(testCID, "raider", c.ms(-30*time.Second)) // blocks the viewer
 	mine := c.cp.add(testCID, "me", c.ms(-40*time.Second))
 	c.graph.snaps["me"] = graph.Snapshot{Blocked: map[string]bool{"blocked": true}, BlockedBy: map[string]bool{"raider": true}}
-	resp, _ := c.must("", "", 20)
+	resp := c.must("", "", 20)
 	if got := commIDs(resp); !slices.Equal(got, []string{ok.ID, mine.ID}) {
 		t.Fatalf("member sees %v, want only the friend and their own post", got)
 	}
 	// The entry is shared: a moderator reading it keeps the raider (F14) but still drops the author they block.
 	c.graph.snaps[testModUID] = graph.Snapshot{Blocked: map[string]bool{"blocked": true}, BlockedBy: map[string]bool{"raider": true}}
-	mresp, _, err := c.get(testModUID, testCID, "", "", 20)
+	mresp, err := c.get(testModUID, testCID, "", "", 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +509,7 @@ func TestCommunity_HiddenByModerationIsDropped(t *testing.T) {
 	keep := c.cp.add(testCID, "a1", c.ms(-10*time.Second))
 	gone := c.cp.add(testCID, "a1", c.ms(-20*time.Second))
 	gone.Moderation = "TAKEN_DOWN"
-	resp, _ := c.must("", "", 20)
+	resp := c.must("", "", 20)
 	if got := commIDs(resp); !slices.Equal(got, []string{keep.ID}) {
 		t.Fatalf("posts = %v, want only the visible one", got)
 	}
@@ -543,8 +519,8 @@ func TestCommunity_TokenBinding(t *testing.T) {
 	t.Parallel()
 	c := newCommRig(t)
 	c.seed(25, 100)
-	first, _ := c.must("", "", 20)
-	// A Home token and a List token are VALIDATION on a community, with 0 reads.
+	first := c.must("", "", 20)
+	// A Home token and a List token are VALIDATION on a community.
 	for name, tc := range map[string]struct{ since, page, field string }{
 		"home since":      {since: c.homeSince(), field: "since_token"},
 		"home page":       {page: c.homePage(), field: "page_token"},
@@ -555,7 +531,7 @@ func TestCommunity_TokenBinding(t *testing.T) {
 		"swapped kinds":   {page: first.GetSinceToken(), field: "page_token"},
 		"both tokens":     {since: first.GetSinceToken(), page: first.GetNextPageToken(), field: "page_token"},
 	} {
-		_, _, err := c.get("me", testCID, tc.since, tc.page, 20)
+		_, err := c.get("me", testCID, tc.since, tc.page, 20)
 		if err == nil {
 			t.Errorf("%s: accepted", name)
 			continue
@@ -563,12 +539,12 @@ func TestCommunity_TokenBinding(t *testing.T) {
 		wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": tc.field})
 	}
 	// A community token on Home is refused too.
-	if _, _, err := c.home("me", first.GetSinceToken(), "", 20); err == nil {
+	if _, err := c.home("me", first.GetSinceToken(), "", 20); err == nil {
 		t.Error("a community since_token opened on Home")
 	}
 	// Bad community ids.
 	for _, id := range []string{"", "12", "abc", "10000000000000000990"} {
-		_, _, err := c.get("me", id, "", "", 20)
+		_, err := c.get("me", id, "", "", 20)
 		wantAPIErr(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "community_id"})
 	}
 }
@@ -601,7 +577,7 @@ func TestCommunity_StatusRules(t *testing.T) {
 			c := newCommRig(t)
 			c.seed(2, 100)
 			tt.mutate(c.fc)
-			resp, counter, err := c.get("me", testCID, "", "", 20)
+			resp, err := c.get("me", testCID, "", "", 20)
 			if !tt.notFound {
 				if err != nil || len(resp.GetPosts()) != 2 {
 					t.Fatalf("err=%v resp=%v", err, resp)
@@ -610,7 +586,7 @@ func TestCommunity_StatusRules(t *testing.T) {
 			}
 			wantAPIErr(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil)
 			if len(c.cp.callsSnapshot()) != 0 {
-				t.Fatalf("not found cost %d reads, %d queries", counter.Reads(), len(c.cp.callsSnapshot()))
+				t.Fatalf("not found ran %d post queries, want none", len(c.cp.callsSnapshot()))
 			}
 		})
 	}
@@ -619,8 +595,8 @@ func TestCommunity_StatusRules(t *testing.T) {
 		a, b := newCommRig(t), newCommRig(t)
 		a.fc.c.Status = communities.StatusSuspended
 		b.fc.missing = true
-		_, _, ea := a.get("me", testCID, "", "", 20)
-		_, _, eb := b.get("me", testCID, "", "", 20)
+		_, ea := a.get("me", testCID, "", "", 20)
+		_, eb := b.get("me", testCID, "", "", 20)
 		if ea == nil || eb == nil || ea.Error() != eb.Error() {
 			t.Fatalf("%v vs %v", ea, eb)
 		}
@@ -629,7 +605,7 @@ func TestCommunity_StatusRules(t *testing.T) {
 		t.Parallel()
 		c := newCommRig(t)
 		c.fc.err = errors.New("boom")
-		_, _, err := c.get("me", testCID, "", "", 20)
+		_, err := c.get("me", testCID, "", "", 20)
 		if connect.CodeOf(err) != connect.CodeUnknown && connect.CodeOf(err) != connect.CodeInternal {
 			t.Fatalf("err = %v", err)
 		}
@@ -656,7 +632,7 @@ func TestCommunity_ReplyPermissionFromRole(t *testing.T) {
 			c.cp.add(testCID, "a1", c.ms(-10*time.Second))
 			c.fc.c.Status = tt.status
 			c.fc.roles["me"] = tt.role
-			resp, _ := c.must("", "", 20)
+			resp := c.must("", "", 20)
 			if got := resp.GetPosts()[0].GetViewerReplyPermission(); got != tt.want {
 				t.Fatalf("permission = %v, want %v", got, tt.want)
 			}
@@ -670,7 +646,7 @@ func TestCommunity_ReplyPermissionFromRole(t *testing.T) {
 		c := newCommRig(t)
 		c.cp.add(testCID, "a1", c.ms(-10*time.Second))
 		for _, u := range []string{testOwnerUID, testModUID} {
-			resp, _, err := c.get(u, testCID, "", "", 20)
+			resp, err := c.get(u, testCID, "", "", 20)
 			if err != nil || resp.GetPosts()[0].GetViewerReplyPermission() != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED {
 				t.Fatalf("%s: err=%v perm=%v", u, err, resp.GetPosts()[0].GetViewerReplyPermission())
 			}
@@ -685,7 +661,7 @@ func TestCommunity_ProtectedAuthorDroppedEvenForModerators(t *testing.T) {
 	c.cp.add(testCID, "prot", c.ms(-10*time.Second))
 	vis := c.cp.add(testCID, "a1", c.ms(-20*time.Second))
 	for _, u := range []string{"me", testModUID} {
-		resp, _, err := c.get(u, testCID, "", "", 20)
+		resp, err := c.get(u, testCID, "", "", 20)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -695,7 +671,7 @@ func TestCommunity_ProtectedAuthorDroppedEvenForModerators(t *testing.T) {
 	}
 	// The caller's own protected post stays; a followed protected author stays.
 	c.graph.snaps["me"] = graph.Snapshot{Following: map[string]bool{"prot": true}}
-	resp, _ := c.must("", "", 20)
+	resp := c.must("", "", 20)
 	if len(resp.GetPosts()) != 2 {
 		t.Fatalf("a follower sees %d posts, want 2", len(resp.GetPosts()))
 	}
@@ -741,11 +717,11 @@ func TestCommunity_FlagModes(t *testing.T) {
 			c := newCommRig(t)
 			c.srv.deps.Flags = tt.reg
 			c.seed(1, 100)
-			_, counter, err := c.get("me", testCID, "", "", 20)
+			_, err := c.get("me", testCID, "", "", 20)
 			if tt.wantOff {
 				wantAPIErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, map[string]string{"feature": "communities"})
 				if c.fc.gets != 0 {
-					t.Fatalf("a refused call read %d docs", counter.Reads())
+					t.Fatalf("a refused call fetched the community %d times", c.fc.gets)
 				}
 				return
 			}
@@ -758,7 +734,7 @@ func TestCommunity_FlagModes(t *testing.T) {
 		t.Parallel()
 		c := newCommRig(t)
 		c.srv.deps.Flags = flags.NewRegistry(flags.Spec{Name: communities.FlagName, Mode: flags.On})
-		_, _, err := c.get("me", testCID, "", "", 20)
+		_, err := c.get("me", testCID, "", "", 20)
 		wantAPIErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, nil)
 	})
 }
@@ -772,7 +748,7 @@ func TestCommunity_ParallelColdOpens(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ctx, _ := budget.WithCounter(ctxFor("me"))
+			ctx := ctxFor("me")
 			resp, err := c.srv.GetCommunityTimeline(ctx, connect.NewRequest(&timelinev1.GetCommunityTimelineRequest{CommunityId: testCID, PageSize: 20}))
 			if err != nil || len(resp.Msg.GetPosts()) != 20 {
 				t.Errorf("err=%v", err)

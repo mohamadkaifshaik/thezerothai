@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
@@ -260,16 +260,21 @@ func TestTrends_HideListFailureIsNotCachedAndNotServedAsEmpty(t *testing.T) {
 	}
 }
 
-func TestTrends_LoadBudget(t *testing.T) {
+func TestTrends_LoadsOncePerCacheCopy(t *testing.T) {
 	t.Parallel()
-	svc := hideSvc(t, &fakeTrendsStore{doc: sampleDoc(), hidden: []string{"go"}}, &fakeClock{t: trendsT0}, nil)
-	ctx, c := budget.WithCounter(context.Background())
-	if _, err := svc.Trends(ctx, "u1", 0, ""); err != nil {
-		t.Fatalf("cold: err %v reads %d writes %d, want 2 and 0 (the interceptor adds 1 outside)", err, c.Reads(), c.Writes())
-	}
-	ctx, c = budget.WithCounter(context.Background())
-	if _, err := svc.Trends(ctx, "u1", 0, ""); err != nil {
-		t.Fatalf("warm: err %v reads %d, want 0", err, c.Reads())
+	store := &fakeTrendsStore{doc: sampleDoc(), hidden: []string{"go"}}
+	svc := hideSvc(t, store, &fakeClock{t: trendsT0}, nil)
+	for i, phase := range []string{"cold", "warm"} {
+		got, err := svc.Trends(context.Background(), "u1", 0, "")
+		if err != nil {
+			t.Fatalf("%s: %v", phase, err)
+		}
+		if slices.Contains(tags(got), "go") {
+			t.Errorf("%s: %v still lists the hidden tag", phase, tags(got))
+		}
+		if store.gets != 1 || store.hideWrites != 0 || store.puts != 0 {
+			t.Fatalf("%s call %d: loads %d, hide writes %d, puts %d, want 1 load and no writes", phase, i+1, store.gets, store.hideWrites, store.puts)
+		}
 	}
 }
 

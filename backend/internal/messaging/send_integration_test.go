@@ -19,14 +19,11 @@ import (
 
 func skey(n int) string { return fmt.Sprintf("send-key-%08d", n) }
 
-// "Cost impact" per RPC, minus the account-status interceptor's read, which the Connect chain adds (the
-// apiserver chain tests assert the full 5 / 7). Here only the repo's own reads count: the directory and graph are fakes.
-
-// Mutual follows: the message lands in B's dmInbox with unreadCount 1 and one `message` event leaves; 3 writes.
+// Mutual follows: the message lands in B's dmInbox with unreadCount 1 and one `message` event leaves.
 func TestSend_MutualGoesToInboxWithOneEvent(t *testing.T) {
 	e := newIT(t, nil)
 	e.mutual(alice, bob)
-	resp, _, err := e.send(alice, toUser(skey(1), bob, "hello bob"))
+	resp, err := e.send(alice, toUser(skey(1), bob, "hello bob"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,9 +53,9 @@ func TestSend_MutualGoesToInboxWithOneEvent(t *testing.T) {
 		t.Errorf("response = %v", resp)
 	}
 
-	// A second message in the accepted conversation: 3 writes, 1 read, no conversation write, unread 2.
+	// A second message in the accepted conversation: no conversation write, unread 2.
 	e.tick(time.Second)
-	_, _, err = e.send(alice, toUser(skey(2), bob, "again"))
+	_, err = e.send(alice, toUser(skey(2), bob, "again"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,13 +67,13 @@ func TestSend_MutualGoesToInboxWithOneEvent(t *testing.T) {
 	}
 }
 
-// Non-mutuals: B's entry is in dmRequests (unread 1), no event, a REQUEST conversation (4 writes from the 2nd message).
+// Non-mutuals: B's entry is in dmRequests (unread 1), no event, a REQUEST conversation.
 func TestSend_RequestPathAndTheFourthMessage(t *testing.T) {
 	e := newIT(t, nil)
 	convID := ConversationID(alice, bob)
 	for i := 1; i <= 3; i++ {
 		e.tick(time.Second)
-		_, _, err := e.send(alice, toUser(skey(i), bob, fmt.Sprintf("request message %d", i)))
+		_, err := e.send(alice, toUser(skey(i), bob, fmt.Sprintf("request message %d", i)))
 		if err != nil {
 			t.Fatalf("request message %d: %v", i, err)
 		}
@@ -99,15 +96,15 @@ func TestSend_RequestPathAndTheFourthMessage(t *testing.T) {
 		t.Errorf("a request pushed %d events, want 0", len(e.events.got))
 	}
 
-	// The 4th message: LIMIT_REACHED request_unanswered, 0 writes, nothing stored.
-	_, _, err := e.send(alice, toUser(skey(4), bob, "request message 4"))
+	// The 4th message: LIMIT_REACHED request_unanswered, nothing stored.
+	_, err := e.send(alice, toUser(skey(4), bob, "request message 4"))
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, map[string]string{"limit": "request_unanswered"})
 	if n := len(e.msgs(convID)); n != 3 {
 		t.Errorf("messages stored = %d, want 3", n)
 	}
 
 	// The retry of the 3rd message (a lost response) is a replay, not a refusal: the cap has no say about it.
-	resp, _, err := e.send(alice, toUser(skey(3), bob, "request message 3"))
+	resp, err := e.send(alice, toUser(skey(3), bob, "request message 3"))
 	if err != nil {
 		t.Fatalf("replay of the last allowed request message: %v", err)
 	}
@@ -120,13 +117,13 @@ func TestSend_RequestPathAndTheFourthMessage(t *testing.T) {
 }
 
 // B's reply to a request accepts it (as X does): the conversation turns ACCEPTED, B's entry moves from dmRequests to
-// dmInbox, A is pushed; 4 writes and 1 delete.
+// dmInbox, A is pushed.
 func TestSend_ReplyAcceptsARequest(t *testing.T) {
 	e := newIT(t, nil)
 	convID := ConversationID(alice, bob)
 	e.must(alice, toUser(skey(1), bob, "may I?"))
 	e.tick(time.Second)
-	_, _, err := e.send(bob, toUser(skey(2), alice, "sure"))
+	_, err := e.send(bob, toUser(skey(2), alice, "sure"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,18 +167,18 @@ func TestSend_MutedSenderIsDeliveredSilently(t *testing.T) {
 	}
 }
 
-// The same key twice: one message; the second call returns it with 0 writes and no second event. The same key with
+// The same key twice: one message; the second call returns it with no second event. The same key with
 // other text is a VALIDATION error on idempotency_key.
 func TestSend_ReplayAndKeyReuse(t *testing.T) {
 	e := newIT(t, nil)
 	e.mutual(alice, bob)
 	convID := ConversationID(alice, bob)
-	first, _, err := e.send(alice, toUser(skey(1), bob, "once"))
+	first, err := e.send(alice, toUser(skey(1), bob, "once"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	e.tick(time.Minute)
-	again, _, err := e.send(alice, toUser(skey(1), bob, "once"))
+	again, err := e.send(alice, toUser(skey(1), bob, "once"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +195,7 @@ func TestSend_ReplayAndKeyReuse(t *testing.T) {
 		t.Errorf("events = %d after a replay, want 1", len(e.events.got))
 	}
 
-	_, _, err = e.send(alice, toUser(skey(1), bob, "different text"))
+	_, err = e.send(alice, toUser(skey(1), bob, "different text"))
 	wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "idempotency_key"})
 	if msgs := e.msgs(convID); len(msgs) != 1 {
 		t.Errorf("messages = %d after the reuse, want 1", len(msgs))
@@ -226,13 +223,13 @@ func TestSend_NewConversationDailyQuota(t *testing.T) {
 			if got := e.dmNew(alice); got != int64(tt.max) {
 				t.Fatalf("dmNew = %d, want %d", got, tt.max)
 			}
-			_, _, err := e.send(alice, toUser(skey(99), fmt.Sprintf("peer-%02d", tt.max), "one too many"))
+			_, err := e.send(alice, toUser(skey(99), fmt.Sprintf("peer-%02d", tt.max), "one too many"))
 			wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, map[string]string{"limit": "dm_new_daily"})
 			if _, ok := e.conv(ConversationID(alice, fmt.Sprintf("peer-%02d", tt.max))); ok {
 				t.Error("the refused conversation was created")
 			}
 			// An existing conversation is not a new one.
-			if _, _, err := e.send(alice, toUser(skey(100), "peer-00", "follow-up")); err != nil {
+			if _, err := e.send(alice, toUser(skey(100), "peer-00", "follow-up")); err != nil {
 				t.Errorf("a message in an existing conversation at the cap: %v", err)
 			}
 			if got := e.dmNew(alice); got != int64(tt.max) {
@@ -252,17 +249,17 @@ func TestSend_GoneConversation(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A fresh instance: no cached conversation, so the refusal comes from the transaction itself.
-	_, _, err := e.sendOn(e.newService(), alice, toUser(skey(2), bob, "after"))
+	_, err := e.sendOn(e.newService(), alice, toUser(skey(2), bob, "after"))
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
 	if n := len(e.msgs(convID)); n != 1 {
 		t.Errorf("messages = %d, want 1", n)
 	}
 	// By conversation id too, from a service whose cache is cold.
-	_, _, err = e.sendOn(e.newService(), alice, toConv(skey(3), convID, "after"))
+	_, err = e.sendOn(e.newService(), alice, toConv(skey(3), convID, "after"))
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
 }
 
-// Sending by conversation_id (IT): the participant check reads the document once (cold, 1 extra read), later sends hit the
+// Sending by conversation_id (IT): the participant check reads the document once, later sends hit the
 // cache; a stranger gets NOT_FOUND.
 func TestSendIT_ByConversationID(t *testing.T) {
 	e := newIT(t, nil)
@@ -271,17 +268,17 @@ func TestSendIT_ByConversationID(t *testing.T) {
 	e.must(alice, toUser(skey(1), bob, "hi"))
 
 	svc := e.newService() // cold cache
-	_, _, err := e.sendOn(svc, bob, toConv(skey(2), convID, "hi alice"))
+	_, err := e.sendOn(svc, bob, toConv(skey(2), convID, "hi alice"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = e.sendOn(svc, bob, toConv(skey(3), convID, "still here"))
+	_, err = e.sendOn(svc, bob, toConv(skey(3), convID, "still here"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	e.addUser("uid-carol", "carol", false)
-	_, _, err = e.sendOn(svc, "uid-carol", toConv(skey(4), convID, "let me in"))
+	_, err = e.sendOn(svc, "uid-carol", toConv(skey(4), convID, "let me in"))
 	wantAPI(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, nil)
 }
 
@@ -310,7 +307,7 @@ func TestSend_TwoSendersCreateOneConversation(t *testing.T) {
 				go func() {
 					defer wg.Done()
 					<-start
-					_, _, errs[i] = e.sendOn(who.svc, who.from, toUser(skey(10+i), who.to, "hello from "+who.from))
+					_, errs[i] = e.sendOn(who.svc, who.from, toUser(skey(10+i), who.to, "hello from "+who.from))
 				}()
 			}
 			close(start)
@@ -360,7 +357,7 @@ func TestSend_NeverTrustsTheCachedConversation(t *testing.T) {
 	if _, err := e.fs.Collection("conversations").Doc(convID).Update(context.Background(), []firestoreUpdate{{Path: "gone", Value: []string{bob}}}); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := e.send(alice, toConv(skey(2), convID, "stale cache"))
+	_, err := e.send(alice, toConv(skey(2), convID, "stale cache"))
 	wantAPI(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, nil)
 }
 

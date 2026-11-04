@@ -13,7 +13,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -67,9 +66,9 @@ func copyOf(authorID, id string, kind Kind) *Post {
 }
 
 // runCopyPhase runs PurgeUser from Phase 1 until done (bounded).
-func runCopyPhase(t *testing.T, repo *FirestoreRepo, uid string) (Checkpoint, *budget.Counter) {
+func runCopyPhase(t *testing.T, repo *FirestoreRepo, uid string) Checkpoint {
 	t.Helper()
-	ctx, c := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	cp := Checkpoint{Phase: 1}
 	for i := 0; i < 5; i++ {
 		var done bool
@@ -78,11 +77,11 @@ func runCopyPhase(t *testing.T, repo *FirestoreRepo, uid string) (Checkpoint, *b
 			t.Fatalf("PurgeUser: %v", err)
 		}
 		if done {
-			return cp, c
+			return cp
 		}
 	}
 	t.Fatal("copy phase did not finish")
-	return cp, c
+	return cp
 }
 
 // TestPurgeCopies_Integration seeds copies carrying embeddedAuthorId == the deleted user: another user's REPOST is
@@ -103,7 +102,7 @@ func TestPurgeCopies_Integration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cp, _ := runCopyPhase(t, repo, cpGone)
+	cp := runCopyPhase(t, repo, cpGone)
 	if cp.Copies != 3 {
 		t.Fatalf("copies = %d, want 3 (1 repost + 2 quotes)", cp.Copies)
 	}
@@ -140,8 +139,6 @@ func TestPurgeCopies_Integration(t *testing.T) {
 	if err != nil || len(left) != 0 {
 		t.Errorf("residue: %d docs with embeddedAuthorId == the user, err %v", len(left), err)
 	}
-	// 1 read per doc + the final empty page; the quotes share one commit (2 writes), the REPOST costs 1 write
-	// (postsCount) and 1 delete.
 }
 
 // TestPurgeCopies_StuckBranch: a full page that changes nothing (a doc with embeddedAuthorId whose kind is neither
@@ -160,7 +157,7 @@ func TestPurgeCopies_StuckBranch(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
-	ctx, _ := budget.WithCounter(context.Background())
+	ctx := context.Background()
 	cp, done, err := repo.PurgeUser(ctx, cpGone, Checkpoint{Phase: 1})
 	if err != nil {
 		t.Fatal(err)

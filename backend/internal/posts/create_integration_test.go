@@ -23,7 +23,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
@@ -36,10 +35,9 @@ type createInstance struct {
 	repo     *FirestoreRepo
 	identity identity.Service
 	cache    *Cache
-	// cold leaves the author's profile uncached for the next create. By default create() first warms it outside
-	// the measured call: a successful CreatePost evicts the author's profile (Directory.Forget), so
-	// the NEXT request on that instance pays the interceptor's read; the budget assertions model the warm
-	// steady state the documented "2 warm" refers to.
+	// cold leaves the author's profile uncached for the next create. By default create() first warms it, because a
+	// successful CreatePost evicts the author's profile (Directory.Forget) and the next request on that instance would
+	// otherwise load it again.
 	cold bool
 	// skipSweep opts out of the posts invariant sweep (see skipInvariantSweep).
 	skipSweep bool
@@ -93,16 +91,14 @@ func (in *createInstance) signUp(t *testing.T, uid, handle string) {
 	}
 }
 
-func (in *createInstance) create(t *testing.T, uid, key, text string) (*Post, *budget.Counter, error) {
+func (in *createInstance) create(t *testing.T, uid, key, text string) (*Post, error) {
 	ctx := authn.WithClaims(context.Background(), authn.Claims{UID: uid, SignInProvider: authn.SignInProviderGoogle})
 	if !in.cold {
 		if _, err := in.svc.directory.GetProfiles(context.Background(), []string{uid}); err != nil {
 			t.Errorf("warm profile: %v", err) // not Fatal: create is also called from goroutines
 		}
 	}
-	ctx, c := budget.WithCounter(ctx)
-	p, err := in.svc.Create(ctx, uid, CreateInput{IdempotencyKey: key, Text: text})
-	return p, c, err
+	return in.svc.Create(ctx, uid, CreateInput{IdempotencyKey: key, Text: text})
 }
 
 // signUpFriends signs up n users (friend00..) and returns a post text mentioning all of them.
@@ -148,18 +144,17 @@ func fieldInt(t *testing.T, client *firestore.Client, path, field string) int64 
 
 func key(i int) string { return fmt.Sprintf("key-%012d", i) }
 
-// TestCreate_Integration_ShapeCountersAndBudget: the post shape, users.postsCount +1, quotas.posts +1 and
-// exactly one idempotency doc with expireAt 24 h out; the call stays within the documented budget.
-func TestCreate_Integration_ShapeCountersAndBudget(t *testing.T) {
+// TestCreate_Integration_ShapeAndCounters: the post shape, users.postsCount +1, quotas.posts +1 and
+// exactly one idempotency doc with expireAt 24 h out.
+func TestCreate_Integration_ShapeAndCounters(t *testing.T) {
 	client := newTestClient(t)
 	in := newCreateInstance(t, client, time.Nanosecond)
 	in.signUp(t, "uid-alice", "alice")
 
-	p, _, err := in.create(t, "uid-alice", key(1), "hello #World")
+	p, err := in.create(t, "uid-alice", key(1), "hello #World")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Warm (profile cached by CreateProfile; the interceptor's read is not part of this call): 2 reads, 4 writes.
 
 	snap, err := client.Collection(postsCollection).Doc(p.ID).Get(context.Background())
 	if err != nil {
@@ -195,22 +190,22 @@ func TestCreate_Integration_ShapeCountersAndBudget(t *testing.T) {
 }
 
 // TestCreate_Integration_Replays: sequential and 10-way concurrent replays create one post and return one id;
-// a replay costs 1 read and 0 writes; a different body is IDEMPOTENCY_KEY_REUSED with 0 writes.
+// a replay returns the first post; a different body is IDEMPOTENCY_KEY_REUSED and writes nothing.
 func TestCreate_Integration_Replays(t *testing.T) {
 	client := newTestClient(t)
 	in := newCreateInstance(t, client, time.Nanosecond)
 	in.signUp(t, "uid-alice", "alice")
 
-	first, _, err := in.create(t, "uid-alice", key(1), "once")
+	first, err := in.create(t, "uid-alice", key(1), "once")
 	if err != nil {
 		t.Fatal(err)
 	}
-	again, _, err := in.create(t, "uid-alice", key(1), "once")
+	again, err := in.create(t, "uid-alice", key(1), "once")
 	if err != nil || again.ID != first.ID {
 		t.Fatalf("replay: %v %v", again, err)
 	}
 
-	_, _, err = in.create(t, "uid-alice", key(1), "something else")
+	_, err = in.create(t, "uid-alice", key(1), "something else")
 	var ae *apierr.Error
 	if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED {
 		t.Fatalf("err = %v, want IDEMPOTENCY_KEY_REUSED", err)
@@ -229,7 +224,7 @@ func TestCreate_Integration_Replays(t *testing.T) {
 			if i%2 == 1 {
 				svc = other
 			}
-			p, _, err := svc.create(t, "uid-alice", key(2), "racing")
+			p, err := svc.create(t, "uid-alice", key(2), "racing")
 			if err == nil {
 				ids[i] = p.ID
 			}
@@ -265,7 +260,7 @@ func TestCreate_Integration_Replays(t *testing.T) {
 		if errs[i] == nil {
 			continue
 		}
-		p, _, err := in.create(t, "uid-alice", key(2), "racing")
+		p, err := in.create(t, "uid-alice", key(2), "racing")
 		if err != nil || p.ID != winner {
 			t.Fatalf("retry of busy call %d: %v %v, want the replay of %q", i, p, err, winner)
 		}
@@ -304,13 +299,13 @@ func TestCreate_Integration_Quota(t *testing.T) {
 			if _, err := client.Collection("quotas").Doc("uid-alice").Set(context.Background(), quota.Record{Day: quota.Today(), Posts: tt.used}); err != nil {
 				t.Fatal(err)
 			}
-			_, c, err := in.create(t, "uid-alice", key(1), "over the limit")
+			_, err := in.create(t, "uid-alice", key(1), "over the limit")
 			var ae *apierr.Error
 			if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_QUOTA_EXCEEDED || ae.Code != connect.CodeResourceExhausted || ae.Metadata["quota"] != "posts" {
 				t.Fatalf("err = %v, want QUOTA_EXCEEDED quota=posts", err)
 			}
 			if countDocs(t, client, postsCollection) != 0 || countDocs(t, client, "idempotency") != 0 {
-				t.Fatalf("a rejected create wrote: writes=%d", c.Writes())
+				t.Fatal("a rejected create wrote")
 			}
 			if got := fieldInt(t, client, "users/uid-alice", "postsCount"); got != 0 {
 				t.Fatalf("postsCount = %d", got)
@@ -346,24 +341,23 @@ func TestCreate_Integration_Mentions(t *testing.T) {
 		return out
 	}
 
-	_, _, err := in.create(t, "uid-alice", key(1), "no candidates here")
+	_, err := in.create(t, "uid-alice", key(1), "no candidates here")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	p, _, err := in.create(t, "uid-alice", key(2), "https://ex.com/?ref=@carol")
+	p, err := in.create(t, "uid-alice", key(2), "https://ex.com/?ref=@carol")
 	if err != nil || len(p.Mentions) != 0 {
 		t.Fatalf("URL mention: %v %v", p, err)
 	}
 
-	p, _, err = in.create(t, "uid-alice", key(3), "@ghost @bob @carol")
+	p, err = in.create(t, "uid-alice", key(3), "@ghost @bob @carol")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := handles(p); len(got) != 2 || got[0] != "bob" || got[1] != "carol" || p.Mentions[0].UserID != "uid-bob" {
 		t.Fatalf("mentions = %v, want bob and carol (ghost unknown; bob blocked the author but is kept, M2)", p.Mentions)
 	}
-	// 3 handles + idempotency 1 + quotas 1 = 5 (no interceptor read in this harness, no author-graph read).
 	stored, err := client.Collection(postsCollection).Doc(p.ID).Get(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -376,14 +370,13 @@ func TestCreate_Integration_Mentions(t *testing.T) {
 	// Overflow of the author's blockedBy list changes nothing either: the graph is not consulted.
 	seedBlockedBy(t, client, "uid-alice", nil, true)
 	in2 := newCreateInstance(t, client, time.Nanosecond)
-	p, _, err = in2.create(t, "uid-alice", key(4), "@carol hi")
+	p, err = in2.create(t, "uid-alice", key(4), "@carol hi")
 	if err != nil || len(p.Mentions) != 1 || p.Mentions[0].Handle != "carol" {
 		t.Fatalf("overflow: mentions=%v err=%v", p, err)
 	}
 }
 
-// TestCreate_Integration_ElevenMentions: the parser caps at 10 and the cold read ceiling holds (10
-// handles + idempotency 1 + quotas 1 = 12, +1 interceptor read in a real request = 13, under the documented 14).
+// TestCreate_Integration_ElevenMentions: the parser caps at 10 mentions, from a cold instance.
 func TestCreate_Integration_ElevenMentions(t *testing.T) {
 	client := newTestClient(t)
 	in := newCreateInstance(t, client, time.Nanosecond)
@@ -391,14 +384,13 @@ func TestCreate_Integration_ElevenMentions(t *testing.T) {
 	text := in.signUpFriends(t, 11)
 	in2 := newCreateInstance(t, client, time.Nanosecond) // cold handle cache
 	in2.cold = true
-	p, _, err := in2.create(t, "uid-alice", key(1), text)
+	p, err := in2.create(t, "uid-alice", key(1), text)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(p.Mentions) != 10 {
 		t.Fatalf("mentions = %d, want 10", len(p.Mentions))
 	}
-	// In2's profile cache is cold too: +1 (author profile) => 14 = the documented cold ceiling with no interceptor.
 }
 
 // TestCreate_Integration_RetriedAttemptDrawsAFreshID: when the first transaction attempt aborts, the committed
@@ -420,7 +412,7 @@ func TestCreate_Integration_RetriedAttemptDrawsAFreshID(t *testing.T) {
 		}
 		return nil
 	}
-	p, _, err := in.create(t, "uid-alice", key(1), "retry me")
+	p, err := in.create(t, "uid-alice", key(1), "retry me")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -456,30 +448,29 @@ func seedGraphDoc(t *testing.T, client *firestore.Client, uid string, fields map
 	}
 }
 
-// TestCreate_Integration_ColdReplayAndReusedKeyBudget (audit #8, AC3b): a replay and a reused key from a cold instance
-// (nothing cached, a second "Cloud Run instance") stay within the documented 14-read ceiling, write nothing, and the
-// replay returns the original id. The text has 10 mentions, the worst case, which the replay path must not re-resolve
-// beyond the ceiling.
-func TestCreate_Integration_ColdReplayAndReusedKeyBudget(t *testing.T) {
+// TestCreate_Integration_ColdReplayAndReusedKey (audit #8, AC3b): a replay and a reused key from a cold instance
+// (nothing cached, a second "Cloud Run instance") write nothing, and the
+// replay returns the original id. The text has 10 mentions, the worst case.
+func TestCreate_Integration_ColdReplayAndReusedKey(t *testing.T) {
 	client := newTestClient(t)
 	in := newCreateInstance(t, client, time.Nanosecond)
 	in.signUp(t, "uid-alice", "alice")
 	text := in.signUpFriends(t, 10)
-	first, _, err := in.create(t, "uid-alice", key(1), text)
+	first, err := in.create(t, "uid-alice", key(1), text)
 	if err != nil || len(first.Mentions) != 10 {
 		t.Fatalf("first create: %v %v", first, err)
 	}
 
 	cold := newCreateInstance(t, client, time.Nanosecond)
 	cold.cold = true
-	again, _, err := cold.create(t, "uid-alice", key(1), text)
+	again, err := cold.create(t, "uid-alice", key(1), text)
 	if err != nil || again.ID != first.ID {
 		t.Fatalf("cold replay: %v %v", again, err)
 	}
 
 	cold2 := newCreateInstance(t, client, time.Nanosecond)
 	cold2.cold = true
-	_, _, err = cold2.create(t, "uid-alice", key(1), text+"changed")
+	_, err = cold2.create(t, "uid-alice", key(1), text+"changed")
 	var ae *apierr.Error
 	if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED {
 		t.Fatalf("err = %v, want IDEMPOTENCY_KEY_REUSED", err)
@@ -512,7 +503,7 @@ func TestCreate_Integration_QuotaRollsOverAtISTMidnight(t *testing.T) {
 			if _, err := client.Collection("quotas").Doc("uid-alice").Set(context.Background(), quota.Record{Day: yesterday, Posts: tt.used}); err != nil {
 				t.Fatal(err)
 			}
-			_, _, err := in.create(t, "uid-alice", key(1), "a new day")
+			_, err := in.create(t, "uid-alice", key(1), "a new day")
 			if err != nil {
 				t.Fatalf("create after rollover: %v", err)
 			}
@@ -532,7 +523,7 @@ func TestCreate_Integration_QuotaRollsOverAtISTMidnight(t *testing.T) {
 
 // TestCreate_Integration_MentionsD6Matrix (audit #14): whatever the author's relationship
 // to the mentioned user, the mention is stored unchanged (M2: no block/privacy oracle) and the author graph is never
-// read: one handle read + idempotency + quotas = 3 reads.
+// read.
 func TestCreate_Integration_MentionsD6Matrix(t *testing.T) {
 	statusSet := func(t *testing.T, client *firestore.Client, uid, status string) {
 		t.Helper()
@@ -568,7 +559,7 @@ func TestCreate_Integration_MentionsD6Matrix(t *testing.T) {
 			in.signUp(t, "uid-alice", "alice")
 			in.signUp(t, "uid-bob", "bob")
 			tt.setup(t, client)
-			p, _, err := in.create(t, "uid-alice", key(1), tt.text)
+			p, err := in.create(t, "uid-alice", key(1), tt.text)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -617,7 +608,7 @@ func TestCreate_Integration_StoredMentionsAndHashtagsTable(t *testing.T) {
 	in.signUp(t, "uid-carol", "carol")
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, _, err := in.create(t, "uid-alice", key(100+i), tt.in)
+			p, err := in.create(t, "uid-alice", key(100+i), tt.in)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -654,7 +645,7 @@ func TestCreate_Integration_LineSeparatorStoredAsNewline(t *testing.T) {
 	client := newTestClient(t)
 	in := newCreateInstance(t, client, time.Nanosecond)
 	in.signUp(t, "uid-alice", "alice")
-	p, _, err := in.create(t, "uid-alice", key(1), "a\u2028b")
+	p, err := in.create(t, "uid-alice", key(1), "a\u2028b")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -676,7 +667,7 @@ func TestCreate_Integration_ReclaimedHandleResolvesToNewOwner(t *testing.T) {
 		in.signUp(t, "uid-alice", "alice")
 		other.signUp(t, "uid-bob", "bob")
 
-		p, _, err := in.create(t, "uid-alice", key(1), "@bob first")
+		p, err := in.create(t, "uid-alice", key(1), "@bob first")
 		if err != nil || len(p.Mentions) != 1 || p.Mentions[0].UserID != "uid-bob" {
 			t.Fatalf("before the rename: %+v %v", p, err)
 		}
@@ -689,7 +680,7 @@ func TestCreate_Integration_ReclaimedHandleResolvesToNewOwner(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		p, _, err = in.create(t, "uid-alice", key(3), "@bob second")
+		p, err = in.create(t, "uid-alice", key(3), "@bob second")
 		if err != nil {
 			t.Fatal(err)
 		}

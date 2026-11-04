@@ -2,7 +2,7 @@
 
 // fixtures_integration_test.go holds the shared emulator fixtures for every graph integration suite
 // (every graph integration suite; none may grow a second seeding helper): the wired
-// identity+graph pair, profile/graph/quota seeding, the budget-measuring call wrapper and the API-error
+// identity+graph pair, profile/graph/quota seeding and the API-error
 // assertion. The invariant checker lives next to it in invariants_integration_test.go.
 package graph_test
 
@@ -21,7 +21,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 )
 
 // Idempotency keys that satisfy the 16-64 char [A-Za-z0-9_-] convention. Distinct keys model "a new key".
@@ -262,13 +261,6 @@ func seedUserField(t *testing.T, w wired, uid, field string, value interface{}) 
 		t.Fatalf("seed users/%s.%s: %v", uid, field, err)
 	}
 	w.identity.(identity.Directory).Forget(uid)
-}
-
-// measured runs fn with a fresh request counter. Use one call per invocation.
-func measured(t *testing.T, rpc string, fn func(ctx context.Context)) {
-	t.Helper()
-	ctx, _ := budget.WithCounter(context.Background())
-	fn(ctx)
 }
 
 // requireAPIError fails t unless err is an *apierr.Error with the given Connect code and ErrorReason; a

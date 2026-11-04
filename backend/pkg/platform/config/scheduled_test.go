@@ -19,7 +19,7 @@ func TestLoad_ScheduledDefaults(t *testing.T) {
 		t.Errorf("schedule quotas = %d/%d, want 50/10", cfg.Quota.SchedulesPerDay, cfg.Quota.NewAccountSchedulesPerDay)
 	}
 	want := ScheduledConfig{
-		MaxPending: 25, Horizon: 1440 * time.Hour, MinLead: 2 * time.Minute, PerAuthorPerRun: 3, AuthorReadsWarn: 40,
+		MaxPending: 25, Horizon: 1440 * time.Hour, MinLead: 2 * time.Minute, PerAuthorPerRun: 3,
 		SweepLimit: 50, SweepMaxPages: 2, SweepConcurrency: 4, MaxLateness: 6 * time.Hour, MaxAttempts: 3,
 		TerminalTTL: 168 * time.Hour,
 	}
@@ -45,7 +45,6 @@ func TestLoad_ScheduledOverridesAndValidation(t *testing.T) {
 		t.Setenv("SCHEDULED_HORIZON", "24h")
 		t.Setenv("SCHEDULED_MIN_LEAD", "5m")
 		t.Setenv("SCHEDULED_PER_AUTHOR_PER_RUN", "2")
-		t.Setenv("SCHEDULED_AUTHOR_READS_WARN", "9")
 		t.Setenv("SCHEDULED_SWEEP_LIMIT", "20")
 		t.Setenv("SCHEDULED_SWEEP_MAX_PAGES", "3")
 		t.Setenv("SCHEDULED_SWEEP_CONCURRENCY", "2")
@@ -57,7 +56,7 @@ func TestLoad_ScheduledOverridesAndValidation(t *testing.T) {
 			t.Fatalf("Load() error = %v", err)
 		}
 		want := ScheduledConfig{
-			MaxPending: 5, Horizon: 24 * time.Hour, MinLead: 5 * time.Minute, PerAuthorPerRun: 2, AuthorReadsWarn: 9,
+			MaxPending: 5, Horizon: 24 * time.Hour, MinLead: 5 * time.Minute, PerAuthorPerRun: 2,
 			SweepLimit: 20, SweepMaxPages: 3, SweepConcurrency: 2, MaxLateness: time.Hour, MaxAttempts: 5,
 			TerminalTTL: 48 * time.Hour,
 		}
@@ -82,7 +81,6 @@ func TestLoad_ScheduledOverridesAndValidation(t *testing.T) {
 		{"SCHEDULED_MAX_PENDING", "0", "SCHEDULED_MAX_PENDING"},
 		{"SCHEDULED_MAX_PENDING", "51", "SCHEDULED_MAX_PENDING"},
 		{"SCHEDULED_PER_AUTHOR_PER_RUN", "0", "SCHEDULED_PER_AUTHOR_PER_RUN"},
-		{"SCHEDULED_AUTHOR_READS_WARN", "0", "SCHEDULED_AUTHOR_READS_WARN"},
 		{"SCHEDULED_SWEEP_LIMIT", "0", "SCHEDULED_SWEEP_LIMIT"},
 		{"SCHEDULED_SWEEP_MAX_PAGES", "11", "SCHEDULED_SWEEP_MAX_PAGES"},
 		{"SCHEDULED_SWEEP_CONCURRENCY", "0", "SCHEDULED_SWEEP_CONCURRENCY"},

@@ -10,7 +10,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -33,7 +32,7 @@ func (c *Claim) Attach(b store.Batch, postID string) {
 // Attacher is what posts consumes (through its own consumer-side interface).
 type Attacher interface {
 	// LoadForPost reads ids inside tx and validates them for uid: every id must exist, be owned by uid, have
-	// purpose POST, be READY or READY_UNSCREENED, and not be attached to a post yet. Reads: len(ids). It must be
+	// purpose POST, be READY or READY_UNSCREENED, and not be attached to a post yet. It must be
 	// called before the transaction's first write.
 	LoadForPost(ctx context.Context, tx *firestore.Transaction, uid string, ids []string) (*Claim, error)
 }
@@ -71,7 +70,6 @@ func (l *Library) LoadForPost(ctx context.Context, tx *firestore.Transaction, ui
 		refs[i] = l.repo.ref(id)
 	}
 	snaps, err := tx.GetAll(refs)
-	budget.FromContext(ctx).AddReads(int64(len(ids)))
 	if err != nil {
 		return nil, fmt.Errorf("media: load %d media for post: %w", len(ids), err)
 	}
@@ -122,7 +120,7 @@ func usablePostCover(d *Doc, uid string) bool {
 	return d != nil && d.OwnerID == uid && d.Purpose == string(PurposePost) && d.Published() && d.PostID == "" && d.RetiredAt == nil && d.ContentType != ContentTypeGIF
 }
 
-// resolveOwned is the one lookup behind the profile-image resolvers: 1 read, ErrNotReady unless the document
+// resolveOwned is the one lookup behind the profile-image resolvers: ErrNotReady unless the document
 // exists, is owned by uid, has the given purpose, is published (READY or READY_UNSCREENED) and is not retired
 // (a retired image's objects are scheduled for deletion, so it can never be set again).
 func (l *Library) resolveOwned(ctx context.Context, uid, mediaID string, p Purpose) (Ref, error) {

@@ -18,21 +18,21 @@
 // ids. A conversation id is derived from the participant pair and is therefore guessable: authorization never relies
 // on it. Every RPC that takes a conversation_id checks that the caller is a participant against the conversation doc.
 // A conversation_id that is not 32 lower-case hex => INVALID_ARGUMENT + VALIDATION, metadata["field"] =
-// "conversation_id", 0 reads. An unknown id, a conversation the caller is not a participant of and a deleted
-// conversation answer ONE byte-identical NOT_FOUND after <= 2 reads. No response carries a sender uid:
+// "conversation_id", before any lookup. An unknown id, a conversation the caller is not a participant of and a deleted
+// conversation answer ONE byte-identical NOT_FOUND. No response carries a sender uid:
 // a Message has from_self, and the peer is Conversation.peer.
 //
 // Flag FEATURE_MESSAGING (wire name "messaging", default off; founder decision F6):
 // - SendMessage and AcceptMessageRequest need it on for the caller (else FAILED_PRECONDITION + FEATURE_DISABLED,
-//   metadata["feature"] = "messaging", 0 reads) AND for the recipient (else ERROR_REASON_CANNOT_MESSAGE, below).
+//   metadata["feature"] = "messaging", before any lookup) AND for the recipient (else ERROR_REASON_CANNOT_MESSAGE, below).
 // - ListConversations, ListMessages, MarkConversationRead and DeleteConversation need it only NOT GLOBALLY OFF, so a
 //   user dropped from an allowlist can still read and clean up (ReportContent of a MESSAGE target likewise).
-// - Globally off: every RPC is FEATURE_DISABLED with 0 reads; clients hide the destination, its routes and the
+// - Globally off: every RPC is FEATURE_DISABLED before any lookup; clients hide the destination, its routes and the
 //   profile Message button. Clients learn the flag from IdentityService.GetMe enabled_features.
 //
 // Errors (clients branch on ErrorDetail.reason):
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in text | conversation_id | recipient_user_id | page_token |
-//   since_token | idempotency_key (and folder, ListConversations only); 0 reads.
+//   since_token | idempotency_key (and folder, ListConversations only); before any lookup.
 // - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "messaging".
 // - NOT_FOUND: one message for every cause (above).
 // - FAILED_PRECONDITION + ERROR_REASON_CANNOT_MESSAGE: one reason, with identical bytes, for a block in either
@@ -50,17 +50,14 @@
 //   always dedupe by id and replace the old item.
 // - Tokens are sealed, bound to the caller and the list (ListConversations: the folder; ListMessages: the
 //   conversation) and the token kind, and expire after 30 days. An expired, foreign or tampered token =>
-//   INVALID_ARGUMENT + VALIDATION, metadata["field"] = "since_token" or "page_token", 0 reads: drop it and call with
+//   INVALID_ARGUMENT + VALIDATION, metadata["field"] = "since_token" or "page_token", before any lookup: drop it and call with
 //   no token.
 // - A ListMessages since_token is also retired when the thread changed under the client (a moderator removed a
 //   message, or the other participant deleted the account): the answer is the very same INVALID_ARGUMENT +
-//   VALIDATION, metadata["field"] = "since_token", after at most 2 reads (the interceptor and the conversation; no
+//   VALIDATION, metadata["field"] = "since_token", after the conversation lookup alone (no
 //   message query). The handling is unchanged: drop the token, drop the cached thread and call once with no token.
 // A ListConversations since refresh returns an entry again when its preview changed that
 //   way (a removed message, an erased peer); replace the cached row by id, the order does not change.
-//
-// Firestore budgets below are per RPC. Worst-case reads include the account-status
-// interceptor.
 //
 
 package messagingv1

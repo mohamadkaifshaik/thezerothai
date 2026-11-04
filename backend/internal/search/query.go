@@ -25,7 +25,7 @@ type query struct {
 	body  string // the normalised text after the sigil
 }
 
-// parseQuery applies D1 steps 1 to 3 in order and returns a VALIDATION error on field "query" (0 reads) when the
+// parseQuery applies D1 steps 1 to 3 in order and returns a VALIDATION error on field "query" when the
 // query is empty after the sigil, longer than 50 code points after it (the sigil does not count), holds invalid
 // UTF-8, a control character (\p{Cc}) or a bidi formatting control anywhere. Pure.
 func parseQuery(raw string) (query, error) {

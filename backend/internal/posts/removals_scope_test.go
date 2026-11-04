@@ -6,9 +6,6 @@ import (
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // The RID-2 regression set (amendment 2026-10-18 (b)): the removal log answers per feed.
@@ -57,16 +54,13 @@ func TestRemovalLog_BurstForAFollowedAuthorIsDelivered(t *testing.T) {
 	for i := range 120 {
 		r.src.putBy(fmt.Sprintf("spam%03d", i), "spammer", RemovalRemoved, at)
 	}
-	ids, trunc, refresh := r.sinceFor(t, old, "viewer", "f1") // cold: cache = newest 50, all by the spammer
+	ids, trunc, queries := r.sinceFor(t, old, "viewer", "f1") // cold: cache = newest 50, all by the spammer
 	if trunc || len(ids) != 30 {
 		t.Fatalf("followed author's 30 removals: ids=%d trunc=%v, want 30/false", len(ids), trunc)
 	}
-	if refresh != RemovalMaxIDs {
-		t.Fatalf("cold refresh reads = %d, want %d", refresh, RemovalMaxIDs)
-	}
-	// The window is the viewer's cost: 30 documents.
-	if r.src.windowReads != 30 {
-		t.Fatalf("window reads = %d, want 30", r.src.windowReads)
+	// The shared cache loads once and the viewer's own window query finds the removals the cache missed.
+	if want := []string{"newest", "window"}; !reflect.DeepEqual(queries, want) {
+		t.Fatalf("queries = %v, want %v", queries, want)
 	}
 	// 60 removals by the followed author exceed what one response can list: reset, for this feed only.
 	for i := 30; i < 60; i++ {
@@ -80,47 +74,29 @@ func TestRemovalLog_BurstForAFollowedAuthorIsDelivered(t *testing.T) {
 	}
 }
 
-// TestRemovalLog_SteadyStateIsOneReadPerTTLPerInstance: the scope does not change the shared refresh cost.
-func TestRemovalLog_SteadyStateIsOneReadPerTTLPerInstance(t *testing.T) {
+// TestRemovalLog_SteadyStateIsOneQueryPerTTLPerInstance: the scope does not change the shared refresh.
+func TestRemovalLog_SteadyStateIsOneQueryPerTTLPerInstance(t *testing.T) {
 	t.Parallel()
 	r := newRemovalRig()
 	cutoff := r.now.Add(-time.Minute)
-	if _, _, reads := r.sinceFor(t, cutoff, "u1"); reads != 1 {
-		t.Fatalf("cold reads = %d, want 1", reads)
+	if _, _, queries := r.sinceFor(t, cutoff, "u1"); !reflect.DeepEqual(queries, []string{"newest"}) {
+		t.Fatalf("cold queries = %v, want [newest]", queries)
 	}
 	for step := range 5 {
-		// Many viewers with different scopes inside one TTL: no further reads at all.
+		// Many viewers with different scopes inside one TTL: no further queries at all.
 		for _, who := range []string{"u2", "u3", "u4"} {
-			if _, _, reads := r.sinceFor(t, cutoff, who); reads != 0 {
-				t.Fatalf("step %d warm %s reads = %d, want 0", step, who, reads)
+			if _, _, queries := r.sinceFor(t, cutoff, who); len(queries) != 0 {
+				t.Fatalf("step %d warm %s queries = %v, want none", step, who, queries)
 			}
 		}
 		r.now = r.now.Add(testTTL)
-		if _, _, reads := r.sinceFor(t, cutoff, "u1"); reads != 1 {
-			t.Fatalf("step %d TTL refresh reads = %d, want 1", step, reads)
+		if _, _, queries := r.sinceFor(t, cutoff, "u1"); !reflect.DeepEqual(queries, []string{"after"}) {
+			t.Fatalf("step %d TTL refresh queries = %v, want [after]", step, queries)
 		}
 	}
-	if r.src.windowReads != 0 {
-		t.Fatalf("window reads = %d, want 0 when the cache covers the cutoff", r.src.windowReads)
-	}
-}
-
-// TestRemovalLog_RefreshIsDetachedFromTheCallersBudget (RID-4): the shared refresh is not charged to the request's
-// counter and is logged as removal_log_reads.
-func TestRemovalLog_RefreshIsDetachedFromTheCallersBudget(t *testing.T) {
-	t.Parallel()
-	r := newRemovalRig()
-	for i := range 3 {
-		r.src.put(fmt.Sprintf("p%d", i), RemovalRemoved, r.now.Add(-time.Minute))
-	}
-	ictx, info := logger.WithRequestInfo(context.Background())
-	ctx, _ := budget.WithCounter(ictx)
-	ids, trunc, err := r.log.RemovedSince(ctx, r.now.Add(-time.Hour), RemovalScope{Authors: []string{testAuthor}})
-	if err != nil || trunc || len(ids) != 3 {
-		t.Fatalf("ids=%v trunc=%v err=%v", ids, trunc, err)
-	}
-	if got, ok := info.Get("removal_log_reads"); !ok || fmt.Sprint(got) != "3" {
-		t.Fatalf("removal_log_reads = %v, want 3", got)
+	// The cache covers the cutoff, so no viewer needed a window query.
+	if len(r.src.windowAuthors) != 0 {
+		t.Fatalf("window queries = %v, want none when the cache covers the cutoff", r.src.windowAuthors)
 	}
 }
 
@@ -149,9 +125,6 @@ func TestRemovalLog_WindowBounds(t *testing.T) {
 		}
 		if len(r.src.windowAuthors) != 3 || len(r.src.windowAuthors[0]) != 30 || len(r.src.windowAuthors[2]) != 20 {
 			t.Fatalf("window chunks = %v, want 30/30/20", r.src.windowAuthors)
-		}
-		if r.src.windowReads > RemovalWindowWorstReads {
-			t.Fatalf("window reads = %d, above the documented %d", r.src.windowReads, RemovalWindowWorstReads)
 		}
 	})
 	t.Run("a feed of more than 180 authors is reset instead of queried", func(t *testing.T) {
@@ -192,7 +165,7 @@ func TestRemovalLog_WindowBounds(t *testing.T) {
 			t.Fatalf("after the cutover: trunc=%v window queries=%d, want a window query", trunc, len(rAfter.src.windowAuthors))
 		}
 	})
-	t.Run("an empty scope costs nothing", func(t *testing.T) {
+	t.Run("an empty scope runs no query", func(t *testing.T) {
 		t.Parallel()
 		r := newRemovalRig()
 		ids, trunc, err := r.log.RemovedSince(context.Background(), r.now.Add(-time.Hour), RemovalScope{})

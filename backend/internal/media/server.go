@@ -39,7 +39,7 @@ func NewServer(svc Service, fc FlagChecker) *Server { return &Server{svc: svc, f
 
 var _ mediav1connect.MediaServiceHandler = (*Server)(nil)
 
-// guard is the FEATURE_MEDIA check, before any other work (0 reads).
+// guard is the FEATURE_MEDIA check, before any other work (nothing is read).
 func (s *Server) guard(ctx context.Context) (string, error) {
 	uid, ok := authn.UIDFromContext(ctx)
 	if !ok || uid == "" {
@@ -57,7 +57,7 @@ func (s *Server) guard(ctx context.Context) (string, error) {
 
 // guardPurpose is the sub-feature check for purposes that need more than FEATURE_MEDIA: a BANNER needs
 // FEATURE_PROFILE_EXTRAS for the caller too. FEATURE_DISABLED with metadata feature=profile_extras,
-// before any Firestore access, signing or quota (0 reads, 0 writes). It lives here, next to the media guard, because
+// before any Firestore access, signing or quota (nothing read or written). It lives here, next to the media guard, because
 // the handler is where the registry is held and the purpose is first known.
 func (s *Server) guardPurpose(ctx context.Context, uid string, p Purpose) error {
 	if p != PurposeBanner {
@@ -182,7 +182,7 @@ func statusToProto(s Status) mediav1.MediaStatus {
 
 // guardGIF is the FEATURE_GIF check: an item with content_type image/gif needs gif on for the caller, on
 // top of FEATURE_MEDIA. FEATURE_DISABLED with metadata feature=gif, before any Firestore access, signing or quota
-// (0 reads, 0 writes). It runs before the purpose is validated, so a GIF with the flag off is FEATURE_DISABLED even
+// (nothing read or written). It runs before the purpose is validated, so a GIF with the flag off is FEATURE_DISABLED even
 // for an AVATAR. A request without a GIF never touches the flag.
 func (s *Server) guardGIF(ctx context.Context, uid string, items []*mediav1.UploadItem) error {
 	isGIF := false

@@ -18,7 +18,6 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -63,30 +62,26 @@ func newIntEnv(t *testing.T, o envOpts) *intEnv {
 	return &intEnv{env: e, client: client, real: real, lib: NewLibrary(real, "https://cdn.test/media")}
 }
 
-func counted() (context.Context, *budget.Counter) { return budget.WithCounter(context.Background()) }
-
-// TestIntegration_CreateUploadAndFinalizeBudgets asserts the documented worst cases (CreateUpload proto comment):
-// CreateUpload reads 2 (idempotency, quotas) and writes 2 + n; a replay reads 1 and writes 0; FinalizeUpload reads
-// n + 1 (the media docs and, cold, the Vision counter) and writes 2n + 1 (one screening claim and one resolve per image,
-// plus the Vision counter; M-3 added the claim, it was n + 1 before).
-func TestIntegration_CreateUploadAndFinalizeBudgets(t *testing.T) {
+// TestIntegration_CreateUploadAndFinalize drives CreateUpload (a replay answers the same targets, another body under the key is refused)
+// and FinalizeUpload (one screening claim and one resolve per image, plus the Vision counter).
+func TestIntegration_CreateUploadAndFinalize(t *testing.T) {
 	e := newIntEnv(t, envOpts{})
 	full, thumb := jpegBytes("F1"), jpegBytes("T1")
 	in := CreateUploadInput{IdempotencyKey: key1, Purpose: PurposePost, Items: []UploadItem{item(full, thumb, "image/jpeg"), item(jpegBytes("F2"), jpegBytes("T2"), "image/jpeg")}}
 
-	ctx, _ := counted()
+	ctx := context.Background()
 	tgs, err := e.svc.CreateUpload(ctx, uidA, in)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	ctx, _ = counted()
+	ctx = context.Background()
 	replay, err := e.svc.CreateUpload(ctx, uidA, in)
 	if err != nil || replay[0].MediaID != tgs[0].MediaID || replay[1].MediaID != tgs[1].MediaID {
 		t.Fatalf("replay = %v, %v", replay, err)
 	}
 
-	ctx, _ = counted()
+	ctx = context.Background()
 	other := in
 	other.Items = in.Items[:1]
 	_, err = e.svc.CreateUpload(ctx, uidA, other)
@@ -96,7 +91,7 @@ func TestIntegration_CreateUploadAndFinalizeBudgets(t *testing.T) {
 
 	e.put(uidA, tgs[0], full, thumb, "image/jpeg")
 	e.put(uidA, tgs[1], jpegBytes("F2"), jpegBytes("T2"), "image/jpeg")
-	ctx, _ = counted()
+	ctx = context.Background()
 	res, err := e.svc.FinalizeUpload(ctx, uidA, []FinalizeItem{{MediaID: tgs[0].MediaID, Blurhash: "LEHV6n"}, {MediaID: tgs[1].MediaID}})
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +116,7 @@ func TestIntegration_QuotaIsWholeCall(t *testing.T) {
 		for i := range items {
 			items[i] = item(jpegBytes("a"), jpegBytes("b"), "image/jpeg")
 		}
-		ctx, _ := counted()
+		ctx := context.Background()
 		_, err := e.svc.CreateUpload(ctx, uidA, CreateUploadInput{IdempotencyKey: key, Purpose: PurposePost, Items: items})
 		return err
 	}
@@ -184,8 +179,8 @@ func TestIntegration_LoadForPostInsideATransaction(t *testing.T) {
 	}
 	pending := e.upload(t, uidA, PurposePost, "pend")
 
-	attach := func(uid string, ids []string, postID string) (*Claim, *budget.Counter, error) {
-		ctx, c := counted()
+	attach := func(uid string, ids []string, postID string) (*Claim, error) {
+		ctx := context.Background()
 		var claim *Claim
 		_, err := store.RunTransaction(ctx, e.client, func(ctx context.Context, tx *firestore.Transaction) error {
 			var err error
@@ -193,14 +188,14 @@ func TestIntegration_LoadForPostInsideATransaction(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+			b := store.NewFirestoreTxBatch(tx)
 			claim.Attach(b, postID)
 			return b.Err()
 		})
-		return claim, c, err
+		return claim, err
 	}
 
-	claim, _, err := attach(uidA, ids, "0000000000000000777")
+	claim, err := attach(uidA, ids, "0000000000000000777")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,13 +215,13 @@ func TestIntegration_LoadForPostInsideATransaction(t *testing.T) {
 		"one bad among good": {uidA, []string{ids[0], pending.MediaID}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, err := attach(tc.uid, tc.ids, "0000000000000000888")
+			_, err := attach(tc.uid, tc.ids, "0000000000000000888")
 			if !IsNotReady(err) {
 				t.Fatalf("err = %v, want ErrNotReady (one answer for every cause)", err)
 			}
 		})
 	}
-	if _, _, err := attach(uidA, []string{"../users/x"}, "0000000000000000888"); !errors.Is(err, ErrInvalidID) {
+	if _, err := attach(uidA, []string{"../users/x"}, "0000000000000000888"); !errors.Is(err, ErrInvalidID) {
 		t.Fatalf("path-like id: %v", err)
 	}
 }
@@ -240,7 +235,7 @@ func TestIntegration_ResolveAvatar(t *testing.T) {
 	if _, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: av.MediaID}}); err != nil {
 		t.Fatal(err)
 	}
-	ctx, _ := counted()
+	ctx := context.Background()
 	ref, err := e.lib.ResolveAvatar(ctx, uidA, av.MediaID)
 	if err != nil || ref.URL == "" || ref.ThumbURL == "" {
 		t.Fatalf("ref = %+v, %v", ref, err)
@@ -284,12 +279,11 @@ func TestIntegration_PostDeleteJobAndPurge(t *testing.T) {
 	}
 
 	j := NewJobs(e.real, e.obj, fakePosts{live: map[string]bool{}}, nil)
-	cctx, _ := counted()
+	cctx := context.Background()
 	out, err := j.Handle(cctx, msg(t, PostDeleteMessage{UID: uidA, PostID: post, MediaIDs: ids[:2]}))
 	if err != nil || out != "done" {
 		t.Fatalf("job = %q, %v", out, err)
 	}
-	// reads: the post (fake here: 1 in production) + len(MediaIDs); deletes: len(MediaIDs).
 	docs, err := e.real.GetMany(ctx, ids)
 	if err != nil || len(docs) != 1 || docs[ids[2]] == nil {
 		t.Fatalf("docs left = %v, %v: only the unattached image remains", docs, err)
@@ -303,7 +297,7 @@ func TestIntegration_PostDeleteJobAndPurge(t *testing.T) {
 	}
 
 	p := NewPurger(e.real, e.obj, "https://cdn.test/media")
-	pctx, _ := counted()
+	pctx := context.Background()
 	cp, done, err := p.PurgeUser(pctx, uidA, Checkpoint{})
 	if err != nil || !done || cp.Deleted != 1 {
 		t.Fatalf("purge = %+v done=%v err=%v", cp, done, err)
@@ -351,7 +345,7 @@ func TestIntegration_ListByOwnerPagesWithALimit(t *testing.T) {
 	var all []string
 	after := ""
 	for {
-		cctx, _ := counted()
+		cctx := context.Background()
 		page, err := e.real.ListByOwner(cctx, uidA, after, 3)
 		if err != nil {
 			t.Fatal(err)
@@ -372,15 +366,14 @@ func TestIntegration_ListByOwnerPagesWithALimit(t *testing.T) {
 	}
 }
 
-// TestIntegration_BannerBudgetsAndResolver asserts the BANNER rows against the real repo: the
-// existing CreateUpload / FinalizeUpload budgets (2 reads / 2 + n writes; n + 1 reads / 2n + 1 writes) with 2 Vision
-// units, and ResolveBanner at 1 read with one answer for every unusable id.
-func TestIntegration_BannerBudgetsAndResolver(t *testing.T) {
+// TestIntegration_BannerAndResolver asserts the BANNER rows against the real repo: CreateUpload and FinalizeUpload
+// with 2 Vision units, and ResolveBanner with one answer for every unusable id.
+func TestIntegration_BannerAndResolver(t *testing.T) {
 	e := newIntEnv(t, envOpts{})
 	ctx := context.Background()
 	full, thumb := webpBytes("BF"), webpBytes("BT")
 
-	cctx, _ := counted()
+	cctx := context.Background()
 	tgs, err := e.svc.CreateUpload(cctx, uidA, CreateUploadInput{
 		IdempotencyKey: key1, Purpose: PurposeBanner, Items: []UploadItem{bannerItem(full, thumb)},
 	})
@@ -395,7 +388,7 @@ func TestIntegration_BannerBudgetsAndResolver(t *testing.T) {
 	}
 
 	e.put(uidA, tg, full, thumb, "image/webp")
-	fctx, _ := counted()
+	fctx := context.Background()
 	res, err := e.svc.FinalizeUpload(fctx, uidA, []FinalizeItem{{MediaID: tg.MediaID, Blurhash: "LEHV6n"}})
 	if err != nil || res[0].Status != StatusReady {
 		t.Fatalf("finalize = %+v, %v", res, err)
@@ -405,7 +398,7 @@ func TestIntegration_BannerBudgetsAndResolver(t *testing.T) {
 	}
 
 	wantFull, wantThumb := docNames(t, e.real, tg.MediaID, "webp")
-	rctx, _ := counted()
+	rctx := context.Background()
 	ref, err := e.lib.ResolveBanner(rctx, uidA, tg.MediaID)
 	if err != nil || ref.ID != tg.MediaID || ref.URL != "https://cdn.test/media/"+wantFull ||
 		ref.ThumbURL != "https://cdn.test/media/"+wantThumb || ref.Width != 1500 || ref.Height != 500 {
@@ -480,7 +473,7 @@ func TestIntegration_BannerErasureAndExport(t *testing.T) {
 
 	p := NewPurger(e.real, e.obj, "https://cdn.test/media")
 	var buf bytes.Buffer
-	ectx, _ := counted()
+	ectx := context.Background()
 	if err := p.WriteSection(ectx, uidA, &buf); err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +486,7 @@ func TestIntegration_BannerErasureAndExport(t *testing.T) {
 		t.Fatalf("export = %s", buf.String())
 	}
 
-	pctx, _ := counted()
+	pctx := context.Background()
 	cp, done, err := p.PurgeUser(pctx, uidA, Checkpoint{})
 	if err != nil || !done || cp.Deleted != 2 {
 		t.Fatalf("purge = %+v done=%v err=%v", cp, done, err)
@@ -566,7 +559,7 @@ func TestIntegration_ScreeningClaimPreconditions(t *testing.T) {
 	pending := load()
 	until := time.Now().UTC().Add(30 * time.Second) // nanosecond precision, as the service writes it; Firestore keeps microseconds
 
-	cctx, _ := counted()
+	cctx := context.Background()
 	claimedAt, err := e.real.ClaimScreening(cctx, pending.ID, pending.UpdateTime, until)
 	if err != nil || !claimedAt.After(pending.UpdateTime) {
 		t.Fatalf("claim = %v, %v, want a later UpdateTime", claimedAt, err)
@@ -586,7 +579,7 @@ func TestIntegration_ScreeningClaimPreconditions(t *testing.T) {
 	if err := e.real.ReleaseScreening(ctx, pending.ID, pending.UpdateTime, false); !errors.Is(err, ErrConflict) {
 		t.Fatalf("release with a stale time = %v, want ErrConflict", err)
 	}
-	rctx, _ := counted()
+	rctx := context.Background()
 	if err := e.real.ReleaseScreening(rctx, pending.ID, claimedAt, true); err != nil {
 		t.Fatalf("release: %v", err)
 	}

@@ -33,7 +33,7 @@ func (e *itEnv) raceSends(from string, reqs []*messagingv1.SendMessageRequest) (
 		go func() {
 			defer wg.Done()
 			<-start
-			resps[i], _, errs[i] = e.sendOn(svcs[i], from, reqs[i])
+			resps[i], errs[i] = e.sendOn(svcs[i], from, reqs[i])
 		}()
 	}
 	close(start)
@@ -90,7 +90,7 @@ func TestSend_ConcurrentSameKeyIsOneMessage(t *testing.T) {
 			// Every racer can be busy (a slow emulator runs into txTimeout) and a busy racer may have committed. The
 			// client's answer is a same-key retry: it must succeed, as a replay of a committed message or as the first write.
 			if ok == 0 {
-				resp, _, err := e.send(alice, reqs[0])
+				resp, err := e.send(alice, reqs[0])
 				if err != nil || resp.GetMessage().GetId() != MessageID(alice, skey(900+round)) {
 					t.Fatalf("same-key retry after all racers were busy: %v", err)
 				}
@@ -150,7 +150,7 @@ func TestSend_ConcurrentRequestCapHolds(t *testing.T) {
 			before := e.msgs(convID)
 			for _, i := range busy {
 				_, stored := before[MessageID(alice, skey(800+10*round+i))]
-				resp, _, err := e.send(alice, reqs[i])
+				resp, err := e.send(alice, reqs[i])
 				switch got := outcome(err); {
 				case stored && got != "ok":
 					t.Errorf("busy racer %d committed, but its same-key retry answered %q, want a replay", i, got)
@@ -216,7 +216,7 @@ func TestSend_ConcurrentSendsLoseNoUnreadIncrement(t *testing.T) {
 		if outcome(err) != "busy" {
 			continue
 		}
-		if _, _, rerr := e.send(alice, reqs[i]); rerr != nil {
+		if _, rerr := e.send(alice, reqs[i]); rerr != nil {
 			t.Errorf("racer %d same-key retry: %v", i, rerr)
 		}
 	}
@@ -248,7 +248,7 @@ func TestSend_BusyAfterCommitRetryReplays(t *testing.T) {
 		}
 		return nil
 	}}
-	_, _, err := e.send(alice, req)
+	_, err := e.send(alice, req)
 	if got := outcome(err); got != "busy" {
 		t.Fatalf("first send answered %q, want busy", got)
 	}
@@ -257,7 +257,7 @@ func TestSend_BusyAfterCommitRetryReplays(t *testing.T) {
 		t.Fatalf("stored %d messages after a busy answer whose commit applied, want 1", n)
 	}
 	fail = false
-	resp, _, err := e.send(alice, req)
+	resp, err := e.send(alice, req)
 	if err != nil {
 		t.Fatalf("same-key retry: %v", err)
 	}

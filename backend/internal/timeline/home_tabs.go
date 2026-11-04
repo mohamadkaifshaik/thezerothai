@@ -35,7 +35,7 @@ const maxHomeTabsFallback = 5
 // HomeTabsStore is the consumer-side seam to users/{uid}.homeTabs; identity implements it
 // (*identity.HomeTabsAdapter), so the storage can move without changing a caller.
 type HomeTabsStore interface {
-	// Current is the caller's stored tabs, cache-first (0 reads when the account-status interceptor loaded the profile).
+	// Current is the caller's stored tabs, cache-first (the account-status interceptor has usually loaded the profile).
 	Current(ctx context.Context, uid string) ([]identity.HomeTab, error)
 	// Replace runs one transaction: reads the idempotency document and users/{uid} fresh, applies next to the stored tabs (it
 	// must be pure: it reruns on a retry), writes homeTabs field-level and the idempotency document. A replay returns the
@@ -95,7 +95,7 @@ func (d *HomeTabsDeps) visibleKind(uid, kind string) bool {
 	return false
 }
 
-// parseTabs checks the shape of the sent tabs (0 reads): kind LIST, or COMMUNITY once communities is wired, a well-formed id,
+// parseTabs checks the shape of the sent tabs: kind LIST, or COMMUNITY once communities is wired, a well-formed id,
 // no duplicate. Titles in the request are ignored.
 func (d *HomeTabsDeps) parseTabs(in []*commonv1.HomeTab) ([]tabKey, error) {
 	out := make([]tabKey, 0, len(in))
@@ -134,17 +134,12 @@ func tabsHash(tabs []tabKey) string {
 
 // SetHomeTabs replaces the caller's pinned Home tabs (proto: TimelineService.SetHomeTabs).
 //
-// Order: key format and tab shape (VALIDATION, 0 reads), the cap on the sent tabs (LIMIT_REACHED home_tabs), then the
+// Order: key format and tab shape (VALIDATION), the cap on the sent tabs (LIMIT_REACHED home_tabs), then the
 // FEATURE_LISTS gate when any tab is sent (an empty request skips it: "unpin everything" is accepted with lists off, answered
-// at once with the empty visible order, 0 reads, 0 writes; stored LIST tabs are a kind that is off for the caller, so they
+// at once with the empty visible order, with no read or write; stored LIST tabs are a kind that is off for the caller, so they
 // are kept, see below), then validation of every tab not
 // already stored, then one identity transaction. Stored tabs of a kind that is off for the caller are kept after the sent
 // ones and count toward the cap.
-//
-// Budget (table; reads count the account-status interceptor's caller `users` read): worst 19 cold (interceptor 1,
-// idempotency 1, users 1, <= 5 new list docs, caller graph 1, and for another user's list its owner's profile and graph, all
-// cache-first), typical 4; writes 2 (users field-level, idempotency), 1 when the order is unchanged, + 1 TTL delete later;
-// a replay reads 2 (idempotency, users) and writes 0.
 func (s *Server) SetHomeTabs(ctx context.Context, req *connect.Request[timelinev1.SetHomeTabsRequest]) (*connect.Response[timelinev1.SetHomeTabsResponse], error) {
 	h := s.homeTabs
 	if h == nil || h.Store == nil || h.Lists == nil {
@@ -180,7 +175,7 @@ func (s *Server) SetHomeTabs(ctx context.Context, req *connect.Request[timelinev
 		}
 	} else if !h.visibleKind(uid, identity.HomeTabKindList) && !h.visibleKind(uid, identity.HomeTabKindCommunity) {
 		// M-3: with lists and communities off for the caller an empty request is a no-op (stored tabs are kept and hidden), so the
-		// answer is the empty visible order at 0 reads and 0 writes, with no idempotency document.
+		// answer is the empty visible order with no read or write, with no idempotency document.
 		logger.SetRequestField(ctx, "outcome", "noop:kind_off")
 		return connect.NewResponse(&timelinev1.SetHomeTabsResponse{Tabs: []*commonv1.HomeTab{}}), nil
 	}

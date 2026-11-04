@@ -1,7 +1,6 @@
 // identity_getme: load test for IdentityService.GetMe.
 //
-// GetMe is the highest-frequency identity call (cost-model.md: 4 calls/DAU/day, every app open/resume)
-// and its budget is documented as 2 reads worst case / 1 typical (proto: identity.proto GetMe comment).
+// GetMe is the highest-frequency identity call (cost-model.md: 4 calls/DAU/day, every app open/resume).
 // This scenario drives a pool of already-signed-up users repeatedly calling GetMe against a warm instance
 // cache, to check the "typical" (mostly cache-hit) path holds its latency and error-rate targets.
 //

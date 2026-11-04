@@ -8,7 +8,7 @@ package apiserver
 //
 // As for bookmarks, the data is written through one chain (the "writer") and read through a second, freshly booted chain
 // (the "reader") on the same emulator project, so the reader's instance caches (posts, graph, userLikes, users) are cold,
-// which is the worst case the documented budget describes.
+// which is the worst case.
 
 import (
 	"context"
@@ -89,8 +89,8 @@ func (e *bmChain) likeDirect(t *testing.T, uid string, ids []string) {
 }
 
 // 25 likes: the first call returns the 20 most recently liked posts and a token, the second the remaining 5 and "". Cold
-// reader: page 1 costs exactly 23 reads (interceptor 1, userLikes 1, GetMany 20, graph 1) and writes nothing.
-func TestListLikedPostsChain_PagingAndColdBudget(t *testing.T) {
+// reader.
+func TestListLikedPostsChain_PagingCold(t *testing.T) {
 	w, r := listChains(t, likesListChain)
 	author, viewer := w.user(t), w.user(t)
 	var liked []string // oldest liked first
@@ -133,9 +133,9 @@ func TestListLikedPostsChain_PagingAndColdBudget(t *testing.T) {
 	// Warm: the interceptor, userLikes and graph are cached now; only the 5 uncached posts are read.
 }
 
-// A full page of 50 (page_size 99 is clamped) costs 53 reads cold, and a page that ends exactly at the oldest like has no
-// token (no empty trailing page to pay for).
-func TestListLikedPostsChain_MaxPageColdBudget(t *testing.T) {
+// A full page of 50 (page_size 99 is clamped) is served cold, and a page that ends exactly at the oldest like has no
+// token (no empty trailing page).
+func TestListLikedPostsChain_MaxPageCold(t *testing.T) {
 	w, r := listChains(t, likesListChain)
 	author, viewer := w.user(t), w.user(t)
 	var liked []string
@@ -152,9 +152,8 @@ func TestListLikedPostsChain_MaxPageColdBudget(t *testing.T) {
 	}
 }
 
-// An empty array (a user who never liked anything, and one who liked and unliked) costs 2 reads cold: the interceptor and
-// userLikes. No post, graph or second userLikes read.
-func TestListLikedPostsChain_EmptyArrayIsTwoReads(t *testing.T) {
+// An empty array (a user who never liked anything, and one who liked and unliked) answers an empty page, cold.
+func TestListLikedPostsChain_EmptyArray(t *testing.T) {
 	w, r := listChains(t, likesListChain)
 	author, never, undone := w.user(t), w.user(t), w.user(t)
 	id := w.post(t, author, "liked then unliked")
@@ -168,8 +167,7 @@ func TestListLikedPostsChain_EmptyArrayIsTwoReads(t *testing.T) {
 	}
 }
 
-// A foreign, tampered or cross-list token is INVALID_ARGUMENT VALIDATION page_token and the handler reads nothing: the
-// calls below are on a warm interceptor, so the whole request line shows 0 reads.
+// A foreign, tampered or cross-list token is INVALID_ARGUMENT VALIDATION page_token and nothing is listed.
 func TestListLikedPostsChain_ForeignAndTamperedTokens(t *testing.T) {
 	w, r := listChains(t, likesListChain)
 	author, a, b := w.user(t), w.user(t), w.user(t)
@@ -331,7 +329,7 @@ func TestListLikedPostsChain_DropRulesAndNoPruning(t *testing.T) {
 	if _, ok := l["rows_pruned"]; ok {
 		t.Errorf("request line carries rows_pruned: %v", l)
 	}
-	// Interceptor 1 + userLikes 1 + GetMany 7 + graph 1 = 10 reads, and no write or delete at all.
+	// Nothing is written or pruned.
 	if after := userLikesRecent(t, w, v.uid); !slices.Equal(after, before) || len(after) != 7 {
 		t.Errorf("userLikes.recent = %v, want it untouched %v", after, before)
 	}

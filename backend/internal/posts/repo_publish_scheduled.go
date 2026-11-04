@@ -6,22 +6,22 @@
 // One transaction, bounded by createTxTimeout (5 s, which TIMELINE_SETTLE_WINDOW assumes). Inside EACH attempt, all
 // reads come before any write, in this order:
 //
-//	(a) users/{uid}/scheduled/{id}   must exist and be PENDING, else the attempt ends with 0 writes (another run, a
-//	                                 Cancel or the eraser won)                                              1 read
+//	(a) users/{uid}/scheduled/{id}   must exist and be PENDING, else the attempt ends without writing (another run, a
+//	                                 Cancel or the eraser won)
 //	(b) users/{uid}                  through identity.TxProfiles, never cached: a suspension or a DeleteAccount
-//	                                 conflicts with this transaction, so the guarantee is exact (review L-7)  1 read
+//	                                 conflicts with this transaction, so the guarantee is exact (review L-7)
 //	(c) quotas/{uid}                 the IST day reset applies (quota.Store.Get); `posts >= limit` is checked BEFORE
-//	                                 any media or handle read (review L-4)                                    1 read
-//	(d) media/*                      owned, READY or READY_UNSCREENED, unattached (LoadForPost, GetAll)       <= 4 reads
+//	                                 any media or handle read (review L-4)
+//	(d) media/*                      owned, READY or READY_UNSCREENED, unattached (LoadForPost, GetAll; at most 4 images)
 //	(e) handles/*                    mention resolution, last, cache-first, not transactional (handles change
-//	                                 rarely and need no isolation)                                            <= 10 reads
+//	                                 rarely and need no isolation)
 //
-// Worst case 17 reads (1+1+1+4+10), typical 3 (planning 4). A success writes the post, users.postsCount, quotas and
-// the scheduled doc (PUBLISHED, postId, draft cleared) = 4, plus one media/{id}.postId update per attached image (at most
+// A success writes the post, users.postsCount, quotas and
+// the scheduled doc (PUBLISHED, postId, draft cleared), plus one media/{id}.postId update per attached image (at most
 // 4 images, so at most 8 writes in all).
 //
 // FAILURES COMMIT, THEY DO NOT ROLL BACK. A permanent cause found by (a) to (d) stages the one terminal transition of
-// the scheduled doc on the transaction batch and returns nil, so the transaction commits with exactly 1 write:
+// the scheduled doc on the transaction batch and returns nil, so the transaction commits with exactly one write:
 // SUSPENDED (or any status other than ACTIVE or DELETING) -> FAILED ACCOUNT_RESTRICTED; DELETING or a missing users
 // doc -> CANCELLED; the posts quota reached -> FAILED QUOTA_EXCEEDED; ErrMediaNotReady -> FAILED MEDIA_UNAVAILABLE.
 // Every such decision is made before the first staged write. Any other error rolls the attempt back and is returned
@@ -44,7 +44,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/budget"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/quota"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -83,9 +82,9 @@ const (
 	PublishNoop PublishOutcome = iota
 	// PublishPublished: the post was created and the item is PUBLISHED. PublishResult.Post is set.
 	PublishPublished
-	// PublishCancelled: the author is DELETING or gone; the item was moved to CANCELLED (1 write).
+	// PublishCancelled: the author is DELETING or gone; the item was moved to CANCELLED.
 	PublishCancelled
-	// PublishFailed: a permanent cause; the item was moved to FAILED with PublishResult.Failure (1 write).
+	// PublishFailed: a permanent cause; the item was moved to FAILED with PublishResult.Failure.
 	PublishFailed
 )
 
@@ -131,7 +130,7 @@ type PublishParams struct {
 	TerminalTTL time.Duration
 }
 
-// PublishScheduled runs the publish transaction (see the file comment). Reads and writes are in the file comment; the
+// PublishScheduled runs the publish transaction (see the file comment). The documents read and written are in the file comment; the
 // no-op and every commit-on-failure outcome write nothing or exactly one document. A collision of the freshly drawn
 // post id (AlreadyExists at commit) redraws and retries, like Create.
 func (r *FirestoreRepo) PublishScheduled(ctx context.Context, p PublishParams) (PublishResult, error) {
@@ -140,7 +139,7 @@ func (r *FirestoreRepo) PublishScheduled(ctx context.Context, p PublishParams) (
 	}
 	if len(p.MediaIDs) > 0 && r.w.Media == nil {
 		// A wiring bug, not a property of the draft, so it must not become a permanent, user-visible MEDIA_UNAVAILABLE. A plain
-		// error costs 0 reads and takes the sweep's transient path: a WARN each run, then FAILED INTERNAL with an Error
+		// error takes the sweep's transient path: a WARN each run, then FAILED INTERNAL with an Error
 		// Reporting entry on the last allowed attempt.
 		return PublishResult{}, errors.New("posts: repo has no media attacher configured for a draft with images")
 	}
@@ -187,7 +186,7 @@ func (r *FirestoreRepo) publishAttempt(ctx context.Context, tx *firestore.Transa
 	case sched.Status != ScheduledPending:
 		return PublishResult{Outcome: PublishNoop}, nil
 	}
-	b := store.NewFirestoreTxBatch(tx, budget.FromContext(ctx))
+	b := store.NewFirestoreTxBatch(tx)
 
 	// (b) The account, read inside the transaction. DELETING or missing cancels, anything but ACTIVE fails.
 	prof, err := r.w.Profiles.ProfileInTx(ctx, tx, p.UID)
@@ -281,7 +280,7 @@ func (r *FirestoreRepo) publishAttempt(ctx context.Context, tx *firestore.Transa
 }
 
 // stageEnd stages the one terminal transition of a permanent failure or a cancellation and reports it. The caller
-// returns the result with a nil error, so the transaction COMMITS (1 write) instead of rolling back.
+// returns the result with a nil error, so the transaction COMMITS instead of rolling back.
 func (r *FirestoreRepo) stageEnd(b *store.FirestoreTxBatch, p PublishParams, to ScheduledStatus, failure ScheduledFailure) (PublishResult, error) {
 	if err := r.StageScheduledTransition(b, p.UID, p.ID, ScheduledTransition{To: to, Failure: failure}, p.Now, p.TerminalTTL); err != nil {
 		return PublishResult{}, err

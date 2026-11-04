@@ -32,7 +32,7 @@ const (
 	tokenVersion = "v1"
 )
 
-// errPageToken is the one answer for a page token that does not open or whose payload does not parse (0 reads).
+// errPageToken is the one answer for a page token that does not open or whose payload does not parse.
 func errPageToken() error { return apierr.Validation("page_token", "page_token is invalid or expired") }
 
 // access is what the D3 visibility check proved for one (viewer, list): the list as stored, its owner's live profile, and the
@@ -47,7 +47,7 @@ type access struct {
 }
 
 // loadList reads the list through the instance cache (60 s staleness bound); a miss is one point read, and a
-// missing document is remembered for 60 s too (negative cache, / L-1: 0 reads on a repeat). The cache
+// missing document is remembered for 60 s too (negative cache, / L-1: a repeat probe is answered from the cache). The cache
 // holds private and hidden lists too (Create and the member writes put them), so a hit says nothing about who may see the
 // list: resolve decides. ErrNotFound for a malformed id and for a missing doc.
 func (s *service) loadList(ctx context.Context, id string) (List, error) {
@@ -74,12 +74,12 @@ func (s *service) loadList(ctx context.Context, id string) (List, error) {
 	return l, nil
 }
 
-// hiddenFromOthers is the cheap half of D3 for a non-owner: a private or hidden list is not theirs. 0 reads.
+// hiddenFromOthers is the cheap half of D3 for a non-owner: a private or hidden list is not theirs. No lookup is needed.
 func hiddenFromOthers(l List) bool { return l.IsPrivate || l.Hidden }
 
 // resolve applies the list visibility rules once for every read path. Order, cheapest first, each refusal the same ErrNotFound: the list
-// (cache or 1 read); the owner as viewer is visible and stops here (plus their own graph when wantSnaps); for anyone else, a
-// private or hidden list (0 more reads), then the viewer's blockedBy naming the owner (viewer graph), then an owner who is
+// (cache first); the owner as viewer is visible and stops here (plus their own graph when wantSnaps); for anyone else, a
+// private or hidden list (no further lookup), then the viewer's blockedBy naming the owner (viewer graph), then an owner who is
 // missing or not ACTIVE (profile), then an owner whose blockedBy overflowed or who blocks the viewer (owner graph; the second
 // closes the gap when the viewer's own blockedBy overflowed, at no extra read).
 func (s *service) resolve(ctx context.Context, viewer, listID string, wantSnaps bool) (access, error) {
@@ -133,7 +133,7 @@ func (s *service) resolve(ctx context.Context, viewer, listID string, wantSnaps 
 
 // hiddenByProtection is the protected-owner rule of D3 (M-2): the lists of a protected account are visible to that account and
 // to the viewers who follow it, as ListFollowing is. The owner's profile and the viewer's graph are both held already, so
-// the rule costs 0 reads. A pending follow request is not following. The answer comes from the profile's isPrivate, not from
+// the rule needs no further lookup. A pending follow request is not following. The answer comes from the profile's isPrivate, not from
 // FEATURE_PRIVATE_ACCOUNTS (ramping that flag down never un-hides a list). A viewer who blocked the owner is not special-cased (I-3).
 func hiddenByProtection(owner identity.Profile, ownerID string, viewer graph.Snapshot) bool {
 	return owner.IsPrivate && !viewer.Following[ownerID]
@@ -164,8 +164,7 @@ func (a access) view() View {
 }
 
 // pinned reports whether viewer has the list pinned as a Home tab. The source is users/{viewer}.homeTabs through
-// identity.Directory, cache-first: 0 reads when the account-status interceptor has loaded the viewer's profile (the usual case),
-// else 1. Staleness bound: the profile cache TTL on another instance; the writing instance is updated in place. A tab stored
+// identity.Directory, cache-first: usually already loaded by the account-status interceptor. Staleness bound: the profile cache TTL on another instance; the writing instance is updated in place. A tab stored
 // for a kind that is off for the viewer is still a pin of this list. A directory error answers false (a header flag, never a
 // reason to fail a read).
 func (s *service) pinned(ctx context.Context, viewer, listID string) bool {
@@ -266,7 +265,7 @@ func (s *service) encodeAfter(binding, id string) string {
 // read page_size + 1 docs (the extra row decides next_page_token). Another owner's read all LISTS_MAX_PER_USER docs, drop private
 // and hidden rows and return every public one with no token whatever page_size is: a token or a short page computed from the
 // raw rows would leak how many private lists the owner has and where they sit. Simpler than paging the
-// filtered set and costs no more reads than the documented worst case (the owner has at most LISTS_MAX_PER_USER docs).
+// filtered set, and bounded because the owner has at most LISTS_MAX_PER_USER docs.
 func (s *service) ListUserLists(ctx context.Context, viewer string, in UserListsInput) (UserLists, error) {
 	begin(ctx, "user_lists")
 	owner := in.OwnerID
@@ -363,7 +362,7 @@ func (s *service) otherOwner(ctx context.Context, viewer, owner string) (prof id
 	}
 	// M-2: after the block checks so a blocked viewer learns nothing about protection. ErrProtected maps to
 	// PROTECTED_ACCOUNT, the ListFollowing precedent (AQ: an error, not an empty page, so the client shows the protected-account state instead of "no lists").
-	// 0 extra reads: the profile and both graphs are held.
+	// No further lookups: the profile and both graphs are held.
 	if hiddenByProtection(p, owner, vs) {
 		return identity.Profile{}, nil, false, ErrProtected
 	}
@@ -383,7 +382,7 @@ func (s *service) encodeMembersToken(binding string, a pageresume.Anchor) string
 }
 
 // decodeMembersToken opens a members token. An empty token is the first page (nil). A foreign, expired, tampered or malformed
-// token is VALIDATION page_token. Pure: 0 reads.
+// token is VALIDATION page_token. Pure.
 func (s *service) decodeMembersToken(binding, token string) (*pageresume.Anchor, error) {
 	if token == "" {
 		return nil, nil
@@ -403,7 +402,7 @@ func (s *service) decodeMembersToken(binding, token string) (*pageresume.Anchor,
 	return &pageresume.Anchor{Next: parts[1], Last: parts[2], NextIndex: idx}, nil
 }
 
-// dropReason says why a member is left out of viewer's page before any profile is read (0 reads); "" keeps the row. Members
+// dropReason says why a member is left out of viewer's page before any profile is read; "" keeps the row. Members
 // who block the owner go for everyone; members the viewer blocks or mutes, or who block the viewer, go for the viewer; and when
 // a non-owner viewer's own blockedBy overflowed (a blocker cannot be ruled out) only members they follow stay.
 func dropReason(a access, member string) string {
@@ -423,7 +422,7 @@ func dropReason(a access, member string) string {
 // ListListMembers implements Service. The token is opened before any read. memberIds is stored oldest first, so a page is a
 // slice counted from the newest end (pageresume.Index resumes it across an add or a remove between two pages). The drops that
 // need only the two graph snapshots run before the profiles are fetched (one cache-first GetProfiles for the page), then
-// members that are not ACTIVE go. A page may be short while the token is set. Rows carry the viewer's relationship (0 reads).
+// members that are not ACTIVE go. A page may be short while the token is set. Rows carry the viewer's relationship.
 func (s *service) ListListMembers(ctx context.Context, viewer, listID string, pageSize int32, token string) (MembersPage, error) {
 	begin(ctx, "members")
 	if err := validateListID(listID); err != nil {

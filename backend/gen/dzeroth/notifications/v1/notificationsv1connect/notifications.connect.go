@@ -10,7 +10,7 @@
 // Token contract for ListNotifications (same shape as the timelines; all tokens opaque):
 //   - First open, no local cache: send neither token.
 //   - Pull-to-refresh / app resume / push received: send since_token from the last response. Only notifications newer
-//     than it are read (cost-model lever 6.1). since_token trails the newest item by a short settle window, so a
+//     than it are read. since_token trails the newest item by a short settle window, so a
 //     refresh may return items the client already has: always dedupe by notification id and replace the old row
 //     (a collapsed LIKE row is rewritten in place with a new created_at and actor_count).
 //   - Infinite scroll: send page_token (= next_page_token of the previous page).
@@ -18,7 +18,7 @@
 //   - A refresh whose page was full returns gap_page_token: keep the cache, show a "show more" row between the new
 //     items and the cached ones, and fill it with page_token = gap_page_token (bounded below by the old since_token).
 //   - Tokens are bound to the caller and expire after 30 days. An expired, foreign or tampered token =>
-//     INVALID_ARGUMENT + VALIDATION with metadata["field"] = "since_token" or "page_token", 0 reads: drop it and call
+//     INVALID_ARGUMENT + VALIDATION with metadata["field"] = "since_token" or "page_token", before any lookup: drop it and call
 //     with no token.
 package notificationsv1connect
 
@@ -69,35 +69,30 @@ const (
 // service.
 type NotificationServiceClient interface {
 	// Newest-first notifications for the caller. Every RPC checks FEATURE_NOTIFICATIONS (FAILED_PRECONDITION +
-	// FEATURE_DISABLED when off, 0 reads).
+	// FEATURE_DISABLED when off, before any lookup).
 	// Rows whose most recent actor the caller blocks or mutes, or who blocks the caller, are hidden at read time
 	// (collapsed rows lose such actors from actor_count). Filtering runs after the page query, so a page can be
 	// shorter than page_size, or empty, while more rows exist: keep paging while next_page_token (or
 	// gap_page_token) is set; never infer the end from a short page.
-	// Firestore: reads = rows scanned (minimum 1; 20 at the default page, 50 at the maximum) + the caller's graph
-	// snapshot (cached 60 s, 0 on a hit, +1 cold, skipped on an empty page); the seen_at profile is cached by the
-	// account-status interceptor. Refresh with 0 new items 1 (+1 graph); planning 21 cold / 5 refresh; writes 0.
+	// The caller's graph snapshot is cached 60 s and skipped on an empty page; the seen_at profile is cached by the
+	// account-status interceptor. Writes nothing.
 	// Rate limit: default per-minute bucket.
 	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
 	// Sets users/{uid}.notificationsSeenAt = now (the badge count drops to 0 within the 30 s GetMe cache; this
 	// instance's cache is evicted at once). Naturally idempotent: a replay just moves seen_at forward, and a call
 	// within 10 s of the previous mark returns that seen_at and writes nothing.
 	// Rate limit: 200 calls per uid per day (limit_name "notification_seen_daily").
-	// Firestore: reads 0 (the caller's profile is cached by the account-status interceptor; +1 on a cold
-	// instance), writes 1 (0 inside the 10 s window).
 	MarkNotificationsSeen(context.Context, *connect.Request[v1.MarkNotificationsSeenRequest]) (*connect.Response[v1.MarkNotificationsSeenResponse], error)
 	// Registers (or refreshes) this installation's FCM token under users/{uid}/devices/{device_id}. A token that was
 	// registered by another account on the same device is removed from that account (privacy). At most 5 devices per
 	// user: registering a 6th evicts the least recently refreshed one. Call on sign-in, on token refresh and once per
 	// app start. Naturally idempotent by device_id.
 	// Rate limit: 50 Register/Unregister calls per uid per day (limit_name "notification_devices_daily").
-	// Firestore: reads worst 9 (device doc, token index, previous owner's device, device list <= 5, the evicted
-	// device's token index), typical 2; writes worst 5, typical 2 (0 when the same token was registered < 24 h ago).
+	// Registering the same token again within 24 h writes nothing.
 	RegisterDevice(context.Context, *connect.Request[v1.RegisterDeviceRequest]) (*connect.Response[v1.RegisterDeviceResponse], error)
 	// Removes the device (call on sign-out, before the ID token is dropped). Unknown device_id is a no-op success.
 	// Rate limit: shares the per-uid daily cap of RegisterDevice (limit_name "notification_devices_daily").
-	// Firestore: reads 2 (device doc, then its token index; 1 when the device is unknown), deletes 0 or 2 (device
-	// doc + token index).
+	// Deletes the device doc and its token index.
 	UnregisterDevice(context.Context, *connect.Request[v1.UnregisterDeviceRequest]) (*connect.Response[v1.UnregisterDeviceResponse], error)
 }
 
@@ -173,35 +168,30 @@ func (c *notificationServiceClient) UnregisterDevice(ctx context.Context, req *c
 // dzeroth.notifications.v1.NotificationService service.
 type NotificationServiceHandler interface {
 	// Newest-first notifications for the caller. Every RPC checks FEATURE_NOTIFICATIONS (FAILED_PRECONDITION +
-	// FEATURE_DISABLED when off, 0 reads).
+	// FEATURE_DISABLED when off, before any lookup).
 	// Rows whose most recent actor the caller blocks or mutes, or who blocks the caller, are hidden at read time
 	// (collapsed rows lose such actors from actor_count). Filtering runs after the page query, so a page can be
 	// shorter than page_size, or empty, while more rows exist: keep paging while next_page_token (or
 	// gap_page_token) is set; never infer the end from a short page.
-	// Firestore: reads = rows scanned (minimum 1; 20 at the default page, 50 at the maximum) + the caller's graph
-	// snapshot (cached 60 s, 0 on a hit, +1 cold, skipped on an empty page); the seen_at profile is cached by the
-	// account-status interceptor. Refresh with 0 new items 1 (+1 graph); planning 21 cold / 5 refresh; writes 0.
+	// The caller's graph snapshot is cached 60 s and skipped on an empty page; the seen_at profile is cached by the
+	// account-status interceptor. Writes nothing.
 	// Rate limit: default per-minute bucket.
 	ListNotifications(context.Context, *connect.Request[v1.ListNotificationsRequest]) (*connect.Response[v1.ListNotificationsResponse], error)
 	// Sets users/{uid}.notificationsSeenAt = now (the badge count drops to 0 within the 30 s GetMe cache; this
 	// instance's cache is evicted at once). Naturally idempotent: a replay just moves seen_at forward, and a call
 	// within 10 s of the previous mark returns that seen_at and writes nothing.
 	// Rate limit: 200 calls per uid per day (limit_name "notification_seen_daily").
-	// Firestore: reads 0 (the caller's profile is cached by the account-status interceptor; +1 on a cold
-	// instance), writes 1 (0 inside the 10 s window).
 	MarkNotificationsSeen(context.Context, *connect.Request[v1.MarkNotificationsSeenRequest]) (*connect.Response[v1.MarkNotificationsSeenResponse], error)
 	// Registers (or refreshes) this installation's FCM token under users/{uid}/devices/{device_id}. A token that was
 	// registered by another account on the same device is removed from that account (privacy). At most 5 devices per
 	// user: registering a 6th evicts the least recently refreshed one. Call on sign-in, on token refresh and once per
 	// app start. Naturally idempotent by device_id.
 	// Rate limit: 50 Register/Unregister calls per uid per day (limit_name "notification_devices_daily").
-	// Firestore: reads worst 9 (device doc, token index, previous owner's device, device list <= 5, the evicted
-	// device's token index), typical 2; writes worst 5, typical 2 (0 when the same token was registered < 24 h ago).
+	// Registering the same token again within 24 h writes nothing.
 	RegisterDevice(context.Context, *connect.Request[v1.RegisterDeviceRequest]) (*connect.Response[v1.RegisterDeviceResponse], error)
 	// Removes the device (call on sign-out, before the ID token is dropped). Unknown device_id is a no-op success.
 	// Rate limit: shares the per-uid daily cap of RegisterDevice (limit_name "notification_devices_daily").
-	// Firestore: reads 2 (device doc, then its token index; 1 when the device is unknown), deletes 0 or 2 (device
-	// doc + token index).
+	// Deletes the device doc and its token index.
 	UnregisterDevice(context.Context, *connect.Request[v1.UnregisterDeviceRequest]) (*connect.Response[v1.UnregisterDeviceResponse], error)
 }
 
