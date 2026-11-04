@@ -507,7 +507,7 @@ module "monitoring" {
 
   # Alert policy: ~$0.40/month, prod only.
   enable_auth_admin_alert = true # cost-approved: ADR-0011
-  enable_ops_alerts       = true # R4: prod keeps uptime, 5xx and Firestore-reads alerts 
+  enable_ops_alerts       = true # R4: prod keeps uptime, 5xx and Firestore-reads alerts, plus DLQ, Scheduler and heartbeat alerts
 
   # Credit-mode detectors. Stage 0 values by default (flood alert off, reads threshold 40k).
   enable_request_flood_alert    = var.enable_request_flood_alert    # ADR-0022 until:2026-12-26
