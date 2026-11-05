@@ -414,4 +414,88 @@ void main() {
     expect(find.text('Request export'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('READY without a link shows Download with a hint; the tap '
+      're-authenticates, fetches the link and opens it', (tester) async {
+    var polls = 0;
+    when(() => accounts.getExport(exportId: 'exp-1')).thenAnswer((_) async {
+      polls++;
+      // The first poll has a stale sign-in: READY, no link.
+      return polls == 1
+          ? _export(ExportStatus.EXPORT_STATUS_READY)
+          : _export(ExportStatus.EXPORT_STATUS_READY, url: _downloadUrl);
+    });
+    await pump(tester);
+    await tapRequest(tester);
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pump();
+
+    expect(find.text('Download'), findsOneWidget);
+    expect(find.textContaining('confirm it'), findsOneWidget);
+    verify(
+      () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+    ).called(1); // the request's own
+
+    await tester.tap(find.text('Download'));
+    await tester.pump();
+    await tester.pump();
+
+    verify(
+      () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+    ).called(1);
+    expect(launcher.launched, [_downloadUrl]);
+  });
+
+  testWidgets('a cancelled re-auth on Download opens nothing and keeps the '
+      'button', (tester) async {
+    when(() => accounts.getExport(exportId: 'exp-1'))
+        .thenAnswer((_) async => _export(ExportStatus.EXPORT_STATUS_READY));
+    await pump(tester);
+    await tapRequest(tester);
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pump();
+    when(
+      () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+    ).thenAnswer((_) async => throw const AuthFailure.cancelled());
+
+    await tester.tap(find.text('Download'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Download'), findsOneWidget);
+    expect(launcher.launched, isEmpty);
+  });
+
+  testWidgets('a failed re-auth on Download shows the friendly message and a '
+      'retry that resumes without a new request', (tester) async {
+    when(() => accounts.getExport(exportId: 'exp-1'))
+        .thenAnswer((_) async => _export(ExportStatus.EXPORT_STATUS_READY));
+    await pump(tester);
+    await tapRequest(tester);
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pump();
+    when(
+      () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+    ).thenAnswer((_) async => throw const AuthFailure.invalidCredentials());
+
+    await tester.tap(find.text('Download'));
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      find.text(const AuthFailure.invalidCredentials().message),
+      findsOneWidget,
+    );
+    expect(launcher.launched, isEmpty);
+
+    await tester.tap(find.text('Try again'));
+    await tester.pump();
+    await tester.pump(Duration.zero);
+    await tester.pump();
+    expect(find.text('Download'), findsOneWidget);
+    verify(
+      () =>
+          accounts.requestExport(idempotencyKey: any(named: 'idempotencyKey')),
+    ).called(1);
+  });
 }

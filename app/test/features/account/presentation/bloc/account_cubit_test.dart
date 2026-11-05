@@ -744,4 +744,61 @@ void main() {
       );
     });
   });
+
+  group('reauthenticate', () {
+    test(
+      're-authenticates in the tap, sends no RPC, never revokes Apple',
+      () async {
+        stubReauth(
+          (_) async => const ReauthResult(appleAuthorizationCode: 'apple-code'),
+        );
+        final cubit = build();
+
+        final run = cubit.reauthenticate(promptPassword: _pw);
+        // No await since the call: the provider flow already started.
+        verify(
+          () =>
+              auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+        ).called(1);
+        expect(cubit.state.status, AccountStatus.working);
+
+        expect(await run, isTrue);
+        expect(cubit.state.status, AccountStatus.idle);
+        verifyNever(() => auth.revokeAppleToken(any()));
+        verifyZeroInteractions(accounts);
+      },
+    );
+
+    test('a cancel returns false and lands as cancelled', () async {
+      stubReauth((_) async => throw const AuthFailure.cancelled());
+      final cubit = build();
+
+      expect(await cubit.reauthenticate(promptPassword: _pw), isFalse);
+      expect(cubit.state.status, AccountStatus.cancelled);
+      verifyZeroInteractions(accounts);
+    });
+
+    test('an auth failure returns false and lands as failed', () async {
+      stubReauth((_) async => throw const AuthFailure.invalidCredentials());
+      final cubit = build();
+
+      expect(await cubit.reauthenticate(promptPassword: _pw), isFalse);
+      expect(cubit.state.status, AccountStatus.failed);
+      expect(cubit.state.authFailure, isA<AuthInvalidCredentials>());
+    });
+
+    test('a double tap while working is ignored', () async {
+      final gate = Completer<ReauthResult>();
+      stubReauth((_) => gate.future);
+      final cubit = build();
+
+      final first = cubit.reauthenticate(promptPassword: _pw);
+      expect(await cubit.reauthenticate(promptPassword: _pw), isFalse);
+      gate.complete(const ReauthResult());
+      expect(await first, isTrue);
+      verify(
+        () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+      ).called(1);
+    });
+  });
 }

@@ -260,13 +260,21 @@ func (s *Server) GetAccountExport(ctx context.Context, req *connect.Request[iden
 		return nil, err
 	}
 	resp := &identityv1.GetAccountExportResponse{
-		ExportId:    view.ID,
-		Status:      toProtoExportStatus(view.Status),
-		DownloadUrl: view.DownloadURL,
-		ExpiresAt:   timestamppb.New(view.ExpiresAt),
+		ExportId:  view.ID,
+		Status:    toProtoExportStatus(view.Status),
+		ExpiresAt: timestamppb.New(view.ExpiresAt),
 	}
-	if !view.URLExpiresAt.IsZero() {
-		resp.DownloadUrlExpiresAt = timestamppb.New(view.URLExpiresAt)
+	// The signed URL hands over the whole account, so it is released only to a recent sign-in, like
+	// RequestAccountExport. Status polling itself stays open (no gate, no error) so the app can watch the job for
+	// far longer than the sign-in window; the app re-authenticates up front on the Download tap and calls again to
+	// receive the URL. A READY export with no URL therefore means "re-auth to download", not "not ready". This uses
+	// the side-effect-free IsRecentSignIn, not RequireRecentSignIn: a stale poll here is a normal success, so it must
+	// not log reauth_required. A wiring mistake (reauthMaxAge 0) fails closed: IsRecentSignIn is false, URL withheld.
+	if authn.IsRecentSignIn(ctx, s.reauthMaxAge, s.now()) {
+		resp.DownloadUrl = view.DownloadURL
+		if !view.URLExpiresAt.IsZero() {
+			resp.DownloadUrlExpiresAt = timestamppb.New(view.URLExpiresAt)
+		}
 	}
 	return connect.NewResponse(resp), nil
 }

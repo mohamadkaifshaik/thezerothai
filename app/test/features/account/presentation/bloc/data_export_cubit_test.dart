@@ -180,15 +180,24 @@ void main() {
     final cubit = await readyCubit(tester);
     expect(calls, 1);
 
-    expect((await cubit.downloadUrl()).toString(), 'https://example/1');
+    expect(
+      (await cubit.downloadUrl(promptPassword: _pw)).toString(),
+      'https://example/1',
+    );
     expect(calls, 1);
 
     now = now.add(const Duration(minutes: 13));
-    expect((await cubit.downloadUrl()).toString(), 'https://example/1');
+    expect(
+      (await cubit.downloadUrl(promptPassword: _pw)).toString(),
+      'https://example/1',
+    );
     expect(calls, 1);
 
     now = now.add(const Duration(minutes: 1));
-    expect((await cubit.downloadUrl()).toString(), 'https://example/2');
+    expect(
+      (await cubit.downloadUrl(promptPassword: _pw)).toString(),
+      'https://example/2',
+    );
     expect(calls, 2);
     await cubit.close();
   });
@@ -207,7 +216,10 @@ void main() {
     final cubit = await readyCubit(tester);
 
     now = now.add(const Duration(minutes: 4, seconds: 30));
-    expect((await cubit.downloadUrl()).toString(), 'https://example/2');
+    expect(
+      (await cubit.downloadUrl(promptPassword: _pw)).toString(),
+      'https://example/2',
+    );
     expect(calls, 2);
     await cubit.close();
   });
@@ -221,11 +233,14 @@ void main() {
     final cubit = await readyCubit(tester, tapAfterRefresh: true);
 
     now = now.add(const Duration(minutes: 20));
-    expect(await cubit.downloadUrl(), isNull);
+    expect(await cubit.downloadUrl(promptPassword: _pw), isNull);
     expect(cubit.state.phase, DataExportPhase.ready);
     expect(cubit.state.linkRefreshed, isTrue);
 
-    expect((await cubit.downloadUrl()).toString(), 'https://example/2');
+    expect(
+      (await cubit.downloadUrl(promptPassword: _pw)).toString(),
+      'https://example/2',
+    );
     expect(calls, 2);
     await cubit.close();
   });
@@ -242,7 +257,7 @@ void main() {
     expect(await db.savedExport('u1'), isNotNull);
 
     now = now.add(const Duration(minutes: 20));
-    expect(await cubit.downloadUrl(), isNull);
+    expect(await cubit.downloadUrl(promptPassword: _pw), isNull);
 
     expect(cubit.state.phase, DataExportPhase.expired);
     expect(await db.savedExport('u1'), isNull);
@@ -264,7 +279,7 @@ void main() {
     final cubit = await readyCubit(tester);
 
     now = now.add(const Duration(minutes: 20));
-    expect(await cubit.downloadUrl(), isNull);
+    expect(await cubit.downloadUrl(promptPassword: _pw), isNull);
 
     expect(cubit.state.phase, DataExportPhase.waiting);
     await cubit.close();
@@ -555,5 +570,172 @@ void main() {
     await elapse(tester, const Duration(minutes: 10));
 
     verifyNever(() => accounts.getExport(exportId: any(named: 'exportId')));
+  });
+
+  group('download needs a recent sign-in', () {
+    const readyNoUrl = AccountExport(
+      exportId: 'exp-1',
+      status: ExportStatus.EXPORT_STATUS_READY,
+    );
+
+    // The first poll (stale sign-in) is READY without a link; later fetches
+    // (after the re-auth) carry one.
+    void stubWithheldThenUrl(List<String> events) {
+      var calls = 0;
+      when(() => accounts.getExport(exportId: 'exp-1')).thenAnswer((_) async {
+        events.add('get');
+        return ++calls == 1 ? readyNoUrl : _ready('https://example/$calls');
+      });
+    }
+
+    testWidgets('polling reaches ready on READY without a URL', (tester) async {
+      when(() => accounts.getExport(exportId: 'exp-1'))
+          .thenAnswer((_) async => readyNoUrl);
+      final cubit = await readyCubit(tester);
+
+      expect(cubit.state.export?.downloadUrl, isNull);
+      verify(() => accounts.getExport(exportId: 'exp-1')).called(1);
+      await cubit.close();
+    });
+
+    testWidgets('non-web: re-authenticates in the tap, then fetches and '
+        'returns the URL', (tester) async {
+      final events = <String>[];
+      stubWithheldThenUrl(events);
+      final cubit = await readyCubit(tester);
+      events.clear();
+      stubReauth((_) async {
+        events.add('reauth');
+        return const ReauthResult();
+      });
+
+      final run = cubit.downloadUrl(promptPassword: _pw);
+      // No await since the call: the re-auth already started, no RPC yet.
+      expect(events, ['reauth']);
+      expect(cubit.state.refreshing, isTrue);
+      final url = await run;
+
+      expect(events, ['reauth', 'get']);
+      expect(url.toString(), 'https://example/2');
+      expect(cubit.state.phase, DataExportPhase.ready);
+      expect(cubit.state.refreshing, isFalse);
+      expect(cubit.state.linkRefreshed, isFalse);
+      // The link is fresh now: the next tap needs no re-auth.
+      expect(
+        (await cubit.downloadUrl(promptPassword: _pw)).toString(),
+        'https://example/2',
+      );
+      expect(events, ['reauth', 'get']);
+      await cubit.close();
+    });
+
+    testWidgets('web: re-auth, refresh, then the second tap opens with no '
+        'prompt', (tester) async {
+      final events = <String>[];
+      stubWithheldThenUrl(events);
+      final cubit = await readyCubit(tester, tapAfterRefresh: true);
+      events.clear();
+      stubReauth((_) async {
+        events.add('reauth');
+        return const ReauthResult();
+      });
+
+      expect(await cubit.downloadUrl(promptPassword: _pw), isNull);
+      expect(events, ['reauth', 'get']);
+      expect(cubit.state.phase, DataExportPhase.ready);
+      expect(cubit.state.linkRefreshed, isTrue);
+
+      expect(
+        (await cubit.downloadUrl(promptPassword: _pw)).toString(),
+        'https://example/2',
+      );
+      expect(events, ['reauth', 'get']);
+      await cubit.close();
+    });
+
+    testWidgets('a link that came with the poll opens with no re-auth', (
+      tester,
+    ) async {
+      when(() => accounts.getExport(exportId: 'exp-1'))
+          .thenAnswer((_) async => _ready('https://example/1'));
+      final cubit = await readyCubit(tester);
+      clearInteractions(auth);
+
+      expect(
+        (await cubit.downloadUrl(promptPassword: _pw)).toString(),
+        'https://example/1',
+      );
+      verifyNever(
+        () => auth.reauthenticate(promptPassword: any(named: 'promptPassword')),
+      );
+      await cubit.close();
+    });
+
+    testWidgets('a cancelled re-auth fetches nothing and stays ready', (
+      tester,
+    ) async {
+      when(() => accounts.getExport(exportId: 'exp-1'))
+          .thenAnswer((_) async => readyNoUrl);
+      final cubit = await readyCubit(tester);
+      stubReauth((_) async => throw const AuthFailure.cancelled());
+
+      expect(await cubit.downloadUrl(promptPassword: _pw), isNull);
+
+      expect(cubit.state.phase, DataExportPhase.ready);
+      expect(cubit.state.refreshing, isFalse);
+      verify(() => accounts.getExport(exportId: 'exp-1')).called(1);
+      clearInteractions(accounts);
+      await elapse(tester, const Duration(minutes: 10)); // no loop
+      verifyNever(() => accounts.getExport(exportId: any(named: 'exportId')));
+      await cubit.close();
+    });
+
+    testWidgets('a failed re-auth surfaces the auth failure, no fetch, no '
+        'loop, no URL in state text', (tester) async {
+      when(() => accounts.getExport(exportId: 'exp-1'))
+          .thenAnswer((_) async => readyNoUrl);
+      final cubit = await readyCubit(tester);
+      stubReauth((_) async => throw const AuthFailure.requiresRecentLogin());
+
+      expect(await cubit.downloadUrl(promptPassword: _pw), isNull);
+
+      expect(cubit.state.phase, DataExportPhase.failed);
+      expect(cubit.state.authFailure, isNotNull);
+      expect(cubit.canResume, isTrue);
+      expect(cubit.state.toString(), isNot(contains('http')));
+      clearInteractions(accounts);
+      await elapse(tester, const Duration(minutes: 10));
+      verifyNever(() => accounts.getExport(exportId: any(named: 'exportId')));
+      await cubit.close();
+    });
+
+    testWidgets('a getExport failure after the re-auth shows the error', (
+      tester,
+    ) async {
+      var calls = 0;
+      when(() => accounts.getExport(exportId: 'exp-1')).thenAnswer((_) async {
+        if (++calls == 1) return readyNoUrl;
+        throw const DegradedModeException('degraded');
+      });
+      final cubit = await readyCubit(tester);
+
+      expect(await cubit.downloadUrl(promptPassword: _pw), isNull);
+
+      expect(cubit.state.phase, DataExportPhase.failed);
+      expect(cubit.state.error, isA<DegradedModeException>());
+      await cubit.close();
+    });
+
+    testWidgets('READY without a URL even after the re-auth goes back to '
+        'waiting', (tester) async {
+      when(() => accounts.getExport(exportId: 'exp-1'))
+          .thenAnswer((_) async => readyNoUrl);
+      final cubit = await readyCubit(tester);
+
+      expect(await cubit.downloadUrl(promptPassword: _pw), isNull);
+
+      expect(cubit.state.phase, DataExportPhase.waiting);
+      await cubit.close();
+    });
   });
 }

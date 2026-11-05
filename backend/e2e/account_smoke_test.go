@@ -247,14 +247,22 @@ func TestE2E_AccountLifecycleSmoke(t *testing.T) {
 	var exported []byte
 	if e.remote {
 		var url string
+		// The download URL is released only to a RECENT sign-in — the same gate DeleteAccount uses below with this
+		// same tokenA, so any run that reaches deletion already had tokenA recent here. tokenA is minted fresh for
+		// the run and this tiny export reaches READY in seconds, so the URL arrives on the same poll as READY. Wait
+		// on READY alone (not READY+URL): a READY-without-URL means the sign-in went stale, and no amount of waiting
+		// fixes that, so fail fast with the real reason instead of a 5-minute "never READY" timeout.
 		e.eventually(t, "export READY", 5*time.Minute, func() (bool, string) {
 			got, err := e.identity.GetAccountExport(ctx, authedRequest(e.tokenA, &identityv1.GetAccountExportRequest{ExportId: exp.Msg.GetExportId()}))
 			if err != nil {
 				return false, err.Error()
 			}
 			url = got.Msg.GetDownloadUrl()
-			return got.Msg.GetStatus() == identityv1.ExportStatus_EXPORT_STATUS_READY && url != "", got.Msg.GetStatus().String()
+			return got.Msg.GetStatus() == identityv1.ExportStatus_EXPORT_STATUS_READY, got.Msg.GetStatus().String()
 		})
+		if url == "" {
+			t.Fatal("export is READY but the download URL was withheld: tokenA's sign-in is not recent. The download requires a recent sign-in (like DeleteAccount); mint E2E_ACCOUNT_ID_TOKEN_A right before running this smoke.")
+		}
 		resp, err := http.Get(url)
 		if err != nil {
 			t.Fatalf("download: %v", err) // never print the URL

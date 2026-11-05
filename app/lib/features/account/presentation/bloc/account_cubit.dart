@@ -196,6 +196,28 @@ class AccountCubit extends Cubit<AccountState> {
     }
   }
 
+  /// Re-authenticates and nothing else (no RPC, never revokes the Apple
+  /// token): the export download link is only handed to a recent sign-in.
+  /// Returns true on success; a cancel or failure lands in [state] and
+  /// returns false.
+  ///
+  /// Call straight from the tap handler: no `await` runs before the
+  /// re-authentication starts.
+  Future<bool> reauthenticate({required PasswordPrompt promptPassword}) async {
+    if (isClosed || state.status == AccountStatus.working) return false;
+    final generation = ++_generation;
+    emit(const AccountState(status: AccountStatus.working));
+    try {
+      await _reauthenticate(promptPassword, revokeApple: false);
+      if (_stale(generation)) return false;
+      emit(const AccountState());
+      return true;
+    } catch (error, stack) {
+      _fail(generation, error, stack);
+      return false;
+    }
+  }
+
   /// Runs [call]; on [ReauthRequiredException] re-authenticates once and
   /// retries once.
   Future<T> _withReauth<T>(
