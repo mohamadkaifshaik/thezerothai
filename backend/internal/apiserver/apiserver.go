@@ -215,6 +215,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithBlockChecker(graphSvc),
 		identity.WithProtectedAuthors(protectedAuthors, log), identity.WithFollowRequestCounter(graphSvc, log), // The pin rule and the GetMe badge
 		identity.WithSignupAuth(authAdminClient, log),
+		// Warn-only sign-in identity audit in GetMe (AUTH_IDENTITY_AUDIT, default off).
+		identity.WithAuthIdentityAudit(cfg.AuthIdentityAudit, log),
 		identity.WithAvatarResolver(avatarResolver{lib: mediaMod.library, flags: featureFlags}),
 		identity.WithBannerResolver(bannerResolver{lib: mediaMod.library, flags: featureFlags}),
 		// A replaced or removed avatar or banner goes to media's retire step (PROFILE_MEDIA_RETIRE).

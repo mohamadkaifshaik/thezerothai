@@ -57,6 +57,9 @@ type service struct {
 	badgeLog *slog.Logger
 	// pinLog and reqLog receive the WARN lines; nil means slog.Default.
 	pinLog, reqLog *slog.Logger
+	// authAudit turns on the GetMe sign-in identity audit (auth_baseline.go); false = the comparison never runs.
+	authAudit    bool
+	authAuditLog *slog.Logger
 }
 
 // Option configures optional identity.New dependencies that didn't exist in the Phase 0 bootstrap
@@ -186,9 +189,11 @@ func (s *service) CreateProfile(ctx context.Context, uid, idempotencyKey, handle
 	}
 
 	handleLower := strings.ToLower(handle)
-	var authorize func(context.Context) error
+	var authorize func(context.Context) (*AuthBaseline, error)
 	if s.signup != nil {
-		authorize = func(ctx context.Context) error { return s.signup.checkSignup(ctx, newSignupTarget(uid)) }
+		authorize = func(ctx context.Context) (*AuthBaseline, error) {
+			return s.signup.checkSignup(ctx, newSignupTarget(uid))
+		}
 	}
 	profile, _, err := s.repo.CreateProfile(ctx, uid, handle, handleLower, normalizeDisplayName(displayName), s.now().UTC(), authorize)
 	if err != nil {
@@ -246,6 +251,8 @@ func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 	if err != nil {
 		return MeResult{}, err
 	}
+	// Warn-only: no result, no error, no read; it cannot change what GetMe answers.
+	s.auditAuthIdentity(ctx, profile)
 	var enabled []string
 	if s.features != nil {
 		enabled = s.features.EnabledFeatures(uid)

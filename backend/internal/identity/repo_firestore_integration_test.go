@@ -422,7 +422,7 @@ func TestCreateProfile_Integration_AuthorizeSeam(t *testing.T) {
 
 	calls := 0
 	ctx := context.Background()
-	_, _, err := repo.CreateProfile(ctx, "uid-m2", "Zed", "zed", "Zed", now, func(context.Context) error { calls++; return refuse })
+	_, _, err := repo.CreateProfile(ctx, "uid-m2", "Zed", "zed", "Zed", now, func(context.Context) (*identity.AuthBaseline, error) { calls++; return nil, refuse })
 	if !errors.Is(err, refuse) {
 		t.Fatalf("err = %v, want the authorize error", err)
 	}
@@ -436,14 +436,14 @@ func TestCreateProfile_Integration_AuthorizeSeam(t *testing.T) {
 	}
 
 	ctx2 := context.Background()
-	if _, _, err := repo.CreateProfile(ctx2, "uid-m2", "Zed", "zed", "Zed", now, func(context.Context) error { calls++; return nil }); err != nil {
+	if _, _, err := repo.CreateProfile(ctx2, "uid-m2", "Zed", "zed", "Zed", now, func(context.Context) (*identity.AuthBaseline, error) { calls++; return nil, nil }); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 2 {
 		t.Fatalf("authorize calls = %d, want 2 (once per not-found attempt)", calls)
 	}
 
-	_, isReplay, err := repo.CreateProfile(context.Background(), "uid-m2", "Zed", "zed", "Zed", now, func(context.Context) error { calls++; return refuse })
+	_, isReplay, err := repo.CreateProfile(context.Background(), "uid-m2", "Zed", "zed", "Zed", now, func(context.Context) (*identity.AuthBaseline, error) { calls++; return nil, refuse })
 	if err != nil || !isReplay {
 		t.Fatalf("replay err = %v replay = %v", err, isReplay)
 	}

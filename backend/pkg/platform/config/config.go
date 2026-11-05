@@ -306,6 +306,10 @@ type Config struct {
 	// ProfileMediaRetire is PROFILE_MEDIA_RETIRE (default off): which replaced or removed profile
 	// images the profile_media_retired step deletes after the grace. Per-project retention, not a FEATURE_ flag.
 	ProfileMediaRetire ProfileMediaRetire
+	// AuthIdentityAudit is AUTH_IDENTITY_AUDIT (default false): GetMe logs a WARN when the token's signing identity
+	// or email differs from what the account had at sign-up. Detection only, it never rejects or changes a
+	// response. A plain switch, not a FEATURE_ flag: a flag gates RPCs and would answer FAILED_PRECONDITION.
+	AuthIdentityAudit bool
 }
 
 // Bounds of the export settings: a signed URL is a bearer credential, and the retention
@@ -760,6 +764,14 @@ func Load() (Config, error) {
 	default:
 		return Config{}, fmt.Errorf("config: invalid VISION_SCREEN_THUMB %q (want true|false)", v)
 	}
+	authIdentityAudit := false
+	switch v := strings.ToLower(getenv("AUTH_IDENTITY_AUDIT", "false")); v {
+	case "true", "1":
+		authIdentityAudit = true
+	case "false", "0":
+	default:
+		return Config{}, fmt.Errorf("config: invalid AUTH_IDENTITY_AUDIT %q (want true|false)", v)
+	}
 	mediaBucket := getenv("MEDIA_BUCKET", projectID+"-media")
 
 	featureProfileSnapshot, err := flags.LoadSpec("PROFILE_SNAPSHOT", "profile_snapshot", flags.Off)
@@ -985,6 +997,7 @@ func Load() (Config, error) {
 		MediaPublicBaseURL:        strings.TrimRight(getenv("MEDIA_PUBLIC_BASE_URL", "https://storage.googleapis.com/"+mediaBucket), "/"),
 		VisionScreenThumb:         visionScreenThumb,
 		ProfileMediaRetire:        profileMediaRetire,
+		AuthIdentityAudit:         authIdentityAudit,
 	}, nil
 }
 

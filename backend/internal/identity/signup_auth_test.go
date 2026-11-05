@@ -163,7 +163,7 @@ func TestCreateProfile_SignupRecoversAfterOutage(t *testing.T) {
 func TestCheckSignup_EmptyUIDIsRefusedAtError(t *testing.T) {
 	t.Parallel()
 	h := newSignupHarness(t)
-	err := h.svc.signup.checkSignup(context.Background(), newSignupTarget(""))
+	_, err := h.svc.signup.checkSignup(context.Background(), newSignupTarget(""))
 	if !errors.Is(err, ErrAuthAdminRefused) {
 		t.Fatalf("err = %v, want ErrAuthAdminRefused", err)
 	}

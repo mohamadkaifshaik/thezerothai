@@ -38,6 +38,11 @@ func (v *firebaseIDTokenVerifier) VerifyIDToken(ctx context.Context, idToken str
 	if err != nil {
 		return Claims{}, fmt.Errorf("authn: verify id token: %w", err)
 	}
+	return claimsFromToken(tok), nil
+}
+
+// claimsFromToken is the pure, local parse of a verified token: no network, no reads.
+func claimsFromToken(tok *fbauth.Token) Claims {
 	claims := Claims{UID: tok.UID}
 	if ev, ok := tok.Claims["email_verified"].(bool); ok {
 		claims.EmailVerified = ev
@@ -47,10 +52,37 @@ func (v *firebaseIDTokenVerifier) VerifyIDToken(ctx context.Context, idToken str
 			claims.SignInProvider = provider
 		}
 	}
+	claims.Identities = normalizeIdentities(tok.Firebase.Identities)
 	if authTime, ok := tok.Claims["auth_time"].(float64); ok {
 		claims.AuthTime = time.Unix(int64(authTime), 0)
 	}
-	return claims, nil
+	return claims
+}
+
+// normalizeIdentities turns the SDK's untyped firebase.identities ({provider: [subject, ...]}) into a typed map.
+// Anything that is not a list of strings is dropped; an empty result is nil.
+func normalizeIdentities(raw map[string]interface{}) map[string][]string {
+	var out map[string][]string
+	for provider, v := range raw {
+		list, ok := v.([]interface{})
+		if !ok {
+			continue
+		}
+		var subjects []string
+		for _, item := range list {
+			if s, ok := item.(string); ok && s != "" {
+				subjects = append(subjects, s)
+			}
+		}
+		if len(subjects) == 0 {
+			continue
+		}
+		if out == nil {
+			out = map[string][]string{}
+		}
+		out[provider] = subjects
+	}
+	return out
 }
 
 // newAppCheckClient builds the SDK's App Check client. app.AppCheck fetches Google's signing keys (JWKS), so this
