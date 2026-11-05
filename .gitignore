@@ -28,8 +28,13 @@ go.work.sum
 # Git Bash / Cygwin crash dumps
 *.stackdump
 
-# Agent git worktrees (Claude Code isolation)
-.claude/worktrees/
+# Claude Code local dir: worktrees, agents, local settings — never checked in
+.claude/
+
+# Local-only agent config, not checked in (per-developer)
+.codex/
+CLAUDE.md
+AGENTS.md
 
 # firebase auth:export dumps contain user PII; never commit
 users.json
