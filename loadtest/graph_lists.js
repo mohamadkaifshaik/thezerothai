@@ -6,7 +6,7 @@
 //
 // Data: NUM_USERS (default 100) callers, of which the first NUM_TARGETS (default 5) are "targets". Setup makes
 // every other user follow every target, so each target has NUM_USERS-1 followers (more than one page of 20).
-// 100 callers keep each below the per-user list limiter (20/min) and LIST_CALLS_PER_DAY (100) at 20 rps x 2 min
+// 100 callers keep each below the per-user list limiter (20/min) at 20 rps x 2 min
 // (~24 calls each, ~12/min). Only the per-IP limiters are raised for the run; see README.
 //
 //   k6 run loadtest/graph_lists.js      # or: make loadtest SCENARIO=graph_lists

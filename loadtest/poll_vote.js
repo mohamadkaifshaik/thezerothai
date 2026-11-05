@@ -29,8 +29,7 @@
 // API requirements (a local API against the emulators): ENV=local FEATURE_POSTS=on FEATURE_ENGAGEMENT=on
 // FEATURE_POLLS=on, POLL_MIN_DURATION=1m, and these raised (they are per instance and per user, and every virtual user shares
 // 127.0.0.1): RATE_LIMIT_PER_IP_PER_MIN, RATE_LIMIT_PRE_AUTH_IP_PER_MIN, RATE_LIMIT_PER_USER_PER_MIN, RATE_LIMIT_POLL_VOTE_PER_MIN,
-// POLL_VOTES_PER_DAY, POLL_VOTES_PER_DAY_NEW_ACCOUNT, RATE_LIMIT_POST_CREATE_PER_MIN,
-// QUOTA_POSTS_PER_DAY, QUOTA_NEW_ACCOUNT_POSTS_PER_DAY.
+// RATE_LIMIT_POST_CREATE_PER_MIN.
 // section 16.
 //
 //   k6 run loadtest/poll_vote.js      # or: make loadtest SCENARIO=poll_vote

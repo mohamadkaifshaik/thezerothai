@@ -34,7 +34,7 @@ manages to fire. Emulator latency is indicative only.
 | `identity_getme` | `identity_getme.js` | `IdentityService.GetMe` | Steady-state (mostly cache-hit) latency and error rate for the highest-frequency identity call (cost-model.md: 4 calls/DAU/day) |
 | `graph_follow` | `graph_follow.js` | `GraphService.Follow` / `Unfollow` | 50-user churn at 20 rps; Follow p95 < 500 ms; `MODE=follow_only` for a no-Unfollow variant |
 | `graph_lists` | `graph_lists.js` | `GraphService.ListFollowers` (+ `GetRelationships` at 5 rps) | 100 callers, 5 targets with 99 followers; ListFollowers p95 < 400 ms |
-| `posts_create` | `posts_create.js` | `PostService.CreatePost` | 150 new users, 20 rps x 2 min, unique idempotency keys (16 posts/user, inside 10/min and the 20/day new-account quota); p95 < 500 ms |
+| `posts_create` | `posts_create.js` | `PostService.CreatePost` | 150 new users, 20 rps x 2 min, unique idempotency keys (16 posts/user, inside 10/min); p95 < 500 ms |
 | `timeline_read` | `timeline_read.js` | `TimelineService.GetHomeTimeline` (refresh with `since_token`, older page) + `GetUserTimeline` | 200 users following 10-45 accounts (60 authors); 14 rps refresh + 2 rps older + 4 rps user timeline + 1 rps background CreatePost; refresh p95 < 400 ms |
 | `engagement_bookmarks_list` | `engagement_bookmarks_list.js` | `EngagementService.ListBookmarks` (+ `AddBookmark` seeding) | W2-15: viewers with 100 bookmarks page at 20 and 50 (cold then warm, `PAIRS` pairs), 4 warm passes/s for 30 s. Needs `FEATURE_POSTS`, `FEATURE_BOOKMARKS`, `FEATURE_ENGAGEMENT` on and the seed limits raised (list in the file header); run `node loadtest/analyze_bookmarks.js api.log` for server latency per page position. Setup idles 75 s (> `CACHE_TTL`) so the first pass is cold |
 | `list_timeline` | `list_timeline.js` | `TimelineService.GetListTimeline` (+ `SetHomeTabs`, `GetMe`, the `ListService` reads and writes) | W5-18: 50- and 150-member lists, cold page 20/50, refresh with 0 and 5 new, old token, owner, Home-shared author entries, 5 tabs, then a warm herd (8 iterations/s, 20 viewers) with p95 < 400 ms. Two extra 70 s idles keep tab and list-read cases cold; `node loadtest/analyze_list_timeline.js api.log k6.out` pairs the i-th step with the i-th request line; `node loadtest/list_timeline_sizes.js` for response bytes. Needs the limit list in the file header; results in the cost model §17 |
@@ -77,9 +77,9 @@ API_URL=http://localhost:8081 RATE=50 DURATION=1m NUM_USERS=50 make loadtest SCE
 `posts_create` and `timeline_read` reuse `graph_common.js` (`mintUsers`, `rpcCall`). Extra requirements on top of the
 graph ones: `FEATURE_POSTS=on` on the API, and the per-IP limiters raised (`RATE_LIMIT_PER_IP_PER_MIN`,
 `RATE_LIMIT_PRE_AUTH_IP_PER_MIN`). Per-user limits stay at defaults: the scripts spread calls over enough users to
-stay inside them (home 6/min, CreatePost 10/min, 20 posts/day and 50 follows/day for new accounts). `timeline_read`
+stay inside them (home 6/min, CreatePost 10/min). `timeline_read`
 setup is slow (it seeds posts and follows, retrying on 429); `setupTimeout` is 900 s. For F up to 300 (ticket) raise
-`QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY`, `QUOTA_FOLLOWS_PER_DAY`, `RATE_LIMIT_GRAPH_FOLLOW_PER_MIN` on the API and set `MAX_F=300`.
+`RATE_LIMIT_GRAPH_FOLLOW_PER_MIN` on the API and set `MAX_F=300`.
 
 ```sh
 make loadtest SCENARIO=posts_create  2>&1 | tee posts_create.k6.txt

@@ -15,7 +15,7 @@ import (
 	vision "google.golang.org/api/vision/v1"
 )
 
-// Security, L-1 and L-3: the per-uid Vision-units cap and VISION_MONTHLY_CAP return the units of a call only when Google provably did not
+// Security, L-1 and L-3: the per-uid Vision-units cap returns the units of a call only when Google provably did not
 // bill it, and a Vision call is not started with so little request time left that it can only time out.
 
 // dialRefused is what a TCP connect failure looks like to the HTTP client: a *url.Error around a *net.OpError{Op: "dial"}.

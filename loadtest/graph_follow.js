@@ -6,8 +6,8 @@
 // odd rounds Unfollow the SAME target, so half of all calls are Follow and every Follow is a real create (never a
 // replay) and every Unfollow removes a real edge. Consecutive rounds of one user are N/RATE = 2.5 s apart at the
 // defaults, so no two calls for one user race. Each user makes RATE*DURATION/N = 48 calls (24 Follow, 24
-// Unfollow), inside every per-user cap at defaults (30/min follow limiter, 50 new-account follows/day, 500
-// graph mutations/day). Only the per-IP limiters are raised for the run (all VUs share 127.0.0.1); see README.
+// Unfollow), inside every per-user cap at defaults (30/min follow limiter, 500 graph mutations/day). Only the
+// per-IP limiters are raised for the run (all VUs share 127.0.0.1); see README.
 //
 //   k6 run loadtest/graph_follow.js      # MODE=follow_only for the no-Unfollow variant; or: make loadtest SCENARIO=graph_follow
 import { check } from 'k6';
@@ -18,7 +18,7 @@ import { mintUsers, graphCall } from './graph_common.js';
 const NUM_USERS = parseInt(__ENV.NUM_USERS || '50', 10);
 // MODE=churn (default): alternate Follow/Unfollow of the same target. MODE=follow_only: every call is a Follow of a
 // fresh target (no Unfollow in between), the shape closest to the "planning" assumption. It needs
-// RATE*DURATION/NUM_USERS <= 49 follows per user (48 at the defaults; the new-account quota is 50/day).
+// RATE*DURATION/NUM_USERS follows per user under the 500/day graph-mutation cap (48 at the defaults).
 const MODE = __ENV.MODE || 'churn';
 const unexpected = new Counter('graph_unexpected_responses');
 

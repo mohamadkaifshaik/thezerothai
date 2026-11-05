@@ -18,7 +18,6 @@ const kCommunityModeratorsLimit = 'community_moderators';
 
 /// `metadata["limit"]` of the daily RATE_LIMITED caps (read as
 /// `RateLimitedException.limitName`).
-const kCommunityMutationDailyLimit = 'community_mutation_daily';
 const kCommunityModActionsDailyLimit = 'community_mod_actions_daily';
 const kCommunityPostsPerCommunityDailyLimit =
     'community_posts_per_community_daily';
