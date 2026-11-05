@@ -31,6 +31,11 @@ go.work.sum
 # Agent git worktrees (Claude Code isolation)
 .claude/worktrees/
 
+# Local-only agent config, not checked in (per-developer)
+.codex/
+CLAUDE.md
+AGENTS.md
+
 # firebase auth:export dumps contain user PII; never commit
 users.json
 docs/
