@@ -171,7 +171,7 @@ func TestServer_RequestAccountExport_RecentSignIn(t *testing.T) {
 }
 
 // TestServer_GetAccountExport_StaleSignInStillWorks: the app polls GetAccountExport for longer than the sign-in
-// window, so it must not carry the gate.
+// window, so status polling must stay open (no error, no gate) even on a stale or missing auth_time.
 func TestServer_GetAccountExport_StaleSignInStillWorks(t *testing.T) {
 	lc := &fakeLifecycle{view: ExportView{ID: "exp-1", Status: ExportPending}}
 	s, ctx := lifecycleServer(t, authn.Claims{UID: "uid-1", AuthTime: serverNow.Add(-time.Hour)}, lc, 5*time.Minute)
@@ -183,6 +183,48 @@ func TestServer_GetAccountExport_StaleSignInStillWorks(t *testing.T) {
 	ctx = authn.WithClaims(context.Background(), authn.Claims{UID: "uid-1"})
 	if _, err := s.GetAccountExport(ctx, connect.NewRequest(&identityv1.GetAccountExportRequest{ExportId: "exp-1"})); err != nil {
 		t.Fatalf("missing auth_time: %v", err)
+	}
+}
+
+// TestServer_GetAccountExport_URLNeedsRecentSignIn: status polling stays open, but the signed download URL (and its
+// expiry) is released only to a recent sign-in — the app re-authenticates up front on the Download tap. The view is
+// identical in every case; only the token's auth_time differs.
+func TestServer_GetAccountExport_URLNeedsRecentSignIn(t *testing.T) {
+	exp := serverNow.Add(7 * 24 * time.Hour)
+	urlExp := serverNow.Add(15 * time.Minute)
+	ready := ExportView{ID: "exp-1", Status: ExportReady, DownloadURL: "https://signed", URLExpiresAt: urlExp, ExpiresAt: exp}
+	tests := []struct {
+		name     string
+		authTime time.Time
+		maxAge   time.Duration
+		wantURL  bool
+	}{
+		{"fresh sign-in releases the URL", serverNow.Add(-time.Minute), 5 * time.Minute, true},
+		{"stale sign-in withholds the URL", serverNow.Add(-time.Hour), 5 * time.Minute, false},
+		{"missing auth_time withholds the URL", time.Time{}, 5 * time.Minute, false},
+		{"max age left unset fails closed (no URL)", serverNow.Add(-time.Second), 0, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lc := &fakeLifecycle{view: ready}
+			s, ctx := lifecycleServer(t, authn.Claims{UID: "uid-1", AuthTime: tt.authTime}, lc, tt.maxAge)
+			resp, err := s.GetAccountExport(ctx, connect.NewRequest(&identityv1.GetAccountExportRequest{ExportId: "exp-1"}))
+			if err != nil {
+				t.Fatalf("status polling must never fail: %v", err)
+			}
+			m := resp.Msg
+			// Status and the export's own expiry are always present: the app needs them to show "ready".
+			if m.GetStatus() != identityv1.ExportStatus_EXPORT_STATUS_READY || !m.GetExpiresAt().AsTime().Equal(exp) {
+				t.Fatalf("status/expiry withheld: %v", m)
+			}
+			if tt.wantURL {
+				if m.GetDownloadUrl() != "https://signed" || !m.GetDownloadUrlExpiresAt().AsTime().Equal(urlExp) {
+					t.Errorf("recent sign-in should release the URL, got %v", m)
+				}
+			} else if m.GetDownloadUrl() != "" || m.GetDownloadUrlExpiresAt() != nil {
+				t.Errorf("stale sign-in must withhold the URL, got url=%q exp=%v", m.GetDownloadUrl(), m.GetDownloadUrlExpiresAt())
+			}
+		})
 	}
 }
 

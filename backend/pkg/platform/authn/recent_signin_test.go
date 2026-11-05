@@ -32,6 +32,32 @@ func TestRequireRecentSignIn_LogsTheRejection(t *testing.T) {
 	}
 }
 
+// IsRecentSignIn is the side-effect-free predicate: it must mirror RequireRecentSignIn's pass/fail exactly while
+// setting no request-log field, because GetAccountExport uses it on a path that legitimately succeeds on a stale
+// sign-in (it just withholds the URL) and must not emit reauth_required.
+func TestIsRecentSignIn_NoLogSideEffect(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	staleCtx, staleInfo := logger.WithRequestInfo(WithClaims(context.Background(), Claims{UID: "u", AuthTime: now.Add(-time.Hour)}))
+	if IsRecentSignIn(staleCtx, 5*time.Minute, now) {
+		t.Error("a stale sign-in must not be recent")
+	}
+	if _, ok := staleInfo.Get("reauth_required"); ok {
+		t.Error("IsRecentSignIn must set no request field, even on a stale sign-in")
+	}
+	freshCtx, freshInfo := logger.WithRequestInfo(WithClaims(context.Background(), Claims{UID: "u", AuthTime: now}))
+	if !IsRecentSignIn(freshCtx, 5*time.Minute, now) {
+		t.Error("a just-now sign-in must be recent")
+	}
+	if _, ok := freshInfo.Get("reauth_required"); ok {
+		t.Error("IsRecentSignIn must set no request field on a pass")
+	}
+	// Fail closed: with a zero maxAge every real token (auth_time strictly in the past, age > 0) is not recent.
+	pastCtx, _ := logger.WithRequestInfo(WithClaims(context.Background(), Claims{UID: "u", AuthTime: now.Add(-time.Second)}))
+	if IsRecentSignIn(pastCtx, 0, now) {
+		t.Error("zero maxAge must fail closed for a token minted before now")
+	}
+}
+
 func TestRequireRecentSignIn(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	const maxAge = 5 * time.Minute

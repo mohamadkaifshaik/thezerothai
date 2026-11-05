@@ -55,7 +55,11 @@ class _DataExportScreenState extends State<DataExportScreen> {
 
   Future<void> _download() async {
     final messenger = ScaffoldMessenger.of(context);
-    final url = await _export.downloadUrl();
+    // No await before this call: the re-authentication must start inside the
+    // tap (a web popup opened later is blocked).
+    final url = await _export.downloadUrl(
+      promptPassword: () => showPasswordPromptDialog(context),
+    );
     if (url == null || !mounted) return;
     var launched = false;
     try {
@@ -146,6 +150,12 @@ class _DataExportScreenState extends State<DataExportScreen> {
                     : 'Your export is ready.',
               ),
               const SizedBox(height: AppSpacing.md),
+              Text(
+                "You may be asked to confirm it's you before the download.",
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: AppSpacing.md),
               FilledButton.icon(
                 onPressed: state.refreshing ? null : _download,
                 icon: state.refreshing
@@ -225,7 +235,13 @@ class _DataExportScreenState extends State<DataExportScreen> {
                 'Something went wrong. Please try again.',
           ),
           const SizedBox(height: AppSpacing.md),
-          _requestButton('Try again'),
+          // A known export only needs its link again, not a new request.
+          _export.canResume
+              ? FilledButton(
+                  onPressed: _export.resume,
+                  child: const Text('Try again'),
+                )
+              : _requestButton('Try again'),
         ],
       ),
     );

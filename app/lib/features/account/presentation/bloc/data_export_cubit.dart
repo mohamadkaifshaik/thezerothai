@@ -329,11 +329,12 @@ class DataExportCubit extends Cubit<DataExportState> {
         );
         return;
       }
-      final url = export.downloadUrl;
-      if (export.status == ExportStatus.EXPORT_STATUS_READY &&
-          url != null &&
-          url.isNotEmpty) {
-        _urlFetchedAt = _clock();
+      if (export.status == ExportStatus.EXPORT_STATUS_READY) {
+        // The server withholds the link unless the sign-in is recent, so a
+        // READY export without a URL is ready too: the Download tap
+        // re-authenticates to get it. A URL that came with the poll (inside
+        // the window) is kept so that tap can open it right away.
+        _urlFetchedAt = _parse(export.downloadUrl) == null ? null : _clock();
         emit(DataExportState(phase: DataExportPhase.ready, export: export));
         return;
       }
@@ -386,9 +387,16 @@ class DataExportCubit extends Cubit<DataExportState> {
   }
 
   /// Returns the URL to open right now, or null (nothing to open: not
-  /// ready, a refresh is running, the export expired, or the link was just
-  /// refreshed and the user must tap again on web; state says which).
-  Future<Uri?> downloadUrl() async {
+  /// ready, a refresh is running, the export expired, the re-authentication
+  /// was cancelled or failed, or the link was just refreshed and the user
+  /// must tap again on web; state says which).
+  ///
+  /// A fresh link already in state opens with no prompt. Otherwise the user
+  /// re-authenticates UP FRONT (the server only hands out the link to a
+  /// recent sign-in) and then the link is fetched. Call straight from the tap
+  /// handler: no `await` runs before the re-authentication starts, so a web
+  /// popup stays inside the user gesture.
+  Future<Uri?> downloadUrl({required PasswordPrompt promptPassword}) async {
     final current = state.export;
     if (isClosed ||
         state.phase != DataExportPhase.ready ||
@@ -396,8 +404,32 @@ class DataExportCubit extends Cubit<DataExportState> {
         state.refreshing) {
       return null;
     }
-    if (!_stale(current)) return _parse(current.downloadUrl);
+    if (!_stale(current)) {
+      final cached = _parse(current.downloadUrl);
+      if (cached != null) return cached;
+    }
     emit(state.copyWith(refreshing: true, linkRefreshed: false));
+    final reauthed = await _account.reauthenticate(
+      promptPassword: promptPassword,
+    );
+    if (isClosed) return null;
+    if (!reauthed) {
+      final result = _account.state;
+      if (result.status == AccountStatus.failed) {
+        emit(
+          DataExportState(
+            phase: DataExportPhase.failed,
+            export: current,
+            error: result.error,
+            authFailure: result.authFailure,
+          ),
+        );
+      } else {
+        // Cancelled (or a double tap): the export is still ready.
+        emit(DataExportState(phase: DataExportPhase.ready, export: current));
+      }
+      return null;
+    }
     try {
       final fresh = await _repository.getExport(exportId: current.exportId);
       if (isClosed) return null;
@@ -424,7 +456,13 @@ class DataExportCubit extends Cubit<DataExportState> {
       }
     } on AppException catch (error) {
       if (!isClosed) {
-        emit(DataExportState(phase: DataExportPhase.failed, error: error));
+        emit(
+          DataExportState(
+            phase: DataExportPhase.failed,
+            export: current,
+            error: error,
+          ),
+        );
       }
     }
     return null;

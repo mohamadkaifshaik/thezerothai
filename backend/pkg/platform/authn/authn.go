@@ -91,24 +91,35 @@ func RequireVerifiedEmail(ctx context.Context, allowAnonymous bool, action strin
 // instance) and still count as a fresh sign-in.
 const recentSignInSkew = 30 * time.Second
 
-// RequireRecentSignIn is the shared "recent sign-in" check for sensitive account actions (DeleteAccount, RequestAccountExport).
-// It reads Claims.AuthTime (the Firebase `auth_time` claim: when the user last authenticated, not when the token
-// was refreshed) and returns FAILED_PRECONDITION + REAUTH_REQUIRED when it is zero (missing), older than maxAge,
-// or more than 30 s in the future (fail closed). A future auth_time of up to 30 s passes. now is injected so tests
-// need no sleeps. Callers pass the config-validated maxAge (config.AccountDeleteReauthMaxAge, in (0, 10m]); a
-// zero maxAge here would reject every token. 0 Firestore reads. A rejection logs reauth_required=true on the request line.
-func RequireRecentSignIn(ctx context.Context, maxAge time.Duration, now time.Time) error {
+// IsRecentSignIn reports whether the caller's Firebase sign-in is recent: Claims.AuthTime (when the user last
+// authenticated, not when the token was refreshed) is non-zero, no older than maxAge, and no more than 30 s in the
+// future (fail closed). It reads no Firestore and, unlike RequireRecentSignIn, has NO side effect: it sets no
+// request-log field. Use it where a stale sign-in is a normal, non-error outcome (GetAccountExport withholding the
+// download URL so status polling stays open), not a rejection. A zero maxAge makes every token fail (fail closed).
+func IsRecentSignIn(ctx context.Context, maxAge time.Duration, now time.Time) bool {
 	claims, _ := ClaimsFromContext(ctx)
-	age := now.Sub(claims.AuthTime)
-	if claims.AuthTime.IsZero() || age > maxAge || age < -recentSignInSkew {
-		logger.SetRequestField(ctx, "reauth_required", true)
-		return apierr.New(
-			connect.CodeFailedPrecondition,
-			commonv1.ErrorReason_ERROR_REASON_REAUTH_REQUIRED,
-			"please sign in again to continue",
-		)
+	if claims.AuthTime.IsZero() {
+		return false
 	}
-	return nil
+	age := now.Sub(claims.AuthTime)
+	return age <= maxAge && age >= -recentSignInSkew
+}
+
+// RequireRecentSignIn is the shared "recent sign-in" check for sensitive account actions (DeleteAccount, RequestAccountExport).
+// It is IsRecentSignIn as a gate: it returns FAILED_PRECONDITION + REAUTH_REQUIRED when the sign-in is not recent
+// (zero/missing auth_time, older than maxAge, or more than 30 s in the future), and on that rejection logs
+// reauth_required=true on the request line. now is injected so tests need no sleeps. Callers pass the
+// config-validated maxAge (config.AccountDeleteReauthMaxAge, in (0, 10m]). 0 Firestore reads.
+func RequireRecentSignIn(ctx context.Context, maxAge time.Duration, now time.Time) error {
+	if IsRecentSignIn(ctx, maxAge, now) {
+		return nil
+	}
+	logger.SetRequestField(ctx, "reauth_required", true)
+	return apierr.New(
+		connect.CodeFailedPrecondition,
+		commonv1.ErrorReason_ERROR_REASON_REAUTH_REQUIRED,
+		"please sign in again to continue",
+	)
 }
 
 // IDTokenVerifier verifies a Firebase Auth ID token from the `Authorization: Bearer` header.
