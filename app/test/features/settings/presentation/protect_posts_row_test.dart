@@ -299,21 +299,6 @@ void main() {
       await turnOn(tester);
     }
 
-    testWidgets('the daily quota says 4 times a day and the switch stays off', (
-      tester,
-    ) async {
-      await failWith(
-        tester,
-        const QuotaExceededException('x', quota: kPrivacyTogglesQuotaName),
-      );
-      expect(
-        find.text('You can change this 4 times a day. Try again tomorrow.'),
-        findsOneWidget,
-      );
-      expect(tester.widget<Switch>(rowSwitch).value, isFalse);
-      expect(fake.calls.single.protect, isTrue);
-    });
-
     testWidgets('the protected-accounts cap has its own copy', (tester) async {
       await failWith(
         tester,

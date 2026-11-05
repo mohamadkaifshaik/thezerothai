@@ -142,9 +142,6 @@ String scheduleErrorMessage(AppException error) {
       'Too many posts are scheduled around that time. Pick another time.',
     LimitReachedException() =>
       "You can't schedule more posts right now. Try again later.",
-    QuotaExceededException(quota: 'schedules') =>
-      "You've reached today's limit for scheduling posts. It resets "
-          'tomorrow.',
     ValidationException(field: 'publish_at') => kScheduleRejectedMessage,
     FeatureDisabledException(feature: kPostsSubFeatureMedia) =>
       createPostErrorMessage(error),

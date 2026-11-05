@@ -48,7 +48,6 @@ class ListMembersPage {
 /// - **Errors are typed** by the shared mapper: [NotFoundException] (one
 ///   fixed message for every cause: never hint at private/hidden/blocked),
 ///   [LimitReachedException] (`quota` = `lists_per_user` / `list_members`),
-///   [QuotaExceededException] (`quota` = `list_creates` / `list_adds`),
 ///   [ProtectedAccountException] (AddListMember), rate limits.
 /// - **Mutations** take an `idempotencyKey` made once per user action by the
 ///   caller and reused on a retry (rule 4). Nothing is retried here.

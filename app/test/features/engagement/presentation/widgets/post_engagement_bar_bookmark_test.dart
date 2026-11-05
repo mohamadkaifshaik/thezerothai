@@ -430,23 +430,6 @@ void main() {
       expect(find.text('You can save up to 1,000 posts.'), findsOneWidget);
     });
 
-    testWidgets('QUOTA_EXCEEDED quota=bookmarks', (tester) async {
-      await failWith(
-        tester,
-        serverError(
-          connect.Code.resourceExhausted,
-          common.ErrorReason.ERROR_REASON_QUOTA_EXCEEDED,
-          metadata: {'quota': 'bookmarks'},
-        ),
-      );
-      expect(
-        find.text(
-          "You've reached today's limit for saving posts. It resets tomorrow.",
-        ),
-        findsOneWidget,
-      );
-    });
-
     testWidgets('FEATURE_DISABLED feature=bookmarks', (tester) async {
       await failWith(
         tester,

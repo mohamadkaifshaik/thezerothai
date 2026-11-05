@@ -20,8 +20,8 @@ package apiserver
 // gated either; graph's own suites run them with the flag lookups off (follow_requests_gate_test.go, privacy_public
 // has no flag lookup at all), and the lifecycle suites do not consult the flag.
 //
-// Each rollout state draws fresh users (a toggle spends the 4 per day quota and the protected set is shared by the
-// emulator project), and the per-state protected account is unprotected at the end of its state so the set does not grow.
+// Each rollout state draws fresh users (the protected set is shared by the emulator project), and the per-state
+// protected account is unprotected at the end of its state so the set does not grow.
 
 import (
 	"slices"
