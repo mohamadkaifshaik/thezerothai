@@ -7,7 +7,7 @@ import '../../domain/search_results_tab.dart';
 import 'search_results_state.dart';
 
 /// Turns what search repositories throw into the typed errors the shared list
-/// widgets draw. A daily limit carries `search_daily` so it never reads as
+/// widgets draw. A daily limit carries `search_people_daily` so it never reads as
 /// "try again in a moment".
 AppException searchErrorToApp(Object error) {
   if (error is AppException) return error;
@@ -18,7 +18,7 @@ AppException searchErrorToApp(Object error) {
     return RateLimitedException(
       error.toString(),
       retryAfter: error.retryAfter,
-      limitName: error.isDaily ? 'search_daily' : null,
+      limitName: error.isDaily ? 'search_people_daily' : null,
     );
   }
   if (error is SearchInvalidQueryException) {

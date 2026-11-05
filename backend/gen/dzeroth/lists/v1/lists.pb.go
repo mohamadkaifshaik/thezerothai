@@ -48,12 +48,9 @@
 // - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "lists" (LISTS_MAX_PER_USER, 20 lists per owner) or
 //   "list_members" (LIST_MAX_MEMBERS, 150 members per list); nothing is written.
 // - FAILED_PRECONDITION + PROTECTED_ACCOUNT (AddListMember only, above).
-// - RESOURCE_EXHAUSTED + QUOTA_EXCEEDED, metadata["quota"] = "list_creates" (10 per IST day, 3 for accounts younger
-//   than 24 h) or "list_adds" (300 per IST day, 50 for new accounts); exact, in the transaction.
 // - RESOURCE_EXHAUSTED + RATE_LIMITED: the per-minute buckets RATE_LIMIT_LISTS_WRITE_PER_MIN (30) and
-//   RATE_LIMIT_LISTS_READ_PER_MIN (30) per uid per instance (x 3 instances), the daily call cap
-//   LIST_MUTATIONS_PER_DAY (500 per uid per instance, metadata["limit"] = "list_mutation_daily", shared by the six
-//   list and Home-tab mutations); honour retry_after.
+//   RATE_LIMIT_LISTS_READ_PER_MIN (30) per uid per instance (x 3 instances); honour retry_after. There is no daily
+//   cap and no persisted daily quota on lists: the 20-list and 150-member caps bound them.
 // - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
 
 package listsv1

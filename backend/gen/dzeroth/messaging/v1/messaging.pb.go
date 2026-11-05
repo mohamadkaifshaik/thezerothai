@@ -40,7 +40,9 @@
 //   deleted the account. It is no oracle beyond what GetProfile's NOT_FOUND already reveals.
 // - FAILED_PRECONDITION + ERROR_REASON_LIMIT_REACHED, metadata["limit"] (limit_name) = "request_unanswered" (3 messages
 //   until the recipient accepts) or "dm_new_daily" (new conversations per IST day).
-// - RESOURCE_EXHAUSTED + RATE_LIMITED (per-minute buckets and the "messages_daily" cap); honour retry_after.
+// - RESOURCE_EXHAUSTED + RATE_LIMITED (per-minute buckets and the in-memory daily call caps, metadata["limit"] =
+//   "messages_daily" for SendMessage, "messages_mark_read_daily" for MarkConversationRead and "messages_mutation_daily"
+//   shared by AcceptMessageRequest and DeleteConversation); honour retry_after.
 // - DEGRADED_MODE=readonly refuses the four mutations through the existing interceptor; the two lists still answer.
 //
 // Token contract for both lists (the notifications codec; all tokens opaque):

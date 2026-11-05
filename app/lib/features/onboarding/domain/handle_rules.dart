@@ -47,8 +47,9 @@ String handleUnavailableMessage(String reason) {
 }
 
 /// Wait after the last keystroke before asking the server whether a handle is
-/// free. One value for create-profile and change-handle: `check_handle_daily`
-/// is a real per-user cap, so every probe must be debounced.
+/// free. One value for create-profile and change-handle: an undebounced probe
+/// would hit the server on every keystroke (and its per-minute limit), so every
+/// probe must be debounced.
 const kHandleCheckDebounce = Duration(milliseconds: 300);
 
 /// Where a handle is in the availability check. `unknown` = the probe could

@@ -398,7 +398,7 @@ void main() {
       answer = (_) => serverError(
         connect.Code.resourceExhausted,
         common.ErrorReason.ERROR_REASON_QUOTA_EXCEEDED,
-        metadata: {'quota': kCommunityJoinsQuota},
+        metadata: {'quota': 'reports'},
       );
       await expectLater(
         repo.joinCommunity(idempotencyKey: _key, communityId: _cid),
@@ -406,7 +406,7 @@ void main() {
           isA<QuotaExceededException>().having(
             (e) => e.quota,
             'quota',
-            'community_joins',
+            'reports',
           ),
         ),
       );

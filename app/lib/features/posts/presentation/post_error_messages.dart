@@ -2,8 +2,6 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ScheduledPostFailure;
-import '../../communities/domain/communities_feature_flag.dart'
-    show kCommunityPostsQuota;
 import '../domain/composer_attachment_rules.dart' show kFeaturePolls;
 import '../domain/composer_attachment_rules.dart' show kFeatureGif;
 import '../domain/posts_feature_flag.dart';
@@ -22,9 +20,6 @@ const kMediaCombinationMessage =
 /// Callers must never auto-retry after [DegradedModeException].
 String createPostErrorMessage(AppException error) {
   return switch (error) {
-    QuotaExceededException(quota: kCommunityPostsQuota) =>
-      "You've posted a lot in communities today. You can post more "
-          'tomorrow.',
     QuotaExceededException() =>
       "You've reached today's limit for posting. It resets tomorrow.",
     final RateLimitedException e => rateLimitedMessage(e),

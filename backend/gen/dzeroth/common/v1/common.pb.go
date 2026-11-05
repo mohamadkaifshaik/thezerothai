@@ -96,11 +96,14 @@ const (
 	ErrorReason_ERROR_REASON_UNSPECIFIED ErrorReason = 0
 	// INVALID_ARGUMENT: input failed validation; metadata["field"] names the field.
 	ErrorReason_ERROR_REASON_VALIDATION ErrorReason = 1
-	// RESOURCE_EXHAUSTED: short-window per-user/IP token bucket (in memory), or an in-memory daily cap. Daily caps
-	// set metadata["limit"] (e.g. "check_handle_daily"; "account_ops_daily": the 20 calls/day shared by DeleteAccount,
-	// RequestAccountExport and GetAccountExport) and a retry_after that runs to the next IST midnight.
+	// RESOURCE_EXHAUSTED: short-window per-user/IP token bucket (in memory), or a per-instance in-memory daily cap.
+	// Daily caps set metadata["limit"] (e.g. "graph_mutation_daily", "messages_daily", "profile_update_daily") and a
+	// retry_after that runs to the next IST midnight.
 	ErrorReason_ERROR_REASON_RATE_LIMITED ErrorReason = 2
-	// RESOURCE_EXHAUSTED: per-user daily quota (posts, follows, uploads...); metadata["quota"] names it.
+	// RESOURCE_EXHAUSTED: a persisted per-user daily quota, metadata["quota"] names it. Only two quota counters
+	// remain: "reports" (ReportContent) and "dmNew" (new direct-message conversations); SendMessage reports the
+	// second as LIMIT_REACHED "dm_new_daily", so ReportContent is the only RPC that answers this today. Every other
+	// daily limit answers RATE_LIMITED. The value stays in the enum for clients that still send or match it.
 	ErrorReason_ERROR_REASON_QUOTA_EXCEEDED ErrorReason = 3
 	// UNAVAILABLE: the platform is in degraded mode (readonly or nomedia). Show a banner; do NOT auto-retry.
 	ErrorReason_ERROR_REASON_DEGRADED_MODE ErrorReason = 4

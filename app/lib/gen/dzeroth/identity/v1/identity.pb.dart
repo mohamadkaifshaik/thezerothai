@@ -1061,7 +1061,7 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
   void clearAvatarMediaId() => $_clearField(4);
 
   /// true protects the account (needs FEATURE_PRIVATE_ACCOUNTS on for the caller); false unprotects it, from any
-  /// caller. Quota and cap: see UpdateProfile.
+  /// caller. Cap: see UpdateProfile.
   @$pb.TagNumber(5)
   $core.bool get isPrivate => $_getBF(4);
   @$pb.TagNumber(5)
@@ -1778,9 +1778,8 @@ class IdentityServiceApi {
       _client.invoke<CreateProfileResponse>(ctx, 'IdentityService',
           'CreateProfile', request, CreateProfileResponse());
 
-  /// Handle availability check for the sign-up form. In-memory rate limited (20/min/uid) and capped
-  /// at 100 calls/uid/IST day per instance (RATE_LIMITED, metadata["limit"] = "check_handle_daily").
-  /// Only the per-minute bucket and check_handle_daily can reject.
+  /// Handle availability check for the sign-up form. In-memory rate limited (20/min/uid); there is no daily cap, so
+  /// only the per-minute bucket can reject.
   /// Needs a verified identity: a password account whose email is unverified, and any sign-in other than Google,
   /// Apple or verified password, gets FAILED_PRECONDITION + EMAIL_NOT_VERIFIED before any lookup
   /// (and before any rate limiter). The client shows the "verify your email" banner and refreshes the ID token.
@@ -1824,22 +1823,21 @@ class IdentityServiceApi {
 
   /// Partial update; only fields that are set are changed. Naturally idempotent (sets values).
   /// A change to display_name or avatar enqueues the author-snapshot refresh job:
-  /// async <= 100 post writes, limited to 5 snapshot-affecting edits/user/day.
+  /// async <= 100 post writes.
   /// Private accounts: is_private=true needs FEATURE_PRIVATE_ACCOUNTS (wire name
   /// "private_accounts") on for the caller, else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
   /// "private_accounts", writing nothing, checked before any read; a request that sets it with other fields is refused whole
   /// while the flag is off for the caller. is_private=false is accepted from any caller whatever the flag, globally off
-  /// included. A changed is_private runs one transaction that reads users, the protected-author set and quotas fresh
-  /// and writes isPrivate, the set (add or remove the uid) and quotas.privacyToggles.
-  /// A value equal to the stored one writes nothing and is not charged. QUOTA_PRIVACY_TOGGLES_PER_DAY, 4 per IST day,
-  /// both directions counted => RESOURCE_EXHAUSTED + QUOTA_EXCEEDED, metadata["quota"] = "privacy_toggles"; protecting
+  /// included. A changed is_private runs one transaction that reads users and the protected-author set fresh
+  /// and writes isPrivate and the set (add or remove the uid); it does not touch quotas/{uid}.
+  /// A value equal to the stored one writes nothing. Protecting
   /// while PROTECTED_AUTHORS_MAX (20,000) accounts are protected => FAILED_PRECONDITION + LIMIT_REACHED,
-  /// metadata["limit"] = "private_accounts"; both write nothing. No post is rewritten (there is no visibility job): every
+  /// metadata["limit"] = "private_accounts", writing nothing. No post is rewritten (there is no visibility job): every
   /// read path applies the new setting at once on the instance that committed it and within 60 s on the others.
   /// Existing followers stay. After an unprotect commit the server publishes one privacy_public job (the jobs topic)
   /// that accepts every pending follow request (in pages of 100),
   /// so the request path does none of that work; a failed publish is logged at ERROR. A toggle enqueues no
-  /// author-snapshot job and spends no snapshot-affecting edit.
+  /// author-snapshot job.
   /// Profile extras: setting banner_media_id, location, website or pinned_post_id
   /// (any non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS (wire name "profile_extras") on for the
   /// caller; otherwise FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "profile_extras", writing nothing, checked
@@ -1848,7 +1846,7 @@ class IdentityServiceApi {
   /// authenticated caller whatever the flag, globally off included, and is handled like a bio edit. While the flag
   /// is globally off the response omits website and pinned_post_id (Profile). DEGRADED_MODE=readonly still refuses the
   /// write. The display_name, bio and avatar path is unchanged. A banner, location, website or pin change does not enqueue the author-snapshot job
-  /// and spends no snapshot-affecting edit (none of them is in AuthorSnapshot). Field rules are on the request fields.
+  /// (none of them is in AuthorSnapshot). Field rules are on the request fields.
   /// A request that changes nothing writes nothing. Per-uid daily call cap
   /// PROFILE_UPDATES_PER_DAY, 100 calls/uid/IST day per instance (300 with 3) => RATE_LIMITED,
   /// metadata["limit"] = "profile_update_daily", retry_after = time to IST midnight, before any lookup.
@@ -1883,12 +1881,10 @@ class IdentityServiceApi {
   /// and the current job seq is re-published (deduped by the job).
   /// The job (`/internal/pubsub/jobs`, self-chaining, <= 20 s of work per delivery) disables the Firebase Auth user and
   /// revokes refresh tokens on its first delivery, waits until 120 s after deletionRequestedAt, then
-  /// deletes posts, the social graph, later-slice data, exports, handle and quotas in batches of <= 500, then the
+  /// deletes posts, the social graph, later-slice data, exports, handle and the quotas doc in batches of <= 500, then the
   /// Firebase Auth user, and users/{uid} last. Reference account (300 posts, 100 following, 100 followers) completes in
   /// about 3-5 minutes. Existing ID tokens stay valid up to 1 h but are rejected by the interceptor.
-  /// Bounded by account_ops_daily:
-  /// 20 calls/uid/IST day per instance shared with RequestAccountExport and GetAccountExport (RATE_LIMITED,
-  /// metadata["limit"] = "account_ops_daily"). DEGRADED_MODE=readonly rejects it; a
+  /// Only the per-minute default bucket limits it (no daily cap). DEGRADED_MODE=readonly rejects it; a
   /// started deletion still finishes.
   $async.Future<DeleteAccountResponse> deleteAccount(
           $pb.ClientContext? ctx, DeleteAccountRequest request) =>
@@ -1904,8 +1900,9 @@ class IdentityServiceApi {
   /// Requires a recent sign-in, like DeleteAccount: ID token auth_time older than ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min)
   /// or missing => FAILED_PRECONDITION + ERROR_REASON_REAUTH_REQUIRED, writing nothing; also on a replay.
   /// GetAccountExport is not gated, so polling and the download keep working after the window.
-  /// Bounded by account_ops_daily (see DeleteAccount). DEGRADED_MODE=readonly
-  /// rejects it.
+  /// Only the per-minute default bucket limits it (no daily cap). The transaction reads and touches quotas/{uid}
+  /// without counting anything, so two racing requests conflict and the loser replays the winner's export.
+  /// DEGRADED_MODE=readonly rejects it.
   $async.Future<RequestAccountExportResponse> requestAccountExport(
           $pb.ClientContext? ctx, RequestAccountExportRequest request) =>
       _client.invoke<RequestAccountExportResponse>(ctx, 'IdentityService',
@@ -1914,7 +1911,7 @@ class IdentityServiceApi {
   /// Export status; when READY returns a fresh 15-minute signed GET URL (signed per call, never stored or logged).
   /// NOT_FOUND, byte-identical in every case, when the export doesn't exist, belongs to another user, or is past
   /// expires_at (even if the TTL or bucket lifecycle has not deleted it yet).
-  /// Bounded by account_ops_daily (see DeleteAccount).
+  /// Only the per-minute default bucket limits it (no daily cap).
   $async.Future<GetAccountExportResponse> getAccountExport(
           $pb.ClientContext? ctx, GetAccountExportRequest request) =>
       _client.invoke<GetAccountExportResponse>(ctx, 'IdentityService',

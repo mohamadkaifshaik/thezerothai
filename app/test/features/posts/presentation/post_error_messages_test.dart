@@ -125,16 +125,6 @@ void main() {
       );
     });
 
-    test('the community post quota has its own text', () {
-      expect(
-        createPostErrorMessage(
-          const QuotaExceededException('x', quota: 'community_posts'),
-        ),
-        "You've posted a lot in communities today. You can post more "
-        'tomorrow.',
-      );
-    });
-
     test('a refused reply on a labelled post says who may reply', () {
       expect(
         replyErrorMessage(

@@ -46,12 +46,9 @@
 //   - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "lists" (LISTS_MAX_PER_USER, 20 lists per owner) or
 //     "list_members" (LIST_MAX_MEMBERS, 150 members per list); nothing is written.
 //   - FAILED_PRECONDITION + PROTECTED_ACCOUNT (AddListMember only, above).
-//   - RESOURCE_EXHAUSTED + QUOTA_EXCEEDED, metadata["quota"] = "list_creates" (10 per IST day, 3 for accounts younger
-//     than 24 h) or "list_adds" (300 per IST day, 50 for new accounts); exact, in the transaction.
 //   - RESOURCE_EXHAUSTED + RATE_LIMITED: the per-minute buckets RATE_LIMIT_LISTS_WRITE_PER_MIN (30) and
-//     RATE_LIMIT_LISTS_READ_PER_MIN (30) per uid per instance (x 3 instances), the daily call cap
-//     LIST_MUTATIONS_PER_DAY (500 per uid per instance, metadata["limit"] = "list_mutation_daily", shared by the six
-//     list and Home-tab mutations); honour retry_after.
+//     RATE_LIMIT_LISTS_READ_PER_MIN (30) per uid per instance (x 3 instances); honour retry_after. There is no daily
+//     cap and no persisted daily quota on lists: the 20-list and 150-member caps bound them.
 //   - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
 package listsv1connect
 
@@ -111,10 +108,11 @@ type ListServiceClient interface {
 	// Create a list owned by the caller. The new list is private unless is_private is sent as false (F3).
 	// name: 1-25 code points after NFC and trim; description: 0-100 code points; both single line, no control or bidi
 	// formatting characters (the bio rules); else VALIDATION "name" / "description", before any lookup.
-	// One transaction: idempotency doc, quotas/{uid} (list_creates), a count() of the caller's lists (ownerId == caller,
-	// so the cap is exact), then Create lists/{id} with a fresh Snowflake id.
-	// At LISTS_MAX_PER_USER (20) => LIMIT_REACHED "lists"; over the daily quota => QUOTA_EXCEEDED "list_creates".
-	// A replay writes nothing, and neither does a refusal at the cap or the quota.
+	// One transaction: idempotency doc, quotas/{uid} (read and rewritten unchanged, counting nothing, so two racing
+	// creates conflict and the cap stays exact), a count() of the caller's lists (ownerId == caller), then Create
+	// lists/{id} with a fresh Snowflake id.
+	// At LISTS_MAX_PER_USER (20) => LIMIT_REACHED "lists".
+	// A replay writes nothing, and neither does a refusal at the cap.
 	CreateList(context.Context, *connect.Request[v1.CreateListRequest]) (*connect.Response[v1.CreateListResponse], error)
 	// Change a list's name, description or visibility. Owner only: any other caller, a missing list or a deleted one
 	// => NOT_FOUND. Only the fields that are set change; the field rules are CreateList's. Making a list private stops
@@ -154,14 +152,14 @@ type ListServiceClient interface {
 	// allowed (your own posts in your own list). The target must be ACTIVE (identity.Directory, cached) and pass the
 	// member rules in the header comment (block either way => NOT_FOUND; a protected target the caller does not follow
 	// => PROTECTED_ACCOUNT); the caller's blockedBy overflow adds one read of the target's graph (fail closed).
-	// One transaction: idempotency doc, the list (fresh), quotas/{uid} (list_adds), then ArrayUnion into memberIds and
+	// One transaction: idempotency doc, the list (fresh), then ArrayUnion into memberIds and
 	// updatedAt. The same write removes members who block the caller (F4 lazy drop, from the caller's graph snapshot).
-	// At LIST_MAX_MEMBERS (150) => LIMIT_REACHED "list_members"; over the quota => QUOTA_EXCEEDED "list_adds".
-	// Already a member => success, the idempotency doc only, no quota spent.
+	// At LIST_MAX_MEMBERS (150) => LIMIT_REACHED "list_members".
+	// Already a member => success, the idempotency doc only.
 	// A replay and a refusal write nothing.
 	AddListMember(context.Context, *connect.Request[v1.AddListMemberRequest]) (*connect.Response[v1.AddListMemberResponse], error)
 	// Remove an account from one of the caller's lists. Owner only, else NOT_FOUND. Not a member => success, the
-	// idempotency doc only. No quota. The same write removes members who block the caller (F4).
+	// idempotency doc only. The same write removes members who block the caller (F4).
 	// A replay writes nothing.
 	RemoveListMember(context.Context, *connect.Request[v1.RemoveListMemberRequest]) (*connect.Response[v1.RemoveListMemberResponse], error)
 	// A list's members, most recently added first, as user rows with the caller's relationship to each
@@ -295,10 +293,11 @@ type ListServiceHandler interface {
 	// Create a list owned by the caller. The new list is private unless is_private is sent as false (F3).
 	// name: 1-25 code points after NFC and trim; description: 0-100 code points; both single line, no control or bidi
 	// formatting characters (the bio rules); else VALIDATION "name" / "description", before any lookup.
-	// One transaction: idempotency doc, quotas/{uid} (list_creates), a count() of the caller's lists (ownerId == caller,
-	// so the cap is exact), then Create lists/{id} with a fresh Snowflake id.
-	// At LISTS_MAX_PER_USER (20) => LIMIT_REACHED "lists"; over the daily quota => QUOTA_EXCEEDED "list_creates".
-	// A replay writes nothing, and neither does a refusal at the cap or the quota.
+	// One transaction: idempotency doc, quotas/{uid} (read and rewritten unchanged, counting nothing, so two racing
+	// creates conflict and the cap stays exact), a count() of the caller's lists (ownerId == caller), then Create
+	// lists/{id} with a fresh Snowflake id.
+	// At LISTS_MAX_PER_USER (20) => LIMIT_REACHED "lists".
+	// A replay writes nothing, and neither does a refusal at the cap.
 	CreateList(context.Context, *connect.Request[v1.CreateListRequest]) (*connect.Response[v1.CreateListResponse], error)
 	// Change a list's name, description or visibility. Owner only: any other caller, a missing list or a deleted one
 	// => NOT_FOUND. Only the fields that are set change; the field rules are CreateList's. Making a list private stops
@@ -338,14 +337,14 @@ type ListServiceHandler interface {
 	// allowed (your own posts in your own list). The target must be ACTIVE (identity.Directory, cached) and pass the
 	// member rules in the header comment (block either way => NOT_FOUND; a protected target the caller does not follow
 	// => PROTECTED_ACCOUNT); the caller's blockedBy overflow adds one read of the target's graph (fail closed).
-	// One transaction: idempotency doc, the list (fresh), quotas/{uid} (list_adds), then ArrayUnion into memberIds and
+	// One transaction: idempotency doc, the list (fresh), then ArrayUnion into memberIds and
 	// updatedAt. The same write removes members who block the caller (F4 lazy drop, from the caller's graph snapshot).
-	// At LIST_MAX_MEMBERS (150) => LIMIT_REACHED "list_members"; over the quota => QUOTA_EXCEEDED "list_adds".
-	// Already a member => success, the idempotency doc only, no quota spent.
+	// At LIST_MAX_MEMBERS (150) => LIMIT_REACHED "list_members".
+	// Already a member => success, the idempotency doc only.
 	// A replay and a refusal write nothing.
 	AddListMember(context.Context, *connect.Request[v1.AddListMemberRequest]) (*connect.Response[v1.AddListMemberResponse], error)
 	// Remove an account from one of the caller's lists. Owner only, else NOT_FOUND. Not a member => success, the
-	// idempotency doc only. No quota. The same write removes members who block the caller (F4).
+	// idempotency doc only. The same write removes members who block the caller (F4).
 	// A replay writes nothing.
 	RemoveListMember(context.Context, *connect.Request[v1.RemoveListMemberRequest]) (*connect.Response[v1.RemoveListMemberResponse], error)
 	// A list's members, most recently added first, as user rows with the caller's relationship to each

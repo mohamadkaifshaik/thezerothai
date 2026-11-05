@@ -8,12 +8,11 @@ import "engagement.pb.dart" as dzerothengagementv1engagement;
 import "engagement.connect.spec.dart" as specs;
 
 extension type EngagementServiceClient (connect.Transport _transport) {
-  /// Like a post. Idempotent: liking a liked post succeeds and writes nothing. Quota: 500 likes/day/user (100 for
-  /// accounts younger than 24 h), RESOURCE_EXHAUSTED + QUOTA_EXCEEDED metadata["quota"]="likes". Per-user bucket
-  /// RATE_LIMIT_LIKES_PER_MIN (30/min).
-  /// One transaction: reads quotas/{uid}; writes likes/{id} (Create; AlreadyExists at commit is the replay),
+  /// Like a post. Idempotent: liking a liked post succeeds and writes nothing. No daily quota: the per-user bucket
+  /// RATE_LIMIT_LIKES_PER_MIN (30/min, shared with unlike and repost) is the only limit.
+  /// One transaction: writes likes/{id} (Create; AlreadyExists at commit is the replay),
   /// posts/{id}.likeCount (Increment), userLikes/{uid} (ArrayUnion; trimmed to the newest 1,000 by a separate
-  /// best-effort write) and quotas/{uid}.
+  /// best-effort write).
   Future<dzerothengagementv1engagement.LikePostResponse> likePost(
     dzerothengagementv1engagement.LikePostRequest input, {
     connect.Headers? headers,
@@ -55,10 +54,10 @@ extension type EngagementServiceClient (connect.Transport _transport) {
   /// Repost a post: creates reposts/{postId}_{uid} and a posts doc with kind REPOST, an embedded snapshot of the
   /// original, authored by the caller (it appears in the caller's profile and in followers' home timelines like
   /// any root post, and is removed by DeletePost or UndoRepost). Reposting a post you already reposted succeeds and
-  /// returns the existing repost without writing. A repost of a REPOST resolves to the original. Counts toward the posts
-  /// quota (100/day, 20 for new accounts) and users.postsCount.
-  /// One transaction: reads quotas/{uid}; writes reposts/{id}, posts/{newId}, posts/{id}.repostCount,
-  /// users/{uid}.postsCount, userLikes/{uid}.recentReposts and quotas/{uid}. A replay writes nothing.
+  /// returns the existing repost without writing. A repost of a REPOST resolves to the original. Counts toward
+  /// users.postsCount; there is no daily repost quota (the like bucket, 30/min, is the only limit).
+  /// One transaction: writes reposts/{id}, posts/{newId}, posts/{id}.repostCount,
+  /// users/{uid}.postsCount and userLikes/{uid}.recentReposts. A replay writes nothing.
   /// Protected authors: reposting a protected account's post is refused for everyone but that account. A
   /// caller who may not see the post gets NOT_FOUND "post not found" (the visibility check); an approved follower gets
   /// FAILED_PRECONDITION + PROTECTED_ACCOUNT; both write nothing. The account may repost its own post.
@@ -108,13 +107,15 @@ extension type EngagementServiceClient (connect.Transport _transport) {
   /// under the same key => INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED. Bookmarking an already bookmarked post with a
   /// fresh key succeeds, writing only the idempotency doc, so a late retry replays (bookmarked_at is unchanged).
   /// Caps: at most BOOKMARKS_MAX_PER_USER bookmarks (1,000; exact: counted from userLikes/{uid}.bookmarks read inside
-  /// the transaction) => FAILED_PRECONDITION + LIMIT_REACHED metadata["limit"] = "bookmarks"; QUOTA_BOOKMARKS_PER_DAY
-  /// adds per IST day (200; 50 for accounts younger than 24 h) => RESOURCE_EXHAUSTED + QUOTA_EXCEEDED
-  /// metadata["quota"] = "bookmarks". A replay or an already bookmarked post is not charged.
-  /// One transaction: reads idempotency, quotas and userLikes fresh; Create users/{uid}/bookmarks/{postId}, Create
-  /// the idempotency doc, set quotas/{uid}.bookmarks, ArrayUnion userLikes/{uid}.bookmarks (the complete set of the
+  /// the transaction) => FAILED_PRECONDITION + LIMIT_REACHED metadata["limit"] = "bookmarks". Rate limits: the
+  /// bookmarks bucket (RATE_LIMIT_BOOKMARKS_PER_MIN, 30/min, shared with RemoveBookmark) and the in-memory
+  /// bookmark_mutation_daily cap shared with RemoveBookmark (BOOKMARK_MUTATIONS_PER_DAY per uid per instance, counting
+  /// every call) => RESOURCE_EXHAUSTED + RATE_LIMITED, metadata["limit"] = "bookmark_mutation_daily". There is no
+  /// persisted bookmark quota.
+  /// One transaction: reads idempotency and userLikes fresh; Create users/{uid}/bookmarks/{postId}, Create
+  /// the idempotency doc, ArrayUnion userLikes/{uid}.bookmarks (the complete set of the
   /// caller's bookmarked post ids, which hydrates viewer state without an extra lookup).
-  /// A replay, and a refusal at the cap or the quota, write nothing; bookmarking an already bookmarked post writes only
+  /// A replay, and a refusal at the cap, write nothing; bookmarking an already bookmarked post writes only
   /// the idempotency doc.
   Future<dzerothengagementv1engagement.AddBookmarkResponse> addBookmark(
     dzerothengagementv1engagement.AddBookmarkRequest input, {
@@ -135,7 +136,7 @@ extension type EngagementServiceClient (connect.Transport _transport) {
 
   /// Remove a bookmark. post_id is the id AddBookmark returned (the original for a REPOST; a REPOST id here is a
   /// no-op). Needs no visibility check: a user can always remove a bookmark of a post that was deleted or became
-  /// invisible. Not charged to a daily quota. Idempotent: not bookmarked => success, writing only the idempotency doc.
+  /// invisible. Shares the bookmark_mutation_daily cap with AddBookmark. Idempotent: not bookmarked => success, writing only the idempotency doc.
   /// Idempotency (rule 4): as AddBookmark ("RemoveBookmark" in the hash); a replay returns the stored state and
   /// writes nothing, so a late retry never removes a bookmark that was added again after it.
   /// One transaction: reads idempotency; Delete users/{uid}/bookmarks/{postId} (Exists precondition), Create the
@@ -235,8 +236,7 @@ extension type EngagementServiceClient (connect.Transport _transport) {
   /// author included, can list who voted or for what; no notification is sent.
   /// Order (each refusal writes nothing):
   /// 1. Interceptors, before any handler read: per-uid bucket RATE_LIMIT_POLL_VOTE_PER_MIN (30/min per instance, at
-  ///    most 90/min with 3 instances) and the daily cap POLL_VOTES_PER_DAY (300; 50 for new accounts; per instance, so
-  ///    at most 900) => RESOURCE_EXHAUSTED + RATE_LIMITED (metadata["limit"] = "poll_votes_daily" for the cap).
+  ///    most 90/min with 3 instances) => RESOURCE_EXHAUSTED + RATE_LIMITED. There is no daily vote cap.
   ///    DEGRADED_MODE=readonly => UNAVAILABLE + DEGRADED_MODE.
   /// 2. Flags, before any lookup: FEATURE_ENGAGEMENT on for the caller and FEATURE_POLLS not globally off (a caller outside a
   ///    "polls" allowlist may vote in an existing poll); else FAILED_PRECONDITION + FEATURE_DISABLED,

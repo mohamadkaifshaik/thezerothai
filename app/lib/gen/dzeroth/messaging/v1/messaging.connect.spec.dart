@@ -31,7 +31,7 @@ abstract final class MessagingService {
   /// Caps: RATE_LIMIT_MESSAGES_SEND_PER_MIN 20/min/uid per instance (60/min at 3 instances);
   /// MESSAGES_SENDS_PER_DAY 300 (50 for new accounts) per instance (<= 900/day at 3) => RATE_LIMITED metadata["limit"]
   /// = "messages_daily"; QUOTA_DM_NEW_CONVERSATIONS_PER_DAY 20 new conversations per IST day (5 for new accounts),
-  /// exact (quotas/{uid}.dmNew, in the transaction) => LIMIT_REACHED "dm_new_daily"; MESSAGES_REQUEST_MAX_UNANSWERED 3,
+  /// exact (quotas/{uid}.dmNew, in the transaction, the one persisted daily counter left besides reports) => LIMIT_REACHED "dm_new_daily"; MESSAGES_REQUEST_MAX_UNANSWERED 3,
   /// exact (conversations.requestCount, in the transaction).
   /// Push: after the commit one `message` event through notifications.Emitter (one Pub/Sub publish, 0 Firestore on
   /// this path), only when the recipient's side is accepted and not silent; a request never pushes. The push is

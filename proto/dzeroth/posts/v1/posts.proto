@@ -15,8 +15,8 @@ option go_package = "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1;pos
 service PostService {
   // Create a post, reply or quote. Text <= 280 code points after NFC; <= 4 READY media owned by the caller;
   // <= 10 mentions (resolved via handles/*, cached), <= 10 hashtags (extracted server-side).
-  // Requires a verified email or a Google/Apple provider. Quota: 100 posts/day (quotas/{uid}; 20/day for
-  // accounts younger than 24 h).
+  // Requires a verified email or a Google/Apple provider. No daily post quota: only the per-minute
+  // CreatePost bucket (10/min/uid per instance) limits how often a user posts.
   // Not available while the sub-feature's flag is off for the caller: a non-empty reply_to_post_id
   // (FEATURE_REPLIES), quote_of_post_id (FEATURE_ENGAGEMENT), media_ids / media_alt_texts (FEATURE_MEDIA), a
   // reply_policy other than UNSPECIFIED (FEATURE_REPLY_AUDIENCE) or paid_partnership / made_with_ai true
@@ -50,7 +50,7 @@ service PostService {
   // rules (missing, deleted, hidden, suspended author or an author who blocks the caller => NOT_FOUND
   // "post not found", writing nothing). The reply copies the parent's conversation_id, sets reply_to_handle, increments
   // the parent's reply_count in the same transaction and is never fanned out to the home timeline.
-  // A reply writes the idempotency doc, the post, users.postsCount, quotas and the parent's replyCount.
+  // A reply writes the idempotency doc, the post, users.postsCount and the parent's replyCount.
   // Reply audience: a reply into a restricted conversation (FOLLOWING / MENTIONED_ONLY root) is checked after
   // the parent visibility check. The root and graph lookups behind it use 60 s caches.
   // A refusal is PERMISSION_DENIED + ERROR_REASON_REPLY_NOT_ALLOWED with metadata "policy" = "following" | "mentioned_only",
@@ -70,8 +70,8 @@ service PostService {
   // cannot reveal the block); mentioning a user the author blocks is allowed.
   // Hashtags: "#" + 1-50 of letters/marks/numbers/_ (plus ZWJ/ZWNJ inside), >= 1 letter;
   // lower-cased, first 10 distinct stored; the text is unchanged.
-  // One transaction: idempotency doc + quotas read fresh; Create idempotency doc + Create post +
-  // users.postsCount + quotas (+ parent replyCount / quoted quoteCount once those ship). The post id (and
+  // One transaction: idempotency doc read fresh; Create idempotency doc + Create post +
+  // users.postsCount (+ parent replyCount / quoted quoteCount once those ship). The post id (and
   // created_at) is drawn in each transaction attempt; the transaction has a 5 s deadline.
   // Replay: idempotency doc exists => return the stored post (the post is read if not cached); a different body =>
   // INVALID_ARGUMENT + IDEMPOTENCY_KEY_REUSED, writing nothing.
@@ -104,10 +104,9 @@ service PostService {
   //   (byte-identical for both); an ARCHIVED one => FAILED_PRECONDITION + COMMUNITY_STATE metadata["reason"] =
   //   "community_archived" (status from the 60 s community cache); inside the transaction the caller's member doc, read
   //   fresh: BANNED => PERMISSION_DENIED + FORBIDDEN metadata["reason"] = "banned", not a member => "not_member" (a ban
-  //   made on another instance stops the next post at once); quotas.communityPosts (50 per IST day, 10 for new accounts,
-  //   on top of the posts quota) in the same quota write => QUOTA_EXCEEDED metadata["quota"] = "community_posts"; then
+  //   made on another instance stops the next post at once); then
   //   the in-memory cap of 20 posts per community per uid per IST day per instance => RATE_LIMITED metadata["limit"] =
-  //   "community_posts_per_community_daily". Every refusal writes nothing.
+  //   "community_posts_per_community_daily". There is no persisted community post quota. Every refusal writes nothing.
   // - Blocks with the community's owner or moderators never refuse a post. The post is an ordinary public
   //   post (F6, F7): it also shows on the author's profile and in followers' Home, with Post.community as its label.
   // - The post doc gets communityId, community {id, name} (the name from the cached community doc) and the conversation's
@@ -204,15 +203,15 @@ service PostService {
   // Idempotency: the doc id is derived from (caller, idempotency_key); a replay returns the stored item (even after
   // the lead time passed or a cap filled), a different effective body => IDEMPOTENCY_KEY_REUSED. A replay of a
   // PUBLISHED, CANCELLED or FAILED item returns it without text or media.
-  // A call that gets a cap error (LIMIT_REACHED, QUOTA_EXCEEDED) may be a near-simultaneous duplicate of a call that just
+  // A call that gets a cap error (LIMIT_REACHED) may be a near-simultaneous duplicate of a call that just
   // succeeded: keep the same idempotency_key and retry after any such error, and the retry returns the stored item.
   // Caps: 25 pending (soft: counted outside the transaction, so concurrent calls can overshoot it by the number in
   // flight) => LIMIT_REACHED metadata["limit"] = "scheduled_pending"; 3 pending within +/-4 min of publish_at (exact:
   // counted inside the transaction, so concurrent calls cannot exceed it; a near-simultaneous duplicate that finds the
-  // window full is answered with the stored item) => LIMIT_REACHED "scheduled_window"; 50 calls per IST day (10 for
-  // accounts younger than 24 h) => QUOTA_EXCEEDED metadata["quota"] = "schedules". The posts daily quota is charged at
-  // publish.
-  // A replay and a refusal at the pending, window or daily cap write nothing.
+  // window full is answered with the stored item) => LIMIT_REACHED "scheduled_window". There is no daily schedule quota and no daily posts quota at publish.
+  // The transaction reads quotas/{uid} and rewrites it unchanged (counting nothing) so racing schedules by one user
+  // conflict and the window cap stays exact.
+  // A replay and a refusal at the pending or window cap write nothing.
   rpc SchedulePost(SchedulePostRequest) returns (SchedulePostResponse);
 
   // The caller's PENDING and FAILED scheduled posts, publish_at ascending. page_size 0 => 20, clamped to 50; opaque
@@ -322,7 +321,7 @@ enum ScheduledPostFailure {
   SCHEDULED_POST_FAILURE_UNSPECIFIED = 0;
   // An image was missing, used by another post, or no longer READY at publish time.
   SCHEDULED_POST_FAILURE_MEDIA_UNAVAILABLE = 1;
-  // The posts daily quota was used up at publish time.
+  // No longer produced (the daily posts quota was removed); kept for items that failed with it earlier.
   SCHEDULED_POST_FAILURE_QUOTA_EXCEEDED = 2;
   // The account was suspended at publish time. Unsuspension does not revive the item.
   SCHEDULED_POST_FAILURE_ACCOUNT_RESTRICTED = 3;

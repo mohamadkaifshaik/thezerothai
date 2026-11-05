@@ -10,22 +10,24 @@ abstract final class GraphService {
   /// Fully-qualified name of the GraphService service.
   static const name = 'dzeroth.graph.v1.GraphService';
 
-  /// Follow a user, or ask to follow a protected one. Quota: 200 follows/day (50 for accounts < 24 h); a request
-  /// counts as a follow. Cap: 5,000 following (graph doc size).
-  /// Transaction: caller graph + quotas/{uid} read fresh, and the target's users doc read fresh too (so
+  /// Follow a user, or ask to follow a protected one. Cap: 5,000 following (graph doc size). Rate limits: the graph
+  /// follow bucket (30/min/uid per instance) and the in-memory graph_mutation_daily cap shared by every graph mutation
+  /// (GRAPH_MUTATIONS_PER_DAY per uid per instance) => RESOURCE_EXHAUSTED + RATE_LIMITED, metadata["limit"] =
+  /// "graph_mutation_daily".
+  /// Transaction: caller graph read fresh, and the target's users doc read fresh too (so
   /// a Follow and a protect of the same account serialize and no Follow becomes an edge past a protect); the caller's
   /// users doc from the 60 s instance cache.
-  /// Writes (edge): follows doc, caller graph, caller users counter, target users counter, quotas.
+  /// Writes (edge): follows doc, caller graph, caller users counter, target users counter.
   /// Protected target the caller does not follow: Create followRequests/{caller}_{target}, add the target
-  /// to the caller's requested[], quotas, returns REQUESTED; the target gets a follow_request notification,
-  /// nobody gets a follow one. Replay (the request exists, or the target is in requested[]) => REQUESTED, writing nothing and
-  /// using no quota. 500 pending outgoing requests => FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] =
+  /// to the caller's requested[], returns REQUESTED; the target gets a follow_request notification,
+  /// nobody gets a follow one. Replay (the request exists, or the target is in requested[]) => REQUESTED, writing nothing.
+  /// 500 pending outgoing requests => FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] =
   /// "follow_requests". A public target the caller still has a pending request to (the account went public and the
   /// job has not accepted it yet) => the edge, and the same transaction deletes the request and removes it from
   /// requested[].
   /// Errors: self => VALIDATION; target missing, not active, or blocked the caller => NOT_FOUND; caller blocks the
   /// target => FAILED_PRECONDITION + TARGET_BLOCKED (these three come before any request logic); at the cap =>
-  /// LIMIT_REACHED; over quota => QUOTA_EXCEEDED. Replay (already following) => FOLLOWING, writing nothing, also before any
+  /// LIMIT_REACHED. Replay (already following) => FOLLOWING, writing nothing, also before any
   /// request logic. Never gated by FEATURE_PRIVATE_ACCOUNTS.
   /// Notifications are events published after the commit, so this path does no Firestore work for them.
   /// user_id: [A-Za-z0-9-]{1,128}.
@@ -63,8 +65,7 @@ abstract final class GraphService {
   /// Flag: needs FEATURE_PRIVATE_ACCOUNTS (wire name "private_accounts") not globally off, or the caller
   /// to be protected now; else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "private_accounts", 0
   /// reads beyond the account-status check. So with the flag globally off, a protected account can still manage its
-  /// requests. Rate limits: the graph list bucket (20/min/uid per instance) and graph_list_daily (100 calls/uid/IST day
-  /// per instance).
+  /// requests. Rate limit: the graph list bucket (20/min/uid per instance); no daily cap.
   static const listFollowRequests = connect.Spec(
     '/$name/ListFollowRequests',
     connect.StreamType.unary,
@@ -86,7 +87,7 @@ abstract final class GraphService {
   /// the caller's relationship to the requester. Idempotency is by natural key and state: idempotency_key is
   /// validated, not stored.
   /// Flag: as ListFollowRequests. Rate limit: RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, 60/min/uid per instance (at
-  /// most 180/min with 3 instances); no daily quota (responses are bounded by the requests that exist).
+  /// most 180/min with 3 instances); no daily cap (responses are bounded by the requests that exist).
   /// requester_user_id: [A-Za-z0-9-]{1,128}.
   static const respondToFollowRequest = connect.Spec(
     '/$name/RespondToFollowRequest',
@@ -96,12 +97,12 @@ abstract final class GraphService {
   );
 
   /// Block: removes follows in both directions (Unblock does not restore them).
-  /// Transaction reads both graphs + quotas/{uid}. Writes: caller graph (blocked +=, following -=), target graph
-  /// (blockedBy +=, following -=), quotas (blocks) and, when edges existed, both users docs (counter decrements
+  /// Transaction reads both graphs. Writes: caller graph (blocked +=, following -=), target graph
+  /// (blockedBy +=, following -=) and, when edges existed, both users docs (counter decrements
   /// combined per doc) + follows deletes. Worst = mutual follow.
   /// Pending follow requests in either direction are deleted in the same transaction, and removed from
   /// both requested[] arrays in the graph writes it already makes.
-  /// Quota: 200 blocks+mutes/day (50 for accounts < 24 h). Cap: 2,000 blocked => LIMIT_REACHED.
+  /// Cap: 2,000 blocked => LIMIT_REACHED. Shares the graph_mutation_daily cap (see Follow).
   /// Self => VALIDATION; unknown user => NOT_FOUND. Replay (already blocking) => blocking=true, writing nothing.
   static const block = connect.Spec(
     '/$name/Block',
@@ -111,7 +112,7 @@ abstract final class GraphService {
   );
 
   /// Removes the block on both sides (caller blocked -=, target blockedBy -=). Follows are not restored.
-  /// Caller graph is read fresh; not blocking => writes nothing. Never quota-gated.
+  /// Caller graph is read fresh; not blocking => writes nothing. No Firestore quota; shares the graph_mutation_daily cap (see Follow).
   static const unblock = connect.Spec(
     '/$name/Unblock',
     connect.StreamType.unary,
@@ -121,9 +122,9 @@ abstract final class GraphService {
 
   /// Mute hides the target's posts from the caller's timelines and notifications only; never visible to the target.
   /// Transaction reads caller graph, then the target's graph doc (existence only; its content, including who blocked
-  /// whom, is never inspected), then quotas/{uid}; writes caller graph (muted +=) + quotas (blocks).
-  /// Quota: shared with Block. Cap: 2,000 muted => LIMIT_REACHED. Replay (already muting) => writes nothing.
-  /// Target without an account => NOT_FOUND (same rule and response as Block), writing nothing and using no quota.
+  /// whom, is never inspected); writes caller graph (muted +=).
+  /// Cap: 2,000 muted => LIMIT_REACHED. Replay (already muting) => writes nothing.
+  /// Target without an account => NOT_FOUND (same rule and response as Block), writing nothing.
   /// Muting a user who blocked the caller succeeds exactly as for a stranger.
   /// user_id: [A-Za-z0-9-]{1,128}.
   static const mute = connect.Spec(
@@ -133,7 +134,7 @@ abstract final class GraphService {
     dzerothgraphv1graph.MuteResponse.new,
   );
 
-  /// Caller graph is read fresh; not muting => writes nothing. Never quota-gated.
+  /// Caller graph is read fresh; not muting => writes nothing. Shares the graph_mutation_daily cap (see Follow).
   static const unmute = connect.Spec(
     '/$name/Unmute',
     connect.StreamType.unary,
@@ -184,9 +185,7 @@ abstract final class GraphService {
   /// since is unset. Results may change once a day per caller; the client caches them 24 h.
   /// Needs FEATURE_FOLLOW_SUGGESTIONS (wire name "follow_suggestions") on for the caller, and FEATURE_GRAPH; else
   /// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "follow_suggestions", before any lookup.
-  /// Rate limits: RATE_LIMIT_SUGGESTIONS_PER_MIN, 10/min/uid per instance (30/min with 3 instances), and
-  /// SUGGESTIONS_CALLS_PER_DAY, 50 calls/uid/IST day per instance (150 with 3) => RATE_LIMITED,
-  /// metadata["limit"] = "suggestions_daily".
+  /// Rate limit: RATE_LIMIT_SUGGESTIONS_PER_MIN, 10/min/uid per instance (30/min with 3 instances); no daily cap.
   /// The result is cached per viewer on the instance for 1 h.
   static const listSuggestedUsers = connect.Spec(
     '/$name/ListSuggestedUsers',
@@ -204,6 +203,9 @@ abstract final class GraphService {
   /// Protected account: a caller who is neither the account nor a follower of it gets
   /// FAILED_PRECONDITION + PROTECTED_ACCOUNT after the target and caller graph lookups, before any page read.
   /// The NOT_FOUND rules above come first.
+  /// Rate limits: the graph list bucket (20/min/uid per instance) and the in-memory follow_list_daily cap shared with
+  /// ListFollowing (FOLLOW_LIST_CALLS_PER_DAY per uid per instance) => RESOURCE_EXHAUSTED + RATE_LIMITED,
+  /// metadata["limit"] = "follow_list_daily".
   static const listFollowers = connect.Spec(
     '/$name/ListFollowers',
     connect.StreamType.unary,
@@ -213,7 +215,7 @@ abstract final class GraphService {
   );
 
   /// Accounts a user follows, newest first. Same visibility (the PROTECTED_ACCOUNT rule included), row filtering and
-  /// paging as ListFollowers.
+  /// paging and rate limits as ListFollowers (the follow_list_daily cap is shared).
   static const listFollowing = connect.Spec(
     '/$name/ListFollowing',
     connect.StreamType.unary,

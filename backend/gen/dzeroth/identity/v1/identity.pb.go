@@ -834,7 +834,7 @@ type UpdateProfileRequest struct {
 	// account deletion; a retired avatar answers MEDIA_NOT_READY if sent again.
 	AvatarMediaId *string `protobuf:"bytes,4,opt,name=avatar_media_id,json=avatarMediaId,proto3,oneof" json:"avatar_media_id,omitempty"`
 	// true protects the account (needs FEATURE_PRIVATE_ACCOUNTS on for the caller); false unprotects it, from any
-	// caller. Quota and cap: see UpdateProfile.
+	// caller. Cap: see UpdateProfile.
 	IsPrivate *bool `protobuf:"varint,5,opt,name=is_private,json=isPrivate,proto3,oneof" json:"is_private,omitempty"`
 	// Profile extras: setting any of the four fields below needs FEATURE_PROFILE_EXTRAS on for the caller; the
 	// exact value "" (a clear) never does (see UpdateProfile).

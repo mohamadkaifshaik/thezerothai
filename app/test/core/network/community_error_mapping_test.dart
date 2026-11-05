@@ -193,19 +193,19 @@ void main() {
       });
     }
 
-    for (final quota in [kCommunityJoinsQuota, kCommunityPostsQuota]) {
-      test('QUOTA_EXCEEDED $quota', () {
-        final e = mapConnectError(
-          serverError(
-            connect.Code.resourceExhausted,
-            common.ErrorReason.ERROR_REASON_QUOTA_EXCEEDED,
-            metadata: {'quota': quota},
-          ),
-        ) as QuotaExceededException;
-        expect(e.quota, quota);
-        expect(communitiesErrorMessage(e), contains('tomorrow'));
-      });
-    }
+    test('QUOTA_EXCEEDED reads as the generic daily limit', () {
+      final e = mapConnectError(
+        serverError(
+          connect.Code.resourceExhausted,
+          common.ErrorReason.ERROR_REASON_QUOTA_EXCEEDED,
+          metadata: {'quota': 'reports'},
+        ),
+      ) as QuotaExceededException;
+      expect(
+        communitiesErrorMessage(e),
+        "You've hit today's limit for this action. It resets tomorrow.",
+      );
+    });
 
     for (final limit in [
       kCommunityMutationDailyLimit,

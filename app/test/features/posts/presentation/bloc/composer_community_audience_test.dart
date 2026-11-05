@@ -379,9 +379,12 @@ void main() {
       verify(() => communities.forgetCommunity(b.communityId)).called(1);
     });
 
-    test('a quota refusal keeps the community for the retry', () async {
+    test('a daily limit refusal keeps the community for the retry', () async {
       stubCreate(
-        error: const QuotaExceededException('x', quota: 'community_posts'),
+        error: const RateLimitedException(
+          'x',
+          limitName: 'community_posts_per_community_daily',
+        ),
       );
       final cubit = make();
       await cubit.loadAudiences();

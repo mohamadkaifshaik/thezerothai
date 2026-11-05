@@ -115,19 +115,14 @@
 //   - "communities_joined": COMMUNITIES_MAX_JOINED, 50 joined communities per user, exact;
 //   - "community_moderators": COMMUNITY_MAX_MODERATORS, 10 per community.
 //     Nothing is written.
-//   - RESOURCE_EXHAUSTED + QUOTA_EXCEEDED, metadata["quota"]:
-//   - "community_joins": QUOTA_COMMUNITY_JOINS_PER_DAY, 20 per IST day, 5 for accounts younger than 24 h;
-//   - "community_posts": QUOTA_COMMUNITY_POSTS_PER_DAY, CreatePost into a community, 50 per IST day, 10 for new accounts,
-//     on top of the posts quota.
-//     Both are exact, in the transaction.
 //   - RESOURCE_EXHAUSTED + RATE_LIMITED, honour retry_after. Limits are per uid per instance (x 3 instances):
 //   - RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN (20): the seven mutations;
 //   - RATE_LIMIT_COMMUNITIES_READ_PER_MIN (30): GetCommunity, ListCommunities, ListMyCommunities,
 //     ListCommunityMembers, ListModerationLog;
-//   - daily caps, metadata["limit"]: "community_mutation_daily" (COMMUNITY_MUTATIONS_PER_DAY 200: Create, Update,
-//     Join, Leave), "community_mod_actions_daily" (COMMUNITY_MOD_ACTIONS_PER_DAY 200 per actor: Hide, Restore,
-//     SetMemberRole) and "community_posts_per_community_daily" (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY 20 per uid and
-//     community, CreatePost);
+//   - daily caps, in memory, metadata["limit"]: "community_mod_actions_daily" (COMMUNITY_MOD_ACTIONS_PER_DAY 200 per
+//     actor: HideCommunityPost and SetMemberRole only; RestoreCommunityPost is uncapped so an owner can always undo)
+//     and "community_posts_per_community_daily" (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY 20 per uid and community,
+//     CreatePost). Create, Update, Join and Leave have no daily cap and no persisted daily quota;
 //   - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
 package communitiesv1connect
 
@@ -201,7 +196,7 @@ const (
 // CommunityServiceClient is a client for the dzeroth.communities.v1.CommunityService service.
 type CommunityServiceClient interface {
 	// Create a community owned by the caller, who becomes its first member. Needs the caller in COMMUNITY_CREATORS,
-	// checked first (FORBIDDEN "not_creator", before any lookup), then the text rules. No daily quota: the
+	// checked first (FORBIDDEN "not_creator", before any lookup), then the text rules. No daily cap: the
 	// owned cap is exact and lifetime (there is no delete).
 	// One transaction: idempotency doc, the caller's communityMemberships (the owned and joined caps), then Create
 	// communities/{id} with a fresh Snowflake id (status ACTIVE, visibility PUBLIC, memberCount 1), the owner's member
@@ -243,13 +238,12 @@ type CommunityServiceClient interface {
 	ListMyCommunities(context.Context, *connect.Request[v1.ListMyCommunitiesRequest]) (*connect.Response[v1.ListMyCommunitiesResponse], error)
 	// Join a community. A block in either direction with the owner or a moderator does not refuse it (D7). A protected
 	// account may join (F6). BANNED => FORBIDDEN "banned", writing nothing; ARCHIVED => COMMUNITY_STATE "community_archived".
-	// Already a member (owner and moderators included) => success, the idempotency doc only, no quota spent.
+	// Already a member (owner and moderators included) => success, the idempotency doc only.
 	// One transaction: idempotency doc, the caller's member doc, the caller's communityMemberships (the joined cap,
-	// exact), quotas/{uid} (community_joins), then the member doc (JOINED), memberships (joined += id), a blind Increment
-	// of memberCount and quotas. The transaction never reads the community doc (its status comes from the 60 s cache),
+	// exact), then the member doc (JOINED), memberships (joined += id) and a blind Increment
+	// of memberCount. The transaction never reads the community doc (its status comes from the 60 s cache),
 	// so a join burst cannot abort other joins on a read lock; member_count in the response may lag by up to 60 s.
-	// At COMMUNITIES_MAX_JOINED (50) => LIMIT_REACHED "communities_joined"; over the quota => QUOTA_EXCEEDED
-	// "community_joins".
+	// At COMMUNITIES_MAX_JOINED (50) => LIMIT_REACHED "communities_joined".
 	JoinCommunity(context.Context, *connect.Request[v1.JoinCommunityRequest]) (*connect.Response[v1.JoinCommunityResponse], error)
 	// Leave a community. The owner => COMMUNITY_STATE "owner", writing nothing. A moderator also leaves moderator_ids, logged as
 	// MODERATOR_LEFT. Not a member (a banned user included: the ban stays) => success, the idempotency doc only.
@@ -501,7 +495,7 @@ func (c *communityServiceClient) ListModerationLog(ctx context.Context, req *con
 // service.
 type CommunityServiceHandler interface {
 	// Create a community owned by the caller, who becomes its first member. Needs the caller in COMMUNITY_CREATORS,
-	// checked first (FORBIDDEN "not_creator", before any lookup), then the text rules. No daily quota: the
+	// checked first (FORBIDDEN "not_creator", before any lookup), then the text rules. No daily cap: the
 	// owned cap is exact and lifetime (there is no delete).
 	// One transaction: idempotency doc, the caller's communityMemberships (the owned and joined caps), then Create
 	// communities/{id} with a fresh Snowflake id (status ACTIVE, visibility PUBLIC, memberCount 1), the owner's member
@@ -543,13 +537,12 @@ type CommunityServiceHandler interface {
 	ListMyCommunities(context.Context, *connect.Request[v1.ListMyCommunitiesRequest]) (*connect.Response[v1.ListMyCommunitiesResponse], error)
 	// Join a community. A block in either direction with the owner or a moderator does not refuse it (D7). A protected
 	// account may join (F6). BANNED => FORBIDDEN "banned", writing nothing; ARCHIVED => COMMUNITY_STATE "community_archived".
-	// Already a member (owner and moderators included) => success, the idempotency doc only, no quota spent.
+	// Already a member (owner and moderators included) => success, the idempotency doc only.
 	// One transaction: idempotency doc, the caller's member doc, the caller's communityMemberships (the joined cap,
-	// exact), quotas/{uid} (community_joins), then the member doc (JOINED), memberships (joined += id), a blind Increment
-	// of memberCount and quotas. The transaction never reads the community doc (its status comes from the 60 s cache),
+	// exact), then the member doc (JOINED), memberships (joined += id) and a blind Increment
+	// of memberCount. The transaction never reads the community doc (its status comes from the 60 s cache),
 	// so a join burst cannot abort other joins on a read lock; member_count in the response may lag by up to 60 s.
-	// At COMMUNITIES_MAX_JOINED (50) => LIMIT_REACHED "communities_joined"; over the quota => QUOTA_EXCEEDED
-	// "community_joins".
+	// At COMMUNITIES_MAX_JOINED (50) => LIMIT_REACHED "communities_joined".
 	JoinCommunity(context.Context, *connect.Request[v1.JoinCommunityRequest]) (*connect.Response[v1.JoinCommunityResponse], error)
 	// Leave a community. The owner => COMMUNITY_STATE "owner", writing nothing. A moderator also leaves moderator_ids, logged as
 	// MODERATOR_LEFT. Not a member (a banned user included: the ban stays) => success, the idempotency doc only.
