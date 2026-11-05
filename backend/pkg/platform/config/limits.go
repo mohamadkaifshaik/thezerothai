@@ -81,6 +81,15 @@ type RateLimitConfig struct {
 	CommunitiesReadPerUserPerMinute   int
 	CommunityTimelinePerUserPerMinute int
 
+	// BeaconsWritePerUserPerMinute is the bucket shared by CreateBeacon, UpdateBeacon and CancelBeacon, env
+	// RATE_LIMIT_BEACONS_WRITE_PER_MIN, default 10; BeaconsActionPerUserPerMinute is shared by RequestToJoin,
+	// WithdrawJoinRequest, RespondToJoinRequest, LeaveBeacon and RemoveParticipant, env RATE_LIMIT_BEACONS_ACTION_PER_MIN,
+	// default 20; BeaconsReadPerUserPerMinute is shared by GetBeacon, ListBeacons, ListMyBeacons and ListParticipants, env
+	// RATE_LIMIT_BEACONS_READ_PER_MIN, default 30. All per instance (x3 with 3 instances); docs/beacons-plan.md section 5.
+	BeaconsWritePerUserPerMinute  int
+	BeaconsActionPerUserPerMinute int
+	BeaconsReadPerUserPerMinute   int
+
 	// SuggestionsPerUserPerMinute is the ListSuggestedUsers bucket, env RATE_LIMIT_SUGGESTIONS_PER_MIN, default 10;
 	// LikesListPerUserPerMinute is ListLikedPosts, env RATE_LIMIT_LIKES_LIST_PER_MIN, default 10; ProfileRelationshipPerUserPerMinute
 	// is GetProfileRelationship, env RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN, default 60. All are per instance, so the
@@ -115,6 +124,11 @@ type RateLimitConfig struct {
 	// still sets them keeps the new defaults.
 	SearchPeopleCallsPerDay int64
 	FollowListCallsPerDay   int64
+
+	// BeaconsCreatedPerDay is the in-memory daily cap on CreateBeacon per uid (ratelimit.DailyCap), env
+	// BEACONS_CREATED_PER_DAY, default 10, logged as limit_name "beacons_created_daily". Per instance, so the effective
+	// limit is x max-instances.
+	BeaconsCreatedPerDay int64
 
 	// FollowRequestsRespondPerUserPerMinute is RespondToFollowRequest, env
 	// RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, default 60, per instance (180 with 3). ListFollowRequests shares the graph

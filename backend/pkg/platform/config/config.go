@@ -59,6 +59,9 @@ type Config struct {
 	// Communities holds COMMUNITY_CREATORS, the community caps and the cache sizes. The community buckets and daily caps
 	// live in RateLimit.
 	Communities CommunitiesConfig
+	// Beacons holds BEACONS_MAX_OPEN_PER_USER, BEACONS_MAX_PENDING_REQUESTS and BEACONS_MAX_OPEN_SPOTS. The beacon buckets
+	// and the daily create cap live in RateLimit.
+	Beacons BeaconsConfig
 	// Search holds the cache sizes and trend-refresh values of search and trends. The search buckets and the SearchPeople daily cap
 	// live in RateLimit.
 	Search SearchConfig
@@ -176,6 +179,12 @@ type Config struct {
 	// default off in every environment (dev stays on an allowlist, no prod raise). CreateCommunity also needs the caller in
 	// Communities.Creators (COMMUNITY_CREATORS).
 	FeatureCommunities flags.Spec
+	// FeatureBeacons is the flag (wire name `beacons`) gating every BeaconService RPC (docs/beacons-plan.md). CreateBeacon,
+	// UpdateBeacon, RequestToJoin and RespondToJoinRequest need it on for the caller; the reads, WithdrawJoinRequest,
+	// LeaveBeacon, RemoveParticipant and CancelBeacon only need it not globally off, so a caller dropped from the allowlist
+	// can still read, leave and cancel. A community-audience beacon also needs FEATURE_COMMUNITIES on for the caller.
+	// FEATURE_BEACONS[_ALLOWLIST|_PERCENT], default off in every environment (dev stays on an allowlist, no prod raise).
+	FeatureBeacons flags.Spec
 	// FeatureProfileExtras is the flag (wire name `profile_extras`) gating the UpdateProfile banner, location,
 	// website and pin fields and CreateUpload(BANNER) (which also needs `media`). FEATURE_PROFILE_EXTRAS[_ALLOWLIST|_PERCENT],
 	// default off in every environment.
@@ -504,6 +513,10 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN", 20, &rl.CommunitiesWritePerUserPerMinute},
 		{"RATE_LIMIT_COMMUNITIES_READ_PER_MIN", 30, &rl.CommunitiesReadPerUserPerMinute},
 		{"RATE_LIMIT_COMMUNITY_TIMELINE_PER_MIN", 12, &rl.CommunityTimelinePerUserPerMinute},
+		// Beacons: Create/Update/Cancel 10/min, the five participation actions 20/min, the four reads 30/min (per instance, x3).
+		{"RATE_LIMIT_BEACONS_WRITE_PER_MIN", 10, &rl.BeaconsWritePerUserPerMinute},
+		{"RATE_LIMIT_BEACONS_ACTION_PER_MIN", 20, &rl.BeaconsActionPerUserPerMinute},
+		{"RATE_LIMIT_BEACONS_READ_PER_MIN", 30, &rl.BeaconsReadPerUserPerMinute},
 	} {
 		v, err := getInt(b.key, b.def)
 		if err != nil {
@@ -570,6 +583,8 @@ func Load() (Config, error) {
 		{&rl.CommunityPostsPerCommunityPerDay, "COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY", 20},
 		{&rl.SearchPeopleCallsPerDay, "SEARCH_PEOPLE_CALLS_PER_DAY", 1000},
 		{&rl.FollowListCallsPerDay, "FOLLOW_LIST_CALLS_PER_DAY", 1000},
+		// CreateBeacon per uid, limit_name "beacons_created_daily".
+		{&rl.BeaconsCreatedPerDay, "BEACONS_CREATED_PER_DAY", 10},
 	} {
 		v, err := getInt(f.key, f.def)
 		if err != nil {
@@ -661,6 +676,10 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	communities, err := loadCommunities()
+	if err != nil {
+		return Config{}, err
+	}
+	beacons, err := loadBeacons()
 	if err != nil {
 		return Config{}, err
 	}
@@ -823,6 +842,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureBeacons, err := flags.LoadSpec("BEACONS", "beacons", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureProfileExtras, err := flags.LoadSpec("PROFILE_EXTRAS", "profile_extras", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -939,6 +962,7 @@ func Load() (Config, error) {
 		Messaging:                 messaging,
 		Lists:                     lists,
 		Communities:               communities,
+		Beacons:                   beacons,
 		Search:                    search,
 		Composer:                  composer,
 		HandleChangeCooldown:      handleCooldown,
@@ -966,6 +990,7 @@ func Load() (Config, error) {
 		FeatureMessaging:          featureMessaging,
 		FeatureLists:              featureLists,
 		FeatureCommunities:        featureCommunities,
+		FeatureBeacons:            featureBeacons,
 		FeatureProfileExtras:      featureProfileExtras,
 		FeatureProfileTabs:        featureProfileTabs,
 		FeatureLikesList:          featureLikesList,
