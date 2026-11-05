@@ -208,7 +208,6 @@ void main() {
     });
 
     for (final limit in [
-      kCommunityMutationDailyLimit,
       kCommunityModActionsDailyLimit,
       kCommunityPostsPerCommunityDailyLimit,
     ]) {

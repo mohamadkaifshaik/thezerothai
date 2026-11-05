@@ -7,8 +7,8 @@
 //
 // Data (setup, outside the timed window): NUM_USERS (default 200) users; the first NUM_AUTHORS (60) are authors
 // who each post POSTS_PER_AUTHOR (5) posts. User u follows F_u accounts, F spread linearly over MIN_F..MAX_F
-// (default 10..45; the ticket's 10-300 needs QUOTA_NEW_ACCOUNT_FOLLOWS_PER_DAY and QUOTA_FOLLOWS_PER_DAY raised on
-// the API, plus RATE_LIMIT_GRAPH_FOLLOW_PER_MIN; setup retries on 429 either way). Each user then does one cold
+// (default 10..45; the ticket's 10-300 needs RATE_LIMIT_GRAPH_FOLLOW_PER_MIN raised on
+// the API; setup retries on 429 either way). Each user then does one cold
 // open, whose since_token and next_page_token seed the timed calls.
 //
 // k6 `rpc` tags are the scenario names (home_refresh, home_older, user_timeline, new_post); server-side rpc names

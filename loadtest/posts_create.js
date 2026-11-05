@@ -4,8 +4,8 @@
 // lines come from the API log, not k6:
 //   node loadtest/analyze_logs.js api.log CreatePost
 //
-// Limits respected (defaults): 10 CreatePost/min/uid and the NEW-account quota of 20 posts/day/uid (users minted
-// here are new). 20 rps x 2 min = 2,400 posts need >= 120 users at 20 posts each, so NUM_USERS defaults to 150:
+// Limits respected (defaults): 10 CreatePost/min/uid. 20 rps x 2 min = 2,400 posts need >= 120 users at 20 posts
+// each, so NUM_USERS defaults to 150:
 // 16 posts per user, ~8/min each (round-robin, evenly spaced). Raise RATE/DURATION only together with NUM_USERS
 // (NUM_USERS >= RATE*seconds/19 and NUM_USERS >= RATE*6.5). Every idempotency key is unique (run id + iteration),
 // so every call is a real create, never a replay. Only the per-IP limiters need raising for the run (all VUs share

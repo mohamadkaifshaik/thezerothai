@@ -411,10 +411,11 @@ void main() {
         ),
       );
 
+      // JoinCommunity has only the per-minute community-write bucket now (no daily cap), so a RATE_LIMITED
+      // rejection carries no limit name.
       answer = (_) => serverError(
         connect.Code.resourceExhausted,
         common.ErrorReason.ERROR_REASON_RATE_LIMITED,
-        metadata: {'limit': kCommunityMutationDailyLimit},
       );
       await expectLater(
         repo.joinCommunity(idempotencyKey: _key, communityId: _cid),
@@ -422,7 +423,7 @@ void main() {
           isA<RateLimitedException>().having(
             (e) => e.limitName,
             'limit',
-            'community_mutation_daily',
+            isNull,
           ),
         ),
       );
