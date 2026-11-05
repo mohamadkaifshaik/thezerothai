@@ -216,10 +216,10 @@ func (a *authAdmin) getUserRecord(ctx context.Context, t exportTarget) (accountR
 // can outlive its Auth user (VerifyIDToken does not check revocation or deletion outside the emulator), so before a
 // first profile is created the Auth record of the token's own uid must exist and be enabled. 1 Auth read, 0
 // Firestore ops. Returns errSignupRefused for a deleted or disabled user and errSignupUnavailable for any other
-// failure (fail closed). One C3 NOTICE line per call (op `get`, job `signup`, outcome ok|not_found|disabled|error).
-func (a *authAdmin) checkSignup(ctx context.Context, t signupTarget) error {
+// failure (fail closed). On success it also returns the sign-up identity baseline built from that same record. One C3 NOTICE line per call (op `get`, job `signup`, outcome ok|not_found|disabled|error).
+func (a *authAdmin) checkSignup(ctx context.Context, t signupTarget) (*AuthBaseline, error) {
 	if t.uid == "" {
-		return a.refuse(ctx, authOpGet, "signup", "no uid", "", 0)
+		return nil, a.refuse(ctx, authOpGet, "signup", "no uid", "", 0)
 	}
 	ctx, cancel := context.WithTimeout(ctx, signupAuthTimeout)
 	defer cancel()
@@ -234,10 +234,12 @@ func (a *authAdmin) checkSignup(ctx context.Context, t signupTarget) error {
 	}, logger.TraceAttrs(ctx)...)...)
 	switch outcome {
 	case authOutcomeOK:
-		return nil
+		// The record is already in hand: its federated provider subjects become the account's sign-up baseline
+		// (auth_baseline.go) with no further read. No email is baselined.
+		return baselineFromRecord(rec), nil
 	case authOutcomeNotFound, authOutcomeDisabled:
-		return errSignupRefused
+		return nil, errSignupRefused
 	default:
-		return fmt.Errorf("%w: %w", errSignupUnavailable, logger.RedactErr(fmt.Errorf("identity: get auth user for sign-up: %w", err), t.uid))
+		return nil, fmt.Errorf("%w: %w", errSignupUnavailable, logger.RedactErr(fmt.Errorf("identity: get auth user for sign-up: %w", err), t.uid))
 	}
 }

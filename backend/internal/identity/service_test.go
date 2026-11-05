@@ -81,7 +81,7 @@ func (f *fakeRepo) ResolveHandles(ctx context.Context, handleLowers []string) (m
 	return out, nil
 }
 
-func (f *fakeRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) error) (Profile, bool, error) {
+func (f *fakeRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) (*AuthBaseline, error)) (Profile, bool, error) {
 	f.createCalls++
 	if f.createErr != nil {
 		return Profile{}, false, f.createErr
@@ -89,8 +89,10 @@ func (f *fakeRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, 
 	if existing, ok := f.profiles[uid]; ok {
 		return existing, true, nil
 	}
+	var baseline *AuthBaseline
 	if authorize != nil {
-		if err := authorize(ctx); err != nil {
+		var err error
+		if baseline, err = authorize(ctx); err != nil {
 			return Profile{}, false, err
 		}
 	}
@@ -100,6 +102,7 @@ func (f *fakeRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, 
 	p := Profile{
 		UserID: uid, Handle: handle, HandleLower: handleLower, DisplayName: displayName,
 		Status: AccountStatusActive, CreatedAt: now, UpdatedAt: now,
+		AuthBaselineEnc: encodeAuthBaseline(baseline),
 	}
 	f.profiles[uid] = p
 	f.handles[handleLower] = uid

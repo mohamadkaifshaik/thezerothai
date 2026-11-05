@@ -66,6 +66,9 @@ type userDoc struct {
 	// HomeTabs: the pinned Home tabs, absent = none. In userDoc so a whole-document rewrite (UpdateProfile, ChangeHandle, the
 	// privacy toggle) cannot drop it; only HomeTabsAdapter changes it, field-level.
 	HomeTabs []HomeTab `firestore:"homeTabs,omitempty"`
+	// AuthBaseline: hashes of the sign-up identity (auth_baseline.go), written once by CreateProfile. In userDoc so a
+	// whole-document rewrite cannot drop it; absent for accounts created before it existed.
+	AuthBaseline *AuthBaseline `firestore:"authBaseline,omitempty"`
 	// Account-deletion job state: set once by DeleteAccount, absent for every live account. Pointers
 	// with omitempty, so a normal profile write never stores them; Profile carries them so a whole-doc rewrite
 	// (UpdateProfile) cannot drop them.
@@ -88,6 +91,7 @@ func (d userDoc) toProfile(uid string) Profile {
 		Website:              d.Website,
 		PinnedPostID:         d.PinnedPostID,
 		HomeTabsEnc:          encodeHomeTabs(d.HomeTabs),
+		AuthBaselineEnc:      encodeAuthBaseline(d.AuthBaseline),
 		IsPrivate:            d.IsPrivate,
 		Verified:             d.Verified,
 		SubscriptionVerified: d.SubscriptionVerified,
@@ -119,6 +123,7 @@ func profileToDoc(p Profile) userDoc {
 		Website:              p.Website,
 		PinnedPostID:         p.PinnedPostID,
 		HomeTabs:             decodeHomeTabs(p.HomeTabsEnc),
+		AuthBaseline:         decodeAuthBaseline(p.AuthBaselineEnc),
 		IsPrivate:            p.IsPrivate,
 		Verified:             p.Verified,
 		SubscriptionVerified: p.SubscriptionVerified,
@@ -268,8 +273,9 @@ func (r *FirestoreRepo) ResolveHandles(ctx context.Context, handleLowers []strin
 }
 
 // CreateProfile writes users, handles and the graph doc in one transaction; a replay (users/{uid} already exists)
-// writes nothing. authorize adds no Firestore operations.
-func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) error) (Profile, bool, error) {
+// writes nothing. authorize adds no Firestore operations; the baseline it returns (nil = none) is stored on the new
+// users document.
+func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) (*AuthBaseline, error)) (Profile, bool, error) {
 	var result Profile
 	replay := false
 	_, err := store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
@@ -288,8 +294,10 @@ func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLo
 			return fmt.Errorf("identity: get user %s: %w", uid, err)
 		}
 
+		var baseline *AuthBaseline
 		if authorize != nil {
-			if aerr := authorize(ctx); aerr != nil {
+			var aerr error
+			if baseline, aerr = authorize(ctx); aerr != nil {
 				return aerr
 			}
 		}
@@ -313,12 +321,13 @@ func (r *FirestoreRepo) CreateProfile(ctx context.Context, uid, handle, handleLo
 		}
 
 		doc := userDoc{
-			Handle:      handle,
-			HandleLower: handleLower,
-			DisplayName: displayName,
-			Status:      statusToString(AccountStatusActive),
-			CreatedAt:   now,
-			UpdatedAt:   now,
+			Handle:       handle,
+			HandleLower:  handleLower,
+			DisplayName:  displayName,
+			Status:       statusToString(AccountStatusActive),
+			CreatedAt:    now,
+			UpdatedAt:    now,
+			AuthBaseline: baseline,
 		}
 		b := store.NewFirestoreTxBatch(tx)
 		b.Create(r.userRef(uid), doc)

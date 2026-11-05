@@ -60,6 +60,9 @@ type Profile struct {
 	// HomeTabsEnc is users/{uid}.homeTabs in a comparable, immutable form (Profile must stay comparable: UpdateProfile detects a
 	// no-op with ==). Read it with HomeTabs(); only HomeTabsAdapter writes it.
 	HomeTabsEnc string
+	// AuthBaselineEnc is users/{uid}.authBaseline in a comparable form (JSON of AuthBaseline, hashes only), "" for an
+	// account created before the baseline existed. Never serialized to clients or exports; only GetMe's audit reads it.
+	AuthBaselineEnc string
 	// DeletionRequestedAt and DeletionJob are the account-deletion job state: zero/nil for every live
 	// account, set together by DeleteAccount. Never serialized to clients or exports.
 	DeletionRequestedAt time.Time
@@ -173,7 +176,7 @@ type Repo interface {
 	// existing profile and performs no writes. authorize (nil = none) runs only on the not-found path, inside the
 	// transaction after the users/{uid} read and before any other read or write;
 	// its error aborts the transaction unchanged and nothing is written. It never runs on a replay.
-	CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) error) (profile Profile, replay bool, err error)
+	CreateProfile(ctx context.Context, uid, handle, handleLower, displayName string, now time.Time, authorize func(context.Context) (*AuthBaseline, error)) (profile Profile, replay bool, err error)
 	// UpdateProfile reads users/{uid}, applies mutate, writes the result back and returns the new Profile. When mutate
 	// leaves the profile unchanged (the caller must not touch UpdatedAt then) nothing is written.
 	UpdateProfile(ctx context.Context, uid string, mutate func(*Profile)) (Profile, error)

@@ -22,6 +22,10 @@ type Claims struct {
 	EmailVerified  bool
 	SignInProvider string
 	AuthTime       time.Time
+	// Identities is firebase.identities: provider -> the subject ids the account holds (the password provider is
+	// listed as "email"); nil when absent. It comes from the verified JWT, so reading it costs nothing. It feeds
+	// only the warn-only identity audit, which compares the signing federated subject against the stored baseline.
+	Identities map[string][]string
 }
 
 // Firebase `firebase.sign_in_provider` claim values the verified-identity gate knows.
