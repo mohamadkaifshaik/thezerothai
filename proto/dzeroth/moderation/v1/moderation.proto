@@ -60,6 +60,10 @@ enum ReportTargetType {
   // FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", before any lookup); the existing reports quota
   // applies.
   REPORT_TARGET_TYPE_COMMUNITY = 5;
+  // A beacon (plan). target_id = the beacon id (19 digits, else VALIDATION "target_id"). Not accepted until the
+  // beacons module registers its evidence (docs/beacons-plan.md PR 4): until then the server answers VALIDATION
+  // "target_type".
+  REPORT_TARGET_TYPE_BEACON = 6;
 }
 
 // Reasons shown in the client sheet. Values are never renumbered or reused (buf breaking).
