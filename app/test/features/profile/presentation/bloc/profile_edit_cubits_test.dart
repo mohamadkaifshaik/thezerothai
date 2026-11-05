@@ -417,7 +417,6 @@ void main() {
         stubChange(
           () async => throw const QuotaExceededException(
             'daily limit',
-            quota: 'snapshot_edits',
             retryAfter: Duration(seconds: 30),
           ),
         );
@@ -446,7 +445,6 @@ void main() {
         stubChange(
           () async => throw const QuotaExceededException(
             'daily limit',
-            quota: 'snapshot_edits',
             retryAfter: Duration(minutes: 2),
           ),
         );
@@ -474,7 +472,6 @@ void main() {
         stubChange(
           () async => throw const QuotaExceededException(
             'daily limit',
-            quota: 'snapshot_edits',
             retryAfter: Duration(seconds: 30),
           ),
         );

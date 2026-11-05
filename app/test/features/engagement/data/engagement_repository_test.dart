@@ -152,12 +152,16 @@ void main() {
     answer = (_) => serverError(
       connect.Code.resourceExhausted,
       common.ErrorReason.ERROR_REASON_QUOTA_EXCEEDED,
-      metadata: {'quota': 'likes'},
+      metadata: {'quota': 'reports'},
     );
     await expectLater(
       repo.like(postId: postId(1), idempotencyKey: 'k'),
       throwsA(
-        isA<QuotaExceededException>().having((e) => e.quota, 'quota', 'likes'),
+        isA<QuotaExceededException>().having(
+          (e) => e.quota,
+          'quota',
+          'reports',
+        ),
       ),
     );
 

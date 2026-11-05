@@ -8,8 +8,7 @@ package apiserver
 //   - a pinned list that later turns private, is deleted or is hidden dangles: GetMe still returns the tab, the list
 //     answers the one NOT_FOUND, and the tab can still be moved or removed but never pinned afresh;
 //   - GetListTimeline page size (0 -> 20, 500 -> 50), the opaque cursor walk, and a list made private between two pages;
-//   - the block matrix with real accounts (the viewer blocks a member, a member blocks the viewer);
-//   - the quota names list_creates and list_adds on the wire at the daily cap.
+//   - the block matrix with real accounts (the viewer blocks a member, a member blocks the viewer).
 
 import (
 	"context"
