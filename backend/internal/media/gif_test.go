@@ -8,13 +8,11 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	mediav1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
@@ -341,40 +339,6 @@ func TestGIF_FinalizeRejections(t *testing.T) {
 				t.Fatalf("objects left: %v / %v", e.obj.upload, e.obj.public)
 			}
 		})
-	}
-}
-
-// TestGIF_AtTheVisionCapIsRejectedForEveryAccount: a photo of the same account stays READY_UNSCREENED.
-func TestGIF_AtTheVisionCapIsRejectedForEveryAccount(t *testing.T) {
-	for _, policy := range []config.VisionExhaustedPolicy{config.VisionPolicyEstablished, config.VisionPolicyReject} {
-		for _, age := range []string{"established", "new"} {
-			t.Run(string(policy)+"/"+age, func(t *testing.T) {
-				opts := envOpts{cap: 10, policy: policy}
-				if age == "new" {
-					opts.accountAge = 2 * 24 * time.Hour
-				}
-				e := newEnv(t, opts)
-				e.repo.vision[monthKey(testNow)] = 10
-				tg := e.createGIF(t, uidA, "a", ContentTypeJPEG)
-				res, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}})
-				if err != nil {
-					t.Fatal(err)
-				}
-				if res[0].Status != StatusRejected || res[0].RejectionReason != reasonCapacity || len(e.mod.calls) != 0 {
-					t.Fatalf("result = %+v calls=%v, want REJECTED %q with no Vision call", res[0], e.mod.calls, reasonCapacity)
-				}
-				if len(e.obj.public) != 0 {
-					t.Fatalf("a rejected GIF must publish nothing: %v", e.obj.public)
-				}
-			})
-		}
-	}
-	e := newEnv(t, envOpts{cap: 10, policy: config.VisionPolicyEstablished})
-	e.repo.vision[monthKey(testNow)] = 10
-	photo := e.upload(t, uidA, PurposePost, "p")
-	res, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: photo.MediaID}})
-	if err != nil || res[0].Status != StatusReadyUnscreened {
-		t.Fatalf("photo at the cap = %+v err=%v, want READY_UNSCREENED as before", res[0], err)
 	}
 }
 

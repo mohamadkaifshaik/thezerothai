@@ -11,8 +11,8 @@ func mediaEnv(t *testing.T, kv map[string]string) {
 	t.Helper()
 	clearEnv(t)
 	for _, k := range []string{
-		"FEATURE_MEDIA", "FEATURE_MEDIA_ALLOWLIST", "FEATURE_MEDIA_PERCENT", "VISION_MONTHLY_CAP",
-		"VISION_EXHAUSTED_POLICY", "VISION_SCREEN_THUMB", "MEDIA_BUCKET", "MEDIA_UPLOAD_BUCKET", "MEDIA_PUBLIC_BASE_URL",
+		"FEATURE_MEDIA", "FEATURE_MEDIA_ALLOWLIST", "FEATURE_MEDIA_PERCENT",
+		"VISION_SCREEN_THUMB", "MEDIA_BUCKET", "MEDIA_UPLOAD_BUCKET", "MEDIA_PUBLIC_BASE_URL",
 	} {
 		t.Setenv(k, "")
 	}
@@ -22,8 +22,7 @@ func mediaEnv(t *testing.T, kv map[string]string) {
 	}
 }
 
-// TestLoad_MediaDefaults: the flag is off in every environment, the Vision cap is 10,000 units and the
-// thumbnail is screened by default.
+// TestLoad_MediaDefaults: the flag is off in every environment and the thumbnail is screened by default.
 func TestLoad_MediaDefaults(t *testing.T) {
 	mediaEnv(t, nil)
 	cfg, err := Load()
@@ -33,8 +32,8 @@ func TestLoad_MediaDefaults(t *testing.T) {
 	if cfg.FeatureMedia.Mode != flags.Off || cfg.FeatureMedia.Name != "media" {
 		t.Errorf("FeatureMedia = %+v, want off / media", cfg.FeatureMedia)
 	}
-	if cfg.VisionMonthlyCap != 10000 || cfg.VisionExhaustedPolicy != VisionPolicyEstablished || !cfg.VisionScreenThumb {
-		t.Errorf("vision = %d %q thumb=%v", cfg.VisionMonthlyCap, cfg.VisionExhaustedPolicy, cfg.VisionScreenThumb)
+	if !cfg.VisionScreenThumb {
+		t.Errorf("thumbnail screening should default on")
 	}
 	if !strings.HasSuffix(cfg.MediaBucket, "-media") || !strings.HasSuffix(cfg.MediaUploadBucket, "-media-upload") {
 		t.Errorf("buckets = %q / %q", cfg.MediaBucket, cfg.MediaUploadBucket)
@@ -46,14 +45,14 @@ func TestLoad_MediaDefaults(t *testing.T) {
 
 func TestLoad_MediaOverrides(t *testing.T) {
 	mediaEnv(t, map[string]string{
-		"FEATURE_MEDIA": "on", "VISION_MONTHLY_CAP": "0", "VISION_EXHAUSTED_POLICY": "reject",
+		"FEATURE_MEDIA":       "on",
 		"VISION_SCREEN_THUMB": "false", "MEDIA_PUBLIC_BASE_URL": "https://cdn.example.com/m/",
 	})
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.FeatureMedia.Mode != flags.On || cfg.VisionMonthlyCap != 0 || cfg.VisionExhaustedPolicy != VisionPolicyReject || cfg.VisionScreenThumb {
+	if cfg.FeatureMedia.Mode != flags.On || cfg.VisionScreenThumb {
 		t.Errorf("cfg = %+v", cfg)
 	}
 	if cfg.MediaPublicBaseURL != "https://cdn.example.com/m" {
@@ -61,16 +60,13 @@ func TestLoad_MediaOverrides(t *testing.T) {
 	}
 }
 
-// TestLoad_MediaInvalid: a bad cap, policy or switch fails startup instead of silently changing what is published.
+// TestLoad_MediaInvalid: a bad thumb switch or flag mode fails startup instead of silently changing what is published.
 func TestLoad_MediaInvalid(t *testing.T) {
 	tests := []struct {
 		name string
 		env  map[string]string
 		want string
 	}{
-		{"negative cap", map[string]string{"VISION_MONTHLY_CAP": "-1"}, "VISION_MONTHLY_CAP"},
-		{"non-numeric cap", map[string]string{"VISION_MONTHLY_CAP": "lots"}, "VISION_MONTHLY_CAP"},
-		{"unknown policy", map[string]string{"VISION_EXHAUSTED_POLICY": "allow_all"}, "VISION_EXHAUSTED_POLICY"},
 		{"bad thumb switch", map[string]string{"VISION_SCREEN_THUMB": "maybe"}, "VISION_SCREEN_THUMB"},
 		{"bad flag mode", map[string]string{"FEATURE_MEDIA": "sometimes"}, "FEATURE_MEDIA"},
 	}

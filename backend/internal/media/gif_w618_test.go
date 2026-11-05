@@ -19,7 +19,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	mediav1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
@@ -258,45 +257,6 @@ func TestW618_SlotIsReleasedAfterARefusalAndDoesNotBlockPhotos(t *testing.T) {
 	if r := <-done; r.Status != StatusReady {
 		t.Fatalf("GIF = %+v", r)
 	}
-}
-
-// TestW618_VisionCapBoundary: a GIF needs 2 units. One unit left is "at the cap" for it (REJECTED, nothing spent, the
-// counter unchanged), two units left is READY and lands exactly on the cap; a photo needing 1 unit still fits.
-func TestW618_VisionCapBoundary(t *testing.T) {
-	t.Run("one unit left rejects a GIF without partial spend", func(t *testing.T) {
-		e := newEnv(t, envOpts{cap: 10, policy: config.VisionPolicyReject})
-		e.repo.vision[monthKey(testNow)] = 9
-		r := e.finalizeGIF(t, e.createGIF(t, uidA, "a", ContentTypeJPEG))
-		if r.Status != StatusRejected || r.RejectionReason != reasonCapacity {
-			t.Fatalf("result = %+v, want REJECTED %q", r, reasonCapacity)
-		}
-		if got := e.repo.vision[monthKey(testNow)]; got != 9 {
-			t.Fatalf("vision units = %d, want 9 (no partial reservation)", got)
-		}
-		if len(e.mod.calls) != 0 || len(e.mod.byteCalls) != 0 || len(e.obj.public) != 0 {
-			t.Fatalf("calls %v / %d, public %v", e.mod.calls, len(e.mod.byteCalls), e.obj.public)
-		}
-		// the same account's photo (1 unit, thumbnail not screened) still fits the last unit.
-		p := e.upload(t, uidA, PurposePost, "p")
-		res, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: p.MediaID}})
-		if err != nil || res[0].Status != StatusReady {
-			t.Fatalf("photo on the last unit = %+v err=%v", res, err)
-		}
-		if got := e.repo.vision[monthKey(testNow)]; got != 10 {
-			t.Fatalf("vision units = %d, want 10", got)
-		}
-	})
-	t.Run("two units left is READY and lands on the cap", func(t *testing.T) {
-		e := newEnv(t, envOpts{cap: 10, policy: config.VisionPolicyReject})
-		e.repo.vision[monthKey(testNow)] = 8
-		r := e.finalizeGIF(t, e.createGIF(t, uidA, "a", ContentTypeJPEG))
-		if r.Status != StatusReady {
-			t.Fatalf("result = %+v", r)
-		}
-		if got := e.repo.vision[monthKey(testNow)]; got != 10 {
-			t.Fatalf("vision units = %d, want 10", got)
-		}
-	})
 }
 
 // TestW618_VisionFailureSpendsNothingAndKeepsTheGIFRetryable: Vision failing on the sheet is a retryable UNAVAILABLE with

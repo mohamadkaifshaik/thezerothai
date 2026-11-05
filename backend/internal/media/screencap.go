@@ -119,9 +119,9 @@ func (s *service) isNewAccount(ctx context.Context, uid string) bool {
 }
 
 // isNewAccountAt is the module's one definition of the new-account tier, used by the per-uid Vision-units cap
-// (chargeUnits) and the exhausted-cap policy. A zero createdAt (a users doc written
+// (chargeUnits). A zero createdAt (a users doc written
 // without it; signup always sets it) is NEW: an unknown age proves nothing about the account, so it takes the stricter tier, the same fail-closed answer the
-// unreadable age gets above and that establishedAccount gives for the unscreened publish (zero is not established).
+// unreadable age gets above.
 func (s *service) isNewAccountAt(created, now time.Time) bool {
 	return created.IsZero() || now.Sub(created) < s.NewAccountWindow
 }
@@ -133,7 +133,7 @@ func screeningUnavailable(cause error) error {
 }
 
 // unbilled reports whether a failed Vision call is known not to have been billed, so its unit goes back to BOTH counters (the per-uid cap and
-// VISION_MONTHLY_CAP; one "possibly billed" definition, H-1). Only two classes qualify (L-1):
+// the month's usage counter; one "possibly billed" definition, H-1). Only two classes qualify (L-1):
 //   - an HTTP answer of 429 (the project's own quota) or 5xx from Google (a *googleapi.Error), the behaviour since #535;
 //   - a failure before any request was written: the Vision service could not be built (errNotSent) or the TCP connect failed (a *net.OpError
 //     with Op "dial", which covers a DNS failure and a refused or unreachable host).

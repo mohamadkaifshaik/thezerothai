@@ -12,7 +12,6 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
 )
 
@@ -34,8 +33,6 @@ type env struct {
 }
 
 type envOpts struct {
-	cap         int64
-	policy      config.VisionExhaustedPolicy
 	screenThumb bool
 	accountAge  time.Duration // age of every account
 	dirErr      error
@@ -56,9 +53,6 @@ type envOpts struct {
 
 func newEnv(t *testing.T, o envOpts) *env {
 	t.Helper()
-	if o.cap == 0 {
-		o.cap = 100
-	}
 	if o.accountAge == 0 {
 		o.accountAge = 30 * 24 * time.Hour
 	}
@@ -72,7 +66,7 @@ func newEnv(t *testing.T, o envOpts) *env {
 		Log: o.log, GifQueueWait: o.gifWait, GifDecodeTimeout: o.gifDecode, GifMaxFrames: o.gifMaxFrames, GifMaxFrameAreaSum: o.gifMaxArea, MediaMaxScreenAttempts: o.maxAttempts, MediaMaxScreenRetries: o.maxRetries, VisionUnitsPerDay: o.unitsPerDay, VisionUnitsPerDayNewAccount: o.newUnitsDay,
 		Directory: fakeDirectory{created: createdFor(o), err: o.dirErr}, IDs: &seqIDs{},
 		PublicBaseURL:    "https://cdn.test/media",
-		NewAccountWindow: 24 * time.Hour, VisionMonthlyCap: o.cap, Policy: o.policy, ScreenThumb: o.screenThumb,
+		NewAccountWindow: 24 * time.Hour, ScreenThumb: o.screenThumb,
 		Now: func() time.Time { return testNow },
 	})
 	if err != nil {
@@ -479,114 +473,6 @@ func TestFinalize_ReFinalizeIsIdempotent(t *testing.T) {
 	}
 	if len(e.mod.calls) != calls || e.obj.publishes != publishes || e.repo.vision[monthKey(testNow)] != units {
 		t.Fatal("a re-finalize must not screen, copy or count again")
-	}
-}
-
-func TestFinalize_VisionCap(t *testing.T) {
-	tests := []struct {
-		name       string
-		cap        int64
-		used       int64
-		policy     config.VisionExhaustedPolicy
-		age        time.Duration
-		wantStatus Status
-		wantReason string
-		wantCalls  int
-	}{
-		{"under the cap", 10, 9, config.VisionPolicyEstablished, 30 * 24 * time.Hour, StatusReady, "", 1},
-		{"at the cap, established account: unscreened", 10, 10, config.VisionPolicyEstablished, 30 * 24 * time.Hour, StatusReadyUnscreened, "", 0},
-		{"at the cap, new account: rejected", 10, 10, config.VisionPolicyEstablished, 2 * 24 * time.Hour, StatusRejected, reasonCapacity, 0},
-		{"at the cap, policy reject", 10, 10, config.VisionPolicyReject, 30 * 24 * time.Hour, StatusRejected, reasonCapacity, 0},
-		{"cap 0 disables screening spend", -1, 0, config.VisionPolicyEstablished, 30 * 24 * time.Hour, StatusReadyUnscreened, "", 0},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// envOpts treats cap 0 as "default", so a disabled cap (tt.cap < 0) is built explicitly.
-			var e *env
-			if tt.cap < 0 {
-				e = newEnvCap0(t, tt.policy, tt.age)
-			} else {
-				e = newEnv(t, envOpts{cap: tt.cap, policy: tt.policy, accountAge: tt.age})
-			}
-			e.repo.vision[monthKey(testNow)] = tt.used
-			tg := e.upload(t, uidA, PurposePost, "a")
-			res, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			r := res[0]
-			if r.Status != tt.wantStatus || r.RejectionReason != tt.wantReason {
-				t.Fatalf("result = %+v, want %s %q", r, tt.wantStatus, tt.wantReason)
-			}
-			if len(e.mod.calls) != tt.wantCalls {
-				t.Fatalf("moderator calls = %d, want %d: the cap must stop Vision spend", len(e.mod.calls), tt.wantCalls)
-			}
-			if tt.wantStatus == StatusRejected && len(e.obj.public) != 0 {
-				t.Fatal("rejected bytes were published")
-			}
-			if tt.wantStatus == StatusReadyUnscreened && (r.Ref == nil || len(e.obj.public) != 2) {
-				t.Fatalf("unscreened publish: ref=%v public=%v", r.Ref, e.obj.public)
-			}
-		})
-	}
-}
-
-func newEnvCap0(t *testing.T, policy config.VisionExhaustedPolicy, age time.Duration) *env {
-	t.Helper()
-	e := &env{repo: newFakeRepo(), obj: newFakeObjects(), mod: &fakeModerator{by: map[string]SafeSearch{}}, sign: &fakeSigner{}}
-	svc, err := New(Deps{
-		Repo: e.repo, Signer: e.sign, Objects: e.obj, Moderator: e.mod,
-		Directory: fakeDirectory{created: testNow.Add(-age)}, IDs: &seqIDs{}, PublicBaseURL: "https://cdn.test/media",
-		NewAccountWindow: 24 * time.Hour,
-		VisionMonthlyCap: 0, Policy: policy, Now: func() time.Time { return testNow },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	e.svc = svc
-	return e
-}
-
-func TestFinalize_CapIsSharedAcrossAFinalizeAndNeverExceeded(t *testing.T) {
-	// Three images, 2 units left: the first two are screened, the third takes the exhausted path.
-	e := newEnv(t, envOpts{cap: 10})
-	e.repo.vision[monthKey(testNow)] = 8
-	var items []FinalizeItem
-	for _, tag := range []string{"a", "b", "c"} {
-		tg := e.upload(t, uidA, PurposePost, tag)
-		items = append(items, FinalizeItem{MediaID: tg.MediaID})
-	}
-	res, err := e.svc.FinalizeUpload(context.Background(), uidA, items)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var ready, unscreened int
-	for _, r := range res {
-		switch r.Status {
-		case StatusReady:
-			ready++
-		case StatusReadyUnscreened:
-			unscreened++
-		}
-	}
-	if ready != 2 || unscreened != 1 || len(e.mod.calls) != 2 {
-		t.Fatalf("ready=%d unscreened=%d calls=%d", ready, unscreened, len(e.mod.calls))
-	}
-	if got := e.repo.vision[monthKey(testNow)]; got != 10 {
-		t.Fatalf("counter = %d, want exactly the cap", got)
-	}
-}
-
-func TestFinalize_VisionCounterReadIsCached(t *testing.T) {
-	e := newEnv(t, envOpts{cap: 100})
-	for _, tag := range []string{"a", "b", "c"} {
-		tg := e.upload(t, uidA, PurposePost, tag)
-		if _, err := e.svc.FinalizeUpload(context.Background(), uidA, []FinalizeItem{{MediaID: tg.MediaID}}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if e.repo.visionRd != 1 {
-		t.Fatalf("counter reads = %d, want 1 (cached 60 s per instance)", e.repo.visionRd)
 	}
 }
 

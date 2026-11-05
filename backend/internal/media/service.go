@@ -16,7 +16,6 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
@@ -31,10 +30,8 @@ const (
 	fieldImages            = "media_images"
 	fieldContentType       = "content_type" // image/jpeg, image/webp or image/gif (validated or from the stored document)
 	fieldReady             = "media_ready"
-	fieldUnscreened        = "media_unscreened"
 	fieldRejected          = "media_rejected"
 	fieldVisionUnits       = "vision_units"
-	fieldExhausted         = "vision_cap_exhausted"
 	fieldAttemptsExhausted = "attempts_exhausted"  // "assessed" or "claims" (A5.4 pre-check)
 	fieldConverged         = "finalize_converged"  // a lost finalize race answered with the winner's result
 	fieldBusy              = "finalize_busy"       // another call holds the screening claim (M-3): MEDIA_NOT_READY, no Vision units
@@ -59,7 +56,6 @@ var md5b64Pattern = regexp.MustCompile(`^[A-Za-z0-9+/]{22}==$`)
 const (
 	reasonInvalid  = "This image could not be used. Please choose a different one."
 	reasonPolicy   = "This image can't be used because it may break the community rules."
-	reasonCapacity = "Image uploads are temporarily limited. Please try again later."
 	reasonAttempts = "We couldn't check this image. Remove it and choose another."
 	// reasonGifLarge is the pre-scan refusal and the decode deadline.
 	reasonGifLarge = "This GIF is too large or too long."
@@ -78,12 +74,10 @@ type Deps struct {
 	NameSuffix func() (string, error)
 	// PublicBaseURL is the URL prefix public objects are served from, no trailing slash.
 	PublicBaseURL string
-	// NewAccountWindow decides the new-account tier of the Vision-units cap and the exhausted-cap policy.
+	// NewAccountWindow decides the new-account tier of the per-uid Vision-units cap.
 	NewAccountWindow time.Duration
-	// VisionMonthlyCap, Policy and ScreenThumb are the runaway-bill guard and its fallback.
-	VisionMonthlyCap int64
-	Policy           config.VisionExhaustedPolicy
-	ScreenThumb      bool
+	// ScreenThumb is VISION_SCREEN_THUMB: screen the thumbnail too.
+	ScreenThumb bool
 	// GifMaxEdge is GIF_MAX_EDGE: the largest declared GIF width or height at CreateUpload. 0 means 1,280.
 	// GifMaxFrames and GifMaxFrameAreaSum are GIF_MAX_FRAMES and GIF_MAX_FRAME_AREA_SUM, the pre-scan limits of
 	// FinalizeUpload's frame-sampled screen (D11). 0 means 300 and 50,000,000 pixels.
@@ -112,7 +106,6 @@ type Deps struct {
 
 type service struct {
 	Deps
-	vision *visionBudget
 	// flight collapses concurrent FinalizeUpload calls for one media id on this instance (M-3, part a); the
 	// screening claim (part b) covers the other instances.
 	flight singleflight.Group
@@ -140,9 +133,6 @@ func New(d Deps) (Service, error) {
 	if d.Log == nil {
 		d.Log = slog.Default()
 	}
-	if d.Policy == "" {
-		d.Policy = config.VisionPolicyEstablished
-	}
 	if d.VisionUnitsPerDay <= 0 {
 		d.VisionUnitsPerDay = defaultVisionUnitsPerDay
 	}
@@ -150,7 +140,7 @@ func New(d Deps) (Service, error) {
 		d.VisionUnitsPerDayNewAccount = defaultVisionUnitsPerDayNewAccount
 	}
 	return &service{
-		Deps: d, vision: &visionBudget{repo: d.Repo, cap: d.VisionMonthlyCap, now: d.Now}, gifSlot: make(chan struct{}, 1),
+		Deps: d, gifSlot: make(chan struct{}, 1),
 		unitsCap: ratelimit.NewDailyCap(d.VisionUnitsPerDay).WithClock(d.Now), unitsCapNew: ratelimit.NewDailyCap(d.VisionUnitsPerDayNewAccount).WithClock(d.Now),
 	}, nil
 }

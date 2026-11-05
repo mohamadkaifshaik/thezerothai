@@ -97,7 +97,7 @@ func wireMedia(cfg config.Config, log *slog.Logger, fs *firestore.Client, featur
 		Repo: repo, Signer: buckets, Objects: buckets, Moderator: moderator,
 		Directory: directoryAge{dir}, IDs: node, PublicBaseURL: cfg.MediaPublicBaseURL,
 		NewAccountWindow: cfg.Quota.NewAccountWindow,
-		VisionMonthlyCap: int64(cfg.VisionMonthlyCap), Policy: cfg.VisionExhaustedPolicy, ScreenThumb: cfg.VisionScreenThumb, GifMaxEdge: cfg.Composer.GifMaxEdge,
+		ScreenThumb:      cfg.VisionScreenThumb, GifMaxEdge: cfg.Composer.GifMaxEdge,
 		GifMaxFrames: cfg.Composer.GifMaxFrames, GifMaxFrameAreaSum: int64(cfg.Composer.GifMaxFrameAreaSum),
 		MediaMaxScreenAttempts: cfg.Composer.MediaMaxScreenAttempts,
 		MediaMaxScreenRetries:  &cfg.Composer.MediaMaxScreenRetries,

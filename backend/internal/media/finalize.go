@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
@@ -71,9 +70,10 @@ func (s *service) FinalizeUpload(ctx context.Context, uid string, items []Finali
 		}()
 	}
 	wg.Wait()
-	// The Vision counter is the cost meter: record what was actually spent even when another item failed.
+	// The Vision counter is a cost meter only (scripts/cost-vision.sh reads it): record what was actually spent even when another item failed.
+	// It never gates anything, so a failed write is logged and the screened image is still published.
 	if units > 0 {
-		// Detached from the request (H-1): a client that hangs up after Vision answered must not hide the spend from the cap.
+		// Detached from the request (H-1): a client that hangs up after Vision answered must not hide the spend from the meter.
 		vctx, vcancel := context.WithTimeout(context.WithoutCancel(ctx), claimReleaseTimeout)
 		defer vcancel()
 		if err := s.Repo.AddVisionUnits(vctx, monthKey(s.Now()), units); err != nil {
@@ -84,19 +84,16 @@ func (s *service) FinalizeUpload(ctx context.Context, uid string, items []Finali
 	if firstEr != nil {
 		return nil, firstEr
 	}
-	var ready, unscreened, rejected int
+	var ready, rejected int
 	for _, r := range results {
 		switch r.Status {
 		case StatusReady:
 			ready++
-		case StatusReadyUnscreened:
-			unscreened++
 		case StatusRejected:
 			rejected++
 		}
 	}
 	logger.SetRequestField(ctx, fieldReady, ready)
-	logger.SetRequestField(ctx, fieldUnscreened, unscreened)
 	logger.SetRequestField(ctx, fieldRejected, rejected)
 	logger.SetRequestField(ctx, fieldOutcome, "finalized")
 	return results, nil
@@ -209,7 +206,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 		return s.resultOf(d), 0, nil // idempotent: already READY / REJECTED
 	}
 	// 0. Another call (usually on another instance: this instance's calls are collapsed by finalizeShared) holds the
-	// screening claim: do not verify, reserve or screen. The document is read again in case it was resolved since
+	// screening claim: do not verify, charge or screen. The document is read again in case it was resolved since
 	// this call loaded it; otherwise the client retries (M-3).
 	if d.ScreeningUntil != nil && d.ScreeningUntil.After(s.Now()) {
 		return s.screeningElsewhere(ctx, uid, d)
@@ -296,73 +293,49 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	// attempt cap bounds. The recover at the top of this function only sees panics from before the claim.
 	defer s.recoverWorker(ctx, finalizeWorkerOp, uid, &err)
 
-	// 2. Moderate: every image is screened while the monthly cap lasts.
-	status := StatusReady
-	ok, err := s.vision.reserve(ctx, units)
+	// 2. Moderate: every image is screened, always. Nothing below publishes unless screen returned no error and no
+	// blocking verdict; every other outcome is a rejection or a retryable "unavailable" (fail closed). There is no
+	// spend cap here: the per-uid units cap above and the Vision project's own request quota bound the bill.
+	res, err := s.screen(ctx, d, gens, releaseSlot)
+	// One "possibly billed" definition for the per-uid cap and the month's counter (H-1, L-1): every call that is not known to be unbilled counts, answered or not,
+	// so a deadline or a hung-up client (a call that may have been billed) stays counted, as it does in the per-uid cap.
+	// Only calls unbilled() recognises (res.refundable: never sent, or a 429 or 5xx answer) are returned. Over-counts by at most 2 units per honest timeout or reset.
+	spent = units - res.refundable
+	refundUnits = res.refundable // the per-uid cap refunds the same calls (not timeouts, not resets, not answers)
+	assessed = res.valid > 0     // at least one valid assessment: if the doc does not end, this attempt is consumed (A5.2)
+	// A blocking verdict is final even when the other call failed (A5.3 row 2): the image is REJECTED, not retried.
+	if res.blocked {
+		logger.SetRequestField(ctx, fieldScreenOutcome, "rejected_policy")
+		r, err := s.reject(ctx, d, reasonPolicy)
+		return r, spent, err
+	}
 	if err != nil {
-		logger.SetRequestField(ctx, fieldScreenOutcome, "unassessed")
-		return Result{}, 0, screeningUnavailable(logger.RedactErr(err, uid))
+		// A GIF the sampler refused (D11) is REJECTED with no Vision spend.
+		var refusal *gifRefusal
+		switch {
+		case errors.As(err, &refusal):
+			logger.SetRequestField(ctx, fieldScreenOutcome, "rejected_invalid")
+			r, rerr := s.reject(ctx, d, refusal.reason)
+			return r, spent, rerr
+		case isInvalidImage(err):
+			// Vision cannot decode the image: no retry can fix it, so it is terminal (the same answer as a bad magic number).
+			logger.SetRequestField(ctx, fieldScreenOutcome, "rejected_invalid")
+			r, rerr := s.reject(ctx, d, reasonInvalid)
+			return r, spent, rerr
+		}
+		// Vision fetches the private object, so a concurrent finalize that already published and deleted it
+		// surfaces here as a screening failure although the image is READY: converge on its result.
+		if r, ok := s.resolvedElsewhere(ctx, d); ok {
+			return r, spent, nil
+		}
+		outcome := map[bool]string{true: "assessed", false: "unassessed"}[assessed]
+		if errors.Is(err, errNoVisionTime) {
+			outcome = fieldOutcomeNoTime
+		}
+		logger.SetRequestField(ctx, fieldScreenOutcome, outcome)
+		return Result{}, spent, screeningUnavailable(logger.RedactErr(err, uid))
 	}
-	if ok {
-		res, err := s.screen(ctx, d, gens, releaseSlot)
-		// One "possibly billed" definition for both counters (H-1, L-1): every call that is not known to be unbilled counts, answered or not,
-		// so a deadline or a hung-up client (a call that may have been billed) stays in VISION_MONTHLY_CAP, as it does in the per-uid cap.
-		// Only calls unbilled() recognises (res.refundable: never sent, or a 429 or 5xx answer) are returned. Over-counts by at most 2 units per honest timeout or reset.
-		spent = units - res.refundable
-		s.vision.release(res.refundable)
-		refundUnits = res.refundable // the per-uid cap refunds the same calls (not timeouts, not resets, not answers)
-		assessed = res.valid > 0     // at least one valid assessment: if the doc does not end, this attempt is consumed (A5.2)
-		// A blocking verdict is final even when the other call failed (A5.3 row 2): the image is REJECTED, not retried.
-		if res.blocked {
-			logger.SetRequestField(ctx, fieldScreenOutcome, "rejected_policy")
-			r, err := s.reject(ctx, d, reasonPolicy)
-			return r, spent, err
-		}
-		if err != nil {
-			// A GIF the sampler refused (D11) is REJECTED with no Vision spend.
-			var refusal *gifRefusal
-			switch {
-			case errors.As(err, &refusal):
-				logger.SetRequestField(ctx, fieldScreenOutcome, "rejected_invalid")
-				r, rerr := s.reject(ctx, d, refusal.reason)
-				return r, spent, rerr
-			case isInvalidImage(err):
-				// Vision cannot decode the image: no retry can fix it, so it is terminal (the same answer as a bad magic number).
-				logger.SetRequestField(ctx, fieldScreenOutcome, "rejected_invalid")
-				r, rerr := s.reject(ctx, d, reasonInvalid)
-				return r, spent, rerr
-			}
-			// Vision fetches the private object, so a concurrent finalize that already published and deleted it
-			// surfaces here as a screening failure although the image is READY: converge on its result.
-			if r, ok := s.resolvedElsewhere(ctx, d); ok {
-				return r, spent, nil
-			}
-			outcome := map[bool]string{true: "assessed", false: "unassessed"}[assessed]
-			if errors.Is(err, errNoVisionTime) {
-				outcome = fieldOutcomeNoTime
-			}
-			logger.SetRequestField(ctx, fieldScreenOutcome, outcome)
-			return Result{}, spent, screeningUnavailable(logger.RedactErr(err, uid))
-		}
-		logger.SetRequestField(ctx, fieldScreenOutcome, "ready")
-	} else {
-		logger.SetRequestField(ctx, fieldExhausted, true)
-		if d.ContentType == ContentTypeGIF {
-			// Point 4: at the cap a GIF is REJECTED for every account, never READY_UNSCREENED (a GIF is not
-			// screened by anything but Vision, and report-driven review is slower for an animation).
-			r, err := s.reject(ctx, d, reasonCapacity)
-			return r, 0, err
-		}
-		established, err := s.establishedAccount(ctx, uid)
-		if err != nil {
-			return Result{}, 0, err
-		}
-		if !established {
-			r, err := s.reject(ctx, d, reasonCapacity)
-			return r, 0, err
-		}
-		status = StatusReadyUnscreened
-	}
+	logger.SetRequestField(ctx, fieldScreenOutcome, "ready")
 
 	// 3. Publish: copy into the public bucket, then flip the document, then drop the private copies.
 	pub, pubThumb := publicObject(d.ID, d.NameSuffix, extension(d.ContentType)), publicThumbObject(d.ID, d.NameSuffix, extension(d.ThumbType()))
@@ -390,7 +363,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 		}
 		return Result{}, spent, logger.RedactErr(fmt.Errorf("media: publish thumb: %w", err), uid)
 	}
-	err = s.Repo.Resolve(ctx, d.ID, d.UpdateTime, Resolution{Status: status, PublicPath: pub, ThumbPath: pubThumb, Blurhash: blurhash})
+	err = s.Repo.Resolve(ctx, d.ID, d.UpdateTime, Resolution{Status: StatusReady, PublicPath: pub, ThumbPath: pubThumb, Blurhash: blurhash})
 	switch {
 	case errors.Is(err, ErrConflict):
 		r, spent, rerr := s.reload(ctx, uid, d.ID, spent)
@@ -404,7 +377,7 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	}
 	s.deleteUploads(ctx, d)
 	out := *d
-	out.Status, out.PublicPath, out.ThumbPath, out.Blurhash = string(status), pub, pubThumb, blurhash
+	out.Status, out.PublicPath, out.ThumbPath, out.Blurhash = string(StatusReady), pub, pubThumb, blurhash
 	return s.resultOf(&out), spent, nil
 }
 
@@ -608,7 +581,7 @@ type screenResult struct {
 	// blocked: a VALID assessment is blocked by the policy. It holds even when another call failed (A5.3 row 2).
 	blocked bool
 	// answered is the number of calls Vision answered, with a verdict or with a per-image error (VisionAnsweredError): Google bills each of
-	// them, so the VISION_MONTHLY_CAP counter takes them (security H-3).
+	// them, so the month's usage counter takes them (security H-3).
 	answered int64
 	// valid is the number of calls that returned a SafeSearchAnnotation (a verdict, blocking or not): a valid assessment (A5.2).
 	valid int64
@@ -677,19 +650,6 @@ func blockedBySafeSearch(ss SafeSearch, p Purpose) bool {
 		return true
 	}
 	return (p == PurposeAvatar || p == PurposeBanner) && ss.Racy >= LikelihoodLikely
-}
-
-// establishedAccount reports whether uid may publish unscreened once the cap is spent: the policy
-// allows it and the account is older than 7 days. There is no upheld-report signal until the reports slice.
-func (s *service) establishedAccount(ctx context.Context, uid string) (bool, error) {
-	if s.Policy != config.VisionPolicyEstablished {
-		return false, nil
-	}
-	created, err := s.Directory.AccountCreatedAt(ctx, uid)
-	if err != nil {
-		return false, logger.RedactErr(fmt.Errorf("media: load account: %w", err), uid)
-	}
-	return !created.IsZero() && s.Now().Sub(created) >= AccountAgeForUnscreened, nil
 }
 
 // reject deletes the private objects and records REJECTED (kept for PendingTTL so a replayed FinalizeUpload gets

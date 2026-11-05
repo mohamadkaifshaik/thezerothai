@@ -762,7 +762,8 @@ func TestLoad_ProfileUpdatesPerDay(t *testing.T) {
 
 // TestLoad_RemovedQuotaKeysIgnored: the in-memory daily call caps on lists and search (replaced by new keys), handle checks, account operations, devices,
 // notification seen, suggestions, search, trends, poll votes and list and community mutations, and the daily quotas on posts, follows, uploads, exports, snapshot edits, blocks, likes,
-// schedules, bookmarks, privacy toggles, list creates and adds, community joins and community posts were removed. Their
+// schedules, bookmarks, privacy toggles, list creates and adds, community joins and community posts were removed, and so were the Vision monthly
+// cap and exhausted policy (every image is always screened; no value may switch screening off or change what is published). Their
 // env vars may still be set on a running service until the Terraform change lands, so a value that used to fail startup
 // (0, negative, unparseable) must now be ignored.
 func TestLoad_RemovedQuotaKeysIgnored(t *testing.T) {
@@ -777,8 +778,10 @@ func TestLoad_RemovedQuotaKeysIgnored(t *testing.T) {
 		"LIST_CALLS_PER_DAY", "CHECK_HANDLE_CALLS_PER_DAY", "ACCOUNT_OPS_CALLS_PER_DAY", "NOTIFICATION_DEVICES_CALLS_PER_DAY",
 		"NOTIFICATION_SEEN_CALLS_PER_DAY", "SUGGESTIONS_CALLS_PER_DAY", "SEARCH_CALLS_PER_DAY", "TRENDS_CALLS_PER_DAY",
 		"POLL_VOTES_PER_DAY", "POLL_VOTES_PER_DAY_NEW_ACCOUNT", "LIST_MUTATIONS_PER_DAY", "COMMUNITY_MUTATIONS_PER_DAY",
+		// The Vision monthly cap and its exhausted policy: every image is now always screened.
+		"VISION_MONTHLY_CAP", "VISION_EXHAUSTED_POLICY",
 	} {
-		for _, val := range []string{"0", "-1", "many"} {
+		for _, val := range []string{"0", "-1", "many", "reject", "unscreened_established", "allow_all"} {
 			t.Run(key+"="+val, func(t *testing.T) {
 				clearEnv(t)
 				t.Setenv(key, val)

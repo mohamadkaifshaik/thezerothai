@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 # Prints Cloud Vision SafeSearch units used this month and today (UTC), for `make cost`.
-# Month: Firestore doc admin/vision-YYYYMM field "units" (backend/internal/media AddVisionUnits/VisionUsed).
+# Month: Firestore doc admin/vision-YYYYMM field "units" (written by backend/internal/media AddVisionUnits; a cost meter only, it limits nothing).
 # Today: sum of the vision_units field on FinalizeUpload request lines in Cloud Logging since 00:00 UTC.
 # Usage: scripts/cost-vision.sh <gcp-project>   (needs gcloud auth; read-only; ~1 Firestore read + 1 log query)
 # Never fails the caller: without credentials it prints a fallback line and exits 0.
 set -u
 project="${1:-${PROJECT_ID:-}}"
-cap="${VISION_MONTHLY_CAP:-10000}"
 if [ -z "$project" ]; then
   echo "Vision units: needs PROJECT_ID plus gcloud/Firestore credentials (make cost PROJECT_ID=dzeroth-prod)"
   exit 0
@@ -30,7 +29,7 @@ esac
 if [ -z "$units" ]; then
   echo "Vision units this month: unavailable (Firestore HTTP ${code:-none}); needs gcloud/Firestore credentials with datastore.viewer on ${project}"
 else
-  echo "Vision units this month (${month}, UTC): ${units} of cap ${cap}; 1,000 free, then \$1.50 per 1,000 units (2 units per image while VISION_SCREEN_THUMB=true)"
+  echo "Vision units this month (${month}, UTC): ${units}; 1,000 free, then \$1.50 per 1,000 units (2 units per image while VISION_SCREEN_THUMB=true). No monthly cap: every image is screened; the Vision project request quota (30 per minute) is the ceiling"
 fi
 logs="$(gcloud logging read "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"api\" AND jsonPayload.vision_units>0 AND timestamp>=\"${today}T00:00:00Z\"" \
   --project="$project" --limit=1000 --format='value(jsonPayload.vision_units)' 2>/dev/null)" || logs="__fail__"

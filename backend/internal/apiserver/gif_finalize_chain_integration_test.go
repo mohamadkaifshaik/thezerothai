@@ -124,7 +124,7 @@ func newGifChain(t *testing.T, mutate func(*config.Config)) *gifChain {
 	svc, err := media.New(media.Deps{
 		Repo:   media.NewFirestoreRepo(e.fs, media.WriteDeps{Idempotency: idempotency.New(e.fs)}),
 		Signer: stubSigner{}, Objects: buckets, Moderator: media.AllowAll{}, Directory: oldAccount{}, IDs: randIDs{},
-		PublicBaseURL: "https://cdn.test", NewAccountWindow: time.Hour, VisionMonthlyCap: 1000,
+		PublicBaseURL: "https://cdn.test", NewAccountWindow: time.Hour,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -72,3 +72,17 @@ func TestServer_EndToEndConversion(t *testing.T) {
 	_, err = s.FinalizeUpload(authedCtx(uidA), connect.NewRequest(&mediav1.FinalizeUploadRequest{IdempotencyKey: "x", Items: []*mediav1.FinalizeItem{{MediaId: tg.GetMediaId()}}}))
 	_ = wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION)
 }
+
+// An existing READY_UNSCREENED document keeps its own wire status: clients treat it as published.
+func TestServer_StatusToProtoKeepsReadyUnscreened(t *testing.T) {
+	for st, want := range map[Status]mediav1.MediaStatus{
+		StatusPending:         mediav1.MediaStatus_MEDIA_STATUS_PENDING,
+		StatusReady:           mediav1.MediaStatus_MEDIA_STATUS_READY,
+		StatusReadyUnscreened: mediav1.MediaStatus_MEDIA_STATUS_READY_UNSCREENED,
+		StatusRejected:        mediav1.MediaStatus_MEDIA_STATUS_REJECTED,
+	} {
+		if got := statusToProto(st); got != want {
+			t.Errorf("statusToProto(%s) = %v, want %v", st, got, want)
+		}
+	}
+}
