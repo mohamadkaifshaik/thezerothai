@@ -23,7 +23,9 @@
 //
 // Lifecycle: OPEN -> FULL when accepted_count reaches open_spots, back to OPEN on a leave or removal; CANCELLED by
 // the organiser at any time; ENDED is derived at read time (now >= start_at + duration_minutes) and never stored.
-// Every mutation on an ENDED or CANCELLED beacon => FAILED_PRECONDITION, metadata["reason"] = "ended" | "cancelled".
+// Every mutation on an ENDED or CANCELLED beacon => FAILED_PRECONDITION, metadata["reason"] = "ended" | "cancelled",
+// with two idempotent exceptions that succeed and write only the idempotency doc: CancelBeacon on an already-CANCELLED
+// beacon, and RequestToJoin by a caller who is already ACCEPTED (see each RPC).
 //
 // Participation: RequestToJoin -> the organiser's RespondToJoinRequest (ACCEPT | DECLINE) -> LeaveBeacon (always
 // allowed, no approval) or the organiser's RemoveParticipant. Mutual acceptance is the only path in. The organiser
