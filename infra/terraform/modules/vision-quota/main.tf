@@ -3,9 +3,9 @@
 // Why: images:annotate checks no Vision IAM permission, only that the caller may bill the project
 // (roles/serviceusage.serviceUsageConsumer, which the tf-plan service account holds so that Terraform's
 // user_project_override works). Every Vision feature has its own project-wide per-minute quota that defaults to
-// 1,800 and bills per unit, and none of them is tied to VISION_MONTHLY_CAP (an app-side counter). A stolen or
-// early-minted plan token could therefore burn the credit in hours. These overrides make the API itself
-// refuse the excess.
+// 1,800 and bills per unit, and nothing app-side bounds the monthly total any more (every image is always
+// screened). A stolen or early-minted plan token could therefore burn the credit in hours. These overrides
+// make the API itself refuse the excess, so this per-minute quota is now the only hard bill guard.
 //
 // The app uses exactly one feature: SAFE_SEARCH_DETECTION (backend/internal/media/vision.go), one image per
 // request. So: that feature (and the umbrella `default_requests`) gets a per-minute cap sized from the app's peak

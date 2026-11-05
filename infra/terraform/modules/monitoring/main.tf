@@ -129,7 +129,7 @@ resource "google_monitoring_dashboard" "free_tier" {
   project = var.project_id
 
   dashboard_json = jsonencode({
-    displayName = "Free-tier budget (${var.env})"
+    displayName = "Cost & usage (${var.env})"
     mosaicLayout = {
       columns = 12
       tiles   = concat(local.chart_tiles, [local.egress_tile, local.dlq_tile])
