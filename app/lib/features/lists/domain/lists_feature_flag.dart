@@ -17,12 +17,6 @@ const kListMembersLimit = 'list_members';
 /// [kMaxPinnedHomeTabs] pinned tabs).
 const kHomeTabsLimit = 'home_tabs';
 
-/// `metadata["quota"]` of QUOTA_EXCEEDED on CreateList.
-const kListCreatesQuota = 'list_creates';
-
-/// `metadata["quota"]` of QUOTA_EXCEEDED on AddListMember.
-const kListAddsQuota = 'list_adds';
-
 /// HOME_TABS_MAX_PINNED: the most tabs a user can pin after Following.
 const kMaxPinnedHomeTabs = 5;
 

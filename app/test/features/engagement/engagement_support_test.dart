@@ -93,19 +93,12 @@ void main() {
   });
 
   group('engagementErrorMessage', () {
-    test('likes and posts quotas read differently', () {
+    test('the like quota reads as likes', () {
       expect(
         engagementErrorMessage(
           const QuotaExceededException('x', quota: 'likes'),
         ),
         contains('likes'),
-      );
-      expect(
-        engagementErrorMessage(
-          const QuotaExceededException('x', quota: 'posts'),
-          action: EngagementAction.repost,
-        ),
-        contains('posting'),
       );
     });
 

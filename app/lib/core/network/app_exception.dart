@@ -41,7 +41,8 @@ final class RateLimitedException extends AppException {
       (retryAfter != null && retryAfter! > const Duration(minutes: 5));
 }
 
-/// A per-user daily quota (posts, follows, uploads, exports...) was reached.
+/// A persisted per-user daily quota was reached. The only one the server still
+/// emits is `reports` (moderation); the generic copy is a defensive fallback.
 final class QuotaExceededException extends AppException {
   const QuotaExceededException(super.message, {this.quota, this.retryAfter});
   final String? quota;

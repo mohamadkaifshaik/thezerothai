@@ -32,8 +32,6 @@ const kUnprotectConfirmAction = 'Make public';
 /// the server text).
 String protectPostsErrorMessage(AppException error) {
   return switch (error) {
-    QuotaExceededException(quota: kPrivacyTogglesQuotaName) =>
-      'You can change this 4 times a day. Try again tomorrow.',
     LimitReachedException(quota: kPrivateAccountsLimitName) =>
       'Protected accounts are full right now, so this can\'t be turned on. '
           'Please try again later.',

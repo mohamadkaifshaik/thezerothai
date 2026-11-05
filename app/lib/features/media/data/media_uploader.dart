@@ -270,7 +270,8 @@ class MediaUploader {
     if (fresh.isNotEmpty) batches.add(fresh);
 
     // Note: a replay after the server's idempotency record expired is a new
-    // request and charges the daily quota for the whole group again.
+    // request and charges the per-uid daily Vision-units cap for the whole group
+    // again.
     for (final batch in batches) {
       // The key covers the exact image set (by local id and MD5), so the
       // same retry replays and a changed set mints a new key.

@@ -226,52 +226,6 @@ void main() {
       expect(save(tester).onPressed, isNull);
     });
 
-    testWidgets('the daily name-change quota shows a friendly message', (
-      tester,
-    ) async {
-      stubUpdate(
-        () async => throw const QuotaExceededException(
-          'quota',
-          quota: 'snapshot_edits',
-        ),
-      );
-      await open(tester, '/settings/profile');
-
-      await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
-      await tester.pump();
-      await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text(
-          "You've changed your name too many times today. Undo the name "
-          'change to save your bio now, or try again tomorrow.',
-        ),
-        findsOneWidget,
-      );
-      // Still editable, text kept.
-      expect(find.text('Kaif S'), findsOneWidget);
-      expect(save(tester).onPressed, isNotNull);
-    });
-
-    testWidgets('the quota message uses retryAfter', (tester) async {
-      stubUpdate(
-        () async => throw const QuotaExceededException(
-          'quota',
-          quota: 'snapshot_edits',
-          retryAfter: Duration(hours: 5, minutes: 20),
-        ),
-      );
-      await open(tester, '/settings/profile');
-
-      await tester.enterText(find.widgetWithText(TextField, 'Kaif'), 'Kaif S');
-      await tester.pump();
-      await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('or try again in 6 hours.'), findsOneWidget);
-    });
-
     testWidgets(
       'counters are announced as characters remaining, and an unexpected '
       'error is reported',

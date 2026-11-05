@@ -197,25 +197,6 @@ void main() {
     );
   });
 
-  test('QUOTA_EXCEEDED carries the quota name', () async {
-    answer = (_) => serverError(
-      connect.Code.resourceExhausted,
-      common.ErrorReason.ERROR_REASON_QUOTA_EXCEEDED,
-      metadata: {'quota': kListAddsQuota},
-    );
-
-    await expectLater(
-      repo.addMember(idempotencyKey: _key, listId: '1', userId: 'u'),
-      throwsA(
-        isA<QuotaExceededException>().having(
-          (e) => e.quota,
-          'quota',
-          'list_adds',
-        ),
-      ),
-    );
-  });
-
   test('PROTECTED_ACCOUNT on AddListMember is typed', () async {
     answer = (_) => serverError(
       connect.Code.failedPrecondition,

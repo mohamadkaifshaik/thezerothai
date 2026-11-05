@@ -8,7 +8,8 @@ import '../domain/profile_extras_rules.dart';
 import 'bloc/edit_profile_cubit.dart';
 
 /// Friendly, typed text for a failed UpdateProfile (never the raw server
-/// message). The name-change quota is the one daily limit this form can hit.
+/// message). The daily limit on profile updates surfaces as a rate limit
+/// ([RateLimitedException]), not a quota.
 String updateProfileErrorMessage(AppException error) {
   return switch (error) {
     ValidationException(field: 'display_name') =>
@@ -24,12 +25,6 @@ String updateProfileErrorMessage(AppException error) {
           'http:// (at most $kMaxWebsiteLength characters).',
     ValidationException() =>
       "Those changes can't be saved. Check them and try again.",
-    // The server counts the name change, not the bio: undoing the name edit
-    // leaves a bio-only save, which the quota does not cover.
-    QuotaExceededException(:final retryAfter) =>
-      "You've changed your name too many times today. Undo the name change to "
-          'save your bio now, or try again '
-          '${retryAfter == null ? 'tomorrow' : 'in ${coarseWait(retryAfter)}'}.',
     final RateLimitedException e => rateLimitedMessage(e),
     DegradedModeException() =>
       'Dzeroth is in a limited mode right now, so profile changes are '

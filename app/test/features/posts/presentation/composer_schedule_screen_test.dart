@@ -602,12 +602,6 @@ void main() {
         'Too many posts are scheduled around that time. Pick another time.',
       ),
       (
-        'schedules (daily cap)',
-        const QuotaExceededException('x', quota: 'schedules'),
-        "You've reached today's limit for scheduling posts. It resets "
-            'tomorrow.',
-      ),
-      (
         'MEDIA_NOT_READY',
         const MediaNotReadyException('x'),
         'One of your photos is no longer available. Remove it and try again.',

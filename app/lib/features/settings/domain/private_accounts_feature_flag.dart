@@ -8,10 +8,6 @@
 /// hardcode `'private_accounts'` anywhere else.
 const kFeaturePrivateAccounts = 'private_accounts';
 
-/// The server's `metadata["quota"]` of the QUOTA_EXCEEDED answer to a fifth
-/// protection change in one IST day (4 per day, both directions).
-const kPrivacyTogglesQuotaName = 'privacy_toggles';
-
 /// The server's `metadata["limit"]` of the LIMIT_REACHED answer to turning
 /// protection on when the platform's cap on protected accounts is full.
 const kPrivateAccountsLimitName = 'private_accounts';

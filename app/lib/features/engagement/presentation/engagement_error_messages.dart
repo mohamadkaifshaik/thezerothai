@@ -21,16 +21,9 @@ String engagementErrorMessage(
       action == EngagementAction.bookmark ||
       action == EngagementAction.unbookmark;
   return switch (error) {
-    // Bookmarks: the 1,000-post cap (`limit=bookmarks`) and the
-    // daily quota (`quota=bookmarks`).
+    // Bookmarks: the 1,000-post cap (`limit=bookmarks`).
     LimitReachedException(quota: kBookmarksLimitName) =>
       'You can save up to 1,000 posts.',
-    QuotaExceededException(quota: kBookmarksLimitName) =>
-      "You've reached today's limit for saving posts. It resets tomorrow.",
-    // Likes and reposts have separate daily quotas (`likes` / `posts`).
-    QuotaExceededException(quota: 'posts') =>
-      "You've reached today's limit for posting, so you can't repost more. "
-          'It resets tomorrow.',
     QuotaExceededException() =>
       "You've reached today's limit for ${bookmarking
               ? 'saving posts'

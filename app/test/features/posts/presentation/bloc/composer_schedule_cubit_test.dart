@@ -333,7 +333,7 @@ void main() {
       () async {
         stubSchedule([
           const LimitReachedException('x', quota: 'scheduled_pending'),
-          const QuotaExceededException('x', quota: 'schedules'),
+          const LimitReachedException('x', quota: 'scheduled_window'),
           scheduledPost(1),
         ]);
         final cubit = make();
@@ -343,7 +343,7 @@ void main() {
         await cubit.submit();
         expect(cubit.state.error, isA<LimitReachedException>());
         await cubit.submit();
-        expect(cubit.state.error, isA<QuotaExceededException>());
+        expect(cubit.state.error, isA<LimitReachedException>());
         await cubit.submit();
 
         expect(sent.map((s) => s.key).toSet(), hasLength(1));

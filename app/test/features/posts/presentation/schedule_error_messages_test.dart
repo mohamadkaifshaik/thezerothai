@@ -8,7 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// banner and the FAILED rows.
 void main() {
   group('scheduleErrorMessage', () {
-    test('the two LIMIT_REACHED names and the daily quota', () {
+    test('the two LIMIT_REACHED names', () {
       expect(
         scheduleErrorMessage(
           const LimitReachedException('x', quota: 'scheduled_pending'),
@@ -20,13 +20,6 @@ void main() {
           const LimitReachedException('x', quota: 'scheduled_window'),
         ),
         'Too many posts are scheduled around that time. Pick another time.',
-      );
-      expect(
-        scheduleErrorMessage(
-          const QuotaExceededException('x', quota: 'schedules'),
-        ),
-        "You've reached today's limit for scheduling posts. It resets "
-        'tomorrow.',
       );
     });
 
