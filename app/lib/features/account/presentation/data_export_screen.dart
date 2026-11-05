@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/session_wiring.dart';
-import '../../../core/network/app_exception.dart';
 import '../../../core/storage/app_database.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
@@ -205,18 +204,11 @@ class _DataExportScreenState extends State<DataExportScreen> {
 
   Widget _failure(BuildContext context, DataExportState state) {
     final error = state.error;
-    // Only a server older than the removal of the daily export quota sends this.
-    if (error is QuotaExceededException) {
-      return Semantics(
-        liveRegion: true,
-        child: const Text('You can request one export per day.'),
-      );
-    }
     if (state.jobFailed) {
       return Semantics(
         liveRegion: true,
         child: const Text(
-          'We could not prepare your export. Please try again tomorrow.',
+          'We could not prepare your export. Please try again.',
         ),
       );
     }

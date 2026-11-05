@@ -113,8 +113,8 @@ class DataExportState {
 /// Request + bounded polling for "Download my data".
 ///
 /// Budget: 1 RequestAccountExport + at most [maxPolls] GetAccountExport per
-/// export (<= 11 requests) in one go, well under the shared 20-call
-/// `account_ops_daily` cap. A user retry ([resume]) or reopening the screen
+/// export (<= 11 requests) in one go, a politely bounded amount of polling.
+/// A user retry ([resume]) or reopening the screen
 /// starts a fresh [maxPolls] budget. Polls back off from [firstDelay] to
 /// [maxDelay]. A signed URL close to [urlMaxAge] is re-fetched (1 extra call)
 /// when the user taps Download. The URL is only ever held in state and handed

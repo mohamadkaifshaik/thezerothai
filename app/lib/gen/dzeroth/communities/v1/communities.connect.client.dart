@@ -9,7 +9,7 @@ import "communities.connect.spec.dart" as specs;
 
 extension type CommunityServiceClient (connect.Transport _transport) {
   /// Create a community owned by the caller, who becomes its first member. Needs the caller in COMMUNITY_CREATORS,
-  /// checked first (FORBIDDEN "not_creator", before any lookup), then the text rules. No daily quota: the
+  /// checked first (FORBIDDEN "not_creator", before any lookup), then the text rules. No daily cap: the
   /// owned cap is exact and lifetime (there is no delete).
   /// One transaction: idempotency doc, the caller's communityMemberships (the owned and joined caps), then Create
   /// communities/{id} with a fresh Snowflake id (status ACTIVE, visibility PUBLIC, memberCount 1), the owner's member
@@ -131,13 +131,12 @@ extension type CommunityServiceClient (connect.Transport _transport) {
 
   /// Join a community. A block in either direction with the owner or a moderator does not refuse it (D7). A protected
   /// account may join (F6). BANNED => FORBIDDEN "banned", writing nothing; ARCHIVED => COMMUNITY_STATE "community_archived".
-  /// Already a member (owner and moderators included) => success, the idempotency doc only, no quota spent.
+  /// Already a member (owner and moderators included) => success, the idempotency doc only.
   /// One transaction: idempotency doc, the caller's member doc, the caller's communityMemberships (the joined cap,
-  /// exact), quotas/{uid} (community_joins), then the member doc (JOINED), memberships (joined += id), a blind Increment
-  /// of memberCount and quotas. The transaction never reads the community doc (its status comes from the 60 s cache),
+  /// exact), then the member doc (JOINED), memberships (joined += id) and a blind Increment
+  /// of memberCount. The transaction never reads the community doc (its status comes from the 60 s cache),
   /// so a join burst cannot abort other joins on a read lock; member_count in the response may lag by up to 60 s.
-  /// At COMMUNITIES_MAX_JOINED (50) => LIMIT_REACHED "communities_joined"; over the quota => QUOTA_EXCEEDED
-  /// "community_joins".
+  /// At COMMUNITIES_MAX_JOINED (50) => LIMIT_REACHED "communities_joined".
   Future<dzerothcommunitiesv1communities.JoinCommunityResponse> joinCommunity(
     dzerothcommunitiesv1communities.JoinCommunityRequest input, {
     connect.Headers? headers,

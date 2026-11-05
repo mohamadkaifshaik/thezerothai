@@ -24,12 +24,6 @@ String communitiesErrorMessage(AppException error) {
       'This community has the most moderators it can have '
           '($kMaxCommunityModerators). Remove one first.',
     LimitReachedException() => "You've reached the limit for this action.",
-    QuotaExceededException(quota: kCommunityJoinsQuota) =>
-      "You've joined a lot of communities today. You can join more "
-          'tomorrow.',
-    QuotaExceededException(quota: kCommunityPostsQuota) =>
-      "You've posted a lot in communities today. You can post more "
-          'tomorrow.',
     QuotaExceededException() =>
       "You've hit today's limit for this action. It resets tomorrow.",
     final RateLimitedException e => rateLimitedMessage(e),

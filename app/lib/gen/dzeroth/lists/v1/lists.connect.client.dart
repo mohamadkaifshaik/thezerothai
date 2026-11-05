@@ -11,10 +11,11 @@ extension type ListServiceClient (connect.Transport _transport) {
   /// Create a list owned by the caller. The new list is private unless is_private is sent as false (F3).
   /// name: 1-25 code points after NFC and trim; description: 0-100 code points; both single line, no control or bidi
   /// formatting characters (the bio rules); else VALIDATION "name" / "description", before any lookup.
-  /// One transaction: idempotency doc, quotas/{uid} (list_creates), a count() of the caller's lists (ownerId == caller,
-  /// so the cap is exact), then Create lists/{id} with a fresh Snowflake id.
-  /// At LISTS_MAX_PER_USER (20) => LIMIT_REACHED "lists"; over the daily quota => QUOTA_EXCEEDED "list_creates".
-  /// A replay writes nothing, and neither does a refusal at the cap or the quota.
+  /// One transaction: idempotency doc, quotas/{uid} (read and rewritten unchanged, counting nothing, so two racing
+  /// creates conflict and the cap stays exact), a count() of the caller's lists (ownerId == caller), then Create
+  /// lists/{id} with a fresh Snowflake id.
+  /// At LISTS_MAX_PER_USER (20) => LIMIT_REACHED "lists".
+  /// A replay writes nothing, and neither does a refusal at the cap.
   Future<dzerothlistsv1lists.CreateListResponse> createList(
     dzerothlistsv1lists.CreateListRequest input, {
     connect.Headers? headers,
@@ -134,10 +135,10 @@ extension type ListServiceClient (connect.Transport _transport) {
   /// allowed (your own posts in your own list). The target must be ACTIVE (identity.Directory, cached) and pass the
   /// member rules in the header comment (block either way => NOT_FOUND; a protected target the caller does not follow
   /// => PROTECTED_ACCOUNT); the caller's blockedBy overflow adds one read of the target's graph (fail closed).
-  /// One transaction: idempotency doc, the list (fresh), quotas/{uid} (list_adds), then ArrayUnion into memberIds and
+  /// One transaction: idempotency doc, the list (fresh), then ArrayUnion into memberIds and
   /// updatedAt. The same write removes members who block the caller (F4 lazy drop, from the caller's graph snapshot).
-  /// At LIST_MAX_MEMBERS (150) => LIMIT_REACHED "list_members"; over the quota => QUOTA_EXCEEDED "list_adds".
-  /// Already a member => success, the idempotency doc only, no quota spent.
+  /// At LIST_MAX_MEMBERS (150) => LIMIT_REACHED "list_members".
+  /// Already a member => success, the idempotency doc only.
   /// A replay and a refusal write nothing.
   Future<dzerothlistsv1lists.AddListMemberResponse> addListMember(
     dzerothlistsv1lists.AddListMemberRequest input, {
@@ -157,7 +158,7 @@ extension type ListServiceClient (connect.Transport _transport) {
   }
 
   /// Remove an account from one of the caller's lists. Owner only, else NOT_FOUND. Not a member => success, the
-  /// idempotency doc only. No quota. The same write removes members who block the caller (F4).
+  /// idempotency doc only. The same write removes members who block the caller (F4).
   /// A replay writes nothing.
   Future<dzerothlistsv1lists.RemoveListMemberResponse> removeListMember(
     dzerothlistsv1lists.RemoveListMemberRequest input, {

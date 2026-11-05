@@ -27,7 +27,7 @@ final class ValidationException extends AppException {
 /// [retryAfter] elapses.
 ///
 /// [limitName] is the server's `metadata["limit"]` / `["limit_name"]`
-/// E.g. `check_handle_daily`, `account_ops_daily`, `search_daily`; no name for
+/// E.g. `search_people_daily`, `graph_mutation_daily`; no name for
 /// a per-minute bucket.
 final class RateLimitedException extends AppException {
   const RateLimitedException(super.message, {this.retryAfter, this.limitName});

@@ -55,9 +55,9 @@ type MediaServiceClient interface {
 	// FEATURE_DISABLED, metadata["feature"] = "profile_extras", before any lookup. Its one item declares width <= 1500,
 	// height <= 500 and 3 * height * 0.98 <= width <= 3 * height * 1.02, else INVALID_ARGUMENT + VALIDATION,
 	// metadata["field"] = "width" (layout hints only: the server checks magic bytes, not pixels).
-	// Quota: 20 media/day/user (quotas/{uid}), shared by every purpose. Rejected with DEGRADED_MODE when
-	// DEGRADED_MODE != off.
-	// Batch: Create idempotency doc + media docs (PENDING, expireAt = now + 2 d) + quotas.
+	// No daily upload quota: only the per-minute bucket limits how often a user can call it. Rejected with
+	// DEGRADED_MODE when DEGRADED_MODE != off.
+	// Batch: Create idempotency doc + media docs (PENDING, expireAt = now + 2 d).
 	// GCS: 0 ops here (signing uses IAM signBlob, no GCS call). Client PUTs = 2 Class A per image.
 	// GIF (FEATURE_GIF, wire name "gif"): content_type "image/gif" while gif is not enabled for the caller
 	// => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "gif", before any lookup. POST purpose only (AVATAR and
@@ -144,9 +144,9 @@ type MediaServiceHandler interface {
 	// FEATURE_DISABLED, metadata["feature"] = "profile_extras", before any lookup. Its one item declares width <= 1500,
 	// height <= 500 and 3 * height * 0.98 <= width <= 3 * height * 1.02, else INVALID_ARGUMENT + VALIDATION,
 	// metadata["field"] = "width" (layout hints only: the server checks magic bytes, not pixels).
-	// Quota: 20 media/day/user (quotas/{uid}), shared by every purpose. Rejected with DEGRADED_MODE when
-	// DEGRADED_MODE != off.
-	// Batch: Create idempotency doc + media docs (PENDING, expireAt = now + 2 d) + quotas.
+	// No daily upload quota: only the per-minute bucket limits how often a user can call it. Rejected with
+	// DEGRADED_MODE when DEGRADED_MODE != off.
+	// Batch: Create idempotency doc + media docs (PENDING, expireAt = now + 2 d).
 	// GCS: 0 ops here (signing uses IAM signBlob, no GCS call). Client PUTs = 2 Class A per image.
 	// GIF (FEATURE_GIF, wire name "gif"): content_type "image/gif" while gif is not enabled for the caller
 	// => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "gif", before any lookup. POST purpose only (AVATAR and

@@ -67,8 +67,7 @@ class ModerationLogPage {
 ///   (FORBIDDEN, by reason), [CommunityStateException] (COMMUNITY_STATE, by
 ///   reason), [NotFoundException] (one message for every cause),
 ///   [LimitReachedException] (`quota` = `communities_owned` /
-///   `communities_joined` / `community_moderators`), [QuotaExceededException]
-///   (`community_joins`, `community_posts`), [RateLimitedException],
+///   `communities_joined` / `community_moderators`), [RateLimitedException],
 ///   [ProtectedAccountException] (CreatePost into a community).
 /// - **Mutations** (all seven) take an `idempotencyKey` made
 ///   once per user action by the caller and reused on a retry (rule 4).

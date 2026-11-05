@@ -229,9 +229,8 @@ type TimelineServiceClient interface {
 	// identity (the timeline.HomeTabsStore seam): idempotency doc and users/{uid} fresh, then a field-level update of
 	// users/{uid}.homeTabs (no other field). The same tabs again => the idempotency document only. The caller's profile
 	// cache on this instance is updated in place; other instances serve the new order within 60 s.
-	// Rate limits: the RATE_LIMIT_LISTS_WRITE_PER_MIN bucket (30/min/uid per instance) and the list_mutation_daily cap
-	// (LIST_MUTATIONS_PER_DAY 500 per uid per instance), shared with the list mutations. DEGRADED_MODE=readonly refuses
-	// it.
+	// Rate limit: the RATE_LIMIT_LISTS_WRITE_PER_MIN bucket (30/min/uid per instance), shared with the list mutations;
+	// no daily cap. DEGRADED_MODE=readonly refuses it.
 	// A request that changes nothing writes only the idempotency doc; a replay writes nothing.
 	SetHomeTabs(context.Context, *connect.Request[v1.SetHomeTabsRequest]) (*connect.Response[v1.SetHomeTabsResponse], error)
 }
@@ -452,9 +451,8 @@ type TimelineServiceHandler interface {
 	// identity (the timeline.HomeTabsStore seam): idempotency doc and users/{uid} fresh, then a field-level update of
 	// users/{uid}.homeTabs (no other field). The same tabs again => the idempotency document only. The caller's profile
 	// cache on this instance is updated in place; other instances serve the new order within 60 s.
-	// Rate limits: the RATE_LIMIT_LISTS_WRITE_PER_MIN bucket (30/min/uid per instance) and the list_mutation_daily cap
-	// (LIST_MUTATIONS_PER_DAY 500 per uid per instance), shared with the list mutations. DEGRADED_MODE=readonly refuses
-	// it.
+	// Rate limit: the RATE_LIMIT_LISTS_WRITE_PER_MIN bucket (30/min/uid per instance), shared with the list mutations;
+	// no daily cap. DEGRADED_MODE=readonly refuses it.
 	// A request that changes nothing writes only the idempotency doc; a replay writes nothing.
 	SetHomeTabs(context.Context, *connect.Request[v1.SetHomeTabsRequest]) (*connect.Response[v1.SetHomeTabsResponse], error)
 }

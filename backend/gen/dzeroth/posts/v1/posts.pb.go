@@ -400,7 +400,7 @@ const (
 	ScheduledPostFailure_SCHEDULED_POST_FAILURE_UNSPECIFIED ScheduledPostFailure = 0
 	// An image was missing, used by another post, or no longer READY at publish time.
 	ScheduledPostFailure_SCHEDULED_POST_FAILURE_MEDIA_UNAVAILABLE ScheduledPostFailure = 1
-	// The posts daily quota was used up at publish time.
+	// No longer produced (the daily posts quota was removed); kept for items that failed with it earlier.
 	ScheduledPostFailure_SCHEDULED_POST_FAILURE_QUOTA_EXCEEDED ScheduledPostFailure = 2
 	// The account was suspended at publish time. Unsuspension does not revive the item.
 	ScheduledPostFailure_SCHEDULED_POST_FAILURE_ACCOUNT_RESTRICTED ScheduledPostFailure = 3

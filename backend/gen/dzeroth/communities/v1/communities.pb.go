@@ -116,19 +116,14 @@
 //   - "communities_joined": COMMUNITIES_MAX_JOINED, 50 joined communities per user, exact;
 //   - "community_moderators": COMMUNITY_MAX_MODERATORS, 10 per community.
 //   Nothing is written.
-// - RESOURCE_EXHAUSTED + QUOTA_EXCEEDED, metadata["quota"]:
-//   - "community_joins": QUOTA_COMMUNITY_JOINS_PER_DAY, 20 per IST day, 5 for accounts younger than 24 h;
-//   - "community_posts": QUOTA_COMMUNITY_POSTS_PER_DAY, CreatePost into a community, 50 per IST day, 10 for new accounts,
-//     on top of the posts quota.
-//   Both are exact, in the transaction.
 // - RESOURCE_EXHAUSTED + RATE_LIMITED, honour retry_after. Limits are per uid per instance (x 3 instances):
 //   - RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN (20): the seven mutations;
 //   - RATE_LIMIT_COMMUNITIES_READ_PER_MIN (30): GetCommunity, ListCommunities, ListMyCommunities,
 //     ListCommunityMembers, ListModerationLog;
-//   - daily caps, metadata["limit"]: "community_mutation_daily" (COMMUNITY_MUTATIONS_PER_DAY 200: Create, Update,
-//     Join, Leave), "community_mod_actions_daily" (COMMUNITY_MOD_ACTIONS_PER_DAY 200 per actor: Hide, Restore,
-//     SetMemberRole) and "community_posts_per_community_daily" (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY 20 per uid and
-//     community, CreatePost);
+//   - daily caps, in memory, metadata["limit"]: "community_mod_actions_daily" (COMMUNITY_MOD_ACTIONS_PER_DAY 200 per
+//     actor: HideCommunityPost and SetMemberRole only; RestoreCommunityPost is uncapped so an owner can always undo)
+//     and "community_posts_per_community_daily" (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY 20 per uid and community,
+//     CreatePost). Create, Update, Join and Leave have no daily cap and no persisted daily quota;
 // - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
 
 package communitiesv1

@@ -272,7 +272,7 @@ void main() {
     expect(find.textContaining('limited mode'), findsOneWidget);
   });
 
-  testWidgets('a failed export job says to try again tomorrow, no retry', (
+  testWidgets('a failed export job says to try again, no retry button', (
     tester,
   ) async {
     when(() => accounts.getExport(exportId: 'exp-1'))
@@ -282,7 +282,11 @@ void main() {
     await tester.pump(const Duration(seconds: 10));
     await tester.pump();
 
-    expect(find.textContaining('try again tomorrow'), findsOneWidget);
+    expect(
+      find.text('We could not prepare your export. Please try again.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('tomorrow'), findsNothing);
     expect(find.text('Retry'), findsNothing);
     expect(find.text('Try again'), findsNothing);
   });
@@ -318,18 +322,6 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('per day'), findsNothing);
-  });
-
-  testWidgets('QUOTA_EXCEEDED says one export per day', (tester) async {
-    when(
-      () =>
-          accounts.requestExport(idempotencyKey: any(named: 'idempotencyKey')),
-    ).thenThrow(const QuotaExceededException('quota'));
-    await pump(tester);
-
-    await tapRequest(tester);
-
-    expect(find.text('You can request one export per day.'), findsOneWidget);
   });
 
   testWidgets('network error on request shows a retry', (tester) async {

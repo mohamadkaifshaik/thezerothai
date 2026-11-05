@@ -249,7 +249,7 @@ class ScheduledPostFailure extends $pb.ProtobufEnum {
       ScheduledPostFailure._(
           1, _omitEnumNames ? '' : 'SCHEDULED_POST_FAILURE_MEDIA_UNAVAILABLE');
 
-  /// The posts daily quota was used up at publish time.
+  /// No longer produced (the daily posts quota was removed); kept for items that failed with it earlier.
   static const ScheduledPostFailure SCHEDULED_POST_FAILURE_QUOTA_EXCEEDED =
       ScheduledPostFailure._(
           2, _omitEnumNames ? '' : 'SCHEDULED_POST_FAILURE_QUOTA_EXCEEDED');

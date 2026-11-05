@@ -30,7 +30,7 @@ abstract final class NotificationService {
   /// Sets users/{uid}.notificationsSeenAt = now (the badge count drops to 0 within the 30 s GetMe cache; this
   /// instance's cache is evicted at once). Naturally idempotent: a replay just moves seen_at forward, and a call
   /// within 10 s of the previous mark returns that seen_at and writes nothing.
-  /// Rate limit: 200 calls per uid per day (limit_name "notification_seen_daily").
+  /// Rate limit: default per-minute bucket; no daily cap.
   static const markNotificationsSeen = connect.Spec(
     '/$name/MarkNotificationsSeen',
     connect.StreamType.unary,
@@ -42,7 +42,7 @@ abstract final class NotificationService {
   /// registered by another account on the same device is removed from that account (privacy). At most 5 devices per
   /// user: registering a 6th evicts the least recently refreshed one. Call on sign-in, on token refresh and once per
   /// app start. Naturally idempotent by device_id.
-  /// Rate limit: 50 Register/Unregister calls per uid per day (limit_name "notification_devices_daily").
+  /// Rate limit: default per-minute bucket; no daily cap.
   /// Registering the same token again within 24 h writes nothing.
   static const registerDevice = connect.Spec(
     '/$name/RegisterDevice',
@@ -52,7 +52,7 @@ abstract final class NotificationService {
   );
 
   /// Removes the device (call on sign-out, before the ID token is dropped). Unknown device_id is a no-op success.
-  /// Rate limit: shares the per-uid daily cap of RegisterDevice (limit_name "notification_devices_daily").
+  /// Rate limit: default per-minute bucket; no daily cap.
   /// Deletes the device doc and its token index.
   static const unregisterDevice = connect.Spec(
     '/$name/UnregisterDevice',

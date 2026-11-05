@@ -53,13 +53,16 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_VALIDATION =
       ErrorReason._(1, _omitEnumNames ? '' : 'ERROR_REASON_VALIDATION');
 
-  /// RESOURCE_EXHAUSTED: short-window per-user/IP token bucket (in memory), or an in-memory daily cap. Daily caps
-  /// set metadata["limit"] (e.g. "check_handle_daily"; "account_ops_daily": the 20 calls/day shared by DeleteAccount,
-  /// RequestAccountExport and GetAccountExport) and a retry_after that runs to the next IST midnight.
+  /// RESOURCE_EXHAUSTED: short-window per-user/IP token bucket (in memory), or a per-instance in-memory daily cap.
+  /// Daily caps set metadata["limit"] (e.g. "graph_mutation_daily", "messages_daily", "profile_update_daily") and a
+  /// retry_after that runs to the next IST midnight.
   static const ErrorReason ERROR_REASON_RATE_LIMITED =
       ErrorReason._(2, _omitEnumNames ? '' : 'ERROR_REASON_RATE_LIMITED');
 
-  /// RESOURCE_EXHAUSTED: per-user daily quota (posts, follows, uploads...); metadata["quota"] names it.
+  /// RESOURCE_EXHAUSTED: a persisted per-user daily quota, metadata["quota"] names it. Only two quota counters
+  /// remain: "reports" (ReportContent) and "dmNew" (new direct-message conversations); SendMessage reports the
+  /// second as LIMIT_REACHED "dm_new_daily", so ReportContent is the only RPC that answers this today. Every other
+  /// daily limit answers RATE_LIMITED. The value stays in the enum for clients that still send or match it.
   static const ErrorReason ERROR_REASON_QUOTA_EXCEEDED =
       ErrorReason._(3, _omitEnumNames ? '' : 'ERROR_REASON_QUOTA_EXCEEDED');
 

@@ -20,8 +20,8 @@ abstract final class SearchService {
   /// Staleness: matches are cached per instance for 60 s and shared across callers, so a new handle or a rename shows
   /// within 60 s; block and relationship filtering is per caller, from the 60 s graph snapshot.
   /// Flag: "search". Rate limits: RATE_LIMIT_SEARCH_PEOPLE_PER_MIN 30/min/uid per instance (90/min at 3 instances);
-  /// SEARCH_CALLS_PER_DAY 300 calls/uid/IST day per instance shared with SearchPosts (<= 900 at 3) => RATE_LIMITED,
-  /// metadata["limit"] = "search_daily".
+  /// SEARCH_PEOPLE_CALLS_PER_DAY calls/uid/IST day per instance (SearchPeople only) => RATE_LIMITED,
+  /// metadata["limit"] = "search_people_daily".
   /// The prefix entry is cached. A grammar rejection or an unsupported query does no lookup. Writes nothing.
   static const searchPeople = connect.Spec(
     '/$name/SearchPeople',
@@ -59,8 +59,7 @@ abstract final class SearchService {
   /// Staleness: the newest 30 posts per tag are cached per instance for 60 s and shared across callers (a new tagged
   /// post shows on Top, Latest page 1 and Media page 1 within 60 s); every filter above is applied per caller after the
   /// cache, so a takedown or a new block applies at once on that instance.
-  /// Flag: "search". Rate limits: RATE_LIMIT_SEARCH_POSTS_PER_MIN 20/min/uid per instance (60/min at 3 instances) and
-  /// the shared "search_daily" cap (see SearchPeople).
+  /// Flag: "search". Rate limits: RATE_LIMIT_SEARCH_POSTS_PER_MIN 20/min/uid per instance (60/min at 3 instances); no daily cap.
   /// LATEST pages use fixed windows of 20 rows (page_size <= 20) or 50 (21..50); MEDIA scans at most 30 rows. An
   /// unsupported query or a grammar rejection does no lookup. Writes nothing.
   static const searchPosts = connect.Spec(
@@ -84,9 +83,7 @@ abstract final class SearchService {
   /// hashtag suggestions without an extra lookup. No list yet => an empty answer and computed_at unset.
   /// Staleness: the list is cached per instance for 10 min; a tag can be up to one sweep interval plus 10 min old. A tag
   /// hidden by an operator leaves every server within 10 min (the client copy lives 5 more).
-  /// Flag: "trends". Rate limits: the 60/min/uid default bucket per instance (180/min at 3 instances) and TRENDS_CALLS_PER_DAY
-  /// 400 calls/uid/IST day per instance (<= 1,200 at 3), its own cap apart from SearchPeople/SearchPosts => RATE_LIMITED,
-  /// metadata["limit"] = "trends_daily".
+  /// Flag: "trends". Rate limit: the 60/min/uid default bucket per instance (180/min at 3 instances); no daily cap.
   /// The list is loaded at most once per instance per 10 min, whatever the number of callers. Writes nothing.
   static const getTrends = connect.Spec(
     '/$name/GetTrends',

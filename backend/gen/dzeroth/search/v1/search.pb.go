@@ -34,8 +34,8 @@
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in query | page_token | page_size | limit | prefix, before any lookup.
 //   A negative page_size or limit is VALIDATION; values above the maximum are clamped.
 // - FAILED_PRECONDITION + FEATURE_DISABLED (above).
-// - RESOURCE_EXHAUSTED + RATE_LIMITED: the per-minute buckets, the shared daily cap metadata["limit"] = "search_daily";
-//   honour retry_after.
+// - RESOURCE_EXHAUSTED + RATE_LIMITED: the per-minute buckets and, for SearchPeople only, the daily cap
+//   metadata["limit"] = "search_people_daily"; honour retry_after.
 // - UNAVAILABLE: SearchPosts only, when the server cannot trust its copy of the protected-accounts set (PROTECTED_SET_MAX_STALE),
 // as every list does. Retry later.
 
