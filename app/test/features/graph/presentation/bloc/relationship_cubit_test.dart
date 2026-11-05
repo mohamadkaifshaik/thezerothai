@@ -70,7 +70,7 @@ void main() {
             idempotencyKey: any(named: 'idempotencyKey'),
           ),
         ).thenThrow(
-          const QuotaExceededException('daily limit', quota: 'follows'),
+          const QuotaExceededException('daily limit'),
         );
         return RelationshipCubit(
           graphRepository: graphRepository,

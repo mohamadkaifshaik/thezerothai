@@ -106,7 +106,7 @@ void main() {
         common.ErrorDetail(
           reason: common.ErrorReason.ERROR_REASON_QUOTA_EXCEEDED,
           message: "You've hit today's limit",
-          metadata: {'quota': 'posts'}.entries,
+          metadata: {'quota': 'reports'}.entries,
           retryAfter: pb_duration.Duration(seconds: Int64(3600)),
         ),
       );
@@ -115,7 +115,7 @@ void main() {
 
       expect(result, isA<QuotaExceededException>());
       final quota = result as QuotaExceededException;
-      expect(quota.quota, 'posts');
+      expect(quota.quota, 'reports');
       expect(quota.retryAfter, const Duration(hours: 1));
     });
 
@@ -452,9 +452,9 @@ void main() {
       final quota = map(
         connect.Code.resourceExhausted,
         common.ErrorReason.ERROR_REASON_QUOTA_EXCEEDED,
-        {'quota': 'exports'},
+        {'quota': 'reports'},
       );
-      expect((quota as QuotaExceededException).quota, 'exports');
+      expect((quota as QuotaExceededException).quota, 'reports');
 
       final limited = map(
         connect.Code.resourceExhausted,

@@ -110,7 +110,7 @@ void main() {
       'rolls back and reports one typed failure when the call fails',
       build: () {
         like().thenAnswer(
-          (_) async => throw const QuotaExceededException('no', quota: 'likes'),
+          (_) async => throw const QuotaExceededException('no'),
         );
         return build();
       },

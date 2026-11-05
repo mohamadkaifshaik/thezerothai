@@ -218,7 +218,7 @@ void main() {
         answer = (_) => serverError(
           connect.Code.resourceExhausted,
           common.ErrorReason.ERROR_REASON_QUOTA_EXCEEDED,
-          metadata: {'quota': 'schedules'},
+          metadata: {'quota': 'reports'},
         );
         await expectLater(
           repo.schedulePost(
@@ -230,7 +230,7 @@ void main() {
             isA<QuotaExceededException>().having(
               (e) => e.quota,
               'quota',
-              'schedules',
+              'reports',
             ),
           ),
         );

@@ -475,7 +475,7 @@ void main() {
         () => accounts.requestExport(
           idempotencyKey: any(named: 'idempotencyKey'),
         ),
-      ).thenThrow(const QuotaExceededException('x', quota: 'exports'));
+      ).thenThrow(const QuotaExceededException('x'));
       await cubit.requestExport(promptPassword: _pw);
       expect(cubit.state.error, isA<QuotaExceededException>());
     });

@@ -96,7 +96,7 @@ void main() {
     test('the like quota reads as likes', () {
       expect(
         engagementErrorMessage(
-          const QuotaExceededException('x', quota: 'likes'),
+          const QuotaExceededException('x'),
         ),
         contains('likes'),
       );

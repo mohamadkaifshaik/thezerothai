@@ -264,7 +264,7 @@ void main() {
     tester,
   ) async {
     stubLike(
-      () async => throw const QuotaExceededException('x', quota: 'likes'),
+      () async => throw const QuotaExceededException('x'),
     );
     await pump(tester, _view());
 
