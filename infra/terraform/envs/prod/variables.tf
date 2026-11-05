@@ -858,28 +858,6 @@ variable "min_instance_count" {
   }
 }
 
-variable "vision_monthly_cap" {
-  description = "VISION_MONTHLY_CAP: SafeSearch units per calendar month (ADR-0005). 10000 = Stage 0. ADR-0022 credit mode: 20000, then 40000 once DAU > 1,300 (R4). Each image costs 2 units while VISION_SCREEN_THUMB=true."
-  type        = number
-  default     = 10000
-
-  validation {
-    condition     = var.vision_monthly_cap >= 0 && var.vision_monthly_cap <= 40000 && floor(var.vision_monthly_cap) == var.vision_monthly_cap
-    error_message = "vision_monthly_cap must be an integer 0-40000 (0 disables screening spend; above 40000 needs an ADR amendment)."
-  }
-}
-
-variable "vision_exhausted_policy" {
-  description = "VISION_EXHAUSTED_POLICY (ADR-0005): what an upload becomes once the cap is spent. unscreened_established (Stage 0) | reject (credit mode: no unscreened image is ever published)."
-  type        = string
-  default     = "unscreened_established"
-
-  validation {
-    condition     = contains(["unscreened_established", "reject"], var.vision_exhausted_policy)
-    error_message = "vision_exhausted_policy must be one of: unscreened_established, reject (backend/pkg/platform/config/config.go)."
-  }
-}
-
 variable "enable_request_flood_alert" {
   description = "ADR-0022 D3: alert when Cloud Run requests exceed request_flood_per_hour in an hour. false = Stage 0."
   type        = bool

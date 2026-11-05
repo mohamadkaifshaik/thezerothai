@@ -132,12 +132,7 @@ locals {
     { name = "FEATURE_GRAPH", value = var.feature_graph },
     { name = "FEATURE_GRAPH_ALLOWLIST", value = var.feature_graph_allowlist },
     { name = "FEATURE_GRAPH_PERCENT", value = tostring(var.feature_graph_percent) },
-    { name = "QUOTA_BLOCKS_PER_DAY", value = "200" },
-    { name = "QUOTA_NEW_ACCOUNT_BLOCKS_PER_DAY", value = "50" },
-    { name = "LIST_CALLS_PER_DAY", value = "100" },
     { name = "GRAPH_MUTATIONS_PER_DAY", value = "500" },
-    { name = "CHECK_HANDLE_CALLS_PER_DAY", value = "100" },
-    { name = "ACCOUNT_OPS_CALLS_PER_DAY", value = "20" },
     { name = "RATE_LIMIT_GRAPH_FOLLOW_PER_MIN", value = "30" },
     { name = "RATE_LIMIT_GRAPH_BLOCK_PER_MIN", value = "20" },
     { name = "RATE_LIMIT_GRAPH_LIST_PER_MIN", value = "20" },
@@ -167,8 +162,6 @@ locals {
     { name = "MEDIA_VISION_UNITS_PER_DAY", value = "60" },             # per-uid Vision units per IST day, per instance (180 at 3 instances); config/composer.go default, startup range 2..200
     { name = "MEDIA_VISION_UNITS_PER_DAY_NEW_ACCOUNT", value = "12" }, # the same for accounts inside the new-account window; config/composer.go default, startup range 2..60
     { name = "POLL_VOTE_CHANGES_MAX", value = "5" },                   # vote changes per voter per poll (ADR-0029 Amendment 1 A2.2; security review L-3); 0 = votes final again (kill switch); config/composer.go default, startup range 0..20
-    { name = "QUOTA_POSTS_PER_DAY", value = "100" },
-    { name = "QUOTA_NEW_ACCOUNT_POSTS_PER_DAY", value = "20" },
   ]
 }
 
@@ -228,8 +221,7 @@ locals {
 
 // Notifications slice. FEATURE_NOTIFICATIONS is off in every environment until the founder rolls it
 // out via var.feature_notifications*. No new resource: the topic, push subscription and DLQ already exist in
-// modules/pubsub and the runtime SA's publish binding is in runtime_publisher_topics. The device-call cap mirrors
-// config.go (NOTIFICATION_DEVICES_CALLS_PER_DAY, default 10); caps are code, so a change needs a cost note.
+// modules/pubsub and the runtime SA's publish binding is in runtime_publisher_topics.
 locals {
   notifications_env_vars = [
     { name = "FEATURE_NOTIFICATIONS", value = var.feature_notifications },
@@ -237,40 +229,29 @@ locals {
     { name = "FEATURE_NOTIFICATIONS_PERCENT", value = tostring(var.feature_notifications_percent) },
     { name = "NOTIFICATIONS_TOPIC", value = "notifications-fanout" },
     { name = "NOTIFICATIONS_DELIVERY", value = "pubsub" },
-    { name = "NOTIFICATION_DEVICES_CALLS_PER_DAY", value = "10" },
-    { name = "NOTIFICATION_SEEN_CALLS_PER_DAY", value = "200" },
   ]
 }
 
 // Media, engagement, replies and profile snapshot. All four flags are off in every
 // environment until the founder ramps them via var.feature_*; nothing here turns one on. The non-flag values below
 // are the config.go defaults written out so they are reviewed as code (caps are code); changing one needs a cost note.
-// VISION_MONTHLY_CAP is the runaway-bill guard. vision.googleapis.com is already enabled in
-// modules/project-services.
+// vision.googleapis.com is already enabled in modules/project-services.
 locals {
   media_engagement_env_vars = [
     { name = "FEATURE_MEDIA", value = var.feature_media },
     { name = "FEATURE_MEDIA_ALLOWLIST", value = var.feature_media_allowlist },
     { name = "FEATURE_MEDIA_PERCENT", value = tostring(var.feature_media_percent) },
-    { name = "VISION_MONTHLY_CAP", value = "10000" },
-    { name = "VISION_EXHAUSTED_POLICY", value = "unscreened_established" },
     { name = "VISION_SCREEN_THUMB", value = "true" },
     { name = "MEDIA_PUBLIC_BASE_URL", value = "https://storage.googleapis.com/${module.media_buckets.media_bucket_name}" },
-    { name = "QUOTA_MEDIA_PER_DAY", value = "20" },
-    { name = "QUOTA_NEW_ACCOUNT_MEDIA_PER_DAY", value = "5" },
     { name = "FEATURE_ENGAGEMENT", value = var.feature_engagement },
     { name = "FEATURE_ENGAGEMENT_ALLOWLIST", value = var.feature_engagement_allowlist },
     { name = "FEATURE_ENGAGEMENT_PERCENT", value = tostring(var.feature_engagement_percent) },
-    { name = "QUOTA_LIKES_PER_DAY", value = "500" },
-    { name = "QUOTA_NEW_ACCOUNT_LIKES_PER_DAY", value = "100" },
     { name = "FEATURE_QUOTES", value = var.feature_quotes },
     { name = "FEATURE_QUOTES_ALLOWLIST", value = var.feature_quotes_allowlist },
     { name = "FEATURE_QUOTES_PERCENT", value = tostring(var.feature_quotes_percent) },
     { name = "FEATURE_BOOKMARKS", value = var.feature_bookmarks },
     { name = "FEATURE_BOOKMARKS_ALLOWLIST", value = var.feature_bookmarks_allowlist },
     { name = "FEATURE_BOOKMARKS_PERCENT", value = tostring(var.feature_bookmarks_percent) },
-    { name = "QUOTA_BOOKMARKS_PER_DAY", value = "200" },
-    { name = "QUOTA_NEW_ACCOUNT_BOOKMARKS_PER_DAY", value = "50" },
     { name = "BOOKMARKS_MAX_PER_USER", value = "1000" },
     { name = "RATE_LIMIT_BOOKMARKS_PER_MIN", value = "30" },
     { name = "RATE_LIMIT_BOOKMARKS_LIST_PER_MIN", value = "10" },
@@ -301,11 +282,6 @@ locals {
     { name = "LISTS_MAX_PER_USER", value = "20" },
     { name = "LIST_MAX_MEMBERS", value = "150" },
     { name = "HOME_TABS_MAX_PINNED", value = "5" },
-    { name = "QUOTA_LIST_CREATES_PER_DAY", value = "10" },
-    { name = "QUOTA_NEW_ACCOUNT_LIST_CREATES_PER_DAY", value = "3" },
-    { name = "QUOTA_LIST_ADDS_PER_DAY", value = "300" },
-    { name = "QUOTA_NEW_ACCOUNT_LIST_ADDS_PER_DAY", value = "50" },
-    { name = "LIST_MUTATIONS_PER_DAY", value = "500" },
     { name = "RATE_LIMIT_LISTS_WRITE_PER_MIN", value = "30" },
     { name = "RATE_LIMIT_LISTS_READ_PER_MIN", value = "30" },
     { name = "RATE_LIMIT_LIST_TIMELINE_PER_MIN", value = "12" },
@@ -323,11 +299,6 @@ locals {
     { name = "COMMUNITY_MAX_RULES", value = "10" },
     { name = "COMMUNITY_RECENT_REMOVALS_MAX", value = "50" },
     { name = "COMMUNITY_MODLOG_MAX", value = "100" },
-    { name = "QUOTA_COMMUNITY_JOINS_PER_DAY", value = "20" },
-    { name = "QUOTA_NEW_ACCOUNT_COMMUNITY_JOINS_PER_DAY", value = "5" },
-    { name = "QUOTA_COMMUNITY_POSTS_PER_DAY", value = "50" },
-    { name = "QUOTA_NEW_ACCOUNT_COMMUNITY_POSTS_PER_DAY", value = "10" },
-    { name = "COMMUNITY_MUTATIONS_PER_DAY", value = "200" },
     { name = "COMMUNITY_MOD_ACTIONS_PER_DAY", value = "200" },
     { name = "COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY", value = "20" },
     { name = "RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN", value = "20" },
@@ -353,7 +324,6 @@ locals {
     { name = "FEATURE_PRIVATE_ACCOUNTS_PERCENT", value = tostring(var.feature_private_accounts_percent) },
     # Private-accounts limits. Must match the config.go defaults; config.Load rejects a toggle quota <= 0,
     # a protected-set cap outside 1..20000 and a stale window outside 1s..1h.
-    { name = "QUOTA_PRIVACY_TOGGLES_PER_DAY", value = "4" },
     { name = "PROTECTED_AUTHORS_MAX", value = "20000" },
     { name = "PROTECTED_SET_MAX_STALE", value = "10m" },
     { name = "RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN", value = "60" },
@@ -362,7 +332,6 @@ locals {
     { name = "RATE_LIMIT_SUGGESTIONS_PER_MIN", value = "10" },
     { name = "RATE_LIMIT_LIKES_LIST_PER_MIN", value = "10" },
     { name = "RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", value = "60" },
-    { name = "SUGGESTIONS_CALLS_PER_DAY", value = "50" },
     # L-4: UpdateProfile daily call cap (limit_name profile_update_daily). Must match the config.go default; config.Load rejects a value <= 0.
     { name = "PROFILE_UPDATES_PER_DAY", value = "100" },
     # Delete replaced or removed profile images 24-48 h after the change. Per-project retention, default off: raise it to banner only after the media bucket's customTime lifecycle rule is applied here, to all only after the avatar placeholder app release. Must match config.Load's accepted values.
@@ -400,7 +369,6 @@ locals {
     { name = "FEATURE_PROFILE_SNAPSHOT", value = var.feature_profile_snapshot },
     { name = "FEATURE_PROFILE_SNAPSHOT_ALLOWLIST", value = var.feature_profile_snapshot_allowlist },
     { name = "FEATURE_PROFILE_SNAPSHOT_PERCENT", value = tostring(var.feature_profile_snapshot_percent) },
-    { name = "QUOTA_SNAPSHOT_EDITS_PER_DAY", value = "5" },
   ]
 }
 

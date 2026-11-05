@@ -51,19 +51,13 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 # What each line does, in plain words:
 #   min_instance_count       keep ONE Cloud Run instance always warm so nobody waits for a cold start (about INR 936 a
 #                            month, paid by the credit). Service-level, never revision-level.
-#   vision_monthly_cap       image-safety checks (units; one image = 2 units) allowed per month before the stop. 20000
-#                            now; 40000 only once DAU stays above 1,300 for 3 days.
-#   vision_exhausted_policy  "reject" = at the cap, uploads fail instead of publishing an unchecked image.
 #   enable_request_flood_alert, firestore_reads_alert_per_day   the flood detector and the raised reads alert.
 #
-# SUNSET: on 2026-12-22 set min_instance_count = 0, vision_monthly_cap = 10000,
-# vision_exhausted_policy = "unscreened_established", firestore_reads_alert_per_day = 40000, and (only if you set it to
+# SUNSET: on 2026-12-22 set min_instance_count = 0, firestore_reads_alert_per_day = 40000, and (only if you set it to
 # every minute above) publish_scheduled_schedule = "*/5 * * * *" (or delete these lines), plan, review, apply.
 # On 2026-12-24 the services are paused. CI fails from 2026-12-23 while any until: marker in
 # infra/terraform is older than today.
 #
 # min_instance_count            = 1          # cost-approved: ADR-0022 until:2026-12-22
-# vision_monthly_cap            = 20000      # until 2026-12-22 (then 10000)
-# vision_exhausted_policy       = "reject"   # until 2026-12-22 (then "unscreened_established")
 # enable_request_flood_alert    = true       # until 2026-12-26 (request_flood_per_hour = 50000 by default)
 # firestore_reads_alert_per_day = 250000     # until 2026-12-22 (then 40000)

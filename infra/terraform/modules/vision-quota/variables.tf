@@ -6,8 +6,8 @@ variable "project_id" {
 variable "safe_search_requests_per_minute" {
   description = <<-EOT
     Project-wide cap on SAFE_SEARCH_DETECTION requests per minute (and on the umbrella Vision request counter).
-    Default 30 = 3.3x the realistic peak minute at the credit-mode ceiling (3,000 DAU, VISION_MONTHLY_CAP 40,000
-    units a month: about 9 calls a minute at the busiest minute.
+    Default 30 = ~3.3x the realistic peak minute at credit-mode volumes (~3,000 DAU, one SAFE_SEARCH call per
+    uploaded image: about 9 calls at the busiest minute).
     The Vision default is 1,800. Raise it if finalizes start failing with RESOURCE_EXHAUSTED from vision.googleapis.com.
   EOT
   type        = number
