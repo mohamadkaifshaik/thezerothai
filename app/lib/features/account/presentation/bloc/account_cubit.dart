@@ -65,8 +65,10 @@ typedef PasswordPrompt = Future<String?> Function();
 ///   web popup opens inside the tap's user gesture. Normal path: exactly one
 ///   DeleteAccount. A `REAUTH_REQUIRED` anyway (clock skew) gets one
 ///   re-auth + one retry with the same key, never a loop.
-/// - [requestExport] only re-authenticates on `REAUTH_REQUIRED`, never
-///   revokes the Apple token (that is delete-only).
+/// - [requestExport] also re-authenticates UP FRONT, the same way (the server
+///   wants a recent sign-in for it), but never revokes the Apple token (that
+///   is delete-only). A `REAUTH_REQUIRED` anyway gets the same single retry.
+///   A cancelled re-authentication keeps the key, so the next tap reuses it.
 /// - A cancelled re-authentication sends no RPC.
 /// - The cubit never stays in `working`: every path ends in a terminal
 ///   state, and [reset] frees a flow stuck behind a provider UI that never
@@ -165,6 +167,9 @@ class AccountCubit extends Cubit<AccountState> {
   /// RPC was in flight (the server has already started the job, so the
   /// caller must still be able to record the id); null on failure, cancel or
   /// a blocked double tap.
+  ///
+  /// Call straight from the tap handler: no `await` runs before the
+  /// re-authentication starts.
   Future<AccountExport?> requestExport({
     required PasswordPrompt promptPassword,
   }) async {
@@ -173,6 +178,8 @@ class AccountCubit extends Cubit<AccountState> {
     final key = _exportKey ??= _uuid.v4();
     emit(const AccountState(status: AccountStatus.working));
     try {
+      await _reauthenticate(promptPassword, revokeApple: false);
+      if (_stale(generation)) return null;
       final export = await _withReauth(
         () => _accounts.requestExport(idempotencyKey: key),
         promptPassword,
@@ -200,7 +207,8 @@ class AccountCubit extends Cubit<AccountState> {
     try {
       return await call();
     } on ReauthRequiredException {
-      // A web popup opened from this continuation is outside the tap's user
+      // Only reached for clock skew: both flows re-authenticate up front. A
+      // web popup opened from this continuation is outside the tap's user
       // gesture and would be blocked: surface the error instead; the next
       // tap re-authenticates up front and reuses the same key.
       if (_stale(generation) || _auth.reauthNeedsGesture) rethrow;

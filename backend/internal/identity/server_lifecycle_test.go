@@ -121,11 +121,76 @@ func TestServer_DeleteAccount_UsesTheTokenUID(t *testing.T) {
 	}
 }
 
+// TestServer_RequestAccountExport_RecentSignIn: the export holds the whole account, so it needs the same recent
+// sign-in as DeleteAccount, also on a replay (same key), and a rejection reaches no service call.
+func TestServer_RequestAccountExport_RecentSignIn(t *testing.T) {
+	tests := []struct {
+		name     string
+		authTime time.Time
+		maxAge   time.Duration
+		wantOK   bool
+	}{
+		{"fresh sign-in", serverNow.Add(-time.Minute), 5 * time.Minute, true},
+		{"4m59s with the 5m default", serverNow.Add(-4*time.Minute - 59*time.Second), 5 * time.Minute, true},
+		{"5m01s with the 5m default", serverNow.Add(-5*time.Minute - time.Second), 5 * time.Minute, false},
+		{"6 minutes passes when the config says 10m", serverNow.Add(-6 * time.Minute), 10 * time.Minute, true},
+		{"missing auth_time", time.Time{}, 5 * time.Minute, false},
+		{"auth_time in the future beyond skew", serverNow.Add(time.Hour), 5 * time.Minute, false},
+		{"max age left unset fails closed", serverNow.Add(-time.Second), 0, false},
+	}
+	for _, tt := range tests {
+		// A second call with the same key is a replay: the gate applies to it as well.
+		for _, call := range []string{"first call", "replay"} {
+			t.Run(tt.name+"/"+call, func(t *testing.T) {
+				lc := &fakeLifecycle{view: ExportView{ID: "exp-1", Status: ExportPending}}
+				s, ctx := lifecycleServer(t, authn.Claims{UID: "uid-1", AuthTime: tt.authTime}, lc, tt.maxAge)
+				req := connect.NewRequest(&identityv1.RequestAccountExportRequest{IdempotencyKey: "k-0123456789abcdef"})
+				if call == "replay" {
+					if _, err := s.RequestAccountExport(ctx, req); (err == nil) != tt.wantOK {
+						t.Fatalf("first call err = %v, wantOK %v", err, tt.wantOK)
+					}
+					lc.calls = 0
+				}
+				resp, err := s.RequestAccountExport(ctx, req)
+				if tt.wantOK {
+					if err != nil || resp.Msg.GetExportId() != "exp-1" || lc.calls != 1 || lc.lastUID != "uid-1" {
+						t.Fatalf("resp = %v, err = %v, lifecycle = %+v", resp, err, lc)
+					}
+					return
+				}
+				var ae *apierr.Error
+				if !errors.As(err, &ae) || ae.Code != connect.CodeFailedPrecondition || ae.Reason != commonv1.ErrorReason_ERROR_REASON_REAUTH_REQUIRED {
+					t.Fatalf("err = %v, want FAILED_PRECONDITION + REAUTH_REQUIRED", err)
+				}
+				if lc.calls != 0 {
+					t.Error("the service was reached with a stale sign-in")
+				}
+			})
+		}
+	}
+}
+
+// TestServer_GetAccountExport_StaleSignInStillWorks: the app polls GetAccountExport for longer than the sign-in
+// window, so it must not carry the gate.
+func TestServer_GetAccountExport_StaleSignInStillWorks(t *testing.T) {
+	lc := &fakeLifecycle{view: ExportView{ID: "exp-1", Status: ExportPending}}
+	s, ctx := lifecycleServer(t, authn.Claims{UID: "uid-1", AuthTime: serverNow.Add(-time.Hour)}, lc, 5*time.Minute)
+	resp, err := s.GetAccountExport(ctx, connect.NewRequest(&identityv1.GetAccountExportRequest{ExportId: "exp-1"}))
+	if err != nil || resp.Msg.GetExportId() != "exp-1" || lc.calls != 1 {
+		t.Fatalf("resp = %v, err = %v, lifecycle = %+v", resp, err, lc)
+	}
+	// No auth_time at all works too.
+	ctx = authn.WithClaims(context.Background(), authn.Claims{UID: "uid-1"})
+	if _, err := s.GetAccountExport(ctx, connect.NewRequest(&identityv1.GetAccountExportRequest{ExportId: "exp-1"})); err != nil {
+		t.Fatalf("missing auth_time: %v", err)
+	}
+}
+
 func TestServer_Exports(t *testing.T) {
 	exp := serverNow.Add(7 * 24 * time.Hour)
 	urlExp := serverNow.Add(15 * time.Minute)
 	lc := &fakeLifecycle{view: ExportView{ID: "exp-1", Status: ExportReady, DownloadURL: "https://signed", URLExpiresAt: urlExp, ExpiresAt: exp}}
-	s, ctx := lifecycleServer(t, authn.Claims{UID: "uid-1"}, lc, 5*time.Minute)
+	s, ctx := lifecycleServer(t, authn.Claims{UID: "uid-1", AuthTime: serverNow}, lc, 5*time.Minute)
 
 	r1, err := s.RequestAccountExport(ctx, connect.NewRequest(&identityv1.RequestAccountExportRequest{IdempotencyKey: "k-0123456789abcdef"}))
 	if err != nil || r1.Msg.GetExportId() != "exp-1" || r1.Msg.GetStatus() != identityv1.ExportStatus_EXPORT_STATUS_READY || lc.lastUID != "uid-1" {

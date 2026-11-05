@@ -114,7 +114,7 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_FEATURE_DISABLED =
       ErrorReason._(14, _omitEnumNames ? '' : 'ERROR_REASON_FEATURE_DISABLED');
 
-  /// FAILED_PRECONDITION: the action needs a recent sign-in (e.g. DeleteAccount: ID token auth_time older than
+  /// FAILED_PRECONDITION: the action needs a recent sign-in (DeleteAccount and RequestAccountExport: ID token auth_time older than
   /// ACCOUNT_DELETE_REAUTH_MAX_AGE, or missing). Ask the user to sign in again to continue, then retry once with the
   /// same idempotency_key; do not loop.
   static const ErrorReason ERROR_REASON_REAUTH_REQUIRED =

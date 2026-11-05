@@ -131,7 +131,7 @@ const (
 	// metadata["feature"], when set, names a sub-feature (e.g. "replies", "quotes", "media"): hide only that one.
 	// When absent, the whole feature behind the called service is off.
 	ErrorReason_ERROR_REASON_FEATURE_DISABLED ErrorReason = 14
-	// FAILED_PRECONDITION: the action needs a recent sign-in (e.g. DeleteAccount: ID token auth_time older than
+	// FAILED_PRECONDITION: the action needs a recent sign-in (DeleteAccount and RequestAccountExport: ID token auth_time older than
 	// ACCOUNT_DELETE_REAUTH_MAX_AGE, or missing). Ask the user to sign in again to continue, then retry once with the
 	// same idempotency_key; do not loop.
 	ErrorReason_ERROR_REASON_REAUTH_REQUIRED ErrorReason = 15

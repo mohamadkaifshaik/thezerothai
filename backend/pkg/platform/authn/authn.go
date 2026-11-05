@@ -87,7 +87,7 @@ func RequireVerifiedEmail(ctx context.Context, allowAnonymous bool, action strin
 // instance) and still count as a fresh sign-in.
 const recentSignInSkew = 30 * time.Second
 
-// RequireRecentSignIn is the shared "recent sign-in" check for destructive account actions (DeleteAccount).
+// RequireRecentSignIn is the shared "recent sign-in" check for sensitive account actions (DeleteAccount, RequestAccountExport).
 // It reads Claims.AuthTime (the Firebase `auth_time` claim: when the user last authenticated, not when the token
 // was refreshed) and returns FAILED_PRECONDITION + REAUTH_REQUIRED when it is zero (missing), older than maxAge,
 // or more than 30 s in the future (fail closed). A future auth_time of up to 30 s passes. now is injected so tests
