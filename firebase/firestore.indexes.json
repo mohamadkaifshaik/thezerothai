@@ -157,6 +157,38 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "endAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "beaconParticipants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "state", "order": "ASCENDING" },
+        { "fieldPath": "respondedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "beaconParticipants",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "state", "order": "ASCENDING" },
+        { "fieldPath": "requestedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "beaconMemberships",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "endAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "beaconMemberships",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "role", "order": "ASCENDING" },
+        { "fieldPath": "endAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

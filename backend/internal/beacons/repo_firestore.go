@@ -343,7 +343,7 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 		b := store.NewFirestoreTxBatch(tx)
 		outcome := Unchanged
 		if len(updates) > 0 {
-			d.UpdatedAt = r.now().UTC()
+			d.UpdatedAt = p.Now.UTC() // the service's clock, the same one that decided ENDED
 			updates = append(updates, firestore.Update{Path: "updatedAt", Value: d.UpdatedAt})
 			b.Update(r.ref(p.BeaconID), updates)
 			outcome = Written
@@ -396,7 +396,7 @@ func (r *FirestoreRepo) Cancel(ctx context.Context, p CancelParams) (CancelResul
 		case StatusEnded:
 			return ErrEnded
 		}
-		now := r.now().UTC()
+		now := p.Now.UTC() // the service's clock, the same one that decided ENDED
 		d.Status, d.UpdatedAt = string(StatusCancelled), now
 		b.Update(r.ref(p.BeaconID), []firestore.Update{
 			{Path: "status", Value: d.Status},
