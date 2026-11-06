@@ -1,0 +1,65 @@
+import '../../../shared/format/single_line_text.dart';
+import '../../lists/domain/list_text_rules.dart' show normalizeListText;
+import 'beacons_feature_flag.dart';
+
+/// Why a plan field is refused before sending (docs/beacons-plan.md section
+/// 3). The server checks the same limits after trim and NFC and stays
+/// authoritative; this only saves a wasted call.
+enum BeaconTextIssue {
+  /// Empty after trim (title and venue only).
+  empty,
+
+  /// More code points than the limit, after trim and NFC.
+  tooLong,
+
+  /// Control, line break, bidi control or invisible characters (one line).
+  notPlainOneLine,
+
+  /// Details (several lines allowed): a control other than LF, a line
+  /// separator, a bidi control, an invisible format character or a filler.
+  notPlainText,
+}
+
+/// Why a start time is refused before sending.
+enum BeaconTimeIssue {
+  /// Less than [kBeaconMinLead] from now.
+  tooSoon,
+
+  /// More than [kBeaconMaxLead] from now.
+  tooFar,
+}
+
+/// Code points as the server counts them (trim, then NFC).
+int beaconTextLength(String raw) => normalizeListText(raw).runes.length;
+
+BeaconTextIssue? _oneLine(String raw, {required int max}) {
+  final text = normalizeListText(raw);
+  if (text.isEmpty) return BeaconTextIssue.empty;
+  if (text.runes.length > max) return BeaconTextIssue.tooLong;
+  return singleLineIssue(text) == null ? null : BeaconTextIssue.notPlainOneLine;
+}
+
+/// 1 to [kBeaconTitleMaxLength] code points, one line.
+BeaconTextIssue? beaconTitleIssue(String raw) =>
+    _oneLine(raw, max: kBeaconTitleMaxLength);
+
+/// 1 to [kBeaconVenueMaxLength] code points, one line: a named meeting point.
+BeaconTextIssue? beaconVenueIssue(String raw) =>
+    _oneLine(raw, max: kBeaconVenueMaxLength);
+
+/// 0 to [kBeaconDetailsMaxLength] code points, several lines allowed.
+BeaconTextIssue? beaconDetailsIssue(String raw) {
+  final text = normalizeListText(raw);
+  if (text.runes.length > kBeaconDetailsMaxLength) {
+    return BeaconTextIssue.tooLong;
+  }
+  return multiLineTextIssue(text) == null ? null : BeaconTextIssue.notPlainText;
+}
+
+/// [startAt] must be at least [kBeaconMinLead] and at most [kBeaconMaxLead]
+/// after [now] (both bounds inclusive).
+BeaconTimeIssue? beaconStartIssue(DateTime startAt, DateTime now) {
+  if (startAt.isBefore(now.add(kBeaconMinLead))) return BeaconTimeIssue.tooSoon;
+  if (startAt.isAfter(now.add(kBeaconMaxLead))) return BeaconTimeIssue.tooFar;
+  return null;
+}
