@@ -66,7 +66,10 @@ void main() {
         find.widgetWithText(TextFormField, 'Confirm password'),
         'password2',
       );
-      await tester.tap(find.widgetWithText(AppPillButton, 'Sign up'));
+      await tester.ensureVisible(
+        find.widgetWithText(AppPillButton, 'Create account'),
+      );
+      await tester.tap(find.widgetWithText(AppPillButton, 'Create account'));
       await tester.pump();
 
       expect(find.text('Passwords do not match'), findsOneWidget);
@@ -102,7 +105,10 @@ void main() {
         find.widgetWithText(TextFormField, 'Confirm password'),
         'password1',
       );
-      await tester.tap(find.widgetWithText(AppPillButton, 'Sign up'));
+      await tester.ensureVisible(
+        find.widgetWithText(AppPillButton, 'Create account'),
+      );
+      await tester.tap(find.widgetWithText(AppPillButton, 'Create account'));
       await tester.pumpAndSettle();
 
       verify(
@@ -116,7 +122,7 @@ void main() {
     testWidgets('navigates back to sign-in', (tester) async {
       await tester.pumpWidget(wrap(authBloc));
 
-      final signInLink = find.text('Already have an account? Sign in');
+      final signInLink = find.text('Already have an account? Log in');
       await tester.ensureVisible(signInLink);
       await tester.tap(signInLink);
       await tester.pumpAndSettle();

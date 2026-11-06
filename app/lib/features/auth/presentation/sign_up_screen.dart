@@ -18,9 +18,6 @@ class SignUpScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        leading: BackButton(onPressed: () => context.go('/sign-in')),
-      ),
       body: SafeArea(
         child: BlocConsumer<AuthBloc, AuthState>(
           listenWhen: (previous, current) => current.failure != null,
@@ -35,9 +32,20 @@ class SignUpScreen extends StatelessWidget {
           builder: (context, state) {
             return AuthFormLayout(
               title: 'Create your account',
+              subtitle: 'Start something nearby.',
               children: [
+                SocialSignInButtons(
+                  isSubmitting: state.isSubmitting,
+                  onGoogleTap: () => context.read<AuthBloc>().add(
+                    const AuthGoogleSignInRequested(),
+                  ),
+                  onAppleTap: () => context.read<AuthBloc>().add(
+                    const AuthAppleSignInRequested(),
+                  ),
+                ),
+                const AuthEmailDivider(),
                 EmailPasswordForm(
-                  submitLabel: 'Sign up',
+                  submitLabel: 'Create account',
                   isSubmitting: state.isSubmitting,
                   confirmPassword: true,
                   onSubmit: (email, password) => context.read<AuthBloc>().add(
@@ -50,31 +58,10 @@ class SignUpScreen extends StatelessWidget {
                       "By signing up you confirm you're 18 or older "
                       'and agree to our ',
                 ),
-                const SizedBox(height: AppSpacing.lg),
-                const Row(
-                  children: [
-                    Expanded(child: Divider()),
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-                      child: Text('or'),
-                    ),
-                    Expanded(child: Divider()),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                SocialSignInButtons(
-                  isSubmitting: state.isSubmitting,
-                  onGoogleTap: () => context.read<AuthBloc>().add(
-                    const AuthGoogleSignInRequested(),
-                  ),
-                  onAppleTap: () => context.read<AuthBloc>().add(
-                    const AuthAppleSignInRequested(),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
+                const SizedBox(height: AppSpacing.sm),
                 TextButton(
                   onPressed: () => context.go('/sign-in'),
-                  child: const Text('Already have an account? Sign in'),
+                  child: const Text('Already have an account? Log in'),
                 ),
               ],
             );
