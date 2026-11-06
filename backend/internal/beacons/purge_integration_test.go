@@ -6,12 +6,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
 // seedParticipant writes beacons/{id}/beaconParticipants/{uid} and the matching users/{uid}/beaconMemberships/{id} row.
@@ -118,6 +120,68 @@ func TestPurge_ErasesEveryTraceOfTheUser(t *testing.T) {
 	}
 	if _, done, err = er.PurgeUser(ctx, doomed, cp); err != nil || !done {
 		t.Fatalf("rerun step 2 = %v %v", done, err)
+	}
+}
+
+// TestPurge_AdjustsCountsForAcceptedRows (R12, Review Focus 5): erasing an ACCEPTED participant decrements the beacon's
+// acceptedCount and reopens a FULL beacon; erasing a mere requester leaves the beacon untouched; a rerun is a no-op.
+func TestPurge_AdjustsCountsForAcceptedRows(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	const doomed, host = "doomed-c", "host-c"
+	full := e.beaconAt(host, "", e.now.Add(time.Hour))
+	full.OpenSpots = 1
+	fb := e.create(t, host, "integration-key-pc1", full).Beacon
+	e.mustRequest(t, doomed, "integration-key-pc2", fb.ID)
+	if _, err := e.respond(host, "integration-key-pc3", fb.ID, doomed, true, e.now); err != nil {
+		t.Fatal(err)
+	}
+	rb := e.create(t, host, "integration-key-pc4", e.beaconAt(host, "", e.now.Add(2*time.Hour))).Beacon
+	e.mustRequest(t, doomed, "integration-key-pc5", rb.ID)
+	e.mustRequest(t, "other-c", "integration-key-pc6", rb.ID)
+	// A cancelled FULL beacon with doomed accepted: the erasure must not resurrect it.
+	cin := e.beaconAt(host, "", e.now.Add(3*time.Hour))
+	cin.OpenSpots = 1
+	cb := e.create(t, host, "integration-key-pc7", cin).Beacon
+	e.mustRequest(t, doomed, "integration-key-pc8", cb.ID)
+	if _, err := e.respond(host, "integration-key-pc9", cb.ID, doomed, true, e.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.repo.Cancel(ctx, CancelParams{UID: host, BeaconID: cb.ID, IdemKey: idempotency.Key(host, rpcCancelBeacon, "integration-key-pca"), RequestHash: "h", Now: e.now}); err != nil {
+		t.Fatal(err)
+	}
+
+	er := NewEraser(e.repo)
+	var cp Checkpoint
+	for done := false; !done; {
+		var err error
+		if cp, done, err = er.PurgeUser(ctx, doomed, cp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := e.repo.Get(ctx, fb.ID)
+	if err != nil || got.AcceptedCount != 0 || got.Status != StatusOpen {
+		t.Fatalf("full beacon after erasure = count %d status %q, %v; want 0 open", got.AcceptedCount, got.Status, err)
+	}
+	if _, err := e.repo.GetParticipant(ctx, fb.ID, doomed); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("doomed's accepted row survived: %v", err)
+	}
+	rgot, err := e.repo.Get(ctx, rb.ID)
+	if err != nil || rgot.AcceptedCount != 0 || rgot.Status != StatusOpen {
+		t.Fatalf("requested-only beacon changed: count %d status %q, %v", rgot.AcceptedCount, rgot.Status, err)
+	}
+	if _, err := e.repo.GetParticipant(ctx, rb.ID, "other-c"); err != nil {
+		t.Fatalf("another requester's row was deleted: %v", err)
+	}
+	cgot, err := e.repo.Get(ctx, cb.ID)
+	if err != nil || cgot.Status != StatusCancelled || cgot.AcceptedCount != 0 {
+		t.Fatalf("cancelled beacon after erasure = status %q count %d, %v; want cancelled 0", cgot.Status, cgot.AcceptedCount, err)
+	}
+	if _, done, err := er.PurgeUser(ctx, doomed, Checkpoint{Phase: phaseMemberships}); err != nil || !done {
+		t.Fatalf("rerun = %v %v", done, err)
+	}
+	if got, _ := e.repo.Get(ctx, fb.ID); got.AcceptedCount != 0 {
+		t.Fatalf("rerun changed the count: %d", got.AcceptedCount)
 	}
 }
 

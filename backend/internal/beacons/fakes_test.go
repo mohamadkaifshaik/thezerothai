@@ -36,6 +36,94 @@ type fakeRepo struct {
 	docs    map[string]Beacon
 	rows    []Beacon
 	queries []ListQuery
+
+	// participation (PR 3)
+	participants  map[string]Participant // key beaconID|uid
+	presult       ParticipantResult
+	perr          error
+	requestedBy   []RequestParams
+	respondedBy   []RespondParams
+	transitioned  []StateParams
+	memberships   []Membership
+	mqueries      []MembershipQuery
+	plist         []Participant
+	pqueries      []ParticipantQuery
+	beaconBatches [][]string
+}
+
+func (f *fakeRepo) pkey(beaconID, uid string) string { return beaconID + "|" + uid }
+
+func (f *fakeRepo) Request(_ context.Context, p RequestParams) (ParticipantResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.requestedBy = append(f.requestedBy, p)
+	return f.presult, f.perr
+}
+
+func (f *fakeRepo) Withdraw(_ context.Context, p StateParams) (ParticipantResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.transitioned = append(f.transitioned, p)
+	return f.presult, f.perr
+}
+
+func (f *fakeRepo) Respond(_ context.Context, p RespondParams) (ParticipantResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.respondedBy = append(f.respondedBy, p)
+	return f.presult, f.perr
+}
+
+func (f *fakeRepo) Leave(_ context.Context, p StateParams) (ParticipantResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.transitioned = append(f.transitioned, p)
+	return f.presult, f.perr
+}
+
+func (f *fakeRepo) Remove(_ context.Context, p StateParams) (ParticipantResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.transitioned = append(f.transitioned, p)
+	return f.presult, f.perr
+}
+
+func (f *fakeRepo) GetParticipant(_ context.Context, beaconID, uid string) (Participant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if p, ok := f.participants[f.pkey(beaconID, uid)]; ok {
+		return p, nil
+	}
+	return Participant{}, ErrNotFound
+}
+
+func (f *fakeRepo) ListMemberships(_ context.Context, q MembershipQuery) ([]Membership, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mqueries = append(f.mqueries, q)
+	n := min(len(f.memberships), max(q.Limit, 0))
+	return append([]Membership(nil), f.memberships[:n]...), f.err
+}
+
+func (f *fakeRepo) GetBeacons(_ context.Context, ids []string) (map[string]Beacon, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.beaconBatches = append(f.beaconBatches, ids)
+	out := map[string]Beacon{}
+	for _, id := range ids {
+		if b, ok := f.docs[id]; ok {
+			out[id] = b
+		}
+	}
+	return out, f.err
+}
+
+func (f *fakeRepo) ListParticipants(_ context.Context, q ParticipantQuery) ([]Participant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pqueries = append(f.pqueries, q)
+	n := min(len(f.plist), max(q.Limit, 0))
+	return append([]Participant(nil), f.plist[:n]...), f.err
 }
 
 func (f *fakeRepo) Create(_ context.Context, p CreateParams) (CreateResult, error) {
@@ -90,7 +178,8 @@ func (f *fakeRepo) ListByAudience(_ context.Context, q ListQuery) ([]Beacon, err
 func (f *fakeRepo) calls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return len(f.createdBy) + len(f.updatedBy) + len(f.cancelledBy) + len(f.queries)
+	return len(f.createdBy) + len(f.updatedBy) + len(f.cancelledBy) + len(f.queries) +
+		len(f.requestedBy) + len(f.respondedBy) + len(f.transitioned) + len(f.mqueries) + len(f.pqueries) + len(f.beaconBatches)
 }
 
 // fakeDirectory serves one profile map; the embedded nil interface panics on any method the service must not call.

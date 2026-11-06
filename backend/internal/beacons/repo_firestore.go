@@ -75,12 +75,20 @@ func (d beaconDoc) beacon(id string) Beacon {
 
 // membershipDoc is users/{uid}/beaconMemberships/{beaconId}. It never holds another user's uid (R3).
 type membershipDoc struct {
-	BeaconID    string    `firestore:"beaconId"`
-	Role        string    `firestore:"role"`
-	State       string    `firestore:"state"`
-	CommunityID string    `firestore:"communityId"`
-	StartAt     time.Time `firestore:"startAt"`
-	EndAt       time.Time `firestore:"endAt"`
+	BeaconID     string    `firestore:"beaconId"`
+	Role         string    `firestore:"role"`
+	State        string    `firestore:"state"`
+	PendingUntil time.Time `firestore:"pendingUntil,omitempty"`
+	CommunityID  string    `firestore:"communityId"`
+	StartAt      time.Time `firestore:"startAt"`
+	EndAt        time.Time `firestore:"endAt"`
+}
+
+func (m membershipDoc) membership(id string) Membership {
+	if m.BeaconID == "" {
+		m.BeaconID = id
+	}
+	return Membership(m)
 }
 
 // FirestoreRepo is the Firestore implementation of Repo, and the page source of the eraser and the exporter.
@@ -130,8 +138,13 @@ func (r *FirestoreRepo) run(ctx context.Context, fn store.TxnFunc) (int, error) 
 // putIdem appends the TTL'd idempotency document of rpc, holding the beacon id only (a record outlives the beacon by up
 // to 48 h, so it must not keep its text), to b.
 func (r *FirestoreRepo) putIdem(b store.Batch, uid, key, rpc, hash, beaconID string) {
+	r.putIdemResult(b, uid, key, rpc, hash, map[string]string{"id": beaconID})
+}
+
+// putIdemResult is putIdem with an explicit result map (the participation writes also keep the target uid).
+func (r *FirestoreRepo) putIdemResult(b store.Batch, uid, key, rpc, hash string, result map[string]string) {
 	r.idem.Put(b, key, idempotency.Record{
-		UID: uid, RPC: rpc, RequestHash: hash, Result: map[string]string{"id": beaconID}, ExpireAt: r.now().UTC().Add(idempotency.TTL),
+		UID: uid, RPC: rpc, RequestHash: hash, Result: result, ExpireAt: r.now().UTC().Add(idempotency.TTL),
 	})
 }
 
@@ -330,7 +343,7 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 		b := store.NewFirestoreTxBatch(tx)
 		outcome := Unchanged
 		if len(updates) > 0 {
-			d.UpdatedAt = r.now().UTC()
+			d.UpdatedAt = p.Now.UTC() // the service's clock, the same one that decided ENDED
 			updates = append(updates, firestore.Update{Path: "updatedAt", Value: d.UpdatedAt})
 			b.Update(r.ref(p.BeaconID), updates)
 			outcome = Written
@@ -383,7 +396,7 @@ func (r *FirestoreRepo) Cancel(ctx context.Context, p CancelParams) (CancelResul
 		case StatusEnded:
 			return ErrEnded
 		}
-		now := r.now().UTC()
+		now := p.Now.UTC() // the service's clock, the same one that decided ENDED
 		d.Status, d.UpdatedAt = string(StatusCancelled), now
 		b.Update(r.ref(p.BeaconID), []firestore.Update{
 			{Path: "status", Value: d.Status},

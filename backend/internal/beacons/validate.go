@@ -50,6 +50,32 @@ func validateVenue(s string) (string, error) {
 	return n, nil
 }
 
+func validateNote(s string) (string, error) {
+	n, ok := identity.SingleLineText(s, 0, MaxNoteRunes)
+	if !ok {
+		return "", apierr.Validation("note", "note must be at most 140 characters on one line, without control, invisible or direction characters")
+	}
+	return n, nil
+}
+
+func validateUserID(id string) error {
+	if !ids.ValidUID(id) {
+		return apierr.Validation("user_id", "user_id must be 1-128 characters of [A-Za-z0-9-]")
+	}
+	return nil
+}
+
+// responseFromProto maps JoinResponse to accept; UNSPECIFIED is VALIDATION "response".
+func responseFromProto(r beaconsv1.JoinResponse) (bool, error) {
+	switch r {
+	case beaconsv1.JoinResponse_JOIN_RESPONSE_ACCEPT:
+		return true, nil
+	case beaconsv1.JoinResponse_JOIN_RESPONSE_DECLINE:
+		return false, nil
+	}
+	return false, apierr.Validation("response", "response must be ACCEPT or DECLINE")
+}
+
 // validateStart: start_at in [now + MinStartLead, now + MaxStartLead].
 func validateStart(start, now time.Time) error {
 	if start.IsZero() || start.Before(now.Add(MinStartLead)) || start.After(now.Add(MaxStartLead)) {

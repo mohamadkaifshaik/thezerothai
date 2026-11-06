@@ -6,9 +6,11 @@ package beacons
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
+	"cloud.google.com/go/firestore"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
@@ -78,7 +80,10 @@ func (r *FirestoreRepo) PurgeOrganisedPage(ctx context.Context, uid string) (int
 	return deleted, partial || len(docs) == purgeOrganisedPage, nil
 }
 
-// PurgeMembershipPage implements PagePurger.
+// PurgeMembershipPage implements PagePurger. An ACCEPTED participant row is released in its own transaction (R12): the
+// beacon's acceptedCount drops and a FULL beacon reopens, with the participant doc and the membership row deleted in
+// the same transaction, so a retry after a failure finds no row and never decrements twice. Every other row is a plain
+// delete of the participant doc it names and the row itself, in one batch.
 func (r *FirestoreRepo) PurgeMembershipPage(ctx context.Context, uid string) (int, error) {
 	rows, err := r.client.Collection(usersCollection).Doc(uid).Collection(membershipsSubcollection).Limit(purgeMembershipPage).Documents(ctx).GetAll()
 	if err != nil {
@@ -88,20 +93,67 @@ func (r *FirestoreRepo) PurgeMembershipPage(ctx context.Context, uid string) (in
 		return 0, nil
 	}
 	b := store.NewFirestoreBatch(r.client)
+	batched := 0
 	for _, row := range rows {
 		var m membershipDoc
 		if err := row.DataTo(&m); err != nil {
 			return 0, logger.RedactErr(fmt.Errorf("beacons: purge memberships decode: %w", err), uid, row.Ref.ID)
 		}
-		if m.Role != RoleOrganiser && m.BeaconID != "" {
-			b.Delete(r.ref(m.BeaconID).Collection(participantsSubcollection).Doc(uid))
+		beaconID := m.BeaconID
+		if beaconID == "" {
+			beaconID = row.Ref.ID
+		}
+		if m.Role == RoleParticipant && m.State == PStateAccepted {
+			if err := r.releaseSeat(ctx, uid, beaconID, row.Ref); err != nil {
+				return 0, err
+			}
+			continue
+		}
+		if m.Role != RoleOrganiser {
+			b.Delete(r.participantRef(beaconID, uid))
 		}
 		b.Delete(row.Ref)
+		batched++
 	}
-	if err := b.Commit(ctx); err != nil {
-		return 0, logger.RedactErr(fmt.Errorf("beacons: purge memberships %s: %w", logger.HashUID(uid), err), uid)
+	if batched > 0 {
+		if err := b.Commit(ctx); err != nil {
+			return 0, logger.RedactErr(fmt.Errorf("beacons: purge memberships %s: %w", logger.HashUID(uid), err), uid)
+		}
 	}
 	return len(rows), nil
+}
+
+// releaseSeat is one transaction of the erasure: the beacon (when it still exists) loses one accepted seat and
+// recomputes OPEN/FULL, the participant doc and the membership row are deleted.
+func (r *FirestoreRepo) releaseSeat(ctx context.Context, uid, beaconID string, rowRef *firestore.DocumentRef) error {
+	attempts, err := r.run(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		d, err := r.getBeacon(ctx, tx, beaconID)
+		exists := err == nil
+		if err != nil && !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		b := store.NewFirestoreTxBatch(tx)
+		if exists {
+			count := max(d.AcceptedCount-1, 0)
+			status := d.Status
+			if status != string(StatusCancelled) { // a cancelled beacon keeps its status: only the count moves
+				status = string(liveStatus(count, d.OpenSpots))
+			}
+			b.Update(r.ref(beaconID), []firestore.Update{
+				{Path: "acceptedCount", Value: count},
+				{Path: "status", Value: status},
+				{Path: "updatedAt", Value: r.now().UTC()},
+			})
+		}
+		b.Delete(r.participantRef(beaconID, uid))
+		b.Delete(rowRef)
+		return b.Err()
+	})
+	store.NoteTxnAttempts(ctx, "beacons_txn_contention", attempts)
+	if err != nil {
+		return logger.RedactErr(fmt.Errorf("beacons: purge memberships %s: release seat: %w", logger.HashUID(uid), err), uid, beaconID)
+	}
+	return nil
 }
 
 // Checkpoint resumes Eraser.PurgeUser across calls. The zero value starts from the beginning. Deleted documents drop out

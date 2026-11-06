@@ -3,6 +3,7 @@ package beacons
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -172,13 +173,74 @@ func TestServer_ImplementedRPCsReachTheService(t *testing.T) {
 	if p := e.repo.createdBy[0]; p.Beacon.Activity != ActivityMeal || p.Beacon.CommunityID != "" {
 		t.Fatalf("params = %+v", p.Beacon)
 	}
-	for _, rpc := range allCalls() {
-		switch rpc.name {
-		case "RequestToJoin", "RespondToJoinRequest", "WithdrawJoinRequest", "LeaveBeacon", "RemoveParticipant", "ListMyBeacons", "ListParticipants":
-			if err := rpc.call(s, ctx); connect.CodeOf(err) != connect.CodeUnimplemented {
-				t.Fatalf("%s with a service = %v, want Unimplemented until PR 3", rpc.name, err)
-			}
-		}
+}
+
+// TestServer_ParticipationRPCsReachTheService (PR 3): the seven participation and listing RPCs forward their fields and
+// render the answers; the enum filters map to the service's inputs; an UNSPECIFIED response is VALIDATION "response".
+func TestServer_ParticipationRPCsReachTheService(t *testing.T) {
+	e := newEnv()
+	b := e.openBeacon()
+	e.repo.docs[testBeaconID] = b
+	e.repo.presult = ParticipantResult{Outcome: Written, Beacon: b, Participant: Participant{BeaconID: testBeaconID, UID: testViewer, State: PStateRequested, Note: "pls", RequestedAt: e.now}}
+	s := NewServer(flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}), e.svc)
+	vctx := authn.WithClaims(context.Background(), authn.Claims{UID: testViewer})
+	octx := authn.WithClaims(context.Background(), authn.Claims{UID: testOrganiser})
+
+	req, err := s.RequestToJoin(vctx, connect.NewRequest(&beaconsv1.RequestToJoinRequest{IdempotencyKey: testKey, BeaconId: testBeaconID, Note: "pls"}))
+	if err != nil {
+		t.Fatalf("RequestToJoin: %v", err)
+	}
+	if vs := req.Msg.GetViewer(); vs.GetParticipantState() != beaconsv1.ParticipantState_PARTICIPANT_STATE_REQUESTED || !vs.GetCanWithdraw() || vs.GetRole() != beaconsv1.ViewerRole_VIEWER_ROLE_NONE {
+		t.Fatalf("viewer = %+v", vs)
+	}
+	if p := e.repo.requestedBy[0]; p.Note != "pls" || p.UID != testViewer {
+		t.Fatalf("request params = %+v", p)
+	}
+	if _, err := s.WithdrawJoinRequest(vctx, connect.NewRequest(&beaconsv1.WithdrawJoinRequestRequest{IdempotencyKey: testKey, BeaconId: testBeaconID})); err != nil {
+		t.Fatalf("Withdraw: %v", err)
+	}
+	if _, err := s.LeaveBeacon(vctx, connect.NewRequest(&beaconsv1.LeaveBeaconRequest{IdempotencyKey: testKey, BeaconId: testBeaconID})); err != nil {
+		t.Fatalf("Leave: %v", err)
+	}
+	_, err = s.RespondToJoinRequest(octx, connect.NewRequest(&beaconsv1.RespondToJoinRequestRequest{IdempotencyKey: testKey, BeaconId: testBeaconID, UserId: testViewer}))
+	assertValidation(t, err, "response")
+	resp, err := s.RespondToJoinRequest(octx, connect.NewRequest(&beaconsv1.RespondToJoinRequestRequest{IdempotencyKey: testKey, BeaconId: testBeaconID, UserId: testViewer, Response: beaconsv1.JoinResponse_JOIN_RESPONSE_DECLINE}))
+	if err != nil || resp.Msg.GetView().GetViewer().GetRole() != beaconsv1.ViewerRole_VIEWER_ROLE_ORGANISER {
+		t.Fatalf("Respond = %+v, %v", resp, err)
+	}
+	if p := e.repo.respondedBy[0]; p.Accept || p.TargetUID != testViewer {
+		t.Fatalf("respond params = %+v", p)
+	}
+	if _, err := s.RemoveParticipant(octx, connect.NewRequest(&beaconsv1.RemoveParticipantRequest{IdempotencyKey: testKey, BeaconId: testBeaconID, UserId: testViewer})); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	// ListMyBeacons: role and window enums map to the service input; the page renders views and the token.
+	e.repo.memberships = e.membershipsFor(testViewer, RoleRequester, PStateRequested, 2)
+	mine, err := s.ListMyBeacons(vctx, connect.NewRequest(&beaconsv1.ListMyBeaconsRequest{Role: beaconsv1.MyBeaconsRole_MY_BEACONS_ROLE_PARTICIPANT, Window: beaconsv1.MyBeaconsWindow_MY_BEACONS_WINDOW_PAST, Limit: 1}))
+	if err != nil {
+		t.Fatalf("ListMyBeacons: %v", err)
+	}
+	if q := e.repo.mqueries[0]; fmt.Sprint(q.Roles) != fmt.Sprint([]string{RoleParticipant, RoleRequester}) || !q.Past {
+		t.Fatalf("my query = %+v", q)
+	}
+	if len(mine.Msg.GetViews()) != 1 || mine.Msg.GetNextPageToken() == "" || mine.Msg.GetViews()[0].GetViewer().GetParticipantState() != beaconsv1.ParticipantState_PARTICIPANT_STATE_REQUESTED {
+		t.Fatalf("my page = %+v", mine.Msg)
+	}
+
+	// ListParticipants: the filter enum maps; rows carry the live user and the state; notes only on REQUESTED rows.
+	e.repo.plist = []Participant{{BeaconID: testBeaconID, UID: "req-1", State: PStateRequested, Note: "pls", RequestedAt: e.now}}
+	e.dir.profiles["req-1"] = activeProfile("req-1")
+	parts, err := s.ListParticipants(octx, connect.NewRequest(&beaconsv1.ListParticipantsRequest{BeaconId: testBeaconID, Filter: beaconsv1.ParticipantFilter_PARTICIPANT_FILTER_REQUESTED}))
+	if err != nil {
+		t.Fatalf("ListParticipants: %v", err)
+	}
+	rows := parts.Msg.GetParticipants()
+	if len(rows) != 1 || rows[0].GetUser().GetUserId() != "req-1" || rows[0].GetState() != beaconsv1.ParticipantState_PARTICIPANT_STATE_REQUESTED || rows[0].GetNote() != "pls" || !rows[0].GetSince().AsTime().Equal(e.now) {
+		t.Fatalf("rows = %+v", rows)
+	}
+	if q := e.repo.pqueries[0]; q.State != PStateRequested {
+		t.Fatalf("participants query = %+v", q)
 	}
 }
 

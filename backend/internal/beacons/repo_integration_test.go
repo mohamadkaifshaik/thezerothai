@@ -247,6 +247,14 @@ func TestRepo_UpdateRules(t *testing.T) {
 			t.Fatalf("err = %v, want ErrNotFound", err)
 		}
 	})
+	t.Run("updatedAt is stamped with the caller's clock", func(t *testing.T) {
+		title := "Clocked"
+		later := e.now.Add(10 * time.Minute)
+		res, err := update("org-6", "integration-key-u008", nil, &title, later)
+		if err != nil || !res.Beacon.UpdatedAt.Equal(later) {
+			t.Fatalf("updatedAt = %v, %v, want %v (the Now the service passed)", res.Beacon.UpdatedAt, err, later)
+		}
+	})
 }
 
 func TestRepo_CancelRules(t *testing.T) {

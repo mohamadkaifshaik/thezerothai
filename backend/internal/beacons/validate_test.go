@@ -138,6 +138,37 @@ func TestValidateCreateFields(t *testing.T) {
 	})
 }
 
+// TestValidateNote: 0-140 code points, trimmed; a user_id must be a uid; a join response must be set.
+func TestValidateNote(t *testing.T) {
+	if _, err := validateNote(strings.Repeat("n", 141)); err == nil {
+		t.Fatal("141-rune note accepted")
+	} else {
+		assertValidation(t, err, "note")
+	}
+	if got, err := validateNote(""); err != nil || got != "" {
+		t.Fatalf("empty note = %q, %v, want accepted", got, err)
+	}
+	if got, err := validateNote("  see you there  "); err != nil || got != "see you there" {
+		t.Fatalf("note = %q, %v, want trimmed", got, err)
+	}
+	assertValidation(t, validateUserID(""), "user_id")
+	assertValidation(t, validateUserID("bad id"), "user_id")
+	if err := validateUserID("user-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := responseFromProto(beaconsv1.JoinResponse_JOIN_RESPONSE_UNSPECIFIED); err == nil {
+		t.Fatal("UNSPECIFIED response accepted")
+	} else {
+		assertValidation(t, err, "response")
+	}
+	if accept, err := responseFromProto(beaconsv1.JoinResponse_JOIN_RESPONSE_ACCEPT); err != nil || !accept {
+		t.Fatalf("ACCEPT = %v, %v", accept, err)
+	}
+	if accept, err := responseFromProto(beaconsv1.JoinResponse_JOIN_RESPONSE_DECLINE); err != nil || accept {
+		t.Fatalf("DECLINE = %v, %v", accept, err)
+	}
+}
+
 // TestEffectiveStatus: CANCELLED is final; otherwise ENDED exactly from endAt on; otherwise the stored status.
 func TestEffectiveStatus(t *testing.T) {
 	end := testNow.Add(25 * time.Minute)

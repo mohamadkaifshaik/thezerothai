@@ -36,6 +36,7 @@ const (
 	// LIMIT_REACHED metadata["limit"] values (beacons.proto header).
 	limitOpen         = "beacons_open"
 	limitParticipants = "beacon_participants"
+	limitPending      = "beacon_requests_pending"
 
 	// notFoundText is the one message of every NOT_FOUND this module answers (byte-identical for every cause).
 	notFoundText = "beacon not found"
@@ -199,6 +200,25 @@ func mapErr(ctx context.Context, op, uid, beaconID string, err error) error {
 	case errors.Is(err, ErrCancelled):
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:cancelled")
 		return stateConflict("cancelled")
+	case errors.Is(err, ErrFull):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:full")
+		return stateConflict("full")
+	case errors.Is(err, ErrAlreadyRequested):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:already_requested")
+		return stateConflict("already_requested")
+	case errors.Is(err, ErrNotRequested):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:not_requested")
+		return stateConflict("not_requested")
+	case errors.Is(err, ErrNotParticipant):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:not_participant")
+		return stateConflict("not_participant")
+	case errors.Is(err, ErrOrganiser):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:organiser")
+		return stateConflict("organiser")
+	case errors.Is(err, ErrPendingLimit):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:limit_reached")
+		logger.SetRequestField(ctx, "limit", limitPending)
+		return limitReached(limitPending, "pending request limit reached")
 	case errors.Is(err, ErrKeyReused):
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:key_reused")
 		return apierr.New(connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_IDEMPOTENCY_KEY_REUSED,
@@ -221,20 +241,37 @@ func mapErr(ctx context.Context, op, uid, beaconID string, err error) error {
 	return logger.RedactErr(fmt.Errorf("beacons: %s: %w", op, err), uid, beaconID)
 }
 
-// viewerState is the caller's relationship with b at now (PR 2: organiser or nobody; PR 3 adds the participant rows).
-func viewerState(b Beacon, viewer string, now time.Time) ViewerState {
+// viewerState is the caller's relationship with b at now, from their participant row state ("" when there is none):
+// the organiser manages a live beacon; an ACCEPTED participant may leave while it is live; a REQUESTED caller may
+// withdraw while it is live; anyone else may request while it is OPEN.
+func viewerState(b Beacon, viewer, pstate string, now time.Time) ViewerState {
 	st := b.EffectiveStatus(now)
+	live := st == StatusOpen || st == StatusFull
 	if b.OrganiserID == viewer {
-		return ViewerState{Role: RoleOrganiser, CanManage: st == StatusOpen || st == StatusFull}
+		return ViewerState{Role: RoleOrganiser, CanManage: live}
 	}
-	return ViewerState{Role: RoleNone, CanRequest: st == StatusOpen}
+	vs := ViewerState{Role: RoleNone, ParticipantState: pstate}
+	switch pstate {
+	case PStateAccepted:
+		vs.Role, vs.CanLeave = RoleParticipant, live
+	case PStateRequested:
+		vs.CanWithdraw = true // a stale request on an ended or cancelled beacon can always be cleared
+	default:
+		vs.CanRequest = st == StatusOpen
+	}
+	return vs
 }
 
-// view renders b for viewer: the effective status and the viewer state.
+// view renders b for viewer with no participant row (the organiser's own views).
 func (s *service) view(b Beacon, organiser identity.Profile, viewer string) View {
+	return s.viewWith(b, organiser, viewer, "")
+}
+
+// viewWith renders b for viewer: the effective status and the viewer state from pstate.
+func (s *service) viewWith(b Beacon, organiser identity.Profile, viewer, pstate string) View {
 	now := s.now()
 	b.Status = b.EffectiveStatus(now)
-	return View{Beacon: b, Organiser: organiser, Viewer: viewerState(b, viewer, now)}
+	return View{Beacon: b, Organiser: organiser, Viewer: viewerState(b, viewer, pstate, now)}
 }
 
 // normalizeCreate applies every field rule of CreateBeacon in order (0 reads) and returns the beacon to store.
