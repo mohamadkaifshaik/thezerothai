@@ -5,10 +5,11 @@
 // Beacons ("Plans"): a concrete, time-boxed invitation to do one activity together ("Coffee, campus food court,
 // 4 PM, 25 minutes, 3 spots, everyone pays their own") inside one community or publicly, with request-to-join and
 // organiser acceptance (docs/beacons-plan.md). Owner module: backend/internal/beacons.
-// Collections owned: beacons/{beaconId} (organiserId, communityId, activity, title, details, venue, startAt,
+// Collections owned: beacons/{beaconId} (organiserId, communityId, activity, title, details, venue, startAt, endAt,
 // durationMin, openSpots, acceptedCount, cost, chatPref, eligibility, status, hidden, createdAt, updatedAt,
-// expireAt), beacons/{beaconId}/participants/{uid} (state, note, requestedAt, respondedAt) and
-// users/{uid}/beaconMemberships/{beaconId} (role, state, startAt, communityId). Only beacons.Service reads or
+// expireAt), beacons/{beaconId}/beaconParticipants/{uid} (uid, state, note, requestedAt, respondedAt, expireAt) and
+// users/{uid}/beaconMemberships/{beaconId} (beaconId, role, state, pending, communityId, startAt, endAt; never another
+// user's uid, so a row may outlive an erased organiser's beacon and is dropped on read). Only beacons.Service reads or
 // writes them; firestore.rules stay deny-all to clients.
 //
 // Ids: beacon_id is a 64-bit Snowflake rendered as a 19-digit decimal string (rule 1). It is time-ordered and
@@ -46,16 +47,17 @@
 //
 // Errors (clients branch on ErrorDetail.reason):
 //   - INVALID_ARGUMENT + VALIDATION, metadata["field"] in beacon_id | user_id | community_id | audience | activity |
-//     title | details | venue | start_at | duration_minutes | open_spots | cost | chat_preference | note | limit |
-//     page_token | idempotency_key; before any lookup.
+//     title | details | venue | start_at | duration_minutes | open_spots | cost | chat_preference | note | response |
+//     page_token | idempotency_key; before any lookup. limit is never a validation error: it is clamped (0 = 20, above
+//     50 = 50), the lists precedent.
 //   - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "beacons" (or "communities" for a community
 //     audience while that flag is off for the caller).
 //   - NOT_FOUND: one message for a missing, hidden, blocked or not-visible beacon.
 //   - FORBIDDEN, metadata["reason"] = "not_member" (community audience, caller not JOINED) | "not_organiser"
 //     (UpdateBeacon, CancelBeacon, RespondToJoinRequest, RemoveParticipant, ListParticipants REQUESTED by anyone
-//     else) | "blocked".
+//     else). A block in either direction is never FORBIDDEN: it is the one NOT_FOUND above.
 //   - FAILED_PRECONDITION, metadata["reason"] = "full" | "ended" | "cancelled" | "already_requested" |
-//     "not_requested" | "not_participant".
+//     "not_requested" | "not_participant" | "organiser" (the organiser asked to join their own beacon).
 //   - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "beacons_open" (BEACONS_MAX_OPEN_PER_USER, 5 OPEN or
 //     FULL beacons per organiser) | "beacon_requests_pending" (BEACONS_MAX_PENDING_REQUESTS, 10 REQUESTED rows per
 //     user) | "beacon_participants" (open_spots above BEACONS_MAX_OPEN_SPOTS, 20); nothing is written.
@@ -147,23 +149,24 @@ type BeaconServiceClient interface {
 	// audience are immutable at v1: cancel and create again. A request that changes nothing writes only the
 	// idempotency doc.
 	UpdateBeacon(context.Context, *connect.Request[v1.UpdateBeaconRequest]) (*connect.Response[v1.UpdateBeaconResponse], error)
-	// Cancel one of the caller's OPEN or FULL beacons: status CANCELLED, every ACCEPTED and REQUESTED participant row
-	// and membership marked accordingly. Participants are notified (NOTIFICATION_TYPE_BEACON_CANCELLED). Already
-	// CANCELLED => success with the idempotency doc only.
+	// Cancel one of the caller's OPEN or FULL beacons: status CANCELLED on the beacon only. Participant and membership
+	// rows are pointers and read the beacon's status (GetBeacon, ListMyBeacons), so nothing fans out. Participants are
+	// notified (NOTIFICATION_TYPE_BEACON_CANCELLED). Already CANCELLED => success with the idempotency doc only.
 	CancelBeacon(context.Context, *connect.Request[v1.CancelBeaconRequest]) (*connect.Response[v1.CancelBeaconResponse], error)
 	// One beacon as the caller may see it (audience, blocks and hidden applied; header). The organiser row is live
 	// (identity directory, 60 s); the viewer state is computed from the caller's participant row (1 read).
 	GetBeacon(context.Context, *connect.Request[v1.GetBeaconRequest]) (*connect.Response[v1.GetBeaconResponse], error)
 	// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first. Hidden beacons and
 	// beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A community audience
-	// needs the caller JOINED (FORBIDDEN "not_member"). limit 1-50 (default 20, else VALIDATION "limit"); page_token
-	// is an opaque signed cursor, VALIDATION "page_token" when invalid or expired.
+	// needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50); page_token is an
+	// opaque signed cursor bound to the caller and the audience, VALIDATION "page_token" when invalid or expired.
 	ListBeacons(context.Context, *connect.Request[v1.ListBeaconsRequest]) (*connect.Response[v1.ListBeaconsResponse], error)
 	// The caller's own beacons: organised, requested or accepted (role filter), UPCOMING (start_at + duration >= now,
 	// soonest first) or PAST (most recent first), from users/{uid}/beaconMemberships; CANCELLED beacons appear under
-	// PAST. limit 1-50, default 20.
+	// PAST. limit is clamped (0 = 20, above 50 = 50).
 	ListMyBeacons(context.Context, *connect.Request[v1.ListMyBeaconsRequest]) (*connect.Response[v1.ListMyBeaconsResponse], error)
-	// Ask to join an OPEN beacon the caller may see and is not organising. note 0-140 code points. A REQUESTED row
+	// Ask to join an OPEN beacon the caller may see. The organiser may not join their own beacon
+	// (FAILED_PRECONDITION "organiser"). note 0-140 code points. A REQUESTED row
 	// already there => FAILED_PRECONDITION "already_requested"; an ACCEPTED one => success with the idempotency doc
 	// only; a DECLINED, WITHDRAWN, LEFT or REMOVED row may request again. At
 	// BEACONS_MAX_PENDING_REQUESTS (10) REQUESTED rows for the caller => LIMIT_REACHED "beacon_requests_pending". A
@@ -186,7 +189,7 @@ type BeaconServiceClient interface {
 	RemoveParticipant(context.Context, *connect.Request[v1.RemoveParticipantRequest]) (*connect.Response[v1.RemoveParticipantResponse], error)
 	// ACCEPTED participants (visible to the organiser and to ACCEPTED participants; anyone else => NOT_FOUND) or, for
 	// the organiser only, REQUESTED rows with their notes (anyone else => FORBIDDEN "not_organiser"). Live rows
-	// (identity directory, 60 s), oldest first. limit 1-50, default 20.
+	// (identity directory, 60 s), oldest first. limit is clamped (0 = 20, above 50 = 50).
 	ListParticipants(context.Context, *connect.Request[v1.ListParticipantsRequest]) (*connect.Response[v1.ListParticipantsResponse], error)
 }
 
@@ -371,23 +374,24 @@ type BeaconServiceHandler interface {
 	// audience are immutable at v1: cancel and create again. A request that changes nothing writes only the
 	// idempotency doc.
 	UpdateBeacon(context.Context, *connect.Request[v1.UpdateBeaconRequest]) (*connect.Response[v1.UpdateBeaconResponse], error)
-	// Cancel one of the caller's OPEN or FULL beacons: status CANCELLED, every ACCEPTED and REQUESTED participant row
-	// and membership marked accordingly. Participants are notified (NOTIFICATION_TYPE_BEACON_CANCELLED). Already
-	// CANCELLED => success with the idempotency doc only.
+	// Cancel one of the caller's OPEN or FULL beacons: status CANCELLED on the beacon only. Participant and membership
+	// rows are pointers and read the beacon's status (GetBeacon, ListMyBeacons), so nothing fans out. Participants are
+	// notified (NOTIFICATION_TYPE_BEACON_CANCELLED). Already CANCELLED => success with the idempotency doc only.
 	CancelBeacon(context.Context, *connect.Request[v1.CancelBeaconRequest]) (*connect.Response[v1.CancelBeaconResponse], error)
 	// One beacon as the caller may see it (audience, blocks and hidden applied; header). The organiser row is live
 	// (identity directory, 60 s); the viewer state is computed from the caller's participant row (1 read).
 	GetBeacon(context.Context, *connect.Request[v1.GetBeaconRequest]) (*connect.Response[v1.GetBeaconResponse], error)
 	// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first. Hidden beacons and
 	// beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A community audience
-	// needs the caller JOINED (FORBIDDEN "not_member"). limit 1-50 (default 20, else VALIDATION "limit"); page_token
-	// is an opaque signed cursor, VALIDATION "page_token" when invalid or expired.
+	// needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50); page_token is an
+	// opaque signed cursor bound to the caller and the audience, VALIDATION "page_token" when invalid or expired.
 	ListBeacons(context.Context, *connect.Request[v1.ListBeaconsRequest]) (*connect.Response[v1.ListBeaconsResponse], error)
 	// The caller's own beacons: organised, requested or accepted (role filter), UPCOMING (start_at + duration >= now,
 	// soonest first) or PAST (most recent first), from users/{uid}/beaconMemberships; CANCELLED beacons appear under
-	// PAST. limit 1-50, default 20.
+	// PAST. limit is clamped (0 = 20, above 50 = 50).
 	ListMyBeacons(context.Context, *connect.Request[v1.ListMyBeaconsRequest]) (*connect.Response[v1.ListMyBeaconsResponse], error)
-	// Ask to join an OPEN beacon the caller may see and is not organising. note 0-140 code points. A REQUESTED row
+	// Ask to join an OPEN beacon the caller may see. The organiser may not join their own beacon
+	// (FAILED_PRECONDITION "organiser"). note 0-140 code points. A REQUESTED row
 	// already there => FAILED_PRECONDITION "already_requested"; an ACCEPTED one => success with the idempotency doc
 	// only; a DECLINED, WITHDRAWN, LEFT or REMOVED row may request again. At
 	// BEACONS_MAX_PENDING_REQUESTS (10) REQUESTED rows for the caller => LIMIT_REACHED "beacon_requests_pending". A
@@ -410,7 +414,7 @@ type BeaconServiceHandler interface {
 	RemoveParticipant(context.Context, *connect.Request[v1.RemoveParticipantRequest]) (*connect.Response[v1.RemoveParticipantResponse], error)
 	// ACCEPTED participants (visible to the organiser and to ACCEPTED participants; anyone else => NOT_FOUND) or, for
 	// the organiser only, REQUESTED rows with their notes (anyone else => FORBIDDEN "not_organiser"). Live rows
-	// (identity directory, 60 s), oldest first. limit 1-50, default 20.
+	// (identity directory, 60 s), oldest first. limit is clamped (0 = 20, above 50 = 50).
 	ListParticipants(context.Context, *connect.Request[v1.ListParticipantsRequest]) (*connect.Response[v1.ListParticipantsResponse], error)
 }
 

@@ -123,6 +123,71 @@ const (
 	RoleNone        = "none"
 )
 
+// Participant states of beacons/{beaconId}/beaconParticipants/{uid} (the stored strings of ParticipantState).
+// REQUESTED -> ACCEPTED | DECLINED | WITHDRAWN; ACCEPTED -> LEFT | REMOVED.
+const (
+	PStateRequested = "requested"
+	PStateAccepted  = "accepted"
+	PStateDeclined  = "declined"
+	PStateWithdrawn = "withdrawn"
+	PStateLeft      = "left"
+	PStateRemoved   = "removed"
+)
+
+// canRequestAgain reports whether a (possibly absent, "") participant row lets its user request to join: a row that
+// ended in DECLINED, WITHDRAWN, LEFT or REMOVED is reused; REQUESTED (already_requested) and ACCEPTED (a no-op success)
+// are the caller's to answer.
+func canRequestAgain(state string) bool {
+	switch state {
+	case "", PStateDeclined, PStateWithdrawn, PStateLeft, PStateRemoved:
+		return true
+	}
+	return false
+}
+
+// Participant is one beacons/{beaconId}/beaconParticipants/{uid} row.
+type Participant struct {
+	BeaconID string
+	UID      string
+	State    string
+	// Note is the requester's note (0-140 code points), shown to the organiser on REQUESTED rows only.
+	Note        string
+	RequestedAt time.Time
+	RespondedAt time.Time
+	// ExpireAt is the beacon's expireAt (the TTL on this collection group).
+	ExpireAt time.Time
+}
+
+// ParticipantRow is a participant with their live profile row.
+type ParticipantRow struct {
+	Participant Participant
+	User        identity.Profile
+}
+
+// ParticipantsPage is one page of ListParticipants, oldest first, with the opaque next token ("" = no more).
+type ParticipantsPage struct {
+	Rows          []ParticipantRow
+	NextPageToken string
+}
+
+// MyBeaconsInput is a ListMyBeacons request after the transport layer. Role is RoleOrganiser, RoleParticipant (accepted
+// and requested rows) or "" for all; Past selects beacons whose end passed, else the upcoming ones.
+type MyBeaconsInput struct {
+	Role      string
+	Past      bool
+	Limit     int32
+	PageToken string
+}
+
+// ListParticipantsInput is a ListParticipants request after the transport layer: Requested selects the REQUESTED rows
+// (organiser only), else the ACCEPTED ones.
+type ListParticipantsInput struct {
+	BeaconID  string
+	Requested bool
+	Limit     int32
+	PageToken string
+}
+
 // Membership is one users/{uid}/beaconMemberships/{beaconId} row: the user's relationship with a beacon, holding no other
 // user's uid (R3), so it may dangle after the organiser's erasure.
 type Membership struct {
@@ -229,7 +294,69 @@ var (
 	ErrEnded = errors.New("beacons: beacon ended")
 	// ErrCancelled: a mutation on a cancelled beacon.
 	ErrCancelled = errors.New("beacons: beacon cancelled")
+	// ErrFull: a request or an accept while every seat is taken.
+	ErrFull = errors.New("beacons: beacon full")
+	// ErrAlreadyRequested: a request while a REQUESTED row exists.
+	ErrAlreadyRequested = errors.New("beacons: already requested")
+	// ErrNotRequested: a withdraw or a response without a REQUESTED row.
+	ErrNotRequested = errors.New("beacons: not requested")
+	// ErrNotParticipant: a leave or a removal without an ACCEPTED row.
+	ErrNotParticipant = errors.New("beacons: not a participant")
+	// ErrPendingLimit: the requester holds BEACONS_MAX_PENDING_REQUESTS live requests.
+	ErrPendingLimit = errors.New("beacons: pending request limit reached")
+	// ErrOrganiser: the organiser asked to join their own beacon.
+	ErrOrganiser = errors.New("beacons: the organiser cannot join")
 )
+
+// RequestParams is one RequestToJoin write. Now decides the beacon's state and stamps requestedAt.
+type RequestParams struct {
+	UID, BeaconID, IdemKey, RequestHash, Note string
+	MaxPending                                int
+	Now                                       time.Time
+}
+
+// ParticipantResult is what the five participation writes answer: the beacon and the caller's (or the target's)
+// participant row as stored, or as they are now on a replay.
+type ParticipantResult struct {
+	Outcome     Outcome
+	Beacon      Beacon
+	Participant Participant
+}
+
+// RespondParams is one RespondToJoinRequest write by the organiser UID on TargetUID's REQUESTED row.
+type RespondParams struct {
+	UID, BeaconID, TargetUID, IdemKey, RequestHash string
+	Accept                                         bool
+	Now                                            time.Time
+}
+
+// StateParams is one Withdraw (TargetUID == UID), Leave (TargetUID == UID) or Remove (UID is the organiser) write.
+type StateParams struct {
+	UID, BeaconID, TargetUID, IdemKey, RequestHash string
+	Now                                            time.Time
+}
+
+// MembershipQuery is one ListMemberships read of users/{UID}/beaconMemberships: Roles filters the role (nil = all); Past
+// selects endAt < Now (most recent first) else endAt >= Now (soonest first); resumes after (AfterEndAt, AfterID).
+type MembershipQuery struct {
+	UID        string
+	Roles      []string
+	Past       bool
+	Now        time.Time
+	AfterEndAt time.Time
+	AfterID    string
+	Limit      int
+}
+
+// ParticipantQuery is one ListParticipants read: the rows of BeaconID in State, oldest first (respondedAt for ACCEPTED,
+// requestedAt for REQUESTED), resuming after (AfterAt, AfterUID).
+type ParticipantQuery struct {
+	BeaconID string
+	State    string
+	AfterAt  time.Time
+	AfterUID string
+	Limit    int
+}
 
 // CreateParams is one CreateBeacon write. Beacon carries every field but Status, AcceptedCount and the timestamps, which
 // the repository sets.

@@ -7,10 +7,11 @@
 // Beacons ("Plans"): a concrete, time-boxed invitation to do one activity together ("Coffee, campus food court,
 // 4 PM, 25 minutes, 3 spots, everyone pays their own") inside one community or publicly, with request-to-join and
 // organiser acceptance (docs/beacons-plan.md). Owner module: backend/internal/beacons.
-// Collections owned: beacons/{beaconId} (organiserId, communityId, activity, title, details, venue, startAt,
+// Collections owned: beacons/{beaconId} (organiserId, communityId, activity, title, details, venue, startAt, endAt,
 // durationMin, openSpots, acceptedCount, cost, chatPref, eligibility, status, hidden, createdAt, updatedAt,
-// expireAt), beacons/{beaconId}/participants/{uid} (state, note, requestedAt, respondedAt) and
-// users/{uid}/beaconMemberships/{beaconId} (role, state, startAt, communityId). Only beacons.Service reads or
+// expireAt), beacons/{beaconId}/beaconParticipants/{uid} (uid, state, note, requestedAt, respondedAt, expireAt) and
+// users/{uid}/beaconMemberships/{beaconId} (beaconId, role, state, pending, communityId, startAt, endAt; never another
+// user's uid, so a row may outlive an erased organiser's beacon and is dropped on read). Only beacons.Service reads or
 // writes them; firestore.rules stay deny-all to clients.
 //
 // Ids: beacon_id is a 64-bit Snowflake rendered as a 19-digit decimal string (rule 1). It is time-ordered and
@@ -48,16 +49,17 @@
 //
 // Errors (clients branch on ErrorDetail.reason):
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in beacon_id | user_id | community_id | audience | activity |
-//   title | details | venue | start_at | duration_minutes | open_spots | cost | chat_preference | note | limit |
-//   page_token | idempotency_key; before any lookup.
+//   title | details | venue | start_at | duration_minutes | open_spots | cost | chat_preference | note | response |
+//   page_token | idempotency_key; before any lookup. limit is never a validation error: it is clamped (0 = 20, above
+//   50 = 50), the lists precedent.
 // - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "beacons" (or "communities" for a community
 //   audience while that flag is off for the caller).
 // - NOT_FOUND: one message for a missing, hidden, blocked or not-visible beacon.
 // - FORBIDDEN, metadata["reason"] = "not_member" (community audience, caller not JOINED) | "not_organiser"
 //   (UpdateBeacon, CancelBeacon, RespondToJoinRequest, RemoveParticipant, ListParticipants REQUESTED by anyone
-//   else) | "blocked".
+//   else). A block in either direction is never FORBIDDEN: it is the one NOT_FOUND above.
 // - FAILED_PRECONDITION, metadata["reason"] = "full" | "ended" | "cancelled" | "already_requested" |
-//   "not_requested" | "not_participant".
+//   "not_requested" | "not_participant" | "organiser" (the organiser asked to join their own beacon).
 // - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "beacons_open" (BEACONS_MAX_OPEN_PER_USER, 5 OPEN or
 //   FULL beacons per organiser) | "beacon_requests_pending" (BEACONS_MAX_PENDING_REQUESTS, 10 REQUESTED rows per
 //   user) | "beacon_participants" (open_spots above BEACONS_MAX_OPEN_SPOTS, 20); nothing is written.
@@ -1593,7 +1595,7 @@ type ListBeaconsRequest struct {
 	Audience isListBeaconsRequest_Audience `protobuf_oneof:"audience"`
 	// Beacons whose start_at >= from (default now); OPEN and FULL only, hidden excluded, blocks applied.
 	From *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=from,proto3" json:"from,omitempty"`
-	// 1-50, default 20.
+	// Clamped: 0 = 20, above 50 = 50.
 	Limit         int32  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
 	PageToken     string `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1748,7 +1750,7 @@ type ListMyBeaconsRequest struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Role   MyBeaconsRole          `protobuf:"varint,1,opt,name=role,proto3,enum=dzeroth.beacons.v1.MyBeaconsRole" json:"role,omitempty"`
 	Window MyBeaconsWindow        `protobuf:"varint,2,opt,name=window,proto3,enum=dzeroth.beacons.v1.MyBeaconsWindow" json:"window,omitempty"`
-	// 1-50, default 20.
+	// Clamped: 0 = 20, above 50 = 50.
 	Limit         int32  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
 	PageToken     string `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2263,9 +2265,10 @@ type RemoveParticipantRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	BeaconId       string                 `protobuf:"bytes,2,opt,name=beacon_id,json=beaconId,proto3" json:"beacon_id,omitempty"`
-	UserId         string                 `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// The ACCEPTED participant. [A-Za-z0-9-]{1,128}, else VALIDATION "user_id".
+	UserId        string `protobuf:"bytes,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RemoveParticipantRequest) Reset() {
@@ -2367,7 +2370,7 @@ type ListParticipantsRequest struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	BeaconId string                 `protobuf:"bytes,1,opt,name=beacon_id,json=beaconId,proto3" json:"beacon_id,omitempty"`
 	Filter   ParticipantFilter      `protobuf:"varint,2,opt,name=filter,proto3,enum=dzeroth.beacons.v1.ParticipantFilter" json:"filter,omitempty"`
-	// 1-50, default 20.
+	// Clamped: 0 = 20, above 50 = 50.
 	Limit         int32  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
 	PageToken     string `protobuf:"bytes,4,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
