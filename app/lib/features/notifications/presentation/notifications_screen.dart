@@ -283,6 +283,7 @@ class _NotificationsViewState extends State<_NotificationsView>
               type: notificationTypeWire(n.type),
               postId: n.postId,
               actorId: n.actor.userId,
+              beaconId: n.beaconId,
             );
             return Column(
               key: key,

@@ -19,9 +19,12 @@ import '../../features/communities/presentation/community_moderation_log_screen.
 import '../../features/communities/presentation/community_screen.dart';
 import '../../features/communities/presentation/create_community_screen.dart';
 import '../../features/beacons/domain/beacons_feature_flag.dart';
+import '../../features/beacons/presentation/beacon_people_screen.dart';
 import '../../features/beacons/presentation/beacon_screen.dart';
 import '../../features/beacons/presentation/beacons_screen.dart';
 import '../../features/beacons/presentation/create_beacon_screen.dart';
+import '../../features/beacons/presentation/edit_beacon_screen.dart';
+import '../../features/beacons/presentation/my_beacons_screen.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
 import '../../features/lists/presentation/list_detail_screen.dart';
 import '../../features/lists/presentation/list_members_screen.dart';
@@ -191,6 +194,11 @@ class AppRouter {
   static const planNewPath = '/plans/new';
   static String planPath(String beaconId) =>
       '/plans/${Uri.encodeComponent(beaconId)}';
+  // `/plans/mine` is matched before `/plans/:id` too.
+  static const plansMinePath = '/plans/mine';
+  static String planPeoplePath(String beaconId) =>
+      '${planPath(beaconId)}/people';
+  static String planEditPath(String beaconId) => '${planPath(beaconId)}/edit';
   // Manage pinned (the Home tabs); needs `lists` and `ui_shell`.
   static const pinnedPath = '/home/pinned';
   // The search results, behind the `search` flag; build links with
@@ -524,9 +532,26 @@ class AppRouter {
                 const AuthGate(child: CreateBeaconScreen()),
           ),
           GoRoute(
+            path: plansMinePath,
+            builder: (context, state) =>
+                const AuthGate(child: MyBeaconsScreen()),
+          ),
+          GoRoute(
             path: '/plans/:id',
             builder: (context, state) => AuthGate(
               child: BeaconScreen(beaconId: state.pathParameters['id']!),
+            ),
+          ),
+          GoRoute(
+            path: '/plans/:id/people',
+            builder: (context, state) => AuthGate(
+              child: BeaconPeopleScreen(beaconId: state.pathParameters['id']!),
+            ),
+          ),
+          GoRoute(
+            path: '/plans/:id/edit',
+            builder: (context, state) => AuthGate(
+              child: EditBeaconScreen(beaconId: state.pathParameters['id']!),
             ),
           ),
           GoRoute(

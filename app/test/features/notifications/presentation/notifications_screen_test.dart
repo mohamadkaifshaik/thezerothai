@@ -124,6 +124,13 @@ void main() {
             return const Scaffold(body: Text('profile page'));
           },
         ),
+        GoRoute(
+          path: '/plans/:id',
+          builder: (context, state) {
+            visited.add('/plans/${state.pathParameters['id']}');
+            return const Scaffold(body: Text('plan page'));
+          },
+        ),
       ],
     );
     addTearDown(router.dispose);
@@ -667,5 +674,46 @@ void main() {
 
     final size = tester.getSize(find.byType(InkWell).first);
     expect(size.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+  });
+
+  testWidgets('beacon rows read their verbs and open the plan', (tester) async {
+    const id = '1234567890123456789';
+    stubList(
+      snapshotOfNotifs([
+        notif(
+          'r',
+          minutesAgo: 1,
+          type: NotificationType.NOTIFICATION_TYPE_BEACON_REQUEST,
+          beaconId: id,
+        ),
+        notif(
+          'a',
+          minutesAgo: 2,
+          type: NotificationType.NOTIFICATION_TYPE_BEACON_ACCEPTED,
+          actorId: 'u4',
+          handle: 'cy',
+          displayName: 'Cy',
+          beaconId: id,
+        ),
+        notif(
+          'c',
+          minutesAgo: 3,
+          type: NotificationType.NOTIFICATION_TYPE_BEACON_CANCELLED,
+          actorId: 'u5',
+          handle: 'di',
+          displayName: 'Di',
+          beaconId: id,
+        ),
+      ], seenAt: kNotifBase),
+    );
+    await open(tester);
+
+    expect(find.text('Alice asked to join your plan'), findsOneWidget);
+    expect(find.text('Cy accepted you into their plan'), findsOneWidget);
+    expect(find.text('Di cancelled a plan you joined'), findsOneWidget);
+
+    await tester.tap(find.textContaining('asked to join'));
+    await tester.pumpAndSettle();
+    expect(visited, ['/plans/$id']);
   });
 }

@@ -47,13 +47,33 @@ BeaconTextIssue? beaconTitleIssue(String raw) =>
 BeaconTextIssue? beaconVenueIssue(String raw) =>
     _oneLine(raw, max: kBeaconVenueMaxLength);
 
-/// 0 to [kBeaconDetailsMaxLength] code points, several lines allowed.
+/// 0 to [kBeaconNoteMaxLength] code points, one line (empty allowed).
+BeaconTextIssue? beaconNoteIssue(String raw) {
+  final text = normalizeListText(raw);
+  if (text.isEmpty) return null;
+  if (text.runes.length > kBeaconNoteMaxLength) return BeaconTextIssue.tooLong;
+  return singleLineIssue(text) == null ? null : BeaconTextIssue.notPlainOneLine;
+}
+
+/// A beacon id: the 19-digit decimal of the server's Snowflake. Checked before
+/// any path is built from one, so a hostile id never adds a segment.
+bool isBeaconId(String s) {
+  if (s.length != 19) return false;
+  for (final c in s.codeUnits) {
+    if (c < 0x30 || c > 0x39) return false;
+  }
+  return true;
+}
+
+/// 0 to [kBeaconDetailsMaxLength] code points on one line (the server's rule;
+/// empty allowed).
 BeaconTextIssue? beaconDetailsIssue(String raw) {
   final text = normalizeListText(raw);
+  if (text.isEmpty) return null;
   if (text.runes.length > kBeaconDetailsMaxLength) {
     return BeaconTextIssue.tooLong;
   }
-  return multiLineTextIssue(text) == null ? null : BeaconTextIssue.notPlainText;
+  return singleLineIssue(text) == null ? null : BeaconTextIssue.notPlainOneLine;
 }
 
 /// The inline error under a text field; an empty field shows none (the

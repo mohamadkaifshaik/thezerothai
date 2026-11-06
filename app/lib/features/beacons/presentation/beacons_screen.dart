@@ -75,6 +75,11 @@ class _BeaconsScreenState extends State<BeaconsScreen> {
                     onBack: _back,
                     actions: [
                       IconButton(
+                        tooltip: 'My plans',
+                        icon: const Icon(Icons.event_available_outlined),
+                        onPressed: () => _open(AppRouter.plansMinePath),
+                      ),
+                      IconButton(
                         tooltip: 'New plan',
                         icon: const Icon(Icons.add_circle_outline),
                         onPressed: () => _open(AppRouter.planNewPath),

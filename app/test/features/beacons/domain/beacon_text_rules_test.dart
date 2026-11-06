@@ -31,10 +31,14 @@ void main() {
         beaconDetailsIssue('x' * (kBeaconDetailsMaxLength + 1)),
         BeaconTextIssue.tooLong,
       );
-      expect(beaconDetailsIssue('line one\nline two'), isNull);
+      // The server checks details with its single-line rule.
+      expect(
+        beaconDetailsIssue('line one\nline two'),
+        BeaconTextIssue.notPlainOneLine,
+      );
     });
     test('an invisible character is not plain text', () {
-      expect(beaconDetailsIssue('a​b'), BeaconTextIssue.notPlainText);
+      expect(beaconDetailsIssue('a​b'), BeaconTextIssue.notPlainOneLine);
     });
   });
 
@@ -68,6 +72,30 @@ void main() {
         ),
         BeaconTimeIssue.tooFar,
       );
+    });
+  });
+
+  group('note and ids', () {
+    test('the note is 0-140 code points on one line', () {
+      expect(beaconNoteIssue(''), isNull);
+      expect(beaconNoteIssue('see you there'), isNull);
+      expect(
+        beaconNoteIssue('x' * (kBeaconNoteMaxLength + 1)),
+        BeaconTextIssue.tooLong,
+      );
+      expect(beaconNoteIssue('a\u200Bb'), BeaconTextIssue.notPlainOneLine);
+      expect(beaconNoteIssue('a\nb'), BeaconTextIssue.notPlainOneLine);
+    });
+    test('a beacon id is 19 digits', () {
+      expect(isBeaconId('1234567890123456789'), isTrue);
+      for (final bad in [
+        '123',
+        '12345678901234567a9',
+        '',
+        '12345678901234567890',
+      ]) {
+        expect(isBeaconId(bad), isFalse, reason: bad);
+      }
     });
   });
 }

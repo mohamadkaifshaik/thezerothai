@@ -58,3 +58,20 @@ pb.BeaconView beaconView({
     canRequest: !canManage && status == pb.BeaconStatus.BEACON_STATUS_OPEN,
   ),
 );
+
+/// One participant row as ListParticipants answers it.
+pb.Participant participant({
+  required String userId,
+  String? handle,
+  String? name,
+  pb.ParticipantState state = pb.ParticipantState.PARTICIPANT_STATE_ACCEPTED,
+  String note = '',
+}) => pb.Participant(
+  user: common.AuthorSnapshot(
+    userId: userId,
+    handle: handle ?? userId,
+    displayName: name ?? userId,
+  ),
+  state: state,
+  note: note,
+);
