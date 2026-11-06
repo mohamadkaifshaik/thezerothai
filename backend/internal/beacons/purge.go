@@ -14,13 +14,15 @@ import (
 )
 
 const (
-	// purgeOrganisedPage is the most organised beacons one eraser call deletes; each beacon is its own batch (the beacon,
-	// up to MaxBeaconOpenSpotsCeiling participant docs and the organiser's membership row stay under 500 writes).
+	// purgeOrganisedPage is the most organised beacons one eraser call touches; each beacon is its own batch.
 	purgeOrganisedPage = 100
 	// purgeMembershipPage is the most membership rows one eraser call processes: two deletes each, one batch of <= 500.
 	purgeMembershipPage = 250
-	// participantsPageLimit bounds the participant docs read under one beacon (the cap is 50; the limit is a backstop).
-	participantsPageLimit = 500
+	// participantsPage is the most participant docs deleted under one beacon per batch: with the beacon and the
+	// organiser's membership row that is exactly Firestore's 500-write limit. A beacon with more (every REQUESTED,
+	// DECLINED or WITHDRAWN row ever, no per-beacon cap) is deleted across calls: participant pages first, the beacon
+	// only once a page comes back short, so no participant doc is left under a deleted parent.
+	participantsPage = 498
 
 	phaseOrganised   = ""
 	phaseMemberships = "memberships"
@@ -28,11 +30,13 @@ const (
 
 // PagePurger is the storage the eraser needs (FirestoreRepo in production).
 type PagePurger interface {
-	// PurgeOrganisedPage deletes up to purgeOrganisedPage of uid's organised beacons, each with its beaconParticipants
-	// docs and the organiser's own membership row, one batch per beacon, and reports how many beacons. Deleted beacons
-	// leave the next page, so repeating the call is self-resuming. Other users' membership rows pointing at the beacon
-	// are left to dangle (they hold no uid, R3).
-	PurgeOrganisedPage(ctx context.Context, uid string) (deleted int, err error)
+	// PurgeOrganisedPage works through up to purgeOrganisedPage of uid's organised beacons, one batch per beacon: up to
+	// participantsPage of its beaconParticipants docs, and, when that page was short, the beacon and the organiser's own
+	// membership row. It reports how many beacons were deleted and whether more work remains (a full page of beacons, or
+	// a beacon whose participant docs did not fit one batch and which stays for the next call). Deleted documents leave
+	// the next page, so repeating the call is self-resuming. Other users' membership rows pointing at the beacon are
+	// left to dangle (they hold no uid, R3).
+	PurgeOrganisedPage(ctx context.Context, uid string) (deleted int, more bool, err error)
 	// PurgeMembershipPage deletes up to purgeMembershipPage of users/{uid}/beaconMemberships rows and, for each row whose
 	// role is not organiser, the beacons/{beaconId}/beaconParticipants/{uid} doc it names, in one batch, and reports how
 	// many rows. Deleted rows leave the next page.
@@ -42,27 +46,36 @@ type PagePurger interface {
 var _ PagePurger = (*FirestoreRepo)(nil)
 
 // PurgeOrganisedPage implements PagePurger.
-func (r *FirestoreRepo) PurgeOrganisedPage(ctx context.Context, uid string) (int, error) {
+func (r *FirestoreRepo) PurgeOrganisedPage(ctx context.Context, uid string) (int, bool, error) {
 	docs, err := r.col().Where("organiserId", "==", uid).Select().Limit(purgeOrganisedPage).Documents(ctx).GetAll()
 	if err != nil {
-		return 0, logger.RedactErr(fmt.Errorf("beacons: purge organised %s: query: %w", logger.HashUID(uid), err), uid)
+		return 0, false, logger.RedactErr(fmt.Errorf("beacons: purge organised %s: query: %w", logger.HashUID(uid), err), uid)
 	}
+	deleted, partial := 0, false
 	for _, d := range docs {
-		parts, err := d.Ref.Collection(participantsSubcollection).Select().Limit(participantsPageLimit).Documents(ctx).GetAll()
+		parts, err := d.Ref.Collection(participantsSubcollection).Select().Limit(participantsPage).Documents(ctx).GetAll()
 		if err != nil {
-			return 0, logger.RedactErr(fmt.Errorf("beacons: purge organised %s: participants: %w", logger.HashUID(uid), err), uid, d.Ref.ID)
+			return deleted, true, logger.RedactErr(fmt.Errorf("beacons: purge organised %s: participants: %w", logger.HashUID(uid), err), uid, d.Ref.ID)
 		}
 		b := store.NewFirestoreBatch(r.client)
 		for _, p := range parts {
 			b.Delete(p.Ref)
 		}
-		b.Delete(d.Ref)
-		b.Delete(r.membershipRef(uid, d.Ref.ID))
-		if err := b.Commit(ctx); err != nil {
-			return 0, logger.RedactErr(fmt.Errorf("beacons: purge organised %s: %w", logger.HashUID(uid), err), uid, d.Ref.ID)
+		full := len(parts) == participantsPage
+		if !full {
+			b.Delete(d.Ref)
+			b.Delete(r.membershipRef(uid, d.Ref.ID))
 		}
+		if err := b.Commit(ctx); err != nil {
+			return deleted, true, logger.RedactErr(fmt.Errorf("beacons: purge organised %s: %w", logger.HashUID(uid), err), uid, d.Ref.ID)
+		}
+		if full {
+			partial = true // the beacon stays; the next call reads its remaining participant docs
+			continue
+		}
+		deleted++
 	}
-	return len(docs), nil
+	return deleted, partial || len(docs) == purgeOrganisedPage, nil
 }
 
 // PurgeMembershipPage implements PagePurger.
@@ -110,15 +123,16 @@ type Eraser struct {
 func NewEraser(repo PagePurger) *Eraser { return &Eraser{repo: repo} }
 
 // PurgeUser runs one page and reports whether the step is finished. An account with no beacons takes two calls (an empty
-// page per phase, no writes); a repeat after completion is the same two empty pages.
+// page per phase, no writes); a rerun from a zero checkpoint after completion is the same two empty pages, and a rerun
+// from the persisted memberships checkpoint is one.
 func (e *Eraser) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	if cp.Phase == phaseOrganised {
-		n, err := e.repo.PurgeOrganisedPage(ctx, uid)
+		n, more, err := e.repo.PurgeOrganisedPage(ctx, uid)
 		if err != nil {
 			return cp, false, err
 		}
 		next := Checkpoint{Phase: phaseOrganised, Deleted: cp.Deleted + n}
-		if n < purgeOrganisedPage {
+		if !more {
 			next.Phase = phaseMemberships
 		}
 		slog.InfoContext(ctx, "beacons_purge", "uid_hash", logger.HashUID(uid), "phase", "organised", "docs", n, "deleted_total", next.Deleted)

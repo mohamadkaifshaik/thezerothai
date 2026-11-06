@@ -6,24 +6,31 @@ import (
 	"testing"
 )
 
-// fakePurger answers successive page sizes per phase and counts the calls.
-type fakePurger struct {
-	organised, memberships []int
-	oCalls, mCalls         int
-	err                    error
+// organisedPage is one canned answer of PurgeOrganisedPage: beacons deleted and whether more work remains.
+type organisedPage struct {
+	n    int
+	more bool
 }
 
-func (f *fakePurger) PurgeOrganisedPage(context.Context, string) (int, error) {
+// fakePurger answers successive pages per phase and counts the calls.
+type fakePurger struct {
+	organised      []organisedPage
+	memberships    []int
+	oCalls, mCalls int
+	err            error
+}
+
+func (f *fakePurger) PurgeOrganisedPage(context.Context, string) (int, bool, error) {
 	f.oCalls++
 	if f.err != nil {
-		return 0, f.err
+		return 0, false, f.err
 	}
 	if len(f.organised) == 0 {
-		return 0, nil
+		return 0, false, nil
 	}
-	n := f.organised[0]
+	p := f.organised[0]
 	f.organised = f.organised[1:]
-	return n, nil
+	return p.n, p.more, nil
 }
 
 func (f *fakePurger) PurgeMembershipPage(context.Context, string) (int, error) {
@@ -39,10 +46,14 @@ func (f *fakePurger) PurgeMembershipPage(context.Context, string) (int, error) {
 	return n, nil
 }
 
-// TestEraser_PhasesAndResume: a full page keeps the phase, a short page advances it; the organised phase ends on a short
-// page and the memberships phase ends on a short page; a rerun after completion is two empty pages and no writes.
+// TestEraser_PhasesAndResume: the organised phase stays while the purger reports more work (a full page, or a beacon
+// whose participant docs were only partly deleted: 0 beacons but more = true) and advances when it does not; the
+// memberships phase ends on a short page; a rerun from a zero checkpoint is two empty pages and no writes.
 func TestEraser_PhasesAndResume(t *testing.T) {
-	p := &fakePurger{organised: []int{purgeOrganisedPage, 3}, memberships: []int{purgeMembershipPage, 2}}
+	p := &fakePurger{
+		organised:   []organisedPage{{purgeOrganisedPage, true}, {0, true}, {3, false}},
+		memberships: []int{purgeMembershipPage, 2},
+	}
 	e := NewEraser(p)
 	ctx := context.Background()
 	var cp Checkpoint
@@ -59,6 +70,7 @@ func TestEraser_PhasesAndResume(t *testing.T) {
 		}
 	}
 	step(phaseOrganised, false)   // full page of organised beacons: stay
+	step(phaseOrganised, false)   // a beacon with more participant docs than one batch holds: stay, 0 deleted
 	step(phaseMemberships, false) // short page: advance
 	step(phaseMemberships, false) // full page of memberships: stay
 	step(phaseMemberships, true)  // short page: done

@@ -119,6 +119,37 @@ func TestGetBeacon_CommunityRules(t *testing.T) {
 	})
 }
 
+// TestOrganiserBypassesCommunityGateOnOwnBeacon pins the Task 3 ruling: an organiser who left or was banned from the
+// community can still get, update and cancel their own beacon (no role lookup at all), but cannot list the community.
+func TestOrganiserBypassesCommunityGateOnOwnBeacon(t *testing.T) {
+	for _, role := range []communities.Role{communities.RoleNone, communities.RoleBanned} {
+		t.Run(fmt.Sprint(role), func(t *testing.T) {
+			e := newEnv()
+			b := e.openBeacon()
+			b.CommunityID = testCommunity
+			e.repo.docs[testBeaconID] = b
+			e.repo.update = UpdateResult{Outcome: Written, Beacon: b}
+			e.repo.cancel = CancelResult{Outcome: Written, Beacon: b}
+			e.comm.roles[testCommunity+"|"+testOrganiser] = role
+			if _, err := e.svc.GetBeacon(context.Background(), testOrganiser, testBeaconID); err != nil {
+				t.Fatalf("GetBeacon: %v", err)
+			}
+			if e.comm.calls != 0 {
+				t.Fatalf("role looked up %d times for the organiser's own beacon", e.comm.calls)
+			}
+			title := "Still mine"
+			if _, err := e.svc.UpdateBeacon(context.Background(), testOrganiser, UpdateInput{Key: testKey, BeaconID: testBeaconID, Title: &title}); err != nil {
+				t.Fatalf("UpdateBeacon: %v", err)
+			}
+			if err := e.svc.CancelBeacon(context.Background(), testOrganiser, testKey, testBeaconID); err != nil {
+				t.Fatalf("CancelBeacon: %v", err)
+			}
+			_, err := e.svc.ListBeacons(context.Background(), testOrganiser, ListInput{CommunityID: testCommunity})
+			assertForbidden(t, err, "not_member")
+		})
+	}
+}
+
 func TestGetBeacon_OrganiserGoneIsNotFound(t *testing.T) {
 	e := newEnv()
 	e.repo.docs[testBeaconID] = e.openBeacon()

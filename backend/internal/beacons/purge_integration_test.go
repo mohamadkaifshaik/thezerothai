@@ -121,6 +121,54 @@ func TestPurge_ErasesEveryTraceOfTheUser(t *testing.T) {
 	}
 }
 
+// TestPurge_ManyParticipantsStayUnderTheBatchLimit: a beacon with more participant docs than one batch may hold is
+// deleted across calls (participant pages first, the beacon and the organiser's row only once the last page is short),
+// every batch stays under Firestore's 500 writes, and no participant doc is left under a deleted parent.
+func TestPurge_ManyParticipantsStayUnderTheBatchLimit(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	const org = "org-big"
+	b := e.create(t, org, "integration-key-big", e.beaconAt(org, "", e.now.Add(time.Hour))).Beacon
+	col := e.client.Collection(beaconsCollection).Doc(b.ID).Collection(participantsSubcollection)
+	const total = participantsPage + 102
+	for i := range total {
+		uid := fmt.Sprintf("p-%04d", i)
+		if _, err := col.Doc(uid).Set(ctx, map[string]any{"uid": uid, "state": "requested"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func() int {
+		docs, err := col.Select().Documents(ctx).GetAll()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(docs)
+	}
+	deleted, more, err := e.repo.PurgeOrganisedPage(ctx, org)
+	if err != nil || deleted != 0 || !more {
+		t.Fatalf("call 1 = %d, %v, %v; want 0 beacons, more, nil", deleted, more, err)
+	}
+	if _, err := e.client.Collection(beaconsCollection).Doc(b.ID).Get(ctx); err != nil {
+		t.Fatalf("beacon deleted before its participant docs: %v", err)
+	}
+	if n := count(); n != total-participantsPage {
+		t.Fatalf("participant docs after call 1 = %d, want %d", n, total-participantsPage)
+	}
+	deleted, more, err = e.repo.PurgeOrganisedPage(ctx, org)
+	if err != nil || deleted != 1 || more {
+		t.Fatalf("call 2 = %d, %v, %v; want 1 beacon, no more, nil", deleted, more, err)
+	}
+	if _, err := e.client.Collection(beaconsCollection).Doc(b.ID).Get(ctx); err == nil {
+		t.Fatal("beacon survived call 2")
+	}
+	if n := count(); n != 0 {
+		t.Fatalf("participant docs left under the deleted parent = %d", n)
+	}
+	if _, err := e.repo.membershipRef(org, b.ID).Get(ctx); err == nil {
+		t.Fatal("organiser membership row survived")
+	}
+}
+
 // TestExport_WritesOrganisedBeaconsAndMemberships: the friend's export carries their 3 beacons and 2 memberships.
 func TestExport_WritesOrganisedBeaconsAndMemberships(t *testing.T) {
 	e := newRepoEnv(t)
