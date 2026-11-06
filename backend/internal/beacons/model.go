@@ -460,6 +460,12 @@ type Service interface {
 	RespondToJoinRequest(ctx context.Context, uid, key, beaconID, targetUID string, accept bool) (View, error)
 	LeaveBeacon(ctx context.Context, uid, key, beaconID string) error
 	RemoveParticipant(ctx context.Context, uid, key, beaconID, targetUID string) (View, error)
+	// ListMyBeacons returns a page of the caller's own beacons (organised, requested, accepted) from their membership
+	// rows: upcoming soonest first or past most recent first; rows whose beacon is gone or hidden are dropped (R13).
+	ListMyBeacons(ctx context.Context, uid string, in MyBeaconsInput) (Page, error)
+	// ListParticipants returns a page of a beacon's ACCEPTED rows (organiser and accepted participants) or REQUESTED rows
+	// with notes (organiser only), oldest first.
+	ListParticipants(ctx context.Context, viewer string, in ListParticipantsInput) (ParticipantsPage, error)
 }
 
 // Limits are the caps the service needs, from config (BeaconsConfig).
