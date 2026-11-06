@@ -452,6 +452,14 @@ type Service interface {
 	GetBeacon(ctx context.Context, viewer, beaconID string) (View, error)
 	// ListBeacons returns a page of OPEN and FULL beacons of one audience, soonest first.
 	ListBeacons(ctx context.Context, viewer string, in ListInput) (Page, error)
+
+	// Participation (PR 3). Each proves the caller may see the beacon first (NOT_FOUND / not_member), then applies the
+	// proto's rules; the organiser-only ones answer FORBIDDEN not_organiser to anyone else.
+	RequestToJoin(ctx context.Context, uid, key, beaconID, note string) (ViewerState, error)
+	WithdrawJoinRequest(ctx context.Context, uid, key, beaconID string) error
+	RespondToJoinRequest(ctx context.Context, uid, key, beaconID, targetUID string, accept bool) (View, error)
+	LeaveBeacon(ctx context.Context, uid, key, beaconID string) error
+	RemoveParticipant(ctx context.Context, uid, key, beaconID, targetUID string) (View, error)
 }
 
 // Limits are the caps the service needs, from config (BeaconsConfig).

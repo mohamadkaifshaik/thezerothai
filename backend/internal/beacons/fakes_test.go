@@ -178,7 +178,8 @@ func (f *fakeRepo) ListByAudience(_ context.Context, q ListQuery) ([]Beacon, err
 func (f *fakeRepo) calls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return len(f.createdBy) + len(f.updatedBy) + len(f.cancelledBy) + len(f.queries)
+	return len(f.createdBy) + len(f.updatedBy) + len(f.cancelledBy) + len(f.queries) +
+		len(f.requestedBy) + len(f.respondedBy) + len(f.transitioned) + len(f.mqueries) + len(f.pqueries) + len(f.beaconBatches)
 }
 
 // fakeDirectory serves one profile map; the embedded nil interface panics on any method the service must not call.

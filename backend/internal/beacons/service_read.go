@@ -34,11 +34,12 @@ type access struct {
 	isOrganiser bool
 }
 
-// resolve applies the visibility rules once for every read and organiser write. Order, cheapest first, each refusal the
-// same ErrNotFound unless noted: the beacon (1 read); a hidden beacon to anyone but its organiser; a community audience
-// needs the viewer JOINED (ErrNotMember; FEATURE_COMMUNITIES not globally off), except the organiser, who can always
-// manage their own beacon (ruling: a beacon must stay cancellable after the organiser leaves the community); a block in
-// either direction (viewer graph, cached); an organiser who is missing or not ACTIVE (profile, cached).
+// resolve applies the visibility rules once for every read and participation or organiser write. Order, cheapest
+// first, each refusal the same ErrNotFound unless noted: the beacon (1 read); a hidden beacon to anyone but its
+// organiser; a block in either direction (viewer graph, cached; before the membership check, R15, so a blocked viewer
+// never learns the beacon exists); a community audience needs the viewer JOINED (ErrNotMember; FEATURE_COMMUNITIES not
+// globally off), except the organiser, who can always manage their own beacon (a beacon must stay cancellable after
+// the organiser leaves the community); an organiser who is missing or not ACTIVE (profile, cached).
 func (s *service) resolve(ctx context.Context, viewer, beaconID string) (access, error) {
 	if !ids.ValidPostID(beaconID) {
 		return access{}, ErrNotFound
@@ -51,11 +52,6 @@ func (s *service) resolve(ctx context.Context, viewer, beaconID string) (access,
 	if b.Hidden && !a.isOrganiser {
 		return access{}, ErrNotFound
 	}
-	if b.CommunityID != "" && !a.isOrganiser {
-		if err := s.requireMember(ctx, viewer, b.CommunityID, false); err != nil {
-			return access{}, err
-		}
-	}
 	if !a.isOrganiser {
 		snap, err := s.social(ctx, viewer)
 		if err != nil {
@@ -63,6 +59,11 @@ func (s *service) resolve(ctx context.Context, viewer, beaconID string) (access,
 		}
 		if snap.BlockedBy[b.OrganiserID] || snap.Blocked[b.OrganiserID] {
 			return access{}, ErrNotFound
+		}
+		if b.CommunityID != "" {
+			if err := s.requireMember(ctx, viewer, b.CommunityID, false); err != nil {
+				return access{}, err
+			}
 		}
 	}
 	profs, err := s.d.Directory.GetProfiles(ctx, []string{b.OrganiserID})
@@ -87,7 +88,27 @@ func (s *service) GetBeacon(ctx context.Context, viewer, beaconID string) (View,
 	if err != nil {
 		return View{}, mapErr(ctx, "get", viewer, beaconID, err)
 	}
-	return s.view(a.beacon, a.organiser, viewer), nil
+	pstate, err := s.participantState(ctx, a, viewer)
+	if err != nil {
+		return View{}, mapErr(ctx, "get", viewer, beaconID, err)
+	}
+	return s.viewWith(a.beacon, a.organiser, viewer, pstate), nil
+}
+
+// participantState is the viewer's participant row state on a resolved beacon ("" for the organiser or no row): one
+// point read for a non-organiser.
+func (s *service) participantState(ctx context.Context, a access, viewer string) (string, error) {
+	if a.isOrganiser {
+		return "", nil
+	}
+	p, err := s.d.Repo.GetParticipant(ctx, a.beacon.ID, viewer)
+	switch {
+	case err == nil:
+		return p.State, nil
+	case errors.Is(err, ErrNotFound):
+		return "", nil
+	}
+	return "", err
 }
 
 // ---- page tokens ----
