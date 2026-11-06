@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/app_error_view.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
@@ -16,6 +15,7 @@ import '../../../shared/widgets/primitives/app_tile_icon.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../data/beacons_repository.dart';
 import '../domain/beacon_labels.dart';
+import 'beacons_error_messages.dart';
 import 'bloc/beacon_detail_cubit.dart';
 import 'bloc/beacon_detail_state.dart';
 import 'widgets/beacon_status_pill.dart';
@@ -112,7 +112,14 @@ class _BeaconScreenState extends State<BeaconScreen> {
           );
         }
         return Center(
-          child: AppErrorView(error: error, onRetry: _cubit.load),
+          child: AppEmptyView(
+            icon: Icons.error_outline,
+            title: beaconsErrorMessage(error),
+            action: TextButton(
+              onPressed: _cubit.load,
+              child: const Text('Try again'),
+            ),
+          ),
         );
       case BeaconDetailStatus.ready:
         return RefreshIndicator(

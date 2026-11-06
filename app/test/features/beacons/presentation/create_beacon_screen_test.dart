@@ -35,6 +35,7 @@ void main() {
   Future<GoRouter> open(
     WidgetTester tester, {
     CommunitiesRepository? communities,
+    DateTime Function()? clock,
   }) => pumpPlansRouter(
     tester,
     beacons: server,
@@ -45,7 +46,7 @@ void main() {
       GoRoute(
         path: '/plans/new',
         builder: (_, _) => CreateBeaconScreen(
-          now: () => now,
+          now: clock ?? () => now,
           pickDate: (
             context, {
             required initial,
@@ -241,5 +242,30 @@ void main() {
     );
     expect(router.state.uri.path, '/plans/new');
     expect(createEnabled(tester), isTrue);
+  });
+
+  testWidgets('the start is re-checked at submit with the current clock', (
+    tester,
+  ) async {
+    var clock = now;
+    await open(tester, clock: () => clock);
+    await fillValid(tester);
+    pickedDate = now;
+    pickedTime = TimeOfDay.fromDateTime(now.add(const Duration(minutes: 6)));
+    await tapVisible(tester, find.byTooltip('Pick a date'));
+    await tapVisible(tester, find.byTooltip('Pick a time'));
+    expect(createEnabled(tester), isTrue);
+
+    // Two minutes pass before the tap: the start is now 4 minutes out.
+    clock = now.add(const Duration(minutes: 2));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Create'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Pick a time at least 5 minutes from now.'),
+      findsOneWidget,
+    );
+    expect(server.calls, isEmpty);
+    expect(createEnabled(tester), isFalse);
   });
 }

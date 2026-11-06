@@ -169,4 +169,19 @@ void main() {
     expect(find.text('This plan is unavailable.'), findsOneWidget);
     expect(find.text('Cancel plan'), findsNothing);
   });
+
+  testWidgets('a failed load shows the Plans copy and Try again reloads', (
+    tester,
+  ) async {
+    server.public.add(beaconView(startAt: start, canManage: true));
+    server.refusals.add(const FeatureDisabledException('off'));
+    await open(tester);
+
+    expect(find.text("Plans aren't available yet."), findsOneWidget);
+    expect(find.text('Coffee'), findsNothing);
+    await tester.tap(find.text('Try again'));
+    await tester.pumpAndSettle();
+    expect(find.text('Coffee'), findsOneWidget);
+    expect(server.calls, ['get', 'get']);
+  });
 }

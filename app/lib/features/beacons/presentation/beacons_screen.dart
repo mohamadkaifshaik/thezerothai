@@ -52,6 +52,14 @@ class _BeaconsScreenState extends State<BeaconsScreen> {
     }
   }
 
+  /// Opens [path] and reloads the list when it comes back: a plan created
+  /// there, or one cancelled there, is shown on return (one ListBeacons; the
+  /// chips are cached).
+  Future<void> _open(String path) async {
+    await context.push(path);
+    if (mounted) await _cubit.load();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -69,7 +77,7 @@ class _BeaconsScreenState extends State<BeaconsScreen> {
                       IconButton(
                         tooltip: 'New plan',
                         icon: const Icon(Icons.add_circle_outline),
-                        onPressed: () => context.push(AppRouter.planNewPath),
+                        onPressed: () => _open(AppRouter.planNewPath),
                       ),
                     ],
                   ),
@@ -128,8 +136,7 @@ class _BeaconsScreenState extends State<BeaconsScreen> {
             final view = state.views[i];
             return BeaconRow(
               view: view,
-              onTap: () =>
-                  context.push(AppRouter.planPath(view.beacon.beaconId)),
+              onTap: () => _open(AppRouter.planPath(view.beacon.beaconId)),
             );
           },
         );

@@ -193,4 +193,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Coffee'), findsOneWidget);
   });
+
+  testWidgets('returning from a plan or the New plan form reloads the list', (
+    tester,
+  ) async {
+    server.public.add(beaconView(startAt: start(2)));
+    final router = await open(tester);
+    await tester.tap(find.text('Coffee'));
+    await tester.pumpAndSettle();
+    expect(server.calls, ['list:']);
+
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(server.calls, ['list:', 'list:']);
+
+    await tester.tap(find.byTooltip('New plan'));
+    await tester.pumpAndSettle();
+    router.pop();
+    await tester.pumpAndSettle();
+    expect(server.calls, ['list:', 'list:', 'list:']);
+    expect(find.text('Coffee'), findsOneWidget);
+  });
 }

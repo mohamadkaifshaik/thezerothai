@@ -191,6 +191,13 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
   }
 
   void _create() {
+    // The clock moved since the button was enabled: re-check with it now so
+    // a start that slipped under 5 minutes shows its inline copy, not the
+    // server's refusal.
+    if (!_canCreate) {
+      setState(() {});
+      return;
+    }
     final request = pb.CreateBeaconRequest(
       activity: _activity,
       title: normalizeListText(_title.text),
