@@ -51,6 +51,12 @@ class ReportTargetType extends $pb.ProtobufEnum {
       ReportTargetType._(
           5, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_COMMUNITY');
 
+  /// A beacon (plan). target_id = the beacon id (19 digits, else VALIDATION "target_id"). Not accepted until the
+  /// beacons module registers its evidence (docs/beacons-plan.md PR 4): until then the server answers VALIDATION
+  /// "target_type".
+  static const ReportTargetType REPORT_TARGET_TYPE_BEACON =
+      ReportTargetType._(6, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_BEACON');
+
   static const $core.List<ReportTargetType> values = <ReportTargetType>[
     REPORT_TARGET_TYPE_UNSPECIFIED,
     REPORT_TARGET_TYPE_POST,
@@ -58,10 +64,11 @@ class ReportTargetType extends $pb.ProtobufEnum {
     REPORT_TARGET_TYPE_MESSAGE,
     REPORT_TARGET_TYPE_LIST,
     REPORT_TARGET_TYPE_COMMUNITY,
+    REPORT_TARGET_TYPE_BEACON,
   ];
 
   static final $core.List<ReportTargetType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 5);
+      $pb.ProtobufEnum.$_initByValueList(values, 6);
   static ReportTargetType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

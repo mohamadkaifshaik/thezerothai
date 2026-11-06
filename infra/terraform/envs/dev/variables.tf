@@ -459,6 +459,34 @@ variable "feature_communities_percent" {
   }
 }
 
+variable "feature_beacons" {
+  description = "FEATURE_BEACONS rollout mode for Beacons/Plans (docs/beacons-plan.md; gates every BeaconService RPC): off | allowlist | percent | on. Default off; ramp deliberately, never ahead of communities."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_beacons)
+    error_message = "feature_beacons must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_beacons_allowlist" {
+  description = "FEATURE_BEACONS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_beacons_percent" {
+  description = "FEATURE_BEACONS_PERCENT: 0-100, only meaningful when feature_beacons = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_beacons_percent >= 0 && var.feature_beacons_percent <= 100 && floor(var.feature_beacons_percent) == var.feature_beacons_percent
+    error_message = "feature_beacons_percent must be an integer 0-100."
+  }
+}
+
 variable "community_creators" {
   description = "COMMUNITY_CREATORS: comma-separated Firebase uids allowed to call CreateCommunity (ADR-0031 D10, F1; not a secret). At most 10, each 1-128 characters of [A-Za-z0-9-]; the API refuses to start otherwise. Default empty: nobody can create a community."
   type        = string

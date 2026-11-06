@@ -307,6 +307,18 @@ locals {
     { name = "CACHE_COMMUNITIES_ENTRIES", value = "200" },
     { name = "CACHE_COMMUNITY_FEED_ENTRIES", value = "100" },
     { name = "CACHE_COMMUNITY_MEMBERS_ENTRIES", value = "5000" },
+    # FEATURE_BEACONS and the beacon limits as explicit config (rule 11), each equal to its backend/pkg/platform/config
+    # default. Inert while FEATURE_BEACONS is off. Nothing here is applied by this PR (plan only).
+    { name = "FEATURE_BEACONS", value = var.feature_beacons },
+    { name = "FEATURE_BEACONS_ALLOWLIST", value = var.feature_beacons_allowlist },
+    { name = "FEATURE_BEACONS_PERCENT", value = tostring(var.feature_beacons_percent) },
+    { name = "BEACONS_MAX_OPEN_PER_USER", value = "5" },
+    { name = "BEACONS_MAX_PENDING_REQUESTS", value = "10" },
+    { name = "BEACONS_MAX_OPEN_SPOTS", value = "20" },
+    { name = "RATE_LIMIT_BEACONS_WRITE_PER_MIN", value = "10" },
+    { name = "RATE_LIMIT_BEACONS_ACTION_PER_MIN", value = "20" },
+    { name = "RATE_LIMIT_BEACONS_READ_PER_MIN", value = "30" },
+    { name = "BEACONS_CREATED_PER_DAY", value = "10" },
     { name = "FEATURE_PROFILE_EXTRAS", value = var.feature_profile_extras },
     { name = "FEATURE_PROFILE_EXTRAS_ALLOWLIST", value = var.feature_profile_extras_allowlist },
     { name = "FEATURE_PROFILE_EXTRAS_PERCENT", value = tostring(var.feature_profile_extras_percent) },
