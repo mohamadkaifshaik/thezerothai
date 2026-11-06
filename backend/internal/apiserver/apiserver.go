@@ -24,6 +24,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/articles"
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 
+	beaconsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1/beaconsv1connect"
 	communitiesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1/communitiesv1connect"
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
@@ -684,6 +685,20 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	communitiesServer := communities.NewServer(featureFlags, communitiesSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return communitiesv1connect.NewCommunityServiceHandler(communitiesServer, o...)
+	})
+
+	// Beacons: all twelve BeaconService routes are mounted behind FEATURE_BEACONS (FEATURE_DISABLED feature=beacons) so the
+	// interceptor chain covers them. CreateBeacon, UpdateBeacon, CancelBeacon, GetBeacon and ListBeacons reach the service;
+	// the participation RPCs answer Unimplemented until PR 3. Community-audience beacons read membership through
+	// communities.Reader and gate on FEATURE_COMMUNITIES with the same registry.
+	beaconsSvc := beacons.New(beacons.Deps{
+		Repo: beaconsRepo, Directory: identitySvc.(identity.Directory), Graph: graphSvc, Communities: communitiesSvc.(communities.Reader),
+		CommunityFlags: featureFlags, IDs: snowflakeNode, CursorKey: cfg.CursorHMACKey,
+		Limits: beacons.Limits{MaxOpenPerUser: cfg.Beacons.MaxOpenPerUser, MaxPendingRequests: cfg.Beacons.MaxPendingRequests, MaxOpenSpots: cfg.Beacons.MaxOpenSpots},
+	})
+	beaconsServer := beacons.NewServer(featureFlags, beaconsSvc)
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return beaconsv1connect.NewBeaconServiceHandler(beaconsServer, o...)
 	})
 
 	// Search and trends: FEATURE_SEARCH gates SearchPeople and SearchPosts, FEATURE_TRENDS gates GetTrends,

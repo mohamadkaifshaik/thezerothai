@@ -49,6 +49,11 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.MessagesSendsPerDay = 300
 	cfg.RateLimit.MessagesMarkReadPerDay = 500 // (the config.Load defaults)
 	cfg.RateLimit.MessagesMutationsPerDay = 500
+	// Beacon limits (the config.Load defaults).
+	cfg.RateLimit.BeaconsWritePerUserPerMinute = 10
+	cfg.RateLimit.BeaconsActionPerUserPerMinute = 20
+	cfg.RateLimit.BeaconsReadPerUserPerMinute = 30
+	cfg.RateLimit.BeaconsCreatedPerDay = 10
 	return cfg
 }
 

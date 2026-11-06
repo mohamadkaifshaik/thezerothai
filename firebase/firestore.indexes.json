@@ -139,6 +139,24 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "publishAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "beacons",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "communityId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "startAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "beacons",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organiserId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "endAt", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

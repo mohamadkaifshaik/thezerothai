@@ -4,6 +4,7 @@ import (
 	"time"
 
 	articlesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1/articlesv1connect"
+	beaconsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1/beaconsv1connect"
 	communitiesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1/communitiesv1connect"
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
@@ -126,6 +127,15 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	rlListsRead := ratelimit.NewLimiter(cfg.RateLimit.ListsReadPerUserPerMinute, idleBucketTTL)
 	rlListTimeline := ratelimit.NewLimiter(cfg.RateLimit.ListTimelinePerUserPerMinute, idleBucketTTL)
 
+	// Beacons: CreateBeacon, UpdateBeacon and CancelBeacon share one per-user bucket (RATE_LIMIT_BEACONS_WRITE_PER_MIN,
+	// 10/min per instance); the five participation RPCs share another (RATE_LIMIT_BEACONS_ACTION_PER_MIN, 20/min); the
+	// four reads a third (RATE_LIMIT_BEACONS_READ_PER_MIN, 30/min). CreateBeacon alone carries the in-memory daily cap
+	// BEACONS_CREATED_PER_DAY (limit_name "beacons_created_daily"). All twelve are mapped now so PR 3 touches no rate limits.
+	rlBeaconsWrite := ratelimit.NewLimiter(cfg.RateLimit.BeaconsWritePerUserPerMinute, idleBucketTTL)
+	rlBeaconsAction := ratelimit.NewLimiter(cfg.RateLimit.BeaconsActionPerUserPerMinute, idleBucketTTL)
+	rlBeaconsRead := ratelimit.NewLimiter(cfg.RateLimit.BeaconsReadPerUserPerMinute, idleBucketTTL)
+	beaconsCreatedDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.BeaconsCreatedPerDay)
+
 	// The seven community mutations (CreateCommunity, UpdateCommunity, JoinCommunity, LeaveCommunity,
 	// HideCommunityPost, RestoreCommunityPost, SetMemberRole) share one per-user bucket (RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN, 20/min per
 	// instance). HideCommunityPost and SetMemberRole (bans go through it) also share one per-uid daily cap, limit_name
@@ -211,6 +221,18 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			communitiesv1connect.CommunityServiceListCommunityMembersProcedure: rlCommunitiesRead,
 			communitiesv1connect.CommunityServiceListModerationLogProcedure:    rlCommunitiesRead,
 			timelinev1connect.TimelineServiceGetCommunityTimelineProcedure:     rlCommunityTimeline,
+			beaconsv1connect.BeaconServiceCreateBeaconProcedure:                rlBeaconsWrite,
+			beaconsv1connect.BeaconServiceUpdateBeaconProcedure:                rlBeaconsWrite,
+			beaconsv1connect.BeaconServiceCancelBeaconProcedure:                rlBeaconsWrite,
+			beaconsv1connect.BeaconServiceRequestToJoinProcedure:               rlBeaconsAction,
+			beaconsv1connect.BeaconServiceWithdrawJoinRequestProcedure:         rlBeaconsAction,
+			beaconsv1connect.BeaconServiceRespondToJoinRequestProcedure:        rlBeaconsAction,
+			beaconsv1connect.BeaconServiceLeaveBeaconProcedure:                 rlBeaconsAction,
+			beaconsv1connect.BeaconServiceRemoveParticipantProcedure:           rlBeaconsAction,
+			beaconsv1connect.BeaconServiceGetBeaconProcedure:                   rlBeaconsRead,
+			beaconsv1connect.BeaconServiceListBeaconsProcedure:                 rlBeaconsRead,
+			beaconsv1connect.BeaconServiceListMyBeaconsProcedure:               rlBeaconsRead,
+			beaconsv1connect.BeaconServiceListParticipantsProcedure:            rlBeaconsRead,
 		},
 		DailyCaps: map[string]ratelimit.NamedDailyCap{
 			graphv1connect.GraphServiceFollowProcedure:   {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},
@@ -237,6 +259,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 
 			graphv1connect.GraphServiceListFollowersProcedure: {Name: "follow_list_daily", Cap: followListDailyCap},
 			graphv1connect.GraphServiceListFollowingProcedure: {Name: "follow_list_daily", Cap: followListDailyCap},
+
+			beaconsv1connect.BeaconServiceCreateBeaconProcedure: {Name: "beacons_created_daily", Cap: beaconsCreatedDailyCap},
 		},
 		IP:               rlIP,
 		TrustedProxyHops: cfg.TrustedProxyHops,
