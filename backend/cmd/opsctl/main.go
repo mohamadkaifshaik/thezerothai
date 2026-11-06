@@ -91,6 +91,8 @@ type backends struct {
 	lists lists.Moderator
 	// beacons hides and restores one beacon (`opsctl beacon hide|restore`, the only platform hide lever for beacons).
 	beacons beacons.Moderator
+	// beaconStats is the read-only pilot counts (`opsctl beacon counts`); the same repo as beacons.
+	beaconStats beacons.Stats
 	// communities serves `community suspend|restore|archive` and removals is the recentRemovals append of takedown-post and suspend-user.
 	communities communities.Platform
 	removals    communities.PlatformRemovals
@@ -129,6 +131,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 	moderationRepo := moderation.NewFirestoreRepo(client, nil)
 	communitiesRepo := communities.NewFirestoreRepo(client, nil)         // the platform levers need no idempotency or quota store
 	msgRepo := messaging.NewFirestoreRepo(client, nil)                   // takedown and the placeholder migration: no quota store needed
+	beaconRepo := beacons.NewFirestoreRepo(client, nil, nil)             // SetHidden, Get and Counts need no quota or idempotency store
 	communitiesRepo.WithHiddenPosts(posts.NewCommunityModerator(client)) // the platform recovery of hidden posts
 	lister, err := newAuthLister(ctx, project)
 	if err != nil {
@@ -169,7 +172,8 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		profiles:      identityRepo,
 		trends:        search.NewTrendsRepo(client),
 		lists:         lists.NewFirestoreRepo(client, nil, nil), // SetHidden and Get need no quota or idempotency store
-		beacons:       beacons.NewFirestoreRepo(client, nil, nil),
+		beacons:       beaconRepo,
+		beaconStats:   beaconRepo,
 		communities:   communitiesRepo,
 		removals:      communitiesRepo,
 		hidden:        communitiesRepo,
@@ -427,7 +431,11 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	case "lists":
 		err = listsCommand(ctx, b, *project, sub, listID, ma, out, now)
 	case "beacon":
-		err = beaconCommand(ctx, b, *project, sub, beaconID, ma, out, now)
+		if sub == "counts" {
+			err = beaconCounts(ctx, b.beaconStats, out)
+		} else {
+			err = beaconCommand(ctx, b, *project, sub, beaconID, ma, out, now)
+		}
 	case "community":
 		if isHiddenSub(sub) {
 			err = hiddenCommand(ctx, b, *project, sub, communityID, ma, out, now)

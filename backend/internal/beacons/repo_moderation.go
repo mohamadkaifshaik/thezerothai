@@ -68,3 +68,55 @@ func (r *FirestoreRepo) SetHidden(ctx context.Context, beaconID string, hidden b
 	}
 	return changed, nil
 }
+
+// Stats is the operator-side read of the pilot (`opsctl beacon counts`, docs/beacons-plan.md PR 8): aggregate counts
+// only, nothing per beacon or per user. *FirestoreRepo implements it.
+type Stats interface {
+	// Counts answers the five aggregate counts over beacons/ through count aggregations: no document is read, whatever
+	// the collection holds. The counters are independent: a hidden OPEN beacon is in both Open and Hidden; ENDED is
+	// derived at read time and never stored, so a finished plan stays in Open or Full until its TTL sweep and is also
+	// in Ended (endAt before the repo clock, whatever its status, cancelled included).
+	Counts(ctx context.Context) (Counts, error)
+}
+
+// Counts is one Stats.Counts answer.
+type Counts struct {
+	Open, Full, Cancelled, Hidden, Ended int64
+}
+
+var _ Stats = (*FirestoreRepo)(nil)
+
+// Counts implements Stats: five count aggregations, each over one single-field filter (`status` or `hidden` equality,
+// `endAt` range), so no composite index or collection-group exemption is needed. Participant-level counts would need a collection-group
+// index on beaconParticipants.state (a gate file), so they are not here.
+func (r *FirestoreRepo) Counts(ctx context.Context) (Counts, error) {
+	if r == nil || r.client == nil {
+		return Counts{}, fmt.Errorf("beacons: repo is not wired")
+	}
+	col := r.client.Collection(beaconsCollection)
+	var out Counts
+	for _, c := range []struct {
+		name  string
+		query firestore.Query
+		dst   *int64
+	}{
+		{"open", col.Where("status", "==", string(StatusOpen)), &out.Open},
+		{"full", col.Where("status", "==", string(StatusFull)), &out.Full},
+		{"cancelled", col.Where("status", "==", string(StatusCancelled)), &out.Cancelled},
+		{"hidden", col.Where("hidden", "==", true), &out.Hidden},
+		{"ended", col.Where("endAt", "<", r.now().UTC()), &out.Ended},
+	} {
+		res, err := c.query.NewAggregationQuery().WithCount("n").Get(ctx)
+		if err != nil {
+			return Counts{}, fmt.Errorf("beacons: count %s: %w", c.name, err)
+		}
+		var n struct {
+			N int64 `firestore:"n"`
+		}
+		if err := res.DataTo(&n); err != nil {
+			return Counts{}, fmt.Errorf("beacons: count %s decode: %w", c.name, err)
+		}
+		*c.dst = n.N
+	}
+	return out, nil
+}
