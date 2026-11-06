@@ -63,14 +63,6 @@ func notWired(rpc string) error {
 	return connect.NewError(connect.CodeUnimplemented, fmt.Errorf("%s is not wired", rpc))
 }
 
-// later is the front of the RPCs PR 3 implements: the gate of their class, then Unimplemented.
-func (s *Server) later(ctx context.Context, rpc string, write bool) error {
-	if _, err := s.gate(ctx, write); err != nil {
-		return err
-	}
-	return notWired(rpc)
-}
-
 // CreateBeacon is write class.
 func (s *Server) CreateBeacon(ctx context.Context, req *connect.Request[beaconsv1.CreateBeaconRequest]) (*connect.Response[beaconsv1.CreateBeaconResponse], error) {
 	ctx, cancel, uid, err := s.entry(ctx, "CreateBeacon", true)
@@ -159,39 +151,121 @@ func (s *Server) ListBeacons(ctx context.Context, req *connect.Request[beaconsv1
 	return connect.NewResponse(out), nil
 }
 
-// The RPCs PR 3 implements: gated by their class, then Unimplemented.
-
 // ListMyBeacons is read class.
-func (s *Server) ListMyBeacons(ctx context.Context, _ *connect.Request[beaconsv1.ListMyBeaconsRequest]) (*connect.Response[beaconsv1.ListMyBeaconsResponse], error) {
-	return nil, s.later(ctx, "ListMyBeacons", false)
+func (s *Server) ListMyBeacons(ctx context.Context, req *connect.Request[beaconsv1.ListMyBeaconsRequest]) (*connect.Response[beaconsv1.ListMyBeaconsResponse], error) {
+	ctx, cancel, uid, err := s.entry(ctx, "ListMyBeacons", false)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	m := req.Msg
+	page, err := s.svc.ListMyBeacons(ctx, uid, MyBeaconsInput{
+		Role: myRoleFromProto(m.GetRole()), Past: m.GetWindow() == beaconsv1.MyBeaconsWindow_MY_BEACONS_WINDOW_PAST,
+		Limit: m.GetLimit(), PageToken: m.GetPageToken(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := &beaconsv1.ListMyBeaconsResponse{NextPageToken: page.NextPageToken}
+	for _, v := range page.Views {
+		out.Views = append(out.Views, toView(v))
+	}
+	return connect.NewResponse(out), nil
 }
 
 // RequestToJoin is write class.
-func (s *Server) RequestToJoin(ctx context.Context, _ *connect.Request[beaconsv1.RequestToJoinRequest]) (*connect.Response[beaconsv1.RequestToJoinResponse], error) {
-	return nil, s.later(ctx, "RequestToJoin", true)
+func (s *Server) RequestToJoin(ctx context.Context, req *connect.Request[beaconsv1.RequestToJoinRequest]) (*connect.Response[beaconsv1.RequestToJoinResponse], error) {
+	ctx, cancel, uid, err := s.entry(ctx, "RequestToJoin", true)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	m := req.Msg
+	vs, err := s.svc.RequestToJoin(ctx, uid, m.GetIdempotencyKey(), m.GetBeaconId(), m.GetNote())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&beaconsv1.RequestToJoinResponse{Viewer: toViewerState(vs)}), nil
 }
 
-// WithdrawJoinRequest is read class.
-func (s *Server) WithdrawJoinRequest(ctx context.Context, _ *connect.Request[beaconsv1.WithdrawJoinRequestRequest]) (*connect.Response[beaconsv1.WithdrawJoinRequestResponse], error) {
-	return nil, s.later(ctx, "WithdrawJoinRequest", false)
+// WithdrawJoinRequest is read class (a caller dropped from the allowlist can still withdraw).
+func (s *Server) WithdrawJoinRequest(ctx context.Context, req *connect.Request[beaconsv1.WithdrawJoinRequestRequest]) (*connect.Response[beaconsv1.WithdrawJoinRequestResponse], error) {
+	ctx, cancel, uid, err := s.entry(ctx, "WithdrawJoinRequest", false)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	if err := s.svc.WithdrawJoinRequest(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetBeaconId()); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&beaconsv1.WithdrawJoinRequestResponse{}), nil
 }
 
-// RespondToJoinRequest is write class.
-func (s *Server) RespondToJoinRequest(ctx context.Context, _ *connect.Request[beaconsv1.RespondToJoinRequestRequest]) (*connect.Response[beaconsv1.RespondToJoinRequestResponse], error) {
-	return nil, s.later(ctx, "RespondToJoinRequest", true)
+// RespondToJoinRequest is write class; organiser only.
+func (s *Server) RespondToJoinRequest(ctx context.Context, req *connect.Request[beaconsv1.RespondToJoinRequestRequest]) (*connect.Response[beaconsv1.RespondToJoinRequestResponse], error) {
+	ctx, cancel, uid, err := s.entry(ctx, "RespondToJoinRequest", true)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	m := req.Msg
+	accept, err := responseFromProto(m.GetResponse())
+	if err != nil {
+		return nil, err
+	}
+	v, err := s.svc.RespondToJoinRequest(ctx, uid, m.GetIdempotencyKey(), m.GetBeaconId(), m.GetUserId(), accept)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&beaconsv1.RespondToJoinRequestResponse{View: toView(v)}), nil
 }
 
-// LeaveBeacon is read class.
-func (s *Server) LeaveBeacon(ctx context.Context, _ *connect.Request[beaconsv1.LeaveBeaconRequest]) (*connect.Response[beaconsv1.LeaveBeaconResponse], error) {
-	return nil, s.later(ctx, "LeaveBeacon", false)
+// LeaveBeacon is read class (always allowed, never needs approval).
+func (s *Server) LeaveBeacon(ctx context.Context, req *connect.Request[beaconsv1.LeaveBeaconRequest]) (*connect.Response[beaconsv1.LeaveBeaconResponse], error) {
+	ctx, cancel, uid, err := s.entry(ctx, "LeaveBeacon", false)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	if err := s.svc.LeaveBeacon(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetBeaconId()); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&beaconsv1.LeaveBeaconResponse{}), nil
 }
 
-// RemoveParticipant is read class.
-func (s *Server) RemoveParticipant(ctx context.Context, _ *connect.Request[beaconsv1.RemoveParticipantRequest]) (*connect.Response[beaconsv1.RemoveParticipantResponse], error) {
-	return nil, s.later(ctx, "RemoveParticipant", false)
+// RemoveParticipant is read class; organiser only.
+func (s *Server) RemoveParticipant(ctx context.Context, req *connect.Request[beaconsv1.RemoveParticipantRequest]) (*connect.Response[beaconsv1.RemoveParticipantResponse], error) {
+	ctx, cancel, uid, err := s.entry(ctx, "RemoveParticipant", false)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	m := req.Msg
+	v, err := s.svc.RemoveParticipant(ctx, uid, m.GetIdempotencyKey(), m.GetBeaconId(), m.GetUserId())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&beaconsv1.RemoveParticipantResponse{View: toView(v)}), nil
 }
 
 // ListParticipants is read class.
-func (s *Server) ListParticipants(ctx context.Context, _ *connect.Request[beaconsv1.ListParticipantsRequest]) (*connect.Response[beaconsv1.ListParticipantsResponse], error) {
-	return nil, s.later(ctx, "ListParticipants", false)
+func (s *Server) ListParticipants(ctx context.Context, req *connect.Request[beaconsv1.ListParticipantsRequest]) (*connect.Response[beaconsv1.ListParticipantsResponse], error) {
+	ctx, cancel, uid, err := s.entry(ctx, "ListParticipants", false)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	m := req.Msg
+	page, err := s.svc.ListParticipants(ctx, uid, ListParticipantsInput{
+		BeaconID: m.GetBeaconId(), Requested: m.GetFilter() == beaconsv1.ParticipantFilter_PARTICIPANT_FILTER_REQUESTED,
+		Limit: m.GetLimit(), PageToken: m.GetPageToken(),
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := &beaconsv1.ListParticipantsResponse{NextPageToken: page.NextPageToken}
+	for _, r := range page.Rows {
+		out.Participants = append(out.Participants, toParticipant(r))
+	}
+	return connect.NewResponse(out), nil
 }

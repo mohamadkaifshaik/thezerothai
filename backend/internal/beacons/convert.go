@@ -5,6 +5,7 @@ import (
 
 	beaconsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1"
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 )
 
 // createInputFromProto converts a CreateBeaconRequest; the enum checks answer VALIDATION naming the field before the
@@ -33,18 +34,43 @@ func createInputFromProto(m *beaconsv1.CreateBeaconRequest) (CreateInput, error)
 	return in, nil
 }
 
-// toView renders a View. The organiser row is the live profile (the AuthorSnapshot thumbnail and lock badge, as graph's
-// rows).
+// toAuthorSnapshot is the live row (the AuthorSnapshot thumbnail and lock badge, as graph's rows).
+func toAuthorSnapshot(p identity.Profile) *commonv1.AuthorSnapshot {
+	return &commonv1.AuthorSnapshot{
+		UserId: p.UserID, Handle: p.Handle, DisplayName: p.DisplayName, AvatarUrl: p.AvatarThumbURL,
+		Verified: p.Verified, IsPrivate: p.IsPrivate,
+	}
+}
+
+// toParticipant renders one participant row: since is respondedAt for an ACCEPTED row and requestedAt otherwise.
+func toParticipant(r ParticipantRow) *beaconsv1.Participant {
+	since := r.Participant.RequestedAt
+	if r.Participant.State == PStateAccepted {
+		since = r.Participant.RespondedAt
+	}
+	return &beaconsv1.Participant{
+		User: toAuthorSnapshot(r.User), State: participantStateToProto(r.Participant.State), Note: r.Participant.Note, Since: timestamppb.New(since),
+	}
+}
+
+// myRoleFromProto maps the ListMyBeacons role filter ("" = all).
+func myRoleFromProto(r beaconsv1.MyBeaconsRole) string {
+	switch r {
+	case beaconsv1.MyBeaconsRole_MY_BEACONS_ROLE_ORGANISER:
+		return RoleOrganiser
+	case beaconsv1.MyBeaconsRole_MY_BEACONS_ROLE_PARTICIPANT:
+		return RoleParticipant
+	}
+	return ""
+}
+
+// toView renders a View. The organiser row is the live profile.
 func toView(v View) *beaconsv1.BeaconView {
 	b := v.Beacon
-	p := v.Organiser
 	return &beaconsv1.BeaconView{
 		Beacon: &beaconsv1.Beacon{
-			BeaconId: b.ID,
-			Organiser: &commonv1.AuthorSnapshot{
-				UserId: p.UserID, Handle: p.Handle, DisplayName: p.DisplayName, AvatarUrl: p.AvatarThumbURL,
-				Verified: p.Verified, IsPrivate: p.IsPrivate,
-			},
+			BeaconId:        b.ID,
+			Organiser:       toAuthorSnapshot(v.Organiser),
 			CommunityId:     b.CommunityID,
 			Activity:        activityToProto(b.Activity),
 			Title:           b.Title,
