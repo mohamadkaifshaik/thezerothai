@@ -499,13 +499,15 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	lateMessages := &lateMessageLookup{}
 	// A COMMUNITY report reaches the community only through communities.CommunityReporter; bound once the communities service exists.
 	lateCommunities := &lateCommunityLookup{}
+	// A BEACON report reaches the beacon only through beacons.BeaconReporter; bound once the beacons service exists.
+	lateBeacons := &lateBeaconLookup{}
 	// Plan: a LIST report reaches the list only through lists.ListReporter (the lists service, built above).
 	listReporter, ok := listsSvc.(lists.ListReporter)
 	if !ok {
 		return nil, nil, errors.New("lists service does not implement ListReporter")
 	}
 	moderationSvc := moderation.New(moderation.Deps{
-		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d, Messages: lateMessages, Lists: listReportLookup{r: listReporter}, Communities: lateCommunities,
+		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d, Messages: lateMessages, Lists: listReportLookup{r: listReporter}, Communities: lateCommunities, Beacons: lateBeacons,
 		ReportsPerDay:           int64(cfg.Quota.ReportsPerDay),
 		NewAccountReportsPerDay: int64(cfg.Quota.NewAccountReportsPerDay),
 		NewAccountWindow:        cfg.Quota.NewAccountWindow,
@@ -696,6 +698,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		CommunityFlags: featureFlags, IDs: snowflakeNode, CursorKey: cfg.CursorHMACKey,
 		Limits: beacons.Limits{MaxOpenPerUser: cfg.Beacons.MaxOpenPerUser, MaxPendingRequests: cfg.Beacons.MaxPendingRequests, MaxOpenSpots: cfg.Beacons.MaxOpenSpots},
 	})
+	beaconReporter, ok := beaconsSvc.(beacons.BeaconReporter)
+	if !ok {
+		return nil, nil, errors.New("beacons service does not implement BeaconReporter")
+	}
+	lateBeacons.r = beaconReporter // bound before ListenAndServe: a BEACON report can now reach the beacon
 	beaconsServer := beacons.NewServer(featureFlags, beaconsSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return beaconsv1connect.NewBeaconServiceHandler(beaconsServer, o...)
