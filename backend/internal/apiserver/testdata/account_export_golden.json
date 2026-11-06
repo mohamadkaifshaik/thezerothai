@@ -9,6 +9,10 @@
     ]
   },
   "articles": [],
+  "beacons": {
+    "beacons": [],
+    "memberships": []
+  },
   "bookmarks": {
     "bookmarks": [
       {

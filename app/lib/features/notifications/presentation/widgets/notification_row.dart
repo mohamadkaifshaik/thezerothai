@@ -25,6 +25,12 @@ String notificationAction(pb.Notification n) {
       'requested to follow you',
     NotificationType.NOTIFICATION_TYPE_FOLLOW_ACCEPTED =>
       'accepted your follow request',
+    NotificationType.NOTIFICATION_TYPE_BEACON_REQUEST =>
+      'asked to join your plan',
+    NotificationType.NOTIFICATION_TYPE_BEACON_ACCEPTED =>
+      'accepted you into their plan',
+    NotificationType.NOTIFICATION_TYPE_BEACON_CANCELLED =>
+      'cancelled a plan you joined',
     _ => 'interacted with you',
   };
   return '$subject $verb';
@@ -41,6 +47,11 @@ IconData notificationIcon(NotificationType type) => switch (type) {
     Icons.person_add_alt_outlined,
   NotificationType.NOTIFICATION_TYPE_FOLLOW_ACCEPTED =>
     Icons.how_to_reg_outlined,
+  NotificationType.NOTIFICATION_TYPE_BEACON_REQUEST => Icons.event_outlined,
+  NotificationType.NOTIFICATION_TYPE_BEACON_ACCEPTED =>
+    Icons.how_to_reg_outlined,
+  NotificationType.NOTIFICATION_TYPE_BEACON_CANCELLED =>
+    Icons.event_busy_outlined,
   _ => Icons.notifications_none,
 };
 
@@ -211,5 +222,11 @@ String notificationTypeWire(NotificationType type) => switch (type) {
     kNotificationTypeFollowRequest,
   NotificationType.NOTIFICATION_TYPE_FOLLOW_ACCEPTED =>
     kNotificationTypeFollowAccepted,
+  NotificationType.NOTIFICATION_TYPE_BEACON_REQUEST =>
+    kNotificationTypeBeaconRequest,
+  NotificationType.NOTIFICATION_TYPE_BEACON_ACCEPTED =>
+    kNotificationTypeBeaconAccepted,
+  NotificationType.NOTIFICATION_TYPE_BEACON_CANCELLED =>
+    kNotificationTypeBeaconCancelled,
   _ => '',
 };

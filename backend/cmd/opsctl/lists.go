@@ -22,19 +22,25 @@ const listsCacheBound = "60 s"
 
 // parseListsArgs validates `opsctl lists <hide|restore> LIST_ID` before anything is opened or confirmed.
 func parseListsArgs(sub, listID string, a modArgs) error {
+	return parseHideRestoreArgs("lists", "list", sub, listID, lists.ValidateListID, a)
+}
+
+// parseHideRestoreArgs is the shared argument check of the `<cmd> hide|restore ID [--report R] [--note N]` commands (lists,
+// beacon): cmd is the command word in messages, noun the thing hidden, validate the module's 19-digit id check.
+func parseHideRestoreArgs(cmd, noun, sub, id string, validate func(string) error, a modArgs) error {
 	switch sub {
 	case "hide", "restore":
-		if listID == "" {
-			return usageErr("lists " + sub + " needs the list id as its first argument")
+		if id == "" {
+			return usageErr(cmd + " " + sub + " needs the " + noun + " id as its first argument")
 		}
-		if err := lists.ValidateListID(listID); err != nil {
-			return usageErr("lists " + sub + ": the list id must be 19 digits")
+		if err := validate(id); err != nil {
+			return usageErr(cmd + " " + sub + ": the " + noun + " id must be 19 digits")
 		}
 	default:
-		return usageErr("lists needs a sub-command: hide or restore")
+		return usageErr(cmd + " needs a sub-command: hide or restore")
 	}
 	if a.report != "" && sub != "hide" {
-		return usageErr("--report is for lists hide only (a restore resolves nothing)")
+		return usageErr("--report is for " + cmd + " hide only (a restore resolves nothing)")
 	}
 	if a.report != "" && !reportIDRe.MatchString(a.report) {
 		return usageErr("--report must be a 32-character report id")

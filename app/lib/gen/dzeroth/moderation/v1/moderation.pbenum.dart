@@ -51,6 +51,17 @@ class ReportTargetType extends $pb.ProtobufEnum {
       ReportTargetType._(
           5, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_COMMUNITY');
 
+  /// A beacon (plan). target_id = the beacon id (19 digits, else VALIDATION "target_id"). Who may see the beacon may
+  /// report it: a missing or hidden beacon, one whose organiser is gone, one in a community the caller is not a JOINED
+  /// member of, and one whose organiser has a block with the caller are all the one NOT_FOUND "beacon not found" (a
+  /// CANCELLED or ENDED beacon is still reportable); the caller's own beacon (the caller is its organiser) => VALIDATION "target_id". The
+  /// evidence is the organiser's handle, the beacon's title, details and venue and its creation time (no participant id,
+  /// no child doc), kept in the report document with the post evidence's retention. Needs FEATURE_BEACONS not globally off
+  /// (else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "beacons", before any lookup); the existing
+  /// reports quota applies. Takedown is `opsctl beacon hide` (resolves the report TAKEDOWN).
+  static const ReportTargetType REPORT_TARGET_TYPE_BEACON =
+      ReportTargetType._(6, _omitEnumNames ? '' : 'REPORT_TARGET_TYPE_BEACON');
+
   static const $core.List<ReportTargetType> values = <ReportTargetType>[
     REPORT_TARGET_TYPE_UNSPECIFIED,
     REPORT_TARGET_TYPE_POST,
@@ -58,10 +69,11 @@ class ReportTargetType extends $pb.ProtobufEnum {
     REPORT_TARGET_TYPE_MESSAGE,
     REPORT_TARGET_TYPE_LIST,
     REPORT_TARGET_TYPE_COMMUNITY,
+    REPORT_TARGET_TYPE_BEACON,
   ];
 
   static final $core.List<ReportTargetType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 5);
+      $pb.ProtobufEnum.$_initByValueList(values, 6);
   static ReportTargetType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

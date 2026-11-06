@@ -18,3 +18,21 @@ func TestAccountLifecycleFlagNameMatchesIdentity(t *testing.T) {
 		t.Fatalf("config flag name %q != identity.AccountLifecycleFlag %q", cfg.FeatureAccountLifecycle.Name, identity.AccountLifecycleFlag)
 	}
 }
+
+// TestFeatureRegistry_IncludesBeacons: the registry Build wires reports `beacons` for an allowlisted caller and not for
+// anyone else; a flag loaded by config but left out of the registry would be silently off for everyone.
+func TestFeatureRegistry_IncludesBeacons(t *testing.T) {
+	t.Setenv("FEATURE_BEACONS", "allowlist")
+	t.Setenv("FEATURE_BEACONS_ALLOWLIST", "uid-a")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	reg := featureRegistry(cfg)
+	if !reg.Enabled("uid-a", "beacons") {
+		t.Error("beacons should be on for uid-a")
+	}
+	if reg.Enabled("uid-z", "beacons") {
+		t.Error("beacons should be off for uid-z")
+	}
+}

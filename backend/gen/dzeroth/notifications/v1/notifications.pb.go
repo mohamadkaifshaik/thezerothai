@@ -72,33 +72,45 @@ const (
 	// Sent only when the recipient has both notifications and messaging on, the conversation is accepted on their side
 	// and they did not mute the sender. Tapping opens the conversation (MessagingService.ListMessages).
 	NotificationType_NOTIFICATION_TYPE_MESSAGE NotificationType = 9
+	// actor asked to join your beacon (beacon_id). post_id is empty.
+	NotificationType_NOTIFICATION_TYPE_BEACON_REQUEST NotificationType = 10
+	// actor (the organiser) accepted your request to join their beacon (beacon_id). post_id is empty.
+	NotificationType_NOTIFICATION_TYPE_BEACON_ACCEPTED NotificationType = 11
+	// actor (the organiser) cancelled a beacon you were accepted to (beacon_id). post_id is empty.
+	NotificationType_NOTIFICATION_TYPE_BEACON_CANCELLED NotificationType = 12
 )
 
 // Enum value maps for NotificationType.
 var (
 	NotificationType_name = map[int32]string{
-		0: "NOTIFICATION_TYPE_UNSPECIFIED",
-		1: "NOTIFICATION_TYPE_FOLLOW",
-		2: "NOTIFICATION_TYPE_MENTION",
-		3: "NOTIFICATION_TYPE_REPLY",
-		4: "NOTIFICATION_TYPE_LIKE",
-		5: "NOTIFICATION_TYPE_REPOST",
-		6: "NOTIFICATION_TYPE_QUOTE",
-		7: "NOTIFICATION_TYPE_FOLLOW_REQUEST",
-		8: "NOTIFICATION_TYPE_FOLLOW_ACCEPTED",
-		9: "NOTIFICATION_TYPE_MESSAGE",
+		0:  "NOTIFICATION_TYPE_UNSPECIFIED",
+		1:  "NOTIFICATION_TYPE_FOLLOW",
+		2:  "NOTIFICATION_TYPE_MENTION",
+		3:  "NOTIFICATION_TYPE_REPLY",
+		4:  "NOTIFICATION_TYPE_LIKE",
+		5:  "NOTIFICATION_TYPE_REPOST",
+		6:  "NOTIFICATION_TYPE_QUOTE",
+		7:  "NOTIFICATION_TYPE_FOLLOW_REQUEST",
+		8:  "NOTIFICATION_TYPE_FOLLOW_ACCEPTED",
+		9:  "NOTIFICATION_TYPE_MESSAGE",
+		10: "NOTIFICATION_TYPE_BEACON_REQUEST",
+		11: "NOTIFICATION_TYPE_BEACON_ACCEPTED",
+		12: "NOTIFICATION_TYPE_BEACON_CANCELLED",
 	}
 	NotificationType_value = map[string]int32{
-		"NOTIFICATION_TYPE_UNSPECIFIED":     0,
-		"NOTIFICATION_TYPE_FOLLOW":          1,
-		"NOTIFICATION_TYPE_MENTION":         2,
-		"NOTIFICATION_TYPE_REPLY":           3,
-		"NOTIFICATION_TYPE_LIKE":            4,
-		"NOTIFICATION_TYPE_REPOST":          5,
-		"NOTIFICATION_TYPE_QUOTE":           6,
-		"NOTIFICATION_TYPE_FOLLOW_REQUEST":  7,
-		"NOTIFICATION_TYPE_FOLLOW_ACCEPTED": 8,
-		"NOTIFICATION_TYPE_MESSAGE":         9,
+		"NOTIFICATION_TYPE_UNSPECIFIED":      0,
+		"NOTIFICATION_TYPE_FOLLOW":           1,
+		"NOTIFICATION_TYPE_MENTION":          2,
+		"NOTIFICATION_TYPE_REPLY":            3,
+		"NOTIFICATION_TYPE_LIKE":             4,
+		"NOTIFICATION_TYPE_REPOST":           5,
+		"NOTIFICATION_TYPE_QUOTE":            6,
+		"NOTIFICATION_TYPE_FOLLOW_REQUEST":   7,
+		"NOTIFICATION_TYPE_FOLLOW_ACCEPTED":  8,
+		"NOTIFICATION_TYPE_MESSAGE":          9,
+		"NOTIFICATION_TYPE_BEACON_REQUEST":   10,
+		"NOTIFICATION_TYPE_BEACON_ACCEPTED":  11,
+		"NOTIFICATION_TYPE_BEACON_CANCELLED": 12,
 	}
 )
 
@@ -191,7 +203,10 @@ type Notification struct {
 	// profile for FOLLOW and FOLLOW_ACCEPTED.
 	PostId string `protobuf:"bytes,5,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
 	// Last activity; the sort key.
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// Subject beacon (BEACON_REQUEST, BEACON_ACCEPTED and BEACON_CANCELLED only; empty otherwise). Tapping opens the
+	// beacon (BeaconService.GetBeacon).
+	BeaconId      string `protobuf:"bytes,7,opt,name=beacon_id,json=beaconId,proto3" json:"beacon_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -266,6 +281,13 @@ func (x *Notification) GetCreatedAt() *timestamppb.Timestamp {
 		return x.CreatedAt
 	}
 	return nil
+}
+
+func (x *Notification) GetBeaconId() string {
+	if x != nil {
+		return x.BeaconId
+	}
+	return ""
 }
 
 type ListNotificationsRequest struct {
@@ -696,7 +718,7 @@ var File_dzeroth_notifications_v1_notifications_proto protoreflect.FileDescripto
 
 const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"\n" +
-	",dzeroth/notifications/v1/notifications.proto\x12\x18dzeroth.notifications.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x8c\x02\n" +
+	",dzeroth/notifications/v1/notifications.proto\x12\x18dzeroth.notifications.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa9\x02\n" +
 	"\fNotification\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12>\n" +
 	"\x04type\x18\x02 \x01(\x0e2*.dzeroth.notifications.v1.NotificationTypeR\x04type\x127\n" +
@@ -705,7 +727,8 @@ const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"actorCount\x12\x17\n" +
 	"\apost_id\x18\x05 \x01(\tR\x06postId\x129\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"w\n" +
+	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1b\n" +
+	"\tbeacon_id\x18\a \x01(\tR\bbeaconId\"w\n" +
 	"\x18ListNotificationsRequest\x12\x1b\n" +
 	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +
@@ -732,7 +755,7 @@ const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"\x17UnregisterDeviceRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1b\n" +
 	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\"\x1a\n" +
-	"\x18UnregisterDeviceResponse*\xd2\x02\n" +
+	"\x18UnregisterDeviceResponse*\xc7\x03\n" +
 	"\x10NotificationType\x12!\n" +
 	"\x1dNOTIFICATION_TYPE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18NOTIFICATION_TYPE_FOLLOW\x10\x01\x12\x1d\n" +
@@ -743,7 +766,11 @@ const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"\x17NOTIFICATION_TYPE_QUOTE\x10\x06\x12$\n" +
 	" NOTIFICATION_TYPE_FOLLOW_REQUEST\x10\a\x12%\n" +
 	"!NOTIFICATION_TYPE_FOLLOW_ACCEPTED\x10\b\x12\x1d\n" +
-	"\x19NOTIFICATION_TYPE_MESSAGE\x10\t*g\n" +
+	"\x19NOTIFICATION_TYPE_MESSAGE\x10\t\x12$\n" +
+	" NOTIFICATION_TYPE_BEACON_REQUEST\x10\n" +
+	"\x12%\n" +
+	"!NOTIFICATION_TYPE_BEACON_ACCEPTED\x10\v\x12&\n" +
+	"\"NOTIFICATION_TYPE_BEACON_CANCELLED\x10\f*g\n" +
 	"\x0eDevicePlatform\x12\x1f\n" +
 	"\x1bDEVICE_PLATFORM_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13DEVICE_PLATFORM_IOS\x10\x01\x12\x1b\n" +

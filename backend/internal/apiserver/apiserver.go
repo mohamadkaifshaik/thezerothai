@@ -22,7 +22,9 @@ import (
 	firebase "firebase.google.com/go/v4"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1/articlesv1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/articles"
+	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 
+	beaconsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1/beaconsv1connect"
 	communitiesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1/communitiesv1connect"
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
@@ -125,7 +127,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 
 	// --- feature flags ---
-	featureFlags := flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureQuotes, cfg.FeatureContentDisclosure, cfg.FeatureReplyAudience, cfg.FeatureScheduledPosts, cfg.FeatureBookmarks, cfg.FeatureMessaging, cfg.FeatureLists, cfg.FeatureCommunities, cfg.FeatureProfileExtras, cfg.FeatureProfileTabs, cfg.FeatureLikesList, cfg.FeatureFollowSuggestions, cfg.FeaturePrivateAccounts, cfg.FeatureUIShell, cfg.FeatureShells, cfg.FeatureCrashReporting, cfg.FeatureAnalytics, cfg.FeatureRemovedIDs, cfg.FeatureSearch, cfg.FeatureTrends, cfg.FeaturePolls, cfg.FeatureDrafts, cfg.FeatureGif)
+	featureFlags := featureRegistry(cfg)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
 	// The private-accounts limits, so an operator can see what the revision enforces. Numbers only.
 	log.Info("privacy_limits", "protected_authors_max", cfg.Privacy.ProtectedAuthorsMax,
@@ -393,6 +395,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// and export section are registered whether or not FEATURE_COMMUNITIES is on); the service and routes are wired with the lists routes.
 	communitiesRepo := communities.NewFirestoreRepo(fsClient, idempotency.New(fsClient)).
 		WithPostModerator(posts.NewCommunityModerator(fsClient)) // the Hide / Restore post write (A12)
+	// Beacons: the repo is built here because the account-lifecycle registration below needs it (the eraser step and
+	// export section are registered whether or not FEATURE_BEACONS is on); the service and routes are wired below.
+	beaconsRepo := beacons.NewFirestoreRepo(fsClient, quota.New(fsClient), idempotency.New(fsClient))
 	timelineServer := timeline.NewServer(timeline.Deps{
 		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory), Viewer: engagementMod,
 		Removals: removals, Lists: listsReader,
@@ -485,17 +490,24 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := registerCommunitiesLifecycle(lifecycle, communitiesRepo, identitySvc.(identity.Directory)); err != nil {
 		return nil, nil, fmt.Errorf("communities lifecycle registry: %w", err)
 	}
+	// beacons: the erase step and export section are registered whether or not FEATURE_BEACONS is on; the step runs
+	// after communities, before identity (appended, never inserted: step names are persisted).
+	if err := registerBeaconsLifecycle(lifecycle, beaconsRepo); err != nil {
+		return nil, nil, fmt.Errorf("beacons lifecycle registry: %w", err)
+	}
 	// A MESSAGE report reaches the message only through messaging; bound once the messaging service exists.
 	lateMessages := &lateMessageLookup{}
 	// A COMMUNITY report reaches the community only through communities.CommunityReporter; bound once the communities service exists.
 	lateCommunities := &lateCommunityLookup{}
+	// A BEACON report reaches the beacon only through beacons.BeaconReporter; bound once the beacons service exists.
+	lateBeacons := &lateBeaconLookup{}
 	// Plan: a LIST report reaches the list only through lists.ListReporter (the lists service, built above).
 	listReporter, ok := listsSvc.(lists.ListReporter)
 	if !ok {
 		return nil, nil, errors.New("lists service does not implement ListReporter")
 	}
 	moderationSvc := moderation.New(moderation.Deps{
-		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d, Messages: lateMessages, Lists: listReportLookup{r: listReporter}, Communities: lateCommunities,
+		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d, Messages: lateMessages, Lists: listReportLookup{r: listReporter}, Communities: lateCommunities, Beacons: lateBeacons,
 		ReportsPerDay:           int64(cfg.Quota.ReportsPerDay),
 		NewAccountReportsPerDay: int64(cfg.Quota.NewAccountReportsPerDay),
 		NewAccountWindow:        cfg.Quota.NewAccountWindow,
@@ -675,6 +687,26 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	communitiesServer := communities.NewServer(featureFlags, communitiesSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return communitiesv1connect.NewCommunityServiceHandler(communitiesServer, o...)
+	})
+
+	// Beacons: all twelve BeaconService routes are mounted behind FEATURE_BEACONS (FEATURE_DISABLED feature=beacons) so the
+	// interceptor chain covers them. CreateBeacon, UpdateBeacon, CancelBeacon, GetBeacon and ListBeacons reach the service;
+	// the participation RPCs answer Unimplemented until PR 3. Community-audience beacons read membership through
+	// communities.Reader and gate on FEATURE_COMMUNITIES with the same registry.
+	beaconsSvc := beacons.New(beacons.Deps{
+		Repo: beaconsRepo, Directory: identitySvc.(identity.Directory), Graph: graphSvc, Communities: communitiesSvc.(communities.Reader),
+		CommunityFlags: featureFlags, IDs: snowflakeNode, CursorKey: cfg.CursorHMACKey,
+		Events: beaconNotifier{slot: notifSlot}, // request, accept and cancel → notifications (PR 5)
+		Limits: beacons.Limits{MaxOpenPerUser: cfg.Beacons.MaxOpenPerUser, MaxPendingRequests: cfg.Beacons.MaxPendingRequests, MaxOpenSpots: cfg.Beacons.MaxOpenSpots},
+	})
+	beaconReporter, ok := beaconsSvc.(beacons.BeaconReporter)
+	if !ok {
+		return nil, nil, errors.New("beacons service does not implement BeaconReporter")
+	}
+	lateBeacons.r = beaconReporter // bound before ListenAndServe: a BEACON report can now reach the beacon
+	beaconsServer := beacons.NewServer(featureFlags, beaconsSvc)
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return beaconsv1connect.NewBeaconServiceHandler(beaconsServer, o...)
 	})
 
 	// Search and trends: FEATURE_SEARCH gates SearchPeople and SearchPosts, FEATURE_TRENDS gates GetTrends,

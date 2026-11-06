@@ -129,12 +129,15 @@ func TestNopEmitter(t *testing.T) {
 }
 
 func TestType(t *testing.T) {
-	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted, TypeMessage} {
+	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted, TypeMessage, TypeBeaconRequest, TypeBeaconAccepted, TypeBeaconCancelled} {
 		if !ty.Valid() {
 			t.Errorf("%s not valid", ty)
 		}
-		if got, want := ty.needsPost(), ty != TypeFollow && ty != TypeFollowRequest && ty != TypeFollowAccepted && ty != TypeMessage; got != want {
+		if got, want := ty.needsPost(), ty != TypeFollow && ty != TypeFollowRequest && ty != TypeFollowAccepted && ty != TypeMessage && !ty.needsBeacon(); got != want {
 			t.Errorf("%s needsPost = %v", ty, got)
+		}
+		if got, want := ty.needsBeacon(), ty == TypeBeaconRequest || ty == TypeBeaconAccepted || ty == TypeBeaconCancelled; got != want {
+			t.Errorf("%s needsBeacon = %v", ty, got)
 		}
 	}
 	if Type("").Valid() || Type("poke").Valid() {

@@ -124,6 +124,10 @@ void main() {
           builder: (context, state) => page('/communities', 'communities body'),
         ),
         GoRoute(
+          path: '/plans',
+          builder: (context, state) => page('/plans', 'plans body'),
+        ),
+        GoRoute(
           path: '/bookmarks',
           builder: (context, state) => page('/bookmarks', 'bookmarks body'),
         ),
@@ -861,6 +865,62 @@ void main() {
       }
       await pump(tester, flags: const {'communities'});
       expect(find.byIcon(Icons.groups_outlined), findsNothing);
+    });
+  });
+
+  group('Plans entry (beacons PR 6)', () {
+    for (final width in [600.0, 1300.0]) {
+      testWidgets('${width.toInt()}dp: a rail destination after Communities '
+          'that opens /plans', (tester) async {
+        await pump(
+          tester,
+          width: width,
+          flags: const {'communities', 'beacons'},
+        );
+
+        final rail = find.byType(NavigationRail);
+        final labels = tester
+            .widget<NavigationRail>(rail)
+            .destinations
+            .map(
+              (d) =>
+                  ((d.label is Semantics
+                              ? (d.label as Semantics).child
+                              : d.label)
+                          as Text)
+                      .data,
+            )
+            .toList();
+        expect(labels, ['Home', 'Communities', 'Plans', 'Profile']);
+
+        await tester.tap(find.byIcon(Icons.event_outlined));
+        await tester.pumpAndSettle();
+        expect(find.text('plans body'), findsOneWidget);
+        // The Plans page selects the Plans tab (its filled icon shows).
+        expect(tester.widget<NavigationRail>(rail).selectedIndex, 2);
+        expect(find.byIcon(Icons.event), findsOneWidget);
+      });
+    }
+
+    testWidgets('absent with beacons off or ui_shell off; never in the '
+        'phone bottom bar', (tester) async {
+      for (final width in [360.0, 600.0, 1300.0]) {
+        await pump(tester, width: width, flags: const {'posts'});
+        expect(find.byIcon(Icons.event_outlined), findsNothing);
+        await pump(
+          tester,
+          width: width,
+          flags: const {'beacons'},
+          newShell: false,
+        );
+        expect(find.byIcon(Icons.event_outlined), findsNothing);
+      }
+      await pump(tester, flags: const {'beacons'});
+      expect(find.byIcon(Icons.event_outlined), findsNothing);
+      expect(
+        find.byKey(const ValueKey('drawer-plans'), skipOffstage: false),
+        findsNothing,
+      );
     });
   });
 

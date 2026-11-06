@@ -51,6 +51,8 @@ type Deps struct {
 	Lists ListLookup
 	// Communities resolves a COMMUNITY target; nil makes a community report an internal error.
 	Communities CommunityLookup
+	// Beacons resolves a BEACON target; nil makes a beacon report an internal error.
+	Beacons BeaconLookup
 	// ReportsPerDay is the daily quota (config.QuotaConfig); NewAccountReportsPerDay applies inside NewAccountWindow.
 	ReportsPerDay           int64
 	NewAccountReportsPerDay int64
@@ -103,9 +105,9 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		return ReportResult{}, apierr.Validation("idempotency_key", "idempotency_key must be 16-64 characters of [A-Za-z0-9_-]")
 	}
 	switch in.TargetType {
-	case TargetPost, TargetAccount, TargetMessage, TargetList, TargetCommunity:
+	case TargetPost, TargetAccount, TargetMessage, TargetList, TargetCommunity, TargetBeacon:
 	default:
-		return ReportResult{}, apierr.Validation("target_type", "target_type must be POST, ACCOUNT, MESSAGE, LIST or COMMUNITY")
+		return ReportResult{}, apierr.Validation("target_type", "target_type must be POST, ACCOUNT, MESSAGE, LIST, COMMUNITY or BEACON")
 	}
 	if in.Reason == "" {
 		return ReportResult{}, apierr.Validation("reason", "choose a reason")
@@ -133,6 +135,10 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 	case TargetCommunity:
 		if !postIDPattern.MatchString(in.TargetID) { // a community id is a Snowflake, the same 19 digits as a post id
 			return ReportResult{}, apierr.Validation("target_id", "target_id must be a 19-digit community id")
+		}
+	case TargetBeacon:
+		if !postIDPattern.MatchString(in.TargetID) { // a beacon id is a Snowflake, the same 19 digits as a post id
+			return ReportResult{}, apierr.Validation("target_id", "target_id must be a 19-digit beacon id")
 		}
 	}
 	note, err := normalizeNote(in.Note)
@@ -238,6 +244,15 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		rules := make([]CommunityRule, len(c.Rules))
 		copy(rules, c.Rules)
 		rep.Evidence = &Evidence{AuthorHandle: c.OwnerHandle, CommunityName: c.Name, CommunityDescription: c.Description, CommunityRules: rules, PostCreatedAt: c.CreatedAt}
+	case TargetBeacon:
+		b, err := s.reportedBeacon(ctx, uid, in.TargetID)
+		if err != nil {
+			return ReportResult{}, err
+		}
+		// The beacon as the reporter saw it, so the organiser cannot rewrite it before triage (R16). Public text within the
+		// beacon's audience, kept in the report document like a LIST report; no participant, no community id.
+		rep.TargetOwnerID = b.OrganiserUID
+		rep.Evidence = &Evidence{AuthorHandle: b.OrganiserHandle, BeaconTitle: b.Title, BeaconDetails: b.Details, BeaconVenue: b.Venue, PostCreatedAt: b.CreatedAt}
 	}
 
 	limit := s.d.ReportsPerDay
@@ -387,7 +402,18 @@ func (s *service) reportedCommunity(ctx context.Context, uid, communityID string
 	return mapTargetLookup(c, err, uid, communityID, "community", ErrOwnCommunity, ErrCommunityNotFound, communityNotFound)
 }
 
-// mapTargetLookup is the one answer table of a LIST or COMMUNITY lookup: the caller's own target is VALIDATION target_id, every
+// reportedBeacon asks the BeaconLookup for the beacon of a BEACON target (already shape-checked). Every "unreportable" cause is
+// the one NOT_FOUND built here; the caller's own beacon is the VALIDATION target_id. Anything else is an internal error whose
+// ids are redacted.
+func (s *service) reportedBeacon(ctx context.Context, uid, beaconID string) (ReportedBeacon, error) {
+	if s.d.Beacons == nil {
+		return ReportedBeacon{}, errors.New("moderation: beacon reports are not wired")
+	}
+	b, err := s.d.Beacons.ReportableBeacon(ctx, uid, beaconID)
+	return mapTargetLookup(b, err, uid, beaconID, "beacon", ErrOwnBeacon, ErrBeaconNotFound, beaconNotFound)
+}
+
+// mapTargetLookup is the one answer table of a LIST, COMMUNITY or BEACON lookup: the caller's own target is VALIDATION target_id, every
 // "unreportable" cause the one NOT_FOUND notFound builds, anything else an internal error with the ids redacted.
 func mapTargetLookup[T any](v T, err error, uid, id, what string, errOwn, errNotFound error, notFound func() *apierr.Error) (T, error) {
 	var zero T

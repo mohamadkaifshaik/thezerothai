@@ -31,6 +31,8 @@ import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/data/likes_repository.dart';
 import '../features/engagement/data/poll_repository.dart';
 import '../features/engagement/domain/bookmarks_feature_flag.dart';
+import '../features/beacons/data/beacons_repository.dart';
+import '../features/beacons/domain/beacons_feature_flag.dart';
 import '../features/communities/data/communities_repository.dart';
 import '../features/communities/domain/communities_feature_flag.dart';
 import '../features/lists/data/home_tabs_repository.dart';
@@ -303,6 +305,13 @@ Future<void> bootstrap() async {
     gate: communitiesGate,
     epoch: database.sessionEpoch,
   );
+  // Plans (beacons): the only `BeaconService` caller, 0 RPCs while `beacons`
+  // is off for the caller.
+  final beaconsGate = buildServiceGate(onboardingBloc, kFeatureBeacons);
+  final beaconsRepository = BeaconsRepository(
+    apiClient: apiClient,
+    gate: beaconsGate,
+  );
   final homeTabsRepository = HomeTabsRepository(
     apiClient: apiClient,
     gate: listsGate,
@@ -397,6 +406,7 @@ Future<void> bootstrap() async {
       listsRepository: listsRepository,
       homeTabsRepository: homeTabsRepository,
       communitiesRepository: communitiesRepository,
+      beaconsRepository: beaconsRepository,
       pushCubit: pushCubit,
       telemetryConsent: telemetryConsent,
       unreadBadgeCubit: unreadBadgeCubit,

@@ -39,6 +39,12 @@ func pushText(t Type) (title, body string) {
 		return "Follow request accepted", "Your follow request was accepted"
 	case TypeMessage:
 		return "New message", "You have a new message" // generic by design: no sender, no text
+	case TypeBeaconRequest:
+		return "New join request", "Someone asked to join your plan"
+	case TypeBeaconAccepted:
+		return "Request accepted", "Your request to join a plan was accepted"
+	case TypeBeaconCancelled:
+		return "Plan cancelled", "A plan you joined was cancelled"
 	}
 	return "Notification", "You have a new notification"
 }
@@ -123,9 +129,13 @@ func buildMessage(token string, p Push) *messaging.Message {
 	ttl := fcmTTL
 	collapse := string(p.Type)
 	data := map[string]string{"type": string(p.Type), "notificationId": p.NotificationID, "postId": p.PostID, "actorId": p.ActorID}
-	if p.Type.pushOnly() {
+	switch {
+	case p.Type.pushOnly():
 		// A direct-message push names the conversation only: no actor id, no post, no notification id.
 		data = map[string]string{"type": string(p.Type), "conversationId": p.ConversationID}
+	case p.Type.needsBeacon():
+		// A beacon push names the beacon instead of a post (R26); the app deep-links to it.
+		data = map[string]string{"type": string(p.Type), "notificationId": p.NotificationID, "beaconId": p.BeaconID, "actorId": p.ActorID}
 	}
 	return &messaging.Message{
 		Token:        token, //nolint:staticcheck // SA1019: the client stores the FCM registration token (getToken()), which Token addresses; Fid is the installation id, a different identifier

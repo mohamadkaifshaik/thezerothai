@@ -35,6 +35,7 @@ pb.Notification notif(
   String displayName = 'Alice',
   int actorCount = 1,
   String postId = '',
+  String beaconId = '',
 }) {
   return pb.Notification(
     id: id,
@@ -46,6 +47,7 @@ pb.Notification notif(
     ),
     actorCount: actorCount,
     postId: postId,
+    beaconId: beaconId,
     createdAt: _stamp(kNotifBase.subtract(Duration(minutes: minutesAgo))),
   );
 }

@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
+import '../../features/beacons/domain/beacons_feature_flag.dart';
 import '../../features/communities/domain/communities_feature_flag.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
 import '../../features/graph/presentation/graph_feature_flags.dart';
@@ -57,6 +58,7 @@ class MainShell extends StatelessWidget {
     required bool bookmarks,
     required bool lists,
     required bool communities,
+    required bool plans,
     required bool settings,
     void Function(BuildContext anchor)? onMore,
   }) => [
@@ -128,6 +130,17 @@ class MainShell extends StatelessWidget {
           railOnly: true,
         ),
       ),
+    // Rail only, like Communities: the drawer carries the entry on phones.
+    if (plans)
+      const _Destination(
+        _Tab.plans,
+        AppNavDestination(
+          icon: Icons.event_outlined,
+          selectedIcon: Icons.event,
+          label: 'Plans',
+          railOnly: true,
+        ),
+      ),
     const _Destination(
       _Tab.profile,
       AppNavDestination(
@@ -176,6 +189,7 @@ class MainShell extends StatelessWidget {
     if (location == AppRouter.bookmarksPath) return _Tab.bookmarks;
     if (location.startsWith(AppRouter.listsPath)) return _Tab.lists;
     if (location.startsWith(AppRouter.communitiesPath)) return _Tab.communities;
+    if (location.startsWith(AppRouter.plansPath)) return _Tab.plans;
     // The shell pages belong to the rail's More item. (Premium is a dialog on
     // the root navigator: the page under it keeps its own tab.)
     if (location == AppRouter.creatorStudioPath ||
@@ -235,6 +249,7 @@ class MainShell extends StatelessWidget {
       bookmarks: bookmarksEntry,
       lists: newShell && isFeatureEnabled(context, kFeatureLists),
       communities: newShell && isFeatureEnabled(context, kFeatureCommunities),
+      plans: newShell && isFeatureEnabled(context, kFeatureBeacons),
       settings: !newShell,
       onMore: shellEntries.isEmpty && !isFeatureEnabled(context, kFeaturePosts)
           ? null
@@ -344,6 +359,8 @@ class MainShell extends StatelessWidget {
             context.go(AppRouter.listsPath);
           case _Tab.communities:
             context.go(AppRouter.communitiesPath);
+          case _Tab.plans:
+            context.go(AppRouter.plansPath);
           case _Tab.bookmarks:
             context.go(AppRouter.bookmarksPath);
           case _Tab.settings:
@@ -410,6 +427,7 @@ enum _Tab {
   bookmarks,
   lists,
   communities,
+  plans,
   profile,
   settings,
   more,

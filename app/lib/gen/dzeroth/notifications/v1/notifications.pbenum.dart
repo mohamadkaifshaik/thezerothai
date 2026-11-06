@@ -65,6 +65,21 @@ class NotificationType extends $pb.ProtobufEnum {
   static const NotificationType NOTIFICATION_TYPE_MESSAGE =
       NotificationType._(9, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_MESSAGE');
 
+  /// actor asked to join your beacon (beacon_id). post_id is empty.
+  static const NotificationType NOTIFICATION_TYPE_BEACON_REQUEST =
+      NotificationType._(
+          10, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_BEACON_REQUEST');
+
+  /// actor (the organiser) accepted your request to join their beacon (beacon_id). post_id is empty.
+  static const NotificationType NOTIFICATION_TYPE_BEACON_ACCEPTED =
+      NotificationType._(
+          11, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_BEACON_ACCEPTED');
+
+  /// actor (the organiser) cancelled a beacon you were accepted to (beacon_id). post_id is empty.
+  static const NotificationType NOTIFICATION_TYPE_BEACON_CANCELLED =
+      NotificationType._(
+          12, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_BEACON_CANCELLED');
+
   static const $core.List<NotificationType> values = <NotificationType>[
     NOTIFICATION_TYPE_UNSPECIFIED,
     NOTIFICATION_TYPE_FOLLOW,
@@ -76,10 +91,13 @@ class NotificationType extends $pb.ProtobufEnum {
     NOTIFICATION_TYPE_FOLLOW_REQUEST,
     NOTIFICATION_TYPE_FOLLOW_ACCEPTED,
     NOTIFICATION_TYPE_MESSAGE,
+    NOTIFICATION_TYPE_BEACON_REQUEST,
+    NOTIFICATION_TYPE_BEACON_ACCEPTED,
+    NOTIFICATION_TYPE_BEACON_CANCELLED,
   ];
 
   static final $core.List<NotificationType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 9);
+      $pb.ProtobufEnum.$_initByValueList(values, 12);
   static NotificationType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

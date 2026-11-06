@@ -351,3 +351,18 @@ final class CommunityStateException extends AppException {
   CommunityStateException(this.reason) : super(reason.userMessage);
   final CommunityStateReason reason;
 }
+
+/// A write the subject's current state refuses (FAILED_PRECONDITION with
+/// `ErrorReason` UNSPECIFIED and `metadata["reason"]`): the beacons backend's
+/// `full`, `ended`, `cancelled`, `already_requested`, `not_requested`,
+/// `not_participant`, `organiser`. Never a missing profile
+/// ([ProfileRequiredException]). The feature's `*_error_messages.dart` gives
+/// each reason its fixed text; an unknown reason gets a generic one. Do not
+/// retry.
+final class StateConflictException extends AppException {
+  const StateConflictException(this.reason)
+    : super('The current state does not allow that.');
+
+  /// The server's `metadata["reason"]` (never shown as is).
+  final String reason;
+}

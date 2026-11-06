@@ -56,7 +56,7 @@ func (s *Server) ReportContent(ctx context.Context, req *connect.Request[moderat
 	m := req.Msg
 	targetType := targetTypeFromProto(m.GetTargetType())
 	switch targetType {
-	case TargetMessage, TargetList, TargetCommunity:
+	case TargetMessage, TargetList, TargetCommunity, TargetBeacon:
 		// Before any work, so the exhausted-quota fast path never runs for a switched-off feature.
 		if err := s.guardNotGloballyOff(ctx, uid, secondFlag(targetType)); err != nil {
 			return nil, err
@@ -77,13 +77,15 @@ func (s *Server) ReportContent(ctx context.Context, req *connect.Request[moderat
 	return connect.NewResponse(&moderationv1.ReportContentResponse{ReportId: res.ReportID, AlreadyReported: res.AlreadyReported}), nil
 }
 
-// secondFlag is the feature a MESSAGE, LIST or COMMUNITY report needs besides `reports`.
+// secondFlag is the feature a MESSAGE, LIST, COMMUNITY or BEACON report needs besides `reports`.
 func secondFlag(t TargetType) string {
 	switch t {
 	case TargetList:
 		return ListsFlagName
 	case TargetCommunity:
 		return CommunitiesFlagName
+	case TargetBeacon:
+		return BeaconsFlagName
 	}
 	return MessagingFlagName
 }
@@ -119,6 +121,8 @@ func targetTypeFromProto(t moderationv1.ReportTargetType) TargetType {
 		return TargetList
 	case moderationv1.ReportTargetType_REPORT_TARGET_TYPE_COMMUNITY:
 		return TargetCommunity
+	case moderationv1.ReportTargetType_REPORT_TARGET_TYPE_BEACON:
+		return TargetBeacon
 	}
 	return ""
 }

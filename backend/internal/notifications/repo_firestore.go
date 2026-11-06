@@ -101,6 +101,7 @@ type notificationDoc struct {
 	// hot-doc bound). Rows written before the field existed read 0 and fall back to len(ActorIDs).
 	ActorCount int       `firestore:"actorCount"`
 	PostID     string    `firestore:"postId,omitempty"`
+	BeaconID   string    `firestore:"beaconId,omitempty"`
 	CreatedAt  time.Time `firestore:"createdAt"`
 	ExpireAt   time.Time `firestore:"expireAt"`
 }
@@ -120,7 +121,7 @@ type tokenIndexDoc struct {
 
 func (d notificationDoc) toNotification(id string) Notification {
 	return Notification{
-		ID: id, Type: Type(d.Type), PostID: d.PostID, CreatedAt: d.CreatedAt.UTC(), ActorIDs: d.ActorIDs, ActorCount: d.ActorCount,
+		ID: id, Type: Type(d.Type), PostID: d.PostID, BeaconID: d.BeaconID, CreatedAt: d.CreatedAt.UTC(), ActorIDs: d.ActorIDs, ActorCount: d.ActorCount,
 		Actor: Actor{UserID: d.Actor.UserID, Handle: d.Actor.Handle, DisplayName: d.Actor.DisplayName,
 			AvatarURL: d.Actor.AvatarURL, Verified: d.Actor.Verified},
 	}
@@ -146,7 +147,7 @@ func (r *FirestoreRepo) tokenRef(token string) *firestore.DocumentRef {
 func (r *FirestoreRepo) Create(ctx context.Context, recipientUID string, n Notification) (bool, error) {
 	doc := notificationDoc{
 		Type: string(n.Type), Actor: toActorDoc(n.Actor), ActorIDs: n.ActorIDs, ActorCount: max(n.ActorCount, len(n.ActorIDs)),
-		PostID: n.PostID, CreatedAt: n.CreatedAt, ExpireAt: n.CreatedAt.Add(TTL),
+		PostID: n.PostID, BeaconID: n.BeaconID, CreatedAt: n.CreatedAt, ExpireAt: n.CreatedAt.Add(TTL),
 	}
 	_, err := r.notifications(recipientUID).Doc(n.ID).Create(ctx, doc)
 	if err != nil {

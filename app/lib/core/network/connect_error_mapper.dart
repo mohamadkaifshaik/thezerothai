@@ -124,6 +124,14 @@ AppException mapConnectError(Object error) {
           CommunityStateReason.fromWire(detail.metadata['reason']),
         );
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
+        // A state conflict keyed by `metadata["reason"]` (the beacons backend): typed, never
+        // "profile required". Without a reason the code mapping below still applies.
+        final reason = detail.metadata['reason'];
+        if (error.code == connect.Code.failedPrecondition &&
+            reason != null &&
+            reason.isNotEmpty) {
+          return StateConflictException(reason);
+        }
         break;
     }
   }

@@ -57,6 +57,15 @@ const (
 	// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", before any lookup); the existing reports quota
 	// applies.
 	ReportTargetType_REPORT_TARGET_TYPE_COMMUNITY ReportTargetType = 5
+	// A beacon (plan). target_id = the beacon id (19 digits, else VALIDATION "target_id"). Who may see the beacon may
+	// report it: a missing or hidden beacon, one whose organiser is gone, one in a community the caller is not a JOINED
+	// member of, and one whose organiser has a block with the caller are all the one NOT_FOUND "beacon not found" (a
+	// CANCELLED or ENDED beacon is still reportable); the caller's own beacon (the caller is its organiser) => VALIDATION "target_id". The
+	// evidence is the organiser's handle, the beacon's title, details and venue and its creation time (no participant id,
+	// no child doc), kept in the report document with the post evidence's retention. Needs FEATURE_BEACONS not globally off
+	// (else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "beacons", before any lookup); the existing
+	// reports quota applies. Takedown is `opsctl beacon hide` (resolves the report TAKEDOWN).
+	ReportTargetType_REPORT_TARGET_TYPE_BEACON ReportTargetType = 6
 )
 
 // Enum value maps for ReportTargetType.
@@ -68,6 +77,7 @@ var (
 		3: "REPORT_TARGET_TYPE_MESSAGE",
 		4: "REPORT_TARGET_TYPE_LIST",
 		5: "REPORT_TARGET_TYPE_COMMUNITY",
+		6: "REPORT_TARGET_TYPE_BEACON",
 	}
 	ReportTargetType_value = map[string]int32{
 		"REPORT_TARGET_TYPE_UNSPECIFIED": 0,
@@ -76,6 +86,7 @@ var (
 		"REPORT_TARGET_TYPE_MESSAGE":     3,
 		"REPORT_TARGET_TYPE_LIST":        4,
 		"REPORT_TARGET_TYPE_COMMUNITY":   5,
+		"REPORT_TARGET_TYPE_BEACON":      6,
 	}
 )
 
@@ -320,14 +331,15 @@ const file_dzeroth_moderation_v1_moderation_proto_rawDesc = "" +
 	"\x04note\x18\x05 \x01(\tR\x04note\"_\n" +
 	"\x15ReportContentResponse\x12\x1b\n" +
 	"\treport_id\x18\x01 \x01(\tR\breportId\x12)\n" +
-	"\x10already_reported\x18\x02 \x01(\bR\x0falreadyReported*\xd2\x01\n" +
+	"\x10already_reported\x18\x02 \x01(\bR\x0falreadyReported*\xf1\x01\n" +
 	"\x10ReportTargetType\x12\"\n" +
 	"\x1eREPORT_TARGET_TYPE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17REPORT_TARGET_TYPE_POST\x10\x01\x12\x1e\n" +
 	"\x1aREPORT_TARGET_TYPE_ACCOUNT\x10\x02\x12\x1e\n" +
 	"\x1aREPORT_TARGET_TYPE_MESSAGE\x10\x03\x12\x1b\n" +
 	"\x17REPORT_TARGET_TYPE_LIST\x10\x04\x12 \n" +
-	"\x1cREPORT_TARGET_TYPE_COMMUNITY\x10\x05*\xa3\x02\n" +
+	"\x1cREPORT_TARGET_TYPE_COMMUNITY\x10\x05\x12\x1d\n" +
+	"\x19REPORT_TARGET_TYPE_BEACON\x10\x06*\xa3\x02\n" +
 	"\fReportReason\x12\x1d\n" +
 	"\x19REPORT_REASON_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12REPORT_REASON_SPAM\x10\x01\x12\x1c\n" +

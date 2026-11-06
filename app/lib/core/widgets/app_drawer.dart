@@ -9,6 +9,7 @@ import '../../features/auth/presentation/request_sign_out.dart';
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../../features/graph/data/graph_repository.dart';
 import '../../features/graph/domain/follow_requests_entry.dart';
+import '../../features/beacons/domain/beacons_feature_flag.dart';
 import '../../features/communities/domain/communities_feature_flag.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -108,6 +109,15 @@ class AppDrawer extends StatelessWidget {
                 label: 'Communities',
                 onTap: () =>
                     _go(context, () => context.go(AppRouter.communitiesPath)),
+              ),
+            // Needs `beacons` (the drawer only exists with `ui_shell`).
+            if (isFeatureEnabled(context, kFeatureBeacons))
+              _DrawerRow(
+                key: const ValueKey('drawer-plans'),
+                icon: Icons.event_outlined,
+                label: 'Plans',
+                onTap: () =>
+                    _go(context, () => context.go(AppRouter.plansPath)),
               ),
             // History follows feature destinations; Premium follows History
             // when the existing shell capabilities allow it.

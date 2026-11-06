@@ -67,6 +67,18 @@ variable "ttl_fields" {
       collection = "pollVotes"
       field      = "expireAt"
     }
+    # A beacon (beacons/{beaconId}); expireAt = startAt + 30 days (beacons.ExpireAfterStart), so finished plans
+    # leave on their own. Edited only, not applied: apply it before FEATURE_BEACONS leaves off in a project.
+    beacons_expire_at = {
+      collection = "beacons"
+      field      = "expireAt"
+    }
+    # A beacon's participant rows (beacons/{beaconId}/beaconParticipants/{uid}); expireAt is the beacon's, because a
+    # parent's TTL does not cascade to its subcollection. Collection-group key. Edited only, not applied.
+    beacon_participants_expire_at = {
+      collection = "beaconParticipants"
+      field      = "expireAt"
+    }
   }
 }
 

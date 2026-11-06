@@ -15,6 +15,7 @@ import '../../gen/dzeroth/posts/v1/posts.connect.client.dart';
 import '../../gen/dzeroth/search/v1/search.connect.client.dart';
 import '../../gen/dzeroth/lists/v1/lists.connect.client.dart';
 import '../../gen/dzeroth/timeline/v1/timeline.connect.client.dart';
+import '../../gen/dzeroth/beacons/v1/beacons.connect.client.dart';
 import 'app_exception.dart';
 import 'auth_token_provider.dart';
 import 'connect_error_mapper.dart';
@@ -74,6 +75,9 @@ class ApiClient {
 
   /// Communities. Only `CommunitiesRepository` calls it.
   late final communities = CommunityServiceClient(_transport);
+
+  /// Beacons ("Plans"). Only `BeaconsRepository` calls it.
+  late final beacons = BeaconServiceClient(_transport);
 }
 
 /// Runs [call], converting any thrown error into a typed [AppException].

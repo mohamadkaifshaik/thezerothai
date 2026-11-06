@@ -222,6 +222,9 @@ func TestNotificationID(t *testing.T) {
 		{TypeRepost, "u1", postA, t0, "repost_" + postA + "_u1", true},
 		{TypeLike, "u1", postA, t0, "like_" + postA + "_2026101012", true},
 		{TypeLike, "u1", postA, time.Date(2026, 1, 2, 3, 59, 59, 0, time.FixedZone("x", 5*3600+1800)), "like_" + postA + "_2026010122", true},
+		{TypeBeaconRequest, "u1", beaconA, t0, "beacon_request_" + beaconA + "_u1", true},
+		{TypeBeaconAccepted, "u1", beaconA, t0, "beacon_accepted_" + beaconA, true},
+		{TypeBeaconCancelled, "u1", beaconA, t0, "beacon_cancelled_" + beaconA, true},
 		{"poke", "u1", postA, t0, "", false},
 	}
 	for _, tt := range tests {

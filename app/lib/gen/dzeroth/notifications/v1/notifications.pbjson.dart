@@ -34,6 +34,9 @@ const NotificationType$json = {
     {'1': 'NOTIFICATION_TYPE_FOLLOW_REQUEST', '2': 7},
     {'1': 'NOTIFICATION_TYPE_FOLLOW_ACCEPTED', '2': 8},
     {'1': 'NOTIFICATION_TYPE_MESSAGE', '2': 9},
+    {'1': 'NOTIFICATION_TYPE_BEACON_REQUEST', '2': 10},
+    {'1': 'NOTIFICATION_TYPE_BEACON_ACCEPTED', '2': 11},
+    {'1': 'NOTIFICATION_TYPE_BEACON_CANCELLED', '2': 12},
   ],
 };
 
@@ -45,7 +48,9 @@ final $typed_data.Uint8List notificationTypeDescriptor = $convert.base64Decode(
     'lLRRAEEhwKGE5PVElGSUNBVElPTl9UWVBFX1JFUE9TVBAFEhsKF05PVElGSUNBVElPTl9UWVBF'
     'X1FVT1RFEAYSJAogTk9USUZJQ0FUSU9OX1RZUEVfRk9MTE9XX1JFUVVFU1QQBxIlCiFOT1RJRk'
     'lDQVRJT05fVFlQRV9GT0xMT1dfQUNDRVBURUQQCBIdChlOT1RJRklDQVRJT05fVFlQRV9NRVNT'
-    'QUdFEAk=');
+    'QUdFEAkSJAogTk9USUZJQ0FUSU9OX1RZUEVfQkVBQ09OX1JFUVVFU1QQChIlCiFOT1RJRklDQV'
+    'RJT05fVFlQRV9CRUFDT05fQUNDRVBURUQQCxImCiJOT1RJRklDQVRJT05fVFlQRV9CRUFDT05f'
+    'Q0FOQ0VMTEVEEAw=');
 
 @$core.Deprecated('Use devicePlatformDescriptor instead')
 const DevicePlatform$json = {
@@ -93,6 +98,7 @@ const Notification$json = {
       '6': '.google.protobuf.Timestamp',
       '10': 'createdAt'
     },
+    {'1': 'beacon_id', '3': 7, '4': 1, '5': 9, '10': 'beaconId'},
   ],
 };
 
@@ -102,7 +108,8 @@ final $typed_data.Uint8List notificationDescriptor = $convert.base64Decode(
     '5vdGlmaWNhdGlvbnMudjEuTm90aWZpY2F0aW9uVHlwZVIEdHlwZRI3CgVhY3RvchgDIAEoCzIh'
     'LmR6ZXJvdGguY29tbW9uLnYxLkF1dGhvclNuYXBzaG90UgVhY3RvchIfCgthY3Rvcl9jb3VudB'
     'gEIAEoBVIKYWN0b3JDb3VudBIXCgdwb3N0X2lkGAUgASgJUgZwb3N0SWQSOQoKY3JlYXRlZF9h'
-    'dBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBSCWNyZWF0ZWRBdA==');
+    'dBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBSCWNyZWF0ZWRBdBIbCgliZWFjb2'
+    '5faWQYByABKAlSCGJlYWNvbklk');
 
 @$core.Deprecated('Use listNotificationsRequestDescriptor instead')
 const ListNotificationsRequest$json = {
