@@ -20,6 +20,7 @@ func TestExportRowLeaksNoUID(t *testing.T) {
 		{"follow", notificationDoc{Type: "follow", Actor: actorDoc{UserID: actorUID, Handle: "bob"}, ActorIDs: []string{actorUID}, CreatedAt: at}},
 		{"repost", notificationDoc{Type: "repost", Actor: actorDoc{UserID: actorUID, Handle: "bob"}, ActorIDs: []string{actorUID}, PostID: postA, CreatedAt: at}},
 		{"collapsed like", notificationDoc{Type: "like", Actor: actorDoc{UserID: actorUID, Handle: "bob"}, ActorIDs: []string{actorUID, "other"}, ActorCount: 2, PostID: postA, CreatedAt: at}},
+		{"beacon cancelled", notificationDoc{Type: "beacon_cancelled", Actor: actorDoc{UserID: actorUID, Handle: "bob"}, ActorIDs: []string{actorUID}, BeaconID: beaconA, CreatedAt: at}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -40,6 +41,9 @@ func TestExportRowLeaksNoUID(t *testing.T) {
 			}
 			if m["type"] != tt.doc.Type || m["actorHandle"] != "bob" {
 				t.Errorf("row = %s", b)
+			}
+			if tt.doc.BeaconID != "" && m["beaconId"] != tt.doc.BeaconID {
+				t.Errorf("row lacks the beacon id: %s", b)
 			}
 		})
 	}

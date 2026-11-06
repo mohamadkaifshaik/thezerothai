@@ -149,6 +149,12 @@ func typeToProto(t Type) notificationsv1.NotificationType {
 		return notificationsv1.NotificationType_NOTIFICATION_TYPE_FOLLOW_REQUEST
 	case TypeFollowAccepted:
 		return notificationsv1.NotificationType_NOTIFICATION_TYPE_FOLLOW_ACCEPTED
+	case TypeBeaconRequest:
+		return notificationsv1.NotificationType_NOTIFICATION_TYPE_BEACON_REQUEST
+	case TypeBeaconAccepted:
+		return notificationsv1.NotificationType_NOTIFICATION_TYPE_BEACON_ACCEPTED
+	case TypeBeaconCancelled:
+		return notificationsv1.NotificationType_NOTIFICATION_TYPE_BEACON_CANCELLED
 	}
 	return notificationsv1.NotificationType_NOTIFICATION_TYPE_UNSPECIFIED
 }
@@ -168,6 +174,7 @@ func ToProto(n Notification) *notificationsv1.Notification {
 		},
 		ActorCount: int32(count), //nolint:gosec // bounded by the row size
 		PostId:     n.PostID,
+		BeaconId:   n.BeaconID,
 		CreatedAt:  timestamppb.New(n.CreatedAt),
 	}
 }

@@ -58,3 +58,26 @@ func TestValidPostID(t *testing.T) {
 		})
 	}
 }
+
+// TestValidBeaconID: a beacon id has the same 19-digit Snowflake shape as a post id.
+func TestValidBeaconID(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"19 digits", "1000000000000000001", true},
+		{"zero padded", "0000000000000000001", true},
+		{"18 digits", "100000000000000000", false},
+		{"20 digits", "10000000000000000001", false},
+		{"letters", "100000000000000000a", false},
+		{"empty", "", false},
+		{"sign", "-000000000000000001", false},
+	}
+	for _, tt := range tests {
+		if got := ValidBeaconID(tt.in); got != tt.want {
+			t.Errorf("%s: ValidBeaconID(%q) = %v, want %v", tt.name, tt.in, got, tt.want)
+		}
+	}
+}

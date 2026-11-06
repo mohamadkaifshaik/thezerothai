@@ -98,6 +98,7 @@ const Notification$json = {
       '6': '.google.protobuf.Timestamp',
       '10': 'createdAt'
     },
+    {'1': 'beacon_id', '3': 7, '4': 1, '5': 9, '10': 'beaconId'},
   ],
 };
 
@@ -107,7 +108,8 @@ final $typed_data.Uint8List notificationDescriptor = $convert.base64Decode(
     '5vdGlmaWNhdGlvbnMudjEuTm90aWZpY2F0aW9uVHlwZVIEdHlwZRI3CgVhY3RvchgDIAEoCzIh'
     'LmR6ZXJvdGguY29tbW9uLnYxLkF1dGhvclNuYXBzaG90UgVhY3RvchIfCgthY3Rvcl9jb3VudB'
     'gEIAEoBVIKYWN0b3JDb3VudBIXCgdwb3N0X2lkGAUgASgJUgZwb3N0SWQSOQoKY3JlYXRlZF9h'
-    'dBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBSCWNyZWF0ZWRBdA==');
+    'dBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBSCWNyZWF0ZWRBdBIbCgliZWFjb2'
+    '5faWQYByABKAlSCGJlYWNvbklk');
 
 @$core.Deprecated('Use listNotificationsRequestDescriptor instead')
 const ListNotificationsRequest$json = {

@@ -35,11 +35,13 @@ type wireEvent struct {
 	PostID       string   `json:"postId,omitempty"`
 	// ConversationID is additive: an older revision ignores the field and drops the unknown type.
 	ConversationID string `json:"conversationId,omitempty"`
-	AtMillis       int64  `json:"at"`
+	// BeaconID is additive in the same way (the beacon types).
+	BeaconID string `json:"beaconId,omitempty"`
+	AtMillis int64  `json:"at"`
 }
 
 func encodeEvent(e Event) ([]byte, error) {
-	return json.Marshal(wireEvent{V: eventVersion, Type: e.Type, ActorID: e.ActorID, RecipientIDs: e.RecipientIDs, PostID: e.PostID, ConversationID: e.ConversationID, AtMillis: e.At.UnixMilli()})
+	return json.Marshal(wireEvent{V: eventVersion, Type: e.Type, ActorID: e.ActorID, RecipientIDs: e.RecipientIDs, PostID: e.PostID, ConversationID: e.ConversationID, BeaconID: e.BeaconID, AtMillis: e.At.UnixMilli()})
 }
 
 // validateEvent reports why e can never become deliverable ("" when it is valid).
@@ -55,6 +57,8 @@ func validateEvent(e Event) string {
 		return "invalid_post"
 	case e.Type == TypeMessage && !validConversationID(e.ConversationID):
 		return "invalid_conversation"
+	case e.Type.needsBeacon() && !ids.ValidBeaconID(e.BeaconID):
+		return "invalid_beacon"
 	}
 	for _, r := range e.RecipientIDs {
 		if !ids.ValidUID(r) {
@@ -86,8 +90,17 @@ func actorFromProfile(p identity.Profile) Actor {
 	return a
 }
 
-// notificationID is the deterministic row id: the natural key that makes redelivery a no-op.
-func notificationID(t Type, actorID, postID string, at time.Time) string {
+// subject is the id the row id is keyed on: the post for post types, the beacon for beacon types.
+func (e Event) subject() string {
+	if e.Type.needsBeacon() {
+		return e.BeaconID
+	}
+	return e.PostID
+}
+
+// notificationID is the deterministic row id: the natural key that makes redelivery a no-op. subject is the post id
+// or, for the beacon types, the beacon id.
+func notificationID(t Type, actorID, subject string, at time.Time) string {
 	switch t {
 	case TypeFollow:
 		return "follow_" + actorID
@@ -96,11 +109,15 @@ func notificationID(t Type, actorID, postID string, at time.Time) string {
 	case TypeFollowAccepted:
 		return "follow_accepted_" + actorID // the target that accepted
 	case TypeMention, TypeReply, TypeQuote:
-		return string(t) + "_" + postID
+		return string(t) + "_" + subject
 	case TypeRepost:
-		return "repost_" + postID + "_" + actorID
+		return "repost_" + subject + "_" + actorID
 	case TypeLike:
-		return "like_" + postID + "_" + at.UTC().Format("2006010215")
+		return "like_" + subject + "_" + at.UTC().Format("2006010215")
+	case TypeBeaconRequest:
+		return "beacon_request_" + subject + "_" + actorID // one row per requester per beacon; a re-request inside the TTL is AlreadyExists
+	case TypeBeaconAccepted, TypeBeaconCancelled:
+		return string(t) + "_" + subject // one per beacon in the recipient's own subtree
 	}
 	return ""
 }
@@ -287,8 +304,8 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 		}
 		now := f.d.Now().UTC().Truncate(time.Microsecond)
 		n := Notification{
-			ID: notificationID(e.Type, e.ActorID, e.PostID, bucketAt), Type: e.Type, Actor: actor,
-			ActorIDs: []string{e.ActorID}, ActorCount: 1, PostID: e.PostID, CreatedAt: now,
+			ID: notificationID(e.Type, e.ActorID, e.subject(), bucketAt), Type: e.Type, Actor: actor,
+			ActorIDs: []string{e.ActorID}, ActorCount: 1, PostID: e.PostID, BeaconID: e.BeaconID, CreatedAt: now,
 		}
 		created, err := f.d.Repo.Create(ctx, r, n)
 		if err != nil {
@@ -310,7 +327,7 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 		}
 		out.Created++
 		createdFor = append(createdFor, r)
-		toPush = append(toPush, pending{r, Push{Type: e.Type, NotificationID: n.ID, PostID: e.PostID, ActorID: e.ActorID}})
+		toPush = append(toPush, pending{r, Push{Type: e.Type, NotificationID: n.ID, PostID: e.PostID, ActorID: e.ActorID, BeaconID: e.BeaconID}})
 	}
 	// A concurrent GetMe on this instance may have re-cached the recipient's unread count between the status read
 	// above and this write (it would then serve the pre-write badge until the cache TTL). Evict only the unread
@@ -418,7 +435,7 @@ func (f *Fanout) Handler() http.Handler {
 		ctx, cancel := context.WithTimeout(ctx, handlerBudget)
 		defer cancel()
 		started := f.d.Now()
-		out, derr := f.Deliver(ctx, Event{Type: m.Type, ActorID: m.ActorID, RecipientIDs: m.RecipientIDs, PostID: m.PostID, ConversationID: m.ConversationID, At: time.UnixMilli(m.AtMillis)})
+		out, derr := f.Deliver(ctx, Event{Type: m.Type, ActorID: m.ActorID, RecipientIDs: m.RecipientIDs, PostID: m.PostID, ConversationID: m.ConversationID, BeaconID: m.BeaconID, At: time.UnixMilli(m.AtMillis)})
 		attrs := append([]any{
 			"event", "notification_delivery", "type", string(m.Type), "message_id", d.MessageID, "delivery_attempt", d.Attempt,
 			"recipients", len(m.RecipientIDs), "created", out.Created, "duplicate", out.Duplicate, "suppressed", out.Suppressed, "suppressed_protected", out.SuppressedProtected,

@@ -59,6 +59,13 @@ const (
 	// TypeMessage is the push-only direct-message type: one generic FCM push
 	// to the recipient, no users/{uid}/notifications row, no badge move, never listed. It names a conversation, not a post.
 	TypeMessage Type = "message"
+	// TypeBeaconRequest goes to a beacon's organiser when someone asks to join; TypeBeaconAccepted to the requester when
+	// the organiser accepts; TypeBeaconCancelled to each accepted participant when the organiser cancels. Each names a
+	// beacon (Event.BeaconID), never a post, writes a row and pushes; the recipient needs only `notifications` on
+	// (docs/beacons-plan.md PR 5).
+	TypeBeaconRequest   Type = "beacon_request"
+	TypeBeaconAccepted  Type = "beacon_accepted"
+	TypeBeaconCancelled Type = "beacon_cancelled"
 )
 
 // MessagingFlagName is the wire name of FEATURE_MESSAGING (messaging.FlagName). notifications cannot import messaging,
@@ -69,7 +76,8 @@ const MessagingFlagName = "messaging"
 // Valid reports whether t is a known type.
 func (t Type) Valid() bool {
 	switch t {
-	case TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted, TypeMessage:
+	case TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted, TypeMessage,
+		TypeBeaconRequest, TypeBeaconAccepted, TypeBeaconCancelled:
 		return true
 	}
 	return false
@@ -77,7 +85,12 @@ func (t Type) Valid() bool {
 
 // needsPost reports whether events of type t must name a post.
 func (t Type) needsPost() bool {
-	return t != TypeFollow && t != TypeFollowRequest && t != TypeFollowAccepted && t != TypeMessage
+	return !t.needsBeacon() && t != TypeFollow && t != TypeFollowRequest && t != TypeFollowAccepted && t != TypeMessage
+}
+
+// needsBeacon reports whether events of type t must name a beacon (and never a post).
+func (t Type) needsBeacon() bool {
+	return t == TypeBeaconRequest || t == TypeBeaconAccepted || t == TypeBeaconCancelled
 }
 
 // pushOnly reports whether events of type t produce a push and no users/{uid}/notifications row.
@@ -111,6 +124,8 @@ type Event struct {
 	PostID string
 	// ConversationID is the 32-hex direct-message conversation (TypeMessage only; additive, wire v stays 1).
 	ConversationID string
+	// BeaconID is the 19-digit beacon (the beacon types only; additive, wire v stays 1).
+	BeaconID string
 	// At is when the action committed (informational: createdAt is the handler's commit time).
 	At time.Time
 }
@@ -141,7 +156,9 @@ type Notification struct {
 	// ActorCount is every distinct actor folded in (>= len(ActorIDs); 0 on rows written before the field).
 	ActorCount int
 	PostID     string
-	CreatedAt  time.Time
+	// BeaconID is the subject beacon of a beacon-type row (empty otherwise).
+	BeaconID  string
+	CreatedAt time.Time
 }
 
 // Device is one users/{uid}/devices/{deviceId} row.
@@ -161,6 +178,8 @@ type Push struct {
 	ActorID        string
 	// ConversationID is the only identifier a TypeMessage push carries (no actor, no post, no text).
 	ConversationID string
+	// BeaconID replaces PostID on a beacon-type push (ids only, no title or venue).
+	BeaconID string
 }
 
 // ErrTokenUnregistered is returned by PushSender.Send when FCM says the token is no longer valid: the device is
