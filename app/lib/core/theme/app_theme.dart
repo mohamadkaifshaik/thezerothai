@@ -634,3 +634,95 @@ ThemeData buildAppTheme({required Brightness brightness}) {
 
 ThemeData get appLightTheme => buildAppTheme(brightness: Brightness.light);
 ThemeData get appDarkTheme => buildAppTheme(brightness: Brightness.dark);
+
+/// Authentication's navy/pearl surfaces, scoped to the existing auth routes.
+/// The app-level ThemeMode and typography remain the source of truth.
+abstract final class AppAuthStyle {
+  static const navy = Color(0xFF0B1120);
+  static const mint = Color(0xFFA9E8D1);
+  static const onNavy = Color(0xFFF8FAFC);
+  static const panelSurface = Color(0xFF202C40);
+  static const panelBorder = Color(0xFF536174);
+  static const maxPageWidth = 1440.0;
+  static const formWidth = 440.0;
+  static const heroHeadlineSize = 56.0;
+  static const splashMarkSize = 96.0;
+
+  static ThemeData theme(ThemeData base) {
+    final dark = base.brightness == Brightness.dark;
+    final scheme = base.colorScheme.copyWith(
+      primary: dark ? mint : navy,
+      onPrimary: dark ? navy : Colors.white,
+      surface: dark ? navy : const Color(0xFFF7F8FA),
+      surfaceContainer: dark ? const Color(0xFF141E30) : Colors.white,
+      onSurface: dark ? onNavy : const Color(0xFF111827),
+      onSurfaceVariant: dark
+          ? const Color(0xFFB2BDCE)
+          : const Color(0xFF536174),
+      outline: dark ? const Color(0xFF334155) : const Color(0xFFD4DAE3),
+    );
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+    );
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      borderSide: BorderSide(color: scheme.outline),
+    );
+    final colors =
+        (base.extension<AppColors>() ??
+                (dark ? AppColors.dark : AppColors.light))
+            .copyWith(
+              strongPillFill: scheme.primary,
+              strongPillLabel: scheme.onPrimary,
+              accentText: scheme.primary,
+            );
+    return base.copyWith(
+      colorScheme: scheme,
+      extensions: [
+        ...base.extensions.values.where((e) => e is! AppColors),
+        colors,
+      ],
+      textTheme: base.textTheme.apply(
+        bodyColor: scheme.onSurface,
+        displayColor: scheme.onSurface,
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(AppSpacing.minTapTarget),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.smd,
+          ),
+          backgroundColor: scheme.surfaceContainer,
+          foregroundColor: scheme.onSurface,
+          side: BorderSide(color: scheme.outline),
+          shape: shape,
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          minimumSize: const Size(
+            AppSpacing.minTapTarget,
+            AppSpacing.minTapTarget,
+          ),
+          foregroundColor: scheme.primary,
+        ),
+      ),
+      dividerTheme: DividerThemeData(color: scheme.outline),
+      inputDecorationTheme: base.inputDecorationTheme.copyWith(
+        fillColor: scheme.surfaceContainer,
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        contentPadding: const EdgeInsets.all(AppSpacing.md),
+        labelStyle: TextStyle(
+          color: scheme.onSurface,
+          fontWeight: FontWeight.w600,
+        ),
+        border: border,
+        enabledBorder: border,
+        focusedBorder: border.copyWith(
+          borderSide: BorderSide(color: scheme.primary, width: 2),
+        ),
+      ),
+    );
+  }
+}
