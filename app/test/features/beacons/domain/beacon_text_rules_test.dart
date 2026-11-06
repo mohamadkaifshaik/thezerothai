@@ -51,7 +51,7 @@ void main() {
 
   group('start time', () {
     // A clock made in the test; nothing here is compared with the real one.
-    final now = DateTime(2026, 11, 6, 12, 0);
+    final now = DateTime.now();
     test('at least 5 minutes from now', () {
       expect(
         beaconStartIssue(now.add(const Duration(minutes: 4)), now),

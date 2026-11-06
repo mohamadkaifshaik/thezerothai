@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
+import '../../../shared/format/scheduled_time.dart';
 
 /// Fixed user copy and icons for the plan enums. A value this build does not
 /// know (or UNSPECIFIED) reads as the generic one, never as an empty string.
@@ -37,6 +38,15 @@ String chatPreferenceLabel(pb.ChatPreference p) => switch (p) {
   pb.ChatPreference.CHAT_PREFERENCE_OPEN_TO_CHAT => 'Open to chat',
   _ => 'No preference',
 };
+
+/// `Sun, Oct 25, 2026 at 9:37 PM · 60 min`: the plan's start in the device
+/// zone and its length.
+String beaconWhenText(pb.Beacon b) =>
+    '${formatScheduledTime(b.startAt.toDateTime())} · ${b.durationMinutes} min';
+
+/// `2 of 3 seats taken`.
+String beaconSeatsText(pb.Beacon b) =>
+    '${b.acceptedCount} of ${b.openSpots} seats taken';
 
 String statusLabel(pb.BeaconStatus s) => switch (s) {
   pb.BeaconStatus.BEACON_STATUS_OPEN => 'Open',

@@ -56,6 +56,24 @@ BeaconTextIssue? beaconDetailsIssue(String raw) {
   return multiLineTextIssue(text) == null ? null : BeaconTextIssue.notPlainText;
 }
 
+/// The inline error under a text field; an empty field shows none (the
+/// Create button is disabled instead).
+String? beaconFieldError(BeaconTextIssue? issue, {required int max}) =>
+    switch (issue) {
+      null || BeaconTextIssue.empty => null,
+      BeaconTextIssue.tooLong => 'At most $max characters.',
+      BeaconTextIssue.notPlainOneLine => 'Use one line of plain text.',
+      BeaconTextIssue.notPlainText =>
+        'Use plain text, with no invisible characters.',
+    };
+
+/// The inline error under the start time.
+String? beaconTimeError(BeaconTimeIssue? issue) => switch (issue) {
+  null => null,
+  BeaconTimeIssue.tooSoon => 'Pick a time at least 5 minutes from now.',
+  BeaconTimeIssue.tooFar => 'Pick a time within the next 30 days.',
+};
+
 /// [startAt] must be at least [kBeaconMinLead] and at most [kBeaconMaxLead]
 /// after [now] (both bounds inclusive).
 BeaconTimeIssue? beaconStartIssue(DateTime startAt, DateTime now) {

@@ -181,6 +181,12 @@ class AppRouter {
       '${communityPath(communityId)}/moderation-log';
   static String communityMembersPath(String communityId) =>
       '${communityPath(communityId)}/members';
+  // Plans (beacons), behind the `beacons` flag redirect. `/plans/new` is
+  // matched before `/plans/:id`.
+  static const plansPath = '/plans';
+  static const planNewPath = '/plans/new';
+  static String planPath(String beaconId) =>
+      '/plans/${Uri.encodeComponent(beaconId)}';
   // Manage pinned (the Home tabs); needs `lists` and `ui_shell`.
   static const pinnedPath = '/home/pinned';
   // The search results, behind the `search` flag; build links with
