@@ -18,6 +18,10 @@ import '../../features/communities/presentation/community_members_screen.dart';
 import '../../features/communities/presentation/community_moderation_log_screen.dart';
 import '../../features/communities/presentation/community_screen.dart';
 import '../../features/communities/presentation/create_community_screen.dart';
+import '../../features/beacons/domain/beacons_feature_flag.dart';
+import '../../features/beacons/presentation/beacon_screen.dart';
+import '../../features/beacons/presentation/beacons_screen.dart';
+import '../../features/beacons/presentation/create_beacon_screen.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
 import '../../features/lists/presentation/list_detail_screen.dart';
 import '../../features/lists/presentation/list_members_screen.dart';
@@ -509,6 +513,22 @@ class AppRouter {
               ),
             ),
           ),
+          // Plans (beacons): `/plans/new` before `/plans/:id`.
+          GoRoute(
+            path: plansPath,
+            builder: (context, state) => const AuthGate(child: BeaconsScreen()),
+          ),
+          GoRoute(
+            path: planNewPath,
+            builder: (context, state) =>
+                const AuthGate(child: CreateBeaconScreen()),
+          ),
+          GoRoute(
+            path: '/plans/:id',
+            builder: (context, state) => AuthGate(
+              child: BeaconScreen(beaconId: state.pathParameters['id']!),
+            ),
+          ),
           GoRoute(
             path: '/lists/:id/members',
             builder: (context, state) => AuthGate(
@@ -796,6 +816,7 @@ class AppRouter {
             _bookmarksFlagRedirect(loc) ??
             _listsFlagRedirect(loc) ??
             _communitiesFlagRedirect(loc) ??
+            _plansFlagRedirect(loc) ??
             _searchFlagRedirect(loc) ??
             _messagesFlagRedirect(loc) ??
             _followRequestsRedirect(loc) ??
@@ -980,6 +1001,17 @@ class AppRouter {
   String? _communitiesFlagRedirect(String loc) {
     if (!_communitiesRoutes.hasMatch(loc)) return null;
     return _onboardingBloc.state.enabledFeatures.contains(kFeatureCommunities)
+        ? null
+        : homePath;
+  }
+
+  static final _plansRoutes = RegExp(r'^/plans(?:/|$)');
+
+  /// `/plans` and everything under it redirect Home unless `beacons` is on
+  /// for this caller. The server stays authoritative.
+  String? _plansFlagRedirect(String loc) {
+    if (!_plansRoutes.hasMatch(loc)) return null;
+    return _onboardingBloc.state.enabledFeatures.contains(kFeatureBeacons)
         ? null
         : homePath;
   }
