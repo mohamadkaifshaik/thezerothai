@@ -95,7 +95,6 @@ func TestBeaconNotifications_RequestAcceptCancelChain(t *testing.T) {
 	}
 	waitForDoc(t, e.fs, "users/"+p1.uid+"/notifications/beacon_cancelled_"+id)
 	waitForDoc(t, e.fs, "users/"+p2.uid+"/notifications/beacon_cancelled_"+id)
-	time.Sleep(200 * time.Millisecond) // let any stray concurrent delivery settle before counting
 
 	got := map[string]bool{}
 	for _, nid := range notifIDs(t, e.fs, org.uid) {
