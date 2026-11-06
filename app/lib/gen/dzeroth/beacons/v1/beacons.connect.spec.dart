@@ -35,9 +35,9 @@ abstract final class BeaconService {
     dzerothbeaconsv1beacons.UpdateBeaconResponse.new,
   );
 
-  /// Cancel one of the caller's OPEN or FULL beacons: status CANCELLED, every ACCEPTED and REQUESTED participant row
-  /// and membership marked accordingly. Participants are notified (NOTIFICATION_TYPE_BEACON_CANCELLED). Already
-  /// CANCELLED => success with the idempotency doc only.
+  /// Cancel one of the caller's OPEN or FULL beacons: status CANCELLED on the beacon only. Participant and membership
+  /// rows are pointers and read the beacon's status (GetBeacon, ListMyBeacons), so nothing fans out. Participants are
+  /// notified (NOTIFICATION_TYPE_BEACON_CANCELLED). Already CANCELLED => success with the idempotency doc only.
   static const cancelBeacon = connect.Spec(
     '/$name/CancelBeacon',
     connect.StreamType.unary,
@@ -57,8 +57,8 @@ abstract final class BeaconService {
 
   /// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first. Hidden beacons and
   /// beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A community audience
-  /// needs the caller JOINED (FORBIDDEN "not_member"). limit 1-50 (default 20, else VALIDATION "limit"); page_token
-  /// is an opaque signed cursor, VALIDATION "page_token" when invalid or expired.
+  /// needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50); page_token is an
+  /// opaque signed cursor bound to the caller and the audience, VALIDATION "page_token" when invalid or expired.
   static const listBeacons = connect.Spec(
     '/$name/ListBeacons',
     connect.StreamType.unary,
@@ -68,8 +68,10 @@ abstract final class BeaconService {
   );
 
   /// The caller's own beacons: organised, requested or accepted (role filter), UPCOMING (start_at + duration >= now,
-  /// soonest first) or PAST (most recent first), from users/{uid}/beaconMemberships; CANCELLED beacons appear under
-  /// PAST. limit 1-50, default 20.
+  /// soonest first) or PAST (most recent first), from users/{uid}/beaconMemberships. A CANCELLED beacon keeps its window
+  /// and renders status CANCELLED. Rows that ended in DECLINED, WITHDRAWN, LEFT or REMOVED, rows whose beacon is gone or
+  /// hidden, and rows across a block with the organiser are left out (a page may be short while next_page_token is
+  /// set). limit is clamped (0 = 20, above 50 = 50).
   static const listMyBeacons = connect.Spec(
     '/$name/ListMyBeacons',
     connect.StreamType.unary,
@@ -78,7 +80,8 @@ abstract final class BeaconService {
     idempotency: connect.Idempotency.noSideEffects,
   );
 
-  /// Ask to join an OPEN beacon the caller may see and is not organising. note 0-140 code points. A REQUESTED row
+  /// Ask to join an OPEN beacon the caller may see. The organiser may not join their own beacon
+  /// (FAILED_PRECONDITION "organiser"). note 0-140 code points. A REQUESTED row
   /// already there => FAILED_PRECONDITION "already_requested"; an ACCEPTED one => success with the idempotency doc
   /// only; a DECLINED, WITHDRAWN, LEFT or REMOVED row may request again. At
   /// BEACONS_MAX_PENDING_REQUESTS (10) REQUESTED rows for the caller => LIMIT_REACHED "beacon_requests_pending". A
@@ -90,8 +93,9 @@ abstract final class BeaconService {
     dzerothbeaconsv1beacons.RequestToJoinResponse.new,
   );
 
-  /// Withdraw the caller's REQUESTED row (state WITHDRAWN). No row or any other state => FAILED_PRECONDITION
-  /// "not_requested".
+  /// Withdraw the caller's REQUESTED row (state WITHDRAWN), on a live, ENDED or CANCELLED beacon alike, so a stale
+  /// request can always be cleared (it stops counting toward beacon_requests_pending once its beacon ended anyway). No
+  /// row or any other state => FAILED_PRECONDITION "not_requested".
   static const withdrawJoinRequest = connect.Spec(
     '/$name/WithdrawJoinRequest',
     connect.StreamType.unary,
@@ -131,7 +135,7 @@ abstract final class BeaconService {
 
   /// ACCEPTED participants (visible to the organiser and to ACCEPTED participants; anyone else => NOT_FOUND) or, for
   /// the organiser only, REQUESTED rows with their notes (anyone else => FORBIDDEN "not_organiser"). Live rows
-  /// (identity directory, 60 s), oldest first. limit 1-50, default 20.
+  /// (identity directory, 60 s), oldest first. limit is clamped (0 = 20, above 50 = 50).
   static const listParticipants = connect.Spec(
     '/$name/ListParticipants',
     connect.StreamType.unary,

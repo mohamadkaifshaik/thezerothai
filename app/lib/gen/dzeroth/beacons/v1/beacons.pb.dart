@@ -1409,7 +1409,7 @@ class ListBeaconsRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   $1.Timestamp ensureFrom() => $_ensure(2);
 
-  /// 1-50, default 20.
+  /// Clamped: 0 = 20, above 50 = 50.
   @$pb.TagNumber(4)
   $core.int get limit => $_getIZ(3);
   @$pb.TagNumber(4)
@@ -1573,7 +1573,7 @@ class ListMyBeaconsRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   void clearWindow() => $_clearField(2);
 
-  /// 1-50, default 20.
+  /// Clamped: 0 = 20, above 50 = 50.
   @$pb.TagNumber(3)
   $core.int get limit => $_getIZ(2);
   @$pb.TagNumber(3)
@@ -2287,6 +2287,7 @@ class RemoveParticipantRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   void clearBeaconId() => $_clearField(2);
 
+  /// The ACCEPTED participant. [A-Za-z0-9-]{1,128}, else VALIDATION "user_id".
   @$pb.TagNumber(3)
   $core.String get userId => $_getSZ(2);
   @$pb.TagNumber(3)
@@ -2440,7 +2441,7 @@ class ListParticipantsRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(2)
   void clearFilter() => $_clearField(2);
 
-  /// 1-50, default 20.
+  /// Clamped: 0 = 20, above 50 = 50.
   @$pb.TagNumber(3)
   $core.int get limit => $_getIZ(2);
   @$pb.TagNumber(3)
@@ -2554,9 +2555,9 @@ class BeaconServiceApi {
       _client.invoke<UpdateBeaconResponse>(ctx, 'BeaconService', 'UpdateBeacon',
           request, UpdateBeaconResponse());
 
-  /// Cancel one of the caller's OPEN or FULL beacons: status CANCELLED, every ACCEPTED and REQUESTED participant row
-  /// and membership marked accordingly. Participants are notified (NOTIFICATION_TYPE_BEACON_CANCELLED). Already
-  /// CANCELLED => success with the idempotency doc only.
+  /// Cancel one of the caller's OPEN or FULL beacons: status CANCELLED on the beacon only. Participant and membership
+  /// rows are pointers and read the beacon's status (GetBeacon, ListMyBeacons), so nothing fans out. Participants are
+  /// notified (NOTIFICATION_TYPE_BEACON_CANCELLED). Already CANCELLED => success with the idempotency doc only.
   $async.Future<CancelBeaconResponse> cancelBeacon(
           $pb.ClientContext? ctx, CancelBeaconRequest request) =>
       _client.invoke<CancelBeaconResponse>(ctx, 'BeaconService', 'CancelBeacon',
@@ -2571,22 +2572,25 @@ class BeaconServiceApi {
 
   /// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first. Hidden beacons and
   /// beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A community audience
-  /// needs the caller JOINED (FORBIDDEN "not_member"). limit 1-50 (default 20, else VALIDATION "limit"); page_token
-  /// is an opaque signed cursor, VALIDATION "page_token" when invalid or expired.
+  /// needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50); page_token is an
+  /// opaque signed cursor bound to the caller and the audience, VALIDATION "page_token" when invalid or expired.
   $async.Future<ListBeaconsResponse> listBeacons(
           $pb.ClientContext? ctx, ListBeaconsRequest request) =>
       _client.invoke<ListBeaconsResponse>(
           ctx, 'BeaconService', 'ListBeacons', request, ListBeaconsResponse());
 
   /// The caller's own beacons: organised, requested or accepted (role filter), UPCOMING (start_at + duration >= now,
-  /// soonest first) or PAST (most recent first), from users/{uid}/beaconMemberships; CANCELLED beacons appear under
-  /// PAST. limit 1-50, default 20.
+  /// soonest first) or PAST (most recent first), from users/{uid}/beaconMemberships. A CANCELLED beacon keeps its window
+  /// and renders status CANCELLED. Rows that ended in DECLINED, WITHDRAWN, LEFT or REMOVED, rows whose beacon is gone or
+  /// hidden, and rows across a block with the organiser are left out (a page may be short while next_page_token is
+  /// set). limit is clamped (0 = 20, above 50 = 50).
   $async.Future<ListMyBeaconsResponse> listMyBeacons(
           $pb.ClientContext? ctx, ListMyBeaconsRequest request) =>
       _client.invoke<ListMyBeaconsResponse>(ctx, 'BeaconService',
           'ListMyBeacons', request, ListMyBeaconsResponse());
 
-  /// Ask to join an OPEN beacon the caller may see and is not organising. note 0-140 code points. A REQUESTED row
+  /// Ask to join an OPEN beacon the caller may see. The organiser may not join their own beacon
+  /// (FAILED_PRECONDITION "organiser"). note 0-140 code points. A REQUESTED row
   /// already there => FAILED_PRECONDITION "already_requested"; an ACCEPTED one => success with the idempotency doc
   /// only; a DECLINED, WITHDRAWN, LEFT or REMOVED row may request again. At
   /// BEACONS_MAX_PENDING_REQUESTS (10) REQUESTED rows for the caller => LIMIT_REACHED "beacon_requests_pending". A
@@ -2596,8 +2600,9 @@ class BeaconServiceApi {
       _client.invoke<RequestToJoinResponse>(ctx, 'BeaconService',
           'RequestToJoin', request, RequestToJoinResponse());
 
-  /// Withdraw the caller's REQUESTED row (state WITHDRAWN). No row or any other state => FAILED_PRECONDITION
-  /// "not_requested".
+  /// Withdraw the caller's REQUESTED row (state WITHDRAWN), on a live, ENDED or CANCELLED beacon alike, so a stale
+  /// request can always be cleared (it stops counting toward beacon_requests_pending once its beacon ended anyway). No
+  /// row or any other state => FAILED_PRECONDITION "not_requested".
   $async.Future<WithdrawJoinRequestResponse> withdrawJoinRequest(
           $pb.ClientContext? ctx, WithdrawJoinRequestRequest request) =>
       _client.invoke<WithdrawJoinRequestResponse>(ctx, 'BeaconService',
@@ -2629,7 +2634,7 @@ class BeaconServiceApi {
 
   /// ACCEPTED participants (visible to the organiser and to ACCEPTED participants; anyone else => NOT_FOUND) or, for
   /// the organiser only, REQUESTED rows with their notes (anyone else => FORBIDDEN "not_organiser"). Live rows
-  /// (identity directory, 60 s), oldest first. limit 1-50, default 20.
+  /// (identity directory, 60 s), oldest first. limit is clamped (0 = 20, above 50 = 50).
   $async.Future<ListParticipantsResponse> listParticipants(
           $pb.ClientContext? ctx, ListParticipantsRequest request) =>
       _client.invoke<ListParticipantsResponse>(ctx, 'BeaconService',
