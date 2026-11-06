@@ -78,9 +78,17 @@ type membershipDoc struct {
 	BeaconID    string    `firestore:"beaconId"`
 	Role        string    `firestore:"role"`
 	State       string    `firestore:"state"`
+	Pending     bool      `firestore:"pending"`
 	CommunityID string    `firestore:"communityId"`
 	StartAt     time.Time `firestore:"startAt"`
 	EndAt       time.Time `firestore:"endAt"`
+}
+
+func (m membershipDoc) membership(id string) Membership {
+	if m.BeaconID == "" {
+		m.BeaconID = id
+	}
+	return Membership{BeaconID: m.BeaconID, Role: m.Role, State: m.State, Pending: m.Pending, CommunityID: m.CommunityID, StartAt: m.StartAt, EndAt: m.EndAt}
 }
 
 // FirestoreRepo is the Firestore implementation of Repo, and the page source of the eraser and the exporter.
@@ -130,8 +138,13 @@ func (r *FirestoreRepo) run(ctx context.Context, fn store.TxnFunc) (int, error) 
 // putIdem appends the TTL'd idempotency document of rpc, holding the beacon id only (a record outlives the beacon by up
 // to 48 h, so it must not keep its text), to b.
 func (r *FirestoreRepo) putIdem(b store.Batch, uid, key, rpc, hash, beaconID string) {
+	r.putIdemResult(b, uid, key, rpc, hash, map[string]string{"id": beaconID})
+}
+
+// putIdemResult is putIdem with an explicit result map (the participation writes also keep the target uid).
+func (r *FirestoreRepo) putIdemResult(b store.Batch, uid, key, rpc, hash string, result map[string]string) {
 	r.idem.Put(b, key, idempotency.Record{
-		UID: uid, RPC: rpc, RequestHash: hash, Result: map[string]string{"id": beaconID}, ExpireAt: r.now().UTC().Add(idempotency.TTL),
+		UID: uid, RPC: rpc, RequestHash: hash, Result: result, ExpireAt: r.now().UTC().Add(idempotency.TTL),
 	})
 }
 

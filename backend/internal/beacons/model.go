@@ -195,7 +195,9 @@ type Membership struct {
 	// Role is RoleOrganiser, RoleParticipant or RoleRequester.
 	Role string
 	// State mirrors the beacon status for the organiser ("open", "cancelled") and the participant state otherwise.
-	State       string
+	State string
+	// Pending is true exactly while Role is RoleRequester and State is requested (the pending-request cap, R10).
+	Pending     bool
 	CommunityID string
 	StartAt     time.Time
 	EndAt       time.Time
@@ -420,6 +422,22 @@ type Repo interface {
 	// ListByAudience runs ListQuery (reads = docs returned, minimum 1). Hidden beacons are returned; filtering is the
 	// service's.
 	ListByAudience(ctx context.Context, q ListQuery) ([]Beacon, error)
+
+	// Participation (PR 3): one transaction each, idempotency first, the beacon and the participant row read before any
+	// write, acceptedCount and status kept on the beacon.
+	Request(ctx context.Context, p RequestParams) (ParticipantResult, error)
+	Withdraw(ctx context.Context, p StateParams) (ParticipantResult, error)
+	Respond(ctx context.Context, p RespondParams) (ParticipantResult, error)
+	Leave(ctx context.Context, p StateParams) (ParticipantResult, error)
+	Remove(ctx context.Context, p StateParams) (ParticipantResult, error)
+	// GetParticipant reads one participant row outside any transaction: ErrNotFound when there is none.
+	GetParticipant(ctx context.Context, beaconID, uid string) (Participant, error)
+	// ListMemberships runs MembershipQuery (reads = rows returned, minimum 1).
+	ListMemberships(ctx context.Context, q MembershipQuery) ([]Membership, error)
+	// GetBeacons reads the named beacons in one GetAll; missing ids are absent from the map.
+	GetBeacons(ctx context.Context, ids []string) (map[string]Beacon, error)
+	// ListParticipants runs ParticipantQuery (reads = rows returned, minimum 1).
+	ListParticipants(ctx context.Context, q ParticipantQuery) ([]Participant, error)
 }
 
 // Service is everything the BeaconService handlers call for the RPCs this PR implements.
