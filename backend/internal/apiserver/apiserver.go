@@ -22,6 +22,7 @@ import (
 	firebase "firebase.google.com/go/v4"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1/articlesv1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/articles"
+	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 
 	communitiesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1/communitiesv1connect"
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
@@ -393,6 +394,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// and export section are registered whether or not FEATURE_COMMUNITIES is on); the service and routes are wired with the lists routes.
 	communitiesRepo := communities.NewFirestoreRepo(fsClient, idempotency.New(fsClient)).
 		WithPostModerator(posts.NewCommunityModerator(fsClient)) // the Hide / Restore post write (A12)
+	// Beacons: the repo is built here because the account-lifecycle registration below needs it (the eraser step and
+	// export section are registered whether or not FEATURE_BEACONS is on); the service and routes are wired below.
+	beaconsRepo := beacons.NewFirestoreRepo(fsClient, quota.New(fsClient), idempotency.New(fsClient))
 	timelineServer := timeline.NewServer(timeline.Deps{
 		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory), Viewer: engagementMod,
 		Removals: removals, Lists: listsReader,
@@ -484,6 +488,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// step runs after poll_votes, before identity (appended, never inserted: step names are persisted).
 	if err := registerCommunitiesLifecycle(lifecycle, communitiesRepo, identitySvc.(identity.Directory)); err != nil {
 		return nil, nil, fmt.Errorf("communities lifecycle registry: %w", err)
+	}
+	// beacons: the erase step and export section are registered whether or not FEATURE_BEACONS is on; the step runs
+	// after communities, before identity (appended, never inserted: step names are persisted).
+	if err := registerBeaconsLifecycle(lifecycle, beaconsRepo); err != nil {
+		return nil, nil, fmt.Errorf("beacons lifecycle registry: %w", err)
 	}
 	// A MESSAGE report reaches the message only through messaging; bound once the messaging service exists.
 	lateMessages := &lateMessageLookup{}

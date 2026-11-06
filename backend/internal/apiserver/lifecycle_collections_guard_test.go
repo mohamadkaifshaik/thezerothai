@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
@@ -368,6 +369,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 		t.Fatal(err)
 	}
 	if err := registerCommunitiesLifecycle(l, communities.NewFirestoreRepo(nil, nil), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerBeaconsLifecycle(l, beacons.NewFirestoreRepo(nil, nil, nil)); err != nil {
 		t.Fatal(err)
 	}
 	return l.StepNames(), l.ExportSectionNames()
