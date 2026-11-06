@@ -60,9 +60,14 @@ enum ReportTargetType {
   // FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", before any lookup); the existing reports quota
   // applies.
   REPORT_TARGET_TYPE_COMMUNITY = 5;
-  // A beacon (plan). target_id = the beacon id (19 digits, else VALIDATION "target_id"). Not accepted until the
-  // beacons module registers its evidence (docs/beacons-plan.md PR 4): until then the server answers VALIDATION
-  // "target_type".
+  // A beacon (plan). target_id = the beacon id (19 digits, else VALIDATION "target_id"). Who may see the beacon may
+  // report it: a missing or hidden beacon, one whose organiser is gone, one in a community the caller is not a JOINED
+  // member of, and one whose organiser has a block with the caller are all the one NOT_FOUND "beacon not found" (a
+  // CANCELLED or ENDED beacon is still reportable); the caller's own beacon (the caller is its organiser) => VALIDATION "target_id". The
+  // evidence is the organiser's handle, the beacon's title, details and venue and its creation time (no participant id,
+  // no child doc), kept in the report document with the post evidence's retention. Needs FEATURE_BEACONS not globally off
+  // (else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "beacons", before any lookup); the existing
+  // reports quota applies. Takedown is `opsctl beacon hide` (resolves the report TAKEDOWN).
   REPORT_TARGET_TYPE_BEACON = 6;
 }
 

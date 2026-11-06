@@ -122,6 +122,11 @@ type Evidence struct {
 	CommunityName        string
 	CommunityDescription string
 	CommunityRules       []CommunityRule
+	// BEACON reports only (docs/beacons-plan.md R16): the beacon's text as the reporter saw it. AuthorHandle holds the
+	// organiser's handle and PostCreatedAt the beacon's creation time. No participant is copied. Empty for every other report.
+	BeaconTitle   string
+	BeaconDetails string
+	BeaconVenue   string
 	// PollChoices are the labels of the reported post's poll, empty for a post without one; for a REPOST report they are
 	// the original's (from its frozen embed). Labels only: no counts, no voters.
 	PollChoices []string

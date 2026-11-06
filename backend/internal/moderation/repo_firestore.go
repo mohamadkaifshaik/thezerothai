@@ -116,6 +116,10 @@ type evidenceDoc struct {
 	CommunityName        string          `firestore:"communityName,omitempty"`
 	CommunityDescription string          `firestore:"communityDescription,omitempty"`
 	CommunityRules       []communityRule `firestore:"communityRules,omitempty"`
+	// BEACON reports only; additive and omitempty, inside the index-exempt evidence map.
+	BeaconTitle   string `firestore:"beaconTitle,omitempty"`
+	BeaconDetails string `firestore:"beaconDetails,omitempty"`
+	BeaconVenue   string `firestore:"beaconVenue,omitempty"`
 	// The reported post's poll labels; additive, omitempty.
 	PollChoices []string `firestore:"pollChoices,omitempty"`
 }
@@ -178,7 +182,8 @@ func toDoc(r Report) reportDoc {
 			OriginalPostID: r.Evidence.OriginalPostID, DisplayName: r.Evidence.DisplayName, Bio: r.Evidence.Bio,
 			Location: r.Evidence.Location, Website: r.Evidence.Website, AvatarURL: r.Evidence.AvatarURL, BannerURL: r.Evidence.BannerURL,
 			PollChoices: r.Evidence.PollChoices, ListName: r.Evidence.ListName, ListDescription: r.Evidence.ListDescription,
-			CommunityName: r.Evidence.CommunityName, CommunityDescription: r.Evidence.CommunityDescription, CommunityRules: ruleDocs(r.Evidence.CommunityRules)}
+			CommunityName: r.Evidence.CommunityName, CommunityDescription: r.Evidence.CommunityDescription, CommunityRules: ruleDocs(r.Evidence.CommunityRules),
+			BeaconTitle: r.Evidence.BeaconTitle, BeaconDetails: r.Evidence.BeaconDetails, BeaconVenue: r.Evidence.BeaconVenue}
 		if r.TargetType == TargetMessage {
 			d.Evidence.Text = "" // the text lives in the child document
 		}
@@ -198,7 +203,8 @@ func (d reportDoc) toReport(id string) Report {
 			OriginalPostID: d.Evidence.OriginalPostID, DisplayName: d.Evidence.DisplayName, Bio: d.Evidence.Bio,
 			Location: d.Evidence.Location, Website: d.Evidence.Website, AvatarURL: d.Evidence.AvatarURL, BannerURL: d.Evidence.BannerURL,
 			PollChoices: d.Evidence.PollChoices, ListName: d.Evidence.ListName, ListDescription: d.Evidence.ListDescription,
-			CommunityName: d.Evidence.CommunityName, CommunityDescription: d.Evidence.CommunityDescription, CommunityRules: ruleOut(d.Evidence.CommunityRules)}
+			CommunityName: d.Evidence.CommunityName, CommunityDescription: d.Evidence.CommunityDescription, CommunityRules: ruleOut(d.Evidence.CommunityRules),
+			BeaconTitle: d.Evidence.BeaconTitle, BeaconDetails: d.Evidence.BeaconDetails, BeaconVenue: d.Evidence.BeaconVenue}
 	}
 	if d.ResolvedAt != nil {
 		r.ResolvedAt = d.ResolvedAt.UTC()
