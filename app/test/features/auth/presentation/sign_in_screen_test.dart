@@ -52,7 +52,8 @@ void main() {
     testWidgets('shows validation errors for an empty form', (tester) async {
       await tester.pumpWidget(wrap(authBloc));
 
-      await tester.tap(find.widgetWithText(AppPillButton, 'Sign in'));
+      await tester.ensureVisible(find.widgetWithText(AppPillButton, 'Log in'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Log in'));
       await tester.pump();
 
       expect(find.text('Enter your email'), findsOneWidget);
@@ -83,7 +84,8 @@ void main() {
         find.widgetWithText(TextFormField, 'Password'),
         'password1',
       );
-      await tester.tap(find.widgetWithText(AppPillButton, 'Sign in'));
+      await tester.ensureVisible(find.widgetWithText(AppPillButton, 'Log in'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Log in'));
       await tester.pumpAndSettle();
 
       verify(
@@ -97,7 +99,8 @@ void main() {
     testWidgets('navigates to sign-up', (tester) async {
       await tester.pumpWidget(wrap(authBloc));
 
-      await tester.tap(find.text("Don't have an account? Sign up"));
+      await tester.ensureVisible(find.text('New here? Sign up'));
+      await tester.tap(find.text('New here? Sign up'));
       await tester.pumpAndSettle();
 
       expect(find.text('Create your account'), findsOneWidget);
@@ -130,7 +133,7 @@ void main() {
 
       // The gradient button keeps its label next to the spinner.
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      expect(find.widgetWithText(AppPillButton, 'Sign in'), findsOneWidget);
+      expect(find.widgetWithText(AppPillButton, 'Log in'), findsOneWidget);
     });
 
     testWidgets('shows a failure message and dismisses it', (tester) async {
