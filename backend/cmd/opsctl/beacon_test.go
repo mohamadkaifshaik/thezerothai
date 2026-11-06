@@ -266,16 +266,16 @@ func runBeaconCounts(s *fakeBeaconStats, args ...string) (code int, stdout, stde
 	return code, out.String(), errOut.String()
 }
 
-// TestBeaconCounts_PrintsAggregatesOnly (PR 8 R44): `opsctl beacon counts` prints the four aggregate counts, one
+// TestBeaconCounts_PrintsAggregatesOnly (PR 8 R44): `opsctl beacon counts` prints the five aggregate counts, one
 // key=value per line in a fixed order, and nothing else (no id, title, uid or hash).
 func TestBeaconCounts_PrintsAggregatesOnly(t *testing.T) {
 	t.Parallel()
-	s := &fakeBeaconStats{counts: beacons.Counts{Open: 3, Full: 1, Cancelled: 2, Hidden: 1}}
+	s := &fakeBeaconStats{counts: beacons.Counts{Open: 3, Full: 1, Cancelled: 2, Hidden: 1, Ended: 2}}
 	code, out, errOut := runBeaconCounts(s, "beacon", "counts", "--project", "dzeroth-dev")
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, errOut)
 	}
-	want := "beacons_open=3\nbeacons_full=1\nbeacons_cancelled=2\nbeacons_hidden=1\n"
+	want := "beacons_open=3\nbeacons_full=1\nbeacons_cancelled=2\nbeacons_hidden=1\nbeacons_ended=2\n"
 	if out != want {
 		t.Fatalf("output = %q, want %q", out, want)
 	}

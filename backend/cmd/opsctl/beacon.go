@@ -14,7 +14,7 @@ import (
 
 const beaconUsage = `  opsctl beacon hide    BEACON_ID --project P [--report R] [--note N] [--dry-run]   (NOT_FOUND to everyone but its organiser from the next request; the organiser still sees and manages it)
   opsctl beacon restore BEACON_ID --project P [--dry-run]
-  opsctl beacon counts  --project P   (read-only; prints aggregate counts only: beacons_open, beacons_full, beacons_cancelled, beacons_hidden)
+  opsctl beacon counts  --project P   (read-only; prints aggregate counts only: beacons_open, beacons_full, beacons_cancelled, beacons_hidden, beacons_ended; open and full include ended plans not yet swept, ended includes cancelled ones)
 `
 
 // parseBeaconArgs validates `opsctl beacon <hide|restore> BEACON_ID` before anything is opened or confirmed.
@@ -31,9 +31,10 @@ func parseBeaconArgs(sub, beaconID string, a modArgs) error {
 	return usageErr("beacon needs a sub-command: hide, restore or counts")
 }
 
-// beaconCounts is `opsctl beacon counts` (docs/beacons-plan.md PR 8, the pilot's daily read): the four aggregate
+// beaconCounts is `opsctl beacon counts` (docs/beacons-plan.md PR 8, the pilot's daily read): the five aggregate
 // counts of beacons/ through beacons.Stats (count aggregations, no document read), one key=value per line in a fixed
-// order and nothing else. It never prints an id, title, uid or hash, so the output is safe to paste into a readiness
+// order and nothing else. The counters are independent (see beacons.Stats): ENDED is never stored, so beacons_open and
+// beacons_full include finished plans until their TTL sweep, and beacons_ended includes cancelled ones. It never prints an id, title, uid or hash, so the output is safe to paste into a readiness
 // record. A failing read prints nothing.
 func beaconCounts(ctx context.Context, s beacons.Stats, out io.Writer) error {
 	if s == nil {
@@ -45,7 +46,7 @@ func beaconCounts(ctx context.Context, s beacons.Stats, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(out, "beacons_open=%d\nbeacons_full=%d\nbeacons_cancelled=%d\nbeacons_hidden=%d\n", c.Open, c.Full, c.Cancelled, c.Hidden)
+	_, err = fmt.Fprintf(out, "beacons_open=%d\nbeacons_full=%d\nbeacons_cancelled=%d\nbeacons_hidden=%d\nbeacons_ended=%d\n", c.Open, c.Full, c.Cancelled, c.Hidden, c.Ended)
 	return err
 }
 

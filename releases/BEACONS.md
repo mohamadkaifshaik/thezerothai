@@ -9,7 +9,8 @@ that gates a prod tag is written at tag time and cites this record.
 
 ## What shipped
 
-Eight stacked pull requests, squash-merged in order:
+Eight stacked pull requests, to be squash-merged in order (#708 → #715, then this PR); none was merged when this
+record was written:
 
 - #708 `feat(beacons): proto` — `proto/dzeroth/beacons/v1/beacons.proto`: `BeaconService` (create, update, cancel,
   get, list public or by community, list mine, request to join, withdraw, respond, leave, remove participant, list
@@ -58,7 +59,10 @@ The order is off → allowlist → percent → on, never ahead of communities (a
    pilot uses a community audience.
 2. In `infra/terraform/envs/dev` set `feature_beacons = "allowlist"` and `feature_beacons_allowlist = "<uid>,<uid>"`
    (the limits above are already explicit in `main.tf` at their defaults).
-3. Open the PR; CI runs `terraform plan` and `check-flag-registry.sh`. A human applies.
+3. Before the flag leaves `off`: the stack must be merged to `main` (deploy-dev deploys the beacons composite indexes
+   from `firebase/firestore.indexes.json`, and the promotion validators refuse a non-READY index), and the human
+   `terraform apply` must include the two beacons TTL policies in `infra/terraform/modules/firestore` (edited, not
+   yet applied). Then open the flag PR; CI runs `terraform plan` and `check-flag-registry.sh`; a human applies.
 4. Confirm with one allowlisted account: Plans appears in the rail, a public plan can be created, listed and
    cancelled. The e2e smoke does the same against the dev URL:
    `E2E_BEACONS_BASE_URL=<dev api> E2E_BEACONS_ID_TOKEN_A=<token> E2E_BEACONS_ID_TOKEN_B=<token> go test -tags=integration -run TestE2E_Beacons ./e2e/`
@@ -69,7 +73,7 @@ The order is off → allowlist → percent → on, never ahead of communities (a
 
 ## Pilot metrics
 
-`opsctl beacon counts --project P` is read-only and prints four aggregate counts, one per line, nothing per plan or
+`opsctl beacon counts --project P` is read-only and prints five aggregate counts, one per line, nothing per plan or
 per user:
 
 ```
@@ -77,11 +81,15 @@ beacons_open=…
 beacons_full=…
 beacons_cancelled=…
 beacons_hidden=…
+beacons_ended=…
 ```
 
-They come from count aggregations over `beacons/` (no document is read). `beacons_open` and `beacons_hidden` are
-independent: a hidden OPEN plan is in both. `beacons_full` against `beacons_open` says whether plans fill;
-`beacons_cancelled` against the sum says whether they happen. Participant-level counts (requests pending, seats
+They come from count aggregations over `beacons/` (no document is read) and the counters are independent. A hidden
+OPEN plan is in both `beacons_open` and `beacons_hidden`. ENDED is derived at read time and never stored, so a plan
+whose end has passed stays in `beacons_open` or `beacons_full` until its TTL sweep (30 days after its start);
+`beacons_ended` counts every plan whose end has passed, cancelled ones included. Read the day's change, not the
+level: a rising `beacons_full` against `beacons_open` says plans fill; a rising `beacons_cancelled` says they do not
+happen. Participant-level counts (requests pending, seats
 taken) are not here: a collection-group count over `beaconParticipants.state` needs a collection-group index in
 `firebase/firestore.indexes.json`, a reviewed change for a later PR. The manual pilot's own tally (plans facilitated,
 people who came) is the signal this record is waiting for.
@@ -111,7 +119,7 @@ people who came) is the signal this record is waiting for.
 - Fresh whole-branch code review on every PR with a fix pass for every Critical or Important finding, each fix with
   a failing-first test; the deferred minors are listed below.
 - Not done: no deployment to dev or prod, no `terraform apply`, no traffic shift; nothing in this record was run
-  against a GCP project.
+  against a GCP project; none of the eight PRs was merged when this record was written.
 
 ## Policy notes
 

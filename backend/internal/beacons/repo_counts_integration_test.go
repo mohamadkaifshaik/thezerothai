@@ -10,8 +10,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
-// TestRepo_Counts (PR 8 R44): Stats.Counts answers the four aggregate counts over beacons/ (open, full, cancelled,
-// hidden) from count aggregations, reads no document, and a hidden OPEN beacon is in both beacons_open and
+// TestRepo_Counts (PR 8 R44): Stats.Counts answers the five aggregate counts over beacons/ (open, full, cancelled,
+// hidden, ended) from count aggregations, reads no document, and a hidden OPEN beacon is in both beacons_open and
 // beacons_hidden (independent counters). A second call answers the same (nothing written).
 func TestRepo_Counts(t *testing.T) {
 	e := newRepoEnv(t)
@@ -43,9 +43,24 @@ func TestRepo_Counts(t *testing.T) {
 	if changed, err := m.SetHidden(ctx, open[0], true, e.now); err != nil || !changed {
 		t.Fatalf("hide: %v, %v", changed, err)
 	}
+	// Two plans whose end has passed at the repo clock: one still stored OPEN (ENDED is derived, never written) and
+	// one cancelled. Both are in beacons_ended; the OPEN one is still in beacons_open (Review Focus 2: counters are
+	// independent and documented as such).
+	for i, uid := range []string{"org-c6", "org-c7"} {
+		id := e.create(t, uid, itKeyA, e.beaconAt(uid, "", e.now.Add(-2*time.Hour))).Beacon.ID
+		if i == 1 {
+			res, err := e.repo.Cancel(ctx, CancelParams{
+				UID: uid, BeaconID: id, IdemKey: idempotency.Key(uid, rpcCancelBeacon, itKeyB), RequestHash: idempotency.HashRequest(id),
+				Now: e.now.Add(-3 * time.Hour), // before its end, so the cancel is not refused as ended
+			})
+			if err != nil || res.Beacon.Status != StatusCancelled {
+				t.Fatalf("cancel the past plan: %+v, %v", res, err)
+			}
+		}
+	}
 
 	var s Stats = e.repo
-	want := Counts{Open: 4, Full: 1, Cancelled: 2, Hidden: 1}
+	want := Counts{Open: 5, Full: 1, Cancelled: 3, Hidden: 1, Ended: 2}
 	for _, call := range []string{"first", "second"} {
 		got, err := s.Counts(ctx)
 		if err != nil {
