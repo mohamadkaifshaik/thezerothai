@@ -32,28 +32,8 @@ class SignInScreen extends StatelessWidget {
           builder: (context, state) {
             return AuthFormLayout(
               title: 'Welcome back',
+              subtitle: 'Your plans deserve company.',
               children: [
-                EmailPasswordForm(
-                  submitLabel: 'Sign in',
-                  isSubmitting: state.isSubmitting,
-                  onSubmit: (email, password) => context.read<AuthBloc>().add(
-                    AuthEmailSignInRequested(email: email, password: password),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                const PrivacyPolicyLink(),
-                const SizedBox(height: AppSpacing.lg),
-                const Row(
-                  children: [
-                    Expanded(child: Divider()),
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-                      child: Text('or'),
-                    ),
-                    Expanded(child: Divider()),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.lg),
                 SocialSignInButtons(
                   isSubmitting: state.isSubmitting,
                   onGoogleTap: () => context.read<AuthBloc>().add(
@@ -63,10 +43,20 @@ class SignInScreen extends StatelessWidget {
                     const AuthAppleSignInRequested(),
                   ),
                 ),
-                const SizedBox(height: AppSpacing.lg),
+                const AuthEmailDivider(),
+                EmailPasswordForm(
+                  submitLabel: 'Log in',
+                  isSubmitting: state.isSubmitting,
+                  onSubmit: (email, password) => context.read<AuthBloc>().add(
+                    AuthEmailSignInRequested(email: email, password: password),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                const PrivacyPolicyLink(),
+                const SizedBox(height: AppSpacing.sm),
                 TextButton(
                   onPressed: () => context.go('/sign-up'),
-                  child: const Text("Don't have an account? Sign up"),
+                  child: const Text('New here? Sign up'),
                 ),
               ],
             );

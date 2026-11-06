@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:ui' as ui;
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/auth/domain/auth_failure.dart';
@@ -7,19 +10,69 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/auth/presentation/sign_in_screen.dart';
 import 'package:dzeroth/features/auth/presentation/sign_up_screen.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
-import 'package:dzeroth/shared/widgets/primitives/app_surface.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
+import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 class MockAuthBloc extends MockBloc<AuthEvent, AuthState> implements AuthBloc {}
 
-/// The restyled sign-in / sign-up frame: dark and light, phone and wide, the
-/// card, the gradient primary action, accessibility and the behavior that
-/// must not change.
+/// Existing auth routes retain their behavior across responsive layouts.
+const _screenshots = bool.fromEnvironment('AUTH_SCREENSHOTS');
+final _captureKey = GlobalKey();
+
+class _ThemeStore implements ThemeModeStore {
+  String? saved;
+  @override
+  Future<String?> read() async => saved;
+  @override
+  Future<void> write(String value) async => saved = value;
+}
+
+Future<void> _capture(WidgetTester tester, String name) async {
+  if (!_screenshots) return;
+  final boundary =
+      _captureKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+  await tester.runAsync(() async {
+    final image = await boundary.toImage();
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    final file = File('build/artifacts/auth/$name.png');
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(bytes!.buffer.asUint8List());
+    image.dispose();
+  });
+}
+
 void main() {
+  setUpAll(() async {
+    if (!_screenshots) return;
+    var sdk = File(Platform.resolvedExecutable).parent;
+    while (!File(
+      '${sdk.path}/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
+    ).existsSync()) {
+      if (sdk.parent.path == sdk.path) {
+        throw StateError('Flutter icon font not found');
+      }
+      sdk = sdk.parent;
+    }
+    final fonts = [
+      ('Roboto', '${Platform.environment['WINDIR']}/Fonts/arial.ttf'),
+      (
+        'MaterialIcons',
+        '${sdk.path}/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
+      ),
+    ];
+    for (final (family, path) in fonts) {
+      final loader = FontLoader(
+        family,
+      )..addFont(File(path).readAsBytes().then((b) => ByteData.sublistView(b)));
+      await loader.load();
+    }
+  });
   setUpAll(() {
     registerFallbackValue(
       const AuthEmailSignInRequested(email: '', password: ''),
@@ -36,12 +89,12 @@ void main() {
   final screens = <String, ({Widget screen, String submit, String heading})>{
     'sign in': (
       screen: const SignInScreen(),
-      submit: 'Sign in',
+      submit: 'Log in',
       heading: 'Welcome back',
     ),
     'sign up': (
       screen: const SignUpScreen(),
-      submit: 'Sign up',
+      submit: 'Create account',
       heading: 'Create your account',
     ),
   };
@@ -60,17 +113,25 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     whenListen(bloc, states, initialState: state);
+    final themeMode = ThemeModeCubit(_ThemeStore());
+    addTearDown(themeMode.close);
+    await themeMode.select(
+      brightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light,
+    );
     await tester.pumpWidget(
-      BlocProvider<AuthBloc>.value(
-        value: bloc,
-        child: MaterialApp(
-          theme: buildAppTheme(brightness: brightness),
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: TextScaler.linear(textScale)),
-            child: child!,
+      BlocProvider<ThemeModeCubit>.value(
+        value: themeMode,
+        child: BlocProvider<AuthBloc>.value(
+          value: bloc,
+          child: MaterialApp(
+            theme: buildAppTheme(brightness: brightness),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!,
+            ),
+            home: RepaintBoundary(key: _captureKey, child: screen),
           ),
-          home: screen,
         ),
       ),
     );
@@ -107,10 +168,16 @@ void main() {
 
     group(name, () {
       for (final brightness in Brightness.values) {
-        for (final size in const [Size(390, 844), Size(1440, 900)]) {
+        for (final size in const [
+          Size(360, 844),
+          Size(390, 844),
+          Size(768, 1024),
+          Size(1440, 900),
+          Size(2560, 1080),
+        ]) {
           testWidgets(
             'renders in ${brightness.name} at ${size.width.toInt()} with the '
-            'card only on wide screens',
+            'brand panel only on desktop',
             (tester) async {
               await open(
                 tester,
@@ -127,12 +194,18 @@ void main() {
               expect(find.text('Privacy Policy'), findsOneWidget);
               expect(find.text('Continue with Google'), findsOneWidget);
               expect(
-                find.byType(AppSurface),
-                size.width >= AppBreakpoints.mobile
+                find.textContaining('WHAT'),
+                size.width >= AppBreakpoints.tablet
                     ? findsOneWidget
                     : findsNothing,
               );
               expect(tester.takeException(), isNull);
+              if (size.width == 390 || size.width == 1440) {
+                await _capture(
+                  tester,
+                  '${isSignUp ? 'signup' : 'login'}_${brightness.name}_${size.width.toInt()}',
+                );
+              }
             },
           );
         }
@@ -154,6 +227,7 @@ void main() {
         await open(tester, screen.screen);
 
         await fillForm(tester, confirm: isSignUp);
+        await tester.ensureVisible(find.byType(AppPillButton));
         await tester.tap(find.byType(AppPillButton));
         await tester.pump();
 
@@ -197,6 +271,9 @@ void main() {
           find.widgetWithText(AppPillButton, screen.submit),
           findsOneWidget,
         );
+        await fillForm(tester, confirm: isSignUp);
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.ensureVisible(find.byType(AppPillButton));
         await tester.tap(find.byType(AppPillButton));
         await tester.pump();
         verifyNever(() => bloc.add(any()));
@@ -306,6 +383,77 @@ void main() {
       });
     });
   }
+
+  testWidgets(
+    'appearance follows System, preserves input/focus and saves explicit overrides',
+    (tester) async {
+      final store = _ThemeStore();
+      final appearance = ThemeModeCubit(store);
+      addTearDown(appearance.close);
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+      addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+      whenListen(
+        bloc,
+        const Stream<AuthState>.empty(),
+        initialState: const AuthState(),
+      );
+      await tester.pumpWidget(
+        MultiBlocProvider(
+          providers: [
+            BlocProvider<AuthBloc>.value(value: bloc),
+            BlocProvider<ThemeModeCubit>.value(value: appearance),
+          ],
+          child: BlocBuilder<ThemeModeCubit, ThemeMode>(
+            builder: (_, mode) => MaterialApp(
+              theme: appLightTheme,
+              darkTheme: appDarkTheme,
+              themeMode: mode,
+              home: const SignInScreen(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final email = find.widgetWithText(TextFormField, 'Email');
+      await tester.enterText(email, 'person@example.com');
+      final editable = tester.widget<EditableText>(
+        find.descendant(of: email, matching: find.byType(EditableText)),
+      );
+      final focus = editable.focusNode;
+      expect(focus.hasFocus, isTrue);
+      await appearance.select(ThemeMode.dark);
+      await tester.pumpAndSettle();
+      expect(find.text('person@example.com'), findsOneWidget);
+      expect(focus.hasFocus, isTrue);
+      expect(store.saved, 'dark');
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+      await tester.pumpAndSettle();
+      expect(Theme.of(tester.element(email)).brightness, Brightness.dark);
+      await appearance.select(ThemeMode.system);
+      await tester.pumpAndSettle();
+      expect(store.saved, 'system');
+      expect(Theme.of(tester.element(email)).brightness, Brightness.light);
+      tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+      await tester.pumpAndSettle();
+      expect(Theme.of(tester.element(email)).brightness, Brightness.dark);
+      expect(appearance.state, ThemeMode.system);
+      final restored = ThemeModeCubit(store);
+      await restored.load();
+      expect(restored.state, ThemeMode.system);
+      await restored.close();
+      await tester.ensureVisible(find.byTooltip('Appearance'));
+      await tester.tap(find.byTooltip('Appearance'));
+      await tester.pumpAndSettle();
+      expect(find.text('Light'), findsOneWidget);
+      expect(find.text('Dark'), findsOneWidget);
+      expect(find.text('System'), findsNWidgets(2));
+      await tester.tap(find.text('Light'));
+      await tester.pumpAndSettle();
+      expect(appearance.state, ThemeMode.light);
+      expect(store.saved, 'light');
+      expect(find.text('person@example.com'), findsOneWidget);
+    },
+  );
 
   testWidgets('only sign up shows the age and consent sentence', (
     tester,

@@ -63,71 +63,84 @@ class _EmailPasswordFormState extends State<EmailPasswordForm> {
   }
 
   void _submit() {
+    if (widget.isSubmitting) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
     widget.onSubmit(_emailController.text.trim(), _passwordController.text);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Form(
-      key: _formKey,
-      autovalidateMode: AutovalidateMode.onUserInteraction,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          TextFormField(
-            controller: _emailController,
-            keyboardType: TextInputType.emailAddress,
-            textInputAction: TextInputAction.next,
-            autofillHints: const [AutofillHints.email],
-            decoration: const InputDecoration(labelText: 'Email'),
-            validator: _validateEmail,
-          ),
-          const SizedBox(height: AppSpacing.md),
-          TextFormField(
-            controller: _passwordController,
-            obscureText: _obscure,
-            textInputAction: widget.confirmPassword
-                ? TextInputAction.next
-                : TextInputAction.done,
-            autofillHints: [
-              widget.confirmPassword
-                  ? AutofillHints.newPassword
-                  : AutofillHints.password,
-            ],
-            decoration: InputDecoration(
-              labelText: 'Password',
-              suffixIcon: IconButton(
-                tooltip: _obscure ? 'Show password' : 'Hide password',
-                icon: Icon(
-                  _obscure
-                      ? Icons.visibility_outlined
-                      : Icons.visibility_off_outlined,
-                ),
-                onPressed: () => setState(() => _obscure = !_obscure),
+    return AutofillGroup(
+      child: Form(
+        key: _formKey,
+        autovalidateMode: AutovalidateMode.onUserInteraction,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextFormField(
+              controller: _emailController,
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
+              autofillHints: const [AutofillHints.email],
+              decoration: const InputDecoration(
+                labelText: 'Email',
+                hintText: 'you@example.com',
               ),
+              validator: _validateEmail,
             ),
-            validator: _validatePassword,
-            onFieldSubmitted: widget.confirmPassword ? null : (_) => _submit(),
-          ),
-          if (widget.confirmPassword) ...[
             const SizedBox(height: AppSpacing.md),
             TextFormField(
-              controller: _confirmController,
+              controller: _passwordController,
               obscureText: _obscure,
-              textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(labelText: 'Confirm password'),
-              validator: _validateConfirm,
-              onFieldSubmitted: (_) => _submit(),
+              textInputAction: widget.confirmPassword
+                  ? TextInputAction.next
+                  : TextInputAction.done,
+              autofillHints: [
+                widget.confirmPassword
+                    ? AutofillHints.newPassword
+                    : AutofillHints.password,
+              ],
+              decoration: InputDecoration(
+                labelText: 'Password',
+                helperText: widget.confirmPassword
+                    ? 'Use at least 8 characters'
+                    : null,
+                suffixIcon: IconButton(
+                  tooltip: _obscure ? 'Show password' : 'Hide password',
+                  icon: Icon(
+                    _obscure
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                  ),
+                  onPressed: () => setState(() => _obscure = !_obscure),
+                ),
+              ),
+              validator: _validatePassword,
+              onFieldSubmitted: widget.confirmPassword
+                  ? null
+                  : (_) => _submit(),
+            ),
+            if (widget.confirmPassword) ...[
+              const SizedBox(height: AppSpacing.md),
+              TextFormField(
+                controller: _confirmController,
+                obscureText: _obscure,
+                textInputAction: TextInputAction.done,
+                decoration: const InputDecoration(
+                  labelText: 'Confirm password',
+                ),
+                validator: _validateConfirm,
+                onFieldSubmitted: (_) => _submit(),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.lg),
+            AppPillButton(
+              label: widget.submitLabel,
+              busy: widget.isSubmitting,
+              onPressed: _submit,
             ),
           ],
-          const SizedBox(height: AppSpacing.lg),
-          AppPillButton(
-            label: widget.submitLabel,
-            busy: widget.isSubmitting,
-            onPressed: _submit,
-          ),
-        ],
+        ),
       ),
     );
   }
