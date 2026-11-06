@@ -241,6 +241,17 @@ func TestGetBeacon_ViewerStateFromParticipantRow(t *testing.T) {
 			}
 		})
 	}
+	t.Run("requested on an ended beacon can still withdraw", func(t *testing.T) {
+		e := newEnv()
+		b := e.openBeacon()
+		e.repo.docs[testBeaconID] = b
+		e.repo.participants = map[string]Participant{e.repo.pkey(testBeaconID, testViewer): {State: PStateRequested}}
+		e.now = b.EndAt
+		v, err := e.svc.GetBeacon(context.Background(), testViewer, testBeaconID)
+		if err != nil || !v.Viewer.CanWithdraw || v.Viewer.CanRequest {
+			t.Fatalf("viewer = %+v, %v, want can_withdraw on an ended beacon", v.Viewer, err)
+		}
+	})
 	t.Run("accepted on an ended beacon cannot leave", func(t *testing.T) {
 		e := newEnv()
 		b := e.openBeacon()

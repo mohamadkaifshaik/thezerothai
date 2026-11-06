@@ -8,7 +8,7 @@
 // Collections owned: beacons/{beaconId} (organiserId, communityId, activity, title, details, venue, startAt, endAt,
 // durationMin, openSpots, acceptedCount, cost, chatPref, eligibility, status, hidden, createdAt, updatedAt,
 // expireAt), beacons/{beaconId}/beaconParticipants/{uid} (uid, state, note, requestedAt, respondedAt, expireAt) and
-// users/{uid}/beaconMemberships/{beaconId} (beaconId, role, state, pending, communityId, startAt, endAt; never another
+// users/{uid}/beaconMemberships/{beaconId} (beaconId, role, state, pendingUntil, communityId, startAt, endAt; never another
 // user's uid, so a row may outlive an erased organiser's beacon and is dropped on read). Only beacons.Service reads or
 // writes them; firestore.rules stay deny-all to clients.
 //
@@ -162,8 +162,10 @@ type BeaconServiceClient interface {
 	// opaque signed cursor bound to the caller and the audience, VALIDATION "page_token" when invalid or expired.
 	ListBeacons(context.Context, *connect.Request[v1.ListBeaconsRequest]) (*connect.Response[v1.ListBeaconsResponse], error)
 	// The caller's own beacons: organised, requested or accepted (role filter), UPCOMING (start_at + duration >= now,
-	// soonest first) or PAST (most recent first), from users/{uid}/beaconMemberships; CANCELLED beacons appear under
-	// PAST. limit is clamped (0 = 20, above 50 = 50).
+	// soonest first) or PAST (most recent first), from users/{uid}/beaconMemberships. A CANCELLED beacon keeps its window
+	// and renders status CANCELLED. Rows that ended in DECLINED, WITHDRAWN, LEFT or REMOVED, rows whose beacon is gone or
+	// hidden, and rows across a block with the organiser are left out (a page may be short while next_page_token is
+	// set). limit is clamped (0 = 20, above 50 = 50).
 	ListMyBeacons(context.Context, *connect.Request[v1.ListMyBeaconsRequest]) (*connect.Response[v1.ListMyBeaconsResponse], error)
 	// Ask to join an OPEN beacon the caller may see. The organiser may not join their own beacon
 	// (FAILED_PRECONDITION "organiser"). note 0-140 code points. A REQUESTED row
@@ -172,8 +174,9 @@ type BeaconServiceClient interface {
 	// BEACONS_MAX_PENDING_REQUESTS (10) REQUESTED rows for the caller => LIMIT_REACHED "beacon_requests_pending". A
 	// FULL beacon => FAILED_PRECONDITION "full". The organiser is notified (NOTIFICATION_TYPE_BEACON_REQUEST).
 	RequestToJoin(context.Context, *connect.Request[v1.RequestToJoinRequest]) (*connect.Response[v1.RequestToJoinResponse], error)
-	// Withdraw the caller's REQUESTED row (state WITHDRAWN). No row or any other state => FAILED_PRECONDITION
-	// "not_requested".
+	// Withdraw the caller's REQUESTED row (state WITHDRAWN), on a live, ENDED or CANCELLED beacon alike, so a stale
+	// request can always be cleared (it stops counting toward beacon_requests_pending once its beacon ended anyway). No
+	// row or any other state => FAILED_PRECONDITION "not_requested".
 	WithdrawJoinRequest(context.Context, *connect.Request[v1.WithdrawJoinRequestRequest]) (*connect.Response[v1.WithdrawJoinRequestResponse], error)
 	// The organiser accepts or declines one REQUESTED row (any other caller => FORBIDDEN "not_organiser"; a row in any
 	// other state => FAILED_PRECONDITION "not_requested"). ACCEPT runs in one transaction with the beacon doc: when
@@ -387,8 +390,10 @@ type BeaconServiceHandler interface {
 	// opaque signed cursor bound to the caller and the audience, VALIDATION "page_token" when invalid or expired.
 	ListBeacons(context.Context, *connect.Request[v1.ListBeaconsRequest]) (*connect.Response[v1.ListBeaconsResponse], error)
 	// The caller's own beacons: organised, requested or accepted (role filter), UPCOMING (start_at + duration >= now,
-	// soonest first) or PAST (most recent first), from users/{uid}/beaconMemberships; CANCELLED beacons appear under
-	// PAST. limit is clamped (0 = 20, above 50 = 50).
+	// soonest first) or PAST (most recent first), from users/{uid}/beaconMemberships. A CANCELLED beacon keeps its window
+	// and renders status CANCELLED. Rows that ended in DECLINED, WITHDRAWN, LEFT or REMOVED, rows whose beacon is gone or
+	// hidden, and rows across a block with the organiser are left out (a page may be short while next_page_token is
+	// set). limit is clamped (0 = 20, above 50 = 50).
 	ListMyBeacons(context.Context, *connect.Request[v1.ListMyBeaconsRequest]) (*connect.Response[v1.ListMyBeaconsResponse], error)
 	// Ask to join an OPEN beacon the caller may see. The organiser may not join their own beacon
 	// (FAILED_PRECONDITION "organiser"). note 0-140 code points. A REQUESTED row
@@ -397,8 +402,9 @@ type BeaconServiceHandler interface {
 	// BEACONS_MAX_PENDING_REQUESTS (10) REQUESTED rows for the caller => LIMIT_REACHED "beacon_requests_pending". A
 	// FULL beacon => FAILED_PRECONDITION "full". The organiser is notified (NOTIFICATION_TYPE_BEACON_REQUEST).
 	RequestToJoin(context.Context, *connect.Request[v1.RequestToJoinRequest]) (*connect.Response[v1.RequestToJoinResponse], error)
-	// Withdraw the caller's REQUESTED row (state WITHDRAWN). No row or any other state => FAILED_PRECONDITION
-	// "not_requested".
+	// Withdraw the caller's REQUESTED row (state WITHDRAWN), on a live, ENDED or CANCELLED beacon alike, so a stale
+	// request can always be cleared (it stops counting toward beacon_requests_pending once its beacon ended anyway). No
+	// row or any other state => FAILED_PRECONDITION "not_requested".
 	WithdrawJoinRequest(context.Context, *connect.Request[v1.WithdrawJoinRequestRequest]) (*connect.Response[v1.WithdrawJoinRequestResponse], error)
 	// The organiser accepts or declines one REQUESTED row (any other caller => FORBIDDEN "not_organiser"; a row in any
 	// other state => FAILED_PRECONDITION "not_requested"). ACCEPT runs in one transaction with the beacon doc: when

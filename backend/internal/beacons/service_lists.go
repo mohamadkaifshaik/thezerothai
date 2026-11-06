@@ -94,12 +94,33 @@ func (s *service) ListMyBeacons(ctx context.Context, uid string, in MyBeaconsInp
 	if err != nil {
 		return Page{}, mapErr(ctx, "mine", uid, "", err)
 	}
+	snap, err := s.social(ctx, uid)
+	if err != nil {
+		return Page{}, mapErr(ctx, "mine", uid, "", err)
+	}
+	// keep decides whether a membership row renders: its beacon exists; a terminal row (declined, withdrawn, left,
+	// removed) is history and is dropped; a hidden beacon shows only to its organiser; a block in either direction with
+	// the organiser drops the row (the same rule GetBeacon applies).
+	keep := func(m Membership) (Beacon, bool) {
+		b, ok := beacons[m.BeaconID]
+		if !ok {
+			return Beacon{}, false
+		}
+		mine := b.OrganiserID == uid
+		if !mine && m.State != PStateRequested && m.State != PStateAccepted {
+			return Beacon{}, false
+		}
+		if !mine && (b.Hidden || snap.BlockedBy[b.OrganiserID] || snap.Blocked[b.OrganiserID]) {
+			return Beacon{}, false
+		}
+		return b, true
+	}
 	organisers := make([]string, 0, len(rows))
 	seen := map[string]bool{}
 	dropped := 0
 	for _, m := range rows {
-		b, ok := beacons[m.BeaconID]
-		if !ok || (b.Hidden && b.OrganiserID != uid) {
+		b, ok := keep(m)
+		if !ok {
 			dropped++
 			continue
 		}
@@ -108,7 +129,7 @@ func (s *service) ListMyBeacons(ctx context.Context, uid string, in MyBeaconsInp
 			organisers = append(organisers, b.OrganiserID)
 		}
 	}
-	logger.SetRequestField(ctx, "rows_dropped_gone", dropped)
+	logger.SetRequestField(ctx, "rows_dropped", dropped)
 	if len(organisers) == 0 {
 		return out, nil
 	}
@@ -117,8 +138,8 @@ func (s *service) ListMyBeacons(ctx context.Context, uid string, in MyBeaconsInp
 		return Page{}, mapErr(ctx, "mine", uid, "", logger.RedactErr(fmt.Errorf("beacons: load organiser profiles: %w", err), organisers...))
 	}
 	for _, m := range rows {
-		b, ok := beacons[m.BeaconID]
-		if !ok || (b.Hidden && b.OrganiserID != uid) {
+		b, ok := keep(m)
+		if !ok {
 			continue
 		}
 		p, ok := profs[b.OrganiserID]

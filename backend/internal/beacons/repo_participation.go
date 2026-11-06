@@ -74,10 +74,10 @@ func (r *FirestoreRepo) getParticipantTx(ctx context.Context, tx *firestore.Tran
 	return d, true, nil
 }
 
-// countPending counts uid's live requests (membership rows with pending == true), inside tx, stopping at limit
-// (single-field index, R10).
-func (r *FirestoreRepo) countPending(ctx context.Context, tx *firestore.Transaction, uid string, limit int) (int64, error) {
-	q := r.client.Collection(usersCollection).Doc(uid).Collection(membershipsSubcollection).Where("pending", "==", true).Limit(limit)
+// countPending counts uid's live requests (membership rows whose pendingUntil, the beacon's endAt, is ahead of now),
+// inside tx, stopping at limit (single-field range index, R10). A request on a beacon that ended stops counting.
+func (r *FirestoreRepo) countPending(ctx context.Context, tx *firestore.Transaction, uid string, limit int, now time.Time) (int64, error) {
+	q := r.client.Collection(usersCollection).Doc(uid).Collection(membershipsSubcollection).Where("pendingUntil", ">", now.UTC()).Limit(limit)
 	res, err := q.NewAggregationQuery().WithCount("n").Transaction(tx).Get(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("beacons: count pending: %w", err)
@@ -170,7 +170,7 @@ func (r *FirestoreRepo) Request(ctx context.Context, p RequestParams) (Participa
 			res = ParticipantResult{Outcome: Unchanged, Beacon: d.beacon(p.BeaconID), Participant: pd.participant(p.BeaconID)}
 			return nil
 		}
-		n, err := r.countPending(ctx, tx, p.UID, p.MaxPending)
+		n, err := r.countPending(ctx, tx, p.UID, p.MaxPending, p.Now)
 		if err != nil {
 			return err
 		}
@@ -180,7 +180,7 @@ func (r *FirestoreRepo) Request(ctx context.Context, p RequestParams) (Participa
 		pd = participantDoc{UID: p.UID, State: PStateRequested, Note: p.Note, RequestedAt: p.Now.UTC(), ExpireAt: d.ExpireAt}
 		b.Set(r.participantRef(p.BeaconID, p.UID), pd)
 		b.Set(r.membershipRef(p.UID, p.BeaconID), membershipDoc{
-			BeaconID: p.BeaconID, Role: RoleRequester, State: PStateRequested, Pending: true, CommunityID: d.CommunityID, StartAt: d.StartAt, EndAt: d.EndAt,
+			BeaconID: p.BeaconID, Role: RoleRequester, State: PStateRequested, PendingUntil: d.EndAt, CommunityID: d.CommunityID, StartAt: d.StartAt, EndAt: d.EndAt,
 		})
 		r.putIdemResult(b, p.UID, p.IdemKey, rpcRequestToJoin, p.RequestHash, idemResult(p.BeaconID, p.UID))
 		if err := b.Err(); err != nil {
@@ -193,28 +193,41 @@ func (r *FirestoreRepo) Request(ctx context.Context, p RequestParams) (Participa
 	return res, err
 }
 
+// transitionRule is what one of Withdraw, Leave and Remove does.
+type transitionRule struct {
+	rpc string
+	// owned: the caller must organise the beacon (Remove).
+	owned bool
+	// live: refuse ENDED and CANCELLED beacons (Leave, Remove); Withdraw is allowed on a dead beacon so a stale
+	// request can always be cleared.
+	live     bool
+	from, to string
+	notIn    error
+}
+
 // Withdraw implements Repo (WithdrawJoinRequest): the caller's REQUESTED row becomes WITHDRAWN and its membership row
-// stops being pending; any other state is ErrNotRequested.
+// stops being pending, on a live, ended or cancelled beacon alike; any other state is ErrNotRequested.
 func (r *FirestoreRepo) Withdraw(ctx context.Context, p StateParams) (ParticipantResult, error) {
-	return r.transition(ctx, p, rpcWithdrawJoinRequest, false, PStateRequested, PStateWithdrawn, ErrNotRequested)
+	return r.transition(ctx, p, transitionRule{rpc: rpcWithdrawJoinRequest, from: PStateRequested, to: PStateWithdrawn, notIn: ErrNotRequested})
 }
 
 // Leave implements Repo (LeaveBeacon): the caller's ACCEPTED row becomes LEFT, the beacon's acceptedCount drops and a
 // FULL beacon reopens; any other state is ErrNotParticipant.
 func (r *FirestoreRepo) Leave(ctx context.Context, p StateParams) (ParticipantResult, error) {
-	return r.transition(ctx, p, rpcLeaveBeacon, false, PStateAccepted, PStateLeft, ErrNotParticipant)
+	return r.transition(ctx, p, transitionRule{rpc: rpcLeaveBeacon, live: true, from: PStateAccepted, to: PStateLeft, notIn: ErrNotParticipant})
 }
 
 // Remove implements Repo (RemoveParticipant): the organiser moves the target's ACCEPTED row to REMOVED with the same
 // count rules as Leave; any other caller is ErrNotOrganiser.
 func (r *FirestoreRepo) Remove(ctx context.Context, p StateParams) (ParticipantResult, error) {
-	return r.transition(ctx, p, rpcRemoveParticipant, true, PStateAccepted, PStateRemoved, ErrNotParticipant)
+	return r.transition(ctx, p, transitionRule{rpc: rpcRemoveParticipant, owned: true, live: true, from: PStateAccepted, to: PStateRemoved, notIn: ErrNotParticipant})
 }
 
 // transition is the shared body of Withdraw, Leave and Remove: idempotency, the beacon (owner-checked when owned),
-// the live check, the target's row in `from` (else notIn), then the row to `to`, the membership row no longer pending,
-// and, when leaving an ACCEPTED seat, the beacon's count and status.
-func (r *FirestoreRepo) transition(ctx context.Context, p StateParams, rpc string, owned bool, from, to string, notIn error) (ParticipantResult, error) {
+// the live check when the rule asks for it, the target's row in `from` (else notIn), then the row to `to`, the
+// membership row no longer pending, and, when leaving an ACCEPTED seat, the beacon's count and status.
+func (r *FirestoreRepo) transition(ctx context.Context, p StateParams, rule transitionRule) (ParticipantResult, error) {
+	rpc, owned, from, to, notIn := rule.rpc, rule.owned, rule.from, rule.to, rule.notIn
 	if err := r.ready(); err != nil {
 		return ParticipantResult{}, err
 	}
@@ -237,8 +250,10 @@ func (r *FirestoreRepo) transition(ctx context.Context, p StateParams, rpc strin
 		if err != nil {
 			return err
 		}
-		if err := checkLive(d, p.BeaconID, p.Now); err != nil {
-			return err
+		if rule.live {
+			if err := checkLive(d, p.BeaconID, p.Now); err != nil {
+				return err
+			}
 		}
 		pd, exists, err := r.getParticipantTx(ctx, tx, p.BeaconID, p.TargetUID)
 		if err != nil {
@@ -251,7 +266,7 @@ func (r *FirestoreRepo) transition(ctx context.Context, p StateParams, rpc strin
 		now := p.Now.UTC()
 		pd.State = to
 		b.Update(r.participantRef(p.BeaconID, p.TargetUID), []firestore.Update{{Path: "state", Value: to}})
-		b.Set(r.membershipRef(p.TargetUID, p.BeaconID), map[string]any{"state": to, "pending": false}, firestore.MergeAll)
+		b.Set(r.membershipRef(p.TargetUID, p.BeaconID), map[string]any{"state": to, "pendingUntil": firestore.Delete}, firestore.MergeAll)
 		if from == PStateAccepted {
 			d.AcceptedCount = max(d.AcceptedCount-1, 0)
 			d.Status, d.UpdatedAt = string(liveStatus(d.AcceptedCount, d.OpenSpots)), now
@@ -319,10 +334,10 @@ func (r *FirestoreRepo) Respond(ctx context.Context, p RespondParams) (Participa
 				{Path: "status", Value: d.Status},
 				{Path: "updatedAt", Value: now},
 			})
-			b.Set(r.membershipRef(p.TargetUID, p.BeaconID), map[string]any{"role": RoleParticipant, "state": PStateAccepted, "pending": false}, firestore.MergeAll)
+			b.Set(r.membershipRef(p.TargetUID, p.BeaconID), map[string]any{"role": RoleParticipant, "state": PStateAccepted, "pendingUntil": firestore.Delete}, firestore.MergeAll)
 		} else {
 			pd.State = PStateDeclined
-			b.Set(r.membershipRef(p.TargetUID, p.BeaconID), map[string]any{"state": PStateDeclined, "pending": false}, firestore.MergeAll)
+			b.Set(r.membershipRef(p.TargetUID, p.BeaconID), map[string]any{"state": PStateDeclined, "pendingUntil": firestore.Delete}, firestore.MergeAll)
 		}
 		b.Update(r.participantRef(p.BeaconID, p.TargetUID), []firestore.Update{
 			{Path: "state", Value: pd.State},

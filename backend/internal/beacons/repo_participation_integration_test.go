@@ -60,8 +60,11 @@ func TestRepo_RequestWritesRowsAndReplays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Data()["role"] != RoleRequester || m.Data()["state"] != PStateRequested || m.Data()["pending"] != true || m.Data()["communityId"] != itCommunity {
+	if m.Data()["role"] != RoleRequester || m.Data()["state"] != PStateRequested || m.Data()["communityId"] != itCommunity {
 		t.Fatalf("membership = %v", m.Data())
+	}
+	if until, ok := m.Data()["pendingUntil"].(time.Time); !ok || !until.Equal(b.EndAt) {
+		t.Fatalf("pendingUntil = %v, want the beacon's endAt %v", m.Data()["pendingUntil"], b.EndAt)
 	}
 	if _, ok := m.Data()["organiserId"]; ok {
 		t.Fatal("membership row names another user (R3)")
@@ -134,7 +137,7 @@ func TestRepo_RequestAgainAfterDeclineWithdrawLeave(t *testing.T) {
 	}
 	e.mustRequest(t, "p1", "integration-key-ra09", b.ID)
 	m, _ := e.repo.membershipRef("p1", b.ID).Get(ctx)
-	if m.Data()["role"] != RoleRequester || m.Data()["pending"] != true {
+	if _, pending := m.Data()["pendingUntil"]; m.Data()["role"] != RoleRequester || !pending {
 		t.Fatalf("membership after re-request = %v", m.Data())
 	}
 	docs, _ := e.client.Collection(beaconsCollection).Doc(b.ID).Collection(participantsSubcollection).Documents(ctx).GetAll()
@@ -166,6 +169,36 @@ func TestRepo_PendingCapCountsLiveRequests(t *testing.T) {
 	}
 }
 
+// TestRepo_PendingCapIgnoresEndedBeacons (review): unanswered requests on beacons that have ended stop counting, and such
+// a request can still be withdrawn to clear it.
+func TestRepo_PendingCapIgnoresEndedBeacons(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	var ids []string
+	for i := range 10 {
+		ids = append(ids, e.createWithCap(t, "org-dead", fmt.Sprintf("integration-key-dp%02d", i), e.beaconAt("org-dead", "", e.now.Add(time.Duration(i+1)*time.Hour)), 50).Beacon.ID)
+	}
+	for i := range 10 {
+		if _, err := e.request("stale", fmt.Sprintf("integration-key-dq%02d", i), ids[i], "", 10, e.now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	later := e.now.Add(12 * time.Hour) // every seeded beacon ended by now
+	live := e.createWithCap(t, "org-dead", "integration-key-dp10", e.beaconAt("org-dead", "", e.now.Add(20*time.Hour)), 50).Beacon
+	if res, err := e.request("stale", "integration-key-dq10", live.ID, "", 10, later); err != nil || res.Outcome != Written {
+		t.Fatalf("request with 10 ended pending rows = %+v, %v, want Written", res, err)
+	}
+	// Withdrawing a request on an ended beacon is allowed and clears it.
+	res, err := e.repo.Withdraw(ctx, e.state("stale", rpcWithdrawJoinRequest, "integration-key-dw00", ids[0], "stale", later))
+	if err != nil || res.Participant.State != PStateWithdrawn {
+		t.Fatalf("withdraw on an ended beacon = %+v, %v", res, err)
+	}
+	m, _ := e.repo.membershipRef("stale", ids[0]).Get(ctx)
+	if _, pending := m.Data()["pendingUntil"]; pending {
+		t.Fatalf("pendingUntil still set after withdrawal: %v", m.Data())
+	}
+}
+
 func TestRepo_RespondAcceptFillsAndDeclines(t *testing.T) {
 	e := newRepoEnv(t)
 	ctx := context.Background()
@@ -185,7 +218,7 @@ func TestRepo_RespondAcceptFillsAndDeclines(t *testing.T) {
 		t.Fatalf("beacon after accept = count %d status %q, want 1 full", res.Beacon.AcceptedCount, res.Beacon.Status)
 	}
 	m, _ := e.repo.membershipRef("p1", b.ID).Get(ctx)
-	if m.Data()["role"] != RoleParticipant || m.Data()["state"] != PStateAccepted || m.Data()["pending"] != false {
+	if _, pending := m.Data()["pendingUntil"]; m.Data()["role"] != RoleParticipant || m.Data()["state"] != PStateAccepted || pending {
 		t.Fatalf("membership after accept = %v", m.Data())
 	}
 	if _, err := e.respond("org-r5", "integration-key-rs05", b.ID, "p2", true, e.now); !errors.Is(err, ErrFull) {
@@ -196,7 +229,7 @@ func TestRepo_RespondAcceptFillsAndDeclines(t *testing.T) {
 		t.Fatalf("decline = %+v, %v", res, err)
 	}
 	m, _ = e.repo.membershipRef("p2", b.ID).Get(ctx)
-	if m.Data()["state"] != PStateDeclined || m.Data()["pending"] != false {
+	if _, pending := m.Data()["pendingUntil"]; m.Data()["state"] != PStateDeclined || pending {
 		t.Fatalf("membership after decline = %v", m.Data())
 	}
 	if _, err := e.respond("org-r5", "integration-key-rs07", b.ID, "p1", true, e.now); !errors.Is(err, ErrNotRequested) {
@@ -270,7 +303,7 @@ func TestRepo_LeaveRemoveReopen(t *testing.T) {
 		t.Fatalf("leave = %+v, %v, want left, count 0, open", res, err)
 	}
 	m, _ := e.repo.membershipRef("p1", b.ID).Get(ctx)
-	if m.Data()["state"] != PStateLeft || m.Data()["pending"] != false {
+	if _, pending := m.Data()["pendingUntil"]; m.Data()["state"] != PStateLeft || pending {
 		t.Fatalf("membership after leave = %v", m.Data())
 	}
 	if _, err := e.repo.Leave(ctx, e.state("p1", rpcLeaveBeacon, "integration-key-lv06", b.ID, "p1", e.now)); !errors.Is(err, ErrNotParticipant) {

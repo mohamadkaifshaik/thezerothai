@@ -75,20 +75,20 @@ func (d beaconDoc) beacon(id string) Beacon {
 
 // membershipDoc is users/{uid}/beaconMemberships/{beaconId}. It never holds another user's uid (R3).
 type membershipDoc struct {
-	BeaconID    string    `firestore:"beaconId"`
-	Role        string    `firestore:"role"`
-	State       string    `firestore:"state"`
-	Pending     bool      `firestore:"pending"`
-	CommunityID string    `firestore:"communityId"`
-	StartAt     time.Time `firestore:"startAt"`
-	EndAt       time.Time `firestore:"endAt"`
+	BeaconID     string    `firestore:"beaconId"`
+	Role         string    `firestore:"role"`
+	State        string    `firestore:"state"`
+	PendingUntil time.Time `firestore:"pendingUntil,omitempty"`
+	CommunityID  string    `firestore:"communityId"`
+	StartAt      time.Time `firestore:"startAt"`
+	EndAt        time.Time `firestore:"endAt"`
 }
 
 func (m membershipDoc) membership(id string) Membership {
 	if m.BeaconID == "" {
 		m.BeaconID = id
 	}
-	return Membership{BeaconID: m.BeaconID, Role: m.Role, State: m.State, Pending: m.Pending, CommunityID: m.CommunityID, StartAt: m.StartAt, EndAt: m.EndAt}
+	return Membership(m)
 }
 
 // FirestoreRepo is the Firestore implementation of Repo, and the page source of the eraser and the exporter.

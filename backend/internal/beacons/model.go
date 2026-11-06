@@ -196,11 +196,12 @@ type Membership struct {
 	Role string
 	// State mirrors the beacon status for the organiser ("open", "cancelled") and the participant state otherwise.
 	State string
-	// Pending is true exactly while Role is RoleRequester and State is requested (the pending-request cap, R10).
-	Pending     bool
-	CommunityID string
-	StartAt     time.Time
-	EndAt       time.Time
+	// PendingUntil is the beacon's endAt while Role is RoleRequester and State is requested, and zero otherwise: the
+	// pending-request cap counts rows with pendingUntil > now, so a request on a beacon that ended stops counting (R10).
+	PendingUntil time.Time
+	CommunityID  string
+	StartAt      time.Time
+	EndAt        time.Time
 }
 
 // ViewerState is the caller's relationship with a beacon, so the client renders the right action without a second call.

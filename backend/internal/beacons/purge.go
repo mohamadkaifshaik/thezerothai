@@ -135,9 +135,13 @@ func (r *FirestoreRepo) releaseSeat(ctx context.Context, uid, beaconID string, r
 		b := store.NewFirestoreTxBatch(tx)
 		if exists {
 			count := max(d.AcceptedCount-1, 0)
+			status := d.Status
+			if status != string(StatusCancelled) { // a cancelled beacon keeps its status: only the count moves
+				status = string(liveStatus(count, d.OpenSpots))
+			}
 			b.Update(r.ref(beaconID), []firestore.Update{
 				{Path: "acceptedCount", Value: count},
-				{Path: "status", Value: string(liveStatus(count, d.OpenSpots))},
+				{Path: "status", Value: status},
 				{Path: "updatedAt", Value: r.now().UTC()},
 			})
 		}

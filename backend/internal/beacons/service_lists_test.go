@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 )
 
@@ -93,6 +94,36 @@ func TestListMyBeacons_DropsDanglingAndHiddenKeepsToken(t *testing.T) {
 	page, err = e2.svc.ListMyBeacons(context.Background(), testOrganiser, MyBeaconsInput{Role: RoleOrganiser})
 	if err != nil || len(page.Views) != 1 || page.Views[0].Viewer.Role != RoleOrganiser || !page.Views[0].Viewer.CanManage {
 		t.Fatalf("organised page = %+v, %v", page.Views, err)
+	}
+}
+
+// TestListMyBeacons_DropsBlockedAndTerminalRows (review): a row whose organiser blocks the caller or whom the caller
+// blocks is dropped; declined, withdrawn, left and removed rows are history and are dropped; requested, accepted and
+// organised rows stay; the token is still computed from the raw rows.
+func TestListMyBeacons_DropsBlockedAndTerminalRows(t *testing.T) {
+	e := newEnv()
+	rows := e.membershipsFor(testViewer, RoleRequester, PStateRequested, 6)
+	rows[1].Role, rows[1].State = RoleParticipant, PStateAccepted // blocked below
+	rows[2].State = PStateDeclined
+	rows[3].State = PStateWithdrawn
+	rows[4].Role, rows[4].State = RoleParticipant, PStateLeft
+	rows[5].Role, rows[5].State = RoleParticipant, PStateRemoved
+	e.repo.memberships = rows
+	e.graph.snaps[testViewer] = graph.Snapshot{BlockedBy: map[string]bool{"org-1": true}}
+	page, err := e.svc.ListMyBeacons(context.Background(), testViewer, MyBeaconsInput{Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := viewIDs(page.Views); fmt.Sprint(got) != fmt.Sprint([]string{rows[0].BeaconID}) {
+		t.Fatalf("views = %v, want only the requested row's beacon", got)
+	}
+	if page.NextPageToken == "" {
+		t.Fatal("token missing: 6 raw rows for a page of 5")
+	}
+	e.graph.snaps[testViewer] = graph.Snapshot{Blocked: map[string]bool{"org-1": true}}
+	page, err = e.svc.ListMyBeacons(context.Background(), testViewer, MyBeaconsInput{Limit: 5})
+	if err != nil || len(page.Views) != 1 {
+		t.Fatalf("caller blocks the organiser: views = %v, %v", viewIDs(page.Views), err)
 	}
 }
 

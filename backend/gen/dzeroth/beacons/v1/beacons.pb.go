@@ -10,7 +10,7 @@
 // Collections owned: beacons/{beaconId} (organiserId, communityId, activity, title, details, venue, startAt, endAt,
 // durationMin, openSpots, acceptedCount, cost, chatPref, eligibility, status, hidden, createdAt, updatedAt,
 // expireAt), beacons/{beaconId}/beaconParticipants/{uid} (uid, state, note, requestedAt, respondedAt, expireAt) and
-// users/{uid}/beaconMemberships/{beaconId} (beaconId, role, state, pending, communityId, startAt, endAt; never another
+// users/{uid}/beaconMemberships/{beaconId} (beaconId, role, state, pendingUntil, communityId, startAt, endAt; never another
 // user's uid, so a row may outlive an erased organiser's beacon and is dropped on read). Only beacons.Service reads or
 // writes them; firestore.rules stay deny-all to clients.
 //

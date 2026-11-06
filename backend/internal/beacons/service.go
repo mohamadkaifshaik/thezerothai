@@ -255,7 +255,7 @@ func viewerState(b Beacon, viewer, pstate string, now time.Time) ViewerState {
 	case PStateAccepted:
 		vs.Role, vs.CanLeave = RoleParticipant, live
 	case PStateRequested:
-		vs.CanWithdraw = live
+		vs.CanWithdraw = true // a stale request on an ended or cancelled beacon can always be cleared
 	default:
 		vs.CanRequest = st == StatusOpen
 	}
