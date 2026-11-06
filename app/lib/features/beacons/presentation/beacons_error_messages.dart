@@ -15,6 +15,11 @@ String beaconsErrorMessage(AppException error) {
       'This plan has already been cancelled.',
     StateConflictException(reason: 'already_requested') =>
       "You've already asked to join this plan.",
+    StateConflictException(reason: 'not_requested') =>
+      "That request isn't open any more.",
+    StateConflictException(reason: 'not_participant') =>
+      "You're not in this plan any more.",
+    StateConflictException(reason: 'organiser') => 'You organise this plan.',
     StateConflictException() =>
       "This plan's state has changed. Refresh and try again.",
     CommunityForbiddenException(reason: CommunityForbiddenReason.notMember) =>
@@ -23,6 +28,11 @@ String beaconsErrorMessage(AppException error) {
     LimitReachedException(quota: kBeaconsOpenLimit) =>
       'You can have up to $kMaxOpenBeacons open plans. Cancel one to create '
           'another.',
+    LimitReachedException(quota: kBeaconRequestsPendingLimit) =>
+      'You can have up to $kMaxPendingBeaconRequests open requests. Withdraw '
+          'one to ask again.',
+    LimitReachedException(quota: kBeaconParticipantsLimit) =>
+      'A plan can have up to $kBeaconMaxSpots open spots.',
     LimitReachedException() => "You've reached the limit for this action.",
     QuotaExceededException() =>
       "You've hit today's limit for this action. It resets tomorrow.",
@@ -32,6 +42,8 @@ String beaconsErrorMessage(AppException error) {
       'Dzeroth is in a limited mode right now. Please try again shortly.',
     NetworkException() => 'No connection. Check your network and try again.',
     NotFoundException() => 'This plan is unavailable.',
+    ValidationException(field: 'open_spots') =>
+      "Open spots can't go below the people already going.",
     ValidationException() => 'Check the details of your plan, then try again.',
     EmailNotVerifiedException() =>
       'Please verify your email address to continue.',

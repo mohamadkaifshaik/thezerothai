@@ -77,4 +77,36 @@ void main() {
       expect(beaconsErrorMessage(e), isNot(contains('server says no')));
     }
   });
+
+  test('participation copy (R41)', () {
+    expect(
+      beaconsErrorMessage(StateConflictException('not_requested')),
+      "That request isn't open any more.",
+    );
+    expect(
+      beaconsErrorMessage(StateConflictException('not_participant')),
+      "You're not in this plan any more.",
+    );
+    expect(
+      beaconsErrorMessage(StateConflictException('organiser')),
+      'You organise this plan.',
+    );
+    expect(
+      beaconsErrorMessage(
+        LimitReachedException('no', quota: kBeaconRequestsPendingLimit),
+      ),
+      'You can have up to $kMaxPendingBeaconRequests open requests. Withdraw '
+      'one to ask again.',
+    );
+    expect(
+      beaconsErrorMessage(
+        LimitReachedException('no', quota: kBeaconParticipantsLimit),
+      ),
+      'A plan can have up to $kBeaconMaxSpots open spots.',
+    );
+    expect(
+      beaconsErrorMessage(ValidationException('bad', field: 'open_spots')),
+      "Open spots can't go below the people already going.",
+    );
+  });
 }

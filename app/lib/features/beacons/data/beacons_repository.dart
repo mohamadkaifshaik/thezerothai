@@ -15,7 +15,16 @@ class BeaconsPage {
   bool get hasMore => nextPageToken.isNotEmpty;
 }
 
-/// The only caller of `BeaconService` (docs/beacons-plan.md PR 6).
+/// One page of [BeaconsRepository.listParticipants].
+class ParticipantsPage {
+  const ParticipantsPage({required this.participants, this.nextPageToken = ''});
+
+  final List<pb.Participant> participants;
+  final String nextPageToken;
+  bool get hasMore => nextPageToken.isNotEmpty;
+}
+
+/// The only caller of `BeaconService` (docs/beacons-plan.md PR 6, PR 7).
 ///
 /// - **Flag.** Every RPC needs `beacons` in `GetMe.enabled_features`
 ///   ([ServiceFeatureGate]): with it off no request is sent and a
@@ -98,6 +107,148 @@ class BeaconsRepository {
         ),
       ),
     );
+  }
+
+  /// The caller's own plans: organised, requested or accepted (role), UPCOMING
+  /// or PAST (window), as the server orders them. [limit] 0 means 20; max 50.
+  Future<BeaconsPage> listMyBeacons({
+    pb.MyBeaconsRole role = pb.MyBeaconsRole.MY_BEACONS_ROLE_ALL,
+    pb.MyBeaconsWindow window = pb.MyBeaconsWindow.MY_BEACONS_WINDOW_UPCOMING,
+    int limit = 0,
+    String pageToken = '',
+  }) async {
+    final r = await _call(
+      () => _apiClient.beacons.listMyBeacons(
+        pb.ListMyBeaconsRequest(
+          role: role,
+          window: window,
+          limit: limit,
+          pageToken: pageToken,
+        ),
+      ),
+    );
+    return BeaconsPage(views: r.views.toList(), nextPageToken: r.nextPageToken);
+  }
+
+  /// ACCEPTED rows (organiser and accepted participants) or, for the organiser
+  /// only, REQUESTED rows with their notes; oldest first.
+  Future<ParticipantsPage> listParticipants({
+    required String beaconId,
+    required pb.ParticipantFilter filter,
+    int limit = 0,
+    String pageToken = '',
+  }) async {
+    final r = await _call(
+      () => _apiClient.beacons.listParticipants(
+        pb.ListParticipantsRequest(
+          beaconId: beaconId,
+          filter: filter,
+          limit: limit,
+          pageToken: pageToken,
+        ),
+      ),
+    );
+    return ParticipantsPage(
+      participants: r.participants.toList(),
+      nextPageToken: r.nextPageToken,
+    );
+  }
+
+  /// Sends [request] with [idempotencyKey] set; the cubit sets only the
+  /// optional fields that changed (presence is the server's diff).
+  Future<pb.BeaconView> updateBeacon({
+    required String idempotencyKey,
+    required pb.UpdateBeaconRequest request,
+  }) async {
+    final sent = request.deepCopy()..idempotencyKey = idempotencyKey;
+    final r = await _call(() => _apiClient.beacons.updateBeacon(sent));
+    return r.view;
+  }
+
+  /// Ask to join an OPEN plan; the answer is the caller's new viewer state.
+  Future<pb.ViewerState> requestToJoin({
+    required String idempotencyKey,
+    required String beaconId,
+    String note = '',
+  }) async {
+    final r = await _call(
+      () => _apiClient.beacons.requestToJoin(
+        pb.RequestToJoinRequest(
+          idempotencyKey: idempotencyKey,
+          beaconId: beaconId,
+          note: note,
+        ),
+      ),
+    );
+    return r.viewer;
+  }
+
+  Future<void> withdrawJoinRequest({
+    required String idempotencyKey,
+    required String beaconId,
+  }) {
+    return _call(
+      () => _apiClient.beacons.withdrawJoinRequest(
+        pb.WithdrawJoinRequestRequest(
+          idempotencyKey: idempotencyKey,
+          beaconId: beaconId,
+        ),
+      ),
+    );
+  }
+
+  /// The organiser accepts or declines one REQUESTED row.
+  Future<pb.BeaconView> respondToJoinRequest({
+    required String idempotencyKey,
+    required String beaconId,
+    required String userId,
+    required bool accept,
+  }) async {
+    final r = await _call(
+      () => _apiClient.beacons.respondToJoinRequest(
+        pb.RespondToJoinRequestRequest(
+          idempotencyKey: idempotencyKey,
+          beaconId: beaconId,
+          userId: userId,
+          response: accept
+              ? pb.JoinResponse.JOIN_RESPONSE_ACCEPT
+              : pb.JoinResponse.JOIN_RESPONSE_DECLINE,
+        ),
+      ),
+    );
+    return r.view;
+  }
+
+  Future<void> leaveBeacon({
+    required String idempotencyKey,
+    required String beaconId,
+  }) {
+    return _call(
+      () => _apiClient.beacons.leaveBeacon(
+        pb.LeaveBeaconRequest(
+          idempotencyKey: idempotencyKey,
+          beaconId: beaconId,
+        ),
+      ),
+    );
+  }
+
+  /// The organiser removes an ACCEPTED participant.
+  Future<pb.BeaconView> removeParticipant({
+    required String idempotencyKey,
+    required String beaconId,
+    required String userId,
+  }) async {
+    final r = await _call(
+      () => _apiClient.beacons.removeParticipant(
+        pb.RemoveParticipantRequest(
+          idempotencyKey: idempotencyKey,
+          beaconId: beaconId,
+          userId: userId,
+        ),
+      ),
+    );
+    return r.view;
   }
 
   Future<T> _call<T>(Future<T> Function() call) async {

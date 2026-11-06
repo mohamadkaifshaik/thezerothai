@@ -165,4 +165,43 @@ void main() {
       expect(const PushMessage(type: 'like').isMessage, isFalse);
     });
   });
+
+  test('beacon types open the plan when beacon_id is a 19-digit id', () {
+    const id = '1234567890123456789';
+    for (final t in [
+      kNotificationTypeBeaconRequest,
+      kNotificationTypeBeaconAccepted,
+      kNotificationTypeBeaconCancelled,
+    ]) {
+      expect(
+        notificationLocation(type: t, postId: '5', actorId: 'u9', beaconId: id),
+        '/plans/$id',
+        reason: t,
+      );
+      expect(
+        notificationLocation(
+          type: t,
+          postId: '5',
+          actorId: 'u9',
+          beaconId: '123',
+        ),
+        isNull,
+        reason: t,
+      );
+      expect(
+        notificationLocation(type: t, postId: '5', actorId: 'u9'),
+        isNull,
+        reason: t,
+      );
+    }
+    expect(
+      const PushMessage(type: 'beacon_request', beaconId: id).location,
+      '/plans/$id',
+    );
+    expect(
+      PushMessage.fromData({'type': 'beacon_accepted', 'beaconId': id})
+          .beaconId,
+      id,
+    );
+  });
 }

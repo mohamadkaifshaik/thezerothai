@@ -70,4 +70,28 @@ void main() {
       );
     });
   });
+
+  group('note and ids', () {
+    test('the note is 0-140 code points on one line', () {
+      expect(beaconNoteIssue(''), isNull);
+      expect(beaconNoteIssue('see you there'), isNull);
+      expect(
+        beaconNoteIssue('x' * (kBeaconNoteMaxLength + 1)),
+        BeaconTextIssue.tooLong,
+      );
+      expect(beaconNoteIssue('a\u200Bb'), BeaconTextIssue.notPlainOneLine);
+      expect(beaconNoteIssue('a\nb'), BeaconTextIssue.notPlainOneLine);
+    });
+    test('a beacon id is 19 digits', () {
+      expect(isBeaconId('1234567890123456789'), isTrue);
+      for (final bad in [
+        '123',
+        '12345678901234567a9',
+        '',
+        '12345678901234567890',
+      ]) {
+        expect(isBeaconId(bad), isFalse, reason: bad);
+      }
+    });
+  });
 }

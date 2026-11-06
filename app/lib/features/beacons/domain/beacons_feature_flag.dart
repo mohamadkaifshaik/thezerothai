@@ -9,9 +9,16 @@ const kFeatureBeacons = 'beacons';
 /// 5 OPEN/FULL plans per organiser.
 const kBeaconsOpenLimit = 'beacons_open';
 
+/// 10 REQUESTED rows per user.
+const kBeaconRequestsPendingLimit = 'beacon_requests_pending';
+
+/// open_spots above the server's cap (20).
+const kBeaconParticipantsLimit = 'beacon_participants';
+
 /// The server's caps, for copy and for disabling an action with the reason
 /// before a wasted call. The server stays authoritative.
 const kMaxOpenBeacons = 5;
+const kMaxPendingBeaconRequests = 10;
 const kBeaconMinSpots = 1;
 const kBeaconMaxSpots = 20;
 
@@ -19,6 +26,7 @@ const kBeaconMaxSpots = 20;
 const kBeaconTitleMaxLength = 60;
 const kBeaconDetailsMaxLength = 300;
 const kBeaconVenueMaxLength = 80;
+const kBeaconNoteMaxLength = 140;
 
 /// The durations offered (minutes); the server accepts 15-240.
 const kBeaconDurations = [15, 30, 45, 60, 90, 120, 180, 240];

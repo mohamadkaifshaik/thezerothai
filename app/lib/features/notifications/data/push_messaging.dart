@@ -28,6 +28,7 @@ class PushMessage {
     this.postId = '',
     this.actorId = '',
     this.conversationId = '',
+    this.beaconId = '',
   });
 
   final String type;
@@ -35,6 +36,9 @@ class PushMessage {
   final String postId;
   final String actorId;
   final String conversationId;
+
+  /// The plan a beacon push names (`beaconId`).
+  final String beaconId;
 
   /// A direct-message push (push-only: no notification row).
   bool get isMessage => type == kNotificationTypeMessage;
@@ -45,6 +49,7 @@ class PushMessage {
     postId: postId,
     actorId: actorId,
     conversationId: conversationId,
+    beaconId: beaconId,
   );
 
   factory PushMessage.fromData(Map<String, dynamic> data) {
@@ -55,6 +60,7 @@ class PushMessage {
       postId: field('postId'),
       actorId: field('actorId'),
       conversationId: field('conversationId'),
+      beaconId: field('beaconId'),
     );
   }
 }

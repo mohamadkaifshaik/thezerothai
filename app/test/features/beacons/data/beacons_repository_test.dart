@@ -212,4 +212,141 @@ void main() {
       expect(reported, 0);
     },
   );
+
+  test(
+    'requestToJoin sends the key, id and note and returns the viewer',
+    () async {
+      answer = (_) =>
+          pb.RequestToJoinResponse(viewer: pb.ViewerState(canWithdraw: true));
+
+      final v = await repo.requestToJoin(
+        idempotencyKey: _key,
+        beaconId: _bid,
+        note: 'see you',
+      );
+
+      final sent = requests.single as pb.RequestToJoinRequest;
+      expect(lastProcedure(), 'RequestToJoin');
+      expect(sent.idempotencyKey, _key);
+      expect(sent.beaconId, _bid);
+      expect(sent.note, 'see you');
+      expect(v.canWithdraw, isTrue);
+    },
+  );
+
+  test('withdraw and leave send the key and the id', () async {
+    answer = (p) => p.endsWith('WithdrawJoinRequest')
+        ? pb.WithdrawJoinRequestResponse()
+        : pb.LeaveBeaconResponse();
+
+    await repo.withdrawJoinRequest(idempotencyKey: _key, beaconId: _bid);
+    expect(lastProcedure(), 'WithdrawJoinRequest');
+    await repo.leaveBeacon(idempotencyKey: _key, beaconId: _bid);
+    expect(lastProcedure(), 'LeaveBeacon');
+    expect((requests[0] as pb.WithdrawJoinRequestRequest).beaconId, _bid);
+    expect((requests[1] as pb.LeaveBeaconRequest).idempotencyKey, _key);
+  });
+
+  test('respond maps accept and decline; remove sends the user', () async {
+    answer = (p) => p.endsWith('RespondToJoinRequest')
+        ? pb.RespondToJoinRequestResponse(view: _view())
+        : pb.RemoveParticipantResponse(view: _view());
+
+    await repo.respondToJoinRequest(
+      idempotencyKey: _key,
+      beaconId: _bid,
+      userId: 'u2',
+      accept: true,
+    );
+    await repo.respondToJoinRequest(
+      idempotencyKey: _key,
+      beaconId: _bid,
+      userId: 'u2',
+      accept: false,
+    );
+    final v = await repo.removeParticipant(
+      idempotencyKey: _key,
+      beaconId: _bid,
+      userId: 'u2',
+    );
+
+    expect(
+      (requests[0] as pb.RespondToJoinRequestRequest).response,
+      pb.JoinResponse.JOIN_RESPONSE_ACCEPT,
+    );
+    final declined = requests[1] as pb.RespondToJoinRequestRequest;
+    expect(declined.response, pb.JoinResponse.JOIN_RESPONSE_DECLINE);
+    expect(declined.userId, 'u2');
+    final removed = requests[2] as pb.RemoveParticipantRequest;
+    expect(removed.userId, 'u2');
+    expect(removed.beaconId, _bid);
+    expect(v.beacon.beaconId, _bid);
+  });
+
+  test(
+    'listParticipants sends the filter and token and maps the page',
+    () async {
+      answer = (_) => pb.ListParticipantsResponse(
+        participants: [
+          pb.Participant(
+            state: pb.ParticipantState.PARTICIPANT_STATE_REQUESTED,
+            note: 'hi',
+          ),
+        ],
+        nextPageToken: 't2',
+      );
+
+      final page = await repo.listParticipants(
+        beaconId: _bid,
+        filter: pb.ParticipantFilter.PARTICIPANT_FILTER_REQUESTED,
+        limit: 20,
+        pageToken: 't1',
+      );
+
+      final sent = requests.single as pb.ListParticipantsRequest;
+      expect(sent.beaconId, _bid);
+      expect(sent.filter, pb.ParticipantFilter.PARTICIPANT_FILTER_REQUESTED);
+      expect(sent.limit, 20);
+      expect(sent.pageToken, 't1');
+      expect(page.participants.single.note, 'hi');
+      expect(page.hasMore, isTrue);
+    },
+  );
+
+  test('listMyBeacons sends the role, window and limit', () async {
+    answer = (_) => pb.ListMyBeaconsResponse(views: [_view()]);
+
+    final page = await repo.listMyBeacons(
+      role: pb.MyBeaconsRole.MY_BEACONS_ROLE_ORGANISER,
+      window: pb.MyBeaconsWindow.MY_BEACONS_WINDOW_PAST,
+      limit: 20,
+    );
+
+    final sent = requests.single as pb.ListMyBeaconsRequest;
+    expect(sent.role, pb.MyBeaconsRole.MY_BEACONS_ROLE_ORGANISER);
+    expect(sent.window, pb.MyBeaconsWindow.MY_BEACONS_WINDOW_PAST);
+    expect(sent.limit, 20);
+    expect(page.views, hasLength(1));
+    expect(page.hasMore, isFalse);
+  });
+
+  test(
+    'updateBeacon sends only the fields set on the request, plus the key',
+    () async {
+      answer = (_) => pb.UpdateBeaconResponse(view: _view());
+
+      await repo.updateBeacon(
+        idempotencyKey: _key,
+        request: pb.UpdateBeaconRequest(beaconId: _bid, title: 'Tea'),
+      );
+
+      final sent = requests.single as pb.UpdateBeaconRequest;
+      expect(sent.idempotencyKey, _key);
+      expect(sent.beaconId, _bid);
+      expect(sent.hasTitle(), isTrue);
+      expect(sent.title, 'Tea');
+      expect(sent.hasDetails(), isFalse);
+      expect(sent.hasOpenSpots(), isFalse);
+    },
+  );
 }
