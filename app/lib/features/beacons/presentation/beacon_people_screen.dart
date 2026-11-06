@@ -1,0 +1,359 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../../core/network/app_exception.dart';
+import '../../../core/router/app_router.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
+import '../../../shared/widgets/primitives/app_back_header.dart';
+import '../../../shared/widgets/primitives/app_empty_view.dart';
+import '../../../shared/widgets/primitives/app_main_column.dart';
+import '../../../shared/widgets/primitives/app_menu_item_row.dart';
+import '../../../shared/widgets/primitives/app_section_header.dart';
+import '../../../shared/widgets/primitives/app_tab_bar.dart';
+import '../../../shared/widgets/user/user_list_skeleton.dart';
+import '../../graph/data/graph_repository.dart';
+import '../data/beacons_repository.dart';
+import 'beacons_error_messages.dart';
+import 'bloc/beacon_people_cubit.dart';
+import 'bloc/beacon_people_state.dart';
+import 'widgets/participant_row.dart';
+
+/// `/plans/:id/people` (R38): who is going, and for the organiser the
+/// requests with their notes and the controls (Accept; Decline, Decline and
+/// block; Remove). One GetBeacon tells whether the viewer manages the plan.
+class BeaconPeopleScreen extends StatefulWidget {
+  const BeaconPeopleScreen({super.key, required this.beaconId});
+
+  final String beaconId;
+
+  @override
+  State<BeaconPeopleScreen> createState() => _BeaconPeopleScreenState();
+}
+
+class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
+  late final BeaconsRepository _repository = context.read<BeaconsRepository>();
+  late final BeaconPeopleCubit _going;
+  BeaconPeopleCubit? _requests;
+  pb.BeaconView? _view;
+  AppException? _error;
+  var _tab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    final graph = context.read<GraphRepository?>();
+    _going = BeaconPeopleCubit(
+      repository: _repository,
+      beaconId: widget.beaconId,
+      filter: pb.ParticipantFilter.PARTICIPANT_FILTER_ACCEPTED,
+      graph: graph,
+    )..load();
+    _loadView(graph);
+  }
+
+  Future<void> _loadView(GraphRepository? graph) async {
+    try {
+      final view = await _repository.getBeacon(widget.beaconId);
+      if (!mounted) return;
+      setState(() {
+        _view = view;
+        if (view.viewer.canManage && _requests == null) {
+          _requests = BeaconPeopleCubit(
+            repository: _repository,
+            beaconId: widget.beaconId,
+            filter: pb.ParticipantFilter.PARTICIPANT_FILTER_REQUESTED,
+            graph: graph,
+          )..load();
+        }
+      });
+    } on AppException catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error);
+    }
+  }
+
+  @override
+  void dispose() {
+    _going.close();
+    _requests?.close();
+    super.dispose();
+  }
+
+  void _back() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRouter.planPath(widget.beaconId));
+    }
+  }
+
+  Future<bool> _confirm({
+    required String title,
+    required String body,
+    required String action,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(body),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(action),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true && mounted;
+  }
+
+  Future<void> _decline(pb.Participant p, {required bool block}) async {
+    final handle = p.user.handle;
+    final ok = block
+        ? await _confirm(
+            title: 'Decline and block @$handle?',
+            body: "They won't see your plans or profile.",
+            action: 'Decline and block',
+          )
+        : await _confirm(
+            title: "Decline @$handle's request?",
+            body: 'They can ask again later.',
+            action: 'Decline',
+          );
+    if (!ok) return;
+    final requests = _requests!;
+    await (block
+        ? requests.declineAndBlock(p.user.userId)
+        : requests.decline(p.user.userId));
+  }
+
+  Future<void> _remove(pb.Participant p) async {
+    if (!await _confirm(
+      title: 'Remove @${p.user.handle}?',
+      body: 'Their seat opens up for someone else.',
+      action: 'Remove',
+    )) {
+      return;
+    }
+    await _going.remove(p.user.userId);
+  }
+
+  void _say(String text) => ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(text)));
+
+  @override
+  Widget build(BuildContext context) {
+    final manages = _view?.viewer.canManage ?? false;
+    final requests = _requests;
+    return Scaffold(
+      body: SafeArea(
+        child: AppMainColumn(
+          child: MultiBlocListener(
+            listeners: [
+              BlocListener<BeaconPeopleCubit, BeaconPeopleState>(
+                bloc: _going,
+                listenWhen: (a, b) =>
+                    b.actionError != null && a.actionError != b.actionError,
+                listener: (_, state) => _say(state.actionError!),
+              ),
+              if (requests != null)
+                BlocListener<BeaconPeopleCubit, BeaconPeopleState>(
+                  bloc: requests,
+                  listenWhen: (a, b) =>
+                      b.actionError != null && a.actionError != b.actionError,
+                  listener: (_, state) => _say(state.actionError!),
+                ),
+            ],
+            child: Column(
+              children: [
+                AppBackHeader(title: 'People', onBack: _back),
+                if (manages && requests != null)
+                  AppTabBar(
+                    tabs: const [
+                      AppTab(label: 'Going'),
+                      AppTab(label: 'Requests'),
+                    ],
+                    selectedIndex: _tab,
+                    equalWidth: true,
+                    semanticLabel: 'People lists',
+                    onChanged: (i) {
+                      setState(() => _tab = i);
+                      // The other tab may have changed under an action here.
+                      (i == 0 ? _going : requests).load();
+                    },
+                  )
+                else
+                  const AppSectionHeader(title: 'Going'),
+                Expanded(
+                  child: _error != null
+                      ? Center(
+                          child: AppEmptyView(
+                            icon: Icons.error_outline,
+                            title: beaconsErrorMessage(_error!),
+                          ),
+                        )
+                      : _tab == 1 && requests != null
+                      ? _List(
+                          cubit: requests,
+                          empty: 'No requests yet',
+                          showNote: true,
+                          trailing: (p) => _requestControls(p, requests),
+                          onTap: _openProfile,
+                        )
+                      : _List(
+                          cubit: _going,
+                          empty: 'No one yet',
+                          trailing: manages ? _goingControls : null,
+                          onTap: _openProfile,
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openProfile(pb.Participant p) =>
+      context.push(AppRouter.profileByIdPath(p.user.userId));
+
+  Widget _requestControls(pb.Participant p, BeaconPeopleCubit requests) {
+    final busy = requests.state.busyUserId != null;
+    final canBlock = context.read<GraphRepository?>() != null;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextButton(
+          onPressed: busy ? null : () => requests.accept(p.user.userId),
+          child: const Text('Accept'),
+        ),
+        PopupMenuButton<String>(
+          tooltip: 'Request options',
+          icon: const Icon(Icons.more_horiz),
+          enabled: !busy,
+          onSelected: (value) => _decline(p, block: value == 'block'),
+          itemBuilder: (context) => [
+            const PopupMenuItem(
+              value: 'decline',
+              child: AppMenuItemRow(icon: Icons.close, label: 'Decline'),
+            ),
+            if (canBlock)
+              const PopupMenuItem(
+                value: 'block',
+                child: AppMenuItemRow(
+                  icon: Icons.block,
+                  label: 'Decline and block',
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _goingControls(pb.Participant p) => PopupMenuButton<String>(
+    tooltip: 'Participant options',
+    icon: const Icon(Icons.more_horiz),
+    enabled: _going.state.busyUserId == null,
+    onSelected: (_) => _remove(p),
+    itemBuilder: (context) => const [
+      PopupMenuItem(
+        value: 'remove',
+        child: AppMenuItemRow(
+          icon: Icons.person_remove_outlined,
+          label: 'Remove',
+        ),
+      ),
+    ],
+  );
+}
+
+class _List extends StatelessWidget {
+  const _List({
+    required this.cubit,
+    required this.empty,
+    required this.onTap,
+    this.showNote = false,
+    this.trailing,
+  });
+
+  final BeaconPeopleCubit cubit;
+  final String empty;
+  final bool showNote;
+  final Widget Function(pb.Participant)? trailing;
+  final void Function(pb.Participant) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<BeaconPeopleCubit, BeaconPeopleState>(
+      bloc: cubit,
+      builder: (context, state) {
+        switch (state.status) {
+          case PeopleLoad.loading:
+            return const UserListSkeleton(semanticsLabel: 'Loading people');
+          case PeopleLoad.error:
+            return Center(
+              child: AppEmptyView(
+                icon: Icons.error_outline,
+                title: beaconsErrorMessage(state.error!),
+                action: TextButton(
+                  onPressed: cubit.load,
+                  child: const Text('Try again'),
+                ),
+              ),
+            );
+          case PeopleLoad.ready:
+            if (state.rows.isEmpty) {
+              return Center(
+                child: AppEmptyView(icon: Icons.people_outline, title: empty),
+              );
+            }
+            return RefreshIndicator(
+              onRefresh: cubit.load,
+              child: ListView.builder(
+                physics: const AlwaysScrollableScrollPhysics(),
+                itemCount: state.rows.length + (state.hasMore ? 1 : 0),
+                itemBuilder: (context, i) {
+                  if (i == state.rows.length) {
+                    return Padding(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      child: state.loadingMore
+                          ? const Center(
+                              child: SizedBox(
+                                width: AppIconSize.lg,
+                                height: AppIconSize.lg,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            )
+                          : TextButton(
+                              onPressed: cubit.loadMore,
+                              child: const Text('Load more'),
+                            ),
+                    );
+                  }
+                  final p = state.rows[i];
+                  return ParticipantRow(
+                    participant: p,
+                    showNote: showNote,
+                    onTap: () => onTap(p),
+                    trailing: trailing?.call(p),
+                  );
+                },
+              ),
+            );
+        }
+      },
+    );
+  }
+}

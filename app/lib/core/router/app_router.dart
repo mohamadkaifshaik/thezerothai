@@ -191,6 +191,11 @@ class AppRouter {
   static const planNewPath = '/plans/new';
   static String planPath(String beaconId) =>
       '/plans/${Uri.encodeComponent(beaconId)}';
+  // `/plans/mine` is matched before `/plans/:id` too.
+  static const plansMinePath = '/plans/mine';
+  static String planPeoplePath(String beaconId) =>
+      '${planPath(beaconId)}/people';
+  static String planEditPath(String beaconId) => '${planPath(beaconId)}/edit';
   // Manage pinned (the Home tabs); needs `lists` and `ui_shell`.
   static const pinnedPath = '/home/pinned';
   // The search results, behind the `search` flag; build links with

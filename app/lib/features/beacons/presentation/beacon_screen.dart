@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -6,22 +8,39 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
+import '../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart';
 import '../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
+import '../../../shared/widgets/primitives/app_menu_item_row.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
+import '../../../shared/widgets/primitives/app_status_pill.dart';
 import '../../../shared/widgets/primitives/app_tile_icon.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
+import '../../messages/domain/messaging_feature_flag.dart';
+import '../../messages/presentation/open_conversation.dart';
+import '../../messages/presentation/report_conversation.dart'
+    show thankForReport;
+import '../../moderation/domain/reports_feature_flag.dart';
+import '../../moderation/presentation/report_sheet.dart';
+import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/beacons_repository.dart';
 import '../domain/beacon_labels.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/beacon_detail_cubit.dart';
 import 'bloc/beacon_detail_state.dart';
 import 'widgets/beacon_status_pill.dart';
+import 'widgets/join_note_sheet.dart';
 
-/// `/plans/:id` (R32): the server's view of one plan. The organiser sees
-/// Cancel while the plan is OPEN or FULL; participation controls are PR 7's.
+/// The NOT_FOUND text of the plan report sheet.
+const kReportBeaconNotFound = "This plan isn't available to report any more.";
+
+/// `/plans/:id` (R32, R37): the server's view of one plan. The buttons follow
+/// `ViewerState`: Ask to join, Withdraw request, Leave plan; the organiser's
+/// People, Edit and Cancel plan. The menu offers Message organiser (messaging
+/// on, not the organiser) and Report plan (reports on, not the organiser).
+/// Every write reloads the view (R35).
 class BeaconScreen extends StatefulWidget {
   const BeaconScreen({super.key, required this.beaconId});
 
@@ -51,26 +70,86 @@ class _BeaconScreenState extends State<BeaconScreen> {
     }
   }
 
-  Future<void> _cancel() async {
+  /// A flag of the caller; false when no onboarding state is in scope.
+  bool _flag(String name) =>
+      context.read<OnboardingBloc?>()?.state.enabledFeatures.contains(name) ??
+      false;
+
+  Future<bool> _confirm({
+    required String title,
+    required String body,
+    required String keep,
+    required String action,
+  }) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Cancel this plan?'),
-        content: const Text('Everyone who joined will be told.'),
+        title: Text(title),
+        content: Text(body),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Keep'),
+            child: Text(keep),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Cancel plan'),
+            child: Text(action),
           ),
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    return confirmed == true && mounted;
+  }
+
+  Future<void> _cancel() async {
+    if (!await _confirm(
+      title: 'Cancel this plan?',
+      body: 'Everyone who joined will be told.',
+      keep: 'Keep',
+      action: 'Cancel plan',
+    )) {
+      return;
+    }
     await _cubit.cancel();
+  }
+
+  Future<void> _request() async {
+    final note = await showJoinNoteSheet(
+      context,
+      title: _cubit.state.view?.beacon.title ?? 'this plan',
+    );
+    if (note == null || !mounted) return;
+    await _cubit.request(note);
+  }
+
+  Future<void> _leave() async {
+    if (!await _confirm(
+      title: 'Leave this plan?',
+      body: 'Your seat opens up for someone else.',
+      keep: 'Stay',
+      action: 'Leave',
+    )) {
+      return;
+    }
+    await _cubit.leave();
+  }
+
+  /// Opens [path] and reloads the view on return (an edit or a removal there).
+  Future<void> _open(String path) async {
+    await context.push(path);
+    if (mounted) await _cubit.load();
+  }
+
+  Future<void> _report(pb.Beacon b) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final outcome = await showReportSheet(
+      context,
+      targetType: ReportTargetType.REPORT_TARGET_TYPE_BEACON,
+      targetId: b.beaconId,
+      subject: b.title,
+      notFoundMessage: kReportBeaconNotFound,
+    );
+    thankForReport(messenger, outcome);
   }
 
   @override
@@ -87,13 +166,56 @@ class _BeaconScreenState extends State<BeaconScreen> {
               ..showSnackBar(SnackBar(content: Text(state.actionError!))),
             builder: (context, state) => Column(
               children: [
-                AppBackHeader(title: 'Plan', onBack: _back),
+                AppBackHeader(
+                  title: 'Plan',
+                  onBack: _back,
+                  actions: [?_menu(state)],
+                ),
                 Expanded(child: _body(context, state)),
               ],
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget? _menu(BeaconDetailState state) {
+    final view = state.view;
+    if (view == null || view.viewer.canManage) return null;
+    final message = _flag(kFeatureMessaging);
+    final report = _flag(kFeatureReports);
+    if (!message && !report) return null;
+    return PopupMenuButton<String>(
+      tooltip: 'Plan options',
+      icon: const Icon(Icons.more_horiz),
+      style: IconButton.styleFrom(
+        minimumSize: const Size.square(AppSpacing.minTapTarget),
+      ),
+      onSelected: (value) => switch (value) {
+        'message' => unawaited(
+          openConversationWith(context, view.beacon.organiser),
+        ),
+        _ => unawaited(_report(view.beacon)),
+      },
+      itemBuilder: (context) => [
+        if (message)
+          const PopupMenuItem(
+            value: 'message',
+            child: AppMenuItemRow(
+              icon: Icons.mail_outline,
+              label: 'Message organiser',
+            ),
+          ),
+        if (report)
+          const PopupMenuItem(
+            value: 'report',
+            child: AppMenuItemRow(
+              icon: Icons.flag_outlined,
+              label: 'Report plan',
+            ),
+          ),
+      ],
     );
   }
 
@@ -129,8 +251,13 @@ class _BeaconScreenState extends State<BeaconScreen> {
             padding: const EdgeInsets.all(AppSpacing.md),
             child: _Details(
               view: state.view!,
-              cancelBusy: state.cancelBusy,
+              busy: state.busy,
               onCancel: _cancel,
+              onRequest: _request,
+              onWithdraw: _cubit.withdraw,
+              onLeave: _leave,
+              onPeople: () => _open(AppRouter.planPeoplePath(widget.beaconId)),
+              onEdit: () => _open(AppRouter.planEditPath(widget.beaconId)),
             ),
           ),
         );
@@ -141,23 +268,50 @@ class _BeaconScreenState extends State<BeaconScreen> {
 class _Details extends StatelessWidget {
   const _Details({
     required this.view,
-    required this.cancelBusy,
+    required this.busy,
     required this.onCancel,
+    required this.onRequest,
+    required this.onWithdraw,
+    required this.onLeave,
+    required this.onPeople,
+    required this.onEdit,
   });
 
   final pb.BeaconView view;
-  final bool cancelBusy;
+  final BeaconAction? busy;
   final VoidCallback onCancel;
+  final VoidCallback onRequest;
+  final VoidCallback onWithdraw;
+  final VoidCallback onLeave;
+  final VoidCallback onPeople;
+  final VoidCallback onEdit;
+
+  Widget _spinner(IconData icon, BeaconAction action) => busy == action
+      ? const SizedBox(
+          width: AppIconSize.sm,
+          height: AppIconSize.sm,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        )
+      : Icon(icon);
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
     final b = view.beacon;
-    final canCancel =
-        view.viewer.canManage &&
-        (b.status == pb.BeaconStatus.BEACON_STATUS_OPEN ||
-            b.status == pb.BeaconStatus.BEACON_STATUS_FULL);
+    final v = view.viewer;
+    final live =
+        b.status == pb.BeaconStatus.BEACON_STATUS_OPEN ||
+        b.status == pb.BeaconStatus.BEACON_STATUS_FULL;
+    final canCancel = v.canManage && live;
+    final idle = busy == null;
+    final viewerPill = switch (v.participantState) {
+      pb.ParticipantState.PARTICIPANT_STATE_REQUESTED when v.canWithdraw =>
+        'Requested',
+      pb.ParticipantState.PARTICIPANT_STATE_ACCEPTED when v.canLeave =>
+        "You're going",
+      _ => null,
+    };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -181,7 +335,18 @@ class _Details extends StatelessWidget {
                     child: Text(b.title, style: theme.textTheme.titleLarge),
                   ),
                   const SizedBox(height: AppSpacing.xs),
-                  BeaconStatusPill(status: b.status),
+                  Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.xs,
+                    children: [
+                      BeaconStatusPill(status: b.status),
+                      if (viewerPill != null)
+                        AppStatusPill(
+                          label: viewerPill,
+                          tone: AppStatusTone.info,
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -231,18 +396,57 @@ class _Details extends StatelessWidget {
           const SizedBox(height: AppSpacing.md),
           Text(b.details, style: theme.textTheme.bodyMedium),
         ],
-        if (canCancel) ...[
+        if (v.canRequest) ...[
+          const SizedBox(height: AppSpacing.lg),
+          FilledButton.icon(
+            onPressed: idle ? onRequest : null,
+            icon: _spinner(Icons.person_add_alt_outlined, BeaconAction.request),
+            label: const Text('Ask to join'),
+          ),
+        ],
+        if (v.canWithdraw) ...[
           const SizedBox(height: AppSpacing.lg),
           OutlinedButton.icon(
-            onPressed: cancelBusy ? null : onCancel,
-            icon: cancelBusy
-                ? const SizedBox(
-                    width: AppIconSize.sm,
-                    height: AppIconSize.sm,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.event_busy_outlined),
-            label: const Text('Cancel plan'),
+            onPressed: idle ? onWithdraw : null,
+            icon: _spinner(Icons.undo, BeaconAction.withdraw),
+            label: const Text('Withdraw request'),
+          ),
+        ],
+        if (v.canLeave) ...[
+          const SizedBox(height: AppSpacing.lg),
+          OutlinedButton.icon(
+            onPressed: idle ? onLeave : null,
+            icon: _spinner(Icons.logout, BeaconAction.leave),
+            label: const Text('Leave plan'),
+          ),
+        ],
+        if (v.canManage) ...[
+          const SizedBox(height: AppSpacing.lg),
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              OutlinedButton.icon(
+                onPressed: onPeople,
+                icon: const Icon(Icons.people_outline),
+                label: Text('People · ${b.acceptedCount}'),
+              ),
+              if (live)
+                OutlinedButton.icon(
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('Edit'),
+                ),
+              if (canCancel)
+                OutlinedButton.icon(
+                  onPressed: idle ? onCancel : null,
+                  icon: _spinner(
+                    Icons.event_busy_outlined,
+                    BeaconAction.cancel,
+                  ),
+                  label: const Text('Cancel plan'),
+                ),
+            ],
           ),
         ],
       ],

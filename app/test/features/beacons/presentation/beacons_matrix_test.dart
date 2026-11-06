@@ -1,6 +1,9 @@
 import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
 import 'package:dzeroth/features/beacons/presentation/beacon_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/beacons_screen.dart';
+import 'package:dzeroth/features/beacons/presentation/beacon_people_screen.dart';
+import 'package:dzeroth/features/beacons/presentation/edit_beacon_screen.dart';
+import 'package:dzeroth/features/beacons/presentation/my_beacons_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/create_beacon_screen.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:flutter/material.dart';
@@ -87,6 +90,79 @@ void main() {
       await open(tester, CreateBeaconScreen(now: () => now), server, env);
       expectNoOverflow(tester);
       expect(find.text('New plan'), findsOneWidget);
+    },
+    textScales: kMatrixTextScalesLarge,
+    height: 3000,
+  );
+
+  forEachThemeAndWidth(
+    'the detail with the viewer pill and buttons fits',
+    (tester, env) async {
+      final server = FakeBeaconsServer();
+      final v = beaconView(
+        startAt: now.add(const Duration(hours: 1)),
+        title: 'A very long plan title that could fill the whole row twice',
+        accepted: 1,
+      );
+      v.viewer = pb.ViewerState(
+        participantState: pb.ParticipantState.PARTICIPANT_STATE_ACCEPTED,
+        canLeave: true,
+      );
+      server.public.add(v);
+      await open(tester, const BeaconScreen(beaconId: kBeaconIdA), server, env);
+      expectNoOverflow(tester);
+      expect(find.text("You're going"), findsOneWidget);
+      expect(find.text('Leave plan'), findsOneWidget);
+    },
+    textScales: kMatrixTextScalesLarge,
+    height: 2400,
+  );
+
+  forEachThemeAndWidth(
+    'people, my plans and edit fit',
+    (tester, env) async {
+      final server = FakeBeaconsServer();
+      server.public.add(
+        beaconView(
+          startAt: now.add(const Duration(hours: 1)),
+          canManage: true,
+          accepted: 1,
+        ),
+      );
+      server.going[kBeaconIdA] = [
+        participant(
+          userId: 'u1',
+          name: 'A very long display name that wraps around',
+          handle: 'averylonghandlethatwraps',
+        ),
+      ];
+      server.requests[kBeaconIdA] = [
+        participant(
+          userId: 'u3',
+          name: 'Cy',
+          state: pb.ParticipantState.PARTICIPANT_STATE_REQUESTED,
+          note: 'A long note that should wrap onto several lines without any overflow at all',
+        ),
+      ];
+      server.mine.add(
+        beaconView(startAt: now.add(const Duration(hours: 1)), canManage: true),
+      );
+      await open(
+        tester,
+        const BeaconPeopleScreen(beaconId: kBeaconIdA),
+        server,
+        env,
+      );
+      expectNoOverflow(tester);
+      await open(tester, const MyBeaconsScreen(), server, env);
+      expectNoOverflow(tester);
+      await open(
+        tester,
+        const EditBeaconScreen(beaconId: kBeaconIdA),
+        server,
+        env,
+      );
+      expectNoOverflow(tester);
     },
     textScales: kMatrixTextScalesLarge,
     height: 3000,
