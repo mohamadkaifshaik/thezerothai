@@ -179,40 +179,16 @@ void main() {
     expect(find.text('Replies'), findsNothing);
   });
 
-  testWidgets('replies flag on: a Replies tab loads the include_replies feed '
-      '(0 extra RPCs until tapped), without pending posts', (tester) async {
+  testWidgets('Replies is absent even with the replies feature enabled', (
+    tester,
+  ) async {
     final repliesFeed = FeedKey.user('viewer-uid', includeReplies: true);
     arrange(profileUserId: 'viewer-uid', features: {'posts', 'replies'});
     stubFeed(ownFeed, snapshotOf([2, 1], authorId: 'viewer-uid'));
-    stubFeed(repliesFeed, snapshotOf([9], authorId: 'viewer-uid'));
-    pending.add(
-      PendingPost(
-        localId: 'k',
-        text: 'my pending post',
-        author: common.AuthorSnapshot(userId: 'viewer-uid', handle: 'viewer'),
-        createdAt: DateTime.now(),
-      ),
-    );
-
     await open(tester);
-
-    expect(find.text('Replies'), findsOneWidget);
-    expect(find.text('post 2'), findsOneWidget);
+    expect(find.text('Replies'), findsNothing);
+    verifyNever(() => timeline.cached(repliesFeed));
     verifyNever(() => timeline.refresh(repliesFeed));
-
-    await tester.tap(find.text('Replies'));
-    await tester.pumpAndSettle();
-
-    verify(() => timeline.refresh(repliesFeed)).called(1);
-    expect(find.text('post 9'), findsOneWidget);
-    expect(find.text('post 2'), findsNothing);
-    expect(find.text('my pending post'), findsNothing);
-
-    await tester.tap(find.text('Posts'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('post 2'), findsOneWidget);
-    expect(find.text('my pending post'), findsOneWidget);
   });
 
   testWidgets('profile tabs form one content-sized scrolling group', (
@@ -223,7 +199,7 @@ void main() {
     await open(tester);
 
     final bar = tester.widget<AppTabBar>(find.byType(AppTabBar));
-    expect(bar.tabs.map((tab) => tab.label), ['Posts', 'Replies', 'Articles']);
+    expect(bar.tabs.map((tab) => tab.label), ['Posts', 'Articles']);
     expect(bar.equalWidth, isFalse);
     expect(bar.semanticLabel, 'Profile timelines');
     expect(
@@ -259,7 +235,7 @@ void main() {
             );
 
             expect(tester.takeException(), isNull);
-            expect(find.text('Replies'), findsOneWidget);
+            expect(find.text('Replies'), findsNothing);
             expect(find.text('post 2'), findsOneWidget);
           },
         );

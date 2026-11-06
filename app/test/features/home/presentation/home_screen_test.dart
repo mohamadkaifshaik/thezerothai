@@ -192,7 +192,7 @@ void main() {
   ) async {
     await open(tester, features: const {});
 
-    expect(find.text('Home'), findsOneWidget);
+    expect(find.text('Posts'), findsOneWidget);
     expect(find.text('Your timeline is coming soon.'), findsOneWidget);
     expect(find.byIcon(Icons.dynamic_feed_outlined), findsOneWidget);
     verifyNever(() => timeline.cached(feed));
@@ -857,7 +857,7 @@ void main() {
           await open(tester, theme: theme.value, textScale: 2);
 
           expect(find.text(rowLabel), findsOneWidget);
-          expect(find.text('Home'), findsOneWidget);
+          expect(find.text('Posts'), findsOneWidget);
           expect(tester.takeException(), isNull);
         },
       );

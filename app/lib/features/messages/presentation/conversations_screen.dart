@@ -225,6 +225,16 @@ class _ConversationsViewState extends State<_ConversationsView>
       listener: (context, push) =>
           _onMessagePush(push.lastMessageConversationId),
       child: Scaffold(
+        floatingActionButton:
+            _isInbox &&
+                widget.canCompose &&
+                MediaQuery.sizeOf(context).width < AppBreakpoints.mobile
+            ? FloatingActionButton(
+                tooltip: 'New message',
+                onPressed: widget.onNewMessage,
+                child: const Icon(Icons.mail_outline),
+              )
+            : null,
         body: LayoutBuilder(
           builder: (context, constraints) {
             final inset = math.max(
@@ -245,7 +255,9 @@ class _ConversationsViewState extends State<_ConversationsView>
                           showAccountAvatar: false,
                           centerTitle: true,
                           actions: [
-                            if (widget.canCompose)
+                            if (widget.canCompose &&
+                                MediaQuery.sizeOf(context).width >=
+                                    AppBreakpoints.mobile)
                               IconButton(
                                 tooltip: 'New message',
                                 onPressed: widget.onNewMessage,

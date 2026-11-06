@@ -119,8 +119,8 @@ class TimelineFeedView extends StatefulWidget {
   /// than asked, or empty, and still carry a token (the server drops cards
   /// whose embedded author the caller blocks or mutes: the profile Reposts
   /// and Media tabs); a view that is not tall enough to scroll
-  /// would never ask for the next page. Off for Home and the Posts and
-  /// Replies tabs, whose pages are full.
+  /// would never ask for the next page. Off for Home and unfiltered Posts
+  /// timelines, whose pages are full.
   final bool fillViewport;
 
   /// Pin / Unpin rows on the viewer's own posts: the own profile
@@ -151,6 +151,12 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
     WidgetsBinding.instance.addObserver(this);
     _controller.addListener(_onScroll);
     _startTicker();
+    // A lazily mounted profile page may receive an already-loaded cubit.
+    // Follow its remaining cursor after the first layout as well as after
+    // later state changes, so short/empty filtered pages cannot get stuck.
+    if (widget.fillViewport) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _fillIfShort());
+    }
   }
 
   @override
@@ -236,22 +242,33 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
       unawaited(cubit.loadMore());
       return;
     }
-    final controller = widget.nested
-        ? PrimaryScrollController.maybeOf(context)
-        : _controller;
-    if (controller == null || !controller.hasClients) return;
-    if (controller.position.maxScrollExtent <= 0) {
+    final position = _scrollPosition;
+    if (position != null && position.maxScrollExtent <= 0) {
       unawaited(cubit.loadMore());
     }
   }
 
+  /// A nested pager can attach two feeds to its primary controller during a
+  /// transition. Select this feed's position instead of assuming a single
+  /// attachment, or moving every visible page when showing new posts.
+  ScrollPosition? get _scrollPosition {
+    if (!widget.nested) {
+      return _controller.hasClients ? _controller.position : null;
+    }
+    final controller = PrimaryScrollController.maybeOf(context);
+    if (controller == null) return null;
+    for (final position in controller.positions) {
+      final feed = position.context.storageContext
+          .findAncestorWidgetOfExactType<TimelineFeedView>();
+      if (identical(feed, widget)) return position;
+    }
+    return null;
+  }
+
   void _showNewPosts(TimelineCubit cubit) {
     cubit.showNewPosts();
-    // Nested: the body's own (inner) controller; the header stays as it is.
-    final controller = widget.nested
-        ? PrimaryScrollController.maybeOf(context)
-        : _controller;
-    if (controller != null && controller.hasClients) controller.jumpTo(0);
+    // Keep the outer profile header and other pages at their own offsets.
+    _scrollPosition?.jumpTo(0);
   }
 
   /// Nested bodies have no controller of their own: the prefetch reads the

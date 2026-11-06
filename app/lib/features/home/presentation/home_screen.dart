@@ -139,7 +139,7 @@ class _FollowingFeed extends StatelessWidget {
           headerSlivers: [
             // 53dp top bar: the avatar button (narrow layouts, opens the
             // drawer) and the title, over the theme's bottom hairline.
-            AppTopBar.sliver(title: 'Home'),
+            AppTopBar.sliver(title: 'Posts', centerTitle: true),
             SliverToBoxAdapter(child: tabBar),
             // One opt-in card above the feed; hidden unless the
             // notifications flag is on and push can be offered.
@@ -174,7 +174,7 @@ class _HomePlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Home')),
+      appBar: AppBar(title: const Text('Posts'), centerTitle: true),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),

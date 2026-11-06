@@ -8,6 +8,7 @@ import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 class MockIdentityRepository extends Mock implements IdentityRepository {}
@@ -142,6 +143,54 @@ void main() {
         pageToken: any(named: 'pageToken'),
       ),
     ).thenAnswer((_) async => page);
+  }
+
+  for (final tab in GraphListTab.values) {
+    testWidgets('${tab.name} rows navigate to the selected profile', (
+      tester,
+    ) async {
+      when(
+        () => graphRepository.listFollowers(
+          userId: 'target-uid',
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+        ),
+      ).thenAnswer((_) async => GraphPage(items: [item(7)], nextPageToken: ''));
+      stubFollowing(GraphPage(items: [item(7)], nextPageToken: ''));
+      final router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (_, _) => GraphListScreen(
+              handle: 'kaif',
+              userId: 'target-uid',
+              initialTab: tab,
+            ),
+          ),
+          GoRoute(
+            path: '/u/:userId',
+            builder: (_, state) => Scaffold(
+              body: Text('Profile ${state.pathParameters['userId']}'),
+            ),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        RepositoryProvider<GraphRepository>.value(
+          value: graphRepository,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('User 7'));
+      await tester.pumpAndSettle();
+      expect(
+        router.routerDelegate.currentConfiguration.last.matchedLocation,
+        '/u/u7',
+      );
+      expect(find.text('Profile u7'), findsOneWidget);
+    });
   }
 
   testWidgets('45 followers load as 3 pages with no duplicates', (

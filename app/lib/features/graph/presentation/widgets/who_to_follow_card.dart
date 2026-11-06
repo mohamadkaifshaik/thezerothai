@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../../../core/router/app_router.dart';
 
 import '../../../../core/telemetry/analytics_event.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -163,6 +166,11 @@ class _CardState extends State<_Card> {
                   key: ValueKey(shown[i].user.userId),
                   followSource: FollowSource.suggestions,
                   item: shown[i],
+                  onProfileTap: shown[i].user.userId.isEmpty
+                      ? null
+                      : () => context.push(
+                          AppRouter.profileByIdPath(shown[i].user.userId),
+                        ),
                   showDivider: collapsed || i < shown.length - 1,
                   onFollowed: () =>
                       unawaited(cubit.followed(shown[i].user.userId)),

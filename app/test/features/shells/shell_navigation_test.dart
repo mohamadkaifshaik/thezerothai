@@ -5,7 +5,6 @@ import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/app_drawer.dart';
 import 'package:dzeroth/features/shells/domain/shell_entries.dart';
 import 'package:dzeroth/features/shells/domain/shells_feature_flag.dart';
-import 'package:dzeroth/features/shells/presentation/advertise_screen.dart';
 import 'package:dzeroth/features/shells/presentation/calls_screen.dart';
 import 'package:dzeroth/features/shells/presentation/creator_studio_screen.dart';
 import 'package:dzeroth/features/shells/presentation/premium_dialog.dart';
@@ -89,14 +88,11 @@ void main() {
               tester.getTopLeft(find.text(label).last).dy;
           final order = [
             top('Profile'),
-            top('Calls'),
             top('Articles'),
             top('Lists'),
             top('Communities'),
             top('History'),
             top('Premium'),
-            top('Creator tools'),
-            top('Advertise'),
             top('Settings and Privacy'),
             top('Sign out'),
           ];
@@ -116,22 +112,15 @@ void main() {
       }
     }
 
-    shellsTest('each row opens its page and closes the drawer', (tester) async {
-      final pages = {
-        'Creator tools': find.byType(CreatorStudioScreen),
-        'Advertise': find.byType(AdvertiseScreen),
-        'Calls': find.byType(CallsScreen),
-      };
-      for (final entry in pages.entries) {
-        final app = await pumpShellsApp(tester);
-        await openDrawer(tester);
-        await tester.tap(find.text(entry.key));
-        await tester.pumpAndSettle();
-
-        expect(entry.value, findsOneWidget, reason: entry.key);
-        expect(find.byType(AppDrawer), findsNothing);
-        expect(app.path, isNot(AppRouter.homePath));
+    shellsTest('removed destinations never appear in the drawer', (
+      tester,
+    ) async {
+      await pumpShellsApp(tester);
+      await openDrawer(tester);
+      for (final label in ['Calls', 'Creator tools', 'Advertise']) {
+        expect(find.text(label), findsNothing);
       }
+      expect(find.text('Premium'), findsOneWidget);
     });
 
     shellsTest('Premium closes the drawer and pushes the dialog over Home', (
@@ -157,15 +146,15 @@ void main() {
       await openDrawer(tester);
 
       expect(
-        tester.getSemantics(find.bySemanticsLabel('Calls')),
-        matchesSemantics(label: 'Calls', isButton: true, hasTapAction: true),
+        tester.getSemantics(find.bySemanticsLabel('Premium')),
+        matchesSemantics(label: 'Premium', isButton: true, hasTapAction: true),
       );
     });
 
     shellsTest('rows are 48 dp targets at least', (tester) async {
       await pumpShellsApp(tester);
       await openDrawer(tester);
-      for (final label in _labels) {
+      for (final label in ['Premium']) {
         expectMinTarget(
           tester,
           find.ancestor(of: find.text(label), matching: find.byType(InkWell)),
@@ -194,7 +183,9 @@ void main() {
           for (final label in _labels) {
             expect(
               find.text(label),
-              expectEntries ? findsOneWidget : findsNothing,
+              expectEntries && label == 'Premium'
+                  ? findsOneWidget
+                  : findsNothing,
               reason: label,
             );
           }
@@ -220,7 +211,9 @@ void main() {
         for (final other in _labels) {
           expect(
             find.text(other),
-            other == label ? findsOneWidget : findsNothing,
+            other == label && kind == ShellKind.premium
+                ? findsOneWidget
+                : findsNothing,
             reason: other,
           );
         }

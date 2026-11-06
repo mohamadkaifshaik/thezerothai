@@ -7,6 +7,9 @@ import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../support/suggestions_fixtures.dart' show suggestedUser;
@@ -38,6 +41,65 @@ void main() {
     RepositoryProvider<GraphRepository>.value(value: graphRepo, child: row),
     size: const Size(360, 400),
   );
+
+  for (final target in ['avatar', 'name', 'handle', 'padding']) {
+    testWidgets('the $target opens the stable user-id profile route', (
+      tester,
+    ) async {
+      final router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, _) => Scaffold(
+              body: UserListRow(
+                item: suggestedUser(1),
+                onProfileTap: () =>
+                    context.push(AppRouter.profileByIdPath('u1')),
+              ),
+            ),
+          ),
+          GoRoute(
+            path: '/u/:userId',
+            builder: (_, state) => Scaffold(
+              body: Text('Profile ${state.pathParameters['userId']}'),
+            ),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        RepositoryProvider<GraphRepository>.value(
+          value: graphRepo,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+      switch (target) {
+        case 'avatar':
+          await tester.tap(find.byType(AppAvatar));
+        case 'name':
+          await tester.tap(find.text('User 1'));
+        case 'handle':
+          await tester.tap(find.text('@user1'));
+        case 'padding':
+          final rect = tester.getRect(find.byType(UserListRow));
+          await tester.tapAt(Offset(rect.left + 2, rect.top + 12));
+      }
+      await tester.pumpAndSettle();
+      expect(
+        router.routerDelegate.currentConfiguration.last.matchedLocation,
+        AppRouter.profileByIdPath('u1'),
+      );
+      expect(find.text('Profile u1'), findsOneWidget);
+      verifyNever(() => graphRepo.relationshipFor(any()));
+      verifyNever(
+        () => graphRepo.follow(
+          userId: any(named: 'userId'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      );
+    });
+  }
 
   group('onFollowed', () {
     testWidgets('fires when the server confirmed, not for the optimistic '
