@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	articlesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1/articlesv1connect"
+	beaconsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1/beaconsv1connect"
 	communitiesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1/communitiesv1connect"
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
@@ -43,6 +44,7 @@ var expectedDailyCaps = map[string][]string{
 	"follow_list_daily": {
 		graphv1connect.GraphServiceListFollowersProcedure, graphv1connect.GraphServiceListFollowingProcedure,
 	},
+	"beacons_created_daily": {beaconsv1connect.BeaconServiceCreateBeaconProcedure},
 }
 
 // requiredPerProcedureBuckets are procedures whose own per-minute bucket must stay: they once had a daily cap and the per-minute

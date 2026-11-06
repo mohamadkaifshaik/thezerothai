@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
@@ -150,6 +151,17 @@ var lifecycleCollections = []collectionRow{
 	{Name: "communities", Disposition: erasedByStep, Step: "communities", Section: "communities", Owner: "communities", Cite: "ADR-0031 D9"},
 	{Name: "communityMembers", Sub: true, Disposition: erasedByStep, Step: "communities", Section: "communities", Owner: "communities", Cite: "ADR-0031 D9"},
 	{Name: "communityMemberships", Disposition: erasedByStep, Step: "communities", Section: "communities", Owner: "communities", Cite: "ADR-0031 D9"},
+	// Beacons/{beaconId} (organiserId), its beaconParticipants subcollection (doc id = uid, field uid) and
+	// users/{uid}/beaconMemberships/{beaconId} (beaconId, role, state, times; never another user's uid, R3). Deleting users/{uid}
+	// removes none of it. The `beacons` step (beacons.Eraser, BeforeIdentity after communities) deletes the user's organised beacons
+	// with their participant docs, then the participant docs the user's membership rows name, then the membership rows; so the sweep
+	// finds no organiserId, uid or doc-id residue and needs no allowlist entry. A participant's membership row that points at an
+	// erased organiser's beacon dangles without a uid and is dropped lazily. The `beacons` section exports organised beacons and the
+	// user's memberships. beaconParticipants is a subcollection of beacons (not of users/{uid}): the sweep scans it as a collection
+	// group, keyed on the collection id, which is why it is not named `participants`.
+	{Name: "beacons", Disposition: erasedByStep, Step: "beacons", Section: "beacons", Owner: "beacons", Cite: "ADR-0032 (Beacons; docs/beacons-plan.md section 5 until the ADR is written)"},
+	{Name: "beaconParticipants", Sub: true, Disposition: erasedByStep, Step: "beacons", Section: "beacons", Owner: "beacons", Cite: "ADR-0032 (Beacons; docs/beacons-plan.md section 5 until the ADR is written)"},
+	{Name: "beaconMemberships", Sub: true, Disposition: erasedByStep, Step: "beacons", Section: "beacons", Owner: "beacons", Cite: "ADR-0032 (Beacons; docs/beacons-plan.md section 5 until the ADR is written)"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
 	// Trends/current holds tags and counts only (distinct authors are counted in memory and never
 	// persisted), and trends/hidden holds the operator hide list as folded tag keys: no uid, no actor. So there is
@@ -357,6 +369,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 		t.Fatal(err)
 	}
 	if err := registerCommunitiesLifecycle(l, communities.NewFirestoreRepo(nil, nil), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerBeaconsLifecycle(l, beacons.NewFirestoreRepo(nil, nil, nil)); err != nil {
 		t.Fatal(err)
 	}
 	return l.StepNames(), l.ExportSectionNames()
