@@ -223,7 +223,9 @@ void main() {
     }, '/plans/$kBeaconIdA/people');
     expect(path, '/plans/$kBeaconIdA/people');
     expect(find.byType(BeaconPeopleScreen), findsOneWidget);
-    expect(beacons.calls, containsAll(['get', 'people:accepted']));
+    // The fixture's viewer is not going: the people screen reads the plan
+    // and shows the gate copy without a list read.
+    expect(beacons.calls, ['get']);
 
     (path, beacons) = await openAt(tester, const {
       'beacons',
