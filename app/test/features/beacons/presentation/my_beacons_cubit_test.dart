@@ -2,7 +2,6 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
 import 'package:dzeroth/features/beacons/presentation/bloc/beacons_state.dart';
 import 'package:dzeroth/features/beacons/presentation/bloc/my_beacons_cubit.dart';
-import 'package:dzeroth/features/beacons/presentation/bloc/my_beacons_state.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';

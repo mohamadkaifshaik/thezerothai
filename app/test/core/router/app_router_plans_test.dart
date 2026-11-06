@@ -9,6 +9,9 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
 import 'package:dzeroth/features/beacons/presentation/beacon_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/beacons_screen.dart';
+import 'package:dzeroth/features/beacons/presentation/beacon_people_screen.dart';
+import 'package:dzeroth/features/beacons/presentation/edit_beacon_screen.dart';
+import 'package:dzeroth/features/beacons/presentation/my_beacons_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/create_beacon_screen.dart';
 import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
 import 'package:dzeroth/features/engagement/presentation/bloc/engagement_cubit.dart';
@@ -155,7 +158,14 @@ void main() {
   testWidgets('beacons off: every route redirects Home, no RPC', (
     tester,
   ) async {
-    for (final location in ['/plans', '/plans/new', '/plans/$kBeaconIdA']) {
+    for (final location in [
+      '/plans',
+      '/plans/new',
+      '/plans/mine',
+      '/plans/$kBeaconIdA',
+      '/plans/$kBeaconIdA/people',
+      '/plans/$kBeaconIdA/edit',
+    ]) {
       final (path, beacons) = await openAt(tester, const {}, location);
       expect(path, AppRouter.homePath, reason: location);
       expect(find.byType(BeaconsScreen), findsNothing);
@@ -190,6 +200,36 @@ void main() {
     expect(path, '/plans/$kBeaconIdA');
     expect(find.byType(BeaconScreen), findsOneWidget);
     expect(find.text('Coffee'), findsOneWidget);
+    expect(beacons.calls, ['get']);
+  });
+
+  testWidgets('beacons on: /plans/mine is My plans, not a plan called "mine"', (
+    tester,
+  ) async {
+    final (path, beacons) = await openAt(tester, const {
+      'beacons',
+    }, '/plans/mine');
+    expect(path, '/plans/mine');
+    expect(find.byType(MyBeaconsScreen), findsOneWidget);
+    expect(find.byType(BeaconScreen), findsNothing);
+    expect(beacons.calls, ['mine']);
+  });
+
+  testWidgets('beacons on: /plans/<id>/people and /plans/<id>/edit', (
+    tester,
+  ) async {
+    var (path, beacons) = await openAt(tester, const {
+      'beacons',
+    }, '/plans/$kBeaconIdA/people');
+    expect(path, '/plans/$kBeaconIdA/people');
+    expect(find.byType(BeaconPeopleScreen), findsOneWidget);
+    expect(beacons.calls, containsAll(['get', 'people:accepted']));
+
+    (path, beacons) = await openAt(tester, const {
+      'beacons',
+    }, '/plans/$kBeaconIdA/edit');
+    expect(path, '/plans/$kBeaconIdA/edit');
+    expect(find.byType(EditBeaconScreen), findsOneWidget);
     expect(beacons.calls, ['get']);
   });
 }
