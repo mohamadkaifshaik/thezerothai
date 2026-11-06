@@ -14,11 +14,39 @@ import (
 
 const beaconUsage = `  opsctl beacon hide    BEACON_ID --project P [--report R] [--note N] [--dry-run]   (NOT_FOUND to everyone but its organiser from the next request; the organiser still sees and manages it)
   opsctl beacon restore BEACON_ID --project P [--dry-run]
+  opsctl beacon counts  --project P   (read-only; prints aggregate counts only: beacons_open, beacons_full, beacons_cancelled, beacons_hidden)
 `
 
 // parseBeaconArgs validates `opsctl beacon <hide|restore> BEACON_ID` before anything is opened or confirmed.
 func parseBeaconArgs(sub, beaconID string, a modArgs) error {
-	return parseHideRestoreArgs("beacon", "beacon", sub, beaconID, beacons.ValidateBeaconID, a)
+	if sub == "counts" {
+		if a.dryRun || a.report != "" || a.note != "" {
+			return usageErr("beacon counts is read-only: it takes --project only")
+		}
+		return nil
+	}
+	if sub == "" || sub == "hide" || sub == "restore" {
+		return parseHideRestoreArgs("beacon", "beacon", sub, beaconID, beacons.ValidateBeaconID, a)
+	}
+	return usageErr("beacon needs a sub-command: hide, restore or counts")
+}
+
+// beaconCounts is `opsctl beacon counts` (docs/beacons-plan.md PR 8, the pilot's daily read): the four aggregate
+// counts of beacons/ through beacons.Stats (count aggregations, no document read), one key=value per line in a fixed
+// order and nothing else. It never prints an id, title, uid or hash, so the output is safe to paste into a readiness
+// record. A failing read prints nothing.
+func beaconCounts(ctx context.Context, s beacons.Stats, out io.Writer) error {
+	if s == nil {
+		return errors.New("beacon counts: no beacons stats configured")
+	}
+	cctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	c, err := s.Counts(cctx)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(out, "beacons_open=%d\nbeacons_full=%d\nbeacons_cancelled=%d\nbeacons_hidden=%d\n", c.Open, c.Full, c.Cancelled, c.Hidden)
+	return err
 }
 
 // beaconCommand is `opsctl beacon hide|restore` (docs/beacons-plan.md PR 4, D6): the platform hide of one beacon, the

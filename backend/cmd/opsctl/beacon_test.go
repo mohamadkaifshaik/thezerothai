@@ -243,3 +243,83 @@ func TestReportsShow_BeaconEvidence(t *testing.T) {
 		t.Errorf("no evidence: %q", out)
 	}
 }
+
+// fakeBeaconStats is a beacons.Stats answering fixed counts.
+type fakeBeaconStats struct {
+	counts beacons.Counts
+	err    error
+	calls  int
+}
+
+func (f *fakeBeaconStats) Counts(context.Context) (beacons.Counts, error) {
+	f.calls++
+	return f.counts, f.err
+}
+
+func runBeaconCounts(s *fakeBeaconStats, args ...string) (code int, stdout, stderr string) {
+	var out, errOut bytes.Buffer
+	open := func(context.Context, string) (*backends, error) {
+		return &backends{beacons: &fakeBeacons{exists: true}, beaconStats: s, reports: &fakeOps{}, close: func() {}}, nil
+	}
+	now := func() time.Time { return time.Unix(1_000_000, 0) }
+	code = run(context.Background(), args, strings.NewReader(""), &out, &errOut, open, now)
+	return code, out.String(), errOut.String()
+}
+
+// TestBeaconCounts_PrintsAggregatesOnly (PR 8 R44): `opsctl beacon counts` prints the four aggregate counts, one
+// key=value per line in a fixed order, and nothing else (no id, title, uid or hash).
+func TestBeaconCounts_PrintsAggregatesOnly(t *testing.T) {
+	t.Parallel()
+	s := &fakeBeaconStats{counts: beacons.Counts{Open: 3, Full: 1, Cancelled: 2, Hidden: 1}}
+	code, out, errOut := runBeaconCounts(s, "beacon", "counts", "--project", "dzeroth-dev")
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	want := "beacons_open=3\nbeacons_full=1\nbeacons_cancelled=2\nbeacons_hidden=1\n"
+	if out != want {
+		t.Fatalf("output = %q, want %q", out, want)
+	}
+	if s.calls != 1 {
+		t.Fatalf("Counts called %d times, want 1", s.calls)
+	}
+}
+
+// TestBeaconCounts_StoreErrorPrintsNothing: a failing read is a failure (exit 1) with no partial counts on stdout.
+func TestBeaconCounts_StoreErrorPrintsNothing(t *testing.T) {
+	t.Parallel()
+	s := &fakeBeaconStats{err: errors.New("firestore down")}
+	code, out, errOut := runBeaconCounts(s, "beacon", "counts", "--project", "dzeroth-dev")
+	if code != 1 || out != "" || !strings.Contains(errOut, "firestore down") {
+		t.Fatalf("code=%d stdout=%q stderr=%q, want 1, empty stdout and the error", code, out, errOut)
+	}
+}
+
+// TestBeaconCounts_Usage: counts takes --project only; an id, --dry-run, --report or --note is a usage error and
+// nothing is read.
+func TestBeaconCounts_Usage(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"no project", []string{"beacon", "counts"}, "--project is required"},
+		{"positional id", []string{"beacon", "counts", testBeaconID, "--project", "dzeroth-dev"}, "unexpected argument"},
+		{"dry-run", []string{"beacon", "counts", "--dry-run", "--project", "dzeroth-dev"}, "counts is read-only"},
+		{"report", []string{"beacon", "counts", "--report", testListReportID, "--project", "dzeroth-dev"}, "counts is read-only"},
+		{"note", []string{"beacon", "counts", "--note", "x", "--project", "dzeroth-dev"}, "counts is read-only"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := &fakeBeaconStats{}
+			code, _, errOut := runBeaconCounts(s, tt.args...)
+			if code != 2 || !strings.Contains(errOut, tt.want) {
+				t.Fatalf("code=%d stderr=%q, want 2 containing %q", code, errOut, tt.want)
+			}
+			if s.calls != 0 {
+				t.Errorf("a usage error read the counts: calls=%d", s.calls)
+			}
+		})
+	}
+}
