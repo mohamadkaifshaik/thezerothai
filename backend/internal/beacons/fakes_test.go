@@ -47,6 +47,7 @@ type fakeRepo struct {
 	memberships   []Membership
 	mqueries      []MembershipQuery
 	plist         []Participant
+	plistErr      error // ListParticipants only (the shared err would also fail the cancel)
 	pqueries      []ParticipantQuery
 	beaconBatches [][]string
 }
@@ -122,6 +123,9 @@ func (f *fakeRepo) ListParticipants(_ context.Context, q ParticipantQuery) ([]Pa
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pqueries = append(f.pqueries, q)
+	if f.plistErr != nil {
+		return nil, f.plistErr
+	}
 	n := min(len(f.plist), max(q.Limit, 0))
 	return append([]Participant(nil), f.plist[:n]...), f.err
 }
@@ -251,28 +255,47 @@ func activeProfile(uid string) identity.Profile {
 
 // env is one service under test with every fake reachable.
 type env struct {
-	repo  *fakeRepo
-	dir   *fakeDirectory
-	graph *fakeGraph
-	comm  *fakeCommunities
-	flags fakeFlags
-	now   time.Time
-	svc   Service
+	repo   *fakeRepo
+	dir    *fakeDirectory
+	graph  *fakeGraph
+	comm   *fakeCommunities
+	flags  fakeFlags
+	events *fakeEvents
+	now    time.Time
+	svc    Service
+}
+
+// fakeEvents records the outbound seam.
+type fakeEvents struct {
+	requested []ParticipationEvent
+	accepted  []ParticipationEvent
+	cancelled []CancelEvent
+}
+
+func (f *fakeEvents) JoinRequested(_ context.Context, e ParticipationEvent) {
+	f.requested = append(f.requested, e)
+}
+func (f *fakeEvents) RequestAccepted(_ context.Context, e ParticipationEvent) {
+	f.accepted = append(f.accepted, e)
+}
+func (f *fakeEvents) Cancelled(_ context.Context, e CancelEvent) {
+	f.cancelled = append(f.cancelled, e)
 }
 
 func newEnv() *env {
 	e := &env{
-		repo:  &fakeRepo{docs: map[string]Beacon{}},
-		dir:   &fakeDirectory{profiles: map[string]identity.Profile{testOrganiser: activeProfile(testOrganiser), testViewer: activeProfile(testViewer)}},
-		graph: &fakeGraph{snaps: map[string]graph.Snapshot{}},
-		comm:  &fakeCommunities{roles: map[string]communities.Role{}},
-		flags: fakeFlags{on: map[string]bool{communities.FlagName: true}, off: map[string]bool{}},
-		now:   testNow,
+		repo:   &fakeRepo{docs: map[string]Beacon{}},
+		dir:    &fakeDirectory{profiles: map[string]identity.Profile{testOrganiser: activeProfile(testOrganiser), testViewer: activeProfile(testViewer)}},
+		graph:  &fakeGraph{snaps: map[string]graph.Snapshot{}},
+		comm:   &fakeCommunities{roles: map[string]communities.Role{}},
+		flags:  fakeFlags{on: map[string]bool{communities.FlagName: true}, off: map[string]bool{}},
+		events: &fakeEvents{},
+		now:    testNow,
 	}
 	e.svc = New(Deps{
 		Repo: e.repo, Directory: e.dir, Graph: e.graph, Communities: e.comm, CommunityFlags: e.flags, IDs: fakeIDs{},
 		CursorKey: []byte("0123456789abcdef0123456789abcdef"), Limits: Limits{MaxOpenPerUser: 5, MaxPendingRequests: 10, MaxOpenSpots: 20},
-		Now: func() time.Time { return e.now },
+		Events: e.events, Now: func() time.Time { return e.now },
 	})
 	return e
 }

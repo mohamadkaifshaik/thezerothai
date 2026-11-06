@@ -32,6 +32,7 @@ class Notification extends $pb.GeneratedMessage {
     $core.int? actorCount,
     $core.String? postId,
     $1.Timestamp? createdAt,
+    $core.String? beaconId,
   }) {
     final result = Notification._();
     if (id != null) result.id = id;
@@ -40,6 +41,7 @@ class Notification extends $pb.GeneratedMessage {
     if (actorCount != null) result.actorCount = actorCount;
     if (postId != null) result.postId = postId;
     if (createdAt != null) result.createdAt = createdAt;
+    if (beaconId != null) result.beaconId = beaconId;
     return result;
   }
 
@@ -66,6 +68,7 @@ class Notification extends $pb.GeneratedMessage {
     ..aOS(5, _omitFieldNames ? '' : 'postId')
     ..aOM<$1.Timestamp>(6, _omitFieldNames ? '' : 'createdAt',
         subBuilder: $1.Timestamp.$_createMessage)
+    ..aOS(7, _omitFieldNames ? '' : 'beaconId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -153,6 +156,17 @@ class Notification extends $pb.GeneratedMessage {
   void clearCreatedAt() => $_clearField(6);
   @$pb.TagNumber(6)
   $1.Timestamp ensureCreatedAt() => $_ensure(5);
+
+  /// Subject beacon (BEACON_REQUEST, BEACON_ACCEPTED and BEACON_CANCELLED only; empty otherwise). Tapping opens the
+  /// beacon (BeaconService.GetBeacon).
+  @$pb.TagNumber(7)
+  $core.String get beaconId => $_getSZ(6);
+  @$pb.TagNumber(7)
+  set beaconId($core.String value) => $_setString(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasBeaconId() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearBeaconId() => $_clearField(7);
 }
 
 class ListNotificationsRequest extends $pb.GeneratedMessage {

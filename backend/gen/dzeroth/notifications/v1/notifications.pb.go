@@ -72,11 +72,11 @@ const (
 	// Sent only when the recipient has both notifications and messaging on, the conversation is accepted on their side
 	// and they did not mute the sender. Tapping opens the conversation (MessagingService.ListMessages).
 	NotificationType_NOTIFICATION_TYPE_MESSAGE NotificationType = 9
-	// actor asked to join your beacon. post_id is empty. Not produced until docs/beacons-plan.md PR 5.
+	// actor asked to join your beacon (beacon_id). post_id is empty.
 	NotificationType_NOTIFICATION_TYPE_BEACON_REQUEST NotificationType = 10
-	// actor (the organiser) accepted your request to join their beacon. post_id is empty. Not produced until PR 5.
+	// actor (the organiser) accepted your request to join their beacon (beacon_id). post_id is empty.
 	NotificationType_NOTIFICATION_TYPE_BEACON_ACCEPTED NotificationType = 11
-	// actor cancelled a beacon you were accepted to. post_id is empty. Not produced until PR 5.
+	// actor (the organiser) cancelled a beacon you were accepted to (beacon_id). post_id is empty.
 	NotificationType_NOTIFICATION_TYPE_BEACON_CANCELLED NotificationType = 12
 )
 
@@ -203,7 +203,10 @@ type Notification struct {
 	// profile for FOLLOW and FOLLOW_ACCEPTED.
 	PostId string `protobuf:"bytes,5,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
 	// Last activity; the sort key.
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// Subject beacon (BEACON_REQUEST, BEACON_ACCEPTED and BEACON_CANCELLED only; empty otherwise). Tapping opens the
+	// beacon (BeaconService.GetBeacon).
+	BeaconId      string `protobuf:"bytes,7,opt,name=beacon_id,json=beaconId,proto3" json:"beacon_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -278,6 +281,13 @@ func (x *Notification) GetCreatedAt() *timestamppb.Timestamp {
 		return x.CreatedAt
 	}
 	return nil
+}
+
+func (x *Notification) GetBeaconId() string {
+	if x != nil {
+		return x.BeaconId
+	}
+	return ""
 }
 
 type ListNotificationsRequest struct {
@@ -708,7 +718,7 @@ var File_dzeroth_notifications_v1_notifications_proto protoreflect.FileDescripto
 
 const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"\n" +
-	",dzeroth/notifications/v1/notifications.proto\x12\x18dzeroth.notifications.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x8c\x02\n" +
+	",dzeroth/notifications/v1/notifications.proto\x12\x18dzeroth.notifications.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa9\x02\n" +
 	"\fNotification\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12>\n" +
 	"\x04type\x18\x02 \x01(\x0e2*.dzeroth.notifications.v1.NotificationTypeR\x04type\x127\n" +
@@ -717,7 +727,8 @@ const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"actorCount\x12\x17\n" +
 	"\apost_id\x18\x05 \x01(\tR\x06postId\x129\n" +
 	"\n" +
-	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"w\n" +
+	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1b\n" +
+	"\tbeacon_id\x18\a \x01(\tR\bbeaconId\"w\n" +
 	"\x18ListNotificationsRequest\x12\x1b\n" +
 	"\tpage_size\x18\x01 \x01(\x05R\bpageSize\x12\x1d\n" +
 	"\n" +

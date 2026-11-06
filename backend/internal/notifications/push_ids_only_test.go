@@ -16,7 +16,7 @@ func TestPush_CarriesIdsOnlyForEveryType(t *testing.T) {
 	for i := 0; i < rt.NumField(); i++ {
 		fields = append(fields, rt.Field(i).Name)
 	}
-	if got, want := strings.Join(fields, ","), "Type,NotificationID,PostID,ActorID,ConversationID"; got != want {
+	if got, want := strings.Join(fields, ","), "Type,NotificationID,PostID,ActorID,ConversationID,BeaconID"; got != want {
 		t.Fatalf("Push fields = %s, want %s: a new field needs a review against 'a push carries no post text'", got, want)
 	}
 	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted} {
@@ -32,6 +32,17 @@ func TestPush_CarriesIdsOnlyForEveryType(t *testing.T) {
 		text := msg.Notification.Title + " " + msg.Notification.Body
 		if strings.Contains(text, "@") || strings.Contains(text, "http") || strings.Contains(text, "/m/") {
 			t.Errorf("%s: title/body %q names an account, a link or an image", ty, text)
+		}
+	}
+	// A beacon push names the beacon instead of a post (R26): the same four-key shape with beaconId for postId.
+	for _, ty := range []Type{TypeBeaconRequest, TypeBeaconAccepted, TypeBeaconCancelled} {
+		msg := buildMessage("token", Push{Type: ty, NotificationID: "n1", BeaconID: beaconA, ActorID: "a1"})
+		if _, has := msg.Data["postId"]; len(msg.Data) != 4 || has || msg.Data["beaconId"] != beaconA {
+			t.Errorf("%s: data keys = %v, want type, notificationId, beaconId, actorId", ty, msg.Data)
+		}
+		text := msg.Notification.Title + " " + msg.Notification.Body
+		if strings.Contains(text, "@") || strings.Contains(text, "http") {
+			t.Errorf("%s: title/body %q names an account or a link", ty, text)
 		}
 	}
 }

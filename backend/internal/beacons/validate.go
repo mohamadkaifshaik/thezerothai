@@ -20,7 +20,7 @@ func validateKey(key string) error {
 }
 
 func validateBeaconID(id string) error {
-	if !ids.ValidPostID(id) {
+	if !ids.ValidBeaconID(id) {
 		return apierr.Validation("beacon_id", "beacon_id must be a 19-digit beacon id")
 	}
 	return nil

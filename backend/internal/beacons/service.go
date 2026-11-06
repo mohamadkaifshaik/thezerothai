@@ -424,12 +424,33 @@ func (s *service) CancelBeacon(ctx context.Context, uid, key, beaconID string) e
 	if _, err := s.organised(ctx, uid, beaconID); err != nil {
 		return mapErr(ctx, "cancel", uid, beaconID, err)
 	}
+	now := s.now()
 	res, err := s.d.Repo.Cancel(ctx, CancelParams{
-		UID: uid, BeaconID: beaconID, IdemKey: idempotency.Key(uid, rpcCancelBeacon, key), RequestHash: cancelHash(beaconID), Now: s.now(),
+		UID: uid, BeaconID: beaconID, IdemKey: idempotency.Key(uid, rpcCancelBeacon, key), RequestHash: cancelHash(beaconID), Now: now,
 	})
 	if err != nil {
 		return mapErr(ctx, "cancel", uid, beaconID, err)
 	}
 	noteOutcome(ctx, res.Outcome)
+	s.notifyCancelled(ctx, beaconID, res, now)
 	return nil
+}
+
+// notifyCancelled hands a cancel that wrote to the Events seam with the participants accepted at that moment (R23): one
+// ListParticipants read, skipped when nobody was accepted. The cancel already committed, so a failed read is logged
+// (hash only) and the event dropped; the RPC still succeeds.
+func (s *service) notifyCancelled(ctx context.Context, beaconID string, res CancelResult, now time.Time) {
+	if s.d.Events == nil || res.Outcome != Written || res.Beacon.AcceptedCount <= 0 {
+		return
+	}
+	rows, err := s.d.Repo.ListParticipants(ctx, ParticipantQuery{BeaconID: beaconID, State: PStateAccepted, Limit: s.d.Limits.MaxOpenSpots})
+	if err != nil {
+		slog.WarnContext(ctx, "beacon_cancel_participants_failed", "beacon_hash", logger.HashUID(beaconID), "err", logger.RedactErr(err, beaconID).Error())
+		return
+	}
+	uids := make([]string, 0, len(rows))
+	for _, p := range rows {
+		uids = append(uids, p.UID)
+	}
+	s.d.Events.Cancelled(ctx, CancelEvent{BeaconID: beaconID, OrganiserUID: res.Beacon.OrganiserID, ParticipantUIDs: uids, At: now})
 }

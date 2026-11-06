@@ -54,8 +54,6 @@ func TestLateBeaconLookup_MapsErrorsAndEvidence(t *testing.T) {
 	}
 	t.Run("unbound", func(t *testing.T) {
 		t.Parallel()
-		var ae *moderation.ReportedBeacon
-		_ = ae
 		if _, err := (&lateBeaconLookup{}).ReportableBeacon(context.Background(), "caller", "1234567890123456789"); err == nil || errors.Is(err, moderation.ErrBeaconNotFound) {
 			t.Fatalf("unbound lookup = %v, want an infrastructure error", err)
 		}

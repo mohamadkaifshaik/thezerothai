@@ -65,17 +65,17 @@ class NotificationType extends $pb.ProtobufEnum {
   static const NotificationType NOTIFICATION_TYPE_MESSAGE =
       NotificationType._(9, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_MESSAGE');
 
-  /// actor asked to join your beacon. post_id is empty. Not produced until docs/beacons-plan.md PR 5.
+  /// actor asked to join your beacon (beacon_id). post_id is empty.
   static const NotificationType NOTIFICATION_TYPE_BEACON_REQUEST =
       NotificationType._(
           10, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_BEACON_REQUEST');
 
-  /// actor (the organiser) accepted your request to join their beacon. post_id is empty. Not produced until PR 5.
+  /// actor (the organiser) accepted your request to join their beacon (beacon_id). post_id is empty.
   static const NotificationType NOTIFICATION_TYPE_BEACON_ACCEPTED =
       NotificationType._(
           11, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_BEACON_ACCEPTED');
 
-  /// actor cancelled a beacon you were accepted to. post_id is empty. Not produced until PR 5.
+  /// actor (the organiser) cancelled a beacon you were accepted to (beacon_id). post_id is empty.
   static const NotificationType NOTIFICATION_TYPE_BEACON_CANCELLED =
       NotificationType._(
           12, _omitEnumNames ? '' : 'NOTIFICATION_TYPE_BEACON_CANCELLED');

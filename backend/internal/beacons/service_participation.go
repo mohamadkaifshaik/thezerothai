@@ -54,6 +54,9 @@ func (s *service) RequestToJoin(ctx context.Context, uid, key, beaconID, note st
 		return ViewerState{}, mapErr(ctx, "request", uid, beaconID, err)
 	}
 	noteOutcome(ctx, res.Outcome)
+	if s.d.Events != nil && res.Outcome == Written {
+		s.d.Events.JoinRequested(ctx, ParticipationEvent{BeaconID: beaconID, OrganiserUID: res.Beacon.OrganiserID, ParticipantUID: uid, At: now})
+	}
 	return viewerState(res.Beacon, uid, res.Participant.State, now), nil
 }
 
@@ -111,14 +114,18 @@ func (s *service) RespondToJoinRequest(ctx context.Context, uid, key, beaconID, 
 	if err != nil {
 		return View{}, mapErr(ctx, "respond", uid, beaconID, err)
 	}
+	now := s.now()
 	res, err := s.d.Repo.Respond(ctx, RespondParams{
 		UID: uid, BeaconID: beaconID, TargetUID: targetUID, IdemKey: idempotency.Key(uid, rpcRespondToJoinRequest, key),
-		RequestHash: respondHash(beaconID, targetUID, accept), Accept: accept, Now: s.now(),
+		RequestHash: respondHash(beaconID, targetUID, accept), Accept: accept, Now: now,
 	})
 	if err != nil {
 		return View{}, mapErr(ctx, "respond", uid, beaconID, err)
 	}
 	noteOutcome(ctx, res.Outcome)
+	if s.d.Events != nil && accept && res.Outcome == Written {
+		s.d.Events.RequestAccepted(ctx, ParticipationEvent{BeaconID: beaconID, OrganiserUID: uid, ParticipantUID: targetUID, At: now})
+	}
 	return s.view(res.Beacon, a.organiser, uid), nil
 }
 

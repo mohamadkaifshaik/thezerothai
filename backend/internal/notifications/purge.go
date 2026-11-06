@@ -255,12 +255,13 @@ type exportedNotification struct {
 	Type        string    `json:"type"`
 	ActorHandle string    `json:"actorHandle"`
 	PostID      string    `json:"postId,omitempty"`
+	BeaconID    string    `json:"beaconId,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
 // exportRow maps a stored row to its export form (pure, so the no-uid-leak rule is unit-testable).
 func exportRow(d notificationDoc) exportedNotification {
-	return exportedNotification{Type: d.Type, ActorHandle: d.Actor.Handle, PostID: d.PostID, CreatedAt: d.CreatedAt.UTC()}
+	return exportedNotification{Type: d.Type, ActorHandle: d.Actor.Handle, PostID: d.PostID, BeaconID: d.BeaconID, CreatedAt: d.CreatedAt.UTC()}
 }
 
 type exportedDevice struct {

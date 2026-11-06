@@ -495,6 +495,34 @@ type Deps struct {
 	// CursorKey seals the page tokens of ListBeacons (cfg.CursorHMACKey).
 	CursorKey []byte
 	Limits    Limits
+	// Events is the outbound seam (notifications); nil drops every event.
+	Events Events
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
+}
+
+// ParticipationEvent is one join request (ParticipantUID asked OrganiserUID) or one acceptance (OrganiserUID accepted
+// ParticipantUID). At is the transaction time.
+type ParticipationEvent struct {
+	BeaconID, OrganiserUID, ParticipantUID string
+	At                                     time.Time
+}
+
+// CancelEvent is one cancellation with the participants accepted at that moment (at most Limits.MaxOpenSpots).
+type CancelEvent struct {
+	BeaconID, OrganiserUID string
+	ParticipantUIDs        []string
+	At                     time.Time
+}
+
+// Events is the module's outbound seam (docs/beacons-plan.md PR 5, R23): called after a commit whose Outcome is
+// Written, never on a replay or a no-op, never inside a transaction, and never by the eraser. A decline, a withdraw,
+// a leave, a remove and an update fire nothing. The composition root adapts it to notifications.Emitter.
+type Events interface {
+	// JoinRequested: ParticipantUID asked to join; the organiser is told.
+	JoinRequested(ctx context.Context, e ParticipationEvent)
+	// RequestAccepted: the organiser accepted ParticipantUID; the participant is told.
+	RequestAccepted(ctx context.Context, e ParticipationEvent)
+	// Cancelled: the organiser cancelled; each accepted participant is told.
+	Cancelled(ctx context.Context, e CancelEvent)
 }

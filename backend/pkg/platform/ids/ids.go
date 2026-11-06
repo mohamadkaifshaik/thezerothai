@@ -20,6 +20,10 @@ func ValidUID(uid string) bool {
 // lives in one place (graph code review N2).
 const UIDMessage = "user_id must be 1-128 characters of [A-Za-z0-9-]"
 
+// ValidBeaconID reports whether id is a beacon id: the same 19-digit zero-padded Snowflake decimal as a post id.
+// Pure; never touches Firestore.
+func ValidBeaconID(id string) bool { return ValidPostID(id) }
+
 // ValidPostID reports whether id is a post id: the 19-digit zero-padded Snowflake decimal.
 // Pure; never touches Firestore.
 func ValidPostID(id string) bool {
