@@ -26,6 +26,7 @@ class UserListRow extends StatelessWidget {
     super.key,
     required this.item,
     this.trailing,
+    this.onProfileTap,
     this.onFollowed,
     this.onGone,
     this.onDismiss,
@@ -42,6 +43,10 @@ class UserListRow extends StatelessWidget {
   final Widget? extraAction;
 
   final graph.UserListItem item;
+
+  /// Opts a browsing surface into profile navigation. Selection surfaces
+  /// (such as the message recipient picker) keep their existing row action.
+  final VoidCallback? onProfileTap;
 
   /// Overrides the default [FollowButton] trailing widget (e.g. an
   /// Unblock/Unmute action button in Settings' managed-accounts screens).
@@ -100,96 +105,105 @@ class UserListRow extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Padding(
-          padding: EdgeInsets.only(
-            left: AppSpacing.md,
-            right: onDismiss == null ? AppSpacing.md : AppSpacing.xs,
-            top: AppSpacing.sm,
-            bottom: AppSpacing.sm,
-          ),
-          // The control keeps its natural width at the user's text
-          // scale and the name column gives way first; only when the name
-          // column would drop under [_minNameColumnWidth] does the control
-          // move under the name (see [_AdaptiveRow]).
-          child: _AdaptiveRow(
-            gap: AppSpacing.sm,
-            minBodyWidth: _minNameColumnWidth,
-            lead: Padding(
-              padding: const EdgeInsets.only(right: AppSpacing.md),
-              child: ExcludeSemantics(child: AppAvatar(url: user.avatarUrl)),
-            ),
-            body: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // A hint from the server: false draws nothing and
-                // never means "public". The name ellipsizes first so the lock
-                // stays; the row wraps the control before the column is too
-                // narrow for the lock.
-                LayoutBuilder(
-                  builder: (context, box) {
-                    final badge =
-                        user.isPrivate && box.maxWidth >= _badgeMinColumnWidth;
-                    return Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            user.displayName.isEmpty
-                                ? '@${user.handle}'
-                                : user.displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleSmall,
-                          ),
+        Semantics(
+          link: onProfileTap != null,
+          child: InkWell(
+            onTap: onProfileTap,
+            child: Padding(
+              padding: EdgeInsets.only(
+                left: AppSpacing.md,
+                right: onDismiss == null ? AppSpacing.md : AppSpacing.xs,
+                top: AppSpacing.sm,
+                bottom: AppSpacing.sm,
+              ),
+              // The control keeps its natural width at the user's text
+              // scale and the name column gives way first; only when the name
+              // column would drop under [_minNameColumnWidth] does the control
+              // move under the name (see [_AdaptiveRow]).
+              child: _AdaptiveRow(
+                gap: AppSpacing.sm,
+                minBodyWidth: _minNameColumnWidth,
+                lead: Padding(
+                  padding: const EdgeInsets.only(right: AppSpacing.md),
+                  child: ExcludeSemantics(
+                    child: AppAvatar(url: user.avatarUrl),
+                  ),
+                ),
+                body: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // A hint from the server: false draws nothing and
+                    // never means "public". The name ellipsizes first so the lock
+                    // stays; the row wraps the control before the column is too
+                    // narrow for the lock.
+                    LayoutBuilder(
+                      builder: (context, box) {
+                        final badge =
+                            user.isPrivate &&
+                            box.maxWidth >= _badgeMinColumnWidth;
+                        return Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                user.displayName.isEmpty
+                                    ? '@${user.handle}'
+                                    : user.displayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleSmall,
+                              ),
+                            ),
+                            if (badge) ...[
+                              const SizedBox(width: AppSpacing.xs),
+                              const ProtectedBadge(),
+                            ],
+                          ],
+                        );
+                      },
+                    ),
+                    Text(
+                      '@${user.handle}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+                // A caller's own [trailing] follows the same rule: it is measured
+                // at its natural width like the default control.
+                actions: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (extraAction == null)
+                      control
+                    else
+                      Flexible(
+                        child: Wrap(
+                          spacing: AppSpacing.sm,
+                          runSpacing: AppSpacing.sm,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [control, extraAction!],
                         ),
-                        if (badge) ...[
-                          const SizedBox(width: AppSpacing.xs),
-                          const ProtectedBadge(),
-                        ],
-                      ],
-                    );
-                  },
+                      ),
+                    if (onDismiss != null)
+                      IconButton(
+                        tooltip: 'Dismiss @${user.handle}',
+                        constraints: const BoxConstraints.tightFor(
+                          width: AppSpacing.minTapTarget,
+                          height: AppSpacing.minTapTarget,
+                        ),
+                        icon: Icon(
+                          Icons.close,
+                          size: AppIconSize.md,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        onPressed: onDismiss,
+                      ),
+                  ],
                 ),
-                Text(
-                  '@${user.handle}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-            // A caller's own [trailing] follows the same rule: it is measured
-            // at its natural width like the default control.
-            actions: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (extraAction == null)
-                  control
-                else
-                  Flexible(
-                    child: Wrap(
-                      spacing: AppSpacing.sm,
-                      runSpacing: AppSpacing.sm,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [control, extraAction!],
-                    ),
-                  ),
-                if (onDismiss != null)
-                  IconButton(
-                    tooltip: 'Dismiss @${user.handle}',
-                    constraints: const BoxConstraints.tightFor(
-                      width: AppSpacing.minTapTarget,
-                      height: AppSpacing.minTapTarget,
-                    ),
-                    icon: Icon(
-                      Icons.close,
-                      size: AppIconSize.md,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    onPressed: onDismiss,
-                  ),
-              ],
+              ),
             ),
           ),
         ),

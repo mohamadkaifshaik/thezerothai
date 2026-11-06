@@ -144,7 +144,10 @@ void main() {
       tester.state<ScaffoldState>(find.byType(Scaffold).first).openDrawer();
       await tester.pumpAndSettle();
       final text = shellVisibleText(tester, find.byType(AppDrawer));
-      expect(text, contains('Creator tools'));
+      expect(text, contains('Premium'));
+      for (final removed in ['Calls', 'Creator tools', 'Advertise']) {
+        expect(text, isNot(contains(removed)));
+      }
       expectCleanShellCopy(text, where: 'drawer');
     });
   });

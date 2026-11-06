@@ -404,8 +404,8 @@ void main() {
 
       await open(tester);
 
-      final button = tester.widget<IconButton>(
-        find.widgetWithIcon(IconButton, Icons.mail_outline),
+      final button = tester.widget<FloatingActionButton>(
+        find.widgetWithIcon(FloatingActionButton, Icons.mail_outline),
       );
       expect(button.onPressed, isNull);
       expect(find.byTooltip('New message'), findsOneWidget);

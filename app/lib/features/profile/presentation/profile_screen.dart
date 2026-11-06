@@ -152,6 +152,11 @@ class _ProfileViewState extends State<_ProfileView> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        forceMaterialTransparency: true,
         // The sticky header: the display name over the post count once the
         // profile is loaded (X), the requested @handle until then. The name
         // fades in only after the real one scrolls under the bar.
@@ -434,12 +439,9 @@ class _ProfileTabSpec {
 }
 
 /// The tabs for the enabled sub-features, in display order: Posts,
-/// Replies (the `replies` sub-feature), Reposts and Media (`profile_tabs`),
+/// Reposts and Media (`profile_tabs`),
 /// then Articles (the base `posts` capability).
-List<_ProfileTabSpec> _profileTabSpecs({
-  required bool showReplies,
-  required bool showProfileTabs,
-}) => [
+List<_ProfileTabSpec> _profileTabSpecs({required bool showProfileTabs}) => [
   _ProfileTabSpec(
     id: _postsTabId,
     label: 'Posts',
@@ -449,14 +451,6 @@ List<_ProfileTabSpec> _profileTabSpecs({
     ownPosts: true,
     showsPinned: true,
   ),
-  if (showReplies)
-    _ProfileTabSpec(
-      id: 'replies',
-      label: 'Replies',
-      feedFor: (userId) => FeedKey.user(userId, includeReplies: true),
-      emptyTitle: ({required own, required handle}) =>
-          own ? "You haven't replied yet" : "@$handle hasn't replied yet",
-    ),
   if (showProfileTabs) ...[
     _ProfileTabSpec(
       id: 'reposts',
@@ -498,10 +492,8 @@ List<_ProfileTabSpec> _profileTabSpecs({
   ),
 ];
 
-/// Header + the Posts and Replies tabs (Replies only with the `replies`
-/// sub-feature on: the same `GetUserTimeline` with `include_replies`, cursor
-/// paged like Posts), then Reposts and Media (only with `profile_tabs` on:
-/// the same call with its `tab`). Each tab is its own cached
+/// Header + Posts, Reposts, Media and Articles. Reposts and Media require
+/// `profile_tabs`. Each tab is its own cached
 /// feed (`FeedKey.user(uid, tab: ...)`) with its own cursor and tokens, so a
 /// token never travels to another tab. When the
 /// viewer blocks the author the feed is not even requested: a banner offers
@@ -509,12 +501,12 @@ List<_ProfileTabSpec> _profileTabSpecs({
 ///
 /// If the server still answers a Reposts or Media call with FEATURE_DISABLED
 /// `profile_tabs` (the flag turned off since `GetMe`), the screen drops those
-/// tabs and shows Posts and Replies; the repository sends nothing more for
+/// tabs and shows Posts and Articles; the repository sends nothing more for
 /// them until the next `GetMe`.
 ///
 /// Scrolling: one `NestedScrollView`. The header scrolls away, the
-/// tab bar pins under the app bar, and only the selected tab's list is
-/// mounted; each tab keeps its own offset (a `PageStorageKey`) and its own
+/// tab bar pins under the app bar, and a TabBarView supports swiping.
+/// Unopened tabs load on selection; each tab keeps its own offset and its own
 /// cubit, which this state holds, so switching back shows the same rows
 /// without a request.
 class _ProfilePosts extends StatefulWidget {
@@ -656,7 +648,6 @@ class _ProfilePostsState extends State<_ProfilePosts> {
     );
     final blocked = state.relationship?.blocking ?? false;
     final specs = _profileTabSpecs(
-      showReplies: isFeatureEnabled(context, kPostsSubFeatureReplies),
       showProfileTabs:
           isFeatureEnabled(context, kFeatureProfileTabs) &&
           !_profileTabsRefused,
@@ -664,40 +655,39 @@ class _ProfilePostsState extends State<_ProfilePosts> {
     final tab = math.max(0, specs.indexWhere((s) => s.id == _tabId));
     final spec = specs[tab];
     final canCompose = canComposeAt(context, AppRouter.homePath);
-    final tabBar = AppTabBar(
-      equalWidth: false,
-      semanticLabel: 'Profile timelines',
-      selectedIndex: tab,
-      onChanged: (index) => setState(() => _tabId = specs[index].id),
-      tabs: [for (final s in specs) AppTab(label: s.label)],
-    );
-    final scrollKey = PageStorageKey<String>(
-      'profile-${profile.userId}-${spec.id}',
+    Widget pager({
+      required Widget Function(BuildContext context, _ProfileTabSpec tab)
+      bodyBuilder,
+      Future<void> Function()? onRefresh,
+    }) => _ProfileTabPager(
+      key: ValueKey(specs.map((tab) => tab.id).join(',')),
+      specs: specs,
+      selectedId: spec.id,
+      outer: widget.outer,
+      header: header,
+      onChanged: (id) {
+        if (id != _tabId) setState(() => _tabId = id);
+      },
+      hasOpened: _cubits.containsKey,
+      bodyBuilder: bodyBuilder,
+      onRefresh: onRefresh,
     );
 
     if (blocked && !_showBlockedPosts) {
-      return _ProfileScrollScaffold(
-        outer: widget.outer,
-        header: header,
-        tabBar: tabBar,
-        // A Builder: the overlap handle lives inside the NestedScrollView.
-        body: Builder(
-          builder: (context) => CustomScrollView(
-            key: scrollKey,
-            slivers: [
-              SliverOverlapInjector(
-                handle: NestedScrollView.sliverOverlapAbsorberHandleFor(
-                  context,
-                ),
+      return pager(
+        bodyBuilder: (context, page) => CustomScrollView(
+          key: PageStorageKey('profile-${profile.userId}-${page.id}'),
+          slivers: [
+            SliverOverlapInjector(
+              handle: NestedScrollView.sliverOverlapAbsorberHandleFor(context),
+            ),
+            SliverToBoxAdapter(
+              child: _BlockedPostsBanner(
+                handle: profile.handle,
+                onShow: () => setState(() => _showBlockedPosts = true),
               ),
-              SliverToBoxAdapter(
-                child: _BlockedPostsBanner(
-                  handle: profile.handle,
-                  onShow: () => setState(() => _showBlockedPosts = true),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }
@@ -713,7 +703,6 @@ class _ProfilePostsState extends State<_ProfilePosts> {
     // Nothing below is built then, so a stale pinned id costs no GetPost.
     Widget tabbed() {
       final profileCubit = context.read<ProfileCubit>();
-      final ownPosts = state.isOwnProfile && spec.ownPosts;
       final pinned = _pinnedFor(context, profile);
       // Pin / Unpin on the own profile. Unpin (a clear) is offered whatever the
       // flags are; Pin (a set) needs `profile_extras`
@@ -722,88 +711,99 @@ class _ProfilePostsState extends State<_ProfilePosts> {
       final pinEnabled =
           isOwn && isFeatureEnabled(context, kFeatureProfileExtras);
       final postPin = _postPinFor(context);
-      return _ProfileScrollScaffold(
-        outer: widget.outer,
-        header: header,
-        tabBar: tabBar,
-        onRefresh: cubit.refresh,
-        body: BlocProvider<TimelineCubit>.value(
-          key: ValueKey('profile-posts-${profile.userId}-${spec.id}'),
-          value: cubit,
-          child: BlocListener<TimelineCubit, TimelineState>(
-            listenWhen: (before, after) =>
-                spec.requiresProfileTabs && _refusedProfileTabs(after),
-            listener: (context, _) => setState(() {
-              _profileTabsRefused = true;
-              _tabId = _postsTabId;
-            }),
-            child: _withPinControl(
-              postPin,
-              own: isOwn,
-              canPin: pinEnabled,
-              pinnedPostId: profile.pinnedPostId,
-              builder: (pinControl) {
-                // The request can outlive this screen: guard the cubit, not
-                // context.
-                void onRelationshipChanged(graph.Relationship relationship) {
-                  if (!profileCubit.isClosed) {
-                    profileCubit.relationshipChanged(relationship);
+      return BlocListener<TimelineCubit, TimelineState>(
+        bloc: cubit,
+        listenWhen: (before, after) =>
+            spec.requiresProfileTabs && _refusedProfileTabs(after),
+        listener: (context, _) => setState(() {
+          _profileTabsRefused = true;
+          _tabId = _postsTabId;
+        }),
+        child: pager(
+          onRefresh: cubit.refresh,
+          bodyBuilder: (context, page) {
+            final pageCubit = _cubitFor(
+              context,
+              page,
+              userId: profile.userId,
+              viewerUserId: viewerUserId,
+            );
+            final ownPosts = state.isOwnProfile && page.ownPosts;
+            final scrollKey = PageStorageKey<String>(
+              'profile-${profile.userId}-${page.id}',
+            );
+            return BlocProvider<TimelineCubit>.value(
+              key: ValueKey('profile-posts-${profile.userId}-${page.id}'),
+              value: pageCubit,
+              child: _withPinControl(
+                postPin,
+                own: isOwn,
+                canPin: pinEnabled,
+                pinnedPostId: profile.pinnedPostId,
+                builder: (pinControl) {
+                  // The request can outlive this screen: guard the cubit, not
+                  // context.
+                  void onRelationshipChanged(graph.Relationship relationship) {
+                    if (!profileCubit.isClosed) {
+                      profileCubit.relationshipChanged(relationship);
+                    }
                   }
-                }
 
-                Widget feed({required bool pinCovered}) => TimelineFeedView(
-                  nested: true,
-                  fillViewport: spec.fillViewport,
-                  scrollViewKey: scrollKey,
-                  newPostsPillTop: AppSpacing.sm,
-                  viewerUserId: viewerUserId,
-                  headerSlivers: [
-                    if (spec.showsPinned)
-                      SliverToBoxAdapter(
-                        child: PinnedPostSection(
-                          cubit: pinned,
-                          viewerUserId: viewerUserId,
-                          onRelationshipChanged: onRelationshipChanged,
-                          pinControl: pinControl,
+                  Widget feed({required bool pinCovered}) => TimelineFeedView(
+                    nested: true,
+                    fillViewport: page.fillViewport,
+                    scrollViewKey: scrollKey,
+                    newPostsPillTop: AppSpacing.sm,
+                    viewerUserId: viewerUserId,
+                    headerSlivers: [
+                      if (page.showsPinned)
+                        SliverToBoxAdapter(
+                          child: PinnedPostSection(
+                            cubit: pinned,
+                            viewerUserId: viewerUserId,
+                            onRelationshipChanged: onRelationshipChanged,
+                            pinControl: pinControl,
+                          ),
                         ),
-                      ),
-                  ],
-                  emptyTitle: spec.emptyTitle(
-                    own: state.isOwnProfile,
-                    handle: profile.handle,
-                  ),
-                  emptySubtitle: spec.emptySubtitle?.call(
-                    own: state.isOwnProfile,
-                    handle: profile.handle,
-                  ),
-                  emptyAction: ownPosts && canCompose
-                      ? AppPillButton(
-                          label: 'Write a post',
-                          compact: true,
-                          onPressed: () => context.push(AppRouter.composePath),
-                        )
-                      : null,
-                  // Only post here is the one in the Pinned row above.
-                  hideEmptyState: pinCovered,
-                  showPending: ownPosts,
-                  pendingAuthorId: viewerUserId,
-                  hideAuthorsOnRelationship: false,
-                  onRelationshipChanged: onRelationshipChanged,
-                  pinControl: pinControl,
-                );
+                    ],
+                    emptyTitle: page.emptyTitle(
+                      own: state.isOwnProfile,
+                      handle: profile.handle,
+                    ),
+                    emptySubtitle: page.emptySubtitle?.call(
+                      own: state.isOwnProfile,
+                      handle: profile.handle,
+                    ),
+                    emptyAction: ownPosts && canCompose
+                        ? AppPillButton(
+                            label: 'Write a post',
+                            compact: true,
+                            onPressed: () =>
+                                context.push(AppRouter.composePath),
+                          )
+                        : null,
+                    // Only post here is the one in the Pinned row above.
+                    hideEmptyState: pinCovered,
+                    showPending: ownPosts,
+                    pendingAuthorId: viewerUserId,
+                    hideAuthorsOnRelationship: false,
+                    onRelationshipChanged: onRelationshipChanged,
+                    pinControl: pinControl,
+                  );
 
-                if (!spec.showsPinned) return feed(pinCovered: false);
-                return BlocBuilder<PinnedPostCubit, PinnedPostState>(
-                  bloc: pinned,
-                  buildWhen: (before, after) =>
-                      (before.coveredPostId != null) !=
-                      (after.coveredPostId != null),
-                  builder: (context, pinnedState) =>
-                      feed(pinCovered: pinnedState.coveredPostId != null),
-                );
-              },
-            ),
-          ),
+                  if (!page.showsPinned) return feed(pinCovered: false);
+                  return BlocBuilder<PinnedPostCubit, PinnedPostState>(
+                    bloc: pinned,
+                    buildWhen: (before, after) =>
+                        (before.coveredPostId != null) !=
+                        (after.coveredPostId != null),
+                    builder: (context, pinnedState) =>
+                        feed(pinCovered: pinnedState.coveredPostId != null),
+                  );
+                },
+              ),
+            );
+          },
         ),
       );
     }
@@ -878,6 +878,123 @@ class _ProfilePostsState extends State<_ProfilePosts> {
   }
 }
 
+/// Owns the gesture-driven controller while the parent retains per-feed cubits.
+/// Capability changes replace this widget by its stable tab-id key, keeping the
+/// controller length aligned with the tabs the server currently supports.
+class _ProfileTabPager extends StatefulWidget {
+  const _ProfileTabPager({
+    super.key,
+    required this.specs,
+    required this.selectedId,
+    required this.outer,
+    required this.header,
+    required this.onChanged,
+    required this.hasOpened,
+    required this.bodyBuilder,
+    this.onRefresh,
+  });
+
+  final List<_ProfileTabSpec> specs;
+  final String selectedId;
+  final ScrollController outer;
+  final Widget header;
+  final ValueChanged<String> onChanged;
+  final bool Function(String id) hasOpened;
+  final Widget Function(BuildContext context, _ProfileTabSpec tab) bodyBuilder;
+  final Future<void> Function()? onRefresh;
+
+  @override
+  State<_ProfileTabPager> createState() => _ProfileTabPagerState();
+}
+
+class _ProfileTabPagerState extends State<_ProfileTabPager>
+    with SingleTickerProviderStateMixin {
+  late final TabController _controller;
+  final Map<String, GlobalKey> _tabKeys = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TabController(
+      length: widget.specs.length,
+      initialIndex: math.max(
+        0,
+        widget.specs.indexWhere((tab) => tab.id == widget.selectedId),
+      ),
+      vsync: this,
+    )..addListener(_selectionChanged);
+  }
+
+  void _selectionChanged() {
+    final id = widget.specs[_controller.index].id;
+    if (id == widget.selectedId) return;
+    widget.onChanged(id);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final tabContext = _tabKeys[id]?.currentContext;
+      final render = tabContext?.findRenderObject();
+      if (tabContext == null || render == null) return;
+      Scrollable.of(tabContext, axis: Axis.horizontal).position.ensureVisible(
+        render,
+        alignment: 0.5,
+        duration: MediaQuery.disableAnimationsOf(tabContext)
+            ? Duration.zero
+            : kThemeAnimationDuration,
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller
+      ..removeListener(_selectionChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => _ProfileScrollScaffold(
+    outer: widget.outer,
+    header: widget.header,
+    onRefresh: widget.onRefresh,
+    tabBar: AppTabBar(
+      equalWidth: false,
+      semanticLabel: 'Profile timelines',
+      selectedIndex: _controller.index,
+      onChanged: (index) => _controller.animateTo(
+        index,
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : null,
+      ),
+      tabs: [
+        for (final tab in widget.specs)
+          AppTab(
+            label: tab.label,
+            key: _tabKeys.putIfAbsent(tab.id, GlobalKey.new),
+          ),
+      ],
+    ),
+    body: TabBarView(
+      controller: _controller,
+      children: [
+        for (final tab in widget.specs)
+          Builder(
+            key: ValueKey(tab.id),
+            builder: (context) {
+              // A swipe may expose a neighbor before selection settles. Show
+              // a loading affordance without prefetching a feed nobody opens.
+              if (tab.id != widget.selectedId && !widget.hasOpened(tab.id)) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              return widget.bodyBuilder(context, tab);
+            },
+          ),
+      ],
+    ),
+  );
+}
+
 /// The profile's scroll structure, independent of what the tabs show: a
 /// `NestedScrollView` whose outer slivers are the header and the tab bar
 /// pinned under the app bar, and whose body is the selected tab's scroll view
@@ -943,11 +1060,11 @@ class _ProfileScrollScaffold extends StatelessWidget {
             ? view
             : RefreshIndicator(
                 onRefresh: refresh,
-                // Overscroll arrives from the body (depth 1) or, over the
-                // header, from the outer view (depth 0); nothing deeper
-                // (a horizontal strip inside a post) may start a refresh.
+                // The pager adds one viewport between the nested scroll and
+                // its vertical feed. Ignore deeper post content and all
+                // horizontal notifications when starting a refresh.
                 notificationPredicate: (notification) =>
-                    notification.depth <= 1 &&
+                    notification.depth <= (body is TabBarView ? 2 : 1) &&
                     notification.metrics.axis == Axis.vertical,
                 child: view,
               );

@@ -48,9 +48,9 @@ void main() {
   late PendingPostsCubit pending;
 
   final ownFeed = FeedKey.user('viewer-uid');
-  final ownReplies = FeedKey.user('viewer-uid', includeReplies: true);
+  final ownArticles = FeedKey.user('viewer-uid', tab: UserFeedTab.articles);
   final targetFeed = FeedKey.user('target-uid');
-  final targetReplies = FeedKey.user('target-uid', includeReplies: true);
+  final targetArticles = FeedKey.user('target-uid', tab: UserFeedTab.articles);
   final nameKey = find.byKey(const ValueKey('profile-appbar-name'));
 
   // Mid-month noon UTC: the same month in every zone CI can run in.
@@ -101,10 +101,10 @@ void main() {
           ProfileRelationship(relationship: graph.Relationship(userId: uid)),
     );
     final postsList = [for (var i = 30; i >= 1; i--) i];
-    final repliesList = [for (var i = 130; i >= 101; i--) i];
+    final articlesList = [for (var i = 130; i >= 101; i--) i];
     for (final entry in {
       own ? ownFeed : targetFeed: postsList,
-      own ? ownReplies : targetReplies: repliesList,
+      own ? ownArticles : targetArticles: articlesList,
     }.entries) {
       final snapshot = snapshotOf(entry.value, authorId: uid);
       when(() => timeline.cached(entry.key)).thenAnswer((_) async => snapshot);
@@ -268,7 +268,7 @@ void main() {
       expect(postsOffset, greaterThan(100));
       final outerCollapsed = appBarBottom(tester);
 
-      await tester.tap(find.text('Replies'));
+      await tester.tap(find.text('Articles'));
       await tester.pumpAndSettle();
       expect(find.text('post 130'), findsOneWidget);
       // The header stays collapsed; the new tab starts at its own top.
@@ -279,21 +279,21 @@ void main() {
       expect(innerPosition(tester).pixels, 0);
 
       await scrollUp(tester, 400);
-      final repliesOffset = innerPosition(tester).pixels;
-      expect(repliesOffset, greaterThan(100));
-      expect(repliesOffset, isNot(closeTo(postsOffset, 1)));
+      final articlesOffset = innerPosition(tester).pixels;
+      expect(articlesOffset, greaterThan(100));
+      expect(articlesOffset, isNot(closeTo(postsOffset, 1)));
 
       await tester.tap(find.text('Posts'));
       await tester.pumpAndSettle();
       expect(innerPosition(tester).pixels, closeTo(postsOffset, 0.5));
 
-      await tester.tap(find.text('Replies'));
+      await tester.tap(find.text('Articles'));
       await tester.pumpAndSettle();
-      expect(innerPosition(tester).pixels, closeTo(repliesOffset, 0.5));
+      expect(innerPosition(tester).pixels, closeTo(articlesOffset, 0.5));
 
       // Switching tabs never asked the server again.
       verify(() => timeline.refresh(ownFeed)).called(1);
-      verify(() => timeline.refresh(ownReplies)).called(1);
+      verify(() => timeline.refresh(ownArticles)).called(1);
     });
 
     testWidgets('scrolling a tab past 70 % loads its next page once', (
@@ -364,7 +364,7 @@ void main() {
       await open(tester);
 
       verify(() => timeline.refresh(ownFeed)).called(1);
-      verifyNever(() => timeline.refresh(ownReplies));
+      verifyNever(() => timeline.refresh(ownArticles));
     });
 
     testWidgets('pull-to-refresh at the top refreshes the selected tab only', (
@@ -381,11 +381,11 @@ void main() {
       );
       await tester.pumpAndSettle();
       verify(() => timeline.refresh(ownFeed)).called(2);
-      verifyNever(() => timeline.refresh(ownReplies));
+      verifyNever(() => timeline.refresh(ownArticles));
 
-      await tester.tap(find.text('Replies'));
+      await tester.tap(find.text('Articles'));
       await tester.pumpAndSettle();
-      verify(() => timeline.refresh(ownReplies)).called(1);
+      verify(() => timeline.refresh(ownArticles)).called(1);
       await tester.fling(
         find.byType(TimelineFeedView),
         const Offset(0, 400),
@@ -393,7 +393,7 @@ void main() {
         warnIfMissed: false,
       );
       await tester.pumpAndSettle();
-      verify(() => timeline.refresh(ownReplies)).called(1);
+      verify(() => timeline.refresh(ownArticles)).called(1);
       verifyNever(() => timeline.refresh(ownFeed));
     });
 
@@ -413,12 +413,12 @@ void main() {
           hasTapAction: true,
         ),
       );
-      await tester.tap(find.text('Replies'));
+      await tester.tap(find.text('Articles'));
       await tester.pumpAndSettle();
       expect(
-        tester.getSemantics(find.text('Replies').first),
+        tester.getSemantics(find.text('Articles').first),
         matchesSemantics(
-          label: 'Replies',
+          label: 'Articles',
           isButton: true,
           isSelected: true,
           isInMutuallyExclusiveGroup: true,
@@ -588,7 +588,7 @@ void main() {
 
             expect(tester.takeException(), isNull);
             expect(find.text('Joined March 2026'), findsOneWidget);
-            expect(find.text('Replies'), findsOneWidget);
+            expect(find.text('Articles'), findsOneWidget);
             final bar = tester.getRect(find.byType(AppTabBar));
             expect(bar.width, lessThanOrEqualTo(600.5));
             expect(bar.left, greaterThanOrEqualTo(0));
@@ -603,7 +603,7 @@ void main() {
             expect(fade(tester), 1);
             expect(find.byType(AppTabBar).hitTestable(), findsOneWidget);
 
-            await tester.tap(find.text('Replies'));
+            await tester.tap(find.text('Articles'));
             await tester.pumpAndSettle();
             expect(tester.takeException(), isNull);
             expect(find.text('post 130'), findsOneWidget);

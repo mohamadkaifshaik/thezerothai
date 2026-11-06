@@ -18,6 +18,7 @@ import 'package:dzeroth/shared/widgets/primitives/app_surface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../support/geometry.dart';
@@ -123,6 +124,54 @@ void main() {
   }
 
   Finder followButtons() => find.widgetWithText(FilledButton, 'Follow');
+
+  testWidgets('suggestion profiles navigate without following or dismissing', (
+    tester,
+  ) async {
+    whenListen(
+      onboarding,
+      const Stream<OnboardingState>.empty(),
+      initialState: OnboardingState(
+        enabledFeatures: _on,
+        profile: identity.Profile(userId: 'me', handle: 'me'),
+      ),
+    );
+    final router = GoRouter(
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) => const Scaffold(body: WhoToFollowCard()),
+        ),
+        GoRoute(
+          path: '/u/:userId',
+          builder: (_, state) =>
+              Scaffold(body: Text('Profile ${state.pathParameters['userId']}')),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      RepositoryProvider<GraphRepository>.value(
+        value: graphRepo,
+        child: MultiBlocProvider(
+          providers: [
+            BlocProvider<OnboardingBloc>.value(value: onboarding),
+            BlocProvider<SuggestionsCubit>.value(value: cubit),
+          ],
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('User 1'));
+    await tester.pumpAndSettle();
+    expect(
+      router.routerDelegate.currentConfiguration.last.matchedLocation,
+      '/u/u1',
+    );
+    expect(followed, isEmpty);
+    expect(cubit.state.items.any((item) => item.user.userId == 'u1'), isTrue);
+  });
 
   group('flag gating: nothing is drawn and nothing is asked', () {
     for (final entry in {

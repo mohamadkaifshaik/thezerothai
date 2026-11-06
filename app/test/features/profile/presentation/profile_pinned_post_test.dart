@@ -155,12 +155,12 @@ void main() {
     final feed = FeedKey.user(uid);
     when(() => timeline.cached(feed)).thenAnswer((_) async => snapshot);
     when(() => timeline.refresh(feed)).thenAnswer((_) async => snapshot);
-    final replies = FeedKey.user(uid, includeReplies: true);
-    final repliesSnapshot = snapshotWithKind([101], uid);
+    final replies = FeedKey.user(uid, tab: UserFeedTab.articles);
+    final articlesSnapshot = snapshotWithKind([101], uid);
     when(() => timeline.cached(replies))
-        .thenAnswer((_) async => repliesSnapshot);
+        .thenAnswer((_) async => articlesSnapshot);
     when(() => timeline.refresh(replies))
-        .thenAnswer((_) async => repliesSnapshot);
+        .thenAnswer((_) async => articlesSnapshot);
     when(() => posts.getPost(any())).thenAnswer((invocation) async {
       final id = invocation.positionalArguments.first as String;
       if (getPost != null) return await getPost(id);
@@ -319,7 +319,7 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byType(AppTabBar),
-          matching: find.text('Replies'),
+          matching: find.text('Articles'),
         ),
       );
       await tester.pumpAndSettle();

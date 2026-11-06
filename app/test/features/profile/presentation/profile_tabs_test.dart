@@ -200,9 +200,72 @@ void main() {
     feature: 'profile_tabs',
   );
 
+  testWidgets('body swipes traverse all four tabs and restore cached feeds', (
+    tester,
+  ) async {
+    arrange(
+      rows: {
+        'posts': [1],
+        'reposts': [2],
+        'media': [3],
+        'articles': [4],
+      },
+    );
+    await open(tester);
+    await scrollUp(tester, 1000);
+    expect(
+      tester.widget<TabBarView>(find.byType(TabBarView)).controller!.length,
+      4,
+    );
+    for (var index = 1; index < 4; index++) {
+      await tester.drag(find.byType(TabBarView), const Offset(-320, 0));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<AppTabBar>(find.byType(AppTabBar)).selectedIndex,
+        index,
+      );
+      expect(find.text('post ${index + 1}'), findsOneWidget);
+      expect(
+        tab(['Posts', 'Reposts', 'Media', 'Articles'][index]).hitTestable(),
+        findsOneWidget,
+      );
+    }
+    for (var index = 2; index >= 0; index--) {
+      await tester.drag(find.byType(TabBarView), const Offset(320, 0));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<AppTabBar>(find.byType(AppTabBar)).selectedIndex,
+        index,
+      );
+    }
+    for (final feed in [
+      postsOf[viewer]!,
+      repostsOf(viewer),
+      mediaOf(viewer),
+      articlesOf(viewer),
+    ]) {
+      verify(() => timeline.refresh(feed)).called(1);
+    }
+    verifyNever(() => timeline.refresh(repliesOf(viewer)));
+  });
+
+  testWidgets(
+    'profile app bar stays transparent with no elevation after scrolling',
+    (tester) async {
+      arrange();
+      await open(tester);
+      await scrollUp(tester, 1200);
+      final bar = tester.widget<AppBar>(find.byType(AppBar));
+      expect(bar.backgroundColor, Colors.transparent);
+      expect(bar.elevation, 0);
+      expect(bar.scrolledUnderElevation, 0);
+      expect(bar.forceMaterialTransparency, isTrue);
+    },
+  );
+
   group('tab list', () {
     forEachThemeAndWidth(
-      'profile_tabs off: Posts, Replies and Articles remain scrollable',
+      'profile_tabs off: Posts and Articles remain scrollable',
       (tester, env) async {
         arrange(features: withoutTabs);
         await open(
@@ -212,7 +275,11 @@ void main() {
           textScale: env.textScale,
         );
 
-        expect(tabLabels(tester), ['Posts', 'Replies', 'Articles']);
+        expect(tabLabels(tester), ['Posts', 'Articles']);
+        expect(
+          tester.widget<TabBarView>(find.byType(TabBarView)).controller!.length,
+          2,
+        );
         expect(find.text('Reposts'), findsNothing);
         expect(find.text('Media'), findsNothing);
         expect(
@@ -227,7 +294,7 @@ void main() {
     );
 
     forEachThemeAndWidth(
-      'all five tabs share a horizontally scrollable row without overflow',
+      'all four tabs share a horizontally scrollable row without overflow',
       (tester, env) async {
         arrange();
         await open(
@@ -237,13 +304,7 @@ void main() {
           textScale: env.textScale,
         );
 
-        expect(tabLabels(tester), [
-          'Posts',
-          'Replies',
-          'Reposts',
-          'Media',
-          'Articles',
-        ]);
+        expect(tabLabels(tester), ['Posts', 'Reposts', 'Media', 'Articles']);
         expect(
           tester.widget<AppTabBar>(find.byType(AppTabBar)).equalWidth,
           isFalse,
@@ -259,13 +320,13 @@ void main() {
       },
     );
 
-    testWidgets('360dp at text scale 2.0: five tabs do not overflow', (
+    testWidgets('360dp at text scale 2.0: four tabs do not overflow', (
       tester,
     ) async {
       arrange();
       await open(tester, size: const Size(360, 800), textScale: 2);
 
-      expect(tabLabels(tester), hasLength(5));
+      expect(tabLabels(tester), hasLength(4));
       expect(tester.takeException(), isNull);
     });
 
@@ -454,12 +515,16 @@ void main() {
       when(() => timeline.refresh(mediaOf(viewer)))
           .thenAnswer((_) => Future.error(disabled));
       await open(tester);
-      expect(tabLabels(tester), hasLength(5));
+      expect(tabLabels(tester), hasLength(4));
 
       await selectTab(tester, 'Media');
       await tester.pumpAndSettle();
 
-      expect(tabLabels(tester), ['Posts', 'Replies', 'Articles']);
+      expect(tabLabels(tester), ['Posts', 'Articles']);
+      expect(
+        tester.widget<TabBarView>(find.byType(TabBarView)).controller!.length,
+        2,
+      );
       expect(find.text('post 30'), findsOneWidget);
       // The refusal is not shown as an error.
       expect(find.text('Retry'), findsNothing);
@@ -478,7 +543,11 @@ void main() {
       await selectTab(tester, 'Reposts');
       await tester.pumpAndSettle();
 
-      expect(tabLabels(tester), ['Posts', 'Replies', 'Articles']);
+      expect(tabLabels(tester), ['Posts', 'Articles']);
+      expect(
+        tester.widget<TabBarView>(find.byType(TabBarView)).controller!.length,
+        2,
+      );
       expect(find.text('post 30'), findsOneWidget);
       verify(() => timeline.refresh(repostsOf(viewer))).called(1);
     });
@@ -499,7 +568,7 @@ void main() {
       await selectTab(tester, 'Media');
       await tester.pumpAndSettle();
 
-      expect(tabLabels(tester), hasLength(5));
+      expect(tabLabels(tester), hasLength(4));
     });
 
     testWidgets('another failure shows the error with Retry and keeps the '
@@ -514,7 +583,7 @@ void main() {
       await selectTab(tester, 'Media');
       await tester.pumpAndSettle();
 
-      expect(tabLabels(tester), hasLength(5));
+      expect(tabLabels(tester), hasLength(4));
       expect(find.text('Retry'), findsOneWidget);
       verify(() => timeline.refresh(mediaOf(viewer))).called(1);
     });

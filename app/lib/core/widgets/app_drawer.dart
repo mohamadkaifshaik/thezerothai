@@ -39,18 +39,9 @@ class AppDrawer extends StatelessWidget {
     final profile = context.select((OnboardingBloc bloc) => bloc.state.profile);
     final handle = profile?.handle ?? '';
     final shellEntries = shellEntriesFor(context);
-    final callsEntry = shellEntries.where(
-      (entry) => entry.kind == ShellKind.calls,
-    );
-    final secondaryShellEntries = [
-      for (final kind in const [
-        ShellKind.premium,
-        ShellKind.creatorStudio,
-        ShellKind.advertise,
-      ])
-        for (final entry in shellEntries)
-          if (entry.kind == kind) entry,
-    ];
+    final secondaryShellEntries = shellEntries
+        .where((entry) => entry.kind == ShellKind.premium)
+        .toList(growable: false);
     final pendingRequests = context.select(
       (OnboardingBloc bloc) => bloc.state.pendingFollowRequestCount,
     );
@@ -93,13 +84,6 @@ class AppDrawer extends StatelessWidget {
                   () => context.go(AppRouter.followRequestsPath),
                 ),
               ),
-            for (final entry in callsEntry)
-              _DrawerRow(
-                key: ValueKey('shell-${entry.kind.name}'),
-                icon: entry.icon,
-                label: entry.label,
-                onTap: () => _go(context, () => openShellEntry(context, entry)),
-              ),
             // Needs `posts` (the entry and route).
             if (isFeatureEnabled(context, kFeaturePosts))
               _DrawerRow(
@@ -135,8 +119,8 @@ class AppDrawer extends StatelessWidget {
                 onTap: () =>
                     _go(context, () => context.go(AppRouter.plansPath)),
               ),
-            // History follows feature destinations, then the remaining shell
-            // entries in the requested order. Needs `shells` and `ui_shell`.
+            // History follows feature destinations; Premium follows History
+            // when the existing shell capabilities allow it.
             if (isFeatureEnabled(context, kFeatureBookmarks) &&
                 isFeatureEnabled(context, kFeaturePosts))
               _DrawerRow(

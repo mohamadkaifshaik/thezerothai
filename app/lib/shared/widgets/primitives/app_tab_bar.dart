@@ -6,10 +6,13 @@ import '../../../core/theme/app_theme.dart';
 /// One tab of an [AppTabBar]: a text label with an optional leading icon.
 @immutable
 class AppTab {
-  const AppTab({required this.label, this.icon});
+  const AppTab({required this.label, this.icon, this.key});
 
   final String label;
   final IconData? icon;
+
+  /// Optional identity for measuring or revealing a particular tab.
+  final Key? key;
 }
 
 /// The text-only tab row of every screen with tabs (Home, Notifications,
@@ -85,6 +88,7 @@ class AppTabBar extends StatelessWidget {
     final items = [
       for (var i = 0; i < tabs.length; i++)
         _TabItem(
+          key: tabs[i].key,
           tab: tabs[i],
           selected: i == selectedIndex,
           horizontalPadding: equalWidth ? 0 : padding,
@@ -129,6 +133,7 @@ class AppTabBar extends StatelessWidget {
 
 class _TabItem extends StatelessWidget {
   const _TabItem({
+    super.key,
     required this.tab,
     required this.selected,
     required this.horizontalPadding,
