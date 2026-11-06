@@ -38,6 +38,10 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
   BeaconPeopleCubit? _requests;
   pb.BeaconView? _view;
   AppException? _error;
+
+  /// The organiser and accepted participants may read the list (the proto's
+  /// ListParticipants); anyone else is told so without a failing read.
+  bool _mayList = false;
   var _tab = 0;
 
   @override
@@ -49,7 +53,7 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
       beaconId: widget.beaconId,
       filter: pb.ParticipantFilter.PARTICIPANT_FILTER_ACCEPTED,
       graph: graph,
-    )..load();
+    );
     _loadView(graph);
   }
 
@@ -59,6 +63,11 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
       if (!mounted) return;
       setState(() {
         _view = view;
+        _mayList =
+            view.viewer.canManage ||
+            view.viewer.participantState ==
+                pb.ParticipantState.PARTICIPANT_STATE_ACCEPTED;
+        if (_mayList) _going.load();
         if (view.viewer.canManage && _requests == null) {
           _requests = BeaconPeopleCubit(
             repository: _repository,
@@ -198,6 +207,16 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
                           child: AppEmptyView(
                             icon: Icons.error_outline,
                             title: beaconsErrorMessage(_error!),
+                          ),
+                        )
+                      : _view == null
+                      ? const UserListSkeleton(semanticsLabel: 'Loading people')
+                      : !_mayList
+                      ? const Center(
+                          child: AppEmptyView(
+                            icon: Icons.lock_outline,
+                            title:
+                                'Only people who are going can see this list.',
                           ),
                         )
                       : _tab == 1 && requests != null

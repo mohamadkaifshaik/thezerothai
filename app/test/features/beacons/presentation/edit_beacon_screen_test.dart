@@ -132,4 +132,14 @@ void main() {
     expect(server.public.single.beacon.title, 'Tea');
     expect(kBeaconTitleMaxLength, 60);
   });
+
+  testWidgets('a line break in the details is refused before sending', (
+    tester,
+  ) async {
+    await open(tester);
+    await tester.enterText(field('Details'), 'line one\nline two');
+    await tester.pump();
+    expect(find.text('Use one line of plain text.'), findsOneWidget);
+    expect(saveEnabled(tester), isFalse);
+  });
 }

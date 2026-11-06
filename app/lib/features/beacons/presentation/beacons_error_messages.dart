@@ -42,6 +42,8 @@ String beaconsErrorMessage(AppException error) {
       'Dzeroth is in a limited mode right now. Please try again shortly.',
     NetworkException() => 'No connection. Check your network and try again.',
     NotFoundException() => 'This plan is unavailable.',
+    ValidationException(field: 'details') =>
+      'Details must be one line of plain text, up to 300 characters.',
     ValidationException(field: 'open_spots') =>
       "Open spots can't go below the people already going.",
     ValidationException() => 'Check the details of your plan, then try again.',

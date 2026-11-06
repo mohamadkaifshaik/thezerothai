@@ -420,7 +420,7 @@ class _Details extends StatelessWidget {
             label: const Text('Leave plan'),
           ),
         ],
-        if (v.canManage) ...[
+        if (v.canManage || v.canLeave) ...[
           const SizedBox(height: AppSpacing.lg),
           Wrap(
             spacing: AppSpacing.sm,
@@ -431,7 +431,7 @@ class _Details extends StatelessWidget {
                 icon: const Icon(Icons.people_outline),
                 label: Text('People · ${b.acceptedCount}'),
               ),
-              if (live)
+              if (v.canManage && live)
                 OutlinedButton.icon(
                   onPressed: onEdit,
                   icon: const Icon(Icons.edit_outlined),

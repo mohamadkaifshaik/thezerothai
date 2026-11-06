@@ -108,5 +108,9 @@ void main() {
       beaconsErrorMessage(ValidationException('bad', field: 'open_spots')),
       "Open spots can't go below the people already going.",
     );
+    expect(
+      beaconsErrorMessage(ValidationException('bad', field: 'details')),
+      'Details must be one line of plain text, up to 300 characters.',
+    );
   });
 }

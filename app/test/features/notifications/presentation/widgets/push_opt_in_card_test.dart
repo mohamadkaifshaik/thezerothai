@@ -498,41 +498,38 @@ void main() {
     });
   });
 
-  testWidgets(
-    'W2-13: while the OS dialog is still open a second tap does not ask '
-    'again; the answer registers once',
-    (tester) async {
-      final held = _HeldPermissionMessaging();
-      await optIn.close();
-      await push.close();
-      push = PushCubit(messaging: held, repository: repo);
-      optIn = PushOptInCubit(store: store, push: push, now: () => now);
-      await open(tester);
+  testWidgets('W2-13: while the OS dialog is still open a second tap does not ask '
+      'again; the answer registers once', (tester) async {
+    final held = _HeldPermissionMessaging();
+    await optIn.close();
+    await push.close();
+    push = PushCubit(messaging: held, repository: repo);
+    optIn = PushOptInCubit(store: store, push: push, now: () => now);
+    await open(tester);
 
-      await tester.tap(find.text('Turn on'));
-      await tester.pump();
-      expect(held.permissionRequests, 1);
-      expect(find.text('Turn on'), findsOneWidget, reason: 'busy, still there');
-      await tester.tap(find.text('Turn on'));
-      await tester.pump();
-      expect(held.permissionRequests, 1, reason: 'the second tap was ignored');
-      await push.enable(); // a stray programmatic second call is ignored too
-      expect(held.permissionRequests, 1);
+    await tester.tap(find.text('Turn on'));
+    await tester.pump();
+    expect(held.permissionRequests, 1);
+    expect(find.text('Turn on'), findsOneWidget, reason: 'busy, still there');
+    await tester.tap(find.text('Turn on'));
+    await tester.pump();
+    expect(held.permissionRequests, 1, reason: 'the second tap was ignored');
+    await push.enable(); // a stray programmatic second call is ignored too
+    expect(held.permissionRequests, 1);
 
-      held.gate.complete(PushPermission.granted);
-      await tester.pumpAndSettle();
+    held.gate.complete(PushPermission.granted);
+    await tester.pumpAndSettle();
 
-      expect(held.permissionRequests, 1);
-      verify(
-        () => repo.registerDevice(
-          idempotencyKey: any(named: 'idempotencyKey'),
-          deviceId: any(named: 'deviceId'),
-          fcmToken: any(named: 'fcmToken'),
-          platform: any(named: 'platform'),
-        ),
-      ).called(1);
-    },
-  );
+    expect(held.permissionRequests, 1);
+    verify(
+      () => repo.registerDevice(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        deviceId: any(named: 'deviceId'),
+        fcmToken: any(named: 'fcmToken'),
+        platform: any(named: 'platform'),
+      ),
+    ).called(1);
+  });
 }
 
 /// A messaging fake whose OS permission dialog stays open until [gate] completes.

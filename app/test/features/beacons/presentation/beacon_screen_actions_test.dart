@@ -134,9 +134,16 @@ void main() {
           state: pb.ParticipantState.PARTICIPANT_STATE_ACCEPTED,
         ),
       );
-      await open(tester);
+      final router = await open(tester);
       expect(find.text("You're going"), findsOneWidget);
       expect(find.text('Leave plan'), findsOneWidget);
+      // Going participants may see who else is going (ListParticipants).
+      expect(find.text('People · 2'), findsOneWidget);
+      expect(find.text('Edit'), findsNothing);
+      expect(find.text('Cancel plan'), findsNothing);
+      await tester.tap(find.text('People · 2'));
+      await tester.pumpAndSettle();
+      expect(router.state.uri.path, '/plans/$kBeaconIdA/people');
     });
 
     testWidgets('can_manage: People, Edit and Cancel, and they navigate', (

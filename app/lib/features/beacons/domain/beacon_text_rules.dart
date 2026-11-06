@@ -65,13 +65,15 @@ bool isBeaconId(String s) {
   return true;
 }
 
-/// 0 to [kBeaconDetailsMaxLength] code points, several lines allowed.
+/// 0 to [kBeaconDetailsMaxLength] code points on one line (the server's rule;
+/// empty allowed).
 BeaconTextIssue? beaconDetailsIssue(String raw) {
   final text = normalizeListText(raw);
+  if (text.isEmpty) return null;
   if (text.runes.length > kBeaconDetailsMaxLength) {
     return BeaconTextIssue.tooLong;
   }
-  return multiLineTextIssue(text) == null ? null : BeaconTextIssue.notPlainText;
+  return singleLineIssue(text) == null ? null : BeaconTextIssue.notPlainOneLine;
 }
 
 /// The inline error under a text field; an empty field shows none (the

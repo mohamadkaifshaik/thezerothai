@@ -31,10 +31,14 @@ void main() {
         beaconDetailsIssue('x' * (kBeaconDetailsMaxLength + 1)),
         BeaconTextIssue.tooLong,
       );
-      expect(beaconDetailsIssue('line one\nline two'), isNull);
+      // The server checks details with its single-line rule.
+      expect(
+        beaconDetailsIssue('line one\nline two'),
+        BeaconTextIssue.notPlainOneLine,
+      );
     });
     test('an invisible character is not plain text', () {
-      expect(beaconDetailsIssue('a​b'), BeaconTextIssue.notPlainText);
+      expect(beaconDetailsIssue('a​b'), BeaconTextIssue.notPlainOneLine);
     });
   });
 

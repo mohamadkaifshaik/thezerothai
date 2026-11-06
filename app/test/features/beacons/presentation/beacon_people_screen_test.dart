@@ -34,15 +34,21 @@ void main() {
     ).thenAnswer((_) async => graph.Relationship());
   });
 
-  void seed({bool canManage = true}) {
-    server.public.add(
-      beaconView(
-        startAt: start,
-        canManage: canManage,
-        accepted: 2,
-        openSpots: 3,
-      ),
+  void seed({bool canManage = true, bool accepted = true}) {
+    final v = beaconView(
+      startAt: start,
+      canManage: canManage,
+      accepted: 2,
+      openSpots: 3,
     );
+    if (!canManage && accepted) {
+      v.viewer = pb.ViewerState(
+        role: pb.ViewerRole.VIEWER_ROLE_PARTICIPANT,
+        participantState: pb.ParticipantState.PARTICIPANT_STATE_ACCEPTED,
+        canLeave: true,
+      );
+    }
+    server.public.add(v);
     server.going[kBeaconIdA] = [
       participant(userId: 'u1', handle: 'ann', name: 'Ann'),
       participant(userId: 'u2', handle: 'bea', name: 'Bea'),
@@ -212,5 +218,19 @@ void main() {
     );
     expect(find.text('Person 24'), findsOneWidget);
     expect(server.calls.where((c) => c == 'people:accepted'), hasLength(2));
+  });
+
+  testWidgets('a viewer who is not going sees the gate copy and no list is '
+      'read', (tester) async {
+    seed(canManage: false, accepted: false);
+    await open(tester);
+
+    expect(
+      find.text('Only people who are going can see this list.'),
+      findsOneWidget,
+    );
+    expect(find.byType(ParticipantRow), findsNothing);
+    expect(find.text('Try again'), findsNothing);
+    expect(server.calls, ['get']);
   });
 }
