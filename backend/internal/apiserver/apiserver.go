@@ -696,6 +696,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	beaconsSvc := beacons.New(beacons.Deps{
 		Repo: beaconsRepo, Directory: identitySvc.(identity.Directory), Graph: graphSvc, Communities: communitiesSvc.(communities.Reader),
 		CommunityFlags: featureFlags, IDs: snowflakeNode, CursorKey: cfg.CursorHMACKey,
+		Events: beaconNotifier{slot: notifSlot}, // request, accept and cancel → notifications (PR 5)
 		Limits: beacons.Limits{MaxOpenPerUser: cfg.Beacons.MaxOpenPerUser, MaxPendingRequests: cfg.Beacons.MaxPendingRequests, MaxOpenSpots: cfg.Beacons.MaxOpenSpots},
 	})
 	beaconReporter, ok := beaconsSvc.(beacons.BeaconReporter)
