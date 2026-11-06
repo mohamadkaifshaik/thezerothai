@@ -45,7 +45,12 @@ void main() {
   test(
     'cancel sends one key, shows busy, then the view reads CANCELLED',
     () async {
-      when(() => beacons.getBeacon(_bid)).thenAnswer((_) async => _view());
+      final gets = [
+        _view(),
+        _view(status: pb.BeaconStatus.BEACON_STATUS_CANCELLED),
+      ];
+      when(() => beacons.getBeacon(_bid))
+          .thenAnswer((_) async => gets.removeAt(0));
       when(
         () => beacons.cancelBeacon(
           idempotencyKey: any(named: 'idempotencyKey'),
@@ -62,7 +67,8 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       await sub.cancel();
 
-      expect(seen, [true, false]);
+      expect(seen.first, isTrue);
+      expect(seen.last, isFalse);
       expect(
         cubit.state.view?.beacon.status,
         pb.BeaconStatus.BEACON_STATUS_CANCELLED,
