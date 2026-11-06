@@ -1,0 +1,197 @@
+package beacons
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"connectrpc.com/connect"
+
+	beaconsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1"
+	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1/beaconsv1connect"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+)
+
+// rpcDeadline bounds one beacon call (<= 10 s); the transaction itself has 5 s.
+const rpcDeadline = 8 * time.Second
+
+// Server is the BeaconService handler. It mounts every route so the interceptor chain (App Check, ID token, account
+// status, rate limits, degraded mode) covers them, and runs the flag gate (FEATURE_BEACONS) before anything else, by
+// class: CreateBeacon, UpdateBeacon, RequestToJoin and RespondToJoinRequest need the flag on for the caller (Guard); the
+// other eight only need it not globally off (GuardNotOff), so a caller dropped from an allowlist can still read, leave
+// and cancel. Past the gate the seven PR 2 RPCs call the Service; the five participation RPCs, ListMyBeacons and
+// ListParticipants answer Unimplemented until PR 3. A Server built without a service answers Unimplemented everywhere.
+type Server struct {
+	beaconsv1connect.UnimplementedBeaconServiceHandler
+	flags FlagChecker
+	svc   Service
+}
+
+// NewServer builds the handler. svc may be nil (a wiring without the service): every gated RPC then answers
+// Unimplemented. Use with beaconsv1connect.NewBeaconServiceHandler.
+func NewServer(fc FlagChecker, svc Service) *Server { return &Server{flags: fc, svc: svc} }
+
+var _ beaconsv1connect.BeaconServiceHandler = (*Server)(nil)
+
+// gate runs the flag check of the class for the authenticated caller. A request that reaches a handler without a uid is
+// a wiring bug (the authn interceptor runs first); it is treated as unauthenticated.
+func (s *Server) gate(ctx context.Context, write bool) (string, error) {
+	uid, ok := authn.UIDFromContext(ctx)
+	if !ok || uid == "" {
+		return "", connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+	if write {
+		return uid, Guard(ctx, s.flags, uid)
+	}
+	return uid, GuardNotOff(ctx, s.flags, uid)
+}
+
+// entry is the shared front of the implemented handlers: the flag gate of the class, the wiring check and the deadline.
+func (s *Server) entry(ctx context.Context, rpc string, write bool) (context.Context, context.CancelFunc, string, error) {
+	uid, err := s.gate(ctx, write)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if s.svc == nil {
+		return nil, nil, "", notWired(rpc)
+	}
+	ctx, cancel := context.WithTimeout(ctx, rpcDeadline)
+	return ctx, cancel, uid, nil
+}
+
+func notWired(rpc string) error {
+	return connect.NewError(connect.CodeUnimplemented, fmt.Errorf("%s is not wired", rpc))
+}
+
+// later is the front of the RPCs PR 3 implements: the gate of their class, then Unimplemented.
+func (s *Server) later(ctx context.Context, rpc string, write bool) error {
+	if _, err := s.gate(ctx, write); err != nil {
+		return err
+	}
+	return notWired(rpc)
+}
+
+// CreateBeacon is write class.
+func (s *Server) CreateBeacon(ctx context.Context, req *connect.Request[beaconsv1.CreateBeaconRequest]) (*connect.Response[beaconsv1.CreateBeaconResponse], error) {
+	ctx, cancel, uid, err := s.entry(ctx, "CreateBeacon", true)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	in, err := createInputFromProto(req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	v, err := s.svc.CreateBeacon(ctx, uid, in)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&beaconsv1.CreateBeaconResponse{View: toView(v)}), nil
+}
+
+// UpdateBeacon is write class; only the fields that are set change.
+func (s *Server) UpdateBeacon(ctx context.Context, req *connect.Request[beaconsv1.UpdateBeaconRequest]) (*connect.Response[beaconsv1.UpdateBeaconResponse], error) {
+	ctx, cancel, uid, err := s.entry(ctx, "UpdateBeacon", true)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	m := req.Msg
+	in := UpdateInput{Key: m.GetIdempotencyKey(), BeaconID: m.GetBeaconId(), Title: m.Title, Details: m.Details, Venue: m.Venue}
+	if m.OpenSpots != nil {
+		n := int(m.GetOpenSpots())
+		in.OpenSpots = &n
+	}
+	v, err := s.svc.UpdateBeacon(ctx, uid, in)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&beaconsv1.UpdateBeaconResponse{View: toView(v)}), nil
+}
+
+// CancelBeacon is read class (a caller dropped from the allowlist can still cancel).
+func (s *Server) CancelBeacon(ctx context.Context, req *connect.Request[beaconsv1.CancelBeaconRequest]) (*connect.Response[beaconsv1.CancelBeaconResponse], error) {
+	ctx, cancel, uid, err := s.entry(ctx, "CancelBeacon", false)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	if err := s.svc.CancelBeacon(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetBeaconId()); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&beaconsv1.CancelBeaconResponse{}), nil
+}
+
+// GetBeacon is read class.
+func (s *Server) GetBeacon(ctx context.Context, req *connect.Request[beaconsv1.GetBeaconRequest]) (*connect.Response[beaconsv1.GetBeaconResponse], error) {
+	ctx, cancel, uid, err := s.entry(ctx, "GetBeacon", false)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	v, err := s.svc.GetBeacon(ctx, uid, req.Msg.GetBeaconId())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&beaconsv1.GetBeaconResponse{View: toView(v)}), nil
+}
+
+// ListBeacons is read class.
+func (s *Server) ListBeacons(ctx context.Context, req *connect.Request[beaconsv1.ListBeaconsRequest]) (*connect.Response[beaconsv1.ListBeaconsResponse], error) {
+	ctx, cancel, uid, err := s.entry(ctx, "ListBeacons", false)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	m := req.Msg
+	in := ListInput{CommunityID: m.GetCommunityId(), Public: m.GetPublic(), Limit: m.GetLimit(), PageToken: m.GetPageToken()}
+	if m.GetFrom() != nil {
+		in.From = m.GetFrom().AsTime()
+	}
+	page, err := s.svc.ListBeacons(ctx, uid, in)
+	if err != nil {
+		return nil, err
+	}
+	out := &beaconsv1.ListBeaconsResponse{NextPageToken: page.NextPageToken}
+	for _, v := range page.Views {
+		out.Views = append(out.Views, toView(v))
+	}
+	return connect.NewResponse(out), nil
+}
+
+// The RPCs PR 3 implements: gated by their class, then Unimplemented.
+
+// ListMyBeacons is read class.
+func (s *Server) ListMyBeacons(ctx context.Context, _ *connect.Request[beaconsv1.ListMyBeaconsRequest]) (*connect.Response[beaconsv1.ListMyBeaconsResponse], error) {
+	return nil, s.later(ctx, "ListMyBeacons", false)
+}
+
+// RequestToJoin is write class.
+func (s *Server) RequestToJoin(ctx context.Context, _ *connect.Request[beaconsv1.RequestToJoinRequest]) (*connect.Response[beaconsv1.RequestToJoinResponse], error) {
+	return nil, s.later(ctx, "RequestToJoin", true)
+}
+
+// WithdrawJoinRequest is read class.
+func (s *Server) WithdrawJoinRequest(ctx context.Context, _ *connect.Request[beaconsv1.WithdrawJoinRequestRequest]) (*connect.Response[beaconsv1.WithdrawJoinRequestResponse], error) {
+	return nil, s.later(ctx, "WithdrawJoinRequest", false)
+}
+
+// RespondToJoinRequest is write class.
+func (s *Server) RespondToJoinRequest(ctx context.Context, _ *connect.Request[beaconsv1.RespondToJoinRequestRequest]) (*connect.Response[beaconsv1.RespondToJoinRequestResponse], error) {
+	return nil, s.later(ctx, "RespondToJoinRequest", true)
+}
+
+// LeaveBeacon is read class.
+func (s *Server) LeaveBeacon(ctx context.Context, _ *connect.Request[beaconsv1.LeaveBeaconRequest]) (*connect.Response[beaconsv1.LeaveBeaconResponse], error) {
+	return nil, s.later(ctx, "LeaveBeacon", false)
+}
+
+// RemoveParticipant is read class.
+func (s *Server) RemoveParticipant(ctx context.Context, _ *connect.Request[beaconsv1.RemoveParticipantRequest]) (*connect.Response[beaconsv1.RemoveParticipantResponse], error) {
+	return nil, s.later(ctx, "RemoveParticipant", false)
+}
+
+// ListParticipants is read class.
+func (s *Server) ListParticipants(ctx context.Context, _ *connect.Request[beaconsv1.ListParticipantsRequest]) (*connect.Response[beaconsv1.ListParticipantsResponse], error) {
+	return nil, s.later(ctx, "ListParticipants", false)
+}
