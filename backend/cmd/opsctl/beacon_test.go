@@ -99,7 +99,8 @@ func TestBeacon_HideRestoreAndOutput(t *testing.T) {
 		want []string
 		not  []string
 	}{
-		{"hide", []string{"beacon", "hide", testBeaconID}, []string{"hidden: beacon_hash=" + hash, "wrote=true"}, nil},
+		// R18: hidden is invisible, not frozen. The organiser still sees and manages the beacon; the printed line must say so.
+		{"hide", []string{"beacon", "hide", testBeaconID}, []string{"hidden: beacon_hash=" + hash, "wrote=true", "everyone but its organiser", "the organiser still sees it"}, []string{"the organiser too"}},
 		{"hide again", []string{"beacon", "hide", testBeaconID}, []string{"already hidden", "wrote=false"}, nil},
 		{"dry-run restore writes nothing", []string{"beacon", "restore", testBeaconID, "--dry-run"}, []string{"currently hidden=true", "would write"}, []string{"audit:"}},
 		{"restore", []string{"beacon", "restore", testBeaconID}, []string{"restored: beacon_hash=" + hash, "wrote=true"}, nil},
@@ -213,4 +214,32 @@ func TestBeacon_HideWithReport(t *testing.T) {
 			t.Errorf("code=%d sets=%d resolved=%v out=%q", code, f.sets, ops.resolved, out)
 		}
 	})
+}
+
+// `reports show` renders the BEACON evidence (R16: the organiser's handle, title, details, venue, creation time as the
+// reporter saw them), the only triage surface there is; a report without evidence says so.
+func TestReportsShow_BeaconEvidence(t *testing.T) {
+	t.Parallel()
+	ops := &fakeOps{report: &moderation.Report{
+		TargetType: moderation.TargetBeacon, TargetID: testBeaconID, TargetOwnerID: "owner", Status: moderation.StatusOpen,
+		Evidence: &moderation.Evidence{AuthorHandle: "mallory", PostCreatedAt: time.Date(2026, 11, 6, 10, 0, 0, 0, time.UTC),
+			BeaconTitle: "Fake meetup", BeaconDetails: "bring cash", BeaconVenue: "Platform 9"},
+	}}
+	f := &modFixture{ops: ops, mod: &fakeModerator{}, acc: &fakeAccounts{}}
+	code, out, errOut := f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	for _, w := range []string{`evidence beacon by @mallory created 2026-11-06T10:00:00Z`, `title "Fake meetup"`, `details "bring cash"`, `venue "Platform 9"`} {
+		if !strings.Contains(out, w) {
+			t.Errorf("output lacks %q:\n%s", w, out)
+		}
+	}
+	if strings.Contains(out, "evidence post") {
+		t.Errorf("beacon evidence rendered as a post:\n%s", out)
+	}
+	ops.report.Evidence = nil
+	if _, out, _ = f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID); !strings.Contains(out, "evidence none") || strings.Contains(out, "evidence post") {
+		t.Errorf("no evidence: %q", out)
+	}
 }

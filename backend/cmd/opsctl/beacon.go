@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-const beaconUsage = `  opsctl beacon hide    BEACON_ID --project P [--report R] [--note N] [--dry-run]   (every read of the beacon answers NOT_FOUND on the next request; the organiser too)
+const beaconUsage = `  opsctl beacon hide    BEACON_ID --project P [--report R] [--note N] [--dry-run]   (NOT_FOUND to everyone but its organiser from the next request; the organiser still sees and manages it)
   opsctl beacon restore BEACON_ID --project P [--dry-run]
 `
 
@@ -23,10 +23,11 @@ func parseBeaconArgs(sub, beaconID string, a modArgs) error {
 
 // beaconCommand is `opsctl beacon hide|restore` (docs/beacons-plan.md PR 4, D6): the platform hide of one beacon, the
 // only hide lever there is (no in-app moderator surface). Every read already honours `hidden`: a hidden beacon answers
-// NOT_FOUND to everyone, its organiser included, on Get, the lists and the participation RPCs, and the eraser still
-// reaches it (hidden is invisible, not frozen). The write is beacons.Moderator.SetHidden, a field-level Update of `hidden`
-// and `updatedAt` inside a transaction (restore deletes the field); a missing beacon is refused. Beacon docs are not cached
-// by the api, so the next request on every server sees the change.
+// NOT_FOUND to everyone but its organiser on Get, the lists and the participation RPCs; the organiser still sees it and
+// keeps Update, Cancel, Respond and Remove (R18: hidden is invisible, not frozen), and the eraser still reaches it. The
+// write is beacons.Moderator.SetHidden, a field-level Update of `hidden` and `updatedAt` inside a transaction (restore
+// deletes the field); a missing beacon is refused. Beacon docs are not cached by the api, so the next request on every
+// server sees the change.
 //
 // Hide and restore write only when the flag differs (a repeat writes nothing). --dry-run only reads. --report R (hide
 // only; checked first: R must be a BEACON report of exactly this beacon) resolves R as TAKEDOWN after the write, also when
@@ -59,7 +60,7 @@ func beaconCommand(ctx context.Context, b *backends, project, sub, beaconID stri
 	}
 	switch {
 	case changed && hide:
-		fmt.Fprintf(out, "hidden: beacon_hash=%s\nevery read answers NOT_FOUND from the next request on every server (the organiser too); a screen already open keeps its copy until it refreshes\n", hash)
+		fmt.Fprintf(out, "hidden: beacon_hash=%s\nNOT_FOUND to everyone but its organiser from the next request on every server (the organiser still sees it and can update, cancel and manage requests); a screen already open keeps its copy until it refreshes\n", hash)
 	case changed:
 		fmt.Fprintf(out, "restored: beacon_hash=%s\nit is visible again from the next request on every server\n", hash)
 	case hide:

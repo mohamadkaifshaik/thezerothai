@@ -152,6 +152,14 @@ func printReport(out io.Writer, r moderation.Report) {
 			r.Evidence.AuthorHandle, r.Evidence.PostCreatedAt.Format(time.RFC3339), r.Evidence.ListName, r.Evidence.ListDescription)
 	case r.TargetType == moderation.TargetList:
 		fmt.Fprintln(out, "evidence none")
+	case r.TargetType == moderation.TargetBeacon && r.Evidence != nil:
+		// The beacon as the reporter saw it (organiser handle, title, details, venue, creation time; no participant ids).
+		// Hide it with `opsctl beacon hide BEACON_ID --report R` (the target id above; it resolves this report as TAKEDOWN).
+		e := r.Evidence
+		fmt.Fprintf(out, "evidence beacon by @%s created %s: title %q, details %q, venue %q\n",
+			e.AuthorHandle, e.PostCreatedAt.Format(time.RFC3339), e.BeaconTitle, e.BeaconDetails, e.BeaconVenue)
+	case r.TargetType == moderation.TargetBeacon:
+		fmt.Fprintln(out, "evidence none")
 	case r.TargetType == moderation.TargetCommunity && r.Evidence != nil:
 		// The community as the reporter saw it (public text; no member ids). The owner's handle is empty when the
 		// community was ARCHIVED. Suspend it with `opsctl community suspend CID --report R` (the target id above; it resolves this report as TAKEDOWN).
