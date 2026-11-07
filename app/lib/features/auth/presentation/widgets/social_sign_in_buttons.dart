@@ -1,3 +1,5 @@
+import '../../../../core/theme/app_theme.dart' show AppAuthPalette;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -76,7 +78,7 @@ class _GoogleMark extends CustomPainter {
         ..relativeLineTo(3.23, 0)
         ..relativeCubicTo(1.89, -1.74, 2.98, -4.3, 2.98, -7.37)
         ..close(),
-      paint..color = const Color(0xFF4285F4),
+      paint..color = AppAuthPalette.googleBlue,
     );
     canvas.drawPath(
       Path()
@@ -93,7 +95,7 @@ class _GoogleMark extends CustomPainter {
           clockwise: false,
         )
         ..close(),
-      paint..color = const Color(0xFF34A853),
+      paint..color = AppAuthPalette.googleGreen,
     );
     canvas.drawPath(
       Path()
@@ -111,7 +113,7 @@ class _GoogleMark extends CustomPainter {
         )
         ..relativeLineTo(3.34, -2.6)
         ..close(),
-      paint..color = const Color(0xFFFBBC05),
+      paint..color = AppAuthPalette.googleYellow,
     );
     canvas.drawPath(
       Path()
@@ -134,7 +136,7 @@ class _GoogleMark extends CustomPainter {
           radius: const Radius.circular(5.98),
         )
         ..close(),
-      paint..color = const Color(0xFFEA4335),
+      paint..color = AppAuthPalette.googleRed,
     );
   }
 

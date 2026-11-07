@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_theme.dart' show AppColors;
+import '../../../../core/theme/app_theme.dart' show AppColors, AppAuthPalette;
 
 /// Tokens from the approved source; the dark palette is its documented extension.
 abstract final class AuthDesign {
-  static const navy = Color(0xFF101829);
-  static const mint = Color(0xFFC6EFD6);
-  static const paper = Color(0xFFFAFBF8);
-  static const ink = Color(0xFF17202F);
+  static const navy = AppAuthPalette.navy;
+  static const mint = AppAuthPalette.mint;
+  static const paper = AppAuthPalette.paper;
+  static const ink = AppAuthPalette.ink;
   static const icon = 'assets/branding/auth-icon.png';
 
   static TextStyle body(double size, {double weight = 400, Color? color}) =>
@@ -31,21 +31,19 @@ abstract final class AuthDesign {
   static bool dark(BuildContext context) =>
       Theme.of(context).brightness == Brightness.dark;
   static Color muted(BuildContext context) =>
-      dark(context) ? const Color(0xFFA9B3A4) : const Color(0xFF71796A);
+      dark(context) ? AppAuthPalette.darkMuted : AppAuthPalette.muted;
   static Color link(BuildContext context) =>
-      dark(context) ? mint : const Color(0xFF5D6C52);
+      dark(context) ? mint : AppAuthPalette.link;
 
   static ThemeData theme(ThemeData base) {
     final dark = base.brightness == Brightness.dark;
     final scheme = base.colorScheme.copyWith(
       primary: dark ? mint : navy,
-      onPrimary: dark ? navy : Colors.white,
+      onPrimary: dark ? navy : AppAuthPalette.white,
       surface: dark ? navy : paper,
-      onSurface: dark ? const Color(0xFFF5F7F2) : ink,
-      onSurfaceVariant: dark
-          ? const Color(0xFFA9B3A4)
-          : const Color(0xFF71796A),
-      outline: dark ? const Color(0xFF344052) : const Color(0xFFDCE0D8),
+      onSurface: dark ? AppAuthPalette.darkInk : ink,
+      onSurfaceVariant: dark ? AppAuthPalette.darkMuted : AppAuthPalette.muted,
+      outline: dark ? AppAuthPalette.darkBorder : AppAuthPalette.providerBorder,
     );
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(9),
@@ -56,7 +54,7 @@ abstract final class AuthDesign {
         ...base.extensions.values.where((extension) => extension is! AppColors),
         (base.extension<AppColors>() ??
                 (dark ? AppColors.dark : AppColors.light))
-            .copyWith(accentText: dark ? mint : const Color(0xFF5D6C52)),
+            .copyWith(accentText: dark ? mint : AppAuthPalette.link),
       ],
       colorScheme: scheme,
       scaffoldBackgroundColor: scheme.surface,
@@ -75,7 +73,7 @@ abstract final class AuthDesign {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: dark ? const Color(0xFF182235) : Colors.white,
+        fillColor: dark ? AppAuthPalette.darkField : AppAuthPalette.white,
         isDense: true,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 14,
@@ -85,7 +83,7 @@ abstract final class AuthDesign {
         enabledBorder: border,
         focusedBorder: border.copyWith(
           borderSide: BorderSide(
-            color: dark ? mint : const Color(0xFF73977B),
+            color: dark ? mint : AppAuthPalette.focus,
             width: 2,
           ),
         ),
@@ -191,7 +189,7 @@ class AuthBrand extends StatelessWidget {
               weight: 800,
               color: mobile
                   ? Theme.of(context).colorScheme.onSurface
-                  : Colors.white,
+                  : AppAuthPalette.white,
             ).copyWith(letterSpacing: mobile ? 1.8 : 2.2),
           ),
         ),

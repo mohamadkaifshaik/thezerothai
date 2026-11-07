@@ -103,14 +103,11 @@ class _EmailPasswordFormState extends State<EmailPasswordForm> {
               ),
             ),
             const SizedBox(height: AppSpacing.md),
-            Row(
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                Expanded(
-                  child: Text(
-                    'Password',
-                    style: AuthDesign.body(11, weight: 500),
-                  ),
-                ),
+                Text('Password', style: AuthDesign.body(11, weight: 500)),
                 if (!widget.confirmPassword)
                   TextButton(
                     onPressed: widget.isSubmitting

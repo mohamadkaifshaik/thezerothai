@@ -170,41 +170,46 @@ void main() {
         testWidgets(
           '$mode ${brightness.name} ${size.width.toInt()} provider and email layouts',
           (tester) async {
+            final previousPlatform = debugDefaultTargetPlatformOverride;
             debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-            await open(tester, screen, size: size, brightness: brightness);
-            expect(find.text(heading), findsOneWidget);
-            expect(find.byType(TextFormField), findsNothing);
-            expect(find.text('Continue with Google'), findsOneWidget);
-            expect(find.text('Continue with Apple'), findsOneWidget);
-            expect(find.text('Privacy Policy'), findsOneWidget);
-            expect(
-              find.byType(AuthBrandScene),
-              size.width > 760 ? findsOneWidget : findsNothing,
-            );
-            expect(find.text('DESIGN PREVIEW'), findsNothing);
-            expect(tester.takeException(), isNull);
-            if ([390.0, 1200.0, 1440.0].contains(size.width)) {
-              await _capture(
-                tester,
-                '${mode}_${brightness.name}_${size.width.toInt()}_providers',
+            try {
+              await open(tester, screen, size: size, brightness: brightness);
+              expect(find.text(heading), findsOneWidget);
+              expect(find.byType(TextFormField), findsNothing);
+              expect(find.text('Continue with Google'), findsOneWidget);
+              expect(find.text('Continue with Apple'), findsOneWidget);
+              expect(find.text('Privacy Policy'), findsOneWidget);
+              expect(
+                find.byType(AuthBrandScene),
+                size.width > 760 ? findsOneWidget : findsNothing,
               );
-            }
-            await reveal(tester);
-            expect(find.byType(SocialSignInButtons), findsNothing);
-            expect(find.byType(TextFormField), findsNWidgets(signup ? 3 : 2));
-            expect(
-              find.text('Forgot password?'),
-              signup ? findsNothing : findsOneWidget,
-            );
-            expect(tester.takeException(), isNull);
-            if ([390.0, 1200.0, 1440.0].contains(size.width)) {
-              await tester.tap(find.text(heading));
-              FocusManager.instance.primaryFocus?.unfocus();
-              await tester.pumpAndSettle();
-              await _capture(
-                tester,
-                '${mode}_${brightness.name}_${size.width.toInt()}_email',
+              expect(find.text('DESIGN PREVIEW'), findsNothing);
+              expect(tester.takeException(), isNull);
+              if ([390.0, 1200.0, 1440.0].contains(size.width)) {
+                await _capture(
+                  tester,
+                  '${mode}_${brightness.name}_${size.width.toInt()}_providers',
+                );
+              }
+              await reveal(tester);
+              expect(find.byType(SocialSignInButtons), findsNothing);
+              expect(find.byType(TextFormField), findsNWidgets(signup ? 3 : 2));
+              expect(
+                find.text('Forgot password?'),
+                signup ? findsNothing : findsOneWidget,
               );
+              expect(tester.takeException(), isNull);
+              if ([390.0, 1200.0, 1440.0].contains(size.width)) {
+                await tester.tap(find.text(heading));
+                FocusManager.instance.primaryFocus?.unfocus();
+                await tester.pumpAndSettle();
+                await _capture(
+                  tester,
+                  '${mode}_${brightness.name}_${size.width.toInt()}_email',
+                );
+              }
+            } finally {
+              debugDefaultTargetPlatformOverride = previousPlatform;
             }
           },
         );
@@ -270,8 +275,12 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Continue with Google'), findsOneWidget);
         await reveal(tester);
-        expect(find.text('  person@example.com '), findsOneWidget);
-        expect(find.text('password1'), findsNWidgets(signup ? 2 : 1));
+        final fields = tester
+            .widgetList<TextFormField>(find.byType(TextFormField))
+            .toList();
+        expect(fields[0].controller!.text, '  person@example.com ');
+        expect(fields[1].controller!.text, 'password1');
+        if (signup) expect(fields[2].controller!.text, 'password1');
         verifyNever(() => bloc.add(any()));
       },
     );
@@ -359,10 +368,15 @@ void main() {
       expect(find.text('Continue with Apple'), findsNothing);
       await tester.tap(find.text('Continue with Google'));
       verify(() => bloc.add(const AuthGoogleSignInRequested())).called(1);
+      final previousPlatform = debugDefaultTargetPlatformOverride;
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
-      await open(tester, const SignInScreen());
-      await tester.tap(find.text('Continue with Apple'));
-      verify(() => bloc.add(const AuthAppleSignInRequested())).called(1);
+      try {
+        await open(tester, const SignInScreen());
+        await tester.tap(find.text('Continue with Apple'));
+        verify(() => bloc.add(const AuthAppleSignInRequested())).called(1);
+      } finally {
+        debugDefaultTargetPlatformOverride = previousPlatform;
+      }
     },
   );
 

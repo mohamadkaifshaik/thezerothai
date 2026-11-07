@@ -1,3 +1,5 @@
+import '../../../../core/theme/app_theme.dart' show AppAuthPalette;
+
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -86,7 +88,7 @@ class _AuthBrandSceneState extends State<AuthBrandScene>
                         style: AuthDesign.body(
                           compact ? 8 : 10,
                           weight: 500,
-                          color: const Color(0xFFBEC8C7),
+                          color: AppAuthPalette.storyEyebrow,
                         ).copyWith(letterSpacing: compact ? 1.3 : 1.8),
                       ),
                     ),
@@ -111,7 +113,7 @@ class _AuthBrandSceneState extends State<AuthBrandScene>
                           AuthDesign.heading(
                             size,
                             weight: 500,
-                            color: Colors.white,
+                            color: AppAuthPalette.white,
                           ).copyWith(
                             height: 1.12,
                             letterSpacing: compact ? -2 : -2.6,
@@ -124,7 +126,7 @@ class _AuthBrandSceneState extends State<AuthBrandScene>
                   'Find your people. Make a plan.\nTake it into the real world.',
                   style: AuthDesign.body(
                     14,
-                    color: const Color(0xFFA4ACBA),
+                    color: AppAuthPalette.storyCopy,
                   ).copyWith(height: 1.8),
                 ),
                 Expanded(
@@ -177,7 +179,7 @@ class _AuthBrandSceneState extends State<AuthBrandScene>
                                   decoration: BoxDecoration(
                                     color: _caption == i
                                         ? AuthDesign.mint
-                                        : const Color(0x4DFFFFFF),
+                                        : AppAuthPalette.inactiveCaption,
                                     borderRadius: BorderRadius.circular(20),
                                   ),
                                 ),
@@ -190,7 +192,7 @@ class _AuthBrandSceneState extends State<AuthBrandScene>
                       'Less scrolling. More connecting.  ↗',
                       style: AuthDesign.body(
                         compact ? 8 : 9,
-                        color: const Color(0xFFA9B4BD),
+                        color: AppAuthPalette.storyNote,
                       ),
                     ),
                   ],
@@ -229,10 +231,10 @@ class _Universe extends StatelessWidget {
               height: 94,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(27),
-                border: Border.all(color: const Color(0x33FFFFFF)),
+                border: Border.all(color: AppAuthPalette.markBorder),
                 boxShadow: const [
                   BoxShadow(
-                    color: Color(0x80030814),
+                    color: AppAuthPalette.markShadow,
                     blurRadius: 60,
                     offset: Offset(0, 12),
                   ),
@@ -267,12 +269,12 @@ class _Universe extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
               decoration: BoxDecoration(
-                border: Border.all(color: const Color(0x12FFFFFF)),
+                border: Border.all(color: AppAuthPalette.storyBorder),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
                 'A small plan. A great story.',
-                style: AuthDesign.body(9, color: const Color(0xFFA2AFAC)),
+                style: AuthDesign.body(9, color: AppAuthPalette.tag),
               ),
             ),
           ),
@@ -305,7 +307,7 @@ class _Universe extends StatelessWidget {
                 'Your next “glad I went” is nearby.',
                 style: AuthDesign.body(
                   compact ? 8 : 10,
-                  color: const Color(0xFFA9B4BD),
+                  color: AppAuthPalette.storyNote,
                 ),
               ),
             ],
@@ -325,12 +327,12 @@ class _PlanCard extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: EdgeInsets.all(compact ? 12 : 15),
     decoration: BoxDecoration(
-      color: const Color(0xFF263042),
+      color: AppAuthPalette.planSurface,
       borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: const Color(0x12FFFFFF)),
+      border: Border.all(color: AppAuthPalette.storyBorder),
       boxShadow: const [
         BoxShadow(
-          color: Color(0x30060B17),
+          color: AppAuthPalette.planShadow,
           blurRadius: 30,
           offset: Offset(0, 14),
         ),
@@ -344,7 +346,9 @@ class _PlanCard extends StatelessWidget {
           height: compact ? 36 : 43,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: coffee ? const Color(0xFFFAF7EA) : const Color(0xFFDDF0DA),
+            color: coffee
+                ? AppAuthPalette.coffeeSurface
+                : AppAuthPalette.badmintonSurface,
             borderRadius: BorderRadius.circular(11),
           ),
           child: Text(
@@ -361,7 +365,7 @@ class _PlanCard extends StatelessWidget {
               style: AuthDesign.body(
                 compact ? 9 : 11,
                 weight: 550,
-                color: Colors.white,
+                color: AppAuthPalette.white,
               ),
             ),
             const SizedBox(height: 7),
@@ -371,7 +375,7 @@ class _PlanCard extends StatelessWidget {
                   : 'Today, 6:00 PM · 1.2 km away',
               style: AuthDesign.body(
                 compact ? 8 : 9,
-                color: const Color(0xFFAEB8C7),
+                color: AppAuthPalette.planDetail,
               ),
             ),
           ],
@@ -394,12 +398,12 @@ class _PlanCard extends StatelessWidget {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: [
-                            const Color(0xFFC8AFA2),
-                            const Color(0xFFC6D0B1),
-                            const Color(0xFF465267),
+                            AppAuthPalette.avatarRose,
+                            AppAuthPalette.avatarSage,
+                            AppAuthPalette.avatarSlate,
                           ][i],
                           border: Border.all(
-                            color: const Color(0xFF263042),
+                            color: AppAuthPalette.planSurface,
                             width: 2,
                           ),
                         ),
@@ -408,7 +412,9 @@ class _PlanCard extends StatelessWidget {
                           style: AuthDesign.body(
                             8,
                             weight: 600,
-                            color: i == 2 ? Colors.white : AuthDesign.ink,
+                            color: i == 2
+                                ? AppAuthPalette.white
+                                : AuthDesign.ink,
                           ),
                         ),
                       ),
@@ -453,7 +459,7 @@ class _OrbitPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height * .51);
     final ring = Paint()
-      ..color = const Color(0x09FFFFFF)
+      ..color = AppAuthPalette.orbit
       ..style = PaintingStyle.stroke;
     for (final diameter in [250.0, 380.0, 510.0]) {
       canvas.drawCircle(center, diameter / 2, ring);

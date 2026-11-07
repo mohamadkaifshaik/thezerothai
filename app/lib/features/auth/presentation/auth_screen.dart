@@ -67,6 +67,7 @@ class _AuthScreenState extends State<AuthScreen> {
               children: [
                 // Keep the form mounted across provider reveal and theme changes.
                 Offstage(
+                  key: const ValueKey('auth-email-draft'),
                   offstage: !_email,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -118,13 +119,17 @@ class _AuthScreenState extends State<AuthScreen> {
                     child: Row(
                       children: [
                         const Expanded(child: Divider(height: 1)),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Text(
-                            'or keep it classic',
-                            style: AuthDesign.body(
-                              10,
-                              color: AuthDesign.muted(context),
+                        Flexible(
+                          flex: 3,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              'or keep it classic',
+                              textAlign: TextAlign.center,
+                              style: AuthDesign.body(
+                                10,
+                                color: AuthDesign.muted(context),
+                              ),
                             ),
                           ),
                         ),

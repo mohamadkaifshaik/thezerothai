@@ -70,7 +70,12 @@ void main() {
       await tester.pump();
 
       expect(find.text('Enter your email'), findsOneWidget);
-      expect(find.text('Enter your password'), findsOneWidget);
+      expect(
+        tester
+            .state<FormFieldState<String>>(find.byType(TextFormField).at(1))
+            .errorText,
+        'Enter your password',
+      );
       verifyNever(
         () => authRepository.signInWithEmail(
           email: any(named: 'email'),

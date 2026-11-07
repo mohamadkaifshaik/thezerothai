@@ -726,3 +726,46 @@ abstract final class AppAuthStyle {
     );
   }
 }
+
+/// Approved authentication palette; scoped widgets retain the app-wide color policy.
+abstract final class AppAuthPalette {
+  static const navy = Color(0xFF101829);
+  static const mint = Color(0xFFC6EFD6);
+  static const paper = Color(0xFFFAFBF8);
+  static const ink = Color(0xFF17202F);
+  static const darkMuted = Color(0xFFA9B3A4);
+  static const muted = Color(0xFF71796A);
+  static const link = Color(0xFF5D6C52);
+  static const darkInk = Color(0xFFF5F7F2);
+  static const darkBorder = Color(0xFF344052);
+  static const providerBorder = Color(0xFFDCE0D8);
+  static const darkField = Color(0xFF182235);
+  static const focus = Color(0xFF73977B);
+  static const storyEyebrow = Color(0xFFBEC8C7);
+  static const storyCopy = Color(0xFFA4ACBA);
+  static const inactiveCaption = Color(0x4DFFFFFF);
+  static const storyNote = Color(0xFFA9B4BD);
+  static const markBorder = Color(0x33FFFFFF);
+  static const markShadow = Color(0x80030814);
+  static const storyBorder = Color(0x12FFFFFF);
+  static const tag = Color(0xFFA2AFAC);
+  static const planSurface = Color(0xFF263042);
+  static const planShadow = Color(0x30060B17);
+  static const coffeeSurface = Color(0xFFFAF7EA);
+  static const badmintonSurface = Color(0xFFDDF0DA);
+  static const planDetail = Color(0xFFAEB8C7);
+  static const avatarRose = Color(0xFFC8AFA2);
+  static const avatarSage = Color(0xFFC6D0B1);
+  static const avatarSlate = Color(0xFF465267);
+  static const orbit = Color(0x09FFFFFF);
+  static const darkTabTrack = Color(0xFF151F30);
+  static const tabTrack = Color(0xFFEFF1EB);
+  static const darkWelcome = Color(0xFF243A33);
+  static const welcome = Color(0xFFE8F0E3);
+  static const darkSelectedTab = Color(0xFF2A3548);
+  static const googleBlue = Color(0xFF4285F4);
+  static const googleGreen = Color(0xFF34A853);
+  static const googleYellow = Color(0xFFFBBC05);
+  static const googleRed = Color(0xFFEA4335);
+  static const white = Color(0xFFFFFFFF);
+}

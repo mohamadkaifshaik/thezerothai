@@ -1,3 +1,5 @@
+import '../../../../core/theme/app_theme.dart' show AppAuthPalette;
+
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -33,6 +35,9 @@ class AuthExperienceLayout extends StatelessWidget {
           ? math.min(width, 480.0)
           : math.min(width, 1800.0);
       final panelWidth = mobile ? pageWidth : pageWidth / 2;
+      final pageHeight = mobile
+          ? constraints.maxHeight
+          : math.max(820.0, constraints.maxHeight);
       final horizontal = mobile
           ? (width <= 350 ? 22.0 : 28.0)
           : (narrowDesktop ? 36.0 : 42.0);
@@ -59,8 +64,8 @@ class AuthExperienceLayout extends StatelessWidget {
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
                       color: AuthDesign.dark(context)
-                          ? const Color(0xFF151F30)
-                          : const Color(0xFFEFF1EB),
+                          ? AppAuthPalette.darkTabTrack
+                          : AppAuthPalette.tabTrack,
                       border: Border.all(
                         color: Theme.of(context).colorScheme.outline
                             .withValues(alpha: .6),
@@ -89,8 +94,8 @@ class AuthExperienceLayout extends StatelessWidget {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: AuthDesign.dark(context)
-                              ? const Color(0xFF243A33)
-                              : const Color(0xFFE8F0E3),
+                              ? AppAuthPalette.darkWelcome
+                              : AppAuthPalette.welcome,
                         ),
                         child: Icon(
                           Icons.north_east,
@@ -142,110 +147,119 @@ class AuthExperienceLayout extends StatelessWidget {
       );
       final auth = SizedBox(
         width: panelWidth,
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            horizontal,
-            paddingTop,
-            horizontal,
-            paddingBottom,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (mobile && scaled)
-                const Align(
-                  alignment: Alignment.centerLeft,
-                  child: AuthBrand(mobile: true),
-                ),
-              Row(
+        child: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: pageHeight),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                horizontal,
+                paddingTop,
+                horizontal,
+                paddingBottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
-                    child: mobile && scaled
-                        ? const SizedBox.shrink()
-                        : mobile
-                        ? const AuthBrand(mobile: true)
-                        : Text(
-                            'A little closer to your people.',
+                  if (mobile && scaled)
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: AuthBrand(mobile: true),
+                    ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: mobile && scaled
+                            ? const SizedBox.shrink()
+                            : mobile
+                            ? const AuthBrand(mobile: true)
+                            : Text(
+                                'A little closer to your people.',
+                                style: AuthDesign.body(
+                                  11,
+                                  color: AuthDesign.muted(context),
+                                ),
+                              ),
+                      ),
+                      const _AppearanceControl(),
+                      IconButton(
+                        tooltip: 'Help',
+                        onPressed: () => _help(context),
+                        icon: Container(
+                          width: 26,
+                          height: 26,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Theme.of(context).colorScheme.outline,
+                            ),
+                          ),
+                          child: Text(
+                            '?',
                             style: AuthDesign.body(
-                              11,
+                              12,
                               color: AuthDesign.muted(context),
                             ),
                           ),
-                  ),
-                  const _AppearanceControl(),
-                  IconButton(
-                    tooltip: 'Help',
-                    onPressed: () => _help(context),
-                    icon: Container(
-                      width: 26,
-                      height: 26,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Theme.of(context).colorScheme.outline,
                         ),
                       ),
-                      child: Text(
-                        '?',
-                        style: AuthDesign.body(
-                          12,
-                          color: AuthDesign.muted(context),
-                        ),
+                    ],
+                  ),
+                  content,
+                  DefaultTextStyle(
+                    style: AuthDesign.body(
+                      mobile ? 9 : 10,
+                      color: AuthDesign.muted(context),
+                    ),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        runSpacing: 12,
+                        spacing: 12,
+                        children: [
+                          Text('© ${DateTime.now().year} DZEROTH'),
+                          const Text('Start something nearby.  ✦'),
+                        ],
                       ),
                     ),
                   ),
                 ],
               ),
-              Expanded(child: Center(child: content)),
-              DefaultTextStyle(
-                style: AuthDesign.body(
-                  mobile ? 9 : 10,
-                  color: AuthDesign.muted(context),
-                ),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: Wrap(
-                    alignment: WrapAlignment.spaceBetween,
-                    runSpacing: 12,
-                    spacing: 12,
-                    children: [
-                      Text('© ${DateTime.now().year} DZEROTH'),
-                      const Text('Start something nearby.  ✦'),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ),
       );
-      // Intrinsic sizing lets short windows, keyboard insets and large type
-      // scroll naturally while the normal-height footer stays at the bottom.
+      // Forms lay out at their natural height inside a scroll view. Avoid
+      // intrinsic form sizing: decoration and wrapped text can grow after layout.
       return ColoredBox(
         color: Theme.of(context).colorScheme.surface,
         child: SingleChildScrollView(
           child: Center(
             child: SizedBox(
               width: pageWidth,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (!mobile)
-                        SizedBox(
-                          width: panelWidth,
-                          child: AuthBrandScene(
-                            viewportWidth: width,
-                            enlargedText: scaled,
+              height: pageHeight,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (!mobile)
+                    SizedBox(
+                      width: panelWidth,
+                      child: SingleChildScrollView(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(minHeight: pageHeight),
+                          child: IntrinsicHeight(
+                            child: AuthBrandScene(
+                              viewportWidth: width,
+                              enlargedText: scaled,
+                            ),
                           ),
                         ),
-                      auth,
-                    ],
-                  ),
-                ),
+                      ),
+                    ),
+                  auth,
+                ],
               ),
             ),
           ),
@@ -264,8 +278,8 @@ class AuthExperienceLayout extends StatelessWidget {
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           backgroundColor: signup == signUp
               ? (AuthDesign.dark(context)
-                    ? const Color(0xFF2A3548)
-                    : Colors.white)
+                    ? AppAuthPalette.darkSelectedTab
+                    : AppAuthPalette.white)
               : Colors.transparent,
           foregroundColor: signup == signUp
               ? Theme.of(context).colorScheme.onSurface

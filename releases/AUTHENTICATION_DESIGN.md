@@ -77,3 +77,23 @@ cd app
 flutter test --no-pub --dart-define=AUTH_SCREENSHOTS=true \
   test/features/auth/presentation/auth_screens_layout_test.dart
 ```
+
+## CI regression correction
+
+The initial GitHub run passed Flutter analysis, the other Flutter shards, Go
+checks, and emulator integration tests. Flutter shard 1 exposed the following
+issues, corrected without relaxing the tests or the central palette policy:
+
+- Approved color values now live in `AppAuthPalette` in `app_theme.dart`.
+- Platform overrides are restored within each test before Flutter verifies its
+  global invariants.
+- The email form has a stable key, preserving controller state when the welcome
+  badge and provider choices are inserted or removed.
+- Forms use natural-height scrolling instead of intrinsic form sizing. The email
+  divider and password/reset row can wrap at enlarged text scales.
+- Empty-password validation checks the field's error state, distinguishing it
+  from the identically worded placeholder.
+
+Static analysis, formatting, whitespace checks, and the existing color-policy
+scan pass for this correction. Local runtime tests remain blocked by SDK cache
+access; the updated PR runs the full CI suite again.
