@@ -6,7 +6,7 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/auth/presentation/sign_in_screen.dart';
 import 'package:dzeroth/features/auth/presentation/sign_up_screen.dart';
-import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
+import 'package:dzeroth/features/auth/presentation/widgets/auth_design.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,9 +32,16 @@ void main() {
         GoRoute(path: '/sign-up', builder: (_, _) => const SignUpScreen()),
       ],
     );
+    addTearDown(router.dispose);
     return BlocProvider<AuthBloc>.value(
       value: bloc,
-      child: MaterialApp.router(routerConfig: router),
+      child: MaterialApp.router(
+        routerConfig: router,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(disableAnimations: true),
+          child: child!,
+        ),
+      ),
     );
   }
 
@@ -51,9 +58,15 @@ void main() {
 
     testWidgets('shows validation errors for an empty form', (tester) async {
       await tester.pumpWidget(wrap(authBloc));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Continue with Email'));
+      await tester.tap(find.text('Continue with Email'));
+      await tester.pumpAndSettle();
 
-      await tester.ensureVisible(find.widgetWithText(AppPillButton, 'Log in'));
-      await tester.tap(find.widgetWithText(AppPillButton, 'Log in'));
+      await tester.ensureVisible(
+        find.widgetWithText(AuthActionButton, 'Log in'),
+      );
+      await tester.tap(find.widgetWithText(AuthActionButton, 'Log in'));
       await tester.pump();
 
       expect(find.text('Enter your email'), findsOneWidget);
@@ -75,17 +88,20 @@ void main() {
       ).thenAnswer((_) async {});
 
       await tester.pumpWidget(wrap(authBloc));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Continue with Email'));
+      await tester.tap(find.text('Continue with Email'));
+      await tester.pumpAndSettle();
 
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Email'),
+        find.byType(TextFormField).at(0),
         'user@example.com',
       );
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Password'),
-        'password1',
+      await tester.enterText(find.byType(TextFormField).at(1), 'password1');
+      await tester.ensureVisible(
+        find.widgetWithText(AuthActionButton, 'Log in'),
       );
-      await tester.ensureVisible(find.widgetWithText(AppPillButton, 'Log in'));
-      await tester.tap(find.widgetWithText(AppPillButton, 'Log in'));
+      await tester.tap(find.widgetWithText(AuthActionButton, 'Log in'));
       await tester.pumpAndSettle();
 
       verify(
@@ -99,11 +115,11 @@ void main() {
     testWidgets('navigates to sign-up', (tester) async {
       await tester.pumpWidget(wrap(authBloc));
 
-      await tester.ensureVisible(find.text('New here? Sign up'));
-      await tester.tap(find.text('New here? Sign up'));
+      await tester.ensureVisible(find.text('Find your people ↗'));
+      await tester.tap(find.text('Find your people ↗'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Create your account'), findsOneWidget);
+      expect(find.text('Your people are here.'), findsOneWidget);
     });
 
     testWidgets('shows just the Privacy Policy link, no sentence', (
@@ -131,9 +147,12 @@ void main() {
 
       await tester.pumpWidget(wrap(authBloc));
 
-      // The gradient button keeps its label next to the spinner.
+      // The provider-first email action keeps its label next to the spinner.
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      expect(find.widgetWithText(AppPillButton, 'Log in'), findsOneWidget);
+      expect(
+        find.widgetWithText(AuthActionButton, 'Continue with Email'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('shows a failure message and dismisses it', (tester) async {
