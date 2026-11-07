@@ -135,6 +135,17 @@ class AuthRepository implements AuthTokenProvider {
     }
   }
 
+  /// Firebase owns the reset link and password update; no credentials are stored.
+  Future<void> sendPasswordResetEmail(String email) async {
+    try {
+      await _firebaseAuth.sendPasswordResetEmail(email: email.trim());
+    } on fb.FirebaseAuthException catch (e) {
+      // Give the same result for unknown addresses to avoid account enumeration.
+      if (e.code == 'user-not-found') return;
+      throw _mapFirebaseAuthException(e);
+    }
+  }
+
   /// Re-fetches the user from Firebase so `emailVerified` reflects a recent
   /// confirmation. Call after the user taps "I've verified my email".
   Future<void> reloadUser() async {

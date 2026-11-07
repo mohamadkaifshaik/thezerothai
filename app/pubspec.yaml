@@ -86,3 +86,11 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/icon.png
+    - assets/branding/auth-icon.png
+  fonts:
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope.ttf
+    - family: DM Sans
+      fonts:
+        - asset: assets/fonts/DMSans.ttf

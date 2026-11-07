@@ -33,6 +33,47 @@ void main() {
     googleSignIn = _MockGoogleSignIn();
   });
 
+  group('password reset', () {
+    AuthRepository repo() =>
+        AuthRepository(firebaseAuth: firebaseAuth, googleSignIn: googleSignIn);
+
+    test(
+      'sends a reset email through Firebase using a trimmed address',
+      () async {
+        when(
+          () => firebaseAuth.sendPasswordResetEmail(email: any(named: 'email')),
+        ).thenAnswer((_) async {});
+        await repo().sendPasswordResetEmail(' person@example.com ');
+        verify(
+          () =>
+              firebaseAuth.sendPasswordResetEmail(email: 'person@example.com'),
+        ).called(1);
+      },
+    );
+
+    test('unknown addresses have the same success result', () async {
+      when(
+        () => firebaseAuth.sendPasswordResetEmail(email: any(named: 'email')),
+      ).thenThrow(fb.FirebaseAuthException(code: 'user-not-found'));
+      await repo().sendPasswordResetEmail('person@example.com');
+    });
+
+    test('network and rate-limit failures remain actionable', () async {
+      for (final entry in {
+        'network-request-failed': const AuthFailure.network(),
+        'too-many-requests': const AuthFailure.tooManyRequests(),
+      }.entries) {
+        when(
+          () => firebaseAuth.sendPasswordResetEmail(email: any(named: 'email')),
+        ).thenThrow(fb.FirebaseAuthException(code: entry.key));
+        await expectLater(
+          repo().sendPasswordResetEmail('person@example.com'),
+          throwsA(entry.value),
+        );
+      }
+    });
+  });
+
   group('signInWithGoogle on web', () {
     AuthRepository repo() => AuthRepository(
       firebaseAuth: firebaseAuth,

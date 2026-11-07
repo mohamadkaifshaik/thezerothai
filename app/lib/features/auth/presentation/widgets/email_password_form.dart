@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/primitives/app_pill_button.dart';
+import 'auth_design.dart';
+import 'password_reset_dialog.dart';
 
 /// Shared email + password input used by both the sign-in and sign-up
 /// screens (one form, not two near-copies).
@@ -12,11 +13,13 @@ class EmailPasswordForm extends StatefulWidget {
     required this.onSubmit,
     required this.isSubmitting,
     this.confirmPassword = false,
+    this.emailFocusNode,
   });
 
   final String submitLabel;
   final bool isSubmitting;
   final bool confirmPassword;
+  final FocusNode? emailFocusNode;
   final void Function(String email, String password) onSubmit;
 
   @override
@@ -77,66 +80,123 @@ class _EmailPasswordFormState extends State<EmailPasswordForm> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            TextFormField(
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              textInputAction: TextInputAction.next,
-              autofillHints: const [AutofillHints.email],
-              decoration: const InputDecoration(
-                labelText: 'Email',
-                hintText: 'you@example.com',
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                'Email address',
+                style: AuthDesign.body(11, weight: 500),
               ),
-              validator: _validateEmail,
+            ),
+            Semantics(
+              label: 'Email address',
+              child: TextFormField(
+                focusNode: widget.emailFocusNode,
+                controller: _emailController,
+                enabled: !widget.isSubmitting,
+                style: AuthDesign.body(12),
+                autocorrect: false,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [AutofillHints.email],
+                decoration: const InputDecoration(hintText: 'you@example.com'),
+                validator: _validateEmail,
+              ),
             ),
             const SizedBox(height: AppSpacing.md),
-            TextFormField(
-              controller: _passwordController,
-              obscureText: _obscure,
-              textInputAction: widget.confirmPassword
-                  ? TextInputAction.next
-                  : TextInputAction.done,
-              autofillHints: [
-                widget.confirmPassword
-                    ? AutofillHints.newPassword
-                    : AutofillHints.password,
-              ],
-              decoration: InputDecoration(
-                labelText: 'Password',
-                helperText: widget.confirmPassword
-                    ? 'Use at least 8 characters'
-                    : null,
-                suffixIcon: IconButton(
-                  tooltip: _obscure ? 'Show password' : 'Hide password',
-                  icon: Icon(
-                    _obscure
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Password',
+                    style: AuthDesign.body(11, weight: 500),
                   ),
-                  onPressed: () => setState(() => _obscure = !_obscure),
                 ),
+                if (!widget.confirmPassword)
+                  TextButton(
+                    onPressed: widget.isSubmitting
+                        ? null
+                        : () => showPasswordResetDialog(
+                            context,
+                            _emailController.text.trim(),
+                          ),
+                    child: const Text('Forgot password?'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Semantics(
+              label: 'Password',
+              child: TextFormField(
+                controller: _passwordController,
+                enabled: !widget.isSubmitting,
+                style: AuthDesign.body(12),
+                autocorrect: false,
+                enableSuggestions: false,
+                obscureText: _obscure,
+                textInputAction: widget.confirmPassword
+                    ? TextInputAction.next
+                    : TextInputAction.done,
+                autofillHints: [
+                  widget.confirmPassword
+                      ? AutofillHints.newPassword
+                      : AutofillHints.password,
+                ],
+                decoration: InputDecoration(
+                  hintText: widget.confirmPassword
+                      ? 'Create a password'
+                      : 'Enter your password',
+                  helperText: widget.confirmPassword
+                      ? 'Use at least 8 characters'
+                      : null,
+                  suffixIcon: IconButton(
+                    tooltip: _obscure ? 'Show password' : 'Hide password',
+                    icon: Icon(
+                      _obscure
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                    ),
+                    onPressed: () => setState(() => _obscure = !_obscure),
+                  ),
+                ),
+                validator: _validatePassword,
+                onFieldSubmitted: widget.confirmPassword
+                    ? null
+                    : (_) => _submit(),
               ),
-              validator: _validatePassword,
-              onFieldSubmitted: widget.confirmPassword
-                  ? null
-                  : (_) => _submit(),
             ),
             if (widget.confirmPassword) ...[
               const SizedBox(height: AppSpacing.md),
-              TextFormField(
-                controller: _confirmController,
-                obscureText: _obscure,
-                textInputAction: TextInputAction.done,
-                decoration: const InputDecoration(
-                  labelText: 'Confirm password',
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  'Confirm password',
+                  style: AuthDesign.body(11, weight: 500),
                 ),
-                validator: _validateConfirm,
-                onFieldSubmitted: (_) => _submit(),
+              ),
+              Semantics(
+                label: 'Confirm password',
+                child: TextFormField(
+                  controller: _confirmController,
+                  enabled: !widget.isSubmitting,
+                  style: AuthDesign.body(12),
+                  obscureText: _obscure,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  autofillHints: const [AutofillHints.newPassword],
+                  textInputAction: TextInputAction.done,
+                  decoration: const InputDecoration(
+                    hintText: 'Confirm your password',
+                  ),
+                  validator: _validateConfirm,
+                  onFieldSubmitted: (_) => _submit(),
+                ),
               ),
             ],
             const SizedBox(height: AppSpacing.lg),
-            AppPillButton(
+            AuthActionButton(
               label: widget.submitLabel,
               busy: widget.isSubmitting,
+              primary: true,
               onPressed: _submit,
             ),
           ],

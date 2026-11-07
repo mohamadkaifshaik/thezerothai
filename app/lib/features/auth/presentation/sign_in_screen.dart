@@ -1,68 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
 
-import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/privacy_policy_link.dart';
-import '../domain/auth_failure.dart';
-import 'bloc/auth_bloc.dart';
-import 'bloc/auth_event.dart';
-import 'bloc/auth_state.dart';
-import 'widgets/auth_form_layout.dart';
-import 'widgets/email_password_form.dart';
-import 'widgets/social_sign_in_buttons.dart';
+import 'auth_screen.dart';
 
 class SignInScreen extends StatelessWidget {
   const SignInScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: BlocConsumer<AuthBloc, AuthState>(
-          listenWhen: (previous, current) => current.failure != null,
-          listener: (context, state) {
-            final failure = state.failure;
-            if (failure == null || failure.message.isEmpty) return;
-            ScaffoldMessenger.of(context)
-              ..hideCurrentSnackBar()
-              ..showSnackBar(SnackBar(content: Text(failure.message)));
-            context.read<AuthBloc>().add(const AuthFailureDismissed());
-          },
-          builder: (context, state) {
-            return AuthFormLayout(
-              title: 'Welcome back',
-              subtitle: 'Your plans deserve company.',
-              children: [
-                SocialSignInButtons(
-                  isSubmitting: state.isSubmitting,
-                  onGoogleTap: () => context.read<AuthBloc>().add(
-                    const AuthGoogleSignInRequested(),
-                  ),
-                  onAppleTap: () => context.read<AuthBloc>().add(
-                    const AuthAppleSignInRequested(),
-                  ),
-                ),
-                const AuthEmailDivider(),
-                EmailPasswordForm(
-                  submitLabel: 'Log in',
-                  isSubmitting: state.isSubmitting,
-                  onSubmit: (email, password) => context.read<AuthBloc>().add(
-                    AuthEmailSignInRequested(email: email, password: password),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                const PrivacyPolicyLink(),
-                const SizedBox(height: AppSpacing.sm),
-                TextButton(
-                  onPressed: () => context.go('/sign-up'),
-                  child: const Text('New here? Sign up'),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => const AuthScreen(signUp: false);
 }
