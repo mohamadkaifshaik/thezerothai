@@ -6,7 +6,7 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/auth/presentation/sign_in_screen.dart';
 import 'package:dzeroth/features/auth/presentation/sign_up_screen.dart';
-import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
+import 'package:dzeroth/features/auth/presentation/widgets/auth_design.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,9 +32,16 @@ void main() {
         GoRoute(path: '/sign-up', builder: (_, _) => const SignUpScreen()),
       ],
     );
+    addTearDown(router.dispose);
     return BlocProvider<AuthBloc>.value(
       value: bloc,
-      child: MaterialApp.router(routerConfig: router),
+      child: MaterialApp.router(
+        routerConfig: router,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(disableAnimations: true),
+          child: child!,
+        ),
+      ),
     );
   }
 
@@ -53,23 +60,21 @@ void main() {
       tester,
     ) async {
       await tester.pumpWidget(wrap(authBloc));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Continue with Email'));
+      await tester.tap(find.text('Continue with Email'));
+      await tester.pumpAndSettle();
 
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Email'),
+        find.byType(TextFormField).at(0),
         'user@example.com',
       );
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Password'),
-        'password1',
-      );
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Confirm password'),
-        'password2',
-      );
+      await tester.enterText(find.byType(TextFormField).at(1), 'password1');
+      await tester.enterText(find.byType(TextFormField).at(2), 'password2');
       await tester.ensureVisible(
-        find.widgetWithText(AppPillButton, 'Create account'),
+        find.widgetWithText(AuthActionButton, 'Create account'),
       );
-      await tester.tap(find.widgetWithText(AppPillButton, 'Create account'));
+      await tester.tap(find.widgetWithText(AuthActionButton, 'Create account'));
       await tester.pump();
 
       expect(find.text('Passwords do not match'), findsOneWidget);
@@ -92,23 +97,21 @@ void main() {
       ).thenAnswer((_) async {});
 
       await tester.pumpWidget(wrap(authBloc));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Continue with Email'));
+      await tester.tap(find.text('Continue with Email'));
+      await tester.pumpAndSettle();
 
       await tester.enterText(
-        find.widgetWithText(TextFormField, 'Email'),
+        find.byType(TextFormField).at(0),
         'user@example.com',
       );
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Password'),
-        'password1',
-      );
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Confirm password'),
-        'password1',
-      );
+      await tester.enterText(find.byType(TextFormField).at(1), 'password1');
+      await tester.enterText(find.byType(TextFormField).at(2), 'password1');
       await tester.ensureVisible(
-        find.widgetWithText(AppPillButton, 'Create account'),
+        find.widgetWithText(AuthActionButton, 'Create account'),
       );
-      await tester.tap(find.widgetWithText(AppPillButton, 'Create account'));
+      await tester.tap(find.widgetWithText(AuthActionButton, 'Create account'));
       await tester.pumpAndSettle();
 
       verify(
@@ -122,12 +125,12 @@ void main() {
     testWidgets('navigates back to sign-in', (tester) async {
       await tester.pumpWidget(wrap(authBloc));
 
-      final signInLink = find.text('Already have an account? Log in');
+      final signInLink = find.text('Log in ↗');
       await tester.ensureVisible(signInLink);
       await tester.tap(signInLink);
       await tester.pumpAndSettle();
 
-      expect(find.text('Welcome back'), findsOneWidget);
+      expect(find.text('Good to see you.'), findsOneWidget);
     });
 
     testWidgets('shows the 18+/privacy notice with a Privacy Policy link', (
