@@ -251,7 +251,9 @@ class AppConfig {
   /// tests can exercise every branch without recompiling with different
   /// dart-defines:
   ///
-  /// - An explicit value always wins.
+  /// - An explicit value wins, but only if it passes the URL policy (https
+  ///   with a host, no userinfo/query/fragment and the default port in
+  ///   release builds; plain http only for local hosts otherwise).
   /// - Debug/profile builds talk to the local API (`go run` on `:8081`;
   ///   `:8080` is the Firestore emulator — see the `Makefile`).
   /// - Release web builds go through the Firebase Hosting `/api/**` rewrite.
@@ -266,7 +268,11 @@ class AppConfig {
     required bool isWeb,
   }) {
     if (definedApiBaseUrl.isNotEmpty) {
-      return definedApiBaseUrl;
+      return _validatedApiBaseUrl(
+        definedApiBaseUrl,
+        releaseMode: releaseMode,
+        isWeb: isWeb,
+      );
     }
     if (!releaseMode) {
       return 'http://localhost:8081';
@@ -278,6 +284,65 @@ class AppConfig {
       'API_BASE_URL must be provided via --dart-define=API_BASE_URL=... for '
       'release mobile builds; there is no safe default.',
     );
+  }
+}
+
+const _cleartextDevHosts = {'localhost', '127.0.0.1', '10.0.2.2'};
+
+/// Accepts an explicit API base URL only when it is safe to attach ID and App
+/// Check tokens to: the interceptors send both to whatever host this names.
+///
+/// - Release: `https` with a host, no userinfo/query/fragment and the default
+///   port; on web also a same-origin relative path (`/api`).
+/// - Non-release: the same, plus `http` for local development hosts
+///   (`localhost`, `127.0.0.1`, the Android emulator's `10.0.2.2`) on any port.
+///
+/// The error message deliberately never echoes the rejected value, which may
+/// carry credentials.
+String _validatedApiBaseUrl(
+  String value, {
+  required bool releaseMode,
+  required bool isWeb,
+}) {
+  AppConfigError reject(String why) => AppConfigError(
+    'API_BASE_URL is not allowed in this build ($why). Release builds need an '
+    'https URL with a host, no credentials, query or fragment, and the '
+    'default port.',
+  );
+
+  if (value.trim() != value) {
+    throw reject('surrounding whitespace');
+  }
+  final uri = Uri.tryParse(value);
+  if (uri == null) throw reject('not a valid URI');
+  if (uri.hasQuery) throw reject('query string');
+  if (uri.hasFragment) throw reject('fragment');
+  if (uri.userInfo.isNotEmpty) throw reject('credentials in the URL');
+
+  if (!uri.hasScheme) {
+    final sameOriginPath =
+        isWeb &&
+        !uri.hasAuthority &&
+        value.startsWith('/') &&
+        !value.startsWith('//');
+    if (sameOriginPath) return value;
+    throw reject('relative URLs are only valid on web');
+  }
+  if (uri.host.isEmpty) throw reject('no host');
+
+  switch (uri.scheme) {
+    case 'https':
+      if (releaseMode && uri.hasPort && uri.port != 443) {
+        throw reject('non-default port');
+      }
+      return value;
+    case 'http':
+      if (!releaseMode && _cleartextDevHosts.contains(uri.host)) {
+        return value;
+      }
+      throw reject('cleartext http');
+    default:
+      throw reject('unsupported scheme');
   }
 }
 
