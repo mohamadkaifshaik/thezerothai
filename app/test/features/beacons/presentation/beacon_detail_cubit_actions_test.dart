@@ -189,4 +189,75 @@ void main() {
     expect(cubit.state.actionError, "You're not in this plan any more.");
     expect(cubit.state.busy, isNull);
   });
+
+  group('request keys follow the payload (C01)', () {
+    void stubRequest({required bool Function() fails}) {
+      when(
+        () => beacons.requestToJoin(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          beaconId: _bid,
+          note: any(named: 'note'),
+        ),
+      ).thenAnswer((_) async {
+        if (fails()) throw NetworkException('offline');
+        return pb.ViewerState(canWithdraw: true);
+      });
+    }
+
+    List<String> requestKeys() => keysOf(
+      () => beacons.requestToJoin(
+        idempotencyKey: captureAny(named: 'idempotencyKey'),
+        beaconId: _bid,
+        note: any(named: 'note'),
+      ),
+    );
+
+    test('an edited note after a failure gets a new key', () async {
+      gets.addAll(List.generate(3, (_) => _view(canRequest: true)));
+      stubRequest(fails: () => true);
+      final cubit = BeaconDetailCubit(repository: beacons, beaconId: _bid);
+      await cubit.load();
+
+      expect(await cubit.request('first'), isFalse);
+      expect(await cubit.request('second'), isFalse);
+
+      final keys = requestKeys();
+      expect(keys, hasLength(2));
+      expect(keys[1], isNot(keys[0]));
+    });
+
+    test('the same note retried after a failure reuses the key', () async {
+      gets.addAll(List.generate(3, (_) => _view(canRequest: true)));
+      stubRequest(fails: () => true);
+      final cubit = BeaconDetailCubit(repository: beacons, beaconId: _bid);
+      await cubit.load();
+
+      expect(await cubit.request('same'), isFalse);
+      expect(await cubit.request('same'), isFalse);
+
+      final keys = requestKeys();
+      expect(keys[1], keys[0]);
+    });
+
+    test('request, withdraw, request again uses a fresh key', () async {
+      gets.addAll(List.generate(4, (_) => _view(canRequest: true)));
+      stubRequest(fails: () => false);
+      when(
+        () => beacons.withdrawJoinRequest(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          beaconId: _bid,
+        ),
+      ).thenAnswer((_) async {});
+      final cubit = BeaconDetailCubit(repository: beacons, beaconId: _bid);
+      await cubit.load();
+
+      expect(await cubit.request('same'), isTrue);
+      expect(await cubit.withdraw(), isTrue);
+      expect(await cubit.request('same'), isTrue);
+
+      final keys = requestKeys();
+      expect(keys, hasLength(2));
+      expect(keys[1], isNot(keys[0]));
+    });
+  });
 }

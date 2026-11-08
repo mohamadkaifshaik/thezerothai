@@ -2,7 +2,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
-import '../../../../core/widgets/app_error_view.dart';
 import '../../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../graph/data/graph_repository.dart';
 import '../../data/beacons_repository.dart';
@@ -14,10 +13,9 @@ import 'beacon_people_state.dart';
 /// remove, each with one key per target user (R36) and a reload after (R35).
 ///
 /// "Decline and block" is two writes: the decline, then `GraphRepository.block`
-/// with its own key. A block that fails after a successful decline reports the
-/// failure (the generic copy, the rate-limit copy when it is one) and still
-/// reloads: the request is gone either way, and a retry would decline a row
-/// that is no longer there.
+/// with its own key. A block that fails after a successful decline says so
+/// ([blockFailedCopy]), reloads (the request is gone either way) and offers a
+/// retry that only blocks.
 class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
   BeaconPeopleCubit({
     required BeaconsRepository repository,
@@ -38,6 +36,7 @@ class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
   final pb.ParticipantFilter _filter;
   final GraphRepository? _graph;
   final Map<String, String> _keys = {};
+  final Set<String> _pendingBlock = {};
   int _generation = 0;
 
   bool _stale(int generation) => isClosed || generation != _generation;
@@ -134,35 +133,55 @@ class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
     );
   });
 
-  /// Declines, then blocks. False when either write was refused; the decline
-  /// is never retried once it succeeded (its key is dropped before the block).
+  /// Declines, then blocks. Once the decline went through (or the server says
+  /// there is no open request any more) the user is parked in [_pendingBlock]:
+  /// a failed block keeps that, says so, and a retry only blocks, with the
+  /// same block key.
   Future<bool> declineAndBlock(String userId) async {
     final graph = _graph;
     if (graph == null) return decline(userId);
-    return _act('decline', userId, (key) async {
-      await _repository.respondToJoinRequest(
-        idempotencyKey: key,
-        beaconId: _beaconId,
-        userId: userId,
-        accept: false,
-      );
-      _keys.remove('decline|$userId');
-      final blockKey = _keys.putIfAbsent('block|$userId', _uuid.v4);
-      await graph.block(userId: userId, idempotencyKey: blockKey);
-      _keys.remove('block|$userId');
-    }, copy: _blockCopy);
+    return _act(
+      'decline',
+      userId,
+      (key) async {
+        if (!_pendingBlock.contains(userId)) {
+          try {
+            await _repository.respondToJoinRequest(
+              idempotencyKey: key,
+              beaconId: _beaconId,
+              userId: userId,
+              accept: false,
+            );
+          } on StateConflictException catch (error) {
+            if (error.reason != 'not_requested') rethrow;
+          }
+          _keys.remove('decline|$userId');
+          _pendingBlock.add(userId);
+        }
+        final blockKey = _keys.putIfAbsent('block|$userId', _uuid.v4);
+        await graph.block(userId: userId, idempotencyKey: blockKey);
+        _keys.remove('block|$userId');
+        _pendingBlock.remove(userId);
+      },
+      copy: (error) => _pendingBlock.contains(userId)
+          ? blockFailedCopy
+          : beaconsErrorMessage(error),
+      retryBlock: () => _pendingBlock.contains(userId),
+    );
   }
 
-  static String _blockCopy(AppException error) => switch (error) {
-    final RateLimitedException e => rateLimitedMessage(e),
-    _ => beaconsErrorMessage(error),
-  };
+  /// Blocks a user whose request was already declined (see [declineAndBlock]).
+  Future<bool> retryBlock(String userId) => declineAndBlock(userId);
+
+  static const blockFailedCopy =
+      'Request declined, but blocking failed. Retry block?';
 
   Future<bool> _act(
     String kind,
     String userId,
     Future<void> Function(String key) write, {
     String Function(AppException) copy = beaconsErrorMessage,
+    bool Function()? retryBlock,
   }) async {
     if (state.busyUserId != null) return false;
     final key = _keys.putIfAbsent('$kind|$userId', _uuid.v4);
@@ -174,7 +193,12 @@ class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
       ok = true;
     } on AppException catch (error) {
       if (isClosed) return false;
-      emit(state.copyWith(actionError: copy(error)));
+      emit(
+        state.copyWith(
+          actionError: copy(error),
+          retryBlockUserId: retryBlock != null && retryBlock() ? userId : null,
+        ),
+      );
     }
     if (isClosed) return ok;
     emit(state.copyWith(clearBusy: true));

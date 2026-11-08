@@ -174,9 +174,26 @@ void main() {
     ).called(1);
     expect(find.text('Cy'), findsNothing);
     expect(
-      find.text('No connection. Check your network and try again.'),
+      find.text('Request declined, but blocking failed. Retry block?'),
       findsOneWidget,
     );
+    // The snackbar offers a retry that only blocks (C02).
+    reset(graphRepo);
+    when(
+      () => graphRepo.block(
+        userId: 'u3',
+        idempotencyKey: any(named: 'idempotencyKey'),
+      ),
+    ).thenAnswer((_) async => graph.Relationship());
+    await tester.tap(find.text('Retry block'));
+    await tester.pumpAndSettle();
+    expect(server.calls.where((c) => c == 'respond:decline'), hasLength(1));
+    verify(
+      () => graphRepo.block(
+        userId: 'u3',
+        idempotencyKey: any(named: 'idempotencyKey'),
+      ),
+    ).called(1);
   });
 
   testWidgets('Remove asks first and removes a going row', (tester) async {

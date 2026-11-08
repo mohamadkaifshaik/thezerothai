@@ -154,9 +154,20 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
     await _going.remove(p.user.userId);
   }
 
-  void _say(String text) => ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(text)));
+  void _say(String text, {String? retryBlockFor}) =>
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(text),
+            action: retryBlockFor == null
+                ? null
+                : SnackBarAction(
+                    label: 'Retry block',
+                    onPressed: () => _requests?.retryBlock(retryBlockFor),
+                  ),
+          ),
+        );
 
   @override
   Widget build(BuildContext context) {
@@ -178,7 +189,10 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
                   bloc: requests,
                   listenWhen: (a, b) =>
                       b.actionError != null && a.actionError != b.actionError,
-                  listener: (_, state) => _say(state.actionError!),
+                  listener: (_, state) => _say(
+                    state.actionError!,
+                    retryBlockFor: state.retryBlockUserId,
+                  ),
                 ),
             ],
             child: Column(

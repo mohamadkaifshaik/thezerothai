@@ -17,6 +17,7 @@ class BeaconPeopleState {
     this.error,
     this.busyUserId,
     this.actionError,
+    this.retryBlockUserId,
   });
 
   final PeopleLoad status;
@@ -34,6 +35,10 @@ class BeaconPeopleState {
   /// Friendly text of the last failed action, for a snackbar.
   final String? actionError;
 
+  /// Set with [actionError] when a decline went through but the block after
+  /// it failed: the user a "Retry block" action would block.
+  final String? retryBlockUserId;
+
   BeaconPeopleState copyWith({
     PeopleLoad? status,
     List<pb.Participant>? rows,
@@ -45,6 +50,7 @@ class BeaconPeopleState {
     bool clearBusy = false,
     String? actionError,
     bool clearActionError = false,
+    String? retryBlockUserId,
   }) => BeaconPeopleState(
     status: status ?? this.status,
     rows: rows ?? this.rows,
@@ -53,5 +59,8 @@ class BeaconPeopleState {
     error: clearError ? null : (error ?? this.error),
     busyUserId: clearBusy ? null : (busyUserId ?? this.busyUserId),
     actionError: clearActionError ? null : (actionError ?? this.actionError),
+    retryBlockUserId: clearActionError
+        ? null
+        : (retryBlockUserId ?? this.retryBlockUserId),
   );
 }
