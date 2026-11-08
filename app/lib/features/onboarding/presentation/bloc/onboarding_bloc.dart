@@ -3,6 +3,7 @@ import 'package:stream_transform/stream_transform.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
+import '../../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../data/identity_repository.dart';
 import '../../domain/handle_rules.dart';
 import 'onboarding_event.dart';
@@ -22,6 +23,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       // Ends the in-flight GetMe of the signed-out user (see _loadMe).
       _uid = null;
       _idempotencyKey = null;
+      _flagsLoaded = false;
       emit(const OnboardingState());
     });
     on<OnboardingRefreshRequested>(_onUserRefreshRequested);
@@ -57,10 +59,16 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
   String? _idempotencyKey;
   String? _uid;
 
+  /// Whether a `GetMe` answered for [_uid] this session, so
+  /// `state.enabledFeatures` is the server's flag set rather than the empty
+  /// default. The local cache holds the profile only, never the flags.
+  bool _flagsLoaded = false;
+
   Future<void> _onUserAuthenticated(
     OnboardingUserAuthenticated event,
     Emitter<OnboardingState> emit,
   ) async {
+    if (_uid != event.user.uid) _flagsLoaded = false;
     _uid = event.user.uid;
     await _loadMe(emit);
   }
@@ -102,17 +110,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     try {
       final response = await _identityRepository.getMe();
       if (stale()) return;
-      emit(
-        state.copyWith(
-          status: OnboardingStatus.ready,
-          profile: response.profile,
-          enabledFeatures: response.enabledFeatures.toSet(),
-          unreadNotificationCount: response.unreadNotificationCount.toInt(),
-          unreadConversationCount: response.unreadConversationCount.toInt(),
-          pendingFollowRequestCount: response.pendingFollowRequestCount.toInt(),
-          accountRestricted: false,
-        ),
-      );
+      _emitMe(emit, response);
     } on AccountRestrictedException {
       if (stale()) return;
       // Suspended (or pending deletion): a cached profile must not keep the
@@ -133,12 +131,36 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       );
     } on AppException catch (e) {
       if (stale()) return;
-      // A cached profile is still good enough to use; only surface the
-      // error (and block on it) when we had nothing to show.
-      if (cached == null) {
+      // A cached profile with this session's flags is still good enough to
+      // use: stay ready and keep those flags. Without them (nothing cached,
+      // or a cold start whose cache holds no flags) the app would look as if
+      // every feature were off, so surface the recoverable error instead.
+      if (cached == null || !_flagsLoaded) {
         emit(state.copyWith(status: OnboardingStatus.error, error: e));
       }
     }
+  }
+
+  /// A successful `GetMe`: the profile and the server's flag set, in one emit.
+  void _emitMe(
+    Emitter<OnboardingState> emit,
+    identity.GetMeResponse response, {
+    bool? isSubmitting,
+  }) {
+    _flagsLoaded = true;
+    emit(
+      state.copyWith(
+        status: OnboardingStatus.ready,
+        profile: response.profile,
+        enabledFeatures: response.enabledFeatures.toSet(),
+        unreadNotificationCount: response.unreadNotificationCount.toInt(),
+        unreadConversationCount: response.unreadConversationCount.toInt(),
+        pendingFollowRequestCount: response.pendingFollowRequestCount.toInt(),
+        accountRestricted: false,
+        isSubmitting: isSubmitting ?? state.isSubmitting,
+        error: null,
+      ),
+    );
   }
 
   Future<void> _onHandleChanged(
@@ -234,13 +256,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       );
       if (stale()) return;
       _idempotencyKey = null;
-      emit(
-        state.copyWith(
-          isSubmitting: false,
-          status: OnboardingStatus.ready,
-          profile: profile,
-        ),
-      );
+      await _loadMeAfterCreate(emit, profile, stale);
     } on HandleTakenException catch (e) {
       if (stale()) return;
       emit(
@@ -268,6 +284,44 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     } on AppException catch (e) {
       if (stale()) return;
       emit(state.copyWith(isSubmitting: false, error: e));
+    }
+  }
+
+  /// The profile exists now; `GetMe` brings the caller's flags. Until it
+  /// answers the form stays submitting, so the app never opens with an
+  /// empty flag set ("coming soon" everywhere). A failure is the recoverable
+  /// error state (Retry runs `GetMe` again), never the form: the create is
+  /// done and a second one would only replay it.
+  Future<void> _loadMeAfterCreate(
+    Emitter<OnboardingState> emit,
+    identity.Profile created,
+    bool Function() stale,
+  ) async {
+    try {
+      final response = await _identityRepository.getMe();
+      if (stale()) return;
+      _emitMe(emit, response, isSubmitting: false);
+    } on AccountRestrictedException {
+      if (stale()) return;
+      emit(
+        state.copyWith(
+          isSubmitting: false,
+          profile: created,
+          accountRestricted: true,
+        ),
+      );
+    } on AppException catch (e) {
+      if (stale()) return;
+      // Includes a PROFILE_REQUIRED from a server instance whose negative
+      // profile cache has not seen the create yet: retry, not the form.
+      emit(
+        state.copyWith(
+          isSubmitting: false,
+          status: OnboardingStatus.error,
+          profile: created,
+          error: e,
+        ),
+      );
     }
   }
 }

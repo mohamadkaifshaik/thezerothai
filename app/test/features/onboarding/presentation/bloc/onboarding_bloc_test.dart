@@ -585,6 +585,11 @@ void main() {
         ).thenAnswer(
           (_) async => identity.Profile(userId: 'uid-1', handle: 'kaif'),
         );
+        when(() => identityRepository.getMe()).thenAnswer(
+          (_) async => identity.GetMeResponse(
+            profile: identity.Profile(userId: 'uid-1', handle: 'kaif'),
+          ),
+        );
       },
       build: () => OnboardingBloc(identityRepository: identityRepository),
       seed: () => const OnboardingState(
@@ -780,6 +785,227 @@ void main() {
           handleCheckStatus: HandleCheckStatus.available,
         ),
       ],
+    );
+  });
+  group('after CreateProfile (A09)', () {
+    const form = OnboardingState(
+      status: OnboardingStatus.profileRequired,
+      handle: 'kaif',
+      displayName: 'Kaif',
+      handleCheckStatus: HandleCheckStatus.available,
+    );
+
+    void stubCreate() {
+      when(
+        () => identityRepository.createProfile(
+          handle: 'kaif',
+          displayName: 'Kaif',
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer(
+        (_) async => identity.Profile(userId: 'uid-1', handle: 'kaif'),
+      );
+    }
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'reloads GetMe and goes ready once, with the real flags',
+      setUp: () {
+        stubCreate();
+        when(() => identityRepository.getMe()).thenAnswer(
+          (_) async => identity.GetMeResponse(
+            profile: identity.Profile(
+              userId: 'uid-1',
+              handle: 'kaif',
+              displayName: 'Kaif',
+            ),
+            enabledFeatures: ['posts', 'graph'],
+            unreadNotificationCount: Int64(2),
+          ),
+        );
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => form,
+      act: (bloc) => bloc.add(const OnboardingProfileSubmitted()),
+      expect: () => [
+        isA<OnboardingState>()
+            .having((s) => s.isSubmitting, 'isSubmitting', isTrue)
+            .having(
+              (s) => s.status,
+              'status',
+              OnboardingStatus.profileRequired,
+            ),
+        // Never a ready state with empty flags in between.
+        isA<OnboardingState>()
+            .having((s) => s.status, 'status', OnboardingStatus.ready)
+            .having((s) => s.isSubmitting, 'isSubmitting', isFalse)
+            .having((s) => s.enabledFeatures, 'flags', {'posts', 'graph'})
+            .having((s) => s.unreadNotificationCount, 'unread', 2)
+            .having((s) => s.profile?.displayName, 'profile', 'Kaif'),
+      ],
+      verify: (_) => verify(() => identityRepository.getMe()).called(1),
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'a failed GetMe goes to the recoverable error state, not ready',
+      setUp: () {
+        stubCreate();
+        when(() => identityRepository.getMe())
+            .thenThrow(const NetworkException('offline'));
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => form,
+      act: (bloc) => bloc.add(const OnboardingProfileSubmitted()),
+      expect: () => [
+        isA<OnboardingState>().having((s) => s.isSubmitting, 'sub', isTrue),
+        isA<OnboardingState>()
+            .having((s) => s.status, 'status', OnboardingStatus.error)
+            .having((s) => s.isSubmitting, 'isSubmitting', isFalse)
+            .having((s) => s.error, 'error', isA<NetworkException>())
+            .having((s) => s.enabledFeatures, 'flags', isEmpty),
+      ],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'a stale PROFILE_REQUIRED right after the create is an error (retry), '
+      'never back to the form',
+      setUp: () {
+        stubCreate();
+        when(() => identityRepository.getMe())
+            .thenThrow(const ProfileRequiredException('create a profile'));
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => form,
+      act: (bloc) => bloc.add(const OnboardingProfileSubmitted()),
+      expect: () => [
+        isA<OnboardingState>().having((s) => s.isSubmitting, 'sub', isTrue),
+        isA<OnboardingState>()
+            .having((s) => s.status, 'status', OnboardingStatus.error)
+            .having((s) => s.isSubmitting, 'isSubmitting', isFalse),
+      ],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'ACCOUNT_RESTRICTED from the GetMe marks the account restricted',
+      setUp: () {
+        stubCreate();
+        when(() => identityRepository.getMe())
+            .thenThrow(const AccountRestrictedException('restricted'));
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => form,
+      act: (bloc) => bloc.add(const OnboardingProfileSubmitted()),
+      verify: (bloc) {
+        expect(bloc.state.accountRestricted, isTrue);
+        expect(bloc.state.isSubmitting, isFalse);
+      },
+    );
+  });
+
+  group('GetMe failure with a cached profile (A10)', () {
+    late CachedProfile cachedProfile;
+
+    setUp(() {
+      cachedProfile = CachedProfile(
+        userId: 'uid-1',
+        handle: 'kaif',
+        displayName: 'Kaif (cached)',
+        bio: '',
+        avatarUrl: '',
+        avatarThumbUrl: '',
+        isPrivate: false,
+        verified: false,
+        subscriptionVerified: false,
+        followersCount: 0,
+        followingCount: 0,
+        postsCount: 0,
+        cachedAt: DateTime(2024),
+      );
+      when(() => identityRepository.cachedOwnProfile('uid-1'))
+          .thenAnswer((_) async => cachedProfile);
+      when(() => identityRepository.profileFromCache(cachedProfile))
+          .thenReturn(identity.Profile(userId: 'uid-1', handle: 'kaif'));
+    });
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'on a cold start (no flags known this session) is the error state, '
+      'not a ready app with every flag off',
+      setUp: () {
+        when(() => identityRepository.getMe())
+            .thenThrow(const NetworkException('offline'));
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) => bloc.add(const OnboardingUserAuthenticated(user)),
+      expect: () => [
+        isA<OnboardingState>().having(
+          (s) => s.status,
+          'status',
+          OnboardingStatus.ready,
+        ),
+        isA<OnboardingState>()
+            .having((s) => s.status, 'status', OnboardingStatus.error)
+            .having((s) => s.error, 'error', isA<NetworkException>())
+            .having((s) => s.profile?.handle, 'profile kept', 'kaif'),
+      ],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'after flags were loaded stays ready and keeps those flags',
+      setUp: () {
+        var calls = 0;
+        when(() => identityRepository.getMe()).thenAnswer((_) async {
+          if (calls++ == 0) {
+            return identity.GetMeResponse(
+              profile: identity.Profile(userId: 'uid-1', handle: 'kaif'),
+              enabledFeatures: ['posts'],
+            );
+          }
+          throw const NetworkException('offline');
+        });
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) async {
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        bloc.add(const OnboardingRefreshRequested());
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+      },
+      verify: (bloc) {
+        verify(() => identityRepository.getMe()).called(2);
+        expect(bloc.state.status, OnboardingStatus.ready);
+        expect(bloc.state.enabledFeatures, {'posts'});
+      },
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'a sign-out forgets the loaded flags: the next cold failure is an error',
+      setUp: () {
+        var calls = 0;
+        when(() => identityRepository.getMe()).thenAnswer((_) async {
+          if (calls++ == 0) {
+            return identity.GetMeResponse(
+              profile: identity.Profile(userId: 'uid-1', handle: 'kaif'),
+              enabledFeatures: ['posts'],
+            );
+          }
+          throw const NetworkException('offline');
+        });
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) async {
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        bloc.add(const OnboardingUserSignedOut());
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+      },
+      verify: (bloc) {
+        expect(bloc.state.status, OnboardingStatus.error);
+        expect(bloc.state.enabledFeatures, isEmpty);
+      },
     );
   });
 }
