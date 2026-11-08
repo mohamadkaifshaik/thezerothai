@@ -9,6 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 	av "github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1"
+	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
@@ -85,6 +86,12 @@ type fakePosts struct {
 	hidden    bool
 	fail      error
 	loseReply bool
+	viewErr   error
+}
+
+// postNotFound mirrors the one NOT_FOUND posts.Service.GetForViewer returns for every visibility refusal.
+func postNotFound() error {
+	return apierr.New(connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "post not found")
 }
 
 func (p *fakePosts) Create(ctx context.Context, uid string, in posts.CreateInput) (*posts.Post, error) {
@@ -117,15 +124,18 @@ func (p *fakePosts) Create(ctx context.Context, uid string, in posts.CreateInput
 	return v, nil
 }
 func (p *fakePosts) GetForViewer(_ context.Context, _, id string) (*posts.Post, error) {
+	if p.viewErr != nil {
+		return nil, p.viewErr
+	}
 	if p.hidden {
-		return nil, errors.New("hidden")
+		return nil, postNotFound()
 	}
 	for _, v := range p.created {
 		if v.ID == id {
 			return v, nil
 		}
 	}
-	return nil, errors.New("missing")
+	return nil, postNotFound()
 }
 func (p *fakePosts) Delete(context.Context, string, string, string) error {
 	p.hidden = true
@@ -298,5 +308,42 @@ func TestDraftCoverReloadOnlyResolvesForOwner(t *testing.T) {
 	_, _ = s.GetArticle(bob, connect.NewRequest(&av.GetArticleRequest{ArticleId: testID}))
 	if calls != 2 {
 		t.Fatalf("foreign viewer triggered cover resolution: %d", calls)
+	}
+}
+
+// TestGetPublishedArticleAudienceErrors: only a genuine visibility refusal (NOT_FOUND) is the article's NOT_FOUND;
+// an outage, an internal failure or a cancelled/expired request propagates so the client retries instead of
+// treating a published article as gone.
+func TestGetPublishedArticleAudienceErrors(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want connect.Code
+		is   error
+	}{
+		{"not found", postNotFound(), connect.CodeNotFound, nil},
+		{"posts sentinel", posts.ErrNotFound, connect.CodeNotFound, nil},
+		{"unavailable", connect.NewError(connect.CodeUnavailable, errors.New("firestore down")), connect.CodeUnavailable, nil},
+		{"internal", errors.New("posts: get: load post: boom"), connect.CodeInternal, nil},
+		{"canceled", context.Canceled, connect.CodeInternal, context.Canceled},
+		{"deadline", context.DeadlineExceeded, connect.CodeInternal, context.DeadlineExceeded},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _, p, ctx := setup()
+			save(t, s, ctx)
+			if _, err := s.PublishArticle(ctx, publication()); err != nil {
+				t.Fatal(err)
+			}
+			p.viewErr = tc.err
+			bob := authn.WithClaims(ctx, authn.Claims{UID: "bob"})
+			_, err := s.GetArticle(bob, connect.NewRequest(&av.GetArticleRequest{ArticleId: testID}))
+			if got := apierr.ToConnect(err).Code(); got != tc.want {
+				t.Fatalf("code = %v, want %v (err %v)", got, tc.want, err)
+			}
+			if tc.is != nil && !errors.Is(err, tc.is) {
+				t.Fatalf("cause lost: %v", err)
+			}
+		})
 	}
 }

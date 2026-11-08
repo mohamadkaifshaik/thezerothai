@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -82,6 +83,17 @@ func own(a *record, uid string) error {
 func wire(a *record) *av.Article {
 	return &av.Article{ArticleId: a.ID, AuthorId: a.AuthorID, Revision: a.Revision, Title: a.Title, BodyJson: a.Body, CoverMediaId: a.CoverMediaID, PostId: a.PostID, UpdatedAt: timestamppb.New(a.UpdatedAt), PublicationPending: a.PendingKey != "" && !a.Published, PublicationCaption: a.Caption, PublicationReplyPolicy: pv.ReplyPolicy(a.ReplyPolicy)}
 }
+
+// audienceErr maps an Audience refusal. Every visibility refusal (missing, deleted, hidden, blocked or
+// non-ACTIVE author) arrives as the one posts NOT_FOUND and becomes the article's NOT_FOUND, so a reader
+// cannot probe which one applied. Anything else (an outage, an internal failure, a cancelled or expired
+// request) propagates: answering NOT_FOUND would tell the client a published article is gone.
+func audienceErr(err error) error {
+	if errors.Is(err, posts.ErrNotFound) || apierr.ToConnect(err).Code() == connect.CodeNotFound {
+		return missing()
+	}
+	return fmt.Errorf("articles: authorize article read: %w", err)
+}
 func postWire(p *posts.Post, uid string) *pv.PostView {
 	return posts.ToView(p, posts.ViewerSet{}, uid)
 }
@@ -108,7 +120,7 @@ func (s *Server) GetArticle(ctx context.Context, req *connect.Request[av.GetArti
 	if a.Published {
 		p, e := s.audience.GetForViewer(ctx, uid, a.PostID)
 		if e != nil {
-			return nil, missing()
+			return nil, audienceErr(e)
 		}
 		out.Post = postWire(p, uid)
 		out.Article = wire(a)
