@@ -201,7 +201,10 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     return null;
   }
 
-  String _message(Object error) => error is AppException
+  String _message(Object error) => isArticleDraftLimit(error)
+      // Fixed copy, not the server's text; nothing in the editor is touched.
+      ? articleDraftLimitMessage
+      : error is AppException
       ? error.message
       : 'Could not load or save this article. Please try again.';
   ArticleDraft get _draft => ArticleDraft(
@@ -660,10 +663,18 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
               MaterialBanner(
                 content: Text(_error!),
                 actions: [
-                  TextButton(
-                    onPressed: _record != null && _dirty ? _save : _load,
-                    child: const Text('Retry'),
-                  ),
+                  // Retrying the draft cap cannot succeed (and Retry would
+                  // reload the editor): it only dismisses.
+                  if (_error == articleDraftLimitMessage)
+                    TextButton(
+                      onPressed: () => setState(() => _error = null),
+                      child: const Text('Dismiss'),
+                    )
+                  else
+                    TextButton(
+                      onPressed: _record != null && _dirty ? _save : _load,
+                      child: const Text('Retry'),
+                    ),
                 ],
               ),
             Expanded(

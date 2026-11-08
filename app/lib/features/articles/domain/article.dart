@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../../../core/network/app_exception.dart';
+
 /// Structured article content. Limits and JSON format are project choices,
 /// independent of X's server contract. Drafts may be incomplete while editing.
 const articleSchemaVersion = 1;
@@ -12,6 +14,21 @@ const articleMaxBlocks = 1000;
 /// formatting, links and JSON syntax, not only text, so it can bind well
 /// before [articleMaxBodyCodePoints] (CJK is 3 bytes, emoji 4).
 const articleMaxBodyBytes = 180000;
+
+/// The server's cap on an author's unpublished drafts (backend articles
+/// maxDraftsPerAuthor). Only creating a new draft is refused at the cap:
+/// SaveArticle of a new id answers LIMIT_REACHED with `metadata["limit"]` =
+/// [kArticleDraftsLimit]. Editing, publishing and deleting stay allowed, and
+/// the server is the authority (no client-side count).
+const articleMaxDrafts = 50;
+const kArticleDraftsLimit = 'article_drafts';
+const articleDraftLimitMessage =
+    'You have $articleMaxDrafts drafts. Publish or delete one to start a new '
+    'draft.';
+
+/// Whether [error] is the server refusing a new draft at [articleMaxDrafts].
+bool isArticleDraftLimit(Object error) =>
+    error is LimitReachedException && error.quota == kArticleDraftsLimit;
 
 enum ArticleMark { bold, italic, underline, strikethrough, code }
 

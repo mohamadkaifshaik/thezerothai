@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/articles/domain/article.dart';
 import 'package:dzeroth/features/articles/domain/articles_repository.dart';
 import 'package:dzeroth/features/articles/presentation/article_text_controller.dart';
@@ -71,8 +72,16 @@ class _Repository implements ArticlesRepository {
   bool failGet = false;
   // Commit the save, then lose the reply (the client sees a network error).
   bool loseReply = false;
+  // When set, create() is refused with it (e.g. the server's draft cap).
+  Object? createError;
+  int creates = 0;
   @override
-  Future<ArticleRecord> create() async => record;
+  Future<ArticleRecord> create() async {
+    creates++;
+    if (createError case final error?) throw error;
+    return record;
+  }
+
   @override
   Future<ArticleRecord> get(String id) async {
     gets++;
@@ -491,6 +500,82 @@ void main() {
     await tester.pumpAndSettle();
     expect(repository.saves, 1);
     expect(find.text('Saved'), findsOneWidget);
+  });
+
+  const draftCap = LimitReachedException(
+    'server copy',
+    quota: kArticleDraftsLimit,
+  );
+
+  testWidgets('the draft cap on New article shows the cap message and can '
+      'be dismissed', (tester) async {
+    final repository = _Repository()..createError = draftCap;
+    await tester.pumpWidget(
+      RepositoryProvider<ArticlesRepository>.value(
+        value: repository,
+        child: const MaterialApp(home: ArticlesScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Create article'));
+    await tester.pumpAndSettle();
+    expect(repository.creates, 1);
+    expect(find.text(articleDraftLimitMessage), findsOneWidget);
+    expect(
+      articleDraftLimitMessage,
+      'You have 50 drafts. Publish or delete one to start a new draft.',
+    );
+    // Retrying cannot help: the banner only dismisses.
+    expect(find.text('Retry'), findsNothing);
+    // Non-blocking: the library stays usable.
+    expect(find.text('Drafts'), findsOneWidget);
+    await tester.tap(find.text('Dismiss'));
+    await tester.pumpAndSettle();
+    expect(find.text(articleDraftLimitMessage), findsNothing);
+  });
+
+  testWidgets('the draft cap refusing New article from the editor keeps '
+      'the text in the editor', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1440, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final repository = _Repository()..createError = draftCap;
+    await pumpEditor(tester, repository);
+    await tester.enterText(find.byKey(const Key('article-title')), 'Mine');
+    await tester.enterText(bodyField(), 'My unsaved body');
+    // New article before the autosave fired: the open draft (an existing id,
+    // never refused) saves first, then the new draft is refused.
+    await tester.tap(find.byTooltip('Create article'));
+    await tester.pumpAndSettle();
+    expect(repository.creates, 1);
+    expect(find.text(articleDraftLimitMessage), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('article-title')))
+          .controller!
+          .text,
+      'Mine',
+    );
+    expect(find.text('My unsaved body'), findsOneWidget);
+    expect(repository.record.draft.title, 'Mine');
+    expect(repository.record.draft.plainText, 'My unsaved body');
+    expect(find.text('Saved'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('other limits keep the server message', (tester) async {
+    final repository = _Repository()
+      ..createError = const LimitReachedException('server says no');
+    await tester.pumpWidget(
+      RepositoryProvider<ArticlesRepository>.value(
+        value: repository,
+        child: const MaterialApp(home: ArticlesScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Create article'));
+    await tester.pumpAndSettle();
+    expect(find.text('server says no'), findsOneWidget);
+    expect(find.text(articleDraftLimitMessage), findsNothing);
   });
 
   testWidgets('failed autosave remains unsaved and offers retry', (
