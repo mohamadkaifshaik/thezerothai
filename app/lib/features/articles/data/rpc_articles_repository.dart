@@ -115,8 +115,11 @@ class RpcArticlesRepository implements ArticlesRepository {
           );
         } on connect.ConnectException catch (error) {
           // The revision CAS failed: the caller must reconcile, not retry.
-          conflict = error.code == connect.Code.aborted;
-          rethrow;
+          // Throw a non-Connect sentinel so the gate does not report an
+          // expected conflict as an unexpected API error.
+          if (error.code != connect.Code.aborted) rethrow;
+          conflict = true;
+          throw const ArticleRevisionConflict();
         }
       });
     } catch (_) {

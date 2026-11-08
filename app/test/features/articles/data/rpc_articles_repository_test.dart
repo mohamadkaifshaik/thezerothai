@@ -106,6 +106,29 @@ void main() {
         throwsA(isA<ArticleRevisionConflict>()),
       );
     });
+    test(
+      'an expected conflict is not reported as an unexpected error',
+      () async {
+        final reported = <Object>[];
+        final reporting = RpcArticlesRepository(
+          apiClient: ApiClient.withTransport(transport),
+          store: store,
+          gate: PostsFeatureGate(
+            isPostsEnabled: () => true,
+            onUnexpectedError: (error, _) => reported.add(error),
+          ),
+          currentUid: () => uid,
+        );
+        reply.completeError(
+          connect.ConnectException(connect.Code.aborted, 'article changed'),
+        );
+        await expectLater(
+          reporting.save(draft, expectedRevision: 1),
+          throwsA(isA<ArticleRevisionConflict>()),
+        );
+        expect(reported, isEmpty);
+      },
+    );
     test('other failures keep their typed error', () async {
       reply.completeError(
         connect.ConnectException(connect.Code.notFound, 'article not found'),
