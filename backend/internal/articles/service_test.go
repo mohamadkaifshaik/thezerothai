@@ -3,9 +3,11 @@ package articles
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"connectrpc.com/connect"
 	av "github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1"
@@ -308,6 +310,45 @@ func TestDraftCoverReloadOnlyResolvesForOwner(t *testing.T) {
 	_, _ = s.GetArticle(bob, connect.NewRequest(&av.GetArticleRequest{ArticleId: testID}))
 	if calls != 2 {
 		t.Fatalf("foreign viewer triggered cover resolution: %d", calls)
+	}
+}
+
+// TestListArticlesCarriesExcerptsNotBodies: a list page never ships bodies; every row has the bounded plain-text
+// excerpt, and GetArticle still returns the full body.
+func TestListArticlesCarriesExcerptsNotBodies(t *testing.T) {
+	s, r, _, ctx := setup()
+	save(t, s, ctx)
+	long := strings.Repeat("語", 300) + " tail"
+	r.rows["abcdefghijklmnop0002"] = &record{ID: "abcdefghijklmnop0002", AuthorID: "alice", Revision: 1, Title: "Long",
+		Body: `[{"kind":"heading1","runs":[{"text":"Head","marks":[]}]},{"kind":"paragraph","runs":[{"text":"` + long + `","marks":[]}]}]`}
+	r.rows["abcdefghijklmnop0003"] = &record{ID: "abcdefghijklmnop0003", AuthorID: "alice", Revision: 1, Title: "Legacy", Body: `not json`}
+	res, err := s.ListArticles(ctx, connect.NewRequest(&av.ListArticlesRequest{PageSize: 50}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]*av.Article{}
+	for _, a := range res.Msg.Articles {
+		if a.BodyJson != "" {
+			t.Fatalf("list shipped a body for %s", a.ArticleId)
+		}
+		got[a.ArticleId] = a
+	}
+	if len(got) != 3 {
+		t.Fatalf("rows = %d, want 3", len(got))
+	}
+	if e := got[testID].Excerpt; e != "Hello world" {
+		t.Fatalf("excerpt = %q", e)
+	}
+	e := got["abcdefghijklmnop0002"].Excerpt
+	if n := utf8.RuneCountInString(e); n != maxExcerptRunes || !strings.HasPrefix(e, "Head 語") {
+		t.Fatalf("long excerpt: %d runes, %q", n, e)
+	}
+	if e := got["abcdefghijklmnop0003"].Excerpt; e != "" {
+		t.Fatalf("undecodable body excerpt = %q", e)
+	}
+	full, err := s.GetArticle(ctx, connect.NewRequest(&av.GetArticleRequest{ArticleId: testID}))
+	if err != nil || full.Msg.Article.BodyJson != testBody || full.Msg.Article.Excerpt != "Hello world" {
+		t.Fatalf("get lost the body: %v", err)
 	}
 }
 

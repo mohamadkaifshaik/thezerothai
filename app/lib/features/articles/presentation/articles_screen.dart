@@ -718,7 +718,7 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
                           : record.draft.title,
                     ),
                     subtitle: Text(
-                      '${record.published ? 'Published' : 'Draft'} · ${record.updatedAt.toLocal()}\n${record.draft.excerpt()}',
+                      '${record.published ? 'Published' : 'Draft'} · ${record.updatedAt.toLocal()}\n${record.summary}',
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                     ),

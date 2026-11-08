@@ -60,6 +60,7 @@ class _Repository implements ArticlesRepository {
     draft: ArticleDraft(id: 'draft', authorId: 'owner'),
     updatedAt: DateTime.now().toUtc(),
   );
+  ArticlePage? page;
   int saves = 0;
   String? publishKey;
   bool failSave = false;
@@ -71,7 +72,7 @@ class _Repository implements ArticlesRepository {
   Future<ArticlePage> list({
     required bool published,
     String pageToken = '',
-  }) async => ArticlePage([record]);
+  }) async => page ?? ArticlePage([record]);
   @override
   Future<void> delete(ArticleRecord article) async {}
   @override
@@ -145,6 +146,30 @@ void main() {
       );
     });
   }
+
+  testWidgets('library rows show the server excerpt of body-less records', (
+    tester,
+  ) async {
+    final repository = _Repository()
+      ..page = ArticlePage([
+        ArticleRecord(
+          draft: ArticleDraft(id: 'listed', authorId: 'owner', title: 'Listed'),
+          updatedAt: DateTime.utc(2026, 11, 1),
+          excerpt: 'Only the excerpt travels in a list',
+        ),
+      ]);
+    await tester.pumpWidget(
+      RepositoryProvider<ArticlesRepository>.value(
+        value: repository,
+        child: const MaterialApp(home: ArticlesScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Only the excerpt travels in a list'),
+      findsOneWidget,
+    );
+  });
 
   testWidgets('wide library has a writing pane and collapses on phones', (
     tester,

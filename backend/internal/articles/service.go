@@ -81,7 +81,7 @@ func own(a *record, uid string) error {
 	return nil
 }
 func wire(a *record) *av.Article {
-	return &av.Article{ArticleId: a.ID, AuthorId: a.AuthorID, Revision: a.Revision, Title: a.Title, BodyJson: a.Body, CoverMediaId: a.CoverMediaID, PostId: a.PostID, UpdatedAt: timestamppb.New(a.UpdatedAt), PublicationPending: a.PendingKey != "" && !a.Published, PublicationCaption: a.Caption, PublicationReplyPolicy: pv.ReplyPolicy(a.ReplyPolicy)}
+	return &av.Article{ArticleId: a.ID, AuthorId: a.AuthorID, Revision: a.Revision, Title: a.Title, BodyJson: a.Body, CoverMediaId: a.CoverMediaID, PostId: a.PostID, UpdatedAt: timestamppb.New(a.UpdatedAt), PublicationPending: a.PendingKey != "" && !a.Published, PublicationCaption: a.Caption, PublicationReplyPolicy: pv.ReplyPolicy(a.ReplyPolicy), Excerpt: excerptOf(a.Body)}
 }
 
 // audienceErr maps an Audience refusal. Every visibility refusal (missing, deleted, hidden, blocked or
@@ -198,7 +198,11 @@ func (s *Server) ListArticles(ctx context.Context, req *connect.Request[av.ListA
 	}
 	out := &av.ListArticlesResponse{}
 	for _, a := range rows {
-		out.Articles = append(out.Articles, wire(a))
+		// A page carries excerpts, never bodies (a full page of 180 KB bodies would be ~9 MB); readers and the
+		// editor open an article with GetArticle.
+		row := wire(a)
+		row.BodyJson = ""
+		out.Articles = append(out.Articles, row)
 	}
 	if len(rows) == n {
 		out.NextPageToken = rows[len(rows)-1].ID
