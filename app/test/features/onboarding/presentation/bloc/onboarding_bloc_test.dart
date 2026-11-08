@@ -979,6 +979,67 @@ void main() {
     );
 
     blocTest<OnboardingBloc, OnboardingState>(
+      'Retry from the error state never shows the cached profile as ready '
+      'without flags (GetMe fails again)',
+      setUp: () {
+        when(() => identityRepository.getMe())
+            .thenThrow(const NetworkException('offline'));
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) async {
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        expect(bloc.state.status, OnboardingStatus.error);
+        bloc.add(const OnboardingRefreshRequested());
+      },
+      skip: 2,
+      expect: () => [
+        isA<OnboardingState>()
+            .having((s) => s.status, 'status', OnboardingStatus.loading)
+            .having((s) => s.profile?.handle, 'profile kept', 'kaif'),
+        isA<OnboardingState>().having(
+          (s) => s.status,
+          'status',
+          OnboardingStatus.error,
+        ),
+      ],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'Retry from the error state goes loading, then ready with the flags',
+      setUp: () {
+        var calls = 0;
+        when(() => identityRepository.getMe()).thenAnswer((_) async {
+          if (calls++ == 0) throw const NetworkException('offline');
+          return identity.GetMeResponse(
+            profile: identity.Profile(userId: 'uid-1', handle: 'kaif'),
+            enabledFeatures: ['posts'],
+          );
+        });
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) async {
+        bloc.add(const OnboardingUserAuthenticated(user));
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        expect(bloc.state.status, OnboardingStatus.error);
+        bloc.add(const OnboardingRefreshRequested());
+      },
+      skip: 2,
+      expect: () => [
+        isA<OnboardingState>().having(
+          (s) => s.status,
+          'status',
+          OnboardingStatus.loading,
+        ),
+        isA<OnboardingState>()
+            .having((s) => s.status, 'status', OnboardingStatus.ready)
+            .having((s) => s.enabledFeatures, 'flags', {'posts'}),
+      ],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
       'a sign-out forgets the loaded flags: the next cold failure is an error',
       setUp: () {
         var calls = 0;

@@ -96,7 +96,13 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     // an await below was pending must not be overwritten by this user's data.
     bool stale() => emit.isDone || _uid != uid;
     if (stale()) return;
-    if (cached != null) {
+    // A Retry from the error state without this session's flags must not
+    // render the cached profile as ready first: the router would open Home
+    // with every flag off. It shows loading (the error page's spinner)
+    // until GetMe answers.
+    final retryWithoutFlags =
+        state.status == OnboardingStatus.error && !_flagsLoaded;
+    if (cached != null && !retryWithoutFlags) {
       emit(
         state.copyWith(
           status: OnboardingStatus.ready,
