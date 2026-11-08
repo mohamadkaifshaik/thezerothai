@@ -90,14 +90,19 @@ func validateContent(title, body string, publishing bool) (string, error) {
 		return "", apierr.Validation("body", "article needs a body of at most 100000 characters")
 	}
 	excerpt := []rune(strings.Join(strings.Fields(plain), " "))
-	if len(excerpt) > 160 {
-		excerpt = excerpt[:160]
+	if len(excerpt) > maxPreviewExcerptRunes {
+		excerpt = excerpt[:maxPreviewExcerptRunes]
 	}
 	return string(excerpt), nil
 }
 
-// maxExcerptRunes bounds Article.excerpt (proto contract: at most 280 code points).
-const maxExcerptRunes = 280
+// Two excerpt lengths on purpose: maxPreviewExcerptRunes bounds the excerpt frozen into the root post's
+// ArticlePreview at publication (timeline cards); maxExcerptRunes bounds Article.excerpt, computed on read for the
+// author's library (proto contract: at most 280 code points).
+const (
+	maxPreviewExcerptRunes = 160
+	maxExcerptRunes        = 280
+)
 
 // plainText is the lenient reading of a stored body for derived text (list excerpts, report evidence): the runs of
 // every block, one line per block. It never validates (a row written under older rules still reads) and answers ""
