@@ -1059,6 +1059,14 @@ void main() {
       metadata: {'limit': 'search_daily'},
     );
 
+    test('clearSession empties the message outbox', () {
+      repo.outbox.save('c1', draft: 'private', rows: const []);
+      expect(repo.outbox.draftOf('c1'), 'private');
+      repo.clearSession();
+      expect(repo.outbox.draftOf('c1'), isEmpty);
+      expect(repo.outbox.isEmpty, isTrue);
+    });
+
     test('clearSession releases the read hold', () {
       hold.record(const RateLimitedException('slow down'));
       repo.clearSession();

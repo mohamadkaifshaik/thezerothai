@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/network/rate_limit_hold.dart';
+import 'package:dzeroth/features/messages/data/message_outbox.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/domain/thread_poller.dart';
@@ -51,6 +52,9 @@ class FakeSendRepository extends Fake implements MessagingRepository {
 
   /// When set, a send waits for it (the "Sending…" state).
   Completer<void>? sendGate;
+
+  @override
+  final MessageOutbox outbox = MessageOutbox();
 
   @override
   RateLimitHold get rateLimitHold => RateLimitHold();
