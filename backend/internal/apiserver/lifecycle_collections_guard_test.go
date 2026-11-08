@@ -32,6 +32,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/outbox"
 )
 
 // disposition says what happens to a collection when its owner's account is deleted.
@@ -162,6 +163,11 @@ var lifecycleCollections = []collectionRow{
 	{Name: "beacons", Disposition: erasedByStep, Step: "beacons", Section: "beacons", Owner: "beacons", Cite: "ADR-0032 (Beacons; docs/beacons-plan.md section 5 until the ADR is written)"},
 	{Name: "beaconParticipants", Sub: true, Disposition: erasedByStep, Step: "beacons", Section: "beacons", Owner: "beacons", Cite: "ADR-0032 (Beacons; docs/beacons-plan.md section 5 until the ADR is written)"},
 	{Name: "beaconMemberships", Sub: true, Disposition: erasedByStep, Step: "beacons", Section: "beacons", Owner: "beacons", Cite: "ADR-0032 (Beacons; docs/beacons-plan.md section 5 until the ADR is written)"},
+	// Outbox/{kind}:{key} (pkg/platform/outbox) holds a durable follow-up of a committed change: kind, key (a post id), the
+	// uid the item is about, an opaque payload (for post_delete: uid, post id, media ids), attempts and times, with a 30-day
+	// expireAt TTL backstop. The `outbox` step (BeforeIdentity, appended after beacons) deletes every item with uid == the
+	// deleted user, so the sweep finds no residue; nothing is exported (an operational pointer, not user content).
+	{Name: "outbox", Disposition: erasedByStep, Step: "outbox", ExportNote: "operational work items (kind, post id, uid, attempts); not user content, not exported", Owner: "platform", Cite: "ADR-0011 Q1 (the outbox step erases by uid); collection and TTL owner-approved 2026-11-08 (fix plan Task 9, A01) until its ADR is written"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
 	// Trends/current holds tags and counts only (distinct authors are counted in memory and never
 	// persisted), and trends/hidden holds the operator hide list as folded tag keys: no uid, no actor. So there is
@@ -372,6 +378,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 		t.Fatal(err)
 	}
 	if err := registerBeaconsLifecycle(l, beacons.NewFirestoreRepo(nil, nil, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerOutboxLifecycle(l, outbox.New(nil, outbox.Config{})); err != nil {
 		t.Fatal(err)
 	}
 	return l.StepNames(), l.ExportSectionNames()
