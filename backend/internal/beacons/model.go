@@ -326,11 +326,14 @@ type ParticipantResult struct {
 	Participant Participant
 }
 
-// RespondParams is one RespondToJoinRequest write by the organiser UID on TargetUID's REQUESTED row.
+// RespondParams is one RespondToJoinRequest write by the organiser UID on TargetUID's REQUESTED row. Precheck, when
+// set, runs inside the transaction after the idempotency lookup missed and before any other read: a replay of a
+// committed answer never runs it (the stored outcome stands), and its error refuses the write.
 type RespondParams struct {
 	UID, BeaconID, TargetUID, IdemKey, RequestHash string
 	Accept                                         bool
 	Now                                            time.Time
+	Precheck                                       func(context.Context) error
 }
 
 // StateParams is one Withdraw (TargetUID == UID), Leave (TargetUID == UID) or Remove (UID is the organiser) write.

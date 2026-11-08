@@ -141,10 +141,12 @@ func (s *service) requireMember(ctx context.Context, uid, communityID string, mu
 }
 
 // communityVerdict is uid's standing in a community, the flag aside, mirroring communities.PostGate.Admit: the
-// community (cache-first, 60 s) and uid's role (cached). A missing community, a nil reader, a role other than owner,
-// moderator or member (none, banned) is ErrNotMember (fail closed). SUSPENDED is the one ErrNotFound to everyone but the
-// community's owner on a read, and to everyone on a write (the platform took it offline). ARCHIVED is read-only: a
-// write is COMMUNITY_STATE community_archived (communities.StateConflict). Any other error is returned (not a refusal).
+// community (cache-first, 60 s), then uid's role (cached). A missing community is the one ErrNotFound, the same answer
+// as SUSPENDED, so nobody can tell deleted from suspended. On a write the community state decides first, whatever the
+// role: SUSPENDED is ErrNotFound for everyone (the platform took it offline), ARCHIVED is COMMUNITY_STATE
+// community_archived (communities.StateConflict). On a read SUSPENDED is ErrNotFound to everyone but the community's
+// owner. Then a nil reader or a role other than owner, moderator or member (none, banned) is ErrNotMember (fail
+// closed). Any other error is returned (not a refusal).
 func (s *service) communityVerdict(ctx context.Context, uid, communityID string, write bool) error {
 	if s.d.Communities == nil {
 		return ErrNotMember
@@ -152,29 +154,31 @@ func (s *service) communityVerdict(ctx context.Context, uid, communityID string,
 	c, err := s.d.Communities.Get(ctx, communityID)
 	if err != nil {
 		if errors.Is(err, communities.ErrNotFound) {
-			return ErrNotMember
+			return ErrNotFound
 		}
 		return logger.RedactErr(fmt.Errorf("beacons: community: %w", err), uid, communityID)
 	}
-	role, err := s.d.Communities.Role(ctx, communityID, uid)
-	if err != nil {
-		if errors.Is(err, communities.ErrNotFound) {
-			return ErrNotMember
-		}
-		return logger.RedactErr(fmt.Errorf("beacons: community role: %w", err), uid, communityID)
-	}
-	if c.Status == communities.StatusSuspended && (write || role != communities.RoleOwner) {
+	if write && c.Status == communities.StatusSuspended {
 		return ErrNotFound
-	}
-	switch role {
-	case communities.RoleOwner, communities.RoleModerator, communities.RoleMember:
-	default:
-		return ErrNotMember
 	}
 	if write && c.Status == communities.StatusArchived {
 		return communities.StateConflict(communities.StateArchived)
 	}
-	return nil
+	role, err := s.d.Communities.Role(ctx, communityID, uid)
+	if err != nil {
+		if errors.Is(err, communities.ErrNotFound) {
+			return ErrNotFound
+		}
+		return logger.RedactErr(fmt.Errorf("beacons: community role: %w", err), uid, communityID)
+	}
+	if c.Status == communities.StatusSuspended && role != communities.RoleOwner {
+		return ErrNotFound
+	}
+	switch role {
+	case communities.RoleOwner, communities.RoleModerator, communities.RoleMember:
+		return nil
+	}
+	return ErrNotMember
 }
 
 // communityVerdicts answers communityVerdict (read) for each distinct community of a list page: true renders. A refusal

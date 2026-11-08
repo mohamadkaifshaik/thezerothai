@@ -50,6 +50,7 @@ type fakeRepo struct {
 	plistErr      error // ListParticipants only (the shared err would also fail the cancel)
 	pqueries      []ParticipantQuery
 	beaconBatches [][]string
+	respondDone   map[string]ParticipantResult // idempotency key + request hash -> committed Respond result
 	// GetParticipants calls: the uid and the beacon ids of each batch.
 	participantBatches []participantBatch
 }
@@ -88,10 +89,30 @@ func (f *fakeRepo) Withdraw(_ context.Context, p StateParams) (ParticipantResult
 	return f.presult, f.perr
 }
 
-func (f *fakeRepo) Respond(_ context.Context, p RespondParams) (ParticipantResult, error) {
+// Respond emulates the repository's idempotency: a key in respondDone replays its stored result without running
+// p.Precheck; otherwise Precheck runs first (a refusal writes nothing and is not recorded) and a success is stored.
+func (f *fakeRepo) Respond(ctx context.Context, p RespondParams) (ParticipantResult, error) {
+	f.mu.Lock()
+	if res, ok := f.respondDone[p.IdemKey+"|"+p.RequestHash]; ok {
+		f.mu.Unlock()
+		res.Outcome = Replayed
+		return res, nil
+	}
+	f.mu.Unlock()
+	if p.Precheck != nil {
+		if err := p.Precheck(ctx); err != nil {
+			return ParticipantResult{}, err
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.respondedBy = append(f.respondedBy, p)
+	if f.perr == nil {
+		if f.respondDone == nil {
+			f.respondDone = map[string]ParticipantResult{}
+		}
+		f.respondDone[p.IdemKey+"|"+p.RequestHash] = f.presult
+	}
 	return f.presult, f.perr
 }
 

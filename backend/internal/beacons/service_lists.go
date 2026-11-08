@@ -104,6 +104,10 @@ func (s *service) ListMyBeacons(ctx context.Context, uid string, in MyBeaconsInp
 		m Membership
 		b Beacon
 	}
+	bc, err := s.blocks(ctx, uid)
+	if err != nil {
+		return Page{}, mapErr(ctx, "mine", uid, "", err)
+	}
 	cands := make([]row, 0, len(rows))
 	var cids []string
 	seenCID := map[string]bool{}
@@ -112,20 +116,22 @@ func (s *service) ListMyBeacons(ctx context.Context, uid string, in MyBeaconsInp
 		if !ok {
 			continue
 		}
-		if b.OrganiserID != uid {
-			if m.State != PStateRequested && m.State != PStateAccepted {
-				continue
-			}
-			if b.CommunityID != "" && !seenCID[b.CommunityID] {
-				seenCID[b.CommunityID] = true
-				cids = append(cids, b.CommunityID)
-			}
+		if b.OrganiserID != uid && m.State != PStateRequested && m.State != PStateAccepted {
+			continue
+		}
+		cause, err := visibleRow(ctx, bc, uid, b)
+		if err != nil {
+			return Page{}, mapErr(ctx, "mine", uid, "", err)
+		}
+		if cause != "" {
+			continue
+		}
+		// Only rows still in the running cost a community read.
+		if b.OrganiserID != uid && b.CommunityID != "" && !seenCID[b.CommunityID] {
+			seenCID[b.CommunityID] = true
+			cids = append(cids, b.CommunityID)
 		}
 		cands = append(cands, row{m: m, b: b})
-	}
-	bc, err := s.blocks(ctx, uid)
-	if err != nil {
-		return Page{}, mapErr(ctx, "mine", uid, "", err)
 	}
 	verdicts, err := s.communityVerdicts(ctx, uid, cids)
 	if err != nil {
@@ -135,11 +141,7 @@ func (s *service) ListMyBeacons(ctx context.Context, uid string, in MyBeaconsInp
 	organisers := make([]string, 0, len(cands))
 	seen := map[string]bool{}
 	for _, c := range cands {
-		cause, err := visibleRow(ctx, bc, uid, c.b)
-		if err != nil {
-			return Page{}, mapErr(ctx, "mine", uid, "", err)
-		}
-		if cause != "" || (c.b.OrganiserID != uid && c.b.CommunityID != "" && !verdicts[c.b.CommunityID]) {
+		if c.b.OrganiserID != uid && c.b.CommunityID != "" && !verdicts[c.b.CommunityID] {
 			continue
 		}
 		kept = append(kept, c)

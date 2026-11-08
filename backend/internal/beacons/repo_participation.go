@@ -202,8 +202,8 @@ type transitionRule struct {
 	// request can always be cleared.
 	live bool
 	// self: the caller acts on their own row (Withdraw, Leave), the way out of a plan, which the service does not gate on
-	// visibility: no row is ErrNotFound, checked before the live check, so a caller without a row learns nothing about
-	// the beacon (not even that it ended).
+	// visibility: no row is ErrNotFound and a row in another state is notIn, both checked before the live check, so a
+	// caller learns nothing about the beacon beyond their own row (not even that it ended).
 	self     bool
 	from, to string
 	notIn    error
@@ -263,6 +263,11 @@ func (r *FirestoreRepo) transition(ctx context.Context, p StateParams, rule tran
 		if rule.self && !exists {
 			return ErrNotFound
 		}
+		// A self rule answers the caller's own row before the beacon's state: a terminal row is notIn even on an ended
+		// or cancelled beacon (Remove keeps live first).
+		if rule.self && pd.State != from {
+			return notIn
+		}
 		if rule.live {
 			if err := checkLive(d, p.BeaconID, p.Now); err != nil {
 				return err
@@ -296,7 +301,8 @@ func (r *FirestoreRepo) transition(ctx context.Context, p StateParams, rule tran
 	return res, err
 }
 
-// Respond implements Repo (RespondToJoinRequest). Reads: idempotency, the beacon (owner-checked), the target's row
+// Respond implements Repo (RespondToJoinRequest). Reads: idempotency (a hit replays; only a miss runs p.Precheck), the
+// beacon (owner-checked), the target's row
 // (REQUESTED else ErrNotRequested). ACCEPT at capacity is ErrFull and writes nothing; two racing accepts both read and
 // write the beacon, so only one commits. Otherwise the row becomes ACCEPTED (respondedAt) with the beacon's count and
 // status, or DECLINED; the membership row follows.
@@ -313,6 +319,11 @@ func (r *FirestoreRepo) Respond(ctx context.Context, p RespondParams) (Participa
 				res, err = r.replayParticipation(ctx, tx, rec)
 			}
 			return err
+		}
+		if p.Precheck != nil {
+			if err := p.Precheck(ctx); err != nil {
+				return err
+			}
 		}
 		d, err := r.getOwned(ctx, tx, p.UID, p.BeaconID)
 		if err != nil {

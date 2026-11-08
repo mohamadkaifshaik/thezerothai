@@ -453,6 +453,72 @@ func TestRepo_SelfTransitionsReleaseSeatOnHiddenBeacon(t *testing.T) {
 	}
 }
 
+// TestRepo_SelfTransitionsAnswerOwnRowFirst (fix round 1): on a self rule the caller's row answers before the beacon's
+// state: a REMOVED row on a cancelled, hidden beacon is ErrNotParticipant (Leave) / ErrNotRequested (Withdraw), never
+// cancelled.
+func TestRepo_SelfTransitionsAnswerOwnRowFirst(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	b := e.create(t, "org-sf", itKeyA, e.beaconAt("org-sf", "", e.now.Add(time.Hour))).Beacon
+	e.mustRequest(t, "sf-p1", "integration-key-sf01", b.ID)
+	if _, err := e.respond("org-sf", "integration-key-sf02", b.ID, "sf-p1", true, e.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.repo.Remove(ctx, e.state("org-sf", rpcRemoveParticipant, "integration-key-sf03", b.ID, "sf-p1", e.now)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.repo.Cancel(ctx, CancelParams{UID: "org-sf", BeaconID: b.ID, IdemKey: idempotency.Key("org-sf", rpcCancelBeacon, "integration-key-sf04"), RequestHash: "h", Now: e.now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.repo.SetHidden(ctx, b.ID, true, e.now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.repo.Leave(ctx, e.state("sf-p1", rpcLeaveBeacon, "integration-key-sf05", b.ID, "sf-p1", e.now)); !errors.Is(err, ErrNotParticipant) {
+		t.Fatalf("leave a removed row on a cancelled hidden beacon = %v, want ErrNotParticipant", err)
+	}
+	if _, err := e.repo.Withdraw(ctx, e.state("sf-p1", rpcWithdrawJoinRequest, "integration-key-sf06", b.ID, "sf-p1", e.now)); !errors.Is(err, ErrNotRequested) {
+		t.Fatalf("withdraw a removed row = %v, want ErrNotRequested", err)
+	}
+}
+
+// TestRepo_RespondPrecheckOnlyOnMiss (fix round 1): Precheck runs after the idempotency lookup missed, so a same-key
+// retry of a committed ACCEPT replays without it; a new key with a failing Precheck writes nothing.
+func TestRepo_RespondPrecheckOnlyOnMiss(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	b := e.create(t, "org-pc", itKeyA, e.beaconAt("org-pc", "", e.now.Add(time.Hour))).Beacon
+	e.mustRequest(t, "pc-p1", "integration-key-pc01", b.ID)
+	e.mustRequest(t, "pc-p2", "integration-key-pc02", b.ID)
+	params := func(key, target string, pre func(context.Context) error) RespondParams {
+		return RespondParams{
+			UID: "org-pc", BeaconID: b.ID, TargetUID: target, IdemKey: idempotency.Key("org-pc", rpcRespondToJoinRequest, key),
+			RequestHash: idempotency.HashRequest(b.ID + "|" + target + "|accept"), Accept: true, Now: e.now, Precheck: pre,
+		}
+	}
+	ran := 0
+	ok := func(context.Context) error { ran++; return nil }
+	refuse := func(context.Context) error { ran++; return ErrNotRequested }
+	res, err := e.repo.Respond(ctx, params("integration-key-pc03", "pc-p1", ok))
+	if err != nil || res.Outcome != Written || ran != 1 {
+		t.Fatalf("accept = %+v, %v (precheck ran %d), want written", res.Outcome, err, ran)
+	}
+	res, err = e.repo.Respond(ctx, params("integration-key-pc03", "pc-p1", refuse))
+	if err != nil || res.Outcome != Replayed || res.Participant.State != PStateAccepted || ran != 1 {
+		t.Fatalf("same-key retry = %+v, %v (precheck ran %d), want a replay without the precheck", res.Outcome, err, ran)
+	}
+	if _, err := e.repo.Respond(ctx, params("integration-key-pc04", "pc-p2", refuse)); !errors.Is(err, ErrNotRequested) {
+		t.Fatalf("new key, failing precheck = %v, want ErrNotRequested", err)
+	}
+	p, err := e.repo.GetParticipant(ctx, b.ID, "pc-p2")
+	if err != nil || p.State != PStateRequested {
+		t.Fatalf("pc-p2 after a refused accept = %+v, %v, want still requested", p, err)
+	}
+	got, err := e.repo.Get(ctx, b.ID)
+	if err != nil || got.AcceptedCount != 1 {
+		t.Fatalf("beacon = %+v, %v, want one seat taken", got, err)
+	}
+}
+
 // TestRepo_GetParticipantsBatch (B06): one GetAll of the caller's own rows, keyed by beacon id; no row is absent.
 func TestRepo_GetParticipantsBatch(t *testing.T) {
 	e := newRepoEnv(t)

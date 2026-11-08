@@ -279,7 +279,7 @@ func (s *service) ListBeacons(ctx context.Context, viewer string, in ListInput) 
 		return Page{}, mapErr(ctx, "list", viewer, "", logger.RedactErr(fmt.Errorf("beacons: load organiser profiles: %w", err), organisers...))
 	}
 	droppedGone := 0
-	shown := kept[:0]
+	shown := make([]Beacon, 0, len(kept))
 	others := make([]string, 0, len(kept))
 	for _, b := range kept {
 		p, ok := profs[b.OrganiserID]

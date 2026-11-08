@@ -346,6 +346,16 @@ func TestRespondAccept_TargetEligibility(t *testing.T) {
 			e.comm.roles[testCommunity+"|"+target] = communities.RoleMember
 			e.comm.status = map[string]communities.Status{testCommunity: communities.StatusArchived}
 		}, "archived"},
+		// Fix round 1: the community state decides before the target's membership on a write.
+		{"community: archived, target left", func(e *env) {
+			e.communityBeacon()
+			e.comm.status = map[string]communities.Status{testCommunity: communities.StatusArchived}
+		}, "archived"},
+		{"community: missing", func(e *env) {
+			e.communityBeacon()
+			e.comm.roles[testCommunity+"|"+target] = communities.RoleMember
+			e.comm.missing = map[string]bool{testCommunity: true}
+		}, "not_requested"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv()
@@ -541,4 +551,97 @@ func TestListParticipants_PeerBlocks(t *testing.T) {
 			t.Fatalf("rows = %v, %v, want all five", uids(page), err)
 		}
 	})
+}
+
+// TestRespondAccept_ReplayAfterTargetIneligible (fix round 1): the eligibility recheck runs only when the idempotency key
+// has no stored answer, so a same-key retry of a committed ACCEPT replays it even after the target became ineligible;
+// a new key is refused.
+func TestRespondAccept_ReplayAfterTargetIneligible(t *testing.T) {
+	const target = "p1"
+	const otherKey = "other-key-0123456789"
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name      string
+		community bool
+		spoil     func(e *env)
+	}{
+		{"organiser blocked target", false, func(e *env) {
+			e.graph.snaps[testOrganiser] = graph.Snapshot{Blocked: map[string]bool{target: true}}
+		}},
+		{"target blocked organiser", false, func(e *env) {
+			e.graph.snaps[testOrganiser] = graph.Snapshot{BlockedBy: map[string]bool{target: true}}
+		}},
+		{"target left community", true, func(e *env) { delete(e.comm.roles, testCommunity+"|"+target) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv()
+			e.repo.docs[testBeaconID] = e.openBeacon()
+			if tc.community {
+				e.communityBeacon()
+				e.comm.roles[testCommunity+"|"+target] = communities.RoleMember
+			}
+			e.dir.profiles[target] = activeProfile(target)
+			e.repo.presult = ParticipantResult{Outcome: Written, Beacon: e.repo.docs[testBeaconID], Participant: Participant{UID: target, State: PStateAccepted}}
+			if _, err := e.svc.RespondToJoinRequest(ctx, testOrganiser, testKey, testBeaconID, target, true); err != nil {
+				t.Fatalf("first accept: %v", err)
+			}
+			tc.spoil(e)
+			v, err := e.svc.RespondToJoinRequest(ctx, testOrganiser, testKey, testBeaconID, target, true)
+			if err != nil || v.Viewer.Role != RoleOrganiser {
+				t.Fatalf("same-key retry = %+v, %v, want the replayed success", v.Viewer, err)
+			}
+			if len(e.repo.respondedBy) != 1 || len(e.events.accepted) != 1 {
+				t.Fatalf("writes %d events %d after a replay, want 1/1", len(e.repo.respondedBy), len(e.events.accepted))
+			}
+			_, err = e.svc.RespondToJoinRequest(ctx, testOrganiser, otherKey, testBeaconID, target, true)
+			assertPrecondition(t, err, "not_requested")
+		})
+	}
+}
+
+// TestCommunityVerdict_MissingIsNotFound (fix round 1): a missing community is the same NOT_FOUND as a suspended one,
+// on reads and writes, so a member cannot tell deleted from suspended.
+func TestCommunityVerdict_MissingIsNotFound(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv()
+	e.communityBeacon()
+	e.comm.roles[testCommunity+"|"+testViewer] = communities.RoleMember
+	e.comm.missing = map[string]bool{testCommunity: true}
+	assertNotFound(t, mustErr(e.svc.GetBeacon(ctx, testViewer, testBeaconID)))
+	_, err := e.svc.RequestToJoin(ctx, testViewer, testKey, testBeaconID, "")
+	assertNotFound(t, err)
+	assertNotFound(t, mustErrPage(e.svc.ListBeacons(ctx, testViewer, ListInput{CommunityID: testCommunity})))
+}
+
+// TestCommunityVerdict_ArchivedBeforeRole (fix round 1): on a write ARCHIVED answers before the role, so the error does
+// not depend on membership.
+func TestCommunityVerdict_ArchivedBeforeRole(t *testing.T) {
+	e := newEnv()
+	e.communityBeacon()
+	e.comm.status = map[string]communities.Status{testCommunity: communities.StatusArchived}
+	_, err := e.svc.RequestToJoin(context.Background(), testViewer, testKey, testBeaconID, "")
+	assertArchived(t, err)
+}
+
+// TestListMyBeacons_DroppedRowsCostNoCommunityRead (fix round 1): a row already dropped for a block or a hide never
+// loads its community.
+func TestListMyBeacons_DroppedRowsCostNoCommunityRead(t *testing.T) {
+	const blockedCID, hiddenCID = "1000000000000000011", "1000000000000000012"
+	e := newEnv()
+	rows := e.membershipsFor(testViewer, RoleParticipant, PStateAccepted, 2)
+	b0 := e.repo.docs[rows[0].BeaconID]
+	b0.CommunityID = blockedCID
+	e.repo.docs[b0.ID] = b0
+	b1 := e.repo.docs[rows[1].BeaconID]
+	b1.CommunityID, b1.Hidden = hiddenCID, true
+	e.repo.docs[b1.ID] = b1
+	e.repo.memberships = rows
+	e.graph.snaps[testViewer] = graph.Snapshot{BlockedBy: map[string]bool{b0.OrganiserID: true}}
+	page, err := e.svc.ListMyBeacons(context.Background(), testViewer, MyBeaconsInput{Limit: 5})
+	if err != nil || len(page.Views) != 0 {
+		t.Fatalf("views = %v, %v, want none", viewIDs(page.Views), err)
+	}
+	if e.comm.calls != 0 {
+		t.Fatalf("community reads = %v, want none for dropped rows", e.comm.gets)
+	}
 }

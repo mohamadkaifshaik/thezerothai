@@ -119,16 +119,16 @@ func (s *service) RespondToJoinRequest(ctx context.Context, uid, key, beaconID, 
 	if err != nil {
 		return View{}, mapErr(ctx, "respond", uid, beaconID, err)
 	}
-	if accept {
-		if err := s.acceptable(ctx, a, uid, targetUID); err != nil {
-			return View{}, mapErr(ctx, "respond", uid, beaconID, err)
-		}
-	}
 	now := s.now()
-	res, err := s.d.Repo.Respond(ctx, RespondParams{
+	params := RespondParams{
 		UID: uid, BeaconID: beaconID, TargetUID: targetUID, IdemKey: idempotency.Key(uid, rpcRespondToJoinRequest, key),
 		RequestHash: respondHash(beaconID, targetUID, accept), Accept: accept, Now: now,
-	})
+	}
+	if accept {
+		// After the idempotency lookup, so a same-key retry of a committed ACCEPT replays its answer.
+		params.Precheck = func(ctx context.Context) error { return s.acceptable(ctx, a, uid, targetUID) }
+	}
+	res, err := s.d.Repo.Respond(ctx, params)
 	if err != nil {
 		return View{}, mapErr(ctx, "respond", uid, beaconID, err)
 	}
@@ -139,7 +139,8 @@ func (s *service) RespondToJoinRequest(ctx context.Context, uid, key, beaconID, 
 	return s.view(res.Beacon, a.organiser, uid), nil
 }
 
-// acceptable is the ACCEPT recheck of the target, before any write: an ACTIVE profile (cached), no block either way with
+// acceptable is the ACCEPT recheck of the target, run by Repo.Respond after its idempotency lookup missed (a replay
+// keeps its stored answer) and before any write: an ACTIVE profile (cached), no block either way with
 // the organiser (the organiser's graph, overflow-aware) and, for a community beacon, the target's community verdict
 // for a write (JOINED, community not suspended). An ineligible target is not_requested, the same answer as a request
 // that is no longer there; ARCHIVED is COMMUNITY_STATE community_archived; a failed read is returned (nothing written).
