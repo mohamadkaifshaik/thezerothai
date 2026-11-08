@@ -519,6 +519,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		media: mediaMod.jobs,
 		eng:   engagement.NewJobs(engagementRepo, postsRepo, postGone{postsRepo}, jobsPublisher),
 		pins:  identity.NewPinJobs(identityRepo, postGone{postsRepo}, identitySvc.(identity.Directory).Forget),
+		// The article rooted at a post deleted through posts.Delete goes with it (no orphan library entry).
+		articles: articles.NewPostDeleteJobs(fsClient, postGone{postsRepo}),
 	}
 	if err := lifecycle.RegisterJobHandler(media.JobKindPostDelete, postDeleteJob); err != nil {
 		return nil, nil, fmt.Errorf("post_delete job handler: %w", err)

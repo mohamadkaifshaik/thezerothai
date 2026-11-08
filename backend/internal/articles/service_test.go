@@ -2,6 +2,7 @@ package articles
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -311,6 +312,94 @@ func TestDraftCoverReloadOnlyResolvesForOwner(t *testing.T) {
 	if calls != 2 {
 		t.Fatalf("foreign viewer triggered cover resolution: %d", calls)
 	}
+}
+
+// TestDeletePublishedArticleRacingPostDeleteStep: the post_delete job may remove the published record between
+// DeleteArticle's posts.Delete and its own transaction; the author's delete still succeeds.
+func TestDeletePublishedArticleRacingPostDeleteStep(t *testing.T) {
+	s, r, _, ctx := setup()
+	save(t, s, ctx)
+	if _, err := s.PublishArticle(ctx, publication()); err != nil {
+		t.Fatal(err)
+	}
+	r.beforeChange = func(*record) { delete(r.rows, testID) }
+	if _, err := s.DeleteArticle(ctx, connect.NewRequest(&av.DeleteArticleRequest{ArticleId: testID, ExpectedRevision: 1})); err != nil {
+		t.Fatalf("delete after the job removed the record: %v", err)
+	}
+	// A draft that vanished is still NOT_FOUND (nothing was published, so nothing else removes drafts).
+	s2, r2, _, ctx2 := setup()
+	save(t, s2, ctx2)
+	r2.beforeChange = func(*record) { delete(r2.rows, testID) }
+	_, err := s2.DeleteArticle(ctx2, connect.NewRequest(&av.DeleteArticleRequest{ArticleId: testID, ExpectedRevision: 1}))
+	if connect.CodeOf(err) != connect.CodeNotFound {
+		t.Fatalf("vanished draft: %v", err)
+	}
+}
+
+// TestPostDeleteJobs covers the articles step of the post_delete chain.
+func TestPostDeleteJobs(t *testing.T) {
+	const uid = "alice0000000000000000000000a"
+	const postID = "1000000000000000001"
+	msg := func(kind, u, p string) []byte {
+		b, _ := json.Marshal(postDeleteMessage{Kind: kind, UID: u, PostID: p})
+		return b
+	}
+	cases := []struct {
+		name      string
+		data      []byte
+		gone      bool
+		goneErr   error
+		deleted   bool
+		deleteErr error
+		want      string
+		wantErr   bool
+		wantCalls int
+	}{
+		{name: "malformed", data: []byte(`{`), want: "dropped:malformed_message"},
+		{name: "wrong kind", data: msg("other", uid, postID), want: "dropped:invalid_message"},
+		{name: "bad post id", data: msg(postDeleteJobKind, uid, "x"), want: "dropped:invalid_message"},
+		{name: "post still live", data: msg(postDeleteJobKind, uid, postID), gone: false, want: "refused"},
+		{name: "existence check fails", data: msg(postDeleteJobKind, uid, postID), goneErr: errors.New("down"), wantErr: true},
+		{name: "no article", data: msg(postDeleteJobKind, uid, postID), gone: true, want: "noop", wantCalls: 1},
+		{name: "article deleted", data: msg(postDeleteJobKind, uid, postID), gone: true, deleted: true, want: "article_deleted", wantCalls: 1},
+		{name: "delete fails", data: msg(postDeleteJobKind, uid, postID), gone: true, deleteErr: errors.New("down"), wantErr: true, wantCalls: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rm := &fakeRemover{deleted: tc.deleted, err: tc.deleteErr}
+			j := &PostDeleteJobs{repo: rm, gone: fakeGone{gone: tc.gone, err: tc.goneErr}}
+			got, err := j.Handle(context.Background(), tc.data)
+			if (err != nil) != tc.wantErr || got != tc.want {
+				t.Fatalf("Handle = %q, %v; want %q, err %v", got, err, tc.want, tc.wantErr)
+			}
+			if rm.calls != tc.wantCalls {
+				t.Fatalf("deleteByRoot calls = %d, want %d", rm.calls, tc.wantCalls)
+			}
+			if tc.wantCalls > 0 && (rm.uid != uid || rm.postID != postID) {
+				t.Fatalf("deleteByRoot(%q, %q)", rm.uid, rm.postID)
+			}
+		})
+	}
+}
+
+type fakeGone struct {
+	gone bool
+	err  error
+}
+
+func (g fakeGone) PostGone(context.Context, string) (bool, error) { return g.gone, g.err }
+
+type fakeRemover struct {
+	deleted     bool
+	err         error
+	calls       int
+	uid, postID string
+}
+
+func (f *fakeRemover) deleteByRoot(_ context.Context, uid, postID string) (bool, error) {
+	f.calls++
+	f.uid, f.postID = uid, postID
+	return f.deleted, f.err
 }
 
 // TestListArticlesCarriesExcerptsNotBodies: a list page never ships bodies; every row has the bounded plain-text

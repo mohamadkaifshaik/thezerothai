@@ -239,6 +239,10 @@ func (s *Server) DeleteArticle(ctx context.Context, req *connect.Request[av.Dele
 		}
 	}
 	_, err = s.repo.change(ctx, id, func(current *record) (*record, error) {
+		if current == nil && a.Published {
+			// The post_delete job's articles step already removed the record of the root deleted above.
+			return nil, nil
+		}
 		if e := own(current, uid); e != nil {
 			return nil, e
 		}

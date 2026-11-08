@@ -19,6 +19,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 	"google.golang.org/api/option"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestFirestoreRevisionPublicationAndLifecycle(t *testing.T) {
@@ -200,6 +202,51 @@ func TestFirestoreRootAndArticleCommitAtomically(t *testing.T) {
 	docs, err := client.Collection("posts").Where("authorId", "==", uid).Documents(ctx).GetAll()
 	if err != nil || len(docs) != 1 {
 		t.Fatalf("root count %d %v", len(docs), err)
+	}
+}
+
+// TestFirestoreDeleteByRoot: the post_delete articles step removes only the author's published article rooted at the
+// deleted post (single-field postId equality; no composite index), and a replay is a noop.
+func TestFirestoreDeleteByRoot(t *testing.T) {
+	if os.Getenv("FIRESTORE_EMULATOR_HOST") == "" {
+		t.Skip("requires Firestore emulator")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, err := firestore.NewClient(ctx, "demo-articles-integration", option.WithoutAuthentication())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	n := time.Now().UnixNano()
+	uid := fmt.Sprintf("root-owner-%d", n)
+	postID := fmt.Sprintf("%019d", n)
+	otherPost := fmt.Sprintf("%019d", n+1)
+	rows := map[string]record{
+		fmt.Sprintf("root-%d-published", n): {AuthorID: uid, Revision: 1, Title: "T", Body: testBody, PostID: postID, Published: true},
+		fmt.Sprintf("root-%d-foreign", n):   {AuthorID: uid + "-other", Revision: 1, Title: "T", Body: testBody, PostID: postID, Published: true},
+		fmt.Sprintf("root-%d-elsewhere", n): {AuthorID: uid, Revision: 1, Title: "T", Body: testBody, PostID: otherPost, Published: true},
+	}
+	for id, r := range rows {
+		if _, err = client.Collection("articles").Doc(id).Set(ctx, r); err != nil {
+			t.Fatal(err)
+		}
+		defer func(id string) { _, _ = client.Collection("articles").Doc(id).Delete(context.Background()) }(id)
+	}
+	repo := &firestoreRepo{client}
+	deleted, err := repo.deleteByRoot(ctx, uid, postID)
+	if err != nil || !deleted {
+		t.Fatalf("deleteByRoot = %v, %v", deleted, err)
+	}
+	for id := range rows {
+		_, err := client.Collection("articles").Doc(id).Get(ctx)
+		gone := status.Code(err) == codes.NotFound
+		if want := strings.HasSuffix(id, "-published"); gone != want {
+			t.Fatalf("%s gone = %v, want %v (%v)", id, gone, want, err)
+		}
+	}
+	if deleted, err = repo.deleteByRoot(ctx, uid, postID); err != nil || deleted {
+		t.Fatalf("replay = %v, %v", deleted, err)
 	}
 }
 
