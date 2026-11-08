@@ -12,7 +12,8 @@ import (
 )
 
 // beaconNotifier implements beacons.Events: a join request notifies the organiser, an acceptance the requester, a
-// cancellation every accepted participant. beacons calls it only after a commit that wrote, never on a replay.
+// cancellation every accepted participant. beacons calls it only after a commit that wrote, except Cancelled, which the
+// cancellation outbox also re-runs (sweep or replay); the deterministic row id makes that repeat a no-op per recipient.
 type beaconNotifier struct{ slot *emitterSlot }
 
 var _ beacons.Events = beaconNotifier{}

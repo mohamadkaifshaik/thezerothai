@@ -452,7 +452,8 @@ type Service interface {
 	CreateBeacon(ctx context.Context, uid string, in CreateInput) (View, error)
 	// UpdateBeacon changes the set fields of one of uid's OPEN or FULL beacons.
 	UpdateBeacon(ctx context.Context, uid string, in UpdateInput) (View, error)
-	// CancelBeacon cancels one of uid's OPEN or FULL beacons; already CANCELLED is success with the idempotency doc only.
+	// CancelBeacon cancels one of uid's OPEN or FULL beacons; already CANCELLED is success with the idempotency doc only
+	// (plus, like a replay, a re-run of a still-present cancellation outbox item).
 	CancelBeacon(ctx context.Context, uid, key, beaconID string) error
 	// GetBeacon returns one beacon as viewer may see it.
 	GetBeacon(ctx context.Context, viewer, beaconID string) (View, error)
@@ -524,8 +525,9 @@ type CancelEvent struct {
 }
 
 // Events is the module's outbound seam (docs/beacons-plan.md PR 5, R23): called after a commit whose Outcome is
-// Written, never on a replay or a no-op, never inside a transaction, and never by the eraser. A decline, a withdraw,
-// a leave, a remove and an update fire nothing. The composition root adapts it to notifications.Emitter.
+// Written, never on a replay or a no-op, never inside a transaction, and never by the eraser. The one exception is
+// Cancelled, which the cancellation outbox may also re-run (the sweep, or a replayed or no-op CancelBeacon whose item
+// is still present): it must be safe to repeat. A decline, a withdraw, a leave, a remove and an update fire nothing. The composition root adapts it to notifications.Emitter.
 type Events interface {
 	// JoinRequested: ParticipantUID asked to join; the organiser is told.
 	JoinRequested(ctx context.Context, e ParticipationEvent)
