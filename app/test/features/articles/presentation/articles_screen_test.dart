@@ -154,7 +154,7 @@ void main() {
       ..page = ArticlePage([
         ArticleRecord(
           draft: ArticleDraft(id: 'listed', authorId: 'owner', title: 'Listed'),
-          updatedAt: DateTime.utc(2026, 11, 1),
+          updatedAt: DateTime.now().toUtc(),
           excerpt: 'Only the excerpt travels in a list',
         ),
       ]);
