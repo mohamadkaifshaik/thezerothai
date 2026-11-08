@@ -15,20 +15,22 @@ Widget _host({bool iosAppleEnabled = false}) => MaterialApp(
 );
 
 void main() {
+  tearDown(() => debugDefaultTargetPlatformOverride = null);
+
   testWidgets('hides Apple but shows Google on iOS by default', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     await tester.pumpWidget(_host());
 
     expect(find.text('Continue with Google'), findsOneWidget);
     expect(find.text('Continue with Apple'), findsNothing);
-    // No leftover spacer: the column holds just the Google button.
-    expect(
-      find
-          .byType(SizedBox)
-          .evaluate()
-          .where((e) => (e.widget as SizedBox).height == 12),
-      isEmpty,
+    // No leftover spacer: the buttons Column holds just the Google button.
+    final column = tester.widget<Column>(
+      find.descendant(
+        of: find.byType(SocialSignInButtons),
+        matching: find.byType(Column),
+      ),
     );
+    expect(column.children, hasLength(1));
     debugDefaultTargetPlatformOverride = null;
   });
 

@@ -361,6 +361,20 @@ void main() {
     verifyNever(() => bloc.add(any()));
   });
 
+  testWidgets('iOS sign-in screen shows Google only and does not overflow', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    try {
+      await open(tester, const SignInScreen());
+      expect(find.text('Continue with Google'), findsOneWidget);
+      expect(find.text('Continue with Apple'), findsNothing);
+      expect(tester.takeException(), isNull);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   testWidgets(
     'provider actions use existing events and Apple keeps its availability',
     (tester) async {
