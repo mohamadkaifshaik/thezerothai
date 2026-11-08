@@ -85,6 +85,7 @@ class FakeRasterCodec implements RasterCodec {
     this.decodeFails = false,
     this.lieBy = 0,
     this.holdDecode = false,
+    this.hangSessions = 0,
   });
 
   final ({int width, int height}) decoded;
@@ -102,6 +103,11 @@ class FakeRasterCodec implements RasterCodec {
   /// Decode waits until the session is closed (a cancellation mid-decode).
   final bool holdDecode;
 
+  /// The first [hangSessions] sessions never answer decode (a hung
+  /// `createImageBitmap`, or a worker killed without an error event); only
+  /// closing them ends the wait.
+  final int hangSessions;
+
   final List<FakeEncode> encodes = [];
   final List<({int width, int height})> rgbaCalls = [];
   int opened = 0;
@@ -112,21 +118,26 @@ class FakeRasterCodec implements RasterCodec {
 
   @override
   Future<RasterSession> open() async {
-    if (unavailable) throw const RasterUnavailableException('fake');
+    if (unavailable) {
+      throw const RasterUnavailableException.capability('fake');
+    }
     opened++;
-    return _FakeSession(this);
+    return _FakeSession(this, opened);
   }
 }
 
 class _FakeSession implements RasterSession {
-  _FakeSession(this.codec);
+  _FakeSession(this.codec, this.index);
   final FakeRasterCodec codec;
+
+  /// 1-based order in which the session was opened.
+  final int index;
   final Completer<void> _closed = Completer<void>();
 
   @override
   Future<({int width, int height})> decode(Uint8List bytes) async {
     if (!codec.decodeStarted.isCompleted) codec.decodeStarted.complete();
-    if (codec.holdDecode) {
+    if (codec.holdDecode || index <= codec.hangSessions) {
       await _closed.future;
       throw const RasterUnavailableException('closed');
     }

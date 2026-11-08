@@ -8,9 +8,10 @@ import '../domain/processed_image.dart';
 import '../domain/raster_image_processor.dart';
 
 /// The worker script (app/web/image_worker.js), same origin, so the CSP's
-/// `worker-src 'self'` allows it. The query string busts a cached copy when
-/// the protocol changes.
-const kImageWorkerUrl = '/image_worker.js?v=$kImageWorkerProtocol';
+/// `worker-src 'self'` allows it. Relative, so it resolves against the
+/// document's `<base href>` like the rest of the app. The query string busts a
+/// cached copy when the protocol changes.
+const kImageWorkerUrl = 'image_worker.js?v=$kImageWorkerProtocol';
 
 /// Must match `PROTOCOL` in app/web/image_worker.js.
 const kImageWorkerProtocol = 1;
@@ -26,6 +27,7 @@ extension type _Worker._(JSObject _) implements JSObject {
   external void terminate();
   external set onmessage(JSFunction? handler);
   external set onerror(JSFunction? handler);
+  external set onmessageerror(JSFunction? handler);
 }
 
 extension type _MessageEvent._(JSObject _) implements JSObject {
@@ -48,9 +50,10 @@ extension type _Request._(JSObject _) implements JSObject {
 }
 
 extension type _Reply._(JSObject _) implements JSObject {
-  external int get seq;
+  external JSAny? get seq;
   external String? get op;
   external bool get ok;
+  external bool? get capability;
   external int? get protocol;
   external String? get kind;
   external String? get error;
@@ -63,9 +66,16 @@ extension type _Reply._(JSObject _) implements JSObject {
 /// terminated by [RasterSession.close] (which is also how a cancelled image
 /// stops mid-decode).
 class WorkerRasterCodec implements RasterCodec {
-  const WorkerRasterCodec({this.url = kImageWorkerUrl});
+  const WorkerRasterCodec({
+    this.url = kImageWorkerUrl,
+    this.requestTimeout = kRasterStepTimeout,
+  });
 
   final String url;
+
+  /// How long one request may wait for its answer before the worker is
+  /// terminated (RasterImageProcessor also bounds each step).
+  final Duration requestTimeout;
 
   /// Whether this browser has `Worker` at all (the worker itself reports
   /// `createImageBitmap` / `OffscreenCanvas` support when it starts).
@@ -73,13 +83,17 @@ class WorkerRasterCodec implements RasterCodec {
 
   @override
   Future<RasterSession> open() async {
-    if (!available) throw const RasterUnavailableException('no Worker');
-    final session = _WorkerSession(url);
+    if (!available) {
+      throw const RasterUnavailableException.capability('no Worker');
+    }
+    final session = _WorkerSession(url, requestTimeout);
     try {
       await session.ready.timeout(_kStartTimeout);
     } on TimeoutException {
       session.close();
-      throw const RasterUnavailableException('worker did not start');
+      throw const RasterUnavailableException.capability(
+        'worker did not start',
+      );
     } catch (_) {
       session.close();
       rethrow;
@@ -89,19 +103,32 @@ class WorkerRasterCodec implements RasterCodec {
 }
 
 class _WorkerSession implements RasterSession {
-  _WorkerSession(String url) {
+  _WorkerSession(String url, this._requestTimeout) {
     try {
       _worker = _Worker(url);
     } catch (e) {
-      throw RasterUnavailableException('worker: $e');
+      throw RasterUnavailableException.capability('worker: $e');
     }
     _worker.onmessage = ((JSObject event) => _onMessage(event)).toJS;
-    // A script that is not served (the SPA rewrite answers HTML) or that
-    // throws ends up here.
+    // A script that is not served (the SPA rewrite answers HTML) fails
+    // before it is ready: this browser/deployment cannot run it. An error
+    // after that is a one-off for this image.
     _worker.onerror = ((JSObject _) {
-      _failAll(const RasterUnavailableException('worker error'));
+      _failAll(
+        _ready.isCompleted
+            ? const RasterUnavailableException('worker error')
+            : const RasterUnavailableException.capability(
+                'worker script failed to load',
+              ),
+      );
+    }).toJS;
+    // A reply that cannot be deserialized would otherwise never arrive.
+    _worker.onmessageerror = ((JSObject _) {
+      _failAll(const RasterUnavailableException('worker message error'));
     }).toJS;
   }
+
+  final Duration _requestTimeout;
 
   late final _Worker _worker;
   final Completer<void> _ready = Completer<void>();
@@ -115,22 +142,30 @@ class _WorkerSession implements RasterSession {
     final data = (event as _MessageEvent).data;
     if (data == null || !data.isA<JSObject>()) return;
     final reply = data as _Reply;
-    if (reply.seq == 0 && reply.op == 'ready') {
+    final rawSeq = reply.seq;
+    // Ignore anything without an integer sequence number.
+    if (rawSeq == null || !rawSeq.isA<JSNumber>()) return;
+    final seqValue = (rawSeq as JSNumber).toDartDouble;
+    if (seqValue != seqValue.truncateToDouble() || seqValue < 0) return;
+    final seq = seqValue.toInt();
+    if (seq == 0 && reply.op == 'ready') {
       if (_ready.isCompleted) return;
       if (reply.protocol != kImageWorkerProtocol) {
         _ready.completeError(
-          const RasterUnavailableException('worker protocol mismatch'),
+          const RasterUnavailableException.capability(
+            'worker protocol mismatch',
+          ),
         );
       } else if (!reply.ok) {
         _ready.completeError(
-          const RasterUnavailableException('no OffscreenCanvas'),
+          const RasterUnavailableException.capability('no OffscreenCanvas'),
         );
       } else {
         _ready.complete();
       }
       return;
     }
-    _pending.remove(reply.seq)?.complete(reply);
+    _pending.remove(seq)?.complete(reply);
   }
 
   void _failAll(Object error) {
@@ -170,10 +205,20 @@ class _WorkerSession implements RasterSession {
         quality: quality,
       ),
     );
-    final reply = await done.future;
+    final reply = await done.future.timeout(
+      _requestTimeout,
+      onTimeout: () {
+        // A hung decode/encode, or a worker killed without an error event.
+        close();
+        throw const RasterUnavailableException('worker request timed out');
+      },
+    );
     if (!reply.ok) {
       if (reply.kind == 'decode') throw const UnsupportedImageException();
-      throw RasterUnavailableException(reply.error ?? 'worker failure');
+      final reason = reply.error ?? 'worker failure';
+      throw (reply.capability ?? false)
+          ? RasterUnavailableException.capability(reason)
+          : RasterUnavailableException(reason);
     }
     return reply;
   }

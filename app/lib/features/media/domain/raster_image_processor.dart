@@ -42,16 +42,31 @@ abstract interface class RasterSession {
   void close();
 }
 
-/// The codec cannot run here, or broke its contract (a JPEG whose size is
-/// not the size asked for). [FallbackImageProcessor] then uses the
-/// `package:image` path.
+/// The codec could not finish this image. [FallbackImageProcessor] then uses
+/// the `package:image` path: for good when [permanent] (this browser cannot
+/// run it, or it broke the size contract), else for this image only (a
+/// timeout or a one-off failure; the next image gets a fresh worker).
 class RasterUnavailableException implements Exception {
-  const RasterUnavailableException(this.reason);
+  const RasterUnavailableException(this.reason, {this.permanent = false});
+
+  /// No Worker / OffscreenCanvas, a protocol mismatch, a script that is not
+  /// served, or a JPEG whose size is not the size asked for.
+  const RasterUnavailableException.capability(this.reason) : permanent = true;
+
   final String reason;
+  final bool permanent;
 
   @override
-  String toString() => 'Raster codec unavailable: $reason';
+  String toString() =>
+      'Raster codec unavailable${permanent ? ' (permanent)' : ''}: $reason';
 }
+
+/// How long one codec step (decode, one encode, the BlurHash pixels) may
+/// take before the worker is closed and the image falls back. A hung
+/// `createImageBitmap` / `convertToBlob`, or a worker killed for memory
+/// without an error event, must never freeze the tile (and, as photos are
+/// prepared one at a time, every photo after it).
+const kRasterStepTimeout = Duration(seconds: 30);
 
 /// [ImageProcessor] over a [RasterCodec]: the browser decodes, resizes and
 /// encodes in a worker, while every size decision is made here, in
@@ -63,9 +78,14 @@ class RasterUnavailableException implements Exception {
 /// canvas is filled white first, so transparency flattens like the
 /// `package:image` path.
 class RasterImageProcessor implements ImageProcessor {
-  const RasterImageProcessor(RasterCodec codec) : _codec = codec;
+  const RasterImageProcessor(
+    RasterCodec codec, {
+    Duration stepTimeout = kRasterStepTimeout,
+  }) : _codec = codec,
+       _stepTimeout = stepTimeout;
 
   final RasterCodec _codec;
+  final Duration _stepTimeout;
 
   @override
   Future<ProcessedImage> process(
@@ -75,6 +95,39 @@ class RasterImageProcessor implements ImageProcessor {
   }) async {
     preflightImage(bytes);
     final cancel = cancellation ?? ProcessingCancellation();
+    try {
+      return await _process(bytes, purpose, cancel);
+    } on RasterUnavailableException {
+      // Cancelling closes the worker, which fails its pending step: that is
+      // the cancellation, not a broken codec.
+      cancel.throwIfCancelled();
+      rethrow;
+    }
+  }
+
+  /// [work] under [cancel] and the per-step timeout; a timed-out step closes
+  /// [session] (terminating the worker).
+  Future<T> _step<T>(
+    RasterSession session,
+    ProcessingCancellation cancel,
+    Future<T> work,
+  ) {
+    return cancel
+        .guard(work)
+        .timeout(
+          _stepTimeout,
+          onTimeout: () {
+            session.close();
+            throw const RasterUnavailableException('step timed out');
+          },
+        );
+  }
+
+  Future<ProcessedImage> _process(
+    Uint8List bytes,
+    ImagePurpose purpose,
+    ProcessingCancellation cancel,
+  ) async {
     cancel.throwIfCancelled();
     final opening = _codec.open();
     final RasterSession session;
@@ -88,7 +141,7 @@ class RasterImageProcessor implements ImageProcessor {
     // Cancelling closes the session at once: the worker stops mid-step.
     final closeOnCancel = cancel.whenCancelled.then((_) => session.close());
     try {
-      final source = await cancel.guard(session.decode(bytes));
+      final source = await _step(session, cancel, session.decode(bytes));
       checkSourceDims(source.width, source.height);
       final spec = PurposeSpec.of(purpose);
       final crop = cropFor(purpose, source.width, source.height);
@@ -117,11 +170,13 @@ class RasterImageProcessor implements ImageProcessor {
       );
 
       final hashSize = blurhashSize(thumb.width, thumb.height);
-      final pixels = await cancel.guard(
+      final pixels = await _step(
+        session,
+        cancel,
         session.rgba(crop, hashSize.width, hashSize.height),
       );
       if (pixels.length != hashSize.width * hashSize.height * 4) {
-        throw const RasterUnavailableException('pixel buffer size');
+        throw const RasterUnavailableException.capability('pixel buffer size');
       }
       final blurhash = BlurHash.encode(
         img.Image.fromBytes(
@@ -171,7 +226,9 @@ class RasterImageProcessor implements ImageProcessor {
       quality: quality,
       threeToOne: threeToOne,
     )) {
-      final out = await cancel.guard(
+      final out = await _step(
+        session,
+        cancel,
         session.encodeJpeg(
           crop,
           attempt.width,
@@ -184,7 +241,9 @@ class RasterImageProcessor implements ImageProcessor {
           dims.width != attempt.width ||
           dims.height != attempt.height) {
         // Never declare a guess: the caller falls back to package:image.
-        throw const RasterUnavailableException('encoded size mismatch');
+        throw const RasterUnavailableException.capability(
+          'encoded size mismatch',
+        );
       }
       if (out.length <= maxBytes) {
         return (bytes: out, width: attempt.width, height: attempt.height);
@@ -211,8 +270,10 @@ Future<String> md5Yielding(Uint8List bytes) async {
   return base64.encode(digest.bytes);
 }
 
-/// Uses [primary] (the worker) and, when it is unavailable in this browser or
-/// breaks its contract, [fallback] (`package:image`) from then on.
+/// Uses [primary] (the worker) and, when it fails, [fallback]
+/// (`package:image`): from then on when the failure is permanent (this
+/// browser cannot run it, or it broke the size contract), else for that
+/// image only.
 /// Undecodable files, too-large files and cancellation are answers, not
 /// failures: they are passed through, never retried on the fallback.
 class FallbackImageProcessor implements ImageProcessor {
@@ -229,7 +290,7 @@ class FallbackImageProcessor implements ImageProcessor {
   final void Function(Object reason)? _onFallback;
   bool _primaryBroken = false;
 
-  /// True once [primary] failed and every job goes to [fallback].
+  /// True once [primary] failed for good and every job goes to [fallback].
   bool get usingFallback => _primaryBroken;
 
   @override
@@ -246,7 +307,14 @@ class FallbackImageProcessor implements ImageProcessor {
           cancellation: cancellation,
         );
       } on RasterUnavailableException catch (reason) {
-        _primaryBroken = true;
+        // A cancel closes the worker; never fall back for a cancelled job.
+        if (cancellation?.isCancelled ?? false) {
+          throw const ImageProcessingCancelled();
+        }
+        // Only a capability failure or a contract breach is for good; a
+        // timeout or one-off failure falls back for this image only, and the
+        // next image gets a fresh worker.
+        if (reason.permanent) _primaryBroken = true;
         _onFallback?.call(reason);
       }
     }
