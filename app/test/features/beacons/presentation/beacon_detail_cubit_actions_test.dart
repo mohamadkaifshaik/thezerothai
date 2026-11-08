@@ -260,4 +260,86 @@ void main() {
       expect(keys[1], isNot(keys[0]));
     });
   });
+
+  group('leave and withdraw treat NOT_FOUND as done', () {
+    test('withdraw: no copy, ok, reloads', () async {
+      gets.addAll([_view(canWithdraw: true), _view(canRequest: true)]);
+      when(
+        () => beacons.withdrawJoinRequest(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          beaconId: _bid,
+        ),
+      ).thenThrow(NotFoundException('gone'));
+      final cubit = BeaconDetailCubit(repository: beacons, beaconId: _bid);
+      await cubit.load();
+
+      expect(await cubit.withdraw(), isTrue);
+      expect(cubit.state.actionError, isNull);
+      expect(cubit.state.view?.viewer.canRequest, isTrue);
+      verify(() => beacons.getBeacon(_bid)).called(2);
+    });
+
+    test('leave: no copy, ok, reloads', () async {
+      gets.addAll([_view(canLeave: true), _view(canRequest: true)]);
+      when(
+        () => beacons.leaveBeacon(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          beaconId: _bid,
+        ),
+      ).thenThrow(NotFoundException('gone'));
+      final cubit = BeaconDetailCubit(repository: beacons, beaconId: _bid);
+      await cubit.load();
+
+      expect(await cubit.leave(), isTrue);
+      expect(cubit.state.actionError, isNull);
+      verify(() => beacons.getBeacon(_bid)).called(2);
+    });
+
+    test('a failed reload after NOT_FOUND shows the load error', () async {
+      var calls = 0;
+      when(() => beacons.getBeacon(_bid)).thenAnswer((_) async {
+        if (calls++ == 0) return _view(canLeave: true);
+        throw NotFoundException('gone');
+      });
+      when(
+        () => beacons.leaveBeacon(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          beaconId: _bid,
+        ),
+      ).thenThrow(NotFoundException('gone'));
+      final cubit = BeaconDetailCubit(repository: beacons, beaconId: _bid);
+      await cubit.load();
+
+      await cubit.leave();
+      expect(cubit.state.actionError, isNull);
+      expect(cubit.state.status, BeaconDetailStatus.error);
+    });
+  });
+
+  test('the note is trimmed before it is keyed and sent', () async {
+    gets.addAll(List.generate(3, (_) => _view(canRequest: true)));
+    when(
+      () => beacons.requestToJoin(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        beaconId: _bid,
+        note: any(named: 'note'),
+      ),
+    ).thenThrow(NetworkException('offline'));
+    final cubit = BeaconDetailCubit(repository: beacons, beaconId: _bid);
+    await cubit.load();
+
+    await cubit.request(' hi ');
+    await cubit.request('hi');
+
+    final captured = verify(
+      () => beacons.requestToJoin(
+        idempotencyKey: captureAny(named: 'idempotencyKey'),
+        beaconId: _bid,
+        note: captureAny(named: 'note'),
+      ),
+    ).captured;
+    expect(captured[1], 'hi');
+    expect(captured[3], 'hi');
+    expect(captured[0], captured[2]);
+  });
 }

@@ -177,7 +177,12 @@ void main() {
       find.text('Request declined, but blocking failed. Retry block?'),
       findsOneWidget,
     );
-    // The snackbar offers a retry that only blocks (C02).
+    // The row outlives the snackbar (C02).
+    ScaffoldMessenger.of(tester.element(find.text('People')))
+        .hideCurrentSnackBar();
+    await tester.pumpAndSettle();
+    expect(find.text('Blocking @cy failed.'), findsOneWidget);
+    // Retry only blocks.
     reset(graphRepo);
     when(
       () => graphRepo.block(
@@ -185,7 +190,7 @@ void main() {
         idempotencyKey: any(named: 'idempotencyKey'),
       ),
     ).thenAnswer((_) async => graph.Relationship());
-    await tester.tap(find.text('Retry block'));
+    await tester.tap(find.widgetWithText(TextButton, 'Retry'));
     await tester.pumpAndSettle();
     expect(server.calls.where((c) => c == 'respond:decline'), hasLength(1));
     verify(
@@ -194,6 +199,7 @@ void main() {
         idempotencyKey: any(named: 'idempotencyKey'),
       ),
     ).called(1);
+    expect(find.text('Blocking @cy failed.'), findsNothing);
   });
 
   testWidgets('Remove asks first and removes a going row', (tester) async {

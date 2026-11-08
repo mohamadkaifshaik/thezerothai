@@ -2,6 +2,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
+import '../../../../core/widgets/app_error_view.dart';
 import '../../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../graph/data/graph_repository.dart';
 import '../../data/beacons_repository.dart';
@@ -36,7 +37,10 @@ class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
   final pb.ParticipantFilter _filter;
   final GraphRepository? _graph;
   final Map<String, String> _keys = {};
-  final Set<String> _pendingBlock = {};
+
+  /// Declined users still to block (user id to handle), mirrored into
+  /// [BeaconPeopleState.pendingBlocks].
+  final Map<String, String> _pendingBlock = {};
   int _generation = 0;
 
   bool _stale(int generation) => isClosed || generation != _generation;
@@ -144,7 +148,7 @@ class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
       'decline',
       userId,
       (key) async {
-        if (!_pendingBlock.contains(userId)) {
+        if (!_pendingBlock.containsKey(userId)) {
           try {
             await _repository.respondToJoinRequest(
               idempotencyKey: key,
@@ -156,22 +160,38 @@ class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
             if (error.reason != 'not_requested') rethrow;
           }
           _keys.remove('decline|$userId');
-          _pendingBlock.add(userId);
+          final handle = state.rows
+              .where((p) => p.user.userId == userId)
+              .map((p) => p.user.handle)
+              .firstOrNull;
+          _pendingBlock[userId] = handle ?? '';
+          _syncPending();
         }
         final blockKey = _keys.putIfAbsent('block|$userId', _uuid.v4);
         await graph.block(userId: userId, idempotencyKey: blockKey);
         _keys.remove('block|$userId');
         _pendingBlock.remove(userId);
+        _syncPending();
       },
-      copy: (error) => _pendingBlock.contains(userId)
-          ? blockFailedCopy
+      copy: (error) => _pendingBlock.containsKey(userId)
+          ? switch (error) {
+              final RateLimitedException e =>
+                '$blockFailedCopy ${rateLimitedMessage(e)}',
+              _ => blockFailedCopy,
+            }
           : beaconsErrorMessage(error),
-      retryBlock: () => _pendingBlock.contains(userId),
+      retryBlock: () => _pendingBlock.containsKey(userId),
     );
   }
 
   /// Blocks a user whose request was already declined (see [declineAndBlock]).
   Future<bool> retryBlock(String userId) => declineAndBlock(userId);
+
+  void _syncPending() {
+    if (!isClosed) {
+      emit(state.copyWith(pendingBlocks: Map.of(_pendingBlock)));
+    }
+  }
 
   static const blockFailedCopy =
       'Request declined, but blocking failed. Retry block?';
@@ -185,7 +205,13 @@ class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
   }) async {
     if (state.busyUserId != null) return false;
     final key = _keys.putIfAbsent('$kind|$userId', _uuid.v4);
-    emit(state.copyWith(busyUserId: userId, clearActionError: true));
+    emit(
+      state.copyWith(
+        busyUserId: userId,
+        clearActionError: true,
+        clearRetryBlock: true,
+      ),
+    );
     var ok = false;
     try {
       await write(key);
@@ -197,6 +223,7 @@ class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
         state.copyWith(
           actionError: copy(error),
           retryBlockUserId: retryBlock != null && retryBlock() ? userId : null,
+          clearRetryBlock: retryBlock == null || !retryBlock(),
         ),
       );
     }

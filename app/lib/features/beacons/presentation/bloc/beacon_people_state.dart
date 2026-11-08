@@ -18,6 +18,7 @@ class BeaconPeopleState {
     this.busyUserId,
     this.actionError,
     this.retryBlockUserId,
+    this.pendingBlocks = const {},
   });
 
   final PeopleLoad status;
@@ -39,6 +40,10 @@ class BeaconPeopleState {
   /// it failed: the user a "Retry block" action would block.
   final String? retryBlockUserId;
 
+  /// Declined users whose block has not gone through yet (user id to
+  /// handle). Stays until the block succeeds, so a retry is always reachable.
+  final Map<String, String> pendingBlocks;
+
   BeaconPeopleState copyWith({
     PeopleLoad? status,
     List<pb.Participant>? rows,
@@ -51,6 +56,8 @@ class BeaconPeopleState {
     String? actionError,
     bool clearActionError = false,
     String? retryBlockUserId,
+    bool clearRetryBlock = false,
+    Map<String, String>? pendingBlocks,
   }) => BeaconPeopleState(
     status: status ?? this.status,
     rows: rows ?? this.rows,
@@ -59,8 +66,9 @@ class BeaconPeopleState {
     error: clearError ? null : (error ?? this.error),
     busyUserId: clearBusy ? null : (busyUserId ?? this.busyUserId),
     actionError: clearActionError ? null : (actionError ?? this.actionError),
-    retryBlockUserId: clearActionError
+    retryBlockUserId: clearRetryBlock
         ? null
         : (retryBlockUserId ?? this.retryBlockUserId),
+    pendingBlocks: pendingBlocks ?? this.pendingBlocks,
   );
 }

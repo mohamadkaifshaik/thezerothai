@@ -275,6 +275,52 @@ void main() {
     expect(c.state.retryBlockUserId, isNull);
   });
 
+  test('a failed block stays pending in state until it succeeds; a '
+      'rate limit adds its hint (C02)', () async {
+    stubList(
+      (_) => ParticipantsPage(participants: [participant(userId: 'u2')]),
+    );
+    when(
+      () => beacons.respondToJoinRequest(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        beaconId: _bid,
+        userId: any(named: 'userId'),
+        accept: false,
+      ),
+    ).thenAnswer((_) async => beaconView(startAt: DateTime.now()));
+    Object? failure = const RateLimitedException(
+      'slow',
+      retryAfter: Duration(hours: 3),
+      limitName: 'x_daily',
+    );
+    when(
+      () => graphRepo.block(
+        userId: 'u2',
+        idempotencyKey: any(named: 'idempotencyKey'),
+      ),
+    ).thenAnswer((_) async {
+      if (failure != null) throw failure as AppException;
+      return graph.Relationship();
+    });
+    final c = cubit(_requested);
+    await c.load();
+
+    expect(await c.declineAndBlock('u2'), isFalse);
+    expect(c.state.actionError, startsWith(BeaconPeopleCubit.blockFailedCopy));
+    expect(c.state.actionError, contains('limit'));
+    expect(c.state.pendingBlocks.keys, ['u2']);
+
+    // A later unrelated action clears the message but not the pending block.
+    expect(await c.decline('u9'), isTrue);
+    expect(c.state.actionError, isNull);
+    expect(c.state.pendingBlocks.keys, ['u2']);
+
+    failure = null;
+    expect(await c.retryBlock('u2'), isTrue);
+    expect(c.state.pendingBlocks, isEmpty);
+    expect(c.state.retryBlockUserId, isNull);
+  });
+
   test(
     'a decline answered not_requested still goes on to block (C02)',
     () async {

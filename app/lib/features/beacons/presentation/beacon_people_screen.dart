@@ -160,6 +160,9 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
         ..showSnackBar(
           SnackBar(
             content: Text(text),
+            duration: retryBlockFor == null
+                ? const Duration(seconds: 4)
+                : const Duration(seconds: 30),
             action: retryBlockFor == null
                 ? null
                 : SnackBarAction(
@@ -215,6 +218,23 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
                   )
                 else
                   const AppSectionHeader(title: 'Going'),
+                if (requests != null)
+                  BlocBuilder<BeaconPeopleCubit, BeaconPeopleState>(
+                    bloc: requests,
+                    buildWhen: (a, b) =>
+                        a.pendingBlocks != b.pendingBlocks ||
+                        a.busyUserId != b.busyUserId,
+                    builder: (context, state) => Column(
+                      children: [
+                        for (final e in state.pendingBlocks.entries)
+                          _PendingBlockRow(
+                            handle: e.value,
+                            busy: state.busyUserId != null,
+                            onRetry: () => requests.retryBlock(e.key),
+                          ),
+                      ],
+                    ),
+                  ),
                 Expanded(
                   child: _error != null
                       ? Center(
@@ -387,6 +407,46 @@ class _List extends StatelessWidget {
             );
         }
       },
+    );
+  }
+}
+
+/// Stays while a declined person is still unblocked, so the retry outlives
+/// the snackbar.
+class _PendingBlockRow extends StatelessWidget {
+  const _PendingBlockRow({
+    required this.handle,
+    required this.busy,
+    required this.onRetry,
+  });
+
+  final String handle;
+  final bool busy;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final who = handle.isEmpty ? 'this person' : '@$handle';
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.xs,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Blocking $who failed.',
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+          TextButton(
+            onPressed: busy ? null : onRetry,
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
     );
   }
 }

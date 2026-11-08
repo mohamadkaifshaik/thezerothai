@@ -15,8 +15,8 @@ import 'beacon_detail_state.dart';
 /// Keys (R36): one idempotency key per action and payload (the server hashes
 /// the note into the request), reused only when exactly the same action is
 /// retried after a failure. Every successful write drops all keys, so
-/// request, withdraw, request again is a new request. A successful cancel is answered locally
-/// (CANCELLED) as well, so the pill never flickers.
+/// request, withdraw, request again is a new request. A successful cancel is
+/// answered locally (CANCELLED) as well, so the pill never flickers.
 class BeaconDetailCubit extends Cubit<BeaconDetailState> {
   BeaconDetailCubit({
     required BeaconsRepository repository,
@@ -62,15 +62,18 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
   }
 
   /// Asks to join with [note] (0-140). True on success.
-  Future<bool> request(String note) => _run(
-    BeaconAction.request,
-    note,
-    (key) => _repository.requestToJoin(
-      idempotencyKey: key,
-      beaconId: _beaconId,
-      note: note,
-    ),
-  );
+  Future<bool> request(String note) {
+    final normalized = note.trim();
+    return _run(
+      BeaconAction.request,
+      normalized,
+      (key) => _repository.requestToJoin(
+        idempotencyKey: key,
+        beaconId: _beaconId,
+        note: normalized,
+      ),
+    );
+  }
 
   Future<bool> withdraw() => _run(
     BeaconAction.withdraw,
@@ -79,12 +82,14 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
       idempotencyKey: key,
       beaconId: _beaconId,
     ),
+    notFoundIsDone: true,
   );
 
   Future<bool> leave() => _run(
     BeaconAction.leave,
     '',
     (key) => _repository.leaveBeacon(idempotencyKey: key, beaconId: _beaconId),
+    notFoundIsDone: true,
   );
 
   /// Runs one write with its key, then reloads. False when the write was
@@ -92,8 +97,9 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
   Future<bool> _run(
     BeaconAction action,
     String payload,
-    Future<void> Function(String key) write,
-  ) async {
+    Future<void> Function(String key) write, {
+    bool notFoundIsDone = false,
+  }) async {
     if (state.busy != null || state.view == null) return false;
     final key = _keys.putIfAbsent('${action.name}|$payload', _uuid.v4);
     emit(state.copyWith(busy: action, clearActionError: true));
@@ -104,7 +110,14 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
       ok = true;
     } on AppException catch (error) {
       if (isClosed) return false;
-      emit(state.copyWith(actionError: beaconsErrorMessage(error)));
+      if (notFoundIsDone && error is NotFoundException) {
+        // Leave and withdraw answer NOT_FOUND when the caller has no row any
+        // more: that is the end state they asked for, so just reload.
+        _keys.clear();
+        ok = true;
+      } else {
+        emit(state.copyWith(actionError: beaconsErrorMessage(error)));
+      }
     }
     if (isClosed) return ok;
     emit(state.copyWith(clearBusy: true));
