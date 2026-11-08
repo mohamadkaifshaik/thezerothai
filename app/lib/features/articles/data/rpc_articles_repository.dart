@@ -123,6 +123,8 @@ class RpcArticlesRepository implements ArticlesRepository {
         }
       });
     } catch (_) {
+      // _gate.run (guardApiCall) maps every non-AppException, the sentinel
+      // included, to a NetworkException, so the flag carries the conflict out.
       if (conflict) throw const ArticleRevisionConflict();
       rethrow;
     }

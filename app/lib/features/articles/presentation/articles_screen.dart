@@ -169,6 +169,7 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
         setState(() {
           _record = record;
           _dirty = false;
+          _conflict = null;
           _active = 0;
         });
         _contentSnapshot = _contentKey;
@@ -285,7 +286,10 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
       return !_dirty;
     } on ArticleRevisionConflict {
       if (!mounted || loadGeneration != _loadGeneration) return false;
-      return _reconcile(draft.id, sentKey, generation, loadGeneration);
+      // Awaited inside the try: _saving stays true until the server copy is
+      // read, so an edit made meanwhile cannot send the stale revision; the
+      // adopt path queues that follow-up save itself.
+      return await _reconcile(draft.id, sentKey, generation, loadGeneration);
     } catch (error) {
       if (mounted && loadGeneration == _loadGeneration) {
         setState(() => _error = _message(error));
@@ -359,11 +363,10 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
   }
 
   /// Reload: replace the editor with the server copy (the author chose to).
+  /// The conflict (and the dirty state) clear only when the load succeeds;
+  /// until then autosave stays paused and the local text stays.
   Future<void> _reloadServer() async {
-    setState(() {
-      _conflict = null;
-      _dirty = false;
-    });
+    _debounce?.cancel();
     await _load();
   }
 
