@@ -157,6 +157,9 @@ func (f *fakeRepo) Cancel(_ context.Context, p CancelParams) (CancelResult, erro
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.cancelledBy = append(f.cancelledBy, p)
+	if f.err == nil && f.cancel.Outcome == Written && p.Stage != nil {
+		p.Stage(nil, f.cancel.Beacon) // the in-transaction stage of a committed cancel
+	}
 	return f.cancel, f.err
 }
 
@@ -271,6 +274,9 @@ type fakeEvents struct {
 	requested []ParticipationEvent
 	accepted  []ParticipationEvent
 	cancelled []CancelEvent
+	// cancelErr fails the first cancelFails Cancelled calls (0 = every call) after recording them.
+	cancelErr   error
+	cancelFails int
 }
 
 func (f *fakeEvents) JoinRequested(_ context.Context, e ParticipationEvent) {
@@ -279,8 +285,12 @@ func (f *fakeEvents) JoinRequested(_ context.Context, e ParticipationEvent) {
 func (f *fakeEvents) RequestAccepted(_ context.Context, e ParticipationEvent) {
 	f.accepted = append(f.accepted, e)
 }
-func (f *fakeEvents) Cancelled(_ context.Context, e CancelEvent) {
+func (f *fakeEvents) Cancelled(_ context.Context, e CancelEvent) error {
 	f.cancelled = append(f.cancelled, e)
+	if f.cancelErr != nil && (f.cancelFails == 0 || len(f.cancelled) <= f.cancelFails) {
+		return f.cancelErr
+	}
+	return nil
 }
 
 func newEnv() *env {

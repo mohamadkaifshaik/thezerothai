@@ -8,6 +8,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // Field limits in code points after trim and NFC (docs/beacons-plan.md section 3).
@@ -393,6 +394,10 @@ type UpdateResult struct {
 type CancelParams struct {
 	UID, BeaconID, IdemKey, RequestHash string
 	Now                                 time.Time
+	// Stage, when set, runs on the Written path only, after every read of the transaction and before its commit, with
+	// the transaction's batch and the beacon as read inside it (the cancellation outbox item, B07). It may run once per
+	// transaction attempt; the last attempt's call is the one that commits.
+	Stage func(b store.Batch, before Beacon)
 }
 
 // CancelResult is what Repo.Cancel answers.
@@ -497,6 +502,9 @@ type Deps struct {
 	Limits    Limits
 	// Events is the outbound seam (notifications); nil drops every event.
 	Events Events
+	// Outbox makes the cancellation notices durable (B07): an item staged in the cancel transaction, removed once every
+	// notice was handed off, re-run by the outbox sweep otherwise. Nil (or a nil Events) keeps the best-effort notice.
+	Outbox CancelOutbox
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }
@@ -523,6 +531,8 @@ type Events interface {
 	JoinRequested(ctx context.Context, e ParticipationEvent)
 	// RequestAccepted: the organiser accepted ParticipantUID; the participant is told.
 	RequestAccepted(ctx context.Context, e ParticipationEvent)
-	// Cancelled: the organiser cancelled; each accepted participant is told.
-	Cancelled(ctx context.Context, e CancelEvent)
+	// Cancelled: the organiser cancelled; each accepted participant is told. An error means some participants' notices
+	// were not handed off; the caller runs it again later (the cancellation outbox), so it must be safe to repeat (the
+	// notification row id is deterministic per beacon and recipient).
+	Cancelled(ctx context.Context, e CancelEvent) error
 }

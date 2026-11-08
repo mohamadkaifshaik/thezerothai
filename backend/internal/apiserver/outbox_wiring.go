@@ -1,5 +1,5 @@
 // outbox_wiring.go composes the durable outbox (pkg/platform/outbox): the one process-wide Outbox, its handler registry
-// (post_delete today; a later kind registers in newOutbox), its sweep and its account-deletion step.
+// (post_delete and beacon_cancelled; a later kind registers in newOutbox), its sweep and its account-deletion step.
 //
 // The sweep has no Cloud Scheduler job of its own (the free tier holds 3 per billing account and prod keeps the third as
 // headroom). It rides the publish-scheduled cron (every 5 min in prod) as a step AFTER the publish sweep, under the
@@ -17,6 +17,7 @@ import (
 
 	"cloud.google.com/go/firestore"
 
+	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -35,11 +36,15 @@ const (
 	outboxSweepOp       = "cron/outbox-sweep"
 )
 
-// newOutbox builds the process's outbox over client and registers every kind's handler. now nil means time.Now (tests
-// pass a clock).
-func newOutbox(client *firestore.Client, postDeleteJobs posts.PostDeleteJobs, log *slog.Logger, now func() time.Time) (*outbox.Outbox, error) {
+// newOutbox builds the process's outbox over client and registers every kind's handler: post_delete, and
+// beacon_cancelled (beaconCancel, beacons.NewCancelOutboxHandler: re-reads the accepted list and re-emits the notices).
+// now nil means time.Now (tests pass a clock).
+func newOutbox(client *firestore.Client, postDeleteJobs posts.PostDeleteJobs, beaconCancel outbox.Handler, log *slog.Logger, now func() time.Time) (*outbox.Outbox, error) {
 	ob := outbox.New(client, outbox.Config{Now: now})
 	if err := ob.Handle(posts.PostDeleteOutboxKind, postDeleteOutboxHandler(postDeleteJobs, log)); err != nil {
+		return nil, fmt.Errorf("outbox: %w", err)
+	}
+	if err := ob.Handle(beacons.CancelOutboxKind, beaconCancel); err != nil {
 		return nil, fmt.Errorf("outbox: %w", err)
 	}
 	return ob, nil
