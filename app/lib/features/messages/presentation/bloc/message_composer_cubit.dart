@@ -101,7 +101,7 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
     this.onSent,
     this.onCannotMessage,
     this.onUnexpectedError,
-    MessageOutbox? outbox,
+    required MessageOutbox outbox,
     Uuid? uuid,
   }) : assert(
          (conversationId == null) != (recipientUserId == null),
@@ -110,25 +110,22 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
        _repository = repository,
        _conversationId = conversationId,
        _uuid = uuid ?? const Uuid(),
-       _outbox = outbox ?? MessageOutbox(),
+       _outbox = outbox.lease(),
        super(
          _restore(
-           outbox,
+           outbox.lease(),
            conversationId ?? MessageOutbox.draftScope(recipientUserId!),
          ),
        );
 
-  static MessageComposerState _restore(MessageOutbox? outbox, String scope) {
-    if (outbox == null) {
-      return MessageComposerState(draft: analyzePostDraft(''));
-    }
+  static MessageComposerState _restore(OutboxLease outbox, String scope) {
     return MessageComposerState(
       draft: analyzePostDraft(outbox.draftOf(scope)),
       outgoing: outbox.rowsOf(scope),
     );
   }
 
-  final MessageOutbox _outbox;
+  final OutboxLease _outbox;
 
   String get _scope =>
       _conversationId ?? MessageOutbox.draftScope(recipientUserId!);

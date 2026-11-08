@@ -41,6 +41,7 @@ MessageComposerCubit cubitFor(
   Future<void> Function()? onSent,
 }) => MessageComposerCubit(
   repository: repo,
+  outbox: repo.outbox,
   conversationId: kThreadId,
   onCannotMessage: onCannotMessage,
   onActivity: onActivity,
@@ -547,6 +548,7 @@ void main() {
       );
       final cubit = MessageComposerCubit(
         repository: repo,
+        outbox: repo.outbox,
         conversationId: kThreadId,
       );
       addTearDown(cubit.close);

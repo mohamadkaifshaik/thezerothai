@@ -161,8 +161,69 @@ class MessageOutbox {
   void drop(String scope) => _boxes.remove(scope);
 
   /// Sign-out and account switch: nothing of the previous user stays.
-  void clear() => _boxes.clear();
+  void clear() {
+    _generation++;
+    _boxes.clear();
+  }
+
+  int _generation = 0;
+
+  /// A handle for one composer: it works on this session only. After
+  /// [clear] (sign-out, account switch) every write through it is dropped, so
+  /// a screen that outlives the session cannot put the previous user's text
+  /// back.
+  OutboxLease lease() => OutboxLease._(this, _generation);
 
   @visibleForTesting
   bool get isEmpty => _boxes.isEmpty;
+}
+
+/// One composer's view of a [MessageOutbox], valid until the outbox is cleared.
+class OutboxLease {
+  OutboxLease._(this._outbox, this._generation);
+
+  final MessageOutbox _outbox;
+  final int _generation;
+
+  bool get _live => _outbox._generation == _generation;
+
+  String draftOf(String scope) => _live ? _outbox.draftOf(scope) : '';
+
+  List<OutgoingMessage> rowsOf(String scope) =>
+      _live ? _outbox.rowsOf(scope) : const [];
+
+  void save(
+    String scope, {
+    required String draft,
+    required List<OutgoingMessage> rows,
+  }) {
+    if (_live) _outbox.save(scope, draft: draft, rows: rows);
+  }
+
+  String? peekKey(String scope, String text) =>
+      _live ? _outbox.peekKey(scope, text) : null;
+
+  /// A stale lease still hands out a key (the send in flight needs one) but
+  /// remembers nothing.
+  String keyFor(
+    String scope,
+    String text, {
+    required String Function() create,
+  }) => _live ? _outbox.keyFor(scope, text, create: create) : create();
+
+  void forgetKey(String scope, String text) {
+    if (_live) _outbox.forgetKey(scope, text);
+  }
+
+  void removeRow(String scope, String localId) {
+    if (_live) _outbox.removeRow(scope, localId);
+  }
+
+  void markFailed(String scope, String localId, AppException error) {
+    if (_live) _outbox.markFailed(scope, localId, error);
+  }
+
+  void drop(String scope) {
+    if (_live) _outbox.drop(scope);
+  }
 }

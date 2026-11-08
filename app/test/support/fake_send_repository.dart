@@ -57,6 +57,9 @@ class FakeSendRepository extends Fake implements MessagingRepository {
   final MessageOutbox outbox = MessageOutbox();
 
   @override
+  void clearSession() => outbox.clear();
+
+  @override
   RateLimitHold get rateLimitHold => RateLimitHold();
 
   @override
