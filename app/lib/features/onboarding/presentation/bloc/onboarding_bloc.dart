@@ -24,6 +24,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       _uid = null;
       _idempotencyKey = null;
       _flagsLoaded = false;
+      _profileCreated = false;
       emit(const OnboardingState());
     });
     on<OnboardingRefreshRequested>(_onUserRefreshRequested);
@@ -64,11 +65,21 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
   /// default. The local cache holds the profile only, never the flags.
   bool _flagsLoaded = false;
 
+  /// Whether this session's CreateProfile succeeded for [_uid]. Until a GetMe
+  /// confirms it, a PROFILE_REQUIRED (a server instance whose negative
+  /// profile cache has not seen the create yet) is a retryable error, never
+  /// the form again: a second submit would only collide with the handle the
+  /// create already took.
+  bool _profileCreated = false;
+
   Future<void> _onUserAuthenticated(
     OnboardingUserAuthenticated event,
     Emitter<OnboardingState> emit,
   ) async {
-    if (_uid != event.user.uid) _flagsLoaded = false;
+    if (_uid != event.user.uid) {
+      _flagsLoaded = false;
+      _profileCreated = false;
+    }
     _uid = event.user.uid;
     await _loadMe(emit);
   }
@@ -96,13 +107,17 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     // an await below was pending must not be overwritten by this user's data.
     bool stale() => emit.isDone || _uid != uid;
     if (stale()) return;
-    // A Retry from the error state without this session's flags must not
-    // render the cached profile as ready first: the router would open Home
-    // with every flag off. It shows loading (the error page's spinner)
-    // until GetMe answers.
-    final retryWithoutFlags =
+    // Without a cached profile, or right after this session's CreateProfile
+    // before any GetMe answered, a failed GetMe has nothing usable to show:
+    // the full-screen error (the router's /session-error). Otherwise a
+    // failure keeps the cached profile ready behind a non-blocking banner.
+    final blocking = cached == null || (_profileCreated && !_flagsLoaded);
+    // A Retry from that error state must not render the cached profile as
+    // ready first (the router would open Home with every flag off): it shows
+    // loading, the error page's spinner, until GetMe answers.
+    final retryFromError =
         state.status == OnboardingStatus.error && !_flagsLoaded;
-    if (cached != null && !retryWithoutFlags) {
+    if (cached != null && !retryFromError) {
       emit(
         state.copyWith(
           status: OnboardingStatus.ready,
@@ -122,9 +137,13 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       // Suspended (or pending deletion): a cached profile must not keep the
       // app looking normal. AuthGate shows the account-restricted view.
       emit(state.copyWith(accountRestricted: true));
-    } on ProfileRequiredException {
+    } on ProfileRequiredException catch (e) {
       if (stale()) return;
-      emit(state.copyWith(status: OnboardingStatus.profileRequired));
+      if (_profileCreated) {
+        emit(state.copyWith(status: OnboardingStatus.error, error: e));
+      } else {
+        emit(state.copyWith(status: OnboardingStatus.profileRequired));
+      }
     } on EmailNotVerifiedException catch (e) {
       if (stale()) return;
       // Provider/verification gate answered on an exempt
@@ -137,12 +156,15 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       );
     } on AppException catch (e) {
       if (stale()) return;
-      // A cached profile with this session's flags is still good enough to
-      // use: stay ready and keep those flags. Without them (nothing cached,
-      // or a cold start whose cache holds no flags) the app would look as if
-      // every feature were off, so surface the recoverable error instead.
-      if (cached == null || !_flagsLoaded) {
+      if (blocking) {
         emit(state.copyWith(status: OnboardingStatus.error, error: e));
+      } else {
+        // A cached profile keeps the app usable (offline warm start): stay
+        // ready with whatever flags this session loaded and let the shell
+        // offer Retry.
+        emit(
+          state.copyWith(status: OnboardingStatus.ready, refreshFailed: true),
+        );
       }
     }
   }
@@ -163,6 +185,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         unreadConversationCount: response.unreadConversationCount.toInt(),
         pendingFollowRequestCount: response.pendingFollowRequestCount.toInt(),
         accountRestricted: false,
+        refreshFailed: false,
         isSubmitting: isSubmitting ?? state.isSubmitting,
         error: null,
       ),
@@ -262,6 +285,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       );
       if (stale()) return;
       _idempotencyKey = null;
+      _profileCreated = true;
       await _loadMeAfterCreate(emit, profile, stale);
     } on HandleTakenException catch (e) {
       if (stale()) return;

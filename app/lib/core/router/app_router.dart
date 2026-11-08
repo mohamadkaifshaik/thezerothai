@@ -862,8 +862,9 @@ class AppRouter {
             _exploreFlagRedirect(loc) ??
             _notificationsFlagRedirect(loc);
       case OnboardingStatus.error:
-        // GetMe failed with nothing usable (no profile, or no flags this
-        // session): a full-screen Retry, never Home with every flag off.
+        // GetMe failed with nothing usable (no cached profile, or right
+        // after CreateProfile): a full-screen Retry, never Home with every
+        // flag off.
         // The delete-account page stays reachable, as for profileRequired.
         return (loc == sessionErrorPath || loc == onboardingDeletePath)
             ? null

@@ -159,6 +159,41 @@ void main() {
       expect(await resolve(tester, AppRouter.sessionErrorPath), target);
     });
 
+    testWidgets('a retry that says verify your email goes to onboarding, '
+        'where the prompt lives; elsewhere it stays in place', (tester) async {
+      setStates(
+        signedIn,
+        const OnboardingState(
+          status: OnboardingStatus.emailVerificationRequired,
+          error: EmailNotVerifiedException('verify'),
+        ),
+      );
+      expect(
+        await resolve(tester, AppRouter.sessionErrorPath),
+        AppRouter.onboardingPath,
+      );
+      expect(
+        await resolve(tester, AppRouter.onboardingPath),
+        AppRouter.onboardingPath,
+      );
+    });
+
+    testWidgets('a failed refresh behind a cached profile (ready) never opens '
+        'the error page', (tester) async {
+      setStates(
+        signedIn,
+        const OnboardingState(
+          status: OnboardingStatus.ready,
+          refreshFailed: true,
+        ),
+      );
+      expect(await resolve(tester, AppRouter.homePath), AppRouter.homePath);
+      expect(
+        await resolve(tester, AppRouter.sessionErrorPath),
+        AppRouter.homePath,
+      );
+    });
+
     testWidgets('signed out on the error page goes to sign-in', (tester) async {
       setStates(signedOut, idle);
       expect(
@@ -245,6 +280,24 @@ void main() {
       expect(find.byType(SessionErrorScreen), findsOneWidget);
       expect(find.text('Retry'), findsOneWidget);
       expect(find.text('Sign out'), findsOneWidget);
+    });
+
+    testWidgets('PROFILE_REQUIRED after the create shows the setting-up copy, '
+        'not the raw server text', (tester) async {
+      await pumpApp(tester);
+      emit(
+        signedIn,
+        const OnboardingState(
+          status: OnboardingStatus.error,
+          error: ProfileRequiredException('RAW server text'),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text(kProfileSettingUpMessage), findsOneWidget);
+      expect(find.text('RAW server text'), findsNothing);
+      expect(find.text('Retry'), findsOneWidget);
     });
 
     testWidgets('a retry in flight shows a spinner, not the error', (

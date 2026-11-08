@@ -927,8 +927,8 @@ void main() {
     });
 
     blocTest<OnboardingBloc, OnboardingState>(
-      'on a cold start (no flags known this session) is the error state, '
-      'not a ready app with every flag off',
+      'a cold start offline stays ready with the cached profile and flags the '
+      'failed refresh (no hard stop)',
       setUp: () {
         when(() => identityRepository.getMe())
             .thenThrow(const NetworkException('offline'));
@@ -936,82 +936,24 @@ void main() {
       build: () => OnboardingBloc(identityRepository: identityRepository),
       act: (bloc) => bloc.add(const OnboardingUserAuthenticated(user)),
       expect: () => [
-        isA<OnboardingState>().having(
-          (s) => s.status,
-          'status',
-          OnboardingStatus.ready,
-        ),
         isA<OnboardingState>()
-            .having((s) => s.status, 'status', OnboardingStatus.error)
-            .having((s) => s.error, 'error', isA<NetworkException>())
-            .having((s) => s.profile?.handle, 'profile kept', 'kaif'),
+            .having((s) => s.status, 'status', OnboardingStatus.ready)
+            .having((s) => s.refreshFailed, 'refreshFailed', isFalse),
+        isA<OnboardingState>()
+            .having((s) => s.status, 'status', OnboardingStatus.ready)
+            .having((s) => s.refreshFailed, 'refreshFailed', isTrue)
+            .having((s) => s.profile?.handle, 'profile kept', 'kaif')
+            .having((s) => s.enabledFeatures, 'flags', isEmpty),
       ],
     );
 
     blocTest<OnboardingBloc, OnboardingState>(
-      'after flags were loaded stays ready and keeps those flags',
+      'after flags were loaded a failed refresh keeps them and flags the '
+      'failure; the next successful refresh clears it',
       setUp: () {
         var calls = 0;
         when(() => identityRepository.getMe()).thenAnswer((_) async {
-          if (calls++ == 0) {
-            return identity.GetMeResponse(
-              profile: identity.Profile(userId: 'uid-1', handle: 'kaif'),
-              enabledFeatures: ['posts'],
-            );
-          }
-          throw const NetworkException('offline');
-        });
-      },
-      build: () => OnboardingBloc(identityRepository: identityRepository),
-      act: (bloc) async {
-        bloc.add(const OnboardingUserAuthenticated(user));
-        await Future<void>.delayed(Duration.zero);
-        await Future<void>.delayed(Duration.zero);
-        bloc.add(const OnboardingRefreshRequested());
-        await Future<void>.delayed(Duration.zero);
-        await Future<void>.delayed(Duration.zero);
-      },
-      verify: (bloc) {
-        verify(() => identityRepository.getMe()).called(2);
-        expect(bloc.state.status, OnboardingStatus.ready);
-        expect(bloc.state.enabledFeatures, {'posts'});
-      },
-    );
-
-    blocTest<OnboardingBloc, OnboardingState>(
-      'Retry from the error state never shows the cached profile as ready '
-      'without flags (GetMe fails again)',
-      setUp: () {
-        when(() => identityRepository.getMe())
-            .thenThrow(const NetworkException('offline'));
-      },
-      build: () => OnboardingBloc(identityRepository: identityRepository),
-      act: (bloc) async {
-        bloc.add(const OnboardingUserAuthenticated(user));
-        await Future<void>.delayed(Duration.zero);
-        await Future<void>.delayed(Duration.zero);
-        expect(bloc.state.status, OnboardingStatus.error);
-        bloc.add(const OnboardingRefreshRequested());
-      },
-      skip: 2,
-      expect: () => [
-        isA<OnboardingState>()
-            .having((s) => s.status, 'status', OnboardingStatus.loading)
-            .having((s) => s.profile?.handle, 'profile kept', 'kaif'),
-        isA<OnboardingState>().having(
-          (s) => s.status,
-          'status',
-          OnboardingStatus.error,
-        ),
-      ],
-    );
-
-    blocTest<OnboardingBloc, OnboardingState>(
-      'Retry from the error state goes loading, then ready with the flags',
-      setUp: () {
-        var calls = 0;
-        when(() => identityRepository.getMe()).thenAnswer((_) async {
-          if (calls++ == 0) throw const NetworkException('offline');
+          if (calls++ == 1) throw const NetworkException('offline');
           return identity.GetMeResponse(
             profile: identity.Profile(userId: 'uid-1', handle: 'kaif'),
             enabledFeatures: ['posts'],
@@ -1023,10 +965,186 @@ void main() {
         bloc.add(const OnboardingUserAuthenticated(user));
         await Future<void>.delayed(Duration.zero);
         await Future<void>.delayed(Duration.zero);
-        expect(bloc.state.status, OnboardingStatus.error);
+        bloc.add(const OnboardingRefreshRequested());
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        expect(bloc.state.status, OnboardingStatus.ready);
+        expect(bloc.state.enabledFeatures, {'posts'});
+        expect(bloc.state.refreshFailed, isTrue);
+        bloc.add(const OnboardingRefreshRequested());
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+      },
+      verify: (bloc) {
+        verify(() => identityRepository.getMe()).called(3);
+        expect(bloc.state.status, OnboardingStatus.ready);
+        expect(bloc.state.refreshFailed, isFalse);
+        expect(bloc.state.enabledFeatures, {'posts'});
+      },
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'without a cached profile a failed GetMe is the full-screen error',
+      setUp: () {
+        when(() => identityRepository.cachedOwnProfile('uid-1'))
+            .thenAnswer((_) async => null);
+        when(() => identityRepository.getMe())
+            .thenThrow(const NetworkException('offline'));
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) => bloc.add(const OnboardingUserAuthenticated(user)),
+      expect: () => [
+        const OnboardingState(status: OnboardingStatus.loading),
+        isA<OnboardingState>()
+            .having((s) => s.status, 'status', OnboardingStatus.error)
+            .having((s) => s.refreshFailed, 'refreshFailed', isFalse),
+      ],
+    );
+  });
+
+  group('Retry after CreateProfile (A09/A10)', () {
+    late CachedProfile cachedProfile;
+    late bool created;
+
+    const form = OnboardingState(
+      status: OnboardingStatus.profileRequired,
+      handle: 'kaif',
+      displayName: 'Kaif',
+      handleCheckStatus: HandleCheckStatus.available,
+    );
+
+    setUp(() {
+      created = false;
+      cachedProfile = CachedProfile(
+        userId: 'uid-1',
+        handle: 'kaif',
+        displayName: 'Kaif',
+        bio: '',
+        avatarUrl: '',
+        avatarThumbUrl: '',
+        isPrivate: false,
+        verified: false,
+        subscriptionVerified: false,
+        followersCount: 0,
+        followingCount: 0,
+        postsCount: 0,
+        cachedAt: DateTime(2024),
+      );
+      // CreateProfile writes the cache, so a Retry finds it.
+      when(() => identityRepository.cachedOwnProfile('uid-1'))
+          .thenAnswer((_) async => created ? cachedProfile : null);
+      when(() => identityRepository.profileFromCache(cachedProfile))
+          .thenReturn(identity.Profile(userId: 'uid-1', handle: 'kaif'));
+      when(
+        () => identityRepository.createProfile(
+          handle: 'kaif',
+          displayName: 'Kaif',
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer((_) async {
+        created = true;
+        return identity.Profile(userId: 'uid-1', handle: 'kaif');
+      });
+    });
+
+    /// Signs in (no profile), submits the form, and lets the post-create
+    /// GetMe fail: the bloc ends in the error state.
+    Future<void> createThenFail(OnboardingBloc bloc) async {
+      bloc.add(const OnboardingUserAuthenticated(user));
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(bloc.state.status, OnboardingStatus.profileRequired);
+      bloc
+        ..add(const OnboardingDisplayNameChanged('Kaif'))
+        ..add(const OnboardingProfileSubmitted());
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+      expect(bloc.state.status, OnboardingStatus.error);
+    }
+
+    void getMeAnswers(List<Object> answers) {
+      var calls = 0;
+      when(() => identityRepository.getMe()).thenAnswer((_) async {
+        final answer = answers[calls++];
+        if (answer is Exception) throw answer;
+        return answer as identity.GetMeResponse;
+      });
+    }
+
+    final readyResponse = identity.GetMeResponse(
+      profile: identity.Profile(userId: 'uid-1', handle: 'kaif'),
+      enabledFeatures: ['posts'],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'a Retry answered PROFILE_REQUIRED stays the retryable error, never the '
+      'create form',
+      setUp: () => getMeAnswers([
+        const ProfileRequiredException('create a profile'),
+        const NetworkException('offline'),
+        const ProfileRequiredException('create a profile'),
+      ]),
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => form,
+      act: (bloc) async {
+        await createThenFail(bloc);
         bloc.add(const OnboardingRefreshRequested());
       },
-      skip: 2,
+      skip: 4,
+      expect: () => [
+        isA<OnboardingState>().having(
+          (s) => s.status,
+          'status',
+          OnboardingStatus.loading,
+        ),
+        isA<OnboardingState>()
+            .having((s) => s.status, 'status', OnboardingStatus.error)
+            .having((s) => s.error, 'error', isA<ProfileRequiredException>()),
+      ],
+      verify: (bloc) {
+        expect(bloc.state.status, isNot(OnboardingStatus.profileRequired));
+      },
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'a Retry that fails again never shows the cached profile as ready '
+      'without flags',
+      setUp: () => getMeAnswers([
+        const ProfileRequiredException('create a profile'),
+        const NetworkException('offline'),
+        const NetworkException('offline'),
+      ]),
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => form,
+      act: (bloc) async {
+        await createThenFail(bloc);
+        bloc.add(const OnboardingRefreshRequested());
+      },
+      skip: 4,
+      expect: () => [
+        isA<OnboardingState>()
+            .having((s) => s.status, 'status', OnboardingStatus.loading)
+            .having((s) => s.profile?.handle, 'profile kept', 'kaif'),
+        isA<OnboardingState>()
+            .having((s) => s.status, 'status', OnboardingStatus.error)
+            .having((s) => s.refreshFailed, 'refreshFailed', isFalse),
+      ],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'a Retry that succeeds goes loading, then ready with the flags',
+      setUp: () => getMeAnswers([
+        const ProfileRequiredException('create a profile'),
+        const NetworkException('offline'),
+        readyResponse,
+      ]),
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => form,
+      act: (bloc) async {
+        await createThenFail(bloc);
+        bloc.add(const OnboardingRefreshRequested());
+      },
+      skip: 4,
       expect: () => [
         isA<OnboardingState>().having(
           (s) => s.status,
@@ -1040,32 +1158,26 @@ void main() {
     );
 
     blocTest<OnboardingBloc, OnboardingState>(
-      'a sign-out forgets the loaded flags: the next cold failure is an error',
-      setUp: () {
-        var calls = 0;
-        when(() => identityRepository.getMe()).thenAnswer((_) async {
-          if (calls++ == 0) {
-            return identity.GetMeResponse(
-              profile: identity.Profile(userId: 'uid-1', handle: 'kaif'),
-              enabledFeatures: ['posts'],
-            );
-          }
-          throw const NetworkException('offline');
-        });
-      },
+      'a sign-out forgets the create: PROFILE_REQUIRED for the next session '
+      'is the form again',
+      setUp: () => getMeAnswers([
+        const ProfileRequiredException('create a profile'),
+        const NetworkException('offline'),
+        const ProfileRequiredException('create a profile'),
+      ]),
       build: () => OnboardingBloc(identityRepository: identityRepository),
+      seed: () => form,
       act: (bloc) async {
-        bloc.add(const OnboardingUserAuthenticated(user));
-        await Future<void>.delayed(Duration.zero);
-        await Future<void>.delayed(Duration.zero);
-        bloc.add(const OnboardingUserSignedOut());
-        bloc.add(const OnboardingUserAuthenticated(user));
+        await createThenFail(bloc);
+        created = false;
+        bloc
+          ..add(const OnboardingUserSignedOut())
+          ..add(const OnboardingUserAuthenticated(user));
         await Future<void>.delayed(Duration.zero);
         await Future<void>.delayed(Duration.zero);
       },
       verify: (bloc) {
-        expect(bloc.state.status, OnboardingStatus.error);
-        expect(bloc.state.enabledFeatures, isEmpty);
+        expect(bloc.state.status, OnboardingStatus.profileRequired);
       },
     );
   });
