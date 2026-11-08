@@ -1,15 +1,15 @@
 import 'package:dzeroth/core/router/app_router.dart';
-import 'package:dzeroth/features/shells/domain/premium_plans.dart';
-import 'package:dzeroth/features/shells/domain/shell_entries.dart';
-import 'package:dzeroth/features/shells/presentation/premium_dialog.dart';
+import 'package:dzeroth/features/premium/domain/premium_plans.dart';
+import 'package:dzeroth/core/router/shell_entries.dart';
+import 'package:dzeroth/features/premium/presentation/premium_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../support/geometry.dart';
-import '../../support/shells_copy_guard.dart';
-import '../../support/shells_harness.dart';
-import '../../support/theme_harness.dart';
+import '../../../support/geometry.dart';
+import '../../../support/shells_copy_guard.dart';
+import '../../../support/shells_harness.dart';
+import '../../../support/theme_harness.dart';
 
 /// The Premium pop-up body: two static plan cards from
 /// `kPremiumPlans`, "Coming soon", nothing to act on.

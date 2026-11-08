@@ -3,13 +3,14 @@ import 'dart:io';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
-import 'package:dzeroth/features/shells/domain/shell_entries.dart';
+import 'package:dzeroth/core/router/shell_entries.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
-import '../../support/shells_harness.dart';
-import '../../support/theme_harness.dart';
+import '../../../support/shells_harness.dart';
+import '../../../support/planned_feature_files.dart';
+import '../../../support/theme_harness.dart';
 
 /// The "0 RPCs, 0 reads" claim of the plan's Cost section.
 ///
@@ -80,12 +81,8 @@ void main() {
     verifyNever(() => app.auth.add(any()));
   });
 
-  group('structural: nothing under features/shells reaches the network', () {
-    final files = Directory('lib/features/shells')
-        .listSync(recursive: true)
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.dart'))
-        .toList();
+  group('structural: coming-soon features never reach the network', () {
+    final files = plannedFeatureFiles();
     String code(File f) => f
         .readAsLinesSync()
         .map((l) => l.replaceFirst(RegExp(r'//.*$'), ''))

@@ -1,11 +1,11 @@
-import 'package:dzeroth/features/shells/presentation/advertise_screen.dart';
+import 'package:dzeroth/features/advertise/presentation/advertise_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:url_launcher_platform_interface/link.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
-import '../../support/geometry.dart';
-import '../../support/theme_harness.dart';
+import '../../../support/geometry.dart';
+import '../../../support/theme_harness.dart';
 
 class _FakeLauncher extends UrlLauncherPlatform {
   _FakeLauncher({this.succeeds = true});

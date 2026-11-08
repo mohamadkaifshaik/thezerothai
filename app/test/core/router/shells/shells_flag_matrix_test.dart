@@ -1,17 +1,17 @@
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/widgets/app_drawer.dart';
-import 'package:dzeroth/features/shells/domain/shell_entries.dart';
-import 'package:dzeroth/features/shells/domain/shells_feature_flag.dart';
-import 'package:dzeroth/features/shells/presentation/advertise_screen.dart';
-import 'package:dzeroth/features/shells/presentation/calls_screen.dart';
-import 'package:dzeroth/features/shells/presentation/creator_studio_screen.dart';
-import 'package:dzeroth/features/shells/presentation/premium_dialog.dart';
+import 'package:dzeroth/core/router/shell_entries.dart';
+import 'package:dzeroth/core/feature_flags/shells_feature_flag.dart';
+import 'package:dzeroth/features/advertise/presentation/advertise_screen.dart';
+import 'package:dzeroth/features/calls/presentation/calls_screen.dart';
+import 'package:dzeroth/features/creator_studio/presentation/creator_studio_screen.dart';
+import 'package:dzeroth/features/premium/presentation/premium_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../support/shells_harness.dart';
-import '../../support/theme_harness.dart';
+import '../../../support/shells_harness.dart';
+import '../../../support/theme_harness.dart';
 
 /// The flag-off and visibility matrix at 360 / 600 / 1200 dp on the real
 /// router. Complements the per-ticket tests (`shell_navigation_test`,

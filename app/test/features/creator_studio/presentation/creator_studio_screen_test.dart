@@ -3,9 +3,9 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
-import 'package:dzeroth/features/shells/presentation/creator_studio_screen.dart';
-import 'package:dzeroth/features/shells/presentation/widgets/creator_insights_group.dart';
-import 'package:dzeroth/features/shells/presentation/widgets/creator_programs_group.dart';
+import 'package:dzeroth/features/creator_studio/presentation/creator_studio_screen.dart';
+import 'package:dzeroth/features/creator_studio/presentation/widgets/creator_insights_group.dart';
+import 'package:dzeroth/features/creator_studio/presentation/widgets/creator_programs_group.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/shared/widgets/primitives/app_status_pill.dart';
 import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
@@ -18,8 +18,8 @@ import 'package:mocktail/mocktail.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as pb;
 
-import '../../support/shells_harness.dart';
-import '../../support/theme_harness.dart';
+import '../../../support/shells_harness.dart';
+import '../../../support/theme_harness.dart';
 
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
