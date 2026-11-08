@@ -120,6 +120,59 @@ void main() {
     });
   });
 
+  group('Google Sign-In client ids per platform', () {
+    Future<void> signIn(TargetPlatform platform) async {
+      final account = _MockGoogleSignInAccount();
+      when(
+        () => googleSignIn.initialize(
+          clientId: any(named: 'clientId'),
+          serverClientId: any(named: 'serverClientId'),
+        ),
+      ).thenAnswer((_) async {});
+      when(
+        () => googleSignIn.initialize(
+          serverClientId: any(named: 'serverClientId'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => googleSignIn.supportsAuthenticate()).thenReturn(true);
+      when(() => googleSignIn.authenticate()).thenAnswer((_) async => account);
+      when(() => account.authentication).thenReturn(
+        const GoogleSignInAuthentication(idToken: 'google-id-token'),
+      );
+      when(() => firebaseAuth.signInWithCredential(any()))
+          .thenAnswer((_) async => _MockUserCredential());
+      await AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+        googleIosClientId: 'ios-client.apps.googleusercontent.com',
+        isWeb: false,
+        platform: platform,
+      ).signInWithGoogle(webClientId: 'web-client');
+    }
+
+    test('iOS initializes Google Sign-In with the iOS clientId', () async {
+      await signIn(TargetPlatform.iOS);
+      verify(
+        () => googleSignIn.initialize(
+          clientId: 'ios-client.apps.googleusercontent.com',
+          serverClientId: 'web-client',
+        ),
+      ).called(1);
+    });
+
+    test('Android never receives the iOS clientId', () async {
+      await signIn(TargetPlatform.android);
+      verify(() => googleSignIn.initialize(serverClientId: 'web-client'))
+          .called(1);
+      verifyNever(
+        () => googleSignIn.initialize(
+          clientId: any(named: 'clientId'),
+          serverClientId: any(named: 'serverClientId'),
+        ),
+      );
+    });
+  });
+
   group('signInWithGoogle on mobile', () {
     test('passes the web client id as serverClientId and signs in to '
         'Firebase with the Google ID token', () async {

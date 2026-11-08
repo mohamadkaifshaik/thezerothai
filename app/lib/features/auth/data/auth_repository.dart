@@ -33,6 +33,7 @@ class AuthRepository implements AuthTokenProvider {
     fb.FirebaseAuth? firebaseAuth,
     GoogleSignIn? googleSignIn,
     this.googleWebClientId,
+    this.googleIosClientId,
     this.appleServiceId,
     this.appleRedirectUri,
     @visibleForTesting bool isWeb = kIsWeb,
@@ -47,6 +48,11 @@ class AuthRepository implements AuthTokenProvider {
   /// client of the build's Firebase project; [appleServiceId] and
   /// [appleRedirectUri] drive Apple's web flow (web and Android).
   final String? googleWebClientId;
+
+  /// The iOS OAuth client id of this build's Firebase project (from the
+  /// matching `firebase_options*.dart`), passed to Google Sign-In as
+  /// `clientId` on iOS only.
+  final String? googleIosClientId;
   final String? appleServiceId;
   final String? appleRedirectUri;
   final TargetPlatform _platform;
@@ -158,11 +164,22 @@ class AuthRepository implements AuthTokenProvider {
 
   Future<void> _ensureGoogleInitialized({String? serverClientId}) async {
     if (_googleInitialized) return;
-    await _googleSignIn.initialize(
-      serverClientId: (serverClientId == null || serverClientId.isEmpty)
-          ? null
-          : serverClientId,
-    );
+    final server = (serverClientId == null || serverClientId.isEmpty)
+        ? null
+        : serverClientId;
+    final iosClient = googleIosClientId;
+    // iOS needs the build's own iOS OAuth client (GIDClientID in Info.plist
+    // carries the same value); other platforms must not receive it.
+    if (_platform == TargetPlatform.iOS &&
+        iosClient != null &&
+        iosClient.isNotEmpty) {
+      await _googleSignIn.initialize(
+        clientId: iosClient,
+        serverClientId: server,
+      );
+    } else {
+      await _googleSignIn.initialize(serverClientId: server);
+    }
     _googleInitialized = true;
   }
 
