@@ -146,10 +146,10 @@ class AuthRepository implements AuthTokenProvider {
     }
   }
 
-  /// Firebase owns the reset link and password update; no credentials are stored.
-  /// Sends a password-reset email. Every outcome looks the same to the caller
-  /// (no account enumeration) except the two the user can act on: no
-  /// connection ([AuthFailure.network]) and Firebase's own throttle
+  /// Sends a password-reset email. Firebase owns the reset link and the
+  /// password update; no credentials are stored. Every outcome looks the same
+  /// to the caller (no account enumeration) except the two the user can act
+  /// on: no connection ([AuthFailure.network]) and Firebase's own throttle
   /// ([AuthFailure.tooManyRequests]). Any other Firebase code (unknown or
   /// disabled account, a malformed address, an unexpected code) is the
   /// neutral success; its raw message never reaches the UI.
