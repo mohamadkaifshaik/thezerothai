@@ -97,8 +97,8 @@ func TestOutboxSweepStep(t *testing.T) {
 		{"ok", &fakeOutboxSweeper{res: outbox.Result{Due: 2, Done: 2}}, false, false, []string{`"msg":"outbox_sweep"`, `"done":2`, `"outcome":"ok"`}, 1},
 		{"readonly skips", &fakeOutboxSweeper{}, true, false, []string{`"outcome":"skipped_readonly"`}, 0},
 		{"due query failure", &fakeOutboxSweeper{err: errors.New("unavailable")}, false, true, []string{`"outcome":"error"`, `"rpc":"` + outboxSweepOp}, 1},
-		{"stuck items reported with hashed uids", &fakeOutboxSweeper{res: outbox.Result{Due: 1, Failed: 1, Stuck: 1, StuckItems: []outbox.StuckItem{{Kind: "post_delete", UIDHash: "abcd"}}}}, false, false,
-			[]string{`"msg":"outbox_item_stuck"`, `"kind":"post_delete"`, `"uid_hash":"abcd"`}, 1},
+		{"item errors logged at WARN with their scrubbed cause", &fakeOutboxSweeper{res: outbox.Result{Due: 3, Failed: 3, Errors: []outbox.ItemError{{Kind: "post_delete", Outcome: "failed", Cause: "pubsub down", Count: 3}}}}, false, false,
+			[]string{`"level":"WARN","msg":"outbox_item_error"`, `"kind":"post_delete"`, `"outcome":"failed"`, `"count":3`, `"cause":"pubsub down"`}, 1},
 		{"panic is contained", &fakeOutboxSweeper{panicky: true}, false, true, []string{`"rpc":"` + outboxSweepOp}, 1},
 	}
 	for _, tt := range tests {
@@ -219,5 +219,16 @@ func TestNewOutbox_RegistersPostDelete(t *testing.T) {
 func TestOutboxEraserStep(t *testing.T) {
 	if got := outboxEraserStep(outbox.New(nil, outbox.Config{})).Name(); got != "outbox" {
 		t.Fatalf("step name = %q", got)
+	}
+}
+
+func TestStuckReporter(t *testing.T) {
+	var logs bytes.Buffer
+	r := stuckReporter(slog.New(slog.NewJSONHandler(&logs, nil)))
+	r(context.Background(), outbox.StuckItem{Kind: "post_delete", UIDHash: "abcd", Cause: "pubsub down"})
+	for _, w := range []string{`"msg":"outbox_item_stuck"`, `"kind":"post_delete"`, `"uid_hash":"abcd"`, `"cause":"pubsub down"`, `"rpc":"` + outboxSweepOp} {
+		if !strings.Contains(logs.String(), w) {
+			t.Errorf("logs lack %s:\n%s", w, logs.String())
+		}
 	}
 }

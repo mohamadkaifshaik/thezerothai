@@ -26,6 +26,7 @@ type fakeBackend struct {
 	lastDueLimit                                  int
 	lastDueAt                                     time.Time
 	staged                                        []string
+	dueStats                                      dueStats
 	// beforeClaim runs once before the next claim (a concurrent writer).
 	beforeClaim func(id string)
 }
@@ -60,11 +61,11 @@ func (f *fakeBackend) get(_ context.Context, id string) (Item, bool, error) {
 	return s.doc.item(id, s.ut), true, nil
 }
 
-func (f *fakeBackend) due(_ context.Context, now time.Time, limit int) ([]Item, error) {
+func (f *fakeBackend) due(_ context.Context, now time.Time, limit int) ([]Item, dueStats, error) {
 	f.dueCalls++
 	f.lastDueLimit, f.lastDueAt = limit, now
 	if f.dueErr != nil {
-		return nil, f.dueErr
+		return nil, dueStats{}, f.dueErr
 	}
 	var out []Item
 	for id, s := range f.docs {
@@ -81,7 +82,7 @@ func (f *fakeBackend) due(_ context.Context, now time.Time, limit int) ([]Item, 
 	if len(out) > limit {
 		out = out[:limit]
 	}
-	return out, nil
+	return out, f.dueStats, nil
 }
 
 func (f *fakeBackend) claim(_ context.Context, it Item, attempts int, next time.Time) (time.Time, bool, error) {

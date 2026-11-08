@@ -40,7 +40,7 @@ const (
 // beacon_cancelled (beaconCancel, beacons.NewCancelOutboxHandler: re-reads the accepted list and re-emits the notices).
 // now nil means time.Now (tests pass a clock).
 func newOutbox(client *firestore.Client, postDeleteJobs posts.PostDeleteJobs, beaconCancel outbox.Handler, log *slog.Logger, now func() time.Time) (*outbox.Outbox, error) {
-	ob := outbox.New(client, outbox.Config{Now: now})
+	ob := outbox.New(client, outbox.Config{Now: now, OnStuck: stuckReporter(log)})
 	if err := ob.Handle(posts.PostDeleteOutboxKind, postDeleteOutboxHandler(postDeleteJobs, log)); err != nil {
 		return nil, fmt.Errorf("outbox: %w", err)
 	}
@@ -67,14 +67,23 @@ func postDeleteOutboxHandler(jobs posts.PostDeleteJobs, log *slog.Logger) outbox
 	}
 }
 
+// stuckReporter is Config.OnStuck: one `outbox_item_stuck` ERROR line (kind, uid_hash and the scrubbed cause, never the
+// key) and one Error Reporting entry per item that crossed the attempt threshold, on the Sweep and the RunNow path alike.
+func stuckReporter(log *slog.Logger) func(ctx context.Context, st outbox.StuckItem) {
+	return func(ctx context.Context, st outbox.StuckItem) {
+		log.ErrorContext(ctx, "outbox_item_stuck", append([]any{"kind", st.Kind, "uid_hash", st.UIDHash, "cause", st.Cause}, logger.TraceAttrs(ctx)...)...)
+		mw.ReportError(ctx, log.With(logger.TraceAttrs(ctx)...), outboxSweepOp, fmt.Errorf("outbox: %s item reached the attempt threshold: %s", st.Kind, st.Cause))
+	}
+}
+
 // outboxSweeper is the one method of *outbox.Outbox the step needs.
 type outboxSweeper interface {
 	Sweep(ctx context.Context) (outbox.Result, error)
 }
 
-// outboxSweepStep runs one sweep and writes its one `outbox_sweep` line (counts only), one `outbox_item_stuck` ERROR per
-// item that reached the attempt threshold (kind and hashed uid only), and an Error Reporting entry for a failed due query,
-// a stuck item or a panic. Its error is the due query's (or the panic's).
+// outboxSweepStep runs one sweep and writes its one `outbox_sweep` line (counts only), one `outbox_item_error` WARN per
+// (kind, outcome) with the first scrubbed cause and the count, and an Error Reporting entry for a failed due query or a
+// panic. Stuck items are reported by stuckReporter (Config.OnStuck). Its error is the due query's (or the panic's).
 type outboxSweepStep struct {
 	sweeper  outboxSweeper
 	readOnly bool
@@ -95,11 +104,8 @@ func (s outboxSweepStep) run(ctx context.Context) (err error) {
 	}()
 	started := time.Now()
 	res, err := s.sweeper.Sweep(ctx)
-	for _, st := range res.StuckItems {
-		s.log.ErrorContext(ctx, "outbox_item_stuck", append([]any{"kind", st.Kind, "uid_hash", st.UIDHash}, logger.TraceAttrs(ctx)...)...)
-	}
-	if res.Stuck > 0 {
-		mw.ReportError(ctx, reporter, outboxSweepOp, fmt.Errorf("outbox: %d item(s) reached the attempt threshold", res.Stuck))
+	for _, e := range res.Errors {
+		s.log.WarnContext(ctx, "outbox_item_error", append([]any{"kind", e.Kind, "outcome", e.Outcome, "count", e.Count, "cause", e.Cause}, logger.TraceAttrs(ctx)...)...)
 	}
 	attrs := append(res.LogAttrs(), "latency_ms", time.Since(started).Milliseconds())
 	if err != nil {
