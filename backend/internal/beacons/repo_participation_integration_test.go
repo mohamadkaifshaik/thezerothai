@@ -322,8 +322,17 @@ func TestRepo_LeaveRemoveReopen(t *testing.T) {
 	if _, err := e.repo.Remove(ctx, e.state("org-r7", rpcRemoveParticipant, "integration-key-lv10", b.ID, "p1", e.now)); !errors.Is(err, ErrNotParticipant) {
 		t.Fatalf("remove a left row = %v, want ErrNotParticipant", err)
 	}
-	if _, err := e.repo.Leave(ctx, e.state("p1", rpcLeaveBeacon, "integration-key-lv11", b.ID, "p1", b.EndAt)); !errors.Is(err, ErrEnded) {
-		t.Fatalf("leave after the end = %v, want ErrEnded", err)
+	// The caller's own row answers first on a self rule: a LEFT row is not_participant even after the end.
+	if _, err := e.repo.Leave(ctx, e.state("p1", rpcLeaveBeacon, "integration-key-lv11", b.ID, "p1", b.EndAt)); !errors.Is(err, ErrNotParticipant) {
+		t.Fatalf("leave a left row after the end = %v, want ErrNotParticipant", err)
+	}
+	// An ACCEPTED row leaving after the end is still ErrEnded.
+	e.mustRequest(t, "p3", "integration-key-lv12", b.ID)
+	if _, err := e.respond("org-r7", "integration-key-lv13", b.ID, "p3", true, e.now); err != nil {
+		t.Fatalf("accept p3: %v", err)
+	}
+	if _, err := e.repo.Leave(ctx, e.state("p3", rpcLeaveBeacon, "integration-key-lv14", b.ID, "p3", b.EndAt)); !errors.Is(err, ErrEnded) {
+		t.Fatalf("leave an accepted row after the end = %v, want ErrEnded", err)
 	}
 }
 
