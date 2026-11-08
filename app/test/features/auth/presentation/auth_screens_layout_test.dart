@@ -171,7 +171,7 @@ void main() {
           '$mode ${brightness.name} ${size.width.toInt()} provider and email layouts',
           (tester) async {
             final previousPlatform = debugDefaultTargetPlatformOverride;
-            debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+            debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
             try {
               await open(tester, screen, size: size, brightness: brightness);
               expect(find.text(heading), findsOneWidget);
@@ -369,7 +369,7 @@ void main() {
       await tester.tap(find.text('Continue with Google'));
       verify(() => bloc.add(const AuthGoogleSignInRequested())).called(1);
       final previousPlatform = debugDefaultTargetPlatformOverride;
-      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
       try {
         await open(tester, const SignInScreen());
         await tester.tap(find.text('Continue with Apple'));
