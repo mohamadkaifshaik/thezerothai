@@ -16,19 +16,35 @@ func jpegDims(head []byte) (w, h int, ok bool) {
 	return cfg.Width, cfg.Height, true
 }
 
-// stillDims returns the real pixel size of a still JPEG or WebP from head; ok is false for any other type or when the
-// header cannot be read inside head.
-func stillDims(contentType string, head []byte) (w, h int, ok bool) {
+// gifDims returns a GIF's logical screen size: the two little-endian 16-bit fields after the six-byte signature
+// (bytes 6-9). The 512-byte sniff head always holds them, so no further read is made. The frame scan (scanGIF) later
+// refuses any frame outside this screen, so the screen bounds every pixel the file draws.
+func gifDims(head []byte) (w, h int, ok bool) {
+	if len(head) < 10 || (string(head[:6]) != "GIF87a" && string(head[:6]) != "GIF89a") {
+		return 0, 0, false
+	}
+	w, h = le16(head[6:]), le16(head[8:])
+	if w == 0 || h == 0 {
+		return 0, 0, false
+	}
+	return w, h, true
+}
+
+// imageDims returns the real pixel size of a still JPEG or WebP, or a GIF's logical screen, from head; ok is false for
+// any other type or when the header cannot be read inside head.
+func imageDims(contentType string, head []byte) (w, h int, ok bool) {
 	switch contentType {
 	case ContentTypeJPEG:
 		return jpegDims(head)
 	case ContentTypeWebP:
 		return webpDims(head)
+	case ContentTypeGIF:
+		return gifDims(head)
 	}
 	return 0, 0, false
 }
 
-// geometryOK checks an uploaded still's real pixel size against the document (B14), so what is published and screened is
+// geometryOK checks an uploaded image's real pixel size against the document (B14), so what is published and screened is
 // the image that was declared:
 //   - every image is within MaxDimension on each side and MaxPixels in total;
 //   - the full image is exactly the declared width x height (the official client declares what it encoded);
