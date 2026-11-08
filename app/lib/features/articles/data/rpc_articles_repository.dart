@@ -107,9 +107,7 @@ class RpcArticlesRepository implements ArticlesRepository {
                 authorId: draft.authorId,
                 revision: Int64(draft.revision),
                 title: draft.title,
-                bodyJson: jsonEncode(
-                  draft.blocks.map((b) => b.toJson()).toList(),
-                ),
+                bodyJson: draft.bodyJson,
                 coverMediaId: draft.coverMediaId ?? '',
               ),
               expectedRevision: Int64(expectedRevision),

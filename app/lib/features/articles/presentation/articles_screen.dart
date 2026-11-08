@@ -184,6 +184,22 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     }
   }
 
+  /// The copy for a body over a server limit, or null. Both limits are shown
+  /// so the author knows how much to cut.
+  String? _sizeError(List<String> errors) {
+    if (errors.contains('bodySize')) {
+      return 'This article is too long to save: it is '
+          '${_draft.bodyBytes} of $articleMaxBodyBytes bytes, including '
+          'formatting. Shorten it; your text stays here.';
+    }
+    if (errors.contains('bodyLength')) {
+      return 'This article is too long to save: the limit is '
+          '$articleMaxBodyCodePoints characters. Shorten it; your text stays '
+          'here.';
+    }
+    return null;
+  }
+
   String _message(Object error) => error is AppException
       ? error.message
       : 'Could not load or save this article. Please try again.';
@@ -233,6 +249,12 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     final generation = _generation;
     final loadGeneration = _loadGeneration;
     final draft = _draft;
+    final tooLarge = _sizeError(draft.saveErrors);
+    if (tooLarge != null) {
+      // Refused locally: the server would reject it. The editor keeps the text.
+      setState(() => _error = tooLarge);
+      return false;
+    }
     final sentKey = _contentKey;
     setState(() => _saving = true);
     try {
@@ -381,9 +403,12 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
 
   Future<void> _publish() async {
     if (!await _save() || !mounted) return;
-    if (_draft.publishErrors.isNotEmpty) {
+    final publishErrors = _draft.publishErrors;
+    if (publishErrors.isNotEmpty) {
       setState(
-        () => _error = 'Add a title and article body before publishing.',
+        () => _error =
+            _sizeError(publishErrors) ??
+            'Add a title and article body before publishing.',
       );
       return;
     }

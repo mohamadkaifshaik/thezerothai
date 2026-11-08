@@ -384,6 +384,31 @@ void main() {
     expect(repository.record.draft.revision, 4);
   });
 
+  testWidgets('an over-limit body is kept locally and never sent', (
+    tester,
+  ) async {
+    final repository = _Repository();
+    await pumpEditor(tester, repository);
+    // 60,001 CJK characters: under the code-point limit, over the byte cap.
+    final long = '語' * 60001;
+    await tester.enterText(bodyField(), long);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(repository.saves, 0);
+    expect(
+      find.textContaining('of $articleMaxBodyBytes bytes'),
+      findsOneWidget,
+    );
+    expect(find.text('Unsaved changes'), findsOneWidget);
+    expect(find.text(long), findsOneWidget);
+    // Shortening it saves normally.
+    await tester.enterText(bodyField(), '語' * 100);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(repository.saves, 1);
+    expect(find.text('Saved'), findsOneWidget);
+  });
+
   testWidgets('failed autosave remains unsaved and offers retry', (
     tester,
   ) async {
