@@ -371,7 +371,7 @@ type readCountObjects struct {
 }
 
 func (s *readCountObjects) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
-	if n != 512 {
+	if gifFullRead(object, n) {
 		s.reads.Add(1)
 	}
 	return s.fakeObjects.UploadHead(ctx, object, n, generation)
