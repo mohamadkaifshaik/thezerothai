@@ -60,6 +60,9 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
   bool _sideLoading = false;
   bool _sideRequested = false;
   String? _error;
+  // The server copy after a revision conflict whose content differs from the
+  // editor's: autosave pauses until the author keeps theirs or reloads.
+  ArticleRecord? _conflict;
   Timer? _debounce;
   _PublishOptions? _retryOptions;
 
@@ -130,6 +133,7 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
       _retryOptions = null;
       _saving = false;
       _dirty = false;
+      _conflict = null;
     }
     setState(() {
       _loading = true;
@@ -191,11 +195,14 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     coverMediaId: _coverMediaId,
     blocks: _blocks.map((b) => b.value),
   );
-  String get _contentKey => jsonEncode([
-    _title.text,
-    _coverMediaId,
-    _blocks.map((b) => b.value.toJson()).toList(),
-  ]);
+  String get _contentKey =>
+      _keyOf(_title.text, _coverMediaId, _blocks.map((b) => b.value));
+  static String _keyOf(
+    String title,
+    String? coverMediaId,
+    Iterable<ArticleBlock> blocks,
+  ) =>
+      jsonEncode([title, coverMediaId, blocks.map((b) => b.toJson()).toList()]);
   void _changed() {
     if (_record == null ||
         widget.reader ||
@@ -222,9 +229,11 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     _debounce?.cancel();
     if (_saving) return false;
     if (!_dirty) return true;
+    if (_conflict != null) return false;
     final generation = _generation;
     final loadGeneration = _loadGeneration;
     final draft = _draft;
+    final sentKey = _contentKey;
     setState(() => _saving = true);
     try {
       final record = await _repository.save(
@@ -252,6 +261,9 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
         );
       }
       return !_dirty;
+    } on ArticleRevisionConflict {
+      if (!mounted || loadGeneration != _loadGeneration) return false;
+      return _reconcile(draft.id, sentKey, generation, loadGeneration);
     } catch (error) {
       if (mounted && loadGeneration == _loadGeneration) {
         setState(() => _error = _message(error));
@@ -262,6 +274,75 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
         setState(() => _saving = false);
       }
     }
+  }
+
+  /// A save was refused as stale. When the server already holds exactly what
+  /// was sent (an earlier save committed but its reply was lost), adopt the
+  /// server revision and carry on. Otherwise the article changed elsewhere:
+  /// pause autosave and let the author keep theirs or reload; local blocks
+  /// are never dropped without that choice.
+  Future<bool> _reconcile(
+    String id,
+    String sentKey,
+    int generation,
+    int loadGeneration,
+  ) async {
+    final ArticleRecord server;
+    try {
+      server = await _repository.get(id);
+    } catch (error) {
+      if (mounted && loadGeneration == _loadGeneration) {
+        setState(() => _error = _message(error));
+      }
+      return false;
+    }
+    if (!mounted || loadGeneration != _loadGeneration) return false;
+    final serverKey = _keyOf(
+      server.draft.title,
+      server.draft.coverMediaId,
+      server.draft.blocks,
+    );
+    if (serverKey == sentKey && !server.published) {
+      setState(() {
+        _record = server;
+        _dirty = generation != _generation;
+        _error = null;
+      });
+      if (_dirty) {
+        _debounce = Timer(
+          const Duration(milliseconds: 200),
+          () => unawaited(_save()),
+        );
+      }
+      return !_dirty;
+    }
+    setState(() {
+      _conflict = server;
+      _error = null;
+    });
+    return false;
+  }
+
+  /// Keep mine: overwrite the server copy with the editor's content, based on
+  /// the server revision just read.
+  Future<void> _keepMine() async {
+    final server = _conflict;
+    if (server == null) return;
+    setState(() {
+      _record = server;
+      _conflict = null;
+      _dirty = true;
+    });
+    await _save();
+  }
+
+  /// Reload: replace the editor with the server copy (the author chose to).
+  Future<void> _reloadServer() async {
+    setState(() {
+      _conflict = null;
+      _dirty = false;
+    });
+    await _load();
   }
 
   Future<void> _create() async {
@@ -529,6 +610,24 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
         ),
         body: Column(
           children: [
+            if (_conflict != null)
+              MaterialBanner(
+                key: const Key('article-conflict'),
+                content: const Text(
+                  'Changed elsewhere. This article was edited on another '
+                  'device or tab. Keep your version, or reload the saved one?',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: _keepMine,
+                    child: const Text('Keep mine'),
+                  ),
+                  TextButton(
+                    onPressed: _reloadServer,
+                    child: const Text('Reload'),
+                  ),
+                ],
+              ),
             if (_error != null)
               MaterialBanner(
                 content: Text(_error!),

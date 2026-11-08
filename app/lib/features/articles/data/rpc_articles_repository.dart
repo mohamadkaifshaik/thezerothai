@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:connectrpc/connect.dart' as connect;
 import 'package:fixnum/fixnum.dart';
 import 'package:uuid/uuid.dart';
 
@@ -94,21 +95,36 @@ class RpcArticlesRepository implements ArticlesRepository {
     ArticleDraft draft, {
     required int expectedRevision,
   }) async {
-    final response = await _run(
-      () => _api.articles.saveArticle(
-        pb.SaveArticleRequest(
-          article: pb.Article(
-            articleId: draft.id,
-            authorId: draft.authorId,
-            revision: Int64(draft.revision),
-            title: draft.title,
-            bodyJson: jsonEncode(draft.blocks.map((b) => b.toJson()).toList()),
-            coverMediaId: draft.coverMediaId ?? '',
-          ),
-          expectedRevision: Int64(expectedRevision),
-        ),
-      ),
-    );
+    var conflict = false;
+    final pb.SaveArticleResponse response;
+    try {
+      response = await _run(() async {
+        try {
+          return await _api.articles.saveArticle(
+            pb.SaveArticleRequest(
+              article: pb.Article(
+                articleId: draft.id,
+                authorId: draft.authorId,
+                revision: Int64(draft.revision),
+                title: draft.title,
+                bodyJson: jsonEncode(
+                  draft.blocks.map((b) => b.toJson()).toList(),
+                ),
+                coverMediaId: draft.coverMediaId ?? '',
+              ),
+              expectedRevision: Int64(expectedRevision),
+            ),
+          );
+        } on connect.ConnectException catch (error) {
+          // The revision CAS failed: the caller must reconcile, not retry.
+          conflict = error.code == connect.Code.aborted;
+          rethrow;
+        }
+      });
+    } catch (_) {
+      if (conflict) throw const ArticleRevisionConflict();
+      rethrow;
+    }
     return _from(response.article);
   }
 

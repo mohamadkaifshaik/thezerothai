@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:connectrpc/connect.dart' as connect;
 import 'package:drift/native.dart';
 import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
@@ -93,6 +94,28 @@ void main() {
       );
     },
   );
+
+  group('save', () {
+    final draft = ArticleDraft(id: 'a' * 32, authorId: 'alice', revision: 1);
+    test('a stale revision (ABORTED) is an ArticleRevisionConflict', () async {
+      reply.completeError(
+        connect.ConnectException(connect.Code.aborted, 'article changed'),
+      );
+      await expectLater(
+        repo.save(draft, expectedRevision: 1),
+        throwsA(isA<ArticleRevisionConflict>()),
+      );
+    });
+    test('other failures keep their typed error', () async {
+      reply.completeError(
+        connect.ConnectException(connect.Code.notFound, 'article not found'),
+      );
+      await expectLater(
+        repo.save(draft, expectedRevision: 1),
+        throwsA(isA<NotFoundException>()),
+      );
+    });
+  });
 
   test('disabled articles make no RPC', () async {
     enabled = false;
