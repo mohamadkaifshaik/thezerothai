@@ -132,14 +132,29 @@ func (s *service) social(ctx context.Context, uid string) (graph.Snapshot, error
 }
 
 // requireMember is the community-audience gate: FEATURE_COMMUNITIES (on for the caller when mustBeOn, else not globally
-// off), then the caller's role must be owner, moderator or member; none, banned, a missing community or a nil reader is
-// ErrNotMember (fail closed).
-func (s *service) requireMember(ctx context.Context, uid, communityID string, mustBeOn bool) error {
+// off), then communityVerdict. write marks a path that adds to the community (CreateBeacon, RequestToJoin, an ACCEPT).
+func (s *service) requireMember(ctx context.Context, uid, communityID string, mustBeOn, write bool) error {
 	if err := GuardCommunities(ctx, s.d.CommunityFlags, uid, mustBeOn); err != nil {
 		return err
 	}
+	return s.communityVerdict(ctx, uid, communityID, write)
+}
+
+// communityVerdict is uid's standing in a community, the flag aside, mirroring communities.PostGate.Admit: the
+// community (cache-first, 60 s) and uid's role (cached). A missing community, a nil reader, a role other than owner,
+// moderator or member (none, banned) is ErrNotMember (fail closed). SUSPENDED is the one ErrNotFound to everyone but the
+// community's owner on a read, and to everyone on a write (the platform took it offline). ARCHIVED is read-only: a
+// write is COMMUNITY_STATE community_archived (communities.StateConflict). Any other error is returned (not a refusal).
+func (s *service) communityVerdict(ctx context.Context, uid, communityID string, write bool) error {
 	if s.d.Communities == nil {
 		return ErrNotMember
+	}
+	c, err := s.d.Communities.Get(ctx, communityID)
+	if err != nil {
+		if errors.Is(err, communities.ErrNotFound) {
+			return ErrNotMember
+		}
+		return logger.RedactErr(fmt.Errorf("beacons: community: %w", err), uid, communityID)
 	}
 	role, err := s.d.Communities.Role(ctx, communityID, uid)
 	if err != nil {
@@ -148,11 +163,76 @@ func (s *service) requireMember(ctx context.Context, uid, communityID string, mu
 		}
 		return logger.RedactErr(fmt.Errorf("beacons: community role: %w", err), uid, communityID)
 	}
+	if c.Status == communities.StatusSuspended && (write || role != communities.RoleOwner) {
+		return ErrNotFound
+	}
 	switch role {
 	case communities.RoleOwner, communities.RoleModerator, communities.RoleMember:
-		return nil
+	default:
+		return ErrNotMember
 	}
-	return ErrNotMember
+	if write && c.Status == communities.StatusArchived {
+		return communities.StateConflict(communities.StateArchived)
+	}
+	return nil
+}
+
+// communityVerdicts answers communityVerdict (read) for each distinct community of a list page: true renders. A refusal
+// (not a member, suspended, missing, FEATURE_COMMUNITIES globally off) is false; any other error fails the page.
+func (s *service) communityVerdicts(ctx context.Context, uid string, cids []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(cids))
+	if len(cids) == 0 || s.d.CommunityFlags == nil || s.d.CommunityFlags.GloballyOff(communities.FlagName) {
+		return out, nil
+	}
+	for _, cid := range cids {
+		err := s.communityVerdict(ctx, uid, cid, false)
+		switch {
+		case err == nil:
+			out[cid] = true
+		case errors.Is(err, ErrNotMember), errors.Is(err, ErrNotFound):
+		default:
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// blockCheck answers "is there a block between viewer and other, either way" for one request. The viewer's own graph
+// (cached, 60 s) holds both directions until its blockedBy overflowed; past that, a block the other user holds is read
+// from their own graph (once per user per request, posts/timeline precedent), and a failed read is an error (the caller
+// fails closed).
+type blockCheck struct {
+	s      *service
+	viewer string
+	snap   graph.Snapshot
+	others map[string]bool
+}
+
+func (s *service) blocks(ctx context.Context, viewer string) (*blockCheck, error) {
+	snap, err := s.social(ctx, viewer)
+	if err != nil {
+		return nil, err
+	}
+	return &blockCheck{s: s, viewer: viewer, snap: snap, others: map[string]bool{}}, nil
+}
+
+func (c *blockCheck) blocked(ctx context.Context, other string) (bool, error) {
+	if c.snap.Blocked[other] || c.snap.BlockedBy[other] {
+		return true, nil
+	}
+	if !c.snap.BlockedByOverflow {
+		return false, nil
+	}
+	if v, ok := c.others[other]; ok {
+		return v, nil
+	}
+	osnap, err := c.s.social(ctx, other)
+	if err != nil {
+		return false, err
+	}
+	v := osnap.Blocked[c.viewer]
+	c.others[other] = v
+	return v, nil
 }
 
 // begin records the op on the request line.
@@ -329,7 +409,7 @@ func (s *service) CreateBeacon(ctx context.Context, uid string, in CreateInput) 
 		return View{}, mapErr(ctx, "create", uid, "", err)
 	}
 	if b.CommunityID != "" {
-		if err := s.requireMember(ctx, uid, b.CommunityID, true); err != nil {
+		if err := s.requireMember(ctx, uid, b.CommunityID, true, true); err != nil {
 			return View{}, mapErr(ctx, "create", uid, "", err)
 		}
 	}

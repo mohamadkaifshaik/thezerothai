@@ -411,6 +411,65 @@ func TestRepo_ListMembershipsParticipantsAndGetBeacons(t *testing.T) {
 	}
 }
 
+// TestRepo_SelfTransitionsReleaseSeatOnHiddenBeacon (B05): the way out needs only the caller's own row. A participant of
+// a FULL beacon that was hidden still leaves (the seat is released and the beacon reopens) and a requester still
+// withdraws; a caller with no row is ErrNotFound, even on an ended beacon (never ended / not_participant, which would
+// say the beacon exists). Remove keeps ErrNotParticipant for a missing row.
+func TestRepo_SelfTransitionsReleaseSeatOnHiddenBeacon(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	in := e.beaconAt("org-sl", "", e.now.Add(time.Hour))
+	in.OpenSpots = 1
+	b := e.create(t, "org-sl", itKeyA, in).Beacon
+	e.mustRequest(t, "sl-p1", "integration-key-sl01", b.ID)
+	e.mustRequest(t, "sl-p2", "integration-key-sl02", b.ID)
+	if res, err := e.respond("org-sl", "integration-key-sl03", b.ID, "sl-p1", true, e.now); err != nil || res.Beacon.Status != StatusFull {
+		t.Fatalf("accept = %+v, %v, want FULL", res.Beacon, err)
+	}
+	if _, err := e.repo.SetHidden(ctx, b.ID, true, e.now); err != nil {
+		t.Fatal(err)
+	}
+	res, err := e.repo.Leave(ctx, e.state("sl-p1", rpcLeaveBeacon, "integration-key-sl04", b.ID, "sl-p1", e.now))
+	if err != nil || res.Participant.State != PStateLeft || res.Beacon.AcceptedCount != 0 || res.Beacon.Status != StatusOpen {
+		t.Fatalf("leave a hidden beacon = %+v, %v, want left, count 0, open", res, err)
+	}
+	got, err := e.repo.Get(ctx, b.ID)
+	if err != nil || got.AcceptedCount != 0 || got.Status != StatusOpen {
+		t.Fatalf("stored beacon = %+v, %v, want the seat released", got, err)
+	}
+	if res, err := e.repo.Withdraw(ctx, e.state("sl-p2", rpcWithdrawJoinRequest, "integration-key-sl05", b.ID, "sl-p2", e.now)); err != nil || res.Participant.State != PStateWithdrawn {
+		t.Fatalf("withdraw on a hidden beacon = %+v, %v", res, err)
+	}
+	for i, at := range []time.Time{e.now, b.EndAt} {
+		if _, err := e.repo.Leave(ctx, e.state("sl-nobody", rpcLeaveBeacon, fmt.Sprintf("integration-key-sl06-%d", i), b.ID, "sl-nobody", at)); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("leave without a row at %v = %v, want ErrNotFound", at, err)
+		}
+		if _, err := e.repo.Withdraw(ctx, e.state("sl-nobody", rpcWithdrawJoinRequest, fmt.Sprintf("integration-key-sl07-%d", i), b.ID, "sl-nobody", at)); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("withdraw without a row at %v = %v, want ErrNotFound", at, err)
+		}
+	}
+	if _, err := e.repo.Remove(ctx, e.state("org-sl", rpcRemoveParticipant, "integration-key-sl08", b.ID, "sl-nobody", e.now)); !errors.Is(err, ErrNotParticipant) {
+		t.Fatalf("remove without a row = %v, want ErrNotParticipant", err)
+	}
+}
+
+// TestRepo_GetParticipantsBatch (B06): one GetAll of the caller's own rows, keyed by beacon id; no row is absent.
+func TestRepo_GetParticipantsBatch(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	b1 := e.create(t, "org-gp", itKeyA, e.beaconAt("org-gp", "", e.now.Add(time.Hour))).Beacon
+	b2 := e.create(t, "org-gp", itKeyB, e.beaconAt("org-gp", "", e.now.Add(2*time.Hour))).Beacon
+	e.mustRequest(t, "gp-p1", "integration-key-gp01", b1.ID)
+	e.mustRequest(t, "gp-p2", "integration-key-gp02", b2.ID)
+	got, err := e.repo.GetParticipants(ctx, "gp-p1", []string{b1.ID, b2.ID})
+	if err != nil || len(got) != 1 || got[b1.ID].State != PStateRequested || got[b1.ID].UID != "gp-p1" {
+		t.Fatalf("GetParticipants = %+v, %v, want only gp-p1's row on b1", got, err)
+	}
+	if empty, err := e.repo.GetParticipants(ctx, "gp-p1", nil); err != nil || len(empty) != 0 {
+		t.Fatalf("empty batch = %v, %v", empty, err)
+	}
+}
+
 func membershipIDs(ms []Membership) []string {
 	out := make([]string, 0, len(ms))
 	for _, m := range ms {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
@@ -51,7 +52,8 @@ func rolesFor(role string) ([]string, string, error) {
 
 // ListMyBeacons implements Service (the proto doc comment is the contract). Order of the work: the role filter and the
 // token (pure), one query of page_size + 1 membership rows (the extra row decides next_page_token, from the raw rows),
-// one GetAll of their beacons (a missing one is a dangling row after an erasure, R3, dropped; a hidden one is dropped
+// one GetAll of their beacons (a missing one is a dangling row after an erasure, R3, dropped; a hidden one, one across a
+// block with the organiser, overflow-aware, and a community one failing the GetBeacon community verdict are dropped
 // unless the caller organises it), one batched profile read of the organisers (a missing or non-ACTIVE organiser drops
 // the row), then the views with the caller's state from each membership row.
 func (s *service) ListMyBeacons(ctx context.Context, uid string, in MyBeaconsInput) (Page, error) {
@@ -94,42 +96,59 @@ func (s *service) ListMyBeacons(ctx context.Context, uid string, in MyBeaconsInp
 	if err != nil {
 		return Page{}, mapErr(ctx, "mine", uid, "", err)
 	}
-	snap, err := s.social(ctx, uid)
+	// A row renders when its beacon exists; a terminal row (declined, withdrawn, left, removed) is history and is
+	// dropped; for a row the caller does not organise, the beacon must not be hidden, have no block either way with the
+	// organiser (overflow-aware) and, for a community audience, pass the same community verdict as GetBeacon (once per
+	// community on the page). The organiser's own rows always stay so they can cancel.
+	type row struct {
+		m Membership
+		b Beacon
+	}
+	cands := make([]row, 0, len(rows))
+	var cids []string
+	seenCID := map[string]bool{}
+	for _, m := range rows {
+		b, ok := beacons[m.BeaconID]
+		if !ok {
+			continue
+		}
+		if b.OrganiserID != uid {
+			if m.State != PStateRequested && m.State != PStateAccepted {
+				continue
+			}
+			if b.CommunityID != "" && !seenCID[b.CommunityID] {
+				seenCID[b.CommunityID] = true
+				cids = append(cids, b.CommunityID)
+			}
+		}
+		cands = append(cands, row{m: m, b: b})
+	}
+	bc, err := s.blocks(ctx, uid)
 	if err != nil {
 		return Page{}, mapErr(ctx, "mine", uid, "", err)
 	}
-	// keep decides whether a membership row renders: its beacon exists; a terminal row (declined, withdrawn, left,
-	// removed) is history and is dropped; a hidden beacon shows only to its organiser; a block in either direction with
-	// the organiser drops the row (the same rule GetBeacon applies).
-	keep := func(m Membership) (Beacon, bool) {
-		b, ok := beacons[m.BeaconID]
-		if !ok {
-			return Beacon{}, false
-		}
-		mine := b.OrganiserID == uid
-		if !mine && m.State != PStateRequested && m.State != PStateAccepted {
-			return Beacon{}, false
-		}
-		if !mine && (b.Hidden || snap.BlockedBy[b.OrganiserID] || snap.Blocked[b.OrganiserID]) {
-			return Beacon{}, false
-		}
-		return b, true
+	verdicts, err := s.communityVerdicts(ctx, uid, cids)
+	if err != nil {
+		return Page{}, mapErr(ctx, "mine", uid, "", err)
 	}
-	organisers := make([]string, 0, len(rows))
+	kept := make([]row, 0, len(cands))
+	organisers := make([]string, 0, len(cands))
 	seen := map[string]bool{}
-	dropped := 0
-	for _, m := range rows {
-		b, ok := keep(m)
-		if !ok {
-			dropped++
+	for _, c := range cands {
+		cause, err := visibleRow(ctx, bc, uid, c.b)
+		if err != nil {
+			return Page{}, mapErr(ctx, "mine", uid, "", err)
+		}
+		if cause != "" || (c.b.OrganiserID != uid && c.b.CommunityID != "" && !verdicts[c.b.CommunityID]) {
 			continue
 		}
-		if !seen[b.OrganiserID] {
-			seen[b.OrganiserID] = true
-			organisers = append(organisers, b.OrganiserID)
+		kept = append(kept, c)
+		if !seen[c.b.OrganiserID] {
+			seen[c.b.OrganiserID] = true
+			organisers = append(organisers, c.b.OrganiserID)
 		}
 	}
-	logger.SetRequestField(ctx, "rows_dropped", dropped)
+	logger.SetRequestField(ctx, "rows_dropped", len(rows)-len(kept))
 	if len(organisers) == 0 {
 		return out, nil
 	}
@@ -137,20 +156,16 @@ func (s *service) ListMyBeacons(ctx context.Context, uid string, in MyBeaconsInp
 	if err != nil {
 		return Page{}, mapErr(ctx, "mine", uid, "", logger.RedactErr(fmt.Errorf("beacons: load organiser profiles: %w", err), organisers...))
 	}
-	for _, m := range rows {
-		b, ok := keep(m)
-		if !ok {
-			continue
-		}
-		p, ok := profs[b.OrganiserID]
+	for _, c := range kept {
+		p, ok := profs[c.b.OrganiserID]
 		if !ok || p.Status != identity.AccountStatusActive {
 			continue
 		}
-		pstate := m.State
-		if m.Role == RoleOrganiser {
+		pstate := c.m.State
+		if c.m.Role == RoleOrganiser {
 			pstate = ""
 		}
-		out.Views = append(out.Views, s.viewWith(b, p, uid, pstate))
+		out.Views = append(out.Views, s.viewWith(c.b, p, uid, pstate))
 	}
 	return out, nil
 }
@@ -158,7 +173,9 @@ func (s *service) ListMyBeacons(ctx context.Context, uid string, in MyBeaconsInp
 // ListParticipants implements Service. Visibility first (resolve), then who may list what: REQUESTED rows are the
 // organiser's (FORBIDDEN not_organiser); ACCEPTED rows are visible to the organiser and to ACCEPTED participants (one
 // point read; anyone else is the one NOT_FOUND). One query of page_size + 1 rows, one batched profile read (a missing
-// or non-ACTIVE user drops the row), notes only on REQUESTED rows.
+// or non-ACTIVE user drops the row), notes only on REQUESTED rows. A participant viewer does not see peers across a
+// block either way, and past an overflowed blockedBy only the peers they follow (the viewer's graph only, 0 reads; the
+// communities member-list precedent); the organiser sees everyone. The page token comes from the raw rows.
 func (s *service) ListParticipants(ctx context.Context, viewer string, in ListParticipantsInput) (ParticipantsPage, error) {
 	begin(ctx, "participants")
 	if err := validateBeaconID(in.BeaconID); err != nil {
@@ -217,11 +234,15 @@ func (s *service) ListParticipants(ctx context.Context, viewer string, in ListPa
 	if err != nil {
 		return ParticipantsPage{}, mapErr(ctx, "participants", viewer, in.BeaconID, logger.RedactErr(fmt.Errorf("beacons: load participant profiles: %w", err), uids...))
 	}
-	dropped := 0
+	dropped, droppedBlocked := 0, 0
 	for _, p := range rows {
 		prof, ok := profs[p.UID]
 		if !ok || prof.Status != identity.AccountStatusActive {
 			dropped++
+			continue
+		}
+		if !a.isOrganiser && !peerVisible(a.blocks.snap, viewer, p.UID) {
+			droppedBlocked++
 			continue
 		}
 		if !in.Requested {
@@ -230,5 +251,18 @@ func (s *service) ListParticipants(ctx context.Context, viewer string, in ListPa
 		out.Rows = append(out.Rows, ParticipantRow{Participant: p, User: prof})
 	}
 	logger.SetRequestField(ctx, "rows_dropped_gone", dropped)
+	logger.SetRequestField(ctx, fieldDroppedBlocked, droppedBlocked)
 	return out, nil
+}
+
+// peerVisible is the roster rule for a participant viewer: themselves always; anyone else unless a block either way,
+// and past an overflowed blockedBy only someone they follow (fail closed without a read per row).
+func peerVisible(snap graph.Snapshot, viewer, peer string) bool {
+	if peer == viewer {
+		return true
+	}
+	if snap.Blocked[peer] || snap.BlockedBy[peer] {
+		return false
+	}
+	return !snap.BlockedByOverflow || snap.Following[peer]
 }

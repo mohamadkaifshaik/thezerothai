@@ -26,21 +26,29 @@ const (
 // errPageToken is the one answer for a page token that does not open or whose payload does not parse.
 func errPageToken() error { return apierr.Validation("page_token", "page_token is invalid or expired") }
 
-// access is what the visibility check proved for one (viewer, beacon): the beacon as stored and its organiser's live
-// profile.
+// access is what the visibility check proved for one (viewer, beacon): the beacon as stored, its organiser's live
+// profile and, for a non-organiser, the viewer's block check (its graph already loaded).
 type access struct {
 	beacon      Beacon
 	organiser   identity.Profile
 	isOrganiser bool
+	blocks      *blockCheck
 }
 
-// resolve applies the visibility rules once for every read and participation or organiser write. Order, cheapest
-// first, each refusal the same ErrNotFound unless noted: the beacon (1 read); a hidden beacon to anyone but its
-// organiser; a block in either direction (viewer graph, cached; before the membership check, R15, so a blocked viewer
-// never learns the beacon exists); a community audience needs the viewer JOINED (ErrNotMember; FEATURE_COMMUNITIES not
-// globally off), except the organiser, who can always manage their own beacon (a beacon must stay cancellable after
-// the organiser leaves the community); an organiser who is missing or not ACTIVE (profile, cached).
+// resolve is resolveFor a read.
 func (s *service) resolve(ctx context.Context, viewer, beaconID string) (access, error) {
+	return s.resolveFor(ctx, viewer, beaconID, false)
+}
+
+// resolveFor applies the visibility rules once for every read and participation or organiser write. Order, cheapest
+// first, each refusal the same ErrNotFound unless noted: the beacon (1 read); a hidden beacon to anyone but its
+// organiser; a block in either direction (viewer graph, cached; past an overflowed blockedBy also the organiser's own
+// graph, fail closed; before the membership check, R15, so a blocked viewer never learns the beacon exists); a
+// community audience needs the community verdict (requireMember: JOINED, ErrNotMember; SUSPENDED is ErrNotFound;
+// write refuses ARCHIVED; FEATURE_COMMUNITIES not globally off), except for the organiser, who can always manage their
+// own beacon (a beacon must stay cancellable after the organiser leaves the community or it is suspended); an organiser
+// who is missing or not ACTIVE (profile, cached).
+func (s *service) resolveFor(ctx context.Context, viewer, beaconID string, write bool) (access, error) {
 	if !ids.ValidPostID(beaconID) {
 		return access{}, ErrNotFound
 	}
@@ -53,15 +61,20 @@ func (s *service) resolve(ctx context.Context, viewer, beaconID string) (access,
 		return access{}, ErrNotFound
 	}
 	if !a.isOrganiser {
-		snap, err := s.social(ctx, viewer)
+		bc, err := s.blocks(ctx, viewer)
 		if err != nil {
 			return access{}, err
 		}
-		if snap.BlockedBy[b.OrganiserID] || snap.Blocked[b.OrganiserID] {
+		blocked, err := bc.blocked(ctx, b.OrganiserID)
+		if err != nil {
+			return access{}, err
+		}
+		if blocked {
 			return access{}, ErrNotFound
 		}
+		a.blocks = bc
 		if b.CommunityID != "" {
-			if err := s.requireMember(ctx, viewer, b.CommunityID, false); err != nil {
+			if err := s.requireMember(ctx, viewer, b.CommunityID, false, write); err != nil {
 				return access{}, err
 			}
 		}
@@ -76,6 +89,26 @@ func (s *service) resolve(ctx context.Context, viewer, beaconID string) (access,
 	}
 	a.organiser = op
 	return a, nil
+}
+
+// visibleRow is the per-row rule of ListBeacons and ListMyBeacons, the same as resolve's: a hidden beacon renders only
+// to its organiser; a block in either direction with the organiser (bc, overflow-aware) drops it. cause names the drop
+// ("hidden", "blocked"); err is a failed graph read (the page fails closed).
+func visibleRow(ctx context.Context, bc *blockCheck, viewer string, b Beacon) (cause string, err error) {
+	if b.OrganiserID == viewer {
+		return "", nil
+	}
+	if b.Hidden {
+		return "hidden", nil
+	}
+	blocked, err := bc.blocked(ctx, b.OrganiserID)
+	if err != nil {
+		return "", err
+	}
+	if blocked {
+		return "blocked", nil
+	}
+	return "", nil
 }
 
 // GetBeacon implements Service.
@@ -109,6 +142,23 @@ func (s *service) participantState(ctx context.Context, a access, viewer string)
 		return "", nil
 	}
 	return "", err
+}
+
+// participantStates is the viewer's participant row state per beacon id (absent = no row) in one batched read; none
+// for an empty page.
+func (s *service) participantStates(ctx context.Context, viewer string, beaconIDs []string) (map[string]string, error) {
+	out := make(map[string]string, len(beaconIDs))
+	if len(beaconIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.d.Repo.GetParticipants(ctx, viewer, beaconIDs)
+	if err != nil {
+		return nil, err
+	}
+	for id, p := range rows {
+		out[id] = p.State
+	}
+	return out, nil
 }
 
 // ---- page tokens ----
@@ -152,15 +202,17 @@ func (s *service) encodeAfter(binding string, b Beacon) string {
 // ListBeacons implements Service (the proto doc comment is the contract). Order of the work: validation and the community
 // gate (0 Firestore reads: the role is cached), the token (pure), one query of page_size + 1 docs (the extra row decides
 // next_page_token, computed from the raw rows so a filtered page still resumes correctly, R8), the viewer's graph
-// (cached) to drop beacons across a block, hidden beacons dropped unless the viewer organises them, then one batched
-// profile read of the organisers (a missing or non-ACTIVE organiser drops the row).
+// (cached; past an overflowed blockedBy each organiser's own graph, once per organiser) to drop beacons across a block,
+// hidden beacons dropped unless the viewer organises them, one batched profile read of the organisers (a missing or
+// non-ACTIVE organiser drops the row), then one GetAll of the viewer's participant rows on the shown beacons they do
+// not organise, so each row carries the same viewer state GetBeacon answers.
 func (s *service) ListBeacons(ctx context.Context, viewer string, in ListInput) (Page, error) {
 	begin(ctx, "list")
 	if err := validateAudience(in.CommunityID, in.Public); err != nil {
 		return Page{}, mapErr(ctx, "list", viewer, "", err)
 	}
 	if in.CommunityID != "" {
-		if err := s.requireMember(ctx, viewer, in.CommunityID, false); err != nil {
+		if err := s.requireMember(ctx, viewer, in.CommunityID, false, false); err != nil {
 			return Page{}, mapErr(ctx, "list", viewer, "", err)
 		}
 	}
@@ -190,7 +242,7 @@ func (s *service) ListBeacons(ctx context.Context, viewer string, in ListInput) 
 	if len(rows) == 0 {
 		return out, nil
 	}
-	snap, err := s.social(ctx, viewer)
+	bc, err := s.blocks(ctx, viewer)
 	if err != nil {
 		return Page{}, mapErr(ctx, "list", viewer, "", err)
 	}
@@ -199,11 +251,15 @@ func (s *service) ListBeacons(ctx context.Context, viewer string, in ListInput) 
 	seen := map[string]bool{}
 	droppedHidden, droppedBlocked := 0, 0
 	for _, b := range rows {
-		switch {
-		case b.Hidden && b.OrganiserID != viewer:
+		cause, err := visibleRow(ctx, bc, viewer, b)
+		if err != nil {
+			return Page{}, mapErr(ctx, "list", viewer, "", err)
+		}
+		switch cause {
+		case "hidden":
 			droppedHidden++
 			continue
-		case snap.BlockedBy[b.OrganiserID] || snap.Blocked[b.OrganiserID]:
+		case "blocked":
 			droppedBlocked++
 			continue
 		}
@@ -223,13 +279,25 @@ func (s *service) ListBeacons(ctx context.Context, viewer string, in ListInput) 
 		return Page{}, mapErr(ctx, "list", viewer, "", logger.RedactErr(fmt.Errorf("beacons: load organiser profiles: %w", err), organisers...))
 	}
 	droppedGone := 0
+	shown := kept[:0]
+	others := make([]string, 0, len(kept))
 	for _, b := range kept {
 		p, ok := profs[b.OrganiserID]
 		if !ok || p.Status != identity.AccountStatusActive {
 			droppedGone++
 			continue
 		}
-		out.Views = append(out.Views, s.view(b, p, viewer))
+		shown = append(shown, b)
+		if b.OrganiserID != viewer {
+			others = append(others, b.ID)
+		}
+	}
+	states, err := s.participantStates(ctx, viewer, others)
+	if err != nil {
+		return Page{}, mapErr(ctx, "list", viewer, "", err)
+	}
+	for _, b := range shown {
+		out.Views = append(out.Views, s.viewWith(b, profs[b.OrganiserID], viewer, states[b.ID]))
 	}
 	logger.SetRequestField(ctx, fieldDroppedGone, droppedGone)
 	return out, nil
