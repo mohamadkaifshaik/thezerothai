@@ -129,3 +129,14 @@ func truncateRunes(s string, n int) string {
 	}
 	return string([]rune(s)[:n])
 }
+
+// truncateBytes cuts s to at most n bytes of UTF-8, never inside a code point.
+func truncateBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}

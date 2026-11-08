@@ -244,6 +244,30 @@ func TestReportsShow_BeaconEvidence(t *testing.T) {
 	}
 }
 
+// `reports show` renders the article snapshot of a POST report on an article root after the post evidence.
+func TestReportsShow_ArticleEvidence(t *testing.T) {
+	t.Parallel()
+	ops := &fakeOps{report: &moderation.Report{
+		TargetType: moderation.TargetPost, TargetID: "1000000000000000001", TargetOwnerID: "owner", Status: moderation.StatusOpen,
+		Evidence: &moderation.Evidence{AuthorHandle: "alice", Text: "Read my article", PostCreatedAt: time.Date(2026, 11, 8, 10, 0, 0, 0, time.UTC),
+			ArticleID: "article-0000000000000001", ArticleTitle: "Title", ArticleRevision: 4, ArticleBody: "Body text", ArticleBodyTruncated: true},
+	}}
+	f := &modFixture{ops: ops, mod: &fakeModerator{}, acc: &fakeAccounts{}}
+	code, out, errOut := f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, errOut)
+	}
+	for _, w := range []string{`evidence post by @alice`, `evidence article article-0000000000000001 revision 4: title "Title", body "Body text" (truncated)`} {
+		if !strings.Contains(out, w) {
+			t.Errorf("output lacks %q:\n%s", w, out)
+		}
+	}
+	ops.report.Evidence.ArticleID = ""
+	if _, out, _ = f.run("", "reports", "show", "--project", "dzeroth-dev", "--id", testReportID); strings.Contains(out, "evidence article") {
+		t.Errorf("plain post rendered an article: %q", out)
+	}
+}
+
 // fakeBeaconStats is a beacons.Stats answering fixed counts.
 type fakeBeaconStats struct {
 	counts beacons.Counts

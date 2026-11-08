@@ -507,7 +507,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return nil, nil, errors.New("lists service does not implement ListReporter")
 	}
 	moderationSvc := moderation.New(moderation.Deps{
-		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d, Messages: lateMessages, Lists: listReportLookup{r: listReporter}, Communities: lateCommunities, Beacons: lateBeacons,
+		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d, Messages: lateMessages, Lists: listReportLookup{r: listReporter}, Communities: lateCommunities, Beacons: lateBeacons, Articles: articleReportLookup{r: articles.NewEvidenceReader(fsClient)},
 		ReportsPerDay:           int64(cfg.Quota.ReportsPerDay),
 		NewAccountReportsPerDay: int64(cfg.Quota.NewAccountReportsPerDay),
 		NewAccountWindow:        cfg.Quota.NewAccountWindow,
