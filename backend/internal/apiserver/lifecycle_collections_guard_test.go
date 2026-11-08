@@ -167,7 +167,7 @@ var lifecycleCollections = []collectionRow{
 	// uid the item is about, an opaque payload (for post_delete: uid, post id, media ids), attempts and times, with a 30-day
 	// expireAt TTL backstop. The `outbox` step (BeforeIdentity, appended after beacons) deletes every item with uid == the
 	// deleted user, so the sweep finds no residue; nothing is exported (an operational pointer, not user content).
-	{Name: "outbox", Disposition: erasedByStep, Step: "outbox", ExportNote: "operational work items (kind, post id, uid, attempts); not user content, not exported", Owner: "platform", Cite: "ADR-0011 Q1 (the outbox step erases by uid); collection and TTL owner-approved 2026-11-08 (fix plan Task 9, A01) until its ADR is written"},
+	{Name: "outbox", Disposition: erasedByStep, Step: "outbox", ExportNote: "operational work items (kind, post id, uid, attempts); not user content, not exported", Owner: "platform", Cite: "erasure follows the ADR-0011 Q1 pattern; collection, step and TTL owner-approved 2026-11-08 (Task 9), ADR pending"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
 	// Trends/current holds tags and counts only (distinct authors are counted in memory and never
 	// persisted), and trends/hidden holds the operator hide list as folded tag keys: no uid, no actor. So there is

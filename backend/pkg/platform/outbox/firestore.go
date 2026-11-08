@@ -9,6 +9,7 @@ import (
 	"cloud.google.com/go/firestore"
 	"google.golang.org/api/iterator"
 
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -24,7 +25,7 @@ func (f firestoreBackend) stage(b store.Batch, id string, d itemDoc) { b.Set(f.r
 func decode(s *firestore.DocumentSnapshot) (Item, error) {
 	var d itemDoc
 	if err := s.DataTo(&d); err != nil {
-		return Item{}, fmt.Errorf("decode %s: %w", s.Ref.ID, err)
+		return Item{}, fmt.Errorf("decode outbox item: %w", err)
 	}
 	return d.item(s.Ref.ID, s.UpdateTime), nil
 }
@@ -41,23 +42,33 @@ func (f firestoreBackend) get(ctx context.Context, id string) (Item, bool, error
 	return it, err == nil, err
 }
 
-func (f firestoreBackend) due(ctx context.Context, now time.Time, limit int) ([]Item, error) {
+func (f firestoreBackend) due(ctx context.Context, now time.Time, limit int) ([]Item, dueStats, error) {
 	iter := f.client.Collection(Collection).
 		Where("nextAttemptAt", "<=", now).OrderBy("nextAttemptAt", firestore.Asc).Limit(limit).Documents(ctx)
 	defer iter.Stop()
 	var out []Item
+	var st dueStats
 	for {
 		s, err := iter.Next()
 		if errors.Is(err, iterator.Done) {
-			return out, nil
+			return out, st, nil
 		}
 		if err != nil {
-			return nil, err
+			return nil, st, err
 		}
 		it, err := decode(s)
 		if err != nil {
 			// One undecodable doc must not block the queue: push it back by the max backoff and skip it.
-			_, _ = s.Ref.Update(ctx, []firestore.Update{{Path: "nextAttemptAt", Value: now.Add(DefaultMaxBackoff)}}, firestore.LastUpdateTime(s.UpdateTime))
+			st.undecodable++
+			if st.decodeCause == "" {
+				st.decodeCause = logger.ScrubErr(err).Error()
+			}
+			if _, uerr := s.Ref.Update(ctx, []firestore.Update{{Path: "nextAttemptAt", Value: now.Add(DefaultMaxBackoff)}}, firestore.LastUpdateTime(s.UpdateTime)); uerr != nil && !store.IsPreconditionFailed(uerr) {
+				st.pushBackFailed++
+				if st.pushBackCause == "" {
+					st.pushBackCause = logger.ScrubErr(uerr).Error()
+				}
+			}
 			continue
 		}
 		out = append(out, it)

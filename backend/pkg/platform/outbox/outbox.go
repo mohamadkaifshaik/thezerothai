@@ -123,6 +123,9 @@ type Config struct {
 	BatchSize    int
 	StuckAfter   int
 	Now          func() time.Time
+	// OnStuck, when set, is called once per item whose failed attempt crosses StuckAfter, on both the Sweep and the
+	// RunNow path (Sweep also lists them in Result.StuckItems). It must not block.
+	OnStuck func(ctx context.Context, s StuckItem)
 }
 
 func (c Config) withDefaults() Config {
@@ -174,13 +177,23 @@ func (d itemDoc) item(id string, ut time.Time) Item {
 type backend interface {
 	stage(b store.Batch, id string, d itemDoc)
 	get(ctx context.Context, id string) (Item, bool, error)
-	due(ctx context.Context, now time.Time, limit int) ([]Item, error)
+	// due returns the decodable due items; undecodable ones are pushed back and counted in dueStats.
+	due(ctx context.Context, now time.Time, limit int) ([]Item, dueStats, error)
 	// claim sets attempts and nextAttemptAt if the doc is unchanged since it.updateTime; ok=false when it changed or is gone.
 	claim(ctx context.Context, it Item, attempts int, next time.Time) (ut time.Time, ok bool, err error)
 	// remove deletes id (only if unchanged since *ifUpdated when non-nil); a missing or changed doc is not an error.
 	remove(ctx context.Context, id string, ifUpdated *time.Time) error
 	// purgeUID deletes up to limit items of uid and returns how many it deleted.
 	purgeUID(ctx context.Context, uid string, limit int) (int, error)
+}
+
+// dueStats reports the due-query docs that were not returned: undecodable ones, and failed push-backs of them. The causes
+// are the first of each, already free of document paths (Firestore's own text), for Result.Errors.
+type dueStats struct {
+	undecodable    int
+	decodeCause    string
+	pushBackFailed int
+	pushBackCause  string
 }
 
 // Outbox stages, sweeps and erases work items. Build one per process with New; register handlers before serving.

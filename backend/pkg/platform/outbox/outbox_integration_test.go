@@ -129,9 +129,9 @@ func TestOutbox_Integration_StageSweepDonePurge(t *testing.T) {
 	// A claim whose precondition is stale (someone else claimed) is skipped.
 	stageCommit(t, client, o, e)
 	clock.advance(DefaultInitialDelay)
-	items, err := firestoreBackend{client}.due(ctx, clock.t, 10)
-	if err != nil || len(items) != 1 {
-		t.Fatalf("due = %v, %v", items, err)
+	items, st, err := firestoreBackend{client}.due(ctx, clock.t, 10)
+	if err != nil || len(items) != 1 || st.undecodable != 0 || st.pushBackFailed != 0 {
+		t.Fatalf("due = %v, %+v, %v", items, st, err)
 	}
 	if _, ok, err := (firestoreBackend{client}).claim(ctx, items[0], 1, clock.t); err != nil || !ok {
 		t.Fatalf("first claim ok=%v err=%v", ok, err)
@@ -157,5 +157,28 @@ func TestOutbox_Integration_StageSweepDonePurge(t *testing.T) {
 	}
 	if docExists(t, client, entry("1").ID()) || !docExists(t, client, Entry{Kind: "post_delete", Key: "3"}.ID()) {
 		t.Fatal("purge removed the wrong items")
+	}
+}
+
+// An undecodable due doc is counted, pushed back by MaxBackoff and skipped, so it never blocks the queue.
+func TestOutbox_Integration_UndecodableIsPushedBack(t *testing.T) {
+	ctx := context.Background()
+	client := outboxTestClient(t)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	o := New(client, Config{Now: func() time.Time { return now }})
+	ref := client.Collection(Collection).Doc("post_delete:bad")
+	if _, err := ref.Set(ctx, map[string]any{"kind": "post_delete", "attempts": "not-a-number", "nextAttemptAt": now.Add(-time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := o.Sweep(ctx)
+	if err != nil || res.Undecodable != 1 || res.Due != 0 || res.WriteFailed != 0 {
+		t.Fatalf("res %+v err %v", res, err)
+	}
+	snap, err := ref.Get(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next, ok := snap.Data()["nextAttemptAt"].(time.Time); !ok || !next.Equal(now.Add(DefaultMaxBackoff)) {
+		t.Fatalf("nextAttemptAt = %v, want pushed back by %v", snap.Data()["nextAttemptAt"], DefaultMaxBackoff)
 	}
 }
