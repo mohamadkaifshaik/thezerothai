@@ -101,16 +101,21 @@ func (o *Outbox) claimAndRun(ctx context.Context, it Item, res *Result) error {
 	if !ok {
 		return errContended
 	}
-	if attempts == o.cfg.StuckAfter && res != nil {
-		res.Stuck++
-		res.StuckItems = append(res.StuckItems, StuckItem{Kind: it.Kind, UIDHash: logger.HashUID(it.UID)})
-	}
 	it.Attempts, it.updateTime = attempts, ut
+	// stuck notes an item that failed its StuckAfter-th attempt (once: the count only passes the threshold once).
+	stuck := func() {
+		if attempts == o.cfg.StuckAfter && res != nil {
+			res.Stuck++
+			res.StuckItems = append(res.StuckItems, StuckItem{Kind: it.Kind, UIDHash: logger.HashUID(it.UID)})
+		}
+	}
 	h, ok := o.handlers[it.Kind]
 	if !ok {
+		stuck()
 		return fmt.Errorf("%w %s", errNoHandler, it.Kind)
 	}
 	if err := safeRun(ctx, h, it); err != nil {
+		stuck()
 		return fmt.Errorf("outbox: %s: %w", it.Kind, err)
 	}
 	// Only if unchanged since our claim: a producer that re-staged the item meanwhile wants it run again.

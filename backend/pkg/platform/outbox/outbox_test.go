@@ -375,6 +375,31 @@ func TestSweep_ExponentialBackoffAndStuckReportedOnce(t *testing.T) {
 	}
 }
 
+// An item that succeeds exactly on the StuckAfter-th attempt was never stuck.
+func TestSweep_SuccessAtTheThresholdIsNotStuck(t *testing.T) {
+	ctx := context.Background()
+	o, b, c := newTestOutbox(t)
+	rec := &recorder{err: errors.New("down")}
+	_ = o.Handle("post_delete", rec.handle)
+	e := entry("1")
+	_ = o.Stage(nil, e)
+	c.advance(DefaultInitialDelay)
+	for attempt := 1; attempt < DefaultStuckAfter; attempt++ {
+		if res, _ := o.Sweep(ctx); res.Failed != 1 || res.Stuck != 0 {
+			t.Fatalf("attempt %d: %+v", attempt, res)
+		}
+		c.advance(o.backoff(attempt))
+	}
+	rec.err = nil
+	res, err := o.Sweep(ctx)
+	if err != nil || res.Done != 1 || res.Stuck != 0 || len(res.StuckItems) != 0 {
+		t.Fatalf("success at attempt %d = %+v, %v; want done and not stuck", DefaultStuckAfter, res, err)
+	}
+	if _, ok := b.docs[e.ID()]; ok {
+		t.Fatal("item left")
+	}
+}
+
 func TestSweep_BatchBound(t *testing.T) {
 	ctx := context.Background()
 	o, b, c := newTestOutbox(t)
