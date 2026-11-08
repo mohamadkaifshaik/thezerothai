@@ -91,6 +91,62 @@ func (r *FirestoreRepo) countPending(ctx context.Context, tx *firestore.Transact
 	return out.N, nil
 }
 
+// stalePending returns, in input order, the ids among a requester's counted pending rows whose beacon can no longer
+// answer the request (B08): missing from beacons (a nil entry or no entry: purged), CANCELLED, or ENDED at now. A
+// cancel never touches the requesters' membership rows, so their pendingUntil (the beacon's endAt) kept them counted
+// until the beacon would have ended.
+func stalePending(ids []string, beacons map[string]*Beacon, now time.Time) []string {
+	var out []string
+	for _, id := range ids {
+		b := beacons[id]
+		if b == nil {
+			out = append(out, id)
+			continue
+		}
+		if s := b.EffectiveStatus(now); s == StatusCancelled || s == StatusEnded {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// reclaimPending runs only on the RequestToJoin refusal path (counted >= limit): it reads, inside tx, the <= limit
+// rows countPending counted and their beacons (one GetAll, no new index) and returns how many rows were counted and
+// which of them are stale (stalePending). The caller clears pendingUntil on the stale rows in the same transaction.
+func (r *FirestoreRepo) reclaimPending(ctx context.Context, tx *firestore.Transaction, uid string, limit int, now time.Time) (int, []string, error) {
+	q := r.client.Collection(usersCollection).Doc(uid).Collection(membershipsSubcollection).Where("pendingUntil", ">", now.UTC()).Limit(limit)
+	snaps, err := tx.Documents(q).GetAll()
+	if err != nil {
+		return 0, nil, fmt.Errorf("beacons: list pending: %w", err)
+	}
+	if len(snaps) == 0 {
+		return 0, nil, nil
+	}
+	ids := make([]string, 0, len(snaps))
+	refs := make([]*firestore.DocumentRef, 0, len(snaps))
+	for _, s := range snaps {
+		ids = append(ids, s.Ref.ID)
+		refs = append(refs, r.ref(s.Ref.ID))
+	}
+	beaconSnaps, err := tx.GetAll(refs)
+	if err != nil {
+		return 0, nil, fmt.Errorf("beacons: get pending beacons: %w", err)
+	}
+	found := make(map[string]*Beacon, len(beaconSnaps))
+	for i, s := range beaconSnaps {
+		if s == nil || !s.Exists() {
+			continue
+		}
+		var d beaconDoc
+		if err := s.DataTo(&d); err != nil {
+			return 0, nil, fmt.Errorf("beacons: decode pending beacon: %w", err)
+		}
+		b := d.beacon(ids[i])
+		found[ids[i]] = &b
+	}
+	return len(snaps), stalePending(ids, found, now), nil
+}
+
 // replayParticipation answers a replay of a participation write from the beacon and the target's row as they are now.
 func (r *FirestoreRepo) replayParticipation(ctx context.Context, tx *firestore.Transaction, rec idempotency.Record) (ParticipantResult, error) {
 	id, target := rec.Result["id"], rec.Result["uid"]
@@ -126,7 +182,9 @@ func idemResult(beaconID, target string) map[string]string {
 // Request implements Repo (RequestToJoin). Reads, fresh and in order: idempotency, the beacon, the caller's row, the
 // caller's pending count. Refusals write nothing: ErrOrganiser, ErrCancelled, ErrEnded, ErrFull, ErrAlreadyRequested,
 // ErrPendingLimit. An ACCEPTED caller is Unchanged (idempotency doc only). Otherwise the row is (re)written REQUESTED
-// with the note and the beacon's expireAt, the membership row becomes requester/requested/pending.
+// with the note and the beacon's expireAt, the membership row becomes requester/requested/pending. At the pending cap
+// the counted rows are re-checked (reclaimPending): those whose beacon was cancelled or is gone stop pending and do
+// not count.
 func (r *FirestoreRepo) Request(ctx context.Context, p RequestParams) (ParticipantResult, error) {
 	if err := r.ready(); err != nil {
 		return ParticipantResult{}, err
@@ -175,7 +233,18 @@ func (r *FirestoreRepo) Request(ctx context.Context, p RequestParams) (Participa
 			return err
 		}
 		if n >= int64(p.MaxPending) {
-			return ErrPendingLimit
+			// B08: requests on cancelled (or ended, or purged) beacons stop counting. Every read happens before
+			// the first write; a request still at the limit is refused and the transaction writes nothing.
+			counted, stale, err := r.reclaimPending(ctx, tx, p.UID, p.MaxPending, p.Now)
+			if err != nil {
+				return err
+			}
+			if counted-len(stale) >= p.MaxPending {
+				return ErrPendingLimit
+			}
+			for _, id := range stale {
+				b.Set(r.membershipRef(p.UID, id), map[string]any{"pendingUntil": firestore.Delete}, firestore.MergeAll)
+			}
 		}
 		pd = participantDoc{UID: p.UID, State: PStateRequested, Note: p.Note, RequestedAt: p.Now.UTC(), ExpireAt: d.ExpireAt}
 		b.Set(r.participantRef(p.BeaconID, p.UID), pd)
