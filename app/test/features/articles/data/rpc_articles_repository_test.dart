@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:connectrpc/connect.dart' as connect;
 import 'package:drift/native.dart';
 import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
@@ -136,6 +137,51 @@ void main() {
     final record = await repo.get('a' * 32);
     expect(record.draft.blocks.single.plainText, 'Full body');
     expect(record.summary, 'Full body');
+  });
+
+  group('save', () {
+    final draft = ArticleDraft(id: 'a' * 32, authorId: 'alice', revision: 1);
+    test('a stale revision (ABORTED) is an ArticleRevisionConflict', () async {
+      reply.completeError(
+        connect.ConnectException(connect.Code.aborted, 'article changed'),
+      );
+      await expectLater(
+        repo.save(draft, expectedRevision: 1),
+        throwsA(isA<ArticleRevisionConflict>()),
+      );
+    });
+    test(
+      'an expected conflict is not reported as an unexpected error',
+      () async {
+        final reported = <Object>[];
+        final reporting = RpcArticlesRepository(
+          apiClient: ApiClient.withTransport(transport),
+          store: store,
+          gate: PostsFeatureGate(
+            isPostsEnabled: () => true,
+            onUnexpectedError: (error, _) => reported.add(error),
+          ),
+          currentUid: () => uid,
+        );
+        reply.completeError(
+          connect.ConnectException(connect.Code.aborted, 'article changed'),
+        );
+        await expectLater(
+          reporting.save(draft, expectedRevision: 1),
+          throwsA(isA<ArticleRevisionConflict>()),
+        );
+        expect(reported, isEmpty);
+      },
+    );
+    test('other failures keep their typed error', () async {
+      reply.completeError(
+        connect.ConnectException(connect.Code.notFound, 'article not found'),
+      );
+      await expectLater(
+        repo.save(draft, expectedRevision: 1),
+        throwsA(isA<NotFoundException>()),
+      );
+    });
   });
 
   test('disabled articles make no RPC', () async {

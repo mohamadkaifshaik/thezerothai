@@ -1,9 +1,17 @@
+import 'dart:convert';
+
 /// Structured article content. Limits and JSON format are project choices,
 /// independent of X's server contract. Drafts may be incomplete while editing.
 const articleSchemaVersion = 1;
 const articleMaxTitleCodePoints = 100;
 const articleMaxBodyCodePoints = 100000;
 const articleMaxBlocks = 1000;
+
+/// The server's cap on the serialized body: UTF-8 bytes of the JSON block
+/// array sent as `body_json` (backend articles maxBodyBytes). It counts
+/// formatting, links and JSON syntax, not only text, so it can bind well
+/// before [articleMaxBodyCodePoints] (CJK is 3 bytes, emoji 4).
+const articleMaxBodyBytes = 180000;
 
 enum ArticleMark { bold, italic, underline, strikethrough, code }
 
@@ -156,6 +164,20 @@ class ArticleDraft {
     );
   }
 
+  /// The exact `body_json` a save sends.
+  String get bodyJson => jsonEncode(blocks.map((b) => b.toJson()).toList());
+
+  /// UTF-8 size of [bodyJson], the quantity the server caps.
+  int get bodyBytes => utf8.encode(bodyJson).length;
+
+  /// Limits the server enforces on every save, publishing or not: 'bodySize'
+  /// ([articleMaxBodyBytes]) and 'bodyLength' ([articleMaxBodyCodePoints]).
+  /// A draft with save errors is kept locally and not sent.
+  List<String> get saveErrors => List.unmodifiable([
+    if (bodyBytes > articleMaxBodyBytes) 'bodySize',
+    if (plainText.runes.length > articleMaxBodyCodePoints) 'bodyLength',
+  ]);
+
   /// Returns stable field keys. This is client validation; the server must
   /// independently validate ownership, revisions, media and publish limits.
   List<String> get publishErrors {
@@ -172,6 +194,9 @@ class ArticleDraft {
         blocks.length > articleMaxBlocks ||
         _controls.hasMatch(plainText)) {
       errors.add('body');
+    }
+    if (bodyBytes > articleMaxBodyBytes) {
+      errors.add('bodySize');
     }
     if (coverMediaId != null && coverMediaId!.trim().isEmpty) {
       errors.add('cover');

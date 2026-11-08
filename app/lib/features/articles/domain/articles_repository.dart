@@ -40,6 +40,16 @@ class ArticlePage {
   final String nextPageToken;
 }
 
+/// A save whose expected revision is no longer the server's (ABORTED): the
+/// article changed elsewhere, or an earlier save committed but its reply was
+/// lost. The caller reloads and decides; nothing was written.
+class ArticleRevisionConflict implements Exception {
+  const ArticleRevisionConflict();
+
+  @override
+  String toString() => 'ArticleRevisionConflict';
+}
+
 /// Every write is acknowledged by the service before the UI says it is saved.
 abstract class ArticlesRepository {
   Future<ArticleRecord> create();
