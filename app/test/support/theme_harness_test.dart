@@ -2,6 +2,8 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'app_fonts.dart';
+import 'contrast.dart';
 import 'geometry.dart';
 import 'theme_harness.dart';
 
@@ -112,5 +114,115 @@ void main() {
   test('goldens are opt-in', () {
     // Off unless RUN_GOLDENS=1 (documented in theme_harness.dart).
     expect(goldensEnabled, isFalse);
+  });
+
+  group('redesign matrix', () {
+    test('constants leave the shared matrix untouched', () {
+      expect(kRedesignWidths, [360, 834, 1440]);
+      expect(kRedesignTextScales, [1.0, 2.0]);
+      expect(kRedesignHeights, {360: 800, 834: 1194, 1440: 900});
+      expect(kMatrixWidths, [360, 600, 1200]);
+      expect(kMatrixTextScales, [1.0, 1.3]);
+    });
+
+    test('golden names carry theme, width and text scale', () {
+      const env = MatrixEnv(
+        brightness: Brightness.dark,
+        size: Size(834, 1194),
+        textScale: 2.0,
+      );
+      expect(goldenFileName('drawer', env), 'drawer_dark_834_x2.0.png');
+    });
+
+    final seen = <String>[];
+    forEachThemeAndWidth(
+      'heights map sizes the viewport per width',
+      (tester, env) async {
+        seen.add('${env.size.width.toInt()}x${env.size.height.toInt()}');
+        await pumpThemed(
+          tester,
+          const SizedBox.expand(key: Key('fill')),
+          brightness: env.brightness,
+          size: env.size,
+          textScale: env.textScale,
+        );
+        expectSize(
+          tester,
+          find.byKey(const Key('fill')),
+          width: env.size.width,
+          height: kRedesignHeights[env.size.width]!,
+        );
+      },
+      widths: kRedesignWidths,
+      textScales: kRedesignTextScales,
+      heights: kRedesignHeights,
+    );
+
+    tearDownAll(() {
+      // 2 themes x 3 widths x 2 text scales.
+      expect(seen.length, 12);
+      expect(seen.toSet(), {'360x800', '834x1194', '1440x900'});
+    });
+
+    testWidgets('pumpThemed passes disableAnimations through', (tester) async {
+      late BuildContext captured;
+      Widget probe() => Builder(
+        builder: (context) {
+          captured = context;
+          return const SizedBox();
+        },
+      );
+      await pumpThemed(tester, probe());
+      expect(MediaQuery.disableAnimationsOf(captured), isFalse);
+      await pumpThemed(tester, probe(), disableAnimations: true);
+      expect(MediaQuery.disableAnimationsOf(captured), isTrue);
+    });
+  });
+
+  test('contrast matches known WCAG ratios', () {
+    expect(
+      contrast(const Color(0xFF000000), const Color(0xFFFFFFFF)),
+      closeTo(21, 0.001),
+    );
+    expect(
+      contrast(const Color(0xFFFFFFFF), const Color(0xFFFFFFFF)),
+      closeTo(1, 0.001),
+    );
+  });
+
+  group('loadAppFonts', () {
+    const sample = 'Wide Wide Wimpy 0123';
+
+    double width(String family, FontWeight weight) {
+      final painter = TextPainter(
+        text: TextSpan(
+          text: sample,
+          style: TextStyle(
+            fontFamily: family,
+            fontSize: 20,
+            fontWeight: weight,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final w = painter.width;
+      painter.dispose();
+      return w;
+    }
+
+    test('the real fonts replace the test font metrics', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final before = {
+        for (final f in ['DM Sans', 'Manrope']) f: width(f, FontWeight.w400),
+      };
+      await loadAppFonts();
+      for (final f in ['DM Sans', 'Manrope']) {
+        expect(
+          width(f, FontWeight.w400),
+          isNot(closeTo(before[f]!, 0.01)),
+          reason: '$f should differ from the Ahem test font',
+        );
+      }
+    });
   });
 }

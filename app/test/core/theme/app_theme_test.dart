@@ -1,16 +1,11 @@
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dzeroth/core/theme/app_theme.dart';
 
-double _contrast(Color a, Color b) {
-  final l1 = a.computeLuminance();
-  final l2 = b.computeLuminance();
-  return (math.max(l1, l2) + 0.05) / (math.min(l1, l2) + 0.05);
-}
+import '../../support/contrast.dart';
 
 /// Source files under `lib/` that must obey the colour rules (everything
 /// except generated code and the theme file itself).
@@ -30,9 +25,9 @@ void main() {
       final bg = snack.backgroundColor!;
       expect(snack.actionTextColor, isNotNull);
       expect(snack.closeIconColor, isNotNull);
-      expect(_contrast(snack.actionTextColor!, bg), greaterThanOrEqualTo(4.5));
+      expect(contrast(snack.actionTextColor!, bg), greaterThanOrEqualTo(4.5));
       // Icons are non-text UI: WCAG 1.4.11 asks for 3:1.
-      expect(_contrast(snack.closeIconColor!, bg), greaterThanOrEqualTo(3.0));
+      expect(contrast(snack.closeIconColor!, bg), greaterThanOrEqualTo(3.0));
     });
   }
 
@@ -62,10 +57,10 @@ void main() {
       });
 
       test('onSurface is >= 4.5:1 on every surface step', () {
-        expect(_contrast(colors.onSurface, colors.surface), greaterThan(4.5));
+        expect(contrast(colors.onSurface, colors.surface), greaterThan(4.5));
         for (final layer in raised.entries) {
           expect(
-            _contrast(colors.onSurface, layer.value),
+            contrast(colors.onSurface, layer.value),
             greaterThanOrEqualTo(4.5),
             reason: 'onSurface on ${layer.key}',
           );
@@ -74,7 +69,7 @@ void main() {
 
       test('onSurfaceVariant is >= 4.5:1 on the page surface', () {
         expect(
-          _contrast(colors.onSurfaceVariant, colors.surface),
+          contrast(colors.onSurfaceVariant, colors.surface),
           greaterThanOrEqualTo(4.5),
         );
       });
@@ -83,7 +78,7 @@ void main() {
           '(>= 4.5:1 on every step)', () {
         for (final layer in raised.entries) {
           expect(
-            _contrast(app.secondaryOnRaised, layer.value),
+            contrast(app.secondaryOnRaised, layer.value),
             greaterThanOrEqualTo(4.5),
             reason: 'secondaryOnRaised on ${layer.key}',
           );
@@ -92,14 +87,14 @@ void main() {
 
       test('accentText is >= 4.5:1 on the page surface', () {
         expect(
-          _contrast(app.accentText, colors.surface),
+          contrast(app.accentText, colors.surface),
           greaterThanOrEqualTo(4.5),
         );
       });
 
       test('the strong pill label is >= 4.5:1 on its fill', () {
         expect(
-          _contrast(app.strongPillLabel, app.strongPillFill),
+          contrast(app.strongPillLabel, app.strongPillFill),
           greaterThanOrEqualTo(4.5),
         );
       });
@@ -109,17 +104,17 @@ void main() {
         // Dark 7.0:1; light 3.0:1 (X's own blue on white). Used for fills,
         // indicators and icons; small text uses accentText instead.
         expect(
-          _contrast(colors.primary, colors.surface),
+          contrast(colors.primary, colors.surface),
           greaterThanOrEqualTo(3.0),
         );
         expect(
-          _contrast(colors.onPrimary, colors.primary),
+          contrast(colors.onPrimary, colors.primary),
           greaterThanOrEqualTo(3.0),
         );
       });
 
       test('the hairline stays visible and is not heavier than 3:1', () {
-        final ratio = _contrast(colors.outlineVariant, colors.surface);
+        final ratio = contrast(colors.outlineVariant, colors.surface);
         expect(ratio, greaterThanOrEqualTo(1.1));
         expect(ratio, lessThan(3.0));
       });
