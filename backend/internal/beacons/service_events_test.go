@@ -127,8 +127,55 @@ func TestCancel_ParticipantReadErrorKeepsTheCancel(t *testing.T) {
 	if len(e.events.cancelled) != 0 {
 		t.Errorf("cancelled = %+v, want none", e.events.cancelled)
 	}
+	if len(e.repo.pqueries) != cancelReadAttempts {
+		t.Errorf("participant reads = %d, want %d (bounded retry)", len(e.repo.pqueries), cancelReadAttempts)
+	}
 	if !strings.Contains(logs.String(), "beacon_cancel_participants_failed") || strings.Contains(logs.String(), testBeaconID) {
 		t.Errorf("logs = %s", logs.String())
+	}
+}
+
+// TestCancel_ParticipantReadRetries (B07): a transient accepted-list failure is retried a bounded number of times, so
+// the notice still reaches the accepted participants once a later read succeeds; a cancelled ctx stops the retries.
+func TestCancel_ParticipantReadRetries(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		fails     int
+		cancelCtx bool
+		wantReads int
+		wantEvent bool
+	}{
+		{name: "first read fails then succeeds", fails: 1, wantReads: 2, wantEvent: true},
+		{name: "all but the last read fail", fails: cancelReadAttempts - 1, wantReads: cancelReadAttempts, wantEvent: true},
+		{name: "every read fails", fails: cancelReadAttempts, wantReads: cancelReadAttempts},
+		{name: "cancelled ctx stops after one read", fails: cancelReadAttempts, cancelCtx: true, wantReads: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			captureLogs(t)
+			e := newEnv()
+			b := e.openBeacon()
+			b.AcceptedCount = 1
+			e.repo.docs[testBeaconID] = b
+			e.repo.cancel = CancelResult{Outcome: Written, Beacon: b}
+			e.repo.plist = []Participant{{UID: "bob", State: PStateAccepted}}
+			e.repo.plistErr, e.repo.plistFails = errors.New("unavailable"), tt.fails
+			ctx := context.Background()
+			if tt.cancelCtx {
+				c, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = c
+			}
+			if err := e.svc.CancelBeacon(ctx, testOrganiser, testKey, testBeaconID); err != nil {
+				t.Fatalf("CancelBeacon: %v", err)
+			}
+			if len(e.repo.pqueries) != tt.wantReads {
+				t.Errorf("participant reads = %d, want %d", len(e.repo.pqueries), tt.wantReads)
+			}
+			got := len(e.events.cancelled) == 1 && len(e.events.cancelled[0].ParticipantUIDs) == 1 && e.events.cancelled[0].ParticipantUIDs[0] == "bob"
+			if got != tt.wantEvent || (!tt.wantEvent && len(e.events.cancelled) != 0) {
+				t.Errorf("cancelled = %+v, want event %v", e.events.cancelled, tt.wantEvent)
+			}
+		})
 	}
 }
 
