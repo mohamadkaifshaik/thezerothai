@@ -5,6 +5,7 @@ import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/network/rate_limit_hold.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
+import 'package:dzeroth/features/messages/data/message_outbox.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/data/timer_thread_poller.dart';
@@ -38,7 +39,10 @@ import '../../../support/messaging_shell_rig.dart';
 import '../../../support/theme_harness.dart';
 import '../../../support/thread_test_support.dart';
 
-class MockMessagingRepository extends Mock implements MessagingRepository {}
+class MockMessagingRepository extends Mock implements MessagingRepository {
+  @override
+  final MessageOutbox outbox = MessageOutbox();
+}
 
 class MockGraphRepository extends Mock implements GraphRepository {}
 

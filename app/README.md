@@ -46,4 +46,33 @@ App Check, telemetry collection, and FCM are disabled in this mode. Fully stop
 and relaunch Flutter after changing startup configuration; hot reload is not
 sufficient.
 
+## Android release signing
+
+`android/app/build.gradle.kts` signs the `release` build type with an upload
+key when one is configured, from `android/key.properties` (gitignored; never
+commit it or the keystore) or the environment:
+
+```properties
+# android/key.properties
+storeFile=/absolute/path/to/upload.jks   # or relative to android/app
+storePassword=...
+keyAlias=...
+keyPassword=...
+```
+
+or `DZEROTH_UPLOAD_STORE_FILE`, `DZEROTH_UPLOAD_STORE_PASSWORD`,
+`DZEROTH_UPLOAD_KEY_ALIAS` and `DZEROTH_UPLOAD_KEY_PASSWORD`. `key.properties`
+wins per field. Secret values are never printed.
+
+Without a key the release build falls back to the debug key and Gradle logs a
+warning; such a build cannot be published. Set the Gradle property
+`dzerothRequireReleaseSigning=true` to fail the build with a clear message
+instead of falling back. `flutter build` has no `-P` flag, so use the
+environment form Gradle maps to project properties (for example in the release
+workflow):
+
+```
+ORG_GRADLE_PROJECT_dzerothRequireReleaseSigning=true flutter build appbundle --release
+```
+
 See the [repository README](../README.md) for the project overview and commands.

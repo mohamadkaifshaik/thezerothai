@@ -66,6 +66,7 @@ class DraftThreadScreen extends StatelessWidget {
       create: (context) => MessageComposerCubit(
         repository: context.read<MessagingRepository>(),
         recipientUserId: peer.userId,
+        outbox: context.read<MessagingRepository>().outbox,
         onConversationCreated: (id) {
           if (!context.mounted) return;
           final handler = onConversationCreated;
