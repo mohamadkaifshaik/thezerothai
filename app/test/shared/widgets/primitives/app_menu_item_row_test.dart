@@ -1,9 +1,12 @@
 import 'dart:math' as math;
+import 'dart:ui' show Tristate;
 
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_menu_item_row.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../../../support/theme_harness.dart';
 
 Widget _host(
   Widget child, {
@@ -120,6 +123,89 @@ void main() {
         ),
       );
       expect(tester.takeException(), isNull);
+    });
+
+    forEachThemeAndWidth(
+      'is 48 dp tall and reflows without overflow',
+      (tester, env) async {
+        await pumpThemed(
+          tester,
+          const Column(
+            children: [
+              AppMenuItemRow(icon: Icons.block, label: 'Block'),
+              AppMenuItemRow(
+                icon: Icons.volume_off_outlined,
+                label: 'Mute @a_very_long_handle_name_indeed for a week',
+                selected: true,
+              ),
+              AppMenuItemRow(
+                icon: Icons.delete_outline,
+                label: 'Delete',
+                destructive: true,
+              ),
+            ],
+          ),
+          brightness: env.brightness,
+          size: env.size,
+          textScale: env.textScale,
+        );
+        expect(tester.takeException(), isNull);
+        for (final row in tester.widgetList(find.byType(AppMenuItemRow))) {
+          expect(
+            tester.getSize(find.byWidget(row)).height,
+            greaterThanOrEqualTo(48),
+          );
+        }
+        await expectLater(tester, meetsGuideline(textContrastGuideline));
+      },
+      widths: kRedesignWidths,
+      textScales: kRedesignTextScales,
+      heights: kRedesignHeights,
+    );
+
+    testWidgets('selected: accent colour, a check glyph and the selected '
+        'flag, so it is not colour alone', (tester) async {
+      final handle = tester.ensureSemantics();
+      for (final brightness in Brightness.values) {
+        await tester.pumpWidget(
+          _host(
+            const Column(
+              children: [
+                AppMenuItemRow(
+                  icon: Icons.sort,
+                  label: 'Newest',
+                  selected: true,
+                ),
+                AppMenuItemRow(
+                  icon: Icons.sort,
+                  label: 'Oldest',
+                  selected: false,
+                ),
+              ],
+            ),
+            brightness: brightness,
+          ),
+        );
+        await tester.pumpAndSettle();
+        final theme = buildAppTheme(brightness: brightness);
+        final accent = theme.extension<AppColors>()!.accentText;
+        expect(find.byIcon(Icons.check), findsOneWidget);
+        expect(tester.widget<Text>(find.text('Newest')).style?.color, accent);
+        expect(
+          tester.widget<Text>(find.text('Oldest')).style?.color,
+          theme.colorScheme.onSurface,
+        );
+        expect(
+          _contrast(accent, theme.colorScheme.surfaceContainerHigh),
+          greaterThanOrEqualTo(4.5),
+          reason: '$brightness accent on the menu surface',
+        );
+        final on = tester.getSemantics(find.text('Newest'));
+        final off = tester.getSemantics(find.text('Oldest'));
+        expect(on.flagsCollection.isSelected, Tristate.isTrue);
+        expect(off.flagsCollection.isSelected, Tristate.isFalse);
+      }
+      handle.dispose();
     });
   });
 }
