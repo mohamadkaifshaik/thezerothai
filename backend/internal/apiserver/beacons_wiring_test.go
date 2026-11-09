@@ -38,7 +38,9 @@ func TestBeaconNotifier_RequestAndAccept(t *testing.T) {
 	empty := beaconNotifier{slot: &emitterSlot{}}
 	empty.JoinRequested(context.Background(), ev)
 	empty.RequestAccepted(context.Background(), ev)
-	empty.Cancelled(context.Background(), beacons.CancelEvent{BeaconID: beaconNotifID, OrganiserUID: "uid-o", ParticipantUIDs: []string{"uid-p"}})
+	if err := empty.Cancelled(context.Background(), beacons.CancelEvent{BeaconID: beaconNotifID, OrganiserUID: "uid-o", ParticipantUIDs: []string{"uid-p"}}); err != nil {
+		t.Errorf("empty slot Cancelled = %v", err)
+	}
 }
 
 // TestBeaconNotifier_CancelChunks (R24): a cancellation reaches every accepted participant in events of at most
@@ -51,7 +53,9 @@ func TestBeaconNotifier_CancelChunks(t *testing.T) {
 			uids[i] = fmt.Sprintf("p%02d", i)
 		}
 		rec := &recordingEmitter{}
-		beaconNotifier{slot: &emitterSlot{em: rec}}.Cancelled(context.Background(), beacons.CancelEvent{BeaconID: beaconNotifID, OrganiserUID: "uid-o", ParticipantUIDs: uids, At: at})
+		if err := (beaconNotifier{slot: &emitterSlot{em: rec}}).Cancelled(context.Background(), beacons.CancelEvent{BeaconID: beaconNotifID, OrganiserUID: "uid-o", ParticipantUIDs: uids, At: at}); err != nil {
+			t.Fatalf("%d participants: %v", tc.n, err)
+		}
 		if len(rec.events) != tc.wantEvents {
 			t.Errorf("%d participants: events = %d, want %d", tc.n, len(rec.events), tc.wantEvents)
 			continue
@@ -126,8 +130,10 @@ func TestBeaconCancel_BypassesRecipientCap(t *testing.T) {
 				for i := range uids {
 					uids[i] = fmt.Sprintf("p%02d", i)
 				}
-				beaconNotifier{slot: &emitterSlot{em: em}}.Cancelled(context.Background(),
-					beacons.CancelEvent{BeaconID: beaconNotifID, OrganiserUID: "uid-o", ParticipantUIDs: uids, At: time.Now()})
+				if err := (beaconNotifier{slot: &emitterSlot{em: em}}).Cancelled(context.Background(),
+					beacons.CancelEvent{BeaconID: beaconNotifID, OrganiserUID: "uid-o", ParticipantUIDs: uids, At: time.Now()}); err != nil {
+					t.Fatalf("Cancelled: %v", err)
+				}
 				var got []string
 				for _, data := range pub.data {
 					var wire struct {
