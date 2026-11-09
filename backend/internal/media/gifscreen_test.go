@@ -456,6 +456,12 @@ func TestGIFScreen_CorruptFrameDataIsRejectedAsInvalid(t *testing.T) {
 	}
 }
 
+// gifFullRead reports whether an UploadHead call is the GIF sampler's full-object read rather than one of verify's pinned
+// head reads (512 bytes for a GIF, 64 KiB for a JPEG or WebP since B14).
+func gifFullRead(object string, n int64) bool {
+	return strings.HasSuffix(object, ".gif") && n != headBytesFor(ContentTypeGIF)
+}
+
 // gateObjects wraps the object store: the full-object read of a GIF (n other than the 512-byte magic read) can block on a
 // gate, count its concurrency, or panic.
 type gateObjects struct {
@@ -468,7 +474,7 @@ type gateObjects struct {
 }
 
 func (g *gateObjects) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
-	if n != 512 {
+	if gifFullRead(object, n) {
 		if g.panicRun {
 			panic("boom")
 		}
@@ -622,7 +628,7 @@ type swapObjects struct {
 }
 
 func (s *swapObjects) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
-	if n != 512 && object == s.name {
+	if gifFullRead(object, n) && object == s.name {
 		return s.swap, nil
 	}
 	return s.fakeObjects.UploadHead(ctx, object, n, generation)
@@ -646,7 +652,7 @@ func TestGIFScreen_MissingObjectIsNotARejection(t *testing.T) {
 type failingRead struct{ *fakeObjects }
 
 func (f failingRead) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
-	if n != 512 {
+	if gifFullRead(object, n) {
 		f.mu.Lock()
 		delete(f.upload, object)
 		f.mu.Unlock()
