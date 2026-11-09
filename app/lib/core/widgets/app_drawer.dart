@@ -23,8 +23,9 @@ import '../theme/app_theme.dart';
 /// The account drawer of narrow layouts, opened by the avatar button of the
 /// top bar (`AppTopBar`): the account block (avatar, name, handle and the
 /// Following / Followers counts) and one 56dp row per destination that is not
-/// in the bottom bar: Profile, Settings and Privacy, Sign out. Plans is a
-/// primary destination (bar and rail), so it has no row here (ADR-0034 3, D5).
+/// in the bottom bar: Profile, the shell entries (Creator Studio, Premium,
+/// Advertise, Calls), Settings and Privacy, Sign out. Plans is a primary
+/// destination (bar and rail), so it has no row here (ADR-0034 3, D5).
 ///
 /// It reads the profile the app already holds (`OnboardingBloc`): 0 RPCs. A
 /// row closes the drawer, then navigates; the counts open the same lists as
@@ -39,9 +40,6 @@ class AppDrawer extends StatelessWidget {
     final profile = context.select((OnboardingBloc bloc) => bloc.state.profile);
     final handle = profile?.handle ?? '';
     final shellEntries = shellEntriesFor(context);
-    final secondaryShellEntries = shellEntries
-        .where((entry) => entry.kind == ShellKind.premium)
-        .toList(growable: false);
     final pendingRequests = context.select(
       (OnboardingBloc bloc) => bloc.state.pendingFollowRequestCount,
     );
@@ -110,8 +108,9 @@ class AppDrawer extends StatelessWidget {
                 onTap: () =>
                     _go(context, () => context.go(AppRouter.communitiesPath)),
               ),
-            // History follows feature destinations; Premium follows History
-            // when the existing shell capabilities allow it.
+            // History follows feature destinations; the shell entries (Creator
+            // Studio, Premium, Advertise, Calls) follow History when `shells`
+            // and `ui_shell` allow it.
             if (isFeatureEnabled(context, kFeatureBookmarks) &&
                 isFeatureEnabled(context, kFeaturePosts))
               _DrawerRow(
@@ -120,9 +119,9 @@ class AppDrawer extends StatelessWidget {
                 onTap: () =>
                     _go(context, () => context.go(AppRouter.bookmarksPath)),
               ),
-            if (secondaryShellEntries.isNotEmpty) ...[
+            if (shellEntries.isNotEmpty) ...[
               const Divider(height: 1),
-              for (final entry in secondaryShellEntries)
+              for (final entry in shellEntries)
                 _DrawerRow(
                   key: ValueKey('shell-${entry.kind.name}'),
                   icon: entry.icon,

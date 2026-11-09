@@ -7,7 +7,7 @@ import 'app_surface.dart';
 
 /// One Settings section: a [title] header above a card whose [rows] are
 /// separated by hairlines. Shared by the Settings screen and the shell pages
-/// (Creator tools, Calls...).
+/// (Creator Studio, Calls...).
 class SettingsGroup extends StatelessWidget {
   const SettingsGroup({super.key, required this.title, required this.rows})
     : assert(rows.length > 0, 'an empty group must not be built');

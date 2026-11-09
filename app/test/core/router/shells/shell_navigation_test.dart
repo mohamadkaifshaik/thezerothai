@@ -18,7 +18,7 @@ import '../../../support/geometry.dart';
 import '../../../support/shells_harness.dart';
 import '../../../support/theme_harness.dart';
 
-const _labels = ['Creator tools', 'Premium', 'Advertise', 'Calls'];
+const _labels = ['Creator Studio', 'Premium', 'Advertise', 'Calls'];
 
 /// The shell entry points. Under 600 dp four drawer rows; from 600 dp a
 /// rail-only "More" item that opens a menu (the account chip menu is left
@@ -92,12 +92,15 @@ void main() {
             top('Lists'),
             top('Communities'),
             top('History'),
+            top('Creator Studio'),
             top('Premium'),
+            top('Advertise'),
+            top('Calls'),
             top('Settings and Privacy'),
             top('Sign out'),
           ];
           expect(order, orderedEquals([...order]..sort()));
-          // The divider sits between History and Premium, 1dp thick.
+          // The divider sits between History and Creator Studio, 1dp thick.
           final dividers = find.descendant(
             of: find.byType(AppDrawer),
             matching: find.byType(Divider),
@@ -106,21 +109,33 @@ void main() {
           final divider = tester.getRect(dividers);
           expect(divider.height, 1);
           expect(divider.top, greaterThan(top('History')));
-          expect(divider.top, lessThan(top('Premium')));
+          expect(divider.top, lessThan(top('Creator Studio')));
           expectNoOverflow(tester);
         });
       }
     }
 
-    shellsTest('removed destinations never appear in the drawer', (
+    shellsTest('the four shell entries appear in the drawer, in order', (
       tester,
     ) async {
       await pumpShellsApp(tester);
       await openDrawer(tester);
-      for (final label in ['Calls', 'Creator tools', 'Advertise']) {
-        expect(find.text(label), findsNothing);
+      final tops = <double>[];
+      for (final label in _labels) {
+        expect(find.text(label), findsOneWidget);
+        tops.add(tester.getTopLeft(find.text(label)).dy);
       }
-      expect(find.text('Premium'), findsOneWidget);
+      expect(tops, orderedEquals([...tops]..sort()));
+    });
+
+    shellsTest('no shell entry appears in the drawer without the shells flag', (
+      tester,
+    ) async {
+      await pumpShellsApp(tester, flags: {kFeatureUiShell});
+      await openDrawer(tester);
+      for (final label in _labels) {
+        expect(find.text(label), findsNothing, reason: label);
+      }
     });
 
     shellsTest('Premium closes the drawer and pushes the dialog over Home', (
@@ -145,16 +160,18 @@ void main() {
       await pumpShellsApp(tester);
       await openDrawer(tester);
 
-      expect(
-        tester.getSemantics(find.bySemanticsLabel('Premium')),
-        matchesSemantics(label: 'Premium', isButton: true, hasTapAction: true),
-      );
+      for (final label in _labels) {
+        expect(
+          tester.getSemantics(find.bySemanticsLabel(label)),
+          matchesSemantics(label: label, isButton: true, hasTapAction: true),
+        );
+      }
     });
 
     shellsTest('rows are 48 dp targets at least', (tester) async {
       await pumpShellsApp(tester);
       await openDrawer(tester);
-      for (final label in ['Premium']) {
+      for (final label in _labels) {
         expectMinTarget(
           tester,
           find.ancestor(of: find.text(label), matching: find.byType(InkWell)),
@@ -183,9 +200,7 @@ void main() {
           for (final label in _labels) {
             expect(
               find.text(label),
-              expectEntries && label == 'Premium'
-                  ? findsOneWidget
-                  : findsNothing,
+              expectEntries ? findsOneWidget : findsNothing,
               reason: label,
             );
           }
@@ -211,9 +226,7 @@ void main() {
         for (final other in _labels) {
           expect(
             find.text(other),
-            other == label && kind == ShellKind.premium
-                ? findsOneWidget
-                : findsNothing,
+            other == label ? findsOneWidget : findsNothing,
             reason: other,
           );
         }
@@ -316,13 +329,16 @@ void main() {
       expect(moreItem(), findsOneWidget);
     });
 
-    shellsTest('choosing Creator tools goes to its page; More is selected', (
+    shellsTest('choosing Creator Studio goes to its page; More is selected', (
       tester,
     ) async {
       final app = await pumpShellsApp(tester, size: const Size(1200, 800));
       await openMore(tester);
       await tester.tap(
-        find.descendant(of: menuLabels(), matching: find.text('Creator tools')),
+        find.descendant(
+          of: menuLabels(),
+          matching: find.text('Creator Studio'),
+        ),
       );
       await tester.pumpAndSettle();
 
@@ -333,7 +349,7 @@ void main() {
     });
 
     for (final entry in {
-      AppRouter.creatorStudioPath: 'Creator tools',
+      AppRouter.creatorStudioPath: 'Creator Studio',
       AppRouter.advertisePath: 'Advertise',
       AppRouter.callsPath: 'Calls',
     }.entries) {
@@ -531,7 +547,7 @@ void main() {
 
   group('shell pages', () {
     final pages = {
-      // Creator tools has its own screen test (creator_studio_screen_test).
+      // Creator Studio has its own screen test (creator_studio_screen_test).
       'Advertise': AppRouter.advertisePath,
       'Calls': AppRouter.callsPath,
     };
