@@ -98,6 +98,19 @@ class AppConfig {
   /// ID (`--dart-define=APPLE_SERVICE_ID=...`). iOS/macOS use the native flow.
   static const bool appleSignInOnWebConfigured = _appleServiceIdDefine != '';
 
+  /// Master switch for the "Continue with Apple" button on **iOS only**.
+  ///
+  /// Sign in with Apple is not set up for iOS yet (no App ID capability or
+  /// entitlement), so the button is hidden there. Android, web and macOS are
+  /// unaffected. Flip it once the capability and entitlement exist, either by
+  /// changing the default below to `true` or per build with
+  /// `--dart-define=APPLE_SIGN_IN_IOS_ENABLED=true`. This is the only place
+  /// the switch is read (see `SocialSignInButtons`).
+  static const bool appleSignInIosEnabled = bool.fromEnvironment(
+    'APPLE_SIGN_IN_IOS_ENABLED',
+    defaultValue: false,
+  );
+
   static AppConfig fromEnvironment() {
     // `!kReleaseMode` is itself a compile-time constant expression (kReleaseMode
     // is `const bool.fromEnvironment('dart.vm.product')`), so this stays
