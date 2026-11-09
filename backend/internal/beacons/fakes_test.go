@@ -48,6 +48,7 @@ type fakeRepo struct {
 	mqueries      []MembershipQuery
 	plist         []Participant
 	plistErr      error // ListParticipants only (the shared err would also fail the cancel)
+	plistFails    int   // with plistErr: fail only the first plistFails calls (0 = every call)
 	pqueries      []ParticipantQuery
 	beaconBatches [][]string
 	respondDone   map[string]ParticipantResult // idempotency key + request hash -> committed Respond result
@@ -164,7 +165,7 @@ func (f *fakeRepo) ListParticipants(_ context.Context, q ParticipantQuery) ([]Pa
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pqueries = append(f.pqueries, q)
-	if f.plistErr != nil {
+	if f.plistErr != nil && (f.plistFails == 0 || len(f.pqueries) <= f.plistFails) {
 		return nil, f.plistErr
 	}
 	n := min(len(f.plist), max(q.Limit, 0))

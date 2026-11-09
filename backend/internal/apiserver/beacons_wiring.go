@@ -29,7 +29,8 @@ func (n beaconNotifier) RequestAccepted(ctx context.Context, e beacons.Participa
 }
 
 // Cancelled splits the accepted participants into events of at most notifications.MaxRecipientsPerEvent (R24): the
-// emitter truncates a longer list silently and a beacon seats up to 20. Nobody accepted means no event.
+// emitter truncates a longer list silently and a beacon seats up to 20. Nobody accepted means no event. The type is
+// exempt from the per-actor daily recipient cap (notifications.capExempt, B07), so no chunk is dropped for budget.
 func (n beaconNotifier) Cancelled(ctx context.Context, e beacons.CancelEvent) {
 	for start := 0; start < len(e.ParticipantUIDs); start += notifications.MaxRecipientsPerEvent {
 		end := min(start+notifications.MaxRecipientsPerEvent, len(e.ParticipantUIDs))

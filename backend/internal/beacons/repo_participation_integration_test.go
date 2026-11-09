@@ -199,6 +199,65 @@ func TestRepo_PendingCapIgnoresEndedBeacons(t *testing.T) {
 	}
 }
 
+// TestRepo_PendingCapIgnoresCancelledBeacons (B08): a cancel never clears the requesters' pendingUntil, so at the cap
+// the counted rows are re-checked: requests on cancelled beacons stop counting and stop pending (in the admitting
+// transaction), while requests on open beacons keep counting.
+func TestRepo_PendingCapIgnoresCancelledBeacons(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		cancel   int
+		admitted bool
+	}{
+		{name: "none cancelled", cancel: 0, admitted: false},
+		{name: "one of ten cancelled", cancel: 1, admitted: true},
+		{name: "all ten cancelled", cancel: 10, admitted: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newRepoEnv(t)
+			ctx := context.Background()
+			const org, req = "org-pcx", "req-pcx"
+			var ids []string
+			for i := range 10 {
+				ids = append(ids, e.createWithCap(t, org, fmt.Sprintf("integration-key-px%02d", i), e.beaconAt(org, "", e.now.Add(time.Duration(i+1)*time.Hour)), 50).Beacon.ID)
+			}
+			for i := range 10 {
+				if _, err := e.request(req, fmt.Sprintf("integration-key-pr%02d", i), ids[i], "", 10, e.now); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for i := range tt.cancel {
+				if _, err := e.repo.Cancel(ctx, CancelParams{
+					UID: org, BeaconID: ids[i], IdemKey: idempotency.Key(org, rpcCancelBeacon, fmt.Sprintf("integration-key-pk%02d", i)),
+					RequestHash: idempotency.HashRequest(ids[i]), Now: e.now,
+				}); err != nil {
+					t.Fatalf("cancel %d: %v", i, err)
+				}
+			}
+			next := e.createWithCap(t, org, "integration-key-px10", e.beaconAt(org, "", e.now.Add(20*time.Hour)), 50).Beacon
+			res, err := e.request(req, "integration-key-pr10", next.ID, "", 10, e.now)
+			if !tt.admitted {
+				if !errors.Is(err, ErrPendingLimit) {
+					t.Fatalf("11th request with nothing cancelled = %+v, %v, want ErrPendingLimit", res, err)
+				}
+				return
+			}
+			if err != nil || res.Outcome != Written {
+				t.Fatalf("request after %d cancels = %+v, %v, want Written", tt.cancel, res, err)
+			}
+			for i, id := range ids {
+				m, err := e.repo.membershipRef(req, id).Get(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, pending := m.Data()["pendingUntil"]
+				if want := i >= tt.cancel; pending != want {
+					t.Errorf("beacon %d (cancelled %v): pendingUntil set = %v, want %v", i, i < tt.cancel, pending, want)
+				}
+			}
+		})
+	}
+}
+
 func TestRepo_RespondAcceptFillsAndDeclines(t *testing.T) {
 	e := newRepoEnv(t)
 	ctx := context.Background()

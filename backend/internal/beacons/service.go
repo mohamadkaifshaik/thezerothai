@@ -520,16 +520,31 @@ func (s *service) CancelBeacon(ctx context.Context, uid, key, beaconID string) e
 	return nil
 }
 
+// cancelReadAttempts bounds the accepted-list reads notifyCancelled makes before giving up (B07): the cancel already
+// committed and its replay never notifies, so a transient read failure would otherwise silence the notice for good.
+const cancelReadAttempts = 3
+
 // notifyCancelled hands a cancel that wrote to the Events seam with the participants accepted at that moment (R23): one
-// ListParticipants read, skipped when nobody was accepted. The cancel already committed, so a failed read is logged
-// (hash only) and the event dropped; the RPC still succeeds.
+// ListParticipants read, skipped when nobody was accepted, retried up to cancelReadAttempts times while ctx is live.
+// The cancel already committed, so a read that still fails is logged (hash only) and the event dropped; the RPC still
+// succeeds.
 func (s *service) notifyCancelled(ctx context.Context, beaconID string, res CancelResult, now time.Time) {
 	if s.d.Events == nil || res.Outcome != Written || res.Beacon.AcceptedCount <= 0 {
 		return
 	}
-	rows, err := s.d.Repo.ListParticipants(ctx, ParticipantQuery{BeaconID: beaconID, State: PStateAccepted, Limit: s.d.Limits.MaxOpenSpots})
+	q := ParticipantQuery{BeaconID: beaconID, State: PStateAccepted, Limit: s.d.Limits.MaxOpenSpots}
+	var rows []Participant
+	var err error
+	attempts := 0
+	for attempts < cancelReadAttempts {
+		attempts++
+		if rows, err = s.d.Repo.ListParticipants(ctx, q); err == nil || ctx.Err() != nil {
+			break
+		}
+	}
 	if err != nil {
-		slog.WarnContext(ctx, "beacon_cancel_participants_failed", "beacon_hash", logger.HashUID(beaconID), "err", logger.RedactErr(err, beaconID).Error())
+		slog.WarnContext(ctx, "beacon_cancel_participants_failed", "beacon_hash", logger.HashUID(beaconID), "attempts", attempts,
+			"err", logger.RedactErr(err, beaconID).Error())
 		return
 	}
 	uids := make([]string, 0, len(rows))
