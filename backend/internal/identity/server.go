@@ -171,6 +171,7 @@ func (s *Server) UpdateProfile(ctx context.Context, req *connect.Request[identit
 		Website:        req.Msg.Website,
 		PinnedPostID:   req.Msg.PinnedPostId,
 		IsPrivate:      req.Msg.IsPrivate,
+		ReadReceipts:   req.Msg.ReadReceipts,
 	}
 	profile, err := s.svc.UpdateProfile(ctx, uid, params)
 	if err != nil {
@@ -327,6 +328,7 @@ func toProtoProfile(p Profile) *identityv1.Profile {
 		Location:             p.Location,
 		Website:              p.Website,
 		PinnedPostId:         p.PinnedPostID,
+		ReadReceipts:         p.ReadReceipts,
 		IsPrivate:            p.IsPrivate,
 		Verified:             p.Verified,
 		SubscriptionVerified: p.SubscriptionVerified,

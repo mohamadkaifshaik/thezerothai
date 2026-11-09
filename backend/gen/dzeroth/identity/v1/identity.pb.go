@@ -183,8 +183,13 @@ type Profile struct {
 	// Paid subscription verification entitlement. Set only by trusted subscription administration after confirming
 	// an active paid subscription; unrelated to verified identity or email status.
 	SubscriptionVerified bool `protobuf:"varint,18,opt,name=subscription_verified,json=subscriptionVerified,proto3" json:"subscription_verified,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// The caller's own "Read receipts" setting (F3), owner only: false in every Profile of another user, and always false
+	// while FEATURE_READ_RECEIPTS is globally off. Default false (off, opt-in). It is reciprocal: with it off the caller
+	// neither sends receipts (MarkConversationRead stores no read time for the peer) nor sees any (Conversation.peer_read_at
+	// is never set). The stored value returns when the flag is back on.
+	ReadReceipts  bool `protobuf:"varint,20,opt,name=read_receipts,json=readReceipts,proto3" json:"read_receipts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Profile) Reset() {
@@ -339,6 +344,13 @@ func (x *Profile) GetPinnedPostId() string {
 func (x *Profile) GetSubscriptionVerified() bool {
 	if x != nil {
 		return x.SubscriptionVerified
+	}
+	return false
+}
+
+func (x *Profile) GetReadReceipts() bool {
+	if x != nil {
+		return x.ReadReceipts
 	}
 	return false
 }
@@ -854,7 +866,13 @@ type UpdateProfileRequest struct {
 	// The caller's own POST, QUOTE or REPLY that is visible (never a REPOST); "" unpins. Every other
 	// case (missing, deleted, hidden, another user's post, a REPOST) is the same INVALID_ARGUMENT + VALIDATION,
 	// metadata["field"] = "pinned_post_id", so the call is no existence oracle. One pin; a new value replaces it.
-	PinnedPostId  *string `protobuf:"bytes,9,opt,name=pinned_post_id,json=pinnedPostId,proto3,oneof" json:"pinned_post_id,omitempty"`
+	PinnedPostId *string `protobuf:"bytes,9,opt,name=pinned_post_id,json=pinnedPostId,proto3,oneof" json:"pinned_post_id,omitempty"`
+	// Read receipts on or off (F3). true needs FEATURE_READ_RECEIPTS on for the caller (FAILED_PRECONDITION +
+	// FEATURE_DISABLED, metadata["feature"] = "read_receipts", checked before any read); false is never gated (the undo
+	// rule). Not retroactive: only conversations read while it is on carry a read time for the peer. Turning it off hides
+	// the caller's receipts from the peer and the peer's from the caller at once on the serving instance, and within the
+	// profile cache TTL (60 s) on another one.
+	ReadReceipts  *bool `protobuf:"varint,11,opt,name=read_receipts,json=readReceipts,proto3,oneof" json:"read_receipts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -950,6 +968,13 @@ func (x *UpdateProfileRequest) GetPinnedPostId() string {
 		return *x.PinnedPostId
 	}
 	return ""
+}
+
+func (x *UpdateProfileRequest) GetReadReceipts() bool {
+	if x != nil && x.ReadReceipts != nil {
+		return *x.ReadReceipts
+	}
+	return false
 }
 
 type UpdateProfileResponse struct {
@@ -1404,7 +1429,7 @@ var File_dzeroth_identity_v1_identity_proto protoreflect.FileDescriptor
 
 const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\n" +
-	"\"dzeroth/identity/v1/identity.proto\x12\x13dzeroth.identity.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfb\x04\n" +
+	"\"dzeroth/identity/v1/identity.proto\x12\x13dzeroth.identity.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa0\x05\n" +
 	"\aProfile\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x16\n" +
 	"\x06handle\x18\x02 \x01(\tR\x06handle\x12!\n" +
@@ -1429,7 +1454,8 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\blocation\x18\x0f \x01(\tR\blocation\x12\x18\n" +
 	"\awebsite\x18\x10 \x01(\tR\awebsite\x12$\n" +
 	"\x0epinned_post_id\x18\x11 \x01(\tR\fpinnedPostId\x123\n" +
-	"\x15subscription_verified\x18\x12 \x01(\bR\x14subscriptionVerified\"z\n" +
+	"\x15subscription_verified\x18\x12 \x01(\bR\x14subscriptionVerified\x12#\n" +
+	"\rread_receipts\x18\x14 \x01(\bR\freadReceipts\"z\n" +
 	"\x14CreateProfileRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x16\n" +
 	"\x06handle\x18\x02 \x01(\tR\x06handle\x12!\n" +
@@ -1456,7 +1482,7 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x06handle\x18\x02 \x01(\tH\x00R\x06handleB\b\n" +
 	"\x06target\"L\n" +
 	"\x12GetProfileResponse\x126\n" +
-	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\"\xe3\x03\n" +
+	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\"\x9f\x04\n" +
 	"\x14UpdateProfileRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12&\n" +
 	"\fdisplay_name\x18\x02 \x01(\tH\x00R\vdisplayName\x88\x01\x01\x12\x15\n" +
@@ -1467,7 +1493,8 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x0fbanner_media_id\x18\x06 \x01(\tH\x04R\rbannerMediaId\x88\x01\x01\x12\x1f\n" +
 	"\blocation\x18\a \x01(\tH\x05R\blocation\x88\x01\x01\x12\x1d\n" +
 	"\awebsite\x18\b \x01(\tH\x06R\awebsite\x88\x01\x01\x12)\n" +
-	"\x0epinned_post_id\x18\t \x01(\tH\aR\fpinnedPostId\x88\x01\x01B\x0f\n" +
+	"\x0epinned_post_id\x18\t \x01(\tH\aR\fpinnedPostId\x88\x01\x01\x12(\n" +
+	"\rread_receipts\x18\v \x01(\bH\bR\freadReceipts\x88\x01\x01B\x0f\n" +
 	"\r_display_nameB\x06\n" +
 	"\x04_bioB\x12\n" +
 	"\x10_avatar_media_idB\r\n" +
@@ -1476,7 +1503,8 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\t_locationB\n" +
 	"\n" +
 	"\b_websiteB\x11\n" +
-	"\x0f_pinned_post_id\"O\n" +
+	"\x0f_pinned_post_idB\x10\n" +
+	"\x0e_read_receipts\"O\n" +
 	"\x15UpdateProfileResponse\x126\n" +
 	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\"]\n" +
 	"\x13ChangeHandleRequest\x12'\n" +

@@ -89,6 +89,7 @@ const Profile$json = {
       '5': 8,
       '10': 'subscriptionVerified'
     },
+    {'1': 'read_receipts', '3': 20, '4': 1, '5': 8, '10': 'readReceipts'},
   ],
 };
 
@@ -105,7 +106,8 @@ final $typed_data.Uint8List profileDescriptor = $convert.base64Decode(
     'clVybBIoChBiYW5uZXJfdGh1bWJfdXJsGA4gASgJUg5iYW5uZXJUaHVtYlVybBIaCghsb2NhdG'
     'lvbhgPIAEoCVIIbG9jYXRpb24SGAoHd2Vic2l0ZRgQIAEoCVIHd2Vic2l0ZRIkCg5waW5uZWRf'
     'cG9zdF9pZBgRIAEoCVIMcGlubmVkUG9zdElkEjMKFXN1YnNjcmlwdGlvbl92ZXJpZmllZBgSIA'
-    'EoCFIUc3Vic2NyaXB0aW9uVmVyaWZpZWQ=');
+    'EoCFIUc3Vic2NyaXB0aW9uVmVyaWZpZWQSIwoNcmVhZF9yZWNlaXB0cxgUIAEoCFIMcmVhZFJl'
+    'Y2VpcHRz');
 
 @$core.Deprecated('Use createProfileRequestDescriptor instead')
 const CreateProfileRequest$json = {
@@ -353,6 +355,15 @@ const UpdateProfileRequest$json = {
       '10': 'pinnedPostId',
       '17': true
     },
+    {
+      '1': 'read_receipts',
+      '3': 11,
+      '4': 1,
+      '5': 8,
+      '9': 8,
+      '10': 'readReceipts',
+      '17': true
+    },
   ],
   '8': [
     {'1': '_display_name'},
@@ -363,6 +374,7 @@ const UpdateProfileRequest$json = {
     {'1': '_location'},
     {'1': '_website'},
     {'1': '_pinned_post_id'},
+    {'1': '_read_receipts'},
   ],
 };
 
@@ -374,9 +386,10 @@ final $typed_data.Uint8List updateProfileRequestDescriptor = $convert.base64Deco
     'lkiAEBEiIKCmlzX3ByaXZhdGUYBSABKAhIA1IJaXNQcml2YXRliAEBEisKD2Jhbm5lcl9tZWRp'
     'YV9pZBgGIAEoCUgEUg1iYW5uZXJNZWRpYUlkiAEBEh8KCGxvY2F0aW9uGAcgASgJSAVSCGxvY2'
     'F0aW9uiAEBEh0KB3dlYnNpdGUYCCABKAlIBlIHd2Vic2l0ZYgBARIpCg5waW5uZWRfcG9zdF9p'
-    'ZBgJIAEoCUgHUgxwaW5uZWRQb3N0SWSIAQFCDwoNX2Rpc3BsYXlfbmFtZUIGCgRfYmlvQhIKEF'
-    '9hdmF0YXJfbWVkaWFfaWRCDQoLX2lzX3ByaXZhdGVCEgoQX2Jhbm5lcl9tZWRpYV9pZEILCglf'
-    'bG9jYXRpb25CCgoIX3dlYnNpdGVCEQoPX3Bpbm5lZF9wb3N0X2lk');
+    'ZBgJIAEoCUgHUgxwaW5uZWRQb3N0SWSIAQESKAoNcmVhZF9yZWNlaXB0cxgLIAEoCEgIUgxyZW'
+    'FkUmVjZWlwdHOIAQFCDwoNX2Rpc3BsYXlfbmFtZUIGCgRfYmlvQhIKEF9hdmF0YXJfbWVkaWFf'
+    'aWRCDQoLX2lzX3ByaXZhdGVCEgoQX2Jhbm5lcl9tZWRpYV9pZEILCglfbG9jYXRpb25CCgoIX3'
+    'dlYnNpdGVCEQoPX3Bpbm5lZF9wb3N0X2lkQhAKDl9yZWFkX3JlY2VpcHRz');
 
 @$core.Deprecated('Use updateProfileResponseDescriptor instead')
 const UpdateProfileResponse$json = {
