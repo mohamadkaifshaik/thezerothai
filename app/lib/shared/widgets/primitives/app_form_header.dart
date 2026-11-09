@@ -105,6 +105,7 @@ class AppFormHeader extends StatelessWidget {
                       constraints: cap,
                       child: AppPillButton(
                         label: action,
+                        singleLine: true,
                         busy: busy,
                         busySemanticsLabel: busySemanticsLabel,
                         onPressed: onAction,
