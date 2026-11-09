@@ -135,6 +135,10 @@ void main() {
     await tester.tap(find.text('Cancel plan'));
     await tester.pumpAndSettle();
     expect(find.text('Cancel this plan?'), findsOneWidget);
+    expect(
+      find.text('People who joined will get a notification.'),
+      findsOneWidget,
+    );
     await tester.tap(find.text('Keep'));
     await tester.pumpAndSettle();
     expect(server.receivedKeys, isEmpty);

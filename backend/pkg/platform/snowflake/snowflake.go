@@ -61,8 +61,14 @@ func (n *Node) generateInt() int64 {
 	defer n.mu.Unlock()
 
 	now := n.millisSinceEpoch()
-	switch {
-	case now == n.lastMillis:
+	// Clock moved backwards (NTP adjustment). Wait it out rather than risk a duplicate/out-of-order id. The wait can
+	// end on lastMillis itself, which already issued sequence numbers, so it falls through to the same-millisecond
+	// path below instead of restarting the sequence at 0 (that would repeat this millisecond's first id).
+	for now < n.lastMillis {
+		time.Sleep(100 * time.Microsecond)
+		now = n.millisSinceEpoch()
+	}
+	if now == n.lastMillis {
 		n.seq = (n.seq + 1) & maxSeq
 		if n.seq == 0 {
 			// Sequence exhausted (>4096 ids this ms from this node): spin to the next millisecond.
@@ -71,14 +77,7 @@ func (n *Node) generateInt() int64 {
 				now = n.millisSinceEpoch()
 			}
 		}
-	case now < n.lastMillis:
-		// Clock moved backwards (NTP adjustment). Wait it out rather than risk a duplicate/out-of-order id.
-		for now < n.lastMillis {
-			time.Sleep(100 * time.Microsecond)
-			now = n.millisSinceEpoch()
-		}
-		n.seq = 0
-	default:
+	} else {
 		n.seq = 0
 	}
 	n.lastMillis = now

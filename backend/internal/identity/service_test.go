@@ -337,6 +337,44 @@ func TestGetMe(t *testing.T) {
 	}
 }
 
+// TestGetMe_IgnoresNegativeCacheAfterRemoteCreate: a profile-less lookup is negatively cached for the
+// interceptor path, but GetMe must re-read, so a CreateProfile committed through another instance (which
+// this instance's cache never saw) is visible on the very next GetMe.
+func TestGetMe_IgnoresNegativeCacheAfterRemoteCreate(t *testing.T) {
+	repo := newFakeRepo()
+	svc := newTestService(repo)
+	ctx := context.Background()
+
+	_, err := svc.GetMe(ctx, "uid-remote")
+	assertNotFound(t, err)
+
+	// Another instance creates the profile; this instance's cache is untouched.
+	repo.profiles["uid-remote"] = Profile{UserID: "uid-remote", Handle: "remote", HandleLower: "remote", Status: AccountStatusActive}
+
+	res, err := svc.GetMe(ctx, "uid-remote")
+	if err != nil {
+		t.Fatalf("GetMe() after remote create error = %v, want the profile", err)
+	}
+	if res.Profile.UserID != "uid-remote" {
+		t.Errorf("GetMe().Profile.UserID = %q, want uid-remote", res.Profile.UserID)
+	}
+}
+
+// TestGetProfileCached_NegativeCacheStillBoundsReads: the per-request interceptor path keeps its short
+// negative cache (M1), so a profile-less caller costs at most one read per notFoundTTL.
+func TestGetProfileCached_NegativeCacheStillBoundsReads(t *testing.T) {
+	repo := newFakeRepo()
+	svc := newTestService(repo)
+	for i := 0; i < 3; i++ {
+		if _, err := svc.getProfileCached(context.Background(), "ghost"); err == nil {
+			t.Fatal("want not found")
+		}
+	}
+	if repo.getProfileCalls != 1 {
+		t.Errorf("getProfileCalls = %d, want 1", repo.getProfileCalls)
+	}
+}
+
 func TestGetMe_NotFound(t *testing.T) {
 	svc := newTestService(newFakeRepo())
 	_, err := svc.GetMe(context.Background(), "ghost")
