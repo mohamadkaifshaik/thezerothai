@@ -2,6 +2,7 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/beacons/presentation/beacon_screen.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
+import 'package:dzeroth/features/messages/data/message_outbox.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
@@ -19,7 +20,10 @@ class _MockGraph extends Mock implements GraphRepository {}
 
 class _MockModeration extends Mock implements ModerationRepository {}
 
-class _MockMessaging extends Mock implements MessagingRepository {}
+class _MockMessaging extends Mock implements MessagingRepository {
+  @override
+  final MessageOutbox outbox = MessageOutbox();
+}
 
 /// The viewer's actions on `/plans/:id` (R35, R37): the buttons follow the
 /// server's ViewerState, every write reloads, and the menu offers Message

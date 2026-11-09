@@ -16,6 +16,7 @@ import 'package:dzeroth/features/engagement/data/bookmarks_repository.dart';
 import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
 import 'package:dzeroth/features/engagement/data/likes_repository.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
+import 'package:dzeroth/features/messages/data/message_outbox.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
@@ -69,6 +70,9 @@ class _MockTimeline extends Mock implements TimelineRepository {}
 class _MockNotifications extends Mock implements NotificationsRepository {}
 
 class _MockMessaging extends Mock implements MessagingRepository {
+  @override
+  final MessageOutbox outbox = MessageOutbox();
+
   _MockMessaging() {
     // The router listens to the gate; app_widget runs the probe.
     when(() => gate)
