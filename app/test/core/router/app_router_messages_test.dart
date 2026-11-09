@@ -8,6 +8,7 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
+import 'package:dzeroth/features/messages/data/message_outbox.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/presentation/draft_thread_screen.dart';
 import 'package:dzeroth/features/messages/presentation/recipient_picker_screen.dart';
@@ -43,7 +44,10 @@ class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
-class _MockMessagingRepository extends Mock implements MessagingRepository {}
+class _MockMessagingRepository extends Mock implements MessagingRepository {
+  @override
+  final MessageOutbox outbox = MessageOutbox();
+}
 
 class _MockGraphRepository extends Mock implements GraphRepository {}
 

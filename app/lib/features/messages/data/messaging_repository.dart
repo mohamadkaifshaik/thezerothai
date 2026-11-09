@@ -8,6 +8,7 @@ import '../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../domain/messaging_feature_gate.dart';
 import '../domain/thread_poller.dart';
+import 'message_outbox.dart';
 import 'messaging_store.dart';
 
 /// Pages fetched in a row when the server answers a short or empty page while
@@ -72,6 +73,10 @@ class MessagingRepository {
   final int _pageSize;
   final RateLimitHold _hold;
 
+  /// Draft text, unsent rows and their idempotency keys per conversation;
+  /// outlives thread screens and is emptied by [clearSession].
+  final MessageOutbox outbox = MessageOutbox();
+
   Future<void> _tail = Future<void>.value();
   final Map<String, Future<Object?>> _inflight = {};
   final StreamController<void> _conversationsChanged =
@@ -102,6 +107,7 @@ class MessagingRepository {
     _gate.endSession();
     _inflight.clear();
     _hold.clear();
+    outbox.clear();
     _tail = Future<void>.value();
   }
 
