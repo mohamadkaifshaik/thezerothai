@@ -68,10 +68,26 @@ abstract final class AppLayout {
 }
 
 abstract final class AppRadius {
+  /// Legacy, migrate in sections.
   static const double sm = 8;
+
+  /// Legacy, migrate in sections.
   static const double md = 12;
+
+  /// Legacy, migrate in sections.
   static const double lg = 16;
+
+  /// Legacy, migrate in sections.
   static const double pill = 999;
+
+  // Redesign tokens (ADR-0033).
+  static const double card = 24;
+  static const double cardSmall = 20;
+  static const double field = 16;
+  static const double tile = 14;
+  static const double bubble = 22;
+  static const double bubbleTail = 6;
+  static const double sheetTop = 32;
 }
 
 /// Responsive layout breakpoints.
@@ -132,6 +148,18 @@ abstract final class AppSize {
 
   /// Mobile floating compose button.
   static const double fab = 56;
+
+  // Redesign tokens (ADR-0033). `bottomNav` and `fab` switch in phase 3.
+  static const double buttonHeight = 52;
+  static const double buttonHeightLarge = 56;
+  static const double floatingNavHeight = 66;
+  static const double floatingNavInset = 20;
+  static const double floatingNavBottom = 24;
+  static const double fabRedesign = 58;
+  static const double avatarRow = 44;
+  static const double avatarPost = 42;
+  static const double avatarLg = 56;
+  static const double avatarXl = 120;
 }
 
 // --- Palette (X, dark) -----------------------------------------------------
@@ -768,4 +796,141 @@ abstract final class AppAuthPalette {
   static const googleYellow = Color(0xFFFBBC05);
   static const googleRed = Color(0xFFEA4335);
   static const white = Color(0xFFFFFFFF);
+}
+
+/// Raw redesign colour tokens (ADR-0033). Not wired into the active theme yet.
+abstract final class AppPalette {
+  static const Color navy = Color(0xFF0D1528);
+  static const Color navy2 = Color(0xFF1B2A44);
+  static const Color navyDeep = Color(0xFF08101F);
+  static const Color pearl = Color(0xFFF6F4EF);
+  static const Color white = Color(0xFFFFFFFF);
+  static const Color teal = Color(0xFF12B8A6);
+
+  /// Large display text only (3.77 on pearl); never body text.
+  static const Color tealDark = Color(0xFF0B8C7F);
+  static const Color tealElectric = Color(0xFF19D3BE);
+  static const Color text2 = Color(0xFF2A3446);
+
+  // Accessibility set.
+  static const Color tealText = Color(0xFF087066);
+  static const Color uiBorderOnLight = Color(0xFF7A8392);
+  static const Color uiBorderOnDark = Color(0xFF7B879B);
+  static const Color mutedOnLight = Color(0xFF5B6475);
+  static const Color mutedOnDark = Color(0xFF9AA3B2);
+
+  /// Danger fill (white label 6.57) and danger text on light (5.98).
+  static const Color danger = Color(0xFFB42318);
+
+  /// Danger text and icons on dark (D2): 6.53 on navy.
+  static const Color dangerOnDark = Color(0xFFF97066);
+
+  /// Decorative only; never for input, chip or button borders.
+  static const Color hairlineLight = Color(0x140D1528);
+  static const Color hairlineDark = Color(0x1AF6F4EF);
+  static const Color scrim = Color(0x7A08101F);
+
+  // Dark container ladder (D4).
+  static const Color darkContainerLowest = navyDeep;
+  static const Color darkSurface = navy;
+  static const Color darkContainerLow = Color(0xFF121C33);
+  static const Color darkContainer = Color(0xFF16223B);
+  static const Color darkContainerHigh = navy2;
+  static const Color darkContainerHighest = Color(0xFF22324F);
+}
+
+/// Redesign gradients. Declared only here.
+abstract final class AppGradients {
+  static const LinearGradient primaryButton = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [AppPalette.tealElectric, AppPalette.teal],
+  );
+  static const LinearGradient mineBubble = primaryButton;
+  static const LinearGradient card = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [AppPalette.white, Color(0xFFEEF1F4)],
+  );
+  static const LinearGradient lightBubble = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [AppPalette.white, Color(0xFFE6EAEE)],
+  );
+  static const LinearGradient darkCard = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [AppPalette.navy2, AppPalette.navy],
+  );
+
+  /// dz.css `.hero`: radial-gradient(120% 120% at 85% 0%, ...).
+  static const RadialGradient hero = RadialGradient(
+    center: Alignment(0.7, -1),
+    radius: 1.2,
+    colors: [AppPalette.navy2, AppPalette.navy, AppPalette.navyDeep],
+    stops: [0, 0.55, 1],
+  );
+}
+
+/// Redesign shadows (outer parts only; Flutter has no inset shadow).
+abstract final class AppShadows {
+  static const List<BoxShadow> card = [
+    BoxShadow(color: Color(0x2E0D1528), offset: Offset(0, 11), blurRadius: 25),
+  ];
+  static const List<BoxShadow> brand = [
+    BoxShadow(color: Color(0x380D1528), offset: Offset(0, 11), blurRadius: 25),
+  ];
+  static const List<BoxShadow> primaryGlow = [
+    BoxShadow(color: Color(0x5919D3BE), offset: Offset(0, 10), blurRadius: 26),
+  ];
+  static const List<BoxShadow> navBar = [
+    BoxShadow(color: Color(0x590D1528), offset: Offset(0, 14), blurRadius: 30),
+  ];
+}
+
+/// Redesign motion tokens.
+class AppMotion {
+  const AppMotion._({required this.movement});
+
+  static const Curve expoOut = Cubic(0.16, 1, 0.3, 1);
+  static const Curve backOut = Cubic(0.34, 1.56, 0.64, 1);
+  static const Duration expoOutShort = Duration(milliseconds: 300);
+  static const Duration expoOutLong = Duration(milliseconds: 450);
+  static const Duration backOutDuration = Duration(milliseconds: 350);
+  static const Duration headlineStaggerMin = Duration(milliseconds: 80);
+  static const Duration headlineStaggerMax = Duration(milliseconds: 200);
+
+  static const AppMotion full = AppMotion._(movement: true);
+  static const AppMotion reduced = AppMotion._(movement: false);
+
+  /// Whether slides and scales may run. When false, use a plain fade.
+  final bool movement;
+
+  /// Zero-movement fades under reduced motion.
+  static AppMotion of(BuildContext context) =>
+      MediaQuery.disableAnimationsOf(context) ? reduced : full;
+
+  /// Distance an element may travel while entering (0 when reduced).
+  double offset(double distance) => movement ? distance : 0;
+}
+
+/// Redesign typography tokens (values only; the theme does not use them yet).
+abstract final class AppTypeTokens {
+  static const List<double> displaySizes = [28, 32, 36, 40, 48, 52];
+  static const double displayTracking = -0.035;
+  static const double displayLineHeight = 1.02;
+  static const double eyebrowSize = 12;
+  static const FontWeight eyebrowWeight = FontWeight.w700;
+  static const double eyebrowTracking = 0.24;
+  static const double wordmarkSize = 15;
+  static const FontWeight wordmarkWeight = FontWeight.w700;
+  static const double wordmarkTracking = 0.13;
+  static const double bodySize = 15;
+  static const double bodyLineHeight = 1.42;
+  static const double focalPostSize = 17;
+  static const double focalPostLineHeight = 24;
+  static const FontWeight weightDisplay = FontWeight.w800;
+  static const FontWeight weightUi = FontWeight.w700;
+  static const FontWeight weightLabel = FontWeight.w600;
+  static const FontWeight weightBody = FontWeight.w500;
 }
