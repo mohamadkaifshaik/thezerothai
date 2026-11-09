@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 
 /// An empty list state: an optional [icon], a short [title] and an optional
-/// one-line [subtitle], start-aligned (dz.css `.empty`; [centered] for a
-/// full-screen hero). Sized for a sliver/box inside a scroll view (Home, profile,
+/// one-line [subtitle]. Centred on phones (window narrower than
+/// [AppBreakpoints.mobile], matching the mobile designs) and start-aligned on
+/// tablet and desktop (dz.css `.empty`); [centered] forces either. Sized for a sliver/box inside a scroll view (Home, profile,
 /// thread replies). In a bounded-height box (an `Expanded`, a `Center`) it
 /// scrolls when its content is taller than the space left, so a large text
 /// scale or a short window never overflows; its default rendering is
@@ -16,7 +17,7 @@ class AppEmptyView extends StatelessWidget {
     required this.title,
     this.subtitle,
     this.action,
-    this.centered = false,
+    this.centered,
     this.iconColor,
   });
 
@@ -27,8 +28,10 @@ class AppEmptyView extends StatelessWidget {
   /// A call to action under the text (e.g. a compact pill button).
   final Widget? action;
 
-  /// Centre the content instead of starting it at the leading edge.
-  final bool centered;
+  /// Centre the content (true) or start it at the leading edge (false).
+  /// Null (the default) decides by window width: centred below
+  /// [AppBreakpoints.mobile] (owner decision 2026-11-09), start-aligned above.
+  final bool? centered;
 
   /// Overrides the muted icon colour (an error state uses the error role).
   final Color? iconColor;
@@ -51,6 +54,9 @@ class AppEmptyView extends StatelessWidget {
 
   Widget _content(BuildContext context) {
     final theme = Theme.of(context);
+    final centered =
+        this.centered ??
+        MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
     final align = centered ? TextAlign.center : TextAlign.start;
     return SizedBox(
       width: double.infinity,

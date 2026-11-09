@@ -7,7 +7,7 @@ import '../../../support/theme_harness.dart';
 
 void main() {
   forEachThemeAndWidth(
-    'empty view: start-aligned, action, no overflow',
+    'empty view: centred on phones, start-aligned wider, action, no overflow',
     (tester, env) async {
       await pumpThemed(
         tester,
@@ -22,8 +22,14 @@ void main() {
         textScale: env.textScale,
       );
       expect(tester.takeException(), isNull);
-      // Leading edge = the 24dp horizontal padding.
-      expect(tester.getTopLeft(find.text('Nothing here yet')).dx, 24);
+      final title = find.text('Nothing here yet');
+      if (env.size.width < 600) {
+        // Phones: centred (owner decision 2026-11-09, mobile designs).
+        expect(tester.getCenter(title).dx, closeTo(env.size.width / 2, 1));
+      } else {
+        // Tablet and desktop: leading edge = the 24dp horizontal padding.
+        expect(tester.getTopLeft(title).dx, 24);
+      }
       await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
       expect(
         tester.getSize(find.byType(AppPillButton)).width,
@@ -45,5 +51,23 @@ void main() {
     );
     expect(find.byType(Icon), findsNothing);
     expect(tester.getCenter(find.text('Nothing')).dx, closeTo(200, 1));
+  });
+
+  testWidgets('centered: false keeps a phone start-aligned', (tester) async {
+    await pumpThemed(
+      tester,
+      const AppEmptyView(title: 'Nothing', centered: false),
+      size: const Size(360, 800),
+    );
+    expect(tester.getTopLeft(find.text('Nothing')).dx, 24);
+  });
+
+  testWidgets('centered: true centres on a wide window', (tester) async {
+    await pumpThemed(
+      tester,
+      const AppEmptyView(title: 'Nothing', centered: true),
+      size: const Size(1440, 900),
+    );
+    expect(tester.getCenter(find.text('Nothing')).dx, closeTo(720, 1));
   });
 }
