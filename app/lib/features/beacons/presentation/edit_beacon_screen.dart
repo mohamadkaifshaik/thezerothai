@@ -17,6 +17,7 @@ import '../domain/beacon_text_rules.dart';
 import '../domain/beacons_feature_flag.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/edit_beacon_cubit.dart';
+import 'widgets/discard_plan_dialog.dart';
 
 /// `/plans/:id/edit` (R34): title, details, meeting point and open spots, the
 /// fields `UpdateBeacon` accepts. Start, duration, cost and audience are shown
@@ -41,6 +42,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
   final _venue = TextEditingController();
   int? _openSpots;
   bool _filled = false;
+  bool _discarded = false;
 
   @override
   void initState() {
@@ -76,6 +78,28 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
     } else {
       context.go(AppRouter.planPath(widget.beaconId));
     }
+  }
+
+  /// Toolbar Cancel, platform back and the back gesture. Asks first when
+  /// there are unsaved edits; no exit while the save is in flight.
+  Future<void> _requestExit() async {
+    final state = _cubit.state;
+    final b = _filled ? state.view?.beacon : null;
+    if (state.busy) return;
+    if (b != null && _dirty(b)) {
+      final discard = await confirmDiscardPlan(
+        context,
+        title: 'Discard your changes?',
+        body: 'Your edits to this plan will not be saved.',
+      );
+      if (!discard || !mounted) return;
+      setState(() => _discarded = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _back();
+      });
+      return;
+    }
+    _back();
   }
 
   bool _dirty(pb.Beacon b) =>
@@ -126,170 +150,183 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
               final minSpots = b == null
                   ? kBeaconMinSpots
                   : b.acceptedCount.clamp(kBeaconMinSpots, kBeaconMaxSpots);
-              return Column(
-                children: [
-                  AppFormHeader(
-                    title: 'Edit plan',
-                    actionLabel: 'Save',
-                    busy: busy,
-                    busySemanticsLabel: 'Saving plan',
-                    onCancel: _back,
-                    onAction: b != null && !busy && _dirty(b) && _valid(b)
-                        ? _save
-                        : null,
-                  ),
-                  Expanded(
-                    child: state.loading
-                        ? const UserListSkeleton(
-                            rows: 2,
-                            semanticsLabel: 'Loading plan',
-                          )
-                        : state.error != null
-                        ? Center(
-                            child: AppEmptyView(
-                              icon: Icons.error_outline,
-                              title: beaconsErrorMessage(state.error!),
-                              action: TextButton(
-                                onPressed: _cubit.load,
-                                child: const Text('Try again'),
+              return PopScope(
+                canPop:
+                    state.saved != null ||
+                    _discarded ||
+                    (!busy && (b == null || !_dirty(b))),
+                onPopInvokedWithResult: (didPop, _) {
+                  if (!didPop) _requestExit();
+                },
+                child: Column(
+                  children: [
+                    AppFormHeader(
+                      title: 'Edit plan',
+                      actionLabel: 'Save',
+                      busy: busy,
+                      busySemanticsLabel: 'Saving plan',
+                      onCancel: _requestExit,
+                      onAction: b != null && !busy && _dirty(b) && _valid(b)
+                          ? _save
+                          : null,
+                    ),
+                    Expanded(
+                      child: state.loading
+                          ? const UserListSkeleton(
+                              rows: 2,
+                              semanticsLabel: 'Loading plan',
+                            )
+                          : state.error != null
+                          ? Center(
+                              child: AppEmptyView(
+                                icon: Icons.error_outline,
+                                title: beaconsErrorMessage(state.error!),
+                                action: TextButton(
+                                  onPressed: _cubit.load,
+                                  child: const Text('Try again'),
+                                ),
                               ),
-                            ),
-                          )
-                        : SingleChildScrollView(
-                            padding: const EdgeInsets.all(AppSpacing.md),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                TextField(
-                                  controller: _title,
-                                  enabled: !busy,
-                                  textInputAction: TextInputAction.next,
-                                  decoration: InputDecoration(
-                                    labelText: 'Title',
-                                    errorText: beaconFieldError(
-                                      beaconTitleIssue(_title.text),
-                                      max: kBeaconTitleMaxLength,
-                                    ),
-                                    counter: _counter(
-                                      _title,
-                                      kBeaconTitleMaxLength,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: AppSpacing.md),
-                                TextField(
-                                  controller: _details,
-                                  enabled: !busy,
-                                  minLines: 2,
-                                  maxLines: 4,
-                                  decoration: InputDecoration(
-                                    labelText: 'Details',
-                                    errorText: beaconFieldError(
-                                      beaconDetailsIssue(_details.text),
-                                      max: kBeaconDetailsMaxLength,
-                                    ),
-                                    counter: _counter(
-                                      _details,
-                                      kBeaconDetailsMaxLength,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: AppSpacing.md),
-                                TextField(
-                                  controller: _venue,
-                                  enabled: !busy,
-                                  textInputAction: TextInputAction.done,
-                                  decoration: InputDecoration(
-                                    labelText: 'Meeting point',
-                                    errorText: beaconFieldError(
-                                      beaconVenueIssue(_venue.text),
-                                      max: kBeaconVenueMaxLength,
-                                    ),
-                                    counter: _counter(
-                                      _venue,
-                                      kBeaconVenueMaxLength,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: AppSpacing.md),
-                                Semantics(
-                                  header: true,
-                                  child: Text(
-                                    'Open spots',
-                                    style: theme.textTheme.titleMedium,
-                                  ),
-                                ),
-                                Row(
-                                  children: [
-                                    IconButton(
-                                      tooltip: 'Fewer spots',
-                                      icon: const Icon(
-                                        Icons.remove_circle_outline,
+                            )
+                          : SingleChildScrollView(
+                              padding: const EdgeInsets.all(AppSpacing.md),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  TextField(
+                                    controller: _title,
+                                    enabled: !busy,
+                                    textInputAction: TextInputAction.next,
+                                    decoration: InputDecoration(
+                                      labelText: 'Title',
+                                      errorText: beaconFieldError(
+                                        beaconTitleIssue(_title.text),
+                                        max: kBeaconTitleMaxLength,
                                       ),
-                                      onPressed:
-                                          busy || (_openSpots ?? 0) <= minSpots
-                                          ? null
-                                          : () => setState(
-                                              () =>
-                                                  _openSpots = _openSpots! - 1,
-                                            ),
-                                    ),
-                                    Semantics(
-                                      label: '${_openSpots ?? 0} open spots',
-                                      excludeSemantics: true,
-                                      child: Text(
-                                        '${_openSpots ?? 0}',
-                                        style: theme.textTheme.titleMedium,
+                                      counter: _counter(
+                                        _title,
+                                        kBeaconTitleMaxLength,
                                       ),
                                     ),
-                                    IconButton(
-                                      tooltip: 'More spots',
-                                      icon: const Icon(
-                                        Icons.add_circle_outline,
+                                  ),
+                                  const SizedBox(height: AppSpacing.md),
+                                  TextField(
+                                    controller: _details,
+                                    enabled: !busy,
+                                    minLines: 2,
+                                    maxLines: 4,
+                                    decoration: InputDecoration(
+                                      labelText: 'Details',
+                                      errorText: beaconFieldError(
+                                        beaconDetailsIssue(_details.text),
+                                        max: kBeaconDetailsMaxLength,
                                       ),
-                                      onPressed:
-                                          busy ||
-                                              (_openSpots ?? 0) >=
-                                                  kBeaconMaxSpots
-                                          ? null
-                                          : () => setState(
-                                              () =>
-                                                  _openSpots = _openSpots! + 1,
-                                            ),
-                                    ),
-                                  ],
-                                ),
-                                if (b != null && b.acceptedCount > 0)
-                                  Text(
-                                    '${b.acceptedCount} already going; the '
-                                    'spots cannot go below that.',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: theme.colorScheme.onSurfaceVariant,
+                                      counter: _counter(
+                                        _details,
+                                        kBeaconDetailsMaxLength,
+                                      ),
                                     ),
                                   ),
-                                if (b != null) ...[
-                                  const SizedBox(height: AppSpacing.lg),
-                                  _ReadOnly(beacon: b),
-                                ],
-                                if (state.saveError != null) ...[
+                                  const SizedBox(height: AppSpacing.md),
+                                  TextField(
+                                    controller: _venue,
+                                    enabled: !busy,
+                                    textInputAction: TextInputAction.done,
+                                    decoration: InputDecoration(
+                                      labelText: 'Meeting point',
+                                      errorText: beaconFieldError(
+                                        beaconVenueIssue(_venue.text),
+                                        max: kBeaconVenueMaxLength,
+                                      ),
+                                      counter: _counter(
+                                        _venue,
+                                        kBeaconVenueMaxLength,
+                                      ),
+                                    ),
+                                  ),
                                   const SizedBox(height: AppSpacing.md),
                                   Semantics(
-                                    liveRegion: true,
+                                    header: true,
                                     child: Text(
-                                      state.saveError!,
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            color: theme.colorScheme.error,
-                                          ),
+                                      'Open spots',
+                                      style: theme.textTheme.titleMedium,
                                     ),
                                   ),
+                                  Row(
+                                    children: [
+                                      IconButton(
+                                        tooltip: 'Fewer spots',
+                                        icon: const Icon(
+                                          Icons.remove_circle_outline,
+                                        ),
+                                        onPressed:
+                                            busy ||
+                                                (_openSpots ?? 0) <= minSpots
+                                            ? null
+                                            : () => setState(
+                                                () => _openSpots =
+                                                    _openSpots! - 1,
+                                              ),
+                                      ),
+                                      Semantics(
+                                        label: '${_openSpots ?? 0} open spots',
+                                        excludeSemantics: true,
+                                        child: Text(
+                                          '${_openSpots ?? 0}',
+                                          style: theme.textTheme.titleMedium,
+                                        ),
+                                      ),
+                                      IconButton(
+                                        tooltip: 'More spots',
+                                        icon: const Icon(
+                                          Icons.add_circle_outline,
+                                        ),
+                                        onPressed:
+                                            busy ||
+                                                (_openSpots ?? 0) >=
+                                                    kBeaconMaxSpots
+                                            ? null
+                                            : () => setState(
+                                                () => _openSpots =
+                                                    _openSpots! + 1,
+                                              ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (b != null && b.acceptedCount > 0)
+                                    Text(
+                                      '${b.acceptedCount} already going; the '
+                                      'spots cannot go below that.',
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                    ),
+                                  if (b != null) ...[
+                                    const SizedBox(height: AppSpacing.lg),
+                                    _ReadOnly(beacon: b),
+                                  ],
+                                  if (state.saveError != null) ...[
+                                    const SizedBox(height: AppSpacing.md),
+                                    Semantics(
+                                      liveRegion: true,
+                                      child: Text(
+                                        state.saveError!,
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                              color: theme.colorScheme.error,
+                                            ),
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(height: AppSpacing.lg),
                                 ],
-                                const SizedBox(height: AppSpacing.lg),
-                              ],
+                              ),
                             ),
-                          ),
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               );
             },
           ),
