@@ -24,7 +24,8 @@ message Article {
   string author_id = 2;
   int64 revision = 3;
   string title = 4;
-  // JSON array of validated structured blocks; never HTML.
+  // JSON array of validated structured blocks; never HTML. Empty in ListArticles responses: open an article
+  // with GetArticle to read its body.
   string body_json = 5;
   string cover_media_id = 6;
   string post_id = 7;
@@ -33,6 +34,9 @@ message Article {
   bool publication_pending = 10;
   string publication_caption = 11;
   dzeroth.posts.v1.ReplyPolicy publication_reply_policy = 12;
+  // Plain-text excerpt of the body (whitespace collapsed, at most 280 Unicode code points), computed by the
+  // server on read. Set on every response, including ListArticles where body_json is empty. Never HTML.
+  string excerpt = 13;
 }
 message GetArticleRequest { string article_id = 1; }
 message GetArticleResponse { Article article = 1; dzeroth.posts.v1.PostView post = 2; }

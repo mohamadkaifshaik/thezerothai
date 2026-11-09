@@ -10,6 +10,7 @@ import '../../data/media_uploader.dart';
 import '../../domain/image_processor.dart';
 import '../../domain/media_feature_flag.dart';
 import '../../domain/processed_image.dart';
+import '../../domain/processing_cancellation.dart';
 
 /// What an attachment is. A post has up to [kMaxPostImages] photos, or one
 /// GIF, never both (the rule lives in `ComposerAttachmentRules`).
@@ -275,21 +276,52 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     );
     // One at a time: decoding a full-size photo is memory-hungry, and four
     // at once can exhaust a low-end phone. Each tile turns ready in turn.
+    // A photo removed while it waited is skipped, never processed.
     for (var i = 0; i < accepted.length; i++) {
       if (isClosed) return;
+      if (!state.items.any((a) => a.id == ids[i])) continue;
       await _process(ids[i], accepted[i]);
     }
   }
 
+  /// The cancellation of each photo being processed: [remove], [clear] and
+  /// [close] cancel it, so a removed photo (or a closed composer) stops the
+  /// work (on the web the worker is terminated).
+  final Map<String, ProcessingCancellation> _processing = {};
+
   Future<void> _process(String id, Uint8List bytes) async {
+    final cancellation = ProcessingCancellation();
+    _processing[id] = cancellation;
     try {
-      final image = await _processor.process(bytes, ImagePurpose.post);
+      final image = await _processor.process(
+        bytes,
+        ImagePurpose.post,
+        cancellation: cancellation,
+      );
+      if (cancellation.isCancelled) return;
       _update(
         id,
         (a) => a.copyWith(status: AttachmentStatus.ready, image: image),
       );
+    } on ImageProcessingCancelled {
+      // Removed or closed: the tile is already gone.
     } catch (_) {
+      if (cancellation.isCancelled) return;
       _update(id, (a) => a.copyWith(status: AttachmentStatus.unsupported));
+    } finally {
+      if (identical(_processing[id], cancellation)) _processing.remove(id);
+    }
+  }
+
+  void _cancelProcessing([String? id]) {
+    if (id != null) {
+      _processing.remove(id)?.cancel();
+      return;
+    }
+    final all = _processing.values.toList();
+    _processing.clear();
+    for (final c in all) {
+      c.cancel();
     }
   }
 
@@ -303,6 +335,7 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
   }
 
   void remove(String id) {
+    _cancelProcessing(id);
     _uploader.forget(id);
     emit(
       AttachmentsState(
@@ -498,5 +531,15 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
   }
 
   /// Drops everything (after a post succeeded).
-  void clear() => emit(const AttachmentsState());
+  void clear() {
+    _cancelProcessing();
+    emit(const AttachmentsState());
+  }
+
+  /// Leaving the composer stops any photo still being prepared.
+  @override
+  Future<void> close() {
+    _cancelProcessing();
+    return super.close();
+  }
 }

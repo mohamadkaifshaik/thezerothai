@@ -734,7 +734,7 @@ abstract final class AppAuthPalette {
   static const paper = Color(0xFFFAFBF8);
   static const ink = Color(0xFF17202F);
   static const darkMuted = Color(0xFFA9B3A4);
-  static const muted = Color(0xFF71796A);
+  static const muted = Color(0xFF646C5D);
   static const link = Color(0xFF5D6C52);
   static const darkInk = Color(0xFFF5F7F2);
   static const darkBorder = Color(0xFF344052);

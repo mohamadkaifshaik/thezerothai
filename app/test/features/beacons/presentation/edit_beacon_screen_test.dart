@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/beacons/domain/beacons_feature_flag.dart';
 import 'package:dzeroth/features/beacons/presentation/edit_beacon_screen.dart';
@@ -141,5 +143,55 @@ void main() {
     await tester.pump();
     expect(find.text('Use one line of plain text.'), findsOneWidget);
     expect(saveEnabled(tester), isFalse);
+  });
+
+  group('leaving with edits (C03)', () {
+    Future<GoRouter> openPushed(WidgetTester tester) async {
+      final router = await open(tester);
+      router.go('/plans/$kBeaconIdA');
+      await tester.pumpAndSettle();
+      unawaited(router.push<void>('/plans/$kBeaconIdA/edit'));
+      await tester.pumpAndSettle();
+      return router;
+    }
+
+    testWidgets('an untouched form leaves without asking', (tester) async {
+      final router = await openPushed(tester);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('Discard your changes?'), findsNothing);
+      expect(router.state.uri.path, '/plans/$kBeaconIdA');
+    });
+
+    testWidgets('platform back with edits asks; Keep editing stays, Discard '
+        'leaves', (tester) async {
+      final router = await openPushed(tester);
+      await tester.enterText(field('Title'), 'Tea');
+      await tester.pump();
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Discard your changes?'), findsOneWidget);
+      await tester.tap(find.text('Keep editing'));
+      await tester.pumpAndSettle();
+      expect(router.state.uri.path, '/plans/$kBeaconIdA/edit');
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Discard'));
+      await tester.pumpAndSettle();
+      expect(router.state.uri.path, '/plans/$kBeaconIdA');
+      expect(server.lastUpdate, isNull);
+    });
+
+    testWidgets('a successful save leaves without a prompt', (tester) async {
+      final router = await openPushed(tester);
+      await tester.enterText(field('Title'), 'Tea');
+      await tester.pump();
+      await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
+      await tester.pumpAndSettle();
+      expect(find.text('Discard your changes?'), findsNothing);
+      expect(router.state.uri.path, '/plans/$kBeaconIdA');
+      expect(server.lastUpdate, isNotNull);
+    });
   });
 }

@@ -31,6 +31,9 @@ type Deps struct {
 	Events PostEvents
 	// Jobs publishes the post_delete job for a deleted post that carried images. Nil disables it.
 	Jobs PostDeleteJobs
+	// Outbox makes the post_delete publish durable: an item staged in the delete batch, removed once Jobs published.
+	// Nil (or a nil Jobs) keeps the best-effort publish.
+	Outbox PostDeleteOutbox
 	// Directory and Graph are only needed by Create (author profile, handle resolution, block filtering). They
 	// are the other modules' api.go interfaces; a Reader-only service may leave them nil.
 	Directory identity.Directory
@@ -58,6 +61,7 @@ type service struct {
 	cache     *Cache
 	events    PostEvents
 	jobs      PostDeleteJobs
+	outbox    PostDeleteOutbox
 	links     RepostLinks
 	directory identity.Directory
 	graph     graph.Reader
@@ -97,7 +101,7 @@ func WithProtectedAuthors(p identity.ProtectedAuthors) Option {
 // New builds the posts service. A nil Events defaults to the no-op hook.
 func New(d Deps, opts ...Option) Service {
 	s := &service{
-		repo: d.Repo, cache: d.Cache, events: d.Events, jobs: d.Jobs, links: d.Links, now: d.Now,
+		repo: d.Repo, cache: d.Cache, events: d.Events, jobs: d.Jobs, outbox: d.Outbox, links: d.Links, now: d.Now,
 		directory: d.Directory, graph: d.Graph, cursorKey: d.CursorKey, scheduled: d.Scheduled, schedule: d.Schedule, poll: d.Poll, sweep: d.Sweep,
 	}
 	for _, o := range opts {
