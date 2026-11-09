@@ -138,8 +138,10 @@ void main() {
       await pump(tester, bar: const AppTopBar(title: 'Notifications'));
 
       final style = tester.widget<Text>(find.text('Notifications')).style!;
+      // titleLarge: Manrope 20 sp w800 (ADR-0033).
       expect(style.fontSize, 20);
-      expect(style.fontWeight, FontWeight.w700);
+      expect(style.fontWeight, FontWeight.w800);
+      expect(style.fontFamily, AppFonts.display);
       expect(
         tester.getSemantics(find.text('Notifications')),
         isSemantics(label: 'Notifications', isHeader: true),

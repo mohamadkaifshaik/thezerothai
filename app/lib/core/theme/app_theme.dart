@@ -507,37 +507,10 @@ ThemeData buildAppTheme({required Brightness brightness}) {
   final isDark = brightness == Brightness.dark;
   final colorScheme = _colorScheme(brightness);
   final appColors = isDark ? AppColors.dark : AppColors.light;
-  final text = ThemeData(brightness: brightness).textTheme;
-  final textTheme = text
-      .copyWith(
-        // Post body and composer text: X's 15dp on a 20dp line pitch.
-        bodyLarge: text.bodyLarge?.copyWith(fontSize: 15, height: 1.33),
-        bodyMedium: text.bodyMedium?.copyWith(fontSize: 14, height: 1.35),
-        // Display names, section titles.
-        titleSmall: text.titleSmall?.copyWith(
-          fontSize: 15,
-          fontWeight: FontWeight.w700,
-        ),
-        titleMedium: text.titleMedium?.copyWith(
-          fontSize: 17,
-          fontWeight: FontWeight.w700,
-        ),
-        // Page titles, nav labels, drawer rows: bold 20dp (was w800).
-        titleLarge: text.titleLarge?.copyWith(
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
-        ),
-        // The profile name is capped at 22dp.
-        headlineSmall: text.headlineSmall?.copyWith(
-          fontSize: 22,
-          fontWeight: FontWeight.w700,
-        ),
-        labelLarge: text.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-      )
-      .apply(
-        bodyColor: colorScheme.onSurface,
-        displayColor: colorScheme.onSurface,
-      );
+  final textTheme = buildAppTextTheme().apply(
+    bodyColor: colorScheme.onSurface,
+    displayColor: colorScheme.onSurface,
+  );
   final pillShape = RoundedRectangleBorder(
     borderRadius: BorderRadius.circular(AppRadius.pill),
   );
@@ -551,6 +524,9 @@ ThemeData buildAppTheme({required Brightness brightness}) {
     useMaterial3: true,
     colorScheme: colorScheme,
     brightness: brightness,
+    // Text outside the text theme defaults to the body family. The text
+    // theme's own families win: ThemeData merges it over the defaults.
+    fontFamily: AppFonts.body,
     textTheme: textTheme,
     scaffoldBackgroundColor: colorScheme.surface,
     canvasColor: colorScheme.surface,
@@ -989,7 +965,8 @@ class AppMotion {
   double offset(double distance) => movement ? distance : 0;
 }
 
-/// Redesign typography tokens (values only; the theme does not use them yet).
+/// Redesign typography tokens (ADR-0033 §2). [buildAppTextTheme] and
+/// [AppTextStyles] are built from them.
 abstract final class AppTypeTokens {
   static const List<double> displaySizes = [28, 32, 36, 40, 48, 52];
   static const double displayTracking = -0.035;
@@ -1008,4 +985,127 @@ abstract final class AppTypeTokens {
   static const FontWeight weightUi = FontWeight.w700;
   static const FontWeight weightLabel = FontWeight.w600;
   static const FontWeight weightBody = FontWeight.w500;
+}
+
+/// The two bundled families (`pubspec.yaml`; each is one variable TTF). The
+/// engine maps `fontWeight` onto their `wght` axis (outcome A of the redesign
+/// plan §1.2, `test/core/theme/typography_test.dart`), so styles set
+/// `fontWeight` only, never `fontVariations`.
+abstract final class AppFonts {
+  /// Display, headings, screen titles, wordmark and eyebrow.
+  static const String display = 'Manrope';
+
+  /// Body, UI labels, buttons, inputs and post text.
+  static const String body = 'DM Sans';
+}
+
+TextStyle _type(
+  String family,
+  double size,
+  FontWeight weight, {
+  required double height,
+  double tracking = 0,
+}) => TextStyle(
+  fontFamily: family,
+  fontSize: size,
+  fontWeight: weight,
+  height: height,
+  // Tracking is relative to size (em), never an absolute value.
+  letterSpacing: tracking * size,
+  textBaseline: TextBaseline.alphabetic,
+  leadingDistribution: TextLeadingDistribution.even,
+);
+
+TextStyle _display(double size) => _type(
+  AppFonts.display,
+  size,
+  AppTypeTokens.weightDisplay,
+  height: AppTypeTokens.displayLineHeight,
+  tracking: AppTypeTokens.displayTracking,
+);
+
+/// The redesign type scale (ADR-0033 §2), built from scratch so no Material
+/// default (tracking, line height, weight) leaks in. Colourless: the theme
+/// applies `onSurface`.
+///
+/// Headings and labels have no design tracking or line height; they use 0
+/// tracking and the line heights below on purpose (not Material's values).
+TextTheme buildAppTextTheme() {
+  const w800 = AppTypeTokens.weightDisplay;
+  const w700 = AppTypeTokens.weightUi;
+  const w600 = AppTypeTokens.weightLabel;
+  const w500 = AppTypeTokens.weightBody;
+  const display = AppFonts.display;
+  const body = AppFonts.body;
+  return TextTheme(
+    displayLarge: _display(52),
+    displayMedium: _display(40),
+    displaySmall: _display(28),
+    headlineLarge: _type(display, 24, w800, height: 1.25),
+    headlineMedium: _type(display, 22, w800, height: 1.25),
+    headlineSmall: _type(display, 20, w800, height: 1.25),
+    // Top bar and screen titles.
+    titleLarge: _type(display, 20, w800, height: 1.25),
+    titleMedium: _type(body, 17, w700, height: 1.3),
+    // Display names, section titles: 15 sp on a 20 dp line.
+    titleSmall: _type(body, 15, w700, height: 1.33),
+    // Post body and composer text.
+    bodyLarge: _type(
+      body,
+      AppTypeTokens.bodySize,
+      w500,
+      height: AppTypeTokens.bodyLineHeight,
+    ),
+    bodyMedium: _type(body, 14, w500, height: 1.4),
+    bodySmall: _type(body, 13, w500, height: 1.35),
+    // Buttons.
+    labelLarge: _type(body, 15, w700, height: 1.33),
+    labelMedium: _type(body, 14, w600, height: 1.33),
+    labelSmall: _type(body, 12, w600, height: 1.33),
+  );
+}
+
+/// Redesign text styles outside the Material text theme. Each takes the
+/// active theme so it carries the scheme's colours.
+abstract final class AppTextStyles {
+  /// Small uppercase kicker above a heading: Manrope 12 sp w700, +0.24 em.
+  /// Uppercase the string at the call site (`toUpperCase()`); it is never the
+  /// only carrier of information (ADR-0033 §4).
+  static TextStyle eyebrow(ThemeData theme) => _type(
+    AppFonts.display,
+    AppTypeTokens.eyebrowSize,
+    AppTypeTokens.eyebrowWeight,
+    height: 1.33,
+    tracking: AppTypeTokens.eyebrowTracking,
+  ).copyWith(color: theme.colorScheme.onSurfaceVariant);
+
+  /// The "DZEROTH" wordmark: Manrope 15 sp w700, +0.13 em.
+  static TextStyle wordmark(ThemeData theme) => _type(
+    AppFonts.display,
+    AppTypeTokens.wordmarkSize,
+    AppTypeTokens.wordmarkWeight,
+    height: 1.2,
+    tracking: AppTypeTokens.wordmarkTracking,
+  ).copyWith(color: theme.colorScheme.onSurface);
+
+  /// The opened post's text: DM Sans 17 sp on a 24 dp line.
+  static TextStyle focalPost(ThemeData theme) => _type(
+    AppFonts.body,
+    AppTypeTokens.focalPostSize,
+    AppTypeTokens.weightBody,
+    height: AppTypeTokens.focalPostLineHeight / AppTypeTokens.focalPostSize,
+  ).copyWith(color: theme.colorScheme.onSurface);
+
+  /// The accented part of a display headline, in the accent text colour
+  /// (tealText on light, tealElectric on dark; AA at any size). [size] is one
+  /// of [AppTypeTokens.displaySizes].
+  static TextStyle displayAccent(ThemeData theme, {double size = 28}) {
+    assert(AppTypeTokens.displaySizes.contains(size), 'not a display size');
+    final colors =
+        theme.extension<AppColors>() ??
+        (theme.brightness == Brightness.dark
+            ? AppColors.dark
+            : AppColors.light);
+    return _display(size).copyWith(color: colors.accentText);
+  }
 }
