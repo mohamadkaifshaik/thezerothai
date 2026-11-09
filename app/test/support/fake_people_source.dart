@@ -1,4 +1,3 @@
-import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/messages/domain/people_source.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
@@ -32,12 +31,12 @@ class FakePeopleSource implements PeopleSource {
   int pageCalls = 0;
 
   @override
-  Future<GraphPage> page({
+  Future<PeoplePage> page({
     required int pageSize,
     required String pageToken,
   }) async {
     pageCalls++;
-    return GraphPage(items: people, nextPageToken: '');
+    return PeoplePage(items: people, nextPageToken: '');
   }
 
   @override

@@ -23,6 +23,7 @@ import '../../graph/presentation/widgets/paged_user_list.dart';
 import '../../graph/presentation/widgets/user_list_row.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../data/following_people_source.dart';
 import '../domain/messaging_feature_flag.dart';
 import '../domain/people_source.dart';
 import 'bloc/recipient_picker_cubit.dart';
@@ -196,7 +197,15 @@ class _PickerViewState extends State<_PickerView> {
           graphRepository: context.read<GraphRepository>(),
           userId: ownUserId ?? '',
         );
-    _following = UserListCubit(fetchPage: _source.page);
+    _following = UserListCubit(
+      fetchPage: ({required pageSize, required pageToken}) async {
+        final page = await _source.page(
+          pageSize: pageSize,
+          pageToken: pageToken,
+        );
+        return GraphPage(items: page.items, nextPageToken: page.nextPageToken);
+      },
+    );
     if (widget.graphEnabled) _following.loadFirstPage();
     _picker = RecipientPickerCubit(
       source: _source,
