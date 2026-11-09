@@ -326,11 +326,14 @@ type ParticipantResult struct {
 	Participant Participant
 }
 
-// RespondParams is one RespondToJoinRequest write by the organiser UID on TargetUID's REQUESTED row.
+// RespondParams is one RespondToJoinRequest write by the organiser UID on TargetUID's REQUESTED row. Precheck, when
+// set, runs inside the transaction after the idempotency lookup missed and before any other read: a replay of a
+// committed answer never runs it (the stored outcome stands), and its error refuses the write.
 type RespondParams struct {
 	UID, BeaconID, TargetUID, IdemKey, RequestHash string
 	Accept                                         bool
 	Now                                            time.Time
+	Precheck                                       func(context.Context) error
 }
 
 // StateParams is one Withdraw (TargetUID == UID), Leave (TargetUID == UID) or Remove (UID is the organiser) write.
@@ -433,6 +436,9 @@ type Repo interface {
 	Remove(ctx context.Context, p StateParams) (ParticipantResult, error)
 	// GetParticipant reads one participant row outside any transaction: ErrNotFound when there is none.
 	GetParticipant(ctx context.Context, beaconID, uid string) (Participant, error)
+	// GetParticipants reads uid's own participant row on each of beaconIDs in one GetAll, keyed by beacon id; a beacon
+	// without a row is absent from the map.
+	GetParticipants(ctx context.Context, uid string, beaconIDs []string) (map[string]Participant, error)
 	// ListMemberships runs MembershipQuery (reads = rows returned, minimum 1).
 	ListMemberships(ctx context.Context, q MembershipQuery) ([]Membership, error)
 	// GetBeacons reads the named beacons in one GetAll; missing ids are absent from the map.
