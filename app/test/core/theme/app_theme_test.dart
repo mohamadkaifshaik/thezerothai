@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -678,4 +679,384 @@ void main() {
       'darkWelcome': AppAuthPalette.darkWelcome,
     });
   });
+
+  _componentThemes();
+}
+
+/// Every [WidgetState] alone, plus none: what a `ButtonStyle` is resolved for.
+final _stateSets = <Set<WidgetState>>[
+  <WidgetState>{},
+  for (final state in WidgetState.values) {state},
+];
+
+/// PR 1.5: component themes resolve to tokens, 48 dp targets, elevation 0.
+void _componentThemes() {
+  test('density is standard and targets padded on every platform (D6)', () {
+    for (final platform in TargetPlatform.values) {
+      debugDefaultTargetPlatformOverride = platform;
+      try {
+        for (final brightness in Brightness.values) {
+          final theme = buildAppTheme(brightness: brightness);
+          expect(
+            theme.visualDensity,
+            VisualDensity.standard,
+            reason: '$platform',
+          );
+          expect(
+            theme.materialTapTargetSize,
+            MaterialTapTargetSize.padded,
+            reason: '$platform',
+          );
+        }
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    }
+  });
+
+  for (final entry in {'light': appLightTheme, 'dark': appDarkTheme}.entries) {
+    final name = entry.key;
+    final theme = entry.value;
+    final isDark = name == 'dark';
+    final scheme = theme.colorScheme;
+    final app = theme.extension<AppColors>()!;
+
+    group('$name component themes', () {
+      test('every ButtonStyle resolves minimumSize >= 48 x 48 and elevation 0 '
+          'in every state', () {
+        final styles = <String, ButtonStyle>{
+          'filled': theme.filledButtonTheme.style!,
+          'outlined': theme.outlinedButtonTheme.style!,
+          'text': theme.textButtonTheme.style!,
+          'elevated': theme.elevatedButtonTheme.style!,
+          'icon': theme.iconButtonTheme.style!,
+          'menu item': theme.menuButtonTheme.style!,
+        };
+        for (final style in styles.entries) {
+          for (final states in _stateSets) {
+            final size = style.value.minimumSize!.resolve(states)!;
+            final why = '${style.key} $states';
+            expect(size.width, greaterThanOrEqualTo(48), reason: why);
+            expect(size.height, greaterThanOrEqualTo(48), reason: why);
+            final elevation = style.value.elevation?.resolve(states);
+            if (style.key != 'icon' && style.key != 'menu item') {
+              expect(elevation, 0, reason: why);
+            }
+          }
+        }
+      });
+
+      test('buttons resolve to tokens', () {
+        final filled = theme.filledButtonTheme.style!;
+        expect(
+          filled.minimumSize!.resolve({})!.height,
+          AppSpacing.minTapTarget,
+        );
+        expect(
+          filled.shape!.resolve({}),
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+        );
+        expect(filled.backgroundColor!.resolve({}), app.strongPillFill);
+        expect(
+          filled.backgroundColor!.resolve({}),
+          isDark ? AppPalette.pearl : AppPalette.navy,
+        );
+
+        final outlined = theme.outlinedButtonTheme.style!;
+        final side = outlined.side!.resolve({})!;
+        expect(side.color, scheme.outline);
+        expect(side.width, 1.5);
+        expect(contrast(side.color, scheme.surface), greaterThanOrEqualTo(3));
+
+        final text = theme.textButtonTheme.style!;
+        expect(
+          text.foregroundColor!.resolve({}),
+          isDark ? AppPalette.tealElectric : AppPalette.tealText,
+        );
+        expect(text.minimumSize!.resolve({}), const Size(48, 48));
+
+        final icon = theme.iconButtonTheme.style!;
+        expect(icon.minimumSize!.resolve({}), const Size(48, 48));
+        expect(
+          icon.overlayColor!.resolve({WidgetState.hovered}),
+          scheme.onSurface.withValues(alpha: 0.06),
+        );
+        if (!isDark) expect(scheme.onSurface, AppPalette.navy);
+      });
+
+      test('text fields: tokens, labels above, >= 3:1 borders', () {
+        final input = theme.inputDecorationTheme;
+        final fill = input.fillColor!;
+        expect(fill, isDark ? AppPalette.fieldFillDark : AppPalette.white);
+        expect(input.filled, isTrue);
+        expect(input.isDense, isFalse);
+        expect(
+          input.contentPadding,
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        );
+        expect(input.floatingLabelBehavior, FloatingLabelBehavior.always);
+
+        final enabled = input.enabledBorder! as OutlineInputBorder;
+        expect(enabled.borderRadius, BorderRadius.circular(AppRadius.field));
+        expect(enabled.borderSide.color, scheme.outline);
+        expect(
+          (input.border! as OutlineInputBorder).borderSide.color,
+          scheme.outline,
+        );
+        final focused = input.focusedBorder! as OutlineInputBorder;
+        expect(focused.borderSide.color, app.selectedIndicator);
+        expect(focused.borderSide.width, 2);
+        for (final b in [input.errorBorder!, input.focusedErrorBorder!]) {
+          expect((b as OutlineInputBorder).borderSide.color, scheme.error);
+        }
+        expect(input.hintStyle!.color, scheme.onSurfaceVariant);
+        expect(input.errorStyle!.fontSize, 13);
+        expect(input.errorStyle!.color, scheme.error);
+        expect(input.helperStyle!.fontSize, 13);
+        expect(input.helperStyle!.color, scheme.onSurfaceVariant);
+
+        // The field sits on the page, a dialog (also the page surface) or a
+        // sheet; the fill is translucent on dark, so composite it first.
+        final pages = {
+          'surface': scheme.surface,
+          'sheet': theme.bottomSheetTheme.backgroundColor!,
+          'dialog': theme.dialogTheme.backgroundColor!,
+        };
+        for (final page in pages.entries) {
+          final field = _over(fill, page.value);
+          for (final c in {
+            'enabled border': scheme.outline,
+            'focused border': app.selectedIndicator,
+            'error border': scheme.error,
+          }.entries) {
+            final why = '${c.key} on ${page.key}';
+            expect(
+              contrast(c.value, field),
+              greaterThanOrEqualTo(3),
+              reason: '$why fill',
+            );
+            expect(
+              contrast(c.value, page.value),
+              greaterThanOrEqualTo(3),
+              reason: why,
+            );
+          }
+          for (final c in {
+            'hint': scheme.onSurfaceVariant,
+            'error text': scheme.error,
+            'input text': scheme.onSurface,
+          }.entries) {
+            expect(
+              contrast(c.value, field),
+              greaterThanOrEqualTo(4.5),
+              reason: '${c.key} on the ${page.key} field',
+            );
+          }
+        }
+      });
+
+      test('chips: pill, 1.5 dp boundary, selected indicator, 12 sp w700', () {
+        final chip = theme.chipTheme;
+        expect(
+          chip.shape,
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+        );
+        final side = chip.side! as WidgetStateBorderSide;
+        final on = side.resolve({WidgetState.selected})!;
+        final off = side.resolve({})!;
+        expect(on.color, app.selectedIndicator);
+        expect(on.width, 1.5);
+        expect(off.color, scheme.outline);
+        expect(off.width, 1.5);
+        for (final c in [on.color, off.color]) {
+          expect(contrast(c, scheme.surface), greaterThanOrEqualTo(3));
+        }
+        expect(chip.labelStyle!.fontSize, 12);
+        expect(chip.labelStyle!.fontWeight, FontWeight.w700);
+        expect(chip.elevation, 0);
+        expect(chip.pressElevation, 0);
+      });
+
+      test('navigation bar and rail: indicator, labelMedium, glyph >= 3:1 '
+          'on the indicator', () {
+        final bar = theme.navigationBarTheme;
+        final rail = theme.navigationRailTheme;
+        expect(bar.indicatorColor, app.selectedIndicator);
+        expect(rail.indicatorColor, app.selectedIndicator);
+        void isLabelMedium(TextStyle? style) {
+          final want = theme.textTheme.labelMedium!;
+          expect(style!.fontFamily, want.fontFamily);
+          expect(style.fontSize, want.fontSize);
+        }
+
+        isLabelMedium(bar.labelTextStyle!.resolve({}));
+        isLabelMedium(rail.unselectedLabelTextStyle);
+        isLabelMedium(rail.selectedLabelTextStyle);
+        expect(rail.selectedLabelTextStyle!.fontSize, 14);
+        // Weight, not colour alone, marks the selected label.
+        expect(rail.selectedLabelTextStyle!.fontWeight, FontWeight.w700);
+        expect(rail.unselectedLabelTextStyle!.fontWeight, FontWeight.w600);
+        final glyphs = [
+          bar.iconTheme!.resolve({WidgetState.selected})!.color!,
+          rail.selectedIconTheme!.color!,
+        ];
+        for (final glyph in glyphs) {
+          expect(glyph, scheme.onPrimary);
+          expect(
+            contrast(glyph, app.selectedIndicator),
+            greaterThanOrEqualTo(3),
+          );
+        }
+        expect(
+          contrast(rail.unselectedIconTheme!.color!, scheme.surface),
+          greaterThanOrEqualTo(3),
+        );
+      });
+
+      test('dialogs, sheets and menus: radii, scrim, elevation 0', () {
+        final dialog = theme.dialogTheme;
+        expect(
+          dialog.backgroundColor,
+          isDark ? AppPalette.navy : AppPalette.pearl,
+        );
+        expect(
+          dialog.shape,
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        );
+        expect(dialog.barrierColor, AppPalette.scrim);
+        expect(dialog.elevation, 0);
+
+        final sheet = theme.bottomSheetTheme;
+        expect(sheet.showDragHandle, isTrue);
+        expect(
+          sheet.shape,
+          const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          ),
+        );
+        expect(sheet.elevation, 0);
+        expect(sheet.modalElevation, 0);
+
+        final menuShape = RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: scheme.outline),
+        );
+        expect(theme.popupMenuTheme.shape, menuShape);
+        expect(theme.popupMenuTheme.elevation, 0);
+        final menu = theme.menuTheme.style!;
+        expect(menu.shape!.resolve({}), menuShape);
+        expect(menu.elevation!.resolve({}), 0);
+        expect(
+          contrast(scheme.outline, theme.popupMenuTheme.color!),
+          greaterThanOrEqualTo(3),
+        );
+      });
+
+      test('snackbar: floating navy toast, radius 16, elevation 0', () {
+        final snack = theme.snackBarTheme;
+        expect(snack.behavior, SnackBarBehavior.floating);
+        expect(
+          snack.backgroundColor,
+          isDark ? AppPalette.navy2 : AppPalette.navy,
+        );
+        expect(snack.actionTextColor, AppPalette.tealElectric);
+        expect(snack.elevation, 0);
+        expect(
+          snack.shape,
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        );
+      });
+
+      test('tab bar: 4 dp indicator in the selected-indicator colour', () {
+        final indicator = theme.tabBarTheme.indicator! as UnderlineTabIndicator;
+        expect(indicator.borderSide.width, AppSize.tabIndicator);
+        expect(indicator.borderSide.color, app.selectedIndicator);
+        expect(
+          indicator.borderSide.color,
+          isDark ? AppPalette.tealElectric : AppPalette.tealText,
+        );
+      });
+
+      test('switch, checkbox and radio: selected indicator, unselected '
+          'boundary >= 3:1', () {
+        final sw = theme.switchTheme;
+        final cb = theme.checkboxTheme;
+        final radio = theme.radioTheme;
+        const on = {WidgetState.selected};
+        const off = <WidgetState>{};
+        expect(sw.trackColor!.resolve(on), app.selectedIndicator);
+        expect(cb.fillColor!.resolve(on), app.selectedIndicator);
+        expect(radio.fillColor!.resolve(on), app.selectedIndicator);
+        // The glyph on the selected fill.
+        for (final glyph in [
+          sw.thumbColor!.resolve(on)!,
+          cb.checkColor!.resolve(on)!,
+        ]) {
+          expect(
+            contrast(glyph, app.selectedIndicator),
+            greaterThanOrEqualTo(3),
+          );
+        }
+        // Unselected boundaries against the page.
+        for (final c in [
+          sw.trackOutlineColor!.resolve(off)!,
+          (cb.side! as WidgetStateBorderSide).resolve(off)!.color,
+          radio.fillColor!.resolve(off)!,
+        ]) {
+          expect(c, scheme.outline);
+          expect(contrast(c, scheme.surface), greaterThanOrEqualTo(3));
+        }
+        expect(
+          contrast(sw.thumbColor!.resolve(off)!, sw.trackColor!.resolve(off)!),
+          greaterThanOrEqualTo(3),
+        );
+        // Disabled falls back to Material's defaults.
+        expect(sw.trackColor!.resolve({WidgetState.disabled}), isNull);
+      });
+
+      test('badge, progress, divider, card and app bar', () {
+        expect(
+          theme.badgeTheme.backgroundColor,
+          isDark ? AppPalette.pearl : AppPalette.navy,
+        );
+        expect(
+          contrast(
+            theme.badgeTheme.textColor!,
+            theme.badgeTheme.backgroundColor!,
+          ),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(theme.progressIndicatorTheme.color, scheme.primary);
+        expect(theme.dividerTheme.color, app.hairline);
+        expect(theme.cardTheme.elevation, 0);
+        expect(
+          theme.cardTheme.shape,
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        );
+        final title = theme.appBarTheme.titleTextStyle!;
+        expect(title.fontFamily, AppFonts.display);
+        expect(title.fontSize, theme.textTheme.titleLarge!.fontSize);
+        expect(title.fontWeight, FontWeight.w800);
+      });
+
+      test('elevation is 0 everywhere', () {
+        expect(theme.appBarTheme.elevation, 0);
+        expect(theme.appBarTheme.scrolledUnderElevation, 0);
+        expect(theme.cardTheme.elevation, 0);
+        expect(theme.dialogTheme.elevation, 0);
+        expect(theme.drawerTheme.elevation, 0);
+        expect(theme.popupMenuTheme.elevation, 0);
+        expect(theme.bottomSheetTheme.elevation, 0);
+        expect(theme.bottomSheetTheme.modalElevation, 0);
+        expect(theme.snackBarTheme.elevation, 0);
+        expect(theme.navigationBarTheme.elevation, 0);
+        expect(theme.floatingActionButtonTheme.elevation, 0);
+        expect(theme.chipTheme.elevation, 0);
+      });
+    });
+  }
 }
