@@ -141,6 +141,70 @@ func TestGenerate_ClockRollbackWaits(t *testing.T) {
 	}
 }
 
+// scriptedClock returns the given times in order and then repeats the last one forever, so every spin loop in
+// generateInt terminates on a finite script.
+func scriptedClock(times ...time.Time) func() time.Time {
+	i := 0
+	return func() time.Time {
+		t := times[i]
+		if i < len(times)-1 {
+			i++
+		}
+		return t
+	}
+}
+
+// decode splits a generated id into its millisecond and sequence parts.
+func decode(id int64) (ms, seq int64) {
+	return id >> timeShift, id & maxSeq
+}
+
+// A11: once a backwards clock has been waited out and the clock is back on the last millisecond issued, the next id
+// takes the same-millisecond path (sequence + 1, spin on overflow) instead of reusing sequence 0, which duplicated
+// the first id of that millisecond.
+func TestGenerate_ClockRollbackRecovery(t *testing.T) {
+	base := Epoch.Add(96 * time.Hour)
+	baseMs := base.UnixMilli() - epochMillis
+	ms := func(d int) time.Time { return base.Add(time.Duration(d) * time.Millisecond) }
+
+	tests := []struct {
+		name string
+		// prefill ids are generated at base before the rollback (1 = one id, maxSeq+1 = the sequence is exhausted).
+		prefill int
+		// after is what the clock reads on the calls of the next generateInt (the last value repeats).
+		after   []time.Time
+		wantMs  int64
+		wantSeq int64
+	}{
+		{"T, T-1, T: same millisecond, next sequence", 1, []time.Time{ms(-1), ms(0)}, baseMs, 1},
+		{"T, T-1, T+1: new millisecond, sequence 0", 1, []time.Time{ms(-1), ms(1)}, baseMs + 1, 0},
+		{"T, T-1, T-2, T: long rollback, same millisecond", 1, []time.Time{ms(-1), ms(-2), ms(0)}, baseMs, 1},
+		{"exhausted at T, T-1, T, T, T+1: spins to the next millisecond", maxSeq + 1, []time.Time{ms(-1), ms(0), ms(0), ms(1)}, baseMs + 1, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			n := &Node{node: 7, now: func() time.Time { return base }}
+			seen := map[int64]bool{}
+			var last int64
+			for i := 0; i < tt.prefill; i++ {
+				last = n.generateInt()
+				seen[last] = true
+			}
+			n.now = scriptedClock(tt.after...)
+			got := n.generateInt()
+			if seen[got] {
+				t.Fatalf("id %d after the clock recovered duplicates an earlier id", got)
+			}
+			if got <= last {
+				t.Fatalf("id %d after the clock recovered is not above the previous id %d", got, last)
+			}
+			if gotMs, gotSeq := decode(got); gotMs != tt.wantMs || gotSeq != tt.wantSeq {
+				t.Fatalf("decoded (ms, seq) = (%d, %d), want (%d, %d)", gotMs, gotSeq, tt.wantMs, tt.wantSeq)
+			}
+		})
+	}
+}
+
 func TestTime(t *testing.T) {
 	n := &Node{node: 5, now: func() time.Time { return Epoch.Add(1234 * time.Millisecond) }}
 	got, err := Time(n.Generate())

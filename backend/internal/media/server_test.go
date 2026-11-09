@@ -39,7 +39,7 @@ func TestServer_NoCallerIsUnauthenticated(t *testing.T) {
 func TestServer_EndToEndConversion(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	s := NewServer(e.svc, fakeFlags{FlagName: true})
-	full, thumb := jpegBytes("F"), jpegBytes("T")
+	full, thumb := jpegSized("F", 400, 400), jpegSized("T", 96, 96) // the client's avatar sizes
 	resp, err := s.CreateUpload(authedCtx(uidA), connect.NewRequest(&mediav1.CreateUploadRequest{
 		IdempotencyKey: key1, Purpose: mediav1.MediaPurpose_MEDIA_PURPOSE_AVATAR,
 		Items: []*mediav1.UploadItem{{
