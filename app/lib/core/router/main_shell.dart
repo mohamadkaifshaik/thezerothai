@@ -18,7 +18,7 @@ import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/search/domain/search_feature_flags.dart';
 import '../../features/search/presentation/widgets/app_search_field.dart';
 import '../../features/search/presentation/widgets/whats_happening_card.dart';
-import '../../features/shells/domain/shell_entries.dart';
+import 'shell_entries.dart';
 import '../../shared/widgets/primitives/app_side_column.dart';
 import '../feature_flags/feature_flags.dart';
 import '../feature_flags/ui_shell_feature_flag.dart';

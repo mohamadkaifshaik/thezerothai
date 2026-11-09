@@ -138,8 +138,10 @@ void main() {
       await pump(tester, bar: const AppTopBar(title: 'Notifications'));
 
       final style = tester.widget<Text>(find.text('Notifications')).style!;
+      // titleLarge: Manrope 20 sp w800 (ADR-0033).
       expect(style.fontSize, 20);
-      expect(style.fontWeight, FontWeight.w700);
+      expect(style.fontWeight, FontWeight.w800);
+      expect(style.fontFamily, AppFonts.display);
       expect(
         tester.getSemantics(find.text('Notifications')),
         isSemantics(label: 'Notifications', isHeader: true),
@@ -193,7 +195,7 @@ void main() {
       );
       final decoration = box.decoration as BoxDecoration;
       expect(decoration.color!.a, closeTo(0.92, 0.01));
-      expect(decoration.color!.withValues(alpha: 1), const Color(0xFF000000));
+      expect(decoration.color!.withValues(alpha: 1), AppPalette.navy);
       expect(
         (decoration.border! as Border).bottom.color,
         appDarkTheme.colorScheme.outlineVariant,
