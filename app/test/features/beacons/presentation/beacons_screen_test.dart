@@ -23,7 +23,10 @@ class _MockCommunities extends Mock implements CommunitiesRepository {}
 /// server.
 void main() {
   late FakeBeaconsServer server;
-  final now = DateTime.now();
+  // Tomorrow at noon local: always in the future, and the same time of day
+  // whenever the suite runs, so row text (and so row heights) is stable.
+  final today = DateTime.now();
+  final now = DateTime(today.year, today.month, today.day + 1, 12);
   DateTime start(int hours) => now.add(Duration(hours: hours));
 
   setUp(() {
@@ -139,14 +142,26 @@ void main() {
       300,
       scrollable: list,
     );
+    // scrollUntilVisible returns once the row is built, which can still be
+    // below the viewport; bring it fully on screen so the tap cannot miss.
+    await tester.ensureVisible(find.text('Load more'));
+    await tester.pumpAndSettle();
     expect(find.text('Plan 24', skipOffstage: false), findsNothing);
+    final hitWarning = WidgetController.hitTestWarningShouldBeFatal;
+    WidgetController.hitTestWarningShouldBeFatal = true;
+    addTearDown(
+      () => WidgetController.hitTestWarningShouldBeFatal = hitWarning,
+    );
     await tester.tap(find.text('Load more'));
     await tester.pumpAndSettle();
+    expect(server.calls, ['list:', 'list:']);
     await tester.scrollUntilVisible(
       find.text('Plan 24'),
       300,
       scrollable: list,
     );
+    await tester.ensureVisible(find.text('Plan 24'));
+    await tester.pumpAndSettle();
     expect(find.text('Plan 24'), findsOneWidget);
     expect(find.text('Load more', skipOffstage: false), findsNothing);
     expect(server.calls, ['list:', 'list:']);
