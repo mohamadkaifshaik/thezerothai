@@ -452,6 +452,8 @@ module "scheduler" {
     # attempt that Cloud Run would still finish. Overlapping runs (a retry and the next tick) are safe because the
     # publish is guarded by the PENDING state. Apply this job only after 100% of traffic serves a revision that has
     # the route; until then a tick reaches PlaceholderHandler and gets a harmless 202.
+    # The same tick also runs the outbox sweep (durable post_delete republish) after the publish sweep, within the same
+    # deadlines and without changing the route's status, so the outbox needs no Scheduler job of its own.
     "publish-scheduled" = {
       schedule                 = var.publish_scheduled_schedule
       path                     = "/internal/cron/publish-scheduled"

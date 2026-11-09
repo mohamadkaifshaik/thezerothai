@@ -20,6 +20,7 @@ import '../domain/beacon_text_rules.dart';
 import '../domain/beacons_feature_flag.dart';
 import 'bloc/beacons_state.dart' show BeaconsAudience;
 import 'bloc/create_beacon_cubit.dart';
+import 'widgets/discard_plan_dialog.dart';
 
 /// Shows the date picker; null when dismissed. A seam so tests need not drive
 /// the platform dial.
@@ -82,6 +83,8 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
   final _venue = TextEditingController();
   var _activity = pb.BeaconActivity.BEACON_ACTIVITY_COFFEE;
   late DateTime _startAt;
+  late final DateTime _initialStart;
+  var _discarded = false;
   var _durationMinutes = 60;
   var _openSpots = 3;
   var _cost = pb.BeaconCost.BEACON_COST_FREE;
@@ -94,7 +97,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
   @override
   void initState() {
     super.initState();
-    _startAt = _defaultStart(_now());
+    _startAt = _initialStart = _defaultStart(_now());
     _title.addListener(_changed);
     _details.addListener(_changed);
     _venue.addListener(_changed);
@@ -143,6 +146,41 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
     } else {
       context.go(AppRouter.plansPath);
     }
+  }
+
+  /// Anything the user typed or changed from the defaults.
+  bool get _isDirty =>
+      _title.text.trim().isNotEmpty ||
+      _details.text.trim().isNotEmpty ||
+      _venue.text.trim().isNotEmpty ||
+      _startAt != _initialStart ||
+      _activity != pb.BeaconActivity.BEACON_ACTIVITY_COFFEE ||
+      _durationMinutes != 60 ||
+      _openSpots != 3 ||
+      _cost != pb.BeaconCost.BEACON_COST_FREE ||
+      _chat != pb.ChatPreference.CHAT_PREFERENCE_QUIET ||
+      !_audience.isPublic;
+
+  /// Toolbar Cancel, platform back and the back gesture all end here. A clean
+  /// form leaves at once; a dirty one asks first. While the create is in
+  /// flight there is no exit.
+  Future<void> _requestExit() async {
+    if (_cubit.state.busy) return;
+    if (_isDirty) {
+      final discard = await confirmDiscardPlan(
+        context,
+        title: 'Discard this plan?',
+        body: 'What you entered will not be saved.',
+      );
+      if (!discard || !mounted) return;
+      // canPop is true once _discarded is set, so the route can pop.
+      setState(() => _discarded = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _cancel();
+      });
+      return;
+    }
+    _cancel();
   }
 
   BeaconTimeIssue? get _timeIssue => beaconStartIssue(_startAt, _now());
@@ -234,235 +272,256 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
             ),
             builder: (context, state) {
               final busy = state.busy;
-              return Column(
-                children: [
-                  AppFormHeader(
-                    title: 'New plan',
-                    actionLabel: 'Create',
-                    busy: busy,
-                    busySemanticsLabel: 'Creating plan',
-                    onCancel: _cancel,
-                    onAction: _canCreate && !busy ? _create : null,
-                  ),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(AppSpacing.md),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _Section(
-                            title: 'What',
-                            child: _chips<pb.BeaconActivity>(
-                              values: pb.BeaconActivity.values
-                                  .where(
-                                    (a) =>
-                                        a !=
-                                        pb
-                                            .BeaconActivity
-                                            .BEACON_ACTIVITY_UNSPECIFIED,
-                                  )
-                                  .toList(),
-                              selected: _activity,
-                              label: activityLabel,
-                              enabled: !busy,
-                              onSelected: (a) => setState(() => _activity = a),
-                            ),
-                          ),
-                          TextField(
-                            controller: _title,
-                            enabled: !busy,
-                            textInputAction: TextInputAction.next,
-                            decoration: InputDecoration(
-                              labelText: 'Title',
-                              errorText: beaconFieldError(
-                                beaconTitleIssue(_title.text),
-                                max: kBeaconTitleMaxLength,
-                              ),
-                              counter: _counter(_title, kBeaconTitleMaxLength),
-                            ),
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          TextField(
-                            controller: _details,
-                            enabled: !busy,
-                            minLines: 2,
-                            maxLines: 4,
-                            decoration: InputDecoration(
-                              labelText: 'Details',
-                              errorText: beaconFieldError(
-                                beaconDetailsIssue(_details.text),
-                                max: kBeaconDetailsMaxLength,
-                              ),
-                              counter: _counter(
-                                _details,
-                                kBeaconDetailsMaxLength,
+              return PopScope(
+                canPop:
+                    state.created != null || _discarded || (!busy && !_isDirty),
+                onPopInvokedWithResult: (didPop, _) {
+                  if (!didPop) _requestExit();
+                },
+                child: Column(
+                  children: [
+                    AppFormHeader(
+                      title: 'New plan',
+                      actionLabel: 'Create',
+                      busy: busy,
+                      busySemanticsLabel: 'Creating plan',
+                      onCancel: _requestExit,
+                      onAction: _canCreate && !busy ? _create : null,
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _Section(
+                              title: 'What',
+                              child: _chips<pb.BeaconActivity>(
+                                values: pb.BeaconActivity.values
+                                    .where(
+                                      (a) =>
+                                          a !=
+                                          pb
+                                              .BeaconActivity
+                                              .BEACON_ACTIVITY_UNSPECIFIED,
+                                    )
+                                    .toList(),
+                                selected: _activity,
+                                label: activityLabel,
+                                enabled: !busy,
+                                onSelected: (a) =>
+                                    setState(() => _activity = a),
                               ),
                             ),
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          TextField(
-                            controller: _venue,
-                            enabled: !busy,
-                            textInputAction: TextInputAction.done,
-                            decoration: InputDecoration(
-                              labelText: 'Meeting point',
-                              helperText: 'A named place, never coordinates.',
-                              errorText: beaconFieldError(
-                                beaconVenueIssue(_venue.text),
-                                max: kBeaconVenueMaxLength,
+                            TextField(
+                              controller: _title,
+                              enabled: !busy,
+                              textInputAction: TextInputAction.next,
+                              decoration: InputDecoration(
+                                labelText: 'Title',
+                                errorText: beaconFieldError(
+                                  beaconTitleIssue(_title.text),
+                                  max: kBeaconTitleMaxLength,
+                                ),
+                                counter: _counter(
+                                  _title,
+                                  kBeaconTitleMaxLength,
+                                ),
                               ),
-                              counter: _counter(_venue, kBeaconVenueMaxLength),
                             ),
-                          ),
-                          _Section(
-                            title: 'When',
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Wrap(
-                                  spacing: AppSpacing.sm,
-                                  runSpacing: AppSpacing.xs,
-                                  children: [
-                                    Tooltip(
-                                      message: 'Pick a date',
-                                      child: OutlinedButton.icon(
-                                        onPressed: busy ? null : _pickDate,
-                                        icon: const Icon(
-                                          Icons.calendar_today_outlined,
-                                        ),
-                                        label: Text(
-                                          formatScheduledDate(_startAt),
-                                        ),
-                                      ),
-                                    ),
-                                    Tooltip(
-                                      message: 'Pick a time',
-                                      child: OutlinedButton.icon(
-                                        onPressed: busy ? null : _pickTime,
-                                        icon: const Icon(
-                                          Icons.schedule_outlined,
-                                        ),
-                                        label: Text(
-                                          formatScheduledClock(_startAt),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                if (beaconTimeError(_timeIssue) != null)
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                      top: AppSpacing.xs,
-                                    ),
-                                    child: Text(
-                                      beaconTimeError(_timeIssue)!,
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(
-                                            color: theme.colorScheme.error,
-                                          ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          _Section(
-                            title: 'Duration',
-                            child: _chips<int>(
-                              values: kBeaconDurations,
-                              selected: _durationMinutes,
-                              label: (m) => '$m min',
-                              enabled: !busy,
-                              onSelected: (m) =>
-                                  setState(() => _durationMinutes = m),
-                            ),
-                          ),
-                          _Section(
-                            title: 'Open spots',
-                            child: Row(
-                              children: [
-                                IconButton(
-                                  tooltip: 'Fewer spots',
-                                  icon: const Icon(Icons.remove_circle_outline),
-                                  onPressed:
-                                      busy || _openSpots <= kBeaconMinSpots
-                                      ? null
-                                      : () => setState(() => _openSpots--),
-                                ),
-                                Semantics(
-                                  label: '$_openSpots open spots',
-                                  excludeSemantics: true,
-                                  child: Text(
-                                    '$_openSpots',
-                                    style: theme.textTheme.titleMedium,
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: 'More spots',
-                                  icon: const Icon(Icons.add_circle_outline),
-                                  onPressed:
-                                      busy || _openSpots >= kBeaconMaxSpots
-                                      ? null
-                                      : () => setState(() => _openSpots++),
-                                ),
-                              ],
-                            ),
-                          ),
-                          _Section(
-                            title: 'Cost',
-                            child: _chips<pb.BeaconCost>(
-                              values: const [
-                                pb.BeaconCost.BEACON_COST_FREE,
-                                pb.BeaconCost.BEACON_COST_EVERYONE_PAYS_OWN,
-                                pb.BeaconCost.BEACON_COST_SPLIT_EVENLY,
-                              ],
-                              selected: _cost,
-                              label: costLabel,
-                              enabled: !busy,
-                              onSelected: (c) => setState(() => _cost = c),
-                            ),
-                          ),
-                          _Section(
-                            title: 'Chat',
-                            child: _chips<pb.ChatPreference>(
-                              values: const [
-                                pb.ChatPreference.CHAT_PREFERENCE_QUIET,
-                                pb.ChatPreference.CHAT_PREFERENCE_TASK_FOCUSED,
-                                pb.ChatPreference.CHAT_PREFERENCE_OPEN_TO_CHAT,
-                              ],
-                              selected: _chat,
-                              label: chatPreferenceLabel,
-                              enabled: !busy,
-                              onSelected: (c) => setState(() => _chat = c),
-                            ),
-                          ),
-                          _Section(
-                            title: 'Who can see it',
-                            child: _chips<BeaconsAudience>(
-                              values: _audiences,
-                              selected: _audience,
-                              label: (a) => a.name,
-                              enabled: !busy,
-                              onSelected: (a) => setState(() => _audience = a),
-                            ),
-                          ),
-                          if (state.error != null) ...[
                             const SizedBox(height: AppSpacing.md),
-                            Semantics(
-                              liveRegion: true,
-                              child: Text(
-                                state.error!,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: theme.colorScheme.error,
+                            TextField(
+                              controller: _details,
+                              enabled: !busy,
+                              minLines: 2,
+                              maxLines: 4,
+                              decoration: InputDecoration(
+                                labelText: 'Details',
+                                errorText: beaconFieldError(
+                                  beaconDetailsIssue(_details.text),
+                                  max: kBeaconDetailsMaxLength,
+                                ),
+                                counter: _counter(
+                                  _details,
+                                  kBeaconDetailsMaxLength,
                                 ),
                               ),
                             ),
+                            const SizedBox(height: AppSpacing.md),
+                            TextField(
+                              controller: _venue,
+                              enabled: !busy,
+                              textInputAction: TextInputAction.done,
+                              decoration: InputDecoration(
+                                labelText: 'Meeting point',
+                                helperText: 'A named place, never coordinates.',
+                                errorText: beaconFieldError(
+                                  beaconVenueIssue(_venue.text),
+                                  max: kBeaconVenueMaxLength,
+                                ),
+                                counter: _counter(
+                                  _venue,
+                                  kBeaconVenueMaxLength,
+                                ),
+                              ),
+                            ),
+                            _Section(
+                              title: 'When',
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Wrap(
+                                    spacing: AppSpacing.sm,
+                                    runSpacing: AppSpacing.xs,
+                                    children: [
+                                      Tooltip(
+                                        message: 'Pick a date',
+                                        child: OutlinedButton.icon(
+                                          onPressed: busy ? null : _pickDate,
+                                          icon: const Icon(
+                                            Icons.calendar_today_outlined,
+                                          ),
+                                          label: Text(
+                                            formatScheduledDate(_startAt),
+                                          ),
+                                        ),
+                                      ),
+                                      Tooltip(
+                                        message: 'Pick a time',
+                                        child: OutlinedButton.icon(
+                                          onPressed: busy ? null : _pickTime,
+                                          icon: const Icon(
+                                            Icons.schedule_outlined,
+                                          ),
+                                          label: Text(
+                                            formatScheduledClock(_startAt),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  if (beaconTimeError(_timeIssue) != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                        top: AppSpacing.xs,
+                                      ),
+                                      child: Text(
+                                        beaconTimeError(_timeIssue)!,
+                                        style: theme.textTheme.bodySmall
+                                            ?.copyWith(
+                                              color: theme.colorScheme.error,
+                                            ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            _Section(
+                              title: 'Duration',
+                              child: _chips<int>(
+                                values: kBeaconDurations,
+                                selected: _durationMinutes,
+                                label: (m) => '$m min',
+                                enabled: !busy,
+                                onSelected: (m) =>
+                                    setState(() => _durationMinutes = m),
+                              ),
+                            ),
+                            _Section(
+                              title: 'Open spots',
+                              child: Row(
+                                children: [
+                                  IconButton(
+                                    tooltip: 'Fewer spots',
+                                    icon: const Icon(
+                                      Icons.remove_circle_outline,
+                                    ),
+                                    onPressed:
+                                        busy || _openSpots <= kBeaconMinSpots
+                                        ? null
+                                        : () => setState(() => _openSpots--),
+                                  ),
+                                  Semantics(
+                                    label: '$_openSpots open spots',
+                                    excludeSemantics: true,
+                                    child: Text(
+                                      '$_openSpots',
+                                      style: theme.textTheme.titleMedium,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'More spots',
+                                    icon: const Icon(Icons.add_circle_outline),
+                                    onPressed:
+                                        busy || _openSpots >= kBeaconMaxSpots
+                                        ? null
+                                        : () => setState(() => _openSpots++),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            _Section(
+                              title: 'Cost',
+                              child: _chips<pb.BeaconCost>(
+                                values: const [
+                                  pb.BeaconCost.BEACON_COST_FREE,
+                                  pb.BeaconCost.BEACON_COST_EVERYONE_PAYS_OWN,
+                                  pb.BeaconCost.BEACON_COST_SPLIT_EVENLY,
+                                ],
+                                selected: _cost,
+                                label: costLabel,
+                                enabled: !busy,
+                                onSelected: (c) => setState(() => _cost = c),
+                              ),
+                            ),
+                            _Section(
+                              title: 'Chat',
+                              child: _chips<pb.ChatPreference>(
+                                values: const [
+                                  pb.ChatPreference.CHAT_PREFERENCE_QUIET,
+                                  pb
+                                      .ChatPreference
+                                      .CHAT_PREFERENCE_TASK_FOCUSED,
+                                  pb
+                                      .ChatPreference
+                                      .CHAT_PREFERENCE_OPEN_TO_CHAT,
+                                ],
+                                selected: _chat,
+                                label: chatPreferenceLabel,
+                                enabled: !busy,
+                                onSelected: (c) => setState(() => _chat = c),
+                              ),
+                            ),
+                            _Section(
+                              title: 'Who can see it',
+                              child: _chips<BeaconsAudience>(
+                                values: _audiences,
+                                selected: _audience,
+                                label: (a) => a.name,
+                                enabled: !busy,
+                                onSelected: (a) =>
+                                    setState(() => _audience = a),
+                              ),
+                            ),
+                            if (state.error != null) ...[
+                              const SizedBox(height: AppSpacing.md),
+                              Semantics(
+                                liveRegion: true,
+                                child: Text(
+                                  state.error!,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.colorScheme.error,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: AppSpacing.lg),
                           ],
-                          const SizedBox(height: AppSpacing.lg),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               );
             },
           ),

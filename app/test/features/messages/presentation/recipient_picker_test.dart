@@ -518,6 +518,29 @@ void main() {
       expect(find.text(kThreadReadOnlyText), findsOneWidget);
       expect(find.byKey(MessageComposer.fieldKey), findsNothing);
     });
+
+    testWidgets('leaving the draft thread and coming back restores the '
+        'typed text', (tester) async {
+      final rig = _Rig();
+      await rig.open(tester);
+      await tester.tap(find.text('User 3'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(MessageComposer.fieldKey), 'later');
+      await tester.pump();
+
+      rig.router.go('/');
+      await tester.pumpAndSettle();
+      expect(find.byType(DraftThreadScreen), findsNothing);
+      unawaited(rig.router.push('/messages/new'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('User 3'));
+      await tester.pumpAndSettle();
+
+      final field = tester.widget<TextField>(
+        find.byKey(MessageComposer.fieldKey),
+      );
+      expect(field.controller?.text, 'later');
+    });
   });
 
   group('MessageComposerCubit draft mode', () {
@@ -527,6 +550,7 @@ void main() {
       final created = <String>[];
       final cubit = MessageComposerCubit(
         repository: repo,
+        outbox: repo.outbox,
         recipientUserId: 'u-peer',
         onConversationCreated: created.add,
       );

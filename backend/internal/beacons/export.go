@@ -39,13 +39,18 @@ type ExportedBeacon struct {
 }
 
 // ExportedMembership is one row of the memberships part: the user's relationship with a beacon (no other user's uid).
+// Note, RequestedAt and RespondedAt come from the user's OWN participant row (beacons/{id}/beaconParticipants/{uid},
+// D03) and are omitted when there is none (an organiser row) or the field is unset; no other participant's row is read.
 type ExportedMembership struct {
-	BeaconID    string    `json:"beaconId"`
-	Role        string    `json:"role"`
-	State       string    `json:"state"`
-	CommunityID string    `json:"communityId"`
-	StartAt     time.Time `json:"startAt"`
-	EndAt       time.Time `json:"endAt"`
+	BeaconID    string     `json:"beaconId"`
+	Role        string     `json:"role"`
+	State       string     `json:"state"`
+	CommunityID string     `json:"communityId"`
+	StartAt     time.Time  `json:"startAt"`
+	EndAt       time.Time  `json:"endAt"`
+	Note        string     `json:"note,omitempty"`
+	RequestedAt *time.Time `json:"requestedAt,omitempty"`
+	RespondedAt *time.Time `json:"respondedAt,omitempty"`
 }
 
 // ExportSource pages through a user's data (FirestoreRepo in production).
@@ -83,7 +88,8 @@ func (r *FirestoreRepo) ExportBeaconsPage(ctx context.Context, uid, after string
 	return out, nil
 }
 
-// ExportMembershipsPage implements ExportSource: users/{uid}/beaconMemberships ordered by the document id (the beacon id).
+// ExportMembershipsPage implements ExportSource: users/{uid}/beaconMemberships ordered by the document id (the beacon id),
+// plus one GetAll per page of the user's own participant rows (participantRef(beaconID, uid)) for the note and times.
 func (r *FirestoreRepo) ExportMembershipsPage(ctx context.Context, uid, after string, limit int) ([]ExportedMembership, error) {
 	q := r.client.Collection(usersCollection).Doc(uid).Collection(membershipsSubcollection).OrderBy(firestore.DocumentID, firestore.Asc)
 	if after != "" {
@@ -94,6 +100,7 @@ func (r *FirestoreRepo) ExportMembershipsPage(ctx context.Context, uid, after st
 		return nil, logger.RedactErr(fmt.Errorf("beacons: export memberships %s: query: %w", logger.HashUID(uid), err), uid, after)
 	}
 	out := make([]ExportedMembership, 0, len(docs))
+	refs := make([]*firestore.DocumentRef, 0, len(docs))
 	for _, s := range docs {
 		var m membershipDoc
 		if err := s.DataTo(&m); err != nil {
@@ -102,8 +109,52 @@ func (r *FirestoreRepo) ExportMembershipsPage(ctx context.Context, uid, after st
 		out = append(out, ExportedMembership{
 			BeaconID: s.Ref.ID, Role: m.Role, State: m.State, CommunityID: m.CommunityID, StartAt: m.StartAt.UTC(), EndAt: m.EndAt.UTC(),
 		})
+		refs = append(refs, r.participantRef(s.Ref.ID, uid))
 	}
-	return out, nil
+	if len(refs) == 0 {
+		return out, nil
+	}
+	snaps, err := r.client.GetAll(ctx, refs)
+	if err != nil {
+		return nil, logger.RedactErr(fmt.Errorf("beacons: export memberships %s: participants: %w", logger.HashUID(uid), err), uid, after)
+	}
+	own := make(map[string]participantDoc, len(snaps))
+	for i, s := range snaps {
+		if s == nil || !s.Exists() {
+			continue
+		}
+		var d participantDoc
+		if err := s.DataTo(&d); err != nil {
+			return nil, logger.RedactErr(fmt.Errorf("beacons: export participant decode: %w", err), uid, out[i].BeaconID)
+		}
+		own[out[i].BeaconID] = d
+	}
+	return withOwnParticipation(uid, out, own), nil
+}
+
+// withOwnParticipation copies the note and times of uid's own participant row (own, keyed by beacon id) onto each
+// membership row. A missing row leaves the fields empty; a row whose uid field names someone else is ignored, so only
+// the exporting user's data can ever reach their export.
+func withOwnParticipation(uid string, rows []ExportedMembership, own map[string]participantDoc) []ExportedMembership {
+	for i := range rows {
+		d, ok := own[rows[i].BeaconID]
+		if !ok || (d.UID != "" && d.UID != uid) {
+			continue
+		}
+		rows[i].Note = d.Note
+		rows[i].RequestedAt = exportTime(d.RequestedAt)
+		rows[i].RespondedAt = exportTime(d.RespondedAt)
+	}
+	return rows
+}
+
+// exportTime is t in UTC, or nil (omitted) when unset.
+func exportTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	u := t.UTC()
+	return &u
 }
 
 // Exporter writes the `beacons` export section.
