@@ -155,14 +155,14 @@ func TestW618_BombsFinalizeAllocatesLittle(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := newEnv(t, envOpts{})
-			tg := e.createGIFWith(t, uidA, "b", data)
+			tg, want := e.createBomb(t, uidA, "b", data)
 			runtime.GC()
 			var before, after runtime.MemStats
 			runtime.ReadMemStats(&before)
 			r := e.finalizeGIF(t, tg)
 			runtime.ReadMemStats(&after)
-			if r.Status != StatusRejected || r.RejectionReason != reasonGifLarge {
-				t.Fatalf("result = %+v, want REJECTED %q", r, reasonGifLarge)
+			if r.Status != StatusRejected || r.RejectionReason != want {
+				t.Fatalf("result = %+v, want REJECTED %q", r, want)
 			}
 			if got := after.TotalAlloc - before.TotalAlloc; got > 16<<20 {
 				t.Fatalf("finalizing a bomb allocated %d bytes, want under 16 MiB (a canvas alone is 6.3 MiB)", got)
@@ -234,9 +234,13 @@ func TestW618_AcceptedWorstCaseStaysInsideTheMemoryBudget(t *testing.T) {
 // once, and a photo finalize never waits for the GIF slot (it is held by a GIF read in flight).
 func TestW618_SlotIsReleasedAfterARefusalAndDoesNotBlockPhotos(t *testing.T) {
 	e := newEnv(t, envOpts{gifWait: 20 * time.Millisecond})
-	bomb := e.createGIFWith(t, uidA, "x", rawGIF(65535, 65535, [][4]int{{0, 0, 1, 1}}, true))
-	if r := e.finalizeGIF(t, bomb); r.Status != StatusRejected {
-		t.Fatalf("bomb = %+v", r)
+	frames := make([][4]int, 301) // over GIF_MAX_FRAMES: verify passes it (its screen is declared), the pre-scan in the slot refuses it
+	for i := range frames {
+		frames[i] = [4]int{0, 0, 1, 1}
+	}
+	bomb := e.createGIFWith(t, uidA, "x", rawGIF(100, 100, frames, true))
+	if r := e.finalizeGIF(t, bomb); r.Status != StatusRejected || r.RejectionReason != reasonGifLarge {
+		t.Fatalf("bomb = %+v, want REJECTED by the pre-scan (%q)", r, reasonGifLarge)
 	}
 	if r := e.finalizeGIF(t, e.createGIFWith(t, uidA, "y", colourGIF(pxWhite, pxGreen))); r.Status != StatusReady {
 		t.Fatalf("a GIF after a refused one = %+v, want READY (the slot must be free)", r)
@@ -294,7 +298,7 @@ func TestW618_PurgeAndPostDeleteRemoveGIFObjects(t *testing.T) {
 				t.Fatalf("published = %+v", r)
 			}
 			pending := e.createGIF(t, uidA, "b", thumb.ct) // objects sit in the private bucket
-			rejected := e.createGIFWith(t, uidA, "c", rawGIF(65535, 65535, [][4]int{{0, 0, 1, 1}}, true))
+			rejected, _ := e.createBomb(t, uidA, "c", rawGIF(65535, 65535, [][4]int{{0, 0, 1, 1}}, true))
 			e.finalizeGIF(t, rejected)
 			// an unrecorded public object of a REJECTED document: the deterministic names must go too.
 			rd := e.repo.docs[rejected.MediaID]
@@ -371,7 +375,7 @@ type readCountObjects struct {
 }
 
 func (s *readCountObjects) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
-	if n != 512 {
+	if gifFullRead(object, n) {
 		s.reads.Add(1)
 	}
 	return s.fakeObjects.UploadHead(ctx, object, n, generation)

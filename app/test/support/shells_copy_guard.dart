@@ -1,4 +1,4 @@
-import 'package:dzeroth/features/shells/domain/premium_plans.dart';
+import 'package:dzeroth/features/premium/domain/premium_plans.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

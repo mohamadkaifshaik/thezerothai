@@ -66,8 +66,17 @@ class MessageComposer extends StatefulWidget {
 }
 
 class _MessageComposerState extends State<MessageComposer> {
-  final _controller = TextEditingController();
+  late final TextEditingController _controller;
   final _focus = FocusNode(debugLabel: 'message composer');
+
+  @override
+  void initState() {
+    super.initState();
+    // Starts from the draft the outbox kept for this thread.
+    _controller = TextEditingController(
+      text: context.read<MessageComposerCubit>().state.draft.text,
+    );
+  }
 
   @override
   void dispose() {

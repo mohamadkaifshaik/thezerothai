@@ -162,4 +162,48 @@ void main() {
       expect(await database.readSetting(kCacheOwnerKey), 'b');
     },
   );
+
+  test('verifying the email (same uid, needsEmailVerification to '
+      'authenticated) authenticates exactly once', () async {
+    wire();
+    final unverified = AuthState(
+      status: AuthStatus.needsEmailVerification,
+      user: AppUser(uid: 'b', emailVerified: false, isPasswordProvider: true),
+    );
+
+    auth
+      ..add(unverified)
+      // The resend / check buttons re-emit the same status.
+      ..add(unverified.copyWith(isSubmitting: true))
+      ..add(unverified);
+    await settle();
+    expect(log, isEmpty);
+
+    auth
+      ..add(signedIn('b'))
+      // A later re-emit (isSubmitting, a failure, a reload) is not a new
+      // sign-in.
+      ..add(signedIn('b').copyWith(isSubmitting: true))
+      ..add(signedIn('b'));
+    await settle();
+
+    expect(log, ['authenticated:b stamp=b a=false']);
+    expect(signedOutCalls, 0);
+  });
+
+  test('an initial authenticated user re-emitted as authenticated is not '
+      'dispatched again', () async {
+    await database.claimCacheFor('a');
+    wire(initialUser: user('a'));
+    await settle();
+    expect(log, ['authenticated:a stamp=a a=false']);
+    log.clear();
+
+    auth
+      ..add(signedIn('a').copyWith(isSubmitting: true))
+      ..add(signedIn('a'));
+    await settle();
+
+    expect(log, isEmpty);
+  });
 }

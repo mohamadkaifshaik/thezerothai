@@ -255,7 +255,16 @@ func (s *Server) GetAccountExport(ctx context.Context, req *connect.Request[iden
 	if s.lifecycle == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errUnimplementedPhase1)
 	}
-	view, err := s.lifecycle.GetAccountExport(ctx, uid, req.Msg.GetExportId())
+	// The signed URL hands over the whole account, so it is released only to a recent sign-in, like
+	// RequestAccountExport. Status polling itself stays open (no gate, no error) so the app can watch the job for
+	// far longer than the sign-in window; the app re-authenticates up front on the Download tap and calls again to
+	// receive the URL. A READY export with no URL therefore means "re-auth to download", not "not ready". This uses
+	// the side-effect-free IsRecentSignIn, not RequireRecentSignIn: a stale poll here is a normal success, so it must
+	// not log reauth_required. A wiring mistake (reauthMaxAge 0) fails closed: IsRecentSignIn is false, URL withheld.
+	// The decision is made before the lifecycle call so a stale poll never signs a URL (A17): nothing is signed only to
+	// be discarded, and a signer failure cannot fail a poll that would not have received the URL anyway.
+	recent := authn.IsRecentSignIn(ctx, s.reauthMaxAge, s.now())
+	view, err := s.lifecycle.GetAccountExport(ctx, uid, req.Msg.GetExportId(), recent)
 	if err != nil {
 		return nil, err
 	}
@@ -264,13 +273,7 @@ func (s *Server) GetAccountExport(ctx context.Context, req *connect.Request[iden
 		Status:    toProtoExportStatus(view.Status),
 		ExpiresAt: timestamppb.New(view.ExpiresAt),
 	}
-	// The signed URL hands over the whole account, so it is released only to a recent sign-in, like
-	// RequestAccountExport. Status polling itself stays open (no gate, no error) so the app can watch the job for
-	// far longer than the sign-in window; the app re-authenticates up front on the Download tap and calls again to
-	// receive the URL. A READY export with no URL therefore means "re-auth to download", not "not ready". This uses
-	// the side-effect-free IsRecentSignIn, not RequireRecentSignIn: a stale poll here is a normal success, so it must
-	// not log reauth_required. A wiring mistake (reauthMaxAge 0) fails closed: IsRecentSignIn is false, URL withheld.
-	if authn.IsRecentSignIn(ctx, s.reauthMaxAge, s.now()) {
+	if recent {
 		resp.DownloadUrl = view.DownloadURL
 		if !view.URLExpiresAt.IsZero() {
 			resp.DownloadUrlExpiresAt = timestamppb.New(view.URLExpiresAt)
