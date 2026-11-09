@@ -12,6 +12,7 @@ class ArticleRecord {
     this.publicationPending = false,
     this.publicationCaption = '',
     this.publicationReplyPolicy = 'everyone',
+    this.excerpt = '',
   });
   final ArticleDraft draft;
   final DateTime updatedAt;
@@ -23,7 +24,14 @@ class ArticleRecord {
   final bool publicationPending;
   final String publicationCaption;
   final String publicationReplyPolicy;
+
+  /// Server-computed plain-text excerpt. List rows carry only this (their
+  /// draft has no blocks); open the article with get() to read the body.
+  final String excerpt;
   bool get published => postId.isNotEmpty;
+
+  /// The list summary: the server excerpt, or one derived from loaded blocks.
+  String get summary => excerpt.isNotEmpty ? excerpt : draft.excerpt();
 }
 
 class ArticlePage {

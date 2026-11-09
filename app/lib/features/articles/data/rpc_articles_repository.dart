@@ -66,6 +66,7 @@ class RpcArticlesRepository implements ArticlesRepository {
       publicationPending: record.publicationPending,
       publicationCaption: record.publicationCaption,
       publicationReplyPolicy: record.publicationReplyPolicy,
+      excerpt: record.excerpt,
     );
   }
 
@@ -83,8 +84,10 @@ class RpcArticlesRepository implements ArticlesRepository {
         ),
       ),
     );
+    // List rows carry the server excerpt and no body: opening one reads the
+    // full article through get().
     return ArticlePage(
-      response.articles.map(_from).toList(),
+      response.articles.map((a) => _from(a, withBody: false)).toList(),
       nextPageToken: response.nextPageToken,
     );
   }
@@ -164,8 +167,10 @@ class RpcArticlesRepository implements ArticlesRepository {
     return _from(response.article);
   }
 
-  ArticleRecord _from(pb.Article article) {
-    final body = jsonDecode(article.bodyJson.isEmpty ? '[]' : article.bodyJson);
+  ArticleRecord _from(pb.Article article, {bool withBody = true}) {
+    final body = withBody
+        ? jsonDecode(article.bodyJson.isEmpty ? '[]' : article.bodyJson)
+        : const <Object?>[];
     if (body is! List) throw const FormatException('Invalid article body');
     return ArticleRecord(
       draft: ArticleDraft(
@@ -188,6 +193,7 @@ class RpcArticlesRepository implements ArticlesRepository {
         ReplyPolicy.REPLY_POLICY_MENTIONED_ONLY => 'mentioned',
         _ => 'everyone',
       },
+      excerpt: article.excerpt,
     );
   }
 }

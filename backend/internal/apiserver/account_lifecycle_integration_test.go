@@ -80,7 +80,7 @@ func newLifecycleEnvWith(t *testing.T, verifier authn.IDTokenVerifier) *lifecycl
 
 // newLifecycleEnvCfg is newLifecycleEnvWith plus an optional config mutation applied after the lifecycle settings
 // (the reference-account test raises the daily quotas and the per-IP flood limit to seed a 300-post account).
-func newLifecycleEnvCfg(t *testing.T, verifier authn.IDTokenVerifier, mutate func(*config.Config)) *lifecycleEnv {
+func newLifecycleEnvCfg(t *testing.T, verifier authn.IDTokenVerifier, mutate func(*config.Config), opts ...buildOption) *lifecycleEnv {
 	t.Helper()
 	skipIfNoLifecycleEmulators(t)
 	ctx := context.Background()
@@ -95,7 +95,7 @@ func newLifecycleEnvCfg(t *testing.T, verifier authn.IDTokenVerifier, mutate fun
 		if mutate != nil {
 			mutate(c)
 		}
-	}, verifier)
+	}, verifier, opts...)
 	cfg, _ := config.Load()
 	seedProtectedSetDoc(t, env.fs)
 

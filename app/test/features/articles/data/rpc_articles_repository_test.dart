@@ -94,6 +94,50 @@ void main() {
     },
   );
 
+  test('list rows use the server excerpt and never decode a body', () async {
+    reply.complete(
+      pb.ListArticlesResponse(
+        articles: [
+          pb.Article(
+            articleId: 'a' * 32,
+            authorId: 'alice',
+            title: 'Title',
+            excerpt: 'Server excerpt',
+          ),
+          // A list row's body is never read, even if one were present.
+          pb.Article(
+            articleId: 'b' * 32,
+            authorId: 'alice',
+            bodyJson: 'not json',
+            excerpt: 'Second',
+          ),
+        ],
+        nextPageToken: 'b' * 32,
+      ),
+    );
+    final page = await repo.list(published: false);
+    expect(page.articles.map((a) => a.summary), ['Server excerpt', 'Second']);
+    expect(page.articles.every((a) => a.draft.blocks.isEmpty), isTrue);
+    expect(page.nextPageToken, 'b' * 32);
+  });
+
+  test('get decodes the full body and keeps the excerpt', () async {
+    reply.complete(
+      pb.GetArticleResponse(
+        article: pb.Article(
+          articleId: 'a' * 32,
+          authorId: 'alice',
+          bodyJson:
+              '[{"kind":"paragraph","runs":[{"text":"Full body","marks":[]}]}]',
+          excerpt: 'Full body',
+        ),
+      ),
+    );
+    final record = await repo.get('a' * 32);
+    expect(record.draft.blocks.single.plainText, 'Full body');
+    expect(record.summary, 'Full body');
+  });
+
   test('disabled articles make no RPC', () async {
     enabled = false;
     await expectLater(

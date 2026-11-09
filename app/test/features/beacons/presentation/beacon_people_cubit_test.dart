@@ -209,8 +209,8 @@ void main() {
       ),
     ).called(1);
     expect(lists, hasLength(2));
-    expect(c.state.actionError, isNotNull);
-    expect(c.state.actionError, isNot(contains('offline')));
+    expect(c.state.actionError, BeaconPeopleCubit.blockFailedCopy);
+    expect(c.state.retryBlockUserId, 'u2');
 
     when(
       () => graphRepo.block(
@@ -221,6 +221,137 @@ void main() {
     expect(await c.declineAndBlock('u3'), isTrue);
     expect(c.state.actionError, isNull);
   });
+
+  test('retrying a failed block skips the decline and reuses the block key '
+      '(C02)', () async {
+    stubList((_) => ParticipantsPage(participants: const []));
+    when(
+      () => beacons.respondToJoinRequest(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        beaconId: _bid,
+        userId: 'u2',
+        accept: false,
+      ),
+    ).thenAnswer((_) async => beaconView(startAt: DateTime.now()));
+    var fail = true;
+    when(
+      () => graphRepo.block(
+        userId: 'u2',
+        idempotencyKey: any(named: 'idempotencyKey'),
+      ),
+    ).thenAnswer((_) async {
+      if (fail) throw NetworkException('offline');
+      return graph.Relationship();
+    });
+    final c = cubit(_requested);
+    await c.load();
+
+    expect(await c.declineAndBlock('u2'), isFalse);
+    expect(
+      c.state.actionError,
+      'Request declined, but blocking failed. '
+      'Retry block?',
+    );
+    fail = false;
+    expect(await c.retryBlock('u2'), isTrue);
+
+    verify(
+      () => beacons.respondToJoinRequest(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        beaconId: _bid,
+        userId: 'u2',
+        accept: false,
+      ),
+    ).called(1);
+    final keys = verify(
+      () => graphRepo.block(
+        userId: 'u2',
+        idempotencyKey: captureAny(named: 'idempotencyKey'),
+      ),
+    ).captured;
+    expect(keys, hasLength(2));
+    expect(keys[1], keys[0]);
+    expect(c.state.actionError, isNull);
+    expect(c.state.retryBlockUserId, isNull);
+  });
+
+  test('a failed block stays pending in state until it succeeds; a '
+      'rate limit adds its hint (C02)', () async {
+    stubList(
+      (_) => ParticipantsPage(participants: [participant(userId: 'u2')]),
+    );
+    when(
+      () => beacons.respondToJoinRequest(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        beaconId: _bid,
+        userId: any(named: 'userId'),
+        accept: false,
+      ),
+    ).thenAnswer((_) async => beaconView(startAt: DateTime.now()));
+    Object? failure = const RateLimitedException(
+      'slow',
+      retryAfter: Duration(hours: 3),
+      limitName: 'x_daily',
+    );
+    when(
+      () => graphRepo.block(
+        userId: 'u2',
+        idempotencyKey: any(named: 'idempotencyKey'),
+      ),
+    ).thenAnswer((_) async {
+      if (failure != null) throw failure as AppException;
+      return graph.Relationship();
+    });
+    final c = cubit(_requested);
+    await c.load();
+
+    expect(await c.declineAndBlock('u2'), isFalse);
+    expect(c.state.actionError, startsWith(BeaconPeopleCubit.blockFailedCopy));
+    expect(c.state.actionError, contains('limit'));
+    expect(c.state.pendingBlocks.keys, ['u2']);
+
+    // A later unrelated action clears the message but not the pending block.
+    expect(await c.decline('u9'), isTrue);
+    expect(c.state.actionError, isNull);
+    expect(c.state.pendingBlocks.keys, ['u2']);
+
+    failure = null;
+    expect(await c.retryBlock('u2'), isTrue);
+    expect(c.state.pendingBlocks, isEmpty);
+    expect(c.state.retryBlockUserId, isNull);
+  });
+
+  test(
+    'a decline answered not_requested still goes on to block (C02)',
+    () async {
+      stubList((_) => ParticipantsPage(participants: const []));
+      when(
+        () => beacons.respondToJoinRequest(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          beaconId: _bid,
+          userId: 'u2',
+          accept: false,
+        ),
+      ).thenThrow(StateConflictException('not_requested'));
+      when(
+        () => graphRepo.block(
+          userId: 'u2',
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer((_) async => graph.Relationship());
+      final c = cubit(_requested);
+      await c.load();
+
+      expect(await c.declineAndBlock('u2'), isTrue);
+
+      verify(
+        () => graphRepo.block(
+          userId: 'u2',
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).called(1);
+    },
+  );
 
   test('remove sends the user and reloads', () async {
     stubList(

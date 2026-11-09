@@ -7,57 +7,10 @@ import 'package:uuid/uuid.dart';
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../posts/domain/post_text_rules.dart';
+import '../../data/message_outbox.dart';
 import '../../data/messaging_repository.dart';
 
-/// How many unsent texts keep their idempotency key (a handful of edits).
-const _maxRememberedKeys = 8;
-
-enum OutgoingStatus {
-  /// The send is in flight: the dimmed "Sending…" bubble.
-  sending,
-
-  /// The send failed: the "Not sent. Tap to retry" bubble.
-  failed,
-
-  /// The server answered; [OutgoingMessage.sent] holds its message. The row
-  /// stays until the thread has it too, so the bubble never blinks out.
-  sent,
-}
-
-/// One message the caller sent from this screen and the server has not
-/// confirmed in the thread yet.
-@immutable
-class OutgoingMessage {
-  const OutgoingMessage({
-    required this.localId,
-    required this.text,
-    required this.status,
-    this.error,
-    this.sent,
-  });
-
-  /// The idempotency key of this intent: also the row's stable key.
-  final String localId;
-  final String text;
-  final OutgoingStatus status;
-  final AppException? error;
-
-  /// The server's message once [status] is [OutgoingStatus.sent].
-  final pb.Message? sent;
-
-  OutgoingMessage copyWith({
-    OutgoingStatus? status,
-    AppException? error,
-    pb.Message? sent,
-    bool clearError = false,
-  }) => OutgoingMessage(
-    localId: localId,
-    text: text,
-    status: status ?? this.status,
-    error: clearError ? null : (error ?? this.error),
-    sent: sent ?? this.sent,
-  );
-}
+export '../../data/message_outbox.dart' show OutgoingMessage, OutgoingStatus;
 
 @immutable
 class MessageComposerState {
@@ -148,6 +101,7 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
     this.onSent,
     this.onCannotMessage,
     this.onUnexpectedError,
+    required MessageOutbox outbox,
     Uuid? uuid,
   }) : assert(
          (conversationId == null) != (recipientUserId == null),
@@ -156,7 +110,36 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
        _repository = repository,
        _conversationId = conversationId,
        _uuid = uuid ?? const Uuid(),
-       super(MessageComposerState(draft: analyzePostDraft('')));
+       _outbox = outbox.lease(),
+       super(
+         _restore(
+           outbox.lease(),
+           conversationId ?? MessageOutbox.draftScope(recipientUserId!),
+         ),
+       );
+
+  static MessageComposerState _restore(OutboxLease outbox, String scope) {
+    return MessageComposerState(
+      draft: analyzePostDraft(outbox.draftOf(scope)),
+      outgoing: outbox.rowsOf(scope),
+    );
+  }
+
+  final OutboxLease _outbox;
+
+  String get _scope =>
+      _conversationId ?? MessageOutbox.draftScope(recipientUserId!);
+
+  @override
+  void onChange(Change<MessageComposerState> change) {
+    super.onChange(change);
+    // Write-through: what the screen shows is what survives the screen.
+    _outbox.save(
+      _scope,
+      draft: change.nextState.draft.text,
+      rows: change.nextState.outgoing,
+    );
+  }
 
   final MessagingRepository _repository;
 
@@ -179,12 +162,9 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
   final Uuid _uuid;
 
-  /// Idempotency key per sent text, insertion-ordered and bounded.
-  final Map<String, String> _keys = {};
-
   /// The key the next send of [text] would use, for tests and diagnostics.
   @visibleForTesting
-  String? keyFor(String text) => _keys[text];
+  String? keyFor(String text) => _outbox.peekKey(_scope, text);
 
   /// The user typed: re-read the draft and forget the last error.
   void textChanged(String raw) {
@@ -192,14 +172,8 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
     onActivity?.call();
   }
 
-  String _keyFor(String text) {
-    final key = _keys.remove(text) ?? _uuid.v4();
-    _keys[text] = key;
-    while (_keys.length > _maxRememberedKeys) {
-      _keys.remove(_keys.keys.first);
-    }
-    return key;
-  }
+  String _keyFor(String text) =>
+      _outbox.keyFor(_scope, text, create: _uuid.v4);
 
   /// Sends the draft: the optimistic row and an empty draft appear in the
   /// same turn. No-op unless [MessageComposerState.canSend].
@@ -273,8 +247,12 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
       _fail(key, text, const UnknownApiException('Something went wrong.'));
       return;
     }
-    _keys.remove(text);
-    if (isClosed) return;
+    _outbox.forgetKey(_scope, text);
+    if (isClosed) {
+      // The screen is gone but the server has the message: drop its row.
+      _outbox.removeRow(_scope, key);
+      return;
+    }
     emit(
       state.copyWith(
         outgoing: _replace(
@@ -292,6 +270,7 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
           ? response.conversation.id
           : response.message.conversationId;
       if (created.isNotEmpty) {
+        _outbox.drop(MessageOutbox.draftScope(recipientUserId!));
         _conversationId = created;
         onConversationCreated?.call(created);
         if (isClosed) return;
@@ -307,10 +286,20 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
   }
 
   void _fail(String key, String text, AppException error) {
-    if (isClosed) return;
+    if (isClosed) {
+      // The screen is gone: a failed row waits in the outbox for a retry.
+      if (error is CannotMessageException) {
+        _outbox
+          ..forgetKey(_scope, text)
+          ..removeRow(_scope, key);
+      } else {
+        _outbox.markFailed(_scope, key, error);
+      }
+      return;
+    }
     if (error is CannotMessageException) {
       // Nothing to retry: the row goes and the thread turns read-only.
-      _keys.remove(text);
+      _outbox.forgetKey(_scope, text);
       emit(
         state.copyWith(
           outgoing: _replace(key, null),

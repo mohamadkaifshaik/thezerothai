@@ -195,6 +195,15 @@ func printReport(out io.Writer, r moderation.Report) {
 		if len(r.Evidence.MediaIDs) > 0 {
 			fmt.Fprintf(out, "evidence media: %s\n", strings.Join(r.Evidence.MediaIDs, ", "))
 		}
+		if e := r.Evidence; e.ArticleID != "" {
+			// The article behind the reported root post, as plain text copied at report time (revision 0: only the
+			// post's frozen preview could be kept).
+			fmt.Fprintf(out, "evidence article %s revision %d: title %q, body %q", e.ArticleID, e.ArticleRevision, e.ArticleTitle, e.ArticleBody)
+			if e.ArticleBodyTruncated {
+				fmt.Fprint(out, " (truncated)")
+			}
+			fmt.Fprintln(out)
+		}
 	}
 	if r.ResolutionNote != "" {
 		fmt.Fprintf(out, "resolution note %q\n", r.ResolutionNote)

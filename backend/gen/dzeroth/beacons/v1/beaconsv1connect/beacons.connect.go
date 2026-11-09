@@ -52,7 +52,10 @@
 //     50 = 50), the lists precedent.
 //   - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "beacons" (or "communities" for a community
 //     audience while that flag is off for the caller).
-//   - NOT_FOUND: one message for a missing, hidden, blocked or not-visible beacon.
+//   - NOT_FOUND: one message for a missing, hidden, blocked or not-visible beacon (including a community audience whose
+//     community is missing or SUSPENDED; the community owner still reads a SUSPENDED community's beacons).
+//   - FAILED_PRECONDITION + COMMUNITY_STATE, metadata["reason"] = "community_archived": CreateBeacon, RequestToJoin or
+//     an ACCEPT in an ARCHIVED community (read-only); nothing is written.
 //   - FORBIDDEN, metadata["reason"] = "not_member" (community audience, caller not JOINED) | "not_organiser"
 //     (UpdateBeacon, CancelBeacon, RespondToJoinRequest, RemoveParticipant, ListParticipants REQUESTED by anyone
 //     else). A block in either direction is never FORBIDDEN: it is the one NOT_FOUND above.
@@ -175,8 +178,9 @@ type BeaconServiceClient interface {
 	// FULL beacon => FAILED_PRECONDITION "full". The organiser is notified (NOTIFICATION_TYPE_BEACON_REQUEST).
 	RequestToJoin(context.Context, *connect.Request[v1.RequestToJoinRequest]) (*connect.Response[v1.RequestToJoinResponse], error)
 	// Withdraw the caller's REQUESTED row (state WITHDRAWN), on a live, ENDED or CANCELLED beacon alike, so a stale
-	// request can always be cleared (it stops counting toward beacon_requests_pending once its beacon ended anyway). No
-	// row or any other state => FAILED_PRECONDITION "not_requested".
+	// request can always be cleared (it stops counting toward beacon_requests_pending once its beacon ended anyway). The
+	// only gate is the caller's own row: a block, a hidden beacon or a community the caller left never prevents it. No
+	// row => NOT_FOUND (the one message above); any other state => FAILED_PRECONDITION "not_requested".
 	WithdrawJoinRequest(context.Context, *connect.Request[v1.WithdrawJoinRequestRequest]) (*connect.Response[v1.WithdrawJoinRequestResponse], error)
 	// The organiser accepts or declines one REQUESTED row (any other caller => FORBIDDEN "not_organiser"; a row in any
 	// other state => FAILED_PRECONDITION "not_requested"). ACCEPT runs in one transaction with the beacon doc: when
@@ -185,14 +189,19 @@ type BeaconServiceClient interface {
 	// notified on ACCEPT only (NOTIFICATION_TYPE_BEACON_ACCEPTED).
 	RespondToJoinRequest(context.Context, *connect.Request[v1.RespondToJoinRequestRequest]) (*connect.Response[v1.RespondToJoinRequestResponse], error)
 	// Leave a beacon the caller is ACCEPTED on (state LEFT; accepted_count shrinks and a FULL beacon turns OPEN).
-	// Always allowed, never needs approval. Not ACCEPTED => FAILED_PRECONDITION "not_participant".
+	// Always allowed, never needs approval: the only gate is the caller's own row (a block, a hidden beacon or a
+	// community the caller left never prevents it). No row => NOT_FOUND (the one message above, even on an ENDED or
+	// CANCELLED beacon); ENDED or CANCELLED => "ended" | "cancelled"; not ACCEPTED => FAILED_PRECONDITION
+	// "not_participant".
 	LeaveBeacon(context.Context, *connect.Request[v1.LeaveBeaconRequest]) (*connect.Response[v1.LeaveBeaconResponse], error)
 	// The organiser removes an ACCEPTED participant (state REMOVED; same count rules as LeaveBeacon). Any other caller
 	// => FORBIDDEN "not_organiser"; not ACCEPTED => FAILED_PRECONDITION "not_participant".
 	RemoveParticipant(context.Context, *connect.Request[v1.RemoveParticipantRequest]) (*connect.Response[v1.RemoveParticipantResponse], error)
 	// ACCEPTED participants (visible to the organiser and to ACCEPTED participants; anyone else => NOT_FOUND) or, for
 	// the organiser only, REQUESTED rows with their notes (anyone else => FORBIDDEN "not_organiser"). Live rows
-	// (identity directory, 60 s), oldest first. limit is clamped (0 = 20, above 50 = 50).
+	// (identity directory, 60 s), oldest first. A participant does not see peers across a block in either direction
+	// (the organiser sees everyone), so a page may hold fewer rows than accepted_count. limit is clamped (0 = 20, above
+	// 50 = 50).
 	ListParticipants(context.Context, *connect.Request[v1.ListParticipantsRequest]) (*connect.Response[v1.ListParticipantsResponse], error)
 }
 
@@ -403,8 +412,9 @@ type BeaconServiceHandler interface {
 	// FULL beacon => FAILED_PRECONDITION "full". The organiser is notified (NOTIFICATION_TYPE_BEACON_REQUEST).
 	RequestToJoin(context.Context, *connect.Request[v1.RequestToJoinRequest]) (*connect.Response[v1.RequestToJoinResponse], error)
 	// Withdraw the caller's REQUESTED row (state WITHDRAWN), on a live, ENDED or CANCELLED beacon alike, so a stale
-	// request can always be cleared (it stops counting toward beacon_requests_pending once its beacon ended anyway). No
-	// row or any other state => FAILED_PRECONDITION "not_requested".
+	// request can always be cleared (it stops counting toward beacon_requests_pending once its beacon ended anyway). The
+	// only gate is the caller's own row: a block, a hidden beacon or a community the caller left never prevents it. No
+	// row => NOT_FOUND (the one message above); any other state => FAILED_PRECONDITION "not_requested".
 	WithdrawJoinRequest(context.Context, *connect.Request[v1.WithdrawJoinRequestRequest]) (*connect.Response[v1.WithdrawJoinRequestResponse], error)
 	// The organiser accepts or declines one REQUESTED row (any other caller => FORBIDDEN "not_organiser"; a row in any
 	// other state => FAILED_PRECONDITION "not_requested"). ACCEPT runs in one transaction with the beacon doc: when
@@ -413,14 +423,19 @@ type BeaconServiceHandler interface {
 	// notified on ACCEPT only (NOTIFICATION_TYPE_BEACON_ACCEPTED).
 	RespondToJoinRequest(context.Context, *connect.Request[v1.RespondToJoinRequestRequest]) (*connect.Response[v1.RespondToJoinRequestResponse], error)
 	// Leave a beacon the caller is ACCEPTED on (state LEFT; accepted_count shrinks and a FULL beacon turns OPEN).
-	// Always allowed, never needs approval. Not ACCEPTED => FAILED_PRECONDITION "not_participant".
+	// Always allowed, never needs approval: the only gate is the caller's own row (a block, a hidden beacon or a
+	// community the caller left never prevents it). No row => NOT_FOUND (the one message above, even on an ENDED or
+	// CANCELLED beacon); ENDED or CANCELLED => "ended" | "cancelled"; not ACCEPTED => FAILED_PRECONDITION
+	// "not_participant".
 	LeaveBeacon(context.Context, *connect.Request[v1.LeaveBeaconRequest]) (*connect.Response[v1.LeaveBeaconResponse], error)
 	// The organiser removes an ACCEPTED participant (state REMOVED; same count rules as LeaveBeacon). Any other caller
 	// => FORBIDDEN "not_organiser"; not ACCEPTED => FAILED_PRECONDITION "not_participant".
 	RemoveParticipant(context.Context, *connect.Request[v1.RemoveParticipantRequest]) (*connect.Response[v1.RemoveParticipantResponse], error)
 	// ACCEPTED participants (visible to the organiser and to ACCEPTED participants; anyone else => NOT_FOUND) or, for
 	// the organiser only, REQUESTED rows with their notes (anyone else => FORBIDDEN "not_organiser"). Live rows
-	// (identity directory, 60 s), oldest first. limit is clamped (0 = 20, above 50 = 50).
+	// (identity directory, 60 s), oldest first. A participant does not see peers across a block in either direction
+	// (the organiser sees everyone), so a page may hold fewer rows than accepted_count. limit is clamped (0 = 20, above
+	// 50 = 50).
 	ListParticipants(context.Context, *connect.Request[v1.ListParticipantsRequest]) (*connect.Response[v1.ListParticipantsResponse], error)
 }
 
