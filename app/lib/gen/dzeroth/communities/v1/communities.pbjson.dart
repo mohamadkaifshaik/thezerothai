@@ -79,6 +79,7 @@ const CommunityMemberFilter$json = {
     {'1': 'COMMUNITY_MEMBER_FILTER_UNSPECIFIED', '2': 0},
     {'1': 'COMMUNITY_MEMBER_FILTER_JOINED', '2': 1},
     {'1': 'COMMUNITY_MEMBER_FILTER_BANNED', '2': 2},
+    {'1': 'COMMUNITY_MEMBER_FILTER_MODERATORS', '2': 3},
   ],
 };
 
@@ -86,7 +87,8 @@ const CommunityMemberFilter$json = {
 final $typed_data.Uint8List communityMemberFilterDescriptor = $convert.base64Decode(
     'ChVDb21tdW5pdHlNZW1iZXJGaWx0ZXISJwojQ09NTVVOSVRZX01FTUJFUl9GSUxURVJfVU5TUE'
     'VDSUZJRUQQABIiCh5DT01NVU5JVFlfTUVNQkVSX0ZJTFRFUl9KT0lORUQQARIiCh5DT01NVU5J'
-    'VFlfTUVNQkVSX0ZJTFRFUl9CQU5ORUQQAg==');
+    'VFlfTUVNQkVSX0ZJTFRFUl9CQU5ORUQQAhImCiJDT01NVU5JVFlfTUVNQkVSX0ZJTFRFUl9NT0'
+    'RFUkFUT1JTEAM=');
 
 @$core.Deprecated('Use memberRoleActionDescriptor instead')
 const MemberRoleAction$json = {

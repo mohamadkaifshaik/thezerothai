@@ -324,6 +324,9 @@ const (
 	CommunityMemberFilter_COMMUNITY_MEMBER_FILTER_JOINED CommunityMemberFilter = 1
 	// Banned users. Owner and moderators only.
 	CommunityMemberFilter_COMMUNITY_MEMBER_FILTER_BANNED CommunityMemberFilter = 2
+	// The owner and the moderators (roles OWNER and MODERATOR, from the community document), owner first, then the
+	// moderators by user id. Owner and moderators only.
+	CommunityMemberFilter_COMMUNITY_MEMBER_FILTER_MODERATORS CommunityMemberFilter = 3
 )
 
 // Enum value maps for CommunityMemberFilter.
@@ -332,11 +335,13 @@ var (
 		0: "COMMUNITY_MEMBER_FILTER_UNSPECIFIED",
 		1: "COMMUNITY_MEMBER_FILTER_JOINED",
 		2: "COMMUNITY_MEMBER_FILTER_BANNED",
+		3: "COMMUNITY_MEMBER_FILTER_MODERATORS",
 	}
 	CommunityMemberFilter_value = map[string]int32{
 		"COMMUNITY_MEMBER_FILTER_UNSPECIFIED": 0,
 		"COMMUNITY_MEMBER_FILTER_JOINED":      1,
 		"COMMUNITY_MEMBER_FILTER_BANNED":      2,
+		"COMMUNITY_MEMBER_FILTER_MODERATORS":  3,
 	}
 )
 
@@ -2368,11 +2373,12 @@ const file_dzeroth_communities_v1_communities_proto_rawDesc = "" +
 	"\x1aCOMMUNITY_STATUS_SUSPENDED\x10\x03*\\\n" +
 	"\x13CommunityVisibility\x12$\n" +
 	" COMMUNITY_VISIBILITY_UNSPECIFIED\x10\x00\x12\x1f\n" +
-	"\x1bCOMMUNITY_VISIBILITY_PUBLIC\x10\x01*\x88\x01\n" +
+	"\x1bCOMMUNITY_VISIBILITY_PUBLIC\x10\x01*\xb0\x01\n" +
 	"\x15CommunityMemberFilter\x12'\n" +
 	"#COMMUNITY_MEMBER_FILTER_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eCOMMUNITY_MEMBER_FILTER_JOINED\x10\x01\x12\"\n" +
-	"\x1eCOMMUNITY_MEMBER_FILTER_BANNED\x10\x02*\xc0\x01\n" +
+	"\x1eCOMMUNITY_MEMBER_FILTER_BANNED\x10\x02\x12&\n" +
+	"\"COMMUNITY_MEMBER_FILTER_MODERATORS\x10\x03*\xc0\x01\n" +
 	"\x10MemberRoleAction\x12\"\n" +
 	"\x1eMEMBER_ROLE_ACTION_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16MEMBER_ROLE_ACTION_BAN\x10\x01\x12\x1c\n" +

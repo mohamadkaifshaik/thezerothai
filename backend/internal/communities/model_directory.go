@@ -33,14 +33,27 @@ const (
 	FilterJoined MemberFilter = iota
 	// FilterBanned lists BANNED users; the owner and moderators only.
 	FilterBanned
+	// FilterModerators lists the owner and the moderators (the community document's roles, F24); the owner and moderators
+	// only.
+	FilterModerators
 )
 
 // String is the filter's name in a cursor binding and a log line.
 func (f MemberFilter) String() string {
-	if f == FilterBanned {
+	switch f {
+	case FilterBanned:
 		return "banned"
+	case FilterModerators:
+		return "moderators"
 	}
 	return "joined"
+}
+
+// MemberEntry is one member doc as the batch read sees it: its state and the time of that state (joinedAt for JOINED,
+// bannedAt for BANNED).
+type MemberEntry struct {
+	State MemberState
+	At    time.Time
 }
 
 // MembersInput is a ListCommunityMembers request after the transport layer. PageSize 0 is the default (20), over 50 is clamped.

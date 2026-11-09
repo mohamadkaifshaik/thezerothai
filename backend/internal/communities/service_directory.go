@@ -185,11 +185,18 @@ func (s *service) ListCommunityMembers(ctx context.Context, uid string, in Membe
 		return MembersPage{}, mapErr(ctx, "members", uid, cid, ErrNotFound)
 	}
 	isMod := c.RoleOf(uid) != RoleNone // OWNER or MODERATOR, from the community document
-	if in.Filter == FilterBanned && !isMod {
+	if (in.Filter == FilterBanned || in.Filter == FilterModerators) && !isMod {
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:not_moderator")
 		return MembersPage{}, Forbidden(ReasonNotModerator)
 	}
-	rows, err := s.d.Repo.ListMembers(ctx, MembersQuery{CommunityID: cid, Banned: in.Filter == FilterBanned, Limit: size, After: after})
+	var rows []MemberRow
+	more := false
+	if in.Filter == FilterModerators {
+		rows, more, err = s.moderatorRows(ctx, c, size, after)
+	} else {
+		rows, err = s.d.Repo.ListMembers(ctx, MembersQuery{CommunityID: cid, Banned: in.Filter == FilterBanned, Limit: size, After: after})
+		more = len(rows) == size
+	}
 	if err != nil {
 		return MembersPage{}, mapErr(ctx, "members", uid, cid, err)
 	}
@@ -236,7 +243,7 @@ func (s *service) ListCommunityMembers(ctx context.Context, uid string, in Membe
 	}
 	logger.SetRequestField(ctx, fieldRowsDropped, inactive+blocked+blockedBy)
 	logger.SetRequestField(ctx, fieldDroppedBy, map[string]int{causeInactive: inactive, causeBlocked: blocked, causeBlockedBy: blockedBy})
-	if len(rows) == size {
+	if more {
 		last := rows[len(rows)-1]
 		page.NextPageToken = cursor.Encode(s.d.CursorKey, binding, cursor.Cursor{CreatedAt: last.At, DocID: last.UID})
 	}
