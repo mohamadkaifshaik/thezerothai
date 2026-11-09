@@ -185,6 +185,10 @@ type Config struct {
 	// can still read, leave and cancel. A community-audience beacon also needs FEATURE_COMMUNITIES on for the caller.
 	// FEATURE_BEACONS[_ALLOWLIST|_PERCENT], default off in every environment (dev stays on an allowlist, no prod raise).
 	FeatureBeacons flags.Spec
+	// FeaturePostBeaconEmbed is the flag (wire name `post_beacon_embed`) gating CreatePostRequest.beacon_id (a plan shared on a
+	// root post) and, while globally off, stripping Post.beacon from every response. On for the caller on top of FEATURE_BEACONS
+	// on for the caller. FEATURE_POST_BEACON_EMBED[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeaturePostBeaconEmbed flags.Spec
 	// FeatureProfileExtras is the flag (wire name `profile_extras`) gating the UpdateProfile banner, location,
 	// website and pin fields and CreateUpload(BANNER) (which also needs `media`). FEATURE_PROFILE_EXTRAS[_ALLOWLIST|_PERCENT],
 	// default off in every environment.
@@ -846,6 +850,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featurePostBeaconEmbed, err := flags.LoadSpec("POST_BEACON_EMBED", "post_beacon_embed", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureProfileExtras, err := flags.LoadSpec("PROFILE_EXTRAS", "profile_extras", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -991,6 +999,7 @@ func Load() (Config, error) {
 		FeatureLists:              featureLists,
 		FeatureCommunities:        featureCommunities,
 		FeatureBeacons:            featureBeacons,
+		FeaturePostBeaconEmbed:    featurePostBeaconEmbed,
 		FeatureProfileExtras:      featureProfileExtras,
 		FeatureProfileTabs:        featureProfileTabs,
 		FeatureLikesList:          featureLikesList,

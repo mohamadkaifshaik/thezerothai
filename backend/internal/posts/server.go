@@ -49,6 +49,8 @@ type Server struct {
 	svc    Service
 	flags  FlagChecker
 	viewer ViewerFlags
+	// plans is the beacons reader of Post.beacon (SetBeaconPlans); nil renders every plan card unavailable.
+	plans BeaconPlans
 	// scheduler serves the three scheduled-post RPCs (WithScheduler); nil answers Unimplemented once the flags pass.
 	scheduler Scheduler
 }
@@ -77,6 +79,10 @@ func (s *Server) viewerSet(ctx context.Context, uid string) ViewerSet {
 }
 
 var _ postsv1connect.PostServiceHandler = (*Server)(nil)
+
+// SetBeaconPlans wires the plan reader that hydrates Post.beacon (CreatePost, GetPost, GetThread). Like SetCommunityGate it is
+// set once at startup, before ListenAndServe, because beacons is built after posts.
+func (s *Server) SetBeaconPlans(p BeaconPlans) { s.plans = p }
 
 // createDeadline bounds one CreatePost call (<= 10 s); the transaction itself has 5 s.
 const createDeadline = 8 * time.Second
@@ -116,11 +122,16 @@ func (s *Server) CreatePost(ctx context.Context, req *connect.Request[postsv1.Cr
 		CommunityID:            m.GetCommunityId(),
 		CommunitiesEnabled:     s.communitiesEnabled(uid),
 		CommunitiesGloballyOff: s.communitiesGloballyOff(),
+
+		BeaconID:           m.GetBeaconId(),
+		BeaconEmbedEnabled: s.flags != nil && s.flags.Enabled(uid, PostBeaconFlagName),
 	})
 	if err != nil {
 		return nil, err
 	}
 	view := &postsv1.PostView{Post: ToProtoForViewer(post, uid)}
+	// The plan card is decided for the creator like for any viewer (one batch read, only when the post carries a plan).
+	view.Post.Beacon = beaconToProto(post, HydrateBeacons(ctx, s.flags, s.plans, ViewerSet{}, uid, post))
 	view.Post.Community = communityRef(post, false) // the creator just passed the community gate: the flag is on for them
 	if h, ok := s.svc.(VisibilityHinter); ok {      // a protected author sees their own post as FOLLOWERS
 		ApplyWireVisibility(view, h.ProtectedAuthor(ctx, uid, post))
@@ -171,7 +182,7 @@ func (s *Server) GetPost(ctx context.Context, req *connect.Request[postsv1.GetPo
 	if err != nil {
 		return nil, err
 	}
-	vs := s.viewerSet(ctx, uid)
+	vs := HydrateBeacons(ctx, s.flags, s.plans, s.viewerSet(ctx, uid), uid, post)
 	if h, ok := s.svc.(PollBlockHinter); ok {
 		vs = vs.WithBlockedAuthors(h.PollBlockedAuthors(ctx, uid, post)) // a poll by an author the viewer blocks: viewer_poll_vote_blocked
 	}
@@ -315,7 +326,8 @@ func (s *Server) GetThread(ctx context.Context, req *connect.Request[postsv1.Get
 	if err != nil {
 		return nil, err
 	}
-	vs := s.viewerSet(ctx, uid).WithBlockedAuthors(t.BlockedAuthors)
+	page := append([]*Post{t.Focal, t.Parent, t.Root}, t.Replies...)
+	vs := HydrateBeacons(ctx, s.flags, s.plans, s.viewerSet(ctx, uid), uid, page...).WithBlockedAuthors(t.BlockedAuthors)
 	replyPerm := t.ReplyPermission
 	if perm, ok := s.communityReplyHint(ctx, uid, t.Focal, vs); ok && perm != postsv1.ReplyPermission_REPLY_PERMISSION_ALLOWED { // members only
 		replyPerm = perm

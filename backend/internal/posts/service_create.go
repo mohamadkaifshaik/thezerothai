@@ -82,6 +82,12 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	if in.Poll != nil && !in.PollsEnabled {
 		return nil, featureDisabled("polls")
 	}
+	// post_beacon_embed comes after polls and before communities' own checks (any read): a set beacon_id with the flag off for
+	// the caller, or with no plan reader wired, is FEATURE_DISABLED. A non-empty id is never ignored.
+	logger.SetRequestField(ctx, fieldHasBeacon, in.BeaconID != "")
+	if in.BeaconID != "" && (!in.BeaconEmbedEnabled || s.beacons == nil) {
+		return nil, featureDisabled(PostBeaconFlagName)
+	}
 	// communities comes after polls: a set community_id with FEATURE_COMMUNITIES off for the caller is FEATURE_DISABLED
 	// feature=communities. With the flag on but no CommunityGate wired (SetCommunityGate) it is refused the
 	// same way, so a set community_id can never create an ordinary public post outside the community.
@@ -105,6 +111,9 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 	// A poll's own and combination rules come first, so a poll with images or a reply is always field=poll.
 	pollDraft, err := s.checkPoll(in)
 	if err != nil {
+		return nil, err
+	}
+	if err := validateBeaconShape(in, pollDraft != nil); err != nil {
 		return nil, err
 	}
 	policy, err := validateReplyPolicy(in)
@@ -148,6 +157,12 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 			return nil, err
 		}
 	}
+	var plan BeaconLive
+	if in.BeaconID != "" {
+		if plan, err = s.beaconTarget(ctx, uid, in); err != nil {
+			return nil, err
+		}
+	}
 	var parent *Post
 	if in.ReplyToPostID != "" {
 		if parent, err = s.replyParent(ctx, uid, in.ReplyToPostID); err != nil {
@@ -186,6 +201,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		reqHash = idempotency.HashRequest(requestHashBase(parsed.Text, in.ReplyToPostID, in.QuoteOfPostID, in.MediaIDs, in.MediaAltTexts, policy, in.PaidPartnership, in.MadeWithAI) + pollHashSuffix(pollDraft) + "|community=" + in.CommunityID)
 	}
 	reqHash = articleRequestHash(reqHash, in.Article)
+	reqHash = beaconRequestHash(reqHash, in.BeaconID)
 	params := CreateParams{
 		ArticlePublication: in.ArticlePublication,
 		AuthorID:           uid,
@@ -197,6 +213,7 @@ func (s *service) Create(ctx context.Context, uid string, in CreateInput) (_ *Po
 		GifEnabled:         in.GifEnabled,
 		Draft: Post{
 			Article:  cloneArticle(in.Article),
+			BeaconID: in.BeaconID, Beacon: beaconSnapshotIf(in.BeaconID, plan),
 			AuthorID: uid,
 			Author:   snapshot,
 			Kind:     KindPost, Text: parsed.Text,

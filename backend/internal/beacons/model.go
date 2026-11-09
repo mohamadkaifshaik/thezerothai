@@ -479,6 +479,12 @@ type Service interface {
 	// ListParticipants returns a page of a beacon's ACCEPTED rows (organiser and accepted participants) or REQUESTED rows
 	// with notes (organiser only), oldest first.
 	ListParticipants(ctx context.Context, viewer string, in ListParticipantsInput) (ParticipantsPage, error)
+	// Previews returns the live preview of each plan viewer may see, keyed by beacon id (an id that is absent is
+	// "Plan unavailable"), in one batch read. The consumer is the post embed (FEATURE_POST_BEACON_EMBED).
+	Previews(ctx context.Context, viewer string, beaconIDs []string) (map[string]PlanPreview, error)
+	// EmbedTarget returns the plan uid may share on a post: their own, not hidden, OPEN or FULL (ErrNotFound,
+	// ErrCancelled or ErrEnded otherwise); FEATURE_BEACONS must be on for uid.
+	EmbedTarget(ctx context.Context, uid, beaconID string) (PlanPreview, error)
 }
 
 // Limits are the caps the service needs, from config (BeaconsConfig).

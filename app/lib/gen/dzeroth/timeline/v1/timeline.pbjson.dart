@@ -339,6 +339,7 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.posts.v1.ArticlePreview': $0.ArticlePreview$json,
   '.dzeroth.posts.v1.Mention': $0.Mention$json,
   '.dzeroth.posts.v1.CommunityRef': $0.CommunityRef$json,
+  '.dzeroth.posts.v1.BeaconPreview': $0.BeaconPreview$json,
   '.dzeroth.timeline.v1.GetUserTimelineRequest': GetUserTimelineRequest$json,
   '.dzeroth.timeline.v1.GetUserTimelineResponse': GetUserTimelineResponse$json,
   '.dzeroth.timeline.v1.GetListTimelineRequest': GetListTimelineRequest$json,

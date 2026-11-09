@@ -13,6 +13,7 @@
 package postsv1
 
 import (
+	v11 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1"
 	v1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -890,8 +891,12 @@ type Post struct {
 	// globally off (with it globally off community posts render as ordinary posts). Never on a reply, a REPOST row or an
 	// embed. Set on every surface that returns the post (Home, profile, lists, search, GetPost, GetThread, bookmarks),
 	// whatever the viewer's own flag. Unset on a withheld row. The label is not an access boundary: the post is public.
-	Community     *CommunityRef   `protobuf:"bytes,22,opt,name=community,proto3" json:"community,omitempty"`
-	Article       *ArticlePreview `protobuf:"bytes,23,opt,name=article,proto3" json:"article,omitempty"`
+	Community *CommunityRef   `protobuf:"bytes,22,opt,name=community,proto3" json:"community,omitempty"`
+	Article   *ArticlePreview `protobuf:"bytes,23,opt,name=article,proto3" json:"article,omitempty"`
+	// The plan this post shares (CreatePostRequest.beacon_id), decided for the viewer of this response (BeaconPreview).
+	// Unset for a post with no plan, for a REPOST or QUOTE row (the card is on the original), and everywhere while
+	// FEATURE_POST_BEACON_EMBED is globally off.
+	Beacon        *BeaconPreview `protobuf:"bytes,24,opt,name=beacon,proto3" json:"beacon,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1087,6 +1092,13 @@ func (x *Post) GetArticle() *ArticlePreview {
 	return nil
 }
 
+func (x *Post) GetBeacon() *BeaconPreview {
+	if x != nil {
+		return x.Beacon
+	}
+	return nil
+}
+
 // Bounded summary only. The reader fetches the authorized body separately.
 type ArticlePreview struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1214,6 +1226,108 @@ func (x *CommunityRef) GetName() string {
 	return ""
 }
 
+// The plan a post shares (Post.beacon), always decided for the viewer of this response: when the viewer may see the plan,
+// every field is its live value (a snapshot frozen at create time is never put on the wire); otherwise only beacon_id and
+// unavailable = true are set ("Plan unavailable": a plan that is hidden, deleted, blocked, or a community plan the viewer
+// is no longer a member of). An ENDED or CANCELLED plan is still available: status says so. Producers that do not hydrate
+// plans (search, bookmarks, likes, article posts) emit the unavailable form. Join opens
+// dzeroth.beacons.v1.BeaconService.RequestToJoin, only when GetMe.enabled_features lists "beacons".
+type BeaconPreview struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// 19-digit Snowflake of the plan.
+	BeaconId string `protobuf:"bytes,1,opt,name=beacon_id,json=beaconId,proto3" json:"beacon_id,omitempty"`
+	// True when the viewer cannot see the plan; every field below is then empty.
+	Unavailable bool                   `protobuf:"varint,2,opt,name=unavailable,proto3" json:"unavailable,omitempty"`
+	Title       string                 `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
+	Activity    v11.BeaconActivity     `protobuf:"varint,4,opt,name=activity,proto3,enum=dzeroth.beacons.v1.BeaconActivity" json:"activity,omitempty"`
+	StartAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=start_at,json=startAt,proto3" json:"start_at,omitempty"`
+	// Live: OPEN, FULL, CANCELLED, or ENDED (derived from the clock).
+	Status v11.BeaconStatus `protobuf:"varint,6,opt,name=status,proto3,enum=dzeroth.beacons.v1.BeaconStatus" json:"status,omitempty"`
+	// The community the plan is scoped to; empty for a public plan.
+	CommunityId   string `protobuf:"bytes,7,opt,name=community_id,json=communityId,proto3" json:"community_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BeaconPreview) Reset() {
+	*x = BeaconPreview{}
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BeaconPreview) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BeaconPreview) ProtoMessage() {}
+
+func (x *BeaconPreview) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BeaconPreview.ProtoReflect.Descriptor instead.
+func (*BeaconPreview) Descriptor() ([]byte, []int) {
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *BeaconPreview) GetBeaconId() string {
+	if x != nil {
+		return x.BeaconId
+	}
+	return ""
+}
+
+func (x *BeaconPreview) GetUnavailable() bool {
+	if x != nil {
+		return x.Unavailable
+	}
+	return false
+}
+
+func (x *BeaconPreview) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *BeaconPreview) GetActivity() v11.BeaconActivity {
+	if x != nil {
+		return x.Activity
+	}
+	return v11.BeaconActivity(0)
+}
+
+func (x *BeaconPreview) GetStartAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartAt
+	}
+	return nil
+}
+
+func (x *BeaconPreview) GetStatus() v11.BeaconStatus {
+	if x != nil {
+		return x.Status
+	}
+	return v11.BeaconStatus(0)
+}
+
+func (x *BeaconPreview) GetCommunityId() string {
+	if x != nil {
+		return x.CommunityId
+	}
+	return ""
+}
+
 // A post as seen by the caller. Viewer flags come from userLikes/{uid} (cached 60 s) while
 // FEATURE_ENGAGEMENT or FEATURE_BOOKMARKS is on for the caller (liked / reposted only with engagement, bookmarked_by_viewer with either); otherwise all are false and no userLikes read happens.
 // For a REPOST item the flags describe the original (embedded.post_id): the caller liked / reposted it.
@@ -1266,7 +1380,7 @@ type PostView struct {
 
 func (x *PostView) Reset() {
 	*x = PostView{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[8]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1278,7 +1392,7 @@ func (x *PostView) String() string {
 func (*PostView) ProtoMessage() {}
 
 func (x *PostView) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[8]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1291,7 +1405,7 @@ func (x *PostView) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PostView.ProtoReflect.Descriptor instead.
 func (*PostView) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{8}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *PostView) GetPost() *Post {
@@ -1376,14 +1490,17 @@ type CreatePostRequest struct {
 	Poll *PollDraft `protobuf:"bytes,10,opt,name=poll,proto3" json:"poll,omitempty"`
 	// Post into this community: a 19-digit community id; root posts and quotes only, members only, no
 	// reply_policy other than EVERYONE; FEATURE_COMMUNITIES. "" => an ordinary post. Rules in the CreatePost comment.
-	CommunityId   string `protobuf:"bytes,11,opt,name=community_id,json=communityId,proto3" json:"community_id,omitempty"`
+	CommunityId string `protobuf:"bytes,11,opt,name=community_id,json=communityId,proto3" json:"community_id,omitempty"`
+	// Share one of the caller's own OPEN or FULL plans on a root post: a 19-digit beacon id; FEATURE_POST_BEACON_EMBED.
+	// "" => no plan. Rules in the CreatePost comment.
+	BeaconId      string `protobuf:"bytes,12,opt,name=beacon_id,json=beaconId,proto3" json:"beacon_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CreatePostRequest) Reset() {
 	*x = CreatePostRequest{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[9]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1395,7 +1512,7 @@ func (x *CreatePostRequest) String() string {
 func (*CreatePostRequest) ProtoMessage() {}
 
 func (x *CreatePostRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[9]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1408,7 +1525,7 @@ func (x *CreatePostRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePostRequest.ProtoReflect.Descriptor instead.
 func (*CreatePostRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{9}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *CreatePostRequest) GetIdempotencyKey() string {
@@ -1488,6 +1605,13 @@ func (x *CreatePostRequest) GetCommunityId() string {
 	return ""
 }
 
+func (x *CreatePostRequest) GetBeaconId() string {
+	if x != nil {
+		return x.BeaconId
+	}
+	return ""
+}
+
 type CreatePostResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Post          *PostView              `protobuf:"bytes,1,opt,name=post,proto3" json:"post,omitempty"`
@@ -1497,7 +1621,7 @@ type CreatePostResponse struct {
 
 func (x *CreatePostResponse) Reset() {
 	*x = CreatePostResponse{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[10]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1509,7 +1633,7 @@ func (x *CreatePostResponse) String() string {
 func (*CreatePostResponse) ProtoMessage() {}
 
 func (x *CreatePostResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[10]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1522,7 +1646,7 @@ func (x *CreatePostResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreatePostResponse.ProtoReflect.Descriptor instead.
 func (*CreatePostResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{10}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CreatePostResponse) GetPost() *PostView {
@@ -1542,7 +1666,7 @@ type DeletePostRequest struct {
 
 func (x *DeletePostRequest) Reset() {
 	*x = DeletePostRequest{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[11]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1554,7 +1678,7 @@ func (x *DeletePostRequest) String() string {
 func (*DeletePostRequest) ProtoMessage() {}
 
 func (x *DeletePostRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[11]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1567,7 +1691,7 @@ func (x *DeletePostRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeletePostRequest.ProtoReflect.Descriptor instead.
 func (*DeletePostRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{11}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *DeletePostRequest) GetIdempotencyKey() string {
@@ -1592,7 +1716,7 @@ type DeletePostResponse struct {
 
 func (x *DeletePostResponse) Reset() {
 	*x = DeletePostResponse{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[12]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1604,7 +1728,7 @@ func (x *DeletePostResponse) String() string {
 func (*DeletePostResponse) ProtoMessage() {}
 
 func (x *DeletePostResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[12]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1617,7 +1741,7 @@ func (x *DeletePostResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeletePostResponse.ProtoReflect.Descriptor instead.
 func (*DeletePostResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{12}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{13}
 }
 
 type GetPostRequest struct {
@@ -1629,7 +1753,7 @@ type GetPostRequest struct {
 
 func (x *GetPostRequest) Reset() {
 	*x = GetPostRequest{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[13]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1641,7 +1765,7 @@ func (x *GetPostRequest) String() string {
 func (*GetPostRequest) ProtoMessage() {}
 
 func (x *GetPostRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[13]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1654,7 +1778,7 @@ func (x *GetPostRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPostRequest.ProtoReflect.Descriptor instead.
 func (*GetPostRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{13}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GetPostRequest) GetPostId() string {
@@ -1673,7 +1797,7 @@ type GetPostResponse struct {
 
 func (x *GetPostResponse) Reset() {
 	*x = GetPostResponse{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[14]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1685,7 +1809,7 @@ func (x *GetPostResponse) String() string {
 func (*GetPostResponse) ProtoMessage() {}
 
 func (x *GetPostResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[14]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1698,7 +1822,7 @@ func (x *GetPostResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetPostResponse.ProtoReflect.Descriptor instead.
 func (*GetPostResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{14}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GetPostResponse) GetPost() *PostView {
@@ -1719,7 +1843,7 @@ type GetThreadRequest struct {
 
 func (x *GetThreadRequest) Reset() {
 	*x = GetThreadRequest{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[15]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1731,7 +1855,7 @@ func (x *GetThreadRequest) String() string {
 func (*GetThreadRequest) ProtoMessage() {}
 
 func (x *GetThreadRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[15]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1744,7 +1868,7 @@ func (x *GetThreadRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetThreadRequest.ProtoReflect.Descriptor instead.
 func (*GetThreadRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{15}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *GetThreadRequest) GetPostId() string {
@@ -1789,7 +1913,7 @@ type GetThreadResponse struct {
 
 func (x *GetThreadResponse) Reset() {
 	*x = GetThreadResponse{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[16]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1801,7 +1925,7 @@ func (x *GetThreadResponse) String() string {
 func (*GetThreadResponse) ProtoMessage() {}
 
 func (x *GetThreadResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[16]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1814,7 +1938,7 @@ func (x *GetThreadResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetThreadResponse.ProtoReflect.Descriptor instead.
 func (*GetThreadResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{16}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *GetThreadResponse) GetFocal() *PostView {
@@ -1892,7 +2016,7 @@ type ScheduledPost struct {
 
 func (x *ScheduledPost) Reset() {
 	*x = ScheduledPost{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[17]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1904,7 +2028,7 @@ func (x *ScheduledPost) String() string {
 func (*ScheduledPost) ProtoMessage() {}
 
 func (x *ScheduledPost) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[17]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1917,7 +2041,7 @@ func (x *ScheduledPost) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ScheduledPost.ProtoReflect.Descriptor instead.
 func (*ScheduledPost) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{17}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ScheduledPost) GetScheduledId() string {
@@ -2017,7 +2141,7 @@ type SchedulePostRequest struct {
 
 func (x *SchedulePostRequest) Reset() {
 	*x = SchedulePostRequest{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[18]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2029,7 +2153,7 @@ func (x *SchedulePostRequest) String() string {
 func (*SchedulePostRequest) ProtoMessage() {}
 
 func (x *SchedulePostRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[18]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2042,7 +2166,7 @@ func (x *SchedulePostRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SchedulePostRequest.ProtoReflect.Descriptor instead.
 func (*SchedulePostRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{18}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *SchedulePostRequest) GetIdempotencyKey() string {
@@ -2110,7 +2234,7 @@ type SchedulePostResponse struct {
 
 func (x *SchedulePostResponse) Reset() {
 	*x = SchedulePostResponse{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[19]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2122,7 +2246,7 @@ func (x *SchedulePostResponse) String() string {
 func (*SchedulePostResponse) ProtoMessage() {}
 
 func (x *SchedulePostResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[19]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2135,7 +2259,7 @@ func (x *SchedulePostResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SchedulePostResponse.ProtoReflect.Descriptor instead.
 func (*SchedulePostResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{19}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *SchedulePostResponse) GetScheduledPost() *ScheduledPost {
@@ -2157,7 +2281,7 @@ type ListScheduledPostsRequest struct {
 
 func (x *ListScheduledPostsRequest) Reset() {
 	*x = ListScheduledPostsRequest{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[20]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2169,7 +2293,7 @@ func (x *ListScheduledPostsRequest) String() string {
 func (*ListScheduledPostsRequest) ProtoMessage() {}
 
 func (x *ListScheduledPostsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[20]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2182,7 +2306,7 @@ func (x *ListScheduledPostsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListScheduledPostsRequest.ProtoReflect.Descriptor instead.
 func (*ListScheduledPostsRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{20}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ListScheduledPostsRequest) GetPageSize() int32 {
@@ -2209,7 +2333,7 @@ type ListScheduledPostsResponse struct {
 
 func (x *ListScheduledPostsResponse) Reset() {
 	*x = ListScheduledPostsResponse{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[21]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2221,7 +2345,7 @@ func (x *ListScheduledPostsResponse) String() string {
 func (*ListScheduledPostsResponse) ProtoMessage() {}
 
 func (x *ListScheduledPostsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[21]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2234,7 +2358,7 @@ func (x *ListScheduledPostsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListScheduledPostsResponse.ProtoReflect.Descriptor instead.
 func (*ListScheduledPostsResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{21}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ListScheduledPostsResponse) GetScheduledPosts() []*ScheduledPost {
@@ -2262,7 +2386,7 @@ type CancelScheduledPostRequest struct {
 
 func (x *CancelScheduledPostRequest) Reset() {
 	*x = CancelScheduledPostRequest{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[22]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2274,7 +2398,7 @@ func (x *CancelScheduledPostRequest) String() string {
 func (*CancelScheduledPostRequest) ProtoMessage() {}
 
 func (x *CancelScheduledPostRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[22]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2287,7 +2411,7 @@ func (x *CancelScheduledPostRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelScheduledPostRequest.ProtoReflect.Descriptor instead.
 func (*CancelScheduledPostRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{22}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *CancelScheduledPostRequest) GetIdempotencyKey() string {
@@ -2314,7 +2438,7 @@ type CancelScheduledPostResponse struct {
 
 func (x *CancelScheduledPostResponse) Reset() {
 	*x = CancelScheduledPostResponse{}
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[23]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2326,7 +2450,7 @@ func (x *CancelScheduledPostResponse) String() string {
 func (*CancelScheduledPostResponse) ProtoMessage() {}
 
 func (x *CancelScheduledPostResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[23]
+	mi := &file_dzeroth_posts_v1_posts_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2339,7 +2463,7 @@ func (x *CancelScheduledPostResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelScheduledPostResponse.ProtoReflect.Descriptor instead.
 func (*CancelScheduledPostResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{23}
+	return file_dzeroth_posts_v1_posts_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *CancelScheduledPostResponse) GetScheduledPost() *ScheduledPost {
@@ -2353,7 +2477,7 @@ var File_dzeroth_posts_v1_posts_proto protoreflect.FileDescriptor
 
 const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\n" +
-	"\x1cdzeroth/posts/v1/posts.proto\x12\x10dzeroth.posts.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\":\n" +
+	"\x1cdzeroth/posts/v1/posts.proto\x12\x10dzeroth.posts.v1\x1a dzeroth/beacons/v1/beacons.proto\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\":\n" +
 	"\aMention\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x16\n" +
 	"\x06handle\x18\x02 \x01(\tR\x06handle\"8\n" +
@@ -2385,7 +2509,7 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\freply_policy\x18\t \x01(\x0e2\x1d.dzeroth.posts.v1.ReplyPolicyR\vreplyPolicy\x12*\n" +
 	"\x04poll\x18\n" +
 	" \x01(\v2\x16.dzeroth.posts.v1.PollR\x04poll\x12:\n" +
-	"\aarticle\x18\v \x01(\v2 .dzeroth.posts.v1.ArticlePreviewR\aarticle\"\x8c\b\n" +
+	"\aarticle\x18\v \x01(\v2 .dzeroth.posts.v1.ArticlePreviewR\aarticle\"\xc5\b\n" +
 	"\x04Post\x12\x17\n" +
 	"\apost_id\x18\x01 \x01(\tR\x06postId\x129\n" +
 	"\x06author\x18\x02 \x01(\v2!.dzeroth.common.v1.AuthorSnapshotR\x06author\x12.\n" +
@@ -2417,7 +2541,8 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"madeWithAi\x12*\n" +
 	"\x04poll\x18\x15 \x01(\v2\x16.dzeroth.posts.v1.PollR\x04poll\x12<\n" +
 	"\tcommunity\x18\x16 \x01(\v2\x1e.dzeroth.posts.v1.CommunityRefR\tcommunity\x12:\n" +
-	"\aarticle\x18\x17 \x01(\v2 .dzeroth.posts.v1.ArticlePreviewR\aarticle\"|\n" +
+	"\aarticle\x18\x17 \x01(\v2 .dzeroth.posts.v1.ArticlePreviewR\aarticle\x127\n" +
+	"\x06beacon\x18\x18 \x01(\v2\x1f.dzeroth.posts.v1.BeaconPreviewR\x06beacon\"|\n" +
 	"\x0eArticlePreview\x12\x1d\n" +
 	"\n" +
 	"article_id\x18\x01 \x01(\tR\tarticleId\x12\x14\n" +
@@ -2426,7 +2551,15 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\tcover_url\x18\x04 \x01(\tR\bcoverUrl\"2\n" +
 	"\fCommunityRef\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"\xee\x03\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\xb8\x02\n" +
+	"\rBeaconPreview\x12\x1b\n" +
+	"\tbeacon_id\x18\x01 \x01(\tR\bbeaconId\x12 \n" +
+	"\vunavailable\x18\x02 \x01(\bR\vunavailable\x12\x14\n" +
+	"\x05title\x18\x03 \x01(\tR\x05title\x12>\n" +
+	"\bactivity\x18\x04 \x01(\x0e2\".dzeroth.beacons.v1.BeaconActivityR\bactivity\x125\n" +
+	"\bstart_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x128\n" +
+	"\x06status\x18\x06 \x01(\x0e2 .dzeroth.beacons.v1.BeaconStatusR\x06status\x12!\n" +
+	"\fcommunity_id\x18\a \x01(\tR\vcommunityId\"\xee\x03\n" +
 	"\bPostView\x12*\n" +
 	"\x04post\x18\x01 \x01(\v2\x16.dzeroth.posts.v1.PostR\x04post\x12&\n" +
 	"\x0fliked_by_viewer\x18\x02 \x01(\bR\rlikedByViewer\x12,\n" +
@@ -2436,7 +2569,7 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"\x14bookmarked_by_viewer\x18\x06 \x01(\bR\x12bookmarkedByViewer\x12\x1a\n" +
 	"\bwithheld\x18\a \x01(\bR\bwithheld\x12,\n" +
 	"\x12viewer_poll_choice\x18\b \x01(\x05R\x10viewerPollChoice\x127\n" +
-	"\x18viewer_poll_vote_blocked\x18\t \x01(\bR\x15viewerPollVoteBlocked\"\xca\x03\n" +
+	"\x18viewer_poll_vote_blocked\x18\t \x01(\bR\x15viewerPollVoteBlocked\"\xe7\x03\n" +
 	"\x11CreatePostRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1b\n" +
@@ -2450,7 +2583,8 @@ const file_dzeroth_posts_v1_posts_proto_rawDesc = "" +
 	"madeWithAi\x12/\n" +
 	"\x04poll\x18\n" +
 	" \x01(\v2\x1b.dzeroth.posts.v1.PollDraftR\x04poll\x12!\n" +
-	"\fcommunity_id\x18\v \x01(\tR\vcommunityId\"D\n" +
+	"\fcommunity_id\x18\v \x01(\tR\vcommunityId\x12\x1b\n" +
+	"\tbeacon_id\x18\f \x01(\tR\bbeaconId\"D\n" +
 	"\x12CreatePostResponse\x12.\n" +
 	"\x04post\x18\x01 \x01(\v2\x1a.dzeroth.posts.v1.PostViewR\x04post\"U\n" +
 	"\x11DeletePostRequest\x12'\n" +
@@ -2582,7 +2716,7 @@ func file_dzeroth_posts_v1_posts_proto_rawDescGZIP() []byte {
 }
 
 var file_dzeroth_posts_v1_posts_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_dzeroth_posts_v1_posts_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
+var file_dzeroth_posts_v1_posts_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_dzeroth_posts_v1_posts_proto_goTypes = []any{
 	(PostKind)(0),                       // 0: dzeroth.posts.v1.PostKind
 	(Visibility)(0),                     // 1: dzeroth.posts.v1.Visibility
@@ -2599,87 +2733,94 @@ var file_dzeroth_posts_v1_posts_proto_goTypes = []any{
 	(*Post)(nil),                        // 12: dzeroth.posts.v1.Post
 	(*ArticlePreview)(nil),              // 13: dzeroth.posts.v1.ArticlePreview
 	(*CommunityRef)(nil),                // 14: dzeroth.posts.v1.CommunityRef
-	(*PostView)(nil),                    // 15: dzeroth.posts.v1.PostView
-	(*CreatePostRequest)(nil),           // 16: dzeroth.posts.v1.CreatePostRequest
-	(*CreatePostResponse)(nil),          // 17: dzeroth.posts.v1.CreatePostResponse
-	(*DeletePostRequest)(nil),           // 18: dzeroth.posts.v1.DeletePostRequest
-	(*DeletePostResponse)(nil),          // 19: dzeroth.posts.v1.DeletePostResponse
-	(*GetPostRequest)(nil),              // 20: dzeroth.posts.v1.GetPostRequest
-	(*GetPostResponse)(nil),             // 21: dzeroth.posts.v1.GetPostResponse
-	(*GetThreadRequest)(nil),            // 22: dzeroth.posts.v1.GetThreadRequest
-	(*GetThreadResponse)(nil),           // 23: dzeroth.posts.v1.GetThreadResponse
-	(*ScheduledPost)(nil),               // 24: dzeroth.posts.v1.ScheduledPost
-	(*SchedulePostRequest)(nil),         // 25: dzeroth.posts.v1.SchedulePostRequest
-	(*SchedulePostResponse)(nil),        // 26: dzeroth.posts.v1.SchedulePostResponse
-	(*ListScheduledPostsRequest)(nil),   // 27: dzeroth.posts.v1.ListScheduledPostsRequest
-	(*ListScheduledPostsResponse)(nil),  // 28: dzeroth.posts.v1.ListScheduledPostsResponse
-	(*CancelScheduledPostRequest)(nil),  // 29: dzeroth.posts.v1.CancelScheduledPostRequest
-	(*CancelScheduledPostResponse)(nil), // 30: dzeroth.posts.v1.CancelScheduledPostResponse
-	(*timestamppb.Timestamp)(nil),       // 31: google.protobuf.Timestamp
-	(*v1.AuthorSnapshot)(nil),           // 32: dzeroth.common.v1.AuthorSnapshot
-	(*v1.MediaRef)(nil),                 // 33: dzeroth.common.v1.MediaRef
+	(*BeaconPreview)(nil),               // 15: dzeroth.posts.v1.BeaconPreview
+	(*PostView)(nil),                    // 16: dzeroth.posts.v1.PostView
+	(*CreatePostRequest)(nil),           // 17: dzeroth.posts.v1.CreatePostRequest
+	(*CreatePostResponse)(nil),          // 18: dzeroth.posts.v1.CreatePostResponse
+	(*DeletePostRequest)(nil),           // 19: dzeroth.posts.v1.DeletePostRequest
+	(*DeletePostResponse)(nil),          // 20: dzeroth.posts.v1.DeletePostResponse
+	(*GetPostRequest)(nil),              // 21: dzeroth.posts.v1.GetPostRequest
+	(*GetPostResponse)(nil),             // 22: dzeroth.posts.v1.GetPostResponse
+	(*GetThreadRequest)(nil),            // 23: dzeroth.posts.v1.GetThreadRequest
+	(*GetThreadResponse)(nil),           // 24: dzeroth.posts.v1.GetThreadResponse
+	(*ScheduledPost)(nil),               // 25: dzeroth.posts.v1.ScheduledPost
+	(*SchedulePostRequest)(nil),         // 26: dzeroth.posts.v1.SchedulePostRequest
+	(*SchedulePostResponse)(nil),        // 27: dzeroth.posts.v1.SchedulePostResponse
+	(*ListScheduledPostsRequest)(nil),   // 28: dzeroth.posts.v1.ListScheduledPostsRequest
+	(*ListScheduledPostsResponse)(nil),  // 29: dzeroth.posts.v1.ListScheduledPostsResponse
+	(*CancelScheduledPostRequest)(nil),  // 30: dzeroth.posts.v1.CancelScheduledPostRequest
+	(*CancelScheduledPostResponse)(nil), // 31: dzeroth.posts.v1.CancelScheduledPostResponse
+	(*timestamppb.Timestamp)(nil),       // 32: google.protobuf.Timestamp
+	(*v1.AuthorSnapshot)(nil),           // 33: dzeroth.common.v1.AuthorSnapshot
+	(*v1.MediaRef)(nil),                 // 34: dzeroth.common.v1.MediaRef
+	(v11.BeaconActivity)(0),             // 35: dzeroth.beacons.v1.BeaconActivity
+	(v11.BeaconStatus)(0),               // 36: dzeroth.beacons.v1.BeaconStatus
 }
 var file_dzeroth_posts_v1_posts_proto_depIdxs = []int32{
 	8,  // 0: dzeroth.posts.v1.Poll.choices:type_name -> dzeroth.posts.v1.PollChoice
-	31, // 1: dzeroth.posts.v1.Poll.closes_at:type_name -> google.protobuf.Timestamp
-	32, // 2: dzeroth.posts.v1.EmbeddedPost.author:type_name -> dzeroth.common.v1.AuthorSnapshot
-	33, // 3: dzeroth.posts.v1.EmbeddedPost.media:type_name -> dzeroth.common.v1.MediaRef
-	31, // 4: dzeroth.posts.v1.EmbeddedPost.created_at:type_name -> google.protobuf.Timestamp
+	32, // 1: dzeroth.posts.v1.Poll.closes_at:type_name -> google.protobuf.Timestamp
+	33, // 2: dzeroth.posts.v1.EmbeddedPost.author:type_name -> dzeroth.common.v1.AuthorSnapshot
+	34, // 3: dzeroth.posts.v1.EmbeddedPost.media:type_name -> dzeroth.common.v1.MediaRef
+	32, // 4: dzeroth.posts.v1.EmbeddedPost.created_at:type_name -> google.protobuf.Timestamp
 	2,  // 5: dzeroth.posts.v1.EmbeddedPost.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
 	9,  // 6: dzeroth.posts.v1.EmbeddedPost.poll:type_name -> dzeroth.posts.v1.Poll
 	13, // 7: dzeroth.posts.v1.EmbeddedPost.article:type_name -> dzeroth.posts.v1.ArticlePreview
-	32, // 8: dzeroth.posts.v1.Post.author:type_name -> dzeroth.common.v1.AuthorSnapshot
+	33, // 8: dzeroth.posts.v1.Post.author:type_name -> dzeroth.common.v1.AuthorSnapshot
 	0,  // 9: dzeroth.posts.v1.Post.kind:type_name -> dzeroth.posts.v1.PostKind
-	33, // 10: dzeroth.posts.v1.Post.media:type_name -> dzeroth.common.v1.MediaRef
+	34, // 10: dzeroth.posts.v1.Post.media:type_name -> dzeroth.common.v1.MediaRef
 	11, // 11: dzeroth.posts.v1.Post.embedded:type_name -> dzeroth.posts.v1.EmbeddedPost
 	7,  // 12: dzeroth.posts.v1.Post.mentions:type_name -> dzeroth.posts.v1.Mention
 	1,  // 13: dzeroth.posts.v1.Post.visibility:type_name -> dzeroth.posts.v1.Visibility
-	31, // 14: dzeroth.posts.v1.Post.created_at:type_name -> google.protobuf.Timestamp
+	32, // 14: dzeroth.posts.v1.Post.created_at:type_name -> google.protobuf.Timestamp
 	2,  // 15: dzeroth.posts.v1.Post.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
 	9,  // 16: dzeroth.posts.v1.Post.poll:type_name -> dzeroth.posts.v1.Poll
 	14, // 17: dzeroth.posts.v1.Post.community:type_name -> dzeroth.posts.v1.CommunityRef
 	13, // 18: dzeroth.posts.v1.Post.article:type_name -> dzeroth.posts.v1.ArticlePreview
-	12, // 19: dzeroth.posts.v1.PostView.post:type_name -> dzeroth.posts.v1.Post
-	3,  // 20: dzeroth.posts.v1.PostView.viewer_reply_permission:type_name -> dzeroth.posts.v1.ReplyPermission
-	4,  // 21: dzeroth.posts.v1.PostView.embed_viewer_state:type_name -> dzeroth.posts.v1.EmbedViewerState
-	2,  // 22: dzeroth.posts.v1.CreatePostRequest.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
-	10, // 23: dzeroth.posts.v1.CreatePostRequest.poll:type_name -> dzeroth.posts.v1.PollDraft
-	15, // 24: dzeroth.posts.v1.CreatePostResponse.post:type_name -> dzeroth.posts.v1.PostView
-	15, // 25: dzeroth.posts.v1.GetPostResponse.post:type_name -> dzeroth.posts.v1.PostView
-	15, // 26: dzeroth.posts.v1.GetThreadResponse.focal:type_name -> dzeroth.posts.v1.PostView
-	15, // 27: dzeroth.posts.v1.GetThreadResponse.parent:type_name -> dzeroth.posts.v1.PostView
-	15, // 28: dzeroth.posts.v1.GetThreadResponse.root:type_name -> dzeroth.posts.v1.PostView
-	15, // 29: dzeroth.posts.v1.GetThreadResponse.replies:type_name -> dzeroth.posts.v1.PostView
-	33, // 30: dzeroth.posts.v1.ScheduledPost.media:type_name -> dzeroth.common.v1.MediaRef
-	2,  // 31: dzeroth.posts.v1.ScheduledPost.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
-	31, // 32: dzeroth.posts.v1.ScheduledPost.publish_at:type_name -> google.protobuf.Timestamp
-	5,  // 33: dzeroth.posts.v1.ScheduledPost.status:type_name -> dzeroth.posts.v1.ScheduledPostStatus
-	6,  // 34: dzeroth.posts.v1.ScheduledPost.failure:type_name -> dzeroth.posts.v1.ScheduledPostFailure
-	31, // 35: dzeroth.posts.v1.ScheduledPost.created_at:type_name -> google.protobuf.Timestamp
-	2,  // 36: dzeroth.posts.v1.SchedulePostRequest.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
-	31, // 37: dzeroth.posts.v1.SchedulePostRequest.publish_at:type_name -> google.protobuf.Timestamp
-	24, // 38: dzeroth.posts.v1.SchedulePostResponse.scheduled_post:type_name -> dzeroth.posts.v1.ScheduledPost
-	24, // 39: dzeroth.posts.v1.ListScheduledPostsResponse.scheduled_posts:type_name -> dzeroth.posts.v1.ScheduledPost
-	24, // 40: dzeroth.posts.v1.CancelScheduledPostResponse.scheduled_post:type_name -> dzeroth.posts.v1.ScheduledPost
-	16, // 41: dzeroth.posts.v1.PostService.CreatePost:input_type -> dzeroth.posts.v1.CreatePostRequest
-	18, // 42: dzeroth.posts.v1.PostService.DeletePost:input_type -> dzeroth.posts.v1.DeletePostRequest
-	20, // 43: dzeroth.posts.v1.PostService.GetPost:input_type -> dzeroth.posts.v1.GetPostRequest
-	22, // 44: dzeroth.posts.v1.PostService.GetThread:input_type -> dzeroth.posts.v1.GetThreadRequest
-	25, // 45: dzeroth.posts.v1.PostService.SchedulePost:input_type -> dzeroth.posts.v1.SchedulePostRequest
-	27, // 46: dzeroth.posts.v1.PostService.ListScheduledPosts:input_type -> dzeroth.posts.v1.ListScheduledPostsRequest
-	29, // 47: dzeroth.posts.v1.PostService.CancelScheduledPost:input_type -> dzeroth.posts.v1.CancelScheduledPostRequest
-	17, // 48: dzeroth.posts.v1.PostService.CreatePost:output_type -> dzeroth.posts.v1.CreatePostResponse
-	19, // 49: dzeroth.posts.v1.PostService.DeletePost:output_type -> dzeroth.posts.v1.DeletePostResponse
-	21, // 50: dzeroth.posts.v1.PostService.GetPost:output_type -> dzeroth.posts.v1.GetPostResponse
-	23, // 51: dzeroth.posts.v1.PostService.GetThread:output_type -> dzeroth.posts.v1.GetThreadResponse
-	26, // 52: dzeroth.posts.v1.PostService.SchedulePost:output_type -> dzeroth.posts.v1.SchedulePostResponse
-	28, // 53: dzeroth.posts.v1.PostService.ListScheduledPosts:output_type -> dzeroth.posts.v1.ListScheduledPostsResponse
-	30, // 54: dzeroth.posts.v1.PostService.CancelScheduledPost:output_type -> dzeroth.posts.v1.CancelScheduledPostResponse
-	48, // [48:55] is the sub-list for method output_type
-	41, // [41:48] is the sub-list for method input_type
-	41, // [41:41] is the sub-list for extension type_name
-	41, // [41:41] is the sub-list for extension extendee
-	0,  // [0:41] is the sub-list for field type_name
+	15, // 19: dzeroth.posts.v1.Post.beacon:type_name -> dzeroth.posts.v1.BeaconPreview
+	35, // 20: dzeroth.posts.v1.BeaconPreview.activity:type_name -> dzeroth.beacons.v1.BeaconActivity
+	32, // 21: dzeroth.posts.v1.BeaconPreview.start_at:type_name -> google.protobuf.Timestamp
+	36, // 22: dzeroth.posts.v1.BeaconPreview.status:type_name -> dzeroth.beacons.v1.BeaconStatus
+	12, // 23: dzeroth.posts.v1.PostView.post:type_name -> dzeroth.posts.v1.Post
+	3,  // 24: dzeroth.posts.v1.PostView.viewer_reply_permission:type_name -> dzeroth.posts.v1.ReplyPermission
+	4,  // 25: dzeroth.posts.v1.PostView.embed_viewer_state:type_name -> dzeroth.posts.v1.EmbedViewerState
+	2,  // 26: dzeroth.posts.v1.CreatePostRequest.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
+	10, // 27: dzeroth.posts.v1.CreatePostRequest.poll:type_name -> dzeroth.posts.v1.PollDraft
+	16, // 28: dzeroth.posts.v1.CreatePostResponse.post:type_name -> dzeroth.posts.v1.PostView
+	16, // 29: dzeroth.posts.v1.GetPostResponse.post:type_name -> dzeroth.posts.v1.PostView
+	16, // 30: dzeroth.posts.v1.GetThreadResponse.focal:type_name -> dzeroth.posts.v1.PostView
+	16, // 31: dzeroth.posts.v1.GetThreadResponse.parent:type_name -> dzeroth.posts.v1.PostView
+	16, // 32: dzeroth.posts.v1.GetThreadResponse.root:type_name -> dzeroth.posts.v1.PostView
+	16, // 33: dzeroth.posts.v1.GetThreadResponse.replies:type_name -> dzeroth.posts.v1.PostView
+	34, // 34: dzeroth.posts.v1.ScheduledPost.media:type_name -> dzeroth.common.v1.MediaRef
+	2,  // 35: dzeroth.posts.v1.ScheduledPost.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
+	32, // 36: dzeroth.posts.v1.ScheduledPost.publish_at:type_name -> google.protobuf.Timestamp
+	5,  // 37: dzeroth.posts.v1.ScheduledPost.status:type_name -> dzeroth.posts.v1.ScheduledPostStatus
+	6,  // 38: dzeroth.posts.v1.ScheduledPost.failure:type_name -> dzeroth.posts.v1.ScheduledPostFailure
+	32, // 39: dzeroth.posts.v1.ScheduledPost.created_at:type_name -> google.protobuf.Timestamp
+	2,  // 40: dzeroth.posts.v1.SchedulePostRequest.reply_policy:type_name -> dzeroth.posts.v1.ReplyPolicy
+	32, // 41: dzeroth.posts.v1.SchedulePostRequest.publish_at:type_name -> google.protobuf.Timestamp
+	25, // 42: dzeroth.posts.v1.SchedulePostResponse.scheduled_post:type_name -> dzeroth.posts.v1.ScheduledPost
+	25, // 43: dzeroth.posts.v1.ListScheduledPostsResponse.scheduled_posts:type_name -> dzeroth.posts.v1.ScheduledPost
+	25, // 44: dzeroth.posts.v1.CancelScheduledPostResponse.scheduled_post:type_name -> dzeroth.posts.v1.ScheduledPost
+	17, // 45: dzeroth.posts.v1.PostService.CreatePost:input_type -> dzeroth.posts.v1.CreatePostRequest
+	19, // 46: dzeroth.posts.v1.PostService.DeletePost:input_type -> dzeroth.posts.v1.DeletePostRequest
+	21, // 47: dzeroth.posts.v1.PostService.GetPost:input_type -> dzeroth.posts.v1.GetPostRequest
+	23, // 48: dzeroth.posts.v1.PostService.GetThread:input_type -> dzeroth.posts.v1.GetThreadRequest
+	26, // 49: dzeroth.posts.v1.PostService.SchedulePost:input_type -> dzeroth.posts.v1.SchedulePostRequest
+	28, // 50: dzeroth.posts.v1.PostService.ListScheduledPosts:input_type -> dzeroth.posts.v1.ListScheduledPostsRequest
+	30, // 51: dzeroth.posts.v1.PostService.CancelScheduledPost:input_type -> dzeroth.posts.v1.CancelScheduledPostRequest
+	18, // 52: dzeroth.posts.v1.PostService.CreatePost:output_type -> dzeroth.posts.v1.CreatePostResponse
+	20, // 53: dzeroth.posts.v1.PostService.DeletePost:output_type -> dzeroth.posts.v1.DeletePostResponse
+	22, // 54: dzeroth.posts.v1.PostService.GetPost:output_type -> dzeroth.posts.v1.GetPostResponse
+	24, // 55: dzeroth.posts.v1.PostService.GetThread:output_type -> dzeroth.posts.v1.GetThreadResponse
+	27, // 56: dzeroth.posts.v1.PostService.SchedulePost:output_type -> dzeroth.posts.v1.SchedulePostResponse
+	29, // 57: dzeroth.posts.v1.PostService.ListScheduledPosts:output_type -> dzeroth.posts.v1.ListScheduledPostsResponse
+	31, // 58: dzeroth.posts.v1.PostService.CancelScheduledPost:output_type -> dzeroth.posts.v1.CancelScheduledPostResponse
+	52, // [52:59] is the sub-list for method output_type
+	45, // [45:52] is the sub-list for method input_type
+	45, // [45:45] is the sub-list for extension type_name
+	45, // [45:45] is the sub-list for extension extendee
+	0,  // [0:45] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_posts_v1_posts_proto_init() }
@@ -2693,7 +2834,7 @@ func file_dzeroth_posts_v1_posts_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_posts_v1_posts_proto_rawDesc), len(file_dzeroth_posts_v1_posts_proto_rawDesc)),
 			NumEnums:      7,
-			NumMessages:   24,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -169,6 +169,16 @@ type PostServiceClient interface {
 	// included) => PERMISSION_DENIED + FORBIDDEN metadata["reason"] = "not_member", writing nothing. The member doc is cached
 	// 60 s on this path, so a ban reaches other instances' reply path within 60 s. The community and member doc are cached. With communities globally off, community posts behave as
 	// ordinary posts: no label and no reply gate (the kill switch).
+	// Plan embeds (FEATURE_POST_BEACON_EMBED, wire name "post_beacon_embed"; dzeroth.beacons.v1 header): a set beacon_id
+	// shares one of the caller's own plans on a root post. A set beacon_id while the flag is off for the caller (or no plan
+	// reader is wired) => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "post_beacon_embed", before any lookup,
+	// checked after "polls" in the order above (the beacons flag, "beacons", must also be on for the caller). Not 19 digits,
+	// or together with reply_to_post_id, quote_of_post_id or a poll => VALIDATION field "beacon_id". Then, after the community
+	// gate and before mentions: a missing, hidden or someone else's plan => NOT_FOUND "beacon not found" (one message for all,
+	// so no plan leaks); an ENDED or CANCELLED one => FAILED_PRECONDITION metadata["reason"] = "ended" | "cancelled"; a
+	// community plan with a community_id other than its community => VALIDATION field "beacon_id" (a public plan may go in
+	// any post). The post doc stores beaconId and a frozen snapshot (title, activity, start_at, community); the request hash
+	// covers beacon_id only when it is set. Nothing is written on a refusal.
 	CreatePost(context.Context, *connect.Request[v1.CreatePostRequest]) (*connect.Response[v1.CreatePostResponse], error)
 	// Delete own post. post_id must be 19 digits (else VALIDATION). Only the author's call deletes anything:
 	// another user's post, an unknown id and an already-deleted post all return success and write nothing,
@@ -480,6 +490,16 @@ type PostServiceHandler interface {
 	// included) => PERMISSION_DENIED + FORBIDDEN metadata["reason"] = "not_member", writing nothing. The member doc is cached
 	// 60 s on this path, so a ban reaches other instances' reply path within 60 s. The community and member doc are cached. With communities globally off, community posts behave as
 	// ordinary posts: no label and no reply gate (the kill switch).
+	// Plan embeds (FEATURE_POST_BEACON_EMBED, wire name "post_beacon_embed"; dzeroth.beacons.v1 header): a set beacon_id
+	// shares one of the caller's own plans on a root post. A set beacon_id while the flag is off for the caller (or no plan
+	// reader is wired) => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "post_beacon_embed", before any lookup,
+	// checked after "polls" in the order above (the beacons flag, "beacons", must also be on for the caller). Not 19 digits,
+	// or together with reply_to_post_id, quote_of_post_id or a poll => VALIDATION field "beacon_id". Then, after the community
+	// gate and before mentions: a missing, hidden or someone else's plan => NOT_FOUND "beacon not found" (one message for all,
+	// so no plan leaks); an ENDED or CANCELLED one => FAILED_PRECONDITION metadata["reason"] = "ended" | "cancelled"; a
+	// community plan with a community_id other than its community => VALIDATION field "beacon_id" (a public plan may go in
+	// any post). The post doc stores beaconId and a frozen snapshot (title, activity, start_at, community); the request hash
+	// covers beacon_id only when it is set. Nothing is written on a refusal.
 	CreatePost(context.Context, *connect.Request[v1.CreatePostRequest]) (*connect.Response[v1.CreatePostResponse], error)
 	// Delete own post. post_id must be 19 digits (else VALIDATION). Only the author's call deletes anything:
 	// another user's post, an unknown id and an already-deleted post all return success and write nothing,
