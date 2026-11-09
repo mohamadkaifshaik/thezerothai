@@ -91,6 +91,62 @@ func (r *FirestoreRepo) countPending(ctx context.Context, tx *firestore.Transact
 	return out.N, nil
 }
 
+// stalePending returns, in input order, the ids among a requester's counted pending rows whose beacon can no longer
+// answer the request (B08): missing from beacons (a nil entry or no entry: purged), CANCELLED, or ENDED at now. A
+// cancel never touches the requesters' membership rows, so their pendingUntil (the beacon's endAt) kept them counted
+// until the beacon would have ended.
+func stalePending(ids []string, beacons map[string]*Beacon, now time.Time) []string {
+	var out []string
+	for _, id := range ids {
+		b := beacons[id]
+		if b == nil {
+			out = append(out, id)
+			continue
+		}
+		if s := b.EffectiveStatus(now); s == StatusCancelled || s == StatusEnded {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// reclaimPending runs only on the RequestToJoin refusal path (counted >= limit): it reads, inside tx, the <= limit
+// rows countPending counted and their beacons (one GetAll, no new index) and returns how many rows were counted and
+// which of them are stale (stalePending). The caller clears pendingUntil on the stale rows in the same transaction.
+func (r *FirestoreRepo) reclaimPending(ctx context.Context, tx *firestore.Transaction, uid string, limit int, now time.Time) (int, []string, error) {
+	q := r.client.Collection(usersCollection).Doc(uid).Collection(membershipsSubcollection).Where("pendingUntil", ">", now.UTC()).Limit(limit)
+	snaps, err := tx.Documents(q).GetAll()
+	if err != nil {
+		return 0, nil, fmt.Errorf("beacons: list pending: %w", err)
+	}
+	if len(snaps) == 0 {
+		return 0, nil, nil
+	}
+	ids := make([]string, 0, len(snaps))
+	refs := make([]*firestore.DocumentRef, 0, len(snaps))
+	for _, s := range snaps {
+		ids = append(ids, s.Ref.ID)
+		refs = append(refs, r.ref(s.Ref.ID))
+	}
+	beaconSnaps, err := tx.GetAll(refs)
+	if err != nil {
+		return 0, nil, fmt.Errorf("beacons: get pending beacons: %w", err)
+	}
+	found := make(map[string]*Beacon, len(beaconSnaps))
+	for i, s := range beaconSnaps {
+		if s == nil || !s.Exists() {
+			continue
+		}
+		var d beaconDoc
+		if err := s.DataTo(&d); err != nil {
+			return 0, nil, fmt.Errorf("beacons: decode pending beacon: %w", err)
+		}
+		b := d.beacon(ids[i])
+		found[ids[i]] = &b
+	}
+	return len(snaps), stalePending(ids, found, now), nil
+}
+
 // replayParticipation answers a replay of a participation write from the beacon and the target's row as they are now.
 func (r *FirestoreRepo) replayParticipation(ctx context.Context, tx *firestore.Transaction, rec idempotency.Record) (ParticipantResult, error) {
 	id, target := rec.Result["id"], rec.Result["uid"]
@@ -126,7 +182,9 @@ func idemResult(beaconID, target string) map[string]string {
 // Request implements Repo (RequestToJoin). Reads, fresh and in order: idempotency, the beacon, the caller's row, the
 // caller's pending count. Refusals write nothing: ErrOrganiser, ErrCancelled, ErrEnded, ErrFull, ErrAlreadyRequested,
 // ErrPendingLimit. An ACCEPTED caller is Unchanged (idempotency doc only). Otherwise the row is (re)written REQUESTED
-// with the note and the beacon's expireAt, the membership row becomes requester/requested/pending.
+// with the note and the beacon's expireAt, the membership row becomes requester/requested/pending. At the pending cap
+// the counted rows are re-checked (reclaimPending): those whose beacon was cancelled or is gone stop pending and do
+// not count.
 func (r *FirestoreRepo) Request(ctx context.Context, p RequestParams) (ParticipantResult, error) {
 	if err := r.ready(); err != nil {
 		return ParticipantResult{}, err
@@ -175,7 +233,18 @@ func (r *FirestoreRepo) Request(ctx context.Context, p RequestParams) (Participa
 			return err
 		}
 		if n >= int64(p.MaxPending) {
-			return ErrPendingLimit
+			// B08: requests on cancelled (or ended, or purged) beacons stop counting. Every read happens before
+			// the first write; a request still at the limit is refused and the transaction writes nothing.
+			counted, stale, err := r.reclaimPending(ctx, tx, p.UID, p.MaxPending, p.Now)
+			if err != nil {
+				return err
+			}
+			if counted-len(stale) >= p.MaxPending {
+				return ErrPendingLimit
+			}
+			for _, id := range stale {
+				b.Set(r.membershipRef(p.UID, id), map[string]any{"pendingUntil": firestore.Delete}, firestore.MergeAll)
+			}
 		}
 		pd = participantDoc{UID: p.UID, State: PStateRequested, Note: p.Note, RequestedAt: p.Now.UTC(), ExpireAt: d.ExpireAt}
 		b.Set(r.participantRef(p.BeaconID, p.UID), pd)
@@ -200,21 +269,26 @@ type transitionRule struct {
 	owned bool
 	// live: refuse ENDED and CANCELLED beacons (Leave, Remove); Withdraw is allowed on a dead beacon so a stale
 	// request can always be cleared.
-	live     bool
+	live bool
+	// self: the caller acts on their own row (Withdraw, Leave), the way out of a plan, which the service does not gate on
+	// visibility: no row is ErrNotFound and a row in another state is notIn, both checked before the live check, so a
+	// caller learns nothing about the beacon beyond their own row (not even that it ended).
+	self     bool
 	from, to string
 	notIn    error
 }
 
 // Withdraw implements Repo (WithdrawJoinRequest): the caller's REQUESTED row becomes WITHDRAWN and its membership row
-// stops being pending, on a live, ended or cancelled beacon alike; any other state is ErrNotRequested.
+// stops being pending, on a live, ended or cancelled beacon alike; no row is ErrNotFound, any other state is
+// ErrNotRequested.
 func (r *FirestoreRepo) Withdraw(ctx context.Context, p StateParams) (ParticipantResult, error) {
-	return r.transition(ctx, p, transitionRule{rpc: rpcWithdrawJoinRequest, from: PStateRequested, to: PStateWithdrawn, notIn: ErrNotRequested})
+	return r.transition(ctx, p, transitionRule{rpc: rpcWithdrawJoinRequest, self: true, from: PStateRequested, to: PStateWithdrawn, notIn: ErrNotRequested})
 }
 
 // Leave implements Repo (LeaveBeacon): the caller's ACCEPTED row becomes LEFT, the beacon's acceptedCount drops and a
-// FULL beacon reopens; any other state is ErrNotParticipant.
+// FULL beacon reopens; no row is ErrNotFound (before the live check), any other state is ErrNotParticipant.
 func (r *FirestoreRepo) Leave(ctx context.Context, p StateParams) (ParticipantResult, error) {
-	return r.transition(ctx, p, transitionRule{rpc: rpcLeaveBeacon, live: true, from: PStateAccepted, to: PStateLeft, notIn: ErrNotParticipant})
+	return r.transition(ctx, p, transitionRule{rpc: rpcLeaveBeacon, self: true, live: true, from: PStateAccepted, to: PStateLeft, notIn: ErrNotParticipant})
 }
 
 // Remove implements Repo (RemoveParticipant): the organiser moves the target's ACCEPTED row to REMOVED with the same
@@ -223,8 +297,9 @@ func (r *FirestoreRepo) Remove(ctx context.Context, p StateParams) (ParticipantR
 	return r.transition(ctx, p, transitionRule{rpc: rpcRemoveParticipant, owned: true, live: true, from: PStateAccepted, to: PStateRemoved, notIn: ErrNotParticipant})
 }
 
-// transition is the shared body of Withdraw, Leave and Remove: idempotency, the beacon (owner-checked when owned),
-// the live check when the rule asks for it, the target's row in `from` (else notIn), then the row to `to`, the
+// transition is the shared body of Withdraw, Leave and Remove: idempotency, the beacon (owner-checked when owned), the
+// target's row (missing on a self rule: ErrNotFound), the live check when the rule asks for it, the row in `from` (else
+// notIn), then the row to `to`, the
 // membership row no longer pending, and, when leaving an ACCEPTED seat, the beacon's count and status.
 func (r *FirestoreRepo) transition(ctx context.Context, p StateParams, rule transitionRule) (ParticipantResult, error) {
 	rpc, owned, from, to, notIn := rule.rpc, rule.owned, rule.from, rule.to, rule.notIn
@@ -250,14 +325,22 @@ func (r *FirestoreRepo) transition(ctx context.Context, p StateParams, rule tran
 		if err != nil {
 			return err
 		}
+		pd, exists, err := r.getParticipantTx(ctx, tx, p.BeaconID, p.TargetUID)
+		if err != nil {
+			return err
+		}
+		if rule.self && !exists {
+			return ErrNotFound
+		}
+		// A self rule answers the caller's own row before the beacon's state: a terminal row is notIn even on an ended
+		// or cancelled beacon (Remove keeps live first).
+		if rule.self && pd.State != from {
+			return notIn
+		}
 		if rule.live {
 			if err := checkLive(d, p.BeaconID, p.Now); err != nil {
 				return err
 			}
-		}
-		pd, exists, err := r.getParticipantTx(ctx, tx, p.BeaconID, p.TargetUID)
-		if err != nil {
-			return err
 		}
 		if !exists || pd.State != from {
 			return notIn
@@ -287,7 +370,8 @@ func (r *FirestoreRepo) transition(ctx context.Context, p StateParams, rule tran
 	return res, err
 }
 
-// Respond implements Repo (RespondToJoinRequest). Reads: idempotency, the beacon (owner-checked), the target's row
+// Respond implements Repo (RespondToJoinRequest). Reads: idempotency (a hit replays; only a miss runs p.Precheck), the
+// beacon (owner-checked), the target's row
 // (REQUESTED else ErrNotRequested). ACCEPT at capacity is ErrFull and writes nothing; two racing accepts both read and
 // write the beacon, so only one commits. Otherwise the row becomes ACCEPTED (respondedAt) with the beacon's count and
 // status, or DECLINED; the membership row follows.
@@ -304,6 +388,11 @@ func (r *FirestoreRepo) Respond(ctx context.Context, p RespondParams) (Participa
 				res, err = r.replayParticipation(ctx, tx, rec)
 			}
 			return err
+		}
+		if p.Precheck != nil {
+			if err := p.Precheck(ctx); err != nil {
+				return err
+			}
 		}
 		d, err := r.getOwned(ctx, tx, p.UID, p.BeaconID)
 		if err != nil {
