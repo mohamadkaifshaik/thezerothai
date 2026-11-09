@@ -443,7 +443,9 @@ void main() {
       expect(rail.selectedIndex, isNull);
     });
 
-    testWidgets('selected rail destinations are bold 20dp labels', (
+    // PR 1.5: rail labels are labelMedium (14 sp) until the phase 3 rail
+    // restyle; weight, not colour alone, marks the selected one.
+    testWidgets('selected rail destinations are bold 14dp labels', (
       tester,
     ) async {
       await _pump(tester, _scaffold(selected: 1), width: 1400);
@@ -452,8 +454,8 @@ void main() {
       expect(rail.selectedIndex, 1);
       final theme = appLightTheme.navigationRailTheme;
       expect(theme.selectedLabelTextStyle!.fontWeight, FontWeight.w700);
-      expect(theme.selectedLabelTextStyle!.fontSize, 20);
-      expect(theme.unselectedLabelTextStyle!.fontWeight, FontWeight.w400);
+      expect(theme.selectedLabelTextStyle!.fontSize, 14);
+      expect(theme.unselectedLabelTextStyle!.fontWeight, FontWeight.w600);
     });
   });
 

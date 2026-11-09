@@ -26,6 +26,9 @@ abstract final class AppSpacing {
 
   /// Minimum width of a short filled action button (an app-bar "Save").
   static const double minButtonWidth = 72;
+
+  /// Vertical content padding of a text field (dz.css `.field`: 16 x 13).
+  static const double fieldVertical = 13;
 }
 
 /// Icon sizes (dp). Visuals sit inside a 48dp tap target.
@@ -91,6 +94,9 @@ abstract final class AppRadius {
   static const double bubble = 22;
   static const double bubbleTail = 6;
   static const double sheetTop = 32;
+
+  /// Menus, popup menus and snackbars.
+  static const double menu = 16;
 }
 
 /// Responsive layout breakpoints.
@@ -163,6 +169,9 @@ abstract final class AppSize {
   static const double avatarPost = 42;
   static const double avatarLg = 56;
   static const double avatarXl = 120;
+
+  /// Boundary width of outline buttons and chips (component themes).
+  static const double componentBorder = 1.5;
 }
 
 /// Semantic colours that the Material [ColorScheme] has no slot for.
@@ -514,12 +523,34 @@ ThemeData buildAppTheme({required Brightness brightness}) {
   final pillShape = RoundedRectangleBorder(
     borderRadius: BorderRadius.circular(AppRadius.pill),
   );
-  final border = BorderSide(color: colorScheme.outlineVariant);
-  // Dialogs, sheets and menus sit one step above the page in dark; in light
-  // they share the pearl page (component themes follow in PR 1.5).
+  final hairline = BorderSide(color: appColors.hairline);
+  // Component boundaries (outline buttons, chips) are >= 3:1 (ADR-0033 §4).
+  final boundary = BorderSide(
+    color: colorScheme.outline,
+    width: AppSize.componentBorder,
+  );
+  // Sheets and menus sit one step above the page in dark; in light they
+  // share the pearl page. Dialogs use the page surface (pearl / navy).
   final modalColor = isDark
       ? colorScheme.surfaceContainer
       : colorScheme.surface;
+  const tapTarget = Size(AppSpacing.minTapTarget, AppSpacing.minTapTarget);
+  // Filled and outlined buttons stretch to their parent's width by default
+  // (existing call sites rely on it) and are 48 dp tall.
+  const stretchTarget = Size.fromHeight(AppSpacing.minTapTarget);
+  final menuShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(AppRadius.menu),
+    side: BorderSide(color: colorScheme.outline),
+  );
+  OutlineInputBorder fieldBorder(Color color, {double width = 1}) =>
+      OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.field),
+        borderSide: BorderSide(color: color, width: width),
+      );
+  bool selected(Set<WidgetState> states) =>
+      states.contains(WidgetState.selected);
+  bool disabled(Set<WidgetState> states) =>
+      states.contains(WidgetState.disabled);
   return ThemeData(
     useMaterial3: true,
     colorScheme: colorScheme,
@@ -530,10 +561,15 @@ ThemeData buildAppTheme({required Brightness brightness}) {
     textTheme: textTheme,
     scaffoldBackgroundColor: colorScheme.surface,
     canvasColor: colorScheme.surface,
-    visualDensity: VisualDensity.adaptivePlatformDensity,
+    // 48 dp targets on every platform (D6): Material's adaptive density and
+    // shrink-wrapped targets would make desktop and web controls smaller.
+    visualDensity: VisualDensity.standard,
+    materialTapTargetSize: MaterialTapTargetSize.padded,
     extensions: [appColors],
+    // Elevation stays 0 everywhere; depth comes only from AppShadows, which
+    // the phase 2 primitives paint.
     dividerTheme: DividerThemeData(
-      color: colorScheme.outlineVariant,
+      color: appColors.hairline,
       thickness: 1,
       space: 1,
     ),
@@ -544,39 +580,63 @@ ThemeData buildAppTheme({required Brightness brightness}) {
       scrolledUnderElevation: 0,
       surfaceTintColor: Colors.transparent,
       titleTextStyle: textTheme.titleLarge,
-      shape: Border(bottom: border),
+      shape: Border(bottom: hairline),
     ),
-    // The default FilledButton is the strong (inverse) pill: navy on light,
-    // pearl on dark. `ButtonStyle` cannot paint a gradient, so the teal
-    // gradient primary (`AppColors.primaryFillGradient`) is a primitive.
+    cardTheme: CardThemeData(
+      elevation: 0,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.card),
+      ),
+    ),
+    // The default FilledButton is the strong (inverse) pill, the `.btn.navy`:
+    // navy on light, pearl on dark. `ButtonStyle` cannot paint a gradient, so
+    // the teal gradient primary (`AppColors.primaryFillGradient`) is a
+    // primitive (PR 2.1).
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        minimumSize: const Size.fromHeight(AppSpacing.minTapTarget),
+        minimumSize: stretchTarget,
         shape: pillShape,
         textStyle: textTheme.labelLarge,
         backgroundColor: appColors.strongPillFill,
         foregroundColor: appColors.strongPillLabel,
         disabledBackgroundColor: appColors.disabledPillFill,
         disabledForegroundColor: appColors.disabledPillLabel,
+        elevation: 0,
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        minimumSize: const Size.fromHeight(AppSpacing.minTapTarget),
+        minimumSize: stretchTarget,
         shape: pillShape,
-        side: BorderSide(color: colorScheme.outline),
+        side: boundary,
         textStyle: textTheme.labelLarge,
         foregroundColor: colorScheme.onSurface,
+        elevation: 0,
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        minimumSize: const Size(
-          AppSpacing.minTapTarget,
-          AppSpacing.minTapTarget,
-        ),
+        minimumSize: tapTarget,
         shape: pillShape,
+        textStyle: textTheme.labelLarge,
         foregroundColor: appColors.accentText,
+        elevation: 0,
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        minimumSize: tapTarget,
+        shape: pillShape,
+        textStyle: textTheme.labelLarge,
+      ).copyWith(elevation: const WidgetStatePropertyAll(0)),
+    ),
+    // The design draws navy at 6 %; onSurface is navy on light and keeps the
+    // hover visible on the navy page (pearl at 6 %).
+    iconButtonTheme: IconButtonThemeData(
+      style: IconButton.styleFrom(
+        minimumSize: tapTarget,
+        hoverColor: colorScheme.onSurface.withValues(alpha: 0.06),
       ),
     ),
     floatingActionButtonTheme: FloatingActionButtonThemeData(
@@ -588,52 +648,83 @@ ThemeData buildAppTheme({required Brightness brightness}) {
       highlightElevation: 0,
       shape: const CircleBorder(),
     ),
+    // dz.css `.field`: labels above the field, a >= 3:1 boundary, the
+    // selected-indicator colour at 2 dp on focus.
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: colorScheme.surfaceContainer,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        borderSide: border,
+      fillColor: isDark
+          ? AppPalette.fieldFillDark
+          : colorScheme.surfaceContainer,
+      isDense: false,
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.fieldVertical,
       ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        borderSide: border,
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        borderSide: BorderSide(color: colorScheme.primary, width: 2),
+      floatingLabelBehavior: FloatingLabelBehavior.always,
+      border: fieldBorder(colorScheme.outline),
+      enabledBorder: fieldBorder(colorScheme.outline),
+      focusedBorder: fieldBorder(appColors.selectedIndicator, width: 2),
+      errorBorder: fieldBorder(colorScheme.error),
+      focusedErrorBorder: fieldBorder(colorScheme.error, width: 2),
+      hintStyle: TextStyle(color: colorScheme.onSurfaceVariant),
+      errorStyle: textTheme.bodySmall?.copyWith(color: colorScheme.error),
+      helperStyle: textTheme.bodySmall?.copyWith(
+        color: colorScheme.onSurfaceVariant,
       ),
     ),
+    // Pills with a >= 3:1 boundary; the selected one takes the indicator
+    // colour and keeps its check mark (never colour alone). The visual is
+    // 32 dp inside a 48 dp target (materialTapTargetSize above).
+    chipTheme: ChipThemeData(
+      shape: pillShape,
+      side: WidgetStateBorderSide.resolveWith(
+        (states) => boundary.copyWith(
+          color: selected(states) && !disabled(states)
+              ? appColors.selectedIndicator
+              : colorScheme.outline,
+        ),
+      ),
+      labelStyle: textTheme.labelSmall?.copyWith(
+        fontWeight: AppTypeTokens.weightUi,
+      ),
+      elevation: 0,
+      pressElevation: 0,
+    ),
+    // The selected glyph is onPrimary on the indicator (selectedIndicator is
+    // the primary); the filled icon variant also marks it. Phase 3 restyles.
     navigationBarTheme: NavigationBarThemeData(
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       height: AppSize.bottomNav,
-      indicatorColor: Colors.transparent,
+      indicatorColor: appColors.selectedIndicator,
       labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
       backgroundColor: colorScheme.surface,
-      // Every glyph is the primary text colour; only the filled variant marks
-      // the selected one (phase 3 restyles the bar).
-      iconTheme: WidgetStatePropertyAll(
-        IconThemeData(color: colorScheme.onSurface, size: AppIconSize.lg),
+      labelTextStyle: WidgetStatePropertyAll(textTheme.labelMedium),
+      iconTheme: WidgetStateProperty.resolveWith(
+        (states) => IconThemeData(
+          color: selected(states)
+              ? colorScheme.onPrimary
+              : colorScheme.onSurface,
+          size: AppIconSize.lg,
+        ),
       ),
     ),
     navigationRailTheme: NavigationRailThemeData(
       backgroundColor: colorScheme.surface,
-      indicatorColor: Colors.transparent,
+      indicatorColor: appColors.selectedIndicator,
       selectedIconTheme: IconThemeData(
-        color: colorScheme.onSurface,
+        color: colorScheme.onPrimary,
         size: AppIconSize.lg,
       ),
       unselectedIconTheme: IconThemeData(
         color: colorScheme.onSurface,
         size: AppIconSize.lg,
       ),
-      selectedLabelTextStyle: textTheme.titleLarge?.copyWith(
-        fontWeight: FontWeight.w700,
+      // Weight marks the selected label too, not colour alone.
+      selectedLabelTextStyle: textTheme.labelMedium?.copyWith(
+        fontWeight: AppTypeTokens.weightUi,
       ),
-      unselectedLabelTextStyle: textTheme.titleLarge?.copyWith(
-        fontWeight: FontWeight.w400,
-      ),
+      unselectedLabelTextStyle: textTheme.labelMedium,
     ),
     drawerTheme: DrawerThemeData(
       backgroundColor: colorScheme.surface,
@@ -643,36 +734,56 @@ ThemeData buildAppTheme({required Brightness brightness}) {
       width: AppSize.drawerWidth,
       shape: const RoundedRectangleBorder(),
     ),
+    // ThemeData cannot carry a BoxShadow list: the dialog primitive (PR 2.6)
+    // paints AppShadows.brand.
     dialogTheme: DialogThemeData(
-      backgroundColor: modalColor,
+      backgroundColor: colorScheme.surface,
       surfaceTintColor: Colors.transparent,
       barrierColor: appColors.scrim,
+      elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.lg),
+        borderRadius: BorderRadius.circular(AppRadius.card),
       ),
     ),
+    // PopupMenuItem is 48 dp tall by default (kMinInteractiveDimension).
     popupMenuTheme: PopupMenuThemeData(
       color: modalColor,
       surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        side: border,
+      elevation: 0,
+      shape: menuShape,
+    ),
+    menuTheme: MenuThemeData(
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(modalColor),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        elevation: const WidgetStatePropertyAll(0),
+        shape: WidgetStatePropertyAll(menuShape),
       ),
     ),
+    menuButtonTheme: MenuButtonThemeData(
+      style: MenuItemButton.styleFrom(minimumSize: tapTarget),
+    ),
+    // The drag handle is a 48 dp target.
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: modalColor,
       surfaceTintColor: Colors.transparent,
       modalBarrierColor: appColors.scrim,
+      elevation: 0,
+      modalElevation: 0,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.sheetTop),
+        ),
       ),
     ),
-    // Dark: a raised navy toast. Light: an inverse (navy) toast, so the
-    // action can be tealElectric (9.61 on navy).
+    // A navy toast on light, navy2 on the navy page; the action is
+    // tealElectric (9.61 on navy, 7.60 on navy2).
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
+      elevation: 0,
       backgroundColor: isDark
-          ? colorScheme.surfaceContainerHighest
+          ? colorScheme.surfaceContainerHigh
           : colorScheme.inverseSurface,
       // M3 defaults assume an inverse-surface snackbar; on the dark surface
       // they fail WCAG AA (F4 M1), so the colours are set explicitly.
@@ -686,14 +797,64 @@ ThemeData buildAppTheme({required Brightness brightness}) {
         color: isDark ? colorScheme.onSurface : colorScheme.onInverseSurface,
       ),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(AppRadius.menu),
       ),
     ),
-    // Count badges are the primary (tealText with white on light,
-    // tealElectric with navy on dark), not the Material error colour.
+    // AppTabBar is restyled in phase 2; this covers Material's TabBar.
+    tabBarTheme: TabBarThemeData(
+      indicator: UnderlineTabIndicator(
+        borderSide: BorderSide(
+          color: appColors.selectedIndicator,
+          width: AppSize.tabIndicator,
+        ),
+      ),
+      labelColor: colorScheme.onSurface,
+      unselectedLabelColor: colorScheme.onSurfaceVariant,
+      dividerColor: appColors.hairline,
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith((states) {
+        if (disabled(states)) return null;
+        return selected(states) ? colorScheme.onPrimary : colorScheme.outline;
+      }),
+      trackColor: WidgetStateProperty.resolveWith((states) {
+        if (disabled(states)) return null;
+        return selected(states)
+            ? appColors.selectedIndicator
+            : colorScheme.surfaceContainerHighest;
+      }),
+      trackOutlineColor: WidgetStateProperty.resolveWith((states) {
+        if (disabled(states)) return null;
+        return selected(states) ? Colors.transparent : colorScheme.outline;
+      }),
+    ),
+    checkboxTheme: CheckboxThemeData(
+      fillColor: WidgetStateProperty.resolveWith((states) {
+        if (disabled(states)) return null;
+        return selected(states)
+            ? appColors.selectedIndicator
+            : Colors.transparent;
+      }),
+      checkColor: WidgetStatePropertyAll(colorScheme.onPrimary),
+      side: WidgetStateBorderSide.resolveWith((states) {
+        if (disabled(states)) return null;
+        return selected(states)
+            ? const BorderSide(width: 0, color: Colors.transparent)
+            : BorderSide(color: colorScheme.outline, width: 2);
+      }),
+    ),
+    radioTheme: RadioThemeData(
+      fillColor: WidgetStateProperty.resolveWith((states) {
+        if (disabled(states)) return null;
+        return selected(states)
+            ? appColors.selectedIndicator
+            : colorScheme.outline;
+      }),
+    ),
+    // dz.css `.count`: navy on light, pearl on dark.
     badgeTheme: BadgeThemeData(
-      backgroundColor: colorScheme.primary,
-      textColor: colorScheme.onPrimary,
+      backgroundColor: appColors.strongPillFill,
+      textColor: appColors.strongPillLabel,
     ),
     progressIndicatorTheme: ProgressIndicatorThemeData(
       color: colorScheme.primary,
@@ -888,6 +1049,9 @@ abstract final class AppPalette {
 
   /// text2 on dark: pearl at 80 % over navy (dz.css `.dark .field label`).
   static const Color text2OnDark = Color(0xFFC7C7C7);
+
+  /// Text field fill on dark: dz.css `rgba(246,244,239,.06)` (pearl at 6 %).
+  static const Color fieldFillDark = Color(0x0FF6F4EF);
 }
 
 /// Redesign gradients. Declared only here.
