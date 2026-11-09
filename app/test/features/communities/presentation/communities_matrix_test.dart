@@ -1,4 +1,5 @@
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/communities/data/communities_repository.dart';
@@ -335,7 +336,9 @@ void main() {
         tester,
         find.ancestor(
           of: find.text('Retry'),
-          matching: find.bySubtype<ButtonStyleButton>(),
+          matching: find.byWidgetPredicate(
+            (w) => w is ButtonStyleButton || w is AppPillButton,
+          ),
         ),
       );
     }, textScales: kMatrixTextScalesLarge);
