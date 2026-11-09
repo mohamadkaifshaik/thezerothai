@@ -1,1 +1,9 @@
 #include "Generated.xcconfig"
+
+// Google Sign-In (B10). GOOGLE_IOS_CLIENT_ID must match the `iosClientId` of the
+// firebase_options file for the build's FIREBASE_ENV (lib/firebase_options_prod.dart here: Debug = dev,
+// Release/Profile = prod). Both reversed ids are registered as URL schemes so a build
+// whose FIREBASE_ENV differs from its configuration still receives Google's redirect.
+GOOGLE_IOS_CLIENT_ID = 1053765609011-eq8m7ft9f20guehbqeekc56v3dh08hf0.apps.googleusercontent.com
+GOOGLE_REVERSED_CLIENT_ID_DEV = com.googleusercontent.apps.276998253227-8cbo1n2auibiaoq64ue84e2ebavp0d5e
+GOOGLE_REVERSED_CLIENT_ID_PROD = com.googleusercontent.apps.1053765609011-eq8m7ft9f20guehbqeekc56v3dh08hf0
