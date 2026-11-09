@@ -20,9 +20,11 @@ type fakeLifecycle struct {
 	lastUID string
 	lastKey string
 	lastID  string
-	at      time.Time
-	view    ExportView
-	err     error
+	// lastWithURL is the withURL GetAccountExport was last called with.
+	lastWithURL bool
+	at          time.Time
+	view        ExportView
+	err         error
 }
 
 func (f *fakeLifecycle) DeleteAccount(_ context.Context, uid, key string) (time.Time, error) {
@@ -37,9 +39,9 @@ func (f *fakeLifecycle) RequestAccountExport(_ context.Context, uid, key string)
 	return f.view, f.err
 }
 
-func (f *fakeLifecycle) GetAccountExport(_ context.Context, uid, id string) (ExportView, error) {
+func (f *fakeLifecycle) GetAccountExport(_ context.Context, uid, id string, withURL bool) (ExportView, error) {
 	f.calls++
-	f.lastUID, f.lastID = uid, id
+	f.lastUID, f.lastID, f.lastWithURL = uid, id, withURL
 	return f.view, f.err
 }
 
@@ -212,6 +214,9 @@ func TestServer_GetAccountExport_URLNeedsRecentSignIn(t *testing.T) {
 			if err != nil {
 				t.Fatalf("status polling must never fail: %v", err)
 			}
+			if lc.lastWithURL != tt.wantURL {
+				t.Errorf("lifecycle asked for a URL = %v, want %v", lc.lastWithURL, tt.wantURL)
+			}
 			m := resp.Msg
 			// Status and the export's own expiry are always present: the app needs them to show "ready".
 			if m.GetStatus() != identityv1.ExportStatus_EXPORT_STATUS_READY || !m.GetExpiresAt().AsTime().Equal(exp) {
@@ -223,6 +228,56 @@ func TestServer_GetAccountExport_URLNeedsRecentSignIn(t *testing.T) {
 				}
 			} else if m.GetDownloadUrl() != "" || m.GetDownloadUrlExpiresAt() != nil {
 				t.Errorf("stale sign-in must withhold the URL, got url=%q exp=%v", m.GetDownloadUrl(), m.GetDownloadUrlExpiresAt())
+			}
+		})
+	}
+}
+
+// TestServer_GetAccountExport_SignsOnlyForRecentSignIn (A17): over the real Lifecycle, a READY poll signs the export URL
+// only when the sign-in is recent enough to receive it. A stale poll never reaches the signer, so a broken signer cannot fail
+// it, while a recent poll still surfaces the signer's error (the client asked for the URL and cannot get it).
+func TestServer_GetAccountExport_SignsOnlyForRecentSignIn(t *testing.T) {
+	tests := []struct {
+		name       string
+		authTime   time.Time
+		signErr    error
+		wantErr    bool
+		wantURL    bool
+		wantSigned int
+	}{
+		{"stale sign-in: no signing, no URL", serverNow.Add(-time.Hour), nil, false, false, 0},
+		{"stale sign-in with a failing signer still succeeds", serverNow.Add(-time.Hour), errors.New("no signer"), false, false, 0},
+		{"missing auth_time: no signing", time.Time{}, errors.New("no signer"), false, false, 0},
+		{"recent sign-in: signed once, URL released", serverNow.Add(-time.Minute), nil, false, true, 1},
+		{"recent sign-in with a failing signer is an error", serverNow.Add(-time.Minute), errors.New("no signer"), true, false, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			id := expID("uid-1", expKey1)
+			now := h.clock.Now()
+			h.repo.exports[id] = &ExportDoc{ID: id, UID: "uid-1", Status: ExportReady, ObjectPath: id + ".json", CreatedAt: now, ExpireAt: now.Add(7 * 24 * time.Hour), UpdateTime: utOf(1)}
+			h.objs.signErr = tt.signErr
+			s, ctx := lifecycleServer(t, authn.Claims{UID: "uid-1", AuthTime: tt.authTime}, h.l, 5*time.Minute)
+			resp, err := s.GetAccountExport(ctx, connect.NewRequest(&identityv1.GetAccountExportRequest{ExportId: id}))
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("a recent poll swallowed the signer error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("poll failed: %v", err)
+			}
+			if got := len(h.objs.signed); got != tt.wantSigned {
+				t.Errorf("signer calls = %d, want %d", got, tt.wantSigned)
+			}
+			m := resp.Msg
+			if m.GetStatus() != identityv1.ExportStatus_EXPORT_STATUS_READY {
+				t.Errorf("status = %v, want READY", m.GetStatus())
+			}
+			if gotURL := m.GetDownloadUrl() != ""; gotURL != tt.wantURL || (m.GetDownloadUrlExpiresAt() != nil) != tt.wantURL {
+				t.Errorf("url = %q exp = %v, want URL %v", m.GetDownloadUrl(), m.GetDownloadUrlExpiresAt(), tt.wantURL)
 			}
 		})
 	}

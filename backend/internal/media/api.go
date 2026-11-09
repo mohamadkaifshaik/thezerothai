@@ -78,6 +78,9 @@ const (
 	BannerVisionUnits = 2
 	// MaxDimension bounds the declared width/height (the client resizes to <= 1600 px; this is a sanity bound).
 	MaxDimension = 4096
+	// MaxPixels bounds width x height of a verified image (FinalizeUpload reads the real size, B14). It is the square of
+	// MaxDimension, so it never refuses a size CreateUpload accepted; a tighter cap would have to be declared there too.
+	MaxPixels = MaxDimension * MaxDimension
 	// MaxBlurhashLen is the BlurHash length bound (common.MediaRef.blurhash <= 64 chars).
 	MaxBlurhashLen = 64
 	// UploadURLTTL is how long a signed PUT URL is valid.
