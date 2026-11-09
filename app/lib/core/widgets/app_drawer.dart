@@ -9,7 +9,6 @@ import '../../features/auth/presentation/request_sign_out.dart';
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../../features/graph/data/graph_repository.dart';
 import '../../features/graph/domain/follow_requests_entry.dart';
-import '../../features/beacons/domain/beacons_feature_flag.dart';
 import '../../features/communities/domain/communities_feature_flag.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -24,7 +23,8 @@ import '../theme/app_theme.dart';
 /// The account drawer of narrow layouts, opened by the avatar button of the
 /// top bar (`AppTopBar`): the account block (avatar, name, handle and the
 /// Following / Followers counts) and one 56dp row per destination that is not
-/// in the bottom bar: Profile, Settings and Privacy, Sign out.
+/// in the bottom bar: Profile, Settings and Privacy, Sign out. Plans is a
+/// primary destination (bar and rail), so it has no row here (ADR-0034 3, D5).
 ///
 /// It reads the profile the app already holds (`OnboardingBloc`): 0 RPCs. A
 /// row closes the drawer, then navigates; the counts open the same lists as
@@ -110,15 +110,6 @@ class AppDrawer extends StatelessWidget {
                 onTap: () =>
                     _go(context, () => context.go(AppRouter.communitiesPath)),
               ),
-            // Needs `beacons` (the drawer only exists with `ui_shell`).
-            if (isFeatureEnabled(context, kFeatureBeacons))
-              _DrawerRow(
-                key: const ValueKey('drawer-plans'),
-                icon: Icons.event_outlined,
-                label: 'Plans',
-                onTap: () =>
-                    _go(context, () => context.go(AppRouter.plansPath)),
-              ),
             // History follows feature destinations; Premium follows History
             // when the existing shell capabilities allow it.
             if (isFeatureEnabled(context, kFeatureBookmarks) &&
@@ -165,6 +156,9 @@ class AppDrawer extends StatelessWidget {
   }
 }
 
+/// The account header avatar (ADR-0034 section 3, plan PR 3.4): 56dp.
+const double _kHeaderAvatar = 56;
+
 class _AccountHeader extends StatelessWidget {
   const _AccountHeader({required this.profile});
 
@@ -187,7 +181,7 @@ class _AccountHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AppAvatar(url: profile.avatarThumbUrl, radius: AppSize.avatarMd / 2),
+          AppAvatar(url: profile.avatarThumbUrl, radius: _kHeaderAvatar / 2),
           const SizedBox(height: AppSpacing.smd),
           Text(
             name,
