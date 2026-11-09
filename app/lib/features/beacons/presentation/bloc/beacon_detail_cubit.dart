@@ -12,10 +12,11 @@ import 'beacon_detail_state.dart';
 ///
 /// After a write, read (R35): every action, refused or not, ends with one
 /// GetBeacon so the pill, seats and buttons show what the server computed.
-/// Keys (R36): one idempotency key per action kind, reused when the same
-/// action is retried after a failure and dropped after a success, so the next
-/// action of that kind is a new one. A successful cancel is answered locally
-/// (CANCELLED) as well, so the pill never flickers.
+/// Keys (R36): one idempotency key per action and payload (the server hashes
+/// the note into the request), reused only when exactly the same action is
+/// retried after a failure. Every successful write drops all keys, so
+/// request, withdraw, request again is a new request. A successful cancel is
+/// answered locally (CANCELLED) as well, so the pill never flickers.
 class BeaconDetailCubit extends Cubit<BeaconDetailState> {
   BeaconDetailCubit({
     required BeaconsRepository repository,
@@ -28,7 +29,7 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
 
   final BeaconsRepository _repository;
   final String _beaconId;
-  final Map<BeaconAction, String> _keys = {};
+  final Map<String, String> _keys = {};
   int _generation = 0;
 
   Future<void> load() async {
@@ -50,7 +51,7 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
   }
 
   Future<void> cancel() async {
-    final ok = await _run(BeaconAction.cancel, (key) async {
+    final ok = await _run(BeaconAction.cancel, '', (key) async {
       await _repository.cancelBeacon(idempotencyKey: key, beaconId: _beaconId);
       if (isClosed) return;
       final view = state.view!.deepCopy()
@@ -61,45 +62,62 @@ class BeaconDetailCubit extends Cubit<BeaconDetailState> {
   }
 
   /// Asks to join with [note] (0-140). True on success.
-  Future<bool> request(String note) => _run(
-    BeaconAction.request,
-    (key) => _repository.requestToJoin(
-      idempotencyKey: key,
-      beaconId: _beaconId,
-      note: note,
-    ),
-  );
+  Future<bool> request(String note) {
+    final normalized = note.trim();
+    return _run(
+      BeaconAction.request,
+      normalized,
+      (key) => _repository.requestToJoin(
+        idempotencyKey: key,
+        beaconId: _beaconId,
+        note: normalized,
+      ),
+    );
+  }
 
   Future<bool> withdraw() => _run(
     BeaconAction.withdraw,
+    '',
     (key) => _repository.withdrawJoinRequest(
       idempotencyKey: key,
       beaconId: _beaconId,
     ),
+    notFoundIsDone: true,
   );
 
   Future<bool> leave() => _run(
     BeaconAction.leave,
+    '',
     (key) => _repository.leaveBeacon(idempotencyKey: key, beaconId: _beaconId),
+    notFoundIsDone: true,
   );
 
   /// Runs one write with its key, then reloads. False when the write was
   /// refused ([BeaconDetailState.actionError] carries the copy).
   Future<bool> _run(
     BeaconAction action,
-    Future<void> Function(String key) write,
-  ) async {
+    String payload,
+    Future<void> Function(String key) write, {
+    bool notFoundIsDone = false,
+  }) async {
     if (state.busy != null || state.view == null) return false;
-    final key = _keys.putIfAbsent(action, _uuid.v4);
+    final key = _keys.putIfAbsent('${action.name}|$payload', _uuid.v4);
     emit(state.copyWith(busy: action, clearActionError: true));
     var ok = false;
     try {
       await write(key);
-      _keys.remove(action);
+      _keys.clear();
       ok = true;
     } on AppException catch (error) {
       if (isClosed) return false;
-      emit(state.copyWith(actionError: beaconsErrorMessage(error)));
+      if (notFoundIsDone && error is NotFoundException) {
+        // Leave and withdraw answer NOT_FOUND when the caller has no row any
+        // more: that is the end state they asked for, so just reload.
+        _keys.clear();
+        ok = true;
+      } else {
+        emit(state.copyWith(actionError: beaconsErrorMessage(error)));
+      }
     }
     if (isClosed) return ok;
     emit(state.copyWith(clearBusy: true));

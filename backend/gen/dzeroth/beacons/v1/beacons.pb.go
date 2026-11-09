@@ -54,7 +54,10 @@
 //   50 = 50), the lists precedent.
 // - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "beacons" (or "communities" for a community
 //   audience while that flag is off for the caller).
-// - NOT_FOUND: one message for a missing, hidden, blocked or not-visible beacon.
+// - NOT_FOUND: one message for a missing, hidden, blocked or not-visible beacon (including a community audience whose
+//   community is missing or SUSPENDED; the community owner still reads a SUSPENDED community's beacons).
+// - FAILED_PRECONDITION + COMMUNITY_STATE, metadata["reason"] = "community_archived": CreateBeacon, RequestToJoin or
+//   an ACCEPT in an ARCHIVED community (read-only); nothing is written.
 // - FORBIDDEN, metadata["reason"] = "not_member" (community audience, caller not JOINED) | "not_organiser"
 //   (UpdateBeacon, CancelBeacon, RespondToJoinRequest, RemoveParticipant, ListParticipants REQUESTED by anyone
 //   else). A block in either direction is never FORBIDDEN: it is the one NOT_FOUND above.
