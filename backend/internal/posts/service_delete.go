@@ -14,6 +14,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/outbox"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -75,7 +76,23 @@ func (s *service) Delete(ctx context.Context, uid, idempotencyKey, postID string
 		// precondition is the batch's only guard).
 		stage = append(stage, func(b store.Batch) { s.links.StageRelease(b, p.RepostOfID, uid) })
 	}
+	// The post_delete outbox item rides the same batch, so it exists exactly when the delete committed.
+	work, durable, err := s.postDeleteEntry(uid, p)
+	if err != nil {
+		// Never fails the delete: it falls back to the best-effort publish (ERROR on a lost publish, as before).
+		slog.ErrorContext(ctx, "post_delete_outbox_entry_invalid", append([]any{"error", logger.CauseChain(logger.ScrubErr(err, uid))}, logger.TraceAttrs(ctx)...)...)
+		durable = false
+	}
+	var stageErr error
+	if durable {
+		stage = append(stage, func(b store.Batch) { stageErr = s.outbox.Stage(b, work) })
+	}
 	deleted, err := s.repo.DeleteOwn(ctx, postID, uid, stage...)
+	if err == nil && stageErr != nil {
+		// Unreachable (the entry was validated above and Stage's only error is validation); logged, never silent.
+		slog.ErrorContext(ctx, "post_delete_outbox_stage_failed", append([]any{"error", logger.CauseChain(logger.ScrubErr(stageErr, uid))}, logger.TraceAttrs(ctx)...)...)
+		durable = false
+	}
 	if err != nil {
 		return logger.RedactErr(fmt.Errorf("posts: delete: %w", err), uid)
 	}
@@ -89,29 +106,59 @@ func (s *service) Delete(ctx context.Context, uid, idempotencyKey, postID string
 	s.releaseParent(ctx, p)
 	s.releaseEngagement(ctx, p)
 	s.events.Deleted(ctx, postID, uid)
-	s.publishPostDelete(ctx, uid, p)
+	s.publishPostDelete(ctx, uid, p, work, durable)
 	logger.SetRequestField(ctx, fieldOutcome, outcomeDeleted)
 	return nil
 }
 
-// publishPostDelete hands a deleted post to the post_delete job (after the commit, never inside it): its images
-// and its likes, reposts and quotes, so every deleted post publishes. A failure is logged
-// for Error Reporting and does not fail the delete: the post is gone and the dependants are removed by the
-// account purge at the latest. One Pub/Sub publish, no Firestore access.
-func (s *service) publishPostDelete(ctx context.Context, uid string, p *Post) {
-	if s.jobs == nil {
-		return
+// postDeleteEntry is the outbox entry of p's post_delete job, and whether DeletePost stages one (only when both the
+// outbox and the publisher are wired: an item nobody can publish would only wait for its TTL).
+func (s *service) postDeleteEntry(uid string, p *Post) (outbox.Entry, bool, error) {
+	if s.outbox == nil || s.jobs == nil {
+		return outbox.Entry{}, false, nil
 	}
+	e, err := PostDeleteEntry(uid, p.ID, mediaIDsOf(p))
+	if err != nil {
+		return outbox.Entry{}, false, err
+	}
+	return e, true, nil
+}
+
+func mediaIDsOf(p *Post) []string {
 	ids := make([]string, len(p.Media))
 	for i, m := range p.Media {
 		ids[i] = m.ID
 	}
-	if err := s.jobs.PostDeleted(ctx, uid, p.ID, ids); err != nil {
+	return ids
+}
+
+// publishPostDelete hands a deleted post to the post_delete job (after the commit, never inside it): its images
+// and its likes, reposts and quotes, so every deleted post publishes. A failure does not fail the delete: the post is
+// gone. With the outbox wired (durable) the staged item stays and the outbox sweep republishes it, so a failure is a
+// WARN; without it the dependants wait for the account purge, so it is an ERROR. One Pub/Sub publish, then (durable and
+// published) one delete of the outbox item.
+func (s *service) publishPostDelete(ctx context.Context, uid string, p *Post, work outbox.Entry, durable bool) {
+	if s.jobs == nil {
+		return
+	}
+	if err := s.jobs.PostDeleted(ctx, uid, p.ID, mediaIDsOf(p)); err != nil {
 		logger.SetRequestField(ctx, fieldMediaJob, "publish_failed")
-		slog.ErrorContext(ctx, "post_delete_job_publish_failed", append([]any{"error", logger.CauseChain(logger.ScrubErr(err, uid))}, logger.TraceAttrs(ctx)...)...)
+		attrs := append([]any{"error", logger.CauseChain(logger.ScrubErr(err, uid))}, logger.TraceAttrs(ctx)...)
+		if durable {
+			slog.WarnContext(ctx, "post_delete_job_publish_deferred", attrs...)
+			return
+		}
+		slog.ErrorContext(ctx, "post_delete_job_publish_failed", attrs...)
 		return
 	}
 	logger.SetRequestField(ctx, fieldMediaJob, "published")
+	if !durable {
+		return
+	}
+	if err := s.outbox.Done(ctx, work); err != nil {
+		// The job was published; a sweep publishes it again, and every post_delete step is idempotent.
+		slog.WarnContext(ctx, "post_delete_outbox_done_failed", append([]any{"error", logger.CauseChain(logger.ScrubErr(err, uid))}, logger.TraceAttrs(ctx)...)...)
+	}
 }
 
 // GetForViewer implements Service.
