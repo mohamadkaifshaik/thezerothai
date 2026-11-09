@@ -5,7 +5,7 @@ import '../router/app_router.dart';
 import '../feature_flags/feature_flags.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
 
-import '../../features/shells/domain/shell_entries.dart';
+import '../router/shell_entries.dart';
 import '../../shared/widgets/primitives/app_menu_item_row.dart';
 
 /// The menu behind the rail's "More" item (600 dp and up): the [entries] as

@@ -72,6 +72,105 @@ void main() {
         );
       }
     });
+
+    test('every other Firebase code is the neutral success, never a raw '
+        'message', () async {
+      for (final code in [
+        'user-not-found',
+        'user-disabled',
+        'invalid-email',
+        'missing-email',
+        'internal-error',
+        'operation-not-allowed',
+        'some-new-code',
+      ]) {
+        when(
+          () => firebaseAuth.sendPasswordResetEmail(email: any(named: 'email')),
+        ).thenThrow(
+          fb.FirebaseAuthException(code: code, message: 'raw $code detail'),
+        );
+        // A fresh repository per code: no cooldown carried between them.
+        await expectLater(
+          repo().sendPasswordResetEmail('person@example.com'),
+          completes,
+          reason: code,
+        );
+      }
+    });
+
+    group('cooldown', () {
+      late DateTime now;
+      late AuthRepository repository;
+
+      setUp(() {
+        now = DateTime.now();
+        repository = AuthRepository(
+          firebaseAuth: firebaseAuth,
+          googleSignIn: googleSignIn,
+          clock: () => now,
+        );
+        when(
+          () => firebaseAuth.sendPasswordResetEmail(email: any(named: 'email')),
+        ).thenAnswer((_) async {});
+      });
+
+      test('a repeat for the same address inside 60 s is a neutral success '
+          'without a second email', () async {
+        await repository.sendPasswordResetEmail('person@example.com');
+        now = now.add(const Duration(seconds: 59));
+        await repository.sendPasswordResetEmail(' Person@Example.com ');
+        verify(
+          () => firebaseAuth.sendPasswordResetEmail(email: any(named: 'email')),
+        ).called(1);
+
+        now = now.add(const Duration(seconds: 1));
+        await repository.sendPasswordResetEmail('person@example.com');
+        verify(
+          () =>
+              firebaseAuth.sendPasswordResetEmail(email: 'person@example.com'),
+        ).called(1);
+      });
+
+      test('another address is not held back', () async {
+        await repository.sendPasswordResetEmail('a@example.com');
+        await repository.sendPasswordResetEmail('b@example.com');
+        verify(
+          () => firebaseAuth.sendPasswordResetEmail(email: any(named: 'email')),
+        ).called(2);
+      });
+
+      test('a neutral (unknown account) answer starts the cooldown too, so '
+          'known and unknown addresses look alike', () async {
+        when(
+          () => firebaseAuth.sendPasswordResetEmail(email: any(named: 'email')),
+        ).thenThrow(fb.FirebaseAuthException(code: 'user-not-found'));
+        await repository.sendPasswordResetEmail('nobody@example.com');
+        await repository.sendPasswordResetEmail('nobody@example.com');
+        verify(
+          () => firebaseAuth.sendPasswordResetEmail(email: any(named: 'email')),
+        ).called(1);
+      });
+
+      test('a network or throttle failure does not start it', () async {
+        for (final code in ['network-request-failed', 'too-many-requests']) {
+          when(
+            () =>
+                firebaseAuth.sendPasswordResetEmail(email: any(named: 'email')),
+          ).thenThrow(fb.FirebaseAuthException(code: code));
+          await expectLater(
+            repository.sendPasswordResetEmail('person@example.com'),
+            throwsA(isA<AuthFailure>()),
+          );
+        }
+        when(
+          () => firebaseAuth.sendPasswordResetEmail(email: any(named: 'email')),
+        ).thenAnswer((_) async {});
+        await repository.sendPasswordResetEmail('person@example.com');
+        verify(
+          () => firebaseAuth.sendPasswordResetEmail(email: any(named: 'email')),
+        ).called(3);
+      });
+    });
   });
 
   group('signInWithGoogle on web', () {
@@ -115,6 +214,59 @@ void main() {
             'message',
             contains('pop-ups'),
           ),
+        ),
+      );
+    });
+  });
+
+  group('Google Sign-In client ids per platform', () {
+    Future<void> signIn(TargetPlatform platform) async {
+      final account = _MockGoogleSignInAccount();
+      when(
+        () => googleSignIn.initialize(
+          clientId: any(named: 'clientId'),
+          serverClientId: any(named: 'serverClientId'),
+        ),
+      ).thenAnswer((_) async {});
+      when(
+        () => googleSignIn.initialize(
+          serverClientId: any(named: 'serverClientId'),
+        ),
+      ).thenAnswer((_) async {});
+      when(() => googleSignIn.supportsAuthenticate()).thenReturn(true);
+      when(() => googleSignIn.authenticate()).thenAnswer((_) async => account);
+      when(() => account.authentication).thenReturn(
+        const GoogleSignInAuthentication(idToken: 'google-id-token'),
+      );
+      when(() => firebaseAuth.signInWithCredential(any()))
+          .thenAnswer((_) async => _MockUserCredential());
+      await AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+        googleIosClientId: 'ios-client.apps.googleusercontent.com',
+        isWeb: false,
+        platform: platform,
+      ).signInWithGoogle(webClientId: 'web-client');
+    }
+
+    test('iOS initializes Google Sign-In with the iOS clientId', () async {
+      await signIn(TargetPlatform.iOS);
+      verify(
+        () => googleSignIn.initialize(
+          clientId: 'ios-client.apps.googleusercontent.com',
+          serverClientId: 'web-client',
+        ),
+      ).called(1);
+    });
+
+    test('Android never receives the iOS clientId', () async {
+      await signIn(TargetPlatform.android);
+      verify(() => googleSignIn.initialize(serverClientId: 'web-client'))
+          .called(1);
+      verifyNever(
+        () => googleSignIn.initialize(
+          clientId: any(named: 'clientId'),
+          serverClientId: any(named: 'serverClientId'),
         ),
       );
     });

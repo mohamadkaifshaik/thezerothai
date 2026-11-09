@@ -361,7 +361,8 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 
 // Cancel implements Repo: one transaction. Reads, fresh: idempotency (a replay returns), the beacon (owner-checked). An
 // already CANCELLED beacon is success with the idempotency document only; an ENDED one (at p.Now) is ErrEnded and writes
-// nothing; otherwise the status and the organiser's membership state become cancelled.
+// nothing; otherwise the status and the organiser's membership state become cancelled, and p.Stage (when set) adds its
+// writes to the same commit.
 func (r *FirestoreRepo) Cancel(ctx context.Context, p CancelParams) (CancelResult, error) {
 	if err := r.ready(); err != nil {
 		return CancelResult{}, err
@@ -403,6 +404,9 @@ func (r *FirestoreRepo) Cancel(ctx context.Context, p CancelParams) (CancelResul
 			{Path: "updatedAt", Value: now},
 		})
 		b.Set(r.membershipRef(p.UID, p.BeaconID), map[string]any{"state": d.Status}, firestore.MergeAll)
+		if p.Stage != nil {
+			p.Stage(b, d.beacon(p.BeaconID)) // the cancellation outbox item (B07): after every read, in this commit
+		}
 		r.putIdem(b, p.UID, p.IdemKey, rpcCancelBeacon, p.RequestHash, p.BeaconID)
 		if err := b.Err(); err != nil {
 			return err

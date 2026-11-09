@@ -291,7 +291,8 @@ check "a failed authenticated smoke never reaches the bookmarks smoke" bash -c '
 setup; nosecrets env DRY_RUN=true IMAGE=$IMG_NEW bash "$p/promote-dev.sh" >"$tmp/out" 2>&1; rc=$?
 check "no secrets, dry run: completes" eq "$rc" 0
 check "no secrets, dry run: skipped with a notice" grep -q 'authenticated smoke SKIPPED: the smoke secrets are unavailable' "$tmp/out"
-check "no secrets, dry run: the notice names the dev-only bookmarks smoke too" grep -q 'dev-only bookmarks smoke is skipped' "$tmp/out"check "no secrets, dry run: the bookmarks smoke did not run" bash -c '! grep -q "bookmarks smoke:" "$0"' "$tmp/out"
+check "no secrets, dry run: the notice names the dev-only bookmarks smoke too" grep -q 'dev-only bookmarks smoke is skipped' "$tmp/out"
+check "no secrets, dry run: the bookmarks smoke did not run" bash -c '! grep -q "bookmarks smoke:" "$0"' "$tmp/out"
 check "no secrets, dry run: no sign-in attempted" eq "$(signins)" 0
 check "no secrets, dry run: traffic untouched" no_traffic_change
 check "no secrets, dry run: candidate tag removed" eq "$(tagrev candidate)" none

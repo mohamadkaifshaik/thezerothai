@@ -653,4 +653,29 @@ void main() {
       }
     });
   });
+
+  group('auth palette contrast', () {
+    void check(String label, Color fg, Map<String, Color> bgs) {
+      for (final bg in bgs.entries) {
+        test('$label on ${bg.key} is at least 4.5:1', () {
+          expect(contrast(fg, bg.value), greaterThanOrEqualTo(4.5));
+        });
+      }
+    }
+
+    check('muted', AppAuthPalette.muted, {
+      'paper': AppAuthPalette.paper,
+      'white': AppAuthPalette.white,
+      'tabTrack': AppAuthPalette.tabTrack,
+      'welcome': AppAuthPalette.welcome,
+    });
+    check('link', AppAuthPalette.link, {'paper': AppAuthPalette.paper});
+    check('darkMuted', AppAuthPalette.darkMuted, {
+      'navy': AppAuthPalette.navy,
+      'darkField': AppAuthPalette.darkField,
+      'darkTabTrack': AppAuthPalette.darkTabTrack,
+      'darkSelectedTab': AppAuthPalette.darkSelectedTab,
+      'darkWelcome': AppAuthPalette.darkWelcome,
+    });
+  });
 }
