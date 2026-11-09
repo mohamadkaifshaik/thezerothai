@@ -386,7 +386,7 @@ func TestGetAccountExport_EveryPath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			readsBefore, signedBefore := h.repo.reads, len(h.objs.signed)
-			_, err := h.l.GetAccountExport(context.Background(), tt.uid, tt.id)
+			_, err := h.l.GetAccountExport(context.Background(), tt.uid, tt.id, true)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("err = %v", err)
 			}
