@@ -193,7 +193,7 @@ void main() {
       );
       final decoration = box.decoration as BoxDecoration;
       expect(decoration.color!.a, closeTo(0.92, 0.01));
-      expect(decoration.color!.withValues(alpha: 1), const Color(0xFF000000));
+      expect(decoration.color!.withValues(alpha: 1), AppPalette.navy);
       expect(
         (decoration.border! as Border).bottom.color,
         appDarkTheme.colorScheme.outlineVariant,

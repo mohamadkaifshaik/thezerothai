@@ -3,10 +3,13 @@ import 'package:flutter/material.dart';
 /// Design tokens shared by every screen. Never hard-code a `Color(0x...)` or
 /// a raw size outside this file.
 ///
-/// The colour system follows the founder decision of 2026-10-22: match X's
-/// colouring (dark and light), no indigo seed and no gradient. Sizes are dp
-/// (X's CSS px; the research scale was verified at 1.25). The evidence is in
-/// the X reference captures (`02_ui_design_tokens.md`, `10_light_dark_theme.md`).
+/// The colour system is the redesign of ADR-0033 (with amendment 1): pearl
+/// and navy surfaces, teal actions, and gradients only where the design
+/// defines them ([AppGradients]). The ADR's accessibility corrections
+/// override the design tokens where they conflict (teal text on light is
+/// [AppPalette.tealText]; borders reach 3:1; danger text on dark is
+/// [AppPalette.dangerOnDark]). Sizes are dp; the legacy chrome sizes below
+/// were measured on x.com and migrate section by section.
 abstract final class AppSpacing {
   static const double xs = 4;
   static const double sm = 8;
@@ -162,48 +165,11 @@ abstract final class AppSize {
   static const double avatarXl = 120;
 }
 
-// --- Palette (X, dark) -----------------------------------------------------
-const Color _darkBackground = Color(0xFF000000);
-const Color _darkSurfaceLow = Color(0xFF080808);
-const Color _darkSurface = Color(0xFF141414);
-const Color _darkSurfaceHigh = Color(0xFF1D1D1D);
-const Color _darkSurfaceHighest = Color(0xFF262626);
-const Color _darkTextPrimary = Color(0xFFE7E9EA);
-const Color _darkTextSecondary = Color(0xFF71767B);
-const Color _darkBorder = Color(0xFF2F3336);
-const Color _darkOutline = Color(0xFF333639);
-
-// --- Palette (X, light) ----------------------------------------------------
-const Color _lightBackground = Color(0xFFFFFFFF);
-const Color _lightSurfaceLow = Color(0xFFFAFAFA);
-const Color _lightSurface = Color(0xFFF7F9F9);
-const Color _lightSurfaceHigh = Color(0xFFF2F2F2);
-const Color _lightSurfaceHighest = Color(0xFFEBEBEB);
-const Color _lightTextPrimary = Color(0xFF0F1419);
-const Color _lightTextSecondary = Color(0xFF536471);
-const Color _lightBorder = Color(0xFFEFF3F4);
-const Color _lightOutline = Color(0xFFCFD9DE);
-
-/// The one accent, identical in both themes (tab bar, links, badge, unread
-/// dot, FAB).
-const Color _accent = Color(0xFF1D9BF0);
-
-/// Small accent *text* on white fails 4.5:1 with [_accent] (3.00:1); this
-/// darker blue (4.72:1) is used for links and hashtags in the light theme
-/// (decision D1 of the W0 plan). Icons, fills and the
-/// tab bar keep [_accent].
-const Color _lightAccentText = Color(0xFF1478BD);
-
-/// Semantic colours shared by both themes (X: like heart, repost arrows, live).
-const Color _like = Color(0xFFF91880);
-const Color _repost = Color(0xFF00BA7C);
-const Color _live = Color(0xFFF91880);
-const Color _recommendation = Color(0xFF794BC4);
-
 /// Semantic colours that the Material [ColorScheme] has no slot for.
 ///
-/// Read them with `context.appColors`. Everything here is a *state* or
-/// *role* colour, never a brand colour (there is no brand gradient).
+/// Read them with `context.appColors`. State and role colours come from the
+/// [AppPalette] token family; the one brand gradient is [primaryFillGradient]
+/// (ADR-0033 §6: gradients only where the design defines them).
 @immutable
 class AppColors extends ThemeExtension<AppColors> {
   const AppColors({
@@ -220,32 +186,43 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.disabledPillLabel,
     required this.selectedRow,
     required this.scrim,
+    required this.primaryFillGradient,
+    required this.primaryFillLabel,
+    required this.dangerFill,
+    required this.onDangerFill,
+    required this.uiBorder,
+    required this.hairline,
+    required this.text2,
+    required this.selectedIndicator,
+    required this.navBarSurface,
+    required this.navBarSelected,
+    required this.navBarUnselected,
   });
 
-  /// Like heart and liked state.
+  /// Like heart and liked state: the danger red of the theme (text-safe on
+  /// every surface step, because it also tints the count).
   final Color like;
 
-  /// Repost icon and reposted state.
+  /// Repost icon and reposted state (teal; the label also changes).
   final Color repost;
 
-  /// Live broadcast indicator.
+  /// Live broadcast indicator (danger family).
   final Color live;
 
-  /// Recommendation / assistant notification icon.
+  /// Recommendation / assistant notification icon (teal family).
   final Color recommendation;
 
-  /// A positive status (available handle): the repost green.
+  /// A positive status (available handle).
   final Color positive;
 
-  /// Colour for small accent *text* (links, hashtags, "Show more"). Equal to
-  /// the accent in dark; a darker blue in light so it passes 4.5:1.
+  /// Colour for small accent *text* (links, hashtags, "Show more"):
+  /// tealText on light, tealElectric on dark.
   final Color accentText;
 
-  /// Secondary text on a raised surface (cards with a fill). Dark
-  /// `onSurfaceVariant` drops below 4.5:1 on those steps; this does not.
+  /// Secondary text on a raised surface (cards with a fill).
   final Color secondaryOnRaised;
 
-  /// The strong (inverse) pill: light fill on dark, dark fill on light.
+  /// The strong (inverse) pill: navy on light, pearl on dark.
   final Color strongPillFill;
   final Color strongPillLabel;
 
@@ -259,44 +236,88 @@ class AppColors extends ThemeExtension<AppColors> {
   /// Barrier colour behind drawers, dialogs and sheets.
   final Color scrim;
 
+  /// The primary button / own-bubble gradient and its label (navy on both
+  /// ends: 9.61 and 7.30).
+  final LinearGradient primaryFillGradient;
+  final Color primaryFillLabel;
+
+  /// Destructive fills (both themes) and their label.
+  final Color dangerFill;
+  final Color onDangerFill;
+
+  /// Boundary of fields, chips and outline buttons (>= 3:1).
+  final Color uiBorder;
+
+  /// Decorative divider only (translucent; never a component boundary).
+  final Color hairline;
+
+  /// Secondary-strong text (field labels, rail rows).
+  final Color text2;
+
+  /// Selected tab / chip indicator.
+  final Color selectedIndicator;
+
+  /// The floating navigation bar: navy in both themes (design F16).
+  final Color navBarSurface;
+  final Color navBarSelected;
+  final Color navBarUnselected;
+
   /// Photo viewers retain a dark canvas in both light and dark themes.
   static const photoBackground = Color(0xFF000000);
   static const onPhotoBackground = Color(0xFFFFFFFF);
 
   static const AppColors dark = AppColors(
-    like: _like,
-    repost: _repost,
-    live: _live,
-    recommendation: _recommendation,
-    positive: _repost,
-    accentText: _accent,
-    secondaryOnRaised: Color(0xFF999999),
-    strongPillFill: Color(0xFFEFF3F4),
-    strongPillLabel: Color(0xFF0F1419),
-    disabledPillFill: Color(0xFF3C3D3D),
-    disabledPillLabel: Color(0xFF9A9D9F),
-    selectedRow: Color(0xFF16181C),
-    // X's scrim over black measured #242d34 = rgba(91, 112, 131, 0.4).
-    scrim: Color(0x665B7083),
+    like: AppPalette.dangerOnDark,
+    repost: AppPalette.tealElectric,
+    live: AppPalette.dangerOnDark,
+    recommendation: AppPalette.tealElectric,
+    positive: AppPalette.tealElectric,
+    accentText: AppPalette.tealElectric,
+    secondaryOnRaised: AppPalette.mutedOnDark,
+    strongPillFill: AppPalette.pearl,
+    strongPillLabel: AppPalette.navy,
+    disabledPillFill: AppPalette.darkContainerHighest,
+    disabledPillLabel: AppPalette.mutedOnDark,
+    selectedRow: AppPalette.darkContainerHigh,
+    scrim: AppPalette.scrim,
+    primaryFillGradient: AppGradients.primaryButton,
+    primaryFillLabel: AppPalette.navy,
+    dangerFill: AppPalette.danger,
+    onDangerFill: AppPalette.white,
+    uiBorder: AppPalette.uiBorderOnDark,
+    hairline: AppPalette.hairlineDark,
+    text2: AppPalette.text2OnDark,
+    selectedIndicator: AppPalette.tealElectric,
+    navBarSurface: AppPalette.navy,
+    navBarSelected: AppPalette.tealElectric,
+    navBarUnselected: AppPalette.mutedOnDark,
   );
 
   static const AppColors light = AppColors(
-    like: _like,
-    repost: _repost,
-    live: _live,
-    recommendation: _recommendation,
-    positive: _repost,
-    accentText: _lightAccentText,
-    secondaryOnRaised: _lightTextSecondary,
-    strongPillFill: Color(0xFF0F1419),
-    strongPillLabel: Color(0xFFFFFFFF),
-    // To confirm against X (the disabled light pill was not observed).
-    disabledPillFill: Color(0x660F1419),
-    disabledPillLabel: Color(0xFFFFFFFF),
-    // To confirm against X (the selected light row was not observed).
-    selectedRow: Color(0xFFF7F9F9),
-    // Measured: a white page became #d9d9da = black at about 15 %.
-    scrim: Color(0x26000000),
+    like: AppPalette.danger,
+    repost: AppPalette.tealText,
+    live: AppPalette.danger,
+    recommendation: AppPalette.tealText,
+    positive: AppPalette.tealText,
+    accentText: AppPalette.tealText,
+    secondaryOnRaised: AppPalette.mutedOnLight,
+    strongPillFill: AppPalette.navy,
+    strongPillLabel: AppPalette.pearl,
+    disabledPillFill: AppPalette.lightContainerHighest,
+    disabledPillLabel: AppPalette.mutedOnLight,
+    selectedRow: AppPalette.lightContainerHigh,
+    scrim: AppPalette.scrim,
+    primaryFillGradient: AppGradients.primaryButton,
+    primaryFillLabel: AppPalette.navy,
+    dangerFill: AppPalette.danger,
+    onDangerFill: AppPalette.white,
+    uiBorder: AppPalette.uiBorderOnLight,
+    hairline: AppPalette.hairlineLight,
+    text2: AppPalette.text2,
+    selectedIndicator: AppPalette.tealText,
+    navBarSurface: AppPalette.navy,
+    navBarSelected: AppPalette.tealElectric,
+    navBarUnselected: AppPalette.mutedOnDark,
   );
 
   @override
@@ -314,6 +335,17 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? disabledPillLabel,
     Color? selectedRow,
     Color? scrim,
+    LinearGradient? primaryFillGradient,
+    Color? primaryFillLabel,
+    Color? dangerFill,
+    Color? onDangerFill,
+    Color? uiBorder,
+    Color? hairline,
+    Color? text2,
+    Color? selectedIndicator,
+    Color? navBarSurface,
+    Color? navBarSelected,
+    Color? navBarUnselected,
   }) {
     return AppColors(
       like: like ?? this.like,
@@ -329,6 +361,17 @@ class AppColors extends ThemeExtension<AppColors> {
       disabledPillLabel: disabledPillLabel ?? this.disabledPillLabel,
       selectedRow: selectedRow ?? this.selectedRow,
       scrim: scrim ?? this.scrim,
+      primaryFillGradient: primaryFillGradient ?? this.primaryFillGradient,
+      primaryFillLabel: primaryFillLabel ?? this.primaryFillLabel,
+      dangerFill: dangerFill ?? this.dangerFill,
+      onDangerFill: onDangerFill ?? this.onDangerFill,
+      uiBorder: uiBorder ?? this.uiBorder,
+      hairline: hairline ?? this.hairline,
+      text2: text2 ?? this.text2,
+      selectedIndicator: selectedIndicator ?? this.selectedIndicator,
+      navBarSurface: navBarSurface ?? this.navBarSurface,
+      navBarSelected: navBarSelected ?? this.navBarSelected,
+      navBarUnselected: navBarUnselected ?? this.navBarUnselected,
     );
   }
 
@@ -350,6 +393,21 @@ class AppColors extends ThemeExtension<AppColors> {
       disabledPillLabel: mix(disabledPillLabel, other.disabledPillLabel),
       selectedRow: mix(selectedRow, other.selectedRow),
       scrim: mix(scrim, other.scrim),
+      primaryFillGradient: LinearGradient.lerp(
+        primaryFillGradient,
+        other.primaryFillGradient,
+        t,
+      )!,
+      primaryFillLabel: mix(primaryFillLabel, other.primaryFillLabel),
+      dangerFill: mix(dangerFill, other.dangerFill),
+      onDangerFill: mix(onDangerFill, other.onDangerFill),
+      uiBorder: mix(uiBorder, other.uiBorder),
+      hairline: mix(hairline, other.hairline),
+      text2: mix(text2, other.text2),
+      selectedIndicator: mix(selectedIndicator, other.selectedIndicator),
+      navBarSurface: mix(navBarSurface, other.navBarSurface),
+      navBarSelected: mix(navBarSelected, other.navBarSelected),
+      navBarUnselected: mix(navBarUnselected, other.navBarUnselected),
     );
   }
 }
@@ -372,70 +430,75 @@ ColorScheme _colorScheme(Brightness brightness) {
   if (brightness == Brightness.light) {
     return const ColorScheme(
       brightness: Brightness.light,
-      primary: _accent,
-      onPrimary: Color(0xFFFFFFFF),
-      primaryContainer: _lightSurfaceHigh,
-      onPrimaryContainer: _lightTextPrimary,
-      secondary: _accent,
-      onSecondary: Color(0xFFFFFFFF),
-      secondaryContainer: _lightSurfaceHigh,
-      onSecondaryContainer: _lightTextPrimary,
-      // No separate tertiary: there is no gradient any more.
-      tertiary: _accent,
-      onTertiary: Color(0xFFFFFFFF),
-      error: Color(0xFFBA1A1A),
-      onError: Color(0xFFFFFFFF),
-      surface: _lightBackground,
-      onSurface: _lightTextPrimary,
-      onSurfaceVariant: _lightTextSecondary,
-      surfaceDim: _lightBackground,
-      surfaceBright: _lightBackground,
-      surfaceContainerLowest: _lightBackground,
-      surfaceContainerLow: _lightSurfaceLow,
-      surfaceContainer: _lightSurface,
-      surfaceContainerHigh: _lightSurfaceHigh,
-      surfaceContainerHighest: _lightSurfaceHighest,
-      outline: _lightOutline,
-      outlineVariant: _lightBorder,
-      shadow: Color(0xFF000000),
-      scrim: Color(0xFF000000),
-      inverseSurface: _lightTextPrimary,
-      onInverseSurface: _lightBackground,
-      inversePrimary: _accent,
+      // tealText, not the bright teal: Material defaults (focus ring, switch,
+      // progress, text-button foreground) stay AA on pearl (5.43).
+      primary: AppPalette.tealText,
+      onPrimary: AppPalette.white,
+      primaryContainer: AppPalette.lightContainerHigh,
+      onPrimaryContainer: AppPalette.navy,
+      // The `.btn.navy`.
+      secondary: AppPalette.navy,
+      onSecondary: AppPalette.pearl,
+      secondaryContainer: AppPalette.lightContainerHigh,
+      onSecondaryContainer: AppPalette.navy,
+      // Tertiary has no role and stays banned in lib/ (it mirrors primary).
+      tertiary: AppPalette.tealText,
+      onTertiary: AppPalette.white,
+      error: AppPalette.danger,
+      onError: AppPalette.white,
+      surface: AppPalette.pearl,
+      onSurface: AppPalette.navy,
+      onSurfaceVariant: AppPalette.mutedOnLight,
+      surfaceDim: AppPalette.lightContainerHighest,
+      surfaceBright: AppPalette.white,
+      surfaceContainerLowest: AppPalette.white,
+      surfaceContainerLow: AppPalette.lightContainerLow,
+      // Cards and fields.
+      surfaceContainer: AppPalette.white,
+      surfaceContainerHigh: AppPalette.lightContainerHigh,
+      surfaceContainerHighest: AppPalette.lightContainerHighest,
+      outline: AppPalette.uiBorderOnLight,
+      outlineVariant: AppPalette.hairlineLight,
+      shadow: AppPalette.navyDeep,
+      scrim: AppPalette.navyDeep,
+      inverseSurface: AppPalette.navy,
+      onInverseSurface: AppPalette.pearl,
+      inversePrimary: AppPalette.tealElectric,
       surfaceTint: Colors.transparent,
     );
   }
   return const ColorScheme(
     brightness: Brightness.dark,
-    primary: _accent,
-    onPrimary: Color(0xFFFFFFFF),
-    primaryContainer: _darkSurfaceHigh,
-    onPrimaryContainer: _darkTextPrimary,
-    secondary: _accent,
-    onSecondary: Color(0xFFFFFFFF),
-    secondaryContainer: _darkSurfaceHigh,
-    onSecondaryContainer: _darkTextPrimary,
-    tertiary: _accent,
-    onTertiary: Color(0xFFFFFFFF),
-    error: Color(0xFFFFB4AB),
-    onError: Color(0xFF690005),
-    surface: _darkBackground,
-    onSurface: _darkTextPrimary,
-    onSurfaceVariant: _darkTextSecondary,
-    surfaceDim: _darkBackground,
-    surfaceBright: _darkSurfaceHighest,
-    surfaceContainerLowest: _darkBackground,
-    surfaceContainerLow: _darkSurfaceLow,
-    surfaceContainer: _darkSurface,
-    surfaceContainerHigh: _darkSurfaceHigh,
-    surfaceContainerHighest: _darkSurfaceHighest,
-    outline: _darkOutline,
-    outlineVariant: _darkBorder,
-    shadow: Color(0xFF000000),
-    scrim: Color(0xFF000000),
-    inverseSurface: _darkTextPrimary,
-    onInverseSurface: _darkBackground,
-    inversePrimary: _accent,
+    primary: AppPalette.tealElectric,
+    onPrimary: AppPalette.navy,
+    primaryContainer: AppPalette.darkContainerHigh,
+    onPrimaryContainer: AppPalette.pearl,
+    secondary: AppPalette.pearl,
+    onSecondary: AppPalette.navy,
+    secondaryContainer: AppPalette.darkContainerHigh,
+    onSecondaryContainer: AppPalette.pearl,
+    tertiary: AppPalette.tealElectric,
+    onTertiary: AppPalette.navy,
+    // Amendment 1: danger text and icons on dark; fills use dangerFill.
+    error: AppPalette.dangerOnDark,
+    onError: AppPalette.navy,
+    surface: AppPalette.darkSurface,
+    onSurface: AppPalette.pearl,
+    onSurfaceVariant: AppPalette.mutedOnDark,
+    surfaceDim: AppPalette.darkContainerLowest,
+    surfaceBright: AppPalette.darkContainerHighest,
+    surfaceContainerLowest: AppPalette.darkContainerLowest,
+    surfaceContainerLow: AppPalette.darkContainerLow,
+    surfaceContainer: AppPalette.darkContainer,
+    surfaceContainerHigh: AppPalette.darkContainerHigh,
+    surfaceContainerHighest: AppPalette.darkContainerHighest,
+    outline: AppPalette.uiBorderOnDark,
+    outlineVariant: AppPalette.hairlineDark,
+    shadow: AppPalette.navyDeep,
+    scrim: AppPalette.navyDeep,
+    inverseSurface: AppPalette.pearl,
+    onInverseSurface: AppPalette.navy,
+    inversePrimary: AppPalette.tealText,
     surfaceTint: Colors.transparent,
   );
 }
@@ -480,7 +543,7 @@ ThemeData buildAppTheme({required Brightness brightness}) {
   );
   final border = BorderSide(color: colorScheme.outlineVariant);
   // Dialogs, sheets and menus sit one step above the page in dark; in light
-  // the page is already white.
+  // they share the pearl page (component themes follow in PR 1.5).
   final modalColor = isDark
       ? colorScheme.surfaceContainer
       : colorScheme.surface;
@@ -507,9 +570,9 @@ ThemeData buildAppTheme({required Brightness brightness}) {
       titleTextStyle: textTheme.titleLarge,
       shape: Border(bottom: border),
     ),
-    // The default FilledButton is X's strong (inverse) pill: light fill on
-    // dark, dark fill on light. Accent-coloured buttons are explicit
-    // (`FloatingActionButton`); there is no gradient.
+    // The default FilledButton is the strong (inverse) pill: navy on light,
+    // pearl on dark. `ButtonStyle` cannot paint a gradient, so the teal
+    // gradient primary (`AppColors.primaryFillGradient`) is a primitive.
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         minimumSize: const Size.fromHeight(AppSpacing.minTapTarget),
@@ -572,8 +635,8 @@ ThemeData buildAppTheme({required Brightness brightness}) {
       indicatorColor: Colors.transparent,
       labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
       backgroundColor: colorScheme.surface,
-      // X's bar: every glyph is the primary text colour; only the filled
-      // variant marks the selected one.
+      // Every glyph is the primary text colour; only the filled variant marks
+      // the selected one (phase 3 restyles the bar).
       iconTheme: WidgetStatePropertyAll(
         IconThemeData(color: colorScheme.onSurface, size: AppIconSize.lg),
       ),
@@ -628,8 +691,8 @@ ThemeData buildAppTheme({required Brightness brightness}) {
         borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
       ),
     ),
-    // Dark: a raised dark toast. Light: an inverse (dark) toast, because the
-    // accent text cannot reach 4.5:1 on a light-grey surface.
+    // Dark: a raised navy toast. Light: an inverse (navy) toast, so the
+    // action can be tealElectric (9.61 on navy).
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
       backgroundColor: isDark
@@ -637,7 +700,9 @@ ThemeData buildAppTheme({required Brightness brightness}) {
           : colorScheme.inverseSurface,
       // M3 defaults assume an inverse-surface snackbar; on the dark surface
       // they fail WCAG AA (F4 M1), so the colours are set explicitly.
-      actionTextColor: isDark ? appColors.accentText : _accent,
+      actionTextColor: isDark
+          ? appColors.accentText
+          : colorScheme.inversePrimary,
       closeIconColor: isDark
           ? colorScheme.onSurfaceVariant
           : colorScheme.onInverseSurface,
@@ -648,8 +713,8 @@ ThemeData buildAppTheme({required Brightness brightness}) {
         borderRadius: BorderRadius.circular(AppRadius.md),
       ),
     ),
-    // Count badges are accent blue with a white count (X's unread dot is the
-    // accent), not the Material error colour.
+    // Count badges are the primary (tealText with white on light,
+    // tealElectric with navy on dark), not the Material error colour.
     badgeTheme: BadgeThemeData(
       backgroundColor: colorScheme.primary,
       textColor: colorScheme.onPrimary,
@@ -798,7 +863,8 @@ abstract final class AppAuthPalette {
   static const white = Color(0xFFFFFFFF);
 }
 
-/// Raw redesign colour tokens (ADR-0033). Not wired into the active theme yet.
+/// Raw redesign colour tokens (ADR-0033). The [ColorScheme]s and [AppColors]
+/// read them; widgets read the theme, not these.
 abstract final class AppPalette {
   static const Color navy = Color(0xFF0D1528);
   static const Color navy2 = Color(0xFF1B2A44);
@@ -837,6 +903,15 @@ abstract final class AppPalette {
   static const Color darkContainer = Color(0xFF16223B);
   static const Color darkContainerHigh = navy2;
   static const Color darkContainerHighest = Color(0xFF22324F);
+
+  // Light container ladder (PR 1.3). surface is pearl; Lowest and Container
+  // are white.
+  static const Color lightContainerLow = Color(0xFFFAF9F6);
+  static const Color lightContainerHigh = Color(0xFFEEF1F4);
+  static const Color lightContainerHighest = Color(0xFFE6EAEE);
+
+  /// text2 on dark: pearl at 80 % over navy (dz.css `.dark .field label`).
+  static const Color text2OnDark = Color(0xFFC7C7C7);
 }
 
 /// Redesign gradients. Declared only here.
@@ -850,12 +925,12 @@ abstract final class AppGradients {
   static const LinearGradient card = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: [AppPalette.white, Color(0xFFEEF1F4)],
+    colors: [AppPalette.white, AppPalette.lightContainerHigh],
   );
   static const LinearGradient lightBubble = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: [AppPalette.white, Color(0xFFE6EAEE)],
+    colors: [AppPalette.white, AppPalette.lightContainerHighest],
   );
   static const LinearGradient darkCard = LinearGradient(
     begin: Alignment.topCenter,
