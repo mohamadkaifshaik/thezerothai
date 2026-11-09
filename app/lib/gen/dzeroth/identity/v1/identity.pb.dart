@@ -45,6 +45,7 @@ class Profile extends $pb.GeneratedMessage {
     $core.String? website,
     $core.String? pinnedPostId,
     $core.bool? subscriptionVerified,
+    DmPolicy? dmPolicy,
   }) {
     final result = Profile._();
     if (userId != null) result.userId = userId;
@@ -66,6 +67,7 @@ class Profile extends $pb.GeneratedMessage {
     if (pinnedPostId != null) result.pinnedPostId = pinnedPostId;
     if (subscriptionVerified != null)
       result.subscriptionVerified = subscriptionVerified;
+    if (dmPolicy != null) result.dmPolicy = dmPolicy;
     return result;
   }
 
@@ -102,6 +104,8 @@ class Profile extends $pb.GeneratedMessage {
     ..aOS(16, _omitFieldNames ? '' : 'website')
     ..aOS(17, _omitFieldNames ? '' : 'pinnedPostId')
     ..aOB(18, _omitFieldNames ? '' : 'subscriptionVerified')
+    ..aE<DmPolicy>(19, _omitFieldNames ? '' : 'dmPolicy',
+        enumValues: DmPolicy.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -313,6 +317,19 @@ class Profile extends $pb.GeneratedMessage {
   $core.bool hasSubscriptionVerified() => $_has(17);
   @$pb.TagNumber(18)
   void clearSubscriptionVerified() => $_clearField(18);
+
+  /// Who can start a direct message with this account (F9). UNSPECIFIED means EVERYONE_REQUESTS (today's behaviour).
+  /// Always UNSPECIFIED while FEATURE_DM_POLICY is globally off, in every Profile including the owner's own; the stored
+  /// value returns when the flag is back on. Clients grey out a recipient whose policy is FOLLOWING_ONLY unless that
+  /// account follows the caller (the server decides: SendMessage answers CANNOT_MESSAGE).
+  @$pb.TagNumber(19)
+  DmPolicy get dmPolicy => $_getN(18);
+  @$pb.TagNumber(19)
+  set dmPolicy(DmPolicy value) => $_setField(19, value);
+  @$pb.TagNumber(19)
+  $core.bool hasDmPolicy() => $_has(18);
+  @$pb.TagNumber(19)
+  void clearDmPolicy() => $_clearField(19);
 }
 
 class CreateProfileRequest extends $pb.GeneratedMessage {
@@ -959,6 +976,7 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
     $core.String? location,
     $core.String? website,
     $core.String? pinnedPostId,
+    DmPolicy? dmPolicy,
   }) {
     final result = UpdateProfileRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
@@ -970,6 +988,7 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
     if (location != null) result.location = location;
     if (website != null) result.website = website;
     if (pinnedPostId != null) result.pinnedPostId = pinnedPostId;
+    if (dmPolicy != null) result.dmPolicy = dmPolicy;
     return result;
   }
 
@@ -996,6 +1015,8 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
     ..aOS(7, _omitFieldNames ? '' : 'location')
     ..aOS(8, _omitFieldNames ? '' : 'website')
     ..aOS(9, _omitFieldNames ? '' : 'pinnedPostId')
+    ..aE<DmPolicy>(10, _omitFieldNames ? '' : 'dmPolicy',
+        enumValues: DmPolicy.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1121,6 +1142,19 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
   $core.bool hasPinnedPostId() => $_has(8);
   @$pb.TagNumber(9)
   void clearPinnedPostId() => $_clearField(9);
+
+  /// Who can message the caller (F9). FOLLOWING_ONLY needs FEATURE_DM_POLICY on for the caller (FAILED_PRECONDITION +
+  /// FEATURE_DISABLED, metadata["feature"] = "dm_policy", checked before any read); EVERYONE_REQUESTS is never gated (the
+  /// undo rule). UNSPECIFIED is rejected: INVALID_ARGUMENT + VALIDATION, metadata["field"] = "dm_policy". The change
+  /// reaches SendMessage on other instances within the profile cache TTL (60 s). Existing accepted conversations keep working.
+  @$pb.TagNumber(10)
+  DmPolicy get dmPolicy => $_getN(9);
+  @$pb.TagNumber(10)
+  set dmPolicy(DmPolicy value) => $_setField(10, value);
+  @$pb.TagNumber(10)
+  $core.bool hasDmPolicy() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearDmPolicy() => $_clearField(10);
 }
 
 class UpdateProfileResponse extends $pb.GeneratedMessage {

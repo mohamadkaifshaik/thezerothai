@@ -39,6 +39,34 @@ class AccountStatus extends $pb.ProtobufEnum {
   const AccountStatus._(super.value, super.name);
 }
 
+/// Who may start a direct message with an account. Existing accepted conversations always keep working.
+class DmPolicy extends $pb.ProtobufEnum {
+  /// Same as EVERYONE_REQUESTS. Every account created before the setting existed has it.
+  static const DmPolicy DM_POLICY_UNSPECIFIED =
+      DmPolicy._(0, _omitEnumNames ? '' : 'DM_POLICY_UNSPECIFIED');
+
+  /// Anyone can message; a sender the account does not follow arrives as a message request (messaging.proto).
+  static const DmPolicy DM_POLICY_EVERYONE_REQUESTS =
+      DmPolicy._(1, _omitEnumNames ? '' : 'DM_POLICY_EVERYONE_REQUESTS');
+
+  /// Only accounts that this account follows can start a conversation or add to a pending request.
+  static const DmPolicy DM_POLICY_FOLLOWING_ONLY =
+      DmPolicy._(2, _omitEnumNames ? '' : 'DM_POLICY_FOLLOWING_ONLY');
+
+  static const $core.List<DmPolicy> values = <DmPolicy>[
+    DM_POLICY_UNSPECIFIED,
+    DM_POLICY_EVERYONE_REQUESTS,
+    DM_POLICY_FOLLOWING_ONLY,
+  ];
+
+  static final $core.List<DmPolicy?> _byValue =
+      $pb.ProtobufEnum.$_initByValueList(values, 2);
+  static DmPolicy? valueOf($core.int value) =>
+      value < 0 || value >= _byValue.length ? null : _byValue[value];
+
+  const DmPolicy._(super.value, super.name);
+}
+
 class ExportStatus extends $pb.ProtobufEnum {
   static const ExportStatus EXPORT_STATUS_UNSPECIFIED =
       ExportStatus._(0, _omitEnumNames ? '' : 'EXPORT_STATUS_UNSPECIFIED');

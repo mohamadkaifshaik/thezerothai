@@ -62,10 +62,12 @@ type exportProfile struct {
 	Bio         string `json:"bio"`
 	AvatarURL   string `json:"avatarUrl,omitempty"`
 	// The profile extras, omitted when absent. The thumbnails are derived data and stay out, like avatarThumbUrl.
-	BannerURL      string          `json:"bannerUrl,omitempty"`
-	Location       string          `json:"location,omitempty"`
-	Website        string          `json:"website,omitempty"`
-	PinnedPostID   string          `json:"pinnedPostId,omitempty"`
+	BannerURL    string `json:"bannerUrl,omitempty"`
+	Location     string `json:"location,omitempty"`
+	Website      string `json:"website,omitempty"`
+	PinnedPostID string `json:"pinnedPostId,omitempty"`
+	// DMPolicy (F9) is who may message the account; omitted for the default.
+	DMPolicy       string          `json:"dmPolicy,omitempty"`
 	HomeTabs       []exportHomeTab `json:"homeTabs,omitempty"`
 	IsPrivate      bool            `json:"isPrivate"`
 	Verified       bool            `json:"verified"`
@@ -79,7 +81,7 @@ func profileSection(p Profile) exportProfile {
 	return exportProfile{
 		UserID: p.UserID, Handle: p.Handle, DisplayName: p.DisplayName, Bio: p.Bio, AvatarURL: p.AvatarURL,
 		IsPrivate: p.IsPrivate, Verified: p.Verified, FollowersCount: p.FollowersCount, FollowingCount: p.FollowingCount,
-		BannerURL: p.BannerURL, Location: p.Location, Website: p.Website, PinnedPostID: p.PinnedPostID, HomeTabs: exportHomeTabs(p),
+		BannerURL: p.BannerURL, Location: p.Location, Website: p.Website, PinnedPostID: p.PinnedPostID, DMPolicy: string(p.DMPolicy), HomeTabs: exportHomeTabs(p),
 		PostsCount: p.PostsCount, CreatedAt: p.CreatedAt.UTC(),
 	}
 }
