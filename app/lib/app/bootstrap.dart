@@ -125,6 +125,12 @@ Future<void> bootstrap() async {
       authRepository = AuthRepository(
         firebaseAuth: firebaseAuth,
         googleWebClientId: config.googleWebClientId,
+        googleIosClientId: switch (config.firebaseEnv) {
+          FirebaseEnv.dev =>
+            dev_firebase.DefaultFirebaseOptions.ios.iosClientId,
+          FirebaseEnv.prod =>
+            prod_firebase.DefaultFirebaseOptions.ios.iosClientId,
+        },
         appleServiceId: config.appleServiceId,
         appleRedirectUri: config.appleRedirectUri,
       );

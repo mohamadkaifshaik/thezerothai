@@ -15,6 +15,7 @@ const Map<String, String> kScreenNames = {
   '/sign-up': 'sign_up',
   '/onboarding': 'onboarding',
   '/onboarding/delete-account': 'delete_account',
+  '/session-error': 'session_error',
   '/account-deleted': 'account_deleted',
   '/home': 'home',
   '/home/pinned': 'pinned',

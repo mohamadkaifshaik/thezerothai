@@ -11,11 +11,22 @@ two terminals running from the repository root:
    & 'C:\Program Files\Git\bin\bash.exe' scripts/with-private-tmp.sh firebase emulators:start --project demo-dzeroth-local --only firestore,auth,pubsub,storage
    ```
 
-2. After "All emulators ready", start the API:
+2. After "All emulators ready", start the API on port 8081, pointed at the
+   emulators:
 
    ```powershell
-   powershell -File scripts/start-local-api.ps1
+   $env:FIREBASE_PROJECT_ID = 'demo-dzeroth-local'
+   $env:PORT = '8081'
+   $env:FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
+   $env:FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099'
+   $env:PUBSUB_EMULATOR_HOST = '127.0.0.1:8085'
+   $env:STORAGE_EMULATOR_HOST = '127.0.0.1:9199'
+   cd backend; go run ./cmd/api
    ```
+
+   Or skip both steps and run `make dev` from the repository root (Git Bash):
+   it starts the emulators, the API (`scripts/dev.sh`) and Flutter web in Chrome
+   together.
 
 Select **Flutter Chrome (local emulators)** in VS Code, then **Run Without
 Debugging**. Alternatively, from `app/`:
@@ -35,18 +46,33 @@ App Check, telemetry collection, and FCM are disabled in this mode. Fully stop
 and relaunch Flutter after changing startup configuration; hot reload is not
 sufficient.
 
-A new Flutter project.
+## Android release signing
 
-## Getting Started
+`android/app/build.gradle.kts` signs the `release` build type with an upload
+key when one is configured, from `android/key.properties` (gitignored; never
+commit it or the keystore) or the environment:
 
-This project is a starting point for a Flutter application.
+```properties
+# android/key.properties
+storeFile=/absolute/path/to/upload.jks   # or relative to android/app
+storePassword=...
+keyAlias=...
+keyPassword=...
+```
 
-A few resources to get you started if this is your first Flutter project:
+or `DZEROTH_UPLOAD_STORE_FILE`, `DZEROTH_UPLOAD_STORE_PASSWORD`,
+`DZEROTH_UPLOAD_KEY_ALIAS` and `DZEROTH_UPLOAD_KEY_PASSWORD`. `key.properties`
+wins per field. Secret values are never printed.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+Without a key the release build falls back to the debug key and Gradle logs a
+warning; such a build cannot be published. Set the Gradle property
+`dzerothRequireReleaseSigning=true` to fail the build with a clear message
+instead of falling back. `flutter build` has no `-P` flag, so use the
+environment form Gradle maps to project properties (for example in the release
+workflow):
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```
+ORG_GRADLE_PROJECT_dzerothRequireReleaseSigning=true flutter build appbundle --release
+```
+
+See the [repository README](../README.md) for the project overview and commands.

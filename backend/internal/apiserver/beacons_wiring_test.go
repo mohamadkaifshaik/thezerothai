@@ -38,7 +38,9 @@ func TestBeaconNotifier_RequestAndAccept(t *testing.T) {
 	empty := beaconNotifier{slot: &emitterSlot{}}
 	empty.JoinRequested(context.Background(), ev)
 	empty.RequestAccepted(context.Background(), ev)
-	empty.Cancelled(context.Background(), beacons.CancelEvent{BeaconID: beaconNotifID, OrganiserUID: "uid-o", ParticipantUIDs: []string{"uid-p"}})
+	if err := empty.Cancelled(context.Background(), beacons.CancelEvent{BeaconID: beaconNotifID, OrganiserUID: "uid-o", ParticipantUIDs: []string{"uid-p"}}); err != nil {
+		t.Errorf("empty slot Cancelled = %v", err)
+	}
 }
 
 // TestBeaconNotifier_CancelChunks (R24): a cancellation reaches every accepted participant in events of at most
@@ -51,7 +53,9 @@ func TestBeaconNotifier_CancelChunks(t *testing.T) {
 			uids[i] = fmt.Sprintf("p%02d", i)
 		}
 		rec := &recordingEmitter{}
-		beaconNotifier{slot: &emitterSlot{em: rec}}.Cancelled(context.Background(), beacons.CancelEvent{BeaconID: beaconNotifID, OrganiserUID: "uid-o", ParticipantUIDs: uids, At: at})
+		if err := (beaconNotifier{slot: &emitterSlot{em: rec}}).Cancelled(context.Background(), beacons.CancelEvent{BeaconID: beaconNotifID, OrganiserUID: "uid-o", ParticipantUIDs: uids, At: at}); err != nil {
+			t.Fatalf("%d participants: %v", tc.n, err)
+		}
 		if len(rec.events) != tc.wantEvents {
 			t.Errorf("%d participants: events = %d, want %d", tc.n, len(rec.events), tc.wantEvents)
 			continue
@@ -101,5 +105,62 @@ func TestBeaconEvent_ReachesTheFanout(t *testing.T) {
 	}
 	if pub := send(flags.NewRegistry(flags.Spec{Name: notifications.FlagName, Mode: flags.Off})); len(pub.data) != 0 {
 		t.Errorf("published %d events with notifications off, want 0", len(pub.data))
+	}
+}
+
+// TestBeaconCancel_BypassesRecipientCap (B07): a cancellation notice reaches every accepted participant whatever the
+// organiser's remaining per-actor daily recipient budget, and is not charged to it. Before the exemption each chunk
+// of 10 passed the all-or-nothing cap, so a remaining budget of 10-14 reached 10 people and under 10 reached nobody.
+func TestBeaconCancel_BypassesRecipientCap(t *testing.T) {
+	const limit = 15
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	reg := flags.NewRegistry(flags.Spec{Name: notifications.FlagName, Mode: flags.On})
+	for _, n := range []int{0, 1, 10, 11, 20} {
+		for _, remaining := range []int{0, 5, 10, 15} {
+			t.Run(fmt.Sprintf("%d recipients, %d left", n, remaining), func(t *testing.T) {
+				recipCap := notifications.NewRecipientCap(limit, limit, nil)
+				if spend := limit - remaining; spend > 0 {
+					if ok, _, _ := recipCap.Admit("uid-o", spend); !ok {
+						t.Fatalf("pre-spend %d refused", spend)
+					}
+				}
+				pub := &capturingPublisher{}
+				em := notifications.NewPubSubEmitter(pub, reg, log).WithRecipientCap(recipCap)
+				uids := make([]string, n)
+				for i := range uids {
+					uids[i] = fmt.Sprintf("p%02d", i)
+				}
+				if err := (beaconNotifier{slot: &emitterSlot{em: em}}).Cancelled(context.Background(),
+					beacons.CancelEvent{BeaconID: beaconNotifID, OrganiserUID: "uid-o", ParticipantUIDs: uids, At: time.Now()}); err != nil {
+					t.Fatalf("Cancelled: %v", err)
+				}
+				var got []string
+				for _, data := range pub.data {
+					var wire struct {
+						Type         string   `json:"type"`
+						RecipientIDs []string `json:"recipientIds"`
+					}
+					if err := json.Unmarshal(data, &wire); err != nil {
+						t.Fatal(err)
+					}
+					if wire.Type != "beacon_cancelled" {
+						t.Errorf("type = %q", wire.Type)
+					}
+					got = append(got, wire.RecipientIDs...)
+				}
+				if strings.Join(got, ",") != strings.Join(uids, ",") {
+					t.Errorf("delivered to %d of %d participants: %v", len(got), n, got)
+				}
+				// The organiser's budget is untouched: exactly `remaining` more social recipients are still admitted.
+				if remaining > 0 {
+					if ok, _, _ := recipCap.Admit("uid-o", remaining); !ok {
+						t.Errorf("remaining budget %d was charged by the cancellation", remaining)
+					}
+				}
+				if ok, _, _ := recipCap.Admit("uid-o", 1); ok {
+					t.Errorf("budget exceeds the limit after the cancellation")
+				}
+			})
+		}
 	}
 }
