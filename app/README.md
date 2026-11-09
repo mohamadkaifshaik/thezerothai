@@ -11,11 +11,22 @@ two terminals running from the repository root:
    & 'C:\Program Files\Git\bin\bash.exe' scripts/with-private-tmp.sh firebase emulators:start --project demo-dzeroth-local --only firestore,auth,pubsub,storage
    ```
 
-2. After "All emulators ready", start the API:
+2. After "All emulators ready", start the API on port 8081, pointed at the
+   emulators:
 
    ```powershell
-   powershell -File scripts/start-local-api.ps1
+   $env:FIREBASE_PROJECT_ID = 'demo-dzeroth-local'
+   $env:PORT = '8081'
+   $env:FIRESTORE_EMULATOR_HOST = '127.0.0.1:8080'
+   $env:FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099'
+   $env:PUBSUB_EMULATOR_HOST = '127.0.0.1:8085'
+   $env:STORAGE_EMULATOR_HOST = '127.0.0.1:9199'
+   cd backend; go run ./cmd/api
    ```
+
+   Or skip both steps and run `make dev` from the repository root (Git Bash):
+   it starts the emulators, the API (`scripts/dev.sh`) and Flutter web in Chrome
+   together.
 
 Select **Flutter Chrome (local emulators)** in VS Code, then **Run Without
 Debugging**. Alternatively, from `app/`:
@@ -64,18 +75,4 @@ workflow):
 ORG_GRADLE_PROJECT_dzerothRequireReleaseSigning=true flutter build appbundle --release
 ```
 
-A new Flutter project.
-
-## Getting Started
-
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+See the [repository README](../README.md) for the project overview and commands.
