@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/beacons/domain/beacons_feature_flag.dart';
 import 'package:dzeroth/features/beacons/presentation/create_beacon_screen.dart';
@@ -267,5 +269,76 @@ void main() {
     );
     expect(server.calls, isEmpty);
     expect(createEnabled(tester), isFalse);
+  });
+
+  group('leaving with edits (C03)', () {
+    /// Starts on the plans stub and pushes the form, so there is a route to
+    /// pop back to.
+    Future<GoRouter> openPushed(WidgetTester tester) async {
+      final router = await open(tester);
+      router.go('/plans');
+      await tester.pumpAndSettle();
+      unawaited(router.push<void>('/plans/new'));
+      await tester.pumpAndSettle();
+      return router;
+    }
+
+    testWidgets('a clean form leaves without asking', (tester) async {
+      final router = await openPushed(tester);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('Discard this plan?'), findsNothing);
+      expect(router.state.uri.path, '/plans');
+    });
+
+    testWidgets('Cancel on a dirty form asks; Keep editing stays', (
+      tester,
+    ) async {
+      final router = await openPushed(tester);
+      await tester.enterText(field('Title'), 'Coffee');
+      await tester.pump();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('Discard this plan?'), findsOneWidget);
+      await tester.tap(find.text('Keep editing'));
+      await tester.pumpAndSettle();
+      expect(router.state.uri.path, '/plans/new');
+      expect(find.text('Coffee'), findsWidgets);
+    });
+
+    testWidgets('platform back on a dirty form asks; Discard leaves', (
+      tester,
+    ) async {
+      final router = await openPushed(tester);
+      await tester.enterText(field('Title'), 'Coffee');
+      await tester.pump();
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Discard this plan?'), findsOneWidget);
+      expect(router.state.uri.path, '/plans/new');
+      await tester.tap(find.text('Discard'));
+      await tester.pumpAndSettle();
+      expect(router.state.uri.path, '/plans');
+    });
+
+    testWidgets('a changed chip counts as an edit', (tester) async {
+      await openPushed(tester);
+      await tapVisible(tester, find.widgetWithText(ChoiceChip, '30 min'));
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Discard this plan?'), findsOneWidget);
+    });
+
+    testWidgets('a saved plan goes to its page without a prompt', (
+      tester,
+    ) async {
+      final router = await openPushed(tester);
+      await fillValid(tester);
+      await tester.tap(find.widgetWithText(AppPillButton, 'Create'));
+      await tester.pumpAndSettle();
+      expect(find.text('Discard this plan?'), findsNothing);
+      expect(router.state.uri.path, startsWith('/plans/'));
+      expect(router.state.uri.path, isNot('/plans/new'));
+    });
   });
 }

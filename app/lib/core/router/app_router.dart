@@ -61,6 +61,7 @@ import '../../features/onboarding/domain/handle_rules.dart' show kHandlePattern;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../../features/onboarding/presentation/create_profile_screen.dart';
+import '../../features/onboarding/presentation/session_error_screen.dart';
 import '../../features/posts/presentation/composer_screen.dart';
 import '../../features/posts/presentation/drafts_screen.dart';
 import '../../features/posts/domain/composer_draft.dart' show kFeatureDrafts;
@@ -70,12 +71,12 @@ import '../../features/posts/presentation/post_photo_screen.dart';
 import '../../features/posts/presentation/reply_composer_screen.dart';
 import '../../features/posts/presentation/scheduled_posts_screen.dart';
 import '../../features/profile/domain/profile_edit_feature_flag.dart';
-import '../../features/shells/domain/shell_entries.dart';
-import '../../features/shells/domain/shells_feature_flag.dart';
-import '../../features/shells/presentation/advertise_screen.dart';
-import '../../features/shells/presentation/calls_screen.dart';
-import '../../features/shells/presentation/creator_studio_screen.dart';
-import '../../features/shells/presentation/premium_dialog.dart';
+import 'shell_entries.dart';
+import '../feature_flags/shells_feature_flag.dart';
+import '../../features/advertise/presentation/advertise_screen.dart';
+import '../../features/calls/presentation/calls_screen.dart';
+import '../../features/creator_studio/presentation/creator_studio_screen.dart';
+import '../../features/premium/presentation/premium_dialog.dart';
 import '../../features/profile/presentation/change_handle_screen.dart';
 import '../../features/profile/presentation/edit_profile_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
@@ -112,6 +113,11 @@ class AppRouter {
   static const signInPath = '/sign-in';
   static const signUpPath = '/sign-up';
   static const onboardingPath = '/onboarding';
+
+  /// Full-screen recoverable error for a session whose `GetMe` failed with
+  /// nothing usable to show (`OnboardingStatus.error`). Outside the shell, so
+  /// no navigation chrome renders with an empty flag set.
+  static const sessionErrorPath = '/session-error';
   static const homePath = '/home';
   static const composePath = '/compose';
   static const articlesPath = '/compose/articles';
@@ -305,6 +311,11 @@ class AppRouter {
         path: onboardingPath,
         builder: (context, state) =>
             const AuthGate(child: CreateProfileScreen()),
+      ),
+      GoRoute(
+        path: sessionErrorPath,
+        builder: (context, state) =>
+            const AuthGate(child: SessionErrorScreen()),
       ),
       // No AuthGate: unverified callers must reach it too (the gate would
       // swap in the verification prompt).
@@ -767,7 +778,8 @@ class AppRouter {
       path == '/' ||
       path == signInPath ||
       path == signUpPath ||
-      path == onboardingPath;
+      path == onboardingPath ||
+      path == sessionErrorPath;
 
   String get _landingPath => _pendingTarget ?? homePath;
 
@@ -829,7 +841,9 @@ class AppRouter {
             ? null
             : onboardingPath;
       case OnboardingStatus.ready:
-        if (loc == onboardingPath) return _landingPath;
+        if (loc == onboardingPath || loc == sessionErrorPath) {
+          return _landingPath;
+        }
         // Only meaningful without a profile; Settings has the real entry.
         if (loc == onboardingDeletePath) return settingsPath;
         return _shellsFlagRedirect(loc, state.extra) ??
@@ -847,13 +861,23 @@ class AppRouter {
             _followRequestsRedirect(loc) ??
             _exploreFlagRedirect(loc) ??
             _notificationsFlagRedirect(loc);
-      case OnboardingStatus.unknown:
-      case OnboardingStatus.loading:
       case OnboardingStatus.error:
+        // GetMe failed with nothing usable (no cached profile, or right
+        // after CreateProfile): a full-screen Retry, never Home with every
+        // flag off.
+        // The delete-account page stays reachable, as for profileRequired.
+        return (loc == sessionErrorPath || loc == onboardingDeletePath)
+            ? null
+            : sessionErrorPath;
       case OnboardingStatus.emailVerificationRequired:
         // CreateProfileScreen renders VerifyEmailView in place for this
         // status; no URL change (same pattern as needsEmailVerification
-        // above).
+        // above). From the error page (a retried GetMe said verify first)
+        // that screen is where the prompt lives.
+        return loc == sessionErrorPath ? onboardingPath : null;
+      case OnboardingStatus.unknown:
+      case OnboardingStatus.loading:
+        // The error page shows a spinner while a retried GetMe runs.
         return null;
     }
   }

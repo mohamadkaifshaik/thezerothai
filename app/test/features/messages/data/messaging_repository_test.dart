@@ -8,6 +8,7 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/network/rate_limit_hold.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
+import 'package:dzeroth/features/messages/presentation/bloc/message_composer_cubit.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/data/timer_thread_poller.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
@@ -1058,6 +1059,37 @@ void main() {
       common.ErrorReason.ERROR_REASON_RATE_LIMITED,
       metadata: {'limit': 'search_daily'},
     );
+
+    test('a composer alive across clearSession cannot write the old '
+        "user's text back", () async {
+      final cubit = MessageComposerCubit(
+        repository: repo,
+        outbox: repo.outbox,
+        conversationId: 'c1',
+      )..textChanged('first');
+      expect(repo.outbox.draftOf('c1'), 'first');
+
+      repo.clearSession();
+      cubit.textChanged('old user, still typing');
+      await cubit.close();
+
+      expect(repo.outbox.isEmpty, isTrue);
+      final next = MessageComposerCubit(
+        repository: repo,
+        outbox: repo.outbox,
+        conversationId: 'c1',
+      );
+      expect(next.state.draft.text, isEmpty);
+      await next.close();
+    });
+
+    test('clearSession empties the message outbox', () {
+      repo.outbox.save('c1', draft: 'private', rows: const []);
+      expect(repo.outbox.draftOf('c1'), 'private');
+      repo.clearSession();
+      expect(repo.outbox.draftOf('c1'), isEmpty);
+      expect(repo.outbox.isEmpty, isTrue);
+    });
 
     test('clearSession releases the read hold', () {
       hold.record(const RateLimitedException('slow down'));

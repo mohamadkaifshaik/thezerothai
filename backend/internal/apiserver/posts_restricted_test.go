@@ -131,8 +131,8 @@ func newChain(t *testing.T, mutate func(*config.Config)) *chainEnv {
 	return newChainWith(t, mutate, nil)
 }
 
-// newChainWith is newChain with an optional ID-token verifier override (nil = the real one).
-func newChainWith(t *testing.T, mutate func(*config.Config), verifier authn.IDTokenVerifier) *chainEnv {
+// newChainWith is newChain with an optional ID-token verifier override (nil = the real one) and build options.
+func newChainWith(t *testing.T, mutate func(*config.Config), verifier authn.IDTokenVerifier, opts ...buildOption) *chainEnv {
 	t.Helper()
 	skipIfNoEmulators(t)
 	cfg, err := config.Load()
@@ -144,7 +144,7 @@ func newChainWith(t *testing.T, mutate func(*config.Config), verifier authn.IDTo
 		mutate(&cfg)
 	}
 	logs := &logBuf{}
-	handler, fsClient, err := build(context.Background(), cfg, slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo})), verifier)
+	handler, fsClient, err := build(context.Background(), cfg, slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo})), verifier, opts...)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
