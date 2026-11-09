@@ -34,8 +34,11 @@ import 'compose_gate.dart';
 
 /// The navigation chrome around the authenticated top-level destinations.
 ///
-/// With the `ui_shell` flag on (decision D3): Home, Notifications (flag),
-/// Messages (`messaging`) and the own Profile in the bottom bar / rail;
+/// With the `ui_shell` flag on (ADR-0034): Home, Explore, Plans, Notifications
+/// and Messages (each behind its flag; Plans keeps its `beacons` gate until it
+/// is retired) are the bottom
+/// bar and the first rail items; Lists, Communities, History, Profile and More
+/// follow on the rail and in the drawer (Profile also from the avatar);
 /// Settings and Sign out live in the avatar drawer (phones) and the account
 /// chip menu (wide screens), like X. With it off: the legacy chrome, Settings
 /// as a fourth destination (and the Messages entry inside it), no drawer, no
@@ -49,10 +52,9 @@ class MainShell extends StatelessWidget {
   final String location;
   final Widget child;
 
-  /// The destinations, in order. Notifications sits second and exists only
-  /// with the `notifications` flag on. Messages follows it, with
-  /// `messaging` and the new shell (F10).
+  /// The destinations, in display order (primaries first, then secondaries).
   static List<_Destination> _destinationsFor({
+    required bool newShell,
     required bool explore,
     required bool notifications,
     required bool messages,
@@ -62,119 +64,136 @@ class MainShell extends StatelessWidget {
     required bool plans,
     required bool settings,
     void Function(BuildContext anchor)? onMore,
-  }) => [
-    const _Destination(
+  }) {
+    const secondary = AppNavGroup.secondary;
+    // Home, Explore, Plans, Notifications, Messages are the primaries
+    // (ADR-0034); Lists, Communities, History, Profile, More follow as
+    // secondary. The legacy chrome keeps its old list: Home, Notifications,
+    // Profile, Settings, all in the bar.
+    const home = _Destination(
       _Tab.home,
       AppNavDestination(
         icon: Icons.home_outlined,
         selectedIcon: Icons.home,
         label: 'Home',
       ),
-    ),
-    if (explore)
-      const _Destination(
-        _Tab.explore,
-        AppNavDestination(
-          icon: Icons.search,
-          selectedIcon: Icons.manage_search,
-          label: 'Explore',
-        ),
-      ),
-    if (notifications)
-      const _Destination(
-        _Tab.notifications,
-        AppNavDestination(
-          icon: Icons.notifications_none,
-          selectedIcon: Icons.notifications,
-          label: 'Notifications',
-        ),
-      ),
-    if (messages)
-      const _Destination(
-        _Tab.messages,
-        AppNavDestination(
-          icon: Icons.mail_outline,
-          selectedIcon: Icons.mail,
-          label: 'Messages',
-        ),
-      ),
-    // Rail only (>= 600dp): below that the drawer carries the entry.
-    if (bookmarks)
-      const _Destination(
-        _Tab.bookmarks,
-        AppNavDestination(
-          icon: Icons.bookmark_border,
-          selectedIcon: Icons.bookmark,
-          label: 'History',
-          railOnly: true,
-        ),
-      ),
-    // Rail only, like History: below 600dp the drawer carries the entry.
-    if (lists)
-      const _Destination(
-        _Tab.lists,
-        AppNavDestination(
-          icon: Icons.list_alt_outlined,
-          selectedIcon: Icons.list_alt,
-          label: 'Lists',
-          railOnly: true,
-        ),
-      ),
-    // Rail only, like Lists: below 600dp the drawer carries the entry.
-    if (communities)
-      const _Destination(
-        _Tab.communities,
-        AppNavDestination(
-          icon: Icons.groups_outlined,
-          selectedIcon: Icons.groups,
-          label: 'Communities',
-          railOnly: true,
-        ),
-      ),
-    // Rail only, like Communities: the drawer carries the entry on phones.
-    if (plans)
-      const _Destination(
-        _Tab.plans,
-        AppNavDestination(
-          icon: Icons.event_outlined,
-          selectedIcon: Icons.event,
-          label: 'Plans',
-          railOnly: true,
-        ),
-      ),
-    const _Destination(
+    );
+    final exploreTab = explore
+        ? const _Destination(
+            _Tab.explore,
+            AppNavDestination(
+              icon: Icons.search,
+              selectedIcon: Icons.manage_search,
+              label: 'Explore',
+            ),
+          )
+        : null;
+    final plansTab = plans
+        ? const _Destination(
+            _Tab.plans,
+            AppNavDestination(
+              icon: Icons.event_outlined,
+              selectedIcon: Icons.event,
+              label: 'Plans',
+            ),
+          )
+        : null;
+    final notificationsTab = notifications
+        ? const _Destination(
+            _Tab.notifications,
+            AppNavDestination(
+              icon: Icons.notifications_none,
+              selectedIcon: Icons.notifications,
+              label: 'Notifications',
+            ),
+          )
+        : null;
+    final messagesTab = messages
+        ? const _Destination(
+            _Tab.messages,
+            AppNavDestination(
+              icon: Icons.mail_outline,
+              selectedIcon: Icons.mail,
+              label: 'Messages',
+            ),
+          )
+        : null;
+    final profileTab = _Destination(
       _Tab.profile,
       AppNavDestination(
         icon: Icons.person_outline,
         selectedIcon: Icons.person,
         label: 'Profile',
+        // Off the phone bar in the new shell: the avatar and the drawer
+        // header open it (ADR-0034 section 2).
+        group: newShell ? secondary : AppNavGroup.primary,
       ),
-    ),
-    if (settings)
-      const _Destination(
-        _Tab.settings,
-        AppNavDestination(
-          icon: Icons.settings_outlined,
-          selectedIcon: Icons.settings,
-          label: 'Settings',
+    );
+    final settingsTab = settings
+        ? const _Destination(
+            _Tab.settings,
+            AppNavDestination(
+              icon: Icons.settings_outlined,
+              selectedIcon: Icons.settings,
+              label: 'Settings',
+            ),
+          )
+        : null;
+    return [
+      home,
+      ?exploreTab,
+      ?plansTab,
+      ?notificationsTab,
+      ?messagesTab,
+      if (!newShell) ...[profileTab, ?settingsTab],
+      if (lists)
+        const _Destination(
+          _Tab.lists,
+          AppNavDestination(
+            icon: Icons.list_alt_outlined,
+            selectedIcon: Icons.list_alt,
+            label: 'Lists',
+            group: secondary,
+          ),
         ),
-      ),
-    // Rail only: the menu of the shell entries (Creator tools, Premium, ...).
-    // It opens a menu at the item and never navigates; below 600dp the
-    // drawer carries those entries.
-    if (onMore != null)
-      _Destination(
-        _Tab.more,
-        AppNavDestination(
-          icon: Icons.more_horiz,
-          selectedIcon: Icons.more_horiz,
-          label: 'More',
-          semanticsLabel: 'More, menu',
-          railOnly: true,
-          onActivate: onMore,
+      if (communities)
+        const _Destination(
+          _Tab.communities,
+          AppNavDestination(
+            icon: Icons.groups_outlined,
+            selectedIcon: Icons.groups,
+            label: 'Communities',
+            group: secondary,
+          ),
         ),
-      ),
-  ];
+      if (bookmarks)
+        const _Destination(
+          _Tab.bookmarks,
+          AppNavDestination(
+            icon: Icons.bookmark_border,
+            selectedIcon: Icons.bookmark,
+            label: 'History',
+            group: secondary,
+          ),
+        ),
+      if (newShell) ...[profileTab, ?settingsTab],
+      // Rail only: the menu of the shell entries (Creator tools, Premium, ...).
+      // It opens a menu at the item and never navigates; below 600dp the
+      // drawer carries those entries.
+      if (onMore != null)
+        _Destination(
+          _Tab.more,
+          AppNavDestination(
+            icon: Icons.more_horiz,
+            selectedIcon: Icons.more_horiz,
+            label: 'More',
+            semanticsLabel: 'More, menu',
+            group: secondary,
+            onActivate: onMore,
+          ),
+        ),
+    ];
+  }
 
   /// The selected tab, or null on screens that belong to no tab (Settings in
   /// the new shell, where it is not a destination).
@@ -244,6 +263,7 @@ class MainShell extends StatelessWidget {
     final exploreEntry = newShell && isFeatureEnabled(context, kFeatureSearch);
     final shellEntries = shellEntriesFor(context);
     final tabs = _destinationsFor(
+      newShell: newShell,
       explore: exploreEntry,
       notifications: notificationsEnabled,
       messages: messagesEnabled,
