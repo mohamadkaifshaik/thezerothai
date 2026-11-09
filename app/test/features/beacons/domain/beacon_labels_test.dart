@@ -1,15 +1,13 @@
 import 'package:dzeroth/features/beacons/domain/beacon_labels.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Every enum value the server can send has fixed user copy; an unknown or
 /// unspecified value reads as the generic one, never as an empty string.
 void main() {
-  test('activities have a label and an icon', () {
+  test('activities have a label', () {
     for (final a in pb.BeaconActivity.values) {
       expect(activityLabel(a), isNotEmpty, reason: a.name);
-      expect(activityIcon(a), isA<IconData>(), reason: a.name);
     }
     expect(activityLabel(pb.BeaconActivity.BEACON_ACTIVITY_COFFEE), 'Coffee');
     expect(

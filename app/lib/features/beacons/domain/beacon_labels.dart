@@ -1,9 +1,7 @@
-import 'package:flutter/material.dart';
-
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../shared/format/scheduled_time.dart';
 
-/// Fixed user copy and icons for the plan enums. A value this build does not
+/// Fixed user copy for the plan enums. A value this build does not
 /// know (or UNSPECIFIED) reads as the generic one, never as an empty string.
 String activityLabel(pb.BeaconActivity a) => switch (a) {
   pb.BeaconActivity.BEACON_ACTIVITY_COFFEE => 'Coffee',
@@ -14,16 +12,6 @@ String activityLabel(pb.BeaconActivity a) => switch (a) {
   pb.BeaconActivity.BEACON_ACTIVITY_SHOPPING => 'Shopping',
   pb.BeaconActivity.BEACON_ACTIVITY_OTHER => 'Other',
   _ => 'Plan',
-};
-
-IconData activityIcon(pb.BeaconActivity a) => switch (a) {
-  pb.BeaconActivity.BEACON_ACTIVITY_COFFEE => Icons.local_cafe_outlined,
-  pb.BeaconActivity.BEACON_ACTIVITY_MEAL => Icons.restaurant_outlined,
-  pb.BeaconActivity.BEACON_ACTIVITY_STUDY => Icons.menu_book_outlined,
-  pb.BeaconActivity.BEACON_ACTIVITY_SPORTS => Icons.sports_basketball_outlined,
-  pb.BeaconActivity.BEACON_ACTIVITY_WALK => Icons.directions_walk,
-  pb.BeaconActivity.BEACON_ACTIVITY_SHOPPING => Icons.shopping_bag_outlined,
-  _ => Icons.event_outlined,
 };
 
 String costLabel(pb.BeaconCost c) => switch (c) {
