@@ -137,6 +137,12 @@ Future<void> wipeSessionData({
 ///   when it is another user's or unstamped) and only then dispatches
 ///   [OnboardingUserAuthenticated], so nothing reads the cache before it is the
 ///   user's own.
+/// - [OnboardingUserAuthenticated] is dispatched exactly once each time the
+///   status enters [AuthStatus.authenticated]: for a new uid, and for the same
+///   uid coming from another status (an email/password user who just verified
+///   goes needsEmailVerification to authenticated without a uid change).
+///   Re-emits that keep the status (isSubmitting, a failure, a reload) do not
+///   dispatch again.
 /// - Every cache step is chained after the previous one, so a sign-in never
 ///   overtakes the sign-out wipe before it. A failed step is reported and the
 ///   chain goes on; a failed claim falls back to a plain wipe.
@@ -156,6 +162,7 @@ StreamSubscription<AuthState> wireAuthSession({
 }) {
   var cacheOps = Future<void>.value();
   AppUser? lastUser;
+  AuthStatus? lastStatus;
 
   void chain(Future<void> Function() step) {
     cacheOps = cacheOps.then((_) => step()).catchError((
@@ -172,12 +179,15 @@ StreamSubscription<AuthState> wireAuthSession({
 
   if (initialUser != null) {
     lastUser = initialUser;
+    lastStatus = AuthStatus.authenticated;
     authenticate(initialUser);
   }
   return authStates.listen((state) {
     final user = state.user;
     final previous = lastUser;
+    final previousStatus = lastStatus;
     lastUser = user;
+    lastStatus = state.status;
     if (previous != null && (user == null || user.uid != previous.uid)) {
       onboardingBloc.add(const OnboardingUserSignedOut());
       // Privacy: the privacy rule. The epoch ends now (late writes of the
@@ -202,6 +212,12 @@ StreamSubscription<AuthState> wireAuthSession({
         }
       });
       if (state.status == AuthStatus.authenticated) authenticate(user);
+    } else if (user != null &&
+        state.status == AuthStatus.authenticated &&
+        previousStatus != AuthStatus.authenticated) {
+      // Same uid, entering authenticated (e.g. the email was just verified):
+      // the cache is already this user's (claimed when the uid arrived).
+      authenticate(user);
     }
   });
 }

@@ -1,5 +1,6 @@
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/network/rate_limit_hold.dart';
+import 'package:dzeroth/features/messages/data/message_outbox.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/data/timer_thread_poller.dart';
@@ -13,7 +14,10 @@ import 'package:mocktail/mocktail.dart';
 import '../../../support/messaging_fixtures.dart';
 import '../../../support/thread_test_support.dart';
 
-class _MockMessagingRepository extends Mock implements MessagingRepository {}
+class _MockMessagingRepository extends Mock implements MessagingRepository {
+  @override
+  final MessageOutbox outbox = MessageOutbox();
+}
 
 /// `ThreadCubit` + the real `TimerThreadPoller` on a fake clock: the
 /// wiring `ThreadScreen` builds, without a widget.

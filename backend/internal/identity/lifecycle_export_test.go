@@ -226,7 +226,7 @@ func TestGetAccountExport(t *testing.T) {
 	t.Run("READY: a fresh 15-minute URL per call and expires_at", func(t *testing.T) {
 		h := newHarness(t)
 		id := newReady(h)
-		v, err := h.l.GetAccountExport(context.Background(), "u1", id)
+		v, err := h.l.GetAccountExport(context.Background(), "u1", id, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -238,7 +238,7 @@ func TestGetAccountExport(t *testing.T) {
 			t.Errorf("reads/writes = %d/%d, want 1/0", h.repo.reads, h.repo.writes)
 		}
 		h.clock.Advance(time.Minute)
-		v2, _ := h.l.GetAccountExport(context.Background(), "u1", id)
+		v2, _ := h.l.GetAccountExport(context.Background(), "u1", id, true)
 		if v2.DownloadURL == v.DownloadURL {
 			t.Error("two calls returned the same URL; it must be signed per call")
 		}
@@ -248,7 +248,7 @@ func TestGetAccountExport(t *testing.T) {
 		id := newReady(h)
 		for _, st := range []ExportStatus{ExportPending, ExportFailed} {
 			h.repo.exports[id].Status = st
-			v, err := h.l.GetAccountExport(context.Background(), "u1", id)
+			v, err := h.l.GetAccountExport(context.Background(), "u1", id, true)
 			if err != nil || v.Status != st || v.DownloadURL != "" || !v.URLExpiresAt.IsZero() {
 				t.Errorf("%s: view = %+v, err = %v", st, v, err)
 			}
@@ -275,7 +275,7 @@ func TestGetAccountExport(t *testing.T) {
 		}
 		var first *apierr.Error
 		for name, c := range cases {
-			_, err := h.l.GetAccountExport(context.Background(), c.uid, c.id)
+			_, err := h.l.GetAccountExport(context.Background(), c.uid, c.id, true)
 			ae := apiErr(t, err)
 			if ae.Code != connect.CodeNotFound {
 				t.Errorf("%s: code = %v", name, ae.Code)
@@ -294,11 +294,11 @@ func TestGetAccountExport(t *testing.T) {
 		h := newHarness(t)
 		id := newReady(h)
 		h.objs.signErr = errors.New("no signer")
-		if _, err := h.l.GetAccountExport(context.Background(), "u1", id); err == nil {
+		if _, err := h.l.GetAccountExport(context.Background(), "u1", id, true); err == nil {
 			t.Error("sign error swallowed")
 		}
 		h.repo.failOnce["GetExport"] = errors.New("boom")
-		if _, err := h.l.GetAccountExport(context.Background(), "u1", id); err == nil {
+		if _, err := h.l.GetAccountExport(context.Background(), "u1", id, true); err == nil {
 			t.Error("repo error swallowed")
 		}
 	})
