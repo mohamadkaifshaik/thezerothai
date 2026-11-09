@@ -14,7 +14,9 @@ void main() {
       activityLabel(pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED),
       'Plan',
     );
-    expect(activityLabel(pb.BeaconActivity.BEACON_ACTIVITY_OTHER), 'Plan');
+    // OTHER is a choosable chip on the create screen, so it must not read as
+    // the generic fallback.
+    expect(activityLabel(pb.BeaconActivity.BEACON_ACTIVITY_OTHER), 'Other');
   });
 
   test('cost and chat preference', () {

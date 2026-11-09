@@ -105,7 +105,7 @@ class _BeaconScreenState extends State<BeaconScreen> {
   Future<void> _cancel() async {
     if (!await _confirm(
       title: 'Cancel this plan?',
-      body: 'Everyone who joined will be told.',
+      body: 'People who joined will get a notification.',
       keep: 'Keep',
       action: 'Cancel plan',
     )) {
