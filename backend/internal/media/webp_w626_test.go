@@ -67,22 +67,30 @@ func animatedWebP() []byte {
 	return riff(vp8x(0x02), chunk("ANIM", make([]byte, 6)), chunk("ANMF", make([]byte, 16)))
 }
 
-func stillWebP(kind string) []byte {
-	if kind == "lossless" {
-		return riff(chunk("VP8L", []byte("pixels!!")))
+// purposeDims is the full-image size createWebP declares for a purpose (verify checks the real size, B14).
+func purposeDims(p Purpose) (w, h int) {
+	switch p {
+	case PurposeBanner:
+		return 1500, 500
+	case PurposeAvatar:
+		return 400, 400
 	}
-	return riff(chunk("VP8 ", []byte("pixels!!")))
+	return 1200, 800
+}
+
+// stillWebP is a single-frame WebP of the purpose's declared size.
+func stillWebP(kind string, p Purpose) []byte {
+	w, h := purposeDims(p)
+	if kind == "lossless" {
+		return riff(chunk("VP8L", append(vp8lHeader(w, h), "pixels!!"...)))
+	}
+	return riff(chunk("VP8 ", append(vp8Frame(w, h), "pixels!!"...)))
 }
 
 func (e *env) createWebP(t *testing.T, purpose Purpose, tag string, full, thumb []byte) UploadTarget {
 	t.Helper()
 	it := item(full, thumb, ContentTypeWebP)
-	if purpose == PurposeBanner {
-		it.Width, it.Height = 1500, 500
-	}
-	if purpose == PurposeAvatar {
-		it.Width, it.Height = 400, 400
-	}
+	it.Width, it.Height = purposeDims(purpose)
 	tgs, err := e.svc.CreateUpload(context.Background(), uidA, CreateUploadInput{
 		IdempotencyKey: "key-" + tag + "-0123456789", Purpose: purpose, Items: []UploadItem{it},
 	})
@@ -98,7 +106,7 @@ func TestW626_FinalizeRefusesAnimatedWebP(t *testing.T) {
 		for _, side := range []string{"full", "thumb"} {
 			t.Run(string(purpose)+"/"+side, func(t *testing.T) {
 				e := newEnv(t, envOpts{screenThumb: true})
-				full, thumb := stillWebP("lossy"), stillWebP("lossless")
+				full, thumb := stillWebP("lossy", purpose), stillWebP("lossless", purpose)
 				if side == "full" {
 					full = animatedWebP()
 				} else {
@@ -147,7 +155,7 @@ func TestW626_StillWebPStillPasses(t *testing.T) {
 		for _, purpose := range []Purpose{PurposePost, PurposeAvatar, PurposeBanner} {
 			t.Run(kind+"/"+string(purpose), func(t *testing.T) {
 				e := newEnv(t, envOpts{})
-				tg := e.createWebP(t, purpose, "s", stillWebP(kind), stillWebP(kind))
+				tg := e.createWebP(t, purpose, "s", stillWebP(kind, purpose), stillWebP(kind, purpose))
 				r, err := e.finalizeErr(t, tg.MediaID)
 				if err != nil {
 					t.Fatal(err)

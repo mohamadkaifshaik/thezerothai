@@ -106,6 +106,37 @@ void main() {
     );
   });
 
+  // Task 13: FinalizeUpload refuses a GIF whose declared width/height differ
+  // from its logical screen (header bytes 6-9, little-endian), so the client
+  // must declare exactly that, not the first frame's size.
+  test('the declared size is the logical screen in the header', () {
+    for (final (w, h) in [(32, 24), (1, 1), (300, 2), (1280, 3)]) {
+      final bytes = realGifBytes(width: w, height: h, frames: 1);
+      final out = prepareGifSync(bytes);
+      final header = ByteData.sublistView(out.fullBytes, 6, 10);
+      expect(out.width, header.getUint16(0, Endian.little), reason: '$w x $h');
+      expect(out.height, header.getUint16(2, Endian.little), reason: '$w x $h');
+      expect((out.width, out.height), (w, h));
+    }
+  });
+
+  test('a first frame smaller than the logical screen still declares the '
+      'screen, and the thumbnail is no larger than it', () {
+    // A 20 x 15 GIF whose logical screen is widened to 40 x 30: the frame
+    // sits at 0,0 inside the screen, which is valid GIF.
+    final bytes = realGifBytes(width: 20, height: 15, frames: 1);
+    ByteData.sublistView(bytes, 6, 10)
+      ..setUint16(0, 40, Endian.little)
+      ..setUint16(2, 30, Endian.little);
+
+    final out = prepareGifSync(bytes);
+
+    expect((out.width, out.height), (40, 30));
+    final thumb = img.decodeJpg(out.thumbBytes)!;
+    expect(thumb.width, lessThanOrEqualTo(40));
+    expect(thumb.height, lessThanOrEqualTo(30));
+  });
+
   test('refusal messages are the ones the user reads', () {
     expect(GifRefusedException.tooBig.message, 'GIFs can be up to 2 MB.');
     expect(GifRefusedException.notGif.toString(), "That file isn't a GIF.");

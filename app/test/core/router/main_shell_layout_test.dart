@@ -19,6 +19,7 @@ import 'package:dzeroth/features/notifications/presentation/bloc/unread_badge_cu
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:dzeroth/features/onboarding/presentation/widgets/account_refresh_banner.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
 import 'package:flutter/material.dart';
@@ -80,12 +81,14 @@ void main() {
     Widget? body,
     Brightness brightness = Brightness.light,
     double textScale = 1,
+    bool refreshFailed = false,
   }) async {
     whenListen(
       onboarding,
       const Stream<OnboardingState>.empty(),
       initialState: OnboardingState(
         status: OnboardingStatus.ready,
+        refreshFailed: refreshFailed,
         enabledFeatures: {...flags, if (newShell) kFeatureUiShell},
         profile: profile
             ? identity.Profile(
@@ -191,6 +194,30 @@ void main() {
     );
     await tester.pumpAndSettle();
   }
+
+  group('account refresh banner (A10)', () {
+    testWidgets('a failed refresh behind a cached profile shows a '
+        'non-blocking Retry over the page', (tester) async {
+      await pump(tester, refreshFailed: true);
+
+      expect(find.text(kAccountRefreshFailedMessage), findsOneWidget);
+      // The page stays usable underneath.
+      expect(find.text('home body'), findsOneWidget);
+      expect(find.byType(AppBottomBar), findsOneWidget);
+
+      await tester.tap(find.text('Retry'));
+      await tester.pump();
+      verify(() => onboarding.add(any(that: isA<OnboardingRefreshRequested>())))
+          .called(1);
+    });
+
+    testWidgets('no banner after a successful refresh', (tester) async {
+      await pump(tester);
+
+      expect(find.text(kAccountRefreshFailedMessage), findsNothing);
+      expect(find.text('Retry'), findsNothing);
+    });
+  });
 
   group('ui_shell flag off (legacy chrome)', () {
     testWidgets('phone: four destinations incl. Settings, no drawer, FAB on '

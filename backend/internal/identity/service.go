@@ -154,10 +154,19 @@ func notFoundErr() error {
 // caller who never completes sign-up, so without it such a caller could burn one Firestore read per
 // request indefinitely.
 func (s *service) getProfileCached(ctx context.Context, uid string) (Profile, error) {
+	return s.loadProfile(ctx, uid, true)
+}
+
+// loadProfile is getProfileCached with a switch for the negative cache. GetMe passes useNegative=false: it is
+// the call a client makes right after CreateProfile, which may have committed through another instance whose
+// write this instance's cache never saw, so a cached "no profile yet" must not answer it. GetMe runs once per
+// session start/refresh, so one extra read for a profile-less caller is cheap; the per-request interceptor path
+// keeps the short negative cache. A miss still refreshes the negative entry for that path.
+func (s *service) loadProfile(ctx context.Context, uid string, useNegative bool) (Profile, error) {
 	if p, ok := s.cache.GetProfile(uid); ok {
 		return p, nil
 	}
-	if s.cache.GetNotFound(uid) {
+	if useNegative && s.cache.GetNotFound(uid) {
 		return Profile{}, notFoundErr()
 	}
 	p, err := s.repo.GetProfile(ctx, uid)
@@ -247,7 +256,7 @@ func (s *service) CheckHandleAvailability(ctx context.Context, handle string) (b
 // messaging on; every other caller and every hit (30 s) reads nothing. A failed count is WARN
 // unread_conversations_failed with the badge at 0.
 func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
-	profile, err := s.getProfileCached(ctx, uid)
+	profile, err := s.loadProfile(ctx, uid, false)
 	if err != nil {
 		return MeResult{}, err
 	}
