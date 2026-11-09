@@ -271,7 +271,7 @@ void main() {
     void check(String label, Color fg, Map<String, Color> bgs) {
       for (final bg in bgs.entries) {
         test('$label on ${bg.key} is at least 4.5:1', () {
-          expect(_contrast(fg, bg.value), greaterThanOrEqualTo(4.5));
+          expect(contrast(fg, bg.value), greaterThanOrEqualTo(4.5));
         });
       }
     }
