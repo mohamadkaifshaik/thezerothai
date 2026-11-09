@@ -338,15 +338,20 @@ void main() {
     }
   });
 
-  test('the type scale (founder decision 2026-10-22)', () {
-    final text = appLightTheme.textTheme;
-    expect(text.bodyLarge!.fontSize, 15);
-    expect(text.bodyLarge!.height, closeTo(1.33, 0.001));
-    expect(text.titleSmall!.fontSize, 15);
-    expect(text.titleSmall!.fontWeight, FontWeight.w700);
-    expect(text.titleLarge!.fontSize, 20);
-    expect(text.titleLarge!.fontWeight, FontWeight.w700);
-    expect(text.headlineSmall!.fontSize, 22);
+  test('the type scale is DM Sans and Manrope (ADR-0033; typography_test)', () {
+    for (final theme in [appLightTheme, appDarkTheme]) {
+      final text = theme.textTheme;
+      expect(text.displayLarge!.fontFamily, AppFonts.display);
+      expect(text.titleLarge!.fontFamily, AppFonts.display);
+      expect(text.titleLarge!.fontSize, 20);
+      expect(text.titleLarge!.fontWeight, FontWeight.w800);
+      expect(text.bodyLarge!.fontFamily, AppFonts.body);
+      expect(text.bodyLarge!.fontSize, 15);
+      expect(text.bodyLarge!.height, closeTo(1.42, 0.001));
+      expect(text.titleSmall!.fontSize, 15);
+      expect(text.titleSmall!.fontWeight, FontWeight.w700);
+      expect(text.headlineSmall!.fontSize, 20);
+    }
   });
 
   test('size tokens match the research values', () {
