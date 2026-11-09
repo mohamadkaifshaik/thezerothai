@@ -1798,6 +1798,170 @@ class ListCommunityMembersResponse extends $pb.GeneratedMessage {
   void clearNextPageToken() => $_clearField(2);
 }
 
+class SearchCommunityMembersRequest extends $pb.GeneratedMessage {
+  factory SearchCommunityMembersRequest({
+    $core.String? communityId,
+    $core.String? prefix,
+    CommunityMemberFilter? filter,
+    $core.int? limit,
+  }) {
+    final result = SearchCommunityMembersRequest._();
+    if (communityId != null) result.communityId = communityId;
+    if (prefix != null) result.prefix = prefix;
+    if (filter != null) result.filter = filter;
+    if (limit != null) result.limit = limit;
+    return result;
+  }
+
+  SearchCommunityMembersRequest._();
+
+  factory SearchCommunityMembersRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SearchCommunityMembersRequest()..mergeFromBuffer(data, registry);
+  factory SearchCommunityMembersRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SearchCommunityMembersRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SearchCommunityMembersRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.communities.v1'),
+      createEmptyInstance: SearchCommunityMembersRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'communityId')
+    ..aOS(2, _omitFieldNames ? '' : 'prefix')
+    ..aE<CommunityMemberFilter>(3, _omitFieldNames ? '' : 'filter',
+        enumValues: CommunityMemberFilter.values)
+    ..aI(4, _omitFieldNames ? '' : 'limit')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SearchCommunityMembersRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SearchCommunityMembersRequest copyWith(
+          void Function(SearchCommunityMembersRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as SearchCommunityMembersRequest))
+          as SearchCommunityMembersRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use SearchCommunityMembersRequest() / SearchCommunityMembersRequest.new instead')
+  static SearchCommunityMembersRequest create() =>
+      SearchCommunityMembersRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      SearchCommunityMembersRequest._();
+  @$core.override
+  SearchCommunityMembersRequest createEmptyInstance() =>
+      SearchCommunityMembersRequest._();
+  @$core.pragma('dart2js:noInline')
+  static SearchCommunityMembersRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SearchCommunityMembersRequest>(
+          SearchCommunityMembersRequest.$_createMessage);
+  static SearchCommunityMembersRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get communityId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set communityId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasCommunityId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearCommunityId() => $_clearField(1);
+
+  /// Handle prefix: optional leading "@", then 2-15 of [A-Za-z0-9_].
+  @$pb.TagNumber(2)
+  $core.String get prefix => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set prefix($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPrefix() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPrefix() => $_clearField(2);
+
+  /// UNSPECIFIED => JOINED. BANNED: owner and moderators only.
+  @$pb.TagNumber(3)
+  CommunityMemberFilter get filter => $_getN(2);
+  @$pb.TagNumber(3)
+  set filter(CommunityMemberFilter value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasFilter() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearFilter() => $_clearField(3);
+
+  /// 0 => 20; clamped to 1..20.
+  @$pb.TagNumber(4)
+  $core.int get limit => $_getIZ(3);
+  @$pb.TagNumber(4)
+  set limit($core.int value) => $_setSignedInt32(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasLimit() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearLimit() => $_clearField(4);
+}
+
+class SearchCommunityMembersResponse extends $pb.GeneratedMessage {
+  factory SearchCommunityMembersResponse({
+    $core.Iterable<CommunityMember>? members,
+  }) {
+    final result = SearchCommunityMembersResponse._();
+    if (members != null) result.members.addAll(members);
+    return result;
+  }
+
+  SearchCommunityMembersResponse._();
+
+  factory SearchCommunityMembersResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SearchCommunityMembersResponse()..mergeFromBuffer(data, registry);
+  factory SearchCommunityMembersResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      SearchCommunityMembersResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SearchCommunityMembersResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.communities.v1'),
+      createEmptyInstance: SearchCommunityMembersResponse.$_createMessage)
+    ..pPM<CommunityMember>(1, _omitFieldNames ? '' : 'members',
+        subBuilder: CommunityMember.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SearchCommunityMembersResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SearchCommunityMembersResponse copyWith(
+          void Function(SearchCommunityMembersResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as SearchCommunityMembersResponse))
+          as SearchCommunityMembersResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use SearchCommunityMembersResponse() / SearchCommunityMembersResponse.new instead')
+  static SearchCommunityMembersResponse create() =>
+      SearchCommunityMembersResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      SearchCommunityMembersResponse._();
+  @$core.override
+  SearchCommunityMembersResponse createEmptyInstance() =>
+      SearchCommunityMembersResponse._();
+  @$core.pragma('dart2js:noInline')
+  static SearchCommunityMembersResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SearchCommunityMembersResponse>(
+          SearchCommunityMembersResponse.$_createMessage);
+  static SearchCommunityMembersResponse? _defaultInstance;
+
+  /// At most limit rows, handle order. No page token (approved exception).
+  @$pb.TagNumber(1)
+  $pb.PbList<CommunityMember> get members => $_getList(0);
+}
+
 class HideCommunityPostRequest extends $pb.GeneratedMessage {
   factory HideCommunityPostRequest({
     $core.String? idempotencyKey,
@@ -2507,6 +2671,25 @@ class CommunityServiceApi {
           $pb.ClientContext? ctx, ListCommunityMembersRequest request) =>
       _client.invoke<ListCommunityMembersResponse>(ctx, 'CommunityService',
           'ListCommunityMembers', request, ListCommunityMembersResponse());
+
+  /// Find members of one community by handle prefix (F36). Flags: communities, then community_member_search (header).
+  /// prefix: one optional leading "@", then 2-15 characters of [A-Za-z0-9_] (matched lower-cased), else VALIDATION
+  /// "prefix", before any lookup. limit: 0 => 20, clamped to 1..20 (never a validation error). filter: UNSPECIFIED or
+  /// JOINED searches the members (anyone who may list them); BANNED the banned users, for the owner and moderators only,
+  /// else FORBIDDEN "not_moderator" after the community read (as on the Banned page); any other value => VALIDATION
+  /// "filter". A missing or SUSPENDED community is the one NOT_FOUND.
+  /// How: the first `limit` handles of the WHOLE platform that start with the prefix (identity's handle-prefix query,
+  /// through the same 60 s per-instance (prefix, limit) cache SearchPeople uses), then one batch read of those users'
+  /// member docs in this community, keeping the ones in the filter's state. So it answers at most `limit` rows and a
+  /// member whose handle shares a very common prefix with many non-members can be missed: the client says "No members
+  /// found for that handle. Try more of their handle.", never "not a member". Display names are not searched. Rows are
+  /// built exactly as on ListCommunityMembers (live row, role, since, account not ACTIVE left out, the D7 block drops
+  /// for a caller who is not the owner or a moderator), in handle order. There is no page_token: the owner approved this
+  /// exception to the cursor rule (2026-11-09), because the answer is a bounded top-N, not a list to page through.
+  $async.Future<SearchCommunityMembersResponse> searchCommunityMembers(
+          $pb.ClientContext? ctx, SearchCommunityMembersRequest request) =>
+      _client.invoke<SearchCommunityMembersResponse>(ctx, 'CommunityService',
+          'SearchCommunityMembers', request, SearchCommunityMembersResponse());
 
   /// Hide a post from this community's view, or a reply from its conversations.
   /// Owner or moderator, else FORBIDDEN "not_moderator"; ARCHIVED => COMMUNITY_STATE "community_archived".

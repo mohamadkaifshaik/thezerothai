@@ -43,12 +43,13 @@ var (
 		communitiesv1connect.CommunityServiceListCommunitiesProcedure,
 		communitiesv1connect.CommunityServiceListMyCommunitiesProcedure,
 		communitiesv1connect.CommunityServiceListCommunityMembersProcedure,
+		communitiesv1connect.CommunityServiceSearchCommunityMembersProcedure,
 		communitiesv1connect.CommunityServiceListModerationLogProcedure,
 	}
 )
 
 // communitiesRateLimitViolations asserts the wiring: the seven mutations share one limiter; Hide and SetMemberRole share one named
-// DailyCap and nothing else in the service has a daily cap (Restore included); the five reads share a second limiter;
+// DailyCap and nothing else in the service has a daily cap (Restore included); the six reads share a second limiter;
 // GetCommunityTimeline has its own limiter and no daily cap; the three limiters are three different objects; and every
 // CommunityService procedure is covered.
 func communitiesRateLimitViolations(rl ratelimit.Config) []string {
@@ -98,8 +99,8 @@ func communitiesRateLimitViolations(rl ratelimit.Config) []string {
 	case w == r || w == l || r == l:
 		out = append(out, "the communities write, read and timeline buckets must be three different limiters")
 	}
-	if n := len(communityMutationProcedures) + len(communityModProcedures) + len(communityReadProcedures); n != 12 {
-		out = append(out, "the guard lists a different number of procedures than CommunityService has (12)")
+	if n := len(communityMutationProcedures) + len(communityModProcedures) + len(communityReadProcedures); n != 13 {
+		out = append(out, "the guard lists a different number of procedures than CommunityService has (13)")
 	}
 	return out
 }

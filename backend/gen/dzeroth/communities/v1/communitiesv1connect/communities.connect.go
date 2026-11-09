@@ -64,7 +64,9 @@
 // Flag FEATURE_COMMUNITIES (wire name "communities", default off): every RPC here needs it on for the
 // caller, else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", before any lookup. Clients learn it from IdentityService.GetMe enabled_features. Creation (F1) is not a
 // flag: CreateCommunity also needs the caller in the COMMUNITY_CREATORS config (at most 10 uids); clients learn it
-// from ListMyCommunitiesResponse.can_create.
+// from ListMyCommunitiesResponse.can_create. SearchCommunityMembers also needs FEATURE_COMMUNITY_MEMBER_SEARCH (wire name
+// "community_member_search", default off) on for the caller, checked right after the communities flag: else
+// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "community_member_search", before any lookup.
 //
 // Idempotency (rule 4): all seven mutations (CreateCommunity, UpdateCommunity, JoinCommunity,
 // LeaveCommunity, HideCommunityPost, RestoreCommunityPost, SetMemberRole) take idempotency_key (16-64 characters of
@@ -118,7 +120,7 @@
 //   - RESOURCE_EXHAUSTED + RATE_LIMITED, honour retry_after. Limits are per uid per instance (x 3 instances):
 //   - RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN (20): the seven mutations;
 //   - RATE_LIMIT_COMMUNITIES_READ_PER_MIN (30): GetCommunity, ListCommunities, ListMyCommunities,
-//     ListCommunityMembers, ListModerationLog;
+//     ListCommunityMembers, SearchCommunityMembers, ListModerationLog;
 //   - daily caps, in memory, metadata["limit"]: "community_mod_actions_daily" (COMMUNITY_MOD_ACTIONS_PER_DAY 200 per
 //     actor: HideCommunityPost and SetMemberRole only; RestoreCommunityPost is uncapped so an owner can always undo)
 //     and "community_posts_per_community_daily" (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY 20 per uid and community,
@@ -179,6 +181,9 @@ const (
 	// CommunityServiceListCommunityMembersProcedure is the fully-qualified name of the
 	// CommunityService's ListCommunityMembers RPC.
 	CommunityServiceListCommunityMembersProcedure = "/dzeroth.communities.v1.CommunityService/ListCommunityMembers"
+	// CommunityServiceSearchCommunityMembersProcedure is the fully-qualified name of the
+	// CommunityService's SearchCommunityMembers RPC.
+	CommunityServiceSearchCommunityMembersProcedure = "/dzeroth.communities.v1.CommunityService/SearchCommunityMembers"
 	// CommunityServiceHideCommunityPostProcedure is the fully-qualified name of the CommunityService's
 	// HideCommunityPost RPC.
 	CommunityServiceHideCommunityPostProcedure = "/dzeroth.communities.v1.CommunityService/HideCommunityPost"
@@ -267,6 +272,21 @@ type CommunityServiceClient interface {
 	// effective filter (UNSPECIFIED and JOINED bind the same), and expires after 24 h (expired, foreign or tampered =>
 	// VALIDATION "page_token", before any lookup).
 	ListCommunityMembers(context.Context, *connect.Request[v1.ListCommunityMembersRequest]) (*connect.Response[v1.ListCommunityMembersResponse], error)
+	// Find members of one community by handle prefix (F36). Flags: communities, then community_member_search (header).
+	// prefix: one optional leading "@", then 2-15 characters of [A-Za-z0-9_] (matched lower-cased), else VALIDATION
+	// "prefix", before any lookup. limit: 0 => 20, clamped to 1..20 (never a validation error). filter: UNSPECIFIED or
+	// JOINED searches the members (anyone who may list them); BANNED the banned users, for the owner and moderators only,
+	// else FORBIDDEN "not_moderator" after the community read (as on the Banned page); any other value => VALIDATION
+	// "filter". A missing or SUSPENDED community is the one NOT_FOUND.
+	// How: the first `limit` handles of the WHOLE platform that start with the prefix (identity's handle-prefix query,
+	// through the same 60 s per-instance (prefix, limit) cache SearchPeople uses), then one batch read of those users'
+	// member docs in this community, keeping the ones in the filter's state. So it answers at most `limit` rows and a
+	// member whose handle shares a very common prefix with many non-members can be missed: the client says "No members
+	// found for that handle. Try more of their handle.", never "not a member". Display names are not searched. Rows are
+	// built exactly as on ListCommunityMembers (live row, role, since, account not ACTIVE left out, the D7 block drops
+	// for a caller who is not the owner or a moderator), in handle order. There is no page_token: the owner approved this
+	// exception to the cursor rule (2026-11-09), because the answer is a bounded top-N, not a list to page through.
+	SearchCommunityMembers(context.Context, *connect.Request[v1.SearchCommunityMembersRequest]) (*connect.Response[v1.SearchCommunityMembersResponse], error)
 	// Hide a post from this community's view, or a reply from its conversations.
 	// Owner or moderator, else FORBIDDEN "not_moderator"; ARCHIVED => COMMUNITY_STATE "community_archived".
 	// post_id must be a root post created into this community (Post.community.id == community_id) or a reply at any
@@ -387,6 +407,13 @@ func NewCommunityServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		searchCommunityMembers: connect.NewClient[v1.SearchCommunityMembersRequest, v1.SearchCommunityMembersResponse](
+			httpClient,
+			baseURL+CommunityServiceSearchCommunityMembersProcedure,
+			connect.WithSchema(communityServiceMethods.ByName("SearchCommunityMembers")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 		hideCommunityPost: connect.NewClient[v1.HideCommunityPostRequest, v1.HideCommunityPostResponse](
 			httpClient,
 			baseURL+CommunityServiceHideCommunityPostProcedure,
@@ -417,18 +444,19 @@ func NewCommunityServiceClient(httpClient connect.HTTPClient, baseURL string, op
 
 // communityServiceClient implements CommunityServiceClient.
 type communityServiceClient struct {
-	createCommunity      *connect.Client[v1.CreateCommunityRequest, v1.CreateCommunityResponse]
-	updateCommunity      *connect.Client[v1.UpdateCommunityRequest, v1.UpdateCommunityResponse]
-	getCommunity         *connect.Client[v1.GetCommunityRequest, v1.GetCommunityResponse]
-	listCommunities      *connect.Client[v1.ListCommunitiesRequest, v1.ListCommunitiesResponse]
-	listMyCommunities    *connect.Client[v1.ListMyCommunitiesRequest, v1.ListMyCommunitiesResponse]
-	joinCommunity        *connect.Client[v1.JoinCommunityRequest, v1.JoinCommunityResponse]
-	leaveCommunity       *connect.Client[v1.LeaveCommunityRequest, v1.LeaveCommunityResponse]
-	listCommunityMembers *connect.Client[v1.ListCommunityMembersRequest, v1.ListCommunityMembersResponse]
-	hideCommunityPost    *connect.Client[v1.HideCommunityPostRequest, v1.HideCommunityPostResponse]
-	restoreCommunityPost *connect.Client[v1.RestoreCommunityPostRequest, v1.RestoreCommunityPostResponse]
-	setMemberRole        *connect.Client[v1.SetMemberRoleRequest, v1.SetMemberRoleResponse]
-	listModerationLog    *connect.Client[v1.ListModerationLogRequest, v1.ListModerationLogResponse]
+	createCommunity        *connect.Client[v1.CreateCommunityRequest, v1.CreateCommunityResponse]
+	updateCommunity        *connect.Client[v1.UpdateCommunityRequest, v1.UpdateCommunityResponse]
+	getCommunity           *connect.Client[v1.GetCommunityRequest, v1.GetCommunityResponse]
+	listCommunities        *connect.Client[v1.ListCommunitiesRequest, v1.ListCommunitiesResponse]
+	listMyCommunities      *connect.Client[v1.ListMyCommunitiesRequest, v1.ListMyCommunitiesResponse]
+	joinCommunity          *connect.Client[v1.JoinCommunityRequest, v1.JoinCommunityResponse]
+	leaveCommunity         *connect.Client[v1.LeaveCommunityRequest, v1.LeaveCommunityResponse]
+	listCommunityMembers   *connect.Client[v1.ListCommunityMembersRequest, v1.ListCommunityMembersResponse]
+	searchCommunityMembers *connect.Client[v1.SearchCommunityMembersRequest, v1.SearchCommunityMembersResponse]
+	hideCommunityPost      *connect.Client[v1.HideCommunityPostRequest, v1.HideCommunityPostResponse]
+	restoreCommunityPost   *connect.Client[v1.RestoreCommunityPostRequest, v1.RestoreCommunityPostResponse]
+	setMemberRole          *connect.Client[v1.SetMemberRoleRequest, v1.SetMemberRoleResponse]
+	listModerationLog      *connect.Client[v1.ListModerationLogRequest, v1.ListModerationLogResponse]
 }
 
 // CreateCommunity calls dzeroth.communities.v1.CommunityService.CreateCommunity.
@@ -469,6 +497,11 @@ func (c *communityServiceClient) LeaveCommunity(ctx context.Context, req *connec
 // ListCommunityMembers calls dzeroth.communities.v1.CommunityService.ListCommunityMembers.
 func (c *communityServiceClient) ListCommunityMembers(ctx context.Context, req *connect.Request[v1.ListCommunityMembersRequest]) (*connect.Response[v1.ListCommunityMembersResponse], error) {
 	return c.listCommunityMembers.CallUnary(ctx, req)
+}
+
+// SearchCommunityMembers calls dzeroth.communities.v1.CommunityService.SearchCommunityMembers.
+func (c *communityServiceClient) SearchCommunityMembers(ctx context.Context, req *connect.Request[v1.SearchCommunityMembersRequest]) (*connect.Response[v1.SearchCommunityMembersResponse], error) {
+	return c.searchCommunityMembers.CallUnary(ctx, req)
 }
 
 // HideCommunityPost calls dzeroth.communities.v1.CommunityService.HideCommunityPost.
@@ -566,6 +599,21 @@ type CommunityServiceHandler interface {
 	// effective filter (UNSPECIFIED and JOINED bind the same), and expires after 24 h (expired, foreign or tampered =>
 	// VALIDATION "page_token", before any lookup).
 	ListCommunityMembers(context.Context, *connect.Request[v1.ListCommunityMembersRequest]) (*connect.Response[v1.ListCommunityMembersResponse], error)
+	// Find members of one community by handle prefix (F36). Flags: communities, then community_member_search (header).
+	// prefix: one optional leading "@", then 2-15 characters of [A-Za-z0-9_] (matched lower-cased), else VALIDATION
+	// "prefix", before any lookup. limit: 0 => 20, clamped to 1..20 (never a validation error). filter: UNSPECIFIED or
+	// JOINED searches the members (anyone who may list them); BANNED the banned users, for the owner and moderators only,
+	// else FORBIDDEN "not_moderator" after the community read (as on the Banned page); any other value => VALIDATION
+	// "filter". A missing or SUSPENDED community is the one NOT_FOUND.
+	// How: the first `limit` handles of the WHOLE platform that start with the prefix (identity's handle-prefix query,
+	// through the same 60 s per-instance (prefix, limit) cache SearchPeople uses), then one batch read of those users'
+	// member docs in this community, keeping the ones in the filter's state. So it answers at most `limit` rows and a
+	// member whose handle shares a very common prefix with many non-members can be missed: the client says "No members
+	// found for that handle. Try more of their handle.", never "not a member". Display names are not searched. Rows are
+	// built exactly as on ListCommunityMembers (live row, role, since, account not ACTIVE left out, the D7 block drops
+	// for a caller who is not the owner or a moderator), in handle order. There is no page_token: the owner approved this
+	// exception to the cursor rule (2026-11-09), because the answer is a bounded top-N, not a list to page through.
+	SearchCommunityMembers(context.Context, *connect.Request[v1.SearchCommunityMembersRequest]) (*connect.Response[v1.SearchCommunityMembersResponse], error)
 	// Hide a post from this community's view, or a reply from its conversations.
 	// Owner or moderator, else FORBIDDEN "not_moderator"; ARCHIVED => COMMUNITY_STATE "community_archived".
 	// post_id must be a root post created into this community (Post.community.id == community_id) or a reply at any
@@ -682,6 +730,13 @@ func NewCommunityServiceHandler(svc CommunityServiceHandler, opts ...connect.Han
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	communityServiceSearchCommunityMembersHandler := connect.NewUnaryHandler(
+		CommunityServiceSearchCommunityMembersProcedure,
+		svc.SearchCommunityMembers,
+		connect.WithSchema(communityServiceMethods.ByName("SearchCommunityMembers")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	communityServiceHideCommunityPostHandler := connect.NewUnaryHandler(
 		CommunityServiceHideCommunityPostProcedure,
 		svc.HideCommunityPost,
@@ -725,6 +780,8 @@ func NewCommunityServiceHandler(svc CommunityServiceHandler, opts ...connect.Han
 			communityServiceLeaveCommunityHandler.ServeHTTP(w, r)
 		case CommunityServiceListCommunityMembersProcedure:
 			communityServiceListCommunityMembersHandler.ServeHTTP(w, r)
+		case CommunityServiceSearchCommunityMembersProcedure:
+			communityServiceSearchCommunityMembersHandler.ServeHTTP(w, r)
 		case CommunityServiceHideCommunityPostProcedure:
 			communityServiceHideCommunityPostHandler.ServeHTTP(w, r)
 		case CommunityServiceRestoreCommunityPostProcedure:
@@ -772,6 +829,10 @@ func (UnimplementedCommunityServiceHandler) LeaveCommunity(context.Context, *con
 
 func (UnimplementedCommunityServiceHandler) ListCommunityMembers(context.Context, *connect.Request[v1.ListCommunityMembersRequest]) (*connect.Response[v1.ListCommunityMembersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.communities.v1.CommunityService.ListCommunityMembers is not implemented"))
+}
+
+func (UnimplementedCommunityServiceHandler) SearchCommunityMembers(context.Context, *connect.Request[v1.SearchCommunityMembersRequest]) (*connect.Response[v1.SearchCommunityMembersResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.communities.v1.CommunityService.SearchCommunityMembers is not implemented"))
 }
 
 func (UnimplementedCommunityServiceHandler) HideCommunityPost(context.Context, *connect.Request[v1.HideCommunityPostRequest]) (*connect.Response[v1.HideCommunityPostResponse], error) {

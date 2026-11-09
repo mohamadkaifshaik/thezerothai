@@ -43,6 +43,13 @@ func (f MemberFilter) String() string {
 	return "joined"
 }
 
+// MemberEntry is one member doc as the batch read sees it: its state and the time of that state (joinedAt for JOINED,
+// bannedAt for BANNED).
+type MemberEntry struct {
+	State MemberState
+	At    time.Time
+}
+
 // MembersInput is a ListCommunityMembers request after the transport layer. PageSize 0 is the default (20), over 50 is clamped.
 type MembersInput struct {
 	CommunityID string

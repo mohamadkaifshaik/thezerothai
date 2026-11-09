@@ -11,6 +11,8 @@ type listingState struct {
 	pages      map[string][]MemberRow // cid|filter -> rows, newest first
 	dirCalls   int
 	memberQs   []MembersQuery
+	entries    map[string]MemberEntry // cid|uid -> member doc (MembersByUID)
+	byUIDCalls [][]string
 	dirErr     error
 	membersErr error
 }
@@ -59,11 +61,32 @@ func (r *fakeRepo) ListMembers(ctx context.Context, q MembersQuery) ([]MemberRow
 	return rows, nil
 }
 
+func (r *fakeRepo) MembersByUID(ctx context.Context, cid string, uids []string) (map[string]MemberEntry, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lst.byUIDCalls = append(r.lst.byUIDCalls, append([]string(nil), uids...))
+	if r.lst.membersErr != nil {
+		return nil, r.lst.membersErr
+	}
+	out := map[string]MemberEntry{}
+	for _, uid := range uids {
+		if e, ok := r.lst.entries[cid+"|"+uid]; ok {
+			out[uid] = e
+		}
+	}
+	return out, nil
+}
+
 func (s *fakeService) ListCommunities(_ context.Context, uid, token string) ([]View, error) {
 	s.dirCalls++
 	s.gotUser = uid
 	_ = token
 	return s.dirViews, s.err
+}
+
+func (s *fakeService) SearchCommunityMembers(_ context.Context, uid string, in SearchInput) ([]MemberItem, error) {
+	s.searchIn, s.gotUser = append(s.searchIn, in), uid
+	return s.searchItems, s.err
 }
 
 func (s *fakeService) ListCommunityMembers(_ context.Context, uid string, in MembersInput) (MembersPage, error) {

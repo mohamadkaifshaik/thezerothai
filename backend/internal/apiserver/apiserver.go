@@ -678,14 +678,19 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return listsv1connect.NewListServiceHandler(listsServer, o...)
 	})
 
-	// Communities: all twelve CommunityService routes are mounted behind FEATURE_COMMUNITIES (FEATURE_DISABLED
+	// Communities: all thirteen CommunityService routes are mounted behind FEATURE_COMMUNITIES (FEATURE_DISABLED
 	// feature=communities) so the interceptor chain covers them. CreateCommunity, UpdateCommunity and GetCommunity and JoinCommunity,
 	// LeaveCommunity and ListMyCommunities run the service; replace the other six methods. CreateCommunity also needs the caller in COMMUNITY_CREATORS.
+	// The one shared 60 s handle-prefix cache over identity.SearchHandles (CACHE_SEARCH_PREFIX_ENTRIES): SearchPeople and
+	// SearchCommunityMembers (F36) read through the same entries, so a member search after a people search is a cache hit.
+	handlePrefixes := search.NewPrefixCache(identitySvc.(identity.Directory), cfg.Search.PrefixCacheEntries)
 	communitiesSvc := communities.New(communities.Deps{
 		// A committed restore drops this instance's shared feed entry (timeline is built above; communities never imports it).
 		OnPostRestored: timelineServer.ForgetCommunityFeed,
 		Repo:           communitiesRepo, Directory: identitySvc.(identity.Directory), Graph: graphSvc, IDs: snowflakeNode,
 		Creators: cfg.Communities.Creators, CursorKey: cfg.CursorHMACKey,
+		// FEATURE_COMMUNITY_MEMBER_SEARCH and the candidate reader of SearchCommunityMembers.
+		Flags: featureFlags, Handles: handlePrefixes,
 		Limits: communities.Limits{
 			MaxOwned: cfg.Communities.MaxOwned, MaxJoined: cfg.Communities.MaxJoined, MaxRules: cfg.Communities.MaxRules,
 			ModlogMax: cfg.Communities.ModlogMax, MaxModerators: cfg.Communities.MaxModerators, RecentRemovalsMax: cfg.Communities.RecentRemovalsMax, CacheEntries: cfg.Communities.CacheEntries, MembersCacheEntries: cfg.Communities.MembersCacheEntries,
@@ -742,7 +747,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// daily step (and the standalone route). Both go through search.TrendsStore, the only code that touches the collection.
 	trendsStore := search.NewTrendsRepo(fsClient)
 	searchServer := search.NewServer(search.New(featureFlags,
-		search.WithPeople(search.PeopleDeps{Directory: identitySvc.(identity.Directory), Graph: graphSvc, PrefixEntries: cfg.Search.PrefixCacheEntries}),
+		search.WithPeople(search.PeopleDeps{Directory: identitySvc.(identity.Directory), Graph: graphSvc, PrefixEntries: cfg.Search.PrefixCacheEntries, Prefixes: handlePrefixes}),
 		search.WithPosts(search.PostsDeps{
 			Posts: postsSvc, Graph: graphSvc, Viewer: engagementMod, Audience: searchAudience,
 			CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries,

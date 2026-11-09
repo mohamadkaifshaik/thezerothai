@@ -66,7 +66,9 @@
 // Flag FEATURE_COMMUNITIES (wire name "communities", default off): every RPC here needs it on for the
 // caller, else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "communities", before any lookup. Clients learn it from IdentityService.GetMe enabled_features. Creation (F1) is not a
 // flag: CreateCommunity also needs the caller in the COMMUNITY_CREATORS config (at most 10 uids); clients learn it
-// from ListMyCommunitiesResponse.can_create.
+// from ListMyCommunitiesResponse.can_create. SearchCommunityMembers also needs FEATURE_COMMUNITY_MEMBER_SEARCH (wire name
+// "community_member_search", default off) on for the caller, checked right after the communities flag: else
+// FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "community_member_search", before any lookup.
 //
 // Idempotency (rule 4): all seven mutations (CreateCommunity, UpdateCommunity, JoinCommunity,
 // LeaveCommunity, HideCommunityPost, RestoreCommunityPost, SetMemberRole) take idempotency_key (16-64 characters of
@@ -119,7 +121,7 @@
 // - RESOURCE_EXHAUSTED + RATE_LIMITED, honour retry_after. Limits are per uid per instance (x 3 instances):
 //   - RATE_LIMIT_COMMUNITIES_WRITE_PER_MIN (20): the seven mutations;
 //   - RATE_LIMIT_COMMUNITIES_READ_PER_MIN (30): GetCommunity, ListCommunities, ListMyCommunities,
-//     ListCommunityMembers, ListModerationLog;
+//     ListCommunityMembers, SearchCommunityMembers, ListModerationLog;
 //   - daily caps, in memory, metadata["limit"]: "community_mod_actions_daily" (COMMUNITY_MOD_ACTIONS_PER_DAY 200 per
 //     actor: HideCommunityPost and SetMemberRole only; RestoreCommunityPost is uncapped so an owner can always undo)
 //     and "community_posts_per_community_daily" (COMMUNITY_POSTS_PER_COMMUNITY_PER_DAY 20 per uid and community,
@@ -1798,6 +1800,122 @@ func (x *ListCommunityMembersResponse) GetNextPageToken() string {
 	return ""
 }
 
+type SearchCommunityMembersRequest struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	CommunityId string                 `protobuf:"bytes,1,opt,name=community_id,json=communityId,proto3" json:"community_id,omitempty"`
+	// Handle prefix: optional leading "@", then 2-15 of [A-Za-z0-9_].
+	Prefix string `protobuf:"bytes,2,opt,name=prefix,proto3" json:"prefix,omitempty"`
+	// UNSPECIFIED => JOINED. BANNED: owner and moderators only.
+	Filter CommunityMemberFilter `protobuf:"varint,3,opt,name=filter,proto3,enum=dzeroth.communities.v1.CommunityMemberFilter" json:"filter,omitempty"`
+	// 0 => 20; clamped to 1..20.
+	Limit         int32 `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchCommunityMembersRequest) Reset() {
+	*x = SearchCommunityMembersRequest{}
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchCommunityMembersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchCommunityMembersRequest) ProtoMessage() {}
+
+func (x *SearchCommunityMembersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchCommunityMembersRequest.ProtoReflect.Descriptor instead.
+func (*SearchCommunityMembersRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *SearchCommunityMembersRequest) GetCommunityId() string {
+	if x != nil {
+		return x.CommunityId
+	}
+	return ""
+}
+
+func (x *SearchCommunityMembersRequest) GetPrefix() string {
+	if x != nil {
+		return x.Prefix
+	}
+	return ""
+}
+
+func (x *SearchCommunityMembersRequest) GetFilter() CommunityMemberFilter {
+	if x != nil {
+		return x.Filter
+	}
+	return CommunityMemberFilter_COMMUNITY_MEMBER_FILTER_UNSPECIFIED
+}
+
+func (x *SearchCommunityMembersRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type SearchCommunityMembersResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// At most limit rows, handle order. No page token (approved exception).
+	Members       []*CommunityMember `protobuf:"bytes,1,rep,name=members,proto3" json:"members,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchCommunityMembersResponse) Reset() {
+	*x = SearchCommunityMembersResponse{}
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchCommunityMembersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchCommunityMembersResponse) ProtoMessage() {}
+
+func (x *SearchCommunityMembersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchCommunityMembersResponse.ProtoReflect.Descriptor instead.
+func (*SearchCommunityMembersResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *SearchCommunityMembersResponse) GetMembers() []*CommunityMember {
+	if x != nil {
+		return x.Members
+	}
+	return nil
+}
+
 type HideCommunityPostRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
@@ -1810,7 +1928,7 @@ type HideCommunityPostRequest struct {
 
 func (x *HideCommunityPostRequest) Reset() {
 	*x = HideCommunityPostRequest{}
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[21]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1822,7 +1940,7 @@ func (x *HideCommunityPostRequest) String() string {
 func (*HideCommunityPostRequest) ProtoMessage() {}
 
 func (x *HideCommunityPostRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[21]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1835,7 +1953,7 @@ func (x *HideCommunityPostRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HideCommunityPostRequest.ProtoReflect.Descriptor instead.
 func (*HideCommunityPostRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{21}
+	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *HideCommunityPostRequest) GetIdempotencyKey() string {
@@ -1867,7 +1985,7 @@ type HideCommunityPostResponse struct {
 
 func (x *HideCommunityPostResponse) Reset() {
 	*x = HideCommunityPostResponse{}
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[22]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1879,7 +1997,7 @@ func (x *HideCommunityPostResponse) String() string {
 func (*HideCommunityPostResponse) ProtoMessage() {}
 
 func (x *HideCommunityPostResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[22]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1892,7 +2010,7 @@ func (x *HideCommunityPostResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HideCommunityPostResponse.ProtoReflect.Descriptor instead.
 func (*HideCommunityPostResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{22}
+	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{24}
 }
 
 type RestoreCommunityPostRequest struct {
@@ -1907,7 +2025,7 @@ type RestoreCommunityPostRequest struct {
 
 func (x *RestoreCommunityPostRequest) Reset() {
 	*x = RestoreCommunityPostRequest{}
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[23]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1919,7 +2037,7 @@ func (x *RestoreCommunityPostRequest) String() string {
 func (*RestoreCommunityPostRequest) ProtoMessage() {}
 
 func (x *RestoreCommunityPostRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[23]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1932,7 +2050,7 @@ func (x *RestoreCommunityPostRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreCommunityPostRequest.ProtoReflect.Descriptor instead.
 func (*RestoreCommunityPostRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{23}
+	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *RestoreCommunityPostRequest) GetIdempotencyKey() string {
@@ -1964,7 +2082,7 @@ type RestoreCommunityPostResponse struct {
 
 func (x *RestoreCommunityPostResponse) Reset() {
 	*x = RestoreCommunityPostResponse{}
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[24]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1976,7 +2094,7 @@ func (x *RestoreCommunityPostResponse) String() string {
 func (*RestoreCommunityPostResponse) ProtoMessage() {}
 
 func (x *RestoreCommunityPostResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[24]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1989,7 +2107,7 @@ func (x *RestoreCommunityPostResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestoreCommunityPostResponse.ProtoReflect.Descriptor instead.
 func (*RestoreCommunityPostResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{24}
+	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{26}
 }
 
 type SetMemberRoleRequest struct {
@@ -2005,7 +2123,7 @@ type SetMemberRoleRequest struct {
 
 func (x *SetMemberRoleRequest) Reset() {
 	*x = SetMemberRoleRequest{}
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[25]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2017,7 +2135,7 @@ func (x *SetMemberRoleRequest) String() string {
 func (*SetMemberRoleRequest) ProtoMessage() {}
 
 func (x *SetMemberRoleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[25]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2030,7 +2148,7 @@ func (x *SetMemberRoleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetMemberRoleRequest.ProtoReflect.Descriptor instead.
 func (*SetMemberRoleRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{25}
+	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *SetMemberRoleRequest) GetIdempotencyKey() string {
@@ -2073,7 +2191,7 @@ type SetMemberRoleResponse struct {
 
 func (x *SetMemberRoleResponse) Reset() {
 	*x = SetMemberRoleResponse{}
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[26]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2085,7 +2203,7 @@ func (x *SetMemberRoleResponse) String() string {
 func (*SetMemberRoleResponse) ProtoMessage() {}
 
 func (x *SetMemberRoleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[26]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2098,7 +2216,7 @@ func (x *SetMemberRoleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetMemberRoleResponse.ProtoReflect.Descriptor instead.
 func (*SetMemberRoleResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{26}
+	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *SetMemberRoleResponse) GetRole() CommunityRole {
@@ -2127,7 +2245,7 @@ type ListModerationLogRequest struct {
 
 func (x *ListModerationLogRequest) Reset() {
 	*x = ListModerationLogRequest{}
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[27]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2139,7 +2257,7 @@ func (x *ListModerationLogRequest) String() string {
 func (*ListModerationLogRequest) ProtoMessage() {}
 
 func (x *ListModerationLogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[27]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2152,7 +2270,7 @@ func (x *ListModerationLogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListModerationLogRequest.ProtoReflect.Descriptor instead.
 func (*ListModerationLogRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{27}
+	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ListModerationLogRequest) GetCommunityId() string {
@@ -2188,7 +2306,7 @@ type ListModerationLogResponse struct {
 
 func (x *ListModerationLogResponse) Reset() {
 	*x = ListModerationLogResponse{}
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[28]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2200,7 +2318,7 @@ func (x *ListModerationLogResponse) String() string {
 func (*ListModerationLogResponse) ProtoMessage() {}
 
 func (x *ListModerationLogResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[28]
+	mi := &file_dzeroth_communities_v1_communities_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2213,7 +2331,7 @@ func (x *ListModerationLogResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListModerationLogResponse.ProtoReflect.Descriptor instead.
 func (*ListModerationLogResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{28}
+	return file_dzeroth_communities_v1_communities_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ListModerationLogResponse) GetEntries() []*ModerationLogEntry {
@@ -2327,7 +2445,14 @@ const file_dzeroth_communities_v1_communities_proto_rawDesc = "" +
 	"page_token\x18\x04 \x01(\tR\tpageToken\"\x89\x01\n" +
 	"\x1cListCommunityMembersResponse\x12A\n" +
 	"\amembers\x18\x01 \x03(\v2'.dzeroth.communities.v1.CommunityMemberR\amembers\x12&\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\x7f\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xb7\x01\n" +
+	"\x1dSearchCommunityMembersRequest\x12!\n" +
+	"\fcommunity_id\x18\x01 \x01(\tR\vcommunityId\x12\x16\n" +
+	"\x06prefix\x18\x02 \x01(\tR\x06prefix\x12E\n" +
+	"\x06filter\x18\x03 \x01(\x0e2-.dzeroth.communities.v1.CommunityMemberFilterR\x06filter\x12\x14\n" +
+	"\x05limit\x18\x04 \x01(\x05R\x05limit\"c\n" +
+	"\x1eSearchCommunityMembersResponse\x12A\n" +
+	"\amembers\x18\x01 \x03(\v2'.dzeroth.communities.v1.CommunityMemberR\amembers\"\x7f\n" +
 	"\x18HideCommunityPostRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12!\n" +
 	"\fcommunity_id\x18\x02 \x01(\tR\vcommunityId\x12\x17\n" +
@@ -2389,7 +2514,7 @@ const file_dzeroth_communities_v1_communities_proto_rawDesc = "" +
 	"&MODERATION_LOG_ACTION_REMOVE_MODERATOR\x10\x06\x12\x1e\n" +
 	"\x1aMODERATION_LOG_ACTION_EDIT\x10\a\x12(\n" +
 	"$MODERATION_LOG_ACTION_MODERATOR_LEFT\x10\b\x12(\n" +
-	"$MODERATION_LOG_ACTION_OWNER_HANDOVER\x10\t2\xb5\v\n" +
+	"$MODERATION_LOG_ACTION_OWNER_HANDOVER\x10\t2\xc4\f\n" +
 	"\x10CommunityService\x12r\n" +
 	"\x0fCreateCommunity\x12..dzeroth.communities.v1.CreateCommunityRequest\x1a/.dzeroth.communities.v1.CreateCommunityResponse\x12r\n" +
 	"\x0fUpdateCommunity\x12..dzeroth.communities.v1.UpdateCommunityRequest\x1a/.dzeroth.communities.v1.UpdateCommunityResponse\x12n\n" +
@@ -2398,7 +2523,8 @@ const file_dzeroth_communities_v1_communities_proto_rawDesc = "" +
 	"\x11ListMyCommunities\x120.dzeroth.communities.v1.ListMyCommunitiesRequest\x1a1.dzeroth.communities.v1.ListMyCommunitiesResponse\"\x03\x90\x02\x01\x12l\n" +
 	"\rJoinCommunity\x12,.dzeroth.communities.v1.JoinCommunityRequest\x1a-.dzeroth.communities.v1.JoinCommunityResponse\x12o\n" +
 	"\x0eLeaveCommunity\x12-.dzeroth.communities.v1.LeaveCommunityRequest\x1a..dzeroth.communities.v1.LeaveCommunityResponse\x12\x86\x01\n" +
-	"\x14ListCommunityMembers\x123.dzeroth.communities.v1.ListCommunityMembersRequest\x1a4.dzeroth.communities.v1.ListCommunityMembersResponse\"\x03\x90\x02\x01\x12x\n" +
+	"\x14ListCommunityMembers\x123.dzeroth.communities.v1.ListCommunityMembersRequest\x1a4.dzeroth.communities.v1.ListCommunityMembersResponse\"\x03\x90\x02\x01\x12\x8c\x01\n" +
+	"\x16SearchCommunityMembers\x125.dzeroth.communities.v1.SearchCommunityMembersRequest\x1a6.dzeroth.communities.v1.SearchCommunityMembersResponse\"\x03\x90\x02\x01\x12x\n" +
 	"\x11HideCommunityPost\x120.dzeroth.communities.v1.HideCommunityPostRequest\x1a1.dzeroth.communities.v1.HideCommunityPostResponse\x12\x81\x01\n" +
 	"\x14RestoreCommunityPost\x123.dzeroth.communities.v1.RestoreCommunityPostRequest\x1a4.dzeroth.communities.v1.RestoreCommunityPostResponse\x12l\n" +
 	"\rSetMemberRole\x12,.dzeroth.communities.v1.SetMemberRoleRequest\x1a-.dzeroth.communities.v1.SetMemberRoleResponse\x12}\n" +
@@ -2417,59 +2543,61 @@ func file_dzeroth_communities_v1_communities_proto_rawDescGZIP() []byte {
 }
 
 var file_dzeroth_communities_v1_communities_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_dzeroth_communities_v1_communities_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_dzeroth_communities_v1_communities_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
 var file_dzeroth_communities_v1_communities_proto_goTypes = []any{
-	(CommunityRole)(0),                   // 0: dzeroth.communities.v1.CommunityRole
-	(CommunityStatus)(0),                 // 1: dzeroth.communities.v1.CommunityStatus
-	(CommunityVisibility)(0),             // 2: dzeroth.communities.v1.CommunityVisibility
-	(CommunityMemberFilter)(0),           // 3: dzeroth.communities.v1.CommunityMemberFilter
-	(MemberRoleAction)(0),                // 4: dzeroth.communities.v1.MemberRoleAction
-	(ModerationLogAction)(0),             // 5: dzeroth.communities.v1.ModerationLogAction
-	(*CommunityRule)(nil),                // 6: dzeroth.communities.v1.CommunityRule
-	(*CommunityRuleList)(nil),            // 7: dzeroth.communities.v1.CommunityRuleList
-	(*Community)(nil),                    // 8: dzeroth.communities.v1.Community
-	(*CommunityMember)(nil),              // 9: dzeroth.communities.v1.CommunityMember
-	(*ModerationLogEntry)(nil),           // 10: dzeroth.communities.v1.ModerationLogEntry
-	(*CreateCommunityRequest)(nil),       // 11: dzeroth.communities.v1.CreateCommunityRequest
-	(*CreateCommunityResponse)(nil),      // 12: dzeroth.communities.v1.CreateCommunityResponse
-	(*UpdateCommunityRequest)(nil),       // 13: dzeroth.communities.v1.UpdateCommunityRequest
-	(*UpdateCommunityResponse)(nil),      // 14: dzeroth.communities.v1.UpdateCommunityResponse
-	(*GetCommunityRequest)(nil),          // 15: dzeroth.communities.v1.GetCommunityRequest
-	(*GetCommunityResponse)(nil),         // 16: dzeroth.communities.v1.GetCommunityResponse
-	(*ListCommunitiesRequest)(nil),       // 17: dzeroth.communities.v1.ListCommunitiesRequest
-	(*ListCommunitiesResponse)(nil),      // 18: dzeroth.communities.v1.ListCommunitiesResponse
-	(*ListMyCommunitiesRequest)(nil),     // 19: dzeroth.communities.v1.ListMyCommunitiesRequest
-	(*ListMyCommunitiesResponse)(nil),    // 20: dzeroth.communities.v1.ListMyCommunitiesResponse
-	(*JoinCommunityRequest)(nil),         // 21: dzeroth.communities.v1.JoinCommunityRequest
-	(*JoinCommunityResponse)(nil),        // 22: dzeroth.communities.v1.JoinCommunityResponse
-	(*LeaveCommunityRequest)(nil),        // 23: dzeroth.communities.v1.LeaveCommunityRequest
-	(*LeaveCommunityResponse)(nil),       // 24: dzeroth.communities.v1.LeaveCommunityResponse
-	(*ListCommunityMembersRequest)(nil),  // 25: dzeroth.communities.v1.ListCommunityMembersRequest
-	(*ListCommunityMembersResponse)(nil), // 26: dzeroth.communities.v1.ListCommunityMembersResponse
-	(*HideCommunityPostRequest)(nil),     // 27: dzeroth.communities.v1.HideCommunityPostRequest
-	(*HideCommunityPostResponse)(nil),    // 28: dzeroth.communities.v1.HideCommunityPostResponse
-	(*RestoreCommunityPostRequest)(nil),  // 29: dzeroth.communities.v1.RestoreCommunityPostRequest
-	(*RestoreCommunityPostResponse)(nil), // 30: dzeroth.communities.v1.RestoreCommunityPostResponse
-	(*SetMemberRoleRequest)(nil),         // 31: dzeroth.communities.v1.SetMemberRoleRequest
-	(*SetMemberRoleResponse)(nil),        // 32: dzeroth.communities.v1.SetMemberRoleResponse
-	(*ListModerationLogRequest)(nil),     // 33: dzeroth.communities.v1.ListModerationLogRequest
-	(*ListModerationLogResponse)(nil),    // 34: dzeroth.communities.v1.ListModerationLogResponse
-	(*timestamppb.Timestamp)(nil),        // 35: google.protobuf.Timestamp
-	(*v1.UserListItem)(nil),              // 36: dzeroth.graph.v1.UserListItem
-	(*v11.AuthorSnapshot)(nil),           // 37: dzeroth.common.v1.AuthorSnapshot
+	(CommunityRole)(0),                     // 0: dzeroth.communities.v1.CommunityRole
+	(CommunityStatus)(0),                   // 1: dzeroth.communities.v1.CommunityStatus
+	(CommunityVisibility)(0),               // 2: dzeroth.communities.v1.CommunityVisibility
+	(CommunityMemberFilter)(0),             // 3: dzeroth.communities.v1.CommunityMemberFilter
+	(MemberRoleAction)(0),                  // 4: dzeroth.communities.v1.MemberRoleAction
+	(ModerationLogAction)(0),               // 5: dzeroth.communities.v1.ModerationLogAction
+	(*CommunityRule)(nil),                  // 6: dzeroth.communities.v1.CommunityRule
+	(*CommunityRuleList)(nil),              // 7: dzeroth.communities.v1.CommunityRuleList
+	(*Community)(nil),                      // 8: dzeroth.communities.v1.Community
+	(*CommunityMember)(nil),                // 9: dzeroth.communities.v1.CommunityMember
+	(*ModerationLogEntry)(nil),             // 10: dzeroth.communities.v1.ModerationLogEntry
+	(*CreateCommunityRequest)(nil),         // 11: dzeroth.communities.v1.CreateCommunityRequest
+	(*CreateCommunityResponse)(nil),        // 12: dzeroth.communities.v1.CreateCommunityResponse
+	(*UpdateCommunityRequest)(nil),         // 13: dzeroth.communities.v1.UpdateCommunityRequest
+	(*UpdateCommunityResponse)(nil),        // 14: dzeroth.communities.v1.UpdateCommunityResponse
+	(*GetCommunityRequest)(nil),            // 15: dzeroth.communities.v1.GetCommunityRequest
+	(*GetCommunityResponse)(nil),           // 16: dzeroth.communities.v1.GetCommunityResponse
+	(*ListCommunitiesRequest)(nil),         // 17: dzeroth.communities.v1.ListCommunitiesRequest
+	(*ListCommunitiesResponse)(nil),        // 18: dzeroth.communities.v1.ListCommunitiesResponse
+	(*ListMyCommunitiesRequest)(nil),       // 19: dzeroth.communities.v1.ListMyCommunitiesRequest
+	(*ListMyCommunitiesResponse)(nil),      // 20: dzeroth.communities.v1.ListMyCommunitiesResponse
+	(*JoinCommunityRequest)(nil),           // 21: dzeroth.communities.v1.JoinCommunityRequest
+	(*JoinCommunityResponse)(nil),          // 22: dzeroth.communities.v1.JoinCommunityResponse
+	(*LeaveCommunityRequest)(nil),          // 23: dzeroth.communities.v1.LeaveCommunityRequest
+	(*LeaveCommunityResponse)(nil),         // 24: dzeroth.communities.v1.LeaveCommunityResponse
+	(*ListCommunityMembersRequest)(nil),    // 25: dzeroth.communities.v1.ListCommunityMembersRequest
+	(*ListCommunityMembersResponse)(nil),   // 26: dzeroth.communities.v1.ListCommunityMembersResponse
+	(*SearchCommunityMembersRequest)(nil),  // 27: dzeroth.communities.v1.SearchCommunityMembersRequest
+	(*SearchCommunityMembersResponse)(nil), // 28: dzeroth.communities.v1.SearchCommunityMembersResponse
+	(*HideCommunityPostRequest)(nil),       // 29: dzeroth.communities.v1.HideCommunityPostRequest
+	(*HideCommunityPostResponse)(nil),      // 30: dzeroth.communities.v1.HideCommunityPostResponse
+	(*RestoreCommunityPostRequest)(nil),    // 31: dzeroth.communities.v1.RestoreCommunityPostRequest
+	(*RestoreCommunityPostResponse)(nil),   // 32: dzeroth.communities.v1.RestoreCommunityPostResponse
+	(*SetMemberRoleRequest)(nil),           // 33: dzeroth.communities.v1.SetMemberRoleRequest
+	(*SetMemberRoleResponse)(nil),          // 34: dzeroth.communities.v1.SetMemberRoleResponse
+	(*ListModerationLogRequest)(nil),       // 35: dzeroth.communities.v1.ListModerationLogRequest
+	(*ListModerationLogResponse)(nil),      // 36: dzeroth.communities.v1.ListModerationLogResponse
+	(*timestamppb.Timestamp)(nil),          // 37: google.protobuf.Timestamp
+	(*v1.UserListItem)(nil),                // 38: dzeroth.graph.v1.UserListItem
+	(*v11.AuthorSnapshot)(nil),             // 39: dzeroth.common.v1.AuthorSnapshot
 }
 var file_dzeroth_communities_v1_communities_proto_depIdxs = []int32{
 	6,  // 0: dzeroth.communities.v1.CommunityRuleList.rules:type_name -> dzeroth.communities.v1.CommunityRule
 	1,  // 1: dzeroth.communities.v1.Community.status:type_name -> dzeroth.communities.v1.CommunityStatus
 	2,  // 2: dzeroth.communities.v1.Community.visibility:type_name -> dzeroth.communities.v1.CommunityVisibility
 	0,  // 3: dzeroth.communities.v1.Community.viewer_role:type_name -> dzeroth.communities.v1.CommunityRole
-	35, // 4: dzeroth.communities.v1.Community.created_at:type_name -> google.protobuf.Timestamp
-	36, // 5: dzeroth.communities.v1.CommunityMember.user:type_name -> dzeroth.graph.v1.UserListItem
+	37, // 4: dzeroth.communities.v1.Community.created_at:type_name -> google.protobuf.Timestamp
+	38, // 5: dzeroth.communities.v1.CommunityMember.user:type_name -> dzeroth.graph.v1.UserListItem
 	0,  // 6: dzeroth.communities.v1.CommunityMember.role:type_name -> dzeroth.communities.v1.CommunityRole
-	35, // 7: dzeroth.communities.v1.ModerationLogEntry.at:type_name -> google.protobuf.Timestamp
+	37, // 7: dzeroth.communities.v1.ModerationLogEntry.at:type_name -> google.protobuf.Timestamp
 	5,  // 8: dzeroth.communities.v1.ModerationLogEntry.action:type_name -> dzeroth.communities.v1.ModerationLogAction
-	37, // 9: dzeroth.communities.v1.ModerationLogEntry.actor:type_name -> dzeroth.common.v1.AuthorSnapshot
-	37, // 10: dzeroth.communities.v1.ModerationLogEntry.target:type_name -> dzeroth.common.v1.AuthorSnapshot
+	39, // 9: dzeroth.communities.v1.ModerationLogEntry.actor:type_name -> dzeroth.common.v1.AuthorSnapshot
+	39, // 10: dzeroth.communities.v1.ModerationLogEntry.target:type_name -> dzeroth.common.v1.AuthorSnapshot
 	6,  // 11: dzeroth.communities.v1.CreateCommunityRequest.rules:type_name -> dzeroth.communities.v1.CommunityRule
 	8,  // 12: dzeroth.communities.v1.CreateCommunityResponse.community:type_name -> dzeroth.communities.v1.Community
 	6,  // 13: dzeroth.communities.v1.CreateCommunityResponse.rules:type_name -> dzeroth.communities.v1.CommunityRule
@@ -2478,47 +2606,51 @@ var file_dzeroth_communities_v1_communities_proto_depIdxs = []int32{
 	6,  // 16: dzeroth.communities.v1.UpdateCommunityResponse.rules:type_name -> dzeroth.communities.v1.CommunityRule
 	8,  // 17: dzeroth.communities.v1.GetCommunityResponse.community:type_name -> dzeroth.communities.v1.Community
 	6,  // 18: dzeroth.communities.v1.GetCommunityResponse.rules:type_name -> dzeroth.communities.v1.CommunityRule
-	36, // 19: dzeroth.communities.v1.GetCommunityResponse.owner:type_name -> dzeroth.graph.v1.UserListItem
-	36, // 20: dzeroth.communities.v1.GetCommunityResponse.moderators:type_name -> dzeroth.graph.v1.UserListItem
+	38, // 19: dzeroth.communities.v1.GetCommunityResponse.owner:type_name -> dzeroth.graph.v1.UserListItem
+	38, // 20: dzeroth.communities.v1.GetCommunityResponse.moderators:type_name -> dzeroth.graph.v1.UserListItem
 	8,  // 21: dzeroth.communities.v1.ListCommunitiesResponse.communities:type_name -> dzeroth.communities.v1.Community
 	8,  // 22: dzeroth.communities.v1.ListMyCommunitiesResponse.communities:type_name -> dzeroth.communities.v1.Community
 	8,  // 23: dzeroth.communities.v1.JoinCommunityResponse.community:type_name -> dzeroth.communities.v1.Community
 	8,  // 24: dzeroth.communities.v1.LeaveCommunityResponse.community:type_name -> dzeroth.communities.v1.Community
 	3,  // 25: dzeroth.communities.v1.ListCommunityMembersRequest.filter:type_name -> dzeroth.communities.v1.CommunityMemberFilter
 	9,  // 26: dzeroth.communities.v1.ListCommunityMembersResponse.members:type_name -> dzeroth.communities.v1.CommunityMember
-	4,  // 27: dzeroth.communities.v1.SetMemberRoleRequest.action:type_name -> dzeroth.communities.v1.MemberRoleAction
-	0,  // 28: dzeroth.communities.v1.SetMemberRoleResponse.role:type_name -> dzeroth.communities.v1.CommunityRole
-	8,  // 29: dzeroth.communities.v1.SetMemberRoleResponse.community:type_name -> dzeroth.communities.v1.Community
-	10, // 30: dzeroth.communities.v1.ListModerationLogResponse.entries:type_name -> dzeroth.communities.v1.ModerationLogEntry
-	11, // 31: dzeroth.communities.v1.CommunityService.CreateCommunity:input_type -> dzeroth.communities.v1.CreateCommunityRequest
-	13, // 32: dzeroth.communities.v1.CommunityService.UpdateCommunity:input_type -> dzeroth.communities.v1.UpdateCommunityRequest
-	15, // 33: dzeroth.communities.v1.CommunityService.GetCommunity:input_type -> dzeroth.communities.v1.GetCommunityRequest
-	17, // 34: dzeroth.communities.v1.CommunityService.ListCommunities:input_type -> dzeroth.communities.v1.ListCommunitiesRequest
-	19, // 35: dzeroth.communities.v1.CommunityService.ListMyCommunities:input_type -> dzeroth.communities.v1.ListMyCommunitiesRequest
-	21, // 36: dzeroth.communities.v1.CommunityService.JoinCommunity:input_type -> dzeroth.communities.v1.JoinCommunityRequest
-	23, // 37: dzeroth.communities.v1.CommunityService.LeaveCommunity:input_type -> dzeroth.communities.v1.LeaveCommunityRequest
-	25, // 38: dzeroth.communities.v1.CommunityService.ListCommunityMembers:input_type -> dzeroth.communities.v1.ListCommunityMembersRequest
-	27, // 39: dzeroth.communities.v1.CommunityService.HideCommunityPost:input_type -> dzeroth.communities.v1.HideCommunityPostRequest
-	29, // 40: dzeroth.communities.v1.CommunityService.RestoreCommunityPost:input_type -> dzeroth.communities.v1.RestoreCommunityPostRequest
-	31, // 41: dzeroth.communities.v1.CommunityService.SetMemberRole:input_type -> dzeroth.communities.v1.SetMemberRoleRequest
-	33, // 42: dzeroth.communities.v1.CommunityService.ListModerationLog:input_type -> dzeroth.communities.v1.ListModerationLogRequest
-	12, // 43: dzeroth.communities.v1.CommunityService.CreateCommunity:output_type -> dzeroth.communities.v1.CreateCommunityResponse
-	14, // 44: dzeroth.communities.v1.CommunityService.UpdateCommunity:output_type -> dzeroth.communities.v1.UpdateCommunityResponse
-	16, // 45: dzeroth.communities.v1.CommunityService.GetCommunity:output_type -> dzeroth.communities.v1.GetCommunityResponse
-	18, // 46: dzeroth.communities.v1.CommunityService.ListCommunities:output_type -> dzeroth.communities.v1.ListCommunitiesResponse
-	20, // 47: dzeroth.communities.v1.CommunityService.ListMyCommunities:output_type -> dzeroth.communities.v1.ListMyCommunitiesResponse
-	22, // 48: dzeroth.communities.v1.CommunityService.JoinCommunity:output_type -> dzeroth.communities.v1.JoinCommunityResponse
-	24, // 49: dzeroth.communities.v1.CommunityService.LeaveCommunity:output_type -> dzeroth.communities.v1.LeaveCommunityResponse
-	26, // 50: dzeroth.communities.v1.CommunityService.ListCommunityMembers:output_type -> dzeroth.communities.v1.ListCommunityMembersResponse
-	28, // 51: dzeroth.communities.v1.CommunityService.HideCommunityPost:output_type -> dzeroth.communities.v1.HideCommunityPostResponse
-	30, // 52: dzeroth.communities.v1.CommunityService.RestoreCommunityPost:output_type -> dzeroth.communities.v1.RestoreCommunityPostResponse
-	32, // 53: dzeroth.communities.v1.CommunityService.SetMemberRole:output_type -> dzeroth.communities.v1.SetMemberRoleResponse
-	34, // 54: dzeroth.communities.v1.CommunityService.ListModerationLog:output_type -> dzeroth.communities.v1.ListModerationLogResponse
-	43, // [43:55] is the sub-list for method output_type
-	31, // [31:43] is the sub-list for method input_type
-	31, // [31:31] is the sub-list for extension type_name
-	31, // [31:31] is the sub-list for extension extendee
-	0,  // [0:31] is the sub-list for field type_name
+	3,  // 27: dzeroth.communities.v1.SearchCommunityMembersRequest.filter:type_name -> dzeroth.communities.v1.CommunityMemberFilter
+	9,  // 28: dzeroth.communities.v1.SearchCommunityMembersResponse.members:type_name -> dzeroth.communities.v1.CommunityMember
+	4,  // 29: dzeroth.communities.v1.SetMemberRoleRequest.action:type_name -> dzeroth.communities.v1.MemberRoleAction
+	0,  // 30: dzeroth.communities.v1.SetMemberRoleResponse.role:type_name -> dzeroth.communities.v1.CommunityRole
+	8,  // 31: dzeroth.communities.v1.SetMemberRoleResponse.community:type_name -> dzeroth.communities.v1.Community
+	10, // 32: dzeroth.communities.v1.ListModerationLogResponse.entries:type_name -> dzeroth.communities.v1.ModerationLogEntry
+	11, // 33: dzeroth.communities.v1.CommunityService.CreateCommunity:input_type -> dzeroth.communities.v1.CreateCommunityRequest
+	13, // 34: dzeroth.communities.v1.CommunityService.UpdateCommunity:input_type -> dzeroth.communities.v1.UpdateCommunityRequest
+	15, // 35: dzeroth.communities.v1.CommunityService.GetCommunity:input_type -> dzeroth.communities.v1.GetCommunityRequest
+	17, // 36: dzeroth.communities.v1.CommunityService.ListCommunities:input_type -> dzeroth.communities.v1.ListCommunitiesRequest
+	19, // 37: dzeroth.communities.v1.CommunityService.ListMyCommunities:input_type -> dzeroth.communities.v1.ListMyCommunitiesRequest
+	21, // 38: dzeroth.communities.v1.CommunityService.JoinCommunity:input_type -> dzeroth.communities.v1.JoinCommunityRequest
+	23, // 39: dzeroth.communities.v1.CommunityService.LeaveCommunity:input_type -> dzeroth.communities.v1.LeaveCommunityRequest
+	25, // 40: dzeroth.communities.v1.CommunityService.ListCommunityMembers:input_type -> dzeroth.communities.v1.ListCommunityMembersRequest
+	27, // 41: dzeroth.communities.v1.CommunityService.SearchCommunityMembers:input_type -> dzeroth.communities.v1.SearchCommunityMembersRequest
+	29, // 42: dzeroth.communities.v1.CommunityService.HideCommunityPost:input_type -> dzeroth.communities.v1.HideCommunityPostRequest
+	31, // 43: dzeroth.communities.v1.CommunityService.RestoreCommunityPost:input_type -> dzeroth.communities.v1.RestoreCommunityPostRequest
+	33, // 44: dzeroth.communities.v1.CommunityService.SetMemberRole:input_type -> dzeroth.communities.v1.SetMemberRoleRequest
+	35, // 45: dzeroth.communities.v1.CommunityService.ListModerationLog:input_type -> dzeroth.communities.v1.ListModerationLogRequest
+	12, // 46: dzeroth.communities.v1.CommunityService.CreateCommunity:output_type -> dzeroth.communities.v1.CreateCommunityResponse
+	14, // 47: dzeroth.communities.v1.CommunityService.UpdateCommunity:output_type -> dzeroth.communities.v1.UpdateCommunityResponse
+	16, // 48: dzeroth.communities.v1.CommunityService.GetCommunity:output_type -> dzeroth.communities.v1.GetCommunityResponse
+	18, // 49: dzeroth.communities.v1.CommunityService.ListCommunities:output_type -> dzeroth.communities.v1.ListCommunitiesResponse
+	20, // 50: dzeroth.communities.v1.CommunityService.ListMyCommunities:output_type -> dzeroth.communities.v1.ListMyCommunitiesResponse
+	22, // 51: dzeroth.communities.v1.CommunityService.JoinCommunity:output_type -> dzeroth.communities.v1.JoinCommunityResponse
+	24, // 52: dzeroth.communities.v1.CommunityService.LeaveCommunity:output_type -> dzeroth.communities.v1.LeaveCommunityResponse
+	26, // 53: dzeroth.communities.v1.CommunityService.ListCommunityMembers:output_type -> dzeroth.communities.v1.ListCommunityMembersResponse
+	28, // 54: dzeroth.communities.v1.CommunityService.SearchCommunityMembers:output_type -> dzeroth.communities.v1.SearchCommunityMembersResponse
+	30, // 55: dzeroth.communities.v1.CommunityService.HideCommunityPost:output_type -> dzeroth.communities.v1.HideCommunityPostResponse
+	32, // 56: dzeroth.communities.v1.CommunityService.RestoreCommunityPost:output_type -> dzeroth.communities.v1.RestoreCommunityPostResponse
+	34, // 57: dzeroth.communities.v1.CommunityService.SetMemberRole:output_type -> dzeroth.communities.v1.SetMemberRoleResponse
+	36, // 58: dzeroth.communities.v1.CommunityService.ListModerationLog:output_type -> dzeroth.communities.v1.ListModerationLogResponse
+	46, // [46:59] is the sub-list for method output_type
+	33, // [33:46] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_communities_v1_communities_proto_init() }
@@ -2533,7 +2665,7 @@ func file_dzeroth_communities_v1_communities_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_communities_v1_communities_proto_rawDesc), len(file_dzeroth_communities_v1_communities_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   29,
+			NumMessages:   31,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
