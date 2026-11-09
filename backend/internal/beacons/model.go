@@ -252,10 +252,11 @@ type UpdateInput struct {
 }
 
 // ListInput is a ListBeacons request after the transport layer. Exactly one of CommunityID and Public is set; a zero
-// From means now.
+// From means now; an empty Activity means every activity.
 type ListInput struct {
 	CommunityID string
 	Public      bool
+	Activity    Activity
 	From        time.Time
 	Limit       int32
 	PageToken   string
@@ -409,10 +410,12 @@ type CancelResult struct {
 	Beacon  Beacon
 }
 
-// ListQuery is one ListByAudience read: communityId == CommunityID ("" = public), status in [open, full], startAt >= From,
-// ordered by startAt then id, resuming after (AfterStartAt, AfterID) when AfterID is set, at most Limit docs.
+// ListQuery is one ListByAudience read: communityId == CommunityID ("" = public), activity == Activity when set, status in
+// [open, full], startAt >= From, ordered by startAt then id, resuming after (AfterStartAt, AfterID) when AfterID is set, at
+// most Limit docs.
 type ListQuery struct {
 	CommunityID  string
+	Activity     Activity
 	From         time.Time
 	AfterStartAt time.Time
 	AfterID      string

@@ -1599,8 +1599,11 @@ type ListBeaconsRequest struct {
 	// Beacons whose start_at >= from (default now); OPEN and FULL only, hidden excluded, blocks applied.
 	From *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=from,proto3" json:"from,omitempty"`
 	// Clamped: 0 = 20, above 50 = 50.
-	Limit         int32  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
-	PageToken     string `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	Limit     int32  `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	PageToken string `protobuf:"bytes,5,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	// Only beacons of this activity; UNSPECIFIED (the default) = every activity. Filtered in the query (composite
+	// index communityId, activity, status, startAt), so a page is never emptied by the filter.
+	Activity      BeaconActivity `protobuf:"varint,6,opt,name=activity,proto3,enum=dzeroth.beacons.v1.BeaconActivity" json:"activity,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1679,6 +1682,13 @@ func (x *ListBeaconsRequest) GetPageToken() string {
 		return x.PageToken
 	}
 	return ""
+}
+
+func (x *ListBeaconsRequest) GetActivity() BeaconActivity {
+	if x != nil {
+		return x.Activity
+	}
+	return BeaconActivity_BEACON_ACTIVITY_UNSPECIFIED
 }
 
 type isListBeaconsRequest_Audience interface {
@@ -2577,14 +2587,15 @@ const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"\x10GetBeaconRequest\x12\x1b\n" +
 	"\tbeacon_id\x18\x01 \x01(\tR\bbeaconId\"G\n" +
 	"\x11GetBeaconResponse\x122\n" +
-	"\x04view\x18\x01 \x01(\v2\x1e.dzeroth.beacons.v1.BeaconViewR\x04view\"\xc4\x01\n" +
+	"\x04view\x18\x01 \x01(\v2\x1e.dzeroth.beacons.v1.BeaconViewR\x04view\"\x84\x02\n" +
 	"\x12ListBeaconsRequest\x12#\n" +
 	"\fcommunity_id\x18\x01 \x01(\tH\x00R\vcommunityId\x12\x18\n" +
 	"\x06public\x18\x02 \x01(\bH\x00R\x06public\x12.\n" +
 	"\x04from\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\x04from\x12\x14\n" +
 	"\x05limit\x18\x04 \x01(\x05R\x05limit\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x05 \x01(\tR\tpageTokenB\n" +
+	"page_token\x18\x05 \x01(\tR\tpageToken\x12>\n" +
+	"\bactivity\x18\x06 \x01(\x0e2\".dzeroth.beacons.v1.BeaconActivityR\bactivityB\n" +
 	"\n" +
 	"\baudience\"s\n" +
 	"\x13ListBeaconsResponse\x124\n" +
@@ -2792,45 +2803,46 @@ var file_dzeroth_beacons_v1_beacons_proto_depIdxs = []int32{
 	13, // 21: dzeroth.beacons.v1.UpdateBeaconResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
 	13, // 22: dzeroth.beacons.v1.GetBeaconResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
 	40, // 23: dzeroth.beacons.v1.ListBeaconsRequest.from:type_name -> google.protobuf.Timestamp
-	13, // 24: dzeroth.beacons.v1.ListBeaconsResponse.views:type_name -> dzeroth.beacons.v1.BeaconView
-	8,  // 25: dzeroth.beacons.v1.ListMyBeaconsRequest.role:type_name -> dzeroth.beacons.v1.MyBeaconsRole
-	9,  // 26: dzeroth.beacons.v1.ListMyBeaconsRequest.window:type_name -> dzeroth.beacons.v1.MyBeaconsWindow
-	13, // 27: dzeroth.beacons.v1.ListMyBeaconsResponse.views:type_name -> dzeroth.beacons.v1.BeaconView
-	12, // 28: dzeroth.beacons.v1.RequestToJoinResponse.viewer:type_name -> dzeroth.beacons.v1.ViewerState
-	7,  // 29: dzeroth.beacons.v1.RespondToJoinRequestRequest.response:type_name -> dzeroth.beacons.v1.JoinResponse
-	13, // 30: dzeroth.beacons.v1.RespondToJoinRequestResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
-	13, // 31: dzeroth.beacons.v1.RemoveParticipantResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
-	10, // 32: dzeroth.beacons.v1.ListParticipantsRequest.filter:type_name -> dzeroth.beacons.v1.ParticipantFilter
-	14, // 33: dzeroth.beacons.v1.ListParticipantsResponse.participants:type_name -> dzeroth.beacons.v1.Participant
-	15, // 34: dzeroth.beacons.v1.BeaconService.CreateBeacon:input_type -> dzeroth.beacons.v1.CreateBeaconRequest
-	17, // 35: dzeroth.beacons.v1.BeaconService.UpdateBeacon:input_type -> dzeroth.beacons.v1.UpdateBeaconRequest
-	19, // 36: dzeroth.beacons.v1.BeaconService.CancelBeacon:input_type -> dzeroth.beacons.v1.CancelBeaconRequest
-	21, // 37: dzeroth.beacons.v1.BeaconService.GetBeacon:input_type -> dzeroth.beacons.v1.GetBeaconRequest
-	23, // 38: dzeroth.beacons.v1.BeaconService.ListBeacons:input_type -> dzeroth.beacons.v1.ListBeaconsRequest
-	25, // 39: dzeroth.beacons.v1.BeaconService.ListMyBeacons:input_type -> dzeroth.beacons.v1.ListMyBeaconsRequest
-	27, // 40: dzeroth.beacons.v1.BeaconService.RequestToJoin:input_type -> dzeroth.beacons.v1.RequestToJoinRequest
-	29, // 41: dzeroth.beacons.v1.BeaconService.WithdrawJoinRequest:input_type -> dzeroth.beacons.v1.WithdrawJoinRequestRequest
-	31, // 42: dzeroth.beacons.v1.BeaconService.RespondToJoinRequest:input_type -> dzeroth.beacons.v1.RespondToJoinRequestRequest
-	33, // 43: dzeroth.beacons.v1.BeaconService.LeaveBeacon:input_type -> dzeroth.beacons.v1.LeaveBeaconRequest
-	35, // 44: dzeroth.beacons.v1.BeaconService.RemoveParticipant:input_type -> dzeroth.beacons.v1.RemoveParticipantRequest
-	37, // 45: dzeroth.beacons.v1.BeaconService.ListParticipants:input_type -> dzeroth.beacons.v1.ListParticipantsRequest
-	16, // 46: dzeroth.beacons.v1.BeaconService.CreateBeacon:output_type -> dzeroth.beacons.v1.CreateBeaconResponse
-	18, // 47: dzeroth.beacons.v1.BeaconService.UpdateBeacon:output_type -> dzeroth.beacons.v1.UpdateBeaconResponse
-	20, // 48: dzeroth.beacons.v1.BeaconService.CancelBeacon:output_type -> dzeroth.beacons.v1.CancelBeaconResponse
-	22, // 49: dzeroth.beacons.v1.BeaconService.GetBeacon:output_type -> dzeroth.beacons.v1.GetBeaconResponse
-	24, // 50: dzeroth.beacons.v1.BeaconService.ListBeacons:output_type -> dzeroth.beacons.v1.ListBeaconsResponse
-	26, // 51: dzeroth.beacons.v1.BeaconService.ListMyBeacons:output_type -> dzeroth.beacons.v1.ListMyBeaconsResponse
-	28, // 52: dzeroth.beacons.v1.BeaconService.RequestToJoin:output_type -> dzeroth.beacons.v1.RequestToJoinResponse
-	30, // 53: dzeroth.beacons.v1.BeaconService.WithdrawJoinRequest:output_type -> dzeroth.beacons.v1.WithdrawJoinRequestResponse
-	32, // 54: dzeroth.beacons.v1.BeaconService.RespondToJoinRequest:output_type -> dzeroth.beacons.v1.RespondToJoinRequestResponse
-	34, // 55: dzeroth.beacons.v1.BeaconService.LeaveBeacon:output_type -> dzeroth.beacons.v1.LeaveBeaconResponse
-	36, // 56: dzeroth.beacons.v1.BeaconService.RemoveParticipant:output_type -> dzeroth.beacons.v1.RemoveParticipantResponse
-	38, // 57: dzeroth.beacons.v1.BeaconService.ListParticipants:output_type -> dzeroth.beacons.v1.ListParticipantsResponse
-	46, // [46:58] is the sub-list for method output_type
-	34, // [34:46] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	0,  // 24: dzeroth.beacons.v1.ListBeaconsRequest.activity:type_name -> dzeroth.beacons.v1.BeaconActivity
+	13, // 25: dzeroth.beacons.v1.ListBeaconsResponse.views:type_name -> dzeroth.beacons.v1.BeaconView
+	8,  // 26: dzeroth.beacons.v1.ListMyBeaconsRequest.role:type_name -> dzeroth.beacons.v1.MyBeaconsRole
+	9,  // 27: dzeroth.beacons.v1.ListMyBeaconsRequest.window:type_name -> dzeroth.beacons.v1.MyBeaconsWindow
+	13, // 28: dzeroth.beacons.v1.ListMyBeaconsResponse.views:type_name -> dzeroth.beacons.v1.BeaconView
+	12, // 29: dzeroth.beacons.v1.RequestToJoinResponse.viewer:type_name -> dzeroth.beacons.v1.ViewerState
+	7,  // 30: dzeroth.beacons.v1.RespondToJoinRequestRequest.response:type_name -> dzeroth.beacons.v1.JoinResponse
+	13, // 31: dzeroth.beacons.v1.RespondToJoinRequestResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
+	13, // 32: dzeroth.beacons.v1.RemoveParticipantResponse.view:type_name -> dzeroth.beacons.v1.BeaconView
+	10, // 33: dzeroth.beacons.v1.ListParticipantsRequest.filter:type_name -> dzeroth.beacons.v1.ParticipantFilter
+	14, // 34: dzeroth.beacons.v1.ListParticipantsResponse.participants:type_name -> dzeroth.beacons.v1.Participant
+	15, // 35: dzeroth.beacons.v1.BeaconService.CreateBeacon:input_type -> dzeroth.beacons.v1.CreateBeaconRequest
+	17, // 36: dzeroth.beacons.v1.BeaconService.UpdateBeacon:input_type -> dzeroth.beacons.v1.UpdateBeaconRequest
+	19, // 37: dzeroth.beacons.v1.BeaconService.CancelBeacon:input_type -> dzeroth.beacons.v1.CancelBeaconRequest
+	21, // 38: dzeroth.beacons.v1.BeaconService.GetBeacon:input_type -> dzeroth.beacons.v1.GetBeaconRequest
+	23, // 39: dzeroth.beacons.v1.BeaconService.ListBeacons:input_type -> dzeroth.beacons.v1.ListBeaconsRequest
+	25, // 40: dzeroth.beacons.v1.BeaconService.ListMyBeacons:input_type -> dzeroth.beacons.v1.ListMyBeaconsRequest
+	27, // 41: dzeroth.beacons.v1.BeaconService.RequestToJoin:input_type -> dzeroth.beacons.v1.RequestToJoinRequest
+	29, // 42: dzeroth.beacons.v1.BeaconService.WithdrawJoinRequest:input_type -> dzeroth.beacons.v1.WithdrawJoinRequestRequest
+	31, // 43: dzeroth.beacons.v1.BeaconService.RespondToJoinRequest:input_type -> dzeroth.beacons.v1.RespondToJoinRequestRequest
+	33, // 44: dzeroth.beacons.v1.BeaconService.LeaveBeacon:input_type -> dzeroth.beacons.v1.LeaveBeaconRequest
+	35, // 45: dzeroth.beacons.v1.BeaconService.RemoveParticipant:input_type -> dzeroth.beacons.v1.RemoveParticipantRequest
+	37, // 46: dzeroth.beacons.v1.BeaconService.ListParticipants:input_type -> dzeroth.beacons.v1.ListParticipantsRequest
+	16, // 47: dzeroth.beacons.v1.BeaconService.CreateBeacon:output_type -> dzeroth.beacons.v1.CreateBeaconResponse
+	18, // 48: dzeroth.beacons.v1.BeaconService.UpdateBeacon:output_type -> dzeroth.beacons.v1.UpdateBeaconResponse
+	20, // 49: dzeroth.beacons.v1.BeaconService.CancelBeacon:output_type -> dzeroth.beacons.v1.CancelBeaconResponse
+	22, // 50: dzeroth.beacons.v1.BeaconService.GetBeacon:output_type -> dzeroth.beacons.v1.GetBeaconResponse
+	24, // 51: dzeroth.beacons.v1.BeaconService.ListBeacons:output_type -> dzeroth.beacons.v1.ListBeaconsResponse
+	26, // 52: dzeroth.beacons.v1.BeaconService.ListMyBeacons:output_type -> dzeroth.beacons.v1.ListMyBeaconsResponse
+	28, // 53: dzeroth.beacons.v1.BeaconService.RequestToJoin:output_type -> dzeroth.beacons.v1.RequestToJoinResponse
+	30, // 54: dzeroth.beacons.v1.BeaconService.WithdrawJoinRequest:output_type -> dzeroth.beacons.v1.WithdrawJoinRequestResponse
+	32, // 55: dzeroth.beacons.v1.BeaconService.RespondToJoinRequest:output_type -> dzeroth.beacons.v1.RespondToJoinRequestResponse
+	34, // 56: dzeroth.beacons.v1.BeaconService.LeaveBeacon:output_type -> dzeroth.beacons.v1.LeaveBeaconResponse
+	36, // 57: dzeroth.beacons.v1.BeaconService.RemoveParticipant:output_type -> dzeroth.beacons.v1.RemoveParticipantResponse
+	38, // 58: dzeroth.beacons.v1.BeaconService.ListParticipants:output_type -> dzeroth.beacons.v1.ListParticipantsResponse
+	47, // [47:59] is the sub-list for method output_type
+	35, // [35:47] is the sub-list for method input_type
+	35, // [35:35] is the sub-list for extension type_name
+	35, // [35:35] is the sub-list for extension extendee
+	0,  // [0:35] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_beacons_v1_beacons_proto_init() }

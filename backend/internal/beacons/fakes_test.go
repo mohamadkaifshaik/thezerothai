@@ -220,8 +220,17 @@ func (f *fakeRepo) ListByAudience(_ context.Context, q ListQuery) ([]Beacon, err
 	if f.err != nil {
 		return nil, f.err
 	}
-	n := min(len(f.rows), max(q.Limit, 0))
-	return append([]Beacon(nil), f.rows[:n]...), nil
+	rows := f.rows
+	if q.Activity != "" {
+		rows = nil
+		for _, b := range f.rows {
+			if b.Activity == q.Activity {
+				rows = append(rows, b)
+			}
+		}
+	}
+	n := min(len(rows), max(q.Limit, 0))
+	return append([]Beacon(nil), rows[:n]...), nil
 }
 
 func (f *fakeRepo) calls() int {

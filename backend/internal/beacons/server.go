@@ -154,7 +154,11 @@ func (s *Server) ListBeacons(ctx context.Context, req *connect.Request[beaconsv1
 	}
 	defer cancel()
 	m := req.Msg
-	in := ListInput{CommunityID: m.GetCommunityId(), Public: m.GetPublic(), Limit: m.GetLimit(), PageToken: m.GetPageToken()}
+	activity, err := listActivityFromProto(m.GetActivity())
+	if err != nil {
+		return nil, err
+	}
+	in := ListInput{CommunityID: m.GetCommunityId(), Public: m.GetPublic(), Activity: activity, Limit: m.GetLimit(), PageToken: m.GetPageToken()}
 	if m.GetFrom() != nil {
 		in.From = m.GetFrom().AsTime()
 	}
