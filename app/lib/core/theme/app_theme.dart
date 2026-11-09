@@ -1050,6 +1050,22 @@ abstract final class AppPalette {
   /// text2 on dark: pearl at 80 % over navy (dz.css `.dark .field label`).
   static const Color text2OnDark = Color(0xFFC7C7C7);
 
+  /// Fallback avatar backgrounds (initials). The first three take
+  /// [avatarInkOnTint] (navy), the last, [avatarTintNavy], takes
+  /// [avatarInkOnNavy] (pearl); every pair is at least 4.5:1.
+  static const Color avatarTintSlate = Color(0xFFC9D3DC);
+  static const Color avatarTintMint = Color(0xFFBFE9E2);
+  static const Color avatarTintSand = Color(0xFFE3DCCB);
+  static const Color avatarTintNavy = navy;
+  static const List<Color> avatarTints = [
+    avatarTintSlate,
+    avatarTintMint,
+    avatarTintSand,
+    avatarTintNavy,
+  ];
+  static const Color avatarInkOnTint = navy;
+  static const Color avatarInkOnNavy = pearl;
+
   /// Text field fill on dark: dz.css `rgba(246,244,239,.06)` (pearl at 6 %).
   static const Color fieldFillDark = Color(0x0FF6F4EF);
 }
