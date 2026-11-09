@@ -29,7 +29,8 @@ type Article struct {
 	AuthorId  string                 `protobuf:"bytes,2,opt,name=author_id,json=authorId,proto3" json:"author_id,omitempty"`
 	Revision  int64                  `protobuf:"varint,3,opt,name=revision,proto3" json:"revision,omitempty"`
 	Title     string                 `protobuf:"bytes,4,opt,name=title,proto3" json:"title,omitempty"`
-	// JSON array of validated structured blocks; never HTML.
+	// JSON array of validated structured blocks; never HTML. Empty in ListArticles responses: open an article
+	// with GetArticle to read its body.
 	BodyJson               string                 `protobuf:"bytes,5,opt,name=body_json,json=bodyJson,proto3" json:"body_json,omitempty"`
 	CoverMediaId           string                 `protobuf:"bytes,6,opt,name=cover_media_id,json=coverMediaId,proto3" json:"cover_media_id,omitempty"`
 	PostId                 string                 `protobuf:"bytes,7,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
@@ -38,8 +39,11 @@ type Article struct {
 	PublicationPending     bool                   `protobuf:"varint,10,opt,name=publication_pending,json=publicationPending,proto3" json:"publication_pending,omitempty"`
 	PublicationCaption     string                 `protobuf:"bytes,11,opt,name=publication_caption,json=publicationCaption,proto3" json:"publication_caption,omitempty"`
 	PublicationReplyPolicy v1.ReplyPolicy         `protobuf:"varint,12,opt,name=publication_reply_policy,json=publicationReplyPolicy,proto3,enum=dzeroth.posts.v1.ReplyPolicy" json:"publication_reply_policy,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// Plain-text excerpt of the body (whitespace collapsed, at most 280 Unicode code points), computed by the
+	// server on read. Set on every response, including ListArticles where body_json is empty. Never HTML.
+	Excerpt       string `protobuf:"bytes,13,opt,name=excerpt,proto3" json:"excerpt,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Article) Reset() {
@@ -154,6 +158,13 @@ func (x *Article) GetPublicationReplyPolicy() v1.ReplyPolicy {
 		return x.PublicationReplyPolicy
 	}
 	return v1.ReplyPolicy(0)
+}
+
+func (x *Article) GetExcerpt() string {
+	if x != nil {
+		return x.Excerpt
+	}
+	return ""
 }
 
 type GetArticleRequest struct {
@@ -680,7 +691,7 @@ var File_dzeroth_articles_v1_articles_proto protoreflect.FileDescriptor
 
 const file_dzeroth_articles_v1_articles_proto_rawDesc = "" +
 	"\n" +
-	"\"dzeroth/articles/v1/articles.proto\x12\x13dzeroth.articles.v1\x1a\x1cdzeroth/posts/v1/posts.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe6\x03\n" +
+	"\"dzeroth/articles/v1/articles.proto\x12\x13dzeroth.articles.v1\x1a\x1cdzeroth/posts/v1/posts.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x80\x04\n" +
 	"\aArticle\x12\x1d\n" +
 	"\n" +
 	"article_id\x18\x01 \x01(\tR\tarticleId\x12\x1b\n" +
@@ -696,7 +707,8 @@ const file_dzeroth_articles_v1_articles_proto_rawDesc = "" +
 	"\x13publication_pending\x18\n" +
 	" \x01(\bR\x12publicationPending\x12/\n" +
 	"\x13publication_caption\x18\v \x01(\tR\x12publicationCaption\x12W\n" +
-	"\x18publication_reply_policy\x18\f \x01(\x0e2\x1d.dzeroth.posts.v1.ReplyPolicyR\x16publicationReplyPolicy\"2\n" +
+	"\x18publication_reply_policy\x18\f \x01(\x0e2\x1d.dzeroth.posts.v1.ReplyPolicyR\x16publicationReplyPolicy\x12\x18\n" +
+	"\aexcerpt\x18\r \x01(\tR\aexcerpt\"2\n" +
 	"\x11GetArticleRequest\x12\x1d\n" +
 	"\n" +
 	"article_id\x18\x01 \x01(\tR\tarticleId\"|\n" +

@@ -13,6 +13,7 @@ import '../../features/messages/presentation/bloc/messages_badge_cubit.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../features/onboarding/presentation/widgets/account_refresh_banner.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/search/domain/search_feature_flags.dart';
 import '../../features/search/presentation/widgets/app_search_field.dart';
@@ -376,9 +377,18 @@ class MainShell extends StatelessWidget {
             );
         }
       },
-      body: masterDetail && location == AppRouter.settingsPath
-          ? const SettingsDetailPlaceholder()
-          : child,
+      // A failed GetMe behind a cached profile: a non-blocking Retry over
+      // every destination, never a hard stop (offline warm start).
+      body: Column(
+        children: [
+          const AccountRefreshBanner(),
+          Expanded(
+            child: masterDetail && location == AppRouter.settingsPath
+                ? const SettingsDetailPlaceholder()
+                : child,
+          ),
+        ],
+      ),
     );
   }
 }

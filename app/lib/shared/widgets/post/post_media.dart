@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
@@ -13,6 +15,10 @@ import 'gif_badge.dart';
 /// 4:5 .. 16:9 so a tall image cannot take over the feed); multiple images use
 /// a fixed 16:9 viewport and can be browsed horizontally. Images fit inside
 /// their tiles without cropping; unused space is filled with the surface color.
+/// The frame comes from the stored `width`/`height` alone, so it has its
+/// final size before (and whether or not) any image loads: no layout jump.
+/// A single GIF is also held to [maxGifUpscale] times its own size, with a
+/// [minGifFrameEdge] floor for its controls.
 ///
 /// Lists use `thumbUrl` only and decode it at display size. A ref with no
 /// `thumbUrl` shows a placeholder and never falls back to the full image:
@@ -53,6 +59,39 @@ class PostMedia extends StatelessWidget {
   static const _maxAspect = 16 / 9;
   static const _gap = 2.0;
 
+  /// A GIF is never drawn larger than this multiple of its own pixel size
+  /// (its stored `width` x `height`, the server-verified logical screen).
+  static const maxGifUpscale = 2.0;
+
+  /// The shortest side of a single GIF's frame, so a tiny GIF still has room
+  /// for the 48dp play control, the badge and the ALT chip. The pixels inside
+  /// stay within [maxGifUpscale] and are letterboxed.
+  static const minGifFrameEdge = 200.0;
+
+  /// The aspect ratio of a single item's frame: its stored size clamped to
+  /// 4:5 .. 16:9, or 16:9 when the size is unknown (refs stored before sizes
+  /// were recorded). The frame is laid out from this before any byte loads.
+  static double frameAspect(common.MediaRef ref) =>
+      ref.width > 0 && ref.height > 0
+      ? (ref.width / ref.height).clamp(_minAspect, _maxAspect).toDouble()
+      : _maxAspect;
+
+  /// The widest a single GIF's frame may be: no more than [maxGifUpscale]
+  /// times its own width, nor so wide that its height passes
+  /// [maxGifUpscale] times its own height; never under the
+  /// [minGifFrameEdge] floor. Null when the GIF's size is unknown (the frame
+  /// then fills the width, as before).
+  static double? gifMaxFrameWidth(common.MediaRef ref) {
+    if (ref.width <= 0 || ref.height <= 0) return null;
+    final aspect = frameAspect(ref);
+    final cap = math.min(
+      maxGifUpscale * ref.width,
+      maxGifUpscale * ref.height * aspect,
+    );
+    final floor = minGifFrameEdge * math.max(1, aspect);
+    return math.max(cap, floor);
+  }
+
   @override
   Widget build(BuildContext context) {
     final items = media.take(4).toList();
@@ -60,9 +99,7 @@ class PostMedia extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final single = items.length == 1;
     final first = items.first;
-    final aspect = single && first.width > 0 && first.height > 0
-        ? (first.width / first.height).clamp(_minAspect, _maxAspect)
-        : _maxAspect;
+    final aspect = single ? frameAspect(first) : _maxAspect;
 
     Widget tile(int index) => _MediaTile(
       media: items[index],
@@ -77,11 +114,25 @@ class PostMedia extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        child: AspectRatio(aspectRatio: aspect.toDouble(), child: child),
+        child: AspectRatio(aspectRatio: aspect, child: child),
       ),
     );
 
-    if (single) return framed(tile(0));
+    if (single) {
+      final maxWidth = first.contentType == kGifContentType
+          ? gifMaxFrameWidth(first)
+          : null;
+      if (maxWidth == null) return framed(tile(0));
+      // A small GIF keeps (at most twice) its own size, start-aligned like
+      // the text above it, instead of being blown up to the column width.
+      return Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: framed(tile(0)),
+        ),
+      );
+    }
     return _MediaPager(
       count: items.length,
       showIndicator: showPageIndicator,
@@ -308,6 +359,23 @@ class _GifTileState extends State<_GifTile> {
     final still = media.thumbUrl.isEmpty
         ? blank
         : _networkImage(media.thumbUrl, colors);
+    // The pixels never pass twice the GIF's own size, even when the frame is
+    // larger (its floor); the frame's surface color letterboxes the rest.
+    Widget bounded(Widget image) => media.width > 0 && media.height > 0
+        ? ColoredBox(
+            color: colors.surfaceContainerHigh,
+            child: Center(
+              child: ConstrainedBox(
+                key: const ValueKey('gif-pixels'),
+                constraints: BoxConstraints(
+                  maxWidth: PostMedia.maxGifUpscale * media.width,
+                  maxHeight: PostMedia.maxGifUpscale * media.height,
+                ),
+                child: image,
+              ),
+            ),
+          )
+        : image;
     final alt = media.altText;
     final canPlay = media.url.isNotEmpty;
     final label = [
@@ -330,10 +398,11 @@ class _GifTileState extends State<_GifTile> {
           fit: StackFit.expand,
           children: [
             // Only now is the full URL requested; the still shows meanwhile.
-            if (_playing)
-              _networkImage(media.url, colors, placeholder: still)
-            else
-              still,
+            bounded(
+              _playing
+                  ? _networkImage(media.url, colors, placeholder: still)
+                  : still,
+            ),
             if (!_playing && canPlay)
               Center(
                 child: DecoratedBox(
