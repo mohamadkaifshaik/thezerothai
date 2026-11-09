@@ -151,10 +151,18 @@ func (s *Server) SaveArticle(ctx context.Context, req *connect.Request[av.SaveAr
 	if in.GetCoverMediaId() != "" && !validID.MatchString(in.GetCoverMediaId()) {
 		return nil, apierr.Validation("cover_media_id", "invalid media id")
 	}
-	a, err := s.repo.change(ctx, in.GetArticleId(), func(current *record) (*record, error) {
+	a, err := s.repo.saveDraft(ctx, in.GetArticleId(), uid, func(current *record, drafts func() (int, error)) (*record, error) {
 		if current == nil {
 			if req.Msg.GetExpectedRevision() != 0 {
 				return nil, conflict()
+			}
+			// Only a new draft id counts against the cap; an existing draft is always saved.
+			n, e := drafts()
+			if e != nil {
+				return nil, e
+			}
+			if n >= maxDraftsPerAuthor {
+				return nil, draftLimit()
 			}
 			current = &record{ID: in.GetArticleId(), AuthorID: uid}
 		}

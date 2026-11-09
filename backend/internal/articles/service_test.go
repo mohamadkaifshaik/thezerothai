@@ -30,6 +30,7 @@ type memoryRepo struct {
 	rows         map[string]*record
 	failFinalize bool
 	beforeChange func(*record)
+	countErr     error
 }
 
 func clone(a *record) *record {
@@ -69,6 +70,22 @@ func (r *memoryRepo) change(_ context.Context, id string, fn func(*record) (*rec
 		r.rows[id] = clone(a)
 	}
 	return clone(a), nil
+}
+func (r *memoryRepo) saveDraft(ctx context.Context, id, uid string, fn func(*record, func() (int, error)) (*record, error)) (*record, error) {
+	drafts := func() (int, error) {
+		// Called under r.mu (inside change), like a read of the same transaction.
+		if r.countErr != nil {
+			return 0, r.countErr
+		}
+		n := 0
+		for _, a := range r.rows {
+			if a.AuthorID == uid && !a.Published && n <= maxDraftsPerAuthor {
+				n++
+			}
+		}
+		return n, nil
+	}
+	return r.change(ctx, id, func(current *record) (*record, error) { return fn(current, drafts) })
 }
 func (r *memoryRepo) list(_ context.Context, uid string, p bool, n int, _ string) ([]*record, error) {
 	r.mu.Lock()
