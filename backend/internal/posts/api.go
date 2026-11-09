@@ -9,7 +9,9 @@ package posts
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -17,6 +19,8 @@ import (
 
 	"cloud.google.com/go/firestore"
 
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/outbox"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -457,6 +461,55 @@ type MediaAttacher interface {
 // never fails the delete: the post is already gone and the dependants are also removed by the account purge.
 type PostDeleteJobs interface {
 	PostDeleted(ctx context.Context, uid, postID string, mediaIDs []string) error
+}
+
+// PostDeleteOutbox makes the post_delete job durable (*outbox.Outbox implements it). DeletePost stages one item
+// (kind PostDeleteOutboxKind, key = the post id, payload = PostDeleteWork) in the delete batch itself, publishes after the
+// commit as before and calls Done when the publish succeeded. A lost publish or a crash leaves the item, and the outbox
+// sweep (apiserver) republishes it through the same PostDeleteJobs.PostDeleted; the job's steps are idempotent.
+type PostDeleteOutbox interface {
+	Stage(b store.Batch, e outbox.Entry) error
+	Done(ctx context.Context, e outbox.Entry) error
+}
+
+// PostDeleteOutboxKind is the outbox kind of a deleted post's pending post_delete publish.
+const PostDeleteOutboxKind = "post_delete"
+
+// PostDeleteWork is the outbox payload: the PostDeleteJobs.PostDeleted arguments.
+type PostDeleteWork struct {
+	UID      string   `json:"uid"`
+	PostID   string   `json:"postId"`
+	MediaIDs []string `json:"mediaIds"`
+}
+
+// PostDeleteEntry builds the outbox entry of a deleted post (deterministic id post_delete:<postId>).
+func PostDeleteEntry(uid, postID string, mediaIDs []string) (outbox.Entry, error) {
+	w := PostDeleteWork{UID: uid, PostID: postID, MediaIDs: mediaIDs}
+	if err := w.validate(); err != nil {
+		return outbox.Entry{}, err
+	}
+	data, err := json.Marshal(w)
+	if err != nil {
+		return outbox.Entry{}, fmt.Errorf("posts: encode post_delete work: %w", err)
+	}
+	e := outbox.Entry{Kind: PostDeleteOutboxKind, Key: postID, UID: uid, Payload: data}
+	return e, e.Validate()
+}
+
+// DecodePostDeleteWork parses and validates an outbox payload written by PostDeleteEntry.
+func DecodePostDeleteWork(data []byte) (PostDeleteWork, error) {
+	var w PostDeleteWork
+	if err := json.Unmarshal(data, &w); err != nil {
+		return w, fmt.Errorf("posts: decode post_delete work: %w", err)
+	}
+	return w, w.validate()
+}
+
+func (w PostDeleteWork) validate() error {
+	if !ids.ValidUID(w.UID) || !ids.ValidPostID(w.PostID) {
+		return errors.New("posts: post_delete work: invalid uid or post id")
+	}
+	return nil
 }
 
 // EngagementFlagName is the wire name of FEATURE_ENGAGEMENT. It gates the quote path of CreatePost
