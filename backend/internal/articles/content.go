@@ -90,8 +90,58 @@ func validateContent(title, body string, publishing bool) (string, error) {
 		return "", apierr.Validation("body", "article needs a body of at most 100000 characters")
 	}
 	excerpt := []rune(strings.Join(strings.Fields(plain), " "))
-	if len(excerpt) > 160 {
-		excerpt = excerpt[:160]
+	if len(excerpt) > maxPreviewExcerptRunes {
+		excerpt = excerpt[:maxPreviewExcerptRunes]
 	}
 	return string(excerpt), nil
+}
+
+// Two excerpt lengths on purpose: maxPreviewExcerptRunes bounds the excerpt frozen into the root post's
+// ArticlePreview at publication (timeline cards); maxExcerptRunes bounds Article.excerpt, computed on read for the
+// author's library (proto contract: at most 280 code points).
+const (
+	maxPreviewExcerptRunes = 160
+	maxExcerptRunes        = 280
+)
+
+// plainText is the lenient reading of a stored body for derived text (list excerpts, report evidence): the runs of
+// every block, one line per block. It never validates (a row written under older rules still reads) and answers ""
+// for a body that does not decode.
+func plainText(body string) string {
+	var blocks []block
+	if err := json.Unmarshal([]byte(body), &blocks); err != nil {
+		return ""
+	}
+	var text strings.Builder
+	for _, b := range blocks {
+		for _, r := range b.Runs {
+			text.WriteString(r.Text)
+		}
+		text.WriteByte('\n')
+	}
+	return strings.TrimSpace(text.String())
+}
+
+// excerptOf is the whitespace-collapsed plain text of body, cut at maxExcerptRunes code points.
+func excerptOf(body string) string {
+	return truncateRunes(strings.Join(strings.Fields(plainText(body)), " "), maxExcerptRunes)
+}
+
+// truncateRunes cuts s to at most n code points, never inside one.
+func truncateRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n])
+}
+
+// truncateBytes cuts s to at most n bytes of UTF-8, never inside a code point.
+func truncateBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }

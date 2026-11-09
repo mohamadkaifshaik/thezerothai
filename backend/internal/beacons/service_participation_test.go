@@ -165,9 +165,14 @@ func TestWithdrawAndLeave_PassParams(t *testing.T) {
 	assertPrecondition(t, e.svc.WithdrawJoinRequest(context.Background(), testViewer, testKey, testBeaconID), "not_requested")
 	e.repo.perr = ErrNotParticipant
 	assertPrecondition(t, e.svc.LeaveBeacon(context.Background(), testViewer, testKey, testBeaconID), "not_participant")
+	e.repo.perr = ErrNotFound // no row: the one NOT_FOUND
+	assertNotFound(t, e.svc.LeaveBeacon(context.Background(), testViewer, testKey, testBeaconID))
+	// B05: a block no longer traps the caller; leaving is always allowed (TestSelfTransitions_LightGate).
 	e.repo.perr = nil
 	e.graph.snaps[testViewer] = graph.Snapshot{Blocked: map[string]bool{testOrganiser: true}}
-	assertNotFound(t, e.svc.LeaveBeacon(context.Background(), testViewer, testKey, testBeaconID))
+	if err := e.svc.LeaveBeacon(context.Background(), testViewer, testKey, testBeaconID); err != nil {
+		t.Fatalf("leave across a block: %v", err)
+	}
 }
 
 // TestRespondAndRemove_OrganiserOnly: visibility and the organiser check come first; the organiser's answer is the view
@@ -175,6 +180,7 @@ func TestWithdrawAndLeave_PassParams(t *testing.T) {
 func TestRespondAndRemove_OrganiserOnly(t *testing.T) {
 	e := newEnv()
 	e.repo.docs[testBeaconID] = e.openBeacon()
+	e.dir.profiles["p1"] = activeProfile("p1") // an ACCEPT needs an ACTIVE target (B04)
 	if _, err := e.svc.RespondToJoinRequest(context.Background(), testViewer, testKey, testBeaconID, "p1", true); err == nil {
 		t.Fatal("a stranger could respond")
 	} else {
