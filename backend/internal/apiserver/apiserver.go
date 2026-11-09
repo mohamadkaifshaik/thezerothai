@@ -264,10 +264,14 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	recipientCap := notifications.NewRecipientCap(cfg.RateLimit.NotificationRecipientsPerActorPerDay, cfg.RateLimit.NotificationRecipientsPerNewActorPerDay, isNewActor)
 	notifAudience := protectedAudience(protectedAuthors)
+	// F6: push preferences (users/{uid}/settings/notifications), read by the fan-out through a 60 s instance cache and by
+	// Get/UpdateNotificationPrefs. Inert until FEATURE_NOTIFICATION_PREFS is on for a caller.
+	notifPrefs := notifications.NewPrefsStore(notifRepo, identitySvc.(identity.Directory))
 	notifFanout := notifications.NewFanout(notifications.FanoutDeps{
 		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Sender: pushSender,
 		Flags: featureFlags, Log: log, ProjectID: cfg.ProjectID, ReadOnly: cfg.Degraded == config.DegradedReadonly,
 		Audience:  notifAudience,
+		Prefs:     notifPrefs,
 		PushLimit: notifications.NewPushLimiter(int(cfg.RateLimit.NotificationPushesPerRecipientPerHour)),
 		// The push-only message type has its own bucket (MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR, 20).
 		MessagePushLimit: notifications.NewPushLimiter(cfg.Messaging.PushesPerRecipientPerHour),
@@ -285,7 +289,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	notifService := notifications.NewService(notifications.Deps{
 		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Seen: identityRepo, Validator: tokenValidator, CursorKey: cfg.CursorHMACKey,
 	})
-	notifServer := notifications.NewServer(notifService, featureFlags)
+	notifServer := notifications.NewServer(notifService, featureFlags, notifications.WithPrefs(notifPrefs))
 
 	// posts and timeline: both services are registered behind FEATURE_POSTS. Their RPC bodies land later;
 	// until then every RPC is Unimplemented once the flag is on. timeline gets only the

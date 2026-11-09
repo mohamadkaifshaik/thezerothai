@@ -714,6 +714,266 @@ func (*UnregisterDeviceResponse) Descriptor() ([]byte, []int) {
 	return file_dzeroth_notifications_v1_notifications_proto_rawDescGZIP(), []int{8}
 }
 
+// Push on or off per notification type group. true = the push is sent (the default for everyone).
+type NotificationPrefs struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Plans: a join request, an accepted request, a cancelled plan.
+	PlansPush bool `protobuf:"varint,1,opt,name=plans_push,json=plansPush,proto3" json:"plans_push,omitempty"`
+	// Mentions and replies: MENTION, REPLY, QUOTE.
+	MentionsRepliesPush bool `protobuf:"varint,2,opt,name=mentions_replies_push,json=mentionsRepliesPush,proto3" json:"mentions_replies_push,omitempty"`
+	// Likes and reposts: LIKE, REPOST.
+	LikesRepostsPush bool `protobuf:"varint,3,opt,name=likes_reposts_push,json=likesRepostsPush,proto3" json:"likes_reposts_push,omitempty"`
+	// Followers: FOLLOW, FOLLOW_REQUEST, FOLLOW_ACCEPTED.
+	FollowersPush bool `protobuf:"varint,4,opt,name=followers_push,json=followersPush,proto3" json:"followers_push,omitempty"`
+	// Messages: the direct-message push (which has no in-app row).
+	MessagesPush  bool `protobuf:"varint,5,opt,name=messages_push,json=messagesPush,proto3" json:"messages_push,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NotificationPrefs) Reset() {
+	*x = NotificationPrefs{}
+	mi := &file_dzeroth_notifications_v1_notifications_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NotificationPrefs) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NotificationPrefs) ProtoMessage() {}
+
+func (x *NotificationPrefs) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_notifications_v1_notifications_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NotificationPrefs.ProtoReflect.Descriptor instead.
+func (*NotificationPrefs) Descriptor() ([]byte, []int) {
+	return file_dzeroth_notifications_v1_notifications_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *NotificationPrefs) GetPlansPush() bool {
+	if x != nil {
+		return x.PlansPush
+	}
+	return false
+}
+
+func (x *NotificationPrefs) GetMentionsRepliesPush() bool {
+	if x != nil {
+		return x.MentionsRepliesPush
+	}
+	return false
+}
+
+func (x *NotificationPrefs) GetLikesRepostsPush() bool {
+	if x != nil {
+		return x.LikesRepostsPush
+	}
+	return false
+}
+
+func (x *NotificationPrefs) GetFollowersPush() bool {
+	if x != nil {
+		return x.FollowersPush
+	}
+	return false
+}
+
+func (x *NotificationPrefs) GetMessagesPush() bool {
+	if x != nil {
+		return x.MessagesPush
+	}
+	return false
+}
+
+type GetNotificationPrefsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetNotificationPrefsRequest) Reset() {
+	*x = GetNotificationPrefsRequest{}
+	mi := &file_dzeroth_notifications_v1_notifications_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetNotificationPrefsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetNotificationPrefsRequest) ProtoMessage() {}
+
+func (x *GetNotificationPrefsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_notifications_v1_notifications_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetNotificationPrefsRequest.ProtoReflect.Descriptor instead.
+func (*GetNotificationPrefsRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_notifications_v1_notifications_proto_rawDescGZIP(), []int{10}
+}
+
+type GetNotificationPrefsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Prefs         *NotificationPrefs     `protobuf:"bytes,1,opt,name=prefs,proto3" json:"prefs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetNotificationPrefsResponse) Reset() {
+	*x = GetNotificationPrefsResponse{}
+	mi := &file_dzeroth_notifications_v1_notifications_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetNotificationPrefsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetNotificationPrefsResponse) ProtoMessage() {}
+
+func (x *GetNotificationPrefsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_notifications_v1_notifications_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetNotificationPrefsResponse.ProtoReflect.Descriptor instead.
+func (*GetNotificationPrefsResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_notifications_v1_notifications_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *GetNotificationPrefsResponse) GetPrefs() *NotificationPrefs {
+	if x != nil {
+		return x.Prefs
+	}
+	return nil
+}
+
+type UpdateNotificationPrefsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Format-validated (16-64 characters of [A-Za-z0-9_-]); the operation is a full replace, idempotent by state.
+	IdempotencyKey string `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	// Required: every group is sent, a missing one is off.
+	Prefs         *NotificationPrefs `protobuf:"bytes,2,opt,name=prefs,proto3" json:"prefs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateNotificationPrefsRequest) Reset() {
+	*x = UpdateNotificationPrefsRequest{}
+	mi := &file_dzeroth_notifications_v1_notifications_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateNotificationPrefsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateNotificationPrefsRequest) ProtoMessage() {}
+
+func (x *UpdateNotificationPrefsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_notifications_v1_notifications_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateNotificationPrefsRequest.ProtoReflect.Descriptor instead.
+func (*UpdateNotificationPrefsRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_notifications_v1_notifications_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *UpdateNotificationPrefsRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *UpdateNotificationPrefsRequest) GetPrefs() *NotificationPrefs {
+	if x != nil {
+		return x.Prefs
+	}
+	return nil
+}
+
+type UpdateNotificationPrefsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Prefs         *NotificationPrefs     `protobuf:"bytes,1,opt,name=prefs,proto3" json:"prefs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateNotificationPrefsResponse) Reset() {
+	*x = UpdateNotificationPrefsResponse{}
+	mi := &file_dzeroth_notifications_v1_notifications_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateNotificationPrefsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateNotificationPrefsResponse) ProtoMessage() {}
+
+func (x *UpdateNotificationPrefsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_notifications_v1_notifications_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateNotificationPrefsResponse.ProtoReflect.Descriptor instead.
+func (*UpdateNotificationPrefsResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_notifications_v1_notifications_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *UpdateNotificationPrefsResponse) GetPrefs() *NotificationPrefs {
+	if x != nil {
+		return x.Prefs
+	}
+	return nil
+}
+
 var File_dzeroth_notifications_v1_notifications_proto protoreflect.FileDescriptor
 
 const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
@@ -755,7 +1015,22 @@ const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"\x17UnregisterDeviceRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1b\n" +
 	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\"\x1a\n" +
-	"\x18UnregisterDeviceResponse*\xc7\x03\n" +
+	"\x18UnregisterDeviceResponse\"\xe0\x01\n" +
+	"\x11NotificationPrefs\x12\x1d\n" +
+	"\n" +
+	"plans_push\x18\x01 \x01(\bR\tplansPush\x122\n" +
+	"\x15mentions_replies_push\x18\x02 \x01(\bR\x13mentionsRepliesPush\x12,\n" +
+	"\x12likes_reposts_push\x18\x03 \x01(\bR\x10likesRepostsPush\x12%\n" +
+	"\x0efollowers_push\x18\x04 \x01(\bR\rfollowersPush\x12#\n" +
+	"\rmessages_push\x18\x05 \x01(\bR\fmessagesPush\"\x1d\n" +
+	"\x1bGetNotificationPrefsRequest\"a\n" +
+	"\x1cGetNotificationPrefsResponse\x12A\n" +
+	"\x05prefs\x18\x01 \x01(\v2+.dzeroth.notifications.v1.NotificationPrefsR\x05prefs\"\x8c\x01\n" +
+	"\x1eUpdateNotificationPrefsRequest\x12'\n" +
+	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12A\n" +
+	"\x05prefs\x18\x02 \x01(\v2+.dzeroth.notifications.v1.NotificationPrefsR\x05prefs\"d\n" +
+	"\x1fUpdateNotificationPrefsResponse\x12A\n" +
+	"\x05prefs\x18\x01 \x01(\v2+.dzeroth.notifications.v1.NotificationPrefsR\x05prefs*\xc7\x03\n" +
 	"\x10NotificationType\x12!\n" +
 	"\x1dNOTIFICATION_TYPE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18NOTIFICATION_TYPE_FOLLOW\x10\x01\x12\x1d\n" +
@@ -774,12 +1049,14 @@ const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"\x0eDevicePlatform\x12\x1f\n" +
 	"\x1bDEVICE_PLATFORM_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13DEVICE_PLATFORM_IOS\x10\x01\x12\x1b\n" +
-	"\x17DEVICE_PLATFORM_ANDROID\x10\x022\x94\x04\n" +
+	"\x17DEVICE_PLATFORM_ANDROID\x10\x022\xb2\x06\n" +
 	"\x13NotificationService\x12\x81\x01\n" +
 	"\x11ListNotifications\x122.dzeroth.notifications.v1.ListNotificationsRequest\x1a3.dzeroth.notifications.v1.ListNotificationsResponse\"\x03\x90\x02\x01\x12\x88\x01\n" +
 	"\x15MarkNotificationsSeen\x126.dzeroth.notifications.v1.MarkNotificationsSeenRequest\x1a7.dzeroth.notifications.v1.MarkNotificationsSeenResponse\x12s\n" +
 	"\x0eRegisterDevice\x12/.dzeroth.notifications.v1.RegisterDeviceRequest\x1a0.dzeroth.notifications.v1.RegisterDeviceResponse\x12y\n" +
-	"\x10UnregisterDevice\x121.dzeroth.notifications.v1.UnregisterDeviceRequest\x1a2.dzeroth.notifications.v1.UnregisterDeviceResponseBQZOgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1;notificationsv1b\x06proto3"
+	"\x10UnregisterDevice\x121.dzeroth.notifications.v1.UnregisterDeviceRequest\x1a2.dzeroth.notifications.v1.UnregisterDeviceResponse\x12\x8a\x01\n" +
+	"\x14GetNotificationPrefs\x125.dzeroth.notifications.v1.GetNotificationPrefsRequest\x1a6.dzeroth.notifications.v1.GetNotificationPrefsResponse\"\x03\x90\x02\x01\x12\x8e\x01\n" +
+	"\x17UpdateNotificationPrefs\x128.dzeroth.notifications.v1.UpdateNotificationPrefsRequest\x1a9.dzeroth.notifications.v1.UpdateNotificationPrefsResponseBQZOgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1;notificationsv1b\x06proto3"
 
 var (
 	file_dzeroth_notifications_v1_notifications_proto_rawDescOnce sync.Once
@@ -794,43 +1071,55 @@ func file_dzeroth_notifications_v1_notifications_proto_rawDescGZIP() []byte {
 }
 
 var file_dzeroth_notifications_v1_notifications_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_dzeroth_notifications_v1_notifications_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_dzeroth_notifications_v1_notifications_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_dzeroth_notifications_v1_notifications_proto_goTypes = []any{
-	(NotificationType)(0),                 // 0: dzeroth.notifications.v1.NotificationType
-	(DevicePlatform)(0),                   // 1: dzeroth.notifications.v1.DevicePlatform
-	(*Notification)(nil),                  // 2: dzeroth.notifications.v1.Notification
-	(*ListNotificationsRequest)(nil),      // 3: dzeroth.notifications.v1.ListNotificationsRequest
-	(*ListNotificationsResponse)(nil),     // 4: dzeroth.notifications.v1.ListNotificationsResponse
-	(*MarkNotificationsSeenRequest)(nil),  // 5: dzeroth.notifications.v1.MarkNotificationsSeenRequest
-	(*MarkNotificationsSeenResponse)(nil), // 6: dzeroth.notifications.v1.MarkNotificationsSeenResponse
-	(*RegisterDeviceRequest)(nil),         // 7: dzeroth.notifications.v1.RegisterDeviceRequest
-	(*RegisterDeviceResponse)(nil),        // 8: dzeroth.notifications.v1.RegisterDeviceResponse
-	(*UnregisterDeviceRequest)(nil),       // 9: dzeroth.notifications.v1.UnregisterDeviceRequest
-	(*UnregisterDeviceResponse)(nil),      // 10: dzeroth.notifications.v1.UnregisterDeviceResponse
-	(*v1.AuthorSnapshot)(nil),             // 11: dzeroth.common.v1.AuthorSnapshot
-	(*timestamppb.Timestamp)(nil),         // 12: google.protobuf.Timestamp
+	(NotificationType)(0),                   // 0: dzeroth.notifications.v1.NotificationType
+	(DevicePlatform)(0),                     // 1: dzeroth.notifications.v1.DevicePlatform
+	(*Notification)(nil),                    // 2: dzeroth.notifications.v1.Notification
+	(*ListNotificationsRequest)(nil),        // 3: dzeroth.notifications.v1.ListNotificationsRequest
+	(*ListNotificationsResponse)(nil),       // 4: dzeroth.notifications.v1.ListNotificationsResponse
+	(*MarkNotificationsSeenRequest)(nil),    // 5: dzeroth.notifications.v1.MarkNotificationsSeenRequest
+	(*MarkNotificationsSeenResponse)(nil),   // 6: dzeroth.notifications.v1.MarkNotificationsSeenResponse
+	(*RegisterDeviceRequest)(nil),           // 7: dzeroth.notifications.v1.RegisterDeviceRequest
+	(*RegisterDeviceResponse)(nil),          // 8: dzeroth.notifications.v1.RegisterDeviceResponse
+	(*UnregisterDeviceRequest)(nil),         // 9: dzeroth.notifications.v1.UnregisterDeviceRequest
+	(*UnregisterDeviceResponse)(nil),        // 10: dzeroth.notifications.v1.UnregisterDeviceResponse
+	(*NotificationPrefs)(nil),               // 11: dzeroth.notifications.v1.NotificationPrefs
+	(*GetNotificationPrefsRequest)(nil),     // 12: dzeroth.notifications.v1.GetNotificationPrefsRequest
+	(*GetNotificationPrefsResponse)(nil),    // 13: dzeroth.notifications.v1.GetNotificationPrefsResponse
+	(*UpdateNotificationPrefsRequest)(nil),  // 14: dzeroth.notifications.v1.UpdateNotificationPrefsRequest
+	(*UpdateNotificationPrefsResponse)(nil), // 15: dzeroth.notifications.v1.UpdateNotificationPrefsResponse
+	(*v1.AuthorSnapshot)(nil),               // 16: dzeroth.common.v1.AuthorSnapshot
+	(*timestamppb.Timestamp)(nil),           // 17: google.protobuf.Timestamp
 }
 var file_dzeroth_notifications_v1_notifications_proto_depIdxs = []int32{
 	0,  // 0: dzeroth.notifications.v1.Notification.type:type_name -> dzeroth.notifications.v1.NotificationType
-	11, // 1: dzeroth.notifications.v1.Notification.actor:type_name -> dzeroth.common.v1.AuthorSnapshot
-	12, // 2: dzeroth.notifications.v1.Notification.created_at:type_name -> google.protobuf.Timestamp
+	16, // 1: dzeroth.notifications.v1.Notification.actor:type_name -> dzeroth.common.v1.AuthorSnapshot
+	17, // 2: dzeroth.notifications.v1.Notification.created_at:type_name -> google.protobuf.Timestamp
 	2,  // 3: dzeroth.notifications.v1.ListNotificationsResponse.notifications:type_name -> dzeroth.notifications.v1.Notification
-	12, // 4: dzeroth.notifications.v1.ListNotificationsResponse.seen_at:type_name -> google.protobuf.Timestamp
-	12, // 5: dzeroth.notifications.v1.MarkNotificationsSeenResponse.seen_at:type_name -> google.protobuf.Timestamp
+	17, // 4: dzeroth.notifications.v1.ListNotificationsResponse.seen_at:type_name -> google.protobuf.Timestamp
+	17, // 5: dzeroth.notifications.v1.MarkNotificationsSeenResponse.seen_at:type_name -> google.protobuf.Timestamp
 	1,  // 6: dzeroth.notifications.v1.RegisterDeviceRequest.platform:type_name -> dzeroth.notifications.v1.DevicePlatform
-	3,  // 7: dzeroth.notifications.v1.NotificationService.ListNotifications:input_type -> dzeroth.notifications.v1.ListNotificationsRequest
-	5,  // 8: dzeroth.notifications.v1.NotificationService.MarkNotificationsSeen:input_type -> dzeroth.notifications.v1.MarkNotificationsSeenRequest
-	7,  // 9: dzeroth.notifications.v1.NotificationService.RegisterDevice:input_type -> dzeroth.notifications.v1.RegisterDeviceRequest
-	9,  // 10: dzeroth.notifications.v1.NotificationService.UnregisterDevice:input_type -> dzeroth.notifications.v1.UnregisterDeviceRequest
-	4,  // 11: dzeroth.notifications.v1.NotificationService.ListNotifications:output_type -> dzeroth.notifications.v1.ListNotificationsResponse
-	6,  // 12: dzeroth.notifications.v1.NotificationService.MarkNotificationsSeen:output_type -> dzeroth.notifications.v1.MarkNotificationsSeenResponse
-	8,  // 13: dzeroth.notifications.v1.NotificationService.RegisterDevice:output_type -> dzeroth.notifications.v1.RegisterDeviceResponse
-	10, // 14: dzeroth.notifications.v1.NotificationService.UnregisterDevice:output_type -> dzeroth.notifications.v1.UnregisterDeviceResponse
-	11, // [11:15] is the sub-list for method output_type
-	7,  // [7:11] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	11, // 7: dzeroth.notifications.v1.GetNotificationPrefsResponse.prefs:type_name -> dzeroth.notifications.v1.NotificationPrefs
+	11, // 8: dzeroth.notifications.v1.UpdateNotificationPrefsRequest.prefs:type_name -> dzeroth.notifications.v1.NotificationPrefs
+	11, // 9: dzeroth.notifications.v1.UpdateNotificationPrefsResponse.prefs:type_name -> dzeroth.notifications.v1.NotificationPrefs
+	3,  // 10: dzeroth.notifications.v1.NotificationService.ListNotifications:input_type -> dzeroth.notifications.v1.ListNotificationsRequest
+	5,  // 11: dzeroth.notifications.v1.NotificationService.MarkNotificationsSeen:input_type -> dzeroth.notifications.v1.MarkNotificationsSeenRequest
+	7,  // 12: dzeroth.notifications.v1.NotificationService.RegisterDevice:input_type -> dzeroth.notifications.v1.RegisterDeviceRequest
+	9,  // 13: dzeroth.notifications.v1.NotificationService.UnregisterDevice:input_type -> dzeroth.notifications.v1.UnregisterDeviceRequest
+	12, // 14: dzeroth.notifications.v1.NotificationService.GetNotificationPrefs:input_type -> dzeroth.notifications.v1.GetNotificationPrefsRequest
+	14, // 15: dzeroth.notifications.v1.NotificationService.UpdateNotificationPrefs:input_type -> dzeroth.notifications.v1.UpdateNotificationPrefsRequest
+	4,  // 16: dzeroth.notifications.v1.NotificationService.ListNotifications:output_type -> dzeroth.notifications.v1.ListNotificationsResponse
+	6,  // 17: dzeroth.notifications.v1.NotificationService.MarkNotificationsSeen:output_type -> dzeroth.notifications.v1.MarkNotificationsSeenResponse
+	8,  // 18: dzeroth.notifications.v1.NotificationService.RegisterDevice:output_type -> dzeroth.notifications.v1.RegisterDeviceResponse
+	10, // 19: dzeroth.notifications.v1.NotificationService.UnregisterDevice:output_type -> dzeroth.notifications.v1.UnregisterDeviceResponse
+	13, // 20: dzeroth.notifications.v1.NotificationService.GetNotificationPrefs:output_type -> dzeroth.notifications.v1.GetNotificationPrefsResponse
+	15, // 21: dzeroth.notifications.v1.NotificationService.UpdateNotificationPrefs:output_type -> dzeroth.notifications.v1.UpdateNotificationPrefsResponse
+	16, // [16:22] is the sub-list for method output_type
+	10, // [10:16] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_notifications_v1_notifications_proto_init() }
@@ -844,7 +1133,7 @@ func file_dzeroth_notifications_v1_notifications_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_notifications_v1_notifications_proto_rawDesc), len(file_dzeroth_notifications_v1_notifications_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   9,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

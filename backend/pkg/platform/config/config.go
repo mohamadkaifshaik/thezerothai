@@ -284,6 +284,10 @@ type Config struct {
 	// NotificationService RPCs, the event producers and the fan-out handler.
 	// FEATURE_NOTIFICATIONS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureNotifications flags.Spec
+	// FeatureNotificationPrefs is the flag (wire name `notification_prefs`) gating GetNotificationPrefs and
+	// UpdateNotificationPrefs (both also need `notifications`) and the push preferences check in the fan-out (a recipient
+	// outside the flag is pushed as before). FEATURE_NOTIFICATION_PREFS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureNotificationPrefs flags.Spec
 	// NotificationsTopic is NOTIFICATIONS_TOPIC, the Pub/Sub topic producers publish notification events on
 	// (default "notifications-fanout", the topic the pubsub Terraform module already owns).
 	NotificationsTopic string
@@ -846,6 +850,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureNotificationPrefs, err := flags.LoadSpec("NOTIFICATION_PREFS", "notification_prefs", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureProfileExtras, err := flags.LoadSpec("PROFILE_EXTRAS", "profile_extras", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1014,6 +1022,7 @@ func Load() (Config, error) {
 		ExportRetention:           exportRetention,
 		JobsTopic:                 getenv("JOBS_TOPIC", "jobs"),
 		FeatureNotifications:      featureNotifications,
+		FeatureNotificationPrefs:  featureNotificationPrefs,
 		NotificationsTopic:        getenv("NOTIFICATIONS_TOPIC", "notifications-fanout"),
 		NotificationsDelivery:     notifDelivery,
 		FeatureMedia:              featureMedia,
