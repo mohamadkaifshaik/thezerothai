@@ -93,6 +93,9 @@ enum NotificationType {
   NOTIFICATION_TYPE_BEACON_ACCEPTED = 11;
   // actor (the organiser) cancelled a beacon you were accepted to (beacon_id). post_id is empty.
   NOTIFICATION_TYPE_BEACON_CANCELLED = 12;
+  // actor (the organiser) changed the start time, duration or cost of a beacon you were accepted to (beacon_id).
+  // post_id is empty. One row per edit; you stay accepted and may leave. Tapping opens the beacon.
+  NOTIFICATION_TYPE_BEACON_UPDATED = 13;
 }
 
 enum DevicePlatform {
@@ -114,7 +117,7 @@ message Notification {
   string post_id = 5;
   // Last activity; the sort key.
   google.protobuf.Timestamp created_at = 6;
-  // Subject beacon (BEACON_REQUEST, BEACON_ACCEPTED and BEACON_CANCELLED only; empty otherwise). Tapping opens the
+  // Subject beacon (BEACON_REQUEST, BEACON_ACCEPTED, BEACON_CANCELLED and BEACON_UPDATED only; empty otherwise). Tapping opens the
   // beacon (BeaconService.GetBeacon).
   string beacon_id = 7;
 }

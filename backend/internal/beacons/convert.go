@@ -34,6 +34,32 @@ func createInputFromProto(m *beaconsv1.CreateBeaconRequest) (CreateInput, error)
 	return in, nil
 }
 
+// updateInputFromProto converts an UpdateBeaconRequest: an unset optional field is nil (unchanged); a set cost of
+// UNSPECIFIED answers VALIDATION "cost" before the service runs.
+func updateInputFromProto(m *beaconsv1.UpdateBeaconRequest) (UpdateInput, error) {
+	in := UpdateInput{Key: m.GetIdempotencyKey(), BeaconID: m.GetBeaconId(), Title: m.Title, Details: m.Details, Venue: m.Venue}
+	if m.OpenSpots != nil {
+		n := int(m.GetOpenSpots())
+		in.OpenSpots = &n
+	}
+	if m.GetStartAt() != nil {
+		t := m.GetStartAt().AsTime()
+		in.StartAt = &t
+	}
+	if m.DurationMinutes != nil {
+		n := int(m.GetDurationMinutes())
+		in.DurationMin = &n
+	}
+	if m.Cost != nil {
+		c, err := costFromProto(m.GetCost())
+		if err != nil {
+			return UpdateInput{}, err
+		}
+		in.Cost = &c
+	}
+	return in, nil
+}
+
 // toAuthorSnapshot is the live row (the AuthorSnapshot thumbnail and lock badge, as graph's rows).
 func toAuthorSnapshot(p identity.Profile) *commonv1.AuthorSnapshot {
 	return &commonv1.AuthorSnapshot{

@@ -360,6 +360,8 @@ type fakeEvents struct {
 	requested []ParticipationEvent
 	accepted  []ParticipationEvent
 	cancelled []CancelEvent
+	updated   []UpdateEvent
+	updateErr error
 	// cancelErr fails the first cancelFails Cancelled calls (0 = every call) after recording them.
 	cancelErr   error
 	cancelFails int
@@ -371,6 +373,11 @@ func (f *fakeEvents) JoinRequested(_ context.Context, e ParticipationEvent) {
 func (f *fakeEvents) RequestAccepted(_ context.Context, e ParticipationEvent) {
 	f.accepted = append(f.accepted, e)
 }
+func (f *fakeEvents) Updated(_ context.Context, e UpdateEvent) error {
+	f.updated = append(f.updated, e)
+	return f.updateErr
+}
+
 func (f *fakeEvents) Cancelled(_ context.Context, e CancelEvent) error {
 	f.cancelled = append(f.cancelled, e)
 	if f.cancelErr != nil && (f.cancelFails == 0 || len(f.cancelled) <= f.cancelFails) {

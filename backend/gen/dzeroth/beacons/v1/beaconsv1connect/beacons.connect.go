@@ -60,10 +60,13 @@
 //     (UpdateBeacon, CancelBeacon, RespondToJoinRequest, RemoveParticipant, ListParticipants REQUESTED by anyone
 //     else). A block in either direction is never FORBIDDEN: it is the one NOT_FOUND above.
 //   - FAILED_PRECONDITION, metadata["reason"] = "full" | "ended" | "cancelled" | "already_requested" |
-//     "not_requested" | "not_participant" | "organiser" (the organiser asked to join their own beacon).
+//     "not_requested" | "not_participant" | "organiser" (the organiser asked to join their own beacon) | "started"
+//     (UpdateBeacon changing start_at, duration_minutes or cost once the beacon has started).
 //   - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "beacons_open" (BEACONS_MAX_OPEN_PER_USER, 5 OPEN or
 //     FULL beacons per organiser) | "beacon_requests_pending" (BEACONS_MAX_PENDING_REQUESTS, 10 REQUESTED rows per
-//     user) | "beacon_participants" (open_spots above BEACONS_MAX_OPEN_SPOTS, 20); nothing is written.
+//     user) | "beacon_participants" (open_spots above BEACONS_MAX_OPEN_SPOTS, 20) | "beacon_edit_rows" (UpdateBeacon
+//     rescheduling a beacon with more than 200 participant rows, every state; a bound on the one transaction that moves
+//     them); nothing is written.
 //   - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_BEACONS_WRITE_PER_MIN (10: Create, Update, Cancel),
 //     RATE_LIMIT_BEACONS_ACTION_PER_MIN (20: Request, Withdraw, Respond, Leave, Remove), RATE_LIMIT_BEACONS_READ_PER_MIN
 //     (30: Get, List*) per uid per instance, and the daily cap BEACONS_CREATED_PER_DAY (10, limit_name
@@ -146,11 +149,18 @@ type BeaconServiceClient interface {
 	// beacons (LIMIT_REACHED "beacons_open" at 5), the beacon doc with a fresh Snowflake id (status OPEN,
 	// accepted_count 0, eligibility EVERYONE) and the caller's beaconMemberships row (role ORGANISER).
 	CreateBeacon(context.Context, *connect.Request[v1.CreateBeaconRequest]) (*connect.Response[v1.CreateBeaconResponse], error)
-	// Change title, details, venue or open_spots of one of the caller's OPEN or FULL beacons (any other caller =>
-	// FORBIDDEN "not_organiser"). open_spots may not go below accepted_count (VALIDATION "open_spots"); raising it
-	// turns FULL back into OPEN, lowering it to accepted_count turns OPEN into FULL. start_at, duration, cost and
-	// audience are immutable at v1: cancel and create again. A request that changes nothing writes only the
-	// idempotency doc.
+	// Change title, details, venue, open_spots, start_at, duration_minutes or cost of one of the caller's OPEN or FULL
+	// beacons (any other caller => FORBIDDEN "not_organiser"). open_spots may not go below accepted_count (VALIDATION
+	// "open_spots"); raising it turns FULL back into OPEN, lowering it to accepted_count turns OPEN into FULL.
+	// start_at, duration_minutes and cost follow the CreateBeacon rules (start_at in [now + 5 min, now + 30 d],
+	// duration_minutes 15-240, cost != UNSPECIFIED; else VALIDATION naming the field, before any lookup) and can only
+	// change before the beacon starts (now < the stored start_at, else FAILED_PRECONDITION "started"; resending the
+	// stored value is not a change). A new start_at or duration moves end, the TTL (expireAt) of the beacon and of every
+	// participant row, and start/end of every membership row, in the one transaction (at most 200 participant rows, else
+	// LIMIT_REACHED "beacon_edit_rows"). A change of any of the three keeps every participant as they are (accepted
+	// people stay and may LeaveBeacon) and notifies the ACCEPTED participants once per edit
+	// (NOTIFICATION_TYPE_BEACON_UPDATED). The audience stays immutable: cancel and create again. A request that changes
+	// nothing writes only the idempotency doc.
 	UpdateBeacon(context.Context, *connect.Request[v1.UpdateBeaconRequest]) (*connect.Response[v1.UpdateBeaconResponse], error)
 	// Cancel one of the caller's OPEN or FULL beacons: status CANCELLED on the beacon only. Participant and membership
 	// rows are pointers and read the beacon's status (GetBeacon, ListMyBeacons), so nothing fans out. Participants are
@@ -380,11 +390,18 @@ type BeaconServiceHandler interface {
 	// beacons (LIMIT_REACHED "beacons_open" at 5), the beacon doc with a fresh Snowflake id (status OPEN,
 	// accepted_count 0, eligibility EVERYONE) and the caller's beaconMemberships row (role ORGANISER).
 	CreateBeacon(context.Context, *connect.Request[v1.CreateBeaconRequest]) (*connect.Response[v1.CreateBeaconResponse], error)
-	// Change title, details, venue or open_spots of one of the caller's OPEN or FULL beacons (any other caller =>
-	// FORBIDDEN "not_organiser"). open_spots may not go below accepted_count (VALIDATION "open_spots"); raising it
-	// turns FULL back into OPEN, lowering it to accepted_count turns OPEN into FULL. start_at, duration, cost and
-	// audience are immutable at v1: cancel and create again. A request that changes nothing writes only the
-	// idempotency doc.
+	// Change title, details, venue, open_spots, start_at, duration_minutes or cost of one of the caller's OPEN or FULL
+	// beacons (any other caller => FORBIDDEN "not_organiser"). open_spots may not go below accepted_count (VALIDATION
+	// "open_spots"); raising it turns FULL back into OPEN, lowering it to accepted_count turns OPEN into FULL.
+	// start_at, duration_minutes and cost follow the CreateBeacon rules (start_at in [now + 5 min, now + 30 d],
+	// duration_minutes 15-240, cost != UNSPECIFIED; else VALIDATION naming the field, before any lookup) and can only
+	// change before the beacon starts (now < the stored start_at, else FAILED_PRECONDITION "started"; resending the
+	// stored value is not a change). A new start_at or duration moves end, the TTL (expireAt) of the beacon and of every
+	// participant row, and start/end of every membership row, in the one transaction (at most 200 participant rows, else
+	// LIMIT_REACHED "beacon_edit_rows"). A change of any of the three keeps every participant as they are (accepted
+	// people stay and may LeaveBeacon) and notifies the ACCEPTED participants once per edit
+	// (NOTIFICATION_TYPE_BEACON_UPDATED). The audience stays immutable: cancel and create again. A request that changes
+	// nothing writes only the idempotency doc.
 	UpdateBeacon(context.Context, *connect.Request[v1.UpdateBeaconRequest]) (*connect.Response[v1.UpdateBeaconResponse], error)
 	// Cancel one of the caller's OPEN or FULL beacons: status CANCELLED on the beacon only. Participant and membership
 	// rows are pointers and read the beacon's status (GetBeacon, ListMyBeacons), so nothing fans out. Participants are

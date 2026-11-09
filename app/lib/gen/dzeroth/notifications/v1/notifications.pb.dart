@@ -157,7 +157,7 @@ class Notification extends $pb.GeneratedMessage {
   @$pb.TagNumber(6)
   $1.Timestamp ensureCreatedAt() => $_ensure(5);
 
-  /// Subject beacon (BEACON_REQUEST, BEACON_ACCEPTED and BEACON_CANCELLED only; empty otherwise). Tapping opens the
+  /// Subject beacon (BEACON_REQUEST, BEACON_ACCEPTED, BEACON_CANCELLED and BEACON_UPDATED only; empty otherwise). Tapping opens the
   /// beacon (BeaconService.GetBeacon).
   @$pb.TagNumber(7)
   $core.String get beaconId => $_getSZ(6);

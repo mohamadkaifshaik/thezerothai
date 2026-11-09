@@ -894,6 +894,9 @@ class UpdateBeaconRequest extends $pb.GeneratedMessage {
     $core.String? details,
     $core.String? venue,
     $core.int? openSpots,
+    $1.Timestamp? startAt,
+    $core.int? durationMinutes,
+    BeaconCost? cost,
   }) {
     final result = UpdateBeaconRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
@@ -902,6 +905,9 @@ class UpdateBeaconRequest extends $pb.GeneratedMessage {
     if (details != null) result.details = details;
     if (venue != null) result.venue = venue;
     if (openSpots != null) result.openSpots = openSpots;
+    if (startAt != null) result.startAt = startAt;
+    if (durationMinutes != null) result.durationMinutes = durationMinutes;
+    if (cost != null) result.cost = cost;
     return result;
   }
 
@@ -925,6 +931,11 @@ class UpdateBeaconRequest extends $pb.GeneratedMessage {
     ..aOS(4, _omitFieldNames ? '' : 'details')
     ..aOS(5, _omitFieldNames ? '' : 'venue')
     ..aI(6, _omitFieldNames ? '' : 'openSpots')
+    ..aOM<$1.Timestamp>(7, _omitFieldNames ? '' : 'startAt',
+        subBuilder: $1.Timestamp.$_createMessage)
+    ..aI(8, _omitFieldNames ? '' : 'durationMinutes')
+    ..aE<BeaconCost>(9, _omitFieldNames ? '' : 'cost',
+        enumValues: BeaconCost.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1004,6 +1015,38 @@ class UpdateBeaconRequest extends $pb.GeneratedMessage {
   $core.bool hasOpenSpots() => $_has(5);
   @$pb.TagNumber(6)
   void clearOpenSpots() => $_clearField(6);
+
+  /// Unset = unchanged. [now + 5 min, now + 30 d]; only before the beacon starts.
+  @$pb.TagNumber(7)
+  $1.Timestamp get startAt => $_getN(6);
+  @$pb.TagNumber(7)
+  set startAt($1.Timestamp value) => $_setField(7, value);
+  @$pb.TagNumber(7)
+  $core.bool hasStartAt() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearStartAt() => $_clearField(7);
+  @$pb.TagNumber(7)
+  $1.Timestamp ensureStartAt() => $_ensure(6);
+
+  /// Unset = unchanged. 15-240; only before the beacon starts.
+  @$pb.TagNumber(8)
+  $core.int get durationMinutes => $_getIZ(7);
+  @$pb.TagNumber(8)
+  set durationMinutes($core.int value) => $_setSignedInt32(7, value);
+  @$pb.TagNumber(8)
+  $core.bool hasDurationMinutes() => $_has(7);
+  @$pb.TagNumber(8)
+  void clearDurationMinutes() => $_clearField(8);
+
+  /// Unset = unchanged. != UNSPECIFIED; only before the beacon starts.
+  @$pb.TagNumber(9)
+  BeaconCost get cost => $_getN(8);
+  @$pb.TagNumber(9)
+  set cost(BeaconCost value) => $_setField(9, value);
+  @$pb.TagNumber(9)
+  $core.bool hasCost() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearCost() => $_clearField(9);
 }
 
 class UpdateBeaconResponse extends $pb.GeneratedMessage {
@@ -2545,11 +2588,18 @@ class BeaconServiceApi {
       _client.invoke<CreateBeaconResponse>(ctx, 'BeaconService', 'CreateBeacon',
           request, CreateBeaconResponse());
 
-  /// Change title, details, venue or open_spots of one of the caller's OPEN or FULL beacons (any other caller =>
-  /// FORBIDDEN "not_organiser"). open_spots may not go below accepted_count (VALIDATION "open_spots"); raising it
-  /// turns FULL back into OPEN, lowering it to accepted_count turns OPEN into FULL. start_at, duration, cost and
-  /// audience are immutable at v1: cancel and create again. A request that changes nothing writes only the
-  /// idempotency doc.
+  /// Change title, details, venue, open_spots, start_at, duration_minutes or cost of one of the caller's OPEN or FULL
+  /// beacons (any other caller => FORBIDDEN "not_organiser"). open_spots may not go below accepted_count (VALIDATION
+  /// "open_spots"); raising it turns FULL back into OPEN, lowering it to accepted_count turns OPEN into FULL.
+  /// start_at, duration_minutes and cost follow the CreateBeacon rules (start_at in [now + 5 min, now + 30 d],
+  /// duration_minutes 15-240, cost != UNSPECIFIED; else VALIDATION naming the field, before any lookup) and can only
+  /// change before the beacon starts (now < the stored start_at, else FAILED_PRECONDITION "started"; resending the
+  /// stored value is not a change). A new start_at or duration moves end, the TTL (expireAt) of the beacon and of every
+  /// participant row, and start/end of every membership row, in the one transaction (at most 200 participant rows, else
+  /// LIMIT_REACHED "beacon_edit_rows"). A change of any of the three keeps every participant as they are (accepted
+  /// people stay and may LeaveBeacon) and notifies the ACCEPTED participants once per edit
+  /// (NOTIFICATION_TYPE_BEACON_UPDATED). The audience stays immutable: cancel and create again. A request that changes
+  /// nothing writes only the idempotency doc.
   $async.Future<UpdateBeaconResponse> updateBeacon(
           $pb.ClientContext? ctx, UpdateBeaconRequest request) =>
       _client.invoke<UpdateBeaconResponse>(ctx, 'BeaconService', 'UpdateBeacon',

@@ -23,11 +23,18 @@ abstract final class BeaconService {
     dzerothbeaconsv1beacons.CreateBeaconResponse.new,
   );
 
-  /// Change title, details, venue or open_spots of one of the caller's OPEN or FULL beacons (any other caller =>
-  /// FORBIDDEN "not_organiser"). open_spots may not go below accepted_count (VALIDATION "open_spots"); raising it
-  /// turns FULL back into OPEN, lowering it to accepted_count turns OPEN into FULL. start_at, duration, cost and
-  /// audience are immutable at v1: cancel and create again. A request that changes nothing writes only the
-  /// idempotency doc.
+  /// Change title, details, venue, open_spots, start_at, duration_minutes or cost of one of the caller's OPEN or FULL
+  /// beacons (any other caller => FORBIDDEN "not_organiser"). open_spots may not go below accepted_count (VALIDATION
+  /// "open_spots"); raising it turns FULL back into OPEN, lowering it to accepted_count turns OPEN into FULL.
+  /// start_at, duration_minutes and cost follow the CreateBeacon rules (start_at in [now + 5 min, now + 30 d],
+  /// duration_minutes 15-240, cost != UNSPECIFIED; else VALIDATION naming the field, before any lookup) and can only
+  /// change before the beacon starts (now < the stored start_at, else FAILED_PRECONDITION "started"; resending the
+  /// stored value is not a change). A new start_at or duration moves end, the TTL (expireAt) of the beacon and of every
+  /// participant row, and start/end of every membership row, in the one transaction (at most 200 participant rows, else
+  /// LIMIT_REACHED "beacon_edit_rows"). A change of any of the three keeps every participant as they are (accepted
+  /// people stay and may LeaveBeacon) and notifies the ACCEPTED participants once per edit
+  /// (NOTIFICATION_TYPE_BEACON_UPDATED). The audience stays immutable: cancel and create again. A request that changes
+  /// nothing writes only the idempotency doc.
   static const updateBeacon = connect.Spec(
     '/$name/UpdateBeacon',
     connect.StreamType.unary,
