@@ -55,6 +55,57 @@ func TestDeliver_BeaconRowsAndPushes(t *testing.T) {
 	}
 }
 
+// TestDeliver_BeaconCancelRerunIsExactlyOnce (B07): the cancellation outbox re-emits every chunk when any chunk was
+// lost, so the chunk that did go out is delivered again. Each of the 20 participants still ends with exactly one row
+// and one push: the row id is per beacon in each recipient's subtree, and a duplicate never pushes.
+func TestDeliver_BeaconCancelRerunIsExactlyOnce(t *testing.T) {
+	r := newRig(t, nil)
+	var first, second []string
+	for i := range 20 {
+		uid := "p" + string(rune('a'+i))
+		r.dir.profiles[uid] = newDirectory(uid).profiles[uid]
+		r.addDevice(uid, "d-"+uid, "tok-"+uid)
+		if i < MaxRecipientsPerEvent {
+			first = append(first, uid)
+		} else {
+			second = append(second, uid)
+		}
+	}
+	chunk := func(uids []string) Event {
+		ev := beaconEvent(TypeBeaconCancelled)
+		ev.RecipientIDs = uids
+		return ev
+	}
+	// The inline run: the first chunk is delivered, the second is lost before publishing.
+	out, err := r.f.Deliver(context.Background(), chunk(first))
+	mustNoErr(t, err)
+	if out.Created != 10 {
+		t.Fatalf("first chunk = %+v", out)
+	}
+	// The sweep's re-run delivers both chunks again (and a lost Done runs it once more).
+	for range 2 {
+		for _, c := range [][]string{first, second} {
+			_, err := r.f.Deliver(context.Background(), chunk(c))
+			mustNoErr(t, err)
+		}
+	}
+	pushes := map[string]int{}
+	for _, s := range r.sender.sent {
+		pushes[s.Token]++
+	}
+	for _, uid := range append(append([]string(nil), first...), second...) {
+		if n := len(r.repo.rows[uid]); n != 1 {
+			t.Errorf("%s has %d rows, want 1", uid, n)
+		}
+		if _, ok := r.repo.rows[uid]["beacon_cancelled_"+beaconA]; !ok {
+			t.Errorf("%s rows = %v", uid, r.repo.rows[uid])
+		}
+		if pushes["tok-"+uid] != 1 {
+			t.Errorf("%s got %d pushes, want 1", uid, pushes["tok-"+uid])
+		}
+	}
+}
+
 // TestDeliver_BeaconSuppressionMatrix (spec 7.3): a cancellation never crosses a block or a mute in either direction;
 // the other accepted participant still gets the row and the push.
 func TestDeliver_BeaconSuppressionMatrix(t *testing.T) {
