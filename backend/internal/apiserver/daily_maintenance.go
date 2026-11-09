@@ -46,11 +46,7 @@ func dailyMaintenanceHandler(backstop http.Handler, step trendsStep, log *slog.L
 		ctx := logger.WithTrace(r.Context(), logger.TraceFromRequest(r, projectID))
 		runTrendsStep(ctx, step, log, started, now)
 
-		for k, v := range rec.header {
-			w.Header()[k] = v
-		}
-		w.WriteHeader(rec.statusCode())
-		_, _ = w.Write(rec.body.Bytes())
+		rec.replay(w)
 	})
 }
 
@@ -98,6 +94,16 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 	}
 	return s.body.Write(b)
 }
+
+// replay writes the captured headers, status and body to w.
+func (s *statusRecorder) replay(w http.ResponseWriter) {
+	for k, v := range s.header {
+		w.Header()[k] = v
+	}
+	w.WriteHeader(s.statusCode())
+	_, _ = w.Write(s.body.Bytes())
+}
+
 func (s *statusRecorder) statusCode() int {
 	if s.status == 0 {
 		return http.StatusOK // a handler that wrote nothing answers 200, as net/http does

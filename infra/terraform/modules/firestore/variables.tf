@@ -79,6 +79,12 @@ variable "ttl_fields" {
       collection = "beaconParticipants"
       field      = "expireAt"
     }
+    # A durable work item (outbox/{kind}:{key}, backend/pkg/platform/outbox); expireAt = createdAt + 30 days. The
+    # sweep deletes delivered items; the TTL only removes one no sweep ever delivered. Edited only, not applied.
+    outbox_expire_at = {
+      collection = "outbox"
+      field      = "expireAt"
+    }
   }
 }
 
