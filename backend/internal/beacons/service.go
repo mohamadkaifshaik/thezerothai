@@ -132,27 +132,111 @@ func (s *service) social(ctx context.Context, uid string) (graph.Snapshot, error
 }
 
 // requireMember is the community-audience gate: FEATURE_COMMUNITIES (on for the caller when mustBeOn, else not globally
-// off), then the caller's role must be owner, moderator or member; none, banned, a missing community or a nil reader is
-// ErrNotMember (fail closed).
-func (s *service) requireMember(ctx context.Context, uid, communityID string, mustBeOn bool) error {
+// off), then communityVerdict. write marks a path that adds to the community (CreateBeacon, RequestToJoin, an ACCEPT).
+func (s *service) requireMember(ctx context.Context, uid, communityID string, mustBeOn, write bool) error {
 	if err := GuardCommunities(ctx, s.d.CommunityFlags, uid, mustBeOn); err != nil {
 		return err
 	}
+	return s.communityVerdict(ctx, uid, communityID, write)
+}
+
+// communityVerdict is uid's standing in a community, the flag aside, mirroring communities.PostGate.Admit: the
+// community (cache-first, 60 s), then uid's role (cached). A missing community is the one ErrNotFound, the same answer
+// as SUSPENDED, so nobody can tell deleted from suspended. On a write the community state decides first, whatever the
+// role: SUSPENDED is ErrNotFound for everyone (the platform took it offline), ARCHIVED is COMMUNITY_STATE
+// community_archived (communities.StateConflict). On a read SUSPENDED is ErrNotFound to everyone but the community's
+// owner. Then a nil reader or a role other than owner, moderator or member (none, banned) is ErrNotMember (fail
+// closed). Any other error is returned (not a refusal).
+func (s *service) communityVerdict(ctx context.Context, uid, communityID string, write bool) error {
 	if s.d.Communities == nil {
 		return ErrNotMember
+	}
+	c, err := s.d.Communities.Get(ctx, communityID)
+	if err != nil {
+		if errors.Is(err, communities.ErrNotFound) {
+			return ErrNotFound
+		}
+		return logger.RedactErr(fmt.Errorf("beacons: community: %w", err), uid, communityID)
+	}
+	if write && c.Status == communities.StatusSuspended {
+		return ErrNotFound
+	}
+	if write && c.Status == communities.StatusArchived {
+		return communities.StateConflict(communities.StateArchived)
 	}
 	role, err := s.d.Communities.Role(ctx, communityID, uid)
 	if err != nil {
 		if errors.Is(err, communities.ErrNotFound) {
-			return ErrNotMember
+			return ErrNotFound
 		}
 		return logger.RedactErr(fmt.Errorf("beacons: community role: %w", err), uid, communityID)
+	}
+	if c.Status == communities.StatusSuspended && role != communities.RoleOwner {
+		return ErrNotFound
 	}
 	switch role {
 	case communities.RoleOwner, communities.RoleModerator, communities.RoleMember:
 		return nil
 	}
 	return ErrNotMember
+}
+
+// communityVerdicts answers communityVerdict (read) for each distinct community of a list page: true renders. A refusal
+// (not a member, suspended, missing, FEATURE_COMMUNITIES globally off) is false; any other error fails the page.
+func (s *service) communityVerdicts(ctx context.Context, uid string, cids []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(cids))
+	if len(cids) == 0 || s.d.CommunityFlags == nil || s.d.CommunityFlags.GloballyOff(communities.FlagName) {
+		return out, nil
+	}
+	for _, cid := range cids {
+		err := s.communityVerdict(ctx, uid, cid, false)
+		switch {
+		case err == nil:
+			out[cid] = true
+		case errors.Is(err, ErrNotMember), errors.Is(err, ErrNotFound):
+		default:
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// blockCheck answers "is there a block between viewer and other, either way" for one request. The viewer's own graph
+// (cached, 60 s) holds both directions until its blockedBy overflowed; past that, a block the other user holds is read
+// from their own graph (once per user per request, posts/timeline precedent), and a failed read is an error (the caller
+// fails closed).
+type blockCheck struct {
+	s      *service
+	viewer string
+	snap   graph.Snapshot
+	others map[string]bool
+}
+
+func (s *service) blocks(ctx context.Context, viewer string) (*blockCheck, error) {
+	snap, err := s.social(ctx, viewer)
+	if err != nil {
+		return nil, err
+	}
+	return &blockCheck{s: s, viewer: viewer, snap: snap, others: map[string]bool{}}, nil
+}
+
+func (c *blockCheck) blocked(ctx context.Context, other string) (bool, error) {
+	if c.snap.Blocked[other] || c.snap.BlockedBy[other] {
+		return true, nil
+	}
+	if !c.snap.BlockedByOverflow {
+		return false, nil
+	}
+	if v, ok := c.others[other]; ok {
+		return v, nil
+	}
+	osnap, err := c.s.social(ctx, other)
+	if err != nil {
+		return false, err
+	}
+	v := osnap.Blocked[c.viewer]
+	c.others[other] = v
+	return v, nil
 }
 
 // begin records the op on the request line.
@@ -329,7 +413,7 @@ func (s *service) CreateBeacon(ctx context.Context, uid string, in CreateInput) 
 		return View{}, mapErr(ctx, "create", uid, "", err)
 	}
 	if b.CommunityID != "" {
-		if err := s.requireMember(ctx, uid, b.CommunityID, true); err != nil {
+		if err := s.requireMember(ctx, uid, b.CommunityID, true, true); err != nil {
 			return View{}, mapErr(ctx, "create", uid, "", err)
 		}
 	}
@@ -410,47 +494,4 @@ func (s *service) UpdateBeacon(ctx context.Context, uid string, in UpdateInput) 
 	}
 	noteOutcome(ctx, res.Outcome)
 	return s.view(res.Beacon, a.organiser, uid), nil
-}
-
-// CancelBeacon implements Service: validation, visibility and organiser, then one transaction.
-func (s *service) CancelBeacon(ctx context.Context, uid, key, beaconID string) error {
-	begin(ctx, "cancel")
-	if err := validateKey(key); err != nil {
-		return mapErr(ctx, "cancel", uid, beaconID, err)
-	}
-	if err := validateBeaconID(beaconID); err != nil {
-		return mapErr(ctx, "cancel", uid, beaconID, err)
-	}
-	if _, err := s.organised(ctx, uid, beaconID); err != nil {
-		return mapErr(ctx, "cancel", uid, beaconID, err)
-	}
-	now := s.now()
-	res, err := s.d.Repo.Cancel(ctx, CancelParams{
-		UID: uid, BeaconID: beaconID, IdemKey: idempotency.Key(uid, rpcCancelBeacon, key), RequestHash: cancelHash(beaconID), Now: now,
-	})
-	if err != nil {
-		return mapErr(ctx, "cancel", uid, beaconID, err)
-	}
-	noteOutcome(ctx, res.Outcome)
-	s.notifyCancelled(ctx, beaconID, res, now)
-	return nil
-}
-
-// notifyCancelled hands a cancel that wrote to the Events seam with the participants accepted at that moment (R23): one
-// ListParticipants read, skipped when nobody was accepted. The cancel already committed, so a failed read is logged
-// (hash only) and the event dropped; the RPC still succeeds.
-func (s *service) notifyCancelled(ctx context.Context, beaconID string, res CancelResult, now time.Time) {
-	if s.d.Events == nil || res.Outcome != Written || res.Beacon.AcceptedCount <= 0 {
-		return
-	}
-	rows, err := s.d.Repo.ListParticipants(ctx, ParticipantQuery{BeaconID: beaconID, State: PStateAccepted, Limit: s.d.Limits.MaxOpenSpots})
-	if err != nil {
-		slog.WarnContext(ctx, "beacon_cancel_participants_failed", "beacon_hash", logger.HashUID(beaconID), "err", logger.RedactErr(err, beaconID).Error())
-		return
-	}
-	uids := make([]string, 0, len(rows))
-	for _, p := range rows {
-		uids = append(uids, p.UID)
-	}
-	s.d.Events.Cancelled(ctx, CancelEvent{BeaconID: beaconID, OrganiserUID: res.Beacon.OrganiserID, ParticipantUIDs: uids, At: now})
 }

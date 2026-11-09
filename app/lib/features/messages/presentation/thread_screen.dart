@@ -188,6 +188,7 @@ class ThreadScreen extends StatelessWidget {
             return MessageComposerCubit(
               repository: context.read<MessagingRepository>(),
               conversationId: conversationId,
+              outbox: context.read<MessagingRepository>().outbox,
               onActivity: thread.noteInput,
               onSent: thread.noteSent,
               onCannotMessage: thread.markCannotMessage,
