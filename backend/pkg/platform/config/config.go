@@ -185,6 +185,10 @@ type Config struct {
 	// can still read, leave and cancel. A community-audience beacon also needs FEATURE_COMMUNITIES on for the caller.
 	// FEATURE_BEACONS[_ALLOWLIST|_PERCENT], default off in every environment (dev stays on an allowlist, no prod raise).
 	FeatureBeacons flags.Spec
+	// FeatureChatSharedPlans is the flag (wire name `chat_shared_plans`) gating BeaconService.ListSharedBeacons, the "plans
+	// you share" strip of a chat. On for the caller on top of FEATURE_BEACONS not globally off.
+	// FEATURE_CHAT_SHARED_PLANS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureChatSharedPlans flags.Spec
 	// FeatureProfileExtras is the flag (wire name `profile_extras`) gating the UpdateProfile banner, location,
 	// website and pin fields and CreateUpload(BANNER) (which also needs `media`). FEATURE_PROFILE_EXTRAS[_ALLOWLIST|_PERCENT],
 	// default off in every environment.
@@ -846,6 +850,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureChatSharedPlans, err := flags.LoadSpec("CHAT_SHARED_PLANS", "chat_shared_plans", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureProfileExtras, err := flags.LoadSpec("PROFILE_EXTRAS", "profile_extras", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -991,6 +999,7 @@ func Load() (Config, error) {
 		FeatureLists:              featureLists,
 		FeatureCommunities:        featureCommunities,
 		FeatureBeacons:            featureBeacons,
+		FeatureChatSharedPlans:    featureChatSharedPlans,
 		FeatureProfileExtras:      featureProfileExtras,
 		FeatureProfileTabs:        featureProfileTabs,
 		FeatureLikesList:          featureLikesList,

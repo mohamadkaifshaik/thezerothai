@@ -941,6 +941,44 @@ final $typed_data.Uint8List listParticipantsResponseDescriptor = $convert.base64
     '90aC5iZWFjb25zLnYxLlBhcnRpY2lwYW50UgxwYXJ0aWNpcGFudHMSJgoPbmV4dF9wYWdlX3Rv'
     'a2VuGAIgASgJUg1uZXh0UGFnZVRva2Vu');
 
+@$core.Deprecated('Use listSharedBeaconsRequestDescriptor instead')
+const ListSharedBeaconsRequest$json = {
+  '1': 'ListSharedBeaconsRequest',
+  '2': [
+    {'1': 'peer_user_id', '3': 1, '4': 1, '5': 9, '10': 'peerUserId'},
+    {'1': 'limit', '3': 2, '4': 1, '5': 5, '10': 'limit'},
+    {'1': 'page_token', '3': 3, '4': 1, '5': 9, '10': 'pageToken'},
+  ],
+};
+
+/// Descriptor for `ListSharedBeaconsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listSharedBeaconsRequestDescriptor = $convert.base64Decode(
+    'ChhMaXN0U2hhcmVkQmVhY29uc1JlcXVlc3QSIAoMcGVlcl91c2VyX2lkGAEgASgJUgpwZWVyVX'
+    'NlcklkEhQKBWxpbWl0GAIgASgFUgVsaW1pdBIdCgpwYWdlX3Rva2VuGAMgASgJUglwYWdlVG9r'
+    'ZW4=');
+
+@$core.Deprecated('Use listSharedBeaconsResponseDescriptor instead')
+const ListSharedBeaconsResponse$json = {
+  '1': 'ListSharedBeaconsResponse',
+  '2': [
+    {
+      '1': 'views',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.beacons.v1.BeaconView',
+      '10': 'views'
+    },
+    {'1': 'next_page_token', '3': 2, '4': 1, '5': 9, '10': 'nextPageToken'},
+  ],
+};
+
+/// Descriptor for `ListSharedBeaconsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List listSharedBeaconsResponseDescriptor = $convert.base64Decode(
+    'ChlMaXN0U2hhcmVkQmVhY29uc1Jlc3BvbnNlEjQKBXZpZXdzGAEgAygLMh4uZHplcm90aC5iZW'
+    'Fjb25zLnYxLkJlYWNvblZpZXdSBXZpZXdzEiYKD25leHRfcGFnZV90b2tlbhgCIAEoCVINbmV4'
+    'dFBhZ2VUb2tlbg==');
+
 const $core.Map<$core.String, $core.dynamic> BeaconServiceBase$json = {
   '1': 'BeaconService',
   '2': [
@@ -1008,6 +1046,12 @@ const $core.Map<$core.String, $core.dynamic> BeaconServiceBase$json = {
       '3': '.dzeroth.beacons.v1.ListParticipantsResponse',
       '4': {'34': 1},
     },
+    {
+      '1': 'ListSharedBeacons',
+      '2': '.dzeroth.beacons.v1.ListSharedBeaconsRequest',
+      '3': '.dzeroth.beacons.v1.ListSharedBeaconsResponse',
+      '4': {'34': 1},
+    },
   ],
 };
 
@@ -1049,6 +1093,9 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.beacons.v1.ListParticipantsRequest': ListParticipantsRequest$json,
   '.dzeroth.beacons.v1.ListParticipantsResponse': ListParticipantsResponse$json,
   '.dzeroth.beacons.v1.Participant': Participant$json,
+  '.dzeroth.beacons.v1.ListSharedBeaconsRequest': ListSharedBeaconsRequest$json,
+  '.dzeroth.beacons.v1.ListSharedBeaconsResponse':
+      ListSharedBeaconsResponse$json,
 };
 
 /// Descriptor for `BeaconService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -1076,4 +1123,6 @@ final $typed_data.Uint8List beaconServiceDescriptor = $convert.base64Decode(
     'Y2lwYW50UmVxdWVzdBotLmR6ZXJvdGguYmVhY29ucy52MS5SZW1vdmVQYXJ0aWNpcGFudFJlc3'
     'BvbnNlEnIKEExpc3RQYXJ0aWNpcGFudHMSKy5kemVyb3RoLmJlYWNvbnMudjEuTGlzdFBhcnRp'
     'Y2lwYW50c1JlcXVlc3QaLC5kemVyb3RoLmJlYWNvbnMudjEuTGlzdFBhcnRpY2lwYW50c1Jlc3'
-    'BvbnNlIgOQAgE=');
+    'BvbnNlIgOQAgESdQoRTGlzdFNoYXJlZEJlYWNvbnMSLC5kemVyb3RoLmJlYWNvbnMudjEuTGlz'
+    'dFNoYXJlZEJlYWNvbnNSZXF1ZXN0Gi0uZHplcm90aC5iZWFjb25zLnYxLkxpc3RTaGFyZWRCZW'
+    'Fjb25zUmVzcG9uc2UiA5ACAQ==');
