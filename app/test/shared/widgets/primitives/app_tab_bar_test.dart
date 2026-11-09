@@ -61,7 +61,7 @@ void main() {
       );
       final decoration =
           tester.widget<Container>(indicator).decoration! as BoxDecoration;
-      expect(decoration.color, const Color(0xFF1D9BF0));
+      expect(decoration.color, AppPalette.tealText);
       // Flush with the bottom of the row (the 1px hairline is below it).
       expect(
         tester.getRect(indicator).bottom,

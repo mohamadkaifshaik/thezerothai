@@ -7,6 +7,7 @@ import 'package:dzeroth/core/network/service_paused_cubit.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/widgets/service_paused_view.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
+import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
@@ -635,12 +636,14 @@ void main() {
       expect(themeMode(tester), ThemeMode.light);
     });
 
-    testWidgets('the app theme is X light / X dark', (tester) async {
+    testWidgets('the app theme is pearl light / navy dark (ADR-0033)', (
+      tester,
+    ) async {
       await pump(tester, onboarding: ready());
       final app = tester.widget<MaterialApp>(find.byType(MaterialApp));
 
-      expect(app.theme!.colorScheme.surface, const Color(0xFFFFFFFF));
-      expect(app.darkTheme!.colorScheme.surface, const Color(0xFF000000));
+      expect(app.theme!.colorScheme.surface, AppPalette.pearl);
+      expect(app.darkTheme!.colorScheme.surface, AppPalette.navy);
     });
   });
 }

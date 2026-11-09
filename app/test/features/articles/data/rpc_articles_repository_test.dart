@@ -12,6 +12,7 @@ import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
 import 'package:dzeroth/features/timeline/data/timeline_store.dart';
 import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/gen/dzeroth/articles/v1/articles.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/fake_transport.dart';
@@ -95,51 +96,6 @@ void main() {
     },
   );
 
-  group('save', () {
-    final draft = ArticleDraft(id: 'a' * 32, authorId: 'alice', revision: 1);
-    test('a stale revision (ABORTED) is an ArticleRevisionConflict', () async {
-      reply.completeError(
-        connect.ConnectException(connect.Code.aborted, 'article changed'),
-      );
-      await expectLater(
-        repo.save(draft, expectedRevision: 1),
-        throwsA(isA<ArticleRevisionConflict>()),
-      );
-    });
-    test(
-      'an expected conflict is not reported as an unexpected error',
-      () async {
-        final reported = <Object>[];
-        final reporting = RpcArticlesRepository(
-          apiClient: ApiClient.withTransport(transport),
-          store: store,
-          gate: PostsFeatureGate(
-            isPostsEnabled: () => true,
-            onUnexpectedError: (error, _) => reported.add(error),
-          ),
-          currentUid: () => uid,
-        );
-        reply.completeError(
-          connect.ConnectException(connect.Code.aborted, 'article changed'),
-        );
-        await expectLater(
-          reporting.save(draft, expectedRevision: 1),
-          throwsA(isA<ArticleRevisionConflict>()),
-        );
-        expect(reported, isEmpty);
-      },
-    );
-    test('other failures keep their typed error', () async {
-      reply.completeError(
-        connect.ConnectException(connect.Code.notFound, 'article not found'),
-      );
-      await expectLater(
-        repo.save(draft, expectedRevision: 1),
-        throwsA(isA<NotFoundException>()),
-      );
-    });
-  });
-
   test('list rows use the server excerpt and never decode a body', () async {
     reply.complete(
       pb.ListArticlesResponse(
@@ -182,6 +138,84 @@ void main() {
     final record = await repo.get('a' * 32);
     expect(record.draft.blocks.single.plainText, 'Full body');
     expect(record.summary, 'Full body');
+  });
+
+  group('save', () {
+    final draft = ArticleDraft(id: 'a' * 32, authorId: 'alice', revision: 1);
+    test('a stale revision (ABORTED) is an ArticleRevisionConflict', () async {
+      reply.completeError(
+        connect.ConnectException(connect.Code.aborted, 'article changed'),
+      );
+      await expectLater(
+        repo.save(draft, expectedRevision: 1),
+        throwsA(isA<ArticleRevisionConflict>()),
+      );
+    });
+    test(
+      'an expected conflict is not reported as an unexpected error',
+      () async {
+        final reported = <Object>[];
+        final reporting = RpcArticlesRepository(
+          apiClient: ApiClient.withTransport(transport),
+          store: store,
+          gate: PostsFeatureGate(
+            isPostsEnabled: () => true,
+            onUnexpectedError: (error, _) => reported.add(error),
+          ),
+          currentUid: () => uid,
+        );
+        reply.completeError(
+          connect.ConnectException(connect.Code.aborted, 'article changed'),
+        );
+        await expectLater(
+          reporting.save(draft, expectedRevision: 1),
+          throwsA(isA<ArticleRevisionConflict>()),
+        );
+        expect(reported, isEmpty);
+      },
+    );
+    test('the draft cap is a LimitReachedException naming article_drafts, '
+        'not an unexpected error', () async {
+      final reported = <Object>[];
+      final reporting = RpcArticlesRepository(
+        apiClient: ApiClient.withTransport(transport),
+        store: store,
+        gate: PostsFeatureGate(
+          isPostsEnabled: () => true,
+          onUnexpectedError: (error, _) => reported.add(error),
+        ),
+        currentUid: () => uid,
+      );
+      reply.completeError(
+        serverError(
+          connect.Code.failedPrecondition,
+          common.ErrorReason.ERROR_REASON_LIMIT_REACHED,
+          metadata: {'limit': kArticleDraftsLimit},
+        ),
+      );
+      final error = await reporting
+          .save(draft, expectedRevision: 0)
+          .then<Object?>((_) => null, onError: (Object e) => e);
+      expect(
+        error,
+        isA<LimitReachedException>().having(
+          (e) => e.quota,
+          'quota',
+          kArticleDraftsLimit,
+        ),
+      );
+      expect(isArticleDraftLimit(error!), isTrue);
+      expect(reported, isEmpty);
+    });
+    test('other failures keep their typed error', () async {
+      reply.completeError(
+        connect.ConnectException(connect.Code.notFound, 'article not found'),
+      );
+      await expectLater(
+        repo.save(draft, expectedRevision: 1),
+        throwsA(isA<NotFoundException>()),
+      );
+    });
   });
 
   test('disabled articles make no RPC', () async {

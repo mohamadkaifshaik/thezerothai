@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // START: FlutterFire Configuration
@@ -7,6 +9,18 @@ plugins {
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// android/key.properties is gitignored (see android/.gitignore); never commit it.
+val releaseKeyProperties = Properties().apply {
+    val file = rootProject.file("key.properties")
+    if (file.exists()) {
+        file.inputStream().use { load(it) }
+    }
+}
+
+fun releaseSigningValue(property: String, envVar: String): String? =
+    (releaseKeyProperties.getProperty(property) ?: System.getenv(envVar))
+        ?.takeIf { it.isNotBlank() }
 
 android {
     namespace = "com.dzeroth.dzeroth"
@@ -33,11 +47,49 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        // Upload key for release builds. Sources, first match wins per field:
+        // android/key.properties (gitignored; storeFile, storePassword,
+        // keyAlias, keyPassword) then the DZEROTH_UPLOAD_* environment
+        // variables. Values are never printed or logged.
+        create("release") {
+            val storeFileValue = releaseSigningValue("storeFile", "DZEROTH_UPLOAD_STORE_FILE")
+            val storePasswordValue = releaseSigningValue("storePassword", "DZEROTH_UPLOAD_STORE_PASSWORD")
+            val keyAliasValue = releaseSigningValue("keyAlias", "DZEROTH_UPLOAD_KEY_ALIAS")
+            val keyPasswordValue = releaseSigningValue("keyPassword", "DZEROTH_UPLOAD_KEY_PASSWORD")
+            if (
+                storeFileValue != null && storePasswordValue != null &&
+                keyAliasValue != null && keyPasswordValue != null
+            ) {
+                // Absolute, or relative to android/app (as in Flutter's signing docs).
+                storeFile = file(storeFileValue)
+                storePassword = storePasswordValue
+                keyAlias = keyAliasValue
+                keyPassword = keyPasswordValue
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            val releaseSigning = signingConfigs.getByName("release")
+            if (releaseSigning.storeFile != null) {
+                signingConfig = releaseSigning
+            } else if (project.findProperty("dzerothRequireReleaseSigning") == "true") {
+                throw GradleException(
+                    "Release signing is required (-PdzerothRequireReleaseSigning=true) but no upload " +
+                        "key is configured. Provide android/key.properties (storeFile, storePassword, " +
+                        "keyAlias, keyPassword) or set DZEROTH_UPLOAD_STORE_FILE, " +
+                        "DZEROTH_UPLOAD_STORE_PASSWORD, DZEROTH_UPLOAD_KEY_ALIAS and " +
+                        "DZEROTH_UPLOAD_KEY_PASSWORD. See app/README.md."
+                )
+            } else {
+                logger.warn(
+                    "WARNING: no release upload key configured; signing the release build with the " +
+                        "DEBUG key. This build cannot be published. See app/README.md."
+                )
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
     }
 }

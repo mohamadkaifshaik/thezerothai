@@ -5,6 +5,7 @@ package articles
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -12,9 +13,14 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"connectrpc.com/connect"
+	av "github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1"
+	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
@@ -271,3 +277,81 @@ func (c testMediaClaim) Refs() []posts.MediaRef {
 }
 func (c testMediaClaim) HasGIF() bool                    { return false }
 func (c testMediaClaim) Attach(b store.Batch, id string) { c.claim.Attach(b, id) }
+
+// TestFirestoreDraftCap runs the transactional draft count against Firestore: only the caller's unpublished
+// drafts count (published articles and another author's drafts never do), the read stops at cap+1, a new id
+// is refused at the cap, and an existing draft is still saved there.
+func TestFirestoreDraftCap(t *testing.T) {
+	if os.Getenv("FIRESTORE_EMULATOR_HOST") == "" {
+		t.Skip("requires Firestore emulator")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	client, err := firestore.NewClient(ctx, "demo-articles-integration", option.WithoutAuthentication())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	prefix := fmt.Sprintf("draft-cap-%d", time.Now().UnixNano())
+	uid, other := prefix+"-owner", prefix+"-other"
+	var ids []string
+	put := func(id string, a *record) {
+		t.Helper()
+		ids = append(ids, id)
+		if _, err := client.Collection("articles").Doc(id).Set(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer func() {
+		for _, id := range ids {
+			_, _ = client.Collection("articles").Doc(id).Delete(context.Background())
+		}
+	}()
+	now := time.Now().UTC()
+	for i := range maxDraftsPerAuthor - 1 {
+		put(fmt.Sprintf("%s-d%03d", prefix, i), &record{AuthorID: uid, Revision: 1, Title: "Draft", Body: testBody, UpdatedAt: now})
+	}
+	for i := range 3 {
+		put(fmt.Sprintf("%s-p%03d", prefix, i), &record{AuthorID: uid, Revision: 1, Title: "Published", Body: testBody, PostID: "1000000000000000009", Published: true, UpdatedAt: now})
+		put(fmt.Sprintf("%s-o%03d", prefix, i), &record{AuthorID: other, Revision: 1, Title: "Other", Body: testBody, UpdatedAt: now})
+	}
+	s := &Server{repo: &firestoreRepo{client}, flags: testFlags(true), now: time.Now}
+	actx := authn.WithClaims(ctx, authn.Claims{UID: uid})
+	saveNew := func(id string) error {
+		ids = append(ids, id)
+		_, err := s.SaveArticle(actx, connect.NewRequest(&av.SaveArticleRequest{Article: &av.Article{ArticleId: id, Title: "Title", BodyJson: testBody}}))
+		return err
+	}
+	// 49 drafts: the 50th is allowed.
+	if err = saveNew(prefix + "-new050"); err != nil {
+		t.Fatalf("50th draft: %v", err)
+	}
+	// 50 drafts: the 51st is refused and not stored.
+	err = saveNew(prefix + "-new051")
+	var ae *apierr.Error
+	if !errors.As(err, &ae) || ae.Reason != commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED || ae.Metadata["limit"] != draftLimitName {
+		t.Fatalf("51st draft: %v", err)
+	}
+	if _, err = client.Collection("articles").Doc(prefix + "-new051").Get(ctx); status.Code(err) != codes.NotFound {
+		t.Fatalf("refused draft stored: %v", err)
+	}
+	// An existing draft is still saved at the cap.
+	if _, err = s.SaveArticle(actx, connect.NewRequest(&av.SaveArticleRequest{Article: &av.Article{ArticleId: prefix + "-d000", Title: "Edited", BodyJson: testBody}, ExpectedRevision: 1})); err != nil {
+		t.Fatalf("edit at cap: %v", err)
+	}
+	// Over the cap the read stops at cap+1 documents.
+	put(prefix+"-d900", &record{AuthorID: uid, Revision: 1, UpdatedAt: now})
+	put(prefix+"-d901", &record{AuthorID: uid, Revision: 1, UpdatedAt: now})
+	repo := &firestoreRepo{client}
+	var counted int
+	if _, err = repo.saveDraft(ctx, prefix+"-probe", uid, func(_ *record, drafts func() (int, error)) (*record, error) {
+		var e error
+		counted, e = drafts()
+		return nil, e
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if counted != maxDraftsPerAuthor+1 {
+		t.Fatalf("counted %d drafts, want the read bounded at %d", counted, maxDraftsPerAuthor+1)
+	}
+}
