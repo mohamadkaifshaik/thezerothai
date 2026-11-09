@@ -193,7 +193,7 @@ void main() {
             )
             .first,
       );
-      expect(material.color, const Color(0xFF1D9BF0));
+      expect(material.color, AppPalette.tealText);
     });
 
     testWidgets('a scope opens the drawer; without a drawer there is no '

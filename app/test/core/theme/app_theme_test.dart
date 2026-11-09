@@ -18,9 +18,12 @@ Iterable<File> _appSources() => Directory('lib')
       return !p.startsWith('lib/gen/') && p != 'lib/core/theme/app_theme.dart';
     });
 
+/// [fg] composited over [bg] (contrast() ignores alpha).
+Color _over(Color fg, Color bg) => Color.alphaBlend(fg, bg);
+
 void main() {
   for (final entry in {'light': appLightTheme, 'dark': appDarkTheme}.entries) {
-    test('${entry.key} snackbar action and close icon meet WCAG AA', () {
+    test('${entry.key} snackbar action, close icon and text meet WCAG AA', () {
       final snack = entry.value.snackBarTheme;
       final bg = snack.backgroundColor!;
       expect(snack.actionTextColor, isNotNull);
@@ -28,6 +31,10 @@ void main() {
       expect(contrast(snack.actionTextColor!, bg), greaterThanOrEqualTo(4.5));
       // Icons are non-text UI: WCAG 1.4.11 asks for 3:1.
       expect(contrast(snack.closeIconColor!, bg), greaterThanOrEqualTo(3.0));
+      expect(
+        contrast(snack.contentTextStyle!.color!, bg),
+        greaterThanOrEqualTo(4.5),
+      );
     });
   }
 
@@ -36,12 +43,24 @@ void main() {
     final theme = entry.value;
     final colors = theme.colorScheme;
     final app = theme.extension<AppColors>()!;
-    final raised = {
+    final steps = {
+      'surface': colors.surface,
+      'surfaceContainerLowest': colors.surfaceContainerLowest,
       'surfaceContainerLow': colors.surfaceContainerLow,
       'surfaceContainer': colors.surfaceContainer,
       'surfaceContainerHigh': colors.surfaceContainerHigh,
       'surfaceContainerHighest': colors.surfaceContainerHighest,
     };
+
+    void textOnEveryStep(Color c, String role) {
+      for (final step in steps.entries) {
+        expect(
+          contrast(c, step.value),
+          greaterThanOrEqualTo(4.5),
+          reason: '$role on ${step.key}',
+        );
+      }
+    }
 
     group('$name palette', () {
       test('builds a Material 3 theme of the right brightness', () {
@@ -56,38 +75,90 @@ void main() {
         );
       });
 
-      test('onSurface is >= 4.5:1 on every surface step', () {
-        expect(contrast(colors.onSurface, colors.surface), greaterThan(4.5));
-        for (final layer in raised.entries) {
+      test('onSurface is >= 4.5:1 on every container step', () {
+        textOnEveryStep(colors.onSurface, 'onSurface');
+      });
+
+      test('onSurfaceVariant (also the field hint) is >= 4.5:1 on surface, '
+          'surfaceContainer and surfaceContainerHigh', () {
+        for (final bg in [
+          colors.surface,
+          colors.surfaceContainer,
+          colors.surfaceContainerHigh,
+        ]) {
           expect(
-            contrast(colors.onSurface, layer.value),
+            contrast(colors.onSurfaceVariant, bg),
             greaterThanOrEqualTo(4.5),
-            reason: 'onSurface on ${layer.key}',
+            reason: 'onSurfaceVariant on $bg',
           );
         }
       });
 
-      test('onSurfaceVariant is >= 4.5:1 on the page surface', () {
+      test('secondaryOnRaised is >= 4.5:1 on every step', () {
+        textOnEveryStep(app.secondaryOnRaised, 'secondaryOnRaised');
+      });
+
+      test('text roles are >= 4.5:1 on every step', () {
+        textOnEveryStep(app.accentText, 'accentText');
+        textOnEveryStep(app.text2, 'text2');
+        textOnEveryStep(colors.error, 'error (danger text)');
+        // State colours also tint the action counts, so they are text-safe.
+        textOnEveryStep(app.like, 'like');
+        textOnEveryStep(app.repost, 'repost');
+        textOnEveryStep(app.live, 'live');
+        textOnEveryStep(app.recommendation, 'recommendation');
+        textOnEveryStep(app.positive, 'positive');
+      });
+
+      test('primary text is >= 4.5:1 on surface and onPrimary on primary', () {
         expect(
-          contrast(colors.onSurfaceVariant, colors.surface),
+          contrast(colors.primary, colors.surface),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          contrast(colors.onPrimary, colors.primary),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          contrast(colors.onSecondary, colors.secondary),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          contrast(colors.onInverseSurface, colors.inverseSurface),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          contrast(colors.inversePrimary, colors.inverseSurface),
           greaterThanOrEqualTo(4.5),
         );
       });
 
-      test('secondary text on a raised surface uses secondaryOnRaised '
-          '(>= 4.5:1 on every step)', () {
-        for (final layer in raised.entries) {
+      test('onError is >= 4.5:1 on error; the danger fill label too', () {
+        expect(
+          contrast(colors.onError, colors.error),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          contrast(app.onDangerFill, app.dangerFill),
+          greaterThanOrEqualTo(4.5),
+        );
+      });
+
+      test('outline and uiBorder are >= 3:1 on surface and surfaceContainer '
+          '(component boundaries)', () {
+        for (final c in [colors.outline, app.uiBorder]) {
+          expect(contrast(c, colors.surface), greaterThanOrEqualTo(3.0));
           expect(
-            contrast(app.secondaryOnRaised, layer.value),
-            greaterThanOrEqualTo(4.5),
-            reason: 'secondaryOnRaised on ${layer.key}',
+            contrast(c, colors.surfaceContainer),
+            greaterThanOrEqualTo(3.0),
           );
         }
       });
 
-      test('accentText is >= 4.5:1 on the page surface', () {
+      test('the selected indicator is >= 3:1 on surface (non-text UI) and '
+          'text-safe', () {
         expect(
-          contrast(app.accentText, colors.surface),
+          contrast(app.selectedIndicator, colors.surface),
           greaterThanOrEqualTo(4.5),
         );
       });
@@ -99,53 +170,68 @@ void main() {
         );
       });
 
-      test('the accent fill is >= 3:1 against the page (non-text UI) and '
-          'the FAB glyph on it too', () {
-        // Dark 7.0:1; light 3.0:1 (X's own blue on white). Used for fills,
-        // indicators and icons; small text uses accentText instead.
+      test('the primary gradient label is >= 4.5:1 on both ends', () {
+        for (final end in app.primaryFillGradient.colors) {
+          expect(
+            contrast(app.primaryFillLabel, end),
+            greaterThanOrEqualTo(4.5),
+          );
+        }
+      });
+
+      test('the floating nav bar is navy with AA glyphs', () {
+        expect(app.navBarSurface, AppPalette.navy);
+        expect(app.navBarSelected, AppPalette.tealElectric);
+        expect(app.navBarUnselected, AppPalette.mutedOnDark);
         expect(
-          contrast(colors.primary, colors.surface),
-          greaterThanOrEqualTo(3.0),
+          contrast(app.navBarSelected, app.navBarSurface),
+          greaterThanOrEqualTo(4.5),
         );
         expect(
-          contrast(colors.onPrimary, colors.primary),
-          greaterThanOrEqualTo(3.0),
+          contrast(app.navBarUnselected, app.navBarSurface),
+          greaterThanOrEqualTo(4.5),
         );
       });
 
       test('the hairline stays visible and is not heavier than 3:1', () {
-        final ratio = contrast(colors.outlineVariant, colors.surface);
-        expect(ratio, greaterThanOrEqualTo(1.1));
-        expect(ratio, lessThan(3.0));
+        for (final hairline in [colors.outlineVariant, app.hairline]) {
+          final ratio = contrast(
+            _over(hairline, colors.surface),
+            colors.surface,
+          );
+          expect(ratio, greaterThanOrEqualTo(1.1));
+          expect(ratio, lessThan(3.0));
+        }
       });
 
-      test('there is no separate tertiary: no gradient any more', () {
+      test('tertiary has no role: it mirrors primary', () {
         expect(colors.tertiary, colors.primary);
-      });
-
-      test('the accent is X blue in both themes', () {
-        expect(colors.primary, const Color(0xFF1D9BF0));
-      });
-
-      test('semantic colours are the X state colours', () {
-        expect(app.like, const Color(0xFFF91880));
-        expect(app.repost, const Color(0xFF00BA7C));
-        expect(app.live, const Color(0xFFF91880));
-        expect(app.recommendation, const Color(0xFF794BC4));
+        expect(colors.onTertiary, colors.onPrimary);
       });
 
       test('modal barriers use the theme scrim', () {
+        expect(app.scrim, AppPalette.scrim);
         expect(theme.dialogTheme.barrierColor, app.scrim);
         expect(theme.bottomSheetTheme.modalBarrierColor, app.scrim);
         expect(theme.drawerTheme.scrimColor, app.scrim);
         expect(theme.drawerTheme.width, AppSize.drawerWidth);
       });
+
+      test('AppColors lerp and copyWith carry every role', () {
+        final other = name == 'dark' ? AppColors.light : AppColors.dark;
+        expect(app.lerp(other, 0).primaryFillGradient, app.primaryFillGradient);
+        expect(app.lerp(other, 1).navBarUnselected, other.navBarUnselected);
+        expect(app.lerp(other, 1).text2, other.text2);
+        expect(app.copyWith(hairline: other.hairline).hairline, other.hairline);
+        expect(app.copyWith().selectedIndicator, app.selectedIndicator);
+      });
     });
   }
 
-  test('dark surfaces layer strictly lighter, starting at pure black', () {
+  test('dark surfaces layer strictly lighter, starting at navyDeep', () {
     final colors = appDarkTheme.colorScheme;
     final ladder = [
+      colors.surfaceContainerLowest,
       colors.surface,
       colors.surfaceContainerLow,
       colors.surfaceContainer,
@@ -159,36 +245,84 @@ void main() {
         reason: 'layer $i is lighter than layer ${i - 1}',
       );
     }
-    expect(colors.surface, const Color(0xFF000000));
+    expect(colors.surfaceContainerLowest, AppPalette.navyDeep);
   });
 
-  test('dark palette tokens (founder decision 2026-10-22: X colours)', () {
+  test('dark scheme (ADR-0033, navy; D2 and D4)', () {
     final colors = appDarkTheme.colorScheme;
-    expect(colors.surface, const Color(0xFF000000));
-    expect(colors.onSurface, const Color(0xFFE7E9EA));
-    expect(colors.onSurfaceVariant, const Color(0xFF71767B));
-    expect(colors.outlineVariant, const Color(0xFF2F3336));
-    expect(colors.outline, const Color(0xFF333639));
-    expect(colors.primary, const Color(0xFF1D9BF0));
+    expect(colors.surfaceContainerLowest, AppPalette.navyDeep);
+    expect(colors.surface, AppPalette.navy);
+    expect(colors.surfaceContainerLow, AppPalette.darkContainerLow);
+    expect(colors.surfaceContainer, AppPalette.darkContainer);
+    expect(colors.surfaceContainerHigh, AppPalette.navy2);
+    expect(colors.surfaceContainerHighest, AppPalette.darkContainerHighest);
+    expect(colors.onSurface, AppPalette.pearl);
+    expect(colors.onSurfaceVariant, AppPalette.mutedOnDark);
+    expect(colors.primary, AppPalette.tealElectric);
+    expect(colors.onPrimary, AppPalette.navy);
+    expect(colors.secondary, AppPalette.pearl);
+    expect(colors.onSecondary, AppPalette.navy);
+    expect(colors.error, AppPalette.dangerOnDark);
+    expect(colors.onError, AppPalette.navy);
+    expect(colors.outline, AppPalette.uiBorderOnDark);
+    expect(colors.outlineVariant, AppPalette.hairlineDark);
+    expect(colors.inverseSurface, AppPalette.pearl);
     final app = appDarkTheme.extension<AppColors>()!;
-    expect(app.strongPillFill, const Color(0xFFEFF3F4));
-    expect(app.strongPillLabel, const Color(0xFF0F1419));
-    expect(app.scrim, const Color(0x665B7083));
+    expect(app.accentText, AppPalette.tealElectric);
+    expect(app.strongPillFill, AppPalette.pearl);
+    expect(app.strongPillLabel, AppPalette.navy);
+    expect(app.selectedIndicator, AppPalette.tealElectric);
+    expect(app.uiBorder, AppPalette.uiBorderOnDark);
+    expect(app.hairline, AppPalette.hairlineDark);
+    expect(app.like, AppPalette.dangerOnDark);
+    expect(app.repost, AppPalette.tealElectric);
+    expect(app.live, AppPalette.dangerOnDark);
+    expect(app.recommendation, AppPalette.tealElectric);
   });
 
-  test('light palette tokens (founder decision 2026-10-22: X colours)', () {
+  test('light scheme (ADR-0033, pearl)', () {
     final colors = appLightTheme.colorScheme;
-    expect(colors.surface, const Color(0xFFFFFFFF));
-    expect(colors.onSurface, const Color(0xFF0F1419));
-    expect(colors.onSurfaceVariant, const Color(0xFF536471));
-    expect(colors.outlineVariant, const Color(0xFFEFF3F4));
-    expect(colors.outline, const Color(0xFFCFD9DE));
-    expect(colors.primary, const Color(0xFF1D9BF0));
+    expect(colors.surface, AppPalette.pearl);
+    expect(colors.surfaceContainerLowest, AppPalette.white);
+    expect(colors.surfaceContainerLow, const Color(0xFFFAF9F6));
+    expect(colors.surfaceContainer, AppPalette.white);
+    expect(colors.surfaceContainerHigh, const Color(0xFFEEF1F4));
+    expect(colors.surfaceContainerHighest, const Color(0xFFE6EAEE));
+    expect(colors.onSurface, AppPalette.navy);
+    expect(colors.onSurfaceVariant, AppPalette.mutedOnLight);
+    expect(colors.primary, AppPalette.tealText);
+    expect(colors.onPrimary, AppPalette.white);
+    expect(colors.secondary, AppPalette.navy);
+    expect(colors.onSecondary, AppPalette.pearl);
+    expect(colors.error, AppPalette.danger);
+    expect(colors.onError, AppPalette.white);
+    expect(colors.outline, AppPalette.uiBorderOnLight);
+    expect(colors.outlineVariant, AppPalette.hairlineLight);
+    expect(colors.inverseSurface, AppPalette.navy);
+    expect(colors.scrim, AppPalette.navyDeep);
     final app = appLightTheme.extension<AppColors>()!;
-    expect(app.strongPillFill, const Color(0xFF0F1419));
-    expect(app.strongPillLabel, const Color(0xFFFFFFFF));
-    expect(app.accentText, const Color(0xFF1478BD));
-    expect(app.scrim, const Color(0x26000000));
+    expect(app.accentText, AppPalette.tealText);
+    expect(app.strongPillFill, AppPalette.navy);
+    expect(app.strongPillLabel, AppPalette.pearl);
+    expect(app.selectedIndicator, AppPalette.tealText);
+    expect(app.uiBorder, AppPalette.uiBorderOnLight);
+    expect(app.hairline, AppPalette.hairlineLight);
+    expect(app.text2, AppPalette.text2);
+    expect(app.like, AppPalette.danger);
+    expect(app.repost, AppPalette.tealText);
+    expect(app.live, AppPalette.danger);
+    expect(app.recommendation, AppPalette.tealText);
+  });
+
+  test('fills shared by both themes', () {
+    for (final app in [AppColors.light, AppColors.dark]) {
+      expect(app.primaryFillGradient, AppGradients.primaryButton);
+      expect(app.primaryFillLabel, AppPalette.navy);
+      expect(app.dangerFill, AppPalette.danger);
+      expect(app.onDangerFill, AppPalette.white);
+      expect(app.navBarSurface, AppPalette.navy);
+    }
+    expect(AppColors.photoBackground, const Color(0xFF000000));
   });
 
   test('the default FilledButton is the strong inverse pill', () {
@@ -230,7 +364,7 @@ void main() {
     expect(AppBreakpoints.tablet, 1200);
   });
 
-  group('colour rules hold across lib/ (decision 2026-10-22)', () {
+  group('gradients only via AppGradients (ADR-0033 §6)', () {
     test('no gradient, no seed colour and no tertiary slot in use', () {
       final offenders = <String>[];
       for (final file in _appSources()) {

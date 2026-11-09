@@ -206,9 +206,7 @@ void main() {
         expect(decoration.gradient, isNull, reason: '$brightness');
         expect(
           decoration.color,
-          brightness == Brightness.dark
-              ? const Color(0xFFEFF3F4)
-              : const Color(0xFF0F1419),
+          brightness == Brightness.dark ? AppPalette.pearl : AppPalette.navy,
         );
       }
     });
