@@ -127,6 +127,15 @@ type Evidence struct {
 	BeaconTitle   string
 	BeaconDetails string
 	BeaconVenue   string
+	// POST reports of an article root only: the article as the reporter saw it, so the author cannot rewrite it before
+	// triage. ArticleBody is plain text bounded by the ArticleLookup (16 KiB) and ArticleBodyTruncated says it was cut;
+	// when the article could not be read (gone) they hold the preview frozen on the post (title, excerpt) and
+	// ArticleRevision is 0. Empty for every other report.
+	ArticleID            string
+	ArticleTitle         string
+	ArticleRevision      int64
+	ArticleBody          string
+	ArticleBodyTruncated bool
 	// PollChoices are the labels of the reported post's poll, empty for a post without one; for a REPOST report they are
 	// the original's (from its frozen embed). Labels only: no counts, no voters.
 	PollChoices []string

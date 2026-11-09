@@ -120,6 +120,12 @@ type evidenceDoc struct {
 	BeaconTitle   string `firestore:"beaconTitle,omitempty"`
 	BeaconDetails string `firestore:"beaconDetails,omitempty"`
 	BeaconVenue   string `firestore:"beaconVenue,omitempty"`
+	// Article-root POST reports only; additive and omitempty, inside the index-exempt evidence map.
+	ArticleID            string `firestore:"articleId,omitempty"`
+	ArticleTitle         string `firestore:"articleTitle,omitempty"`
+	ArticleRevision      int64  `firestore:"articleRevision,omitempty"`
+	ArticleBody          string `firestore:"articleBody,omitempty"`
+	ArticleBodyTruncated bool   `firestore:"articleBodyTruncated,omitempty"`
 	// The reported post's poll labels; additive, omitempty.
 	PollChoices []string `firestore:"pollChoices,omitempty"`
 }
@@ -183,7 +189,9 @@ func toDoc(r Report) reportDoc {
 			Location: r.Evidence.Location, Website: r.Evidence.Website, AvatarURL: r.Evidence.AvatarURL, BannerURL: r.Evidence.BannerURL,
 			PollChoices: r.Evidence.PollChoices, ListName: r.Evidence.ListName, ListDescription: r.Evidence.ListDescription,
 			CommunityName: r.Evidence.CommunityName, CommunityDescription: r.Evidence.CommunityDescription, CommunityRules: ruleDocs(r.Evidence.CommunityRules),
-			BeaconTitle: r.Evidence.BeaconTitle, BeaconDetails: r.Evidence.BeaconDetails, BeaconVenue: r.Evidence.BeaconVenue}
+			BeaconTitle: r.Evidence.BeaconTitle, BeaconDetails: r.Evidence.BeaconDetails, BeaconVenue: r.Evidence.BeaconVenue,
+			ArticleID: r.Evidence.ArticleID, ArticleTitle: r.Evidence.ArticleTitle, ArticleRevision: r.Evidence.ArticleRevision,
+			ArticleBody: r.Evidence.ArticleBody, ArticleBodyTruncated: r.Evidence.ArticleBodyTruncated}
 		if r.TargetType == TargetMessage {
 			d.Evidence.Text = "" // the text lives in the child document
 		}
@@ -204,7 +212,9 @@ func (d reportDoc) toReport(id string) Report {
 			Location: d.Evidence.Location, Website: d.Evidence.Website, AvatarURL: d.Evidence.AvatarURL, BannerURL: d.Evidence.BannerURL,
 			PollChoices: d.Evidence.PollChoices, ListName: d.Evidence.ListName, ListDescription: d.Evidence.ListDescription,
 			CommunityName: d.Evidence.CommunityName, CommunityDescription: d.Evidence.CommunityDescription, CommunityRules: ruleOut(d.Evidence.CommunityRules),
-			BeaconTitle: d.Evidence.BeaconTitle, BeaconDetails: d.Evidence.BeaconDetails, BeaconVenue: d.Evidence.BeaconVenue}
+			BeaconTitle: d.Evidence.BeaconTitle, BeaconDetails: d.Evidence.BeaconDetails, BeaconVenue: d.Evidence.BeaconVenue,
+			ArticleID: d.Evidence.ArticleID, ArticleTitle: d.Evidence.ArticleTitle, ArticleRevision: d.Evidence.ArticleRevision,
+			ArticleBody: d.Evidence.ArticleBody, ArticleBodyTruncated: d.Evidence.ArticleBodyTruncated}
 	}
 	if d.ResolvedAt != nil {
 		r.ResolvedAt = d.ResolvedAt.UTC()

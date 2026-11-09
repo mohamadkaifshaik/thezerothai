@@ -300,10 +300,15 @@ func byteSize(n int64) string {
 // validateBannerShape checks the declared banner size: width <= 1500, height <= 500 and 3:1 within 2%
 // (294*h <= 100*w <= 306*h, integer arithmetic, bounds inclusive). The server checks the declaration, not pixels.
 func validateBannerShape(field string, w, h int) error {
-	if w > BannerMaxWidth || h > BannerMaxHeight || 100*w < 294*h || 100*w > 306*h {
+	if !bannerShapeOK(w, h) {
 		return apierr.Validation(field, "a banner must be 3:1, at most 1500 x 500")
 	}
 	return nil
+}
+
+// bannerShapeOK is the banner geometry rule shared by the declaration check and verify's pixel check.
+func bannerShapeOK(w, h int) bool {
+	return w <= BannerMaxWidth && h <= BannerMaxHeight && 100*w >= 294*h && 100*w <= 306*h
 }
 
 // requestHash is the canonical body hash for IDEMPOTENCY_KEY_REUSED (fixed field order).

@@ -165,12 +165,12 @@ func TestGetAccountExport_LeasedIsPendingAndNotFoundIsUnchanged(t *testing.T) {
 	doc := newPendingExport(h, "u1")
 	h.repo.exports[doc.ID].LeaseUntil = h.clock.Now().Add(time.Minute)
 
-	v, err := h.l.GetAccountExport(context.Background(), "u1", doc.ID)
+	v, err := h.l.GetAccountExport(context.Background(), "u1", doc.ID, true)
 	if err != nil || v.Status != ExportPending || v.DownloadURL != "" {
 		t.Fatalf("leased export view = %+v, %v; want PENDING", v, err)
 	}
-	_, other := h.l.GetAccountExport(context.Background(), "u2", doc.ID)
-	_, missing := h.l.GetAccountExport(context.Background(), "u1", expID("u1", expKey2))
+	_, other := h.l.GetAccountExport(context.Background(), "u2", doc.ID, true)
+	_, missing := h.l.GetAccountExport(context.Background(), "u1", expID("u1", expKey2), true)
 	if other == nil || missing == nil || other.Error() != missing.Error() {
 		t.Errorf("NOT_FOUND differs: foreign %v, unknown %v", other, missing)
 	}

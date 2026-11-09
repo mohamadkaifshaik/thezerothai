@@ -145,3 +145,37 @@ func TestPostDeleteChain_IdentityPinStep(t *testing.T) {
 		})
 	}
 }
+
+// TestPostDeleteChain_ArticlesStep: the articles step runs on every message; only a deleted article is appended to the
+// outcome, and its failure nacks while the other steps still ran.
+func TestPostDeleteChain_ArticlesStep(t *testing.T) {
+	tests := []struct {
+		name     string
+		articles stepFake
+		want     string
+		wantErr  string
+	}{
+		{"no article rooted at the post adds nothing", stepFake{out: "noop"}, "done", ""},
+		{"a refused articles step adds nothing", stepFake{out: "refused"}, "done", ""},
+		{"a deleted article is appended", stepFake{out: "article_deleted"}, "done+article_deleted", ""},
+		{"the articles step failing nacks", stepFake{err: errors.New("articles failed")}, "", "articles failed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			media, eng, pins, art := stepFake{out: "noop"}, stepFake{out: "done"}, stepFake{out: "noop"}, tt.articles
+			out, err := postDeleteChain{media: &media, eng: &eng, pins: &pins, articles: &art}.Handle(context.Background(), []byte(`{}`))
+			if media.n != 1 || eng.n != 1 || pins.n != 1 || art.n != 1 {
+				t.Fatalf("every step must run exactly once: media=%d eng=%d pins=%d articles=%d", media.n, eng.n, pins.n, art.n)
+			}
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("err = %v, want it to contain %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil || out != tt.want {
+				t.Fatalf("outcome = %q, %v; want %q", out, err, tt.want)
+			}
+		})
+	}
+}

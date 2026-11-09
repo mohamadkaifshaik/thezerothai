@@ -5,6 +5,7 @@ package apiserver
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
@@ -57,7 +58,19 @@ func (s *emitterSlot) emit(ctx context.Context, e notifications.Event) {
 		return
 	}
 	// Best effort: Emit already logged a failure, and a lost notification must never fail a follow or a post.
-	_ = s.em.Emit(ctx, e)
+	_ = s.emitErr(ctx, e)
+}
+
+// emitErr is emit for a producer that retries (the beacon cancellation outbox): it returns Emit's error. An empty slot
+// (notifications not wired) drops the event and is not an error.
+func (s *emitterSlot) emitErr(ctx context.Context, e notifications.Event) error {
+	if s.em == nil {
+		return nil
+	}
+	if err := s.em.Emit(ctx, e); err != nil {
+		return fmt.Errorf("notifications emit: %w", err)
+	}
+	return nil
 }
 
 // followNotifier implements graph.FollowEvents: a created edge notifies the followee. Replays and no-ops never
