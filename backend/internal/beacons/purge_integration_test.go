@@ -233,6 +233,60 @@ func TestPurge_ManyParticipantsStayUnderTheBatchLimit(t *testing.T) {
 	}
 }
 
+// TestExport_MembershipsCarryOwnParticipantRow (D03): each membership row carries the user's own participant note and
+// times (one GetAll per page); another participant's row on the same beacon never reaches the export.
+func TestExport_MembershipsCarryOwnParticipantRow(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	const me, other, host = "me-d03", "other-d03", "host-d03"
+	hb := e.create(t, host, "integration-key-d03a", e.beaconAt(host, "", e.now.Add(time.Hour))).Beacon
+	nb := e.create(t, host, "integration-key-d03b", e.beaconAt(host, "", e.now.Add(2*time.Hour))).Beacon
+	responded := e.now.Add(time.Minute)
+	for _, row := range []struct {
+		beacon, uid, note string
+		responded         time.Time
+	}{
+		{hb.ID, me, "my own note", responded},
+		{hb.ID, other, "another person's note", responded},
+	} {
+		if _, err := e.repo.participantRef(row.beacon, row.uid).Set(ctx, participantDoc{
+			UID: row.uid, State: PStateAccepted, Note: row.note, RequestedAt: e.now, RespondedAt: row.responded, ExpireAt: hb.ExpireAt,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := e.repo.membershipRef(me, hb.ID).Set(ctx, membershipDoc{BeaconID: hb.ID, Role: RoleParticipant, State: PStateAccepted, StartAt: hb.StartAt, EndAt: hb.EndAt}); err != nil {
+		t.Fatal(err)
+	}
+	// A membership row with no participant row (stale or partially purged) exports with empty fields.
+	if _, err := e.repo.membershipRef(me, nb.ID).Set(ctx, membershipDoc{BeaconID: nb.ID, Role: RoleRequester, State: PStateRequested, StartAt: nb.StartAt, EndAt: nb.EndAt}); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := NewExporter(e.repo).ExportUser(ctx, me, &buf); err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Memberships []ExportedMembership `json:"memberships"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
+	}
+	got := map[string]ExportedMembership{}
+	for _, m := range out.Memberships {
+		got[m.BeaconID] = m
+	}
+	if m := got[hb.ID]; m.Note != "my own note" || m.RequestedAt == nil || !m.RequestedAt.Equal(e.now) || m.RespondedAt == nil || !m.RespondedAt.Equal(responded) {
+		t.Errorf("participant membership = %+v", m)
+	}
+	if m, ok := got[nb.ID]; !ok || m.Note != "" || m.RequestedAt != nil || m.RespondedAt != nil {
+		t.Errorf("membership without a participant row = %+v (present %v)", m, ok)
+	}
+	if s := buf.String(); strings.Contains(s, "another person's note") || strings.Contains(s, other) || strings.Contains(s, host) {
+		t.Fatalf("export leaks another user's data: %s", s)
+	}
+}
+
 // TestExport_WritesOrganisedBeaconsAndMemberships: the friend's export carries their 3 beacons and 2 memberships.
 func TestExport_WritesOrganisedBeaconsAndMemberships(t *testing.T) {
 	e := newRepoEnv(t)

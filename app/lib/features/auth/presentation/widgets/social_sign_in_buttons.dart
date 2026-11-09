@@ -7,25 +7,31 @@ import '../../../../app/app_config.dart';
 import 'auth_design.dart';
 
 /// Google + Apple sign-in buttons. Apple is only shown on iOS, macOS and web
-/// per Apple's guidelines. There is no phone/SMS sign-in.
+/// per Apple's guidelines; on iOS it is additionally gated by
+/// [AppConfig.appleSignInIosEnabled] (off until Sign in with Apple is set up
+/// for iOS). There is no phone/SMS sign-in.
 class SocialSignInButtons extends StatelessWidget {
   const SocialSignInButtons({
     super.key,
     required this.isSubmitting,
     required this.onGoogleTap,
     required this.onAppleTap,
+    this.appleOnIosEnabled = AppConfig.appleSignInIosEnabled,
   });
 
   final bool isSubmitting;
   final VoidCallback onGoogleTap;
   final VoidCallback onAppleTap;
 
+  /// Defaults to [AppConfig.appleSignInIosEnabled]; overridable in tests.
+  final bool appleOnIosEnabled;
+
   /// Web needs an Apple Services ID (`APPLE_SERVICE_ID`), otherwise the button
   /// can only fail. Checked before the platform because on web
   /// `defaultTargetPlatform` reports the browser's OS (macOS/iOS on Apple devices).
   bool get _showApple {
     if (kIsWeb) return AppConfig.appleSignInOnWebConfigured;
-    return defaultTargetPlatform == TargetPlatform.iOS ||
+    return (defaultTargetPlatform == TargetPlatform.iOS && appleOnIosEnabled) ||
         defaultTargetPlatform == TargetPlatform.macOS;
   }
 
