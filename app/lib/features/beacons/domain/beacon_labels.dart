@@ -12,6 +12,7 @@ String activityLabel(pb.BeaconActivity a) => switch (a) {
   pb.BeaconActivity.BEACON_ACTIVITY_SPORTS => 'Sports',
   pb.BeaconActivity.BEACON_ACTIVITY_WALK => 'Walk',
   pb.BeaconActivity.BEACON_ACTIVITY_SHOPPING => 'Shopping',
+  pb.BeaconActivity.BEACON_ACTIVITY_OTHER => 'Other',
   _ => 'Plan',
 };
 
