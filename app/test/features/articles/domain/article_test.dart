@@ -177,4 +177,74 @@ void main() {
       throwsArgumentError,
     );
   });
+
+  group(
+    'serialized body size (server cap: $articleMaxBodyBytes UTF-8 bytes)',
+    () {
+      ArticleDraft draftOf(List<ArticleBlock> blocks) =>
+          ArticleDraft(id: '1', authorId: 'a', title: 'ok', blocks: blocks);
+
+      // One paragraph whose body_json is exactly [bytes] long: [unit] repeated,
+      // padded with ASCII to land on the byte count.
+      ArticleDraft sized(int bytes, String unit) {
+        final overhead = draftOf([paragraph('')]).bodyBytes;
+        final room = bytes - overhead;
+        final unitBytes = utf8.encode(unit).length;
+        final text = unit * (room ~/ unitBytes) + 'a' * (room % unitBytes);
+        final draft = draftOf([paragraph(text)]);
+        expect(draft.bodyBytes, bytes);
+        return draft;
+      }
+
+      test('bodyJson is the exact payload and is measured in UTF-8', () {
+        final draft = draftOf([paragraph('語😀')]);
+        expect(
+          draft.bodyJson,
+          jsonEncode(draft.blocks.map((b) => b.toJson()).toList()),
+        );
+        expect(draft.bodyBytes, utf8.encode(draft.bodyJson).length);
+        expect(draft.bodyBytes, draft.bodyJson.length + 2 + 2); // 3+4 vs 1+2
+      });
+
+      for (final (name, unit) in [('CJK', '語'), ('emoji', '😀')]) {
+        test('$name at the boundary', () {
+          final atLimit = sized(articleMaxBodyBytes, unit);
+          // Well under the code-point limit, so only bytes can bind.
+          expect(
+            atLimit.plainText.runes.length,
+            lessThan(articleMaxBodyCodePoints),
+          );
+          expect(atLimit.saveErrors, isEmpty);
+          expect(atLimit.publishErrors, isEmpty);
+          final over = sized(articleMaxBodyBytes + 1, unit);
+          expect(over.saveErrors, ['bodySize']);
+          expect(over.publishErrors, ['bodySize']);
+        });
+      }
+
+      test('formatting overhead counts, not only text', () {
+        // Short runs with every mark: little text, a lot of JSON.
+        ArticleTextRun run(String text) =>
+            ArticleTextRun(text: text, marks: ArticleMark.values);
+        final perRun = utf8.encode(jsonEncode(run('ab').toJson())).length + 1;
+        final runs = [
+          for (var i = 0; i < articleMaxBodyBytes ~/ perRun + 1; i++) run('ab'),
+        ];
+        final draft = draftOf([
+          ArticleBlock(kind: ArticleBlockKind.paragraph, runs: runs),
+        ]);
+        expect(draft.plainText.runes.length, lessThan(10000));
+        expect(draft.bodyBytes, greaterThan(articleMaxBodyBytes));
+        expect(draft.saveErrors, ['bodySize']);
+        expect(draft.publishErrors, contains('bodySize'));
+      });
+
+      test('the code-point limit also refuses a save', () {
+        final draft = draftOf([
+          paragraph('x' * (articleMaxBodyCodePoints + 1)),
+        ]);
+        expect(draft.saveErrors, ['bodyLength']);
+      });
+    },
+  );
 }

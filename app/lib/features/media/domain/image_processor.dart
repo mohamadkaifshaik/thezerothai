@@ -7,7 +7,10 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
+import 'image_preflight.dart';
+import 'image_size_plan.dart';
 import 'processed_image.dart';
+import 'processing_cancellation.dart';
 
 /// Size limits the signed URLs enforce (media.proto: full <= 2 MiB,
 /// thumb <= 256 KiB).
@@ -30,34 +33,47 @@ const kBannerThumbWidth = 600;
 const kMaxBannerFullBytes = 1024 * 1024;
 const kMaxBannerThumbBytes = 128 * 1024;
 
-/// The smallest banner height worth cropping (a 48 x 16 band); anything
-/// thinner is reported as unusable instead of upscaled.
-const _kMinBannerHeight = 16;
-
 enum ImagePurpose { post, avatar, banner }
 
 /// Turns picked bytes into an upload-ready [ProcessedImage]. An interface so
 /// widget and cubit tests never decode real pixels.
+///
+/// Every implementation refuses inputs over the preflight bounds
+/// ([preflightImage]) before decoding, and stops (throwing
+/// [ImageProcessingCancelled]) once its cancellation is cancelled.
 abstract interface class ImageProcessor {
-  Future<ProcessedImage> process(Uint8List bytes, ImagePurpose purpose);
+  Future<ProcessedImage> process(
+    Uint8List bytes,
+    ImagePurpose purpose, {
+    ProcessingCancellation? cancellation,
+  });
 }
 
 /// Pure-Dart implementation (`package:image`) that runs decode/resize/encode
 /// through `compute`.
 ///
 /// - Android and iOS: a background isolate, so a 12 MP photo does not block
-///   the UI thread.
-/// - Web: `compute` has no isolates there and runs on the main thread, so a
-///   large photo can drop frames while it is processed (one image at a time,
-///   see `AttachmentsCubit`). Accepted for Stage 0.
+///   the UI thread. Cancelling drops the isolate's result.
+/// - Web: `compute` has no isolates there and runs on the main thread, so the
+///   web build uses the worker-backed `RasterImageProcessor` instead
+///   (`createPlatformImageProcessor`) and keeps this one only as the fallback
+///   for a browser without `Worker` / `OffscreenCanvas`.
 /// - HEIC/HEIF cannot be decoded by this package. iOS' picker hands back
 ///   JPEG; elsewhere such a file is reported as unsupported.
 class IsolateImageProcessor implements ImageProcessor {
   const IsolateImageProcessor();
 
   @override
-  Future<ProcessedImage> process(Uint8List bytes, ImagePurpose purpose) {
-    return compute(_run, (bytes, purpose));
+  Future<ProcessedImage> process(
+    Uint8List bytes,
+    ImagePurpose purpose, {
+    ProcessingCancellation? cancellation,
+  }) async {
+    // Cheap header checks first: an oversized file never reaches a decoder.
+    preflightImage(bytes);
+    cancellation?.throwIfCancelled();
+    final work = compute(_run, (bytes, purpose));
+    return cancellation == null ? work : cancellation.guard(work);
   }
 }
 
@@ -87,17 +103,16 @@ ProcessedImage processImageSync(Uint8List bytes, ImagePurpose purpose) {
 
   final avatar = purpose == ImagePurpose.avatar;
   final banner = purpose == ImagePurpose.banner;
-  if (avatar) {
-    final side = math.min(source.width, source.height);
+  if (avatar || banner) {
+    // Centered square / largest centered 3:1 band (image_size_plan.dart).
+    final crop = cropFor(purpose, source.width, source.height);
     source = img.copyCrop(
       source,
-      x: (source.width - side) ~/ 2,
-      y: (source.height - side) ~/ 2,
-      width: side,
-      height: side,
+      x: crop.x,
+      y: crop.y,
+      width: crop.width,
+      height: crop.height,
     );
-  } else if (banner) {
-    source = _cropToBanner(source);
   }
   final fullEdge = banner
       ? kBannerFullWidth
@@ -367,29 +382,6 @@ ProcessedImage prepareGifSync(Uint8List picked) {
   );
 }
 
-/// The largest centered 3:1 crop of [source]: width is exactly three times
-/// the height, so every later resize keeps the shape the server checks.
-img.Image _cropToBanner(img.Image source) {
-  final height = math.min(source.height, source.width ~/ 3);
-  if (height < _kMinBannerHeight) throw const UnsupportedImageException();
-  final width = height * 3;
-  return img.copyCrop(
-    source,
-    x: (source.width - width) ~/ 2,
-    y: (source.height - height) ~/ 2,
-    width: width,
-    height: height,
-  );
-}
-
-/// [image] resized to [width] x [width] / 3 (never a rounded, off-shape size).
-img.Image _resizeThreeToOne(img.Image image, int width) => img.copyResize(
-  image,
-  width: width,
-  height: width ~/ 3,
-  interpolation: img.Interpolation.average,
-);
-
 class _Encoded {
   const _Encoded(this.image, this.bytes);
   final img.Image image;
@@ -399,7 +391,8 @@ class _Encoded {
 /// Fits [source] into [edge] px on its longest side and encodes it at or
 /// under [maxBytes]: quality steps down first, then the image shrinks. With
 /// [threeToOne] [edge] is the width of a 3:1 band (a source that is exactly
-/// 3:1) and every size stays exactly 3:1.
+/// 3:1) and every size stays exactly 3:1. The sizes come from
+/// [encodeAttempts], shared with the web worker path.
 _Encoded _encodeWithin(
   img.Image source,
   int edge,
@@ -408,32 +401,26 @@ _Encoded _encodeWithin(
   bool threeToOne = false,
 }) {
   var current = source;
-  final longest = math.max(current.width, current.height);
-  if (longest > edge) {
-    current = threeToOne
-        ? _resizeThreeToOne(current, edge)
-        : img.copyResize(
-            current,
-            width: current.width >= current.height ? edge : null,
-            height: current.height > current.width ? edge : null,
-            interpolation: img.Interpolation.average,
-          );
-  }
-  for (var shrink = 0; shrink < 6; shrink++) {
-    for (var q = quality; q >= 40; q -= 10) {
-      final out = Uint8List.fromList(img.encodeJpg(current, quality: q));
-      if (out.length <= maxBytes) return _Encoded(current, out);
+  for (final attempt in encodeAttempts(
+    source.width,
+    source.height,
+    edge,
+    quality: quality,
+    threeToOne: threeToOne,
+  )) {
+    if (attempt.width != current.width || attempt.height != current.height) {
+      // Each smaller size is resized from the previous one, as before.
+      current = img.copyResize(
+        current,
+        width: attempt.width,
+        height: attempt.height,
+        interpolation: img.Interpolation.average,
+      );
     }
-    current = threeToOne
-        ? _resizeThreeToOne(
-            current,
-            math.max(3, (current.width * 0.75).round() ~/ 3 * 3),
-          )
-        : img.copyResize(
-            current,
-            width: math.max(1, (current.width * 0.75).round()),
-            interpolation: img.Interpolation.average,
-          );
+    final out = Uint8List.fromList(
+      img.encodeJpg(current, quality: attempt.quality),
+    );
+    if (out.length <= maxBytes) return _Encoded(current, out);
   }
   throw const UnsupportedImageException('Image is too large to upload.');
 }
