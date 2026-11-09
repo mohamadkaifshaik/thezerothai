@@ -103,3 +103,58 @@ func TestBeaconEvent_ReachesTheFanout(t *testing.T) {
 		t.Errorf("published %d events with notifications off, want 0", len(pub.data))
 	}
 }
+
+// TestBeaconCancel_BypassesRecipientCap (B07): a cancellation notice reaches every accepted participant whatever the
+// organiser's remaining per-actor daily recipient budget, and is not charged to it. Before the exemption each chunk
+// of 10 passed the all-or-nothing cap, so a remaining budget of 10-14 reached 10 people and under 10 reached nobody.
+func TestBeaconCancel_BypassesRecipientCap(t *testing.T) {
+	const limit = 15
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	reg := flags.NewRegistry(flags.Spec{Name: notifications.FlagName, Mode: flags.On})
+	for _, n := range []int{0, 1, 10, 11, 20} {
+		for _, remaining := range []int{0, 5, 10, 15} {
+			t.Run(fmt.Sprintf("%d recipients, %d left", n, remaining), func(t *testing.T) {
+				recipCap := notifications.NewRecipientCap(limit, limit, nil)
+				if spend := limit - remaining; spend > 0 {
+					if ok, _, _ := recipCap.Admit("uid-o", spend); !ok {
+						t.Fatalf("pre-spend %d refused", spend)
+					}
+				}
+				pub := &capturingPublisher{}
+				em := notifications.NewPubSubEmitter(pub, reg, log).WithRecipientCap(recipCap)
+				uids := make([]string, n)
+				for i := range uids {
+					uids[i] = fmt.Sprintf("p%02d", i)
+				}
+				beaconNotifier{slot: &emitterSlot{em: em}}.Cancelled(context.Background(),
+					beacons.CancelEvent{BeaconID: beaconNotifID, OrganiserUID: "uid-o", ParticipantUIDs: uids, At: time.Now()})
+				var got []string
+				for _, data := range pub.data {
+					var wire struct {
+						Type         string   `json:"type"`
+						RecipientIDs []string `json:"recipientIds"`
+					}
+					if err := json.Unmarshal(data, &wire); err != nil {
+						t.Fatal(err)
+					}
+					if wire.Type != "beacon_cancelled" {
+						t.Errorf("type = %q", wire.Type)
+					}
+					got = append(got, wire.RecipientIDs...)
+				}
+				if strings.Join(got, ",") != strings.Join(uids, ",") {
+					t.Errorf("delivered to %d of %d participants: %v", len(got), n, got)
+				}
+				// The organiser's budget is untouched: exactly `remaining` more social recipients are still admitted.
+				if remaining > 0 {
+					if ok, _, _ := recipCap.Admit("uid-o", remaining); !ok {
+						t.Errorf("remaining budget %d was charged by the cancellation", remaining)
+					}
+				}
+				if ok, _, _ := recipCap.Admit("uid-o", 1); ok {
+					t.Errorf("budget exceeds the limit after the cancellation")
+				}
+			})
+		}
+	}
+}
