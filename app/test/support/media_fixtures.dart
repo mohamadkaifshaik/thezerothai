@@ -7,6 +7,7 @@ import 'package:dzeroth/features/media/data/image_picker_service.dart';
 import 'package:dzeroth/features/media/data/media_repository.dart';
 import 'package:dzeroth/features/media/domain/image_processor.dart';
 import 'package:dzeroth/features/media/domain/processed_image.dart';
+import 'package:dzeroth/features/media/domain/processing_cancellation.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/media/v1/media.pb.dart' as pb;
 import 'package:image/image.dart' as img;
@@ -106,12 +107,45 @@ class FakeImagePicker implements ImagePickerService {
 
 /// Processor that "processes" instantly. Bytes starting with `bad` fail the
 /// way a non-image would; the byte after the prefix becomes the md5 tag.
+///
+/// With [gated] each call waits for [release] (in call order), so a test can
+/// remove a photo or close the cubit mid-processing; [cancellations] records
+/// what each call was handed and a cancelled call throws
+/// [ImageProcessingCancelled] right away, like the real processors.
 class FakeImageProcessor implements ImageProcessor {
+  FakeImageProcessor({this.gated = false});
+
+  final bool gated;
   final List<ImagePurpose> purposes = [];
+  final List<Uint8List> inputs = [];
+  final List<ProcessingCancellation?> cancellations = [];
+  final List<Completer<void>> _gates = [];
+
+  /// Lets the oldest waiting call finish.
+  void release() => _gates.removeAt(0).complete();
+
+  /// Calls still waiting for [release].
+  int get waiting => _gates.length;
 
   @override
-  Future<ProcessedImage> process(Uint8List bytes, ImagePurpose purpose) async {
+  Future<ProcessedImage> process(
+    Uint8List bytes,
+    ImagePurpose purpose, {
+    ProcessingCancellation? cancellation,
+  }) async {
     purposes.add(purpose);
+    inputs.add(bytes);
+    cancellations.add(cancellation);
+    if (gated) {
+      final gate = Completer<void>();
+      _gates.add(gate);
+      final work = gate.future;
+      try {
+        await (cancellation == null ? work : cancellation.guard(work));
+      } finally {
+        _gates.remove(gate); // a cancelled call no longer waits
+      }
+    }
     if (bytes.isNotEmpty && bytes.first == 0) {
       throw const UnsupportedImageException();
     }
