@@ -4,6 +4,7 @@ import '../../../core/theme/app_theme.dart';
 import 'app_section_header.dart';
 import 'app_status_pill.dart';
 import 'app_surface.dart';
+import 'app_tile_icon.dart';
 
 /// One Settings section: a [title] header above a card whose [rows] are
 /// separated by hairlines. Shared by the Settings screen and the shell pages
@@ -28,7 +29,7 @@ class SettingsGroup extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
             // Clips the row ripples to the card's rounded corners.
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(AppRadius.lg),
+              borderRadius: BorderRadius.circular(AppRadius.cardSmall),
               child: Column(
                 children: [
                   for (var i = 0; i < rows.length; i++) ...[
@@ -163,14 +164,10 @@ class SettingsRow extends StatelessWidget {
             final below = staticValue != null && (stack || narrow);
             return Row(
               children: [
-                Container(
-                  width: AppSpacing.xl + AppSpacing.sm,
-                  height: AppSpacing.xl + AppSpacing.sm,
-                  decoration: BoxDecoration(
-                    color: colors.surfaceContainerHigh,
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                  ),
-                  child: Icon(icon, size: AppIconSize.md, color: tint),
+                AppTileIcon(
+                  icon: icon,
+                  size: AppSpacing.xl + AppSpacing.sm,
+                  destructive: destructive,
                 ),
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
