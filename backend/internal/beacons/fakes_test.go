@@ -51,6 +51,27 @@ type fakeRepo struct {
 	plistFails    int   // with plistErr: fail only the first plistFails calls (0 = every call)
 	pqueries      []ParticipantQuery
 	beaconBatches [][]string
+	respondDone   map[string]ParticipantResult // idempotency key + request hash -> committed Respond result
+	// GetParticipants calls: the uid and the beacon ids of each batch.
+	participantBatches []participantBatch
+}
+
+type participantBatch struct {
+	uid string
+	ids []string
+}
+
+func (f *fakeRepo) GetParticipants(_ context.Context, uid string, beaconIDs []string) (map[string]Participant, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.participantBatches = append(f.participantBatches, participantBatch{uid: uid, ids: append([]string(nil), beaconIDs...)})
+	out := map[string]Participant{}
+	for _, id := range beaconIDs {
+		if p, ok := f.participants[f.pkey(id, uid)]; ok {
+			out[id] = p
+		}
+	}
+	return out, f.err
 }
 
 func (f *fakeRepo) pkey(beaconID, uid string) string { return beaconID + "|" + uid }
@@ -69,10 +90,30 @@ func (f *fakeRepo) Withdraw(_ context.Context, p StateParams) (ParticipantResult
 	return f.presult, f.perr
 }
 
-func (f *fakeRepo) Respond(_ context.Context, p RespondParams) (ParticipantResult, error) {
+// Respond emulates the repository's idempotency: a key in respondDone replays its stored result without running
+// p.Precheck; otherwise Precheck runs first (a refusal writes nothing and is not recorded) and a success is stored.
+func (f *fakeRepo) Respond(ctx context.Context, p RespondParams) (ParticipantResult, error) {
+	f.mu.Lock()
+	if res, ok := f.respondDone[p.IdemKey+"|"+p.RequestHash]; ok {
+		f.mu.Unlock()
+		res.Outcome = Replayed
+		return res, nil
+	}
+	f.mu.Unlock()
+	if p.Precheck != nil {
+		if err := p.Precheck(ctx); err != nil {
+			return ParticipantResult{}, err
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.respondedBy = append(f.respondedBy, p)
+	if f.perr == nil {
+		if f.respondDone == nil {
+			f.respondDone = map[string]ParticipantResult{}
+		}
+		f.respondDone[p.IdemKey+"|"+p.RequestHash] = f.presult
+	}
 	return f.presult, f.perr
 }
 
@@ -184,7 +225,7 @@ func (f *fakeRepo) calls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.createdBy) + len(f.updatedBy) + len(f.cancelledBy) + len(f.queries) +
-		len(f.requestedBy) + len(f.respondedBy) + len(f.transitioned) + len(f.mqueries) + len(f.pqueries) + len(f.beaconBatches)
+		len(f.requestedBy) + len(f.respondedBy) + len(f.transitioned) + len(f.mqueries) + len(f.pqueries) + len(f.beaconBatches) + len(f.participantBatches)
 }
 
 // fakeDirectory serves one profile map; the embedded nil interface panics on any method the service must not call.
@@ -209,26 +250,71 @@ func (d *fakeDirectory) GetProfiles(_ context.Context, uids []string) (map[strin
 	return out, d.err
 }
 
-// fakeGraph serves one snapshot per uid; an unknown uid is an empty snapshot.
+// fakeGraph serves one snapshot per uid; an unknown uid is an empty snapshot. err fails every read, errs[uid] only
+// that uid's; calls counts the reads per uid.
 type fakeGraph struct {
 	snaps map[string]graph.Snapshot
 	err   error
+	errs  map[string]error
+	mu    sync.Mutex
+	calls map[string]int
 }
 
 func (g *fakeGraph) Snapshot(_ context.Context, uid string) (graph.Snapshot, error) {
+	g.mu.Lock()
+	if g.calls == nil {
+		g.calls = map[string]int{}
+	}
+	g.calls[uid]++
+	g.mu.Unlock()
 	if g.err != nil {
 		return graph.Snapshot{}, g.err
+	}
+	if err := g.errs[uid]; err != nil {
+		return graph.Snapshot{}, err
 	}
 	return g.snaps[uid], nil
 }
 
-// fakeCommunities answers Role from a "cid|uid" map (absent = RoleNone) and counts the calls.
+func (g *fakeGraph) readsOf(uid string) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.calls[uid]
+}
+
+// fakeCommunities answers Role from a "cid|uid" map (absent = RoleNone) and Get from status (absent = ACTIVE; missing[cid]
+// = ErrNotFound; getErr fails every Get), and counts the calls of both (calls) and of Get alone (gets).
 type fakeCommunities struct {
 	communities.Reader
-	roles map[string]communities.Role
-	err   error
-	mu    sync.Mutex
-	calls int
+	roles   map[string]communities.Role
+	err     error
+	status  map[string]communities.Status
+	missing map[string]bool
+	getErr  error
+	mu      sync.Mutex
+	calls   int
+	gets    map[string]int
+}
+
+func (c *fakeCommunities) Get(_ context.Context, communityID string) (communities.Community, error) {
+	c.mu.Lock()
+	c.calls++
+	if c.gets == nil {
+		c.gets = map[string]int{}
+	}
+	c.gets[communityID]++
+	c.mu.Unlock()
+	if c.getErr != nil {
+		return communities.Community{}, c.getErr
+	}
+	if c.missing[communityID] {
+		return communities.Community{}, communities.ErrNotFound
+	}
+	st := communities.StatusActive
+	if s, ok := c.status[communityID]; ok {
+		st = s
+	}
+	return communities.Community{ID: communityID, Status: st}, nil
 }
 
 func (c *fakeCommunities) Role(_ context.Context, communityID, uid string) (communities.Role, error) {
