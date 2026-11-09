@@ -2,16 +2,21 @@ package beacons
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// The participation RPCs. Each validates its fields (0 reads), proves the caller may see the beacon (resolve: NOT_FOUND
-// for hidden, blocked or missing; FORBIDDEN not_member for a community the caller left), then runs one repository
-// transaction and maps its verdict. The organiser-only ones (Respond, Remove) use organised; the self ones (Request,
-// Withdraw, Leave) act on the caller's own row.
+// The participation RPCs. Each validates its fields (0 reads), then runs one repository transaction and maps its
+// verdict. Request and the organiser-only ones (Respond, Remove: organised) first prove the caller may see the beacon
+// (resolve: NOT_FOUND for hidden, blocked or missing; FORBIDDEN not_member for a community the caller left). Withdraw and
+// Leave are the way out and are always allowed (proto): their only gate is the caller's own participant row, read in
+// the repository's transaction (no row is the one NOT_FOUND), so a block, a hide or a lost membership never traps a
+// caller in a plan.
 
 func requestHash(beaconID, note string) string {
 	return idempotency.HashRequest("beacon_id=" + beaconID + "|note=" + strconv.Quote(note))
@@ -38,7 +43,7 @@ func (s *service) RequestToJoin(ctx context.Context, uid, key, beaconID, note st
 	if err != nil {
 		return ViewerState{}, mapErr(ctx, "request", uid, beaconID, err)
 	}
-	a, err := s.resolve(ctx, uid, beaconID)
+	a, err := s.resolveFor(ctx, uid, beaconID, true)
 	if err != nil {
 		return ViewerState{}, mapErr(ctx, "request", uid, beaconID, err)
 	}
@@ -60,16 +65,16 @@ func (s *service) RequestToJoin(ctx context.Context, uid, key, beaconID, note st
 	return viewerState(res.Beacon, uid, res.Participant.State, now), nil
 }
 
-// selfTransition is the shared body of WithdrawJoinRequest and LeaveBeacon: the caller acts on their own row.
+// selfTransition is the shared body of WithdrawJoinRequest and LeaveBeacon: the caller acts on their own row only. No
+// visibility check (no beacon, graph, community or profile read here): the repository transaction needs the beacon and
+// the caller's row and answers ErrNotFound when either is missing, so the answer never says more than the caller's own
+// row already does. Nothing of the beacon is returned.
 func (s *service) selfTransition(ctx context.Context, op, rpc, uid, key, beaconID string, run func(context.Context, StateParams) (ParticipantResult, error)) error {
 	begin(ctx, op)
 	if err := validateKey(key); err != nil {
 		return mapErr(ctx, op, uid, beaconID, err)
 	}
 	if err := validateBeaconID(beaconID); err != nil {
-		return mapErr(ctx, op, uid, beaconID, err)
-	}
-	if _, err := s.resolve(ctx, uid, beaconID); err != nil {
 		return mapErr(ctx, op, uid, beaconID, err)
 	}
 	res, err := run(ctx, StateParams{
@@ -115,10 +120,15 @@ func (s *service) RespondToJoinRequest(ctx context.Context, uid, key, beaconID, 
 		return View{}, mapErr(ctx, "respond", uid, beaconID, err)
 	}
 	now := s.now()
-	res, err := s.d.Repo.Respond(ctx, RespondParams{
+	params := RespondParams{
 		UID: uid, BeaconID: beaconID, TargetUID: targetUID, IdemKey: idempotency.Key(uid, rpcRespondToJoinRequest, key),
 		RequestHash: respondHash(beaconID, targetUID, accept), Accept: accept, Now: now,
-	})
+	}
+	if accept {
+		// After the idempotency lookup, so a same-key retry of a committed ACCEPT replays its answer.
+		params.Precheck = func(ctx context.Context) error { return s.acceptable(ctx, a, uid, targetUID) }
+	}
+	res, err := s.d.Repo.Respond(ctx, params)
 	if err != nil {
 		return View{}, mapErr(ctx, "respond", uid, beaconID, err)
 	}
@@ -127,6 +137,41 @@ func (s *service) RespondToJoinRequest(ctx context.Context, uid, key, beaconID, 
 		s.d.Events.RequestAccepted(ctx, ParticipationEvent{BeaconID: beaconID, OrganiserUID: uid, ParticipantUID: targetUID, At: now})
 	}
 	return s.view(res.Beacon, a.organiser, uid), nil
+}
+
+// acceptable is the ACCEPT recheck of the target, run by Repo.Respond after its idempotency lookup missed (a replay
+// keeps its stored answer) and before any write: an ACTIVE profile (cached), no block either way with
+// the organiser (the organiser's graph, overflow-aware) and, for a community beacon, the target's community verdict
+// for a write (JOINED, community not suspended). An ineligible target is not_requested, the same answer as a request
+// that is no longer there; ARCHIVED is COMMUNITY_STATE community_archived; a failed read is returned (nothing written).
+// DECLINE and REMOVE never run it.
+func (s *service) acceptable(ctx context.Context, a access, organiser, target string) error {
+	profs, err := s.d.Directory.GetProfiles(ctx, []string{target})
+	if err != nil {
+		return logger.RedactErr(fmt.Errorf("beacons: load target profile: %w", err), organiser, target)
+	}
+	if p, ok := profs[target]; !ok || p.Status != identity.AccountStatusActive {
+		return ErrNotRequested
+	}
+	bc, err := s.blocks(ctx, organiser)
+	if err != nil {
+		return err
+	}
+	blocked, err := bc.blocked(ctx, target)
+	if err != nil {
+		return err
+	}
+	if blocked {
+		return ErrNotRequested
+	}
+	if a.beacon.CommunityID == "" {
+		return nil
+	}
+	err = s.requireMember(ctx, target, a.beacon.CommunityID, false, true)
+	if errors.Is(err, ErrNotMember) || errors.Is(err, ErrNotFound) {
+		return ErrNotRequested
+	}
+	return err
 }
 
 // RemoveParticipant implements Service.
