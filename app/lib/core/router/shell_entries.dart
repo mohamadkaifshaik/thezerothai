@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/feature_flags/feature_flags.dart';
-import '../../../core/feature_flags/ui_shell_feature_flag.dart';
-import '../../../core/router/app_router.dart';
-import 'shells_feature_flag.dart';
+import '../feature_flags/feature_flags.dart';
+import '../feature_flags/ui_shell_feature_flag.dart';
+import 'app_router.dart';
+import '../feature_flags/shells_feature_flag.dart';
 
 /// The read-only "shell" destinations of wave W8: placeholders for features
 /// that need a future approved ADR (payments, ads, calls).

@@ -1,15 +1,15 @@
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/widgets/app_drawer.dart';
-import 'package:dzeroth/features/shells/domain/shell_entries.dart';
-import 'package:dzeroth/features/shells/presentation/advertise_screen.dart';
-import 'package:dzeroth/features/shells/presentation/calls_screen.dart';
-import 'package:dzeroth/features/shells/presentation/creator_studio_screen.dart';
-import 'package:dzeroth/features/shells/presentation/premium_dialog.dart';
+import 'package:dzeroth/core/router/shell_entries.dart';
+import 'package:dzeroth/features/advertise/presentation/advertise_screen.dart';
+import 'package:dzeroth/features/calls/presentation/calls_screen.dart';
+import 'package:dzeroth/features/creator_studio/presentation/creator_studio_screen.dart';
+import 'package:dzeroth/features/premium/presentation/premium_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../support/shells_copy_guard.dart';
-import '../../support/shells_harness.dart';
+import '../../../support/shells_copy_guard.dart';
+import '../../../support/shells_harness.dart';
 
 /// The copy guard over all four pages, the drawer rows and the More
 /// menu. The Premium pop-up is the only place a rupee amount may

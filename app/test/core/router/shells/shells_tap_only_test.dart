@@ -14,9 +14,9 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
 import 'package:dzeroth/features/posts/presentation/bloc/pending_posts_cubit.dart';
-import 'package:dzeroth/features/shells/domain/shell_entries.dart';
-import 'package:dzeroth/features/shells/domain/shells_feature_flag.dart';
-import 'package:dzeroth/features/shells/presentation/premium_dialog.dart';
+import 'package:dzeroth/core/router/shell_entries.dart';
+import 'package:dzeroth/core/feature_flags/shells_feature_flag.dart';
+import 'package:dzeroth/features/premium/presentation/premium_dialog.dart';
 import 'package:dzeroth/features/timeline/data/timeline_repository.dart';
 import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
@@ -26,10 +26,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
-import '../../support/fake_push_messaging.dart';
-import '../../support/fake_push_opt_in_store.dart';
-import '../../support/shells_harness.dart';
-import '../../support/timeline_fixtures.dart';
+import '../../../support/fake_push_messaging.dart';
+import '../../../support/fake_push_opt_in_store.dart';
+import '../../../support/planned_feature_files.dart';
+import '../../../support/shells_harness.dart';
+import '../../../support/timeline_fixtures.dart';
 
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
@@ -74,7 +75,7 @@ void main() {
       };
       expect(users, {
         'core/router/app_router.dart',
-        'features/shells/domain/shell_entries.dart',
+        'core/router/shell_entries.dart',
       });
     });
 
@@ -88,9 +89,7 @@ void main() {
           reason: 'router navigates to premiumPath: $line',
         );
       }
-      final entries = _code(
-        File('lib/features/shells/domain/shell_entries.dart'),
-      );
+      final entries = _code(File('lib/core/router/shell_entries.dart'));
       expect(
         RegExp(r'\.push\(').allMatches(entries).length,
         1,
@@ -109,12 +108,10 @@ void main() {
         for (final f in lib)
           if (RegExp('\\b$symbol\\b').hasMatch(_code(f))) _name(f),
       };
-      expect(usersOf('kShellPushExtra'), {
-        'features/shells/domain/shell_entries.dart',
-      });
+      expect(usersOf('kShellPushExtra'), {'core/router/shell_entries.dart'});
       expect(usersOf('ShellPush'), {
         'core/router/app_router.dart',
-        'features/shells/domain/shell_entries.dart',
+        'core/router/shell_entries.dart',
       });
     });
 
@@ -126,7 +123,7 @@ void main() {
       expect(users, {
         'core/widgets/app_drawer.dart',
         'core/widgets/app_more_menu.dart',
-        'features/shells/domain/shell_entries.dart',
+        'core/router/shell_entries.dart',
       });
       // The drawer calls it inside a row's tap callback.
       expect(
@@ -140,14 +137,14 @@ void main() {
         // The widget is created by its own page route ...
         (
           RegExp(r'PremiumDialog\('),
-          {'features/shells/presentation/premium_dialog.dart'},
+          {'features/premium/presentation/premium_dialog.dart'},
         ),
         // ... and that page only by the `/premium` route.
         (
           RegExp(r'PremiumDialogPage\('),
           {
             'core/router/app_router.dart',
-            'features/shells/presentation/premium_dialog.dart',
+            'features/premium/presentation/premium_dialog.dart',
           },
         ),
       ]) {
@@ -161,7 +158,7 @@ void main() {
     });
 
     test('no timer, lifecycle hook or post-frame trigger in the shells', () {
-      for (final f in _dartFiles('lib/features/shells')) {
+      for (final f in plannedFeatureFiles()) {
         expect(
           RegExp(
             r'Timer\b|Future\.delayed|WidgetsBindingObserver|'
@@ -176,7 +173,7 @@ void main() {
 
     test('the sweep sees the real files (not an empty list)', () {
       expect(lib.length, greaterThan(100));
-      expect(_dartFiles('lib/features/shells').length, greaterThanOrEqualTo(8));
+      expect(plannedFeatureFiles().length, greaterThanOrEqualTo(8));
     });
   });
 

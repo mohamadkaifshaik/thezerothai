@@ -1,11 +1,11 @@
-import 'package:dzeroth/features/shells/presentation/calls_screen.dart';
+import 'package:dzeroth/features/calls/presentation/calls_screen.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_status_pill.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../support/geometry.dart';
-import '../../support/theme_harness.dart';
+import '../../../support/geometry.dart';
+import '../../../support/theme_harness.dart';
 
 /// The Calls page. Static copy and two static rows; no action.
 void main() {
