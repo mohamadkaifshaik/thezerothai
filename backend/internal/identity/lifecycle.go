@@ -397,8 +397,9 @@ func (l *Lifecycle) RequestAccountExport(ctx context.Context, uid, idempotencyKe
 
 // GetAccountExport: one fresh read, never a write. An unknown id, another user's id, a malformed id and an expired
 // export all give the same NOT_FOUND, bytes included. READY gets a fresh signed GET URL per call
-// that is never stored or logged.
-func (l *Lifecycle) GetAccountExport(ctx context.Context, uid, exportID string) (ExportView, error) {
+// that is never stored or logged, but only when withURL is set (the caller's sign-in is recent enough to receive it): a
+// status poll without it never reaches the signer, so a signer outage cannot fail it.
+func (l *Lifecycle) GetAccountExport(ctx context.Context, uid, exportID string, withURL bool) (ExportView, error) {
 	logger.SetRequestField(ctx, "account_op", "export_get")
 	now := l.now().UTC()
 	if !exportIDPattern.MatchString(exportID) {
@@ -420,7 +421,7 @@ func (l *Lifecycle) GetAccountExport(ctx context.Context, uid, exportID string) 
 	logger.SetRequestField(ctx, "export_status", string(doc.Status))
 	logger.SetRequestField(ctx, "outcome", "ok")
 	view := ExportView{ID: doc.ID, Status: doc.Status, ExpiresAt: doc.ExpireAt}
-	if doc.Status != ExportReady {
+	if doc.Status != ExportReady || !withURL {
 		return view, nil
 	}
 	if l.objects == nil {

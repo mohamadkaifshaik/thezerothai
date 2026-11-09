@@ -4,6 +4,7 @@ package apiserver
 
 import (
 	"context"
+	"errors"
 	"slices"
 
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
@@ -11,7 +12,8 @@ import (
 )
 
 // beaconNotifier implements beacons.Events: a join request notifies the organiser, an acceptance the requester, a
-// cancellation every accepted participant. beacons calls it only after a commit that wrote, never on a replay.
+// cancellation every accepted participant. beacons calls it only after a commit that wrote, except Cancelled, which the
+// cancellation outbox also re-runs (sweep or replay); the deterministic row id makes that repeat a no-op per recipient.
 type beaconNotifier struct{ slot *emitterSlot }
 
 var _ beacons.Events = beaconNotifier{}
@@ -31,12 +33,20 @@ func (n beaconNotifier) RequestAccepted(ctx context.Context, e beacons.Participa
 // Cancelled splits the accepted participants into events of at most notifications.MaxRecipientsPerEvent (R24): the
 // emitter truncates a longer list silently and a beacon seats up to 20. Nobody accepted means no event. The type is
 // exempt from the per-actor daily recipient cap (notifications.capExempt, B07), so no chunk is dropped for budget.
-func (n beaconNotifier) Cancelled(ctx context.Context, e beacons.CancelEvent) {
+// Every chunk is emitted even when an earlier one failed; the error joins the failures, so the cancellation outbox
+// item stays and a later run emits every chunk again. That re-run is harmless for the chunks that did go out: the row
+// id is beacon_cancelled_<beacon> in each recipient's subtree, so the fan-out answers AlreadyExists (no second row and
+// no second push).
+func (n beaconNotifier) Cancelled(ctx context.Context, e beacons.CancelEvent) error {
+	var errs []error
 	for start := 0; start < len(e.ParticipantUIDs); start += notifications.MaxRecipientsPerEvent {
 		end := min(start+notifications.MaxRecipientsPerEvent, len(e.ParticipantUIDs))
-		n.slot.emit(ctx, notifications.Event{
+		if err := n.slot.emitErr(ctx, notifications.Event{
 			Type: notifications.TypeBeaconCancelled, ActorID: e.OrganiserUID, RecipientIDs: slices.Clone(e.ParticipantUIDs[start:end]),
 			BeaconID: e.BeaconID, At: e.At,
-		})
+		}); err != nil {
+			errs = append(errs, err)
+		}
 	}
+	return errors.Join(errs...)
 }
