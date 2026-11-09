@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
 
@@ -22,6 +23,9 @@ type buildOpts struct {
 	// inlinePostDeleteJobs wraps the publisher DeletePost calls inline (never the outbox sweep's), so a test can lose
 	// the inline publish and watch the sweep deliver it.
 	inlinePostDeleteJobs func(posts.PostDeleteJobs) posts.PostDeleteJobs
+	// inlineBeaconEvents wraps the Events the beacons service calls inline (never the outbox sweep's beacon_cancelled
+	// handler), so a test can lose the inline cancellation notices and watch the sweep deliver them.
+	inlineBeaconEvents func(beacons.Events) beacons.Events
 }
 
 // protectedSeam is one place the protected-author set (or the Audience built on it) is wired into a module.

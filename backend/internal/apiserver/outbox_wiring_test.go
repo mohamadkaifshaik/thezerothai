@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/outbox"
 )
@@ -199,13 +200,19 @@ func TestOutboxSweepHandler(t *testing.T) {
 }
 
 func TestNewOutbox_RegistersPostDelete(t *testing.T) {
-	ob, err := newOutbox(nil, &recordJobs{}, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)), nil)
+	noop := func(context.Context, outbox.Item) error { return nil }
+	ob, err := newOutbox(nil, &recordJobs{}, noop, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The kind is taken: a second registration fails.
-	if err := ob.Handle(posts.PostDeleteOutboxKind, func(context.Context, outbox.Item) error { return nil }); err == nil {
-		t.Fatal("post_delete has no handler registered")
+	// The kinds are taken: a second registration fails.
+	for _, kind := range []string{posts.PostDeleteOutboxKind, beacons.CancelOutboxKind} {
+		if err := ob.Handle(kind, noop); err == nil {
+			t.Fatalf("%s has no handler registered", kind)
+		}
+	}
+	if _, err := newOutbox(nil, &recordJobs{}, nil, slog.New(slog.NewJSONHandler(&bytes.Buffer{}, nil)), nil); err == nil {
+		t.Fatal("a nil beacon_cancelled handler must fail the build")
 	}
 }
 
