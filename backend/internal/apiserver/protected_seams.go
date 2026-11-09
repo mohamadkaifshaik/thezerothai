@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
@@ -16,6 +17,11 @@ type buildOpts struct {
 	// audienceSource maps the posts service to the one posts.AudienceOf reads for the engagement lists. A test returns
 	// a wrapper that hides the concrete type, to prove Build refuses to start without the seam (L-5).
 	audienceSource func(posts.Service) posts.Service
+	// outboxNow is the outbox's clock (staging and sweeping), so a test can make a staged item due. Nil: time.Now.
+	outboxNow func() time.Time
+	// inlinePostDeleteJobs wraps the publisher DeletePost calls inline (never the outbox sweep's), so a test can lose
+	// the inline publish and watch the sweep deliver it.
+	inlinePostDeleteJobs func(posts.PostDeleteJobs) posts.PostDeleteJobs
 }
 
 // protectedSeam is one place the protected-author set (or the Audience built on it) is wired into a module.
