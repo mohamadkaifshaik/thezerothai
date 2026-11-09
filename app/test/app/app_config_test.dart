@@ -66,6 +66,117 @@ void main() {
     });
   });
 
+  group('AppConfig.resolveApiBaseUrl validation', () {
+    String? resolve(String url, {required bool release, bool web = false}) {
+      try {
+        return AppConfig.resolveApiBaseUrl(
+          definedApiBaseUrl: url,
+          releaseMode: release,
+          isWeb: web,
+        );
+      } on AppConfigError {
+        return null;
+      }
+    }
+
+    const acceptedRelease = <String>[
+      'https://api.dzeroth.com',
+      'https://api.dzeroth.com/',
+      'https://example.test/api',
+      'https://api.dzeroth.com:443',
+    ];
+    for (final url in acceptedRelease) {
+      test('release accepts $url', () {
+        expect(resolve(url, release: true), url);
+      });
+    }
+
+    const rejectedRelease = <String>[
+      'http://api.dzeroth.com',
+      'http://localhost:8081',
+      'http://10.0.2.2:8081',
+      'https://',
+      'https:///api',
+      'https://user:pw@api.dzeroth.com',
+      'https://user@api.dzeroth.com',
+      'https://api.dzeroth.com?x=1',
+      'https://api.dzeroth.com/api?x=1',
+      'https://api.dzeroth.com/#frag',
+      'https://api.dzeroth.com:8443',
+      'https://localhost:8443',
+      'ftp://api.dzeroth.com',
+      'api.dzeroth.com',
+      '//evil.test/api',
+      '/api',
+      ' https://api.dzeroth.com',
+    ];
+    for (final url in rejectedRelease) {
+      test('release mobile rejects "$url"', () {
+        expect(resolve(url, release: true), isNull);
+      });
+    }
+
+    test('release web accepts a same-origin relative path only', () {
+      expect(resolve('/api', release: true, web: true), '/api');
+      expect(resolve('/api/v1', release: true, web: true), '/api/v1');
+      expect(resolve('//evil.test/api', release: true, web: true), isNull);
+      expect(resolve('/api?x=1', release: true, web: true), isNull);
+      expect(resolve('/api#x', release: true, web: true), isNull);
+      expect(
+        resolve('http://api.dzeroth.com', release: true, web: true),
+        isNull,
+      );
+      expect(
+        resolve('https://api.dzeroth.com', release: true, web: true),
+        'https://api.dzeroth.com',
+      );
+    });
+
+    const acceptedDebug = <String>[
+      'http://localhost:8081',
+      'http://127.0.0.1:8081',
+      'http://10.0.2.2:8081',
+      'https://api.dzeroth.com',
+      'https://dev.example.test:8443/api',
+    ];
+    for (final url in acceptedDebug) {
+      test('non-release accepts $url', () {
+        expect(resolve(url, release: false), url);
+      });
+    }
+
+    const rejectedDebug = <String>[
+      'http://api.dzeroth.com',
+      'http://192.168.1.5:8081',
+      'http://localhost.evil.test',
+      'http://user:pw@localhost:8081',
+      'http://localhost:8081?x=1',
+      'http://localhost:8081/#f',
+      'https://user:pw@api.dzeroth.com',
+      'https://api.dzeroth.com?x=1',
+      'https://',
+      'ftp://localhost',
+    ];
+    for (final url in rejectedDebug) {
+      test('non-release rejects "$url"', () {
+        expect(resolve(url, release: false), isNull);
+      });
+    }
+
+    test('the error never echoes userinfo from the rejected value', () {
+      try {
+        AppConfig.resolveApiBaseUrl(
+          definedApiBaseUrl: 'https://user:s3cret@api.dzeroth.com',
+          releaseMode: true,
+          isWeb: false,
+        );
+        fail('expected AppConfigError');
+      } on AppConfigError catch (e) {
+        expect(e.message, isNot(contains('s3cret')));
+      }
+    });
+  });
+
   group('AppConfig.resolveFirebaseEnv', () {
     test('empty and "dev" map to dev', () {
       expect(AppConfig.resolveFirebaseEnv(''), FirebaseEnv.dev);

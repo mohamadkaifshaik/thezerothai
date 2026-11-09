@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -80,7 +81,18 @@ func own(a *record, uid string) error {
 	return nil
 }
 func wire(a *record) *av.Article {
-	return &av.Article{ArticleId: a.ID, AuthorId: a.AuthorID, Revision: a.Revision, Title: a.Title, BodyJson: a.Body, CoverMediaId: a.CoverMediaID, PostId: a.PostID, UpdatedAt: timestamppb.New(a.UpdatedAt), PublicationPending: a.PendingKey != "" && !a.Published, PublicationCaption: a.Caption, PublicationReplyPolicy: pv.ReplyPolicy(a.ReplyPolicy)}
+	return &av.Article{ArticleId: a.ID, AuthorId: a.AuthorID, Revision: a.Revision, Title: a.Title, BodyJson: a.Body, CoverMediaId: a.CoverMediaID, PostId: a.PostID, UpdatedAt: timestamppb.New(a.UpdatedAt), PublicationPending: a.PendingKey != "" && !a.Published, PublicationCaption: a.Caption, PublicationReplyPolicy: pv.ReplyPolicy(a.ReplyPolicy), Excerpt: excerptOf(a.Body)}
+}
+
+// audienceErr maps an Audience refusal. Every visibility refusal (missing, deleted, hidden, blocked or
+// non-ACTIVE author) arrives as the one posts NOT_FOUND and becomes the article's NOT_FOUND, so a reader
+// cannot probe which one applied. Anything else (an outage, an internal failure, a cancelled or expired
+// request) propagates: answering NOT_FOUND would tell the client a published article is gone.
+func audienceErr(err error) error {
+	if errors.Is(err, posts.ErrNotFound) || apierr.ToConnect(err).Code() == connect.CodeNotFound {
+		return missing()
+	}
+	return fmt.Errorf("articles: authorize article read: %w", err)
 }
 func postWire(p *posts.Post, uid string) *pv.PostView {
 	return posts.ToView(p, posts.ViewerSet{}, uid)
@@ -108,7 +120,7 @@ func (s *Server) GetArticle(ctx context.Context, req *connect.Request[av.GetArti
 	if a.Published {
 		p, e := s.audience.GetForViewer(ctx, uid, a.PostID)
 		if e != nil {
-			return nil, missing()
+			return nil, audienceErr(e)
 		}
 		out.Post = postWire(p, uid)
 		out.Article = wire(a)
@@ -139,10 +151,18 @@ func (s *Server) SaveArticle(ctx context.Context, req *connect.Request[av.SaveAr
 	if in.GetCoverMediaId() != "" && !validID.MatchString(in.GetCoverMediaId()) {
 		return nil, apierr.Validation("cover_media_id", "invalid media id")
 	}
-	a, err := s.repo.change(ctx, in.GetArticleId(), func(current *record) (*record, error) {
+	a, err := s.repo.saveDraft(ctx, in.GetArticleId(), uid, func(current *record, drafts func() (int, error)) (*record, error) {
 		if current == nil {
 			if req.Msg.GetExpectedRevision() != 0 {
 				return nil, conflict()
+			}
+			// Only a new draft id counts against the cap; an existing draft is always saved.
+			n, e := drafts()
+			if e != nil {
+				return nil, e
+			}
+			if n >= maxDraftsPerAuthor {
+				return nil, draftLimit()
 			}
 			current = &record{ID: in.GetArticleId(), AuthorID: uid}
 		}
@@ -186,7 +206,11 @@ func (s *Server) ListArticles(ctx context.Context, req *connect.Request[av.ListA
 	}
 	out := &av.ListArticlesResponse{}
 	for _, a := range rows {
-		out.Articles = append(out.Articles, wire(a))
+		// A page carries excerpts, never bodies (a full page of 180 KB bodies would be ~9 MB); readers and the
+		// editor open an article with GetArticle.
+		row := wire(a)
+		row.BodyJson = ""
+		out.Articles = append(out.Articles, row)
 	}
 	if len(rows) == n {
 		out.NextPageToken = rows[len(rows)-1].ID
@@ -223,6 +247,10 @@ func (s *Server) DeleteArticle(ctx context.Context, req *connect.Request[av.Dele
 		}
 	}
 	_, err = s.repo.change(ctx, id, func(current *record) (*record, error) {
+		if current == nil && a.Published {
+			// The post_delete job's articles step already removed the record of the root deleted above.
+			return nil, nil
+		}
 		if e := own(current, uid); e != nil {
 			return nil, e
 		}
