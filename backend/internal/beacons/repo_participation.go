@@ -269,21 +269,26 @@ type transitionRule struct {
 	owned bool
 	// live: refuse ENDED and CANCELLED beacons (Leave, Remove); Withdraw is allowed on a dead beacon so a stale
 	// request can always be cleared.
-	live     bool
+	live bool
+	// self: the caller acts on their own row (Withdraw, Leave), the way out of a plan, which the service does not gate on
+	// visibility: no row is ErrNotFound and a row in another state is notIn, both checked before the live check, so a
+	// caller learns nothing about the beacon beyond their own row (not even that it ended).
+	self     bool
 	from, to string
 	notIn    error
 }
 
 // Withdraw implements Repo (WithdrawJoinRequest): the caller's REQUESTED row becomes WITHDRAWN and its membership row
-// stops being pending, on a live, ended or cancelled beacon alike; any other state is ErrNotRequested.
+// stops being pending, on a live, ended or cancelled beacon alike; no row is ErrNotFound, any other state is
+// ErrNotRequested.
 func (r *FirestoreRepo) Withdraw(ctx context.Context, p StateParams) (ParticipantResult, error) {
-	return r.transition(ctx, p, transitionRule{rpc: rpcWithdrawJoinRequest, from: PStateRequested, to: PStateWithdrawn, notIn: ErrNotRequested})
+	return r.transition(ctx, p, transitionRule{rpc: rpcWithdrawJoinRequest, self: true, from: PStateRequested, to: PStateWithdrawn, notIn: ErrNotRequested})
 }
 
 // Leave implements Repo (LeaveBeacon): the caller's ACCEPTED row becomes LEFT, the beacon's acceptedCount drops and a
-// FULL beacon reopens; any other state is ErrNotParticipant.
+// FULL beacon reopens; no row is ErrNotFound (before the live check), any other state is ErrNotParticipant.
 func (r *FirestoreRepo) Leave(ctx context.Context, p StateParams) (ParticipantResult, error) {
-	return r.transition(ctx, p, transitionRule{rpc: rpcLeaveBeacon, live: true, from: PStateAccepted, to: PStateLeft, notIn: ErrNotParticipant})
+	return r.transition(ctx, p, transitionRule{rpc: rpcLeaveBeacon, self: true, live: true, from: PStateAccepted, to: PStateLeft, notIn: ErrNotParticipant})
 }
 
 // Remove implements Repo (RemoveParticipant): the organiser moves the target's ACCEPTED row to REMOVED with the same
@@ -292,8 +297,9 @@ func (r *FirestoreRepo) Remove(ctx context.Context, p StateParams) (ParticipantR
 	return r.transition(ctx, p, transitionRule{rpc: rpcRemoveParticipant, owned: true, live: true, from: PStateAccepted, to: PStateRemoved, notIn: ErrNotParticipant})
 }
 
-// transition is the shared body of Withdraw, Leave and Remove: idempotency, the beacon (owner-checked when owned),
-// the live check when the rule asks for it, the target's row in `from` (else notIn), then the row to `to`, the
+// transition is the shared body of Withdraw, Leave and Remove: idempotency, the beacon (owner-checked when owned), the
+// target's row (missing on a self rule: ErrNotFound), the live check when the rule asks for it, the row in `from` (else
+// notIn), then the row to `to`, the
 // membership row no longer pending, and, when leaving an ACCEPTED seat, the beacon's count and status.
 func (r *FirestoreRepo) transition(ctx context.Context, p StateParams, rule transitionRule) (ParticipantResult, error) {
 	rpc, owned, from, to, notIn := rule.rpc, rule.owned, rule.from, rule.to, rule.notIn
@@ -319,14 +325,22 @@ func (r *FirestoreRepo) transition(ctx context.Context, p StateParams, rule tran
 		if err != nil {
 			return err
 		}
+		pd, exists, err := r.getParticipantTx(ctx, tx, p.BeaconID, p.TargetUID)
+		if err != nil {
+			return err
+		}
+		if rule.self && !exists {
+			return ErrNotFound
+		}
+		// A self rule answers the caller's own row before the beacon's state: a terminal row is notIn even on an ended
+		// or cancelled beacon (Remove keeps live first).
+		if rule.self && pd.State != from {
+			return notIn
+		}
 		if rule.live {
 			if err := checkLive(d, p.BeaconID, p.Now); err != nil {
 				return err
 			}
-		}
-		pd, exists, err := r.getParticipantTx(ctx, tx, p.BeaconID, p.TargetUID)
-		if err != nil {
-			return err
 		}
 		if !exists || pd.State != from {
 			return notIn
@@ -356,7 +370,8 @@ func (r *FirestoreRepo) transition(ctx context.Context, p StateParams, rule tran
 	return res, err
 }
 
-// Respond implements Repo (RespondToJoinRequest). Reads: idempotency, the beacon (owner-checked), the target's row
+// Respond implements Repo (RespondToJoinRequest). Reads: idempotency (a hit replays; only a miss runs p.Precheck), the
+// beacon (owner-checked), the target's row
 // (REQUESTED else ErrNotRequested). ACCEPT at capacity is ErrFull and writes nothing; two racing accepts both read and
 // write the beacon, so only one commits. Otherwise the row becomes ACCEPTED (respondedAt) with the beacon's count and
 // status, or DECLINED; the membership row follows.
@@ -373,6 +388,11 @@ func (r *FirestoreRepo) Respond(ctx context.Context, p RespondParams) (Participa
 				res, err = r.replayParticipation(ctx, tx, rec)
 			}
 			return err
+		}
+		if p.Precheck != nil {
+			if err := p.Precheck(ctx); err != nil {
+				return err
+			}
 		}
 		d, err := r.getOwned(ctx, tx, p.UID, p.BeaconID)
 		if err != nil {
