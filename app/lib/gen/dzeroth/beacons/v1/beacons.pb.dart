@@ -2601,8 +2601,9 @@ class BeaconServiceApi {
           'RequestToJoin', request, RequestToJoinResponse());
 
   /// Withdraw the caller's REQUESTED row (state WITHDRAWN), on a live, ENDED or CANCELLED beacon alike, so a stale
-  /// request can always be cleared (it stops counting toward beacon_requests_pending once its beacon ended anyway). No
-  /// row or any other state => FAILED_PRECONDITION "not_requested".
+  /// request can always be cleared (it stops counting toward beacon_requests_pending once its beacon ended anyway). The
+  /// only gate is the caller's own row: a block, a hidden beacon or a community the caller left never prevents it. No
+  /// row => NOT_FOUND (the one message above); any other state => FAILED_PRECONDITION "not_requested".
   $async.Future<WithdrawJoinRequestResponse> withdrawJoinRequest(
           $pb.ClientContext? ctx, WithdrawJoinRequestRequest request) =>
       _client.invoke<WithdrawJoinRequestResponse>(ctx, 'BeaconService',
@@ -2619,7 +2620,10 @@ class BeaconServiceApi {
           'RespondToJoinRequest', request, RespondToJoinRequestResponse());
 
   /// Leave a beacon the caller is ACCEPTED on (state LEFT; accepted_count shrinks and a FULL beacon turns OPEN).
-  /// Always allowed, never needs approval. Not ACCEPTED => FAILED_PRECONDITION "not_participant".
+  /// Always allowed, never needs approval: the only gate is the caller's own row (a block, a hidden beacon or a
+  /// community the caller left never prevents it). No row => NOT_FOUND (the one message above, even on an ENDED or
+  /// CANCELLED beacon); ENDED or CANCELLED => "ended" | "cancelled"; not ACCEPTED => FAILED_PRECONDITION
+  /// "not_participant".
   $async.Future<LeaveBeaconResponse> leaveBeacon(
           $pb.ClientContext? ctx, LeaveBeaconRequest request) =>
       _client.invoke<LeaveBeaconResponse>(
@@ -2634,7 +2638,9 @@ class BeaconServiceApi {
 
   /// ACCEPTED participants (visible to the organiser and to ACCEPTED participants; anyone else => NOT_FOUND) or, for
   /// the organiser only, REQUESTED rows with their notes (anyone else => FORBIDDEN "not_organiser"). Live rows
-  /// (identity directory, 60 s), oldest first. limit is clamped (0 = 20, above 50 = 50).
+  /// (identity directory, 60 s), oldest first. A participant does not see peers across a block in either direction
+  /// (the organiser sees everyone), so a page may hold fewer rows than accepted_count. limit is clamped (0 = 20, above
+  /// 50 = 50).
   $async.Future<ListParticipantsResponse> listParticipants(
           $pb.ClientContext? ctx, ListParticipantsRequest request) =>
       _client.invoke<ListParticipantsResponse>(ctx, 'BeaconService',

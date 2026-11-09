@@ -45,6 +45,8 @@ type fakeRepo struct {
 	deleteCalls int
 	deleteErr   error
 	deleteRace  bool // the post vanishes between the read and the batch (a concurrent delete won)
+	// stagedInDelete counts the extra writes staged into a committed delete batch (only a committed batch runs them).
+	stagedInDelete int
 
 	// Replies model.
 	parentGone        bool // the parent is deleted between the visibility check and the commit

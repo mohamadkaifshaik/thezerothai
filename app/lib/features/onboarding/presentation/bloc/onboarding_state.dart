@@ -58,6 +58,11 @@ abstract class OnboardingState with _$OnboardingState {
     // DeleteAccount answers ACCOUNT_RESTRICTED, including GetMe.
     // Cleared by the next successful GetMe.
     @Default(false) bool accountRestricted,
+    // The last GetMe failed while a cached profile kept the app usable: the
+    // shell shows a non-blocking "couldn't refresh" banner with Retry. The
+    // flags stay whatever this session loaded (none on a cold start; flags
+    // are never persisted). Cleared by the next successful GetMe.
+    @Default(false) bool refreshFailed,
   }) = _OnboardingState;
 
   const OnboardingState._();
