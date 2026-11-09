@@ -391,7 +391,7 @@ func TestIntegration_ListByOwnerPagesWithALimit(t *testing.T) {
 func TestIntegration_BannerAndResolver(t *testing.T) {
 	e := newIntEnv(t, envOpts{})
 	ctx := context.Background()
-	full, thumb := webpBytes("BF"), webpBytes("BT")
+	full, thumb := bannerFull("BF"), bannerThumb("BT")
 
 	cctx := context.Background()
 	tgs, err := e.svc.CreateUpload(cctx, uidA, CreateUploadInput{

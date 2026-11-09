@@ -479,7 +479,8 @@ func (s *service) reload(ctx context.Context, uid, id string, spent int64) (Resu
 // verifiedGens are the object generations verify read attributes for (and that the GIF sampler and Publish then pin).
 type verifiedGens struct{ full, thumb int64 }
 
-// verify checks both objects against the declared size, type and MD5 and sniffs their magic bytes. reason is
+// verify checks both objects against the declared size, type and MD5, sniffs their magic bytes and reads the real
+// pixel size (a GIF's logical screen) from the same pinned head (B14, geometryOK). reason is
 // non-empty for a rejection; an error is an infrastructure failure (the client may retry). An object that is not
 // there yet is reported as errUploadMissing (the caller decides: the client has not finished uploading, or a
 // concurrent finalize already published and deleted it).
@@ -513,7 +514,7 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verif
 		case derr != nil || string(a.MD5) != string(want):
 			return reasonInvalid, gens, nil
 		}
-		head, err := s.Objects.UploadHead(ctx, o.object, headBytesFor(o.contentType), a.Generation) // pinned: the sniffed bytes are the ones the attributes describe (same one call; a WebP reads 32 KiB)
+		head, err := s.Objects.UploadHead(ctx, o.object, headBytesFor(o.contentType), a.Generation) // pinned: the sniffed bytes are the ones the attributes describe (same one call; a JPEG or WebP reads 64 KiB)
 		switch {
 		case errors.Is(err, objstore.ErrGenerationChanged):
 			return reasonInvalid, gens, nil // replaced between the attributes and the sniff
@@ -527,6 +528,13 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verif
 		}
 		if o.contentType == ContentTypeWebP && !webpIsStill(head) {
 			// Animated, or not provably a still (security H-2): refused here, before any Vision unit is reserved.
+			return reasonInvalid, gens, nil
+		}
+		// B14: the real pixel size, read from the same pinned head, must be the declared one (the thumbnail no larger than
+		// it) within MaxDimension, MaxPixels and the purpose's geometry. A GIF's size is its logical screen (header bytes
+		// 6-9, inside the 512-byte head); its still thumbnail is a JPEG or WebP. Refused here, before any Vision unit.
+		w, h, ok := imageDims(o.contentType, head)
+		if !ok || !geometryOK(d, i == 0, w, h) {
 			return reasonInvalid, gens, nil
 		}
 		// This generation is what the size, type and MD5 above describe; Vision, the GIF read and Publish are tied to it.

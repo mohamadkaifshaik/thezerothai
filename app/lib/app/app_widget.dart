@@ -41,6 +41,7 @@ import '../features/graph/data/suggestions_repository.dart';
 import '../features/graph/presentation/bloc/suggestions_cubit.dart';
 import '../features/media/data/gif_source.dart';
 import '../features/media/data/image_picker_service.dart';
+import '../features/media/data/image_processor_factory.dart';
 import '../features/media/data/media_repository.dart';
 import '../features/media/domain/image_processor.dart';
 import '../features/messages/data/messaging_repository.dart';
@@ -87,7 +88,7 @@ class AppWidget extends StatefulWidget {
     required this.postsGate,
     required this.mediaRepository,
     this.imagePicker,
-    this.imageProcessor = const IsolateImageProcessor(),
+    this.imageProcessor,
     this.gifSource,
     this.gifPreparer = const IsolateGifPreparer(),
     required this.notificationsRepository,
@@ -195,7 +196,11 @@ class AppWidget extends StatefulWidget {
   /// Photo picker and on-device resize/compress; injectable for tests.
   /// Defaults to the platform picker.
   final ImagePickerService? imagePicker;
-  final ImageProcessor imageProcessor;
+
+  ///
+  /// [imageProcessor] defaults to [createPlatformImageProcessor] (on the web,
+  /// a Web Worker, so the UI keeps running while photos are prepared).
+  final ImageProcessor? imageProcessor;
 
   /// Where the composer's GIF comes from; defaults to the device
   /// gallery. [gifPreparer] checks it and makes its still thumbnail.
@@ -276,6 +281,8 @@ class _AppWidgetState extends State<AppWidget> {
   );
   late final ImagePickerService _imagePicker =
       widget.imagePicker ?? PlatformImagePickerService();
+  late final ImageProcessor _imageProcessor =
+      widget.imageProcessor ?? createPlatformImageProcessor();
   late final GifSource _gifSource = widget.gifSource ?? DeviceGifSource();
   // Recent searches: this device only, wiped on sign-out.
   late final RecentSearchesStore _recentSearches = DatabaseRecentSearchesStore(
@@ -512,7 +519,7 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider.value(value: widget.mediaRepository),
         RepositoryProvider<ImagePickerService>.value(value: _imagePicker),
         RepositoryProvider<RecentSearchesStore>.value(value: _recentSearches),
-        RepositoryProvider<ImageProcessor>.value(value: widget.imageProcessor),
+        RepositoryProvider<ImageProcessor>.value(value: _imageProcessor),
         RepositoryProvider<GifSource>.value(value: _gifSource),
         RepositoryProvider<GifPreparer>.value(value: widget.gifPreparer),
         RepositoryProvider.value(value: widget.notificationsRepository),
