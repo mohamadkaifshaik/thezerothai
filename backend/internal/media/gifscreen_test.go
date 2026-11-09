@@ -103,18 +103,41 @@ func redIsExplicit(t *testing.T) func([]byte) SafeSearch {
 	}
 }
 
-// createGIFWith runs CreateUpload and the client's PUTs for a GIF with the given bytes.
+// createGIFWith runs CreateUpload and the client's PUTs for a GIF with the given bytes. Like the official client it
+// declares the GIF's logical screen (header bytes 6-9, which verify checks) and sends a thumbnail of that size.
 func (e *env) createGIFWith(t *testing.T, uid, tag string, full []byte) UploadTarget {
 	t.Helper()
-	thumb := jpegBytes("T" + tag)
+	return e.createGIFDeclared(t, uid, tag, full, le16(full[6:]), le16(full[8:]))
+}
+
+// createGIFDeclared is createGIFWith with a declared size of w x h (the thumbnail is w x h too), for a GIF whose real
+// screen CreateUpload would refuse to declare (a bomb) or that is meant to disagree with its declaration.
+func (e *env) createGIFDeclared(t *testing.T, uid, tag string, full []byte, w, h int) UploadTarget {
+	t.Helper()
+	thumb := jpegSized("T"+tag, w, h)
+	it := gifItem(full, thumb, ContentTypeJPEG)
+	it.Width, it.Height = w, h
 	tgs, err := e.svc.CreateUpload(context.Background(), uid, CreateUploadInput{
-		IdempotencyKey: "key-" + tag + "-0123456789", Purpose: PurposePost, Items: []UploadItem{gifItem(full, thumb, ContentTypeJPEG)},
+		IdempotencyKey: "key-" + tag + "-0123456789", Purpose: PurposePost, Items: []UploadItem{it},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	e.putGIF(uid, tgs[0], full, thumb, ContentTypeJPEG)
 	return tgs[0]
+}
+
+// createBomb uploads a GIF bomb and returns the rejection reason FinalizeUpload must give it. A logical screen above
+// GIF_MAX_EDGE cannot be declared truthfully (CreateUpload refuses the size), so it is declared at the largest allowed
+// size and verify refuses the mismatch (reasonInvalid) from the 512-byte head, before the file is read. Any other bomb
+// is declared truthfully and the pre-scan refuses it (reasonGifLarge).
+func (e *env) createBomb(t *testing.T, uid, tag string, data []byte) (UploadTarget, string) {
+	t.Helper()
+	edge := e.svc.(*service).gifMaxEdge()
+	if w, h := le16(data[6:]), le16(data[8:]); w > edge || h > edge {
+		return e.createGIFDeclared(t, uid, tag, data, edge, edge), reasonInvalid
+	}
+	return e.createGIFWith(t, uid, tag, data), reasonGifLarge
 }
 
 func (e *env) finalizeGIF(t *testing.T, tg UploadTarget) Result {
@@ -377,8 +400,9 @@ func FuzzScanGIF(f *testing.F) {
 }
 
 // TestGIFScreen_BombsAreRefusedBeforeAnyDecode: a header with 10,000 frame descriptors and a 65,535 x 65,535 logical screen
-// are REJECTED with the "too large or too long" reason, spend nothing, and the pre-scan stays far under 20 MB. Not
-// parallel: it reads the process-wide allocation counter.
+// are refused by the pre-scan with the "too large or too long" reason and stay far under 20 MB; through FinalizeUpload
+// they are REJECTED (the screen bomb already by verify's size check, see createBomb) and spend nothing. Not parallel: it
+// reads the process-wide allocation counter.
 func TestGIFScreen_BombsAreRefusedBeforeAnyDecode(t *testing.T) {
 	many := make([][4]int, 10_000)
 	for i := range many {
@@ -403,10 +427,10 @@ func TestGIFScreen_BombsAreRefusedBeforeAnyDecode(t *testing.T) {
 			}
 
 			e := newEnv(t, envOpts{})
-			tg := e.createGIFWith(t, uidA, "b", data)
+			tg, want := e.createBomb(t, uidA, "b", data)
 			r := e.finalizeGIF(t, tg)
-			if r.Status != StatusRejected || r.RejectionReason != reasonGifLarge {
-				t.Fatalf("result = %+v, want REJECTED %q", r, reasonGifLarge)
+			if r.Status != StatusRejected || r.RejectionReason != want {
+				t.Fatalf("result = %+v, want REJECTED %q", r, want)
 			}
 			if len(e.mod.byteCalls) != 0 || len(e.mod.calls) != 0 || e.repo.vision[monthKey(testNow)] != 0 {
 				t.Fatalf("a refused GIF must spend no Vision units: %v %v %d", e.mod.byteCalls, e.mod.calls, e.repo.vision[monthKey(testNow)])
@@ -456,6 +480,12 @@ func TestGIFScreen_CorruptFrameDataIsRejectedAsInvalid(t *testing.T) {
 	}
 }
 
+// gifFullRead reports whether an UploadHead call is the GIF sampler's full-object read rather than one of verify's pinned
+// head reads (512 bytes for a GIF, 64 KiB for a JPEG or WebP since B14).
+func gifFullRead(object string, n int64) bool {
+	return strings.HasSuffix(object, ".gif") && n != headBytesFor(ContentTypeGIF)
+}
+
 // gateObjects wraps the object store: the full-object read of a GIF (n other than the 512-byte magic read) can block on a
 // gate, count its concurrency, or panic.
 type gateObjects struct {
@@ -468,7 +498,7 @@ type gateObjects struct {
 }
 
 func (g *gateObjects) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
-	if n != 512 {
+	if gifFullRead(object, n) {
 		if g.panicRun {
 			panic("boom")
 		}
@@ -622,7 +652,7 @@ type swapObjects struct {
 }
 
 func (s *swapObjects) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
-	if n != 512 && object == s.name {
+	if gifFullRead(object, n) && object == s.name {
 		return s.swap, nil
 	}
 	return s.fakeObjects.UploadHead(ctx, object, n, generation)
@@ -646,7 +676,7 @@ func TestGIFScreen_MissingObjectIsNotARejection(t *testing.T) {
 type failingRead struct{ *fakeObjects }
 
 func (f failingRead) UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
-	if n != 512 {
+	if gifFullRead(object, n) {
 		f.mu.Lock()
 		delete(f.upload, object)
 		f.mu.Unlock()

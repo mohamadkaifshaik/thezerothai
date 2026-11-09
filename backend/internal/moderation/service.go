@@ -53,6 +53,8 @@ type Deps struct {
 	Communities CommunityLookup
 	// Beacons resolves a BEACON target; nil makes a beacon report an internal error.
 	Beacons BeaconLookup
+	// Articles snapshots the article behind a reported article root post; nil keeps only the post's frozen preview.
+	Articles ArticleLookup
 	// ReportsPerDay is the daily quota (config.QuotaConfig); NewAccountReportsPerDay applies inside NewAccountWindow.
 	ReportsPerDay           int64
 	NewAccountReportsPerDay int64
@@ -202,6 +204,9 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		if e := p.Embedded; p.Kind == posts.KindRepost && e != nil && !e.Unavailable && e.PostID != "" {
 			rep.Evidence = &Evidence{Text: e.Text, AuthorHandle: e.Author.Handle, PostCreatedAt: e.CreatedAt,
 				MediaIDs: mediaIDs(e.Media), OriginalPostID: e.PostID, PollChoices: embeddedPollChoices(e.Poll)}
+		}
+		if err := s.articleEvidence(ctx, uid, p, rep.Evidence); err != nil {
+			return ReportResult{}, err
 		}
 	case TargetAccount:
 		prof, err := s.d.Accounts.GetProfile(ctx, uid, identity.ProfileTarget{UserID: in.TargetID})
