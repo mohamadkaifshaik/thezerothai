@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -165,6 +166,8 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		return media.NewOrphanSweeper(media.OrphanSweepDeps{
 			Repo: mediaRepo, Objects: buckets, Profiles: identityRepo, RetireMode: retire,
 			Mode: config.MediaOrphanSweepDelete, DryRun: dryRun,
+			// Undecodable documents are reported by media id on stderr, next to the page counts.
+			Log:    slog.New(slog.NewTextHandler(os.Stderr, nil)),
 			Drafts: media.NewDraftHolds(postsRepo, articles.NewMediaHolds(client)),
 		})
 	}
