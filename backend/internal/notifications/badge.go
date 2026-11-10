@@ -23,7 +23,9 @@ import (
 //     hidden (at most UnreadBadgeCap = graph.MaxBlockLookup, so every one is covered), answered from the graph cache
 //     or batched GetAlls of up to 25 docs.
 //
-// It never reads in a loop and never falls back to the raw count: any failed read is an error. The filtered path reads
+// It never reads in a loop and never falls back to the raw count: any failed read is an error (identity turns it into
+// a WARN and a badge of 0, so GetMe still answers). A row that does not decode is skipped, not counted (see
+// FirestoreRepo.UnreadActors). The filtered path reads
 // only the newest UnreadBadgeCap unseen rows, so with more unseen rows than that and some of them hidden the badge can
 // read below the cap: it may under-count past the cap, never over-count a hidden row.
 func (b *UnreadBadge) unreadVisible(ctx context.Context, uid string, since time.Time) (int64, error) {

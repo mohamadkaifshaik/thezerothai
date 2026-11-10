@@ -3,13 +3,19 @@
 package notifications
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"cloud.google.com/go/firestore"
+
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // TestIntegration_UnreadStoreReads pins the two badge queries on the emulator: createdAt strictly after since,
@@ -92,5 +98,72 @@ func TestIntegration_UnreadBadgeExcludesHiddenActors(t *testing.T) {
 	// The raw count the badge replaces would have said 5.
 	if raw, err := repo.CountUnread(ctx, me, since, UnreadBadgeCap); err != nil || raw != 5 {
 		t.Errorf("raw count = %d, %v; want 5", raw, err)
+	}
+}
+
+// seedBadRow writes a row whose actor.userId is not a string: neither List nor the badge can decode it.
+func seedBadRow(t *testing.T, client *firestore.Client, uid, id string, at time.Time) {
+	t.Helper()
+	_, err := client.Collection("users").Doc(uid).Collection("notifications").Doc(id).Set(context.Background(), map[string]any{
+		"type": "follow", "actor": map[string]any{"userId": 12345}, "actorIds": []string{"x"}, "actorCount": 1,
+		"createdAt": at, "expireAt": at.Add(TTL),
+	})
+	mustNoErr(t, err)
+}
+
+// M1 + L2 (security audit): one undecodable row must not fail the badge (it would fail GetMe on every cache miss until
+// the row's TTL). It is skipped, which never counts a hidden row, with a WARN that names the row by hash only (row ids
+// embed other users' uids). The other rows are counted by the usual rule.
+func TestIntegration_UnreadBadgeSkipsUndecodableRow(t *testing.T) {
+	client := newTestClient(t)
+	ctx := context.Background()
+	sfx := fmt.Sprintf("%d", time.Now().UnixNano())
+	me, blocked, friend, other := "skMe"+sfx, "skBlk"+sfx, "skF"+sfx, "skOther"+sfx
+	empty := []string{}
+	_, err := client.Collection("graph").Doc(me).Set(ctx, map[string]any{
+		"following": empty, "blocked": []string{blocked}, "muted": empty, "requested": empty,
+		"blockedBy": empty, "blockedByOverflow": false, "updatedAt": t0,
+	})
+	mustNoErr(t, err)
+	var buf bytes.Buffer
+	repo := NewFirestoreRepo(client).WithLogger(slog.New(slog.NewJSONHandler(&buf, nil)))
+	for i, actor := range []string{blocked, friend} {
+		_, err := repo.Create(ctx, me, row("follow_"+actor, TypeFollow, actor, t0.Add(time.Duration(i+1)*time.Minute)))
+		mustNoErr(t, err)
+	}
+	badID := "follow_" + other
+	seedBadRow(t, client, me, badID, t0.Add(5*time.Minute))
+
+	graphSvc := graph.New(graph.Deps{Repo: graph.NewFirestoreRepo(client), Cache: graph.NewCache(time.Minute)})
+	n, err := NewUnreadBadge(repo, graphSvc, graphSvc).UnreadNotifications(ctx, me, t0)
+	if err != nil {
+		t.Fatalf("badge failed on one bad row: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("badge = %d, want 1 (friend counted, blocked hidden, the bad row skipped)", n)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `"level":"WARN"`) || !strings.Contains(out, logger.HashUID(badID)) {
+		t.Errorf("no WARN naming the hashed row id: %s", out)
+	}
+	if strings.Contains(out, other) {
+		t.Errorf("the WARN carries another user's raw uid: %s", out)
+	}
+}
+
+// L2: List's decode error names the row by hash, never by its raw id (which embeds another user's uid).
+func TestIntegration_ListDecodeErrorHashesTheRowID(t *testing.T) {
+	client := newTestClient(t)
+	ctx := context.Background()
+	sfx := fmt.Sprintf("%d", time.Now().UnixNano())
+	me, other := "ldMe"+sfx, "ldOther"+sfx
+	badID := "follow_" + other
+	seedBadRow(t, client, me, badID, t0)
+	_, err := NewFirestoreRepo(client).List(ctx, me, ListQuery{Limit: 10})
+	if err == nil {
+		t.Fatal("List decoded a row whose actor.userId is a number")
+	}
+	if msg := logger.CauseChain(err); strings.Contains(msg, other) || !strings.Contains(msg, logger.HashUID(badID)) {
+		t.Errorf("List error = %q, want the hashed row id and no raw uid", msg)
 	}
 }

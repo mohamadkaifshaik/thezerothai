@@ -214,7 +214,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	messagingRepo := messaging.NewFirestoreRepo(fsClient, quota.New(fsClient))
 	// Notifications counts GetMe's unread badge the same way (identity never imports notifications): the repo is built
 	// here, before identity, and gets its Directory once identity exists (below).
-	notifRepo := notifications.NewFirestoreRepo(fsClient)
+	notifRepo := notifications.NewFirestoreRepo(fsClient).WithLogger(log)
 	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
 		identity.WithFeatureFlags(featureFlags),
 		identity.WithBlockChecker(graphSvc),
@@ -230,7 +230,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithMessageBadge(messaging.NewUnreadBadge(messagingRepo), log), // GetMe.unread_conversation_count
 		// GetMe.unread_notification_count: the unseen rows the caller would see (block, mute, blocked-by and the F-04
 		// overflow lookup applied), not the raw count().
-		identity.WithNotificationBadge(notifications.NewUnreadBadge(notifRepo, graphSvc, graphSvc)),
+		identity.WithNotificationBadge(notifications.NewUnreadBadge(notifRepo, graphSvc, graphSvc), log),
 		identity.WithExtrasFlags(featureFlags),
 		// An unprotect publishes the privacy_public job (graph accepts the pending requests).
 		identity.WithPrivacyListener(graph.NewPrivacyListener(jobsPublisher), log),

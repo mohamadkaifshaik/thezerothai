@@ -1,10 +1,15 @@
 package identity
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // fakeNotificationBadge answers the filtered count the notifications module computes.
@@ -27,7 +32,7 @@ func (f *fakeNotificationBadge) UnreadNotifications(_ context.Context, _ string,
 func TestGetMe_UnreadComesFromTheNotificationBadge(t *testing.T) {
 	repo := newFakeRepo()
 	badge := &fakeNotificationBadge{n: 2}
-	svc := New(repo, NewCache(time.Minute), 7*24*time.Hour, WithNotificationBadge(badge)).(*service)
+	svc := New(repo, NewCache(time.Minute), 7*24*time.Hour, WithNotificationBadge(badge, nil)).(*service)
 	if _, err := svc.CreateProfile(context.Background(), "uid-1", validKey, "Alice", "Alice A."); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
@@ -54,22 +59,37 @@ func TestGetMe_UnreadComesFromTheNotificationBadge(t *testing.T) {
 	}
 }
 
-// A failed badge fails GetMe, as a failed count did before; nothing is cached, so the next GetMe asks again, and the
-// raw count is never served in its place.
-func TestGetMe_NotificationBadgeErrorIsNotCached(t *testing.T) {
+// M1 (security audit): a failed badge must not fail GetMe, the app's bootstrap call. It answers 0 with a WARN
+// unread_notifications_failed carrying only the hashed uid, caches nothing (the next GetMe asks again), and never
+// serves the raw count, which would count hidden rows.
+func TestGetMe_NotificationBadgeErrorDegradesToZero(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&buf, nil))
 	repo := newFakeRepo()
-	boom := errors.New("graph down")
-	badge := &fakeNotificationBadge{err: boom}
-	svc := New(repo, NewCache(time.Minute), 7*24*time.Hour, WithNotificationBadge(badge)).(*service)
+	badge := &fakeNotificationBadge{err: errors.New("decode users/uid-1/notifications/follow_other-uid")}
+	svc := New(repo, NewCache(time.Minute), 7*24*time.Hour, WithNotificationBadge(badge, log)).(*service)
 	if _, err := svc.CreateProfile(context.Background(), "uid-1", validKey, "Alice", "Alice A."); err != nil {
 		t.Fatalf("CreateProfile: %v", err)
 	}
-	repo.unread["uid-1"] = 5
-	if _, err := svc.GetMe(context.Background(), "uid-1"); !errors.Is(err, boom) {
-		t.Fatalf("GetMe err = %v, want the badge error", err)
+	repo.unread["uid-1"] = 5 // the raw count: never served in the badge's place
+	got, err := svc.GetMe(context.Background(), "uid-1")
+	if err != nil || got.UnreadNotificationCount != 0 {
+		t.Fatalf("GetMe = %d, %v; want 0 and no error", got.UnreadNotificationCount, err)
+	}
+	out := buf.String()
+	for _, want := range []string{`"msg":"unread_notifications_failed"`, `"level":"WARN"`, `"uid_hash":"` + logger.HashUID("uid-1") + `"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log %q lacks %s", out, want)
+		}
+	}
+	if strings.Contains(out, `"uid-1"`) || strings.Contains(out, "users/uid-1/") {
+		t.Errorf("log carries the raw uid: %s", out)
+	}
+	if _, ok := svc.cache.GetUnreadCount("uid-1"); ok {
+		t.Error("a failed badge was cached")
 	}
 	badge.err, badge.n = nil, 1
-	got, err := svc.GetMe(context.Background(), "uid-1")
+	got, err = svc.GetMe(context.Background(), "uid-1")
 	if err != nil || got.UnreadNotificationCount != 1 || badge.calls != 2 {
 		t.Fatalf("GetMe after recovery = %d, %v (calls %d); want 1 from a fresh call", got.UnreadNotificationCount, err, badge.calls)
 	}

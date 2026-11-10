@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -61,6 +62,21 @@ type FirestoreRepo struct {
 	// dir resolves the replacement display actor when a purge removes the displayed actor of a collapsed row. Nil
 	// (unit tests, opsctl) makes such rows be deleted instead.
 	dir Directory
+	// log receives the WARN for a row the badge skips because it does not decode; nil means slog.Default().
+	log *slog.Logger
+}
+
+func (r *FirestoreRepo) logger() *slog.Logger {
+	if r.log == nil {
+		return slog.Default()
+	}
+	return r.log
+}
+
+// WithLogger sets the logger of the repo's WARN lines and returns the repo.
+func (r *FirestoreRepo) WithLogger(l *slog.Logger) *FirestoreRepo {
+	r.log = l
+	return r
 }
 
 // WithDirectory wires the identity seam used by Eraser step 2 and returns the repo.
@@ -154,7 +170,7 @@ func (r *FirestoreRepo) Create(ctx context.Context, recipientUID string, n Notif
 		if status.Code(err) == codes.AlreadyExists {
 			return false, nil
 		}
-		return false, fmt.Errorf("notifications: create %s for %s: %w", n.ID, logger.HashUID(recipientUID), err)
+		return false, fmt.Errorf("notifications: create row %s for %s: %w", logger.HashUID(n.ID), logger.HashUID(recipientUID), err)
 	}
 	return true, nil
 }
@@ -207,7 +223,7 @@ func (r *FirestoreRepo) AddActor(ctx context.Context, recipientUID, id string, a
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("notifications: fold actor into %s for %s: %w", id, logger.HashUID(recipientUID), err)
+		return fmt.Errorf("notifications: fold actor into row %s for %s: %w", logger.HashUID(id), logger.HashUID(recipientUID), err)
 	}
 	return nil
 }
@@ -229,7 +245,8 @@ func (r *FirestoreRepo) List(ctx context.Context, uid string, q ListQuery) ([]No
 	for _, s := range docs {
 		var d notificationDoc
 		if err := s.DataTo(&d); err != nil {
-			return nil, fmt.Errorf("notifications: decode %s: %w", s.Ref.ID, err)
+			// Row ids embed other users' uids (follow_<uid>, repost_<post>_<uid>): name the row by hash only (L2).
+			return nil, fmt.Errorf("notifications: decode row %s: %w", logger.HashUID(s.Ref.ID), err)
 		}
 		out = append(out, d.toNotification(s.Ref.ID))
 	}
@@ -261,7 +278,8 @@ func (r *FirestoreRepo) CountUnread(ctx context.Context, uid string, since time.
 }
 
 // UnreadActors implements UnreadStore: the newest limit unseen rows, projected to actor.userId (one read per row
-// returned, one when none).
+// returned, one when none). A row whose actor does not decode is skipped with a WARN naming it by hash (security audit
+// M1/L2): one bad row must not fail GetMe until its TTL, and a skipped row is never counted, so it cannot over-count.
 func (r *FirestoreRepo) UnreadActors(ctx context.Context, uid string, since time.Time, limit int) ([]string, error) {
 	docs, err := r.unseen(uid, since).OrderBy("createdAt", firestore.Desc).Select("actor.userId").Limit(limit).Documents(ctx).GetAll()
 	if err != nil {
@@ -275,7 +293,9 @@ func (r *FirestoreRepo) UnreadActors(ctx context.Context, uid string, since time
 			} `firestore:"actor"`
 		}
 		if err := s.DataTo(&d); err != nil {
-			return nil, fmt.Errorf("notifications: decode unread actor %s: %w", s.Ref.ID, err)
+			r.logger().WarnContext(ctx, "notification_row_undecodable", append([]any{"uid_hash", logger.HashUID(uid),
+				"row_hash", logger.HashUID(s.Ref.ID)}, logger.TraceAttrs(ctx)...)...)
+			continue
 		}
 		out = append(out, d.Actor.UserID)
 	}

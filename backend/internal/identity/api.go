@@ -428,7 +428,7 @@ type MessageBadge interface {
 // MessageBadge pattern: notifications imports identity, so identity never imports notifications).
 // notifications.UnreadBadge implements it: the rows newer than since that ListNotifications would show (rows whose
 // displayed actor the caller blocks or mutes, or who blocks the caller, are not counted), capped at 100. identity
-// caches the answer 30 s per uid. An error fails GetMe and is not cached. Without it (WithNotificationBadge not called)
+// caches the answer 30 s per uid. An error is WARN unread_notifications_failed and answers 0, never cached. Without it (WithNotificationBadge not called)
 // GetMe falls back to Repo.UnreadNotificationCount, the raw count() that also counts hidden rows; apiserver always wires it.
 type NotificationBadge interface {
 	UnreadNotifications(ctx context.Context, uid string, since time.Time) (int64, error)

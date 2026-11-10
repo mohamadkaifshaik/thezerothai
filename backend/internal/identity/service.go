@@ -56,7 +56,8 @@ type service struct {
 	badge    MessageBadge
 	badgeLog *slog.Logger
 	// notifBadge counts the caller's visible unseen notifications for GetMe; nil = the raw Repo.UnreadNotificationCount.
-	notifBadge NotificationBadge
+	notifBadge    NotificationBadge
+	notifBadgeLog *slog.Logger
 	// pinLog and reqLog receive the WARN lines; nil means slog.Default.
 	pinLog, reqLog *slog.Logger
 	// authAudit turns on the GetMe sign-in identity audit (auth_baseline.go); false = the comparison never runs.
@@ -92,9 +93,10 @@ func WithMessageBadge(b MessageBadge, log *slog.Logger) Option {
 }
 
 // WithNotificationBadge wires GetMe's unread_notification_count to the notifications module's filtered count. Nil
-// keeps the raw Repo.UnreadNotificationCount, which also counts rows the caller's block/mute context hides.
-func WithNotificationBadge(b NotificationBadge) Option {
-	return func(s *service) { s.notifBadge = b }
+// keeps the raw Repo.UnreadNotificationCount, which also counts rows the caller's block/mute context hides. log
+// receives the WARN for a failed count; nil means slog.Default().
+func WithNotificationBadge(b NotificationBadge, log *slog.Logger) Option {
+	return func(s *service) { s.notifBadge, s.notifBadgeLog = b, log }
 }
 
 // WithAvatarResolver wires UpdateProfile.avatar_media_id. Nil keeps non-empty values rejected.
@@ -256,7 +258,8 @@ func (s *service) CheckHandleAvailability(ctx context.Context, handle string) (b
 }
 
 // GetMe returns the caller's profile plus the unread notification count: on a 30 s cache miss, the NotificationBadge's
-// count of the unseen rows the caller would see (see notifications.UnreadBadge for its reads), else the raw count().
+// count of the unseen rows the caller would see (see notifications.UnreadBadge for its reads), else the raw count(). A
+// failed count is WARN unread_notifications_failed with the badge at 0, not cached (security audit M1).
 // enabled_features comes from the FeatureFlags provider, with no extra read.
 // pending_follow_request_count is one count() on followRequests, only for a caller whose isPrivate is true and whose
 // 30 s cached count is gone; every other caller (a public caller never reaches the counter) and every hit reads
@@ -284,7 +287,9 @@ func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 	}
 	n, err := s.unreadNotifications(ctx, uid, profile.NotificationsSeenAt)
 	if err != nil {
-		return MeResult{}, logger.RedactErr(fmt.Errorf("identity: get me: %w", err), uid)
+		// M1: the badge must not fail the bootstrap call. 0, never the raw count (it counts hidden rows), never cached.
+		orDefault(s.notifBadgeLog).WarnContext(ctx, "unread_notifications_failed", append([]any{"uid_hash", logger.HashUID(uid), "error", logger.CauseChain(logger.RedactErr(err, uid))}, logger.TraceAttrs(ctx)...)...)
+		return res, nil
 	}
 	s.cache.SetUnreadCount(uid, n)
 	res.UnreadNotificationCount = n
