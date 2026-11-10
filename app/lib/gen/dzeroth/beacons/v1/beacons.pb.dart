@@ -1310,6 +1310,7 @@ class ListBeaconsRequest extends $pb.GeneratedMessage {
     $1.Timestamp? from,
     $core.int? limit,
     $core.String? pageToken,
+    BeaconActivity? activity,
   }) {
     final result = ListBeaconsRequest._();
     if (communityId != null) result.communityId = communityId;
@@ -1317,6 +1318,7 @@ class ListBeaconsRequest extends $pb.GeneratedMessage {
     if (from != null) result.from = from;
     if (limit != null) result.limit = limit;
     if (pageToken != null) result.pageToken = pageToken;
+    if (activity != null) result.activity = activity;
     return result;
   }
 
@@ -1347,6 +1349,8 @@ class ListBeaconsRequest extends $pb.GeneratedMessage {
         subBuilder: $1.Timestamp.$_createMessage)
     ..aI(4, _omitFieldNames ? '' : 'limit')
     ..aOS(5, _omitFieldNames ? '' : 'pageToken')
+    ..aE<BeaconActivity>(6, _omitFieldNames ? '' : 'activity',
+        enumValues: BeaconActivity.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1427,6 +1431,17 @@ class ListBeaconsRequest extends $pb.GeneratedMessage {
   $core.bool hasPageToken() => $_has(4);
   @$pb.TagNumber(5)
   void clearPageToken() => $_clearField(5);
+
+  /// Only beacons of this activity; UNSPECIFIED (the default) = every activity. Filtered in the query (composite
+  /// index communityId, activity, status, startAt), so a page is never emptied by the filter.
+  @$pb.TagNumber(6)
+  BeaconActivity get activity => $_getN(5);
+  @$pb.TagNumber(6)
+  set activity(BeaconActivity value) => $_setField(6, value);
+  @$pb.TagNumber(6)
+  $core.bool hasActivity() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearActivity() => $_clearField(6);
 }
 
 class ListBeaconsResponse extends $pb.GeneratedMessage {
@@ -2727,10 +2742,12 @@ class BeaconServiceApi {
       _client.invoke<GetBeaconResponse>(
           ctx, 'BeaconService', 'GetBeacon', request, GetBeaconResponse());
 
-  /// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first. Hidden beacons and
-  /// beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A community audience
-  /// needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50); page_token is an
-  /// opaque signed cursor bound to the caller and the audience, VALIDATION "page_token" when invalid or expired.
+  /// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first, optionally of one
+  /// activity (UNSPECIFIED = every activity; a value outside the enum => VALIDATION "activity", before any lookup).
+  /// Hidden beacons and beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A
+  /// community audience needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50);
+  /// page_token is an opaque signed cursor bound to the caller, the audience and the activity filter, VALIDATION
+  /// "page_token" when invalid, expired or issued for another filter.
   $async.Future<ListBeaconsResponse> listBeacons(
           $pb.ClientContext? ctx, ListBeaconsRequest request) =>
       _client.invoke<ListBeaconsResponse>(

@@ -639,6 +639,14 @@ const ListBeaconsRequest$json = {
     },
     {'1': 'limit', '3': 4, '4': 1, '5': 5, '10': 'limit'},
     {'1': 'page_token', '3': 5, '4': 1, '5': 9, '10': 'pageToken'},
+    {
+      '1': 'activity',
+      '3': 6,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.beacons.v1.BeaconActivity',
+      '10': 'activity'
+    },
   ],
   '8': [
     {'1': 'audience'},
@@ -650,7 +658,8 @@ final $typed_data.Uint8List listBeaconsRequestDescriptor = $convert.base64Decode
     'ChJMaXN0QmVhY29uc1JlcXVlc3QSIwoMY29tbXVuaXR5X2lkGAEgASgJSABSC2NvbW11bml0eU'
     'lkEhgKBnB1YmxpYxgCIAEoCEgAUgZwdWJsaWMSLgoEZnJvbRgDIAEoCzIaLmdvb2dsZS5wcm90'
     'b2J1Zi5UaW1lc3RhbXBSBGZyb20SFAoFbGltaXQYBCABKAVSBWxpbWl0Eh0KCnBhZ2VfdG9rZW'
-    '4YBSABKAlSCXBhZ2VUb2tlbkIKCghhdWRpZW5jZQ==');
+    '4YBSABKAlSCXBhZ2VUb2tlbhI+CghhY3Rpdml0eRgGIAEoDjIiLmR6ZXJvdGguYmVhY29ucy52'
+    'MS5CZWFjb25BY3Rpdml0eVIIYWN0aXZpdHlCCgoIYXVkaWVuY2U=');
 
 @$core.Deprecated('Use listBeaconsResponseDescriptor instead')
 const ListBeaconsResponse$json = {

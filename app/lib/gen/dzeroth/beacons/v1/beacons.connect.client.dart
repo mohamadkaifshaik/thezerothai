@@ -92,10 +92,12 @@ extension type BeaconServiceClient (connect.Transport _transport) {
     );
   }
 
-  /// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first. Hidden beacons and
-  /// beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A community audience
-  /// needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50); page_token is an
-  /// opaque signed cursor bound to the caller and the audience, VALIDATION "page_token" when invalid or expired.
+  /// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first, optionally of one
+  /// activity (UNSPECIFIED = every activity; a value outside the enum => VALIDATION "activity", before any lookup).
+  /// Hidden beacons and beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A
+  /// community audience needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50);
+  /// page_token is an opaque signed cursor bound to the caller, the audience and the activity filter, VALIDATION
+  /// "page_token" when invalid, expired or issued for another filter.
   Future<dzerothbeaconsv1beacons.ListBeaconsResponse> listBeacons(
     dzerothbeaconsv1beacons.ListBeaconsRequest input, {
     connect.Headers? headers,

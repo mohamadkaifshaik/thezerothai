@@ -162,10 +162,12 @@ type BeaconServiceClient interface {
 	// One beacon as the caller may see it (audience, blocks and hidden applied; header). The organiser row is live
 	// (identity directory, 60 s); the viewer state is computed from the caller's participant row (1 read).
 	GetBeacon(context.Context, *connect.Request[v1.GetBeaconRequest]) (*connect.Response[v1.GetBeaconResponse], error)
-	// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first. Hidden beacons and
-	// beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A community audience
-	// needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50); page_token is an
-	// opaque signed cursor bound to the caller and the audience, VALIDATION "page_token" when invalid or expired.
+	// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first, optionally of one
+	// activity (UNSPECIFIED = every activity; a value outside the enum => VALIDATION "activity", before any lookup).
+	// Hidden beacons and beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A
+	// community audience needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50);
+	// page_token is an opaque signed cursor bound to the caller, the audience and the activity filter, VALIDATION
+	// "page_token" when invalid, expired or issued for another filter.
 	ListBeacons(context.Context, *connect.Request[v1.ListBeaconsRequest]) (*connect.Response[v1.ListBeaconsResponse], error)
 	// The caller's own beacons: organised, requested or accepted (role filter), UPCOMING (start_at + duration >= now,
 	// soonest first) or PAST (most recent first), from users/{uid}/beaconMemberships. A CANCELLED beacon keeps its window
@@ -422,10 +424,12 @@ type BeaconServiceHandler interface {
 	// One beacon as the caller may see it (audience, blocks and hidden applied; header). The organiser row is live
 	// (identity directory, 60 s); the viewer state is computed from the caller's participant row (1 read).
 	GetBeacon(context.Context, *connect.Request[v1.GetBeaconRequest]) (*connect.Response[v1.GetBeaconResponse], error)
-	// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first. Hidden beacons and
-	// beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A community audience
-	// needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50); page_token is an
-	// opaque signed cursor bound to the caller and the audience, VALIDATION "page_token" when invalid or expired.
+	// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first, optionally of one
+	// activity (UNSPECIFIED = every activity; a value outside the enum => VALIDATION "activity", before any lookup).
+	// Hidden beacons and beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A
+	// community audience needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50);
+	// page_token is an opaque signed cursor bound to the caller, the audience and the activity filter, VALIDATION
+	// "page_token" when invalid, expired or issued for another filter.
 	ListBeacons(context.Context, *connect.Request[v1.ListBeaconsRequest]) (*connect.Response[v1.ListBeaconsResponse], error)
 	// The caller's own beacons: organised, requested or accepted (role filter), UPCOMING (start_at + duration >= now,
 	// soonest first) or PAST (most recent first), from users/{uid}/beaconMemberships. A CANCELLED beacon keeps its window
