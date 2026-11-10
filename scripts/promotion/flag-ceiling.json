@@ -18,7 +18,7 @@
       "flags": {
         "ACCOUNT_LIFECYCLE": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
         "ANALYTICS": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
-        "BEACONS": {"mode": "on"},
+        "BEACONS": {"mode": "on", "max_allowlist": 6, "max_percent": 0},
         "BOOKMARKS": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
         "CHAT_SHARED_PLANS": {"mode": "allowlist", "max_allowlist": 6, "max_percent": 0},
         "COMMUNITIES": {"mode": "allowlist", "max_allowlist": 3, "max_percent": 0},

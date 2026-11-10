@@ -85,6 +85,14 @@ mut '.spec.containers[0].env |= map(select(.name != "FEATURE_GRAPH"))' revision-
 expect "graph unset equals dev default on" 0 "$V" "$tmp/r" "$ceil" dev
 mut '.spec.containers[0].env |= map(select(.name != "FEATURE_REPORTS"))' revision-ok.json r
 expect "reports unset equals off" 0 "$V" "$tmp/r" "$ceil" dev
+# D8: BEACONS may be on in dev while the pilot allowlist (up to 6 uids) is still set on the revision; the deploy after
+# #780 failed because the on ceiling carried no allowlist cap (missing max_allowlist reads as 0).
+mut '.spec.containers[0].env += [{"name":"FEATURE_BEACONS","value":"on"},{"name":"FEATURE_BEACONS_ALLOWLIST","value":"fake-uid-A,fake-uid-B,fake-uid-C"},{"name":"FEATURE_BEACONS_PERCENT","value":"0"}]' revision-ok.json r
+expect "beacons on with the pilot allowlist" 0 "$V" "$tmp/r" "$ceil" dev
+mut '.spec.containers[0].env += [{"name":"FEATURE_BEACONS","value":"allowlist"},{"name":"FEATURE_BEACONS_ALLOWLIST","value":"fake-uid-A,fake-uid-B,fake-uid-C"}]' revision-ok.json r
+expect "beacons pilot allowlist" 0 "$V" "$tmp/r" "$ceil" dev
+mut '.spec.containers[0].env += [{"name":"FEATURE_BEACONS","value":"on"},{"name":"FEATURE_BEACONS_ALLOWLIST","value":"fake-uid-A,fake-uid-B,fake-uid-C,fake-uid-D,fake-uid-E,fake-uid-F,fake-uid-G"}]' revision-ok.json r
+expect "beacons allowlist too big" 1 "$V" "$tmp/r" "$ceil" dev
 expect "not a revision" 2 "$V" "$fx/service-ok.json" "$ceil" dev
 expect "unknown env" 2 "$V" "$fx/revision-ok.json" "$ceil" prod
 
