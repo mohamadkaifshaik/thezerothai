@@ -569,9 +569,9 @@ func TestHome_Integration_TokenTTL(t *testing.T) {
 	}
 }
 
-// Home column with real status and graph data: SUSPENDED, DELETING and users-doc-missing authors stay
-// (the home never reads status), a both-block author is dropped even though a stale `following` lists them, a
-// non-followed author is absent, and a caller whose blockedByOverflow is set sees the same authors.
+// Home column with real status and graph data: SUSPENDED, DELETING and users-doc-missing authors are dropped per row
+// (F-03, which replaced D10's "the home never reads status"), a both-block author is dropped even though a stale
+// `following` lists them, a non-followed author is absent, and a caller whose blockedByOverflow is set sees the same authors.
 func TestHome_Integration_D6Matrix(t *testing.T) {
 	client := newClient(t)
 	seed := newInstance(t, client)
@@ -617,12 +617,10 @@ func TestHome_Integration_D6Matrix(t *testing.T) {
 			authors = append(authors, v.Post.Author.UserId)
 		}
 		slices.Sort(authors)
-		for _, a := range []string{"plain", "susp", "del", "gone"} {
-			if !got[a] {
-				t.Errorf("%s: home is missing %s (status/doc state must not filter)", name, a)
-			}
+		if !got["plain"] {
+			t.Errorf("%s: home is missing plain", name)
 		}
-		for _, a := range []string{"both", "stranger", "me"} {
+		for _, a := range []string{"susp", "del", "gone", "both", "stranger", "me"} {
 			if got[a] {
 				t.Errorf("%s: home shows %s", name, a)
 			}
@@ -913,6 +911,7 @@ func TestUser_Integration_MediaAndRepostsTabs(t *testing.T) {
 	seed := newInstance(t, client)
 	seed.signUp(t, "me")
 	seed.signUp(t, "bob")
+	seed.signUp(t, "other") // the ACTIVE author bob's REPOSTs copy (F-03 drops a copy of an inactive or missing author)
 	ctx := context.Background()
 	var media, reposts []string // oldest first
 	for i := 0; i < 60; i++ {
@@ -927,8 +926,8 @@ func TestUser_Integration_MediaAndRepostsTabs(t *testing.T) {
 		case i%10 == 1: // 6 reposts of someone else's post
 			upd := []firestore.Update{
 				{Path: "kind", Value: "REPOST"},
-				{Path: "embeddedAuthorId", Value: "uid-other"},
-				{Path: "embedded", Value: map[string]any{"postId": "9", "author": map[string]any{"userId": "uid-other", "handle": "other"}, "text": "copy"}},
+				{Path: "embeddedAuthorId", Value: "other"},
+				{Path: "embedded", Value: map[string]any{"postId": "9", "author": map[string]any{"userId": "other", "handle": "other"}, "text": "copy"}},
 			}
 			if _, err := doc.Update(ctx, upd); err != nil {
 				t.Fatal(err)

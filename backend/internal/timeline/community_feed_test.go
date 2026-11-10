@@ -162,6 +162,7 @@ type commRig struct {
 func newCommRig(t *testing.T) *commRig {
 	t.Helper()
 	r := newRig(t)
+	r.dir.activeByDefault = true // community authors are incidental here; author status has its own tests (author_status_test.go)
 	cp := &commPosts{fakePosts: r.posts, rows: map[string][]*posts.Post{}}
 	r.srv.deps.Posts = cp
 	r.srv.deps.Viewer = commViewer{}

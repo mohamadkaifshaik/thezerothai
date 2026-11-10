@@ -132,15 +132,21 @@ func (s *Server) listTimeline(ctx context.Context, uid string, req *timelinev1.G
 	if err := af.finish(); err != nil {
 		return nil, err
 	}
+	// Author status (F-03) per row: Members keeps inactive members, so this is where their rows leave. Tokens stay on the
+	// raw window.
+	items, err := s.activeOnly(ctx, uid, page.Items, af.embed)
+	if err != nil {
+		return nil, err
+	}
 
-	out.Posts, out.RemovedIds = s.toViews(ctx, uid, snap.Following, nil, page.Items, af.embed), removed
+	out.Posts, out.RemovedIds = s.toViews(ctx, uid, snap.Following, nil, items, af.embed), removed
 	it := s.tokens(f, md, tok, page, res.entries, start)
 	out.SinceToken, out.NextPageToken, out.GapPageToken = it.since, it.next, it.gap
 	logger.SetRequestField(ctx, fieldClamped, it.clamped)
 	logger.SetRequestField(ctx, fieldChunks, res.chunks)
 	logger.SetRequestField(ctx, fieldFromCache, res.fromHit)
-	logger.SetRequestField(ctx, fieldReturned, len(page.Items))
-	logger.SetRequestField(ctx, fieldFiltered, page.Filtered)
+	logger.SetRequestField(ctx, fieldReturned, len(items))
+	logger.SetRequestField(ctx, fieldFiltered, page.Filtered+len(page.Items)-len(items))
 	logger.SetRequestField(ctx, fieldGap, out.GetGapPageToken() != "")
 	return out, nil
 }

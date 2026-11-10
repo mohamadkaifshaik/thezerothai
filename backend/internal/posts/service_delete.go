@@ -188,6 +188,11 @@ func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_
 // parent: it returns the post, or ErrNotFound for a missing, deleted, hidden, blocked-author or
 // non-ACTIVE-author post (callers map that to the one NOT_FOUND answer), or a redacted internal error. It sets
 // no request-log fields. A caller who blocked or muted the author still gets the post.
+//
+// The author-status rule (F-03) covers the copy too: a REPOST of a post whose author is not ACTIVE is ErrNotFound, and a
+// QUOTE of one is returned as its tombstoned copy (TombstonedQuote; the cached post is never changed), the way the feeds
+// and search show it until the copy clean-up reaches it. The row author and the embedded author are read in the one
+// Directory call.
 func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post, error) {
 	p, err := s.Get(ctx, postID)
 	if errors.Is(err, ErrNotFound) {
@@ -203,13 +208,17 @@ func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post
 		return nil, ErrNotFound
 	}
 
-	profiles, err := s.directory.GetProfiles(ctx, []string{p.AuthorID})
+	// One Directory call for the author and a copy's embedded author (GetProfiles omits SUSPENDED, DELETING and missing
+	// authors alike). No uid is exempt here, the caller included, so the author check is the one it always was.
+	active, err := ResolveActiveAuthors(ctx, s.directory, "", []*Post{p})
 	if err != nil {
-		return nil, logger.RedactErr(fmt.Errorf("posts: get: load author: %w", err), callerUID, p.AuthorID)
+		return nil, logger.RedactErr(fmt.Errorf("posts: get: load author: %w", err), callerUID, p.AuthorID, p.EmbeddedAuthor())
 	}
-	// GetProfiles omits SUSPENDED, DELETING and missing authors alike.
-	if _, ok := profiles[p.AuthorID]; !ok {
+	switch active.Verdict(p) {
+	case AuthorDrop:
 		return nil, ErrNotFound
+	case AuthorTombstone:
+		p = TombstonedQuote(p)
 	}
 
 	// A QUOTE or REPOST also carries a frozen copy of another user's post: when that author blocks the caller

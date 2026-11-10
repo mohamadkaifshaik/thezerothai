@@ -162,14 +162,12 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 	s.fill(docs, readAt)
 	skip := map[string]bool{focal.ID: true, root: true, focal.ReplyToID: true}
 	var tally audienceTally
+	cands := make([]*Post, 0, len(docs))
 	for _, p := range docs {
 		if skip[p.ID] {
 			continue
 		}
-		// Hidden replies are dropped; then the block and mute sets the timelines use; then the one
-		// visibility predicate (a reply by a protected author the caller may not see is dropped, never the stored visibility).
-		// A reply carries no embed, so the author is the whole decision. The set is read at most
-		// once per instance per CACHE_TTL by its loader.
+		// The free rules first: hidden replies are dropped, then the block and mute sets the timelines use.
 		switch {
 		case p.Hidden():
 			tally.hidden++
@@ -178,16 +176,32 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 		case !replyAllowed(snap, callerUID, p.AuthorID):
 			tally.noteBlockMute(snap, p.AuthorID)
 		default:
-			ok, err := s.aud.visibleAuthor(ctx, callerUID, p.AuthorID, snap)
-			if err != nil {
-				return nil, s.audienceErr(err, callerUID)
-			}
-			if !ok {
-				tally.protected++
-				continue
-			}
-			out.Replies = append(out.Replies, p)
+			cands = append(cands, p)
 		}
+	}
+	// Then author status (F-03): one Directory batch for the remaining reply authors (a page is at most 30 rows; the caller
+	// is never asked), so a SUSPENDED, DELETING or missing author's reply leaves the thread before the clean-up hides it. A
+	// failure fails the page. A reply carries no embed, so the author is the whole decision.
+	active, err := ResolveActiveAuthors(ctx, s.directory, callerUID, cands)
+	if err != nil {
+		return nil, logger.RedactErr(fmt.Errorf("posts: thread: %w", err), callerUID)
+	}
+	for _, p := range cands {
+		if active.Verdict(p) != AuthorShow {
+			tally.inactive++
+			continue
+		}
+		// Then the one visibility predicate (a reply by a protected author the caller may not see is dropped, never the
+		// stored visibility). The set is read at most once per instance per CACHE_TTL by its loader.
+		ok, err := s.aud.visibleAuthor(ctx, callerUID, p.AuthorID, snap)
+		if err != nil {
+			return nil, s.audienceErr(err, callerUID)
+		}
+		if !ok {
+			tally.protected++
+			continue
+		}
+		out.Replies = append(out.Replies, p)
 	}
 	dropped := tally.total()
 	if len(docs) >= limit { // a full page always gets a next token, even when everything on it was dropped
@@ -203,10 +217,10 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 }
 
 // audienceTally counts the thread rows GetThread dropped, by cause (observability): counts only.
-type audienceTally struct{ protected, blocked, muted, hidden, communityHidden int }
+type audienceTally struct{ protected, blocked, muted, hidden, communityHidden, inactive int }
 
 func (t audienceTally) total() int {
-	return t.protected + t.blocked + t.muted + t.hidden + t.communityHidden
+	return t.protected + t.blocked + t.muted + t.hidden + t.communityHidden + t.inactive
 }
 
 // noteBlockMute files a reply replyAllowed refused: a mute (the caller's own list) only when no block applies.
@@ -226,6 +240,7 @@ func (t audienceTally) note(ctx context.Context) {
 	logger.SetRequestField(ctx, "audience_dropped_muted", t.muted)
 	logger.SetRequestField(ctx, "audience_dropped_hidden", t.hidden)
 	logger.SetRequestField(ctx, "audience_dropped_community_hidden", t.communityHidden)
+	logger.SetRequestField(ctx, "audience_dropped_inactive", t.inactive)
 }
 
 // contextAllowed is the context-post predicate (parent, root) with the audience applied: contextUsable (the pure

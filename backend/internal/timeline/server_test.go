@@ -86,6 +86,8 @@ func TestImports_OnlySeamsOfPostsGraphIdentity(t *testing.T) {
 			"MaxGetMany": true, "MaxByAuthors": true, "MaxLimit": true, "MaxRecent": true,
 			"KindPost": true, "KindReply": true, "KindQuote": true, "KindRepost": true,
 			"VisibilityPublic": true, "VisibilityFollowers": true,
+			// The author-status rule (F-03) every feed shares with GetPost and search.
+			"AuthorDirectory": true, "ResolveActiveAuthors": true, "AuthorDrop": true, "AuthorTombstone": true, "TombstonedQuote": true,
 			// Viewer flags are posts' ViewerFlags seam; ToView renders them.
 			"ViewerFlags": true, "ViewerSet": true, "ToView": true, "Audience": true, "NewSnapshotAudience": true, "SurfaceDirect": true, "SurfaceOwnProfile": true, "Surface": true, "Show": true, "ApplyEmbedState": true, "ApplyWireVisibility": true, "EngagementFlagName": true, "BookmarksFlagName": true, "HydrateViewer": true, "Poll": true, "BeaconPlans": true, "BeaconLive": true, "HydrateBeacons": true, "PostBeaconFlagName": true,
 		},
