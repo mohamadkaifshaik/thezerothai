@@ -12,6 +12,7 @@ import (
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	searchv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/internal/timeline"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -55,6 +56,7 @@ const (
 	fieldDroppedBlocked   = "dropped_blocked"
 	fieldDroppedMuted     = "dropped_muted"
 	fieldDroppedProtected = "dropped_protected"
+	fieldDroppedInactive  = "dropped_inactive"
 	fieldCacheHit         = "cache_hit"
 )
 
@@ -65,7 +67,7 @@ type tagStore interface {
 	Set(tag string, ps []*posts.Post)
 }
 
-// PostsDeps are what SearchPosts needs beyond the flag checker. Posts, Graph and CursorKey are required:
+// PostsDeps are what SearchPosts needs beyond the flag checker. Posts, Graph, Authors and CursorKey are required:
 // without them an enabled caller gets Unimplemented.
 type PostsDeps struct {
 	// Posts is the only way to read posts (ByHashtag).
@@ -77,6 +79,9 @@ type PostsDeps struct {
 	// Audience is THE visibility predicate (posts.NewSnapshotAudience(protectedAuthors)). Nil is "nobody is
 	// protected"; apiserver refuses to start without it.
 	Audience *posts.Audience
+	// Authors is the author-status check (identity.Directory): GetProfiles omits missing, SUSPENDED and DELETING accounts,
+	// the rule GetPost, GetThread's context and GetUserTimeline apply. Required: nil leaves SearchPosts Unimplemented.
+	Authors AuthorDirectory
 	// CursorKey seals page tokens (config.CursorHMACKey).
 	CursorKey []byte
 	// TagEntries is the tag-entry capacity (CACHE_SEARCH_TAG_ENTRIES).
@@ -91,8 +96,8 @@ type Option func(*service)
 // WithPosts enables SearchPosts. Incomplete deps leave it disabled (Unimplemented for an enabled caller).
 func WithPosts(d PostsDeps) Option {
 	return func(s *service) {
-		if d.Posts == nil || d.Graph == nil || len(d.CursorKey) == 0 {
-			return
+		if d.Posts == nil || d.Graph == nil || d.Authors == nil || len(d.CursorKey) == 0 {
+			return // fail closed: without the author-status check no row could be proven visible
 		}
 		if d.Audience == nil {
 			d.Audience = posts.NewSnapshotAudience(nil)
@@ -162,9 +167,9 @@ func tokenError() error {
 }
 
 // dropTally counts the rows a call dropped by cause (the request line).
-type dropTally struct{ hidden, blocked, muted, protected int }
+type dropTally struct{ hidden, blocked, muted, protected, inactive int }
 
-func (d dropTally) total() int { return d.hidden + d.blocked + d.muted + d.protected }
+func (d dropTally) total() int { return d.hidden + d.blocked + d.muted + d.protected + d.inactive }
 
 // fetched is the unfiltered rows a call works on, newest first. more is whether the window was full (the query returned as
 // many rows as it asked for, or the entry held tagEntrySize), so older posts may exist below the last row.
@@ -181,9 +186,11 @@ type fetched struct {
 // older page queries 20 at page_size <= 20 and 50 at 21 to 50; a tail page (the token of a window that was not full, the
 // end of the tag) reads the rest of the tag. The older MEDIA scan reads 30.
 // An unsupported query, a grammar rejection and a bad token read nothing. The graph and userLikes
-// reads are 60 s instance caches; userLikes is read only when a row is returned and engagement or bookmarks is on.
+// reads are 60 s instance caches; userLikes is read only when a row is returned and engagement or bookmarks is on. The
+// author-status check is one cache-first identity.Directory.GetProfiles per call with rows (F-03; a window of more than
+// 50 distinct uids, authors plus embedded authors, is split into batches of 50).
 //
-// LATEST filters the WHOLE window (moderation, blocks, mutes, Audience), then cuts to page_size, so the number of rows and
+// LATEST filters the WHOLE window (moderation, blocks, mutes, author status, Audience), then cuts to page_size, so the number of rows and
 // whether a token follows depend only on the visible rows and on whether the window was full. The token position is the last
 // returned row when the page was cut, else the window's last queried row; a window that was not full issues a LATEST_TAIL
 // token (only when it was cut), and a tail page reads the whole rest of the tag.
@@ -239,10 +246,11 @@ func (r *postsRuntime) search(ctx context.Context, uid, rawQuery string, tab sea
 	case tabMedia:
 		cands = withOwnMedia(cands)
 	}
-	kept, embed, tally, snap, err := r.filter(ctx, uid, cands)
+	fl, err := r.filter(ctx, uid, cands)
 	if err != nil {
 		return nil, err
 	}
+	kept, tally := fl.kept, fl.tally
 
 	more := f.more
 	tailToken := false // the token issued below, if any, is a LATEST_TAIL token
@@ -275,7 +283,7 @@ func (r *postsRuntime) search(ctx context.Context, uid, rawQuery string, tab sea
 		tailToken = !f.more
 		more = f.more || cut
 	}
-	resp := &searchv1.SearchPostsResponse{Posts: r.views(ctx, uid, kept, embed, snap), NormalizedTag: tag}
+	resp := &searchv1.SearchPostsResponse{Posts: r.views(ctx, uid, kept, fl), NormalizedTag: tag}
 	if more && resume != nil {
 		b := binding(uid, tag, t)
 		if tailToken {
@@ -289,6 +297,7 @@ func (r *postsRuntime) search(ctx context.Context, uid, rawQuery string, tab sea
 	logger.SetRequestField(ctx, fieldDroppedBlocked, tally.blocked)
 	logger.SetRequestField(ctx, fieldDroppedMuted, tally.muted)
 	logger.SetRequestField(ctx, fieldDroppedProtected, tally.protected)
+	logger.SetRequestField(ctx, fieldDroppedInactive, tally.inactive)
 	return resp, nil
 }
 
@@ -401,52 +410,145 @@ func rankTop(rows []*posts.Post) {
 	})
 }
 
+// filtered is what filter decided for one call's rows.
+type filtered struct {
+	// kept is a fresh slice (never the shared entry), so callers may reorder and cut it.
+	kept []*posts.Post
+	// embed is the PROTECTED embed state of the kept QUOTEs that carry one.
+	embed map[string]postsv1.EmbedViewerState
+	// gone is the kept QUOTEs whose quoted post's author is not ACTIVE: rendered with the embed tombstoned.
+	gone  map[string]bool
+	tally dropTally
+	snap  graph.Snapshot
+}
+
 // filter applies the per-viewer rules after the shared entry, in this order per
 // row: moderation (!Visible), the blockedBy-overflow fail-closed rule, the author's and a QUOTE's embedded author's
-// block / blocked-by / mute state, then posts.Audience.Decide on the list surface (protected authors; a QUOTE of one is
-// kept with embed PROTECTED). The caller's own posts are kept. The graph snapshot is read once (cached 60 s) and only
-// when rows exist. A protected set that cannot be trusted is UNAVAILABLE (never a partial page). The returned slice is fresh, so callers may reorder it.
-func (r *postsRuntime) filter(ctx context.Context, uid string, rows []*posts.Post) ([]*posts.Post, map[string]postsv1.EmbedViewerState, dropTally, graph.Snapshot, error) {
-	var tally dropTally
+// block / blocked-by / mute state, the author status (F-03), then posts.Audience.Decide on the list surface (protected
+// authors; a QUOTE of one is kept with embed PROTECTED). The caller's own posts are kept. The graph snapshot is read once
+// (cached 60 s) and only when rows exist. A protected set that cannot be trusted is UNAVAILABLE and a failed author-status
+// read is an error (never a partial or unchecked page).
+//
+// Author status is the rule GetPost, GetThread's context and GetUserTimeline apply: an author identity.Directory.GetProfiles
+// does not return (missing, SUSPENDED or DELETING) drops the row. A copy of a post whose author is not ACTIVE is shown as
+// suspend-user's copy clean-up and the account purge leave it: a REPOST is dropped, a QUOTE keeps its own text with the embed
+// tombstoned (gone; views renders it).
+func (r *postsRuntime) filter(ctx context.Context, uid string, rows []*posts.Post) (filtered, error) {
+	var f filtered
 	if len(rows) == 0 {
-		return nil, nil, tally, graph.Snapshot{}, nil
+		return f, nil
 	}
 	snap, err := r.d.Graph.Snapshot(ctx, uid)
 	if err != nil {
-		return nil, nil, tally, snap, logger.RedactErr(fmt.Errorf("search: caller graph: %w", err), uid)
+		return filtered{}, logger.RedactErr(fmt.Errorf("search: caller graph: %w", err), uid)
 	}
-	kept := make([]*posts.Post, 0, len(rows))
-	var embed map[string]postsv1.EmbedViewerState
+	f.snap = snap
+	// The free rules first, so the author-status batch holds only the authors of rows that could still be shown.
+	cands := make([]*posts.Post, 0, len(rows))
 	for _, p := range rows {
 		if !p.Visible() {
-			tally.hidden++
+			f.tally.hidden++
 			continue
 		}
 		switch blockCause(snap, uid, p) {
 		case causeBlocked:
-			tally.blocked++
+			f.tally.blocked++
 			continue
 		case causeMuted:
-			tally.muted++
+			f.tally.muted++
 			continue
+		}
+		cands = append(cands, p)
+	}
+	active, err := r.activeAuthors(ctx, uid, cands)
+	if err != nil {
+		return filtered{}, err
+	}
+	f.kept = make([]*posts.Post, 0, len(cands))
+	for _, p := range cands {
+		if !active(p.AuthorID) {
+			f.tally.inactive++
+			continue
+		}
+		embedGone := false
+		if ea := p.EmbeddedAuthor(); ea != "" && !active(ea) {
+			if p.Kind != posts.KindQuote { // a REPOST of it: the clean-up deletes the copy
+				f.tally.inactive++
+				continue
+			}
+			embedGone = true
 		}
 		d, err := r.d.Audience.Decide(ctx, uid, snap, p, posts.SurfaceList)
 		if err != nil {
-			return nil, nil, tally, snap, err // an apierr (UNAVAILABLE) passes through
+			return filtered{}, err // an apierr (UNAVAILABLE) passes through
 		}
 		if d.Verdict != posts.Show {
-			tally.protected++
+			f.tally.protected++
 			continue
 		}
-		if d.Embed != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED {
-			if embed == nil {
-				embed = map[string]postsv1.EmbedViewerState{}
+		switch {
+		case embedGone:
+			if f.gone == nil {
+				f.gone = map[string]bool{}
 			}
-			embed[p.ID] = d.Embed
+			f.gone[p.ID] = true // the tombstone carries no author, so no embed state applies
+		case d.Embed != postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED:
+			if f.embed == nil {
+				f.embed = map[string]postsv1.EmbedViewerState{}
+			}
+			f.embed[p.ID] = d.Embed
 		}
-		kept = append(kept, p)
+		f.kept = append(f.kept, p)
 	}
-	return kept, embed, tally, snap, nil
+	return f, nil
+}
+
+// activeAuthors reads the account status of the authors of rows and of the posts their QUOTEs and REPOSTs copy, through
+// identity.Directory.GetProfiles (cache-first, 60 s): an author it returns with status ACTIVE is active; a missing,
+// SUSPENDED or DELETING one is not. Each uid is asked once; the caller is never asked and is active (the account-status
+// interceptor admits only ACTIVE callers, as posts' reply policy also assumes). One call per page, in batches of
+// authorBatch (the Directory's limit), so a window of more than 50 distinct uids makes two. No uid, no call. A failure is
+// an error: status is never assumed.
+func (r *postsRuntime) activeAuthors(ctx context.Context, uid string, rows []*posts.Post) (func(string) bool, error) {
+	seen := map[string]bool{}
+	var want []string
+	add := func(a string) {
+		if a != "" && a != uid && !seen[a] {
+			seen[a] = true
+			want = append(want, a)
+		}
+	}
+	for _, p := range rows {
+		add(p.AuthorID)
+		add(p.EmbeddedAuthor())
+	}
+	active := make(map[string]bool, len(want))
+	for batch := range slices.Chunk(want, authorBatch) {
+		profiles, err := r.d.Authors.GetProfiles(ctx, batch)
+		if err != nil {
+			return nil, logger.RedactErr(fmt.Errorf("search: author status: %w", err), uid)
+		}
+		for a, p := range profiles {
+			if p.Status == identity.AccountStatusActive {
+				active[a] = true
+			}
+		}
+	}
+	return func(a string) bool { return a == uid || active[a] }, nil
+}
+
+// tombstoned is a copy of the QUOTE q as posts' TombstoneQuotes leaves it once the quoted post's author is gone: the embed
+// reduced to {post id, unavailable}, no quoteOfId and no embedded author. q itself (shared through the tag entry) is never
+// changed.
+func tombstoned(q *posts.Post) *posts.Post {
+	c := *q
+	id := q.QuoteOfID
+	if q.Embedded != nil && q.Embedded.PostID != "" {
+		id = q.Embedded.PostID
+	}
+	c.Embedded = &posts.Embedded{PostID: id, Unavailable: true}
+	c.QuoteOfID, c.EmbeddedAuthorID = "", ""
+	return &c
 }
 
 // Drop causes of blockCause.
@@ -490,19 +592,24 @@ func blockCause(snap graph.Snapshot, uid string, p *posts.Post) string {
 }
 
 // views renders the kept rows with the viewer's flags (one cached userLikes read when engagement or bookmarks is on and a
-// row is returned; posts.HydrateViewer), the PROTECTED embed strip and the computed wire visibility.
-func (r *postsRuntime) views(ctx context.Context, uid string, kept []*posts.Post, embed map[string]postsv1.EmbedViewerState, snap graph.Snapshot) []*postsv1.PostView {
+// row is returned; posts.HydrateViewer), the tombstone of a QUOTE whose quoted author is not ACTIVE, the PROTECTED embed
+// strip and the computed wire visibility. kept is f.kept after the tab's ranking and cut.
+func (r *postsRuntime) views(ctx context.Context, uid string, kept []*posts.Post, f filtered) []*postsv1.PostView {
 	var vs posts.ViewerSet
 	if len(kept) > 0 {
 		vs = posts.HydrateViewer(ctx, r.fc, r.d.Viewer, uid)
 	}
 	out := make([]*postsv1.PostView, 0, len(kept))
 	for _, p := range kept {
-		v := posts.ToView(p, vs, uid)
-		if st, ok := embed[p.ID]; ok {
+		src := p
+		if f.gone[p.ID] {
+			src = tombstoned(p)
+		}
+		v := posts.ToView(src, vs, uid)
+		if st, ok := f.embed[p.ID]; ok {
 			posts.ApplyEmbedState(v, st) // the only place the PROTECTED strip happens
 		}
-		posts.ApplyWireVisibility(v, r.d.Audience.ProtectedAuthor(ctx, uid, p.AuthorID, snap.Following[p.AuthorID]))
+		posts.ApplyWireVisibility(v, r.d.Audience.ProtectedAuthor(ctx, uid, p.AuthorID, f.snap.Following[p.AuthorID]))
 		out = append(out, v)
 	}
 	return out

@@ -21,6 +21,7 @@ import (
 
 	searchv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/internal/search"
 )
@@ -62,8 +63,26 @@ func newClient(t *testing.T) *firestore.Client {
 	return client
 }
 
+// allActive is the author-status Directory for the tests that seed posts without users docs: every author is ACTIVE.
+// author_status_integration_test.go wires identity's real Directory instead.
+type allActive struct{}
+
+func (allActive) GetProfiles(_ context.Context, uids []string) (map[string]identity.Profile, error) {
+	out := make(map[string]identity.Profile, len(uids))
+	for _, u := range uids {
+		out[u] = identity.Profile{UserID: u, Status: identity.AccountStatusActive}
+	}
+	return out, nil
+}
+
 // newInstance is one Cloud Run instance: its own caches over the shared emulator project. A new instance is the cold case.
 func newInstance(t *testing.T, client *firestore.Client) *instance {
+	t.Helper()
+	return newInstanceWith(t, client, allActive{})
+}
+
+// newInstanceWith is newInstance with the given author-status Directory.
+func newInstanceWith(t *testing.T, client *firestore.Client, authors search.AuthorDirectory) *instance {
 	t.Helper()
 	graphSvc := graph.New(graph.Deps{
 		Repo: graph.NewFirestoreRepo(client), Cache: graph.NewCache(time.Minute), Flags: allOn{}, CursorKey: cursorKey,
@@ -71,7 +90,7 @@ func newInstance(t *testing.T, client *firestore.Client) *instance {
 	postsSvc := posts.New(posts.Deps{Repo: posts.NewFirestoreRepo(client), Cache: posts.NewCache(time.Minute, 20_000, 1_000), Events: posts.NopEvents{}})
 	viewer := &countingViewer{}
 	return &instance{viewer: viewer, Service: search.New(allOn{}, search.WithPosts(search.PostsDeps{
-		Posts: postsSvc, Graph: graphSvc, Viewer: viewer, Audience: posts.NewSnapshotAudience(nil),
+		Posts: postsSvc, Graph: graphSvc, Viewer: viewer, Audience: posts.NewSnapshotAudience(nil), Authors: authors,
 		CursorKey: cursorKey, TagEntries: 100,
 	}))}
 }

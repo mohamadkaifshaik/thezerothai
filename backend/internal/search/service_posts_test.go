@@ -126,8 +126,10 @@ type rig struct {
 	reader *fakeReader
 	graph  *fakeGraph
 	viewer *fakeViewer
-	clock  time.Time
-	mu     sync.Mutex
+	// authors is the author-status Directory: every uid ACTIVE unless marked (author_status_test.go).
+	authors *statusDir
+	clock   time.Time
+	mu      sync.Mutex
 }
 
 func (r *rig) now() time.Time {
@@ -145,8 +147,8 @@ func (r *rig) advance(d time.Duration) {
 type rigOpt func(*rig, *PostsDeps, flagMap)
 
 func newRig(byTag map[string][]*posts.Post, opts ...rigOpt) *rig {
-	r := &rig{reader: &fakeReader{byTag: byTag}, graph: &fakeGraph{snap: snapshot()}, viewer: &fakeViewer{}, clock: t0}
-	deps := PostsDeps{Posts: r.reader, Graph: r.graph, Viewer: r.viewer, CursorKey: testKey, Now: r.now}
+	r := &rig{reader: &fakeReader{byTag: byTag}, graph: &fakeGraph{snap: snapshot()}, viewer: &fakeViewer{}, authors: newStatusDir(), clock: t0}
+	deps := PostsDeps{Posts: r.reader, Graph: r.graph, Viewer: r.viewer, Authors: r.authors, CursorKey: testKey, Now: r.now}
 	fl := flagMap{FlagSearch: true}
 	for _, o := range opts {
 		o(r, &deps, fl)
@@ -893,7 +895,7 @@ func TestPosts_FlagModesWithRealRegistry(t *testing.T) {
 			for uid, wantOn := range map[string]bool{in: m.wantIn, out: m.wantOut} {
 				r := &fakeReader{byTag: map[string][]*posts.Post{"go": newestFirst(3)}}
 				g := &fakeGraph{snap: snapshot()}
-				svc := New(flags.NewRegistry(m.spec, flags.Spec{Name: FlagTrends, Mode: flags.On}), WithPosts(PostsDeps{Posts: r, Graph: g, CursorKey: testKey}))
+				svc := New(flags.NewRegistry(m.spec, flags.Spec{Name: FlagTrends, Mode: flags.On}), WithPosts(PostsDeps{Posts: r, Graph: g, Authors: newStatusDir(), CursorKey: testKey}))
 				resp, err := svc.Posts(context.Background(), uid, "go", latest, 0, "")
 				if wantOn {
 					if err != nil || len(resp.Posts) != 3 {

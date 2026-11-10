@@ -752,10 +752,17 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// loader. GetTrends reads trends/current through a 10 min instance copy; the refresher is the
 	// daily step (and the standalone route). Both go through search.TrendsStore, the only code that touches the collection.
 	trendsStore := search.NewTrendsRepo(fsClient)
+	// F-03: SearchPosts drops every row whose author is not ACTIVE through identity's Directory, the rule GetPost and
+	// GetUserTimeline apply (a REPOST of such an author's post is dropped, a QUOTE of one is tombstoned). WithPosts stays
+	// Unimplemented without it, so refuse to start instead.
+	var searchAuthors search.AuthorDirectory = identitySvc.(identity.Directory)
+	if err := requireAuthorStatusSeams([]protectedSeam{{"search.PostsDeps.Authors (identity.Directory)", searchAuthors}}); err != nil {
+		return nil, nil, err
+	}
 	searchServer := search.NewServer(search.New(featureFlags,
 		search.WithPeople(search.PeopleDeps{Directory: identitySvc.(identity.Directory), Graph: graphSvc, PrefixEntries: cfg.Search.PrefixCacheEntries, Prefixes: handlePrefixes}),
 		search.WithPosts(search.PostsDeps{
-			Posts: postsSvc, Graph: graphSvc, Viewer: engagementMod, Audience: searchAudience,
+			Posts: postsSvc, Graph: graphSvc, Viewer: engagementMod, Audience: searchAudience, Authors: searchAuthors,
 			CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries,
 		}),
 		search.WithTrends(trendsStore, nil),
