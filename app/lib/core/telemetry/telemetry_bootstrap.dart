@@ -52,6 +52,7 @@ Future<TelemetryController> startTelemetry({
   TelemetryAdapters Function(bool supported)? adaptersFor,
   void Function(String message)? debugLog,
   bool installHooks = true,
+  bool transientStorage = false,
 }) async {
   await initializeFirebase();
   final isSupported = supported ?? TelemetryPlatforms.current;
@@ -65,6 +66,7 @@ Future<TelemetryController> startTelemetry({
     memory: memory,
     lastUid: lastUid,
     debugLog: debugLog,
+    transientStorage: transientStorage,
   );
   if (installHooks) installTelemetryErrorHooks(controller);
   await controller.applyAtBootstrap(await restoredUid());

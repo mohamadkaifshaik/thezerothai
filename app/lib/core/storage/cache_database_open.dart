@@ -30,8 +30,9 @@ class OpenedCacheDatabase {
 
   bool _reported = false;
 
-  /// Hands [failure] to [report] at most once; nothing when on disk. Call it
-  /// after the telemetry hooks are installed, so the report reaches them.
+  /// Hands [failure] to [report] at most once; nothing when on disk. Bootstrap
+  /// passes `TelemetryController.recordWhenCollecting`, which holds it until
+  /// crash collecting turns on this session.
   void reportFallback(void Function(Object error, StackTrace stack) report) {
     final failure = this.failure;
     if (failure == null || _reported) return;
@@ -49,7 +50,7 @@ class OpenedCacheDatabase {
 /// on [inMemoryExecutor] and claimed the same way. The app then runs with a
 /// cache that is not kept across restarts; no copy changes. The file is never
 /// deleted or renamed, so the next launch tries the disk again. The caller
-/// reports the failure once ([OpenedCacheDatabase.reportFallback]). A failure
+/// hands the failure on once ([OpenedCacheDatabase.reportFallback]). A failure
 /// of the in-memory database itself is not caught.
 Future<OpenedCacheDatabase> openCacheDatabase({
   required String? restoredUid,

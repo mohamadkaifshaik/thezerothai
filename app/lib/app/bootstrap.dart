@@ -156,11 +156,19 @@ Future<void> bootstrap() async {
     memory: DatabaseTelemetryFlagMemory(database),
     consent: telemetryConsent,
     lastUid: DatabaseTelemetryLastUidStore(database),
+    // On an in-memory cache the stored answers are absent, not "no": the
+    // controller keeps unsent reports and the analytics ID.
+    transientStorage: cache.inMemory,
   );
-  // Through the hooks `startTelemetry` installed: recorded only while the
-  // controller collects (Android, opted in). On an in-memory cache the
-  // stored consent is unreadable, so this stays on the device.
-  cache.reportFallback(reportUnexpectedError);
+  // The in-memory cache has no stored consent, so collection starts off. The
+  // report is held for the session and sent once, the first time crash
+  // collecting turns on (Android, opted in again, flag from GetMe); dropped
+  // if it never does. The type only leaves the device.
+  final fallback = cache.failure;
+  if (kDebugMode && fallback != null) {
+    debugPrint('Local cache unavailable: $fallback');
+  }
+  cache.reportFallback(telemetry.recordWhenCollecting);
   for (final (error, stack) in startupErrors) {
     reportUnexpectedError(error, stack);
   }

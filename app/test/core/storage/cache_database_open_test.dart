@@ -154,6 +154,36 @@ void main() {
     },
   );
 
+  test('a LazyDatabase whose opener throws: fallback, the close does not '
+      'hang, nothing leaks', () async {
+    var opens = 0;
+    late AppDatabase disk;
+    final memory = _Disk(); // records the fallback's close
+    final result = await openCacheDatabase(
+      restoredUid: 'a',
+      openOnDisk: () => disk = AppDatabase(
+        LazyDatabase(() async {
+          opens++;
+          throw const FileSystemException('cannot open', _diskPath);
+        }),
+      ),
+      inMemoryExecutor: () => NativeDatabase.memory().interceptWith(memory),
+    ).timeout(const Duration(seconds: 10));
+
+    expect(result.inMemory, isTrue);
+    expect(opens, 1, reason: 'the opener ran once; no retry loop');
+    expect(await result.database.readSetting(kCacheOwnerKey), 'a');
+    // Closed during the fallback: a second close still finishes (it may
+    // rethrow the open error) and never reopens.
+    await expectLater(
+      disk.close().then((_) => null, onError: (Object _) => null),
+      completes,
+    );
+    expect(opens, 1);
+    await result.database.close();
+    expect(memory.closed, isTrue);
+  });
+
   test('a later launch tries the disk again', () async {
     final broken = await open(_Disk(failOpen: true), 'a');
     expect(broken.inMemory, isTrue);
