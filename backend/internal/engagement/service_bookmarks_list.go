@@ -47,7 +47,8 @@ func (s *service) decodeBookmarkToken(uid, token string) (*posts.Position, error
 
 // listBookmarks implements Bookmarks.ListBookmarks. Reads, in this order and each only when needed: the page query
 // (1 + len; an empty list stops here), GetMany (the misses of the instance post cache), the caller's graph snapshot
-// (1, cached 60 s, skipped when every live row is the caller's own), userLikes through posts.HydrateViewer (1, cached
+// (1, cached 60 s, skipped when every live row is the caller's own), the authors' account status through identity's
+// Directory (one cache-first batch, skipped when every row left is the caller's own plain post), userLikes through posts.HydrateViewer (1, cached
 // 60 s, skipped when no row is left). The next token is sealed from the last QUERIED row, kept or dropped, and issued
 // whenever the query was full (a short page is the last one), so a page never pays for a look-ahead read.
 func (s *service) listBookmarks(ctx context.Context, uid string, pageSize int32, token string) (_ BookmarkPage, err error) {
@@ -95,7 +96,7 @@ func (s *service) listBookmarks(ctx context.Context, uid string, pageSize int32,
 		return BookmarkPage{}, dropErr("list bookmarks", uid, err)
 	}
 	for k, i := range res.Kept {
-		page.Rows = append(page.Rows, BookmarkRow{Post: live[postIDs[i]], BookmarkedAt: rows[i].BookmarkedAt, Hint: res.Hints[k]})
+		page.Rows = append(page.Rows, BookmarkRow{Post: res.Posts[k], BookmarkedAt: rows[i].BookmarkedAt, Hint: res.Hints[k]})
 	}
 	if len(page.Rows) > 0 {
 		page.Viewer = posts.HydrateViewer(ctx, s.d.Flags, &Module{s: s}, uid)

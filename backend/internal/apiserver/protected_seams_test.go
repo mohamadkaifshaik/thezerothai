@@ -125,6 +125,10 @@ func TestAuthorStatusSeamWiredInBuild(t *testing.T) {
 		"timelineDir := identitySvc.(identity.Directory)",
 		`{"timeline.Deps.Directory (identity.Directory)", timelineDir}`,
 		"Directory: timelineDir,",
+		// The bookmarks and likes lists' author-status Directory (engagement dropRows).
+		"engagementDir := identitySvc.(identity.Directory)",
+		`{"engagement.Deps.Directory (identity.Directory)", engagementDir}`,
+		"Directory: engagementDir,",
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("apiserver.go no longer contains %q", want)

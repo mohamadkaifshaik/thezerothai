@@ -50,7 +50,8 @@ type Deps struct {
 	// (cache first). apiserver passes the one posts service for both.
 	Posts  posts.Engagement
 	Reader posts.Reader
-	// Directory supplies the caller's profile (REPOST author snapshot, new-account window), cache first.
+	// Directory supplies the caller's profile (REPOST author snapshot, new-account window), cache first, and the
+	// account status the two lists apply the author-status rule with (F-03, posts.ResolveActiveAuthors).
 	Directory identity.Directory
 	Events    Events
 

@@ -377,8 +377,14 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	engAudience := rowAudience(posts.AudienceOf(audienceSvc))
 	rlCfg := RateLimitConfig(cfg)
+	// F-03: ListBookmarks and ListLikedPosts drop rows whose author is not ACTIVE through identity's Directory (the page
+	// fails closed without it), so a wiring regression refuses to start instead.
+	engagementDir := identitySvc.(identity.Directory)
+	if err := requireAuthorStatusSeams([]protectedSeam{{"engagement.Deps.Directory (identity.Directory)", engagementDir}}); err != nil {
+		return nil, nil, err
+	}
 	engagementMod, err := engagement.New(engagement.Deps{
-		Repo: engagementRepo, Posts: postsSvc.(posts.Engagement), Reader: postsSvc, Directory: identitySvc.(identity.Directory),
+		Repo: engagementRepo, Posts: postsSvc.(posts.Engagement), Reader: postsSvc, Directory: engagementDir,
 		Events:   engagementNotifier{slot: notifSlot},
 		CacheTTL: cfg.CacheTTL, AllowAnonymous: cfg.AuthEmulator,
 		// Bookmarks: the repo is the engagement repo, the cap is config, not a literal.

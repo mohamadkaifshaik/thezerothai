@@ -4,7 +4,8 @@ package apiserver
 
 // The drop matrix of ListBookmarks end to end, one state change at a time, each read through a COLD
 // chain (a new Build over the same emulator project, so the 60 s post / graph / userLikes caches cannot hide a change):
-// deleted (pruned once), takedown then restore, suspended author then reinstated, DELETING author (kept), blocks in both
+// deleted (pruned once), takedown then restore, suspended author then reinstated, DELETING author (dropped by the
+// author-status rule, F-03, and never pruned), blocks in both
 // directions, unblock, mute, unmute, and a QUOTE whose embedded author is blocked, blocks the caller or is muted.
 // The prune is once per open, skipped under DEGRADED_MODE=readonly, and leaves no residue in userLikes.bookmarks.
 
@@ -120,12 +121,12 @@ func TestListBookmarksChain_DropMatrixStepByStep(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	tally := func(l map[string]any, missing, hid, blocked, muted, pruned, returned int64) {
+	tally := func(l map[string]any, missing, hid, blocked, muted, inactive, pruned, returned int64) {
 		t.Helper()
 		for k, want := range map[string]int64{
 			"rows_dropped_missing": missing, "rows_dropped_hidden": hid, "rows_dropped_blocked": blocked,
-			"rows_dropped_muted": muted, "rows_pruned": pruned, "rows_returned": returned,
-			"rows_dropped": missing + hid + blocked + muted,
+			"rows_dropped_muted": muted, "rows_dropped_inactive": inactive, "rows_pruned": pruned, "rows_returned": returned,
+			"rows_dropped": missing + hid + blocked + muted + inactive,
 		} {
 			if got := num(l, k); got != want {
 				t.Errorf("%s = %d, want %d", k, got, want)
@@ -137,7 +138,8 @@ func TestListBookmarksChain_DropMatrixStepByStep(t *testing.T) {
 	wantRows(t, "phase 0", cold(), v, newestFirst())
 
 	// Phase 1: the post is deleted, taken down, its author suspended; v blocks x, mutes y; z blocks v; the embedded author
-	// of the quote is blocked by v. A DELETING author's post stays (Home column: no extra read, the purge removes it).
+	// of the quote is blocked by v. A DELETING author's post is dropped by the author-status rule (F-03) until the purge
+	// deletes it; its bookmark doc stays (only a missing post is pruned). aDelg stays DELETING to the end.
 	if _, err := w.posts.DeletePost(ctx, authed(aDel.token, &postsv1.DeletePostRequest{IdempotencyKey: contractKey("bm-del"), PostId: deleted})); err != nil {
 		t.Fatal(err)
 	}
@@ -151,9 +153,10 @@ func TestListBookmarksChain_DropMatrixStepByStep(t *testing.T) {
 	block(v, e)
 
 	r := cold()
-	l := wantRows(t, "phase 1", r, v, newestFirst(deleted, hidden, suspended, byBlocked, byMuted, byBlocker, quote))
-	// rows: live + deleting kept; dropped: missing 1, hidden 2 (takedown + suspended), blocked 3 (x, z, the quote's embedded e), muted 1
-	tally(l, 1, 2, 3, 1, 1, 2)
+	l := wantRows(t, "phase 1", r, v, newestFirst(deleted, hidden, suspended, deleting, byBlocked, byMuted, byBlocker, quote))
+	// rows: live kept; dropped: missing 1, hidden 2 (takedown + suspended), blocked 3 (x, z, the quote's embedded e), muted 1,
+	// inactive 1 (the DELETING author)
+	tally(l, 1, 2, 3, 1, 1, 1, 1)
 	// Cold open; the one missing row is pruned.
 	// Prune exactly once: only the deleted post's doc is gone, nothing else, no residue in the array.
 	for id, want := range map[string]bool{live: true, deleted: false, hidden: true, suspended: true, deleting: true, byBlocked: true, byMuted: true, byBlocker: true, quote: true} {
@@ -166,42 +169,42 @@ func TestListBookmarksChain_DropMatrixStepByStep(t *testing.T) {
 	}
 	// ... and the next open prunes nothing and writes nothing.
 	r = cold()
-	l = wantRows(t, "phase 1, second open", r, v, newestFirst(deleted, hidden, suspended, byBlocked, byMuted, byBlocker, quote))
-	tally(l, 0, 2, 3, 1, 0, 2)
+	l = wantRows(t, "phase 1, second open", r, v, newestFirst(deleted, hidden, suspended, deleting, byBlocked, byMuted, byBlocker, quote))
+	tally(l, 0, 2, 3, 1, 1, 0, 1)
 
 	// Phase 2: the takedown is restored and the author reinstated: both rows are back, no re-add.
 	setModeration(hidden, "")
 	setModeration(suspended, "")
 	setStatus(aSus, "ACTIVE")
-	l = wantRows(t, "phase 2 (restore, reinstate)", cold(), v, newestFirst(deleted, byBlocked, byMuted, byBlocker, quote))
-	tally(l, 0, 0, 3, 1, 0, 4)
+	l = wantRows(t, "phase 2 (restore, reinstate)", cold(), v, newestFirst(deleted, deleting, byBlocked, byMuted, byBlocker, quote))
+	tally(l, 0, 0, 3, 1, 1, 0, 3)
 
 	// Phase 3: unblock x, unmute y, z unblocks v, v unblocks e: every remaining row is back.
 	unblock(v, x)
 	unmute(v, y)
 	unblock(z, v)
 	unblock(v, e)
-	l = wantRows(t, "phase 3 (unblock, unmute)", cold(), v, newestFirst(deleted))
-	tally(l, 0, 0, 0, 0, 0, 8)
+	l = wantRows(t, "phase 3 (unblock, unmute)", cold(), v, newestFirst(deleted, deleting))
+	tally(l, 0, 0, 0, 0, 1, 0, 7)
 
 	// Phase 4: the QUOTE's embedded author in each way: blocks the caller, is muted by the caller, is blocked by it.
 	block(e, v)
-	l = wantRows(t, "phase 4a (embedded author blocks v)", cold(), v, newestFirst(deleted, quote))
-	tally(l, 0, 0, 1, 0, 0, 7)
+	l = wantRows(t, "phase 4a (embedded author blocks v)", cold(), v, newestFirst(deleted, deleting, quote))
+	tally(l, 0, 0, 1, 0, 1, 0, 6)
 	unblock(e, v)
 	mute(v, e)
-	l = wantRows(t, "phase 4b (embedded author muted by v)", cold(), v, newestFirst(deleted, quote))
-	tally(l, 0, 0, 0, 1, 0, 7)
+	l = wantRows(t, "phase 4b (embedded author muted by v)", cold(), v, newestFirst(deleted, deleting, quote))
+	tally(l, 0, 0, 0, 1, 1, 0, 6)
 	unmute(v, e)
-	l = wantRows(t, "phase 4c (all clear)", cold(), v, newestFirst(deleted))
-	tally(l, 0, 0, 0, 0, 0, 8)
+	l = wantRows(t, "phase 4c (all clear)", cold(), v, newestFirst(deleted, deleting))
+	tally(l, 0, 0, 0, 0, 1, 0, 7)
 
 	// Phase 5: the original post itself is deleted: the QUOTE keeps its tombstone and its row (the quote post is live),
 	// and the viewer's own post (v is the author) is kept even when v blocks nobody.
 	if _, err := w.posts.DeletePost(ctx, authed(e.token, &postsv1.DeletePostRequest{IdempotencyKey: contractKey("bm-del"), PostId: original})); err != nil {
 		t.Fatal(err)
 	}
-	wantRows(t, "phase 5 (quoted original deleted)", cold(), v, newestFirst(deleted))
+	wantRows(t, "phase 5 (quoted original deleted)", cold(), v, newestFirst(deleted, deleting))
 }
 
 // The prune is skipped under DEGRADED_MODE=readonly (the list is NO_SIDE_EFFECTS and must stay write-free); a normal
