@@ -351,7 +351,7 @@ void main() {
         tester,
         flags: const {'posts', 'lists', 'communities', 'bookmarks'},
       );
-      await tester.tap(find.bySemanticsLabel('Account menu'));
+      await tester.tap(find.bySemanticsLabel('Open account menu'));
       await tester.pumpAndSettle();
 
       final drawer = find.byType(AppDrawer);
@@ -369,7 +369,7 @@ void main() {
     ) async {
       await pump(tester);
 
-      await tester.tap(find.bySemanticsLabel('Account menu'));
+      await tester.tap(find.bySemanticsLabel('Open account menu'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Profile'));
       await tester.pumpAndSettle();
@@ -436,7 +436,7 @@ void main() {
     ) async {
       await pump(tester);
 
-      await tester.tap(find.bySemanticsLabel('Account menu'));
+      await tester.tap(find.bySemanticsLabel('Open account menu'));
       await tester.pumpAndSettle();
 
       expect(find.byType(AppDrawer), findsOneWidget);
@@ -445,7 +445,7 @@ void main() {
 
     testWidgets('Settings is reachable from the drawer', (tester) async {
       await pump(tester);
-      await tester.tap(find.bySemanticsLabel('Account menu'));
+      await tester.tap(find.bySemanticsLabel('Open account menu'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Settings and Privacy'));
@@ -470,7 +470,7 @@ void main() {
       // The collapsed chip is the avatar alone.
       expect(find.text('@alice'), findsNothing);
       // No avatar button / drawer on wide layouts.
-      expect(find.bySemanticsLabel('Account menu'), findsNothing);
+      expect(find.bySemanticsLabel('Open account menu'), findsNothing);
     });
 
     testWidgets('the compose control is on every page, Home included', (
