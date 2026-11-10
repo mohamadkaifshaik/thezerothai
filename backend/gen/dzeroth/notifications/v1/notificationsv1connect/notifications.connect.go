@@ -63,6 +63,12 @@ const (
 	// NotificationServiceUnregisterDeviceProcedure is the fully-qualified name of the
 	// NotificationService's UnregisterDevice RPC.
 	NotificationServiceUnregisterDeviceProcedure = "/dzeroth.notifications.v1.NotificationService/UnregisterDevice"
+	// NotificationServiceGetNotificationPrefsProcedure is the fully-qualified name of the
+	// NotificationService's GetNotificationPrefs RPC.
+	NotificationServiceGetNotificationPrefsProcedure = "/dzeroth.notifications.v1.NotificationService/GetNotificationPrefs"
+	// NotificationServiceUpdateNotificationPrefsProcedure is the fully-qualified name of the
+	// NotificationService's UpdateNotificationPrefs RPC.
+	NotificationServiceUpdateNotificationPrefsProcedure = "/dzeroth.notifications.v1.NotificationService/UpdateNotificationPrefs"
 )
 
 // NotificationServiceClient is a client for the dzeroth.notifications.v1.NotificationService
@@ -94,6 +100,18 @@ type NotificationServiceClient interface {
 	// Rate limit: default per-minute bucket; no daily cap.
 	// Deletes the device doc and its token index.
 	UnregisterDevice(context.Context, *connect.Request[v1.UnregisterDeviceRequest]) (*connect.Response[v1.UnregisterDeviceResponse], error)
+	// The caller's push preferences: per type group, push on or off. Needs FEATURE_NOTIFICATIONS and
+	// FEATURE_NOTIFICATION_PREFS on for the caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
+	// "notification_prefs" for the latter), before any lookup. A user who never saved anything has every group on (today's
+	// behaviour). Reads users/{caller}/settings/notifications (1 read). Rate limit: default per-minute bucket.
+	GetNotificationPrefs(context.Context, *connect.Request[v1.GetNotificationPrefsRequest]) (*connect.Response[v1.GetNotificationPrefsResponse], error)
+	// Replaces the caller's push preferences (every group is sent; false = push off for that group). Same flags as
+	// GetNotificationPrefs. The in-app list and the badge are never affected: a muted group still writes its row, only the
+	// FCM push is skipped. The fan-out reads the preference through a 60 s per-instance cache, so another instance can keep
+	// pushing for up to 60 s after the change. Idempotent by state (a full replace; an update equal to the stored value
+	// writes nothing); idempotency_key is format-validated (VALIDATION when malformed) but not stored. A caller without a
+	// profile => FAILED_PRECONDITION + PROFILE_REQUIRED. Rate limit: default per-minute bucket.
+	UpdateNotificationPrefs(context.Context, *connect.Request[v1.UpdateNotificationPrefsRequest]) (*connect.Response[v1.UpdateNotificationPrefsResponse], error)
 }
 
 // NewNotificationServiceClient constructs a client for the
@@ -133,15 +151,30 @@ func NewNotificationServiceClient(httpClient connect.HTTPClient, baseURL string,
 			connect.WithSchema(notificationServiceMethods.ByName("UnregisterDevice")),
 			connect.WithClientOptions(opts...),
 		),
+		getNotificationPrefs: connect.NewClient[v1.GetNotificationPrefsRequest, v1.GetNotificationPrefsResponse](
+			httpClient,
+			baseURL+NotificationServiceGetNotificationPrefsProcedure,
+			connect.WithSchema(notificationServiceMethods.ByName("GetNotificationPrefs")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
+		updateNotificationPrefs: connect.NewClient[v1.UpdateNotificationPrefsRequest, v1.UpdateNotificationPrefsResponse](
+			httpClient,
+			baseURL+NotificationServiceUpdateNotificationPrefsProcedure,
+			connect.WithSchema(notificationServiceMethods.ByName("UpdateNotificationPrefs")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // notificationServiceClient implements NotificationServiceClient.
 type notificationServiceClient struct {
-	listNotifications     *connect.Client[v1.ListNotificationsRequest, v1.ListNotificationsResponse]
-	markNotificationsSeen *connect.Client[v1.MarkNotificationsSeenRequest, v1.MarkNotificationsSeenResponse]
-	registerDevice        *connect.Client[v1.RegisterDeviceRequest, v1.RegisterDeviceResponse]
-	unregisterDevice      *connect.Client[v1.UnregisterDeviceRequest, v1.UnregisterDeviceResponse]
+	listNotifications       *connect.Client[v1.ListNotificationsRequest, v1.ListNotificationsResponse]
+	markNotificationsSeen   *connect.Client[v1.MarkNotificationsSeenRequest, v1.MarkNotificationsSeenResponse]
+	registerDevice          *connect.Client[v1.RegisterDeviceRequest, v1.RegisterDeviceResponse]
+	unregisterDevice        *connect.Client[v1.UnregisterDeviceRequest, v1.UnregisterDeviceResponse]
+	getNotificationPrefs    *connect.Client[v1.GetNotificationPrefsRequest, v1.GetNotificationPrefsResponse]
+	updateNotificationPrefs *connect.Client[v1.UpdateNotificationPrefsRequest, v1.UpdateNotificationPrefsResponse]
 }
 
 // ListNotifications calls dzeroth.notifications.v1.NotificationService.ListNotifications.
@@ -162,6 +195,17 @@ func (c *notificationServiceClient) RegisterDevice(ctx context.Context, req *con
 // UnregisterDevice calls dzeroth.notifications.v1.NotificationService.UnregisterDevice.
 func (c *notificationServiceClient) UnregisterDevice(ctx context.Context, req *connect.Request[v1.UnregisterDeviceRequest]) (*connect.Response[v1.UnregisterDeviceResponse], error) {
 	return c.unregisterDevice.CallUnary(ctx, req)
+}
+
+// GetNotificationPrefs calls dzeroth.notifications.v1.NotificationService.GetNotificationPrefs.
+func (c *notificationServiceClient) GetNotificationPrefs(ctx context.Context, req *connect.Request[v1.GetNotificationPrefsRequest]) (*connect.Response[v1.GetNotificationPrefsResponse], error) {
+	return c.getNotificationPrefs.CallUnary(ctx, req)
+}
+
+// UpdateNotificationPrefs calls
+// dzeroth.notifications.v1.NotificationService.UpdateNotificationPrefs.
+func (c *notificationServiceClient) UpdateNotificationPrefs(ctx context.Context, req *connect.Request[v1.UpdateNotificationPrefsRequest]) (*connect.Response[v1.UpdateNotificationPrefsResponse], error) {
+	return c.updateNotificationPrefs.CallUnary(ctx, req)
 }
 
 // NotificationServiceHandler is an implementation of the
@@ -193,6 +237,18 @@ type NotificationServiceHandler interface {
 	// Rate limit: default per-minute bucket; no daily cap.
 	// Deletes the device doc and its token index.
 	UnregisterDevice(context.Context, *connect.Request[v1.UnregisterDeviceRequest]) (*connect.Response[v1.UnregisterDeviceResponse], error)
+	// The caller's push preferences: per type group, push on or off. Needs FEATURE_NOTIFICATIONS and
+	// FEATURE_NOTIFICATION_PREFS on for the caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
+	// "notification_prefs" for the latter), before any lookup. A user who never saved anything has every group on (today's
+	// behaviour). Reads users/{caller}/settings/notifications (1 read). Rate limit: default per-minute bucket.
+	GetNotificationPrefs(context.Context, *connect.Request[v1.GetNotificationPrefsRequest]) (*connect.Response[v1.GetNotificationPrefsResponse], error)
+	// Replaces the caller's push preferences (every group is sent; false = push off for that group). Same flags as
+	// GetNotificationPrefs. The in-app list and the badge are never affected: a muted group still writes its row, only the
+	// FCM push is skipped. The fan-out reads the preference through a 60 s per-instance cache, so another instance can keep
+	// pushing for up to 60 s after the change. Idempotent by state (a full replace; an update equal to the stored value
+	// writes nothing); idempotency_key is format-validated (VALIDATION when malformed) but not stored. A caller without a
+	// profile => FAILED_PRECONDITION + PROFILE_REQUIRED. Rate limit: default per-minute bucket.
+	UpdateNotificationPrefs(context.Context, *connect.Request[v1.UpdateNotificationPrefsRequest]) (*connect.Response[v1.UpdateNotificationPrefsResponse], error)
 }
 
 // NewNotificationServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -227,6 +283,19 @@ func NewNotificationServiceHandler(svc NotificationServiceHandler, opts ...conne
 		connect.WithSchema(notificationServiceMethods.ByName("UnregisterDevice")),
 		connect.WithHandlerOptions(opts...),
 	)
+	notificationServiceGetNotificationPrefsHandler := connect.NewUnaryHandler(
+		NotificationServiceGetNotificationPrefsProcedure,
+		svc.GetNotificationPrefs,
+		connect.WithSchema(notificationServiceMethods.ByName("GetNotificationPrefs")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
+	notificationServiceUpdateNotificationPrefsHandler := connect.NewUnaryHandler(
+		NotificationServiceUpdateNotificationPrefsProcedure,
+		svc.UpdateNotificationPrefs,
+		connect.WithSchema(notificationServiceMethods.ByName("UpdateNotificationPrefs")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.notifications.v1.NotificationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case NotificationServiceListNotificationsProcedure:
@@ -237,6 +306,10 @@ func NewNotificationServiceHandler(svc NotificationServiceHandler, opts ...conne
 			notificationServiceRegisterDeviceHandler.ServeHTTP(w, r)
 		case NotificationServiceUnregisterDeviceProcedure:
 			notificationServiceUnregisterDeviceHandler.ServeHTTP(w, r)
+		case NotificationServiceGetNotificationPrefsProcedure:
+			notificationServiceGetNotificationPrefsHandler.ServeHTTP(w, r)
+		case NotificationServiceUpdateNotificationPrefsProcedure:
+			notificationServiceUpdateNotificationPrefsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -260,4 +333,12 @@ func (UnimplementedNotificationServiceHandler) RegisterDevice(context.Context, *
 
 func (UnimplementedNotificationServiceHandler) UnregisterDevice(context.Context, *connect.Request[v1.UnregisterDeviceRequest]) (*connect.Response[v1.UnregisterDeviceResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.notifications.v1.NotificationService.UnregisterDevice is not implemented"))
+}
+
+func (UnimplementedNotificationServiceHandler) GetNotificationPrefs(context.Context, *connect.Request[v1.GetNotificationPrefsRequest]) (*connect.Response[v1.GetNotificationPrefsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.notifications.v1.NotificationService.GetNotificationPrefs is not implemented"))
+}
+
+func (UnimplementedNotificationServiceHandler) UpdateNotificationPrefs(context.Context, *connect.Request[v1.UpdateNotificationPrefsRequest]) (*connect.Response[v1.UpdateNotificationPrefsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.notifications.v1.NotificationService.UpdateNotificationPrefs is not implemented"))
 }
