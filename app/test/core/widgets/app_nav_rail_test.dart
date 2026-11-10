@@ -127,6 +127,7 @@ Future<void> _pump(
   bool compose = true,
   bool account = true,
   bool before = false,
+  bool accountMenu = false,
 }) => pumpThemed(
   tester,
   Builder(
@@ -154,14 +155,24 @@ Future<void> _pump(
                           icon: const Icon(Icons.edit_outlined),
                         )
                       : null,
-                  account: account
-                      ? IconButton(
+                  account: !account
+                      ? null
+                      : accountMenu
+                      // Like `AppAccountChip`: a button that opens a menu.
+                      ? PopupMenuButton<int>(
+                          key: _accountKey,
+                          tooltip: 'Account menu',
+                          icon: const Icon(Icons.account_circle),
+                          itemBuilder: (context) => const [
+                            PopupMenuItem(value: 1, child: Text('menu row')),
+                          ],
+                        )
+                      : IconButton(
                           key: _accountKey,
                           tooltip: 'Account menu',
                           onPressed: () {},
                           icon: const Icon(Icons.account_circle),
-                        )
-                      : null,
+                        ),
                 ),
               ),
             ),
@@ -787,6 +798,54 @@ void main() {
         await tester.sendKeyEvent(LogicalKeyboardKey.tab);
         await tester.pump();
         expect(focused(tester, _inRail(find.byIcon(Icons.home))), isTrue);
+      });
+    }
+
+    // A menu opened from the rail takes the focus out of it; when the menu
+    // closes the focus comes back to the stop that opened it, which must be
+    // the Tab stop again.
+    final menuStops = <String, int>{'the account chip': 11, 'More': 9};
+    for (final MapEntry(key: name, value: downs) in menuStops.entries) {
+      testWidgets('$name: Enter opens its menu, Escape returns the focus, and '
+          'Shift+Tab then leaves the rail', (tester) async {
+        await _pump(
+          tester,
+          selected: 0,
+          before: true,
+          accountMenu: true,
+          destinations: _shell(
+            onMore: (anchor) => showMenu<int>(
+              context: anchor,
+              position: const RelativeRect.fromLTRB(80, 0, 0, 0),
+              items: const [PopupMenuItem(value: 1, child: Text('menu row'))],
+            ),
+          ),
+        );
+        final stop = name == 'More'
+            ? _inRail(find.byIcon(Icons.more_horiz))
+            : find.byIcon(Icons.account_circle);
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        for (var i = 0; i < downs; i++) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+          await tester.pump();
+        }
+        expect(focused(tester, stop), isTrue);
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        await tester.pumpAndSettle();
+        expect(find.text('menu row'), findsOneWidget);
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+        expect(find.text('menu row'), findsNothing);
+        expect(focused(tester, stop), isTrue);
+
+        await shiftTab(tester);
+        expect(
+          Focus.of(tester.element(find.text('before'))).hasPrimaryFocus,
+          isTrue,
+        );
       });
     }
 

@@ -169,8 +169,25 @@ class _AppNavRailState extends State<AppNavRail> {
         canRequestFocus: false,
         skipTraversal: true,
         descendantsAreTraversable: tabStop,
+        // Whatever brings the focus here (the arrows, or a closing menu that
+        // gives it back to the stop that opened it: More, the account chip)
+        // makes this stop the Tab stop.
+        // Only the state here: the focus manager is mid-update, so the
+        // wrappers take the new traversability from the next build.
+        onFocusChange: (focused) {
+          if (focused && _roving != stop) setState(() => _roving = stop);
+        },
         child: child,
       );
+
+  /// Makes [stop] the Tab stop: now (a Tab right after an arrow key, before
+  /// the next frame, must already leave from it) and in the next build.
+  void _rove(Object stop) {
+    for (final MapEntry(key: s, value: node) in _stops.entries) {
+      node.descendantsAreTraversable = s == stop;
+    }
+    if (_roving != stop) setState(() => _roving = stop);
+  }
 
   /// Moves the focus [by] stops along the ring (arrow keys).
   void _move(int by) {
@@ -184,12 +201,7 @@ class _AppNavRailState extends State<AppNavRail> {
         .where((n) => n.canRequestFocus)
         .firstOrNull;
     if (target == null) return;
-    // The Tab stop moves with the focus: now (a Tab before the next frame
-    // must already leave from here) and in the next build.
-    for (final MapEntry(key: s, value: node) in _stops.entries) {
-      node.descendantsAreTraversable = s == stop;
-    }
-    setState(() => _roving = stop);
+    _rove(stop);
     target.requestFocus();
     final context = target.context;
     if (context != null) {

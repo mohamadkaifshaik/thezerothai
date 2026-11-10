@@ -1841,6 +1841,58 @@ void main() {
       expect(tester.getRect(strip), const Rect.fromLTRB(902, 0, 932, 430));
     });
 
+    testWidgets('right to left (932 x 430): the rail and its inset on the '
+        'right, the trailing strip on the left, the pane between them', (
+      tester,
+    ) async {
+      // Leading is the right edge: 44 there, 30 on the left.
+      const padding = EdgeInsets.fromLTRB(30, 24, 44, 20);
+      late EdgeInsets bodyPadding;
+      await pumpTablet(
+        tester,
+        Directionality(
+          textDirection: TextDirection.rtl,
+          child: tablet(
+            body: Builder(
+              builder: (context) {
+                bodyPadding = MediaQuery.paddingOf(context);
+                return const SizedBox.expand(key: _bodyKey);
+              },
+            ),
+          ),
+        ),
+        width: 932,
+        height: 430,
+        padding: padding,
+      );
+
+      expect(
+        tester.getRect(find.byType(AppNavRail)),
+        const Rect.fromLTRB(932 - 124, 0, 932, 430),
+      );
+      final strip = find.byKey(const ValueKey('tablet-trailing-inset'));
+      expect(tester.getRect(strip), const Rect.fromLTRB(0, 0, 30, 430));
+      expect(
+        tester.widget<ColoredBox>(strip).color,
+        appLightTheme.scaffoldBackgroundColor,
+      );
+      final geometry = ShellGeometry.maybeOf(
+        tester.element(find.byKey(_bodyKey)),
+      )!;
+      expect(geometry.content, const Rect.fromLTRB(30, 0, 808, 430));
+      expect(tester.getRect(find.byKey(_bodyKey)), geometry.content);
+      expect(bodyPadding, const EdgeInsets.fromLTRB(0, 24, 0, 20));
+      // The items sit inside the rail's 80 dp, clear of the right inset.
+      final home = tester.getRect(
+        find.descendant(
+          of: find.byType(AppNavRail),
+          matching: find.byIcon(Icons.home),
+        ),
+      );
+      expect(home.center.dx, closeTo(808 + AppSize.railCompact / 2, 0.5));
+      expectNoOverflow(tester);
+    });
+
     testWidgets('a landscape notch on both sides: the rail clears the '
         'leading one, list rows end before the trailing one', (tester) async {
       const padding = EdgeInsets.fromLTRB(44, 0, 47, 21);
