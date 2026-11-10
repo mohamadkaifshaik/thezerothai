@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
+import '../../../../core/storage/session_epoch.dart';
 import '../../../../core/telemetry/analytics_event.dart';
 import '../../../../core/telemetry/usage_reporter.dart';
 import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -299,7 +300,9 @@ class ComposerCubit extends Cubit<ComposerState> {
     String uid = '',
     ComposerDraft? initialDraft,
     UsageReporter usage = const UsageReporter.none(),
+    SessionEpoch? sessionEpoch,
   }) : replyToPostId = '',
+       _session = sessionEpoch ?? SessionEpoch(),
        _communities = communities,
        _pendingCommunityId = initialCommunityId.isNotEmpty
            ? initialCommunityId
@@ -338,6 +341,8 @@ class ComposerCubit extends Cubit<ComposerState> {
     DateTime Function()? clock,
     UsageReporter usage = const UsageReporter.none(),
   }) : quoteOfPostId = '',
+       // A reply has no await before its RPC (no draft row, no photos).
+       _session = SessionEpoch(),
        _usage = usage,
        _repository = postsRepository,
        _pending = null,
@@ -694,9 +699,32 @@ class ComposerCubit extends Cubit<ComposerState> {
   final Uuid _uuid;
   final DateTime Function() _clock;
 
+  /// The signed-in session's generation (`AppDatabase.sessionEpoch`, the one
+  /// the posts repository writes its cache under). A send captures it before
+  /// its first await and goes out only while it is unchanged: a sign-out or an
+  /// account switch ends it, and the old content must never leave under the
+  /// next session. Without one (tests, a reply) a private epoch that never
+  /// ends is used.
+  final SessionEpoch _session;
+
   /// The send key claimed on the draft row for the send in flight.
   ({String key, bool reused})? _claimed;
   bool _forceNewKey = false;
+
+  /// The keys this cubit has claimed on a draft row, per operation (draft,
+  /// kind and, for a schedule, the publish time). The only key a send may use
+  /// when the store cannot be read: it is the key the row held for that very
+  /// operation, so the server replays or answers IDEMPOTENCY_KEY_REUSED and
+  /// can never create a second post. Dropped once that key is proven unused
+  /// or its post exists.
+  final Map<String, String> _claimedKeys = {};
+
+  String _claimSlot(String draftId, SendKind kind, DateTime? publishAt) =>
+      '$draftId\u0001${kind.name}\u0001'
+      '${publishAt?.toUtc().millisecondsSinceEpoch ?? ''}';
+
+  void _forgetClaimedKey(String key) =>
+      _claimedKeys.removeWhere((_, k) => k == key);
 
   /// Whether this send keeps its key on the draft row. An image-only post has
   /// no row to keep one on (in-memory keys). Checked before any await so a
@@ -707,6 +735,10 @@ class ComposerCubit extends Cubit<ComposerState> {
 
   /// Claims the stored key of this send, or refuses it (the state was
   /// emitted). Only called when [_claims].
+  ///
+  /// When the store fails, the send goes out only under a key this cubit
+  /// already claimed for the same operation; otherwise it is refused (a key
+  /// the row does not hold could duplicate a post whose response was lost).
   Future<({String? key, bool reused, bool refused})> _claim(
     SendKind kind, {
     required bool force,
@@ -714,6 +746,7 @@ class ComposerCubit extends Cubit<ComposerState> {
   }) async {
     final repo = _drafts!;
     final draft = currentDraft;
+    final slot = _claimSlot(draft.id, kind, publishAt);
     try {
       final claim = await repo.claimSend(
         draft: draft,
@@ -742,12 +775,41 @@ class ComposerCubit extends Cubit<ComposerState> {
         return (key: null, reused: false, refused: true);
       }
       _claimed = (key: key, reused: claim.reused);
+      _claimedKeys[slot] = key;
       return (key: key, reused: claim.reused, refused: false);
     } catch (_, stack) {
-      // Storage failed: send under an in-memory key rather than not at all.
       _reportDraftStorage(stack);
-      return _noClaim;
+      // "Send anyway" asked for a NEW key, which cannot be stored now: the
+      // old one would only be refused again, and an unstored one could
+      // duplicate the post.
+      final known = force ? null : _claimedKeys[slot];
+      if (known != null) {
+        // The row may have held it since an earlier send: never released.
+        _claimed = (key: known, reused: true);
+        return (key: known, reused: true, refused: false);
+      }
+      if (!isClosed) {
+        emit(
+          state.copyWith(
+            status: ComposerStatus.editing,
+            error: const UnknownApiException('Something went wrong.'),
+          ),
+        );
+      }
+      return (key: null, reused: false, refused: true);
     }
+  }
+
+  /// Whether the send started under [session] may still go out: the screen
+  /// is open and the session is the one it started in. If not, nothing is
+  /// sent: a key freshly claimed for it is released and, while the screen is
+  /// open, the composer is editable again (no error: nothing failed, the
+  /// account changed).
+  bool _mayStillSend(int session) {
+    if (!isClosed && _session.value == session) return true;
+    _releaseClaim();
+    if (!isClosed) emit(state.copyWith(status: ComposerStatus.editing));
+    return false;
   }
 
   /// The send stopped before any RPC (an upload failed): a key minted for it
@@ -759,6 +821,7 @@ class ComposerCubit extends Cubit<ComposerState> {
   }
 
   void _clearClaim(({String key, bool reused}) claimed) {
+    _forgetClaimedKey(claimed.key);
     final repo = _drafts;
     if (repo == null) return;
     unawaited(
@@ -1211,11 +1274,13 @@ class ComposerCubit extends Cubit<ComposerState> {
     final force = _forceNewKey;
     _forceNewKey = false;
     if (!state.canSubmit) return;
+    // The session this send belongs to, read before any await.
+    final session = _session.value;
     final publishAt = state.scheduledAt;
     // SchedulePost has no poll field: a poll never takes that path (the
     // rules already keep the two apart; this is the last guard).
     if (publishAt != null && !state.hasPoll) {
-      return _submitScheduled(publishAt, force);
+      return _submitScheduled(publishAt, force, session);
     }
     final text = state.draft.text;
     final poll = state.poll;
@@ -1233,6 +1298,8 @@ class ComposerCubit extends Cubit<ComposerState> {
         ? await _claim(SendKind.post, force: force)
         : _noClaim;
     if (claim.refused) return;
+    // Closed or signed out while claiming: no upload starts either.
+    if (!_mayStillSend(session)) return;
 
     // On-device previews for the optimistic row (taken before upload).
     final thumbnails = [
@@ -1260,6 +1327,10 @@ class ComposerCubit extends Cubit<ComposerState> {
     final intent = quoteOfPostId.isEmpty
         ? bodyWithCommunity
         : 'q:$quoteOfPostId\u0001$bodyWithCommunity';
+    // The last check before anything leaves: no await from here to the
+    // repository reading the session as createPost starts, and no optimistic
+    // row of the old account.
+    if (!_mayStillSend(session)) return;
     final key = claim.key ?? _keyFor(intent);
 
     final pending = _pending;
@@ -1304,6 +1375,7 @@ class ComposerCubit extends Cubit<ComposerState> {
       _keys.remove(intent);
       _keyText = null;
       _claimed = null;
+      _forgetClaimedKey(key);
       pending?.remove(key);
       // The post exists: its draft row is done (also when the screen closed).
       unawaited(discardDraft());
@@ -1348,7 +1420,11 @@ class ComposerCubit extends Cubit<ComposerState> {
   ///
   /// On success the composer is reset to empty; [ComposerState.scheduledNotice]
   /// carries the stored item for the one "Your post will be sent on ..." toast.
-  Future<void> _submitScheduled(DateTime publishAt, bool force) async {
+  Future<void> _submitScheduled(
+    DateTime publishAt,
+    bool force,
+    int session,
+  ) async {
     if (!canSchedule) {
       emit(
         state.copyWith(
@@ -1374,6 +1450,7 @@ class ComposerCubit extends Cubit<ComposerState> {
         ? await _claim(SendKind.schedule, force: force, publishAt: publishAt)
         : _noClaim;
     if (claim.refused) return;
+    if (!_mayStillSend(session)) return;
     final uploaded = _hasAttached ? await _uploadAttached() : _noUploads;
     if (uploaded == null) return _releaseClaim();
     final media = _mediaKind(uploaded.mediaIds);
@@ -1381,6 +1458,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     final intent =
         's:${publishAt.millisecondsSinceEpoch}\u0001'
         '${_bodyKey(text, uploaded.mediaIds, uploaded.altTexts, policy)}';
+    if (!_mayStillSend(session)) return;
     final key = claim.key ?? _keyFor(intent);
     try {
       final scheduled = await _repository.schedulePost(
@@ -1402,6 +1480,7 @@ class ComposerCubit extends Cubit<ComposerState> {
       _keys.remove(intent);
       _keyText = null;
       _claimed = null;
+      _forgetClaimedKey(key);
       _draftScheduled();
       if (isClosed) return;
       emit(

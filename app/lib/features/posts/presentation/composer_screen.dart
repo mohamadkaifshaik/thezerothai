@@ -11,6 +11,7 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/telemetry/usage_reporter.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/storage/app_database.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
@@ -223,6 +224,11 @@ class ComposerScreen extends StatelessWidget {
             uid: uid,
             initialDraft: initial,
             usage: UsageScope.of(context),
+            // The session the posts repository writes under: a send that
+            // outlives it (sign-out, account switch) is not sent. The app
+            // always provides the database; a test tree without one gets a
+            // private epoch that never ends.
+            sessionEpoch: context.read<AppDatabase?>()?.sessionEpoch,
           )..loadAudiences(),
         ),
       ],
