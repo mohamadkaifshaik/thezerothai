@@ -63,6 +63,7 @@ const Article$json = {
       '6': '.dzeroth.posts.v1.ReplyPolicy',
       '10': 'publicationReplyPolicy'
     },
+    {'1': 'excerpt', '3': 13, '4': 1, '5': 9, '10': 'excerpt'},
   ],
 };
 
@@ -76,7 +77,8 @@ final $typed_data.Uint8List articleDescriptor = $convert.base64Decode(
     'VyX3VybBgJIAEoCVIIY292ZXJVcmwSLwoTcHVibGljYXRpb25fcGVuZGluZxgKIAEoCFIScHVi'
     'bGljYXRpb25QZW5kaW5nEi8KE3B1YmxpY2F0aW9uX2NhcHRpb24YCyABKAlSEnB1YmxpY2F0aW'
     '9uQ2FwdGlvbhJXChhwdWJsaWNhdGlvbl9yZXBseV9wb2xpY3kYDCABKA4yHS5kemVyb3RoLnBv'
-    'c3RzLnYxLlJlcGx5UG9saWN5UhZwdWJsaWNhdGlvblJlcGx5UG9saWN5');
+    'c3RzLnYxLlJlcGx5UG9saWN5UhZwdWJsaWNhdGlvblJlcGx5UG9saWN5EhgKB2V4Y2VycHQYDS'
+    'ABKAlSB2V4Y2VycHQ=');
 
 @$core.Deprecated('Use getArticleRequestDescriptor instead')
 const GetArticleRequest$json = {
@@ -345,6 +347,7 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.posts.v1.ArticlePreview': $1.ArticlePreview$json,
   '.dzeroth.posts.v1.Mention': $1.Mention$json,
   '.dzeroth.posts.v1.CommunityRef': $1.CommunityRef$json,
+  '.dzeroth.posts.v1.BeaconPreview': $1.BeaconPreview$json,
   '.dzeroth.articles.v1.ListArticlesRequest': ListArticlesRequest$json,
   '.dzeroth.articles.v1.ListArticlesResponse': ListArticlesResponse$json,
   '.dzeroth.articles.v1.SaveArticleRequest': SaveArticleRequest$json,

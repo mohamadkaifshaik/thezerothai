@@ -129,18 +129,46 @@ func TestNopEmitter(t *testing.T) {
 }
 
 func TestType(t *testing.T) {
-	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted, TypeMessage, TypeBeaconRequest, TypeBeaconAccepted, TypeBeaconCancelled} {
+	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted, TypeMessage, TypeBeaconRequest, TypeBeaconAccepted, TypeBeaconCancelled, TypeBeaconUpdated} {
 		if !ty.Valid() {
 			t.Errorf("%s not valid", ty)
 		}
 		if got, want := ty.needsPost(), ty != TypeFollow && ty != TypeFollowRequest && ty != TypeFollowAccepted && ty != TypeMessage && !ty.needsBeacon(); got != want {
 			t.Errorf("%s needsPost = %v", ty, got)
 		}
-		if got, want := ty.needsBeacon(), ty == TypeBeaconRequest || ty == TypeBeaconAccepted || ty == TypeBeaconCancelled; got != want {
+		if got, want := ty.needsBeacon(), ty == TypeBeaconRequest || ty == TypeBeaconAccepted || ty == TypeBeaconCancelled || ty == TypeBeaconUpdated; got != want {
 			t.Errorf("%s needsBeacon = %v", ty, got)
 		}
 	}
 	if Type("").Valid() || Type("poke").Valid() {
 		t.Error("unknown types must be invalid")
+	}
+}
+
+// TestRecipientCap_ExemptsOnlyBeaconCancelled (B07, F28): an over-cap actor's beacon_cancelled and beacon_updated events
+// are published and not charged; every other type, including the other beacon types, is still capped.
+func TestRecipientCap_ExemptsOnlyBeaconCancelled(t *testing.T) {
+	for _, tt := range []struct {
+		ev   Event
+		want bool
+	}{
+		{Event{Type: TypeBeaconCancelled, ActorID: "alice", RecipientIDs: []string{"bob"}, BeaconID: beaconA}, true},
+		{Event{Type: TypeBeaconUpdated, ActorID: "alice", RecipientIDs: []string{"bob"}, BeaconID: beaconA}, true},
+		{Event{Type: TypeBeaconRequest, ActorID: "alice", RecipientIDs: []string{"bob"}, BeaconID: beaconA}, false},
+		{Event{Type: TypeBeaconAccepted, ActorID: "alice", RecipientIDs: []string{"bob"}, BeaconID: beaconA}, false},
+		{Event{Type: TypeMention, ActorID: "alice", RecipientIDs: []string{"bob"}, PostID: postA}, false},
+		{Event{Type: TypeFollow, ActorID: "alice", RecipientIDs: []string{"bob"}}, false},
+	} {
+		t.Run(string(tt.ev.Type), func(t *testing.T) {
+			c := NewRecipientCap(1, 1, nil)
+			if ok, _, _ := c.Admit("alice", 1); !ok {
+				t.Fatal("pre-spend refused")
+			}
+			pub := &fakePublisher{}
+			mustNoErr(t, NewPubSubEmitter(pub, allFlags{}, nil).WithRecipientCap(c).Emit(context.Background(), tt.ev))
+			if got := len(pub.data) == 1; got != tt.want {
+				t.Errorf("published = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

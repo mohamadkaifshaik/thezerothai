@@ -213,6 +213,11 @@ type EntryDoc struct {
 	UnreadCount   int64     `firestore:"unreadCount"`
 	Silent        bool      `firestore:"silent"`
 	LastReadAt    time.Time `firestore:"lastReadAt"`
+	// ReadReceiptAt is when this entry's owner last marked the conversation read WHILE their read-receipts setting was on
+	// (F3). Written only by MarkRead (field-level), so a send, an accept (the raw map is moved whole) and the eraser keep or
+	// drop it with the entry. The peer sees it as Conversation.peer_read_at only while both sides have receipts on;
+	// LastReadAt is never exposed. Absent = never. Index-exempt in practice: no query reads it.
+	ReadReceiptAt time.Time `firestore:"readReceiptAt,omitempty"`
 	CreatedAt     time.Time `firestore:"createdAt"`
 	// ChangedAt is when the entry last changed in a way a cached device must see: every send (the
 	// same stamp as LastMessageAt), a takedown rewriting the preview, the eraser rewriting the peer snapshot, an accepted

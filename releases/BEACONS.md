@@ -46,13 +46,19 @@ record was written:
 | `RATE_LIMIT_BEACONS_READ_PER_MIN` | `30` | Get and the lists per user per minute. |
 | `BEACONS_CREATED_PER_DAY` | `10` | Daily creation quota per user. |
 
-`scripts/promotion/flag-ceiling.json` caps `BEACONS` in dev at `allowlist` with at most 6 uids and 0 percent; the
-promotion validators refuse a deploy above that. Text rules: title 1–60, details 0–300, meeting point 1–80, join
+`scripts/promotion/flag-ceiling.json` allows `BEACONS` up to `on` in dev (owner decision D8, 2026-11-10, for ADR-0034
+§4 "Plans is never turned off"; it was `allowlist` with at most 6 uids before). There is no prod entry yet. Text rules: title 1–60, details 0–300, meeting point 1–80, join
 note 0–140 code points, each a single line.
 
 ## Rollout in dev
 
-The order is off → allowlist → percent → on, never ahead of communities (a community plan needs
+**Update 2026-11-10:** dev goes straight to `on` (D8). `feature_beacons` now defaults to `"on"` in
+`infra/terraform/envs/dev/variables.tf`; the flag changes on the next human `terraform apply`, unless
+`terraform.tfvars` still pins another value (remove that line). `feature_beacons = "off"` stays the kill switch. A
+community-audience plan still needs `FEATURE_COMMUNITIES` for the caller; a public plan does not. The allowlist
+steps below are kept as the record of the original pilot plan.
+
+The original order was off → allowlist → percent → on, never ahead of communities (a community plan needs
 `FEATURE_COMMUNITIES` for the same users; a public plan does not).
 
 1. Pick the pilot uids (at most 6, the ceiling) and make sure each is on `feature_communities_allowlist` first if the

@@ -193,7 +193,7 @@ void main() {
             )
             .first,
       );
-      expect(material.color, const Color(0xFF1D9BF0));
+      expect(material.color, AppPalette.tealText);
     });
 
     testWidgets('a scope opens the drawer; without a drawer there is no '
@@ -443,7 +443,9 @@ void main() {
       expect(rail.selectedIndex, isNull);
     });
 
-    testWidgets('selected rail destinations are bold 20dp labels', (
+    // PR 1.5: rail labels are labelMedium (14 sp) until the phase 3 rail
+    // restyle; weight, not colour alone, marks the selected one.
+    testWidgets('selected rail destinations are bold 14dp labels', (
       tester,
     ) async {
       await _pump(tester, _scaffold(selected: 1), width: 1400);
@@ -452,8 +454,156 @@ void main() {
       expect(rail.selectedIndex, 1);
       final theme = appLightTheme.navigationRailTheme;
       expect(theme.selectedLabelTextStyle!.fontWeight, FontWeight.w700);
-      expect(theme.selectedLabelTextStyle!.fontSize, 20);
-      expect(theme.unselectedLabelTextStyle!.fontWeight, FontWeight.w400);
+      expect(theme.selectedLabelTextStyle!.fontSize, 14);
+      expect(theme.unselectedLabelTextStyle!.fontWeight, FontWeight.w600);
+    });
+  });
+
+  group('destination groups (ADR-0034)', () {
+    test('railOnly follows the group; the tooltip defaults to the label', () {
+      const primary = AppNavDestination(
+        icon: Icons.home_outlined,
+        selectedIcon: Icons.home,
+        label: 'Home',
+      );
+      const secondary = AppNavDestination(
+        icon: Icons.groups_outlined,
+        selectedIcon: Icons.groups,
+        label: 'Communities',
+        group: AppNavGroup.secondary,
+        tooltip: 'Your communities',
+      );
+      expect(primary.group, AppNavGroup.primary);
+      expect(primary.railOnly, isFalse);
+      expect(primary.tooltipText, 'Home');
+      expect(secondary.railOnly, isTrue);
+      expect(secondary.tooltipText, 'Your communities');
+    });
+
+    testWidgets('the bar keeps the primaries in list order and maps taps '
+        'back to the full list', (tester) async {
+      const destinations = [
+        AppNavDestination(
+          icon: Icons.home_outlined,
+          selectedIcon: Icons.home,
+          label: 'Home',
+        ),
+        AppNavDestination(
+          icon: Icons.event_outlined,
+          selectedIcon: Icons.event,
+          label: 'Plans',
+        ),
+        AppNavDestination(
+          icon: Icons.list_alt_outlined,
+          selectedIcon: Icons.list_alt,
+          label: 'Lists',
+          group: AppNavGroup.secondary,
+        ),
+        AppNavDestination(
+          icon: Icons.person_outline,
+          selectedIcon: Icons.person,
+          label: 'Profile',
+          group: AppNavGroup.secondary,
+        ),
+      ];
+      final taps = <int>[];
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(360, 800);
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ResponsiveScaffold(
+            selectedIndex: 3,
+            onDestinationSelected: taps.add,
+            destinations: destinations,
+            body: const SizedBox.expand(),
+          ),
+        ),
+      );
+
+      expect(find.byIcon(Icons.home_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.event_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.list_alt_outlined), findsNothing);
+      expect(find.byIcon(Icons.person_outline), findsNothing);
+      // A secondary destination is selected: no bar cell is.
+      expect(find.byIcon(Icons.event), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.event_outlined));
+      expect(taps, [1]);
+    });
+  });
+
+  group('destination groups (ADR-0034)', () {
+    test('railOnly follows the group; the tooltip defaults to the label', () {
+      const primary = AppNavDestination(
+        icon: Icons.home_outlined,
+        selectedIcon: Icons.home,
+        label: 'Home',
+      );
+      const secondary = AppNavDestination(
+        icon: Icons.groups_outlined,
+        selectedIcon: Icons.groups,
+        label: 'Communities',
+        group: AppNavGroup.secondary,
+        tooltip: 'Your communities',
+      );
+      expect(primary.group, AppNavGroup.primary);
+      expect(primary.railOnly, isFalse);
+      expect(primary.tooltipText, 'Home');
+      expect(secondary.railOnly, isTrue);
+      expect(secondary.tooltipText, 'Your communities');
+    });
+
+    testWidgets('the bar keeps the primaries in list order and maps taps '
+        'back to the full list', (tester) async {
+      const destinations = [
+        AppNavDestination(
+          icon: Icons.home_outlined,
+          selectedIcon: Icons.home,
+          label: 'Home',
+        ),
+        AppNavDestination(
+          icon: Icons.event_outlined,
+          selectedIcon: Icons.event,
+          label: 'Plans',
+        ),
+        AppNavDestination(
+          icon: Icons.list_alt_outlined,
+          selectedIcon: Icons.list_alt,
+          label: 'Lists',
+          group: AppNavGroup.secondary,
+        ),
+        AppNavDestination(
+          icon: Icons.person_outline,
+          selectedIcon: Icons.person,
+          label: 'Profile',
+          group: AppNavGroup.secondary,
+        ),
+      ];
+      final taps = <int>[];
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(360, 800);
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ResponsiveScaffold(
+            selectedIndex: 3,
+            onDestinationSelected: taps.add,
+            destinations: destinations,
+            body: const SizedBox.expand(),
+          ),
+        ),
+      );
+
+      expect(find.byIcon(Icons.home_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.event_outlined), findsOneWidget);
+      expect(find.byIcon(Icons.list_alt_outlined), findsNothing);
+      expect(find.byIcon(Icons.person_outline), findsNothing);
+      // A secondary destination is selected: no bar cell is.
+      expect(find.byIcon(Icons.event), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.event_outlined));
+      expect(taps, [1]);
     });
   });
 
@@ -468,7 +618,7 @@ void main() {
         icon: Icons.bookmark_border,
         selectedIcon: Icons.bookmark,
         label: 'History',
-        railOnly: true,
+        group: AppNavGroup.secondary,
       ),
       AppNavDestination(
         icon: Icons.person_outline,

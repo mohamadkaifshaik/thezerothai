@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // beaconA is a 19-digit beacon id (the same Snowflake shape as a post id).
@@ -26,6 +28,7 @@ func TestDeliver_BeaconRowsAndPushes(t *testing.T) {
 		{TypeBeaconRequest, "beacon_request_" + beaconA + "_alice"},
 		{TypeBeaconAccepted, "beacon_accepted_" + beaconA},
 		{TypeBeaconCancelled, "beacon_cancelled_" + beaconA},
+		{TypeBeaconUpdated, "beacon_updated_" + beaconA + "_" + strconv.FormatInt(t0.UnixMilli(), 10)},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.t), func(t *testing.T) {
@@ -52,6 +55,57 @@ func TestDeliver_BeaconRowsAndPushes(t *testing.T) {
 				t.Errorf("redelivery = %+v creates=%d, want one duplicate and nothing else", out, r.repo.creates)
 			}
 		})
+	}
+}
+
+// TestDeliver_BeaconCancelRerunIsExactlyOnce (B07): the cancellation outbox re-emits every chunk when any chunk was
+// lost, so the chunk that did go out is delivered again. Each of the 20 participants still ends with exactly one row
+// and one push: the row id is per beacon in each recipient's subtree, and a duplicate never pushes.
+func TestDeliver_BeaconCancelRerunIsExactlyOnce(t *testing.T) {
+	r := newRig(t, nil)
+	var first, second []string
+	for i := range 20 {
+		uid := "p" + string(rune('a'+i))
+		r.dir.profiles[uid] = newDirectory(uid).profiles[uid]
+		r.addDevice(uid, "d-"+uid, "tok-"+uid)
+		if i < MaxRecipientsPerEvent {
+			first = append(first, uid)
+		} else {
+			second = append(second, uid)
+		}
+	}
+	chunk := func(uids []string) Event {
+		ev := beaconEvent(TypeBeaconCancelled)
+		ev.RecipientIDs = uids
+		return ev
+	}
+	// The inline run: the first chunk is delivered, the second is lost before publishing.
+	out, err := r.f.Deliver(context.Background(), chunk(first))
+	mustNoErr(t, err)
+	if out.Created != 10 {
+		t.Fatalf("first chunk = %+v", out)
+	}
+	// The sweep's re-run delivers both chunks again (and a lost Done runs it once more).
+	for range 2 {
+		for _, c := range [][]string{first, second} {
+			_, err := r.f.Deliver(context.Background(), chunk(c))
+			mustNoErr(t, err)
+		}
+	}
+	pushes := map[string]int{}
+	for _, s := range r.sender.sent {
+		pushes[s.Token]++
+	}
+	for _, uid := range append(append([]string(nil), first...), second...) {
+		if n := len(r.repo.rows[uid]); n != 1 {
+			t.Errorf("%s has %d rows, want 1", uid, n)
+		}
+		if _, ok := r.repo.rows[uid]["beacon_cancelled_"+beaconA]; !ok {
+			t.Errorf("%s rows = %v", uid, r.repo.rows[uid])
+		}
+		if pushes["tok-"+uid] != 1 {
+			t.Errorf("%s got %d pushes, want 1", uid, pushes["tok-"+uid])
+		}
 	}
 }
 
@@ -167,5 +221,30 @@ func TestEmitterBeaconNeedsOnlyNotificationsFlag(t *testing.T) {
 	mustNoErr(t, e.Emit(context.Background(), beaconEvent(TypeBeaconAccepted)))
 	if len(pub.data) != 1 {
 		t.Errorf("published with notifications off for the recipient")
+	}
+}
+
+// TestDeliver_BeaconUpdatedOneRowPerEdit (F28): a redelivery of the same edit is a duplicate (no second row, no second
+// push); a later edit of the same beacon is a new row and a new push.
+func TestDeliver_BeaconUpdatedOneRowPerEdit(t *testing.T) {
+	r := newRig(t, nil)
+	r.addDevice("bob", "d1", "tok-1")
+	first := beaconEvent(TypeBeaconUpdated)
+	for range 2 {
+		_, err := r.f.Deliver(context.Background(), first)
+		mustNoErr(t, err)
+	}
+	second := first
+	second.At = first.At.Add(time.Minute)
+	out, err := r.f.Deliver(context.Background(), second)
+	mustNoErr(t, err)
+	if out.Created != 1 || out.Pushed != 1 {
+		t.Fatalf("second edit = %+v, want a new row and push", out)
+	}
+	if n := len(r.repo.rows["bob"]); n != 2 {
+		t.Fatalf("rows = %v, want 2 (one per edit)", r.repo.rows["bob"])
+	}
+	if len(r.sender.sent) != 2 {
+		t.Fatalf("pushes = %d, want 2", len(r.sender.sent))
 	}
 }

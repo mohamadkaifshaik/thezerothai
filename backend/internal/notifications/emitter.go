@@ -88,9 +88,24 @@ func (c *RecipientCap) Admit(actor string, n int) (ok bool, limit int64, newAcco
 	return c.established.AllowN(actor, int64(n)), c.establishedLimit, false
 }
 
+// capExempt reports whether events of type t bypass the per-actor social recipient cap and are not charged to it
+// (B07). TypeBeaconCancelled: a safety notice sent once per cancelled beacon, only to its accepted participants,
+// so its recipients are bounded by the beacon's capacity (beacons.Limits.MaxOpenSpots) and by the beacon create
+// limits rather than by the organiser's social reach. Charging it all-or-nothing per 10-recipient chunk silently
+// dropped whole chunks for an organiser with less than a chunk of budget left. TypeBeaconUpdated (F28) for the same
+// reasons: the same bounded audience, and a dropped "the time changed" notice leaves people at the wrong time; its
+// volume is bounded by the beacons write rate limit (RATE_LIMIT_BEACONS_WRITE_PER_MIN) and the edit-before-start rule.
+func capExempt(t Type) bool {
+	return t == TypeBeaconCancelled || t == TypeBeaconUpdated
+}
+
 // admit applies the cap to an event that survived prepare and logs a drop with its own message so an abuse spike
-// is queryable (jsonPayload.message="notification_fanout_capped"). It never logs the raw uid.
+// is queryable (jsonPayload.message="notification_fanout_capped"). It never logs the raw uid. A capExempt type is
+// admitted without being counted.
 func admit(ctx context.Context, log *slog.Logger, c *RecipientCap, ev Event) bool {
+	if capExempt(ev.Type) {
+		return true
+	}
 	ok, limit, isNew := c.Admit(ev.ActorID, len(ev.RecipientIDs))
 	if !ok {
 		log.WarnContext(ctx, "notification_fanout_capped", "type", string(ev.Type), "actor_hash", logger.HashUID(ev.ActorID),

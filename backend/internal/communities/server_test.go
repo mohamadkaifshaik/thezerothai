@@ -21,26 +21,27 @@ func call[Q, R any](m func(*Server, context.Context, *connect.Request[Q]) (*conn
 	}
 }
 
-// TestServer_FlagGateOnEveryRPC: all twelve CommunityService methods run the FEATURE_COMMUNITIES gate first, in every flag mode.
+// TestServer_FlagGateOnEveryRPC: all thirteen CommunityService methods run the FEATURE_COMMUNITIES gate first, in every flag mode.
 // Outside the flag the answer is FEATURE_DISABLED feature=communities; inside it with no Service wired the
 // skeleton answers Unimplemented (the real service comes later); a request with no uid is Unauthenticated.
 func TestServer_FlagGateOnEveryRPC(t *testing.T) {
 	calls := map[string]func(*Server, context.Context) error{
-		"CreateCommunity":      call((*Server).CreateCommunity),
-		"UpdateCommunity":      call((*Server).UpdateCommunity),
-		"GetCommunity":         call((*Server).GetCommunity),
-		"ListCommunities":      call((*Server).ListCommunities),
-		"ListMyCommunities":    call((*Server).ListMyCommunities),
-		"JoinCommunity":        call((*Server).JoinCommunity),
-		"LeaveCommunity":       call((*Server).LeaveCommunity),
-		"ListCommunityMembers": call((*Server).ListCommunityMembers),
-		"HideCommunityPost":    call((*Server).HideCommunityPost),
-		"RestoreCommunityPost": call((*Server).RestoreCommunityPost),
-		"SetMemberRole":        call((*Server).SetMemberRole),
-		"ListModerationLog":    call((*Server).ListModerationLog),
+		"CreateCommunity":        call((*Server).CreateCommunity),
+		"UpdateCommunity":        call((*Server).UpdateCommunity),
+		"GetCommunity":           call((*Server).GetCommunity),
+		"ListCommunities":        call((*Server).ListCommunities),
+		"ListMyCommunities":      call((*Server).ListMyCommunities),
+		"JoinCommunity":          call((*Server).JoinCommunity),
+		"LeaveCommunity":         call((*Server).LeaveCommunity),
+		"ListCommunityMembers":   call((*Server).ListCommunityMembers),
+		"SearchCommunityMembers": call((*Server).SearchCommunityMembers),
+		"HideCommunityPost":      call((*Server).HideCommunityPost),
+		"RestoreCommunityPost":   call((*Server).RestoreCommunityPost),
+		"SetMemberRole":          call((*Server).SetMemberRole),
+		"ListModerationLog":      call((*Server).ListModerationLog),
 	}
-	if len(calls) != 12 {
-		t.Fatalf("table has %d RPCs, want the 12 of CommunityService", len(calls))
+	if len(calls) != 13 {
+		t.Fatalf("table has %d RPCs, want the 13 of CommunityService", len(calls))
 	}
 	for rpc, c := range calls {
 		for _, m := range flagModes() {
@@ -72,11 +73,11 @@ func TestServer_FlagGateOnEveryRPC(t *testing.T) {
 	}
 }
 
-// TestServer_AllRoutesAreMounted: the generated handler carries exactly the twelve procedures this skeleton gates, so a new
+// TestServer_AllRoutesAreMounted: the generated handler carries exactly the thirteen procedures this skeleton gates, so a new
 // proto RPC without a gate shows up here.
 func TestServer_AllRoutesAreMounted(t *testing.T) {
 	desc := communitiesv1.File_dzeroth_communities_v1_communities_proto.Services().ByName("CommunityService")
-	if desc == nil || desc.Methods().Len() != 12 {
-		t.Fatalf("CommunityService has %v methods, want 12 (add the gate for a new RPC)", desc)
+	if desc == nil || desc.Methods().Len() != 13 {
+		t.Fatalf("CommunityService has %v methods, want 13 (add the gate for a new RPC)", desc)
 	}
 }

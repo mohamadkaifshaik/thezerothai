@@ -264,10 +264,14 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	recipientCap := notifications.NewRecipientCap(cfg.RateLimit.NotificationRecipientsPerActorPerDay, cfg.RateLimit.NotificationRecipientsPerNewActorPerDay, isNewActor)
 	notifAudience := protectedAudience(protectedAuthors)
+	// F6: push preferences (users/{uid}/settings/notifications), read by the fan-out through a 60 s instance cache and by
+	// Get/UpdateNotificationPrefs. Inert until FEATURE_NOTIFICATION_PREFS is on for a caller.
+	notifPrefs := notifications.NewPrefsStore(notifRepo, identitySvc.(identity.Directory))
 	notifFanout := notifications.NewFanout(notifications.FanoutDeps{
 		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Sender: pushSender,
 		Flags: featureFlags, Log: log, ProjectID: cfg.ProjectID, ReadOnly: cfg.Degraded == config.DegradedReadonly,
 		Audience:  notifAudience,
+		Prefs:     notifPrefs,
 		PushLimit: notifications.NewPushLimiter(int(cfg.RateLimit.NotificationPushesPerRecipientPerHour)),
 		// The push-only message type has its own bucket (MESSAGES_PUSHES_PER_RECIPIENT_PER_HOUR, 20).
 		MessagePushLimit: notifications.NewPushLimiter(cfg.Messaging.PushesPerRecipientPerHour),
@@ -285,7 +289,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	notifService := notifications.NewService(notifications.Deps{
 		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Seen: identityRepo, Validator: tokenValidator, CursorKey: cfg.CursorHMACKey,
 	})
-	notifServer := notifications.NewServer(notifService, featureFlags)
+	notifServer := notifications.NewServer(notifService, featureFlags, notifications.WithPrefs(notifPrefs))
 
 	// posts and timeline: both services are registered behind FEATURE_POSTS. Their RPC bodies land later;
 	// until then every RPC is Unimplemented once the flag is on. timeline gets only the
@@ -300,9 +304,26 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		// The publish sweep reads the author's users/{uid} inside its transaction: never cached.
 		Profiles: identityRepo,
 	})
+	// Beacons: the repo is built here because the outbox's beacon_cancelled handler (below) and the account-lifecycle
+	// registration need it (the eraser step and export section are registered whether or not FEATURE_BEACONS is on);
+	// the service and routes are wired below.
+	beaconsRepo := beacons.NewFirestoreRepo(fsClient, quota.New(fsClient), idempotency.New(fsClient))
+	// The durable outbox: DeletePost stages its post_delete item in the delete batch, CancelBeacon its beacon_cancelled
+	// item in the cancel transaction; the sweep re-runs leftovers (the cancel notices through the real notifier, never
+	// the test seam inlineBeaconEvents).
+	beaconCancelHandler := beacons.NewCancelOutboxHandler(beaconsRepo, beaconNotifier{slot: notifSlot}, cfg.Beacons.MaxOpenSpots)
+	ob, err := newOutbox(fsClient, mediaMod.jobs, beaconCancelHandler, log, bo.outboxNow)
+	if err != nil {
+		return nil, nil, err
+	}
+	var inlinePostDeleteJobs posts.PostDeleteJobs = mediaMod.jobs
+	if bo.inlinePostDeleteJobs != nil {
+		inlinePostDeleteJobs = bo.inlinePostDeleteJobs(inlinePostDeleteJobs)
+	}
 	postsSvc := posts.New(posts.Deps{
 		Repo: postsRepo, Cache: postsCache, Events: postNotifier{slot: notifSlot},
-		Jobs:      mediaMod.jobs,
+		Jobs:      inlinePostDeleteJobs,
+		Outbox:    ob,
 		Directory: identitySvc.(identity.Directory),
 		Graph:     graphSvc,
 		CursorKey: cfg.CursorHMACKey,
@@ -369,7 +390,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	postsRepo.SetRepostLinks(engagementMod)
 	postsSvc.(interface{ SetRepostLinks(posts.RepostLinks) }).SetRepostLinks(engagementMod)
 	engagementServer := engagement.NewServer(engagementMod, featureFlags, engagement.WithBookmarks(engagementMod))
-	postsServer := posts.NewServer(postsSvc, featureFlags, posts.WithViewerFlags(engagementMod), posts.WithScheduler(postsSvc.(posts.Scheduler)))
+	postsServer := posts.NewServer(postsSvc, featureFlags, posts.WithViewerFlags(engagementMod), posts.WithScheduler(postsSvc.(posts.Scheduler)), posts.WithScheduledEditor(postsSvc.(posts.ScheduledEditor)))
 	// The removal log is built only when FEATURE_REMOVED_IDS is not off: off means no instance cache, no reads and
 	// no reset of cached client feeds (timeline treats a nil Removals as "no removed_ids"). Allowlist and percent
 	// modes are enforced per caller in timeline.removedIDs.
@@ -395,9 +416,6 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// and export section are registered whether or not FEATURE_COMMUNITIES is on); the service and routes are wired with the lists routes.
 	communitiesRepo := communities.NewFirestoreRepo(fsClient, idempotency.New(fsClient)).
 		WithPostModerator(posts.NewCommunityModerator(fsClient)) // the Hide / Restore post write (A12)
-	// Beacons: the repo is built here because the account-lifecycle registration below needs it (the eraser step and
-	// export section are registered whether or not FEATURE_BEACONS is on); the service and routes are wired below.
-	beaconsRepo := beacons.NewFirestoreRepo(fsClient, quota.New(fsClient), idempotency.New(fsClient))
 	timelineServer := timeline.NewServer(timeline.Deps{
 		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory), Viewer: engagementMod,
 		Removals: removals, Lists: listsReader,
@@ -495,6 +513,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := registerBeaconsLifecycle(lifecycle, beaconsRepo); err != nil {
 		return nil, nil, fmt.Errorf("beacons lifecycle registry: %w", err)
 	}
+	// outbox: the user's pending work items (outbox/{kind}:{key}, uid ==); appended after beacons, before identity.
+	if err := registerOutboxLifecycle(lifecycle, ob); err != nil {
+		return nil, nil, fmt.Errorf("outbox lifecycle registry: %w", err)
+	}
 	// A MESSAGE report reaches the message only through messaging; bound once the messaging service exists.
 	lateMessages := &lateMessageLookup{}
 	// A COMMUNITY report reaches the community only through communities.CommunityReporter; bound once the communities service exists.
@@ -507,7 +529,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return nil, nil, errors.New("lists service does not implement ListReporter")
 	}
 	moderationSvc := moderation.New(moderation.Deps{
-		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d, Messages: lateMessages, Lists: listReportLookup{r: listReporter}, Communities: lateCommunities, Beacons: lateBeacons,
+		Repo: moderationRepo, Posts: postsSvc, Accounts: identitySvc, Directory: lateDirectory.d, Messages: lateMessages, Lists: listReportLookup{r: listReporter}, Communities: lateCommunities, Beacons: lateBeacons, Articles: articleReportLookup{r: articles.NewEvidenceReader(fsClient)},
 		ReportsPerDay:           int64(cfg.Quota.ReportsPerDay),
 		NewAccountReportsPerDay: int64(cfg.Quota.NewAccountReportsPerDay),
 		NewAccountWindow:        cfg.Quota.NewAccountWindow,
@@ -519,6 +541,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		media: mediaMod.jobs,
 		eng:   engagement.NewJobs(engagementRepo, postsRepo, postGone{postsRepo}, jobsPublisher),
 		pins:  identity.NewPinJobs(identityRepo, postGone{postsRepo}, identitySvc.(identity.Directory).Forget),
+		// The article rooted at a post deleted through posts.Delete goes with it (no orphan library entry).
+		articles: articles.NewPostDeleteJobs(fsClient, postGone{postsRepo}),
 	}
 	if err := lifecycle.RegisterJobHandler(media.JobKindPostDelete, postDeleteJob); err != nil {
 		return nil, nil, fmt.Errorf("post_delete job handler: %w", err)
@@ -658,14 +682,19 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return listsv1connect.NewListServiceHandler(listsServer, o...)
 	})
 
-	// Communities: all twelve CommunityService routes are mounted behind FEATURE_COMMUNITIES (FEATURE_DISABLED
+	// Communities: all thirteen CommunityService routes are mounted behind FEATURE_COMMUNITIES (FEATURE_DISABLED
 	// feature=communities) so the interceptor chain covers them. CreateCommunity, UpdateCommunity and GetCommunity and JoinCommunity,
 	// LeaveCommunity and ListMyCommunities run the service; replace the other six methods. CreateCommunity also needs the caller in COMMUNITY_CREATORS.
+	// The one shared 60 s handle-prefix cache over identity.SearchHandles (CACHE_SEARCH_PREFIX_ENTRIES): SearchPeople and
+	// SearchCommunityMembers (F36) read through the same entries, so a member search after a people search is a cache hit.
+	handlePrefixes := search.NewPrefixCache(identitySvc.(identity.Directory), cfg.Search.PrefixCacheEntries)
 	communitiesSvc := communities.New(communities.Deps{
 		// A committed restore drops this instance's shared feed entry (timeline is built above; communities never imports it).
 		OnPostRestored: timelineServer.ForgetCommunityFeed,
 		Repo:           communitiesRepo, Directory: identitySvc.(identity.Directory), Graph: graphSvc, IDs: snowflakeNode,
 		Creators: cfg.Communities.Creators, CursorKey: cfg.CursorHMACKey,
+		// FEATURE_COMMUNITY_MEMBER_SEARCH and the candidate reader of SearchCommunityMembers.
+		Flags: featureFlags, Handles: handlePrefixes,
 		Limits: communities.Limits{
 			MaxOwned: cfg.Communities.MaxOwned, MaxJoined: cfg.Communities.MaxJoined, MaxRules: cfg.Communities.MaxRules,
 			ModlogMax: cfg.Communities.ModlogMax, MaxModerators: cfg.Communities.MaxModerators, RecentRemovalsMax: cfg.Communities.RecentRemovalsMax, CacheEntries: cfg.Communities.CacheEntries, MembersCacheEntries: cfg.Communities.MembersCacheEntries,
@@ -693,10 +722,15 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// interceptor chain covers them. CreateBeacon, UpdateBeacon, CancelBeacon, GetBeacon and ListBeacons reach the service;
 	// the participation RPCs answer Unimplemented until PR 3. Community-audience beacons read membership through
 	// communities.Reader and gate on FEATURE_COMMUNITIES with the same registry.
+	var beaconEvents beacons.Events = beaconNotifier{slot: notifSlot} // request, accept and cancel → notifications (PR 5)
+	if bo.inlineBeaconEvents != nil {
+		beaconEvents = bo.inlineBeaconEvents(beaconEvents)
+	}
 	beaconsSvc := beacons.New(beacons.Deps{
 		Repo: beaconsRepo, Directory: identitySvc.(identity.Directory), Graph: graphSvc, Communities: communitiesSvc.(communities.Reader),
 		CommunityFlags: featureFlags, IDs: snowflakeNode, CursorKey: cfg.CursorHMACKey,
-		Events: beaconNotifier{slot: notifSlot}, // request, accept and cancel → notifications (PR 5)
+		Events: beaconEvents,
+		Outbox: ob, // the cancellation notices: staged in the cancel transaction, re-run by the outbox sweep (B07)
 		Limits: beacons.Limits{MaxOpenPerUser: cfg.Beacons.MaxOpenPerUser, MaxPendingRequests: cfg.Beacons.MaxPendingRequests, MaxOpenSpots: cfg.Beacons.MaxOpenSpots},
 	})
 	beaconReporter, ok := beaconsSvc.(beacons.BeaconReporter)
@@ -704,6 +738,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return nil, nil, errors.New("beacons service does not implement BeaconReporter")
 	}
 	lateBeacons.r = beaconReporter // bound before ListenAndServe: a BEACON report can now reach the beacon
+	// Post.beacon: CreatePost's beacon_id and the card hydration of every post producer.
+	wirePostPlans(beaconsSvc, postsSvc, postsServer, timelineServer)
 	beaconsServer := beacons.NewServer(featureFlags, beaconsSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return beaconsv1connect.NewBeaconServiceHandler(beaconsServer, o...)
@@ -717,7 +753,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// daily step (and the standalone route). Both go through search.TrendsStore, the only code that touches the collection.
 	trendsStore := search.NewTrendsRepo(fsClient)
 	searchServer := search.NewServer(search.New(featureFlags,
-		search.WithPeople(search.PeopleDeps{Directory: identitySvc.(identity.Directory), Graph: graphSvc, PrefixEntries: cfg.Search.PrefixCacheEntries}),
+		search.WithPeople(search.PeopleDeps{Directory: identitySvc.(identity.Directory), Graph: graphSvc, PrefixEntries: cfg.Search.PrefixCacheEntries, Prefixes: handlePrefixes}),
 		search.WithPosts(search.PostsDeps{
 			Posts: postsSvc, Graph: graphSvc, Viewer: engagementMod, Audience: searchAudience,
 			CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries,
@@ -758,7 +794,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// The scheduled-post publish sweep (Cloud Scheduler every 5 min, prod). POST only, 25 s deadline and panic
 	// recovery. The kill switch (FEATURE_SCHEDULED_POSTS / FEATURE_POSTS globally off) and
 	// DEGRADED_MODE=readonly are checked inside the sweep, which then answers 204.
-	routes.internal("/internal/cron/publish-scheduled", posts.NewSweepHandler(postsSvc.(posts.Sweeper), log, cfg.ProjectID))
+	// The outbox sweep rides the same tick, after the publish sweep and never changing its status (outbox_wiring.go);
+	// /internal/cron/outbox-sweep runs it alone (dev has no Scheduler jobs).
+	outboxStep := outboxSweepStep{sweeper: ob, readOnly: cfg.Degraded == config.DegradedReadonly, log: log}
+	routes.internal("/internal/cron/publish-scheduled", withOutboxSweep(posts.NewSweepHandler(postsSvc.(posts.Sweeper), log, cfg.ProjectID), outboxStep, cfg.ProjectID, time.Now))
+	routes.internal("/internal/cron/outbox-sweep", outboxSweepHandler(outboxStep, log, cfg.ProjectID))
 	// The notifications-fanout push endpoint. Behind the OIDC verifier like every /internal/* route; the
 	// FEATURE_NOTIFICATIONS flag and DEGRADED_MODE=readonly are checked per event inside the handler, which then
 	// acknowledges and drops (never a 5xx, so a switched-off feature cannot fill the DLQ).

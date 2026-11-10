@@ -2,19 +2,22 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
 
-/// The heading of a section: a [title] (announced as a header), an optional
-/// [subtitle] and an optional text action ([actionLabel] + [onAction], given
+/// The heading of a section: an optional [eyebrow] kicker (uppercased, accent
+/// colour, never the only carrier of meaning), a [title] (Manrope, announced
+/// as a header), an optional [subtitle] and an optional text action ([actionLabel] + [onAction], given
 /// together or not at all). Purely presentational.
 class AppSectionHeader extends StatelessWidget {
   const AppSectionHeader({
     super.key,
     required this.title,
+    this.eyebrow,
     this.subtitle,
     this.actionLabel,
     this.onAction,
   }) : assert((actionLabel == null) == (onAction == null));
 
   final String title;
+  final String? eyebrow;
   final String? subtitle;
   final String? actionLabel;
   final VoidCallback? onAction;
@@ -36,6 +39,16 @@ class AppSectionHeader extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (eyebrow != null) ...[
+                  Text(
+                    eyebrow!.toUpperCase(),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTextStyles.eyebrow(theme)
+                        .copyWith(color: context.appColors.accentText),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                ],
                 Semantics(
                   header: true,
                   child: Text(

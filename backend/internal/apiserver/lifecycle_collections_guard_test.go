@@ -32,6 +32,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/outbox"
 )
 
 // disposition says what happens to a collection when its owner's account is deleted.
@@ -83,6 +84,7 @@ var lifecycleCollections = []collectionRow{
 	// users hold about them (collection-group array-contains on actorIds).
 	{Name: "notifications", Sub: true, Disposition: erasedByStep, Step: "notifications", Section: "notifications", Owner: "notifications", Cite: "ADR-0017 D10, ADR-0011 Q1"},
 	{Name: "devices", Sub: true, Disposition: erasedByStep, Step: "notifications", ExportNote: "FCM tokens are never exported; platform and timestamps are in the notifications section", Owner: "notifications", Cite: "ADR-0017 D1, D10"},
+	{Name: "settings", Sub: true, Disposition: erasedByStep, Step: "notifications", Section: "notifications", Owner: "notifications", ExportNote: "", Cite: "ADR-0017 D10 extended by F6: users/{uid}/settings/notifications is deleted in purge step 0 and exported under the notifications section's settings key"},
 	{Name: "deviceTokens", Disposition: erasedByStep, Step: "notifications", ExportNote: "reverse index sha256(token) -> uid; the token itself is never exported", Owner: "notifications", Cite: "ADR-0017 D1, D10"},
 
 	// Declared in the data model, no code yet.
@@ -162,6 +164,11 @@ var lifecycleCollections = []collectionRow{
 	{Name: "beacons", Disposition: erasedByStep, Step: "beacons", Section: "beacons", Owner: "beacons", Cite: "ADR-0032 (Beacons; docs/beacons-plan.md section 5 until the ADR is written)"},
 	{Name: "beaconParticipants", Sub: true, Disposition: erasedByStep, Step: "beacons", Section: "beacons", Owner: "beacons", Cite: "ADR-0032 (Beacons; docs/beacons-plan.md section 5 until the ADR is written)"},
 	{Name: "beaconMemberships", Sub: true, Disposition: erasedByStep, Step: "beacons", Section: "beacons", Owner: "beacons", Cite: "ADR-0032 (Beacons; docs/beacons-plan.md section 5 until the ADR is written)"},
+	// Outbox/{kind}:{key} (pkg/platform/outbox) holds a durable follow-up of a committed change: kind, key (a post id), the
+	// uid the item is about, an opaque payload (for post_delete: uid, post id, media ids), attempts and times, with a 30-day
+	// expireAt TTL backstop. The `outbox` step (BeforeIdentity, appended after beacons) deletes every item with uid == the
+	// deleted user, so the sweep finds no residue; nothing is exported (an operational pointer, not user content).
+	{Name: "outbox", Disposition: erasedByStep, Step: "outbox", ExportNote: "operational work items (kind, post id, uid, attempts); not user content, not exported", Owner: "platform", Cite: "erasure follows the ADR-0011 Q1 pattern; collection, step and TTL owner-approved 2026-11-08 (Task 9), ADR pending"},
 	{Name: "admin", Disposition: notPersonal, Owner: "admin", Cite: "ADR-0003 data model (feature flags, SafeSearch counter)"},
 	// Trends/current holds tags and counts only (distinct authors are counted in memory and never
 	// persisted), and trends/hidden holds the operator hide list as folded tag keys: no uid, no actor. So there is
@@ -372,6 +379,9 @@ func registeredLifecycle(t *testing.T) (steps, sections []string) {
 		t.Fatal(err)
 	}
 	if err := registerBeaconsLifecycle(l, beacons.NewFirestoreRepo(nil, nil, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if err := registerOutboxLifecycle(l, outbox.New(nil, outbox.Config{})); err != nil {
 		t.Fatal(err)
 	}
 	return l.StepNames(), l.ExportSectionNames()

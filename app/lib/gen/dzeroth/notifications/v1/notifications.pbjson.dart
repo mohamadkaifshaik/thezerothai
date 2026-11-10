@@ -37,6 +37,7 @@ const NotificationType$json = {
     {'1': 'NOTIFICATION_TYPE_BEACON_REQUEST', '2': 10},
     {'1': 'NOTIFICATION_TYPE_BEACON_ACCEPTED', '2': 11},
     {'1': 'NOTIFICATION_TYPE_BEACON_CANCELLED', '2': 12},
+    {'1': 'NOTIFICATION_TYPE_BEACON_UPDATED', '2': 13},
   ],
 };
 
@@ -50,7 +51,7 @@ final $typed_data.Uint8List notificationTypeDescriptor = $convert.base64Decode(
     'lDQVRJT05fVFlQRV9GT0xMT1dfQUNDRVBURUQQCBIdChlOT1RJRklDQVRJT05fVFlQRV9NRVNT'
     'QUdFEAkSJAogTk9USUZJQ0FUSU9OX1RZUEVfQkVBQ09OX1JFUVVFU1QQChIlCiFOT1RJRklDQV'
     'RJT05fVFlQRV9CRUFDT05fQUNDRVBURUQQCxImCiJOT1RJRklDQVRJT05fVFlQRV9CRUFDT05f'
-    'Q0FOQ0VMTEVEEAw=');
+    'Q0FOQ0VMTEVEEAwSJAogTk9USUZJQ0FUSU9OX1RZUEVfQkVBQ09OX1VQREFURUQQDQ==');
 
 @$core.Deprecated('Use devicePlatformDescriptor instead')
 const DevicePlatform$json = {
@@ -254,6 +255,112 @@ const UnregisterDeviceResponse$json = {
 final $typed_data.Uint8List unregisterDeviceResponseDescriptor =
     $convert.base64Decode('ChhVbnJlZ2lzdGVyRGV2aWNlUmVzcG9uc2U=');
 
+@$core.Deprecated('Use notificationPrefsDescriptor instead')
+const NotificationPrefs$json = {
+  '1': 'NotificationPrefs',
+  '2': [
+    {'1': 'plans_push', '3': 1, '4': 1, '5': 8, '10': 'plansPush'},
+    {
+      '1': 'mentions_replies_push',
+      '3': 2,
+      '4': 1,
+      '5': 8,
+      '10': 'mentionsRepliesPush'
+    },
+    {
+      '1': 'likes_reposts_push',
+      '3': 3,
+      '4': 1,
+      '5': 8,
+      '10': 'likesRepostsPush'
+    },
+    {'1': 'followers_push', '3': 4, '4': 1, '5': 8, '10': 'followersPush'},
+    {'1': 'messages_push', '3': 5, '4': 1, '5': 8, '10': 'messagesPush'},
+  ],
+};
+
+/// Descriptor for `NotificationPrefs`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List notificationPrefsDescriptor = $convert.base64Decode(
+    'ChFOb3RpZmljYXRpb25QcmVmcxIdCgpwbGFuc19wdXNoGAEgASgIUglwbGFuc1B1c2gSMgoVbW'
+    'VudGlvbnNfcmVwbGllc19wdXNoGAIgASgIUhNtZW50aW9uc1JlcGxpZXNQdXNoEiwKEmxpa2Vz'
+    'X3JlcG9zdHNfcHVzaBgDIAEoCFIQbGlrZXNSZXBvc3RzUHVzaBIlCg5mb2xsb3dlcnNfcHVzaB'
+    'gEIAEoCFINZm9sbG93ZXJzUHVzaBIjCg1tZXNzYWdlc19wdXNoGAUgASgIUgxtZXNzYWdlc1B1'
+    'c2g=');
+
+@$core.Deprecated('Use getNotificationPrefsRequestDescriptor instead')
+const GetNotificationPrefsRequest$json = {
+  '1': 'GetNotificationPrefsRequest',
+};
+
+/// Descriptor for `GetNotificationPrefsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getNotificationPrefsRequestDescriptor =
+    $convert.base64Decode('ChtHZXROb3RpZmljYXRpb25QcmVmc1JlcXVlc3Q=');
+
+@$core.Deprecated('Use getNotificationPrefsResponseDescriptor instead')
+const GetNotificationPrefsResponse$json = {
+  '1': 'GetNotificationPrefsResponse',
+  '2': [
+    {
+      '1': 'prefs',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.notifications.v1.NotificationPrefs',
+      '10': 'prefs'
+    },
+  ],
+};
+
+/// Descriptor for `GetNotificationPrefsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getNotificationPrefsResponseDescriptor =
+    $convert.base64Decode(
+        'ChxHZXROb3RpZmljYXRpb25QcmVmc1Jlc3BvbnNlEkEKBXByZWZzGAEgASgLMisuZHplcm90aC'
+        '5ub3RpZmljYXRpb25zLnYxLk5vdGlmaWNhdGlvblByZWZzUgVwcmVmcw==');
+
+@$core.Deprecated('Use updateNotificationPrefsRequestDescriptor instead')
+const UpdateNotificationPrefsRequest$json = {
+  '1': 'UpdateNotificationPrefsRequest',
+  '2': [
+    {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
+    {
+      '1': 'prefs',
+      '3': 2,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.notifications.v1.NotificationPrefs',
+      '10': 'prefs'
+    },
+  ],
+};
+
+/// Descriptor for `UpdateNotificationPrefsRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List updateNotificationPrefsRequestDescriptor =
+    $convert.base64Decode(
+        'Ch5VcGRhdGVOb3RpZmljYXRpb25QcmVmc1JlcXVlc3QSJwoPaWRlbXBvdGVuY3lfa2V5GAEgAS'
+        'gJUg5pZGVtcG90ZW5jeUtleRJBCgVwcmVmcxgCIAEoCzIrLmR6ZXJvdGgubm90aWZpY2F0aW9u'
+        'cy52MS5Ob3RpZmljYXRpb25QcmVmc1IFcHJlZnM=');
+
+@$core.Deprecated('Use updateNotificationPrefsResponseDescriptor instead')
+const UpdateNotificationPrefsResponse$json = {
+  '1': 'UpdateNotificationPrefsResponse',
+  '2': [
+    {
+      '1': 'prefs',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.notifications.v1.NotificationPrefs',
+      '10': 'prefs'
+    },
+  ],
+};
+
+/// Descriptor for `UpdateNotificationPrefsResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List updateNotificationPrefsResponseDescriptor =
+    $convert.base64Decode(
+        'Ch9VcGRhdGVOb3RpZmljYXRpb25QcmVmc1Jlc3BvbnNlEkEKBXByZWZzGAEgASgLMisuZHplcm'
+        '90aC5ub3RpZmljYXRpb25zLnYxLk5vdGlmaWNhdGlvblByZWZzUgVwcmVmcw==');
+
 const $core.Map<$core.String, $core.dynamic> NotificationServiceBase$json = {
   '1': 'NotificationService',
   '2': [
@@ -277,6 +384,17 @@ const $core.Map<$core.String, $core.dynamic> NotificationServiceBase$json = {
       '1': 'UnregisterDevice',
       '2': '.dzeroth.notifications.v1.UnregisterDeviceRequest',
       '3': '.dzeroth.notifications.v1.UnregisterDeviceResponse'
+    },
+    {
+      '1': 'GetNotificationPrefs',
+      '2': '.dzeroth.notifications.v1.GetNotificationPrefsRequest',
+      '3': '.dzeroth.notifications.v1.GetNotificationPrefsResponse',
+      '4': {'34': 1},
+    },
+    {
+      '1': 'UpdateNotificationPrefs',
+      '2': '.dzeroth.notifications.v1.UpdateNotificationPrefsRequest',
+      '3': '.dzeroth.notifications.v1.UpdateNotificationPrefsResponse'
     },
   ],
 };
@@ -302,6 +420,15 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
       UnregisterDeviceRequest$json,
   '.dzeroth.notifications.v1.UnregisterDeviceResponse':
       UnregisterDeviceResponse$json,
+  '.dzeroth.notifications.v1.GetNotificationPrefsRequest':
+      GetNotificationPrefsRequest$json,
+  '.dzeroth.notifications.v1.GetNotificationPrefsResponse':
+      GetNotificationPrefsResponse$json,
+  '.dzeroth.notifications.v1.NotificationPrefs': NotificationPrefs$json,
+  '.dzeroth.notifications.v1.UpdateNotificationPrefsRequest':
+      UpdateNotificationPrefsRequest$json,
+  '.dzeroth.notifications.v1.UpdateNotificationPrefsResponse':
+      UpdateNotificationPrefsResponse$json,
 };
 
 /// Descriptor for `NotificationService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -315,4 +442,9 @@ final $typed_data.Uint8List notificationServiceDescriptor = $convert.base64Decod
     'cy52MS5SZWdpc3RlckRldmljZVJlcXVlc3QaMC5kemVyb3RoLm5vdGlmaWNhdGlvbnMudjEuUm'
     'VnaXN0ZXJEZXZpY2VSZXNwb25zZRJ5ChBVbnJlZ2lzdGVyRGV2aWNlEjEuZHplcm90aC5ub3Rp'
     'ZmljYXRpb25zLnYxLlVucmVnaXN0ZXJEZXZpY2VSZXF1ZXN0GjIuZHplcm90aC5ub3RpZmljYX'
-    'Rpb25zLnYxLlVucmVnaXN0ZXJEZXZpY2VSZXNwb25zZQ==');
+    'Rpb25zLnYxLlVucmVnaXN0ZXJEZXZpY2VSZXNwb25zZRKKAQoUR2V0Tm90aWZpY2F0aW9uUHJl'
+    'ZnMSNS5kemVyb3RoLm5vdGlmaWNhdGlvbnMudjEuR2V0Tm90aWZpY2F0aW9uUHJlZnNSZXF1ZX'
+    'N0GjYuZHplcm90aC5ub3RpZmljYXRpb25zLnYxLkdldE5vdGlmaWNhdGlvblByZWZzUmVzcG9u'
+    'c2UiA5ACARKOAQoXVXBkYXRlTm90aWZpY2F0aW9uUHJlZnMSOC5kemVyb3RoLm5vdGlmaWNhdG'
+    'lvbnMudjEuVXBkYXRlTm90aWZpY2F0aW9uUHJlZnNSZXF1ZXN0GjkuZHplcm90aC5ub3RpZmlj'
+    'YXRpb25zLnYxLlVwZGF0ZU5vdGlmaWNhdGlvblByZWZzUmVzcG9uc2U=');

@@ -55,6 +55,12 @@ const (
 	// PostServiceCancelScheduledPostProcedure is the fully-qualified name of the PostService's
 	// CancelScheduledPost RPC.
 	PostServiceCancelScheduledPostProcedure = "/dzeroth.posts.v1.PostService/CancelScheduledPost"
+	// PostServicePublishScheduledPostNowProcedure is the fully-qualified name of the PostService's
+	// PublishScheduledPostNow RPC.
+	PostServicePublishScheduledPostNowProcedure = "/dzeroth.posts.v1.PostService/PublishScheduledPostNow"
+	// PostServiceUpdateScheduledPostProcedure is the fully-qualified name of the PostService's
+	// UpdateScheduledPost RPC.
+	PostServiceUpdateScheduledPostProcedure = "/dzeroth.posts.v1.PostService/UpdateScheduledPost"
 )
 
 // PostServiceClient is a client for the dzeroth.posts.v1.PostService service.
@@ -169,6 +175,16 @@ type PostServiceClient interface {
 	// included) => PERMISSION_DENIED + FORBIDDEN metadata["reason"] = "not_member", writing nothing. The member doc is cached
 	// 60 s on this path, so a ban reaches other instances' reply path within 60 s. The community and member doc are cached. With communities globally off, community posts behave as
 	// ordinary posts: no label and no reply gate (the kill switch).
+	// Plan embeds (FEATURE_POST_BEACON_EMBED, wire name "post_beacon_embed"; dzeroth.beacons.v1 header): a set beacon_id
+	// shares one of the caller's own plans on a root post. A set beacon_id while the flag is off for the caller (or no plan
+	// reader is wired) => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "post_beacon_embed", before any lookup,
+	// checked after "polls" in the order above (the beacons flag, "beacons", must also be on for the caller). Not 19 digits,
+	// or together with reply_to_post_id, quote_of_post_id or a poll => VALIDATION field "beacon_id". Then, after the community
+	// gate and before mentions: a missing, hidden or someone else's plan => NOT_FOUND "beacon not found" (one message for all,
+	// so no plan leaks); an ENDED or CANCELLED one => FAILED_PRECONDITION metadata["reason"] = "ended" | "cancelled"; a
+	// community plan with a community_id other than its community => VALIDATION field "beacon_id" (a public plan may go in
+	// any post). The post doc stores beaconId and a frozen snapshot (title, activity, start_at, community); the request hash
+	// covers beacon_id only when it is set. Nothing is written on a refusal.
 	CreatePost(context.Context, *connect.Request[v1.CreatePostRequest]) (*connect.Response[v1.CreatePostResponse], error)
 	// Delete own post. post_id must be 19 digits (else VALIDATION). Only the author's call deletes anything:
 	// another user's post, an unknown id and an already-deleted post all return success and write nothing,
@@ -261,6 +277,24 @@ type PostServiceClient interface {
 	// format-validated (VALIDATION when malformed) but not stored.
 	// Terminal items expire by TTL after SCHEDULED_TERMINAL_TTL (default 7 days).
 	CancelScheduledPost(context.Context, *connect.Request[v1.CancelScheduledPostRequest]) (*connect.Response[v1.CancelScheduledPostResponse], error)
+	// Publish a PENDING scheduled post immediately ("Post now"). Needs FEATURE_POSTS and FEATURE_SCHEDULED_POSTS on for
+	// the caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "scheduled_posts"); shares the CreatePost
+	// rate-limit bucket. It runs the sweep's publish transaction (same code path), which re-reads the item as PENDING, so
+	// a race with the sweep or a cancel publishes at most once. The response is the item PUBLISHED with post_id. Idempotent
+	// by state: an item already PUBLISHED (a retry, or the sweep won) is returned unchanged. A CANCELLED item, or a FAILED
+	// one, is FAILED_PRECONDITION; if the publish transaction itself retires the item (media no longer available, account
+	// restricted) the response is the FAILED item. scheduled_id must match ^[0-9a-f]{32}$ (else VALIDATION); unknown =>
+	// NOT_FOUND. idempotency_key is format-validated (VALIDATION when malformed) but not stored.
+	PublishScheduledPostNow(context.Context, *connect.Request[v1.PublishScheduledPostNowRequest]) (*connect.Response[v1.PublishScheduledPostNowResponse], error)
+	// Edit a PENDING scheduled post. Needs FEATURE_POSTS and FEATURE_SCHEDULED_POSTS on for the caller. Only the fields
+	// that are set change; at least one must be set (else VALIDATION). text follows the CreatePost rules (a post that
+	// carries media may have empty text), publish_at the SchedulePost rules (truncated to the minute, within [now + 2 min,
+	// now + 60 d], and the +/-4 min window cap, LIMIT_REACHED "scheduled_window"), reply_policy the CreatePost rules
+	// (needs FEATURE_REPLY_AUDIENCE). Media and the labels are not editable. An item that is not PENDING (published,
+	// cancelled, failed) or whose stored publish_at is less than 60 s away is FAILED_PRECONDITION; unknown =>
+	// NOT_FOUND. Idempotent by state: an edit whose values already equal the stored ones writes nothing and returns the
+	// item. idempotency_key is format-validated but not stored. Shares the CreatePost rate-limit bucket.
+	UpdateScheduledPost(context.Context, *connect.Request[v1.UpdateScheduledPostRequest]) (*connect.Response[v1.UpdateScheduledPostResponse], error)
 }
 
 // NewPostServiceClient constructs a client for the dzeroth.posts.v1.PostService service. By
@@ -319,18 +353,32 @@ func NewPostServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(postServiceMethods.ByName("CancelScheduledPost")),
 			connect.WithClientOptions(opts...),
 		),
+		publishScheduledPostNow: connect.NewClient[v1.PublishScheduledPostNowRequest, v1.PublishScheduledPostNowResponse](
+			httpClient,
+			baseURL+PostServicePublishScheduledPostNowProcedure,
+			connect.WithSchema(postServiceMethods.ByName("PublishScheduledPostNow")),
+			connect.WithClientOptions(opts...),
+		),
+		updateScheduledPost: connect.NewClient[v1.UpdateScheduledPostRequest, v1.UpdateScheduledPostResponse](
+			httpClient,
+			baseURL+PostServiceUpdateScheduledPostProcedure,
+			connect.WithSchema(postServiceMethods.ByName("UpdateScheduledPost")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // postServiceClient implements PostServiceClient.
 type postServiceClient struct {
-	createPost          *connect.Client[v1.CreatePostRequest, v1.CreatePostResponse]
-	deletePost          *connect.Client[v1.DeletePostRequest, v1.DeletePostResponse]
-	getPost             *connect.Client[v1.GetPostRequest, v1.GetPostResponse]
-	getThread           *connect.Client[v1.GetThreadRequest, v1.GetThreadResponse]
-	schedulePost        *connect.Client[v1.SchedulePostRequest, v1.SchedulePostResponse]
-	listScheduledPosts  *connect.Client[v1.ListScheduledPostsRequest, v1.ListScheduledPostsResponse]
-	cancelScheduledPost *connect.Client[v1.CancelScheduledPostRequest, v1.CancelScheduledPostResponse]
+	createPost              *connect.Client[v1.CreatePostRequest, v1.CreatePostResponse]
+	deletePost              *connect.Client[v1.DeletePostRequest, v1.DeletePostResponse]
+	getPost                 *connect.Client[v1.GetPostRequest, v1.GetPostResponse]
+	getThread               *connect.Client[v1.GetThreadRequest, v1.GetThreadResponse]
+	schedulePost            *connect.Client[v1.SchedulePostRequest, v1.SchedulePostResponse]
+	listScheduledPosts      *connect.Client[v1.ListScheduledPostsRequest, v1.ListScheduledPostsResponse]
+	cancelScheduledPost     *connect.Client[v1.CancelScheduledPostRequest, v1.CancelScheduledPostResponse]
+	publishScheduledPostNow *connect.Client[v1.PublishScheduledPostNowRequest, v1.PublishScheduledPostNowResponse]
+	updateScheduledPost     *connect.Client[v1.UpdateScheduledPostRequest, v1.UpdateScheduledPostResponse]
 }
 
 // CreatePost calls dzeroth.posts.v1.PostService.CreatePost.
@@ -366,6 +414,16 @@ func (c *postServiceClient) ListScheduledPosts(ctx context.Context, req *connect
 // CancelScheduledPost calls dzeroth.posts.v1.PostService.CancelScheduledPost.
 func (c *postServiceClient) CancelScheduledPost(ctx context.Context, req *connect.Request[v1.CancelScheduledPostRequest]) (*connect.Response[v1.CancelScheduledPostResponse], error) {
 	return c.cancelScheduledPost.CallUnary(ctx, req)
+}
+
+// PublishScheduledPostNow calls dzeroth.posts.v1.PostService.PublishScheduledPostNow.
+func (c *postServiceClient) PublishScheduledPostNow(ctx context.Context, req *connect.Request[v1.PublishScheduledPostNowRequest]) (*connect.Response[v1.PublishScheduledPostNowResponse], error) {
+	return c.publishScheduledPostNow.CallUnary(ctx, req)
+}
+
+// UpdateScheduledPost calls dzeroth.posts.v1.PostService.UpdateScheduledPost.
+func (c *postServiceClient) UpdateScheduledPost(ctx context.Context, req *connect.Request[v1.UpdateScheduledPostRequest]) (*connect.Response[v1.UpdateScheduledPostResponse], error) {
+	return c.updateScheduledPost.CallUnary(ctx, req)
 }
 
 // PostServiceHandler is an implementation of the dzeroth.posts.v1.PostService service.
@@ -480,6 +538,16 @@ type PostServiceHandler interface {
 	// included) => PERMISSION_DENIED + FORBIDDEN metadata["reason"] = "not_member", writing nothing. The member doc is cached
 	// 60 s on this path, so a ban reaches other instances' reply path within 60 s. The community and member doc are cached. With communities globally off, community posts behave as
 	// ordinary posts: no label and no reply gate (the kill switch).
+	// Plan embeds (FEATURE_POST_BEACON_EMBED, wire name "post_beacon_embed"; dzeroth.beacons.v1 header): a set beacon_id
+	// shares one of the caller's own plans on a root post. A set beacon_id while the flag is off for the caller (or no plan
+	// reader is wired) => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "post_beacon_embed", before any lookup,
+	// checked after "polls" in the order above (the beacons flag, "beacons", must also be on for the caller). Not 19 digits,
+	// or together with reply_to_post_id, quote_of_post_id or a poll => VALIDATION field "beacon_id". Then, after the community
+	// gate and before mentions: a missing, hidden or someone else's plan => NOT_FOUND "beacon not found" (one message for all,
+	// so no plan leaks); an ENDED or CANCELLED one => FAILED_PRECONDITION metadata["reason"] = "ended" | "cancelled"; a
+	// community plan with a community_id other than its community => VALIDATION field "beacon_id" (a public plan may go in
+	// any post). The post doc stores beaconId and a frozen snapshot (title, activity, start_at, community); the request hash
+	// covers beacon_id only when it is set. Nothing is written on a refusal.
 	CreatePost(context.Context, *connect.Request[v1.CreatePostRequest]) (*connect.Response[v1.CreatePostResponse], error)
 	// Delete own post. post_id must be 19 digits (else VALIDATION). Only the author's call deletes anything:
 	// another user's post, an unknown id and an already-deleted post all return success and write nothing,
@@ -572,6 +640,24 @@ type PostServiceHandler interface {
 	// format-validated (VALIDATION when malformed) but not stored.
 	// Terminal items expire by TTL after SCHEDULED_TERMINAL_TTL (default 7 days).
 	CancelScheduledPost(context.Context, *connect.Request[v1.CancelScheduledPostRequest]) (*connect.Response[v1.CancelScheduledPostResponse], error)
+	// Publish a PENDING scheduled post immediately ("Post now"). Needs FEATURE_POSTS and FEATURE_SCHEDULED_POSTS on for
+	// the caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "scheduled_posts"); shares the CreatePost
+	// rate-limit bucket. It runs the sweep's publish transaction (same code path), which re-reads the item as PENDING, so
+	// a race with the sweep or a cancel publishes at most once. The response is the item PUBLISHED with post_id. Idempotent
+	// by state: an item already PUBLISHED (a retry, or the sweep won) is returned unchanged. A CANCELLED item, or a FAILED
+	// one, is FAILED_PRECONDITION; if the publish transaction itself retires the item (media no longer available, account
+	// restricted) the response is the FAILED item. scheduled_id must match ^[0-9a-f]{32}$ (else VALIDATION); unknown =>
+	// NOT_FOUND. idempotency_key is format-validated (VALIDATION when malformed) but not stored.
+	PublishScheduledPostNow(context.Context, *connect.Request[v1.PublishScheduledPostNowRequest]) (*connect.Response[v1.PublishScheduledPostNowResponse], error)
+	// Edit a PENDING scheduled post. Needs FEATURE_POSTS and FEATURE_SCHEDULED_POSTS on for the caller. Only the fields
+	// that are set change; at least one must be set (else VALIDATION). text follows the CreatePost rules (a post that
+	// carries media may have empty text), publish_at the SchedulePost rules (truncated to the minute, within [now + 2 min,
+	// now + 60 d], and the +/-4 min window cap, LIMIT_REACHED "scheduled_window"), reply_policy the CreatePost rules
+	// (needs FEATURE_REPLY_AUDIENCE). Media and the labels are not editable. An item that is not PENDING (published,
+	// cancelled, failed) or whose stored publish_at is less than 60 s away is FAILED_PRECONDITION; unknown =>
+	// NOT_FOUND. Idempotent by state: an edit whose values already equal the stored ones writes nothing and returns the
+	// item. idempotency_key is format-validated but not stored. Shares the CreatePost rate-limit bucket.
+	UpdateScheduledPost(context.Context, *connect.Request[v1.UpdateScheduledPostRequest]) (*connect.Response[v1.UpdateScheduledPostResponse], error)
 }
 
 // NewPostServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -626,6 +712,18 @@ func NewPostServiceHandler(svc PostServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(postServiceMethods.ByName("CancelScheduledPost")),
 		connect.WithHandlerOptions(opts...),
 	)
+	postServicePublishScheduledPostNowHandler := connect.NewUnaryHandler(
+		PostServicePublishScheduledPostNowProcedure,
+		svc.PublishScheduledPostNow,
+		connect.WithSchema(postServiceMethods.ByName("PublishScheduledPostNow")),
+		connect.WithHandlerOptions(opts...),
+	)
+	postServiceUpdateScheduledPostHandler := connect.NewUnaryHandler(
+		PostServiceUpdateScheduledPostProcedure,
+		svc.UpdateScheduledPost,
+		connect.WithSchema(postServiceMethods.ByName("UpdateScheduledPost")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.posts.v1.PostService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PostServiceCreatePostProcedure:
@@ -642,6 +740,10 @@ func NewPostServiceHandler(svc PostServiceHandler, opts ...connect.HandlerOption
 			postServiceListScheduledPostsHandler.ServeHTTP(w, r)
 		case PostServiceCancelScheduledPostProcedure:
 			postServiceCancelScheduledPostHandler.ServeHTTP(w, r)
+		case PostServicePublishScheduledPostNowProcedure:
+			postServicePublishScheduledPostNowHandler.ServeHTTP(w, r)
+		case PostServiceUpdateScheduledPostProcedure:
+			postServiceUpdateScheduledPostHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -677,4 +779,12 @@ func (UnimplementedPostServiceHandler) ListScheduledPosts(context.Context, *conn
 
 func (UnimplementedPostServiceHandler) CancelScheduledPost(context.Context, *connect.Request[v1.CancelScheduledPostRequest]) (*connect.Response[v1.CancelScheduledPostResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.posts.v1.PostService.CancelScheduledPost is not implemented"))
+}
+
+func (UnimplementedPostServiceHandler) PublishScheduledPostNow(context.Context, *connect.Request[v1.PublishScheduledPostNowRequest]) (*connect.Response[v1.PublishScheduledPostNowResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.posts.v1.PostService.PublishScheduledPostNow is not implemented"))
+}
+
+func (UnimplementedPostServiceHandler) UpdateScheduledPost(context.Context, *connect.Request[v1.UpdateScheduledPostRequest]) (*connect.Response[v1.UpdateScheduledPostResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.posts.v1.PostService.UpdateScheduledPost is not implemented"))
 }
