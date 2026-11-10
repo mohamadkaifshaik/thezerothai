@@ -9,8 +9,8 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
-// The author-status rule (F-03), shared by every surface that lists or opens posts: GetPost and GetThread here, the
-// Home, list, community and profile feeds, and hashtag search. A row whose author is not ACTIVE (SUSPENDED, DELETING, or
+// The author-status rule (F-03), shared by GetPost and GetThread here, the Home, list, community and profile feeds,
+// plan previews and hashtag search. Not yet applied: the bookmarks and likes lists (engagement), a follow-up. A row whose author is not ACTIVE (SUSPENDED, DELETING, or
 // no users doc) is not shown. A copy of a post whose author is not ACTIVE is shown the way suspend-user's copy clean-up
 // and the account purge leave it once they reach it: a REPOST is dropped, a QUOTE keeps its own text with its embed
 // reduced to {post id, unavailable} (TombstonedQuote). Before that clean-up runs (it is paged, and the erasers start
