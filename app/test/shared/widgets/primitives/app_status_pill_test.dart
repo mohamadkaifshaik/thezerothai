@@ -1,3 +1,4 @@
+import 'package:dzeroth/shared/widgets/primitives/app_badge.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_status_pill.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,7 +16,7 @@ double _contrast(Color a, Color b) {
 void main() {
   for (final tone in AppStatusTone.values) {
     forEachThemeAndWidth(
-      'pill ${tone.name} fits, is >= 22dp, has no semantics',
+      'pill ${tone.name} fits, is >= 24dp, has no semantics',
       (tester, env) async {
         final handle = tester.ensureSemantics();
         await pumpThemed(
@@ -29,14 +30,18 @@ void main() {
           textScale: env.textScale,
         );
         expect(tester.takeException(), isNull);
-        expect(
-          tester.getSize(find.byType(AppStatusPill)).height,
-          greaterThanOrEqualTo(AppStatusPill.height),
-        );
+        final height = tester.getSize(find.byType(AppStatusPill)).height;
+        expect(height, greaterThanOrEqualTo(24));
+        if (env.textScale == 2.0) {
+          // Grows with the text: never a fixed box.
+          expect(height, greaterThan(AppStatusPill.height + 4));
+        }
         expect(find.bySemanticsLabel('Coming soon'), findsNothing);
         handle.dispose();
       },
-      textScales: kMatrixTextScalesLarge,
+      widths: kRedesignWidths,
+      textScales: kRedesignTextScales,
+      heights: kRedesignHeights,
     );
 
     for (final brightness in Brightness.values) {
@@ -59,11 +64,22 @@ void main() {
                     )
                     .decoration!
                 as BoxDecoration;
-        expect(
-          _contrast(text.style!.color!, deco.color!),
-          greaterThanOrEqualTo(4.5),
-        );
+        final page = Theme.of(tester.element(find.byType(AppStatusPill)))
+            .colorScheme
+            .surface;
+        final fill = Color.alphaBlend(deco.color!, page);
+        expect(_contrast(text.style!.color!, fill), greaterThanOrEqualTo(4.5));
       });
     }
   }
+
+  testWidgets('info pill is an accent tint badge', (tester) async {
+    await pumpThemed(
+      tester,
+      const AppStatusPill(label: 'Soon', tone: AppStatusTone.info),
+    );
+    final badge = tester.widget<AppTintBadge>(find.byType(AppTintBadge));
+    expect(badge.tone, AppTintTone.accent);
+    expect(badge.excludeSemantics, isTrue);
+  });
 }

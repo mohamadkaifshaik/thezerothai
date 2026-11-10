@@ -48,6 +48,7 @@ const (
 	refusedRecipientOff     = "recipient_inactive"
 	refusedRecipientFlagOff = "recipient_flag_off"
 	refusedGone             = "gone"
+	refusedDMPolicy         = "dm_policy"
 )
 
 // Send implements Service.Send.
@@ -171,7 +172,8 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 		UID: uid, PeerUID: in.peer, ConvID: in.convID, MsgID: MessageID(uid, in.key),
 		Text: in.text, RequestHash: requestHash(in.convID, in.text), Now: now,
 		CallerFollowsPeer: mine.Following[in.peer], CallerSilent: mine.Muted[in.peer],
-		Caller: peerDocOf(caller), Peer: peerDocOf(peer),
+		RecipientFollowingOnly: peer.DMPolicy == identity.DMPolicyFollowingOnly && s.flags.Enabled(in.peer, identity.DMPolicyFlag),
+		Caller:                 peerDocOf(caller), Peer: peerDocOf(peer),
 		MaxUnanswered: s.d.Limits.RequestMaxUnanswered, DMNewLimit: limit,
 		RecipientGraphInTx: func(ctx context.Context, tx *firestore.Transaction) (graph.Snapshot, error) {
 			return s.d.TxSocial.SnapshotInTx(ctx, tx, in.peer)
@@ -286,6 +288,8 @@ func (s *service) mapErr(ctx context.Context, uid string, in sendInput, err erro
 		return s.refuse(ctx, refusedRecipientOff)
 	case errors.Is(err, errBlocked):
 		return s.refuse(ctx, refusedBlocked)
+	case errors.Is(err, errDMPolicy):
+		return s.refuse(ctx, refusedDMPolicy)
 	case errors.Is(err, ErrCannotMessage):
 		return s.refuse(ctx, refusedGone) // the peer deleted the account
 	case errors.Is(err, ErrRequestLimit):

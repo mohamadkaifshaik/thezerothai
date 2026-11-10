@@ -414,6 +414,10 @@ func (s *service) present(p Profile) Profile {
 		p.PinnedPostID = ""
 		p.Website = ""
 	}
+	// The same kill switch for the "who can message me" setting (F9): the stored value comes back with the flag.
+	if s.extras == nil || s.extras.GloballyOff(DMPolicyFlag) {
+		p.DMPolicy = DMPolicyEveryoneRequests
+	}
 	return p
 }
 
@@ -434,6 +438,19 @@ func (s *service) extrasDisabled(ctx context.Context, uid string) error {
 	}
 	if flags.Guard(ctx, enabled, uid, ProfileExtrasFlag) != nil {
 		return flags.DisabledError().WithMeta("feature", ProfileExtrasFlag)
+	}
+	return nil
+}
+
+// dmPolicyDisabled is the dm_policy gate for UpdateProfile: nil when FEATURE_DM_POLICY is on for uid, otherwise
+// FEATURE_DISABLED with metadata feature=dm_policy. No flags wired = off. It never reads Firestore.
+func (s *service) dmPolicyDisabled(ctx context.Context, uid string) error {
+	var enabled func(uid, name string) bool
+	if s.extras != nil {
+		enabled = s.extras.Enabled
+	}
+	if flags.Guard(ctx, enabled, uid, DMPolicyFlag) != nil {
+		return flags.DisabledError().WithMeta("feature", DMPolicyFlag)
 	}
 	return nil
 }
@@ -496,6 +513,12 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	// would normalise to a clear) is still a set here.
 	if setsExtra(params.BannerMediaID) || setsExtra(params.Location) || setsExtra(params.Website) || setsExtra(params.PinnedPostID) {
 		if err := s.extrasDisabled(ctx, uid); err != nil {
+			return Profile{}, err
+		}
+	}
+	// F9: only FOLLOWING_ONLY is gated (EVERYONE_REQUESTS is the undo and never is), before any read.
+	if params.DMPolicy != nil && *params.DMPolicy == DMPolicyFollowingOnly {
+		if err := s.dmPolicyDisabled(ctx, uid); err != nil {
 			return Profile{}, err
 		}
 	}
@@ -631,6 +654,10 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		}
 		if params.IsPrivate != nil {
 			p.IsPrivate = *params.IsPrivate
+		}
+		if params.DMPolicy != nil {
+			note("dm_policy", *params.DMPolicy != p.DMPolicy)
+			p.DMPolicy = *params.DMPolicy
 		}
 		if *p != orig {
 			p.UpdatedAt = now

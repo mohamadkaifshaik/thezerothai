@@ -1,4 +1,5 @@
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/graph/presentation/follow_requests_screen.dart';
@@ -160,7 +161,12 @@ void main() {
       expect(retry, findsOneWidget);
       expectMinTarget(
         tester,
-        find.ancestor(of: retry, matching: find.bySubtype<ButtonStyleButton>()),
+        find.ancestor(
+          of: retry,
+          matching: find.byWidgetPredicate(
+            (w) => w is ButtonStyleButton || w is AppPillButton,
+          ),
+        ),
         reason: 'Retry',
       );
       expectInsideHorizontally(tester, retry, env.size.width);
