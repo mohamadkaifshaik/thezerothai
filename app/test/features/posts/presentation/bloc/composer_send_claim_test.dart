@@ -79,7 +79,13 @@ void main() {
   late List<Object> reported;
 
   setUp(() {
-    clock = DateTime.now().toUtc();
+    // Whole seconds, like the row's columns, so a window boundary never
+    // depends on the sub-second part of the real clock. Relative to it, not
+    // absolute (test/guards/fixed_date_guard_test.dart).
+    clock = DateTime.fromMillisecondsSinceEpoch(
+      DateTime.now().millisecondsSinceEpoch ~/ 1000 * 1000,
+      isUtc: true,
+    );
     at = clock.add(const Duration(days: 2));
     db = AppDatabase.forTesting(NativeDatabase.memory());
     repo = _ControlledDrafts(db, now: () => clock);
@@ -107,6 +113,8 @@ void main() {
       mediaOn: true,
       attachments: attachments,
       onUnexpectedError: (error, _) => reported.add(error),
+      // The store's clock: a remembered key ages with the row's.
+      clock: () => clock,
       drafts: drafts ? repo : null,
       uid: _uid,
       initialDraft: initial,
@@ -277,6 +285,164 @@ void main() {
 
       expect(server.receivedKeys, [k1], reason: 'no send after the refusal');
       expect(c.state.error, isA<UnknownApiException>());
+    });
+  });
+
+  group('a remembered key expires with the store\'s window', () {
+    const justInside = Duration(hours: 22, minutes: 59);
+    const justPast = Duration(hours: 23, minutes: 1);
+
+    /// A post sent once under K1 whose response was lost; returns K1.
+    Future<(ComposerCubit, String)> lostPost() async {
+      final c = await saved('hello');
+      server.script.add(ServerReply.drop);
+      await c.submit();
+      expect(server.accepted, hasLength(1));
+      return (c, server.receivedKeys.single);
+    }
+
+    /// A send refused as unconfirmed before anything left: no RPC, no
+    /// optimistic row, no error, the text kept.
+    void expectUnconfirmed(ComposerCubit c, {required int received}) {
+      expect(c.state.sendConflict, SendConflict.unconfirmed);
+      expect(c.state.error, isNull);
+      expect(c.state.status, ComposerStatus.editing);
+      expect(server.received, received, reason: 'nothing was sent');
+      expect(server.accepted, hasLength(1));
+      expect(pending.state, isEmpty, reason: 'no optimistic row');
+      expect(c.state.draft.text, 'hello');
+    }
+
+    test('post, store broken, 22 h 59 m old: K1 is reused', () async {
+      final (c, k1) = await lostPost();
+      clock = clock.add(justInside);
+      repo.broken = true;
+
+      await c.submit();
+
+      expect(server.receivedKeys, [k1, k1]);
+      expect(server.accepted, hasLength(1));
+      expect(c.state.status, ComposerStatus.posted);
+    });
+
+    test('post, store broken, 23 h 01 m old: refused as unconfirmed, no RPC, '
+        'also on a second tap', () async {
+      final (c, _) = await lostPost();
+      clock = clock.add(justPast);
+      repo.broken = true;
+
+      await c.submit();
+      expectUnconfirmed(c, received: 1);
+
+      c.sendConflictShown();
+      await c.submit();
+      expectUnconfirmed(c, received: 1);
+    });
+
+    test('post: a healthy reuse does not restart the window', () async {
+      final (c, k1) = await lostPost();
+      clock = clock.add(const Duration(hours: 20));
+      // The replay is lost too (a known key replays without the script).
+      server.refusals.add(const NetworkException('connection lost'));
+      await c.submit();
+      expect(server.receivedKeys, [k1, k1], reason: 'the store reused K1');
+
+      clock = clock.add(const Duration(hours: 3, minutes: 1));
+      repo.broken = true;
+      await c.submit();
+
+      expectUnconfirmed(c, received: 2);
+    });
+
+    test('post: a reopened composer ages the key from the row\'s first '
+        'claim', () async {
+      final (first, k1) = await lostPost();
+      final draft = (await repo.read(_uid, first.draftId))!;
+      await first.close();
+
+      final c = open(initial: draft);
+      clock = clock.add(const Duration(hours: 20));
+      server.refusals.add(const NetworkException('connection lost'));
+      await c.submit();
+      expect(server.receivedKeys, [k1, k1], reason: 'the store reused K1');
+
+      clock = clock.add(const Duration(hours: 3, minutes: 1));
+      repo.broken = true;
+      await c.submit();
+
+      expectUnconfirmed(c, received: 2);
+    });
+
+    test('post: "send anyway" after the refusal, store still broken, '
+        'refuses with no RPC', () async {
+      final (c, k1) = await lostPost();
+      clock = clock.add(justPast);
+      repo.broken = true;
+      await c.submit();
+      expect(c.state.sendConflict, SendConflict.unconfirmed);
+      c.sendConflictShown();
+
+      await c.sendAnyway();
+
+      expect(server.receivedKeys, [k1], reason: 'no new key, no RPC');
+      expect(server.accepted, hasLength(1));
+      expect(c.state.error, isA<UnknownApiException>());
+      expect(pending.state, isEmpty);
+    });
+
+    /// A schedule sent once under K1 whose response was lost; returns K1.
+    Future<(ComposerCubit, String)> lostSchedule() async {
+      final c = await saved('hello');
+      c.scheduleChanged(at);
+      server.script.add(ServerReply.drop);
+      await c.submit();
+      expect(server.accepted.map((a) => a.kind), ['schedule']);
+      return (c, server.receivedKeys.single);
+    }
+
+    // A scheduled item is its own idempotency record and outlives 24 h: the
+    // store keeps its key until 7 days after the publish time.
+    test('schedule, store broken, 23 h 01 m old, publish time ahead: K1 is '
+        'reused', () async {
+      final (c, k1) = await lostSchedule();
+      clock = clock.add(justPast);
+      repo.broken = true;
+
+      await c.submit();
+
+      expect(server.receivedKeys, [k1, k1]);
+      expect(server.accepted, hasLength(1));
+      expect(c.state.scheduledNotice, isNotNull, reason: 'K1 was replayed');
+    });
+
+    test('schedule, store broken, 1 min inside publish time + 7 d: K1 is '
+        'reused', () async {
+      final (c, k1) = await lostSchedule();
+      clock = at
+          .add(kScheduleSendKeyAfterPublish)
+          .subtract(const Duration(minutes: 1));
+      repo.broken = true;
+
+      await c.submit();
+
+      expect(server.receivedKeys, [k1, k1]);
+      expect(server.accepted, hasLength(1));
+    });
+
+    test('schedule, store broken, 1 min past publish time + 7 d: refused as '
+        'unconfirmed, no RPC', () async {
+      final (c, _) = await lostSchedule();
+      clock = at
+          .add(kScheduleSendKeyAfterPublish)
+          .add(const Duration(minutes: 1));
+      repo.broken = true;
+
+      await c.submit();
+
+      expect(c.state.sendConflict, SendConflict.unconfirmed);
+      expect(c.state.error, isNull);
+      expect(server.received, 1, reason: 'nothing was sent');
+      expect(c.state.scheduledAt, isNotNull, reason: 'the time stays');
     });
   });
 
