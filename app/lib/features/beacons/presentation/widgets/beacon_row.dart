@@ -4,6 +4,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../../shared/widgets/primitives/app_tile_icon.dart';
 import '../../domain/beacon_labels.dart';
+import '../beacon_icons.dart';
 import 'beacon_status_pill.dart';
 
 /// One plan in a list: activity icon, title, when, meeting point, seats and

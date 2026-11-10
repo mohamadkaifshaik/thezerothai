@@ -27,6 +27,7 @@ import '../../moderation/presentation/report_sheet.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/beacons_repository.dart';
 import '../domain/beacon_labels.dart';
+import 'beacon_icons.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/beacon_detail_cubit.dart';
 import 'bloc/beacon_detail_state.dart';

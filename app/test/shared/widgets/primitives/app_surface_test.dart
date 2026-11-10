@@ -3,6 +3,9 @@ import 'package:dzeroth/shared/widgets/primitives/app_surface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/contrast.dart';
+import '../../../support/theme_harness.dart';
+
 Widget _host(
   Widget child, {
   Brightness brightness = Brightness.dark,
@@ -47,12 +50,20 @@ void main() {
 
       await tester.pumpWidget(_host(const AppSurface(child: Text('a'))));
       final colors = Theme.of(tester.element(find.text('a'))).colorScheme;
-      expect(fill(), colors.surfaceContainerLow);
+      expect(fill(), AppPalette.navy2);
+      await tester.pumpWidget(
+        _host(const AppSurface(child: Text('a')), brightness: Brightness.light),
+      );
+      // MaterialApp animates between themes; let it finish.
+      await tester.pumpAndSettle();
+      expect(fill(), AppPalette.white);
+      await tester.pumpWidget(_host(const AppSurface(child: Text('a'))));
+      await tester.pumpAndSettle();
 
       await tester.pumpWidget(
         _host(const AppSurface(elevated: true, child: Text('a'))),
       );
-      expect(fill(), colors.surfaceContainerHigh);
+      expect(fill(), colors.surfaceContainerHighest);
     });
 
     testWidgets('long content at text scale 2.0 and 320 dp does not overflow', (
@@ -86,4 +97,46 @@ void main() {
       expect(find.text('const'), findsOneWidget);
     });
   });
+
+  forEachThemeAndWidth(
+    'AppSurface look: hairline, cardSmall radius, contrast, no overflow',
+    (tester, env) async {
+      await pumpThemed(
+        tester,
+        const AppSurface(
+          child: Text('A long line of content that wraps at big text scales'),
+        ),
+        brightness: env.brightness,
+        size: env.size,
+        textScale: env.textScale,
+      );
+      expect(tester.takeException(), isNull);
+      final deco =
+          tester
+                  .widget<Container>(
+                    find
+                        .descendant(
+                          of: find.byType(AppSurface),
+                          matching: find.byType(Container),
+                        )
+                        .first,
+                  )
+                  .decoration!
+              as BoxDecoration;
+      final colors = env.isDark ? AppColors.dark : AppColors.light;
+      expect(deco.borderRadius, BorderRadius.circular(AppRadius.cardSmall));
+      expect((deco.border! as Border).top.color, colors.hairline);
+      final scheme = buildAppTheme(brightness: env.brightness).colorScheme;
+      expect(
+        contrast(scheme.onSurface, deco.color!),
+        greaterThanOrEqualTo(4.5),
+      );
+      expect(
+        contrast(scheme.onSurfaceVariant, deco.color!),
+        greaterThanOrEqualTo(4.5),
+      );
+    },
+    widths: kRedesignWidths,
+    textScales: kRedesignTextScales,
+  );
 }

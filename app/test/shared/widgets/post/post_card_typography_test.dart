@@ -26,8 +26,9 @@ pb.PostView _view(String text) => pb.PostView(
   ),
 );
 
-/// acceptance: the post body is X's 15dp on a 20dp line pitch, in both
-/// themes, and nothing overflows at text scale 1.3.
+/// acceptance: the post body is the redesign's 15 sp on a 1.42 line
+/// (about 21.3 dp, ADR-0033), in both themes, and nothing overflows at text
+/// scale 1.3.
 void main() {
   Future<void> pumpCard(WidgetTester tester, MatrixEnv env, String text) =>
       pumpThemed(
@@ -44,20 +45,20 @@ void main() {
       );
 
   forEachThemeAndWidth(
-    'post body line pitch is 20dp at scale 1.0 and nothing overflows',
+    'post body line pitch is 21.3dp at scale 1.0 and nothing overflows',
     (tester, env) async {
       await pumpCard(tester, env, 'one\ntwo\nthree');
 
       final height = tester.getSize(find.byType(PostRichText)).height;
       final pitch = height / 3;
-      // 15dp x 1.33 = 19.95dp per line, times the text scale.
-      expect(pitch, closeTo(19.95 * env.textScale, 1.0));
+      // 15dp x 1.42 = 21.3dp per line, times the text scale.
+      expect(pitch, closeTo(21.3 * env.textScale, 1.0));
       expectNoOverflow(tester);
     },
     textScales: const [1.0, 1.3],
   );
 
-  testWidgets('the body style is the theme bodyLarge (15 / 1.33)', (
+  testWidgets('the body style is the theme bodyLarge (15 / 1.42)', (
     tester,
   ) async {
     await pumpCard(
@@ -71,7 +72,7 @@ void main() {
     );
     final style = tester.widget<PostRichText>(find.byType(PostRichText)).style!;
     expect(style.fontSize, 15);
-    expect(style.height, closeTo(1.33, 0.001));
+    expect(style.height, closeTo(1.42, 0.001));
     expect(AppIconSize.action, 16);
   });
 }

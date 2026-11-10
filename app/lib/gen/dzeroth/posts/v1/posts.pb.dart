@@ -2619,6 +2619,338 @@ class CancelScheduledPostResponse extends $pb.GeneratedMessage {
   ScheduledPost ensureScheduledPost() => $_ensure(0);
 }
 
+class PublishScheduledPostNowRequest extends $pb.GeneratedMessage {
+  factory PublishScheduledPostNowRequest({
+    $core.String? idempotencyKey,
+    $core.String? scheduledId,
+  }) {
+    final result = PublishScheduledPostNowRequest._();
+    if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (scheduledId != null) result.scheduledId = scheduledId;
+    return result;
+  }
+
+  PublishScheduledPostNowRequest._();
+
+  factory PublishScheduledPostNowRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PublishScheduledPostNowRequest()..mergeFromBuffer(data, registry);
+  factory PublishScheduledPostNowRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PublishScheduledPostNowRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'PublishScheduledPostNowRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: PublishScheduledPostNowRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..aOS(2, _omitFieldNames ? '' : 'scheduledId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PublishScheduledPostNowRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PublishScheduledPostNowRequest copyWith(
+          void Function(PublishScheduledPostNowRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as PublishScheduledPostNowRequest))
+          as PublishScheduledPostNowRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use PublishScheduledPostNowRequest() / PublishScheduledPostNowRequest.new instead')
+  static PublishScheduledPostNowRequest create() =>
+      PublishScheduledPostNowRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      PublishScheduledPostNowRequest._();
+  @$core.override
+  PublishScheduledPostNowRequest createEmptyInstance() =>
+      PublishScheduledPostNowRequest._();
+  @$core.pragma('dart2js:noInline')
+  static PublishScheduledPostNowRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<PublishScheduledPostNowRequest>(
+          PublishScheduledPostNowRequest.$_createMessage);
+  static PublishScheduledPostNowRequest? _defaultInstance;
+
+  /// Format-validated (16-64 characters of [A-Za-z0-9_-]); the operation is idempotent by state.
+  @$pb.TagNumber(1)
+  $core.String get idempotencyKey => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set idempotencyKey($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIdempotencyKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIdempotencyKey() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get scheduledId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set scheduledId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasScheduledId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearScheduledId() => $_clearField(2);
+}
+
+class PublishScheduledPostNowResponse extends $pb.GeneratedMessage {
+  factory PublishScheduledPostNowResponse({
+    ScheduledPost? scheduledPost,
+  }) {
+    final result = PublishScheduledPostNowResponse._();
+    if (scheduledPost != null) result.scheduledPost = scheduledPost;
+    return result;
+  }
+
+  PublishScheduledPostNowResponse._();
+
+  factory PublishScheduledPostNowResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PublishScheduledPostNowResponse()..mergeFromBuffer(data, registry);
+  factory PublishScheduledPostNowResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PublishScheduledPostNowResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'PublishScheduledPostNowResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: PublishScheduledPostNowResponse.$_createMessage)
+    ..aOM<ScheduledPost>(1, _omitFieldNames ? '' : 'scheduledPost',
+        subBuilder: ScheduledPost.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PublishScheduledPostNowResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PublishScheduledPostNowResponse copyWith(
+          void Function(PublishScheduledPostNowResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as PublishScheduledPostNowResponse))
+          as PublishScheduledPostNowResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use PublishScheduledPostNowResponse() / PublishScheduledPostNowResponse.new instead')
+  static PublishScheduledPostNowResponse create() =>
+      PublishScheduledPostNowResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      PublishScheduledPostNowResponse._();
+  @$core.override
+  PublishScheduledPostNowResponse createEmptyInstance() =>
+      PublishScheduledPostNowResponse._();
+  @$core.pragma('dart2js:noInline')
+  static PublishScheduledPostNowResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<PublishScheduledPostNowResponse>(
+          PublishScheduledPostNowResponse.$_createMessage);
+  static PublishScheduledPostNowResponse? _defaultInstance;
+
+  /// PUBLISHED with post_id set (text and media are cleared once published).
+  @$pb.TagNumber(1)
+  ScheduledPost get scheduledPost => $_getN(0);
+  @$pb.TagNumber(1)
+  set scheduledPost(ScheduledPost value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasScheduledPost() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearScheduledPost() => $_clearField(1);
+  @$pb.TagNumber(1)
+  ScheduledPost ensureScheduledPost() => $_ensure(0);
+}
+
+class UpdateScheduledPostRequest extends $pb.GeneratedMessage {
+  factory UpdateScheduledPostRequest({
+    $core.String? idempotencyKey,
+    $core.String? scheduledId,
+    $core.String? text,
+    $0.Timestamp? publishAt,
+    ReplyPolicy? replyPolicy,
+  }) {
+    final result = UpdateScheduledPostRequest._();
+    if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (scheduledId != null) result.scheduledId = scheduledId;
+    if (text != null) result.text = text;
+    if (publishAt != null) result.publishAt = publishAt;
+    if (replyPolicy != null) result.replyPolicy = replyPolicy;
+    return result;
+  }
+
+  UpdateScheduledPostRequest._();
+
+  factory UpdateScheduledPostRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UpdateScheduledPostRequest()..mergeFromBuffer(data, registry);
+  factory UpdateScheduledPostRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UpdateScheduledPostRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'UpdateScheduledPostRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: UpdateScheduledPostRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..aOS(2, _omitFieldNames ? '' : 'scheduledId')
+    ..aOS(3, _omitFieldNames ? '' : 'text')
+    ..aOM<$0.Timestamp>(4, _omitFieldNames ? '' : 'publishAt',
+        subBuilder: $0.Timestamp.$_createMessage)
+    ..aE<ReplyPolicy>(5, _omitFieldNames ? '' : 'replyPolicy',
+        enumValues: ReplyPolicy.values)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UpdateScheduledPostRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UpdateScheduledPostRequest copyWith(
+          void Function(UpdateScheduledPostRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as UpdateScheduledPostRequest))
+          as UpdateScheduledPostRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use UpdateScheduledPostRequest() / UpdateScheduledPostRequest.new instead')
+  static UpdateScheduledPostRequest create() => UpdateScheduledPostRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      UpdateScheduledPostRequest._();
+  @$core.override
+  UpdateScheduledPostRequest createEmptyInstance() =>
+      UpdateScheduledPostRequest._();
+  @$core.pragma('dart2js:noInline')
+  static UpdateScheduledPostRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<UpdateScheduledPostRequest>(
+          UpdateScheduledPostRequest.$_createMessage);
+  static UpdateScheduledPostRequest? _defaultInstance;
+
+  /// Format-validated (16-64 characters of [A-Za-z0-9_-]); the operation is idempotent by state.
+  @$pb.TagNumber(1)
+  $core.String get idempotencyKey => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set idempotencyKey($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIdempotencyKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIdempotencyKey() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get scheduledId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set scheduledId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasScheduledId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearScheduledId() => $_clearField(2);
+
+  /// CreatePost text rules. Unset keeps the stored text.
+  @$pb.TagNumber(3)
+  $core.String get text => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set text($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasText() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearText() => $_clearField(3);
+
+  /// UTC; truncated to the minute. Unset keeps the stored time.
+  @$pb.TagNumber(4)
+  $0.Timestamp get publishAt => $_getN(3);
+  @$pb.TagNumber(4)
+  set publishAt($0.Timestamp value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasPublishAt() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearPublishAt() => $_clearField(4);
+  @$pb.TagNumber(4)
+  $0.Timestamp ensurePublishAt() => $_ensure(3);
+
+  /// Unset keeps the stored policy; UNSPECIFIED and EVERYONE both mean "everyone".
+  @$pb.TagNumber(5)
+  ReplyPolicy get replyPolicy => $_getN(4);
+  @$pb.TagNumber(5)
+  set replyPolicy(ReplyPolicy value) => $_setField(5, value);
+  @$pb.TagNumber(5)
+  $core.bool hasReplyPolicy() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearReplyPolicy() => $_clearField(5);
+}
+
+class UpdateScheduledPostResponse extends $pb.GeneratedMessage {
+  factory UpdateScheduledPostResponse({
+    ScheduledPost? scheduledPost,
+  }) {
+    final result = UpdateScheduledPostResponse._();
+    if (scheduledPost != null) result.scheduledPost = scheduledPost;
+    return result;
+  }
+
+  UpdateScheduledPostResponse._();
+
+  factory UpdateScheduledPostResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UpdateScheduledPostResponse()..mergeFromBuffer(data, registry);
+  factory UpdateScheduledPostResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UpdateScheduledPostResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'UpdateScheduledPostResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: UpdateScheduledPostResponse.$_createMessage)
+    ..aOM<ScheduledPost>(1, _omitFieldNames ? '' : 'scheduledPost',
+        subBuilder: ScheduledPost.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UpdateScheduledPostResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UpdateScheduledPostResponse copyWith(
+          void Function(UpdateScheduledPostResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as UpdateScheduledPostResponse))
+          as UpdateScheduledPostResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use UpdateScheduledPostResponse() / UpdateScheduledPostResponse.new instead')
+  static UpdateScheduledPostResponse create() =>
+      UpdateScheduledPostResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      UpdateScheduledPostResponse._();
+  @$core.override
+  UpdateScheduledPostResponse createEmptyInstance() =>
+      UpdateScheduledPostResponse._();
+  @$core.pragma('dart2js:noInline')
+  static UpdateScheduledPostResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<UpdateScheduledPostResponse>(
+          UpdateScheduledPostResponse.$_createMessage);
+  static UpdateScheduledPostResponse? _defaultInstance;
+
+  /// The item after the edit (PENDING, with its text and media).
+  @$pb.TagNumber(1)
+  ScheduledPost get scheduledPost => $_getN(0);
+  @$pb.TagNumber(1)
+  set scheduledPost(ScheduledPost value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasScheduledPost() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearScheduledPost() => $_clearField(1);
+  @$pb.TagNumber(1)
+  ScheduledPost ensureScheduledPost() => $_ensure(0);
+}
+
 class PostServiceApi {
   final $pb.RpcClient _client;
 
@@ -2852,6 +3184,36 @@ class PostServiceApi {
           $pb.ClientContext? ctx, CancelScheduledPostRequest request) =>
       _client.invoke<CancelScheduledPostResponse>(ctx, 'PostService',
           'CancelScheduledPost', request, CancelScheduledPostResponse());
+
+  /// Publish a PENDING scheduled post immediately ("Post now"). Needs FEATURE_POSTS and FEATURE_SCHEDULED_POSTS on for
+  /// the caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "scheduled_posts"); shares the CreatePost
+  /// rate-limit bucket. It runs the sweep's publish transaction (same code path), which re-reads the item as PENDING, so
+  /// a race with the sweep or a cancel publishes at most once. The response is the item PUBLISHED with post_id. Idempotent
+  /// by state: an item already PUBLISHED (a retry, or the sweep won) is returned unchanged. A CANCELLED item, or a FAILED
+  /// one, is FAILED_PRECONDITION; if the publish transaction itself retires the item (media no longer available, account
+  /// restricted) the response is the FAILED item. scheduled_id must match ^[0-9a-f]{32}$ (else VALIDATION); unknown =>
+  /// NOT_FOUND. idempotency_key is format-validated (VALIDATION when malformed) but not stored.
+  $async.Future<PublishScheduledPostNowResponse> publishScheduledPostNow(
+          $pb.ClientContext? ctx, PublishScheduledPostNowRequest request) =>
+      _client.invoke<PublishScheduledPostNowResponse>(
+          ctx,
+          'PostService',
+          'PublishScheduledPostNow',
+          request,
+          PublishScheduledPostNowResponse());
+
+  /// Edit a PENDING scheduled post. Needs FEATURE_POSTS and FEATURE_SCHEDULED_POSTS on for the caller. Only the fields
+  /// that are set change; at least one must be set (else VALIDATION). text follows the CreatePost rules (a post that
+  /// carries media may have empty text), publish_at the SchedulePost rules (truncated to the minute, within [now + 2 min,
+  /// now + 60 d], and the +/-4 min window cap, LIMIT_REACHED "scheduled_window"), reply_policy the CreatePost rules
+  /// (needs FEATURE_REPLY_AUDIENCE). Media and the labels are not editable. An item that is not PENDING (published,
+  /// cancelled, failed) or whose stored publish_at is less than 60 s away is FAILED_PRECONDITION; unknown =>
+  /// NOT_FOUND. Idempotent by state: an edit whose values already equal the stored ones writes nothing and returns the
+  /// item. idempotency_key is format-validated but not stored. Shares the CreatePost rate-limit bucket.
+  $async.Future<UpdateScheduledPostResponse> updateScheduledPost(
+          $pb.ClientContext? ctx, UpdateScheduledPostRequest request) =>
+      _client.invoke<UpdateScheduledPostResponse>(ctx, 'PostService',
+          'UpdateScheduledPost', request, UpdateScheduledPostResponse());
 }
 
 const $core.bool _omitFieldNames =

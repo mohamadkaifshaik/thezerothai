@@ -536,13 +536,16 @@ void main() {
       expectSize(tester, find.byType(Drawer), width: 255);
     });
 
-    testWidgets('labels are bold 20dp and the icons are 24dp', (tester) async {
+    testWidgets('labels are titleLarge 20dp and the icons are 24dp', (
+      tester,
+    ) async {
       await pump(tester, profile: _alice);
       await openDrawer(tester);
 
       final style = tester.widget<Text>(find.text('Profile')).style!;
+      // titleLarge: Manrope 20 sp w800 (ADR-0033); restyled in PR 3.4.
       expect(style.fontSize, 20);
-      expect(style.fontWeight, FontWeight.w700);
+      expect(style.fontWeight, FontWeight.w800);
       // (person_outline is also the avatar fallback; settings_outlined is
       // unique to a row.)
       expect(
