@@ -5,15 +5,18 @@ import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
+import 'package:dzeroth/features/posts/domain/composer_draft.dart';
 import 'package:dzeroth/features/settings/domain/settings_categories.dart';
 import 'package:dzeroth/features/settings/presentation/protect_posts_messages.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
+import 'package:dzeroth/features/settings/presentation/widgets/unsent_posts_row.dart';
 import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../support/fake_drafts_repository.dart';
 import '../../../support/settings_tablet_rig.dart';
 import '../../../support/theme_harness.dart';
 
@@ -561,6 +564,80 @@ void main() {
       await rig.pump(tester, location: '/settings?c=privacy');
 
       expect(find.text('Messages'), findsNothing);
+    });
+  });
+
+  group('Unsent posts (Your account, section 4.3)', () {
+    FakeDraftsRepository oneUnsent() => FakeDraftsRepository(
+      drafts: [
+        ComposerDraft(
+          id: 'd1',
+          uid: 'u-alice',
+          text: 'unsent',
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      ],
+    );
+
+    for (final width in [700.0, 1024.0]) {
+      testWidgets('${width.toInt()}: after Download my data, before Delete '
+          'account; it asks first', (tester) async {
+        final rig = SettingsTabletRig();
+        await rig.pump(
+          tester,
+          width: width,
+          location: '/settings?c=account',
+          drafts: oneUnsent(),
+        );
+
+        expect(_titles(tester, _page()), [
+          'Email',
+          'Edit profile',
+          'Change handle',
+          'Download my data',
+          kUnsentPostsRowTitle,
+          'Delete account',
+        ]);
+        await _tapText(tester, inSettingsPage(find.text(kUnsentPostsRowTitle)));
+        expect(find.byType(Dialog), findsOneWidget);
+      });
+    }
+
+    for (final width in [700.0, 1024.0]) {
+      testWidgets('${width.toInt()}: the only account row still shows the '
+          'category in the list and opens its page', (tester) async {
+        final rig = SettingsTabletRig();
+        await rig.pump(
+          tester,
+          width: width,
+          location: '/settings?c=account',
+          flags: kSettingsTabletFlags.where((f) => f.startsWith('ui_')).toSet(),
+          email: null,
+          drafts: oneUnsent(),
+        );
+
+        expect(_titles(tester, _page()), [kUnsentPostsRowTitle]);
+        if (width >= 840) {
+          expect(_titles(tester, findCategoriesPane()), [
+            'Your account',
+            'Display',
+            'About',
+            'Sign out',
+          ]);
+          expect(_selectedInPane(tester), 'Your account');
+        }
+      });
+    }
+
+    testWidgets('Sign out from the band B list pane asks about the unsent '
+        'posts first', (tester) async {
+      final rig = SettingsTabletRig();
+      await rig.pump(tester, drafts: oneUnsent());
+
+      await _tapText(tester, inCategoriesPane(find.text('Sign out')));
+      expect(find.byType(Dialog), findsOneWidget);
+      verifyNever(() => rig.auth.add(any()));
     });
   });
 

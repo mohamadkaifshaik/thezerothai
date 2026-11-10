@@ -19,6 +19,7 @@ import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:dzeroth/features/posts/data/drafts_repository.dart';
 import 'package:dzeroth/features/profile/presentation/change_handle_screen.dart';
 import 'package:dzeroth/features/settings/domain/settings_categories.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
@@ -31,6 +32,8 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:url_launcher_platform_interface/link.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
+
+import 'fake_drafts_repository.dart';
 
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
@@ -120,6 +123,7 @@ Key stubLeafField(String path) => Key('field $path');
 /// `/scheduled` stub (full screen, outside the shell, like the app's).
 class SettingsTabletRig {
   late GoRouter router;
+
   /// The (mock) auth bloc, for `verify`.
   late AuthBloc auth;
   final launcher = FakeUrlLauncher();
@@ -139,6 +143,7 @@ class SettingsTabletRig {
     TextDirection textDirection = TextDirection.ltr,
     EdgeInsets padding = EdgeInsets.zero,
     MessagingFeatureGate? messagingGate,
+    FakeDraftsRepository? drafts,
   }) async {
     UrlLauncherPlatform.instance = launcher;
     final onboarding = _MockOnboardingBloc();
@@ -274,6 +279,10 @@ class SettingsTabletRig {
             value: identityRepository,
           ),
           RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
+          // The device's unsent posts (the Unsent posts row, and sign-out's
+          // drafts question); none without it.
+          if (drafts != null)
+            RepositoryProvider<DraftsRepository>.value(value: drafts),
         ],
         child: MaterialApp.router(
           theme: buildAppTheme(brightness: brightness),
