@@ -1,6 +1,7 @@
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -487,23 +488,71 @@ void main() {
       }
     });
 
-    testWidgets('at 1.3 "Notifications" (100 dp) does not fit the item: the '
-        'rail is icon-only with tooltips rather than shrinking the label', (
-      tester,
-    ) async {
-      final handle = tester.ensureSemantics();
-      await _pump(tester, textScale: 1.3, selected: 3);
+    // Owner decision 2026-11-10: rail labels may wrap to two lines.
+    for (final scale in [1.1, 1.3]) {
+      testWidgets('at $scale "Notifications" wraps to two balanced lines and '
+          'the labels show; semantics and tooltips are unchanged', (
+        tester,
+      ) async {
+        final handle = tester.ensureSemantics();
+        await _pump(tester, textScale: scale, selected: 3);
 
-      for (final label in _labels) {
-        expect(_inRail(find.text(label)), findsNothing, reason: label);
-        expect(_inRail(find.byTooltip(label)), findsOneWidget, reason: label);
-      }
-      expect(
-        tester.getSemantics(_inRail(find.byIcon(Icons.notifications))),
-        isSemantics(label: 'Notifications', isSelected: true),
+        final text = _inRail(find.text('Notifications'));
+        expect(text, findsOneWidget);
+        // Two lines of 12 sp x scale x 1.33, never shrunk.
+        final line = (12 * scale * 1.33).roundToDouble();
+        final size = tester.getSize(text);
+        expect(size.height, greaterThanOrEqualTo(2 * line - 1));
+        expect(size.height, lessThan(3 * line - 1));
+        // Balanced halves: well inside the 78 dp item, not "Notification / s".
+        expect(size.width, lessThanOrEqualTo(60));
+        expect(
+          find.ancestor(of: text, matching: find.byType(FittedBox)),
+          findsNothing,
+        );
+        final paragraph = tester.renderObject<RenderParagraph>(text);
+        expect(paragraph.textAlign, TextAlign.center);
+        expect(paragraph.maxLines, 2);
+        // The other labels are one line, at the same scale.
+        for (final label in ['Home', 'Explore', 'Plans', 'Messages']) {
+          expect(
+            tester.getSize(_inRail(find.text(label))).height,
+            line,
+            reason: label,
+          );
+        }
+        // Spoken as one word; the secondaries keep their tooltips.
+        expect(
+          tester.getSemantics(_inRail(find.byIcon(Icons.notifications))),
+          isSemantics(label: 'Notifications', isSelected: true),
+        );
+        for (final label in _labels.skip(5)) {
+          expect(_inRail(find.byTooltip(label)), findsOneWidget);
+        }
+        expect(find.bySemanticsLabel('Notifications'), findsOneWidget);
+        expectNoOverflow(tester);
+        handle.dispose();
+      });
+    }
+
+    testWidgets('the Notifications item grows with its two lines; the item '
+        'height does not change with the selection', (tester) async {
+      await _pump(tester, textScale: 1.3, selected: 3);
+      Rect item(IconData icon) => tester.getRect(
+        find
+            .ancestor(
+              of: _inRail(find.byIcon(icon)),
+              matching: find.byType(InkWell),
+            )
+            .first,
       );
-      expectNoOverflow(tester);
-      handle.dispose();
+      final tall = item(Icons.notifications).height;
+      final one = item(Icons.home_outlined).height;
+      expect(tall, greaterThan(one + 15));
+
+      await _pump(tester, textScale: 1.3, selected: 0);
+      expect(item(Icons.notifications_none).height, tall);
+      expect(item(Icons.home).height, one);
     });
 
     testWidgets('at 1.3 labels that fit are drawn at the full scale', (
@@ -525,24 +574,79 @@ void main() {
       expectNoOverflow(tester);
     });
 
-    testWidgets('1024 x 500 at 1.3 (R2, labelled items taller than 56): the '
-        'compose button is pinned, never scrolled out of view', (tester) async {
-      await _pump(tester, height: 500, textScale: 1.3, destinations: _short());
+    // R2's floor is 500, but with labels at 1.3 the folded stack is
+    // 531 dp (Notifications on two lines) or 510 dp (short labels): the rail
+    // steps down to R3 instead of overlapping or scrolling away.
+    for (final short in [false, true]) {
+      final set = short ? 'short labels' : 'with Notifications';
+      testWidgets('1024 x 500 at 1.3 ($set): the measured stack does not fit '
+          'R2, so R3: icon-only, compose pinned, nothing overlaps', (
+        tester,
+      ) async {
+        await _pump(
+          tester,
+          height: 500,
+          textScale: 1.3,
+          destinations: short ? _short() : null,
+        );
+
+        for (final label in short ? _shortLabels : _labels.take(5)) {
+          expect(_inRail(find.text(label)), findsNothing, reason: label);
+          expect(_inRail(find.byTooltip(label)), findsOneWidget);
+        }
+        final compose = tester.getRect(find.byKey(_composeKey));
+        final account = tester.getRect(find.byKey(_accountKey));
+        final region = tester.getRect(_inRail(find.byType(Scrollable)));
+        final more = tester.getRect(_inRail(find.byIcon(Icons.more_horiz)));
+        expect(compose.top, greaterThanOrEqualTo(region.bottom));
+        expect(compose.bottom, lessThanOrEqualTo(account.top));
+        expect(account.bottom, lessThanOrEqualTo(500));
+        // Every item is in view: nothing scrolled away.
+        expect(more.bottom, lessThanOrEqualTo(region.bottom));
+        expectNoOverflow(tester);
+      });
+    }
+
+    testWidgets('1024 x 520 at 1.3 with short labels: the folded stack '
+        '(510 dp) fits, so R2 with labels and compose after the items', (
+      tester,
+    ) async {
+      await _pump(tester, height: 520, textScale: 1.3, destinations: _short());
 
       expect(_inRail(find.text('Inbox')), findsOneWidget);
+      expect(_inRail(find.byIcon(Icons.list_alt_outlined)), findsNothing);
+      final more = tester.getRect(
+        find
+            .ancestor(
+              of: _inRail(find.byIcon(Icons.more_horiz)),
+              matching: find.byType(InkWell),
+            )
+            .first,
+      );
       final compose = tester.getRect(find.byKey(_composeKey));
       final account = tester.getRect(find.byKey(_accountKey));
-      final region = tester.getRect(_inRail(find.byType(Scrollable)));
-      expect(compose.top, greaterThanOrEqualTo(region.bottom));
+      expect(compose.top - more.bottom, closeTo(AppNavRail.composeGap, 0.5));
       expect(compose.bottom, lessThanOrEqualTo(account.top));
-      // The items scroll above it instead.
       expect(
         tester
             .state<ScrollableState>(_inRail(find.byType(Scrollable)))
             .position
             .maxScrollExtent,
-        greaterThan(0),
+        0,
       );
+      expectNoOverflow(tester);
+    });
+
+    testWidgets('1024 x 700 at 1.3: the full stack with two-line '
+        'Notifications (723 dp) does not fit R1, so R2; 768 is R1', (
+      tester,
+    ) async {
+      await _pump(tester, height: 700, textScale: 1.3);
+
+      expect(_inRail(find.text('Notifications')), findsOneWidget);
+      expect(_inRail(find.byIcon(Icons.list_alt_outlined)), findsNothing);
+      await _pump(tester, height: 768, textScale: 1.3);
+      expect(_inRail(find.byIcon(Icons.list_alt_outlined)), findsOneWidget);
       expectNoOverflow(tester);
     });
 
@@ -888,6 +992,41 @@ void main() {
       expect(picked, [7, 7]);
     });
   });
+
+  // Two-line labels (owner decision 2026-11-10): no overflow at the band
+  // edges, at 1.0 and 1.3, on tall and short windows.
+  forEachThemeAndWidth(
+    'two-line labels: no overflow, nothing past the rail',
+    (tester, env) async {
+      for (final height in [1194.0, 768.0, 640.0, 500.0, 390.0]) {
+        await _pump(
+          tester,
+          width: env.size.width,
+          height: height,
+          brightness: env.brightness,
+          textScale: env.textScale,
+          selected: 3,
+        );
+        expectNoOverflow(tester);
+        final compose = tester.getRect(find.byKey(_composeKey));
+        final account = tester.getRect(find.byKey(_accountKey));
+        expect(
+          compose.bottom,
+          lessThanOrEqualTo(account.top),
+          reason: '$height',
+        );
+        expect(account.bottom, lessThanOrEqualTo(height), reason: '$height');
+        final text = _inRail(find.text('Notifications'));
+        if (text.evaluate().isNotEmpty) {
+          final r = tester.getRect(text);
+          expect(r.left, greaterThanOrEqualTo(0), reason: '$height');
+          expect(r.right, lessThanOrEqualTo(80), reason: '$height');
+        }
+      }
+    },
+    widths: const [600, 834, 1199],
+    textScales: kMatrixTextScales,
+  );
 
   // Tablet plan section 5.5: no overflow and 48 dp targets in every cell.
   forEachThemeAndWidth(

@@ -22,8 +22,10 @@ enum AppNavRailDensity {
   /// compose button and the account stay pinned.
   compact;
 
-  /// The density for [availableHeight] (the rail's height without the top
-  /// and bottom safe-area insets).
+  /// The height floor for [availableHeight] (the rail's height without the
+  /// top and bottom safe-area insets). The rail then steps down from it while
+  /// its measured stack (two-line labels included) does not fit, so the
+  /// density in use may be lower than this.
   static AppNavRailDensity of(double availableHeight) {
     if (availableHeight >= AppNavRail.fullHeight) return full;
     if (availableHeight >= AppNavRail.foldedHeight) return folded;
@@ -37,12 +39,13 @@ enum AppNavRailDensity {
 /// surface of the theme with a decorative 1 dp hairline on its trailing edge.
 ///
 /// - The [destinations] keep their order. The primary ones show the icon
-///   over a 12 sp label (a 56 dp item); the secondary ones, after a divider,
+///   over a 12 sp label of at most two centred lines (an item of at least
+///   56 dp that grows with the lines); the secondary ones, after a divider,
 ///   are icon-only 48 dp items with a tooltip. Above a text scale of
-///   [maxLabelTextScale], when the widest label does not fit the item at the
-///   user's text scale (a label is never shrunk, wrapped or ellipsized), and
-///   in [AppNavRailDensity.compact], the primary items are icon-only too. Every item is announced with its full label
-///   and its badge, as selected or not; the selected one has the indicator
+///   [maxLabelTextScale], when a label does not fit the item in two lines at
+///   the user's text scale (a label is never shrunk or ellipsized), and in
+///   [AppNavRailDensity.compact], the primary items are icon-only too (all
+///   or none). Every item is announced with its full label and its badge, as selected or not; the selected one has the indicator
 ///   pill, the filled glyph and the bold label (never colour alone).
 /// - The destination with `onActivate` is More: it opens a menu instead of
 ///   navigating. In [AppNavRailDensity.folded] and below, the other
@@ -51,9 +54,12 @@ enum AppNavRailDensity {
 ///   [moreHasOwnRows], or folded ones) and is the selected item when the
 ///   selected destination is folded into it.
 /// - [compose] follows the items, and is pinned under them when they do not
-///   all fit above it; [account] is pinned to the bottom. The
-///   brand mark tops the rail when at least [brandHeight] is available
-///   (decorative: no semantics).
+///   all fit above it; [account] is pinned to the bottom. The brand mark
+///   tops the rail when at least [brandHeight] is available and the measured
+///   stack still fits under it (decorative: no semantics).
+/// - Density: [AppNavRailDensity.of] gives the floor from the height; a
+///   density whose measured stack does not fit steps down, so in R1 and R2
+///   nothing overlaps or scrolls away.
 /// - Keyboard: one Tab stop (the selected item, else the first); the arrow
 ///   keys move between the items, the compose button and the account, and
 ///   the Tab stop moves with them, so Tab and Shift+Tab leave the rail from
@@ -90,13 +96,16 @@ class AppNavRail extends StatefulWidget {
   /// [destinations]) listed first. Null: More always calls its `onActivate`.
   final void Function(BuildContext anchor, List<int> folded)? onMoreFolded;
 
-  /// R1 from this available height (the full stack is 677 dp).
+  /// R1 from this available height (the full stack is 677 dp with one-line
+  /// labels; it also has to fit as measured).
   static const double fullHeight = 700;
 
-  /// R2 from this available height (the folded stack is 485 dp).
+  /// R2 from this available height (the folded stack is 485 dp with
+  /// one-line labels; it also has to fit as measured).
   static const double foldedHeight = 500;
 
-  /// The brand mark shows from this available height.
+  /// The brand mark shows from this available height (when the measured
+  /// stack also fits under it).
   static const double brandHeight = 900;
 
   /// Above this text scale the primary items are icon-only (tooltips and
@@ -275,39 +284,78 @@ class _AppNavRailState extends State<AppNavRail> {
   }
 
   Widget _rail(BuildContext context, double available) {
-    final density = AppNavRailDensity.of(available);
     final destinations = widget.destinations;
     final more = destinations.indexWhere((d) => d.onActivate != null);
-    // Secondaries fold only into an existing More.
-    final folded = <int>[
-      if (density != AppNavRailDensity.full && more >= 0)
-        for (var i = 0; i < destinations.length; i++)
-          if (i != more && destinations[i].group == AppNavGroup.secondary) i,
-    ];
-    final showMore = more >= 0 && (widget.moreHasOwnRows || folded.isNotEmpty);
     final primaries = <int>[
       for (var i = 0; i < destinations.length; i++)
         if (destinations[i].group == AppNavGroup.primary && i != more) i,
     ];
-    final secondaries = <int>[
-      for (var i = 0; i < destinations.length; i++)
-        if (destinations[i].group == AppNavGroup.secondary &&
-            !folded.contains(i) &&
-            (i != more || showMore))
-          i,
-    ];
+    // Labels only while every one fits the item in at most two lines at the
+    // user's text scale (never shrunk); otherwise every item is icon-only.
+    // All or nothing, so the rail stays uniform.
+    final layouts = _RailItem.labelLayouts(context, [
+      for (final i in primaries) destinations[i].label,
+    ]);
+
+    // The arrangement at one density: what folds, what shows, how tall.
+    _RailPlan plan(AppNavRailDensity density) {
+      // Secondaries fold only into an existing More.
+      final folded = <int>[
+        if (density != AppNavRailDensity.full && more >= 0)
+          for (var i = 0; i < destinations.length; i++)
+            if (i != more && destinations[i].group == AppNavGroup.secondary) i,
+      ];
+      final showMore =
+          more >= 0 && (widget.moreHasOwnRows || folded.isNotEmpty);
+      final secondaries = <int>[
+        for (var i = 0; i < destinations.length; i++)
+          if (destinations[i].group == AppNavGroup.secondary &&
+              !folded.contains(i) &&
+              (i != more || showMore))
+            i,
+      ];
+      final labelled = density != AppNavRailDensity.compact ? layouts : null;
+      final items =
+          (labelled == null
+              ? primaries.length * AppNavRail.itemHeight
+              : labelled.fold<double>(0, (sum, l) => sum + l.itemHeight)) +
+          (primaries.isNotEmpty && secondaries.isNotEmpty
+              ? AppNavRail.dividerHeight
+              : 0) +
+          secondaries.length * AppNavRail.itemHeight;
+      return _RailPlan(
+        density: density,
+        folded: folded,
+        showMore: showMore,
+        secondaries: secondaries,
+        labels: labelled,
+        itemsHeight: items,
+        stackHeight:
+            AppNavRail.topGap +
+            items +
+            (widget.compose != null ? AppNavRail.composeSlot : 0) +
+            (widget.account != null ? AppNavRail.accountSlot : 0),
+      );
+    }
+
+    // The plan's height floors (700 / 500), then the measured stack: a
+    // density whose items (two-line labels included) do not fit steps down,
+    // so in R1 and R2 nothing overlaps or scrolls away.
+    var current = plan(AppNavRailDensity.of(available));
+    while (current.density != AppNavRailDensity.compact &&
+        current.stackHeight > available) {
+      current = plan(AppNavRailDensity.values[current.density.index + 1]);
+    }
+    final density = current.density;
+    final folded = current.folded;
+    final showMore = current.showMore;
+    final secondaries = current.secondaries;
+    final labelLayouts = current.labels;
+
     var selected = widget.selectedIndex;
     if (selected != null && folded.contains(selected)) {
       selected = showMore ? more : null;
     }
-    // Labels only while the widest one fits the item at the user's text
-    // scale (never shrunk); otherwise every item is icon-only.
-    final labelLine = density == AppNavRailDensity.compact
-        ? null
-        : _RailItem.labelLineHeight(context, [
-            for (final i in primaries) destinations[i].label,
-          ]);
-    final labels = labelLine != null;
     final visible = [...primaries, ...secondaries];
     _ring = [
       ...visible,
@@ -321,12 +369,12 @@ class _AppNavRailState extends State<AppNavRail> {
         ? selected
         : visible.firstOrNull;
 
-    Widget item(int i, {required bool labelled}) {
+    Widget item(int i, {_LabelLayout? label}) {
       final destination = destinations[i];
       Widget child = _RailItem(
         destination: destination,
         selected: i == selected,
-        labelled: labelled,
+        label: label,
         onTap: () => _activate(i, folded),
       );
       if (destination.onActivate != null) {
@@ -338,22 +386,13 @@ class _AppNavRailState extends State<AppNavRail> {
       return _stop(i, tabStop: i == tabStop, child: child);
     }
 
+    // The brand mark only when the whole measured stack still fits under it.
+    final brand =
+        available >= AppNavRail.brandHeight &&
+        current.stackHeight + _BrandMark.slot <= available;
     // The compose button follows the items while they all fit above it;
-    // otherwise (R3, or tall labelled items at a large text scale) it is
-    // pinned under the scrolling items, never scrolled out of view.
-    final itemsHeight =
-        primaries.length *
-            (labels
-                ? math.max(
-                    AppNavRail.labelledItemHeight,
-                    _RailItem.labelledChrome + labelLine,
-                  )
-                : AppNavRail.itemHeight) +
-        (primaries.isNotEmpty && secondaries.isNotEmpty
-            ? AppNavRail.dividerHeight
-            : 0) +
-        secondaries.length * AppNavRail.itemHeight;
-    final brand = available >= AppNavRail.brandHeight;
+    // otherwise (R3) it is pinned under the scrolling items, never scrolled
+    // out of view.
     final region =
         available -
         AppNavRail.topGap -
@@ -361,7 +400,7 @@ class _AppNavRailState extends State<AppNavRail> {
         (widget.account != null ? AppNavRail.accountSlot : 0);
     final pinCompose =
         density == AppNavRailDensity.compact ||
-        itemsHeight + AppNavRail.composeSlot > region;
+        current.itemsHeight + AppNavRail.composeSlot > region;
 
     final compose = widget.compose == null
         ? null
@@ -395,10 +434,11 @@ class _AppNavRailState extends State<AppNavRail> {
                 primary: false,
                 child: Column(
                   children: [
-                    for (final i in primaries) item(i, labelled: labels),
+                    for (final (n, i) in primaries.indexed)
+                      item(i, label: labelLayouts?[n]),
                     if (primaries.isNotEmpty && secondaries.isNotEmpty)
                       const _GroupDivider(),
-                    for (final i in secondaries) item(i, labelled: false),
+                    for (final i in secondaries) item(i),
                     if (!pinCompose) ?compose,
                   ],
                 ),
@@ -421,6 +461,49 @@ class _AppNavRailState extends State<AppNavRail> {
       ),
     );
   }
+}
+
+/// The rail's arrangement at one density (see `_rail`).
+class _RailPlan {
+  const _RailPlan({
+    required this.density,
+    required this.folded,
+    required this.showMore,
+    required this.secondaries,
+    required this.labels,
+    required this.itemsHeight,
+    required this.stackHeight,
+  });
+
+  final AppNavRailDensity density;
+  final List<int> folded;
+  final bool showMore;
+  final List<int> secondaries;
+
+  /// One per primary item, in order; null when they are icon-only.
+  final List<_LabelLayout>? labels;
+
+  /// The destination items and the divider.
+  final double itemsHeight;
+
+  /// Everything: top gap, items, compose slot and account slot.
+  final double stackHeight;
+}
+
+/// How one label is laid out: the width its lines wrap at and the height
+/// the item reserves for them (measured in the selected, widest weight, so
+/// the item does not change height when the selection moves).
+class _LabelLayout {
+  const _LabelLayout({required this.width, required this.height});
+
+  final double width;
+  final double height;
+
+  /// The item: the label lines under the pill, at least 56 dp.
+  double get itemHeight => math.max(
+    AppNavRail.labelledItemHeight,
+    _RailItem.labelledChrome + height,
+  );
 }
 
 /// Up and Down move along the rail's ring (roving focus). The stock
@@ -448,19 +531,24 @@ class _RovingFocusAction extends Action<DirectionalFocusIntent> {
 }
 
 /// One destination: the indicator pill with the glyph, and under it the
-/// label when [labelled].
+/// label laid out by [label] (none: icon-only, with a tooltip).
 class _RailItem extends StatelessWidget {
   const _RailItem({
     required this.destination,
     required this.selected,
-    required this.labelled,
     required this.onTap,
+    this.label,
   });
 
   final AppNavDestination destination;
   final bool selected;
-  final bool labelled;
+  final _LabelLayout? label;
   final VoidCallback onTap;
+
+  bool get labelled => label != null;
+
+  /// A label wraps to at most this many lines (owner decision 2026-11-10).
+  static const int maxLabelLines = 2;
 
   /// Space on each side of an item inside the 80 dp rail: clear of the 1 dp
   /// hairline, and no more, because the label needs the width ("Notifications"
@@ -482,28 +570,71 @@ class _RailItem extends StatelessWidget {
             : AppTypeTokens.weightLabel,
       );
 
-  /// The height of a label line when every one of [labels] fits the item at
-  /// the text scale of [context] (measured in the selected, widest weight);
-  /// null when the scale is above [AppNavRail.maxLabelTextScale] or one does
-  /// not fit. A label is never shrunk, wrapped or ellipsized.
-  static double? labelLineHeight(BuildContext context, List<String> labels) {
+  /// How each of [labels] is laid out, when every one fits the item in at
+  /// most [maxLabelLines] lines at the text scale of [context] (measured in
+  /// the selected, widest weight); null when the scale is above
+  /// [AppNavRail.maxLabelTextScale] or one does not fit. A label is never
+  /// shrunk or ellipsized.
+  ///
+  /// A label wraps at its spaces at the item's width. A single word wider
+  /// than the item ("Notifications" from about 1.01) can only break inside
+  /// the word: it is laid out at the narrowest width that still keeps it to
+  /// two lines, so the halves are balanced ("Notifi / cations", not
+  /// "Notification / s"); the text itself is unchanged.
+  static List<_LabelLayout>? labelLayouts(
+    BuildContext context,
+    List<String> labels,
+  ) {
     final scaler = MediaQuery.textScalerOf(context);
     if (scaler.scale(1) > AppNavRail.maxLabelTextScale) return null;
     final style = _labelStyle(Theme.of(context), selected: true);
-    var line = 0.0;
+    final direction = Directionality.of(context);
+    TextPainter laidOut(String text, double width, {int? maxLines}) =>
+        TextPainter(
+          text: TextSpan(text: text, style: style),
+          textDirection: direction,
+          textAlign: TextAlign.center,
+          textScaler: scaler,
+          maxLines: maxLines,
+        )..layout(maxWidth: width);
+
+    final layouts = <_LabelLayout>[];
     for (final label in labels) {
-      final painter = TextPainter(
-        text: TextSpan(text: label, style: style),
-        textDirection: Directionality.of(context),
-        textScaler: scaler,
-        maxLines: 1,
-      )..layout();
-      final fits = painter.width <= _labelMax;
-      line = math.max(line, painter.height);
-      painter.dispose();
+      final full = laidOut(label, _labelMax, maxLines: maxLabelLines);
+      final fits = !full.didExceedMaxLines;
+      final lines = full.computeLineMetrics().length;
+      var height = full.height;
+      full.dispose();
       if (!fits) return null;
+      var width = _labelMax;
+      final overlong = label.split(RegExp(r'\s+')).any((word) {
+        final painter = laidOut(word, double.infinity);
+        final wide = painter.width > _labelMax;
+        painter.dispose();
+        return wide;
+      });
+      if (lines > 1 && overlong) {
+        var lo = 0.0;
+        var hi = _labelMax;
+        for (var step = 0; step < 10; step++) {
+          final mid = (lo + hi) / 2;
+          final painter = laidOut(label, mid, maxLines: maxLabelLines);
+          final ok = !painter.didExceedMaxLines;
+          painter.dispose();
+          if (ok) {
+            hi = mid;
+          } else {
+            lo = mid;
+          }
+        }
+        width = math.min(hi.ceilToDouble(), _labelMax);
+        final balanced = laidOut(label, width, maxLines: maxLabelLines);
+        height = balanced.height;
+        balanced.dispose();
+      }
+      layouts.add(_LabelLayout(width: width, height: height));
     }
-    return line;
+    return layouts;
   }
 
   @override
@@ -537,14 +668,19 @@ class _RailItem extends StatelessWidget {
             children: [
               pill,
               const SizedBox(height: AppSpacing.xs),
-              // Shown only when it fits at the user's scale
-              // ([labelLineHeight]): drawn at that scale, never shrunk.
-              Text(
-                destination.label,
-                maxLines: 1,
-                softWrap: false,
-                style: _labelStyle(theme, selected: selected)?.copyWith(
-                  color: selected ? theme.colorScheme.onSurface : colors.text2,
+              // Shown only when it fits ([labelLayouts]): at the user's
+              // scale, never shrunk, in at most two centred lines.
+              SizedBox(
+                width: label!.width,
+                child: Text(
+                  destination.label,
+                  textAlign: TextAlign.center,
+                  maxLines: maxLabelLines,
+                  style: _labelStyle(theme, selected: selected)?.copyWith(
+                    color: selected
+                        ? theme.colorScheme.onSurface
+                        : colors.text2,
+                  ),
                 ),
               ),
             ],
@@ -555,9 +691,7 @@ class _RailItem extends StatelessWidget {
       child: ConstrainedBox(
         constraints: BoxConstraints(
           minWidth: double.infinity,
-          minHeight: labelled
-              ? AppNavRail.labelledItemHeight
-              : AppNavRail.itemHeight,
+          minHeight: label?.itemHeight ?? AppNavRail.itemHeight,
         ),
         child: InkWell(
           onTap: onTap,

@@ -86,9 +86,37 @@ void main() {
     });
   }
 
-  testWidgets('at 1.3 "Notifications" no longer fits: icon-only with '
-      'tooltips, never a shrunk label', (tester) async {
-    await pumpRail(tester, selected: 3, textScale: 1.3);
+  // Owner decision 2026-11-10: a label may wrap to two lines.
+  for (final scale in [1.1, 1.3]) {
+    testWidgets('at $scale "Notifications" wraps to two lines at the full '
+        'scale and every label shows; the others stay one line', (
+      tester,
+    ) async {
+      await pumpRail(tester, selected: 3, textScale: scale);
+
+      final line = (12 * scale * 1.33).roundToDouble();
+      for (final d in _five) {
+        final text = find.text(d.label);
+        expect(text, findsOneWidget, reason: d.label);
+        expect(
+          find.ancestor(of: text, matching: find.byType(FittedBox)),
+          findsNothing,
+          reason: d.label,
+        );
+        final lines = d.label == 'Notifications' ? 2 : 1;
+        expect(
+          tester.getSize(text).height,
+          closeTo(lines * line, 1),
+          reason: d.label,
+        );
+        expect(tester.getSize(text).width, lessThanOrEqualTo(78));
+      }
+      expectNoOverflow(tester);
+    });
+  }
+
+  testWidgets('above 1.3 the rail is icon-only with tooltips', (tester) async {
+    await pumpRail(tester, selected: 3, textScale: 1.31);
 
     for (final d in _five) {
       expect(find.text(d.label), findsNothing, reason: d.label);
