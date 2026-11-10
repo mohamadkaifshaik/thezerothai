@@ -1,5 +1,6 @@
 import 'dart:ui' show ErrorCallback, PlatformDispatcher;
 
+import 'package:dzeroth/core/storage/cache_database_open.dart';
 import 'package:dzeroth/core/telemetry/telemetry_adapters.dart';
 import 'package:dzeroth/core/telemetry/telemetry_bootstrap.dart';
 import 'package:dzeroth/core/telemetry/telemetry_controller.dart';
@@ -12,7 +13,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'fake_telemetry.dart';
 
 class _Rig {
-  _Rig({bool supported = true, TelemetryFlagMemory? memory}) {
+  _Rig({
+    bool supported = true,
+    TelemetryFlagMemory? memory,
+    bool transientStorage = false,
+  }) {
     crash = FakeCrashReporter(log);
     usage = FakeUsageAnalytics(log);
     controller = TelemetryController(
@@ -21,6 +26,7 @@ class _Rig {
       consent: consent,
       memory: memory,
       debugLog: logged.add,
+      transientStorage: transientStorage,
     );
   }
 
@@ -33,6 +39,13 @@ class _Rig {
 }
 
 Future<void> settle() => pumpEventQueue();
+
+/// A flag memory whose storage cannot be read (a broken cache database).
+class _UnreadableFlagMemory extends InMemoryTelemetryFlagMemory {
+  @override
+  Future<TelemetryFlags?> read(String uid) async =>
+      throw StateError('storage unavailable');
+}
 
 void main() {
   const both = {kFeatureCrashReporting, kFeatureAnalytics};
@@ -222,6 +235,118 @@ void main() {
     ]);
   });
 
+  test('an unreadable flag memory at bootstrap fails closed: start-up goes '
+      'on with both kinds off until GetMe', () async {
+    final rig = _Rig(memory: _UnreadableFlagMemory());
+    rig.consent.crash.add('a');
+    rig.consent.usage.add('a');
+    await rig.controller.applyAtBootstrap('a');
+    expect(rig.controller.crashCollecting, isFalse);
+    expect(rig.controller.usageCollecting, isFalse);
+    expect(
+      rig.log.calls,
+      containsAll(['crash.setCollecting(false)', 'usage.setCollecting(false)']),
+    );
+
+    rig.controller.onEnabledFeatures(both);
+    expect(rig.controller.crashCollecting, isTrue);
+  });
+
+  group('held report (the start-up cache fallback)', () {
+    const held = CacheDatabaseUnavailable('SqliteException');
+
+    test('fallback launch: held until consent and GetMe turn crash '
+        'collecting on, then sent exactly once', () async {
+      final rig = _Rig(transientStorage: true);
+      // The in-memory cache has no stored consent or flags: off at launch.
+      await rig.controller.applyAtBootstrap('a');
+      rig.controller.recordWhenCollecting(held, StackTrace.current);
+      await settle();
+      expect(rig.crash.recorded, isEmpty);
+
+      // The person answers the consent card again, then GetMe brings the flag.
+      rig.consent.crash.add('a');
+      rig.consent.notify();
+      await settle();
+      expect(rig.crash.recorded, isEmpty, reason: 'no flag yet');
+      rig.log.clear();
+      rig.controller.onEnabledFeatures(both);
+      await settle();
+      expect(rig.crash.recorded, [same(held)]);
+      expect(
+        rig.log.calls.indexOf('crash.setCollecting(true)'),
+        lessThan(rig.log.calls.indexOf('crash.record(nonfatal)')),
+        reason: 'sent only after collection is on',
+      );
+
+      // Off and on again in the same session: not sent a second time.
+      rig.controller.onEnabledFeatures({});
+      rig.controller.onEnabledFeatures(both);
+      await settle();
+      expect(rig.crash.recorded, hasLength(1));
+    });
+
+    test('collection never turns on: dropped, zero reports', () async {
+      final rig = _Rig(transientStorage: true);
+      await rig.controller.applyAtBootstrap('a');
+      rig.controller.recordWhenCollecting(held, StackTrace.current);
+      rig.controller.onEnabledFeatures(both); // flag on, no consent
+      rig.controller.onAuthChanged(null);
+      await settle();
+      expect(rig.crash.recorded, isEmpty);
+      expect(rig.log.calls, isNot(contains('crash.record(nonfatal)')));
+    });
+
+    test('not on Android: never sent', () async {
+      final rig = _Rig(supported: false, transientStorage: true);
+      rig.consent.crash.add('a');
+      await rig.controller.applyAtBootstrap('a');
+      rig.controller.recordWhenCollecting(held, StackTrace.current);
+      rig.controller.onEnabledFeatures(both);
+      await settle();
+      expect(rig.crash.recorded, isEmpty);
+    });
+
+    test('already collecting: sent at once, and only once', () async {
+      final rig = _Rig();
+      rig.consent.crash.add('a');
+      await rig.controller.applyAtBootstrap('a');
+      rig.controller.onEnabledFeatures(both);
+      rig.controller.recordWhenCollecting(held, StackTrace.current);
+      rig.controller.recordWhenCollecting(held, StackTrace.current);
+      await settle();
+      expect(rig.crash.recorded, [same(held)]);
+    });
+  });
+
+  group('fallback launch (transient storage) side effects', () {
+    test('the off decision keeps unsent reports; a normal launch deletes '
+        'them', () async {
+      final fallback = _Rig(transientStorage: true);
+      await fallback.controller.applyAtBootstrap('a');
+      await settle();
+      expect(fallback.log.calls, contains('crash.setCollecting(false)'));
+      expect(fallback.log.calls, isNot(contains('crash.deleteUnsent')));
+
+      final normal = _Rig();
+      await normal.controller.applyAtBootstrap('a');
+      await settle();
+      expect(normal.log.calls, contains('crash.deleteUnsent'));
+    });
+
+    test('no last-uid record does not rotate the analytics id; a recorded '
+        'other account still does', () async {
+      final rig = _Rig(transientStorage: true);
+      await rig.controller.applyAtBootstrap('a');
+      await settle();
+      expect(rig.log.calls, isNot(contains('usage.reset')));
+
+      rig.controller.onAuthChanged('b');
+      await settle();
+      expect(rig.log.calls, contains('usage.reset'), reason: 'F11: a to b');
+    });
+  });
+
   test('GetMe flags are remembered for the next bootstrap', () async {
     final memory = InMemoryTelemetryFlagMemory();
     final rig = _Rig(memory: memory);
@@ -342,6 +467,32 @@ void main() {
       await settle();
       expect(rig.crash.recorded, isEmpty);
     });
+  });
+
+  test('startTelemetry hands transientStorage to the controller', () async {
+    Future<List<String>> launch({required bool transient}) async {
+      final log = CallLog();
+      await startTelemetry(
+        initializeFirebase: () async {},
+        restoredUid: () async => 'a',
+        supported: true,
+        adaptersFor: (_) => TelemetryAdapters(
+          crash: FakeCrashReporter(log),
+          analytics: FakeUsageAnalytics(log),
+        ),
+        debugLog: (_) {},
+        installHooks: false,
+        transientStorage: transient,
+      );
+      await settle();
+      return log.calls;
+    }
+
+    final fallback = await launch(transient: true);
+    expect(fallback, isNot(contains('crash.deleteUnsent')));
+    expect(fallback, isNot(contains('usage.reset')));
+    final normal = await launch(transient: false);
+    expect(normal, containsAll(['crash.deleteUnsent', 'usage.reset']));
   });
 
   test('startTelemetry order: Firebase init, adapters, then the bootstrap '

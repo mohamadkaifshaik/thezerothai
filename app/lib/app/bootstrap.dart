@@ -15,7 +15,7 @@ import '../core/network/auth_token_provider.dart';
 import '../core/network/firebase_app_check_token_provider.dart';
 import '../core/network/service_paused_cubit.dart';
 import '../core/share/share_links.dart';
-import '../core/storage/app_database.dart';
+import '../core/storage/cache_database_open.dart';
 import '../core/telemetry/telemetry_bootstrap.dart';
 import '../core/telemetry/telemetry_consent_store.dart';
 import '../core/telemetry/telemetry_device_forget.dart';
@@ -91,60 +91,89 @@ Future<void> bootstrap() async {
     return;
   }
 
-  // Telemetry starts right after Firebase.initializeApp, with the
-  // decision stored for the uid the auth SDK restored (collection is off by
-  // construction until a flag and the person's consent say otherwise).
-  late final AuthRepository authRepository;
-  late final fb_auth.FirebaseAuth firebaseAuth;
-  late final String? restoredUid;
-  final database = AppDatabase();
+  // Firebase first: the auth SDK restores the signed-in uid, and the local
+  // cache is claimed for that uid before anything is built on it.
+  final firebaseApp = await Firebase.initializeApp(
+    demoProjectId: config.useEmulators ? 'demo-dzeroth-local' : null,
+    options: config.useEmulators
+        ? null
+        : switch (config.firebaseEnv) {
+            FirebaseEnv.dev =>
+              dev_firebase.DefaultFirebaseOptions.currentPlatform,
+            FirebaseEnv.prod =>
+              prod_firebase.DefaultFirebaseOptions.currentPlatform,
+          },
+  );
+  final firebaseAuth = fb_auth.FirebaseAuth.instanceFor(app: firebaseApp);
+  if (config.useEmulators) {
+    await firebaseAuth.useAuthEmulator(
+      _emulatorHost(config.authEmulatorHost),
+      _emulatorPort(config.authEmulatorHost),
+    );
+  }
+  final authRepository = AuthRepository(
+    firebaseAuth: firebaseAuth,
+    googleWebClientId: config.googleWebClientId,
+    googleIosClientId: switch (config.firebaseEnv) {
+      FirebaseEnv.dev => dev_firebase.DefaultFirebaseOptions.ios.iosClientId,
+      FirebaseEnv.prod => prod_firebase.DefaultFirebaseOptions.ios.iosClientId,
+    },
+    appleServiceId: config.appleServiceId,
+    appleRedirectUri: config.appleRedirectUri,
+  );
+  final restoredUid = await _restoredUid(authRepository);
+
+  // Whose cache is this? (L-4.) Settled before the first cache read: a wipe
+  // that the last run missed is done here, for the uid the auth SDK restored
+  // (null when nobody is signed in). When the file on disk cannot be opened or
+  // written, the app starts on an in-memory cache instead (not kept across
+  // restarts; the next launch tries the disk again), reported below.
+  final cache = await openCacheDatabase(restoredUid: restoredUid);
+  final database = cache.database;
+  // Start-up DB reads after the claim that fail: reported once telemetry's
+  // hooks are installed; start-up goes on without what they would have read.
+  final startupErrors = <(Object, StackTrace)>[];
+
+  // Telemetry starts with the decision stored for the restored uid
+  // (collection is off by construction until a flag and the person's consent
+  // say otherwise). Firebase is already initialized above.
   // The person's answers per account; the controller reads it and the
   // consent card and Settings switches write it.
   final telemetryConsent = TelemetryConsentStore(database);
   final telemetry = await startTelemetry(
     supported: config.useEmulators ? false : null,
-    initializeFirebase: () async {
-      final firebaseApp = await Firebase.initializeApp(
-        demoProjectId: config.useEmulators ? 'demo-dzeroth-local' : null,
-        options: config.useEmulators
-            ? null
-            : switch (config.firebaseEnv) {
-                FirebaseEnv.dev =>
-                  dev_firebase.DefaultFirebaseOptions.currentPlatform,
-                FirebaseEnv.prod =>
-                  prod_firebase.DefaultFirebaseOptions.currentPlatform,
-              },
-      );
-      firebaseAuth = fb_auth.FirebaseAuth.instanceFor(app: firebaseApp);
-      if (config.useEmulators) {
-        await firebaseAuth.useAuthEmulator(
-          _emulatorHost(config.authEmulatorHost),
-          _emulatorPort(config.authEmulatorHost),
-        );
-      }
-    },
+    initializeFirebase: () async {},
     restoredUid: () async {
-      authRepository = AuthRepository(
-        firebaseAuth: firebaseAuth,
-        googleWebClientId: config.googleWebClientId,
-        googleIosClientId: switch (config.firebaseEnv) {
-          FirebaseEnv.dev =>
-            dev_firebase.DefaultFirebaseOptions.ios.iosClientId,
-          FirebaseEnv.prod =>
-            prod_firebase.DefaultFirebaseOptions.ios.iosClientId,
-        },
-        appleServiceId: config.appleServiceId,
-        appleRedirectUri: config.appleRedirectUri,
-      );
-      final uid = restoredUid = await _restoredUid(authRepository);
       // Read before the first decision, so a stored "on" applies at launch.
-      if (uid != null) await telemetryConsent.load(uid);
-      return uid;
+      // Unreadable, the uid stays unloaded, which reads as unasked (off).
+      if (restoredUid != null) {
+        try {
+          await telemetryConsent.load(restoredUid);
+        } catch (error, stack) {
+          startupErrors.add((error, stack));
+        }
+      }
+      return restoredUid;
     },
     memory: DatabaseTelemetryFlagMemory(database),
     consent: telemetryConsent,
     lastUid: DatabaseTelemetryLastUidStore(database),
+    // On an in-memory cache the stored answers are absent, not "no": the
+    // controller keeps unsent reports and the analytics ID.
+    transientStorage: cache.inMemory,
   );
+  // The in-memory cache has no stored consent, so collection starts off. The
+  // report is held for the session and sent once, the first time crash
+  // collecting turns on (Android, opted in again, flag from GetMe); dropped
+  // if it never does. The type only leaves the device.
+  final fallback = cache.failure;
+  if (kDebugMode && fallback != null) {
+    debugPrint('Local cache unavailable: $fallback');
+  }
+  cache.reportFallback(telemetry.recordWhenCollecting);
+  for (final (error, stack) in startupErrors) {
+    reportUnexpectedError(error, stack);
+  }
 
   await _activateAppCheck(config);
 
@@ -184,14 +213,15 @@ Future<void> bootstrap() async {
     database: database,
     onUnexpectedError: reportUnexpectedError,
   );
-  // Whose cache is this? (L-4.) Settled before the first cache read
-  // below: a wipe that the last run missed is done here, for the uid the auth
-  // SDK restored (null when nobody is signed in).
-  await database.claimCacheFor(restoredUid);
   // Warm the in-memory relationship cache from the caller's cached
   // `following` set before the first frame, so FollowButton can render
-  // "Following" instantly on a warm start (the cost-first directive).
-  await graphRepository.primeFromDatabase();
+  // "Following" instantly on a warm start (the cost-first directive). A
+  // failed read only means a cold start for that cache.
+  try {
+    await graphRepository.primeFromDatabase();
+  } catch (error, stack) {
+    reportUnexpectedError(error, stack);
+  }
 
   // The push cubit is built before the auth bloc so sign-out can unregister
   // the device while the ID token is still valid; AppWidget gives

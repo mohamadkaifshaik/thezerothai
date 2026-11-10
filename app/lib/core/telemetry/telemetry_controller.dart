@@ -35,15 +35,31 @@ class TelemetryController {
     TelemetryFlagMemory? memory,
     TelemetryLastUidStore? lastUid,
     void Function(String message)? debugLog,
+    bool transientStorage = false,
   }) : _crash = adapters.crash,
        _analytics = adapters.analytics,
        _platformSupported = platformSupported,
        _consent = consent,
        _memory = memory ?? InMemoryTelemetryFlagMemory(),
        _lastUid = lastUid ?? InMemoryTelemetryLastUidStore(),
-       _debugLog = debugLog ?? _defaultDebugLog {
+       _debugLog = debugLog ?? _defaultDebugLog,
+       _transientStorage = transientStorage {
     _consentSub = _consent.changes.listen((_) => _decide());
   }
+
+  /// True when this launch runs on an in-memory cache because the one on disk
+  /// failed: stored consent, flags and the last uid are absent, not "no".
+  /// Collection still starts off (fail closed), but nothing irreversible is
+  /// done on that absence: the "off" decision keeps the SDK's unsent reports,
+  /// and a missing last-uid record does not reset the analytics ID. The
+  /// deletion before "on" (L-1) and a reset for a recorded other account
+  /// still run.
+  final bool _transientStorage;
+
+  /// One report held until crash collecting first turns on this session
+  /// ([recordWhenCollecting]); null once sent or when there is none.
+  ({Object error, StackTrace stack})? _held;
+  bool _heldUsed = false;
 
   final CrashReporter _crash;
   final UsageAnalytics _analytics;
@@ -80,12 +96,20 @@ class TelemetryController {
   /// Applies the stored decision of the account the auth SDK restored (null
   /// when nobody is signed in) and always reaches the SDKs, because their
   /// native state persists across launches. Call right after
-  /// `Firebase.initializeApp`, before the first frame.
+  /// `Firebase.initializeApp`, before the first frame. Stored flags that
+  /// cannot be read (a broken cache database) count as off until the next
+  /// `GetMe`; start-up never fails here.
   Future<void> applyAtBootstrap(String? restoredUid) async {
     _uid = restoredUid;
-    _flags = restoredUid == null
-        ? TelemetryFlags.off
-        : await _memory.read(restoredUid) ?? TelemetryFlags.off;
+    TelemetryFlags? stored;
+    if (restoredUid != null) {
+      try {
+        stored = await _memory.read(restoredUid);
+      } catch (_) {
+        // Fail closed: off, like a uid with no record.
+      }
+    }
+    _flags = stored ?? TelemetryFlags.off;
     // The reset goes first here: stored flags and consent can switch usage
     // on right away, and the SDK's own automatic events must not run under
     // the previous account's ID.
@@ -124,6 +148,21 @@ class TelemetryController {
   }) {
     if (!crashCollecting) return Future<void>.value();
     return _enqueue(() => _crash.record(error, stack, fatal: fatal));
+  }
+
+  /// Like [recordError], but a report that comes while not collecting is held
+  /// in memory and sent once, the first time crash collecting turns on this
+  /// session (after the "on" call). Never collecting: it is dropped with the
+  /// process. One report per session: later calls are ignored. Same payload
+  /// rules as every report (the crash adapter sends the type only).
+  void recordWhenCollecting(Object error, StackTrace stack) {
+    if (_heldUsed) return;
+    _heldUsed = true;
+    if (crashCollecting) {
+      unawaited(recordError(error, stack));
+    } else {
+      _held = (error: error, stack: stack);
+    }
   }
 
   /// [FlutterErrorDetails] carry a `context` and an information collector that
@@ -174,12 +213,19 @@ class TelemetryController {
         } catch (_) {
           readFailed = true; // fail closed: reset below
         }
-        if (readFailed || last != uid) {
+        // On transient storage an absent or unreadable record says nothing
+        // about the last account, so the ID is kept; a recorded other uid
+        // (a switch within this session) still resets.
+        final unknown = readFailed || last == null;
+        final differs = unknown ? !_transientStorage : last != uid;
+        if (differs) {
           try {
             await _analytics.resetDevice();
           } catch (_) {
             // Never breaks sign-in; the uid is recorded below anyway.
           }
+        }
+        if (differs || unknown) {
           try {
             await _lastUid.write(uid);
           } catch (_) {
@@ -200,7 +246,14 @@ class TelemetryController {
       // upload. A no-op once native collection is on, so safe in every state.
       if (crash) unawaited(_enqueue(_crash.deleteUnsentReports));
       unawaited(_enqueue(() => _crash.setCollecting(crash)));
-      if (!crash) unawaited(_enqueue(_crash.deleteUnsentReports));
+      if (!crash && !_transientStorage) {
+        unawaited(_enqueue(_crash.deleteUnsentReports));
+      }
+      final held = _held;
+      if (crash && held != null) {
+        _held = null;
+        unawaited(_enqueue(() => _crash.record(held.error, held.stack)));
+      }
     }
     if (force || usage != _appliedUsage) {
       _appliedUsage = usage;

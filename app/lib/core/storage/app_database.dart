@@ -624,16 +624,19 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
+  // These two files must be built/copied into `app/web/` before a web
+  // release build — see the "manual steps" note in the Phase 0 report.
+  // Root-absolute: with path URLs the page can be /post/<id>, and
+  // the main-thread fallback resolves these against the page URL.
+  static final Uri sqlite3WasmUri = Uri.parse('/sqlite3.wasm');
+  static final Uri driftWorkerUri = Uri.parse('/drift_worker.js');
+
   static QueryExecutor _openConnection() {
     return driftDatabase(
       name: 'dzeroth',
       web: DriftWebOptions(
-        // These two files must be built/copied into `app/web/` before a web
-        // release build — see the "manual steps" note in the Phase 0 report.
-        // Root-absolute: with path URLs the page can be /post/<id>, and
-        // the main-thread fallback resolves these against the page URL.
-        sqlite3Wasm: Uri.parse('/sqlite3.wasm'),
-        driftWorker: Uri.parse('/drift_worker.js'),
+        sqlite3Wasm: sqlite3WasmUri,
+        driftWorker: driftWorkerUri,
       ),
       native: const DriftNativeOptions(),
     );
