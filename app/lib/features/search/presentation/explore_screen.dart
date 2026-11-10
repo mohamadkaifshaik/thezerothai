@@ -9,6 +9,7 @@ import '../../graph/presentation/widgets/who_to_follow_card.dart';
 import '../domain/search_feature_flags.dart';
 import 'widgets/explore_trends_section.dart';
 import 'widgets/app_search_field.dart';
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// `/explore`: a root destination of the new shell. A
 /// two-row sticky header (the search field, then a one-tab "Trending" bar), the
@@ -46,6 +47,7 @@ class ExploreScreen extends StatelessWidget {
           const SliverToBoxAdapter(
             child: WhoToFollowCard(margin: EdgeInsets.all(AppSpacing.md)),
           ),
+          const ShellBottomInsetSliver(),
         ],
       ),
     );

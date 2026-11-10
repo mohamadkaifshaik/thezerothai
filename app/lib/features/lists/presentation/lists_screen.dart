@@ -18,6 +18,7 @@ import 'bloc/lists_cubit.dart';
 import 'bloc/lists_state.dart';
 import 'widgets/list_editor_sheet.dart';
 import 'widgets/list_row.dart';
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// `/lists`: "Your Lists" with a Create button, one row per list and
 /// an Edit button per row.
@@ -160,6 +161,7 @@ class _ListsScreenState extends State<ListsScreen> {
                     );
                   },
                 ),
+              const ShellBottomInsetSliver(),
             ],
           ),
         );

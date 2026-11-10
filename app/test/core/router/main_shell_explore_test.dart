@@ -4,6 +4,7 @@ import 'package:dzeroth/core/router/main_shell.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
+import 'package:dzeroth/core/widgets/shell_bottom_inset_sliver.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
@@ -365,36 +366,139 @@ void main() {
       expect(search.calls, isEmpty);
     });
 
+    /// The Explore scroll view.
+    Finder exploreScrollable() => find
+        .descendant(
+          of: find.byType(ExploreScreen),
+          matching: find.byType(Scrollable),
+        )
+        .first;
+
+    /// Jumps Explore to its end. A jump is not a user scroll, so the
+    /// floating bar stays up (nothing relies on it hiding).
+    Future<void> jumpToEnd(WidgetTester tester) async {
+      final position = tester
+          .state<ScrollableState>(exploreScrollable())
+          .position;
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pumpAndSettle();
+    }
+
+    /// Height of the page's `ShellBottomInsetSliver` (a zero-tall sliver
+    /// counts as offstage, so the finders include it).
+    double insetHeight(WidgetTester tester) => tester
+        .widget<SizedBox>(
+          find.descendant(
+            of: find.byType(ShellBottomInsetSliver, skipOffstage: false),
+            matching: find.byType(SizedBox, skipOffstage: false),
+          ),
+        )
+        .height!;
+
+    Finder pill() => find.descendant(
+      of: find.byType(AppFloatingBottomBar),
+      matching: find.byType(Material),
+    );
+
+    double barOpacity(WidgetTester tester) => tester
+        .widget<AnimatedOpacity>(
+          find.ancestor(
+            of: find.byType(AppBottomBar),
+            matching: find.byType(AnimatedOpacity),
+          ),
+        )
+        .opacity;
+
     testWidgets('Explore shows 10 rows, Show more expands to 30', (
       tester,
     ) async {
       final search = repo(30);
       await pump(tester, flags: withTrends, search: search);
-      await tester.scrollUntilVisible(
-        find.text('Show more'),
-        400,
-        scrollable: find
-            .descendant(
-              of: find.byType(ExploreScreen),
-              matching: find.byType(Scrollable),
-            )
-            .first,
+      await jumpToEnd(tester);
+      // The end of the page clears the floating bar, which is still up.
+      expect(barOpacity(tester), 1);
+      expect(
+        tester.getRect(find.text('Show more')).bottom,
+        lessThanOrEqualTo(tester.getRect(pill()).top),
       );
       expect(find.text('#tag10'), findsOneWidget);
       expect(find.text('#tag11', skipOffstage: false), findsNothing);
       await tester.tap(find.text('Show more'));
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(
-        find.text('#tag30'),
-        400,
-        scrollable: find
-            .descendant(
-              of: find.byType(ExploreScreen),
-              matching: find.byType(Scrollable),
-            )
-            .first,
-      );
+      await jumpToEnd(tester);
       expect(find.text('#tag30'), findsOneWidget);
+      expect(
+        tester.getRect(find.text('#tag30')).bottom,
+        lessThanOrEqualTo(tester.getRect(pill()).top),
+      );
+    });
+
+    group('the end of a short page (bottom inset)', () {
+      /// The bottom of the last row (`#tag10`) on a page tall enough to show
+      /// everything without scrolling.
+      Future<double> lastRowBottomUnscrolled(WidgetTester tester) async {
+        await pump(
+          tester,
+          flags: withTrends,
+          search: repo(10),
+          size: const Size(360, 2000),
+        );
+        return tester.getRect(find.text('#tag10')).bottom;
+      }
+
+      testWidgets('ui_shell on: a page that does not scroll with the bar '
+          'still brings its last row above the pill', (tester) async {
+        final rowBottom = await lastRowBottomUnscrolled(tester);
+        // The last row sits 40 dp above the bottom edge: inside the 90 dp the
+        // floating bar takes, on a page whose content alone fits.
+        final height = (rowBottom + 40).roundToDouble();
+        await pump(
+          tester,
+          flags: withTrends,
+          search: repo(10),
+          size: Size(360, height),
+        );
+        await jumpToEnd(tester);
+
+        expect(barOpacity(tester), 1);
+        final pillTop = tester.getRect(pill()).top;
+        expect(pillTop, height - 90);
+        expect(
+          tester.getRect(find.text('#tag10')).bottom,
+          lessThanOrEqualTo(pillTop),
+        );
+        // A tap on the last row reaches it, not the bar.
+        await tester.tap(find.text('#tag10'));
+        await tester.pumpAndSettle();
+        expect(find.text('search q=#tag10'), findsOneWidget);
+      });
+
+      testWidgets('ui_shell off: the docked bar, the page ends at its top', (
+        tester,
+      ) async {
+        final rowBottom = await lastRowBottomUnscrolled(tester);
+        final height = (rowBottom + 40).roundToDouble();
+        await pump(
+          tester,
+          flags: withTrends,
+          search: repo(10),
+          size: Size(360, height),
+          newShell: false,
+        );
+        await jumpToEnd(tester);
+
+        expect(find.byType(AppFloatingBottomBar), findsNothing);
+        final barTop = tester.getRect(find.byType(AppBottomBar)).top;
+        expect(barTop, height - 56);
+        final explore = tester.getRect(exploreScrollable());
+        expect(explore.bottom, barTop);
+        expect(
+          tester.getRect(find.text('#tag10')).bottom,
+          lessThanOrEqualTo(barTop),
+        );
+        // The inset adds nothing under the docked bar.
+        expect(insetHeight(tester), 0);
+      });
     });
 
     testWidgets('a row shows rank, name and compact count; tap searches', (

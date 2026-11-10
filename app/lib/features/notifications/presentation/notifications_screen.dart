@@ -26,6 +26,7 @@ import 'notifications_error_messages.dart';
 import 'widgets/follow_requests_row.dart';
 import 'widgets/notification_row.dart';
 import 'widgets/push_opt_in_card.dart';
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// `/notifications`: the cached list renders at once, one
 /// throttled `since_token` refresh follows, and opening it marks everything
@@ -175,6 +176,7 @@ class _NotificationsViewState extends State<_NotificationsView>
                           ),
                         ),
                       ..._body(context, cubit, state, inset),
+                      const ShellBottomInsetSliver(),
                     ],
                   ),
                 );

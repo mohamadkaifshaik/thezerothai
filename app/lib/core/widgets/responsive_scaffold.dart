@@ -11,7 +11,8 @@ export 'app_nav_destination.dart';
 
 /// Adaptive shell used by every top-level, authenticated screen:
 ///
-/// - `< 600dp` (phone): a [AppBottomBar] (icons only), the avatar [drawer]
+/// - `< 600dp` (phone): a [AppBottomBar] (icons only; with [floatingBar] the
+///   [AppFloatingBottomBar] pill over the body), the avatar [drawer]
 ///   (opened from the screen's top bar through an [AppShellScope]) and, when
 ///   [onCompose] is set and [showFab] is true, a floating compose button.
 /// - `600-1199dp` (tablet): an icon-only `NavigationRail` with a round compose
@@ -42,6 +43,7 @@ class ResponsiveScaffold extends StatefulWidget {
     this.drawer,
     this.accountChipBuilder,
     this.masterPane,
+    this.floatingBar = false,
   });
 
   /// The selected destination, or null when none is (Settings).
@@ -78,6 +80,11 @@ class ResponsiveScaffold extends StatefulWidget {
   /// [body] (master-detail: Settings). It takes the place of the
   /// [sideColumn].
   final Widget? masterPane;
+
+  /// Whether the narrow layout uses the redesigned chrome (`ui_shell`): the
+  /// [AppFloatingBottomBar] over the body and the gradient compose button.
+  /// Off: the legacy docked [AppBottomBar].
+  final bool floatingBar;
 
   @override
   State<ResponsiveScaffold> createState() => _ResponsiveScaffoldState();
@@ -151,6 +158,9 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     final selected = widget.selectedIndex == null
         ? -1
         : bar.indexOf(widget.selectedIndex!);
+    if (widget.floatingBar) {
+      return _withShellScope(_narrowFloating(context, bar, selected));
+    }
     final scaffold = Scaffold(
       key: _scaffoldKey,
       drawer: widget.drawer,
@@ -181,10 +191,89 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
             : const SizedBox.shrink(),
       ),
     );
+    return _withShellScope(scaffold);
+  }
+
+  Widget _withShellScope(Widget scaffold) {
     if (widget.drawer == null) return scaffold;
     return AppShellScope(
       openDrawer: () => _scaffoldKey.currentState?.openDrawer(),
       child: scaffold,
+    );
+  }
+
+  /// The redesigned phone chrome: the bar floats over the body, so the body
+  /// extends behind it and gets the bar's height as bottom padding (in
+  /// `padding` and `viewPadding`, so scrollables, safe areas and the compose
+  /// buttons of nested scaffolds all end above the pill). The padding stays
+  /// while the bar is scrolled away, so the page does not jump.
+  Widget _narrowFloating(BuildContext context, List<int> bar, int selected) {
+    final media = MediaQuery.of(context);
+    // An open keyboard takes the bar away: it would float over the field.
+    final keyboardOpen = media.viewInsets.bottom > 0;
+    final hidden = !_showMobileNavigation;
+    final movement = AppMotion.of(context).movement;
+    const duration = Duration(milliseconds: 180);
+    final reserved = media.padding.bottom + AppFloatingBottomBar.reservedHeight;
+    return Scaffold(
+      key: _scaffoldKey,
+      drawer: widget.drawer,
+      extendBody: true,
+      body: SafeArea(
+        bottom: false,
+        child: NotificationListener<ScrollNotification>(
+          onNotification: _onScrollNotification,
+          // The same wrapper with or without the bar, so the page keeps its
+          // state (and its focused field) when the keyboard opens.
+          child: Builder(
+            builder: (context) {
+              // Below the SafeArea: only the bottom edge changes.
+              final inner = MediaQuery.of(context);
+              if (keyboardOpen) {
+                return MediaQuery(data: inner, child: widget.body);
+              }
+              return MediaQuery(
+                data: inner.copyWith(
+                  padding: inner.padding.copyWith(bottom: reserved),
+                  viewPadding: inner.viewPadding.copyWith(bottom: reserved),
+                ),
+                child: widget.body,
+              );
+            },
+          ),
+        ),
+      ),
+      floatingActionButton: widget.onCompose != null && widget.showFab
+          ? _ComposeFab(onPressed: widget.onCompose!)
+          : null,
+      bottomNavigationBar: keyboardOpen
+          ? null
+          : IgnorePointer(
+              ignoring: hidden,
+              child: ExcludeSemantics(
+                excluding: hidden,
+                child: AnimatedSlide(
+                  // Reduced motion: fade only.
+                  offset: hidden && movement ? const Offset(0, 1) : Offset.zero,
+                  duration: duration,
+                  curve: Curves.easeOutCubic,
+                  child: AnimatedOpacity(
+                    opacity: hidden ? 0 : 1,
+                    duration: duration,
+                    curve: Curves.easeOutCubic,
+                    child: AppBottomBar(
+                      floating: true,
+                      destinations: [
+                        for (final i in bar) widget.destinations[i],
+                      ],
+                      selectedIndex: selected < 0 ? null : selected,
+                      onSelected: (index) =>
+                          widget.onDestinationSelected(bar[index]),
+                    ),
+                  ),
+                ),
+              ),
+            ),
     );
   }
 
@@ -305,6 +394,44 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The compose button of the redesigned phone chrome: a 58dp circle with the
+/// primary gradient and its glow, above the floating bar.
+class _ComposeFab extends StatelessWidget {
+  const _ComposeFab({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = context.appColors;
+    return DecoratedBox(
+      decoration: ShapeDecoration(
+        shape: const CircleBorder(),
+        gradient: colors.primaryFillGradient,
+        shadows: AppShadows.primaryGlow,
+      ),
+      child: Theme(
+        data: theme.copyWith(
+          floatingActionButtonTheme: theme.floatingActionButtonTheme.copyWith(
+            backgroundColor: Colors.transparent,
+            foregroundColor: colors.primaryFillLabel,
+            sizeConstraints: const BoxConstraints.tightFor(
+              width: AppSize.fabRedesign,
+              height: AppSize.fabRedesign,
+            ),
+          ),
+        ),
+        child: FloatingActionButton(
+          tooltip: _ResponsiveScaffoldState._composeTooltip,
+          onPressed: onPressed,
+          child: const Icon(Icons.edit_outlined),
         ),
       ),
     );

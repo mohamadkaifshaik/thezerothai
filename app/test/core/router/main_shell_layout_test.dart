@@ -24,6 +24,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.d
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/onboarding/presentation/widgets/account_refresh_banner.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/shared/widgets/primitives/app_badge.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
@@ -261,6 +262,40 @@ void main() {
       expect(find.byTooltip('New post'), findsOneWidget);
     });
 
+    testWidgets('phone: the docked 56dp icon bar, never the floating pill; '
+        'the badge keeps its digits and the FAB its 56dp', (tester) async {
+      final badge = UnreadBadgeCubit(7);
+      addTearDown(badge.close);
+      await pump(tester, newShell: false, badge: badge);
+
+      expect(find.byType(AppFloatingBottomBar), findsNothing);
+      final bar = tester.getRect(find.byType(AppBottomBar));
+      expect(bar, const Rect.fromLTRB(0, 900 - 56, 360, 900));
+      // No labels, no tooltips on the cells.
+      expect(
+        find.descendant(
+          of: find.byType(AppBottomBar),
+          matching: find.byType(Text),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('7'), findsOneWidget);
+      expect(find.text('Alerts'), findsNothing);
+      expect(find.byType(AppUnreadDot), findsNothing);
+      expectSize(
+        tester,
+        find.byType(FloatingActionButton),
+        width: 56,
+        height: 56,
+        tolerance: 0,
+      );
+      // The FAB sits above the docked bar with the Material margin.
+      expect(
+        tester.getRect(find.byType(FloatingActionButton)).bottom,
+        900 - 56 - 16,
+      );
+    });
+
     testWidgets('Settings is the selected destination on /settings', (
       tester,
     ) async {
@@ -401,14 +436,82 @@ void main() {
       expect(find.text('home body'), findsOneWidget);
     });
 
-    testWidgets('the unread badge sits on the Notifications cell', (
-      tester,
-    ) async {
+    testWidgets('unread activity is the dot on the Notifications cell, '
+        'spoken with its count', (tester) async {
+      final handle = tester.ensureSemantics();
       final badge = UnreadBadgeCubit(7);
       addTearDown(badge.close);
       await pump(tester, badge: badge);
 
-      expect(find.text('7'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(AppBottomBar),
+          matching: find.byType(AppUnreadDot),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('7'), findsNothing);
+      expect(find.bySemanticsLabel('Notifications, 7 unread'), findsOneWidget);
+      handle.dispose();
+    });
+
+    testWidgets('the bar is the floating pill; Notifications reads "Alerts" '
+        'and is spoken in full', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pump(tester);
+
+      expect(find.byType(AppFloatingBottomBar), findsOneWidget);
+      final pill = tester.getRect(
+        find.descendant(
+          of: find.byType(AppFloatingBottomBar),
+          matching: find.byType(Material),
+        ),
+      );
+      expect(pill, const Rect.fromLTRB(20, 900 - 24 - 66, 340, 900 - 24));
+      // Two cells (Home, Notifications): the labels fit.
+      final bar = find.byType(AppBottomBar);
+      expect(
+        find.descendant(of: bar, matching: find.text('Home')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: bar, matching: find.text('Alerts')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: bar, matching: find.text('Notifications')),
+        findsNothing,
+      );
+      expect(find.bySemanticsLabel('Notifications'), findsOneWidget);
+      expect(find.bySemanticsLabel('Alerts'), findsNothing);
+      handle.dispose();
+    });
+
+    testWidgets('x2.0: the bar is icon-only with tooltips', (tester) async {
+      await pump(tester, textScale: 2);
+
+      final bar = find.byType(AppBottomBar);
+      expect(
+        find.descendant(of: bar, matching: find.text('Alerts')),
+        findsNothing,
+      );
+      expect(find.byTooltip('Notifications'), findsOneWidget);
+      expect(find.byTooltip('Home'), findsOneWidget);
+    });
+
+    testWidgets('on the rail the destination is still "Notifications"', (
+      tester,
+    ) async {
+      await pump(tester, width: 1400);
+
+      expect(find.text('Alerts'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(NavigationRail),
+          matching: find.text('Notifications'),
+        ),
+        findsOneWidget,
+      );
     });
 
     group('compose button rule (D2)', () {
@@ -1150,11 +1253,10 @@ void main() {
           location: '/profile/alice',
           flags: {for (final g in on) g.$1},
         );
-        expect(
-          barIcons(tester),
-          [Icons.home_outlined, for (final g in on) g.$2],
-          reason: 'flags ${on.map((g) => g.$1)}',
-        );
+        expect(barIcons(tester), [
+          Icons.home_outlined,
+          for (final g in on) g.$2,
+        ], reason: 'flags ${on.map((g) => g.$1)}');
       }
     });
 

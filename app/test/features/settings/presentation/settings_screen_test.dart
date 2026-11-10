@@ -1,5 +1,7 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
+import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
+import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
 import 'package:dzeroth/features/account/domain/account_feature_flag.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
@@ -28,6 +30,63 @@ class MockAuthBloc extends MockBloc<AuthEvent, AuthState> implements AuthBloc {}
 class MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
+const _shellDestinations = [
+  AppNavDestination(
+    icon: Icons.home_outlined,
+    selectedIcon: Icons.home,
+    label: 'Home',
+  ),
+  AppNavDestination(
+    icon: Icons.notifications_none,
+    selectedIcon: Icons.notifications,
+    label: 'Notifications',
+  ),
+];
+
+/// [screen] inside the shell's phone chrome: the floating bar (`ui_shell` on)
+/// or the docked legacy bar.
+Widget _inShell(Widget screen, {required bool floating}) => ResponsiveScaffold(
+  selectedIndex: null,
+  onDestinationSelected: (_) {},
+  destinations: _shellDestinations,
+  floatingBar: floating,
+  body: screen,
+);
+
+/// Jumps the page's list to its end: not a user scroll, so the floating bar
+/// stays up.
+Future<void> _jumpToEnd(WidgetTester tester, Finder inList) async {
+  final position = tester
+      .state<ScrollableState>(
+        find.ancestor(of: inList, matching: find.byType(Scrollable)).first,
+      )
+      .position;
+  position.jumpTo(position.maxScrollExtent);
+  await tester.pumpAndSettle();
+}
+
+Rect _pillRect(WidgetTester tester) => tester.getRect(
+  find.descendant(
+    of: find.byType(AppFloatingBottomBar),
+    matching: find.byType(Material),
+  ),
+);
+
+double _barOpacity(WidgetTester tester) => tester
+    .widget<AnimatedOpacity>(
+      find.ancestor(
+        of: find.byType(AppBottomBar),
+        matching: find.byType(AnimatedOpacity),
+      ),
+    )
+    .opacity;
+
+void _setView(WidgetTester tester, double height) {
+  tester.view.devicePixelRatio = 1;
+  tester.view.physicalSize = Size(360, height);
+  addTearDown(tester.view.reset);
+}
+
 void main() {
   setUpAll(() {
     registerFallbackValue(const AuthSignOutRequested());
@@ -47,7 +106,7 @@ void main() {
     );
   });
 
-  Widget wrap() {
+  Widget wrap({bool? floatingBar}) {
     return MultiBlocProvider(
       providers: [
         BlocProvider<AuthBloc>.value(value: authBloc),
@@ -56,7 +115,11 @@ void main() {
         ),
         BlocProvider<OnboardingBloc>.value(value: onboardingBloc),
       ],
-      child: const MaterialApp(home: SettingsScreen()),
+      child: MaterialApp(
+        home: floatingBar == null
+            ? const SettingsScreen()
+            : _inShell(const SettingsScreen(), floating: floatingBar),
+      ),
     );
   }
 
@@ -224,5 +287,70 @@ void main() {
     );
     await tester.pumpWidget(wrap());
     expect(find.text('Delete account'), findsOneWidget);
+  });
+
+  group('under the shell bar (bottom inset)', () {
+    Finder signOut() => find
+        .ancestor(of: find.text('Sign out'), matching: find.byType(InkWell))
+        .first;
+
+    /// The height at which Sign out, the last row, ends 40 dp above the
+    /// bottom edge: inside the 90 dp of the floating bar, on a list that
+    /// fits the screen without the bar.
+    Future<double> shortHeight(WidgetTester tester) async {
+      _setView(tester, 2000);
+      await tester.pumpWidget(wrap(floatingBar: false));
+      await tester.pumpAndSettle();
+      return (tester.getRect(signOut()).bottom + 40).roundToDouble();
+    }
+
+    setUp(() {
+      whenListen(
+        authBloc,
+        Stream<AuthState>.empty(),
+        initialState: const AuthState(),
+      );
+    });
+
+    testWidgets('ui_shell on: Sign out ends above the pill and takes the '
+        'tap', (tester) async {
+      final height = await shortHeight(tester);
+      _setView(tester, height);
+      await tester.pumpWidget(wrap(floatingBar: true));
+      await tester.pumpAndSettle();
+      await _jumpToEnd(tester, find.text('Sign out'));
+
+      expect(_barOpacity(tester), 1);
+      final pill = _pillRect(tester);
+      expect(pill.top, height - 90);
+      expect(tester.getRect(signOut()).bottom, lessThanOrEqualTo(pill.top));
+      await tester.tap(find.text('Sign out'));
+      await tester.pump();
+      verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
+    });
+
+    testWidgets('ui_shell off: the docked bar; the list is unchanged', (
+      tester,
+    ) async {
+      final height = await shortHeight(tester);
+      _setView(tester, height);
+      await tester.pumpWidget(wrap(floatingBar: false));
+      await tester.pumpAndSettle();
+      final before = tester.getRect(signOut());
+      await _jumpToEnd(tester, find.text('Sign out'));
+
+      expect(find.byType(AppFloatingBottomBar), findsNothing);
+      final barTop = tester.getRect(find.byType(AppBottomBar)).top;
+      expect(barTop, height - 56);
+      // The list keeps its 24 dp bottom padding: the docked bar takes the
+      // inset.
+      final list = tester.widget<ListView>(
+        find.ancestor(of: signOut(), matching: find.byType(ListView)),
+      );
+      expect(list.padding, const EdgeInsets.only(bottom: 24));
+      final after = tester.getRect(signOut());
+      expect(after.bottom, lessThanOrEqualTo(barTop));
+      expect(after.bottom, lessThanOrEqualTo(before.bottom));
+    });
   });
 }

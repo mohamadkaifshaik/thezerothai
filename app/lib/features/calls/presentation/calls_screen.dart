@@ -29,6 +29,10 @@ class CallsScreen extends StatelessWidget {
           ),
           Expanded(
             child: SingleChildScrollView(
+              // The floating bar's inset (`ui_shell`); 0 under the docked bar.
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.paddingOf(context).bottom,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [

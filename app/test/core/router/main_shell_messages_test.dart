@@ -15,6 +15,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.da
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/shared/widgets/primitives/app_badge.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -278,9 +279,18 @@ void main() {
       addTearDown(badge.close);
       await pump(tester, messagesBadge: badge);
 
+      // The floating bar draws the count badge of the redesign, inverted for
+      // the navy pill.
       expect(
-        find.descendant(of: find.byType(Badge), matching: find.text('3')),
+        find.descendant(
+          of: find.byType(AppCountBadge),
+          matching: find.text('3'),
+        ),
         findsOneWidget,
+      );
+      expect(
+        tester.widget<AppCountBadge>(find.byType(AppCountBadge)).onNavy,
+        isTrue,
       );
       expect(spoken(tester), 'Messages, 3 unread conversations');
       handle.dispose();
@@ -376,7 +386,8 @@ void main() {
       final badge = MessagesBadgeCubit();
       addTearDown(badge.close);
       await pump(tester, messagesBadge: badge);
-      expect(find.byType(Badge), findsNothing);
+      expect(find.byType(AppCountBadge), findsNothing);
+      expect(find.byType(AppUnreadDot), findsNothing);
       expect(spoken(tester), 'Messages');
 
       badge.seed(2);
@@ -385,7 +396,8 @@ void main() {
 
       badge.seed(0);
       await tester.pumpAndSettle();
-      expect(find.byType(Badge), findsNothing);
+      expect(find.byType(AppCountBadge), findsNothing);
+      expect(find.byType(AppUnreadDot), findsNothing);
       handle.dispose();
     });
 
@@ -396,13 +408,15 @@ void main() {
       addTearDown(unread.close);
       await pump(tester, messagesBadge: messages, unreadBadge: unread);
 
+      // Messages shows its count; activity is the dot (no digits).
       expect(find.text('2'), findsOneWidget);
-      expect(find.text('7'), findsOneWidget);
+      expect(find.byType(AppUnreadDot), findsOneWidget);
+      expect(find.text('7'), findsNothing);
 
       messages.seed(5);
       await tester.pumpAndSettle();
       expect(find.text('5'), findsOneWidget);
-      expect(find.text('7'), findsOneWidget);
+      expect(find.byType(AppUnreadDot), findsOneWidget);
       expect(unread.state, 7);
     });
 
