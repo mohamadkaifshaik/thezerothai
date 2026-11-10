@@ -665,6 +665,17 @@ variable "profile_media_retire" {
   }
 }
 
+variable "media_orphan_sweep" {
+  description = "MEDIA_ORPHAN_SWEEP: the media orphan sweep's kill switch. off = nothing (default) | mark = mark unattached READY images and restore held ones, never delete (soak) | delete = also delete marked images at least 12 h later. Per-project operations config, not a cohort flag. Raise to delete only after a mark-only soak in this project."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "mark", "delete"], var.media_orphan_sweep)
+    error_message = "media_orphan_sweep must be one of: off, mark, delete (backend/pkg/platform/config/modes.go)."
+  }
+}
+
 variable "feature_ui_shell" {
   description = "FEATURE_UI_SHELL rollout mode for the new app shell (client-only; bottom bar + avatar drawer, account chip, rail): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string

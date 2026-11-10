@@ -350,6 +350,9 @@ locals {
     { name = "PROFILE_UPDATES_PER_DAY", value = "100" },
     # Delete replaced or removed profile images 24-48 h after the change. Per-project retention, default off: raise it to banner only after the media bucket's customTime lifecycle rule is applied here, to all only after the avatar placeholder app release. Must match config.Load's accepted values.
     { name = "PROFILE_MEDIA_RETIRE", value = var.profile_media_retire },
+    # Kill switch of the media orphan sweep (last step of daily-maintenance): off = nothing (default) | mark = phase 1 and
+    # restores only, never a claim or delete | delete = both phases. Must match config.Load's accepted values.
+    { name = "MEDIA_ORPHAN_SWEEP", value = var.media_orphan_sweep },
     { name = "SUGGESTIONS_SAMPLE_FOLLOWEES", value = "30" },
     { name = "SUGGESTIONS_EDGE_LIMIT", value = "20" },
     { name = "SUGGESTIONS_HYDRATE_MAX", value = "10" },

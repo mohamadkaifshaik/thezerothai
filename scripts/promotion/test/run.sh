@@ -94,7 +94,7 @@ expect "beacons pilot allowlist" 0 "$V" "$tmp/r" "$ceil" dev
 mut '.spec.containers[0].env += [{"name":"FEATURE_BEACONS","value":"on"},{"name":"FEATURE_BEACONS_ALLOWLIST","value":"fake-uid-A,fake-uid-B,fake-uid-C,fake-uid-D,fake-uid-E,fake-uid-F,fake-uid-G"}]' revision-ok.json r
 expect "beacons allowlist too big" 1 "$V" "$tmp/r" "$ceil" dev
 expect "not a revision" 2 "$V" "$fx/service-ok.json" "$ceil" dev
-expect "unknown env" 2 "$V" "$fx/revision-ok.json" "$ceil" prod
+expect "unknown env" 2 "$V" "$fx/revision-ok.json" "$ceil" staging
 
 # --- check-traffic
 expect "serving ok" 0 "$T" "$fx/service-ok.json" "$ceil" dev serving

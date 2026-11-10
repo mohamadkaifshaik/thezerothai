@@ -299,6 +299,18 @@ locals {
     { name = "CACHE_COMMUNITIES_ENTRIES", value = "200" },
     { name = "CACHE_COMMUNITY_FEED_ENTRIES", value = "100" },
     { name = "CACHE_COMMUNITY_MEMBERS_ENTRIES", value = "5000" },
+    # FEATURE_BEACONS and the beacon limits as explicit config (rule 11), each equal to its backend/pkg/platform/config
+    # default. Inert while FEATURE_BEACONS is off; the prod ceiling in scripts/promotion/flag-ceiling.json is off.
+    { name = "FEATURE_BEACONS", value = var.feature_beacons },
+    { name = "FEATURE_BEACONS_ALLOWLIST", value = var.feature_beacons_allowlist },
+    { name = "FEATURE_BEACONS_PERCENT", value = tostring(var.feature_beacons_percent) },
+    { name = "BEACONS_MAX_OPEN_PER_USER", value = "5" },
+    { name = "BEACONS_MAX_PENDING_REQUESTS", value = "10" },
+    { name = "BEACONS_MAX_OPEN_SPOTS", value = "20" },
+    { name = "RATE_LIMIT_BEACONS_WRITE_PER_MIN", value = "10" },
+    { name = "RATE_LIMIT_BEACONS_ACTION_PER_MIN", value = "20" },
+    { name = "RATE_LIMIT_BEACONS_READ_PER_MIN", value = "30" },
+    { name = "BEACONS_CREATED_PER_DAY", value = "10" },
     { name = "BOOKMARKS_MAX_PER_USER", value = "1000" },
     { name = "RATE_LIMIT_BOOKMARKS_PER_MIN", value = "30" },
     { name = "RATE_LIMIT_BOOKMARKS_LIST_PER_MIN", value = "10" },
@@ -333,6 +345,9 @@ locals {
     { name = "PROFILE_UPDATES_PER_DAY", value = "100" },
     # Delete replaced or removed profile images 24-48 h after the change. Per-project retention, default off: raise it to banner only after the media bucket's customTime lifecycle rule is applied here, to all only after the avatar placeholder app release. Must match config.Load's accepted values.
     { name = "PROFILE_MEDIA_RETIRE", value = var.profile_media_retire },
+    # Kill switch of the media orphan sweep (last step of daily-maintenance): off = nothing (default) | mark = phase 1 and
+    # restores only, never a claim or delete | delete = both phases. Must match config.Load's accepted values.
+    { name = "MEDIA_ORPHAN_SWEEP", value = var.media_orphan_sweep },
     { name = "SUGGESTIONS_SAMPLE_FOLLOWEES", value = "30" },
     { name = "SUGGESTIONS_EDGE_LIMIT", value = "20" },
     { name = "SUGGESTIONS_HYDRATE_MAX", value = "10" },
