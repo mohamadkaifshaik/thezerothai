@@ -101,6 +101,60 @@ void main() {
     expect((await row('a')).sendStartedAt, sameMoment(kBase));
   });
 
+  test('a claim carries the start of its window: the mint time, unchanged '
+      'by a reuse or the claim\'s own clock', () async {
+    await repo.upsert(draft('a'));
+    final first = await claim('a');
+    clock = clock.add(const Duration(hours: 10));
+    final second = await claim('a');
+
+    expect(first.startedAt, sameMoment(kBase));
+    expect(second.reused, isTrue);
+    expect(second.startedAt, sameMoment(kBase));
+
+    final forced = await claim('a', forceNew: true);
+    expect(forced.startedAt, sameMoment(clock), reason: 'a new key, new start');
+  });
+
+  test('sendKeyExpired is the store\'s rule for both kinds', () {
+    final publishAt = kBase.add(const Duration(days: 2));
+    bool post(Duration age) => sendKeyExpired(
+      kind: SendKind.post,
+      startedAt: kBase,
+      publishAt: null,
+      now: kBase.add(age),
+    );
+    bool schedule(DateTime now) => sendKeyExpired(
+      kind: SendKind.schedule,
+      startedAt: kBase,
+      publishAt: publishAt,
+      now: now,
+    );
+
+    expect(post(const Duration(hours: 22, minutes: 59)), isFalse);
+    expect(post(kPostSendKeyWindow), isTrue);
+    expect(
+      sendKeyExpired(
+        kind: SendKind.post,
+        startedAt: null,
+        publishAt: null,
+        now: kBase,
+      ),
+      isTrue,
+      reason: 'no start time: unknown age',
+    );
+    expect(schedule(kBase.add(const Duration(days: 8))), isFalse);
+    expect(schedule(publishAt.add(kScheduleSendKeyAfterPublish)), isFalse);
+    expect(
+      schedule(
+        publishAt
+            .add(kScheduleSendKeyAfterPublish)
+            .add(const Duration(seconds: 1)),
+      ),
+      isTrue,
+    );
+  });
+
   test('an autosave of an edit keeps the pending key (G3)', () async {
     await repo.upsert(draft('a'));
     await claim('a');
