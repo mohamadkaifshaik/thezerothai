@@ -243,6 +243,8 @@ func typeToProto(t Type) notificationsv1.NotificationType {
 		return notificationsv1.NotificationType_NOTIFICATION_TYPE_BEACON_ACCEPTED
 	case TypeBeaconCancelled:
 		return notificationsv1.NotificationType_NOTIFICATION_TYPE_BEACON_CANCELLED
+	case TypeBeaconUpdated:
+		return notificationsv1.NotificationType_NOTIFICATION_TYPE_BEACON_UPDATED
 	}
 	return notificationsv1.NotificationType_NOTIFICATION_TYPE_UNSPECIFIED
 }

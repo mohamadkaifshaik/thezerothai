@@ -33,12 +33,18 @@ const (
 	FilterJoined MemberFilter = iota
 	// FilterBanned lists BANNED users; the owner and moderators only.
 	FilterBanned
+	// FilterModerators lists the owner and the moderators (the community document's roles, F24); the owner and moderators
+	// only.
+	FilterModerators
 )
 
 // String is the filter's name in a cursor binding and a log line.
 func (f MemberFilter) String() string {
-	if f == FilterBanned {
+	switch f {
+	case FilterBanned:
 		return "banned"
+	case FilterModerators:
+		return "moderators"
 	}
 	return "joined"
 }

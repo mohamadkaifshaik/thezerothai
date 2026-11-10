@@ -37,6 +37,7 @@ const (
 	limitOpen         = "beacons_open"
 	limitParticipants = "beacon_participants"
 	limitPending      = "beacon_requests_pending"
+	limitEditRows     = "beacon_edit_rows"
 
 	// notFoundText is the one message of every NOT_FOUND this module answers (byte-identical for every cause).
 	notFoundText = "beacon not found"
@@ -100,8 +101,60 @@ func createHash(b Beacon) string {
 		b.CommunityID, b.Activity, b.Title, b.Details, b.Venue, b.StartAt.UnixMicro(), b.DurationMin, b.OpenSpots, b.Cost, b.ChatPref))
 }
 
-func updateHash(beaconID string, title, details, venue *string, spots *int) string {
-	return idempotency.HashRequest(fmt.Sprintf("beacon_id=%s|title=%s|details=%s|venue=%s|open_spots=%s", beaconID, optString(title), optString(details), optString(venue), optInt(spots)))
+// updateHash is the UpdateBeacon request hash. Without start_at, duration and cost it is the pre-F28 string byte for
+// byte, so a retry in flight across the deploy still matches its stored idempotency record.
+func updateHash(beaconID string, title, details, venue *string, spots *int, sched schedule) string {
+	s := fmt.Sprintf("beacon_id=%s|title=%s|details=%s|venue=%s|open_spots=%s", beaconID, optString(title), optString(details), optString(venue), optInt(spots))
+	if sched.set() {
+		start := "unset"
+		if sched.start != nil {
+			start = strconv.FormatInt(sched.start.UnixMicro(), 10)
+		}
+		cost := "unset"
+		if sched.cost != nil {
+			cost = string(*sched.cost)
+		}
+		s += fmt.Sprintf("|start=%s|duration=%s|cost=%s", start, optInt(sched.duration), cost)
+	}
+	return idempotency.HashRequest(s)
+}
+
+// schedule is the F28 part of an UpdateBeacon request: the start (UTC, microseconds, the stored precision), the duration
+// and the cost, each nil when unchanged.
+type schedule struct {
+	start    *time.Time
+	duration *int
+	cost     *Cost
+}
+
+func (s schedule) set() bool { return s.start != nil || s.duration != nil || s.cost != nil }
+
+// normalizeSchedule validates the F28 fields of in at now (the CreateBeacon rules, VALIDATION naming the field) and
+// returns them normalized.
+func normalizeSchedule(in UpdateInput, now time.Time) (schedule, error) {
+	var out schedule
+	if in.StartAt != nil {
+		if err := validateStart(*in.StartAt, now); err != nil {
+			return schedule{}, err
+		}
+		start := in.StartAt.UTC().Truncate(time.Microsecond)
+		out.start = &start
+	}
+	if in.DurationMin != nil {
+		if err := validateDuration(*in.DurationMin); err != nil {
+			return schedule{}, err
+		}
+		d := *in.DurationMin
+		out.duration = &d
+	}
+	if in.Cost != nil {
+		if *in.Cost == "" {
+			return schedule{}, apierr.Validation("cost", "cost must be set")
+		}
+		c := *in.Cost
+		out.cost = &c
+	}
+	return out, nil
 }
 
 func cancelHash(beaconID string) string { return idempotency.HashRequest("beacon_id=" + beaconID) }
@@ -284,6 +337,13 @@ func mapErr(ctx context.Context, op, uid, beaconID string, err error) error {
 	case errors.Is(err, ErrCancelled):
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:cancelled")
 		return stateConflict("cancelled")
+	case errors.Is(err, ErrStarted):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:started")
+		return stateConflict("started")
+	case errors.Is(err, ErrEditRows):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:limit_reached")
+		logger.SetRequestField(ctx, "limit", limitEditRows)
+		return limitReached(limitEditRows, "too many participant rows to reschedule this beacon")
 	case errors.Is(err, ErrFull):
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:full")
 		return stateConflict("full")
@@ -480,18 +540,47 @@ func (s *service) UpdateBeacon(ctx context.Context, uid string, in UpdateInput) 
 			return View{}, mapErr(ctx, "update", uid, in.BeaconID, err)
 		}
 	}
+	now := s.now()
+	sched, err := normalizeSchedule(in, now)
+	if err != nil {
+		return View{}, mapErr(ctx, "update", uid, in.BeaconID, err)
+	}
 	a, err := s.organised(ctx, uid, in.BeaconID)
 	if err != nil {
 		return View{}, mapErr(ctx, "update", uid, in.BeaconID, err)
 	}
 	res, err := s.d.Repo.Update(ctx, UpdateParams{
 		UID: uid, BeaconID: in.BeaconID, IdemKey: idempotency.Key(uid, rpcUpdateBeacon, in.Key),
-		RequestHash: updateHash(in.BeaconID, title, details, venue, in.OpenSpots),
-		Title:       title, Details: details, Venue: venue, OpenSpots: in.OpenSpots, Now: s.now(),
+		RequestHash: updateHash(in.BeaconID, title, details, venue, in.OpenSpots, sched),
+		Title:       title, Details: details, Venue: venue, OpenSpots: in.OpenSpots,
+		StartAt: sched.start, DurationMin: sched.duration, Cost: sched.cost, MaxEditRows: MaxEditRows, Now: now,
 	})
 	if err != nil {
 		return View{}, mapErr(ctx, "update", uid, in.BeaconID, err)
 	}
 	noteOutcome(ctx, res.Outcome)
+	if res.Outcome == Written && res.Rescheduled {
+		s.notifyUpdated(ctx, res)
+	}
 	return s.view(res.Beacon, a.organiser, uid), nil
+}
+
+// MaxEditRows bounds the participant rows (every state) one reschedule rewrites: each costs a participant write and a
+// membership write, so 200 rows plus the beacon, the organiser's membership and the idempotency doc stay under 500 writes
+// in the one transaction. ACCEPTED rows are bounded by BEACONS_MAX_OPEN_SPOTS (20); the rest are requests and history.
+const MaxEditRows = 200
+
+// notifyUpdated hands a committed change of start, duration or cost to the Events seam with the participants accepted at
+// that commit (F28). Nobody accepted means no event. Best effort: the update already committed, so a failure is logged
+// and never fails the RPC; a replay of the same key does not re-send (the outcome is Replayed).
+func (s *service) notifyUpdated(ctx context.Context, res UpdateResult) {
+	logger.SetRequestField(ctx, "notified", len(res.Accepted))
+	if s.d.Events == nil || len(res.Accepted) == 0 {
+		return
+	}
+	b := res.Beacon
+	if err := s.d.Events.Updated(ctx, UpdateEvent{BeaconID: b.ID, OrganiserUID: b.OrganiserID, ParticipantUIDs: res.Accepted, At: b.UpdatedAt}); err != nil {
+		slog.WarnContext(ctx, "beacon_update_notices_failed", "beacon_hash", logger.HashUID(b.ID),
+			"err", logger.RedactErr(err, append([]string{b.ID, b.OrganiserID}, res.Accepted...)...).Error())
+	}
 }

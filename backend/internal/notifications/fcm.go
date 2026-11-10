@@ -45,6 +45,8 @@ func pushText(t Type) (title, body string) {
 		return "Request accepted", "Your request to join a plan was accepted"
 	case TypeBeaconCancelled:
 		return "Plan cancelled", "A plan you joined was cancelled"
+	case TypeBeaconUpdated:
+		return "Plan changed", "A plan you joined has a new time or cost"
 	}
 	return "Notification", "You have a new notification"
 }

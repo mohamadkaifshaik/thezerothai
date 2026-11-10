@@ -7,6 +7,7 @@ import (
 
 	communitiesv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
 
 // ListCommunities is gated by FEATURE_COMMUNITIES. The directory is one response of at most 50 ACTIVE communities, most members first;
@@ -28,8 +29,9 @@ func (s *Server) ListCommunities(ctx context.Context, req *connect.Request[commu
 	return connect.NewResponse(out), nil
 }
 
-// ListCommunityMembers is gated by FEATURE_COMMUNITIES. The BANNED filter is for the owner and moderators only (FORBIDDEN
-// reason=not_moderator after the community read). A tampered, expired, foreign or wrong-filter page_token is VALIDATION "page_token"
+// ListCommunityMembers is gated by FEATURE_COMMUNITIES. The BANNED and MODERATORS filters are for the owner and moderators
+// only (FORBIDDEN reason=not_moderator after the community read); a filter value this server does not know is VALIDATION
+// "filter" after the gate. A tampered, expired, foreign or wrong-filter page_token is VALIDATION "page_token"
 // before any lookup.
 func (s *Server) ListCommunityMembers(ctx context.Context, req *connect.Request[communitiesv1.ListCommunityMembersRequest]) (*connect.Response[communitiesv1.ListCommunityMembersResponse], error) {
 	ctx, cancel, uid, err := s.entry(ctx, "ListCommunityMembers")
@@ -39,8 +41,14 @@ func (s *Server) ListCommunityMembers(ctx context.Context, req *connect.Request[
 	defer cancel()
 	m := req.Msg
 	in := MembersInput{CommunityID: m.GetCommunityId(), PageSize: m.GetPageSize(), PageToken: m.GetPageToken()}
-	if m.GetFilter() == communitiesv1.CommunityMemberFilter_COMMUNITY_MEMBER_FILTER_BANNED {
+	switch m.GetFilter() {
+	case communitiesv1.CommunityMemberFilter_COMMUNITY_MEMBER_FILTER_UNSPECIFIED, communitiesv1.CommunityMemberFilter_COMMUNITY_MEMBER_FILTER_JOINED:
+	case communitiesv1.CommunityMemberFilter_COMMUNITY_MEMBER_FILTER_BANNED:
 		in.Filter = FilterBanned
+	case communitiesv1.CommunityMemberFilter_COMMUNITY_MEMBER_FILTER_MODERATORS:
+		in.Filter = FilterModerators
+	default:
+		return nil, apierr.Validation("filter", "filter is not a known value")
 	}
 	page, err := s.svc.ListCommunityMembers(ctx, uid, in)
 	if err != nil {
