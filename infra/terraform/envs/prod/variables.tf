@@ -456,6 +456,34 @@ variable "feature_communities_percent" {
   }
 }
 
+variable "feature_beacons" {
+  description = "FEATURE_BEACONS rollout mode for Beacons/Plans (docs/beacons-plan.md; gates every BeaconService RPC): off | allowlist | percent | on. Default off in prod; the prod ceiling in scripts/promotion/flag-ceiling.json is off, so raising it needs a reviewed ceiling PR first. A community-audience plan still needs FEATURE_COMMUNITIES for the caller."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_beacons)
+    error_message = "feature_beacons must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_beacons_allowlist" {
+  description = "FEATURE_BEACONS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_beacons_percent" {
+  description = "FEATURE_BEACONS_PERCENT: 0-100, only meaningful when feature_beacons = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_beacons_percent >= 0 && var.feature_beacons_percent <= 100 && floor(var.feature_beacons_percent) == var.feature_beacons_percent
+    error_message = "feature_beacons_percent must be an integer 0-100."
+  }
+}
+
 variable "community_creators" {
   description = "COMMUNITY_CREATORS: comma-separated Firebase uids allowed to call CreateCommunity (ADR-0031 D10, F1; not a secret). At most 10, each 1-128 characters of [A-Za-z0-9-]; the API refuses to start otherwise. Default empty: nobody can create a community."
   type        = string
@@ -631,6 +659,17 @@ variable "profile_media_retire" {
   validation {
     condition     = contains(["off", "banner", "all"], var.profile_media_retire)
     error_message = "profile_media_retire must be one of: off, banner, all (backend/pkg/platform/config/modes.go)."
+  }
+}
+
+variable "media_orphan_sweep" {
+  description = "MEDIA_ORPHAN_SWEEP: the media orphan sweep's kill switch. off = nothing (default) | mark = mark unattached READY images and restore held ones, never delete (soak) | delete = also delete marked images at least 12 h later. Per-project operations config, not a cohort flag. Raise to delete only after a mark-only soak in this project."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "mark", "delete"], var.media_orphan_sweep)
+    error_message = "media_orphan_sweep must be one of: off, mark, delete (backend/pkg/platform/config/modes.go)."
   }
 }
 

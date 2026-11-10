@@ -811,10 +811,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// account_lifecycle flag or DEGRADED_MODE (Q8, Q9): an accepted deletion must finish.
 	routes.internal("/internal/pubsub/jobs", lifecycle.JobsHandler())
 	// The same route also runs the trends refresh after the backstop, but its status is the
-	// backstop's alone. The poll vote sweep runs first. The standalone route is for dev (no Scheduler jobs there) and a later hourly job.
+	// backstop's alone. The poll vote sweep runs first, the media orphan sweep last (it takes only what trends left). The
+	// standalone route is for dev (no Scheduler jobs there) and a later hourly job.
 	routes.internal("/internal/cron/daily-maintenance", dailyMaintenanceHandler(lifecycle.CronHandler(), stepChain{
 		pollVoteSweepStep{sweeper: engagementRepo, ttl: cfg.Composer.PollVoteTTLAfterClose, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now},
 		trendsRefresher,
+		mediaOrphanSweepStep{sweeper: mediaMod.orphans, mode: cfg.MediaOrphanSweep, limit: media.OrphanSweepPage, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now},
 	}, log, cfg.ProjectID, time.Now))
 	routes.internal("/internal/cron/trends-refresh", search.NewRefreshHandler(trendsRefresher, log, cfg.ProjectID))
 	// The scheduled-post publish sweep (Cloud Scheduler every 5 min, prod). POST only, 25 s deadline and panic

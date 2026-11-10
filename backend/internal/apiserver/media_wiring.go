@@ -13,6 +13,7 @@ import (
 	"cloud.google.com/go/firestore"
 
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
+	"github.com/dzeroth/dzeroth/backend/internal/articles"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
@@ -30,6 +31,8 @@ type mediaModule struct {
 	library *media.Library
 	purger  *media.Purger
 	jobs    *media.Jobs
+	// orphans is the orphan sweep of the daily-maintenance cron (media_orphan_sweep.go).
+	orphans *media.OrphanSweeper
 }
 
 // mediaProcedures is the DEGRADED_MODE=nomedia block list: every procedure that creates or publishes media.
@@ -107,7 +110,15 @@ func wireMedia(cfg config.Config, log *slog.Logger, fs *firestore.Client, featur
 	if err != nil {
 		return nil, fmt.Errorf("media service: %w", err)
 	}
+	orphans, err := media.NewOrphanSweeper(media.OrphanSweepDeps{
+		Repo: repo, Objects: buckets, Profiles: users, RetireMode: cfg.ProfileMediaRetire, Mode: cfg.MediaOrphanSweep, Log: log,
+		Drafts: media.NewDraftHolds(postsRepo, articles.NewMediaHolds(fs)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("media orphan sweep: %w", err)
+	}
 	return &mediaModule{
+		orphans: orphans,
 		server:  media.NewServer(svc, featureFlags),
 		library: media.NewLibrary(repo, cfg.MediaPublicBaseURL),
 		purger:  media.NewPurger(repo, buckets, cfg.MediaPublicBaseURL),

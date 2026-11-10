@@ -363,7 +363,10 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 		}
 		return Result{}, spent, logger.RedactErr(fmt.Errorf("media: publish thumb: %w", err), uid)
 	}
-	err = s.Repo.Resolve(ctx, d.ID, d.UpdateTime, Resolution{Status: StatusReady, PublicPath: pub, ThumbPath: pubThumb, Blurhash: blurhash})
+	// orphanCheckAt makes the image an orphan-sweep candidate if nothing attaches it within OrphanAfter (orphan_sweep.go).
+	err = s.Repo.Resolve(ctx, d.ID, d.UpdateTime, Resolution{
+		Status: StatusReady, PublicPath: pub, ThumbPath: pubThumb, Blurhash: blurhash, OrphanCheckAt: s.Now().UTC().Add(OrphanAfter),
+	})
 	switch {
 	case errors.Is(err, ErrConflict):
 		r, spent, rerr := s.reload(ctx, uid, d.ID, spent)
