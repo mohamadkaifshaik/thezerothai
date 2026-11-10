@@ -79,7 +79,7 @@ class _HomeListTabState extends State<HomeListTab> {
               ListUnavailableView(onUnpin: _unpin, busy: saving),
         ),
         headerSlivers: [
-          AppTopBar.sliver(title: 'Home'),
+          AppTopBar.sliver(title: 'Home', wordmark: true),
           const SliverToBoxAdapter(child: HomeTabBar()),
         ],
       ),
