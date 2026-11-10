@@ -72,3 +72,58 @@ func TestProtectedSeamsAllWiredInBuild(t *testing.T) {
 		}
 	}
 }
+
+// F-03: requireAuthorStatusSeams refuses a nil author-status Directory, typed nils included, with its own sentinel.
+func TestRequireAuthorStatusSeams(t *testing.T) {
+	t.Parallel()
+	var nilDir identity.Directory
+	var typedNil *fakeAuthorDir
+	tests := []struct {
+		name  string
+		value any
+		want  bool // an error is wanted
+	}{
+		{"wired", &fakeAuthorDir{}, false},
+		{"nil interface", nilDir, true},
+		{"typed nil pointer", typedNil, true},
+		{"untyped nil", nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := requireAuthorStatusSeams([]protectedSeam{{"search.PostsDeps.Authors", tt.value}})
+			if !tt.want {
+				if err != nil {
+					t.Fatalf("err = %v, want nil", err)
+				}
+				return
+			}
+			if !errors.Is(err, errAuthorStatusSeamMissing) || !strings.Contains(err.Error(), "search.PostsDeps.Authors") {
+				t.Fatalf("err = %v, want errAuthorStatusSeamMissing naming the seam", err)
+			}
+		})
+	}
+}
+
+// fakeAuthorDir is a non-nil stand-in for the Directory; only its nil-ness matters to the check.
+type fakeAuthorDir struct{ identity.Directory }
+
+// The guard for F-03: apiserver.go still hands identity's Directory to SearchPosts and checks it at startup. A source scan
+// (no emulator), so a refactor that drops it fails `make ci`.
+func TestAuthorStatusSeamWiredInBuild(t *testing.T) {
+	t.Parallel()
+	b, err := os.ReadFile("apiserver.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"var searchAuthors search.AuthorDirectory = identitySvc.(identity.Directory)",
+		"requireAuthorStatusSeams([]protectedSeam{",
+		"Authors: searchAuthors,",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("apiserver.go no longer contains %q", want)
+		}
+	}
+}
