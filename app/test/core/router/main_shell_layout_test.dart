@@ -25,12 +25,15 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/features/onboarding/presentation/widgets/account_refresh_banner.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../support/contrast.dart';
 import '../../support/fake_search_repository.dart';
 import '../../support/geometry.dart';
 import '../../support/search_field_rig.dart';
@@ -87,6 +90,9 @@ void main() {
     Brightness brightness = Brightness.light,
     double textScale = 1,
     bool refreshFailed = false,
+    double height = 900,
+    int pendingFollowRequests = 0,
+    GraphRepository? graph,
   }) async {
     whenListen(
       onboarding,
@@ -94,6 +100,7 @@ void main() {
       initialState: OnboardingState(
         status: OnboardingStatus.ready,
         refreshFailed: refreshFailed,
+        pendingFollowRequestCount: pendingFollowRequests,
         enabledFeatures: {...flags, if (newShell) kFeatureUiShell},
         profile: profile
             ? identity.Profile(
@@ -176,7 +183,7 @@ void main() {
     final messagesBadge = MessagesBadgeCubit();
     addTearDown(messagesBadge.close);
     tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = Size(width, 900);
+    tester.view.physicalSize = Size(width, height);
     addTearDown(tester.view.reset);
     await tester.pumpWidget(
       MultiBlocProvider(
@@ -193,7 +200,9 @@ void main() {
         ],
         child: MultiRepositoryProvider(
           providers: [
-            RepositoryProvider<GraphRepository>.value(value: _MockGraph()),
+            RepositoryProvider<GraphRepository>.value(
+              value: graph ?? _MockGraph(),
+            ),
             // The side column's search pill (Explore on, 1200dp and up).
             RepositoryProvider<SearchRepository>.value(
               value: FakeSearchRepository(),
@@ -501,7 +510,7 @@ void main() {
       final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
       expect(rail.extended, isTrue);
       expect(find.text('Home'), findsOneWidget);
-      expect(find.widgetWithText(FilledButton, 'Post'), findsOneWidget);
+      expect(find.widgetWithText(AppPillButton, 'Post'), findsOneWidget);
       expect(inRail(find.text('Alice A')), findsOneWidget);
       expect(inRail(find.text('@alice')), findsOneWidget);
     });
@@ -1296,5 +1305,240 @@ void main() {
       '/profile/ada': true,
       '/post/1': true,
     });
+  });
+
+  group('rail, compose and account chip style (PR 3.5)', () {
+    const allFlags = {
+      'posts',
+      'search',
+      'beacons',
+      'notifications',
+      'messaging',
+      'lists',
+      'communities',
+      'bookmarks',
+    };
+    const primaries = ['Home', 'Explore', 'Plans', 'Notifications', 'Messages'];
+    Finder inRail(Finder f) =>
+        find.descendant(of: find.byType(NavigationRail), matching: f);
+    NavigationRail rail(WidgetTester tester) =>
+        tester.widget<NavigationRail>(find.byType(NavigationRail));
+    List<String> railLabels(WidgetTester tester) => [
+      for (final d in rail(tester).destinations)
+        ((d.label is Semantics ? (d.label as Semantics).child : d.label)
+                as Text)
+            .data!,
+    ];
+    Color painted(WidgetTester tester, Finder f) => tester
+        .widget<RichText>(
+          find.descendant(of: f, matching: find.byType(RichText)).first,
+        )
+        .text
+        .style!
+        .color!;
+
+    for (final width in [834.0, 1440.0]) {
+      final w = '${width.toInt()}dp';
+      final desktop = width >= AppBreakpoints.tablet;
+
+      testWidgets('$w: the primary five, then the secondaries; no group '
+          'divider until T1; the rail is styled', (tester) async {
+        await pump(tester, width: width, flags: allFlags);
+
+        final labels = railLabels(tester);
+        expect(labels.take(5), primaries);
+        expect(labels.skip(5), [
+          'Lists',
+          'Communities',
+          'History',
+          'Profile',
+          'More',
+        ]);
+        expect(inRail(find.byType(Divider)), findsNothing);
+        final r = rail(tester);
+        expect(r.indicatorShape, const StadiumBorder());
+        expect(r.indicatorColor, AppColors.light.selectedIndicator);
+      });
+
+      testWidgets('$w: the selected destination is announced as selected', (
+        tester,
+      ) async {
+        final handle = tester.ensureSemantics();
+        await pump(
+          tester,
+          width: width,
+          location: '/notifications',
+          flags: allFlags,
+        );
+
+        expect(rail(tester).selectedIndex, primaries.indexOf('Notifications'));
+        expect(
+          tester.getSemantics(inRail(find.byIcon(Icons.notifications))),
+          isSemantics(isSelected: true, hasSelectedState: true),
+        );
+        expect(
+          tester.getSemantics(inRail(find.byIcon(Icons.home_outlined))),
+          isSemantics(isSelected: false, hasSelectedState: true),
+        );
+        handle.dispose();
+      });
+
+      for (final brightness in Brightness.values) {
+        testWidgets('$w ${brightness.name}: the compose label reads on both '
+            'gradient stops', (tester) async {
+          await pump(tester, width: width, brightness: brightness);
+          final colors = brightness == Brightness.dark
+              ? AppColors.dark
+              : AppColors.light;
+
+          final label = desktop
+              ? painted(tester, find.widgetWithText(AppPillButton, 'Post'))
+              : painted(tester, inRail(find.byIcon(Icons.edit_outlined)));
+          expect(label, colors.primaryFillLabel);
+          for (final stop in colors.primaryFillGradient.colors) {
+            expect(contrast(label, stop), greaterThanOrEqualTo(4.5));
+          }
+          expectMinTarget(tester, inRail(find.byTooltip('New post')));
+
+          await tester.tap(find.byTooltip('New post'));
+          await tester.pumpAndSettle();
+          expect(find.text('compose page'), findsOneWidget);
+        });
+      }
+
+      for (final newShell in [true, false]) {
+        final mode = newShell ? 'ui_shell on' : 'ui_shell off';
+        testWidgets('$w $mode: More opens its menu at the item; Escape '
+            'closes it and gives the focus back', (tester) async {
+          await pump(
+            tester,
+            width: width,
+            flags: const {'posts'},
+            newShell: newShell,
+          );
+          // The item's glyph (the chip's "more" glyph comes after it).
+          final more = inRail(find.byIcon(Icons.more_horiz)).first;
+          // The keyboard path: focus the item, activate it with Enter.
+          final node = Focus.of(tester.element(more));
+          node.requestFocus();
+          await tester.pump();
+          expect(node.hasPrimaryFocus, isTrue);
+
+          await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+          await tester.pumpAndSettle();
+          expect(find.text('Articles'), findsOneWidget);
+          // The open menu holds the focus.
+          expect(node.hasPrimaryFocus, isFalse);
+          // Level with the item, to the right of its icon.
+          final anchor = tester.getRect(more);
+          final menu = tester.getRect(
+            find
+                .ancestor(
+                  of: find.text('Articles'),
+                  matching: find.byType(Material),
+                )
+                .first,
+          );
+          expect(menu.top, closeTo(anchor.top, 1));
+          expect(menu.left, closeTo(anchor.right, 1));
+
+          await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+          await tester.pumpAndSettle();
+          expect(find.text('Articles'), findsNothing);
+          expect(node.hasPrimaryFocus, isTrue);
+        });
+      }
+
+      testWidgets('$w: the account chip keeps its tooltip and menu: Profile, '
+          'Follow requests (1000+), Settings, Sign out', (tester) async {
+        final graph = _MockGraph();
+        when(() => graph.followRequestsUnavailable).thenReturn(false);
+        await pump(
+          tester,
+          width: width,
+          flags: const {'posts', 'graph', 'private_accounts'},
+          pendingFollowRequests: 1500,
+          graph: graph,
+        );
+
+        final chip = find.byType(AppAccountChip);
+        expect(find.byTooltip('Account menu'), findsOneWidget);
+        expectMinTarget(tester, chip);
+        if (desktop) {
+          // As wide as the Post pill.
+          expect(tester.getSize(chip).width, AppSize.railPostWidth);
+        }
+        final button = tester.widget<PopupMenuButton<Object?>>(
+          find.descendant(
+            of: chip,
+            matching: find.byWidgetPredicate((w) => w is PopupMenuButton),
+          ),
+        );
+        expect(button.borderRadius, BorderRadius.circular(AppRadius.pill));
+
+        await tester.tap(chip);
+        await tester.pumpAndSettle();
+        Finder item(String label) => find.descendant(
+          of: find.byWidgetPredicate((w) => w is PopupMenuItem),
+          matching: find.text(label),
+        );
+        const order = ['Profile', 'Follow requests', 'Settings', 'Sign out'];
+        final ys = [
+          for (final label in order) tester.getCenter(item(label)).dy,
+        ];
+        for (var i = 1; i < ys.length; i++) {
+          expect(ys[i], greaterThan(ys[i - 1]), reason: order[i]);
+        }
+        expect(find.text('1000+'), findsOneWidget);
+      });
+
+      testWidgets('$w ui_shell off: the legacy rail and strong pill, no '
+          'chip', (tester) async {
+        await pump(tester, width: width, newShell: false);
+
+        final r = rail(tester);
+        expect(r.indicatorShape, isNull);
+        expect(r.indicatorColor, isNull);
+        expect(r.selectedLabelTextStyle, isNull);
+        expect(r.unselectedLabelTextStyle, isNull);
+        expect(find.byType(AppPillButton), findsNothing);
+        expect(inRail(find.byType(FilledButton)), findsOneWidget);
+        expect(find.byType(AppAccountChip), findsNothing);
+      });
+    }
+
+    for (final newShell in [true, false]) {
+      final mode = newShell ? 'ui_shell on' : 'ui_shell off';
+      void matrix(
+        String set,
+        List<double> widths, {
+        Map<double, double>? heights,
+      }) => forEachThemeAndWidth(
+        '$mode ($set): the shell fits with 48dp rail targets',
+        (tester, env) async {
+          await pump(
+            tester,
+            width: env.size.width,
+            height: env.size.height,
+            flags: allFlags,
+            newShell: newShell,
+            brightness: env.brightness,
+            textScale: env.textScale,
+          );
+
+          expectNoOverflow(tester);
+          if (env.size.width >= AppBreakpoints.mobile) {
+            expectMinTarget(tester, inRail(find.byTooltip('New post')));
+            if (newShell) expectMinTarget(tester, find.byType(AppAccountChip));
+          }
+        },
+        widths: widths,
+        textScales: kRedesignTextScales,
+        heights: heights,
+      );
+
+      matrix('redesign widths', kRedesignWidths, heights: kRedesignHeights);
+      matrix('boundaries', kMatrixWidths);
+    }
   });
 }
