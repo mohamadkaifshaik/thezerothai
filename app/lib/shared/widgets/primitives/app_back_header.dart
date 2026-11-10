@@ -19,6 +19,7 @@ class AppBackHeader extends StatelessWidget {
     this.backTooltip = 'Back',
     this.titleContent,
     this.actions = const [],
+    this.leading,
   });
 
   final String title;
@@ -26,6 +27,10 @@ class AppBackHeader extends StatelessWidget {
   final String backTooltip;
   final Widget? titleContent;
   final List<Widget> actions;
+
+  /// Replaces the back button (a root destination leads with the account
+  /// avatar instead: there is nothing to go back to).
+  final Widget? leading;
 
   @override
   Widget build(BuildContext context) {
@@ -40,11 +45,12 @@ class AppBackHeader extends StatelessWidget {
           ),
           child: Row(
             children: [
-              IconButton(
-                tooltip: backTooltip,
-                icon: const Icon(Icons.arrow_back),
-                onPressed: onBack,
-              ),
+              leading ??
+                  IconButton(
+                    tooltip: backTooltip,
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: onBack,
+                  ),
               const SizedBox(width: AppSpacing.xs),
               Expanded(
                 child: Semantics(

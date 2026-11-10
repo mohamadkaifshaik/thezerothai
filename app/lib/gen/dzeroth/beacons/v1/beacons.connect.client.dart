@@ -265,4 +265,33 @@ extension type BeaconServiceClient (connect.Transport _transport) {
       onTrailer: onTrailer,
     );
   }
+
+  /// The upcoming (OPEN or FULL, not yet ended) beacons that the caller and peer_user_id are both in (as organiser or
+  /// ACCEPTED participant), soonest first, for the "plans you share" strip of a chat. Needs FEATURE_CHAT_SHARED_PLANS on
+  /// for the caller (else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "chat_shared_plans", before any
+  /// lookup) and FEATURE_BEACONS not globally off. A block in either direction with the peer, an unknown or non-ACTIVE
+  /// peer, or no shared plan is an empty page (never an error, so nothing leaks). A beacon hidden by the platform and one
+  /// whose organiser has a block with the caller are dropped as in ListMyBeacons; a community beacon is returned only
+  /// while BOTH users are still JOINED members of its community (a viewer or peer who left or was banned drops it). The
+  /// peer_user_id must be a valid user id and not the caller's (VALIDATION "peer_user_id"). limit is clamped (0 = 3, above
+  /// 10 = 10). Each call examines at most 10 of the caller's upcoming memberships (soonest first) and answers the shared
+  /// ones among them, so a page may hold fewer than limit rows, or none, while next_page_token is set; page_token is an
+  /// opaque signed cursor bound to the caller and the peer, VALIDATION "page_token" when invalid or expired. Shares the
+  /// RATE_LIMIT_BEACONS_READ_PER_MIN bucket.
+  Future<dzerothbeaconsv1beacons.ListSharedBeaconsResponse> listSharedBeacons(
+    dzerothbeaconsv1beacons.ListSharedBeaconsRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.BeaconService.listSharedBeacons,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
 }

@@ -63,6 +63,12 @@ type userDoc struct {
 	Location       string `firestore:"location,omitempty"`
 	Website        string `firestore:"website,omitempty"`
 	PinnedPostID   string `firestore:"pinnedPostId,omitempty"`
+	// ReadReceipts (F3): absent = off. omitempty keeps a whole-doc rewrite from adding the field to a doc that does not have it.
+	// Not part of the author snapshot.
+	ReadReceipts bool `firestore:"readReceipts,omitempty"`
+	// DMPolicy (F9): absent = everyone_requests. omitempty keeps a whole-doc rewrite from adding the field to a doc that
+	// does not have it. Not part of the author snapshot.
+	DMPolicy string `firestore:"dmPolicy,omitempty"`
 	// HomeTabs: the pinned Home tabs, absent = none. In userDoc so a whole-document rewrite (UpdateProfile, ChangeHandle, the
 	// privacy toggle) cannot drop it; only HomeTabsAdapter changes it, field-level.
 	HomeTabs []HomeTab `firestore:"homeTabs,omitempty"`
@@ -90,6 +96,8 @@ func (d userDoc) toProfile(uid string) Profile {
 		Location:             d.Location,
 		Website:              d.Website,
 		PinnedPostID:         d.PinnedPostID,
+		ReadReceipts:         d.ReadReceipts,
+		DMPolicy:             DMPolicy(d.DMPolicy),
 		HomeTabsEnc:          encodeHomeTabs(d.HomeTabs),
 		AuthBaselineEnc:      encodeAuthBaseline(d.AuthBaseline),
 		IsPrivate:            d.IsPrivate,
@@ -122,6 +130,8 @@ func profileToDoc(p Profile) userDoc {
 		Location:             p.Location,
 		Website:              p.Website,
 		PinnedPostID:         p.PinnedPostID,
+		ReadReceipts:         p.ReadReceipts,
+		DMPolicy:             string(p.DMPolicy),
 		HomeTabs:             decodeHomeTabs(p.HomeTabsEnc),
 		AuthBaseline:         decodeAuthBaseline(p.AuthBaselineEnc),
 		IsPrivate:            p.IsPrivate,

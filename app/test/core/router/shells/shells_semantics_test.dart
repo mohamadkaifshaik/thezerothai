@@ -63,7 +63,7 @@ void main() {
     final size = Size(width, 1400);
     final dp = '${width.toInt()}dp';
 
-    shellsTest('Creator tools, $dp: headers, rows once, only Back', (
+    shellsTest('Creator Studio, $dp: headers, rows once, only Back', (
       tester,
     ) async {
       await pumpShellsApp(
@@ -73,7 +73,7 @@ void main() {
       );
       final r = _read(tester, find.byType(CreatorStudioScreen));
 
-      expect(r.headers, containsAll(['Creator tools', 'Insights', 'Programs']));
+      expect(r.headers, containsAll(['Creator Studio', 'Insights', 'Programs']));
       expect(r.buttons, ['Back']);
       expect(r.tappable, ['Back']);
       // Each "coming soon" row is spoken once, with its pill folded in.

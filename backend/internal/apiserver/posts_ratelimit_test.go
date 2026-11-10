@@ -112,13 +112,15 @@ func TestScheduledBuckets_ShareTheCreatePostBucket(t *testing.T) {
 		postsv1connect.PostServiceSchedulePostProcedure,
 		postsv1connect.PostServiceCancelScheduledPostProcedure,
 		postsv1connect.PostServiceListScheduledPostsProcedure,
+		postsv1connect.PostServicePublishScheduledPostNowProcedure,
+		postsv1connect.PostServiceUpdateScheduledPostProcedure,
 	}
 	cfg := defaultRateLimitCfg()
 	cfg.RateLimit.PerUserPerMinute = 60
 	cfg.RateLimit.PerIPPerMinute = 100000
 	rl := RateLimitConfig(cfg)
 
-	for _, p := range []string{postsv1connect.PostServiceSchedulePostProcedure, postsv1connect.PostServiceCancelScheduledPostProcedure} {
+	for _, p := range []string{postsv1connect.PostServiceSchedulePostProcedure, postsv1connect.PostServiceCancelScheduledPostProcedure, postsv1connect.PostServicePublishScheduledPostNowProcedure, postsv1connect.PostServiceUpdateScheduledPostProcedure} {
 		if rl.PerProcedure[p] == nil || rl.PerProcedure[p] != rl.PerProcedure[postsv1connect.PostServiceCreatePostProcedure] {
 			t.Errorf("%s does not use the CreatePost limiter instance", p)
 		}
@@ -147,14 +149,14 @@ func TestScheduledBuckets_ShareTheCreatePostBucket(t *testing.T) {
 		return err
 	}
 
-	// 4 creates + 3 schedules + 3 cancels = the 10 calls of the minute, in any mix.
-	mix := []string{procs[0], procs[1], procs[2], procs[0], procs[1], procs[2], procs[0], procs[1], procs[2], procs[0]}
+	// 4 creates + 2 schedules + 2 cancels + 1 post now + 1 edit = the 10 calls of the minute, in any mix.
+	mix := []string{procs[0], procs[1], procs[2], procs[0], procs[1], procs[2], procs[4], procs[0], procs[5], procs[0]}
 	for i, p := range mix {
 		if err := invoke(p); err != nil {
 			t.Fatalf("call %d (%s) must pass: %v", i+1, p, err)
 		}
 	}
-	for _, p := range procs[:3] {
+	for _, p := range append(procs[:3:3], procs[4:]...) {
 		var ce *connect.Error
 		if err := invoke(p); !errors.As(err, &ce) || ce.Code() != connect.CodeResourceExhausted {
 			t.Errorf("%s after 10 shared calls: err = %v, want ResourceExhausted", p, err)

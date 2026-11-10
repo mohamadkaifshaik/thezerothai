@@ -184,7 +184,14 @@ void main() {
     await pump(
       tester,
       location: '/home',
-      flags: {'posts', 'notifications', 'messaging', 'bookmarks', 'search'},
+      flags: {
+        'posts',
+        'notifications',
+        'messaging',
+        'bookmarks',
+        'search',
+        'beacons',
+      },
     );
 
     final cells = find.descendant(
@@ -204,7 +211,11 @@ void main() {
         .dx;
     expect(x(Icons.home), lessThan(x(Icons.search)));
     expect(x(Icons.search), lessThan(x(Icons.notifications_none)));
-    expect(x(Icons.notifications_none), lessThan(x(Icons.person_outline)));
+    // Profile is not a phone bar cell any more (ADR-0034).
+    expect(
+      find.descendant(of: bar, matching: find.byIcon(Icons.person_outline)),
+      findsNothing,
+    );
   });
 
   testWidgets('/explore selects it with the selected glyph', (tester) async {

@@ -36,3 +36,26 @@ func TestFeatureRegistry_IncludesBeacons(t *testing.T) {
 		t.Error("beacons should be off for uid-z")
 	}
 }
+
+// TestFeatureRegistry_IncludesChatSharedPlans: the registry reports `chat_shared_plans` for an allowlisted caller only,
+// and it is off when FEATURE_CHAT_SHARED_PLANS is unset (default off); a spec left out of featureRegistry would be silently
+// off for everyone.
+func TestFeatureRegistry_IncludesChatSharedPlans(t *testing.T) {
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if reg := featureRegistry(cfg); reg.Enabled("uid-a", "chat_shared_plans") {
+		t.Error("chat_shared_plans must default off")
+	}
+	t.Setenv("FEATURE_CHAT_SHARED_PLANS", "allowlist")
+	t.Setenv("FEATURE_CHAT_SHARED_PLANS_ALLOWLIST", "uid-a")
+	cfg, err = config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	reg := featureRegistry(cfg)
+	if !reg.Enabled("uid-a", "chat_shared_plans") || reg.Enabled("uid-z", "chat_shared_plans") {
+		t.Error("chat_shared_plans should be on for uid-a only")
+	}
+}

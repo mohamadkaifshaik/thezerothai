@@ -403,6 +403,14 @@ const Post$json = {
       '6': '.dzeroth.posts.v1.ArticlePreview',
       '10': 'article'
     },
+    {
+      '1': 'beacon',
+      '3': 24,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.posts.v1.BeaconPreview',
+      '10': 'beacon'
+    },
   ],
 };
 
@@ -426,7 +434,8 @@ final $typed_data.Uint8List postDescriptor = $convert.base64Decode(
     'NoaXASIAoMbWFkZV93aXRoX2FpGBQgASgIUgptYWRlV2l0aEFpEioKBHBvbGwYFSABKAsyFi5k'
     'emVyb3RoLnBvc3RzLnYxLlBvbGxSBHBvbGwSPAoJY29tbXVuaXR5GBYgASgLMh4uZHplcm90aC'
     '5wb3N0cy52MS5Db21tdW5pdHlSZWZSCWNvbW11bml0eRI6CgdhcnRpY2xlGBcgASgLMiAuZHpl'
-    'cm90aC5wb3N0cy52MS5BcnRpY2xlUHJldmlld1IHYXJ0aWNsZQ==');
+    'cm90aC5wb3N0cy52MS5BcnRpY2xlUHJldmlld1IHYXJ0aWNsZRI3CgZiZWFjb24YGCABKAsyHy'
+    '5kemVyb3RoLnBvc3RzLnYxLkJlYWNvblByZXZpZXdSBmJlYWNvbg==');
 
 @$core.Deprecated('Use articlePreviewDescriptor instead')
 const ArticlePreview$json = {
@@ -457,6 +466,50 @@ const CommunityRef$json = {
 /// Descriptor for `CommunityRef`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List communityRefDescriptor = $convert.base64Decode(
     'CgxDb21tdW5pdHlSZWYSDgoCaWQYASABKAlSAmlkEhIKBG5hbWUYAiABKAlSBG5hbWU=');
+
+@$core.Deprecated('Use beaconPreviewDescriptor instead')
+const BeaconPreview$json = {
+  '1': 'BeaconPreview',
+  '2': [
+    {'1': 'beacon_id', '3': 1, '4': 1, '5': 9, '10': 'beaconId'},
+    {'1': 'unavailable', '3': 2, '4': 1, '5': 8, '10': 'unavailable'},
+    {'1': 'title', '3': 3, '4': 1, '5': 9, '10': 'title'},
+    {
+      '1': 'activity',
+      '3': 4,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.beacons.v1.BeaconActivity',
+      '10': 'activity'
+    },
+    {
+      '1': 'start_at',
+      '3': 5,
+      '4': 1,
+      '5': 11,
+      '6': '.google.protobuf.Timestamp',
+      '10': 'startAt'
+    },
+    {
+      '1': 'status',
+      '3': 6,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.beacons.v1.BeaconStatus',
+      '10': 'status'
+    },
+    {'1': 'community_id', '3': 7, '4': 1, '5': 9, '10': 'communityId'},
+  ],
+};
+
+/// Descriptor for `BeaconPreview`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List beaconPreviewDescriptor = $convert.base64Decode(
+    'Cg1CZWFjb25QcmV2aWV3EhsKCWJlYWNvbl9pZBgBIAEoCVIIYmVhY29uSWQSIAoLdW5hdmFpbG'
+    'FibGUYAiABKAhSC3VuYXZhaWxhYmxlEhQKBXRpdGxlGAMgASgJUgV0aXRsZRI+CghhY3Rpdml0'
+    'eRgEIAEoDjIiLmR6ZXJvdGguYmVhY29ucy52MS5CZWFjb25BY3Rpdml0eVIIYWN0aXZpdHkSNQ'
+    'oIc3RhcnRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wUgdzdGFydEF0EjgK'
+    'BnN0YXR1cxgGIAEoDjIgLmR6ZXJvdGguYmVhY29ucy52MS5CZWFjb25TdGF0dXNSBnN0YXR1cx'
+    'IhCgxjb21tdW5pdHlfaWQYByABKAlSC2NvbW11bml0eUlk');
 
 @$core.Deprecated('Use postViewDescriptor instead')
 const PostView$json = {
@@ -560,6 +613,7 @@ const CreatePostRequest$json = {
       '10': 'poll'
     },
     {'1': 'community_id', '3': 11, '4': 1, '5': 9, '10': 'communityId'},
+    {'1': 'beacon_id', '3': 12, '4': 1, '5': 9, '10': 'beaconId'},
   ],
 };
 
@@ -573,7 +627,7 @@ final $typed_data.Uint8List createPostRequestDescriptor = $convert.base64Decode(
     'lQb2xpY3lSC3JlcGx5UG9saWN5EikKEHBhaWRfcGFydG5lcnNoaXAYCCABKAhSD3BhaWRQYXJ0'
     'bmVyc2hpcBIgCgxtYWRlX3dpdGhfYWkYCSABKAhSCm1hZGVXaXRoQWkSLwoEcG9sbBgKIAEoCz'
     'IbLmR6ZXJvdGgucG9zdHMudjEuUG9sbERyYWZ0UgRwb2xsEiEKDGNvbW11bml0eV9pZBgLIAEo'
-    'CVILY29tbXVuaXR5SWQ=');
+    'CVILY29tbXVuaXR5SWQSGwoJYmVhY29uX2lkGAwgASgJUghiZWFjb25JZA==');
 
 @$core.Deprecated('Use createPostResponseDescriptor instead')
 const CreatePostResponse$json = {
@@ -929,6 +983,104 @@ final $typed_data.Uint8List cancelScheduledPostResponseDescriptor =
         'ChtDYW5jZWxTY2hlZHVsZWRQb3N0UmVzcG9uc2USRgoOc2NoZWR1bGVkX3Bvc3QYASABKAsyHy'
         '5kemVyb3RoLnBvc3RzLnYxLlNjaGVkdWxlZFBvc3RSDXNjaGVkdWxlZFBvc3Q=');
 
+@$core.Deprecated('Use publishScheduledPostNowRequestDescriptor instead')
+const PublishScheduledPostNowRequest$json = {
+  '1': 'PublishScheduledPostNowRequest',
+  '2': [
+    {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
+    {'1': 'scheduled_id', '3': 2, '4': 1, '5': 9, '10': 'scheduledId'},
+  ],
+};
+
+/// Descriptor for `PublishScheduledPostNowRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List publishScheduledPostNowRequestDescriptor =
+    $convert.base64Decode(
+        'Ch5QdWJsaXNoU2NoZWR1bGVkUG9zdE5vd1JlcXVlc3QSJwoPaWRlbXBvdGVuY3lfa2V5GAEgAS'
+        'gJUg5pZGVtcG90ZW5jeUtleRIhCgxzY2hlZHVsZWRfaWQYAiABKAlSC3NjaGVkdWxlZElk');
+
+@$core.Deprecated('Use publishScheduledPostNowResponseDescriptor instead')
+const PublishScheduledPostNowResponse$json = {
+  '1': 'PublishScheduledPostNowResponse',
+  '2': [
+    {
+      '1': 'scheduled_post',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.posts.v1.ScheduledPost',
+      '10': 'scheduledPost'
+    },
+  ],
+};
+
+/// Descriptor for `PublishScheduledPostNowResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List publishScheduledPostNowResponseDescriptor =
+    $convert.base64Decode(
+        'Ch9QdWJsaXNoU2NoZWR1bGVkUG9zdE5vd1Jlc3BvbnNlEkYKDnNjaGVkdWxlZF9wb3N0GAEgAS'
+        'gLMh8uZHplcm90aC5wb3N0cy52MS5TY2hlZHVsZWRQb3N0Ug1zY2hlZHVsZWRQb3N0');
+
+@$core.Deprecated('Use updateScheduledPostRequestDescriptor instead')
+const UpdateScheduledPostRequest$json = {
+  '1': 'UpdateScheduledPostRequest',
+  '2': [
+    {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
+    {'1': 'scheduled_id', '3': 2, '4': 1, '5': 9, '10': 'scheduledId'},
+    {'1': 'text', '3': 3, '4': 1, '5': 9, '9': 0, '10': 'text', '17': true},
+    {
+      '1': 'publish_at',
+      '3': 4,
+      '4': 1,
+      '5': 11,
+      '6': '.google.protobuf.Timestamp',
+      '10': 'publishAt'
+    },
+    {
+      '1': 'reply_policy',
+      '3': 5,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.posts.v1.ReplyPolicy',
+      '9': 1,
+      '10': 'replyPolicy',
+      '17': true
+    },
+  ],
+  '8': [
+    {'1': '_text'},
+    {'1': '_reply_policy'},
+  ],
+};
+
+/// Descriptor for `UpdateScheduledPostRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List updateScheduledPostRequestDescriptor = $convert.base64Decode(
+    'ChpVcGRhdGVTY2hlZHVsZWRQb3N0UmVxdWVzdBInCg9pZGVtcG90ZW5jeV9rZXkYASABKAlSDm'
+    'lkZW1wb3RlbmN5S2V5EiEKDHNjaGVkdWxlZF9pZBgCIAEoCVILc2NoZWR1bGVkSWQSFwoEdGV4'
+    'dBgDIAEoCUgAUgR0ZXh0iAEBEjkKCnB1Ymxpc2hfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idW'
+    'YuVGltZXN0YW1wUglwdWJsaXNoQXQSRQoMcmVwbHlfcG9saWN5GAUgASgOMh0uZHplcm90aC5w'
+    'b3N0cy52MS5SZXBseVBvbGljeUgBUgtyZXBseVBvbGljeYgBAUIHCgVfdGV4dEIPCg1fcmVwbH'
+    'lfcG9saWN5');
+
+@$core.Deprecated('Use updateScheduledPostResponseDescriptor instead')
+const UpdateScheduledPostResponse$json = {
+  '1': 'UpdateScheduledPostResponse',
+  '2': [
+    {
+      '1': 'scheduled_post',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.posts.v1.ScheduledPost',
+      '10': 'scheduledPost'
+    },
+  ],
+};
+
+/// Descriptor for `UpdateScheduledPostResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List updateScheduledPostResponseDescriptor =
+    $convert.base64Decode(
+        'ChtVcGRhdGVTY2hlZHVsZWRQb3N0UmVzcG9uc2USRgoOc2NoZWR1bGVkX3Bvc3QYASABKAsyHy'
+        '5kemVyb3RoLnBvc3RzLnYxLlNjaGVkdWxlZFBvc3RSDXNjaGVkdWxlZFBvc3Q=');
+
 const $core.Map<$core.String, $core.dynamic> PostServiceBase$json = {
   '1': 'PostService',
   '2': [
@@ -970,6 +1122,16 @@ const $core.Map<$core.String, $core.dynamic> PostServiceBase$json = {
       '2': '.dzeroth.posts.v1.CancelScheduledPostRequest',
       '3': '.dzeroth.posts.v1.CancelScheduledPostResponse'
     },
+    {
+      '1': 'PublishScheduledPostNow',
+      '2': '.dzeroth.posts.v1.PublishScheduledPostNowRequest',
+      '3': '.dzeroth.posts.v1.PublishScheduledPostNowResponse'
+    },
+    {
+      '1': 'UpdateScheduledPost',
+      '2': '.dzeroth.posts.v1.UpdateScheduledPostRequest',
+      '3': '.dzeroth.posts.v1.UpdateScheduledPostResponse'
+    },
   ],
 };
 
@@ -990,6 +1152,7 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.posts.v1.ArticlePreview': ArticlePreview$json,
   '.dzeroth.posts.v1.Mention': Mention$json,
   '.dzeroth.posts.v1.CommunityRef': CommunityRef$json,
+  '.dzeroth.posts.v1.BeaconPreview': BeaconPreview$json,
   '.dzeroth.posts.v1.DeletePostRequest': DeletePostRequest$json,
   '.dzeroth.posts.v1.DeletePostResponse': DeletePostResponse$json,
   '.dzeroth.posts.v1.GetPostRequest': GetPostRequest$json,
@@ -1006,6 +1169,14 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
       CancelScheduledPostRequest$json,
   '.dzeroth.posts.v1.CancelScheduledPostResponse':
       CancelScheduledPostResponse$json,
+  '.dzeroth.posts.v1.PublishScheduledPostNowRequest':
+      PublishScheduledPostNowRequest$json,
+  '.dzeroth.posts.v1.PublishScheduledPostNowResponse':
+      PublishScheduledPostNowResponse$json,
+  '.dzeroth.posts.v1.UpdateScheduledPostRequest':
+      UpdateScheduledPostRequest$json,
+  '.dzeroth.posts.v1.UpdateScheduledPostResponse':
+      UpdateScheduledPostResponse$json,
 };
 
 /// Descriptor for `PostService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -1022,4 +1193,8 @@ final $typed_data.Uint8List postServiceDescriptor = $convert.base64Decode(
     'MudjEuTGlzdFNjaGVkdWxlZFBvc3RzUmVxdWVzdBosLmR6ZXJvdGgucG9zdHMudjEuTGlzdFNj'
     'aGVkdWxlZFBvc3RzUmVzcG9uc2UiA5ACARJyChNDYW5jZWxTY2hlZHVsZWRQb3N0EiwuZHplcm'
     '90aC5wb3N0cy52MS5DYW5jZWxTY2hlZHVsZWRQb3N0UmVxdWVzdBotLmR6ZXJvdGgucG9zdHMu'
-    'djEuQ2FuY2VsU2NoZWR1bGVkUG9zdFJlc3BvbnNl');
+    'djEuQ2FuY2VsU2NoZWR1bGVkUG9zdFJlc3BvbnNlEn4KF1B1Ymxpc2hTY2hlZHVsZWRQb3N0Tm'
+    '93EjAuZHplcm90aC5wb3N0cy52MS5QdWJsaXNoU2NoZWR1bGVkUG9zdE5vd1JlcXVlc3QaMS5k'
+    'emVyb3RoLnBvc3RzLnYxLlB1Ymxpc2hTY2hlZHVsZWRQb3N0Tm93UmVzcG9uc2UScgoTVXBkYX'
+    'RlU2NoZWR1bGVkUG9zdBIsLmR6ZXJvdGgucG9zdHMudjEuVXBkYXRlU2NoZWR1bGVkUG9zdFJl'
+    'cXVlc3QaLS5kemVyb3RoLnBvc3RzLnYxLlVwZGF0ZVNjaGVkdWxlZFBvc3RSZXNwb25zZQ==');

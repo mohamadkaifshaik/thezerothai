@@ -170,7 +170,11 @@ type MessagingServiceClient interface {
 	// shared with ListConversations.
 	ListMessages(context.Context, *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error)
 	// Marks the conversation read for the caller: unread count 0 and the read time on the caller's own entry (a field
-	// update with an Exists precondition). The read time is never shown to the peer (no read receipts, F4). A missing
+	// update with an Exists precondition). The read time (last_read_at) is never shown to the peer. When the caller's "Read
+	// receipts" setting is on (identity Profile.read_receipts, FEATURE_READ_RECEIPTS on for the caller; read from the 60 s
+	// profile cache, no extra Firestore read) the same update also stores read_receipt_at on the caller's entry, which the
+	// peer can see as Conversation.peer_read_at only while both sides have receipts on (F3: opt-in, reciprocal, never
+	// retroactive: a read made while the setting was off stores no receipt). A missing
 	// entry (unknown id, non-participant, deleted for the caller) => success, writing nothing. Evicts the caller's
 	// unread_conversation_count cache on this instance. Call only when the client holds unread_count > 0.
 	// Flag: not globally off. Refused under DEGRADED_MODE=readonly.
@@ -344,7 +348,11 @@ type MessagingServiceHandler interface {
 	// shared with ListConversations.
 	ListMessages(context.Context, *connect.Request[v1.ListMessagesRequest]) (*connect.Response[v1.ListMessagesResponse], error)
 	// Marks the conversation read for the caller: unread count 0 and the read time on the caller's own entry (a field
-	// update with an Exists precondition). The read time is never shown to the peer (no read receipts, F4). A missing
+	// update with an Exists precondition). The read time (last_read_at) is never shown to the peer. When the caller's "Read
+	// receipts" setting is on (identity Profile.read_receipts, FEATURE_READ_RECEIPTS on for the caller; read from the 60 s
+	// profile cache, no extra Firestore read) the same update also stores read_receipt_at on the caller's entry, which the
+	// peer can see as Conversation.peer_read_at only while both sides have receipts on (F3: opt-in, reciprocal, never
+	// retroactive: a read made while the setting was off stores no receipt). A missing
 	// entry (unknown id, non-participant, deleted for the caller) => success, writing nothing. Evicts the caller's
 	// unread_conversation_count cache on this instance. Call only when the client holds unread_count > 0.
 	// Flag: not globally off. Refused under DEGRADED_MODE=readonly.
