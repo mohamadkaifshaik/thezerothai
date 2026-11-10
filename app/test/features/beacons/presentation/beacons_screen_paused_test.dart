@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:connectrpc/connect.dart' as connect;
 import 'package:dzeroth/core/feature_flags/service_feature_gate.dart';
 import 'package:dzeroth/core/network/api_client.dart';
+import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/widgets/app_shell_scope.dart';
 import 'package:dzeroth/core/widgets/app_state_view.dart';
 import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
@@ -175,13 +176,18 @@ void main() {
       routes: routes(),
     );
 
-    // Flag on: the list asked once, the server answered FEATURE_DISABLED.
+    // Flag on: the list asked once, the server answered FEATURE_DISABLED,
+    // and the page is paused at once, before any GetMe: no "not available"
+    // flash, no retry, no create action.
     expect(transport.calledProcedures, [
       '/dzeroth.beacons.v1.BeaconService/ListBeacons',
     ]);
     expect(refreshRequests, 1);
-    expect(find.text(title), findsNothing);
-    expect(find.byTooltip('New plan'), findsOneWidget);
+    expectPaused();
+    expect(find.text("Plans aren't available yet."), findsNothing);
+    expect(find.text('Try again'), findsNothing);
+    expect(find.byTooltip('New plan'), findsNothing);
+    expect(find.byTooltip('My plans'), findsNothing);
 
     // The GetMe the gate asked for answers without `beacons`.
     enabledFeatures = const {};
@@ -194,6 +200,73 @@ void main() {
     expect(find.text('Try again'), findsNothing);
     expect(transport.calledProcedures, hasLength(1));
     expect(refreshRequests, 1);
+  });
+
+  testWidgets('kill switch, and the GetMe that follows fails: still paused '
+      '(flag still listed), no retry and no further list RPC', (tester) async {
+    final getMe = StreamController<Set<String>>();
+    addTearDown(getMe.close);
+    const enabledFeatures = {kFeatureBeacons};
+    var refreshRequests = 0;
+    final transport = FakeTransport(
+      (procedure, input) async => throw serverError(
+        connect.Code.failedPrecondition,
+        common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+        metadata: {'feature': kFeatureBeacons},
+      ),
+    );
+    final repository = BeaconsRepository(
+      apiClient: ApiClient.withTransport(transport),
+      gate: ServiceFeatureGate(
+        isEnabled: () => enabledFeatures.contains(kFeatureBeacons),
+        onDisabledByServer: () => refreshRequests++,
+      ),
+    );
+
+    await pumpPlansRouter(
+      tester,
+      beacons: repository,
+      features: enabledFeatures,
+      featureChanges: getMe.stream,
+      routes: routes(),
+    );
+    expect(refreshRequests, 1);
+    expectPaused();
+
+    // A failed GetMe keeps the cached flag set: `beacons` is still listed.
+    getMe.add(enabledFeatures);
+    await tester.pumpAndSettle();
+
+    expectPaused();
+    expect(find.text("Plans aren't available yet."), findsNothing);
+    expect(find.text('Try again'), findsNothing);
+    expect(find.byTooltip('New plan'), findsNothing);
+    expect(find.byTooltip('My plans'), findsNothing);
+    // Nothing on the page can ask again: no pull-to-refresh, no button.
+    expect(find.byType(RefreshIndicator), findsNothing);
+    expect(find.byType(TextButton), findsNothing);
+    await tester.drag(find.byType(AppStateView), const Offset(0, 300));
+    await tester.pumpAndSettle();
+    expect(transport.calledProcedures, [
+      '/dzeroth.beacons.v1.BeaconService/ListBeacons',
+    ]);
+    expect(refreshRequests, 1);
+  });
+
+  testWidgets('another list failure keeps its own copy and Try again', (
+    tester,
+  ) async {
+    server.refusals.add(NetworkException('offline'));
+    await pumpPlansRouter(
+      tester,
+      beacons: server,
+      features: const {kFeatureBeacons},
+      routes: routes(),
+    );
+
+    expect(find.text(title), findsNothing);
+    expect(find.text('Try again'), findsOneWidget);
+    expect(find.byTooltip('New plan'), findsOneWidget);
   });
 
   testWidgets('paused, then Plans is back: the list loads again', (

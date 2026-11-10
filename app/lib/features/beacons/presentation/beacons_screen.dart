@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/feature_flags/feature_flags.dart';
+import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_shell_scope.dart';
@@ -26,8 +27,10 @@ import 'widgets/beacon_row.dart';
 /// Plans is never turned off (ADR-0034 section 4): with `beacons` off for the
 /// caller the page stays and shows [kPlansPausedTitle] instead of the list,
 /// with no create action and no RPC. A kill switch in mid-session gets there
-/// by itself: FEATURE_DISABLED makes the gate ask for `GetMe`, the flag
-/// leaves `enabled_features` and this widget rebuilds into the paused state.
+/// by itself: the list shows the same paused page as soon as the server
+/// answers FEATURE_DISABLED (also when the `GetMe` the gate then asks for
+/// fails), and once the flag leaves `enabled_features` this widget rebuilds
+/// into the paused state.
 class BeaconsScreen extends StatelessWidget {
   const BeaconsScreen({super.key});
 
@@ -84,22 +87,28 @@ class _PlansPaused extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      body: SafeArea(
-        child: AppMainColumn(
-          child: Column(
-            children: [
-              _PlansHeader(),
-              Expanded(
-                child: AppStateView(
-                  icon: Icons.event_outlined,
-                  title: kPlansPausedTitle,
-                  body: kPlansPausedBody,
-                ),
-              ),
-            ],
+      body: SafeArea(child: AppMainColumn(child: _PlansPausedColumn())),
+    );
+  }
+}
+
+/// The paused page content: the header with no action, and the notice.
+class _PlansPausedColumn extends StatelessWidget {
+  const _PlansPausedColumn();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      children: [
+        _PlansHeader(),
+        Expanded(
+          child: AppStateView(
+            icon: Icons.event_outlined,
+            title: kPlansPausedTitle,
+            body: kPlansPausedBody,
           ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -147,6 +156,14 @@ class _PlansListState extends State<_PlansList> {
           child: BlocBuilder<BeaconsCubit, BeaconsState>(
             bloc: _cubit,
             builder: (context, state) {
+              // The server said the feature is off while the flag still
+              // lists it (a kill switch before the next `GetMe`, or that
+              // `GetMe` failing): the same paused page, with no action and
+              // no retry, so nothing more is sent from here.
+              if (state.status == BeaconsLoad.error &&
+                  state.error is FeatureDisabledException) {
+                return const _PlansPausedColumn();
+              }
               return Column(
                 children: [
                   _PlansHeader(

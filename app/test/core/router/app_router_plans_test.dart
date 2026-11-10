@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/router/app_router.dart';
@@ -29,6 +31,7 @@ import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../support/beacons_fixtures.dart';
@@ -76,8 +79,14 @@ void main() {
   Future<(String, FakeBeaconsServer)> openAt(
     WidgetTester tester,
     Set<String> flags,
-    String location,
-  ) async {
+    String location, {
+    Stream<Set<String>>? flagChanges,
+  }) async {
+    OnboardingState ready(Set<String> set) => OnboardingState(
+      status: OnboardingStatus.ready,
+      profile: identity.Profile(userId: 'uid-1', handle: 'me'),
+      enabledFeatures: set,
+    );
     final auth = _MockAuthBloc();
     final onboarding = _MockOnboardingBloc();
     final beacons = FakeBeaconsServer();
@@ -94,12 +103,8 @@ void main() {
     );
     whenListen(
       onboarding,
-      const Stream<OnboardingState>.empty(),
-      initialState: OnboardingState(
-        status: OnboardingStatus.ready,
-        profile: identity.Profile(userId: 'uid-1', handle: 'me'),
-        enabledFeatures: flags,
-      ),
+      flagChanges?.map(ready) ?? const Stream<OnboardingState>.empty(),
+      initialState: ready(flags),
     );
     final timeline = _MockTimeline();
     final posts = _MockPosts();
@@ -196,6 +201,34 @@ void main() {
       }
       expect(beacons.calls, isEmpty, reason: location);
     }
+  });
+
+  testWidgets('kill switch in mid-session on /plans/<id>, new shell: the '
+      'flag drops and the plan redirects to /plans, paused, nothing more '
+      'sent', (tester) async {
+    final getMe = StreamController<Set<String>>();
+    addTearDown(getMe.close);
+    final (path, beacons) = await openAt(
+      tester,
+      const {'beacons', 'ui_shell'},
+      '/plans/$kBeaconIdA',
+      flagChanges: getMe.stream,
+    );
+    expect(path, '/plans/$kBeaconIdA');
+    expect(find.byType(BeaconScreen), findsOneWidget);
+    expect(beacons.calls, ['get']);
+
+    // A fresh GetMe without `beacons`.
+    getMe.add(const {'ui_shell'});
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BeaconScreen), findsNothing);
+    expect(find.byType(BeaconsScreen), findsOneWidget);
+    expect(find.text('Plans are paused'), findsOneWidget);
+    expect(find.byTooltip('New plan'), findsNothing);
+    expect(beacons.calls, ['get']);
+    final context = tester.element(find.byType(BeaconsScreen));
+    expect(GoRouter.of(context).state.uri.path, AppRouter.plansPath);
   });
 
   testWidgets('beacons off, legacy chrome (ui_shell off): every route still '
