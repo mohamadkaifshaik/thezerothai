@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
+import 'session_memory_executor.dart';
 import 'session_epoch.dart';
 
 part 'app_database.g.dart';
@@ -336,10 +337,27 @@ class ComposerDraftEntries extends Table {
   ],
 )
 class AppDatabase extends _$AppDatabase {
-  AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
+  AppDatabase([QueryExecutor? executor])
+    : keepsNothing = false,
+      super(executor ?? _openConnection());
 
   /// Test-only in-memory database.
-  AppDatabase.forTesting(super.executor);
+  AppDatabase.forTesting(super.executor) : keepsNothing = false;
+
+  /// A cache with no sqlite behind it ([sessionMemoryExecutor]): start-up's
+  /// last resort when no sqlite database can be used at all, e.g. on the web
+  /// when `sqlite3.wasm` cannot be loaded (see `openCacheDatabase`). Rows
+  /// live in Dart memory for this run only, so feeds, notifications and
+  /// messages show what the server returned; nothing is kept past it.
+  AppDatabase.keepingNothing()
+    : keepsNothing = true,
+      super(sessionMemoryExecutor());
+
+  /// True for [AppDatabase.keepingNothing]: nothing is kept beyond this run
+  /// and the store is the minimal pure-Dart one, so the composer treats
+  /// drafts as off (a draft the user expects to find again would be lost on
+  /// reload).
+  final bool keepsNothing;
 
   /// The one session epoch every cache writer checks inside its write
   /// transaction; ended on sign-out before [clearAll].

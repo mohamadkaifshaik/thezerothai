@@ -127,7 +127,9 @@ Future<void> bootstrap() async {
   // that the last run missed is done here, for the uid the auth SDK restored
   // (null when nobody is signed in). When the file on disk cannot be opened or
   // written, the app starts on an in-memory cache instead (not kept across
-  // restarts; the next launch tries the disk again), reported below.
+  // restarts; the next launch tries the disk again), reported below. When no
+  // sqlite can be used at all (web without `sqlite3.wasm`), it starts on a
+  // pure-Dart cache held in memory for this run: same single report.
   final cache = await openCacheDatabase(restoredUid: restoredUid);
   final database = cache.database;
   // Start-up DB reads after the claim that fail: reported once telemetry's
