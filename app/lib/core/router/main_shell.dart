@@ -314,6 +314,8 @@ class MainShell extends StatelessWidget {
         MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet;
 
     return ResponsiveScaffold(
+      // The redesigned rail look (600dp and up) with the new shell only.
+      redesignedRail: newShell,
       masterPane: masterDetail ? _SettingsMaster(selectedPath: location) : null,
       selectedIndex: selectedIndex == null || selectedIndex < 0
           ? null
