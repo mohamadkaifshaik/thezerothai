@@ -80,12 +80,20 @@ class TelemetryController {
   /// Applies the stored decision of the account the auth SDK restored (null
   /// when nobody is signed in) and always reaches the SDKs, because their
   /// native state persists across launches. Call right after
-  /// `Firebase.initializeApp`, before the first frame.
+  /// `Firebase.initializeApp`, before the first frame. Stored flags that
+  /// cannot be read (a broken cache database) count as off until the next
+  /// `GetMe`; start-up never fails here.
   Future<void> applyAtBootstrap(String? restoredUid) async {
     _uid = restoredUid;
-    _flags = restoredUid == null
-        ? TelemetryFlags.off
-        : await _memory.read(restoredUid) ?? TelemetryFlags.off;
+    TelemetryFlags? stored;
+    if (restoredUid != null) {
+      try {
+        stored = await _memory.read(restoredUid);
+      } catch (_) {
+        // Fail closed: off, like a uid with no record.
+      }
+    }
+    _flags = stored ?? TelemetryFlags.off;
     // The reset goes first here: stored flags and consent can switch usage
     // on right away, and the SDK's own automatic events must not run under
     // the previous account's ID.

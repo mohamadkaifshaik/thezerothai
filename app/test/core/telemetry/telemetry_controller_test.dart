@@ -34,6 +34,13 @@ class _Rig {
 
 Future<void> settle() => pumpEventQueue();
 
+/// A flag memory whose storage cannot be read (a broken cache database).
+class _UnreadableFlagMemory extends InMemoryTelemetryFlagMemory {
+  @override
+  Future<TelemetryFlags?> read(String uid) async =>
+      throw StateError('storage unavailable');
+}
+
 void main() {
   const both = {kFeatureCrashReporting, kFeatureAnalytics};
 
@@ -220,6 +227,23 @@ void main() {
       'crash.deleteUnsent',
       'usage.setCollecting(false)',
     ]);
+  });
+
+  test('an unreadable flag memory at bootstrap fails closed: start-up goes '
+      'on with both kinds off until GetMe', () async {
+    final rig = _Rig(memory: _UnreadableFlagMemory());
+    rig.consent.crash.add('a');
+    rig.consent.usage.add('a');
+    await rig.controller.applyAtBootstrap('a');
+    expect(rig.controller.crashCollecting, isFalse);
+    expect(rig.controller.usageCollecting, isFalse);
+    expect(
+      rig.log.calls,
+      containsAll(['crash.setCollecting(false)', 'usage.setCollecting(false)']),
+    );
+
+    rig.controller.onEnabledFeatures(both);
+    expect(rig.controller.crashCollecting, isTrue);
   });
 
   test('GetMe flags are remembered for the next bootstrap', () async {
