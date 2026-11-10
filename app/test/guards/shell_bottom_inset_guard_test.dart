@@ -24,6 +24,14 @@
 //   exempted by hand.
 // - A padding that reads the inset through a variable is not recognised; it
 //   must name `paddingOf` in the argument.
+//
+// Rule 3: a screen the ShellRoute builds that a root route (outside the
+// shell, no bar) also builds must drop the bottom inset there with
+// `MediaQuery.removePadding(removeBottom: true)`, or the page would add the
+// device's home indicator in both chromes. Checked for screen classes named
+// in app_router.dart. Not checked: a shell widget (a feed, a list) embedded
+// in a root-route screen of another name; today none is (the root routes
+// that scroll are the three in [_exempt]).
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -337,6 +345,52 @@ void main() {
           'add MediaQuery.paddingOf(context).bottom to the bottom padding (0 '
           'under the docked bar), wrap the page in a SafeArea, or list the '
           'scroll view in _boxExempt with the reason',
+    );
+  });
+
+  test('a shell screen also routed outside the ShellRoute drops the bottom '
+      'inset there', () {
+    // The screen adds the bottom padding for the floating bar; a root route
+    // has no bar, and there the padding is the device's home indicator. So
+    // each such route must build it under MediaQuery.removePadding(
+    // removeBottom: true).
+    final router = File('lib/core/router/app_router.dart').readAsStringSync();
+    final shellStart = router.indexOf('ShellRoute(');
+    final shellEnd = _closing(router, shellStart + 10);
+    final screen = RegExp(r'\b(\w+Screen)\(');
+    final inShell = {
+      for (final m in screen.allMatches(router.substring(shellStart, shellEnd)))
+        m.group(1)!,
+    };
+    final offenders = <String>[];
+    var shared = 0;
+    for (final m in screen.allMatches(router)) {
+      if (m.start >= shellStart && m.start < shellEnd) continue;
+      if (_inComment(router, m.start) || !inShell.contains(m.group(1))) {
+        continue;
+      }
+      shared++;
+      // The innermost GoRoute( around the build.
+      var route = router.lastIndexOf('GoRoute(', m.start);
+      while (route >= 0 && _closing(router, route + 7) < m.start) {
+        route = router.lastIndexOf('GoRoute(', route - 1);
+      }
+      final body = route < 0
+          ? ''
+          : router.substring(route, _closing(router, route + 7));
+      if (!body.contains('removeBottom: true')) {
+        offenders.add(
+          '${m.group(1)} at app_router.dart:${_line(router, m.start)}',
+        );
+      }
+    }
+    expect(shared, greaterThan(0), reason: 'DeleteAccountScreen is one');
+    expect(
+      offenders,
+      isEmpty,
+      reason:
+          'wrap the screen in MediaQuery.removePadding(context: context, '
+          'removeBottom: true, child: ...) in its root route',
     );
   });
 

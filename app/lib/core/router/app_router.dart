@@ -321,7 +321,14 @@ class AppRouter {
       // swap in the verification prompt).
       GoRoute(
         path: onboardingDeletePath,
-        builder: (context, state) => const DeleteAccountScreen(),
+        // The page adds the bottom inset of the shell's floating bar; out of
+        // the shell there is no bar, so the inset (the home indicator) is
+        // dropped and the page keeps its own padding.
+        builder: (context, state) => MediaQuery.removePadding(
+          context: context,
+          removeBottom: true,
+          child: const DeleteAccountScreen(),
+        ),
       ),
       GoRoute(
         path: '/compose/reply/:id',

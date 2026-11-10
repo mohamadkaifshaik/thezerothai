@@ -745,6 +745,62 @@ void main() {
     expect(handleMatches('kai', 'kaif'), isFalse);
   });
 
+  testWidgets('the onboarding route (outside the shell) keeps the 16 dp '
+      'padding over a 34 dp home indicator', (tester) async {
+    // A caller with no profile yet reaches the page from onboarding, through
+    // the real router: a root route, no bottom bar.
+    final noProfile = _MockOnboardingBloc();
+    whenListen(
+      noProfile,
+      const Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(
+        status: OnboardingStatus.profileRequired,
+      ),
+    );
+    final appRouter = AppRouter(authBloc: authBloc, onboardingBloc: noProfile);
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.padding = const FakeViewPadding(bottom: 34);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 34);
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MultiRepositoryProvider(
+        providers: [
+          RepositoryProvider<AccountRepository>.value(value: accounts),
+          RepositoryProvider<AuthRepository>.value(value: auth),
+          RepositoryProvider<PushOptInStore>.value(value: optIn),
+          RepositoryProvider<DraftsRepository>.value(value: drafts),
+          RepositoryProvider<UnexpectedErrorReporter>.value(
+            value: (error, _) => reported.add(error),
+          ),
+        ],
+        child: MultiBlocProvider(
+          providers: [
+            BlocProvider<AuthBloc>.value(value: authBloc),
+            BlocProvider<OnboardingBloc>.value(value: noProfile),
+          ],
+          child: TelemetryForgetScope(
+            forget: const TelemetryDeviceForget.none(),
+            child: MaterialApp.router(routerConfig: appRouter.router),
+          ),
+        ),
+      ),
+    );
+    appRouter.router.go(AppRouter.onboardingDeletePath);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DeleteAccountScreen), findsOneWidget);
+    final list = tester.widget<ListView>(
+      find.descendant(
+        of: find.byType(DeleteAccountScreen),
+        matching: find.byType(ListView),
+      ),
+    );
+    // The page's own padding, exactly as before the floating bar: the
+    // home-indicator inset is not added outside the shell.
+    expect(list.padding, const EdgeInsets.all(16));
+  });
+
   group('under the shell bar (bottom inset)', () {
     Finder deleteButton() =>
         find.widgetWithText(FilledButton, 'Delete my account');
