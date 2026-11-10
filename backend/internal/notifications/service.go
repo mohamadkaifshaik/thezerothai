@@ -104,8 +104,8 @@ func clampPageSize(n int32) int {
 
 // List: reads the page of rows (20 at the default page, 50 at the maximum) and the caller's graph snapshot
 // (cached 60 s). Only when the caller's blockedBy overflowed its cap does it also ask graph.BlockLookup about the
-// page's actors: one batched call of at most graph.MaxBlockLookup users, each answered from the graph cache or one
-// batched GetAll (see overflowBlockers). The seen_at profile is the account-status interceptor's cached entry. It
+// page's actors: one call of at most graph.MaxBlockLookup users, each answered from the graph cache or by batched
+// GetAlls of up to 25 docs (see overflowBlockers). The seen_at profile is the account-status interceptor's cached entry. It
 // writes nothing.
 //
 // Filtering runs after the page query, so a page may come back shorter than page_size, or empty, while more rows

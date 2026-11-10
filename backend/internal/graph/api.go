@@ -145,10 +145,11 @@ const MaxBlockLookup = 100
 // whether any of several users has blocked the viewer (notifications List on an account whose blockedBy overflowed).
 type BlockLookup interface {
 	// BlockersAmong returns the candidates that have blocked viewerUID. The viewer's cached blockedBy answers first;
-	// only when it overflowed are the candidates' own graph docs consulted: cache first, every miss in one batched
-	// read, no read per candidate. At most MaxBlockLookup distinct candidates (more is an error, nothing is read). An
-	// error means the answer is unknown for every candidate not already in the viewer's blockedBy: the caller must
-	// not treat it as "not blocked". The error text names no uid.
+	// only when it overflowed are the candidates' own graph docs consulted: cache first, the misses in batched reads of
+	// up to 25 docs (each cached as it lands), no read per candidate. At most MaxBlockLookup distinct candidates (more
+	// is an error, nothing is read). An error means the answer is unknown for every candidate not already in the
+	// viewer's blockedBy: the caller must not treat it as "not blocked". The messages graph adds name no uid; a wrapped
+	// Firestore or decode cause may name a document path, so the caller redacts the uids it asked about.
 	BlockersAmong(ctx context.Context, viewerUID string, candidateUIDs []string) (map[string]bool, error)
 }
 

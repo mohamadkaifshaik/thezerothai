@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"connectrpc.com/connect"
@@ -226,10 +227,13 @@ func (s *service) IsBlockedBy(ctx context.Context, viewerUID, targetUID string) 
 	return targetSnap.isBlocked(viewerUID), nil
 }
 
+// blockLookupChunk is how many graph docs one batched read of BlockersAmong fetches.
+const blockLookupChunk = 25
+
 // BlockersAmong implements BlockLookup: IsBlockedBy for many targets at once. It reads the viewer's snapshot (cached);
 // without overflow that answers every candidate. With overflow, each candidate's own snapshot is taken from the cache,
-// and the misses are read in one batched GetAll and cached like any Snapshot read (60 s). Reads: 0 or 1 for the viewer,
-// plus at most one batched read of at most MaxBlockLookup docs.
+// and the misses are read in batched GetAlls of blockLookupChunk docs, each cached like any Snapshot read (60 s) as
+// soon as it lands. Reads: 0 or 1 for the viewer, plus at most MaxBlockLookup docs in at most 4 batched reads.
 func (s *service) BlockersAmong(ctx context.Context, viewerUID string, candidateUIDs []string) (map[string]bool, error) {
 	seen := make(map[string]bool, len(candidateUIDs))
 	distinct := make([]string, 0, len(candidateUIDs))
@@ -273,15 +277,20 @@ func (s *service) BlockersAmong(ctx context.Context, viewerUID string, candidate
 		return out, nil
 	}
 	noteCacheHit(ctx, false)
-	snaps, err := s.repo.GetSnapshots(ctx, misses)
-	if err != nil {
-		return nil, fmt.Errorf("graph: block lookup: %w", err)
-	}
-	for _, uid := range misses {
-		snap := snaps[uid] // a missing doc is an empty Snapshot: nobody blocked
-		s.cache.Set(uid, snap)
-		if snap.isBlocked(viewerUID) {
-			out[uid] = true
+	// Chunked so one slow or failing batch costs only its own docs: each chunk is cached as soon as it lands, and a
+	// later chunk's failure fails the call (the caller fails closed) without discarding the reads already made, so a
+	// retry reads only what is still missing. At most MaxBlockLookup/blockLookupChunk (4) batched reads.
+	for chunk := range slices.Chunk(misses, blockLookupChunk) {
+		snaps, err := s.repo.GetSnapshots(ctx, chunk)
+		if err != nil {
+			return nil, fmt.Errorf("graph: block lookup: %w", err)
+		}
+		for _, uid := range chunk {
+			snap := snaps[uid] // a missing doc is an empty Snapshot: nobody blocked
+			s.cache.Set(uid, snap)
+			if snap.isBlocked(viewerUID) {
+				out[uid] = true
+			}
 		}
 	}
 	return out, nil

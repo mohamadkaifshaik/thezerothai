@@ -4,6 +4,7 @@ package graph_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -37,6 +38,14 @@ func TestBlockersAmong_Integration_OverflowReadsTheCandidatesInOneBatch(t *testi
 	}
 	if len(snaps) != 3 || !snaps["blocker"].Blocked["viewer"] || snaps["stranger"].Blocked["viewer"] || len(snaps["missing"].Blocked) != 0 {
 		t.Fatalf("snapshots = %+v", snaps)
+	}
+
+	// A doc that does not decode fails the batch with the decode cause wrapped (the caller redacts uids).
+	if _, err := client.Collection("graph").Doc("garbled").Set(ctx, map[string]any{"blocked": 42}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.GetSnapshots(ctx, []string{"blocker", "garbled"}); err == nil || errors.Unwrap(err) == nil {
+		t.Errorf("decode failure = %v, want an error wrapping its cause", err)
 	}
 
 	svc := graph.New(graph.Deps{Repo: repo, Cache: graph.NewCache(time.Minute)})

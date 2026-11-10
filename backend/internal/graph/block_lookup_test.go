@@ -110,6 +110,59 @@ func TestBlockersAmong(t *testing.T) {
 	}
 }
 
+// A full lookup is read in chunks, each cached as soon as it lands: when a later chunk fails, the call fails (the
+// caller fails closed) but the earlier chunks stay cached, so the retry reads only what is still missing.
+func TestBlockersAmong_ChunkedReadKeepsEarlierChunksOnFailure(t *testing.T) {
+	t.Parallel()
+	repo := newFakeRepo()
+	repo.snapshots["uid-a"] = Snapshot{BlockedByOverflow: true}
+	candidates := make([]string, MaxBlockLookup)
+	for i := range candidates {
+		candidates[i] = fmt.Sprintf("uid-%03d", i)
+	}
+	repo.snapshots["uid-099"] = Snapshot{Blocked: map[string]bool{"uid-a": true}}
+	repo.batchErr, repo.batchErrOnCall = errors.New("deadline exceeded"), 2
+	svc := newTestServiceWithRepo(repo, true)
+
+	if _, err := svc.BlockersAmong(context.Background(), "uid-a", candidates); err == nil {
+		t.Fatal("a failed chunk must fail the lookup")
+	}
+	if repo.batchCalls != 2 {
+		t.Fatalf("batched reads = %d, want 2 (stop at the failed chunk)", repo.batchCalls)
+	}
+	for i, uids := range repo.batchUIDs {
+		if len(uids) > blockLookupChunk {
+			t.Errorf("batch %d read %d docs, want at most %d", i, len(uids), blockLookupChunk)
+		}
+	}
+	first := repo.batchUIDs[0]
+
+	repo.batchErr = nil
+	got, err := svc.BlockersAmong(context.Background(), "uid-a", candidates)
+	if err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	if len(got) != 1 || !got["uid-099"] {
+		t.Errorf("blockers = %v, want only uid-099", got)
+	}
+	reread := 0
+	for _, uids := range repo.batchUIDs[2:] {
+		for _, u := range uids {
+			for _, f := range first {
+				if u == f {
+					reread++
+				}
+			}
+		}
+	}
+	if reread != 0 {
+		t.Errorf("the retry re-read %d docs of the first chunk, want 0 (cached)", reread)
+	}
+	if total := len(repo.batchUIDs[2:]); total == 0 {
+		t.Error("the retry read nothing: the failed chunks were not cached and must be read")
+	}
+}
+
 func TestBlockersAmong_Errors(t *testing.T) {
 	t.Parallel()
 	t.Run("batched read fails: the cause is wrapped", func(t *testing.T) {

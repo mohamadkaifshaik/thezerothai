@@ -24,6 +24,8 @@ type fakeRepo struct {
 	batchCalls int
 	batchUIDs  [][]string
 	batchErr   error
+	// batchErrOnCall makes only that batched call (1-based) fail with batchErr.
+	batchErrOnCall int
 
 	followResult   Relationship
 	followOutcome  MutationOutcome
@@ -218,7 +220,7 @@ func (f *fakeRepo) GetSnapshot(_ context.Context, uid string) (Snapshot, error) 
 func (f *fakeRepo) GetSnapshots(_ context.Context, uids []string) (map[string]Snapshot, error) {
 	f.batchCalls++
 	f.batchUIDs = append(f.batchUIDs, append([]string(nil), uids...))
-	if f.batchErr != nil {
+	if f.batchErr != nil && (f.batchErrOnCall == 0 || f.batchErrOnCall == f.batchCalls) {
 		return nil, f.batchErr
 	}
 	out := make(map[string]Snapshot, len(uids))

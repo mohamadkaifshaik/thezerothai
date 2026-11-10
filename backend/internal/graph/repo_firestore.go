@@ -272,7 +272,8 @@ func (r *FirestoreRepo) GetSnapshot(ctx context.Context, uid string) (Snapshot, 
 }
 
 // GetSnapshots implements Repo: one batched GetAll of graph/{uid} for every distinct uid. A missing doc is an empty
-// Snapshot. Errors carry no uid (a Firestore error text would name the document path; only the count is kept).
+// Snapshot. The messages added here carry no uid; the wrapped Firestore or decode cause may name a document path, so
+// a caller that logs the error redacts the uids it asked about (notifications List does).
 func (r *FirestoreRepo) GetSnapshots(ctx context.Context, uids []string) (map[string]Snapshot, error) {
 	out := make(map[string]Snapshot, len(uids))
 	refs := make([]*firestore.DocumentRef, 0, len(uids))
@@ -296,7 +297,7 @@ func (r *FirestoreRepo) GetSnapshots(ctx context.Context, uids []string) (map[st
 		}
 		var d doc
 		if err := s.DataTo(&d); err != nil {
-			return nil, errors.New("graph: decode graph doc in batch read")
+			return nil, fmt.Errorf("graph: decode graph doc in batch read: %w", err)
 		}
 		out[s.Ref.ID] = d.toSnapshot()
 	}
