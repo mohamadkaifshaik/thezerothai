@@ -229,6 +229,8 @@ locals {
     { name = "FEATURE_NOTIFICATIONS_PERCENT", value = tostring(var.feature_notifications_percent) },
     { name = "NOTIFICATIONS_TOPIC", value = "notifications-fanout" },
     { name = "NOTIFICATIONS_DELIVERY", value = "pubsub" },
+    # ListNotifications' own per-user bucket (it used to fall back to the 60/min default). Must match the config.go default.
+    { name = "RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN", value = "30" },
   ]
 }
 

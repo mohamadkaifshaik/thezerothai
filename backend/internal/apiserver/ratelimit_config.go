@@ -13,6 +13,7 @@ import (
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
 	messagingv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1/messagingv1connect"
 	moderationv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/moderation/v1/moderationv1connect"
+	notificationsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/notifications/v1/notificationsv1connect"
 	postsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1/postsv1connect"
 	searchv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1/searchv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
@@ -119,6 +120,12 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	messagesMarkReadDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMarkReadPerDay)
 	messagesMutationDailyCap := ratelimit.NewDailyCap(cfg.RateLimit.MessagesMutationsPerDay)
 
+	// ListNotifications has its own per-user bucket (RATE_LIMIT_NOTIFICATIONS_LIST_PER_MIN, 30/min per instance), the
+	// read-bucket norm; it used to fall back to the 60/min default. One call reads up to 50 rows and, for a caller whose
+	// blockedBy overflowed, asks graph about up to 100 actors; the client refreshes every 60 s and pages 20 rows at a time.
+	// The other NotificationService RPCs stay on the default bucket.
+	rlNotificationsList := ratelimit.NewLimiter(cfg.RateLimit.NotificationsListPerUserPerMinute, idleBucketTTL)
+
 	// The six list mutations (CreateList, UpdateList, DeleteList, AddListMember, RemoveListMember and the timeline module's
 	// SetHomeTabs) share one per-user bucket (RATE_LIMIT_LISTS_WRITE_PER_MIN, 30/min per instance). GetList,
 	// ListUserLists and ListListMembers share a read bucket (RATE_LIMIT_LISTS_READ_PER_MIN, 30/min); GetListTimeline has its own
@@ -200,6 +207,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			messagingv1connect.MessagingServiceSendMessageProcedure:              rlMessagesSend,
 			messagingv1connect.MessagingServiceListConversationsProcedure:        rlMessagesRead,
 			messagingv1connect.MessagingServiceListMessagesProcedure:             rlMessagesRead,
+			notificationsv1connect.NotificationServiceListNotificationsProcedure: rlNotificationsList,
 			listsv1connect.ListServiceCreateListProcedure:                        rlListsWrite,
 			listsv1connect.ListServiceUpdateListProcedure:                        rlListsWrite,
 			listsv1connect.ListServiceDeleteListProcedure:                        rlListsWrite,
