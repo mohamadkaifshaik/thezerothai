@@ -96,3 +96,40 @@ func TestFeatureRegistry_IncludesChatSharedPlans(t *testing.T) {
 		t.Error("chat_shared_plans should be on for uid-a only")
 	}
 }
+
+// TestFeatureRegistry_IncludesUITablet: every mode of FEATURE_UI_TABLET (client-only, tablet shell) reaches the registry
+// Build wires, so GetMe.enabled_features can report `ui_tablet`; unset is off for everyone.
+func TestFeatureRegistry_IncludesUITablet(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		env         map[string]string
+		inA, inZ    bool
+		globallyOff bool
+	}{
+		{"unset is off", nil, false, false, true},
+		{"off", map[string]string{"FEATURE_UI_TABLET": "off"}, false, false, true},
+		{"allowlist", map[string]string{"FEATURE_UI_TABLET": "allowlist", "FEATURE_UI_TABLET_ALLOWLIST": "uid-a"}, true, false, false},
+		{"percent 100", map[string]string{"FEATURE_UI_TABLET": "percent", "FEATURE_UI_TABLET_PERCENT": "100"}, true, true, false},
+		{"on", map[string]string{"FEATURE_UI_TABLET": "on"}, true, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, k := range []string{"FEATURE_UI_TABLET", "FEATURE_UI_TABLET_ALLOWLIST", "FEATURE_UI_TABLET_PERCENT"} {
+				t.Setenv(k, tc.env[k])
+			}
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatalf("config.Load: %v", err)
+			}
+			reg := featureRegistry(cfg)
+			if got := reg.Enabled("uid-a", "ui_tablet"); got != tc.inA {
+				t.Errorf("uid-a enabled = %v, want %v", got, tc.inA)
+			}
+			if got := reg.Enabled("uid-z", "ui_tablet"); got != tc.inZ {
+				t.Errorf("uid-z enabled = %v, want %v", got, tc.inZ)
+			}
+			if got := reg.GloballyOff("ui_tablet"); got != tc.globallyOff {
+				t.Errorf("globally off = %v, want %v", got, tc.globallyOff)
+			}
+		})
+	}
+}
