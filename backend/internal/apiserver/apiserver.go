@@ -417,8 +417,14 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// and export section are registered whether or not FEATURE_COMMUNITIES is on); the service and routes are wired with the lists routes.
 	communitiesRepo := communities.NewFirestoreRepo(fsClient, idempotency.New(fsClient)).
 		WithPostModerator(posts.NewCommunityModerator(fsClient)) // the Hide / Restore post write (A12)
+	// F-03: every feed drops rows whose author is not ACTIVE through identity's Directory (the page fails closed without it),
+	// so a wiring regression refuses to start instead.
+	timelineDir := identitySvc.(identity.Directory)
+	if err := requireAuthorStatusSeams([]protectedSeam{{"timeline.Deps.Directory (identity.Directory)", timelineDir}}); err != nil {
+		return nil, nil, err
+	}
 	timelineServer := timeline.NewServer(timeline.Deps{
-		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: identitySvc.(identity.Directory), Viewer: engagementMod,
+		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: timelineDir, Viewer: engagementMod,
 		Removals: removals, Lists: listsReader,
 		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow,
 	}, timeline.WithProtectedAuthors(protectedAuthors),

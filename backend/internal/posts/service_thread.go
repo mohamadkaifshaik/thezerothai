@@ -261,7 +261,9 @@ func (s *service) contextAllowed(ctx context.Context, p *Post, authorActive bool
 
 // threadContext resolves the parent and the conversation root of a reply in one GetAll plus one profile batch.
 // A context post that is missing, not public, by a non-ACTIVE author, by an author who blocks the caller (or
-// whom the caller blocks) is unavailable: flagged, never an error, and never distinguishable by cause.
+// whom the caller blocks) is unavailable: flagged, never an error, and never distinguishable by cause. The batch also
+// holds the authors the context posts copy (F-03): a REPOST of a non-ACTIVE author's post is unavailable, and a QUOTE of
+// one is shown as its tombstoned copy (TombstonedQuote) once the rules above have judged the original.
 func (s *service) threadContext(ctx context.Context, caller string, snap graph.Snapshot, focal *Post, root string, out *Thread) error {
 	ids := []string{focal.ReplyToID}
 	if root != focal.ReplyToID && root != focal.ID {
@@ -271,15 +273,15 @@ func (s *service) threadContext(ctx context.Context, caller string, snap graph.S
 	if err != nil {
 		return logger.RedactErr(fmt.Errorf("posts: thread: load context: %w", err), caller)
 	}
-	var authors []string
-	seen := map[string]bool{}
-	for _, p := range found {
-		if !seen[p.AuthorID] {
-			seen[p.AuthorID] = true
-			authors = append(authors, p.AuthorID)
+	rows := make([]*Post, 0, len(found))
+	for _, id := range ids {
+		if p, ok := found[id]; ok {
+			rows = append(rows, p)
 		}
 	}
-	profiles, err := s.directory.GetProfiles(ctx, authors)
+	// One batch for the context authors and the authors they copy; no uid is exempt (the caller's own context post is asked
+	// for too, as before).
+	active, err := ResolveActiveAuthors(ctx, s.directory, "", rows)
 	if err != nil {
 		return logger.RedactErr(fmt.Errorf("posts: thread: load context authors: %w", err), caller)
 	}
@@ -288,10 +290,14 @@ func (s *service) threadContext(ctx context.Context, caller string, snap graph.S
 		if !ok {
 			return nil, nil
 		}
-		_, active := profiles[p.AuthorID]
-		ok, err := s.contextAllowed(ctx, p, active, caller, snap)
+		verdict := active.Verdict(p)
+		authorActive := active.Active(p.AuthorID) && verdict != AuthorDrop // a REPOST of an inactive author is unavailable too
+		ok, err := s.contextAllowed(ctx, p, authorActive, caller, snap)
 		if err != nil || !ok {
 			return nil, err
+		}
+		if verdict == AuthorTombstone {
+			p = TombstonedQuote(p)
 		}
 		return p, nil
 	}

@@ -5,7 +5,7 @@ package apiserver
 // F-03 on the feeds through the real Build chain on the emulators: once an author is SUSPENDED through identity's own
 // moderation write (SetAccountStatus, which changes users/{uid} only and never the posts, as before suspend-user's
 // HideAuthor pages run), a cold instance drops the author's rows from the Home, list and community feeds and from a
-// thread's reply rows, drops an ACTIVE user's REPOST of the author's post, keeps an ACTIVE user's QUOTE of it with the
+// thread's reply rows, tombstones a QUOTE of the author shown as a thread's parent, drops an ACTIVE user's REPOST of the author's post, keeps an ACTIVE user's QUOTE of it with the
 // embed tombstoned, and GetPost answers the same way for the copies. A restore brings everything back.
 
 import (
@@ -100,6 +100,22 @@ func TestFeedsChain_SuspendedAuthorLeavesEveryFeed(t *testing.T) {
 		return fsPost(t, fs, by.uid, ago, map[string]any{"kind": "REPLY", "isReply": true, "replyToId": plain, "conversationId": plain, "replyToHandle": "h" + copier.uid})
 	}
 	rAuthor, rCopier := reply(author, 30*time.Second), reply(copier, 29*time.Second)
+	// A reply to the copier's QUOTE: its thread's parent (and root) is the QUOTE.
+	onQuote := fsPost(t, fs, viewer.uid, 28*time.Second, map[string]any{"kind": "REPLY", "isReply": true, "replyToId": quote, "conversationId": quote, "replyToHandle": "h" + copier.uid})
+
+	// quoteContext opens the reply's thread on a cold instance and returns its parent, which must be the QUOTE.
+	quoteContext := func(t *testing.T) *postsv1.PostView {
+		t.Helper()
+		c := newLTChain(t, feedsStatusOn)
+		th, err := c.posts.GetThread(ctx, authed(viewer.token, &postsv1.GetThreadRequest{PostId: onQuote, PageSize: 30}))
+		if err != nil {
+			t.Fatalf("thread on the QUOTE: %v", err)
+		}
+		if th.Msg.GetParentUnavailable() || th.Msg.GetParent().GetPost().GetPostId() != quote {
+			t.Fatalf("parent = %v unavailable=%v, want the QUOTE", th.Msg.GetParent(), th.Msg.GetParentUnavailable())
+		}
+		return th.Msg.GetParent()
+	}
 
 	type seen struct{ home, list, community, replies []string }
 	read := func(t *testing.T) (seen, map[string]*postsv1.PostView) {
@@ -160,6 +176,9 @@ func TestFeedsChain_SuspendedAuthorLeavesEveryFeed(t *testing.T) {
 		if e := views[quote].GetPost().GetEmbedded(); e.GetUnavailable() || e.GetText() != "the original" {
 			t.Fatalf("QUOTE embed = %v, want the snapshot", e)
 		}
+		if e := quoteContext(t).GetPost().GetEmbedded(); e.GetUnavailable() || e.GetText() != "the original" {
+			t.Fatalf("thread parent QUOTE embed = %v, want the snapshot", e)
+		}
 	})
 
 	idRepo := identity.NewFirestoreRepo(fs, graph.NewFirestoreRepo(fs))
@@ -188,6 +207,10 @@ func TestFeedsChain_SuspendedAuthorLeavesEveryFeed(t *testing.T) {
 		}
 		if e := q.Msg.GetPost().GetPost().GetEmbedded(); !e.GetUnavailable() || e.GetText() != "" || e.GetAuthor() != nil {
 			t.Fatalf("GetPost(QUOTE) embed = %v, want the tombstone", e)
+		}
+		// GetThread context: the QUOTE as a reply's parent is shown with the embed tombstoned.
+		if e := quoteContext(t).GetPost().GetEmbedded(); !e.GetUnavailable() || e.GetText() != "" || e.GetAuthor() != nil {
+			t.Fatalf("thread parent QUOTE embed = %v, want the tombstone", e)
 		}
 	})
 

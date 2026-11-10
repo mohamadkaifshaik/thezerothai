@@ -269,3 +269,75 @@ func TestGetThread_ReplyAuthorStatus(t *testing.T) {
 		}
 	})
 }
+
+// GetThread's context posts (parent, root) follow the same rule: a parent that is a REPOST of a SUSPENDED author is
+// unavailable, a root that is a QUOTE of one keeps its own text with the embed tombstoned. The embedded authors ride in the
+// one context batch; the cached rows are never changed.
+func TestGetThread_ContextAuthorStatus(t *testing.T) {
+	t.Parallel()
+	suspended := identity.Profile{UserID: goneUID, Status: identity.AccountStatusSuspended}
+	t.Run("root QUOTE of a suspended author is tombstoned", func(t *testing.T) {
+		t.Parallel()
+		e := newThreadEnv()
+		root := statusCopy(e.repo.docs[rRoot], KindQuote, goneUID)
+		e.dir.profiles[goneUID] = suspended
+		e.dir.calls = nil
+		th, err := e.thread(ThreadInput{PostID: rReply5}) // parent rReply4, root rRoot
+		if err != nil {
+			t.Fatal(err)
+		}
+		if th.Root == nil || th.RootUnavailable || th.Root.ID != rRoot {
+			t.Fatalf("root = %+v unavailable=%v, want the root shown", th.Root, th.RootUnavailable)
+		}
+		if e := th.Root.Embedded; e == nil || !e.Unavailable || e.PostID != pidCopied || e.Text != "" || th.Root.EmbeddedAuthor() != "" || th.Root.Text != root.Text {
+			t.Fatalf("root = %+v, want its text with the embed tombstoned", th.Root)
+		}
+		if root.Embedded.Unavailable || root.EmbeddedAuthorID != goneUID {
+			t.Fatal("the stored root was mutated")
+		}
+		var asked int
+		for _, c := range e.dir.calls {
+			if slices.Contains(c, goneUID) {
+				asked++
+			}
+		}
+		if asked != 1 {
+			t.Fatalf("the embedded author was asked in %d calls %v, want the one context batch", asked, e.dir.calls)
+		}
+	})
+	t.Run("root QUOTE of an ACTIVE author keeps its snapshot", func(t *testing.T) {
+		t.Parallel()
+		e := newThreadEnv()
+		statusCopy(e.repo.docs[rRoot], KindQuote, goneUID)
+		e.dir.profiles[goneUID] = identity.Profile{UserID: goneUID, Status: identity.AccountStatusActive}
+		th, err := e.thread(ThreadInput{PostID: rReply5})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if th.Root == nil || th.Root.Embedded.Unavailable || th.Root.Embedded.Text != "the original" {
+			t.Fatalf("root = %+v, want the snapshot", th.Root)
+		}
+	})
+	t.Run("parent REPOST of a suspended author is unavailable", func(t *testing.T) {
+		t.Parallel()
+		e := newThreadEnv()
+		statusCopy(e.repo.docs[rReply1], KindRepost, goneUID) // rReply4's parent
+		e.dir.profiles[goneUID] = suspended
+		th, err := e.thread(ThreadInput{PostID: rReply4})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if th.Parent != nil || !th.ParentUnavailable || th.Root == nil || th.RootUnavailable {
+			t.Fatalf("parent = %+v unavailable=%v root=%v, want an unavailable parent and the root", th.Parent, th.ParentUnavailable, th.Root)
+		}
+	})
+	t.Run("a Directory failure fails the thread", func(t *testing.T) {
+		t.Parallel()
+		e := newThreadEnv()
+		statusCopy(e.repo.docs[rRoot], KindQuote, goneUID)
+		e.dir.profileErr = errors.New("down")
+		if _, err := e.thread(ThreadInput{PostID: rReply5}); err == nil {
+			t.Fatal("err = nil, want a failure")
+		}
+	})
+}
