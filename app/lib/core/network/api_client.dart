@@ -21,17 +21,23 @@ import 'auth_token_provider.dart';
 import 'connect_error_mapper.dart';
 import 'http_client_factory.dart';
 import 'interceptors.dart';
+import 'request_session.dart';
 
 /// Single Connect-RPC client for the whole app (project rule: "one `ApiClient`
 /// with Firebase ID token + App Check token, retry with backoff, request
 /// IDs"). Feature repositories depend on this, never on `connectrpc` or
 /// `dart:io`/`fetch` directly.
+///
+/// [sessionUid] binds every call to the account signed in when it was built:
+/// a call whose account changed before it was sent is refused, never sent
+/// under the next account (see [AuthHeadersInterceptor]).
 class ApiClient {
   ApiClient({
     required String baseUrl,
     required AuthTokenProvider authTokens,
     required AppCheckTokenProvider appCheckTokens,
     void Function()? onServicePaused,
+    SessionUidReader? sessionUid,
     connect.HttpClient? httpClient,
   }) : _transport = protocol_connect.Transport(
          baseUrl: baseUrl,
@@ -41,8 +47,14 @@ class ApiClient {
            if (onServicePaused != null)
              ServicePausedInterceptor(onServicePaused).call,
            const RequestMetadataInterceptor().call,
-           AuthHeadersInterceptor(authTokens, appCheckTokens).call,
+           AuthHeadersInterceptor(
+             authTokens,
+             appCheckTokens,
+             sessionUid: sessionUid,
+           ).call,
            const RetryInterceptor().call,
+           // Innermost: re-checks the session binding before every attempt.
+           if (sessionUid != null) RequestSessionGuard(sessionUid).call,
          ],
        );
 

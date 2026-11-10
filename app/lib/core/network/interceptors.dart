@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import 'auth_token_provider.dart';
 import 'connect_error_mapper.dart';
+import 'request_session.dart';
 
 /// Adds a fresh `X-Request-Id` to every call, so backend logs and client
 /// error reports can be correlated (the health and logging rule).
@@ -48,19 +49,39 @@ final class ServicePausedInterceptor {
   }
 }
 
+/// The account uid each in-flight request was built for, set by
+/// [AuthHeadersInterceptor] and read again by [RequestSessionGuard] before
+/// every attempt (a retry re-sends the same request object).
+final Expando<String> _boundSession = Expando('request session');
+
 /// Attaches the Firebase ID token and the Firebase App Check token to every
 /// outgoing call. Both are refreshed lazily by the providers,
 /// which cache the underlying platform tokens for their own TTL.
+///
+/// With [sessionUid] wired, a call is bound to the account signed in when it
+/// was built (read before any await). After both token fetches the call is
+/// refused with [RequestSessionChangedException], and never sent, when the
+/// session moved to another account or signed out, or when the ID token is
+/// not that account's (the auth SDK answers with whoever is signed in by
+/// then). A call built with no session is not bound and goes as before.
 final class AuthHeadersInterceptor {
-  const AuthHeadersInterceptor(this._authTokens, this._appCheckTokens);
+  const AuthHeadersInterceptor(
+    this._authTokens,
+    this._appCheckTokens, {
+    SessionUidReader? sessionUid,
+  }) : _sessionUid = sessionUid;
 
   final AuthTokenProvider _authTokens;
   final AppCheckTokenProvider _appCheckTokens;
+  final SessionUidReader? _sessionUid;
 
   connect.AnyFn<I, O> call<I extends Object, O extends Object>(
     connect.AnyFn<I, O> next,
   ) {
     return (request) async {
+      // Synchronous, before the first await: the account this call is for.
+      final bound = _sessionUid?.call();
+      if (bound != null) _boundSession[request] = bound;
       final idToken = await _authTokens.getIdToken();
       if (idToken != null) {
         request.headers.set('authorization', ['Bearer $idToken']);
@@ -79,6 +100,35 @@ final class AuthHeadersInterceptor {
       }
       if (appCheckToken != null) {
         request.headers.set('x-firebase-appcheck', [appCheckToken]);
+      }
+      if (bound != null &&
+          (_sessionUid?.call() != bound ||
+              idToken == null ||
+              idTokenUid(idToken) != bound)) {
+        throw const RequestSessionChangedException();
+      }
+      return next(request);
+    };
+  }
+}
+
+/// Re-checks, right before every send (the first attempt and each
+/// [RetryInterceptor] retry), that the session is still the account
+/// [AuthHeadersInterceptor] bound the call to. Sits innermost, after
+/// [RetryInterceptor]: a retry after a switch is refused with
+/// [RequestSessionChangedException] and never sent. Unbound calls pass.
+final class RequestSessionGuard {
+  const RequestSessionGuard(this._sessionUid);
+
+  final SessionUidReader _sessionUid;
+
+  connect.AnyFn<I, O> call<I extends Object, O extends Object>(
+    connect.AnyFn<I, O> next,
+  ) {
+    return (request) async {
+      final bound = _boundSession[request];
+      if (bound != null && _sessionUid() != bound) {
+        throw const RequestSessionChangedException();
       }
       return next(request);
     };

@@ -151,6 +151,11 @@ Future<void> bootstrap() async {
   final servicePaused = ServicePausedCubit(
     probe: () => probeServicePaused(http.Client(), config.apiBaseUrl),
   );
+  // The session every API call is bound to: the auth bloc's user, i.e. the
+  // account the app has processed (the auth SDK switches before the app
+  // does). Set right after the bloc is built below; until then (and while
+  // signed out) calls are not bound, as before.
+  AuthBloc? sessionAuth;
   final apiClient = ApiClient(
     baseUrl: config.apiBaseUrl,
     authTokens: authRepository,
@@ -158,6 +163,7 @@ Future<void> bootstrap() async {
         ? const _LocalAppCheckTokenProvider()
         : const FirebaseAppCheckTokenProvider(),
     onServicePaused: servicePaused.markPaused,
+    sessionUid: () => sessionAuth?.state.user?.uid,
   );
   final identityRepository = IdentityRepository(
     apiClient: apiClient,
@@ -193,6 +199,7 @@ Future<void> bootstrap() async {
     authRepository: authRepository,
     beforeSignOut: () => pushCubit.unregister(),
   )..add(const AuthSubscriptionRequested());
+  sessionAuth = authBloc;
   // The auth SDK has not reported yet while the status is unknown: that is no
   // sign-out, so the bootstrap decision stands.
   authBloc.stream.listen((state) {

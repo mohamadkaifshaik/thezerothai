@@ -1,8 +1,11 @@
 import 'package:connectrpc/connect.dart' as connect;
 import 'package:dzeroth/core/network/auth_token_provider.dart';
 import 'package:dzeroth/core/network/interceptors.dart';
+import 'package:dzeroth/core/network/request_session.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+
+import '../../support/session_tokens.dart';
 
 class MockAuthTokenProvider extends Mock implements AuthTokenProvider {}
 
@@ -102,6 +105,57 @@ void main() {
       await wrapped(_request());
 
       expect(captured!.headers.get('authorization'), isNull);
+    });
+
+    test('a token of another account than the session refuses the call '
+        'without calling next', () async {
+      when(() => authTokens.getIdToken())
+          .thenAnswer((_) async => idTokenFor('uid-b'));
+      when(() => appCheckTokens.getAppCheckToken())
+          .thenAnswer((_) async => 'app-check-token');
+
+      final interceptor = AuthHeadersInterceptor(
+        authTokens,
+        appCheckTokens,
+        sessionUid: () => 'uid-a',
+      );
+      var called = false;
+      final wrapped = interceptor.call<String, String>((request) async {
+        called = true;
+        return _echoResponse(request);
+      });
+
+      await expectLater(
+        wrapped(_request()),
+        throwsA(isA<RequestSessionChangedException>()),
+      );
+      expect(called, isFalse);
+    });
+
+    test('a token of the session account is attached as before', () async {
+      when(() => authTokens.getIdToken())
+          .thenAnswer((_) async => idTokenFor('uid-a'));
+      when(() => appCheckTokens.getAppCheckToken())
+          .thenAnswer((_) async => 'app-check-token');
+
+      final interceptor = AuthHeadersInterceptor(
+        authTokens,
+        appCheckTokens,
+        sessionUid: () => 'uid-a',
+      );
+      connect.Request<String, String>? captured;
+      final wrapped = interceptor.call<String, String>((request) async {
+        captured = request;
+        return _echoResponse(request);
+      });
+
+      await wrapped(_request());
+
+      expect(
+        captured!.headers['authorization'],
+        'Bearer ${idTokenFor('uid-a')}',
+      );
+      expect(captured!.headers['x-firebase-appcheck'], 'app-check-token');
     });
   });
 }
