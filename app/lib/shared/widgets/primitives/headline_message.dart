@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
 
-/// A heading over a muted line, start aligned, no illustration: the empty
+/// A Manrope heading over a muted line, start aligned, no illustration: the empty
 /// Scheduled list, the empty Unsent posts tab and the "not available" state.
 /// Not [AppEmptyView], which centres an icon.
 class HeadlineMessage extends StatelessWidget {
@@ -24,7 +24,7 @@ class HeadlineMessage extends StatelessWidget {
             child: Text(
               title,
               style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w800,
+                fontWeight: AppTypeTokens.weightDisplay,
               ),
             ),
           ),

@@ -324,7 +324,7 @@ void main() {
     expect(find.text("You're offline. Showing saved posts."), findsOneWidget);
     expect(find.text('post 2'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(TextButton, 'Retry'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Retry'));
     await tester.pumpAndSettle();
 
     expect(calls, 2);
@@ -344,7 +344,7 @@ void main() {
     await open(tester);
 
     expect(find.textContaining("today's refresh limit"), findsOneWidget);
-    expect(find.widgetWithText(TextButton, 'Retry'), findsNothing);
+    expect(find.widgetWithText(AppPillButton, 'Retry'), findsNothing);
   });
 
   testWidgets('a gap row loads once with its token and is replaced', (
