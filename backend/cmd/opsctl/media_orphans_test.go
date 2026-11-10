@@ -5,11 +5,13 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/media"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
 // fakeMediaBackfiller answers pages from a script; it records the checkpoints and options it was called with.
@@ -47,6 +49,25 @@ func (f *fakeMediaSweeper) Sweep(context.Context, time.Time, int) (media.OrphanS
 		return media.OrphanSweepResult{}, f.err
 	}
 	return f.results[f.calls-1], f.err
+}
+
+// sweeperFactory returns a newMediaSweeper that hands out sw and records the switches it was built with.
+type sweeperFactory struct {
+	sw      *fakeMediaSweeper
+	err     error
+	built   int
+	retire  config.ProfileMediaRetire
+	dryRuns []bool
+}
+
+func (f *sweeperFactory) build(retire config.ProfileMediaRetire, dryRun bool) (mediaOrphanSweeper, error) {
+	f.built++
+	f.retire = retire
+	f.dryRuns = append(f.dryRuns, dryRun)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.sw, nil
 }
 
 var opsNow = time.Unix(1_000_000, 0).UTC()
@@ -108,71 +129,87 @@ func TestMediaOrphanSweepCommand(t *testing.T) {
 	tests := []struct {
 		name      string
 		sw        *fakeMediaSweeper
-		retireErr error
+		args      []string
 		wantCode  int
 		wantCalls int
 		want      string
 	}{
 		{"runs until a short page", &fakeMediaSweeper{results: []media.OrphanSweepResult{more, last}}, nil, 0, 2, "due=103 marked=10 deleted=3"},
-		{"stops on a page without progress", &fakeMediaSweeper{results: []media.OrphanSweepResult{{Due: media.OrphanSweepPage, More: true, Conflicts: media.OrphanSweepPage}, more}}, nil, 0, 1, "media-orphan-sweep:"},
+		{"stops on a page without progress", &fakeMediaSweeper{results: []media.OrphanSweepResult{{Due: media.OrphanSweepPage, More: true, Conflicts: media.OrphanSweepPage}, more}}, nil, 0, 1, "media-orphan-sweep: due="},
 		{"stops at the page cap", &fakeMediaSweeper{results: func() []media.OrphanSweepResult {
 			var r []media.OrphanSweepResult
 			for range mediaOrphanSweepMaxPages + 5 {
 				r = append(r, more)
 			}
 			return r
-		}()}, nil, 0, mediaOrphanSweepMaxPages, "media-orphan-sweep:"},
+		}()}, nil, 0, mediaOrphanSweepMaxPages, "media-orphan-sweep: due="},
 		{"an error stops it", &fakeMediaSweeper{err: errors.New("boom")}, nil, 1, 1, ""},
-		{"a bad PROFILE_MEDIA_RETIRE is refused", &fakeMediaSweeper{}, errors.New("invalid"), 1, 0, ""},
+		{"a dry run reads exactly one page", &fakeMediaSweeper{results: []media.OrphanSweepResult{more, more}}, []string{"--dry-run"}, 0, 1, "dry-run: one page"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			code, out, errOut := runMedia(t, &backends{mediaSweeper: tt.sw, retireErr: tt.retireErr}, "media-orphan-sweep", "--project", "dzeroth-dev")
+			f := &sweeperFactory{sw: tt.sw}
+			args := append([]string{"media-orphan-sweep", "--project", "dzeroth-dev", "--profile-retire", "banner"}, tt.args...)
+			code, out, errOut := runMedia(t, &backends{newMediaSweeper: f.build}, args...)
 			if code != tt.wantCode || tt.sw.calls != tt.wantCalls || !strings.Contains(out, tt.want) {
 				t.Fatalf("code %d calls %d out %s err %s", code, tt.sw.calls, out, errOut)
 			}
+			if f.built != 1 || f.retire != config.ProfileMediaRetireBanner || f.dryRuns[0] != slices.Contains(tt.args, "--dry-run") {
+				t.Fatalf("built %d retire %q dryRuns %v", f.built, f.retire, f.dryRuns)
+			}
 		})
 	}
-	if code, _, _ := runMedia(t, &backends{}, "media-orphan-sweep", "--project", "dzeroth-dev"); code != 1 {
+	if code, _, _ := runMedia(t, &backends{}, "media-orphan-sweep", "--project", "dzeroth-dev", "--profile-retire", "off"); code != 1 {
 		t.Fatalf("no sweeper: code %d", code)
+	}
+	failing := &sweeperFactory{err: errors.New("no buckets")}
+	if code, _, _ := runMedia(t, &backends{newMediaSweeper: failing.build}, "media-orphan-sweep", "--project", "dzeroth-dev", "--profile-retire", "off"); code != 1 {
+		t.Fatalf("factory error: code %d", code)
+	}
+}
+
+// TestMediaOrphanSweepCommand_ProfileRetireIsExplicit: the mode comes from --profile-retire only, never from the
+// operator's shell, and the effective mode, project and clock are printed before anything runs (before the prod prompt).
+func TestMediaOrphanSweepCommand_ProfileRetireIsExplicit(t *testing.T) {
+	t.Setenv("PROFILE_MEDIA_RETIRE", "all")
+	f := &sweeperFactory{sw: &fakeMediaSweeper{results: []media.OrphanSweepResult{{Due: 1, Held: 1}}}}
+	code, out, errOut := runMedia(t, &backends{newMediaSweeper: f.build}, "media-orphan-sweep", "--project", "dzeroth-dev", "--profile-retire", "off")
+	if code != 0 || f.retire != config.ProfileMediaRetireOff {
+		t.Fatalf("code %d retire %q (err %s), want the flag's off, not the shell's all", code, f.retire, errOut)
+	}
+	header := "media-orphan-sweep: project=dzeroth-dev sweep=delete profile-retire=off dry-run=false clock=" + opsNow.Format(time.RFC3339)
+	if !strings.HasPrefix(out, header) || strings.Index(out, "page 1") < strings.Index(out, header) {
+		t.Fatalf("out = %q, want it to start with %q", out, header)
+	}
+
+	// Prod: the header is printed before the typed confirmation, and a wrong answer opens nothing.
+	var buf, errBuf bytes.Buffer
+	prod := &sweeperFactory{sw: &fakeMediaSweeper{}}
+	b := &backends{newMediaSweeper: prod.build, close: func() {}}
+	opened := false
+	open := func(context.Context, string) (*backends, error) { opened = true; return b, nil }
+	code = run(context.Background(), []string{"media-orphan-sweep", "--project", "dzeroth-prod", "--profile-retire", "all"}, strings.NewReader("nope\n"), &buf, &errBuf, open, func() time.Time { return opsNow })
+	h, p := strings.Index(buf.String(), "profile-retire=all"), strings.Index(buf.String(), "PRODUCTION project")
+	if code != 1 || opened || prod.built != 0 || h < 0 || p < 0 || h > p {
+		t.Fatalf("code %d opened %v built %d out %q", code, opened, prod.built, buf.String())
 	}
 }
 
 func TestMediaOrphanCommands_UsageErrors(t *testing.T) {
 	for _, args := range [][]string{
 		{"backfill-media-orphans"},
-		{"media-orphan-sweep", "--project", "dzeroth-dev", "--dry-run"},
-		{"media-orphan-sweep", "--project", "dzeroth-dev", "--after", "1"},
+		{"media-orphan-sweep", "--project", "dzeroth-dev"},
+		{"media-orphan-sweep", "--project", "dzeroth-dev", "--profile-retire", ""},
+		{"media-orphan-sweep", "--project", "dzeroth-dev", "--profile-retire", "avatar"},
+		{"media-orphan-sweep", "--project", "dzeroth-dev", "--profile-retire", "ALL"},
+		{"media-orphan-sweep", "--project", "dzeroth-dev", "--profile-retire", "off", "--after", "1"},
+		{"backfill-media-orphans", "--project", "dzeroth-dev", "--profile-retire", "off"},
+		{"check-t26", "--project", "dzeroth-dev", "--profile-retire", "off"},
 		{"backfill-media-orphans", "--project", "dzeroth-dev", "--after", "a/b"},
 	} {
-		if code, _, _ := runMedia(t, &backends{}, args...); code != 2 {
-			t.Errorf("%v: code %d, want 2", args, code)
-		}
-	}
-}
-
-type fakeHoldsSource struct {
-	m   map[string]bool
-	err error
-}
-
-func (f fakeHoldsSource) PendingScheduledMediaHolds(context.Context, string, []string) (map[string]bool, error) {
-	return map[string]bool{"a": f.m["a"]}, f.err
-}
-func (f fakeHoldsSource) DraftCoverHolds(context.Context, string, []string) (map[string]bool, error) {
-	return map[string]bool{"b": f.m["b"]}, f.err
-}
-
-func TestDraftHolds(t *testing.T) {
-	h := draftHolds{scheduled: fakeHoldsSource{m: map[string]bool{"a": true}}, articles: fakeHoldsSource{m: map[string]bool{"b": true}}}
-	got, err := h.HeldByDrafts(context.Background(), "u", []string{"a", "b"})
-	if err != nil || !got["a"] || !got["b"] {
-		t.Fatalf("held = %v, %v", got, err)
-	}
-	boom := errors.New("boom")
-	for _, h := range []draftHolds{{scheduled: fakeHoldsSource{err: boom}, articles: fakeHoldsSource{}}, {scheduled: fakeHoldsSource{}, articles: fakeHoldsSource{err: boom}}} {
-		if _, err := h.HeldByDrafts(context.Background(), "u", nil); !errors.Is(err, boom) {
-			t.Errorf("err = %v", err)
+		f := &sweeperFactory{sw: &fakeMediaSweeper{}}
+		if code, _, _ := runMedia(t, &backends{newMediaSweeper: f.build}, args...); code != 2 || f.built != 0 {
+			t.Errorf("%v: code %d built %d, want 2 and nothing built", args, code, f.built)
 		}
 	}
 }

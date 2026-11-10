@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/media"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
 
 const (
@@ -15,7 +16,7 @@ const (
 	mediaOrphanBackfillPage = 100
 	// mediaOrphanBackfillMaxWrites caps one backfill run, like backfill-has-media; a capped run prints its checkpoint.
 	mediaOrphanBackfillMaxWrites = 5000
-	// mediaOrphanSweepMaxPages caps one `media-orphan-sweep` run (pages of media.OrphanSweepPage).
+	// mediaOrphanSweepMaxPages caps one `media-orphan-sweep` run (pages of media.OrphanSweepPage; a dry run reads one).
 	mediaOrphanSweepMaxPages = 20
 )
 
@@ -73,63 +74,56 @@ func backfillMediaOrphans(ctx context.Context, b *backends, after string, dryRun
 	return nil
 }
 
-// mediaOrphanSweep is `opsctl media-orphan-sweep`: it runs the daily step's sweep in process, page after page, to drain a
-// backlog (after the backfill, say). It stops when a page is not full, after mediaOrphanSweepMaxPages pages, or when a page
-// changed nothing (only conflicts, failures or skips: running again would read the same documents). Profile images are
-// deleted only when PROFILE_MEDIA_RETIRE in this shell allows their purpose (unset = off = kept), so set it to the
-// project's value. No dry run: nothing is deleted before a second pass at least media.OrphanGrace after the mark.
-func mediaOrphanSweep(ctx context.Context, b *backends, out io.Writer, now func() time.Time) error {
-	if b.retireErr != nil {
-		return fmt.Errorf("PROFILE_MEDIA_RETIRE: %w", b.retireErr)
-	}
-	if b.mediaSweeper == nil {
+// mediaSweeperFactory builds the orphan sweep for one media-orphan-sweep run under the operator's explicit
+// --profile-retire and --dry-run (openFirestore's is media.NewOrphanSweeper in delete mode over the real holders).
+type mediaSweeperFactory func(retire config.ProfileMediaRetire, dryRun bool) (mediaOrphanSweeper, error)
+
+// mediaOrphanSweepHeader is the line media-orphan-sweep prints before anything runs (and before the prod prompt): the
+// effective switches, the project and this workstation's clock, which the sweep uses as "now".
+func mediaOrphanSweepHeader(project string, retire config.ProfileMediaRetire, dryRun bool, now time.Time) string {
+	return fmt.Sprintf("media-orphan-sweep: project=%s sweep=%s profile-retire=%s dry-run=%t clock=%s (MEDIA_ORPHAN_SWEEP and PROFILE_MEDIA_RETIRE are not read from this shell)\n",
+		project, config.MediaOrphanSweepDelete, retire, dryRun, now.UTC().Format(time.RFC3339))
+}
+
+// mediaOrphanSweep is `opsctl media-orphan-sweep`: it runs the daily step's sweep in process in delete mode, page after
+// page, to drain a backlog (after the backfill, say). Profile images are deleted only when the explicit --profile-retire
+// allows their purpose (the operator chooses it; nothing is read from the shell). It stops when a page is not full, after
+// mediaOrphanSweepMaxPages pages, or when a page changed nothing (only conflicts, failures or skips: running again would
+// read the same documents). --dry-run computes the verdicts of exactly one page (nothing is written, so a second page would
+// be the same one) and prints what a real run would do. The sweep's clock sanity check never marks an image whose
+// createdAt is less than media.OrphanAfter before this workstation's clock.
+func mediaOrphanSweep(ctx context.Context, b *backends, retire config.ProfileMediaRetire, dryRun bool, out io.Writer, now func() time.Time) error {
+	if b.newMediaSweeper == nil {
 		return errors.New("media-orphan-sweep: no sweeper configured")
 	}
+	sweeper, err := b.newMediaSweeper(retire, dryRun)
+	if err != nil {
+		return fmt.Errorf("media-orphan-sweep: %w", err)
+	}
+	maxPages := mediaOrphanSweepMaxPages
+	if dryRun {
+		maxPages = 1
+	}
 	var total media.OrphanSweepResult
-	for page := 1; page <= mediaOrphanSweepMaxPages; page++ {
+	for page := 1; page <= maxPages; page++ {
 		pctx, cancel := context.WithTimeout(ctx, callTimeout)
-		res, err := b.mediaSweeper.Sweep(pctx, now(), media.OrphanSweepPage)
+		res, err := sweeper.Sweep(pctx, now(), media.OrphanSweepPage)
 		cancel()
-		total.Due += res.Due
-		total.Marked += res.Marked
-		total.Deleted += res.Deleted
-		fmt.Fprintf(out, "page %d: due=%d marked=%d deleted=%d held=%d kept=%d attached=%d restored=%d waiting=%d conflicts=%d failed=%d skipped=%d\n",
-			page, res.Due, res.Marked, res.Deleted, res.Held, res.Kept, res.Attached, res.Restored, res.Waiting, res.Conflicts, res.Failed, res.Skipped)
+		total.Add(res)
+		fmt.Fprintf(out, "page %d: due=%d marked=%d deleted=%d held=%d kept=%d attached=%d restored=%d waiting=%d young=%d conflicts=%d failed=%d skipped=%d undecodable=%d\n",
+			page, res.Due, res.Marked, res.Deleted, res.Held, res.Kept, res.Attached, res.Restored, res.Waiting, res.Young, res.Conflicts, res.Failed, res.Skipped, res.Undecodable)
 		if err != nil {
 			return err
 		}
-		progressed := res.Marked + res.Deleted + res.Held + res.Kept + res.Attached + res.Restored + res.Waiting
-		if !res.More || progressed == 0 {
+		if !res.More || res.Progressed() == 0 {
 			break
 		}
+	}
+	if dryRun {
+		fmt.Fprintf(out, "dry-run: one page, nothing written: would mark=%d would delete=%d (more=%t)\n", total.Marked, total.Deleted, total.More)
+		return nil
 	}
 	fmt.Fprintf(out, "media-orphan-sweep: due=%d marked=%d deleted=%d (marked images are deleted by a run at least %s later)\n",
 		total.Due, total.Marked, total.Deleted, media.OrphanGrace)
 	return nil
-}
-
-// draftHolds is media.DraftHolds over the posts repo (PENDING scheduled drafts) and articles (unpublished draft covers),
-// the same composition as apiserver's draftMediaHolds.
-type draftHolds struct {
-	scheduled interface {
-		PendingScheduledMediaHolds(ctx context.Context, uid string, ids []string) (map[string]bool, error)
-	}
-	articles interface {
-		DraftCoverHolds(ctx context.Context, uid string, ids []string) (map[string]bool, error)
-	}
-}
-
-func (h draftHolds) HeldByDrafts(ctx context.Context, uid string, ids []string) (map[string]bool, error) {
-	held, err := h.scheduled.PendingScheduledMediaHolds(ctx, uid, ids)
-	if err != nil {
-		return nil, err
-	}
-	covers, err := h.articles.DraftCoverHolds(ctx, uid, ids)
-	if err != nil {
-		return nil, err
-	}
-	for id := range covers {
-		held[id] = true
-	}
-	return held, nil
 }

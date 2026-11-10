@@ -102,10 +102,11 @@ type backends struct {
 	// listAuthUsers and usersExist serve check-t26 (read-only).
 	listAuthUsers authLister
 	usersExist    usersExistFn
-	// mediaBackfill serves backfill-media-orphans and mediaSweeper media-orphan-sweep (media's orphan sweep, in process).
-	mediaBackfill mediaOrphanBackfiller
-	mediaSweeper  mediaOrphanSweeper
-	close         func()
+	// mediaBackfill serves backfill-media-orphans and newMediaSweeper media-orphan-sweep (media's orphan sweep, in process,
+	// built per run from the explicit --profile-retire and --dry-run).
+	mediaBackfill   mediaOrphanBackfiller
+	newMediaSweeper mediaSweeperFactory
+	close           func()
 }
 
 type opener func(ctx context.Context, project string) (*backends, error)
@@ -146,64 +147,60 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 	// PROFILE_MEDIA_RETIRE (an opsctl run has no Cloud Run environment); unset is off. NewBuckets and the storage client do
 	// no I/O until the first object call.
 	retireMode, retireErr := config.ParseProfileMediaRetire(os.Getenv("PROFILE_MEDIA_RETIRE"))
-	var (
-		retire       profileRetirer
-		mediaSweeper mediaOrphanSweeper
-	)
+	buckets, err := media.NewBuckets(project+"-media-upload", project+"-media")
+	if err != nil {
+		_ = client.Close()
+		return nil, err
+	}
 	mediaRepo := media.NewFirestoreRepo(client, media.WriteDeps{})
+	var retire profileRetirer
 	if retireErr == nil {
-		buckets, err := media.NewBuckets(project+"-media-upload", project+"-media")
-		if err != nil {
-			_ = client.Close()
-			return nil, err
-		}
 		// No PostGone and no publisher: only Retire runs here, never the post_delete handler.
 		retire = media.NewJobs(mediaRepo, buckets, nil, nil).
 			WithProfileRetire(media.RetireDeps{Mode: retireMode, Users: identityRepo, Tagger: buckets})
-		// The orphan sweep with the same holders as the daily step (apiserver's draftMediaHolds), under the shell's PROFILE_MEDIA_RETIRE.
-		sweeper, err := media.NewOrphanSweeper(media.OrphanSweepDeps{
-			Repo: mediaRepo, Objects: buckets, Profiles: identityRepo, RetireMode: retireMode,
-			Drafts: draftHolds{scheduled: postsRepo, articles: articles.NewMediaHolds(client)},
+	}
+	// The orphan sweep with the same holders as the daily step, in delete mode, under the operator's explicit
+	// --profile-retire (never the shell's PROFILE_MEDIA_RETIRE) and --dry-run.
+	newMediaSweeper := func(retire config.ProfileMediaRetire, dryRun bool) (mediaOrphanSweeper, error) {
+		return media.NewOrphanSweeper(media.OrphanSweepDeps{
+			Repo: mediaRepo, Objects: buckets, Profiles: identityRepo, RetireMode: retire,
+			Mode: config.MediaOrphanSweepDelete, DryRun: dryRun,
+			Drafts: media.NewDraftHolds(postsRepo, articles.NewMediaHolds(client)),
 		})
-		if err != nil {
-			_ = client.Close()
-			return nil, err
-		}
-		mediaSweeper = sweeper
 	}
 	return &backends{
-		eraser:        graphRepo,
-		planner:       graphRepo,
-		exporter:      graphRepo,
-		postsEraser:   postsRepo,
-		postsPlanner:  postsRepo,
-		postsExporter: postsRepo,
-		profile:       identityRepo.GetProfile,
-		reports:       moderationRepo,
-		messages:      msgRepo,
-		placeholder:   msgRepo,
-		moderator:     postsRepo,
-		cleanup:       postsRepo,
-		copied:        postsRepo,
-		backfiller:    postsRepo,
-		accounts:      identityRepo,
-		profiles:      identityRepo,
-		trends:        search.NewTrendsRepo(client),
-		lists:         lists.NewFirestoreRepo(client, nil, nil), // SetHidden and Get need no quota or idempotency store
-		beacons:       beaconRepo,
-		beaconStats:   beaconRepo,
-		communities:   communitiesRepo,
-		removals:      communitiesRepo,
-		hidden:        communitiesRepo,
-		retire:        retire,
-		retireMode:    retireMode,
-		retireErr:     retireErr,
-		actorSweeper:  notifications.NewFirestoreRepo(client).WithDirectory(newProfileDirectory(identityRepo)),
-		listAuthUsers: lister,
-		usersExist:    newUsersExist(client),
-		mediaBackfill: mediaRepo,
-		mediaSweeper:  mediaSweeper,
-		close:         func() { _ = client.Close() },
+		eraser:          graphRepo,
+		planner:         graphRepo,
+		exporter:        graphRepo,
+		postsEraser:     postsRepo,
+		postsPlanner:    postsRepo,
+		postsExporter:   postsRepo,
+		profile:         identityRepo.GetProfile,
+		reports:         moderationRepo,
+		messages:        msgRepo,
+		placeholder:     msgRepo,
+		moderator:       postsRepo,
+		cleanup:         postsRepo,
+		copied:          postsRepo,
+		backfiller:      postsRepo,
+		accounts:        identityRepo,
+		profiles:        identityRepo,
+		trends:          search.NewTrendsRepo(client),
+		lists:           lists.NewFirestoreRepo(client, nil, nil), // SetHidden and Get need no quota or idempotency store
+		beacons:         beaconRepo,
+		beaconStats:     beaconRepo,
+		communities:     communitiesRepo,
+		removals:        communitiesRepo,
+		hidden:          communitiesRepo,
+		retire:          retire,
+		retireMode:      retireMode,
+		retireErr:       retireErr,
+		actorSweeper:    notifications.NewFirestoreRepo(client).WithDirectory(newProfileDirectory(identityRepo)),
+		listAuthUsers:   lister,
+		usersExist:      newUsersExist(client),
+		mediaBackfill:   mediaRepo,
+		newMediaSweeper: newMediaSweeper,
+		close:           func() { _ = client.Close() },
 	}, nil
 }
 
@@ -220,7 +217,9 @@ const usage = `usage:
                           is set in this shell to the project's value; unset = off, delete the printed objects by hand)
   opsctl backfill-media-orphans --project P [--dry-run] [--after MEDIA_ID]   (one-off per project; <= 5,000 writes per run:
                           published, unattached media predating the orphan sweep become candidates in 7 days)
-  opsctl media-orphan-sweep --project P   (drains the daily orphan sweep's backlog; set PROFILE_MEDIA_RETIRE to the project's value)
+  opsctl media-orphan-sweep --project P --profile-retire off|banner|all [--dry-run]   (drains the daily orphan sweep's
+                          backlog in delete mode whatever MEDIA_ORPHAN_SWEEP says; --profile-retire has no default and the
+                          shell's PROFILE_MEDIA_RETIRE is not read; --dry-run computes one page and writes nothing)
 ` + modUsage + trendsUsage + listsUsage + beaconUsage + communityUsage + communityHiddenUsage
 
 // run returns the process exit code: 0 ok, 1 runtime failure, 2 usage error.
@@ -234,10 +233,11 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.SetOutput(errOut)
 	project := fs.String("project", "", "GCP project id (required)")
 	uid := fs.String("uid", "", "user id (required)")
-	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, backfill-media-orphans, suspend-user, unsuspend-user, clear-profile-fields, messages takedown, lists hide|restore, beacon hide|restore, community suspend|restore|archive: print counts|restore: print counts or the plan, write nothing (other commands reject it)")
+	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, backfill-media-orphans, media-orphan-sweep, suspend-user, unsuspend-user, clear-profile-fields, messages takedown, lists hide|restore, beacon hide|restore, community suspend|restore|archive: print counts|restore: print counts or the plan, write nothing (other commands reject it)")
 	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
 	after := fs.String("after", "", "backfill-has-media, backfill-media-orphans: resume after this post or media id (the checkpoint a capped run printed)")
+	profileRetire := fs.String("profile-retire", "", "media-orphan-sweep (required, no default): off|banner|all, which unshown profile images the sweep may delete")
 	var ma modArgs
 	fs.StringVar(&ma.id, "id", "", "reports show|resolve: report id")
 	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post: post id")
@@ -324,13 +324,25 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	}
 	// --dry-run is honoured only where there is a dry-run path; accepting it elsewhere would WRITE after the
 	// moderator asked for a preview.
-	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "suspend-user" && cmd != "unsuspend-user" && cmd != "clear-profile-fields" && cmd != "messages" && cmd != "lists" && cmd != "beacon" && cmd != "community" {
+	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "media-orphan-sweep" && cmd != "suspend-user" && cmd != "unsuspend-user" && cmd != "clear-profile-fields" && cmd != "messages" && cmd != "lists" && cmd != "beacon" && cmd != "community" {
 		fmt.Fprintf(errOut, "--dry-run is not supported by %s\n%s", cmd, usage)
 		return 2
 	}
 	// --after resumes a capped backfill; on any other command it would be silently ignored.
 	if *after != "" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" {
 		fmt.Fprintf(errOut, "--after is not supported by %s\n%s", cmd, usage)
+		return 2
+	}
+	// media-orphan-sweep deletes profile images only as --profile-retire says; there is no default, and nothing else takes it.
+	var sweepRetire config.ProfileMediaRetire
+	if cmd == "media-orphan-sweep" {
+		var err error
+		if sweepRetire, err = config.ParseProfileMediaRetire(*profileRetire); err != nil || *profileRetire == "" {
+			fmt.Fprintf(errOut, "media-orphan-sweep needs --profile-retire off|banner|all (no default)\n%s", usage)
+			return 2
+		}
+	} else if *profileRetire != "" {
+		fmt.Fprintf(errOut, "--profile-retire is not supported by %s\n%s", cmd, usage)
 		return 2
 	}
 	if !validBackfillAfter(*after) {
@@ -420,6 +432,10 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		fmt.Fprintln(errOut, "--uid is not a valid user id")
 		return 2
 	}
+	if cmd == "media-orphan-sweep" {
+		// Printed before the prod prompt, so the operator confirms while reading the effective switches and clock.
+		fmt.Fprint(out, mediaOrphanSweepHeader(*project, sweepRetire, *dryRun, now()))
+	}
 	if isProd(*project) && !confirmed(in, out, *project) {
 		fmt.Fprintln(errOut, "aborted: confirmation did not match")
 		return 1
@@ -440,7 +456,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	case "backfill-media-orphans":
 		err = backfillMediaOrphans(ctx, b, *after, *dryRun, out, now)
 	case "media-orphan-sweep":
-		err = mediaOrphanSweep(ctx, b, out, now)
+		err = mediaOrphanSweep(ctx, b, sweepRetire, *dryRun, out, now)
 	case "purge-graph":
 		err = purge(ctx, b, *uid, *dryRun, *skipGate, out, now)
 	case "purge-posts":
