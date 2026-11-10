@@ -135,9 +135,12 @@ class ComposerScreen extends StatelessWidget {
     }
     // Unsent posts: `drafts` on, a signed-in account, and a new root
     // post (a quote never has a draft). Nothing draft-related is read from
-    // the tree otherwise.
+    // the tree otherwise. A cache that keeps nothing (the web start-up
+    // fallback) can never read a draft back, so drafts act as off there.
     final uid =
-        quoteOfPostId.isEmpty && featureEnabledSnapshot(context, kFeatureDrafts)
+        quoteOfPostId.isEmpty &&
+            featureEnabledSnapshot(context, kFeatureDrafts) &&
+            !(context.read<AppDatabase?>()?.keepsNothing ?? false)
         ? (context.read<AuthBloc>().state.user?.uid ?? '')
         : '';
     if (uid.isNotEmpty && draftId.isNotEmpty) {

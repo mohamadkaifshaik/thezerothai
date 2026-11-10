@@ -2,12 +2,22 @@ import 'dart:io';
 
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
+import 'package:dzeroth/app/session_wiring.dart';
+import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/core/storage/cache_database_open.dart';
 import 'package:dzeroth/core/telemetry/crash_payload.dart';
 import 'package:dzeroth/features/posts/data/drafts_repository.dart';
 import 'package:dzeroth/features/posts/domain/composer_draft.dart';
+import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
+import 'package:dzeroth/features/timeline/data/timeline_repository.dart';
+import 'package:dzeroth/features/timeline/data/timeline_store.dart';
+import 'package:dzeroth/features/timeline/domain/feed_key.dart';
+import 'package:dzeroth/gen/dzeroth/timeline/v1/timeline.pb.dart' as tl;
 import 'package:flutter_test/flutter_test.dart';
+
+import '../../support/fake_transport.dart';
+import '../../support/posts_fixtures.dart';
 
 /// A path shaped like an Android app directory, with a long digit run: it
 /// must never reach a report.
@@ -221,6 +231,151 @@ void main() {
       expect(reportsOf(result), hasLength(1));
     },
   );
+
+  group('the in-memory database fails too (web without sqlite3.wasm)', () {
+    // On the web the in-memory executor is `DatabaseConnection.delayed`: it
+    // fails late, at the first statement (the claim), like this lazy one.
+    QueryExecutor lazyWasmFailure() => LazyDatabase(
+      () async => throw UnsupportedError('sqlite3.wasm could not be loaded'),
+    );
+
+    Future<OpenedCacheDatabase> openWithoutSqlite(
+      String? uid, {
+      QueryExecutor Function()? inMemory,
+    }) async {
+      final result = await openCacheDatabase(
+        restoredUid: uid,
+        openOnDisk: () => throw const FileSystemException('cannot', _diskPath),
+        inMemoryExecutor: inMemory ?? lazyWasmFailure,
+      ).timeout(const Duration(seconds: 10));
+      opened.add(result.database);
+      return result;
+    }
+
+    test('start-up completes on a cache that keeps nothing, reported once '
+        'with the type only', () async {
+      final result = await openWithoutSqlite('a');
+
+      expect(result.inMemory, isTrue);
+      expect(result.database.keepsNothing, isTrue);
+      final reports = reportsOf(result);
+      expect(reports, hasLength(1));
+      final (error, stack) = reports.single;
+      expect(error, isA<CacheDatabaseUnavailable>());
+      expect(crashPayloadFor(error).toString(), 'CacheDatabaseUnavailable');
+      expect(error.toString(), isNot(contains('/data/')));
+      expect(stack, isNot(StackTrace.empty));
+    });
+
+    test('an in-memory executor that throws when built (the stub) is '
+        'survived too', () async {
+      final result = await openWithoutSqlite(
+        null,
+        inMemory: () => throw UnsupportedError('no in-memory database'),
+      );
+
+      expect(result.database.keepsNothing, isTrue);
+      expect(reportsOf(result), hasLength(1));
+    });
+
+    test('the failed in-memory database is closed, once', () async {
+      final memory = _Disk(); // records the close
+      var opens = 0;
+      final result = await openWithoutSqlite(
+        'a',
+        inMemory: () => LazyDatabase(() async {
+          opens++;
+          throw UnsupportedError('sqlite3.wasm could not be loaded');
+        }).interceptWith(memory),
+      );
+
+      expect(result.database.keepsNothing, isTrue);
+      expect(memory.closed, isTrue);
+      expect(opens, 1, reason: 'no retry loop');
+    });
+
+    group('every start-up and session path runs without throwing', () {
+      late AppDatabase db;
+
+      setUp(() async {
+        db = (await openWithoutSqlite('a')).database;
+      });
+
+      test('settings and the owner stamp read as absent', () async {
+        await db.writeSetting('appearance', 'dark');
+        expect(await db.readSetting('appearance'), isNull);
+        expect(await db.readSetting(kCacheOwnerKey), isNull);
+        expect(await db.cachedFollowingIds(), isEmpty);
+        expect(await db.savedExport('a'), isNull);
+      });
+
+      test('sign-out and an account switch: the epoch ends, the wipe and '
+          'the claim complete', () async {
+        final timeline = TimelineRepository(
+          apiClient: ApiClient.withTransport(
+            FakeTransport((_, _) async => throw StateError('no RPC expected')),
+          ),
+          store: TimelineStore(db),
+          gate: PostsFeatureGate(isPostsEnabled: () => true),
+        );
+        final before = db.sessionEpoch.value;
+        await wipeSessionData(database: db, timelineRepository: timeline);
+        expect(db.sessionEpoch.value, greaterThan(before));
+        await db.claimCacheFor('b');
+        await db.claimCacheFor(null);
+        await db.clearAll();
+      });
+
+      test('feed load: the RPC is sent, nothing is kept', () async {
+        final transport = FakeTransport(
+          (_, _) async => tl.GetHomeTimelineResponse(
+            posts: [postView(2), postView(1)],
+            sinceToken: 's1',
+          ),
+        );
+        final timeline = TimelineRepository(
+          apiClient: ApiClient.withTransport(transport),
+          store: TimelineStore(db),
+          gate: PostsFeatureGate(isPostsEnabled: () => true),
+        );
+
+        expect((await timeline.cached(const FeedKey.home())).entries, isEmpty);
+        final snapshot = await timeline.refresh(const FeedKey.home());
+        expect(transport.calledProcedures, hasLength(1));
+        // The feed is read back from the cache, which keeps nothing.
+        expect(snapshot.entries, isEmpty);
+        await timeline.loadOlder(const FeedKey.home());
+      });
+
+      test('composer drafts: save, read, list, count and claim', () async {
+        final drafts = DraftsRepository(db);
+        addTearDown(drafts.cancelPending);
+        final now = DateTime.now().toUtc();
+        final draft = ComposerDraft(
+          id: 'd1',
+          uid: 'a',
+          text: 'hello',
+          createdAt: now,
+          updatedAt: now,
+        );
+
+        expect(await drafts.upsert(draft), DraftSaveResult.saved);
+        expect(await drafts.read('a', 'd1'), isNull);
+        expect(await drafts.watch('a').first, isEmpty);
+        expect(await drafts.count('a'), 0);
+        expect(await drafts.watchCount('a').first, 0);
+        await drafts.claimSend(
+          draft: draft,
+          kind: SendKind.post,
+          newKey: () => 'k1',
+        );
+        await drafts.clearSend('a', 'd1', 'k1');
+        expect(await drafts.purgeExpired('a'), 0);
+        await drafts.delete('a', ['d1']);
+        await drafts.deleteAll('a');
+      });
+    });
+  });
 
   group('the in-memory fallback works for every cache writer', () {
     late AppDatabase db;

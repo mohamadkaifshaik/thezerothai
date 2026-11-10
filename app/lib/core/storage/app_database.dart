@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
+import 'keep_nothing_executor.dart';
 import 'session_epoch.dart';
 
 part 'app_database.g.dart';
@@ -336,10 +337,24 @@ class ComposerDraftEntries extends Table {
   ],
 )
 class AppDatabase extends _$AppDatabase {
-  AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
+  AppDatabase([QueryExecutor? executor])
+    : keepsNothing = false,
+      super(executor ?? _openConnection());
 
   /// Test-only in-memory database.
-  AppDatabase.forTesting(super.executor);
+  AppDatabase.forTesting(super.executor) : keepsNothing = false;
+
+  /// A cache that stores nothing ([keepNothingExecutor]): start-up's last
+  /// resort when no sqlite database can be used at all, e.g. on the web when
+  /// `sqlite3.wasm` cannot be loaded (see `openCacheDatabase`).
+  AppDatabase.keepingNothing()
+    : keepsNothing = true,
+      super(keepNothingExecutor());
+
+  /// True for [AppDatabase.keepingNothing]: every read finds nothing and
+  /// every write is dropped, so a feature that must read back what it wrote
+  /// (the composer's drafts) treats itself as off.
+  final bool keepsNothing;
 
   /// The one session epoch every cache writer checks inside its write
   /// transaction; ended on sign-out before [clearAll].
