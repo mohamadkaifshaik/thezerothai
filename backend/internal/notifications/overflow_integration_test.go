@@ -74,7 +74,11 @@ func TestIntegration_ListHidesOmittedBlockerAfterBlockedByOverflow(t *testing.T)
 	if got := strings.Join(idsOf(list.Notifications), ","); got != "like_"+c {
 		t.Fatalf("B's notifications = %q, want only like_%s (A's row hidden)", got, c)
 	}
-	if n := list.Notifications[0]; n.Actor.UserID != c || n.ActorCount != 1 {
-		t.Errorf("collapsed row actor=%s count=%d, want %s and 1 (A subtracted)", n.Actor.UserID, n.ActorCount, c)
+	if n := list.Notifications[0]; n.Actor.UserID != c || n.ActorCount != 1 || ToProto(n).GetActorCount() != 1 {
+		t.Errorf("collapsed row actor=%s count=%d wire=%d, want %s and 1 (A subtracted)", n.Actor.UserID, n.ActorCount, ToProto(n).GetActorCount(), c)
+	}
+	// The GetMe badge agrees with the list: A's row is not counted (the overflow lookup), C's row is.
+	if badge, err := NewUnreadBadge(notifRepo, graphSvc, graphSvc).UnreadNotifications(ctx, b, time.Time{}); err != nil || badge != 1 {
+		t.Errorf("badge = %d, %v; want 1 (A's row hidden by the overflow lookup)", badge, err)
 	}
 }

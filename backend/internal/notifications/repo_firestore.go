@@ -236,6 +236,52 @@ func (r *FirestoreRepo) List(ctx context.Context, uid string, q ListQuery) ([]No
 	return out, nil
 }
 
+var _ UnreadStore = (*FirestoreRepo)(nil)
+
+// unseen is the badge's base query: the caller's rows with createdAt > since. One inequality on createdAt is served
+// by the automatic single-field index (createdAt is not exempted in firebase/firestore.indexes.json).
+func (r *FirestoreRepo) unseen(uid string, since time.Time) firestore.Query {
+	return r.notifications(uid).Where("createdAt", ">", since)
+}
+
+// CountUnread implements UnreadStore: one count() aggregation, Limit limit (billed as one read).
+func (r *FirestoreRepo) CountUnread(ctx context.Context, uid string, since time.Time, limit int) (int64, error) {
+	q := r.unseen(uid, since).Limit(limit)
+	res, err := q.NewAggregationQuery().WithCount("count").Get(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("notifications: count unread for %s: %w", logger.HashUID(uid), err)
+	}
+	var out struct {
+		Count int64 `firestore:"count"`
+	}
+	if err := res.DataTo(&out); err != nil {
+		return 0, fmt.Errorf("notifications: decode unread count for %s: %w", logger.HashUID(uid), err)
+	}
+	return out.Count, nil
+}
+
+// UnreadActors implements UnreadStore: the newest limit unseen rows, projected to actor.userId (one read per row
+// returned, one when none).
+func (r *FirestoreRepo) UnreadActors(ctx context.Context, uid string, since time.Time, limit int) ([]string, error) {
+	docs, err := r.unseen(uid, since).OrderBy("createdAt", firestore.Desc).Select("actor.userId").Limit(limit).Documents(ctx).GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("notifications: unread actors for %s: %w", logger.HashUID(uid), err)
+	}
+	out := make([]string, 0, len(docs))
+	for _, s := range docs {
+		var d struct {
+			Actor struct {
+				UserID string `firestore:"userId"`
+			} `firestore:"actor"`
+		}
+		if err := s.DataTo(&d); err != nil {
+			return nil, fmt.Errorf("notifications: decode unread actor %s: %w", s.Ref.ID, err)
+		}
+		out = append(out, d.Actor.UserID)
+	}
+	return out, nil
+}
+
 // Devices implements Repo.
 func (r *FirestoreRepo) Devices(ctx context.Context, uid string, limit int) ([]Device, error) {
 	docs, err := r.devices(uid).Limit(limit).Documents(ctx).GetAll()

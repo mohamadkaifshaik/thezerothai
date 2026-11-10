@@ -218,6 +218,11 @@ type overflowBlocks struct {
 // as a failed caller-graph read: no row whose visibility is unknown is returned, and no token moves past rows that
 // were never shown.
 func (s *service) overflowBlockers(ctx context.Context, uid string, rows []Notification, snap graph.Snapshot) (*overflowBlocks, error) {
+	return lookupOverflowBlockers(ctx, s.d.Blocks, uid, rows, snap)
+}
+
+// lookupOverflowBlockers is overflowBlockers on an explicit lookup (List and the unread badge share it).
+func lookupOverflowBlockers(ctx context.Context, lookup BlockLookup, uid string, rows []Notification, snap graph.Snapshot) (*overflowBlocks, error) {
 	known := func(id string) bool { return id == "" || snapHides(snap, id) }
 	ov := &overflowBlocks{checked: map[string]bool{}}
 	candidates := make([]string, 0, graph.MaxBlockLookup)
@@ -238,10 +243,10 @@ func (s *service) overflowBlockers(ctx context.Context, uid string, rows []Notif
 	if len(candidates) == 0 {
 		return ov, nil
 	}
-	if s.d.Blocks == nil {
+	if lookup == nil {
 		return nil, logger.RedactErr(errors.New("notifications: caller blockedBy overflowed and no block lookup is wired"), uid)
 	}
-	blockers, err := s.d.Blocks.BlockersAmong(ctx, uid, candidates)
+	blockers, err := lookup.BlockersAmong(ctx, uid, candidates)
 	if err != nil {
 		// The cause chain can name other users' graph documents: redact every uid the lookup was asked about.
 		return nil, logger.RedactErr(fmt.Errorf("notifications: overflow block lookup: %w", err), append([]string{uid}, candidates...)...)

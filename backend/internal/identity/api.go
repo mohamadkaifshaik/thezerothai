@@ -229,7 +229,8 @@ type Repo interface {
 	// cache ("" for the no-op/case-only-rename paths, which never free a handle).
 	ChangeHandle(ctx context.Context, uid, newHandle, newHandleLower string, now time.Time, cooldown time.Duration) (profile Profile, invalidateOldHandleLower string, err error)
 	// UnreadNotificationCount runs a count() aggregation on users/{uid}/notifications with
-	// createdAt > since.
+	// createdAt > since. It counts rows the caller's block/mute context hides, so GetMe uses it only when no
+	// NotificationBadge is wired.
 	UnreadNotificationCount(ctx context.Context, uid string, since time.Time) (int64, error)
 	// GetProfiles batch-reads users/{uid} for every id in uids via one GetAll (<= 50 ids). Ids
 	// with no document are simply absent from the result map (not an error).
@@ -421,4 +422,14 @@ const MessagingFlag = "messaging"
 // (WithMessageBadge not called) leaves the count 0.
 type MessageBadge interface {
 	UnreadConversations(ctx context.Context, uid string) (int64, error)
+}
+
+// NotificationBadge is the consumer-side seam to the notifications module for GetMe.unread_notification_count (the
+// MessageBadge pattern: notifications imports identity, so identity never imports notifications).
+// notifications.UnreadBadge implements it: the rows newer than since that ListNotifications would show (rows whose
+// displayed actor the caller blocks or mutes, or who blocks the caller, are not counted), capped at 100. identity
+// caches the answer 30 s per uid. An error fails GetMe and is not cached. Without it (WithNotificationBadge not called)
+// GetMe falls back to Repo.UnreadNotificationCount, the raw count() that also counts hidden rows; apiserver always wires it.
+type NotificationBadge interface {
+	UnreadNotifications(ctx context.Context, uid string, since time.Time) (int64, error)
 }

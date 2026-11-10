@@ -212,6 +212,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// Messaging counts the unread conversations (identity never imports messaging); its repo is built here
 	// because identity needs the counter at construction and the messaging service needs identity.Directory.
 	messagingRepo := messaging.NewFirestoreRepo(fsClient, quota.New(fsClient))
+	// Notifications counts GetMe's unread badge the same way (identity never imports notifications): the repo is built
+	// here, before identity, and gets its Directory once identity exists (below).
+	notifRepo := notifications.NewFirestoreRepo(fsClient)
 	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
 		identity.WithFeatureFlags(featureFlags),
 		identity.WithBlockChecker(graphSvc),
@@ -225,6 +228,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithMediaRetirer(profileMediaRetirer{jobs: mediaMod.jobs}, log),
 		identity.WithPinChecker(pinChecker),
 		identity.WithMessageBadge(messaging.NewUnreadBadge(messagingRepo), log), // GetMe.unread_conversation_count
+		// GetMe.unread_notification_count: the unseen rows the caller would see (block, mute, blocked-by and the F-04
+		// overflow lookup applied), not the raw count().
+		identity.WithNotificationBadge(notifications.NewUnreadBadge(notifRepo, graphSvc, graphSvc)),
 		identity.WithExtrasFlags(featureFlags),
 		// An unprotect publishes the privacy_public job (graph accepts the pending requests).
 		identity.WithPrivacyListener(graph.NewPrivacyListener(jobsPublisher), log),
@@ -243,7 +249,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 
 	// --- notifications: rows + FCM push, fed by graph and posts through the emitter slot. The Firebase
 	// Messaging client and the Pub/Sub publisher are created lazily on first use (no I/O before ListenAndServe).
-	notifRepo := notifications.NewFirestoreRepo(fsClient).WithDirectory(identitySvc.(identity.Directory))
+	notifRepo.WithDirectory(identitySvc.(identity.Directory))
 	var pushSender notifications.PushSender = notifications.LogSender{Log: log}
 	var tokenValidator notifications.TokenValidator = notifications.NopValidator{}
 	if cfg.NotificationsDelivery == "pubsub" {

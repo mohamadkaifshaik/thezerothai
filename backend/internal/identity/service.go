@@ -55,6 +55,8 @@ type service struct {
 	// badge counts a messaging caller's unread conversations for GetMe; nil = always 0.
 	badge    MessageBadge
 	badgeLog *slog.Logger
+	// notifBadge counts the caller's visible unseen notifications for GetMe; nil = the raw Repo.UnreadNotificationCount.
+	notifBadge NotificationBadge
 	// pinLog and reqLog receive the WARN lines; nil means slog.Default.
 	pinLog, reqLog *slog.Logger
 	// authAudit turns on the GetMe sign-in identity audit (auth_baseline.go); false = the comparison never runs.
@@ -87,6 +89,12 @@ func WithFollowRequestCounter(c FollowRequestCounter, log *slog.Logger) Option {
 // a failed count; nil means slog.Default().
 func WithMessageBadge(b MessageBadge, log *slog.Logger) Option {
 	return func(s *service) { s.badge, s.badgeLog = b, log }
+}
+
+// WithNotificationBadge wires GetMe's unread_notification_count to the notifications module's filtered count. Nil
+// keeps the raw Repo.UnreadNotificationCount, which also counts rows the caller's block/mute context hides.
+func WithNotificationBadge(b NotificationBadge) Option {
+	return func(s *service) { s.notifBadge = b }
 }
 
 // WithAvatarResolver wires UpdateProfile.avatar_media_id. Nil keeps non-empty values rejected.
@@ -247,7 +255,8 @@ func (s *service) CheckHandleAvailability(ctx context.Context, handle string) (b
 	}
 }
 
-// GetMe returns the caller's profile plus the unread notification count.
+// GetMe returns the caller's profile plus the unread notification count: on a 30 s cache miss, the NotificationBadge's
+// count of the unseen rows the caller would see (see notifications.UnreadBadge for its reads), else the raw count().
 // enabled_features comes from the FeatureFlags provider, with no extra read.
 // pending_follow_request_count is one count() on followRequests, only for a caller whose isPrivate is true and whose
 // 30 s cached count is gone; every other caller (a public caller never reaches the counter) and every hit reads
@@ -273,13 +282,30 @@ func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 		res.UnreadNotificationCount = n
 		return res, nil
 	}
-	n, err := s.repo.UnreadNotificationCount(ctx, uid, profile.NotificationsSeenAt)
+	n, err := s.unreadNotifications(ctx, uid, profile.NotificationsSeenAt)
 	if err != nil {
 		return MeResult{}, logger.RedactErr(fmt.Errorf("identity: get me: %w", err), uid)
 	}
 	s.cache.SetUnreadCount(uid, n)
 	res.UnreadNotificationCount = n
 	return res, nil
+}
+
+// unreadNotifications is the GetMe notifications badge before caching: the NotificationBadge when wired (the rows the
+// caller would see), else the raw count.
+func (s *service) unreadNotifications(ctx context.Context, uid string, since time.Time) (int64, error) {
+	if s.notifBadge != nil {
+		n, err := s.notifBadge.UnreadNotifications(ctx, uid, since)
+		if err != nil {
+			return 0, fmt.Errorf("notification badge: %w", err)
+		}
+		return n, nil
+	}
+	n, err := s.repo.UnreadNotificationCount(ctx, uid, since)
+	if err != nil {
+		return 0, fmt.Errorf("unread notification count: %w", err)
+	}
+	return n, nil
 }
 
 // unreadConversations is the GetMe messages badge: the caller's unread conversations when messaging is on for the caller
