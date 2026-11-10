@@ -3,8 +3,10 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/network/app_exception.dart';
+import '../../../core/router/app_router.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../data/graph_repository.dart';
+import '../../settings/presentation/settings_up.dart';
 import 'bloc/user_list_cubit.dart';
 import 'graph_error_messages.dart';
 import 'widgets/paged_user_list.dart';
@@ -128,6 +130,15 @@ class _ManagedAccountsScreenState extends State<_ManagedAccountsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        // The tablet layout with nothing to pop: up to Privacy & safety.
+        leading: settingsUpButton(
+          context,
+          settingsUpLocation(
+            _isBlocked
+                ? AppRouter.blockedAccountsPath
+                : AppRouter.mutedAccountsPath,
+          ),
+        ),
         title: Text(_isBlocked ? 'Blocked accounts' : 'Muted accounts'),
       ),
       body: PagedUserList(

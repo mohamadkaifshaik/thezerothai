@@ -32,7 +32,11 @@ export 'shell_geometry.dart' show ShellLayout;
 ///   From 840dp (band B), when the page has [contextSections], the content
 ///   splits into the primary pane and the [ContextPane] after a 1dp hairline
 ///   (`ShellGeometry.contextPaneWidthFor`); below 840 (band A) the body keeps
-///   the whole content. [sideColumn] and [masterPane] are not shown there.
+///   the whole content. From 840dp a [masterPane] (list-detail: Settings)
+///   comes before the body instead, as the list pane of
+///   `ShellGeometry.listPaneWidthFor` and a 1dp hairline; the body is then
+///   the detail, and no context pane is shown. [sideColumn] is not shown
+///   there, and neither is [masterPane] below 840.
 /// - `>= 1200dp` (desktop/web): an extended `NavigationRail` with the "Post"
 ///   pill on top and the account chip at the bottom, the 600dp content column
 ///   between two hairlines, and the 350dp [sideColumn] when a screen provides
@@ -113,9 +117,11 @@ class ResponsiveScaffold extends StatefulWidget {
   /// Builds the account chip of the rail (`extended`: with the name block).
   final Widget Function(bool extended)? accountChipBuilder;
 
-  /// A list pane shown only at desktop widths, between the rail and the
-  /// [body] (master-detail: Settings). It takes the place of the
-  /// [sideColumn].
+  /// A list pane between the rail and the [body] (master-detail: Settings).
+  /// Shown at desktop widths, where it takes the place of the [sideColumn],
+  /// and on the tablet layout from 840dp (band B), where it takes the place
+  /// of the context pane. Ignored on phones, in band A and in the legacy
+  /// layout below 1200dp.
   final Widget? masterPane;
 
   /// Whether the narrow layout uses the redesigned chrome (`ui_shell`): the
@@ -222,11 +228,14 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
   ) {
     final compose = widget.onCompose;
     final sections = widget.contextSections;
+    final bandB = geometry.band == ShellBand.expanded;
+    // Band B list-detail (Settings): the list pane before the body, which is
+    // then the detail. A page never has both (plan section 3: "the context
+    // pane is not shown with LD").
+    final master = bandB ? widget.masterPane : null;
     // Band B with sections: the primary pane and the context pane.
     final pane =
-        geometry.band == ShellBand.expanded &&
-            sections != null &&
-            sections.isNotEmpty
+        master == null && bandB && sections != null && sections.isNotEmpty
         ? sections
         : null;
     final colors = context.appColors;
@@ -235,6 +244,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SizedBox(
+            key: const ValueKey('tablet-rail'),
             width: geometry.railWidth,
             // Focus order: the rail, then the pane.
             child: FocusTraversalGroup(
@@ -251,7 +261,32 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
               ),
             ),
           ),
+          // Focus order: the rail, the list pane, then the detail.
+          if (master != null)
+            SizedBox(
+              key: const ValueKey('tablet-list-pane'),
+              width: ShellGeometry.listPaneWidthFor(geometry.content.width) + 1,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  border: BorderDirectional(
+                    end: BorderSide(color: colors.hairline),
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsetsDirectional.only(end: 1),
+                  child: MediaQuery.removePadding(
+                    context: context,
+                    removeLeft: true,
+                    removeRight: true,
+                    child: FocusTraversalGroup(child: master),
+                  ),
+                ),
+              ),
+            ),
           Expanded(
+            // Keyed: the list pane appearing before it at 840dp must not
+            // remount the page (the shell navigator and its pages' state).
+            key: const ValueKey('tablet-primary'),
             // The rail took the leading inset and the strip below takes the
             // trailing one (a `ListView` pads only along its scroll axis, so
             // the pane must stop there itself): the pane is

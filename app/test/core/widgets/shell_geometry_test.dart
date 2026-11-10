@@ -53,6 +53,31 @@ void main() {
     });
   });
 
+  group('ShellGeometry.listPaneWidthFor (band B, code LD, T4)', () {
+    // Plan section 3: list = clamp(0.4 * C, 320, 400) in whole dp, detail =
+    // the rest after the 1 dp hairline (840: 320 / 439; 1024: 377 / 566;
+    // 1199: 400 / 718).
+    final table = <double, (double, double)>{
+      840: (320, 439),
+      1024: (377, 566),
+      1133: (400, 652),
+      1199: (400, 718),
+    };
+    for (final MapEntry(key: w, value: (list, detail)) in table.entries) {
+      test('${w.toInt()} dp: list ${list.toInt()} / detail '
+          '${detail.toInt()}', () {
+        final c = w - AppSize.railCompact;
+        expect(ShellGeometry.listPaneWidthFor(c), list);
+        expect(c - 1 - ShellGeometry.listPaneWidthFor(c), detail);
+      });
+    }
+
+    test('clamped to 320..400 at the extremes', () {
+      expect(ShellGeometry.listPaneWidthFor(0), AppSize.listPaneMin);
+      expect(ShellGeometry.listPaneWidthFor(5000), AppSize.listPaneMax);
+    });
+  });
+
   group('ShellGeometry.contentRectFor', () {
     test('tablet layout, no insets: C = W - 80 (plan section 3)', () {
       final expected = {

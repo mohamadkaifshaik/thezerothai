@@ -16,6 +16,7 @@ import '../../auth/presentation/bloc/auth_event.dart';
 import '../../auth/presentation/bloc/auth_state.dart';
 import '../../notifications/data/push_opt_in_store.dart';
 import '../../posts/data/drafts_repository.dart';
+import '../../settings/presentation/settings_up.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../data/account_repository.dart';
@@ -181,7 +182,15 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
           final enabled =
               !working && confirmed && state.status != AccountStatus.deleted;
           return Scaffold(
-            appBar: AppBar(title: const Text('Delete account')),
+            appBar: AppBar(
+              // The tablet layout with nothing to pop: up to Your account
+              // (never at `/onboarding/delete-account`: no shell there).
+              leading: settingsUpButton(
+                context,
+                settingsUpLocation(AppRouter.deleteAccountPath),
+              ),
+              title: const Text('Delete account'),
+            ),
             body: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 600),

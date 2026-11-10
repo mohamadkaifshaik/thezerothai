@@ -14,6 +14,7 @@ import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/domain/handle_rules.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_event.dart';
+import '../../settings/presentation/settings_up.dart';
 import 'bloc/change_handle_cubit.dart';
 import 'profile_edit_error_messages.dart';
 import 'widgets/profile_edit_unavailable.dart';
@@ -91,7 +92,8 @@ class _ChangeHandleViewState extends State<_ChangeHandleView> {
     if (context.canPop()) {
       context.pop();
     } else {
-      context.go(AppRouter.settingsPath);
+      // Settings, or its Your account category on the tablet layout.
+      context.go(settingsLeafExitLocation(context, AppRouter.changeHandlePath));
     }
   }
 

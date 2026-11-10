@@ -8,22 +8,24 @@ import 'app_tile_icon.dart';
 
 /// One Settings section: a [title] header above a card whose [rows] are
 /// separated by hairlines. Shared by the Settings screen and the shell pages
-/// (Creator Studio, Calls...).
+/// (Creator Studio, Calls...). With no [title] the card stands alone (a
+/// Settings category page, whose bar already names it).
 class SettingsGroup extends StatelessWidget {
-  const SettingsGroup({super.key, required this.title, required this.rows})
+  const SettingsGroup({super.key, this.title, required this.rows})
     : assert(rows.length > 0, 'an empty group must not be built');
 
-  final String title;
+  final String? title;
   final List<Widget> rows;
 
   @override
   Widget build(BuildContext context) {
+    final title = this.title;
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          AppSectionHeader(title: title),
+          if (title != null) AppSectionHeader(title: title),
           AppSurface(
             padding: EdgeInsets.zero,
             margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),

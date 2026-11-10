@@ -19,6 +19,7 @@ import '../../media/domain/media_feature_flag.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_event.dart';
+import '../../settings/presentation/settings_up.dart';
 import '../domain/profile_edit_feature_flag.dart';
 import '../domain/profile_extras_rules.dart';
 import 'bloc/edit_profile_cubit.dart';
@@ -122,7 +123,8 @@ class _EditProfileViewState extends State<_EditProfileView> {
     if (context.canPop()) {
       context.pop(saved);
     } else {
-      context.go(AppRouter.settingsPath);
+      // Settings, or its Your account category on the tablet layout.
+      context.go(settingsLeafExitLocation(context, AppRouter.editProfilePath));
     }
   }
 
