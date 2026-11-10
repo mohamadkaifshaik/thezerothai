@@ -19,11 +19,32 @@ import 'theme_harness.dart';
 class FakeOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
+/// [child] under an `OnboardingBloc` whose `enabled_features` is [features];
+/// each set [changes] emits replaces it, as a fresh `GetMe` would. Call it
+/// inside a test: the bloc is closed on tear-down.
+Widget withPlansFeatures(
+  Widget child,
+  Set<String> features, {
+  Stream<Set<String>>? changes,
+}) {
+  OnboardingState ready(Set<String> set) =>
+      OnboardingState(status: OnboardingStatus.ready, enabledFeatures: set);
+  final onboarding = FakeOnboardingBloc();
+  whenListen(
+    onboarding,
+    changes?.map(ready) ?? const Stream<OnboardingState>.empty(),
+    initialState: ready(features),
+  );
+  addTearDown(onboarding.close);
+  return BlocProvider<OnboardingBloc>.value(value: onboarding, child: child);
+}
+
 /// Mounts [routes] under a real [GoRouter] (so `context.push` works) with the
 /// Plans repositories provided, at [env]'s theme, size and text scale.
 /// [features] provides an `OnboardingBloc` whose `enabled_features` is that
-/// set (null: no bloc, for screens that read no flag). Returns the router for
-/// location assertions.
+/// set (null: no bloc, for screens that read no flag); each set
+/// [featureChanges] emits replaces it, as a fresh `GetMe` would. Returns the
+/// router for location assertions.
 Future<GoRouter> pumpPlansRouter(
   WidgetTester tester, {
   required BeaconsRepository beacons,
@@ -32,6 +53,7 @@ Future<GoRouter> pumpPlansRouter(
   ModerationRepository? moderation,
   MessagingRepository? messaging,
   Set<String>? features,
+  Stream<Set<String>>? featureChanges,
   required List<GoRoute> routes,
   String initialLocation = '/plans',
   MatrixEnv? env,
@@ -49,17 +71,7 @@ Future<GoRouter> pumpPlansRouter(
     routerConfig: router,
   );
   if (features != null) {
-    final onboarding = FakeOnboardingBloc();
-    whenListen(
-      onboarding,
-      const Stream<OnboardingState>.empty(),
-      initialState: OnboardingState(
-        status: OnboardingStatus.ready,
-        enabledFeatures: features,
-      ),
-    );
-    addTearDown(onboarding.close);
-    app = BlocProvider<OnboardingBloc>.value(value: onboarding, child: app);
+    app = withPlansFeatures(app, features, changes: featureChanges);
   }
   await tester.pumpWidget(
     MultiRepositoryProvider(

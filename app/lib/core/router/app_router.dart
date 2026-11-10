@@ -194,8 +194,10 @@ class AppRouter {
       '${communityPath(communityId)}/moderation-log';
   static String communityMembersPath(String communityId) =>
       '${communityPath(communityId)}/members';
-  // Plans (beacons), behind the `beacons` flag redirect. `/plans/new` is
-  // matched before `/plans/:id`.
+  // Plans (beacons). With `beacons` off, `/plans` shows the paused state in
+  // the new shell and the pages under it redirect there (ADR-0034 section 4);
+  // the legacy chrome redirects all of them Home. `/plans/new` is matched
+  // before `/plans/:id`.
   static const plansPath = '/plans';
   static const planNewPath = '/plans/new';
   static String planPath(String beaconId) =>
@@ -1063,13 +1065,20 @@ class AppRouter {
 
   static final _plansRoutes = RegExp(r'^/plans(?:/|$)');
 
-  /// `/plans` and everything under it redirect Home unless `beacons` is on
-  /// for this caller. The server stays authoritative.
+  /// `/plans...` with `beacons` off for this caller. In the new shell
+  /// (`ui_shell` on) Plans is never turned off (ADR-0034 section 4): `/plans`
+  /// opens and shows the paused state, and everything under it (`/plans/new`,
+  /// `/plans/mine`, `/plans/:id`, `/plans/:id/edit`, `/plans/:id/people`)
+  /// redirects to `/plans`, so a deep link to a plan lands on the paused
+  /// state and nothing is a dead end. The legacy chrome has no Plans
+  /// destination and keeps redirecting all of them Home. With `beacons` on
+  /// nothing redirects. The server stays authoritative.
   String? _plansFlagRedirect(String loc) {
     if (!_plansRoutes.hasMatch(loc)) return null;
-    return _onboardingBloc.state.enabledFeatures.contains(kFeatureBeacons)
-        ? null
-        : homePath;
+    final features = _onboardingBloc.state.enabledFeatures;
+    if (features.contains(kFeatureBeacons)) return null;
+    if (!features.contains(kFeatureUiShell)) return homePath;
+    return loc == plansPath ? null : plansPath;
   }
 
   /// `/search` redirects Home unless `search` is on for this caller.

@@ -1,4 +1,5 @@
 import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
+import 'package:dzeroth/features/beacons/domain/beacons_feature_flag.dart';
 import 'package:dzeroth/features/beacons/presentation/beacon_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/beacons_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/beacon_people_screen.dart';
@@ -11,6 +12,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/beacons_fixtures.dart';
+import '../../../support/beacons_rig.dart';
 import '../../../support/fake_beacons_server.dart';
 import '../../../support/geometry.dart';
 import '../../../support/theme_harness.dart';
@@ -53,7 +55,14 @@ void main() {
           accepted: 3,
         ),
       ]);
-      await open(tester, const BeaconsScreen(), server, env);
+      // The list reads the flag; off is the paused state, whose matrix is in
+      // beacons_screen_paused_test.dart.
+      await open(
+        tester,
+        withPlansFeatures(const BeaconsScreen(), const {kFeatureBeacons}),
+        server,
+        env,
+      );
       expectNoOverflow(tester);
       expect(find.text('Full'), findsOneWidget);
     },

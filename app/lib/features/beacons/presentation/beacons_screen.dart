@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/feature_flags/feature_flags.dart';
+import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_shell_scope.dart';
+import '../../../core/widgets/app_state_view.dart';
 import '../../../core/widgets/app_top_bar.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
@@ -12,6 +15,7 @@ import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../communities/data/communities_repository.dart';
 import '../data/beacons_repository.dart';
+import '../domain/beacons_feature_flag.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/beacons_cubit.dart';
 import 'bloc/beacons_state.dart';
@@ -19,14 +23,104 @@ import 'widgets/beacon_row.dart';
 
 /// `/plans`: the selected audience's upcoming plans (R30). The audience chips
 /// show only when the caller has joined communities to choose from.
-class BeaconsScreen extends StatefulWidget {
+///
+/// Plans is never turned off (ADR-0034 section 4): with `beacons` off for the
+/// caller the page stays and shows [kPlansPausedTitle] instead of the list,
+/// with no create action and no RPC. A kill switch in mid-session gets there
+/// by itself: the list shows the same paused page as soon as the server
+/// answers FEATURE_DISABLED (also when the `GetMe` the gate then asks for
+/// fails), and once the flag leaves `enabled_features` this widget rebuilds
+/// into the paused state.
+class BeaconsScreen extends StatelessWidget {
   const BeaconsScreen({super.key});
 
   @override
-  State<BeaconsScreen> createState() => _BeaconsScreenState();
+  Widget build(BuildContext context) {
+    return isFeatureEnabled(context, kFeatureBeacons)
+        ? const _PlansList()
+        : const _PlansPaused();
+  }
 }
 
-class _BeaconsScreenState extends State<BeaconsScreen> {
+/// The paused copy (accepted, ADR-0034 section 4).
+const kPlansPausedTitle = 'Plans are paused';
+const kPlansPausedBody =
+    'Your plans and requests are safe. They will show again when Plans is '
+    'back.';
+
+/// The page header, shared by the list and the paused state.
+class _PlansHeader extends StatelessWidget {
+  const _PlansHeader({this.actions = const []});
+
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppBackHeader(
+      title: 'Plans',
+      onBack: () {
+        if (context.canPop()) {
+          context.pop();
+        } else {
+          context.go(AppRouter.homePath);
+        }
+      },
+      // A primary destination: at the root of a phone shell it leads with the
+      // avatar (drawer, Profile) instead of Back; when something can be
+      // popped, Back stays.
+      leading:
+          MediaQuery.sizeOf(context).width < AppBreakpoints.mobile &&
+              AppShellScope.maybeOf(context) != null &&
+              !context.canPop()
+          ? const AppAvatarButton()
+          : null,
+      actions: actions,
+    );
+  }
+}
+
+/// `beacons` is off for the caller: the header and the notice, nothing else.
+/// It builds no cubit, so it sends nothing.
+class _PlansPaused extends StatelessWidget {
+  const _PlansPaused();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: SafeArea(child: AppMainColumn(child: _PlansPausedColumn())),
+    );
+  }
+}
+
+/// The paused page content: the header with no action, and the notice.
+class _PlansPausedColumn extends StatelessWidget {
+  const _PlansPausedColumn();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Column(
+      children: [
+        _PlansHeader(),
+        Expanded(
+          child: AppStateView(
+            icon: Icons.event_outlined,
+            title: kPlansPausedTitle,
+            body: kPlansPausedBody,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlansList extends StatefulWidget {
+  const _PlansList();
+
+  @override
+  State<_PlansList> createState() => _PlansListState();
+}
+
+class _PlansListState extends State<_PlansList> {
   late final BeaconsCubit _cubit;
 
   @override
@@ -46,14 +140,6 @@ class _BeaconsScreenState extends State<BeaconsScreen> {
     super.dispose();
   }
 
-  void _back() {
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.go(AppRouter.homePath);
-    }
-  }
-
   /// Opens [path] and reloads the list when it comes back: a plan created
   /// there, or one cancelled there, is shown on return (one ListBeacons; the
   /// chips are cached).
@@ -70,21 +156,18 @@ class _BeaconsScreenState extends State<BeaconsScreen> {
           child: BlocBuilder<BeaconsCubit, BeaconsState>(
             bloc: _cubit,
             builder: (context, state) {
+              // The server said the feature is off while the flag still
+              // lists it (a kill switch before the next `GetMe`, or that
+              // `GetMe` failing): the same paused page, with no action and
+              // no retry, so nothing more is sent from here.
+              // Whatever the status: a first load (error) and a Load more
+              // (ready, rows kept) end the same way.
+              if (state.error is FeatureDisabledException) {
+                return const _PlansPausedColumn();
+              }
               return Column(
                 children: [
-                  AppBackHeader(
-                    title: 'Plans',
-                    onBack: _back,
-                    // A primary destination: at the root of a phone shell it
-                    // leads with the avatar (drawer, Profile) instead of Back;
-                    // when something can be popped, Back stays.
-                    leading:
-                        MediaQuery.sizeOf(context).width <
-                                    AppBreakpoints.mobile &&
-                                AppShellScope.maybeOf(context) != null &&
-                                !context.canPop()
-                        ? const AppAvatarButton()
-                        : null,
+                  _PlansHeader(
                     actions: [
                       IconButton(
                         tooltip: 'My plans',

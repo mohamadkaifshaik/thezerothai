@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/router/app_router.dart';
@@ -29,6 +31,7 @@ import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../support/beacons_fixtures.dart';
@@ -57,8 +60,9 @@ class _NoThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// `/plans...` on the real router: needs the `beacons` flag, else Home
-/// (Review Focus 5); `/plans/new` is Create, not a plan called "new".
+/// `/plans...` on the real router. With `beacons` off: the new shell keeps
+/// `/plans` (paused) and sends the routes under it there; the legacy chrome
+/// sends all of them Home. `/plans/new` is Create, not a plan called "new".
 void main() {
   const user = AppUser(
     uid: 'uid-1',
@@ -75,8 +79,14 @@ void main() {
   Future<(String, FakeBeaconsServer)> openAt(
     WidgetTester tester,
     Set<String> flags,
-    String location,
-  ) async {
+    String location, {
+    Stream<Set<String>>? flagChanges,
+  }) async {
+    OnboardingState ready(Set<String> set) => OnboardingState(
+      status: OnboardingStatus.ready,
+      profile: identity.Profile(userId: 'uid-1', handle: 'me'),
+      enabledFeatures: set,
+    );
     final auth = _MockAuthBloc();
     final onboarding = _MockOnboardingBloc();
     final beacons = FakeBeaconsServer();
@@ -93,12 +103,8 @@ void main() {
     );
     whenListen(
       onboarding,
-      const Stream<OnboardingState>.empty(),
-      initialState: OnboardingState(
-        status: OnboardingStatus.ready,
-        profile: identity.Profile(userId: 'uid-1', handle: 'me'),
-        enabledFeatures: flags,
-      ),
+      flagChanges?.map(ready) ?? const Stream<OnboardingState>.empty(),
+      initialState: ready(flags),
     );
     final timeline = _MockTimeline();
     final posts = _MockPosts();
@@ -155,22 +161,96 @@ void main() {
     expect(AppRouter.planPath('12 3'), '/plans/12%203');
   });
 
-  testWidgets('beacons off: every route redirects Home, no RPC', (
+  const everyPlansRoute = [
+    '/plans',
+    '/plans/new',
+    '/plans/mine',
+    '/plans/$kBeaconIdA',
+    '/plans/$kBeaconIdA/people',
+    '/plans/$kBeaconIdA/edit',
+  ];
+
+  testWidgets('beacons off, new shell: /plans stays and is paused, every '
+      'route under it lands there, no RPC (ADR-0034 section 4)', (
     tester,
   ) async {
-    for (final location in [
-      '/plans',
-      '/plans/new',
-      '/plans/mine',
+    for (final location in everyPlansRoute) {
+      final (path, beacons) = await openAt(tester, const {
+        'ui_shell',
+      }, location);
+      expect(path, AppRouter.plansPath, reason: location);
+      expect(find.byType(BeaconsScreen), findsOneWidget, reason: location);
+      expect(find.text('Plans are paused'), findsOneWidget, reason: location);
+      expect(
+        find.text(
+          'Your plans and requests are safe. They will show again when Plans '
+          'is back.',
+        ),
+        findsOneWidget,
+        reason: location,
+      );
+      expect(find.byTooltip('New plan'), findsNothing, reason: location);
+      for (final screen in [
+        BeaconScreen,
+        CreateBeaconScreen,
+        MyBeaconsScreen,
+        BeaconPeopleScreen,
+        EditBeaconScreen,
+      ]) {
+        expect(find.byType(screen), findsNothing, reason: location);
+      }
+      expect(beacons.calls, isEmpty, reason: location);
+    }
+  });
+
+  testWidgets('kill switch in mid-session on /plans/<id>, new shell: the '
+      'flag drops and the plan redirects to /plans, paused, nothing more '
+      'sent', (tester) async {
+    final getMe = StreamController<Set<String>>();
+    addTearDown(getMe.close);
+    final (path, beacons) = await openAt(
+      tester,
+      const {'beacons', 'ui_shell'},
       '/plans/$kBeaconIdA',
-      '/plans/$kBeaconIdA/people',
-      '/plans/$kBeaconIdA/edit',
-    ]) {
+      flagChanges: getMe.stream,
+    );
+    expect(path, '/plans/$kBeaconIdA');
+    expect(find.byType(BeaconScreen), findsOneWidget);
+    expect(beacons.calls, ['get']);
+
+    // A fresh GetMe without `beacons`.
+    getMe.add(const {'ui_shell'});
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BeaconScreen), findsNothing);
+    expect(find.byType(BeaconsScreen), findsOneWidget);
+    expect(find.text('Plans are paused'), findsOneWidget);
+    expect(find.byTooltip('New plan'), findsNothing);
+    expect(beacons.calls, ['get']);
+    final context = tester.element(find.byType(BeaconsScreen));
+    expect(GoRouter.of(context).state.uri.path, AppRouter.plansPath);
+  });
+
+  testWidgets('beacons off, legacy chrome (ui_shell off): every route still '
+      'redirects Home, no RPC', (tester) async {
+    for (final location in everyPlansRoute) {
       final (path, beacons) = await openAt(tester, const {}, location);
       expect(path, AppRouter.homePath, reason: location);
       expect(find.byType(BeaconsScreen), findsNothing);
       expect(find.byType(BeaconScreen), findsNothing);
+      expect(find.text('Plans are paused'), findsNothing);
       expect(beacons.calls, isEmpty, reason: location);
+    }
+  });
+
+  testWidgets('beacons on, new shell: no route redirects', (tester) async {
+    for (final location in everyPlansRoute) {
+      final (path, _) = await openAt(tester, const {
+        'beacons',
+        'ui_shell',
+      }, location);
+      expect(path, location);
+      expect(find.text('Plans are paused'), findsNothing, reason: location);
     }
   });
 

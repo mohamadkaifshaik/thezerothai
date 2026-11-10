@@ -331,12 +331,13 @@ void main() {
   });
 
   group('phone (360dp)', () {
-    testWidgets('bottom bar with Home and Notifications only: no Profile, '
-        'no Settings', (tester) async {
+    testWidgets('bottom bar with Home, Plans and Notifications only: no '
+        'Profile, no Settings', (tester) async {
       await pump(tester);
 
       expect(find.byType(AppBottomBar), findsOneWidget);
       expect(find.byIcon(Icons.home), findsOneWidget);
+      expect(find.byIcon(Icons.track_changes), findsOneWidget);
       expect(find.byIcon(Icons.notifications_none), findsOneWidget);
       // The only person glyph left is the avatar fallback in the top bar.
       expect(
@@ -997,12 +998,12 @@ void main() {
                       .data,
             )
             .toList();
-        expect(labels, ['Home', 'Lists', 'Profile']);
+        expect(labels, ['Home', 'Plans', 'Lists', 'Profile']);
 
         await tester.tap(find.byIcon(Icons.list_alt_outlined));
         await tester.pumpAndSettle();
         expect(find.text('lists body'), findsOneWidget);
-        expect(tester.widget<NavigationRail>(rail).selectedIndex, 1);
+        expect(tester.widget<NavigationRail>(rail).selectedIndex, 2);
       });
     }
 
@@ -1043,12 +1044,12 @@ void main() {
                       .data,
             )
             .toList();
-        expect(labels, ['Home', 'Communities', 'Profile']);
+        expect(labels, ['Home', 'Plans', 'Communities', 'Profile']);
 
         await tester.tap(find.byIcon(Icons.groups_outlined));
         await tester.pumpAndSettle();
         expect(find.text('communities body'), findsOneWidget);
-        expect(tester.widget<NavigationRail>(rail).selectedIndex, 1);
+        expect(tester.widget<NavigationRail>(rail).selectedIndex, 2);
       });
     }
 
@@ -1070,61 +1071,122 @@ void main() {
     });
   });
 
-  group('Plans entry (beacons PR 6)', () {
-    for (final width in [600.0, 1300.0]) {
-      testWidgets('${width.toInt()}dp: a rail destination after Communities '
-          'that opens /plans', (tester) async {
-        await pump(
-          tester,
-          width: width,
-          flags: const {'communities', 'beacons'},
+  group('Plans entry (always there, ADR-0034 section 4)', () {
+    // The chrome that carries the destinations at this width.
+    Finder chrome(double width) =>
+        find.byType(width < 600 ? AppBottomBar : NavigationRail);
+
+    for (final beacons in [true, false]) {
+      final flags = {'communities', if (beacons) 'beacons'};
+      for (final width in [600.0, 1300.0]) {
+        testWidgets('${width.toInt()}dp, beacons ${beacons ? 'on' : 'off'}: '
+            'a rail destination after Home that opens /plans', (tester) async {
+          await pump(tester, width: width, flags: flags);
+
+          final rail = find.byType(NavigationRail);
+          final labels = tester
+              .widget<NavigationRail>(rail)
+              .destinations
+              .map(
+                (d) =>
+                    ((d.label is Semantics
+                                ? (d.label as Semantics).child
+                                : d.label)
+                            as Text)
+                        .data,
+              )
+              .toList();
+          expect(labels, ['Home', 'Plans', 'Communities', 'Profile']);
+
+          await tester.tap(find.byIcon(Icons.track_changes));
+          await tester.pumpAndSettle();
+          expect(find.text('plans body'), findsOneWidget);
+          // The Plans page selects the Plans tab (its filled icon shows).
+          expect(tester.widget<NavigationRail>(rail).selectedIndex, 1);
+          expect(find.byIcon(Icons.adjust), findsOneWidget);
+        });
+      }
+
+      testWidgets('phone, beacons ${beacons ? 'on' : 'off'}: a bar cell that '
+          'opens /plans', (tester) async {
+        await pump(tester, flags: flags);
+
+        await tester.tap(
+          find.descendant(
+            of: find.byType(AppBottomBar),
+            matching: find.byIcon(Icons.track_changes),
+          ),
         );
-
-        final rail = find.byType(NavigationRail);
-        final labels = tester
-            .widget<NavigationRail>(rail)
-            .destinations
-            .map(
-              (d) =>
-                  ((d.label is Semantics
-                              ? (d.label as Semantics).child
-                              : d.label)
-                          as Text)
-                      .data,
-            )
-            .toList();
-        expect(labels, ['Home', 'Plans', 'Communities', 'Profile']);
-
-        await tester.tap(find.byIcon(Icons.event_outlined));
         await tester.pumpAndSettle();
         expect(find.text('plans body'), findsOneWidget);
-        // The Plans page selects the Plans tab (its filled icon shows).
-        expect(tester.widget<NavigationRail>(rail).selectedIndex, 1);
-        expect(find.byIcon(Icons.event), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(AppBottomBar),
+            matching: find.byIcon(Icons.adjust),
+          ),
+          findsOneWidget,
+        );
       });
     }
 
-    testWidgets('absent with beacons off or ui_shell off; a bar cell on '
-        'phones (ADR-0034)', (tester) async {
-      for (final width in [360.0, 600.0, 1300.0]) {
-        await pump(tester, width: width, flags: const {'posts'});
-        expect(find.byIcon(Icons.event_outlined), findsNothing);
-        await pump(
-          tester,
-          width: width,
-          flags: const {'beacons'},
-          newShell: false,
-        );
-        expect(find.byIcon(Icons.event_outlined), findsNothing);
+    testWidgets('present with beacons off at 360, 834 and 1440, whatever '
+        'else is on', (tester) async {
+      for (final width in [360.0, 834.0, 1440.0]) {
+        for (final flags in [
+          const <String>{},
+          const {'posts'},
+          const {'posts', 'search', 'notifications', 'messaging'},
+        ]) {
+          await pump(tester, width: width, flags: flags);
+          expect(
+            find.descendant(
+              of: chrome(width),
+              matching: find.byIcon(Icons.track_changes),
+            ),
+            findsOneWidget,
+            reason: '$flags at ${width}dp',
+          );
+        }
       }
-      await pump(tester, flags: const {'beacons'});
-      expect(
-        find.descendant(
-          of: find.byType(AppBottomBar),
-          matching: find.byIcon(Icons.event_outlined),
-        ),
-        findsOneWidget,
+    });
+
+    testWidgets('legacy chrome (ui_shell off): no Plans destination, with '
+        'beacons on or off', (tester) async {
+      for (final width in [360.0, 600.0, 834.0, 1300.0, 1440.0]) {
+        for (final flags in [
+          const {'posts'},
+          const {'posts', 'beacons'},
+        ]) {
+          await pump(tester, width: width, flags: flags, newShell: false);
+          for (final icon in [
+            Icons.track_changes,
+            Icons.adjust,
+            Icons.event_outlined,
+            Icons.event,
+          ]) {
+            expect(
+              find.byIcon(icon),
+              findsNothing,
+              reason: '$flags at ${width}dp',
+            );
+          }
+          expect(find.text('Plans'), findsNothing);
+        }
+      }
+    });
+
+    testWidgets('legacy chrome on /plans: no cell is the Plans tab and the '
+        'page shows', (tester) async {
+      await pump(
+        tester,
+        location: '/plans',
+        flags: const {'posts', 'notifications', 'beacons'},
+        newShell: false,
       );
+
+      expect(find.text('plans body'), findsOneWidget);
+      expect(find.byIcon(Icons.adjust), findsNothing);
+      expect(find.byIcon(Icons.track_changes), findsNothing);
     });
   });
 
@@ -1156,13 +1218,13 @@ void main() {
                       .data,
             )
             .toList();
-        expect(labels, ['Home', 'History', 'Profile', 'More']);
+        expect(labels, ['Home', 'Plans', 'History', 'Profile', 'More']);
 
         await tester.tap(find.byIcon(Icons.bookmark_border));
         await tester.pumpAndSettle();
         expect(find.text('bookmarks body'), findsOneWidget);
         // And it is the selected one there.
-        expect(tester.widget<NavigationRail>(rail).selectedIndex, 1);
+        expect(tester.widget<NavigationRail>(rail).selectedIndex, 2);
         expect(find.byIcon(Icons.bookmark), findsOneWidget);
       });
     }
@@ -1211,9 +1273,11 @@ void main() {
 
   group('destination model (ADR-0034)', () {
     // The destinations behind flags, in the order the bar and rail show them.
-    const gated = [
+    // Plans sits between Explore and Notifications and is behind no flag:
+    // `beacons` is in the mask only to prove it changes nothing here.
+    const gated = <(String, IconData?, String)>[
       ('search', Icons.search, 'Explore'),
-      ('beacons', Icons.event_outlined, 'Plans'),
+      ('beacons', null, 'Plans'),
       ('notifications', Icons.notifications_none, 'Notifications'),
       ('messaging', Icons.mail_outline, 'Messages'),
     ];
@@ -1248,15 +1312,16 @@ void main() {
             if (mask & (1 << i) != 0) gated[i],
         ];
         // Off any tab, so every cell is outlined.
-        await pump(
-          tester,
-          location: '/profile/alice',
-          flags: {for (final g in on) g.$1},
-        );
+        final flags = {for (final g in on) g.$1};
+        await pump(tester, location: '/profile/alice', flags: flags);
         expect(barIcons(tester), [
           Icons.home_outlined,
-          for (final g in on) g.$2,
-        ], reason: 'flags ${on.map((g) => g.$1)}');
+          for (final g in gated)
+            if (g.$1 == 'beacons')
+              Icons.track_changes
+            else if (flags.contains(g.$1))
+              g.$2!,
+        ], reason: 'flags $flags');
       }
     });
 
@@ -1294,10 +1359,29 @@ void main() {
       });
 
       testWidgets('${width.toInt()}dp: with the optional primaries off the '
-          'rail keeps Home and Profile', (tester) async {
+          'rail keeps Home, Plans and Profile', (tester) async {
         await pump(tester, width: width, flags: const {});
 
-        expect(railLabels(tester), ['Home', 'Profile']);
+        expect(railLabels(tester), ['Home', 'Plans', 'Profile']);
+      });
+
+      testWidgets('${width.toInt()}dp: beacons off changes nothing on the '
+          'rail', (tester) async {
+        await pump(
+          tester,
+          width: width,
+          flags: const {'posts', 'search', 'notifications', 'messaging'},
+        );
+
+        expect(railLabels(tester), [
+          'Home',
+          'Explore',
+          'Plans',
+          'Notifications',
+          'Messages',
+          'Profile',
+          'More',
+        ]);
       });
     }
 
@@ -1316,6 +1400,7 @@ void main() {
         expect(barIcons(tester), [
           Icons.home_outlined,
           Icons.search,
+          Icons.track_changes,
           Icons.notifications_none,
         ], reason: path);
       }
@@ -1324,13 +1409,18 @@ void main() {
     testWidgets('selection: a primary tab is filled on the bar and indexed '
         'on the rail', (tester) async {
       const flags = {'search', 'beacons', 'notifications'};
-      await pump(tester, location: '/plans', flags: flags);
-      expect(barIcons(tester), [
-        Icons.home_outlined,
-        Icons.search,
-        Icons.event,
-        Icons.notifications_none,
-      ]);
+      for (final set in [
+        flags,
+        const {'search', 'notifications'},
+      ]) {
+        await pump(tester, location: '/plans', flags: set);
+        expect(barIcons(tester), [
+          Icons.home_outlined,
+          Icons.search,
+          Icons.adjust,
+          Icons.notifications_none,
+        ], reason: '$set');
+      }
 
       await pump(tester, width: 834, location: '/notifications', flags: flags);
       expect(rail(tester).selectedIndex, 3);
