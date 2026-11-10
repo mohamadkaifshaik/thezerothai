@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import '../../shared/widgets/primitives/app_pill_button.dart';
 import '../theme/app_theme.dart';
 import 'app_bottom_bar.dart';
 import 'app_nav_destination.dart';
@@ -38,6 +39,7 @@ class ResponsiveScaffold extends StatefulWidget {
     this.sideColumn,
     this.onCompose,
     this.showFab = true,
+    this.redesignedRail = false,
     this.drawer,
     this.accountChipBuilder,
     this.masterPane,
@@ -59,6 +61,14 @@ class ResponsiveScaffold extends StatefulWidget {
   /// Whether the narrow layout shows the floating compose button (it is hidden
   /// where the screen has its own composer entry).
   final bool showFab;
+
+  /// Whether the rail (600dp and up) takes the redesigned style (`ui_shell`):
+  /// the `selectedIndicator` pill behind the filled selected glyph, w800
+  /// selected and w600 `text2` unselected labels, and the gradient compose
+  /// controls with their glow. Off: the legacy rail, unchanged. Style only:
+  /// the rail's composition (widths, order, compose and chip placement) is
+  /// the same in both.
+  final bool redesignedRail;
 
   /// The avatar drawer of the narrow layout.
   final Widget? drawer;
@@ -294,6 +304,8 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     final side = master == null ? widget.sideColumn : null;
     final compose = widget.onCompose;
     final accountChip = widget.accountChipBuilder?.call(isDesktop);
+    // `ui_shell` only; null keeps the theme's legacy rail as it is.
+    final style = widget.redesignedRail ? _RailStyle.of(context) : null;
     return Scaffold(
       body: SafeArea(
         child: Row(
@@ -304,6 +316,12 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
               extended: isDesktop,
               selectedIndex: widget.selectedIndex,
               onDestinationSelected: _selectOnRail,
+              indicatorShape: style?.indicatorShape,
+              indicatorColor: style?.indicatorColor,
+              selectedIconTheme: style?.selectedIconTheme,
+              unselectedIconTheme: style?.unselectedIconTheme,
+              selectedLabelTextStyle: style?.selectedLabelTextStyle,
+              unselectedLabelTextStyle: style?.unselectedLabelTextStyle,
               // X's order: the items, then the Post control right below them,
               // then (pushed to the bottom) the account chip.
               trailing: Expanded(
@@ -313,9 +331,14 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                     if (compose != null)
                       Padding(
                         padding: const EdgeInsets.only(top: AppSpacing.md),
-                        child: isDesktop
-                            ? _PostPill(onPressed: compose)
-                            : _ComposeCircle(onPressed: compose),
+                        child: switch ((isDesktop, style != null)) {
+                          (true, false) => _PostPill(onPressed: compose),
+                          (false, false) => _ComposeCircle(onPressed: compose),
+                          (true, true) => _GradientPostPill(onPressed: compose),
+                          (false, true) => _GradientComposeCircle(
+                            onPressed: compose,
+                          ),
+                        },
                       ),
                     const Spacer(),
                     if (accountChip != null)
@@ -463,6 +486,117 @@ class _ComposeCircle extends StatelessWidget {
           shape: const CircleBorder(),
         ),
         child: const Icon(Icons.edit_outlined),
+      ),
+    );
+  }
+}
+
+/// The redesigned rail look (`ui_shell`, PR 3.5), set on the
+/// `NavigationRail` itself so the theme (and with it the legacy rail) stays
+/// as it is. The selected item is marked three ways: the pill, the filled
+/// glyph and the w800 label, never by colour alone.
+class _RailStyle {
+  const _RailStyle({
+    required this.indicatorColor,
+    required this.selectedIconTheme,
+    required this.unselectedIconTheme,
+    required this.selectedLabelTextStyle,
+    required this.unselectedLabelTextStyle,
+  });
+
+  factory _RailStyle.of(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = context.appColors;
+    final label = theme.textTheme.labelMedium;
+    return _RailStyle(
+      indicatorColor: colors.selectedIndicator,
+      // The glyph sits on the pill: onPrimary is the pill's ink in both
+      // themes (selectedIndicator is the primary).
+      selectedIconTheme: IconThemeData(
+        color: theme.colorScheme.onPrimary,
+        size: AppIconSize.lg,
+      ),
+      unselectedIconTheme: IconThemeData(
+        color: colors.text2,
+        size: AppIconSize.lg,
+      ),
+      selectedLabelTextStyle: label?.copyWith(
+        fontWeight: AppTypeTokens.weightDisplay,
+        color: theme.colorScheme.onSurface,
+      ),
+      unselectedLabelTextStyle: label?.copyWith(
+        fontWeight: AppTypeTokens.weightLabel,
+        color: colors.text2,
+      ),
+    );
+  }
+
+  /// The indicator is a pill (the full-row pill of the design is T1's
+  /// `AppNavRail`).
+  ShapeBorder get indicatorShape => const StadiumBorder();
+  final Color indicatorColor;
+  final IconThemeData selectedIconTheme;
+  final IconThemeData unselectedIconTheme;
+  final TextStyle? selectedLabelTextStyle;
+  final TextStyle? unselectedLabelTextStyle;
+}
+
+/// The "Post" pill of the extended rail under `ui_shell`: the primary
+/// button (the brand gradient, a navy label and the glow), 233dp wide and
+/// 52dp tall; it grows taller with the text scale, never wider.
+class _GradientPostPill extends StatelessWidget {
+  const _GradientPostPill({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: _ResponsiveScaffoldState._composeTooltip,
+      child: SizedBox(
+        width: AppSize.railPostWidth,
+        child: AppPillButton(
+          label: 'Post',
+          onPressed: onPressed,
+          size: AppButtonSize.large,
+        ),
+      ),
+    );
+  }
+}
+
+/// The round compose button of the icon-only rail under `ui_shell`: a 52dp
+/// circle with the brand gradient, a navy glyph and the glow.
+class _GradientComposeCircle extends StatelessWidget {
+  const _GradientComposeCircle({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Tooltip(
+      message: _ResponsiveScaffoldState._composeTooltip,
+      child: DecoratedBox(
+        decoration: ShapeDecoration(
+          shape: const CircleBorder(),
+          gradient: colors.primaryFillGradient,
+          shadows: AppShadows.primaryGlow,
+        ),
+        child: FilledButton(
+          onPressed: onPressed,
+          style: FilledButton.styleFrom(
+            fixedSize: const Size.square(AppSize.railPostHeight),
+            minimumSize: const Size.square(AppSize.railPostHeight),
+            padding: EdgeInsets.zero,
+            shape: const CircleBorder(),
+            // The gradient below is the fill; the button keeps its focus,
+            // hover and press overlays in the label colour.
+            backgroundColor: Colors.transparent,
+            foregroundColor: colors.primaryFillLabel,
+          ),
+          child: const Icon(Icons.edit_outlined),
+        ),
       ),
     );
   }

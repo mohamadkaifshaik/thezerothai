@@ -249,21 +249,26 @@ type CreateInput struct {
 	ChatPref    ChatPref
 }
 
-// UpdateInput is an UpdateBeacon request: a nil field is unchanged.
+// UpdateInput is an UpdateBeacon request: a nil field is unchanged. StartAt, DurationMin and Cost (F28) may change only
+// before the beacon starts.
 type UpdateInput struct {
-	Key       string
-	BeaconID  string
-	Title     *string
-	Details   *string
-	Venue     *string
-	OpenSpots *int
+	Key         string
+	BeaconID    string
+	Title       *string
+	Details     *string
+	Venue       *string
+	OpenSpots   *int
+	StartAt     *time.Time
+	DurationMin *int
+	Cost        *Cost
 }
 
 // ListInput is a ListBeacons request after the transport layer. Exactly one of CommunityID and Public is set; a zero
-// From means now.
+// From means now; an empty Activity means every activity.
 type ListInput struct {
 	CommunityID string
 	Public      bool
+	Activity    Activity
 	From        time.Time
 	Limit       int32
 	PageToken   string
@@ -304,6 +309,10 @@ var (
 	ErrNotMember = errors.New("beacons: not a member of the community")
 	// ErrEnded: a mutation on a beacon whose end time passed.
 	ErrEnded = errors.New("beacons: beacon ended")
+	// ErrStarted: UpdateBeacon changing start_at, duration or cost once the beacon has started (F28).
+	ErrStarted = errors.New("beacons: beacon started")
+	// ErrEditRows: a reschedule would rewrite more participant rows than one transaction may hold (F28).
+	ErrEditRows = errors.New("beacons: too many participant rows to reschedule")
 	// ErrCancelled: a mutation on a cancelled beacon.
 	ErrCancelled = errors.New("beacons: beacon cancelled")
 	// ErrFull: a request or an accept while every seat is taken.
@@ -387,18 +396,27 @@ type CreateResult struct {
 	Beacon  Beacon
 }
 
-// UpdateParams is one UpdateBeacon write. Now decides ENDED.
+// UpdateParams is one UpdateBeacon write. Now decides ENDED and, for StartAt, DurationMin and Cost, STARTED. MaxEditRows
+// bounds the participant rows a reschedule rewrites in its transaction (ErrEditRows above it).
 type UpdateParams struct {
 	UID, BeaconID, IdemKey, RequestHash string
 	Title, Details, Venue               *string
 	OpenSpots                           *int
+	StartAt                             *time.Time
+	DurationMin                         *int
+	Cost                                *Cost
+	MaxEditRows                         int
 	Now                                 time.Time
 }
 
-// UpdateResult is what Repo.Update answers: the beacon after the write (or as it is now on a replay).
+// UpdateResult is what Repo.Update answers: the beacon after the write (or as it is now on a replay). Rescheduled is set
+// on a Written outcome that changed start_at, duration or cost; Accepted then holds the uids ACCEPTED at that commit (the
+// people the change is announced to).
 type UpdateResult struct {
-	Outcome Outcome
-	Beacon  Beacon
+	Outcome     Outcome
+	Beacon      Beacon
+	Rescheduled bool
+	Accepted    []string
 }
 
 // CancelParams is one CancelBeacon write. Now decides ENDED.
@@ -417,10 +435,12 @@ type CancelResult struct {
 	Beacon  Beacon
 }
 
-// ListQuery is one ListByAudience read: communityId == CommunityID ("" = public), status in [open, full], startAt >= From,
-// ordered by startAt then id, resuming after (AfterStartAt, AfterID) when AfterID is set, at most Limit docs.
+// ListQuery is one ListByAudience read: communityId == CommunityID ("" = public), activity == Activity when set, status in
+// [open, full], startAt >= From, ordered by startAt then id, resuming after (AfterStartAt, AfterID) when AfterID is set, at
+// most Limit docs.
 type ListQuery struct {
 	CommunityID  string
+	Activity     Activity
 	From         time.Time
 	AfterStartAt time.Time
 	AfterID      string
@@ -543,6 +563,14 @@ type ParticipationEvent struct {
 	At                                     time.Time
 }
 
+// UpdateEvent is one change of start, duration or cost (F28) with the participants accepted at that commit (at most
+// Limits.MaxOpenSpots). At is the commit time (the beacon's updatedAt), unique per edit.
+type UpdateEvent struct {
+	BeaconID, OrganiserUID string
+	ParticipantUIDs        []string
+	At                     time.Time
+}
+
 // CancelEvent is one cancellation with the participants accepted at that moment (at most Limits.MaxOpenSpots).
 type CancelEvent struct {
 	BeaconID, OrganiserUID string
@@ -553,7 +581,7 @@ type CancelEvent struct {
 // Events is the module's outbound seam (docs/beacons-plan.md PR 5, R23): called after a commit whose Outcome is
 // Written, never on a replay or a no-op, never inside a transaction, and never by the eraser. The one exception is
 // Cancelled, which the cancellation outbox may also re-run (the sweep, or a replayed or no-op CancelBeacon whose item
-// is still present): it must be safe to repeat. A decline, a withdraw, a leave, a remove and an update fire nothing. The composition root adapts it to notifications.Emitter.
+// is still present): it must be safe to repeat. A decline, a withdraw, a leave, a remove and an update of title, details, venue or open_spots fire nothing; an update that changes start, duration or cost fires Updated. The composition root adapts it to notifications.Emitter.
 type Events interface {
 	// JoinRequested: ParticipantUID asked to join; the organiser is told.
 	JoinRequested(ctx context.Context, e ParticipationEvent)
@@ -563,4 +591,7 @@ type Events interface {
 	// were not handed off; the caller runs it again later (the cancellation outbox), so it must be safe to repeat (the
 	// notification row id is deterministic per beacon and recipient).
 	Cancelled(ctx context.Context, e CancelEvent) error
+	// Updated: the organiser changed the start, duration or cost; each accepted participant is told once per edit
+	// (F28). Best effort, like JoinRequested: an error is logged by the caller and never fails the committed update.
+	Updated(ctx context.Context, e UpdateEvent) error
 }

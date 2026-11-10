@@ -40,14 +40,20 @@ type FlagChecker interface {
 // (one class, the flag must be on for the caller). Disabled is FAILED_PRECONDITION + FEATURE_DISABLED with
 // metadata feature=communities. A nil checker is off for everyone.
 func Guard(ctx context.Context, fc FlagChecker, uid string) error {
-	err := flags.Guard(ctx, func(uid, name string) bool { return fc != nil && fc.Enabled(uid, name) }, uid, FlagName)
+	return guardFlag(ctx, fc, uid, FlagName)
+}
+
+// guardFlag is one flag gate of this module (Guard, and SearchCommunityMembers' FEATURE_COMMUNITY_MEMBER_SEARCH):
+// FAILED_PRECONDITION + FEATURE_DISABLED with metadata feature=name when name is off for uid; a nil checker is off.
+func guardFlag(ctx context.Context, fc FlagChecker, uid, name string) error {
+	err := flags.Guard(ctx, func(uid, name string) bool { return fc != nil && fc.Enabled(uid, name) }, uid, name)
 	if err == nil {
 		return nil
 	}
-	logger.SetRequestField(ctx, "feature", FlagName)
+	logger.SetRequestField(ctx, "feature", name)
 	var ae *apierr.Error
 	if errors.As(err, &ae) {
-		return ae.WithMeta("feature", FlagName)
+		return ae.WithMeta("feature", name)
 	}
 	return err
 }

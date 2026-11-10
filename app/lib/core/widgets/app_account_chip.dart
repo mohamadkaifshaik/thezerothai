@@ -21,9 +21,10 @@ enum _AccountAction { profile, followRequests, settings, signOut }
 
 /// The account chip at the bottom of the navigation rail on wide layouts:
 /// the 40dp avatar with, when [extended], the display name, the handle and a
-/// "more" glyph. Tapping it opens a menu with Profile, Follow requests (a protected account, with its
-/// pending count), Settings and Sign out (the destinations that are
-/// not in the rail), like the drawer on phones.
+/// "more" glyph, as wide as the Post pill, with a pill-shaped highlight.
+/// Tapping it opens a menu with Profile, Follow requests (a protected
+/// account, with its pending count), Settings and Sign out (the destinations
+/// that are not in the rail), like the drawer on phones.
 ///
 /// It reads the profile the app already holds (`OnboardingBloc`): 0 RPCs.
 /// Nothing is drawn until there is a profile.
@@ -53,6 +54,9 @@ class AppAccountChip extends StatelessWidget {
     return PopupMenuButton<_AccountAction>(
       tooltip: 'Account menu',
       position: PopupMenuPosition.over,
+      // dz.css `.rail .acct`: the hover, press and focus highlight is a pill
+      // (a circle around the avatar alone).
+      borderRadius: BorderRadius.circular(AppRadius.pill),
       onSelected: (action) => _onSelected(context, action, profile.handle),
       itemBuilder: (menuContext) => [
         if (profile.handle.isNotEmpty)
@@ -78,38 +82,51 @@ class AppAccountChip extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
         child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.sm),
+          padding: extended
+              ? const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.smd,
+                  vertical: AppSpacing.sm,
+                )
+              : const EdgeInsets.all(AppSpacing.sm),
           child: extended
-              ? Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    avatar,
-                    const SizedBox(width: AppSpacing.smd),
-                    Flexible(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleSmall,
-                          ),
-                          Text(
-                            '@${profile.handle}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
+              // As wide as the Post pill above it, the "more" glyph at the
+              // end (dz.css `.acct .who { flex: 1 }`).
+              ? SizedBox(
+                  width: AppSize.railPostWidth - 2 * AppSpacing.smd,
+                  child: Row(
+                    children: [
+                      avatar,
+                      const SizedBox(width: AppSpacing.smd),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleSmall,
                             ),
-                          ),
-                        ],
+                            Text(
+                              '@${profile.handle}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    const Icon(Icons.more_horiz, size: AppIconSize.md),
-                  ],
+                      const SizedBox(width: AppSpacing.sm),
+                      Icon(
+                        Icons.more_horiz,
+                        size: AppIconSize.md,
+                        color: context.appColors.text2,
+                      ),
+                    ],
+                  ),
                 )
               : avatar,
         ),

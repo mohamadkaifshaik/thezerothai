@@ -3,9 +3,11 @@ import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/app_shell_scope.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
 import 'package:dzeroth/core/widgets/shell_bottom_inset_sliver.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/contrast.dart';
 import '../../support/geometry.dart';
 import '../../support/theme_harness.dart';
 
@@ -39,12 +41,15 @@ Widget _scaffold({
   Widget? side,
   Widget Function(bool extended)? chip,
   Widget? body,
+  bool redesignedRail = false,
+  List<AppNavDestination> destinations = _destinations,
 }) => ResponsiveScaffold(
   selectedIndex: selected,
   onDestinationSelected: onSelected ?? (_) {},
-  destinations: _destinations,
+  destinations: destinations,
   onCompose: onCompose,
   showFab: showFab,
+  redesignedRail: redesignedRail,
   drawer: drawer,
   sideColumn: side,
   accountChipBuilder: chip,
@@ -1235,5 +1240,352 @@ void main() {
     );
 
     expectNoOverflow(tester);
+  });
+
+  group('rail style (PR 3.5, 600dp and up)', () {
+    // The new shell's full rail: the five primaries, then the secondaries.
+    const shell = [
+      AppNavDestination(
+        icon: Icons.home_outlined,
+        selectedIcon: Icons.home,
+        label: 'Home',
+      ),
+      AppNavDestination(
+        icon: Icons.search,
+        selectedIcon: Icons.manage_search,
+        label: 'Explore',
+      ),
+      AppNavDestination(
+        icon: Icons.event_outlined,
+        selectedIcon: Icons.event,
+        label: 'Plans',
+      ),
+      AppNavDestination(
+        icon: Icons.notifications_none,
+        selectedIcon: Icons.notifications,
+        label: 'Notifications',
+      ),
+      AppNavDestination(
+        icon: Icons.mail_outline,
+        selectedIcon: Icons.mail,
+        label: 'Messages',
+      ),
+      AppNavDestination(
+        icon: Icons.list_alt_outlined,
+        selectedIcon: Icons.list_alt,
+        label: 'Lists',
+        group: AppNavGroup.secondary,
+      ),
+      AppNavDestination(
+        icon: Icons.groups_outlined,
+        selectedIcon: Icons.groups,
+        label: 'Communities',
+        group: AppNavGroup.secondary,
+      ),
+      AppNavDestination(
+        icon: Icons.bookmark_border,
+        selectedIcon: Icons.bookmark,
+        label: 'History',
+        group: AppNavGroup.secondary,
+      ),
+      AppNavDestination(
+        icon: Icons.person_outline,
+        selectedIcon: Icons.person,
+        label: 'Profile',
+        group: AppNavGroup.secondary,
+      ),
+      AppNavDestination(
+        icon: Icons.more_horiz,
+        selectedIcon: Icons.more_horiz,
+        label: 'More',
+        group: AppNavGroup.secondary,
+      ),
+    ];
+
+    NavigationRail rail(WidgetTester tester) =>
+        tester.widget<NavigationRail>(find.byType(NavigationRail));
+    Finder inRail(Finder f) =>
+        find.descendant(of: find.byType(NavigationRail), matching: f);
+    // The colour and style a text or glyph is painted with.
+    TextStyle painted(WidgetTester tester, Finder f) => tester
+        .widget<RichText>(
+          find.descendant(of: f, matching: find.byType(RichText)).first,
+        )
+        .text
+        .style!;
+    AppColors colorsOf(Brightness b) =>
+        b == Brightness.dark ? AppColors.dark : AppColors.light;
+    ThemeData themeOf(Brightness b) => buildAppTheme(brightness: b);
+
+    for (final width in [834.0, 1440.0]) {
+      final desktop = width >= AppBreakpoints.tablet;
+      final w = '${width.toInt()}dp';
+
+      for (final brightness in Brightness.values) {
+        final b = brightness.name;
+
+        testWidgets('$w $b: the indicator is a selectedIndicator pill behind '
+            'the filled glyph; labels w800 / w600 text2', (tester) async {
+          await _pump(
+            tester,
+            _scaffold(selected: 3, destinations: shell, redesignedRail: true),
+            width: width,
+            height: 1000,
+            brightness: brightness,
+          );
+          final colors = colorsOf(brightness);
+          final scheme = themeOf(brightness).colorScheme;
+          final r = rail(tester);
+
+          expect(r.indicatorShape, const StadiumBorder());
+          expect(r.indicatorColor, colors.selectedIndicator);
+          expect(r.selectedIconTheme!.color, scheme.onPrimary);
+          expect(r.unselectedIconTheme!.color, colors.text2);
+          expect(r.selectedLabelTextStyle!.fontWeight, FontWeight.w800);
+          expect(r.selectedLabelTextStyle!.color, scheme.onSurface);
+          expect(r.unselectedLabelTextStyle!.fontWeight, FontWeight.w600);
+          expect(r.unselectedLabelTextStyle!.color, colors.text2);
+          // Weight, never `fontVariations` (the engine maps the axis).
+          expect(r.selectedLabelTextStyle!.fontVariations, isNull);
+
+          // The selected glyph is the filled one, painted in the pill's ink.
+          expect(inRail(find.byIcon(Icons.notifications)), findsOneWidget);
+          expect(inRail(find.byIcon(Icons.notifications_none)), findsNothing);
+          expect(
+            painted(tester, inRail(find.byIcon(Icons.notifications))).color,
+            scheme.onPrimary,
+          );
+          expect(
+            painted(tester, inRail(find.byIcon(Icons.home_outlined))).color,
+            colors.text2,
+          );
+          // Contrast pairs: glyph on the pill, labels and glyphs on the page.
+          expect(
+            contrast(scheme.onPrimary, colors.selectedIndicator),
+            greaterThanOrEqualTo(4.5),
+          );
+          expect(
+            contrast(colors.text2, scheme.surface),
+            greaterThanOrEqualTo(4.5),
+          );
+          expect(
+            contrast(scheme.onSurface, scheme.surface),
+            greaterThanOrEqualTo(4.5),
+          );
+
+          if (desktop) {
+            // The labels as painted on the extended rail.
+            final selected = painted(
+              tester,
+              inRail(find.text('Notifications')),
+            );
+            expect(selected.fontWeight, FontWeight.w800);
+            expect(selected.color, scheme.onSurface);
+            final other = painted(tester, inRail(find.text('Home')));
+            expect(other.fontWeight, FontWeight.w600);
+            expect(other.color, colors.text2);
+          }
+        });
+
+        testWidgets('$w $b: the compose control is the gradient primary with '
+            'a navy label that reads on both gradient stops', (tester) async {
+          var composed = 0;
+          await _pump(
+            tester,
+            _scaffold(
+              onCompose: () => composed++,
+              destinations: shell,
+              redesignedRail: true,
+            ),
+            width: width,
+            height: 1000,
+            brightness: brightness,
+          );
+          final colors = colorsOf(brightness);
+
+          final Color label;
+          if (desktop) {
+            final pill = find.widgetWithText(AppPillButton, 'Post');
+            expect(pill, findsOneWidget);
+            expectSize(
+              tester,
+              pill,
+              width: AppSize.railPostWidth,
+              height: AppSize.railPostHeight,
+            );
+            final ink = tester.widget<Ink>(
+              find.descendant(of: pill, matching: find.byType(Ink)),
+            );
+            final box = ink.decoration! as BoxDecoration;
+            expect(box.gradient, colors.primaryFillGradient);
+            expect(box.gradient, AppGradients.primaryButton);
+            expect(box.boxShadow, AppShadows.primaryGlow);
+            label = painted(tester, find.text('Post')).color!;
+            // The legacy strong pill is gone.
+            expect(find.widgetWithText(FilledButton, 'Post'), findsNothing);
+          } else {
+            final glyph = inRail(find.byIcon(Icons.edit_outlined));
+            final fill = tester.widget<DecoratedBox>(
+              find.ancestor(
+                of: glyph,
+                matching: find.byWidgetPredicate(
+                  (w) =>
+                      w is DecoratedBox &&
+                      w.decoration is ShapeDecoration &&
+                      (w.decoration as ShapeDecoration).gradient != null,
+                ),
+              ),
+            );
+            final shape = fill.decoration as ShapeDecoration;
+            expect(shape.shape, const CircleBorder());
+            expect(shape.gradient, colors.primaryFillGradient);
+            expect(shape.shadows, AppShadows.primaryGlow);
+            expectSize(
+              tester,
+              find.byWidget(fill),
+              width: AppSize.railPostHeight,
+              height: AppSize.railPostHeight,
+            );
+            label = painted(tester, glyph).color!;
+          }
+          expect(label, colors.primaryFillLabel);
+          for (final stop in colors.primaryFillGradient.colors) {
+            expect(
+              contrast(label, stop),
+              greaterThanOrEqualTo(4.5),
+              reason: 'label on $stop',
+            );
+          }
+
+          await tester.tap(find.byTooltip('New post'));
+          expect(composed, 1);
+        });
+      }
+
+      testWidgets('$w: the primaries, then the secondaries, in list order; no '
+          'divider until T1', (tester) async {
+        // No selection: every glyph is the outline one.
+        await _pump(
+          tester,
+          _scaffold(selected: null, destinations: shell, redesignedRail: true),
+          width: width,
+          height: 1000,
+        );
+
+        final r = rail(tester);
+        expect(r.destinations, hasLength(shell.length));
+        // Every primary sits before every secondary.
+        final groups = [for (final d in shell) d.group];
+        expect(groups.take(5), everyElement(AppNavGroup.primary));
+        expect(groups.skip(5), everyElement(AppNavGroup.secondary));
+        final ys = [
+          for (final d in shell)
+            tester.getCenter(inRail(find.byIcon(d.icon))).dy,
+        ];
+        for (var i = 1; i < ys.length; i++) {
+          expect(ys[i], greaterThan(ys[i - 1]), reason: shell[i].label);
+        }
+        // Ruling: `NavigationRail.leading`/`trailing` sit above or below all
+        // the items, so the group divider waits for T1's `AppNavRail`.
+        expect(inRail(find.byType(Divider)), findsNothing);
+      });
+
+      testWidgets('$w: the selected destination is announced as selected', (
+        tester,
+      ) async {
+        final handle = tester.ensureSemantics();
+        await _pump(
+          tester,
+          _scaffold(selected: 3, destinations: shell, redesignedRail: true),
+          width: width,
+          height: 1000,
+        );
+
+        expect(
+          tester.getSemantics(inRail(find.byIcon(Icons.notifications))),
+          isSemantics(isSelected: true, hasSelectedState: true),
+        );
+        expect(
+          tester.getSemantics(inRail(find.byIcon(Icons.home_outlined))),
+          isSemantics(isSelected: false, hasSelectedState: true),
+        );
+        handle.dispose();
+      });
+
+      testWidgets('$w: legacy rail (ui_shell off) keeps the theme and the '
+          'strong pill', (tester) async {
+        await _pump(
+          tester,
+          _scaffold(onCompose: () {}, destinations: shell),
+          width: width,
+          height: 1000,
+        );
+
+        final r = rail(tester);
+        expect(r.indicatorShape, isNull);
+        expect(r.indicatorColor, isNull);
+        expect(r.selectedIconTheme, isNull);
+        expect(r.unselectedIconTheme, isNull);
+        expect(r.selectedLabelTextStyle, isNull);
+        expect(r.unselectedLabelTextStyle, isNull);
+        expect(find.byType(AppPillButton), findsNothing);
+        final button = inRail(find.byType(FilledButton));
+        expect(button, findsOneWidget);
+        final material = tester.widget<Material>(
+          find.descendant(of: button, matching: find.byType(Material)).first,
+        );
+        expect(material.color, AppColors.light.strongPillFill);
+      });
+    }
+
+    for (final redesigned in [true, false]) {
+      final mode = redesigned ? 'ui_shell on' : 'ui_shell off';
+      void matrix(
+        List<double> widths,
+        List<double> scales, {
+        Map<double, double>? heights,
+        required String set,
+      }) => forEachThemeAndWidth(
+        '$mode ($set): no overflow and 48dp compose targets',
+        (tester, env) async {
+          await _pump(
+            tester,
+            _scaffold(
+              onCompose: () {},
+              destinations: shell,
+              redesignedRail: redesigned,
+              side: const SizedBox(height: 100),
+              chip: (extended) => const SizedBox(width: 56, height: 56),
+              drawer: const Drawer(),
+            ),
+            width: env.size.width,
+            height: env.size.height,
+            brightness: env.brightness,
+            textScale: env.textScale,
+          );
+
+          expectNoOverflow(tester);
+          if (env.size.width >= AppBreakpoints.mobile) {
+            final target = tester.getSize(inRail(find.byTooltip('New post')));
+            expect(target.width, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+            expect(
+              target.height,
+              greaterThanOrEqualTo(AppSpacing.minTapTarget),
+            );
+          }
+        },
+        widths: widths,
+        textScales: scales,
+        heights: heights,
+      );
+
+      matrix(
+        kRedesignWidths,
+        kRedesignTextScales,
+        heights: kRedesignHeights,
+        set: 'redesign widths',
+      );
+      matrix(kMatrixWidths, kRedesignTextScales, set: 'boundaries');
+    }
   });
 }
