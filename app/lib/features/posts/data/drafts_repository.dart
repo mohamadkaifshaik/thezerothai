@@ -324,7 +324,12 @@ class DraftsRepository {
         );
       }
       final key = newKey();
-      final now = _now();
+      // Cut to the whole second the column stores, so the time returned is
+      // the one a later reuse reads back.
+      final now = DateTime.fromMillisecondsSinceEpoch(
+        _now().millisecondsSinceEpoch ~/ 1000 * 1000,
+        isUtc: true,
+      );
       if (row != null) {
         _seen.add(draft.id);
         await (db.update(table)..where(

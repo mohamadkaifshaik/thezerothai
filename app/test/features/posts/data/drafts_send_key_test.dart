@@ -116,6 +116,20 @@ void main() {
     expect(forced.startedAt, sameMoment(clock), reason: 'a new key, new start');
   });
 
+  test('a minted startedAt is the row\'s whole-second value, the same a '
+      'reuse returns', () async {
+    await repo.upsert(draft('a'));
+    clock = kBase.add(const Duration(milliseconds: 999));
+
+    final first = await claim('a');
+    final second = await claim('a');
+
+    expect(second.reused, isTrue);
+    expect(first.startedAt, sameMoment(second.startedAt!));
+    expect(first.startedAt, sameMoment(kBase), reason: 'cut to the second');
+    expect((await row('a')).sendStartedAt, sameMoment(kBase));
+  });
+
   test('sendKeyExpired is the store\'s rule for both kinds', () {
     final publishAt = kBase.add(const Duration(days: 2));
     bool post(Duration age) => sendKeyExpired(

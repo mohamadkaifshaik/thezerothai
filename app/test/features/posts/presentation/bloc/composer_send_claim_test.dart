@@ -79,7 +79,13 @@ void main() {
   late List<Object> reported;
 
   setUp(() {
-    clock = DateTime.now().toUtc();
+    // Whole seconds, like the row's columns, so a window boundary never
+    // depends on the sub-second part of the real clock. Relative to it, not
+    // absolute (test/guards/fixed_date_guard_test.dart).
+    clock = DateTime.fromMillisecondsSinceEpoch(
+      DateTime.now().millisecondsSinceEpoch ~/ 1000 * 1000,
+      isUtc: true,
+    );
     at = clock.add(const Duration(days: 2));
     db = AppDatabase.forTesting(NativeDatabase.memory());
     repo = _ControlledDrafts(db, now: () => clock);
