@@ -99,9 +99,19 @@ abstract final class AppRadius {
   static const double menu = 16;
 }
 
-/// Responsive layout breakpoints.
+/// Responsive layout breakpoints (window width, dp).
 abstract final class AppBreakpoints {
+  /// Phones end here: the tablet layouts start at this width.
   static const double mobile = 600;
+
+  /// The Material 3 *expanded* boundary inside the tablet range: 600-839 is
+  /// band A (one fluid column), 840-1199 band B (two panes). Tablet plan
+  /// section 1.
+  static const double expanded = 840;
+
+  /// Desktop from: the extended rail and the 600 + 350 column cluster start
+  /// at this width. (The name predates the tablet bands; it does not mean
+  /// "tablet".)
   static const double tablet = 1200;
 }
 
@@ -172,6 +182,30 @@ abstract final class AppSize {
 
   /// Boundary width of outline buttons and chips (component themes).
   static const double componentBorder = 1.5;
+
+  // The tablet layout, 600-1199 dp (tablet plan section 1).
+
+  /// Width of the pinned `AppNavRail` (plus the leading safe-area inset).
+  static const double railCompact = 80;
+
+  /// Widest a reading column (posts, forms, settings rows) grows inside a
+  /// tablet pane; the pane and its header span the full width.
+  static const double readableMax = 680;
+
+  /// Band B context pane: `clamp(C - 1 - readableMax, min, max)`.
+  static const double contextPaneMin = 320;
+  static const double contextPaneMax = 440;
+
+  /// Band B list pane of a list-detail screen: `clamp(0.4 * C, min, max)`.
+  static const double listPaneMin = 320;
+  static const double listPaneMax = 400;
+
+  /// Max width of a dialog, and of the composer dialogs.
+  static const double dialogMax = 560;
+  static const double composerDialogMax = 600;
+
+  /// Width of a side sheet (the chat info sheet).
+  static const double sideSheet = 360;
 }
 
 /// Semantic colours that the Material [ColorScheme] has no slot for.

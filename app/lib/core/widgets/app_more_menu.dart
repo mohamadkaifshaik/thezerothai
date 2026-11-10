@@ -8,6 +8,26 @@ import '../../features/posts/domain/posts_feature_flag.dart';
 import '../router/shell_entries.dart';
 import '../../shared/widgets/primitives/app_menu_item_row.dart';
 
+/// A rail destination folded into the More menu (the tablet rail at a short
+/// height, `AppNavRail` R2/R3): its glyph and label, and what a tap does
+/// (the same as tapping it on the rail).
+class AppMoreMenuFoldedRow {
+  const AppMoreMenuFoldedRow({
+    required this.icon,
+    required this.label,
+    required this.onSelected,
+    this.selected = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onSelected;
+
+  /// The current page is this destination: the row is marked (accent, check
+  /// glyph, announced as selected).
+  final bool selected;
+}
+
 /// The menu behind the rail's "More" item (600 dp and up): the [entries] as
 /// `AppMenuItemRow`s in a popup anchored at the More icon. Choosing one opens
 /// it through [onSelected] (by default [openShellEntry]: `go`, or `push` for
@@ -19,13 +39,16 @@ abstract final class AppMoreMenu {
   static const semanticLabel = 'More';
 
   /// Opens the menu anchored at [anchor] (a context at the More icon).
+  /// [folded] destinations (the tablet rail at a short height) are listed
+  /// first, above Articles and the [entries].
   static Future<void> show(
     BuildContext anchor, {
     required List<ShellEntry> entries,
     void Function(BuildContext context, ShellEntry entry)? onSelected,
+    List<AppMoreMenuFoldedRow> folded = const [],
   }) async {
     final articles = featureEnabledSnapshot(anchor, kFeaturePosts);
-    if (entries.isEmpty && !articles) return;
+    if (entries.isEmpty && !articles && folded.isEmpty) return;
     final box = anchor.findRenderObject() as RenderBox?;
     final overlay = Overlay.of(anchor).context.findRenderObject() as RenderBox?;
     if (box == null || overlay == null || !box.hasSize) return;
@@ -41,6 +64,15 @@ abstract final class AppMoreMenu {
       position: position,
       semanticLabel: semanticLabel,
       items: [
+        for (final row in folded)
+          PopupMenuItem<Object>(
+            value: row,
+            child: AppMenuItemRow(
+              icon: row.icon,
+              label: row.label,
+              selected: row.selected ? true : null,
+            ),
+          ),
         if (articles)
           const PopupMenuItem<Object>(
             value: 'articles',
@@ -57,7 +89,9 @@ abstract final class AppMoreMenu {
       ],
     );
     if (chosen == null || !anchor.mounted) return;
-    if (chosen == 'articles') {
+    if (chosen is AppMoreMenuFoldedRow) {
+      chosen.onSelected();
+    } else if (chosen == 'articles') {
       anchor.go(AppRouter.articlesPath);
     } else if (chosen is ShellEntry) {
       (onSelected ?? openShellEntry)(anchor, chosen);
