@@ -191,13 +191,14 @@ type Bookmarks interface {
 	// ListBookmarks returns one page of uid's bookmarks, newest first, as live posts. pageSize 0 is
 	// 20, clamped to 50; pageToken is empty for the first page. A foreign, expired or tampered token is VALIDATION
 	// page_token, rejected before any lookup. It reads the bookmark rows, then GetMany for posts that are not
-	// cached, plus the caller's graph snapshot and userLikes, each only when a row is left to render (cached 60 s).
-	// It writes nothing, except that a page that prunes missing posts updates userLikes and deletes one row per
+	// cached, plus the caller's graph snapshot and userLikes, each only when a row is left to render (cached 60 s), and
+	// the authors' account status (one cache-first Directory batch; a failure fails the page). It writes nothing, except that a page that prunes missing posts updates userLikes and deletes one row per
 	// pruned post.
 	ListBookmarks(ctx context.Context, uid string, pageSize int32, pageToken string) (BookmarkPage, error)
 }
 
-// BookmarkRow is one bookmark the caller sees now: the live post and the time it was bookmarked.
+// BookmarkRow is one bookmark the caller sees now: the live post (a QUOTE of an author who is not ACTIVE is its
+// tombstoned copy, posts.TombstonedQuote) and the time it was bookmarked.
 type BookmarkRow struct {
 	Post         *posts.Post
 	BookmarkedAt time.Time
@@ -206,7 +207,7 @@ type BookmarkRow struct {
 }
 
 // BookmarkPage is one page of ListBookmarks. Rows may be shorter than the page size: rows whose post is missing,
-// hidden or by a blocked or muted author are dropped after the read, so the client keeps following
+// hidden, by a blocked or muted author, or by an author who is not ACTIVE (F-03) are dropped after the read, so the client keeps following
 // NextPageToken until it is empty.
 type BookmarkPage struct {
 	// Rows are newest bookmarked first.
@@ -282,16 +283,17 @@ type LikesList interface {
 	// pageSize 0 is 20, clamped to 1..50; pageToken is empty for the first page. A foreign, expired or tampered token
 	// is VALIDATION page_token, rejected before any lookup. The ids come from userLikes.recent (the last MaxRecentLikes likes) through
 	// the 60 s instance cache. It reads userLikes, GetMany for posts that are not cached, and the caller's graph
-	// snapshot (only when a row of someone else is live); the viewer state reuses the same userLikes state. It
+	// snapshot (only when a row of someone else is live) and the authors' account status (one cache-first Directory
+	// batch; a failure fails the page); the viewer state reuses the same userLikes state. It
 	// writes nothing, and nothing is pruned: a row whose post is gone is only dropped from the page.
 	ListLikedPosts(ctx context.Context, uid string, pageSize int32, pageToken string) (LikesPage, error)
 }
 
-// LikesPage is one page of ListLikedPosts. Posts may be shorter than the page size: rows whose post is missing, hidden
-// or by a blocked or muted author are dropped after the read, so the client keeps following
+// LikesPage is one page of ListLikedPosts. Posts may be shorter than the page size: rows whose post is missing, hidden,
+// by a blocked or muted author, or by an author who is not ACTIVE (F-03) are dropped after the read, so the client keeps following
 // NextPageToken until it is empty.
 type LikesPage struct {
-	// Posts are the live posts, most recently liked first.
+	// Posts are the live posts, most recently liked first (a QUOTE of an author who is not ACTIVE is its tombstoned copy).
 	Posts []*posts.Post
 	// Hints are the render hints of Posts, same length and order.
 	Hints []RowHint

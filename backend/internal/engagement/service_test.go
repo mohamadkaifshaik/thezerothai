@@ -200,7 +200,8 @@ func (d fakeDir) GetProfiles(_ context.Context, uids []string) (map[string]ident
 	}
 	out := map[string]identity.Profile{}
 	for _, u := range uids {
-		out[u] = identity.Profile{UserID: u, Handle: "h_" + u, DisplayName: "D", CreatedAt: d.created}
+		// ACTIVE, like every profile the real Directory returns (it omits missing, SUSPENDED and DELETING users).
+		out[u] = identity.Profile{UserID: u, Handle: "h_" + u, DisplayName: "D", CreatedAt: d.created, Status: identity.AccountStatusActive}
 	}
 	return out, nil
 }

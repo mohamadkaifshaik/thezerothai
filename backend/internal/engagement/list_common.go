@@ -28,8 +28,11 @@ const (
 	// fieldRowsDroppedProtected counts rows posts.Audience dropped: the author, or the original a REPOST copies, is a
 	// protected account the caller does not follow. Never pruned: a follow, or an unprotect, brings them back.
 	fieldRowsDroppedProtected = "rows_dropped_protected"
-	fieldRowsPruned           = "rows_pruned"
-	fieldRowsReturned         = "rows_returned"
+	// fieldRowsDroppedInactive counts rows the author-status rule dropped (F-03): the author, or the author of the post a
+	// REPOST copies, is not ACTIVE. Never pruned: a restore brings them back.
+	fieldRowsDroppedInactive = "rows_dropped_inactive"
+	fieldRowsPruned          = "rows_pruned"
+	fieldRowsReturned        = "rows_returned"
 	// fieldRowsWithheld counts rows kept as owner placeholders (L-2); they are also in rows_returned.
 	fieldRowsWithheld = "rows_withheld"
 )
@@ -60,9 +63,11 @@ func (s *service) openListToken(binding, token string) (cursor.Cursor, error) {
 }
 
 // dropTally counts the rows a page dropped, by cause.
-type dropTally struct{ missing, hidden, blocked, muted, protected, withheld int }
+type dropTally struct{ missing, hidden, blocked, muted, inactive, protected, withheld int }
 
-func (d dropTally) total() int { return d.missing + d.hidden + d.blocked + d.muted + d.protected }
+func (d dropTally) total() int {
+	return d.missing + d.hidden + d.blocked + d.muted + d.inactive + d.protected
+}
 
 // RowAudience is the part of posts.Audience the lists use (satisfied by *posts.Audience): the one visibility predicate
 // Decide on the list surface drops a row whose author, or whose REPOSTed original's author, is
@@ -127,22 +132,37 @@ type dropResult struct {
 	// Hints are the render hints of the kept rows, same length and order as Kept.
 	Hints []RowHint
 	Tally dropTally
+	// Posts are the posts to render for the kept rows, same length and order as Kept: the live post, or for a QUOTE of an
+	// author who is not ACTIVE its tombstoned copy (posts.TombstonedQuote; the cached live post is never changed).
+	Posts []*posts.Post
 	// Missing are the ids GetMany did not return. ListBookmarks prunes them; ListLikedPosts leaves them (the like
 	// path owns the array).
 	Missing []string
 }
 
+// listCandidate is a row that passed the per-row rules of dropRows' first pass: i indexes the page's ids.
+type listCandidate struct {
+	i int
+	p *posts.Post
+}
+
 // dropRows applies the drop rules to ids (the page's ids in order) and live (the GetMany
 // answer): missing, then !Visible (taken down or its author suspended: kept in storage, a restore brings it back), then
-// blockCause, then Audience.Decide on the list surface (protected authors; it replaced the stored-visibility
+// blockCause, then the author-status rule (F-03, posts.ResolveActiveAuthors: a row whose author, or whose REPOSTed
+// original's author, is not ACTIVE is dropped and a QUOTE of such an author is shown tombstoned; kept in storage, a
+// restore brings it back), then Audience.Decide on the list surface, judging the original copy before any tombstone is
+// swapped in (protected authors; it replaced the stored-visibility
 // privateToViewer, which never fired because stored visibility is always PUBLIC). The caller's graph snapshot is read lazily, only when a live post of someone else is
-// met (cached 60 s), so a page of the caller's own posts never loads it. It returns the graph error unredacted;
-// callers wrap and redact it.
+// met (cached 60 s), so a page of the caller's own posts never loads it. The author statuses are one cache-first
+// Directory read for the page's distinct foreign authors and embedded authors (at most 50 rows, so at most two batches),
+// none when every row left is the caller's own plain post; a Directory failure fails the page. It returns the graph error
+// unredacted; callers wrap and redact it.
 func (s *service) dropRows(ctx context.Context, uid string, ids []string, live map[string]*posts.Post) (dropResult, error) {
 	var (
 		res      dropResult
 		snap     graph.Snapshot
 		haveSnap bool
+		cands    []listCandidate
 	)
 	for i, id := range ids {
 		p, ok := live[id]
@@ -172,6 +192,28 @@ func (s *service) dropRows(ctx context.Context, uid string, ids []string, live m
 			res.Tally.muted++
 			continue
 		}
+		cands = append(cands, listCandidate{i: i, p: p})
+	}
+	if len(cands) == 0 {
+		return res, nil
+	}
+	active, err := s.activeAuthors(ctx, uid, cands)
+	if err != nil {
+		return dropResult{}, err
+	}
+	for _, c := range cands {
+		// The audience judges the original copy (p); a QUOTE of an inactive author is swapped for its tombstone (show)
+		// only after that, as GetPost, GetThread's context and the feeds do: the caller's own QUOTE skips blockCause, so
+		// Decide is what judges its embedded author.
+		i, p, show := c.i, c.p, c.p
+		tombstoned := false
+		switch active.Verdict(p) {
+		case posts.AuthorDrop:
+			res.Tally.inactive++ // kept in storage: a restore brings it back
+			continue
+		case posts.AuthorTombstone:
+			show, tombstoned = posts.TombstonedQuote(p), true
+		}
 		var hint RowHint
 		if s.d.Audience != nil {
 			d, err := s.d.Audience.Decide(ctx, uid, snap, p, posts.SurfaceOwnList)
@@ -183,6 +225,7 @@ func (s *service) dropRows(ctx context.Context, uid string, ids []string, live m
 				res.Tally.withheld++
 				res.Kept = append(res.Kept, i)
 				res.Hints = append(res.Hints, RowHint{Withheld: true})
+				res.Posts = append(res.Posts, show)
 				continue
 			}
 			if d.Verdict != posts.Show {
@@ -191,10 +234,33 @@ func (s *service) dropRows(ctx context.Context, uid string, ids []string, live m
 			}
 			hint = RowHint{Embed: d.Embed, Protected: s.d.Audience.ProtectedAuthor(ctx, uid, p.AuthorID, snap.Following[p.AuthorID])}
 		}
+		if tombstoned {
+			hint.Embed = postsv1.EmbedViewerState_EMBED_VIEWER_STATE_UNSPECIFIED // a tombstone has no author to hide or mark
+		}
 		res.Kept = append(res.Kept, i)
 		res.Hints = append(res.Hints, hint)
+		res.Posts = append(res.Posts, show)
 	}
 	return res, nil
+}
+
+// activeAuthors resolves the account status of the candidates' authors and embedded authors in one cache-first
+// Directory read (posts.ResolveActiveAuthors; the caller is never asked). A missing Directory, or a Directory failure,
+// is an error, never an assumed status (fail closed); the error is already redacted of the uids asked.
+func (s *service) activeAuthors(ctx context.Context, uid string, cands []listCandidate) (posts.ActiveAuthors, error) {
+	var dir posts.AuthorDirectory
+	if s.d.Directory != nil {
+		dir = s.d.Directory
+	}
+	rows := make([]*posts.Post, len(cands))
+	for k, c := range cands {
+		rows[k] = c.p
+	}
+	active, err := posts.ResolveActiveAuthors(ctx, dir, uid, rows)
+	if err != nil {
+		return posts.ActiveAuthors{}, fmt.Errorf("list: %w", err)
+	}
+	return active, nil
 }
 
 // dropErr maps a dropRows error: an apierr (UNAVAILABLE when the protected set is unknown, fail closed)
@@ -216,6 +282,7 @@ func noteRows(ctx context.Context, t dropTally, returned int) {
 	logger.SetRequestField(ctx, fieldRowsDroppedHidden, t.hidden)
 	logger.SetRequestField(ctx, fieldRowsDroppedBlocked, t.blocked)
 	logger.SetRequestField(ctx, fieldRowsDroppedMuted, t.muted)
+	logger.SetRequestField(ctx, fieldRowsDroppedInactive, t.inactive)
 	logger.SetRequestField(ctx, fieldRowsDroppedProtected, t.protected)
 	logger.SetRequestField(ctx, fieldRowsWithheld, t.withheld)
 }
