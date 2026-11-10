@@ -135,9 +135,12 @@ class _ReplyComposerState extends State<_ReplyComposer> {
     final cubit = context.read<ComposerCubit>();
     return BlocConsumer<ComposerCubit, ComposerState>(
       listenWhen: (before, after) =>
-          after.status == ComposerStatus.posted &&
-          before.status != ComposerStatus.posted,
-      // The thread screen clears the cubit's draft; this clears the field.
+          (after.status == ComposerStatus.posted &&
+              before.status != ComposerStatus.posted) ||
+          (after.sessionEnded && !before.sessionEnded),
+      // The thread screen clears the cubit's draft on a post, the cubit itself
+      // when the session ended (the old account's text goes); this clears the
+      // field.
       listener: (context, state) => _controller.clear(),
       builder: (context, state) {
         final inline = widget.inline;
@@ -148,7 +151,9 @@ class _ReplyComposerState extends State<_ReplyComposer> {
         final field = TextField(
           controller: _controller,
           focusNode: widget.focusNode,
-          enabled: !state.isSubmitting && !widget.blocked,
+          // Opened in a session that has ended: nothing more can be sent.
+          enabled:
+              !state.isSubmitting && !widget.blocked && !state.sessionEnded,
           minLines: 1,
           maxLines: 5,
           keyboardType: TextInputType.multiline,

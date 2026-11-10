@@ -1,3 +1,5 @@
+import 'dart:async';
+
 /// Generation counter of the signed-in session, shared by every repository
 /// that writes the local cache (`AppDatabase.sessionEpoch`).
 ///
@@ -8,11 +10,22 @@
 class SessionEpoch {
   int _value = 0;
 
+  // Never closed: an epoch lives as long as the app (or the test's database).
+  final StreamController<int> _ended = StreamController<int>.broadcast();
+
   int get value => _value;
+
+  /// The new [value] each time [end] runs. For a holder that must react to a
+  /// sign-out or an account switch (the composer closes); a guarded write
+  /// needs only [allows].
+  Stream<int> get ended => _ended.stream;
 
   /// Invalidates every write started under an earlier [value]. Call on
   /// sign-out, before wiping the database.
-  void end() => _value++;
+  void end() {
+    _value++;
+    _ended.add(_value);
+  }
 
   /// Passed by a write that intentionally bypasses the guard. Every guarded
   /// write takes a required epoch, so skipping the check is always explicit.
