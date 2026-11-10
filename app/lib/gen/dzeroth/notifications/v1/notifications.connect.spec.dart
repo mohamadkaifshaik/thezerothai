@@ -60,4 +60,29 @@ abstract final class NotificationService {
     dzerothnotificationsv1notifications.UnregisterDeviceRequest.new,
     dzerothnotificationsv1notifications.UnregisterDeviceResponse.new,
   );
+
+  /// The caller's push preferences: per type group, push on or off. Needs FEATURE_NOTIFICATIONS and
+  /// FEATURE_NOTIFICATION_PREFS on for the caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
+  /// "notification_prefs" for the latter), before any lookup. A user who never saved anything has every group on (today's
+  /// behaviour). Reads users/{caller}/settings/notifications (1 read). Rate limit: default per-minute bucket.
+  static const getNotificationPrefs = connect.Spec(
+    '/$name/GetNotificationPrefs',
+    connect.StreamType.unary,
+    dzerothnotificationsv1notifications.GetNotificationPrefsRequest.new,
+    dzerothnotificationsv1notifications.GetNotificationPrefsResponse.new,
+    idempotency: connect.Idempotency.noSideEffects,
+  );
+
+  /// Replaces the caller's push preferences (every group is sent; false = push off for that group). Same flags as
+  /// GetNotificationPrefs. The in-app list and the badge are never affected: a muted group still writes its row, only the
+  /// FCM push is skipped. The fan-out reads the preference through a 60 s per-instance cache, so another instance can keep
+  /// pushing for up to 60 s after the change. Idempotent by state (a full replace; an update equal to the stored value
+  /// writes nothing); idempotency_key is format-validated (VALIDATION when malformed) but not stored. A caller without a
+  /// profile => FAILED_PRECONDITION + PROFILE_REQUIRED. Rate limit: default per-minute bucket.
+  static const updateNotificationPrefs = connect.Spec(
+    '/$name/UpdateNotificationPrefs',
+    connect.StreamType.unary,
+    dzerothnotificationsv1notifications.UpdateNotificationPrefsRequest.new,
+    dzerothnotificationsv1notifications.UpdateNotificationPrefsResponse.new,
+  );
 }

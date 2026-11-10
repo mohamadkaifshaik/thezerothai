@@ -202,7 +202,7 @@ void main() {
     }
     expect(
       find.text(
-        'Creator tools are coming soon. For now this shows your account at a '
+        'Creator Studio is coming soon. For now this shows your account at a '
         'glance.',
       ),
       findsOneWidget,

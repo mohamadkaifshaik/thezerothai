@@ -9,8 +9,10 @@ import '../../../core/theme/app_theme.dart';
 /// and the "Who can reply?" sheet; no default list tile.
 ///
 /// With [selected] set the row is one choice of a mutually exclusive group:
-/// it is announced as selected or not (the visual mark is the caller's
-/// [trailing]); with [selected] null it is a plain button. [role] gives the row
+/// it is announced as selected or not. A selected row shows its label and a
+/// check glyph in the accent text colour (tealText on light, 5.4:1 and up),
+/// so selection is never colour alone; a caller's [trailing] replaces the
+/// check. With [selected] null it is a plain button. [role] gives the row
 /// an ARIA role on the web (the audience picker's rows are `menuItem`s).
 class SheetOptionRow extends StatelessWidget {
   const SheetOptionRow({
@@ -34,7 +36,17 @@ class SheetOptionRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final enabled = onTap != null;
+    final accent = context.appColors.accentText;
+    final isSelected = selected == true;
     final tint = enabled ? null : theme.disabledColor;
+    final labelColor = enabled && isSelected ? accent : tint;
+    final end =
+        trailing ??
+        (isSelected
+            ? ExcludeSemantics(
+                child: Icon(Icons.check, size: AppIconSize.lg, color: accent),
+              )
+            : null);
     return Semantics(
       button: true,
       role: role,
@@ -55,18 +67,21 @@ class SheetOptionRow extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(icon, size: AppIconSize.lg, color: tint),
+                Icon(
+                  icon,
+                  size: AppIconSize.lg,
+                  color: enabled && isSelected ? accent : tint,
+                ),
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: Text(
                     label,
-                    style: theme.textTheme.titleMedium?.copyWith(color: tint),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: labelColor,
+                    ),
                   ),
                 ),
-                if (trailing != null) ...[
-                  const SizedBox(width: AppSpacing.md),
-                  trailing!,
-                ],
+                if (end != null) ...[const SizedBox(width: AppSpacing.md), end],
               ],
             ),
           ),

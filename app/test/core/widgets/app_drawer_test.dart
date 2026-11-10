@@ -529,6 +529,157 @@ void main() {
       });
     });
 
+    group('ADR-0034 destinations (PR 3.4)', () {
+      List<String> rowLabels(WidgetTester tester) {
+        const known = [
+          'Profile',
+          'Follow requests',
+          'Articles',
+          'Lists',
+          'Communities',
+          'Plans',
+          'History',
+          'Settings and Privacy',
+          'Sign out',
+        ];
+        final found = <MapEntry<double, String>>[];
+        for (final label in known) {
+          final f = find.descendant(
+            of: find.byType(AppDrawer),
+            matching: find.text(label),
+          );
+          if (f.evaluate().isNotEmpty) {
+            found.add(MapEntry(tester.getTopLeft(f.first).dy, label));
+          }
+        }
+        found.sort((a, b) => a.key.compareTo(b.key));
+        return [for (final e in found) e.value];
+      }
+
+      final cases = <String, ({Set<String> flags, List<String> rows})>{
+        'no flags': (
+          flags: {},
+          rows: ['Profile', 'Settings and Privacy', 'Sign out'],
+        ),
+        'posts only': (
+          flags: {'posts'},
+          rows: ['Profile', 'Articles', 'Settings and Privacy', 'Sign out'],
+        ),
+        'lists and communities': (
+          flags: {'lists', 'communities'},
+          rows: [
+            'Profile',
+            'Lists',
+            'Communities',
+            'Settings and Privacy',
+            'Sign out',
+          ],
+        ),
+        'beacons only (Plans is in the bar, not here)': (
+          flags: {'beacons'},
+          rows: ['Profile', 'Settings and Privacy', 'Sign out'],
+        ),
+        'everything': (
+          flags: {
+            'posts',
+            'bookmarks',
+            'lists',
+            'communities',
+            'beacons',
+            'graph',
+          },
+          rows: [
+            'Profile',
+            'Articles',
+            'Lists',
+            'Communities',
+            'History',
+            'Settings and Privacy',
+            'Sign out',
+          ],
+        ),
+      };
+      for (final entry in cases.entries) {
+        testWidgets('rows, ${entry.key}', (tester) async {
+          await pump(tester, profile: _alice, flags: entry.value.flags);
+          await openDrawer(tester);
+
+          expect(rowLabels(tester), entry.value.rows);
+          expect(find.text('Plans'), findsNothing);
+          expect(find.byKey(const ValueKey('drawer-plans')), findsNothing);
+        });
+      }
+
+      testWidgets('the header avatar is 56dp and the counts are 48dp targets '
+          'with a spoken button label', (tester) async {
+        final handle = tester.ensureSemantics();
+        await pump(tester, profile: _alice);
+        await openDrawer(tester);
+
+        final avatar = tester.getSize(
+          find.descendant(
+            of: find.byType(AppDrawer),
+            matching: find.byType(AppAvatar),
+          ),
+        );
+        expect(avatar, const Size(56, 56));
+        for (final label in ['341 Following', '12 Followers']) {
+          final size = tester.getSize(
+            find.ancestor(
+              of: find.text(label, findRichText: true),
+              matching: find.byType(InkWell),
+            ),
+          );
+          expect(size.height, greaterThanOrEqualTo(48), reason: label);
+          expect(size.width, greaterThanOrEqualTo(48), reason: label);
+          expect(
+            tester.getSemantics(find.bySemanticsLabel(label)),
+            matchesSemantics(
+              label: label,
+              isButton: true,
+              hasTapAction: true,
+            ),
+          );
+        }
+        handle.dispose();
+      });
+
+      testWidgets('every row is a labelled button of at least 48dp at 360dp, '
+          'text scale 2.0, and Profile stays reachable', (tester) async {
+        final handle = tester.ensureSemantics();
+        await pump(
+          tester,
+          profile: _alice,
+          flags: {'posts', 'lists', 'communities', 'beacons'},
+          textScale: 2,
+        );
+        await openDrawer(tester);
+
+        for (final label in ['Profile', 'Articles', 'Lists', 'Communities']) {
+          expect(
+            find.bySemanticsLabel(label),
+            findsOneWidget,
+            reason: label,
+          );
+          final row = find.ancestor(
+            of: find.text(label),
+            matching: find.byType(InkWell),
+          );
+          expect(
+            tester.getSize(row).height,
+            greaterThanOrEqualTo(48),
+            reason: label,
+          );
+        }
+        expectNoOverflow(tester);
+
+        await tester.tap(find.text('Profile'));
+        await tester.pumpAndSettle();
+        expect(find.text('profile alice'), findsOneWidget);
+        handle.dispose();
+      });
+    });
+
     testWidgets('never exceeds 85 % of a very narrow screen', (tester) async {
       await pump(tester, profile: _alice, size: const Size(300, 700));
       await openDrawer(tester);
@@ -536,13 +687,16 @@ void main() {
       expectSize(tester, find.byType(Drawer), width: 255);
     });
 
-    testWidgets('labels are bold 20dp and the icons are 24dp', (tester) async {
+    testWidgets('labels are titleLarge 20dp and the icons are 24dp', (
+      tester,
+    ) async {
       await pump(tester, profile: _alice);
       await openDrawer(tester);
 
       final style = tester.widget<Text>(find.text('Profile')).style!;
+      // titleLarge: Manrope 20 sp w800 (ADR-0033); restyled in PR 3.4.
       expect(style.fontSize, 20);
-      expect(style.fontWeight, FontWeight.w700);
+      expect(style.fontWeight, FontWeight.w800);
       // (person_outline is also the avatar fallback; settings_outlined is
       // unique to a row.)
       expect(

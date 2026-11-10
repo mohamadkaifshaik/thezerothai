@@ -15,16 +15,16 @@ import '../../onboarding/presentation/bloc/onboarding_state.dart';
 import 'widgets/creator_insights_group.dart';
 import 'widgets/creator_programs_group.dart';
 
-/// Creator tools (`/creator-studio`, a shell of plan W8): an at-a-glance view
+/// Creator Studio (`/creator-studio`, a shell of plan W8): an at-a-glance view
 /// of the account from the profile already in memory, plus "Coming soon" rows
 /// for insights and programs. No RPC, no repository, no refresh, no button
 /// but Back, no link out.
 class CreatorStudioScreen extends StatelessWidget {
   const CreatorStudioScreen({super.key});
 
-  static const title = 'Creator tools';
+  static const title = 'Creator Studio';
   static const intro =
-      'Creator tools are coming soon. For now this shows your account at a '
+      'Creator Studio is coming soon. For now this shows your account at a '
       'glance.';
   static const footnote = 'Counts are as of your last refresh.';
 

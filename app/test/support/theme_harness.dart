@@ -11,6 +11,17 @@ const kMatrixWidths = <double>[360, 600, 1200];
 /// The text scales every shared-chrome test runs at.
 const kMatrixTextScales = <double>[1.0, 1.3];
 
+/// The widths (dp) the redesign tests run at: phone, tablet portrait and
+/// desktop. Separate from [kMatrixWidths], which existing callers rely on.
+const kRedesignWidths = <double>[360, 834, 1440];
+
+/// The text scales the redesign tests run at.
+const kRedesignTextScales = <double>[1.0, 2.0];
+
+/// Viewport heights (dp) per redesign width, for the `heights:` parameter of
+/// [forEachThemeAndWidth].
+final kRedesignHeights = <double, double>{360: 800, 834: 1194, 1440: 900};
+
 /// The full text-scale axis of the W3 client matrix: the shared
 /// stops plus the accessibility maximum, 2.0. Pass it as `textScales:` to
 /// [forEachThemeAndWidth] to cover every cell: 360 / 600 / 1200 dp x light /
@@ -29,6 +40,7 @@ Future<void> pumpThemed(
   Size size = const Size(400, 800),
   double textScale = 1.0,
   bool useScaffold = true,
+  bool disableAnimations = false,
 }) async {
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -43,6 +55,7 @@ Future<void> pumpThemed(
         data: MediaQueryData(
           size: size,
           textScaler: TextScaler.linear(textScale),
+          disableAnimations: disableAnimations,
         ),
         child: useScaffold ? Scaffold(body: child) : child,
       ),
@@ -53,6 +66,9 @@ Future<void> pumpThemed(
 }
 
 /// Registers one `testWidgets` per theme x width x text scale combination.
+///
+/// Pass `heights: kRedesignHeights` to size each width's viewport; widths
+/// missing from the map use [height].
 ///
 /// ```dart
 /// forEachThemeAndWidth('drawer header fits', (tester, env) async {
@@ -67,13 +83,14 @@ void forEachThemeAndWidth(
   List<double> widths = kMatrixWidths,
   List<double> textScales = kMatrixTextScales,
   double height = 800,
+  Map<double, double>? heights,
 }) {
   for (final brightness in Brightness.values) {
     for (final width in widths) {
       for (final scale in textScales) {
         final env = MatrixEnv(
           brightness: brightness,
-          size: Size(width, height),
+          size: Size(width, heights?[width] ?? height),
           textScale: scale,
         );
         testWidgets('$description [$env]', (tester) => body(tester, env));
@@ -109,7 +126,13 @@ class MatrixEnv {
 /// `RUN_GOLDENS=1 flutter test --update-goldens test/goldens`
 bool get goldensEnabled => Platform.environment['RUN_GOLDENS'] == '1';
 
-/// A golden of [finder] named `<name>_<theme>_<width>.png` under
+/// The golden file name (relative to `test/goldens/`) for [name] in [env]:
+/// `<name>_<theme>_<width>_x<scale>.png`, e.g. `drawer_dark_360_x2.0.png`.
+String goldenFileName(String name, MatrixEnv env) =>
+    '${name}_${env.brightness.name}_${env.size.width.toInt()}'
+    '_x${env.textScale}.png';
+
+/// A golden of [finder] named by [goldenFileName] under
 /// `test/goldens/`, skipped unless [goldensEnabled].
 Future<void> expectGolden(
   WidgetTester tester,
@@ -120,8 +143,6 @@ Future<void> expectGolden(
   if (!goldensEnabled) return;
   await expectLater(
     finder,
-    matchesGoldenFile(
-      'goldens/${name}_${env.brightness.name}_${env.size.width.toInt()}.png',
-    ),
+    matchesGoldenFile('goldens/${goldenFileName(name, env)}'),
   );
 }

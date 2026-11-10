@@ -51,6 +51,8 @@ type Server struct {
 	viewer ViewerFlags
 	// scheduler serves the three scheduled-post RPCs (WithScheduler); nil answers Unimplemented once the flags pass.
 	scheduler Scheduler
+	// editor serves PublishScheduledPostNow and UpdateScheduledPost (WithScheduledEditor).
+	editor ScheduledEditor
 }
 
 // ServerOption configures NewServer.

@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:connectrpc/connect.dart' as connect;
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
@@ -534,7 +535,9 @@ void main() {
         tester,
         find.ancestor(
           of: find.text('Retry'),
-          matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+          matching: find.byWidgetPredicate(
+            (w) => w is ButtonStyleButton || w is AppPillButton,
+          ),
         ),
         reason: 'Retry',
       );
@@ -603,7 +606,9 @@ void main() {
             of: find.byType(AlertDialog),
             matching: find.text(label),
           ),
-          matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+          matching: find.byWidgetPredicate(
+            (w) => w is ButtonStyleButton || w is AppPillButton,
+          ),
         );
         expectMinTarget(tester, button, reason: label);
         expectInsideHorizontally(tester, button, env.size.width);

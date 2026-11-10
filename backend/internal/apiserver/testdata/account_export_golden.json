@@ -139,6 +139,15 @@
   "notifications": {
     "devices": [],
     "notifications": [],
+    "settings": {
+      "pushEnabled": {
+        "followers": true,
+        "likes_reposts": true,
+        "mentions_replies": true,
+        "messages": true,
+        "plans": true
+      }
+    },
     "userId": "<uid:A>"
   },
   "poll_votes": {

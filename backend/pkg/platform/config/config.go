@@ -189,6 +189,16 @@ type Config struct {
 	// you share" strip of a chat. On for the caller on top of FEATURE_BEACONS not globally off.
 	// FEATURE_CHAT_SHARED_PLANS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureChatSharedPlans flags.Spec
+	// FeatureReadReceipts is the flag (wire name `read_receipts`) gating read receipts (F3): UpdateProfile.read_receipts=true,
+	// the receipt stamp of MarkConversationRead and Conversation.peer_read_at of ListMessages need it on for the caller (peer_read_at
+	// also for the peer); Profile.read_receipts is shown unless it is globally off. Needs `messaging` for any effect.
+	// FEATURE_READ_RECEIPTS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureReadReceipts flags.Spec
+	// FeatureDMPolicy is the flag (wire name `dm_policy`) gating the "Who can message me" setting (F9): setting
+	// UpdateProfile.dm_policy to FOLLOWING_ONLY needs it on for the caller, Profile.dm_policy is shown unless it is globally
+	// off, and SendMessage applies a recipient's FOLLOWING_ONLY only when it is on for that recipient. Needs `messaging` for
+	// any effect. FEATURE_DM_POLICY[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureDMPolicy flags.Spec
 	// FeatureProfileExtras is the flag (wire name `profile_extras`) gating the UpdateProfile banner, location,
 	// website and pin fields and CreateUpload(BANNER) (which also needs `media`). FEATURE_PROFILE_EXTRAS[_ALLOWLIST|_PERCENT],
 	// default off in every environment.
@@ -288,6 +298,10 @@ type Config struct {
 	// NotificationService RPCs, the event producers and the fan-out handler.
 	// FEATURE_NOTIFICATIONS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureNotifications flags.Spec
+	// FeatureNotificationPrefs is the flag (wire name `notification_prefs`) gating GetNotificationPrefs and
+	// UpdateNotificationPrefs (both also need `notifications`) and the push preferences check in the fan-out (a recipient
+	// outside the flag is pushed as before). FEATURE_NOTIFICATION_PREFS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureNotificationPrefs flags.Spec
 	// NotificationsTopic is NOTIFICATIONS_TOPIC, the Pub/Sub topic producers publish notification events on
 	// (default "notifications-fanout", the topic the pubsub Terraform module already owns).
 	NotificationsTopic string
@@ -854,6 +868,18 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureReadReceipts, err := flags.LoadSpec("READ_RECEIPTS", "read_receipts", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureDMPolicy, err := flags.LoadSpec("DM_POLICY", "dm_policy", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureNotificationPrefs, err := flags.LoadSpec("NOTIFICATION_PREFS", "notification_prefs", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureProfileExtras, err := flags.LoadSpec("PROFILE_EXTRAS", "profile_extras", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1000,6 +1026,7 @@ func Load() (Config, error) {
 		FeatureCommunities:        featureCommunities,
 		FeatureBeacons:            featureBeacons,
 		FeatureChatSharedPlans:    featureChatSharedPlans,
+		FeatureReadReceipts:       featureReadReceipts,
 		FeatureProfileExtras:      featureProfileExtras,
 		FeatureProfileTabs:        featureProfileTabs,
 		FeatureLikesList:          featureLikesList,
@@ -1023,6 +1050,8 @@ func Load() (Config, error) {
 		ExportRetention:           exportRetention,
 		JobsTopic:                 getenv("JOBS_TOPIC", "jobs"),
 		FeatureNotifications:      featureNotifications,
+		FeatureDMPolicy:           featureDMPolicy,
+		FeatureNotificationPrefs:  featureNotificationPrefs,
 		NotificationsTopic:        getenv("NOTIFICATIONS_TOPIC", "notifications-fanout"),
 		NotificationsDelivery:     notifDelivery,
 		FeatureMedia:              featureMedia,

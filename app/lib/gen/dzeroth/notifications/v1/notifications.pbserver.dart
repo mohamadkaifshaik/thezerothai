@@ -29,6 +29,10 @@ abstract class NotificationServiceBase extends $pb.GeneratedService {
       $pb.ServerContext ctx, $2.RegisterDeviceRequest request);
   $async.Future<$2.UnregisterDeviceResponse> unregisterDevice(
       $pb.ServerContext ctx, $2.UnregisterDeviceRequest request);
+  $async.Future<$2.GetNotificationPrefsResponse> getNotificationPrefs(
+      $pb.ServerContext ctx, $2.GetNotificationPrefsRequest request);
+  $async.Future<$2.UpdateNotificationPrefsResponse> updateNotificationPrefs(
+      $pb.ServerContext ctx, $2.UpdateNotificationPrefsRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
@@ -40,6 +44,10 @@ abstract class NotificationServiceBase extends $pb.GeneratedService {
         return $2.RegisterDeviceRequest();
       case 'UnregisterDevice':
         return $2.UnregisterDeviceRequest();
+      case 'GetNotificationPrefs':
+        return $2.GetNotificationPrefsRequest();
+      case 'UpdateNotificationPrefs':
+        return $2.UpdateNotificationPrefsRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -57,6 +65,12 @@ abstract class NotificationServiceBase extends $pb.GeneratedService {
         return registerDevice(ctx, request as $2.RegisterDeviceRequest);
       case 'UnregisterDevice':
         return unregisterDevice(ctx, request as $2.UnregisterDeviceRequest);
+      case 'GetNotificationPrefs':
+        return getNotificationPrefs(
+            ctx, request as $2.GetNotificationPrefsRequest);
+      case 'UpdateNotificationPrefs':
+        return updateNotificationPrefs(
+            ctx, request as $2.UpdateNotificationPrefsRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

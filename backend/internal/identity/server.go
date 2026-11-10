@@ -171,6 +171,14 @@ func (s *Server) UpdateProfile(ctx context.Context, req *connect.Request[identit
 		Website:        req.Msg.Website,
 		PinnedPostID:   req.Msg.PinnedPostId,
 		IsPrivate:      req.Msg.IsPrivate,
+		ReadReceipts:   req.Msg.ReadReceipts,
+	}
+	if req.Msg.DmPolicy != nil {
+		pol, ok := dmPolicyFromProto(req.Msg.GetDmPolicy())
+		if !ok {
+			return nil, apierr.Validation("dm_policy", "dm_policy must be EVERYONE_REQUESTS or FOLLOWING_ONLY")
+		}
+		params.DMPolicy = &pol
 	}
 	profile, err := s.svc.UpdateProfile(ctx, uid, params)
 	if err != nil {
@@ -314,6 +322,26 @@ func toProtoStatus(s AccountStatus) identityv1.AccountStatus {
 	}
 }
 
+// dmPolicyToProto maps the stored policy to the wire enum; the default is UNSPECIFIED (which clients read as
+// EVERYONE_REQUESTS), so an account that never set it, and every profile while the flag is globally off, carry 0.
+func dmPolicyToProto(p DMPolicy) identityv1.DmPolicy {
+	if p == DMPolicyFollowingOnly {
+		return identityv1.DmPolicy_DM_POLICY_FOLLOWING_ONLY
+	}
+	return identityv1.DmPolicy_DM_POLICY_UNSPECIFIED
+}
+
+// dmPolicyFromProto maps a requested policy; UNSPECIFIED and unknown values are not valid requests (ok=false).
+func dmPolicyFromProto(p identityv1.DmPolicy) (DMPolicy, bool) {
+	switch p {
+	case identityv1.DmPolicy_DM_POLICY_EVERYONE_REQUESTS:
+		return DMPolicyEveryoneRequests, true
+	case identityv1.DmPolicy_DM_POLICY_FOLLOWING_ONLY:
+		return DMPolicyFollowingOnly, true
+	}
+	return "", false
+}
+
 func toProtoProfile(p Profile) *identityv1.Profile {
 	return &identityv1.Profile{
 		UserId:               p.UserID,
@@ -327,6 +355,8 @@ func toProtoProfile(p Profile) *identityv1.Profile {
 		Location:             p.Location,
 		Website:              p.Website,
 		PinnedPostId:         p.PinnedPostID,
+		ReadReceipts:         p.ReadReceipts,
+		DmPolicy:             dmPolicyToProto(p.DMPolicy),
 		IsPrivate:            p.IsPrivate,
 		Verified:             p.Verified,
 		SubscriptionVerified: p.SubscriptionVerified,
