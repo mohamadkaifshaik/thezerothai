@@ -24,6 +24,7 @@ import 'communities_error_messages.dart';
 import 'widgets/community_member_actions.dart';
 import 'widgets/community_row.dart';
 import 'widgets/community_unavailable_view.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// `/communities/:id/members`: the joined members, 1
 /// `ListCommunityMembers` per page, each with a Follow button; the owner and
@@ -136,7 +137,7 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
     required String body,
     required String action,
   }) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -27,6 +26,7 @@ import 'widgets/follow_requests_row.dart';
 import 'widgets/notification_row.dart';
 import 'widgets/push_opt_in_card.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
+import '../../../core/widgets/shell_geometry.dart';
 
 /// `/notifications`: the cached list renders at once, one
 /// throttled `since_token` refresh follows, and opening it marks everything
@@ -118,9 +118,9 @@ class _NotificationsViewState extends State<_NotificationsView>
       child: Scaffold(
         body: LayoutBuilder(
           builder: (context, constraints) {
-            final inset = math.max(
-              0.0,
-              (constraints.maxWidth - AppBreakpoints.mobile) / 2,
+            final inset = ShellGeometry.readableInset(
+              context,
+              constraints.maxWidth,
             );
             return BlocBuilder<NotificationsCubit, NotificationsState>(
               builder: (context, state) {

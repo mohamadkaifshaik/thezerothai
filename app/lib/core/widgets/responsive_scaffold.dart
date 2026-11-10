@@ -7,6 +7,7 @@ import 'app_bottom_bar.dart';
 import 'app_nav_rail.dart';
 import 'app_shell_scope.dart';
 import 'shell_geometry.dart';
+import 'tablet_modal.dart';
 
 export 'app_nav_destination.dart';
 export 'shell_geometry.dart' show ShellLayout;
@@ -188,9 +189,27 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
       ShellLayout.tablet,
       textDirection: direction,
     );
-    final compose = widget.onCompose;
     final ltr = direction == TextDirection.ltr;
     final trailing = ltr ? media.padding.right : media.padding.left;
+    // A modal opened from anywhere in the shell (the rail's account menu
+    // included, not only the panes) is over the rail: it centres on the
+    // content area. This is the root Scaffold of the shell's routes, so it
+    // shows their snack bars: centred over the pane area, not the rail.
+    return TabletModalScope(
+      host: const TabletModalHost(overShell: true),
+      child: TabletSnackBarTheme(
+        content: geometry.content,
+        child: _tabletScaffold(context, geometry, trailing),
+      ),
+    );
+  }
+
+  Widget _tabletScaffold(
+    BuildContext context,
+    ShellGeometryData geometry,
+    double trailing,
+  ) {
+    final compose = widget.onCompose;
     return Scaffold(
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,

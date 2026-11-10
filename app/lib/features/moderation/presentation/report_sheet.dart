@@ -7,6 +7,7 @@ import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart';
 import '../../../shared/widgets/primitives/character_counter.dart';
+import '../../../shared/widgets/primitives/app_sheet.dart';
 import '../data/moderation_repository.dart';
 import '../domain/report_rules.dart';
 import 'bloc/report_cubit.dart';
@@ -54,11 +55,14 @@ Future<ReportOutcome> showReportSheet(
     onUnexpectedError: onError,
   );
   try {
-    final result = await showModalBottomSheet<ReportOutcome>(
+    // A dialog on the tablet layout (600-1199 dp), the sheet elsewhere.
+    final result = await showAppSheet<ReportOutcome>(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      useSafeArea: true,
+      material: const MaterialSheetOptions(
+        isScrollControlled: true,
+        showDragHandle: true,
+        useSafeArea: true,
+      ),
       builder: (sheetContext) => BlocProvider.value(
         value: cubit,
         child: ReportSheet(

@@ -38,6 +38,7 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import '../../format/relative_time.dart';
 import '../primitives/app_avatar.dart';
+import '../primitives/app_dialog.dart';
 import '../primitives/app_menu_item_row.dart';
 import 'embedded_post_card.dart';
 import 'post_action_bar.dart';

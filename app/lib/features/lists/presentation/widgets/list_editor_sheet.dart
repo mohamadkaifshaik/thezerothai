@@ -9,6 +9,7 @@ import '../../data/lists_repository.dart';
 import '../../domain/list_text_rules.dart';
 import '../../domain/lists_feature_flag.dart';
 import '../bloc/list_editor_cubit.dart';
+import '../../../../shared/widgets/primitives/app_dialog.dart';
 
 /// Opens the create / edit form of a List: a full-screen page below
 /// 600dp, a dialog from 600dp. Resolves with the [ListEditorOutcome] (saved or
@@ -33,8 +34,9 @@ Future<ListEditorOutcome?> showListEditor(
       ),
     );
   }
-  return showDialog<ListEditorOutcome>(
+  return showAppMaterialDialog<ListEditorOutcome>(
     context: context,
+    maxWidth: 480,
     builder: (_) => Dialog(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 480),
@@ -96,7 +98,7 @@ class _ListEditorSheetState extends State<ListEditorSheet> {
   );
 
   Future<void> _confirmDelete() async {
-    final yes = await showDialog<bool>(
+    final yes = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete this List?'),

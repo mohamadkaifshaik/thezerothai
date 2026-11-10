@@ -9,6 +9,7 @@ import '../../../../core/theme/theme_mode_cubit.dart';
 import '../../../../core/widgets/privacy_policy_link.dart';
 import 'auth_brand_scene.dart';
 import 'auth_design.dart';
+import '../../../../shared/widgets/primitives/app_dialog.dart';
 
 class AuthExperienceLayout extends StatelessWidget {
   const AuthExperienceLayout({
@@ -291,7 +292,7 @@ class AuthExperienceLayout extends StatelessWidget {
     ),
   );
 
-  void _help(BuildContext context) => showDialog<void>(
+  void _help(BuildContext context) => showAppMaterialDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
       title: const Text('A plan starts here.'),

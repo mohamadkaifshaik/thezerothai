@@ -141,4 +141,55 @@ void main() {
     expect(seen, data);
     expect(outside, isNull);
   });
+
+  testWidgets('readableInset: a 680 dp column on the tablet layout, the '
+      '600 dp one everywhere else', (tester) async {
+    final insets = <String, double>{};
+    Widget probe(String name, double width) => Builder(
+      builder: (context) {
+        insets[name] = ShellGeometry.readableInset(context, width);
+        return const SizedBox();
+      },
+    );
+    ShellGeometryData geometry(double window, ShellLayout layout) =>
+        ShellGeometry.contentRectFor(
+          Size(window, 1194),
+          EdgeInsets.zero,
+          layout,
+        );
+    await tester.pumpWidget(
+      Column(
+        textDirection: TextDirection.ltr,
+        children: [
+          // No geometry: phones, desktop, full-screen routes.
+          probe('none 754', 754),
+          probe('none 520', 520),
+          ShellGeometry(
+            data: geometry(834, ShellLayout.tablet),
+            child: probe('tablet 754', 754),
+          ),
+          ShellGeometry(
+            data: geometry(600, ShellLayout.tablet),
+            child: probe('tablet 520', 520),
+          ),
+          ShellGeometry(
+            data: geometry(1194, ShellLayout.tablet),
+            child: probe('tablet 1114', 1114),
+          ),
+          ShellGeometry(
+            data: geometry(834, ShellLayout.legacy),
+            child: probe('legacy 754', 754),
+          ),
+        ],
+      ),
+    );
+    expect(insets, {
+      'none 754': 77,
+      'none 520': 0,
+      'tablet 754': 37,
+      'tablet 520': 0,
+      'tablet 1114': 217,
+      'legacy 754': 77,
+    });
+  });
 }

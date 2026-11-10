@@ -26,6 +26,7 @@ import 'profile_edit_error_messages.dart';
 import 'widgets/avatar_editor.dart';
 import 'widgets/banner_editor.dart';
 import 'widgets/profile_edit_unavailable.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// Settings -> Edit profile (`/settings/profile`, only reachable with the
 /// `profile_snapshot` flag on): display name, bio and, with `FEATURE_MEDIA`
@@ -126,7 +127,7 @@ class _EditProfileViewState extends State<_EditProfileView> {
   }
 
   Future<bool> _confirmDiscard(BuildContext context) async {
-    final discard = await showDialog<bool>(
+    final discard = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Discard changes?'),
