@@ -5,6 +5,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"math/rand"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +32,11 @@ type hiddenEnv struct {
 func newHiddenEnv(t *testing.T, size int) *hiddenEnv {
 	t.Helper()
 	client, project := backfillTestClient(t)
+	return newHiddenEnvOn(t, client, project, size)
+}
+
+func newHiddenEnvOn(t *testing.T, client *firestore.Client, project string, size int) *hiddenEnv {
+	t.Helper()
 	old := hiddenPageSize
 	hiddenPageSize = size
 	t.Cleanup(func() { hiddenPageSize = old })
@@ -123,8 +131,12 @@ func mustContain(t *testing.T, name, out string, want ...string) {
 // 3 hidden posts and 2 hidden replies are listed, nothing from another community, over 3 pages of 2; the time reads "unknown" for a post hidden
 // before communityHiddenAt; no text appears.
 func TestCommunityHidden_Integration_List(t *testing.T) {
-	e := newHiddenEnv(t, 2)
-	const cid, other = "0000000000000007001", "0000000000000007002"
+	// The audit line prints the project id. A CI run drew demo-test-2452080805636171993, whose digits hold "7199", and a leak check on
+	// that short form failed with nothing leaked. This project always holds the short forms of the foreign post and of cid, so the
+	// check below must match whole ids (regression for that flake).
+	client, project := testClientFor(t, fmt.Sprintf("demo-test-7199-7001-%d", rand.Int63()))
+	e := newHiddenEnvOn(t, client, project, 2)
+	const cid, other, foreignPost = "0000000000000007001", "0000000000000007002", "0000000000000007199"
 	e.community(cid, "ACTIVE")
 	e.community(other, "ACTIVE")
 	t0 := e.now.Add(-time.Hour)
@@ -133,7 +145,7 @@ func TestCommunityHidden_Integration_List(t *testing.T) {
 	e.post("0000000000000007103", cid, false, time.Time{}, "") // before then: no time
 	e.post("0000000000000007104", cid, true, t0, "")
 	e.post("0000000000000007105", cid, false, t0, "TAKEN_DOWN")
-	e.post("0000000000000007199", other, false, t0, "")
+	e.post(foreignPost, other, false, t0, "")
 
 	var all strings.Builder
 	token := ""
@@ -165,7 +177,19 @@ func TestCommunityHidden_Integration_List(t *testing.T) {
 		"post=0000000000000007103 kind=root hidden_at=unknown moderation=none",
 		"post=0000000000000007104 kind=reply",
 		"post=0000000000000007105 kind=root", "moderation=set")
-	if strings.Contains(s, "7199") || strings.Contains(s, "SECRET-TEXT") || strings.Contains(s, cid) {
+	// Privacy: the rows are exactly cid's five hidden posts, each once; the other community's post id, any text and the raw cid appear
+	// nowhere in the output (audit lines included). Ids are matched whole: a short digit run can occur in the random project id.
+	var listed []string
+	for _, l := range strings.Split(s, "\n") {
+		if rest, ok := strings.CutPrefix(l, "post="); ok {
+			id, _, _ := strings.Cut(rest, " ")
+			listed = append(listed, id)
+		}
+	}
+	if want := []string{"0000000000000007101", "0000000000000007102", "0000000000000007103", "0000000000000007104", "0000000000000007105"}; !slices.Equal(listed, want) {
+		t.Errorf("listed posts = %v, want exactly %v:\n%s", listed, want, s)
+	}
+	if strings.Contains(s, foreignPost) || strings.Contains(s, "SECRET-TEXT") || strings.Contains(s, cid) {
 		t.Errorf("output leaks another community's post, text or the community id:\n%s", s)
 	}
 	if code, _, errOut := e.cli("community", "hidden", "0000000000009999999"); code != 1 || !strings.Contains(errOut, "no such community") {
