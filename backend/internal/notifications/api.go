@@ -225,6 +225,10 @@ type Directory = identity.Directory
 // Social is the graph seam (graph.Reader): the recipient's cached social context for suppression.
 type Social = graph.Reader
 
+// BlockLookup is the batched blocked-by seam (graph.BlockLookup): List consults it only when the caller's blockedBy
+// overflowed, to establish whether the actors on the page have blocked the caller.
+type BlockLookup = graph.BlockLookup
+
 // Checkpoint resumes Eraser.PurgeUser across calls. The zero value starts from the beginning.
 type Checkpoint struct {
 	// Step: 0 devices, 1 the user's own notifications, 2 notifications other users hold about this user.

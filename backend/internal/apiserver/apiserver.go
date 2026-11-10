@@ -288,6 +288,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	notifService := notifications.NewService(notifications.Deps{
 		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Seen: identityRepo, Validator: tokenValidator, CursorKey: cfg.CursorHMACKey,
+		Blocks: graphSvc, // F-04: read-time blocked-by check for a caller whose blockedBy overflowed
 	})
 	notifServer := notifications.NewServer(notifService, featureFlags, notifications.WithPrefs(notifPrefs))
 
