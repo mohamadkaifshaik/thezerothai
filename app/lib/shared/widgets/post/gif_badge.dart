@@ -28,7 +28,7 @@ class GifBadge extends StatelessWidget {
           child: Text(
             'GIF',
             maxLines: 1,
-            style: theme.textTheme.labelMedium?.copyWith(
+            style: theme.textTheme.labelSmall?.copyWith(
               color: colors.onSurface,
               fontWeight: FontWeight.w700,
             ),
