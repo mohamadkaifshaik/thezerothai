@@ -28,16 +28,18 @@ import 'request_session.dart';
 /// IDs"). Feature repositories depend on this, never on `connectrpc` or
 /// `dart:io`/`fetch` directly.
 ///
-/// [sessionUid] binds every call to the account signed in when it was built:
-/// a call whose account changed before it was sent is refused, never sent
-/// under the next account (see [AuthHeadersInterceptor]).
+/// [sessionUid] (required) binds every call at transport entry to the account
+/// signed in when the request enters the interceptor chain: a call whose
+/// account changed before it was sent is refused, never sent under the next
+/// account (see [AuthHeadersInterceptor]). Awaits before the RPC is issued
+/// are the screens' to bind (#788).
 class ApiClient {
   ApiClient({
     required String baseUrl,
     required AuthTokenProvider authTokens,
     required AppCheckTokenProvider appCheckTokens,
     void Function()? onServicePaused,
-    SessionUidReader? sessionUid,
+    required SessionUidReader sessionUid,
     connect.HttpClient? httpClient,
   }) : _transport = protocol_connect.Transport(
          baseUrl: baseUrl,
@@ -54,7 +56,7 @@ class ApiClient {
            ).call,
            const RetryInterceptor().call,
            // Innermost: re-checks the session binding before every attempt.
-           if (sessionUid != null) RequestSessionGuard(sessionUid).call,
+           RequestSessionGuard(sessionUid).call,
          ],
        );
 

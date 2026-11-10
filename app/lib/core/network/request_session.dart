@@ -9,7 +9,7 @@ typedef SessionUidReader = String? Function();
 
 /// A request was refused before it was sent: the signed-in account changed
 /// (or signed out) while it waited for its tokens, or the ID token belongs to
-/// another account than the one the request was built for.
+/// another account than the one the request was bound to at transport entry.
 ///
 /// Thrown by the `ApiClient` interceptors; `mapConnectError` turns it into an
 /// [UnauthenticatedException] (the "session ended" type callers already

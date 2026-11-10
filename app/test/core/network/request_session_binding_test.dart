@@ -163,19 +163,6 @@ void main() {
       expect(await getMe(client()), isNull);
       expect(http.bearerOf(0), 'Bearer ${idTokenFor(_b)}');
     });
-
-    test('no session reader wired: unchanged behaviour', () async {
-      final api = ApiClient(
-        baseUrl: 'https://api.example.test',
-        authTokens: auth,
-        appCheckTokens: appCheck,
-        httpClient: http.client,
-      );
-      auth.answer(idTokenFor(_b));
-
-      expect(await getMe(api), isNull);
-      expect(http.bearerOf(0), 'Bearer ${idTokenFor(_b)}');
-    });
   });
 
   group('retries', () {
@@ -196,6 +183,26 @@ void main() {
 
         expect(http.sent, hasLength(1));
         expect(result, isA<UnauthenticatedException>());
+      });
+    });
+
+    test('a retry of a call that entered with no session is sent after a '
+        'sign-in (unbound, as today)', () {
+      fakeAsync((async) {
+        var calls = 0;
+        http.respond = (_) =>
+            calls++ == 0 ? connectError(503, 'unavailable') : protoOk(null);
+        auth.answer(null);
+        Object? result = 'pending';
+        getMe(client()).then((r) => result = r);
+
+        async.flushMicrotasks();
+        expect(http.sent, hasLength(1));
+        session = _b;
+        async.elapse(const Duration(seconds: 5));
+
+        expect(http.sent, hasLength(2));
+        expect(result, isNull);
       });
     });
 
