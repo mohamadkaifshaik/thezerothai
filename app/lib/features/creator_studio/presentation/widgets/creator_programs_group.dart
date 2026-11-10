@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../shared/widgets/primitives/app_status_pill.dart';
 import '../../../../shared/widgets/primitives/settings_group.dart';
 
-/// The "Programs" group of Creator tools: two static rows with the "Coming
+/// The "Programs" group of Creator Studio: two static rows with the "Coming
 /// soon" pill. Nothing to sign up for, so no button and no promise.
 /// Monetisation replaces this widget and nothing else on the page.
 class CreatorProgramsGroup extends StatelessWidget {

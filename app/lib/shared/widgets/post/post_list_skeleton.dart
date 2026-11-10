@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../primitives/app_skeleton.dart';
 
 /// Placeholder rows shaped like posts, shown while a list's first page
-/// loads (Home, profile, thread). Static (no shimmer): cheap, and respects
-/// reduced motion. Announced once as [semanticsLabel].
+/// loads (Home, profile, thread). Built on [AppSkeletonScope]: a slow pulse
+/// that is static under reduced motion. Announced once as [semanticsLabel].
 ///
 /// Each row reserves the real card's footprint so nothing jumps when the
 /// posts arrive: the 40dp avatar column, the card padding (16/12) and, on
@@ -28,78 +29,28 @@ class PostListSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    Widget bar(double widthFactor) => FractionallySizedBox(
-      alignment: AlignmentDirectional.centerStart,
-      widthFactor: widthFactor,
-      child: Container(
-        height: AppSpacing.md,
-        decoration: BoxDecoration(
-          color: colors.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
-      ),
-    );
-    return Semantics(
-      liveRegion: true,
-      label: semanticsLabel,
+    return AppSkeletonScope(
+      semanticsLabel: semanticsLabel,
       // A non-scrolling scroll view: it takes its natural height in a sliver,
       // and clips (never overflows) when a screen gives it less.
-      child: ExcludeSemantics(
-        child: SingleChildScrollView(
-          physics: const NeverScrollableScrollPhysics(),
-          child: Column(
-            children: [
-              for (var i = 0; i < rows; i++) ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.md,
-                    vertical: AppSpacing.smd,
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: _avatarSize,
-                        height: _avatarSize,
-                        decoration: BoxDecoration(
-                          color: colors.surfaceContainerHigh,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: Column(
-                          children: [
-                            bar(0.4),
-                            const SizedBox(height: AppSpacing.sm),
-                            bar(1),
-                            const SizedBox(height: AppSpacing.sm),
-                            bar(0.7),
-                            if (mediaEvery > 0 && i % mediaEvery == 1) ...[
-                              const SizedBox(height: AppSpacing.sm),
-                              AspectRatio(
-                                aspectRatio: 16 / 9,
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: colors.surfaceContainerHigh,
-                                    borderRadius: BorderRadius.circular(
-                                      AppRadius.lg,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+      child: SingleChildScrollView(
+        physics: const NeverScrollableScrollPhysics(),
+        child: Column(
+          children: [
+            for (var i = 0; i < rows; i++) ...[
+              AppSkeletonRow(
+                avatarSize: _avatarSize,
+                barWidths: const [0.4, 1, 0.7],
+                mediaSlot: mediaEvery > 0 && i % mediaEvery == 1,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.smd,
                 ),
-                const Divider(),
-              ],
+                gap: AppSpacing.sm,
+              ),
+              const Divider(),
             ],
-          ),
+          ],
         ),
       ),
     );

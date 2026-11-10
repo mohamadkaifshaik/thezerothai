@@ -210,6 +210,13 @@ func (r *FirestoreRepo) purgeDevices(ctx context.Context, uid string, cp Checkpo
 		return cp, false, fmt.Errorf("notifications: purge %s devices: query: %w", logger.HashUID(uid), err)
 	}
 	b := store.NewFirestoreBatch(r.client)
+	// users/{uid}/settings/notifications (F6) goes with the devices: Firestore does not cascade a subcollection when
+	// users/{uid} is deleted. Deleting a missing document is a no-op, so this is safe on every call and on redelivery.
+	prefsRef, err := r.prefsRef(uid)
+	if err != nil {
+		return cp, false, fmt.Errorf("notifications: purge %s settings: %w", logger.HashUID(uid), err)
+	}
+	b.Delete(prefsRef)
 	if len(docs) > 0 {
 		idxRefs := make([]*firestore.DocumentRef, 0, len(docs))
 		for _, s := range docs {
@@ -237,9 +244,9 @@ func (r *FirestoreRepo) purgeDevices(ctx context.Context, uid string, cp Checkpo
 		for _, s := range docs {
 			b.Delete(s.Ref)
 		}
-		if err := b.Commit(ctx); err != nil {
-			return cp, false, fmt.Errorf("notifications: purge %s devices: %w", logger.HashUID(uid), err)
-		}
+	}
+	if err := b.Commit(ctx); err != nil {
+		return cp, false, fmt.Errorf("notifications: purge %s devices: %w", logger.HashUID(uid), err)
 	}
 	next := Checkpoint{Step: cp.Step, Deleted: cp.Deleted + len(docs)}
 	if len(docs) < opsPage {
@@ -270,7 +277,20 @@ type exportedDevice struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-// ExportUser implements Exporter: it streams {"userId", "devices": [...], "notifications": [...]} to w, newest
+// exportedSettings is the user's push preferences (F6): true = push on for that group.
+type exportedSettings struct {
+	PushEnabled map[string]bool `json:"pushEnabled"`
+}
+
+func exportSettings(p Prefs) exportedSettings {
+	m := make(map[string]bool, len(Groups))
+	for _, g := range Groups {
+		m[string(g)] = p.On(g)
+	}
+	return exportedSettings{PushEnabled: m}
+}
+
+// ExportUser implements Exporter: it streams {"userId", "devices": [...], "settings": {...}, "notifications": [...]} to w, newest
 // notifications first in pages of opsPage. Never a token, never another user's id.
 func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer) error {
 	devDocs, err := r.devices(uid).Limit(opsPage).Documents(ctx).GetAll()
@@ -289,7 +309,15 @@ func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer)
 	if err != nil {
 		return fmt.Errorf("notifications: export encode devices: %w", err)
 	}
-	if _, err := fmt.Fprintf(w, `{"userId":%q,"devices":%s,"notifications":[`, uid, devJSON); err != nil {
+	prefs, err := r.GetPrefs(ctx, uid)
+	if err != nil {
+		return fmt.Errorf("notifications: export %s settings: %w", logger.HashUID(uid), err)
+	}
+	settingsJSON, err := json.Marshal(exportSettings(prefs))
+	if err != nil {
+		return fmt.Errorf("notifications: export encode settings: %w", err)
+	}
+	if _, err := fmt.Fprintf(w, `{"userId":%q,"devices":%s,"settings":%s,"notifications":[`, uid, devJSON, settingsJSON); err != nil {
 		return fmt.Errorf("notifications: write export: %w", err)
 	}
 	enc := json.NewEncoder(w)

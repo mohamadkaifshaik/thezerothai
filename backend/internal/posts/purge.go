@@ -198,6 +198,9 @@ type exportedPost struct {
 	// The author's own poll: choices, closesAt, per-choice counts and the total; omitted for a post without a poll,
 	// so plain posts export byte for byte as before. Counts are anonymous totals.
 	Poll *exportedPoll `json:"poll,omitempty"`
+	// BeaconID is the id of the author's own plan the post shared (FEATURE_POST_BEACON_EMBED); omitted without one, so plain
+	// posts export byte for byte as before. The plan itself is exported by the beacons section.
+	BeaconID string `json:"beaconId,omitempty"`
 }
 
 // exportedPoll is a poll in the export.
@@ -232,7 +235,7 @@ func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer)
 				return fmt.Errorf("posts: export decode post %s: %w", s.Ref.ID, err)
 			}
 			ep := exportedPost{ID: s.Ref.ID, Text: d.Text, CreatedAt: d.CreatedAt.UTC(), Hashtags: d.Hashtags, Mentions: make([]string, 0, len(d.Mentions)), ReplyToPostID: d.ReplyToID,
-				PaidPartnership: d.PaidPartnership, MadeWithAI: d.MadeWithAI, ReplyPolicy: d.ReplyPolicy}
+				PaidPartnership: d.PaidPartnership, MadeWithAI: d.MadeWithAI, ReplyPolicy: d.ReplyPolicy, BeaconID: d.BeaconID}
 			if po := d.Poll.toPoll(); po != nil {
 				ep.Poll = &exportedPoll{Choices: po.Options, ClosesAt: po.ClosesAt, Counts: po.Counts, Total: po.Total}
 			}

@@ -66,7 +66,13 @@ type Server struct {
 	community *communityFeedState
 	// homeTabs wires SetHomeTabs (home_tabs.go); nil = Unimplemented.
 	homeTabs *HomeTabsDeps
+	// plans hydrates Post.beacon (posts.HydrateBeacons, set by SetBeaconPlans); nil renders every plan card unavailable.
+	plans posts.BeaconPlans
 }
+
+// SetBeaconPlans wires the plan reader that hydrates Post.beacon on every feed page (one batch read per page, only when a
+// post of the page carries a plan). Call it once at startup, before ListenAndServe, because beacons is built after the timeline.
+func (s *Server) SetBeaconPlans(p posts.BeaconPlans) { s.plans = p }
 
 // NewServer builds the Connect handler. Use with timelinev1connect.NewTimelineServiceHandler.
 func NewServer(d Deps, opts ...Option) *Server {

@@ -157,6 +157,10 @@ type Post struct {
 	// CommunityHidden is the label switch only: a moderator hide sets it, a restore clears it. It never feeds Hidden() or
 	// the audience; ToView drops the community label while it is true. Absent = false.
 	CommunityHidden bool
+	// BeaconID is the plan this root post shares (CreatePostRequest.beacon_id), "" for none, and Beacon its snapshot frozen at
+	// create time (never put on the wire: the live card comes from BeaconPlans.Previews, see beaconToProto).
+	BeaconID string
+	Beacon   *BeaconSnapshot
 }
 
 // CommunityLabel is the community {id, name} snapshot a community post stores: a rename does not rewrite old posts.
@@ -409,6 +413,11 @@ type CreateInput struct {
 	// CommunitiesGloballyOff is FEATURE_COMMUNITIES off for everyone (the kill switch; server.go, never from the request): a reply into a
 	// community conversation then skips CommunityGate.CanReply.
 	CommunitiesGloballyOff bool
+	// BeaconID is the request's beacon_id, "" for none; BeaconEmbedEnabled is the FEATURE_POST_BEACON_EMBED decision for the
+	// caller, made by server.go (never from the request). A set BeaconID with it false, or with no BeaconPlans wired, is
+	// FEATURE_DISABLED (metadata feature=post_beacon_embed), checked after polls and before any read.
+	BeaconID           string
+	BeaconEmbedEnabled bool
 }
 
 // ArticlePublication loads the frozen draft inside the root post transaction;
@@ -535,6 +544,10 @@ type ViewerSet struct {
 	// blockedAuthors is the viewer's outgoing block set (graph snapshot.Blocked), set by the producers that show a post by an author the viewer
 	// blocks (GetPost, GetThread, the author's profile timeline) and read only by ToViewAt for viewer_poll_vote_blocked. Read-only.
 	blockedAuthors map[string]bool
+	// beacons is the live plan state of the page (WithBeacons) and beaconsOff is FEATURE_POST_BEACON_EMBED globally off
+	// (ToView drops Post.beacon). Read-only.
+	beacons    map[string]BeaconLive
+	beaconsOff bool
 }
 
 // NewViewerSet builds a ViewerSet from post-id lists (no bookmarks).
@@ -564,7 +577,7 @@ func NewViewerSetWithBookmarks(liked, reposted, bookmarked []string) ViewerSet {
 // FEATURE_ENGAGEMENT off may see, so the wider hydration never leaks like or repost flags.
 // The poll choices go with them; the polls-globally-off mark stays (it is not viewer state).
 func (v ViewerSet) BookmarksOnly() ViewerSet {
-	return ViewerSet{bookmarked: v.bookmarked, pollsOff: v.pollsOff, communitiesOff: v.communitiesOff}
+	return ViewerSet{bookmarked: v.bookmarked, pollsOff: v.pollsOff, communitiesOff: v.communitiesOff, beacons: v.beacons, beaconsOff: v.beaconsOff}
 }
 
 // WithPollVotes returns v plus the viewer's poll choices, from userLikes.pollVotes entries "<postId>:<index>[:<closesAtUnix>]" (newest last).

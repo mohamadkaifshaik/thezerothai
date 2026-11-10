@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../shared/widgets/primitives/app_status_pill.dart';
 import '../../../../shared/widgets/primitives/settings_group.dart';
 
-/// The "Insights" group of Creator tools: four static rows, each with the
+/// The "Insights" group of Creator Studio: four static rows, each with the
 /// "Coming soon" pill and no number (not even 0 or a dash). Insights v1
 /// replaces this widget and nothing else on the page.
 class CreatorInsightsGroup extends StatelessWidget {
