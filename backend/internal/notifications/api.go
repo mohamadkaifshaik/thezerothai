@@ -60,12 +60,14 @@ const (
 	// to the recipient, no users/{uid}/notifications row, no badge move, never listed. It names a conversation, not a post.
 	TypeMessage Type = "message"
 	// TypeBeaconRequest goes to a beacon's organiser when someone asks to join; TypeBeaconAccepted to the requester when
-	// the organiser accepts; TypeBeaconCancelled to each accepted participant when the organiser cancels. Each names a
-	// beacon (Event.BeaconID), never a post, writes a row and pushes; the recipient needs only `notifications` on
-	// (docs/beacons-plan.md PR 5).
+	// the organiser accepts; TypeBeaconCancelled to each accepted participant when the organiser cancels;
+	// TypeBeaconUpdated to each accepted participant when the organiser changes the start, duration or cost (F28, one
+	// row per edit). Each names a beacon (Event.BeaconID), never a post, writes a row and pushes; the recipient needs only
+	// `notifications` on (docs/beacons-plan.md PR 5).
 	TypeBeaconRequest   Type = "beacon_request"
 	TypeBeaconAccepted  Type = "beacon_accepted"
 	TypeBeaconCancelled Type = "beacon_cancelled"
+	TypeBeaconUpdated   Type = "beacon_updated"
 )
 
 // MessagingFlagName is the wire name of FEATURE_MESSAGING (messaging.FlagName). notifications cannot import messaging,
@@ -77,7 +79,7 @@ const MessagingFlagName = "messaging"
 func (t Type) Valid() bool {
 	switch t {
 	case TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted, TypeMessage,
-		TypeBeaconRequest, TypeBeaconAccepted, TypeBeaconCancelled:
+		TypeBeaconRequest, TypeBeaconAccepted, TypeBeaconCancelled, TypeBeaconUpdated:
 		return true
 	}
 	return false
@@ -90,7 +92,7 @@ func (t Type) needsPost() bool {
 
 // needsBeacon reports whether events of type t must name a beacon (and never a post).
 func (t Type) needsBeacon() bool {
-	return t == TypeBeaconRequest || t == TypeBeaconAccepted || t == TypeBeaconCancelled
+	return t == TypeBeaconRequest || t == TypeBeaconAccepted || t == TypeBeaconCancelled || t == TypeBeaconUpdated
 }
 
 // pushOnly reports whether events of type t produce a push and no users/{uid}/notifications row.

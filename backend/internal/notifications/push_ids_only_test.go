@@ -35,7 +35,7 @@ func TestPush_CarriesIdsOnlyForEveryType(t *testing.T) {
 		}
 	}
 	// A beacon push names the beacon instead of a post (R26): the same four-key shape with beaconId for postId.
-	for _, ty := range []Type{TypeBeaconRequest, TypeBeaconAccepted, TypeBeaconCancelled} {
+	for _, ty := range []Type{TypeBeaconRequest, TypeBeaconAccepted, TypeBeaconCancelled, TypeBeaconUpdated} {
 		msg := buildMessage("token", Push{Type: ty, NotificationID: "n1", BeaconID: beaconA, ActorID: "a1"})
 		if _, has := msg.Data["postId"]; len(msg.Data) != 4 || has || msg.Data["beaconId"] != beaconA {
 			t.Errorf("%s: data keys = %v, want type, notificationId, beaconId, actorId", ty, msg.Data)
