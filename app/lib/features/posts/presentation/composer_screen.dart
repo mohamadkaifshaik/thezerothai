@@ -135,8 +135,9 @@ class ComposerScreen extends StatelessWidget {
     }
     // Unsent posts: `drafts` on, a signed-in account, and a new root
     // post (a quote never has a draft). Nothing draft-related is read from
-    // the tree otherwise. A cache that keeps nothing (the web start-up
-    // fallback) can never read a draft back, so drafts act as off there.
+    // the tree otherwise. On the pure-Dart session cache (the web start-up
+    // fallback without sqlite) a draft would be gone on reload, so drafts
+    // act as off there.
     final uid =
         quoteOfPostId.isEmpty &&
             featureEnabledSnapshot(context, kFeatureDrafts) &&

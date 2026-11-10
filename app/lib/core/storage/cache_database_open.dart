@@ -4,8 +4,8 @@ import 'app_database.dart';
 import 'memory_executor.dart';
 
 /// Reported once when the on-disk cache could not be used at start-up and the
-/// app runs on an in-memory one (or, when that fails too, on one that keeps
-/// nothing). Carries no message on purpose: the original
+/// app runs on an in-memory one (or, when that fails too, on the pure-Dart
+/// session cache). Carries no message on purpose: the original
 /// error can name the database file's path. Only the cause's type is kept, for
 /// debug logs.
 class CacheDatabaseUnavailable implements Exception {
@@ -23,8 +23,8 @@ class OpenedCacheDatabase {
 
   final AppDatabase database;
 
-  /// Set when the on-disk database failed and [database] is in memory, or
-  /// keeps nothing at all ([AppDatabase.keepsNothing]).
+  /// Set when the on-disk database failed and [database] is in memory
+  /// (sqlite, or the pure-Dart session cache: [AppDatabase.keepsNothing]).
   final CacheDatabaseUnavailable? failure;
   final StackTrace? failureStack;
 
@@ -59,8 +59,8 @@ class OpenedCacheDatabase {
 /// When the in-memory database fails too (on the web it needs `sqlite3.wasm`,
 /// which a failed fetch, a blocked request or a missing file keeps away), it
 /// is closed the same way and the app starts on [AppDatabase.keepingNothing]:
-/// every cache reads as empty and nothing is kept. Still one report, of the
-/// first failure.
+/// a pure-Dart cache that holds rows in memory for this run only, so fetched
+/// pages still render. Still one report, of the first failure.
 Future<OpenedCacheDatabase> openCacheDatabase({
   required String? restoredUid,
   AppDatabase Function() openOnDisk = AppDatabase.new,

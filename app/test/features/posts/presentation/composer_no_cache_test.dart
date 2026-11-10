@@ -8,10 +8,10 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../support/composer_rig.dart';
 import '../../../support/fake_posts_server.dart';
 
-/// The composer on a cache that keeps nothing (`AppDatabase.keepingNothing`,
-/// the web start-up fallback when `sqlite3.wasm` cannot be loaded): a saved
-/// draft can never be read back, so drafts act as off and a post still goes
-/// out, under a key held in memory.
+/// The composer on the pure-Dart session cache (`AppDatabase.keepingNothing`,
+/// the web start-up fallback when `sqlite3.wasm` cannot be loaded): nothing
+/// outlives the page, so drafts act as off and a post still goes out, under
+/// a key held in memory.
 void main() {
   late AppDatabase db;
   late FakePostsServer server;

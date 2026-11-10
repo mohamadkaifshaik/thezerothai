@@ -129,7 +129,7 @@ Future<void> bootstrap() async {
   // written, the app starts on an in-memory cache instead (not kept across
   // restarts; the next launch tries the disk again), reported below. When no
   // sqlite can be used at all (web without `sqlite3.wasm`), it starts on a
-  // cache that keeps nothing: same single report, nothing cached.
+  // pure-Dart cache held in memory for this run: same single report.
   final cache = await openCacheDatabase(restoredUid: restoredUid);
   final database = cache.database;
   // Start-up DB reads after the claim that fail: reported once telemetry's

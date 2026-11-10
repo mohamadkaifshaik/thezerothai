@@ -252,7 +252,7 @@ void main() {
       return result;
     }
 
-    test('start-up completes on a cache that keeps nothing, reported once '
+    test('start-up completes on the pure-Dart session cache, reported once '
         'with the type only', () async {
       final result = await openWithoutSqlite('a');
 
@@ -301,11 +301,13 @@ void main() {
         db = (await openWithoutSqlite('a')).database;
       });
 
-      test('settings and the owner stamp read as absent', () async {
+      test('settings, the owner stamp and the follow set read back for the '
+          'session', () async {
         await db.writeSetting('appearance', 'dark');
-        expect(await db.readSetting('appearance'), isNull);
-        expect(await db.readSetting(kCacheOwnerKey), isNull);
-        expect(await db.cachedFollowingIds(), isEmpty);
+        expect(await db.readSetting('appearance'), 'dark');
+        expect(await db.readSetting(kCacheOwnerKey), 'a');
+        await db.upsertFollowing('u2', epoch: db.sessionEpoch.value);
+        expect(await db.cachedFollowingIds(), ['u2']);
         expect(await db.savedExport('a'), isNull);
       });
 
@@ -326,7 +328,8 @@ void main() {
         await db.clearAll();
       });
 
-      test('feed load: the RPC is sent, nothing is kept', () async {
+      test('feed load: the RPC is sent and the posts it returned are '
+          'served from memory', () async {
         final transport = FakeTransport(
           (_, _) async => tl.GetHomeTimelineResponse(
             posts: [postView(2), postView(1)],
@@ -342,9 +345,16 @@ void main() {
         expect((await timeline.cached(const FeedKey.home())).entries, isEmpty);
         final snapshot = await timeline.refresh(const FeedKey.home());
         expect(transport.calledProcedures, hasLength(1));
-        // The feed is read back from the cache, which keeps nothing.
-        expect(snapshot.entries, isEmpty);
+        // The feed is read back from the cache, which holds the rows for
+        // the session.
+        expect([for (final p in snapshot.posts) p.post.postId], [
+          postId(2),
+          postId(1),
+        ]);
+        expect(snapshot.sinceToken, 's1');
+        // Nothing older: no call.
         await timeline.loadOlder(const FeedKey.home());
+        expect(transport.calledProcedures, hasLength(1));
       });
 
       test('composer drafts: save, read, list, count and claim', () async {
@@ -359,11 +369,13 @@ void main() {
           updatedAt: now,
         );
 
+        // The repository works on it; the composer still treats drafts as
+        // off (`keepsNothing`), since nothing outlives the page.
         expect(await drafts.upsert(draft), DraftSaveResult.saved);
-        expect(await drafts.read('a', 'd1'), isNull);
-        expect(await drafts.watch('a').first, isEmpty);
-        expect(await drafts.count('a'), 0);
-        expect(await drafts.watchCount('a').first, 0);
+        expect((await drafts.read('a', 'd1'))?.text, 'hello');
+        expect(await drafts.watch('a').first, hasLength(1));
+        expect(await drafts.count('a'), 1);
+        expect(await drafts.watchCount('a').first, 1);
         await drafts.claimSend(
           draft: draft,
           kind: SendKind.post,
@@ -372,6 +384,7 @@ void main() {
         await drafts.clearSend('a', 'd1', 'k1');
         expect(await drafts.purgeExpired('a'), 0);
         await drafts.delete('a', ['d1']);
+        expect(await drafts.count('a'), 0);
         await drafts.deleteAll('a');
       });
     });
