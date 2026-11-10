@@ -64,6 +64,17 @@ func TestIntegrationPreviews_OverTheRealRepo(t *testing.T) {
 		t.Fatalf("blocked preview = %+v, %v", got, err)
 	}
 
+	// F-03 (security review Low 2): a SUSPENDED organiser's plans are unavailable to everyone else, like a hidden plan; the
+	// organiser still sees their own (no profile read for them).
+	dir.profiles[host] = identity.Profile{UserID: host, Status: identity.AccountStatusSuspended}
+	if got, err = svc.Previews(ctx, member, []string{pub.ID, com.ID}); err != nil || len(got) != 0 {
+		t.Fatalf("suspended organiser's previews = %+v, %v; want none", got, err)
+	}
+	if got, err = svc.Previews(ctx, host, []string{pub.ID}); err != nil || len(got) != 1 {
+		t.Fatalf("the organiser's own preview = %+v, %v", got, err)
+	}
+	dir.profiles[host] = activeProfile(host)
+
 	// EmbedTarget: the organiser's own live plan only; cancelled and someone else's are refused; the plan seen live.
 	if _, err := svc.EmbedTarget(ctx, host, pub.ID); err != nil {
 		t.Fatalf("own plan: %v", err)

@@ -188,6 +188,11 @@ func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_
 // parent: it returns the post, or ErrNotFound for a missing, deleted, hidden, blocked-author or
 // non-ACTIVE-author post (callers map that to the one NOT_FOUND answer), or a redacted internal error. It sets
 // no request-log fields. A caller who blocked or muted the author still gets the post.
+//
+// The author-status rule (F-03) covers the copy too: a REPOST of a post whose author is not ACTIVE is ErrNotFound, and a
+// QUOTE of one is returned as its tombstoned copy (TombstonedQuote; the cached post is never changed), the way the feeds
+// and search show it until the copy clean-up reaches it, after the block and audience rules have judged the original copy.
+// The row author and the embedded author are read in the one Directory call.
 func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post, error) {
 	p, err := s.Get(ctx, postID)
 	if errors.Is(err, ErrNotFound) {
@@ -203,12 +208,14 @@ func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post
 		return nil, ErrNotFound
 	}
 
-	profiles, err := s.directory.GetProfiles(ctx, []string{p.AuthorID})
+	// One Directory call for the author and a copy's embedded author (GetProfiles omits SUSPENDED, DELETING and missing
+	// authors alike). No uid is exempt here, the caller included, so the author check is the one it always was.
+	active, err := ResolveActiveAuthors(ctx, s.directory, "", []*Post{p})
 	if err != nil {
-		return nil, logger.RedactErr(fmt.Errorf("posts: get: load author: %w", err), callerUID, p.AuthorID)
+		return nil, logger.RedactErr(fmt.Errorf("posts: get: load author: %w", err), callerUID, p.AuthorID, p.EmbeddedAuthor())
 	}
-	// GetProfiles omits SUSPENDED, DELETING and missing authors alike.
-	if _, ok := profiles[p.AuthorID]; !ok {
+	verdict := active.Verdict(p)
+	if verdict == AuthorDrop {
 		return nil, ErrNotFound
 	}
 
@@ -235,6 +242,11 @@ func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post
 	}
 	if d.Verdict != Show {
 		return nil, ErrNotFound
+	}
+	// The tombstone replaces the copy only now, so the block and audience rules above judged the original (as the feeds'
+	// embedAllowed and search's blockCause do).
+	if verdict == AuthorTombstone {
+		p = TombstonedQuote(p)
 	}
 	return p, nil
 }

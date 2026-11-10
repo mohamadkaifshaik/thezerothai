@@ -9,6 +9,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 )
 
 // previewBeacon stores one open public beacon organised by testOrganiser, number n.
@@ -90,8 +91,8 @@ func TestPreviews_BatchAndBounds(t *testing.T) {
 	if len(e.repo.beaconBatches) != 1 || fmt.Sprint(e.repo.beaconBatches[0]) != fmt.Sprint([]string{a.ID, b.ID, "0000000000000000999"}) {
 		t.Fatalf("beacon batches = %v, want one deduplicated GetAll", e.repo.beaconBatches)
 	}
-	if len(e.repo.participantBatches) != 0 || len(e.repo.mqueries) != 0 || e.dir.calls != 0 {
-		t.Fatal("previews read no participant rows, memberships or profiles")
+	if len(e.repo.participantBatches) != 0 || len(e.repo.mqueries) != 0 || e.dir.calls != 1 {
+		t.Fatalf("previews read no participant rows or memberships and one organiser batch (profiles: %d)", e.dir.calls)
 	}
 	// No valid id: no read. The cap: at most maxPreviewIDs ids go to the one batch.
 	e2 := newEnv()
@@ -186,5 +187,66 @@ func TestEmbedTarget(t *testing.T) {
 	}
 	if _, err := e.svc.EmbedTarget(context.Background(), testOrganiser, "0000000000000000999"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("a missing plan: %v", err)
+	}
+}
+
+// Security review Low 2: a plan whose organiser is SUSPENDED, DELETING or has no users doc renders "Plan unavailable" (absent
+// from the map), like a missing or hidden plan. The organisers are read in one batch, never for the viewer's own plans, and a
+// Directory failure fails the call (the caller degrades closed).
+func TestPreviews_OrganiserStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(e *env)
+		want bool
+	}{
+		{"ACTIVE organiser", func(*env) {}, true},
+		{"SUSPENDED organiser", func(e *env) {
+			e.dir.profiles[testOrganiser] = identity.Profile{UserID: testOrganiser, Status: identity.AccountStatusSuspended}
+		}, false},
+		{"DELETING organiser", func(e *env) {
+			e.dir.profiles[testOrganiser] = identity.Profile{UserID: testOrganiser, Status: identity.AccountStatusDeleting}
+		}, false},
+		{"organiser with no users doc", func(e *env) { delete(e.dir.profiles, testOrganiser) }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newEnv()
+			b := e.previewBeacon(0)
+			tc.set(e)
+			got, err := e.svc.Previews(context.Background(), testViewer, []string{b.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := got[b.ID]; ok != tc.want {
+				t.Fatalf("present = %v, want %v", ok, tc.want)
+			}
+		})
+	}
+
+	// Many plans by distinct organisers: one batch.
+	e := newEnv()
+	var ids []string
+	for i := range 5 {
+		b := e.previewBeacon(i)
+		b.OrganiserID = fmt.Sprintf("uid-org-%d", i)
+		e.repo.docs[b.ID] = b
+		if i != 3 {
+			e.dir.profiles[b.OrganiserID] = activeProfile(b.OrganiserID)
+		}
+		ids = append(ids, b.ID)
+	}
+	got, err := e.svc.Previews(context.Background(), testViewer, ids)
+	if err != nil || len(got) != 4 || e.dir.calls != 1 {
+		t.Fatalf("previews = %d, err %v, profile calls %d; want 4 and one batch", len(got), err, e.dir.calls)
+	}
+
+	// The viewer's own plans need no profile read; a failure fails the call.
+	e = newEnv()
+	b := e.previewBeacon(0)
+	e.dir.err = errors.New("down")
+	if got, err := e.svc.Previews(context.Background(), testOrganiser, []string{b.ID}); err != nil || len(got) != 1 || e.dir.calls != 0 {
+		t.Fatalf("own plan: %v, %v, calls %d", got, err, e.dir.calls)
+	}
+	if _, err := e.svc.Previews(context.Background(), testViewer, []string{b.ID}); err == nil {
+		t.Fatal("a Directory failure must not render the plan")
 	}
 }

@@ -162,14 +162,12 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 	s.fill(docs, readAt)
 	skip := map[string]bool{focal.ID: true, root: true, focal.ReplyToID: true}
 	var tally audienceTally
+	cands := make([]*Post, 0, len(docs))
 	for _, p := range docs {
 		if skip[p.ID] {
 			continue
 		}
-		// Hidden replies are dropped; then the block and mute sets the timelines use; then the one
-		// visibility predicate (a reply by a protected author the caller may not see is dropped, never the stored visibility).
-		// A reply carries no embed, so the author is the whole decision. The set is read at most
-		// once per instance per CACHE_TTL by its loader.
+		// The free rules first: hidden replies are dropped, then the block and mute sets the timelines use.
 		switch {
 		case p.Hidden():
 			tally.hidden++
@@ -178,16 +176,32 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 		case !replyAllowed(snap, callerUID, p.AuthorID):
 			tally.noteBlockMute(snap, p.AuthorID)
 		default:
-			ok, err := s.aud.visibleAuthor(ctx, callerUID, p.AuthorID, snap)
-			if err != nil {
-				return nil, s.audienceErr(err, callerUID)
-			}
-			if !ok {
-				tally.protected++
-				continue
-			}
-			out.Replies = append(out.Replies, p)
+			cands = append(cands, p)
 		}
+	}
+	// Then author status (F-03): one Directory batch for the remaining reply authors (a page is at most 30 rows; the caller
+	// is never asked), so a SUSPENDED, DELETING or missing author's reply leaves the thread before the clean-up hides it. A
+	// failure fails the page. A reply carries no embed, so the author is the whole decision.
+	active, err := ResolveActiveAuthors(ctx, s.directory, callerUID, cands)
+	if err != nil {
+		return nil, logger.RedactErr(fmt.Errorf("posts: thread: %w", err), callerUID)
+	}
+	for _, p := range cands {
+		if active.Verdict(p) != AuthorShow {
+			tally.inactive++
+			continue
+		}
+		// Then the one visibility predicate (a reply by a protected author the caller may not see is dropped, never the
+		// stored visibility). The set is read at most once per instance per CACHE_TTL by its loader.
+		ok, err := s.aud.visibleAuthor(ctx, callerUID, p.AuthorID, snap)
+		if err != nil {
+			return nil, s.audienceErr(err, callerUID)
+		}
+		if !ok {
+			tally.protected++
+			continue
+		}
+		out.Replies = append(out.Replies, p)
 	}
 	dropped := tally.total()
 	if len(docs) >= limit { // a full page always gets a next token, even when everything on it was dropped
@@ -203,10 +217,10 @@ func (s *service) GetThread(ctx context.Context, callerUID string, in ThreadInpu
 }
 
 // audienceTally counts the thread rows GetThread dropped, by cause (observability): counts only.
-type audienceTally struct{ protected, blocked, muted, hidden, communityHidden int }
+type audienceTally struct{ protected, blocked, muted, hidden, communityHidden, inactive int }
 
 func (t audienceTally) total() int {
-	return t.protected + t.blocked + t.muted + t.hidden + t.communityHidden
+	return t.protected + t.blocked + t.muted + t.hidden + t.communityHidden + t.inactive
 }
 
 // noteBlockMute files a reply replyAllowed refused: a mute (the caller's own list) only when no block applies.
@@ -226,6 +240,7 @@ func (t audienceTally) note(ctx context.Context) {
 	logger.SetRequestField(ctx, "audience_dropped_muted", t.muted)
 	logger.SetRequestField(ctx, "audience_dropped_hidden", t.hidden)
 	logger.SetRequestField(ctx, "audience_dropped_community_hidden", t.communityHidden)
+	logger.SetRequestField(ctx, "audience_dropped_inactive", t.inactive)
 }
 
 // contextAllowed is the context-post predicate (parent, root) with the audience applied: contextUsable (the pure
@@ -246,7 +261,9 @@ func (s *service) contextAllowed(ctx context.Context, p *Post, authorActive bool
 
 // threadContext resolves the parent and the conversation root of a reply in one GetAll plus one profile batch.
 // A context post that is missing, not public, by a non-ACTIVE author, by an author who blocks the caller (or
-// whom the caller blocks) is unavailable: flagged, never an error, and never distinguishable by cause.
+// whom the caller blocks) is unavailable: flagged, never an error, and never distinguishable by cause. The batch also
+// holds the authors the context posts copy (F-03): a REPOST of a non-ACTIVE author's post is unavailable, and a QUOTE of
+// one is shown as its tombstoned copy (TombstonedQuote) once the rules above have judged the original.
 func (s *service) threadContext(ctx context.Context, caller string, snap graph.Snapshot, focal *Post, root string, out *Thread) error {
 	ids := []string{focal.ReplyToID}
 	if root != focal.ReplyToID && root != focal.ID {
@@ -256,15 +273,15 @@ func (s *service) threadContext(ctx context.Context, caller string, snap graph.S
 	if err != nil {
 		return logger.RedactErr(fmt.Errorf("posts: thread: load context: %w", err), caller)
 	}
-	var authors []string
-	seen := map[string]bool{}
-	for _, p := range found {
-		if !seen[p.AuthorID] {
-			seen[p.AuthorID] = true
-			authors = append(authors, p.AuthorID)
+	rows := make([]*Post, 0, len(found))
+	for _, id := range ids {
+		if p, ok := found[id]; ok {
+			rows = append(rows, p)
 		}
 	}
-	profiles, err := s.directory.GetProfiles(ctx, authors)
+	// One batch for the context authors and the authors they copy; no uid is exempt (the caller's own context post is asked
+	// for too, as before).
+	active, err := ResolveActiveAuthors(ctx, s.directory, "", rows)
 	if err != nil {
 		return logger.RedactErr(fmt.Errorf("posts: thread: load context authors: %w", err), caller)
 	}
@@ -273,10 +290,14 @@ func (s *service) threadContext(ctx context.Context, caller string, snap graph.S
 		if !ok {
 			return nil, nil
 		}
-		_, active := profiles[p.AuthorID]
-		ok, err := s.contextAllowed(ctx, p, active, caller, snap)
+		verdict := active.Verdict(p)
+		authorActive := active.Active(p.AuthorID) && verdict != AuthorDrop // a REPOST of an inactive author is unavailable too
+		ok, err := s.contextAllowed(ctx, p, authorActive, caller, snap)
 		if err != nil || !ok {
 			return nil, err
+		}
+		if verdict == AuthorTombstone {
+			p = TombstonedQuote(p)
 		}
 		return p, nil
 	}

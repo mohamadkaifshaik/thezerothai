@@ -201,14 +201,24 @@ func following(uids ...string) map[string]bool {
 	return m
 }
 
-// fakeDirectory returns the ACTIVE profiles it was given.
+// fakeDirectory returns the profiles it was given (whatever their status; the real Directory omits non-ACTIVE ones, and
+// the timeline must not trust either). activeByDefault answers an ACTIVE profile for any uid it holds no entry for, so
+// rigs whose authors are incidental need no per-author setup; missing then names the uids with no users doc. batches
+// records every GetProfiles call.
 type fakeDirectory struct {
 	identity.Directory
-	profiles map[string]identity.Profile
-	err      error // GetProfiles failure
+	mu              sync.Mutex
+	profiles        map[string]identity.Profile
+	activeByDefault bool
+	missing         map[string]bool
+	err             error // GetProfiles failure
+	batches         [][]string
 }
 
 func (d *fakeDirectory) GetProfiles(ctx context.Context, uids []string) (map[string]identity.Profile, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.batches = append(d.batches, append([]string(nil), uids...))
 	if d.err != nil {
 		return nil, d.err
 	}
@@ -216,9 +226,18 @@ func (d *fakeDirectory) GetProfiles(ctx context.Context, uids []string) (map[str
 	for _, u := range uids {
 		if p, ok := d.profiles[u]; ok {
 			out[u] = p
+		} else if d.activeByDefault && !d.missing[u] {
+			out[u] = identity.Profile{UserID: u, Status: identity.AccountStatusActive}
 		}
 	}
 	return out, nil
+}
+
+// calls is a copy of the recorded GetProfiles batches.
+func (d *fakeDirectory) calls() [][]string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([][]string(nil), d.batches...)
 }
 
 // ByHashtag and CreatedAfter are search and trends queries; the timeline never calls them.
