@@ -10,6 +10,7 @@ import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
 import 'package:dzeroth/features/beacons/domain/beacons_feature_flag.dart';
 import 'package:dzeroth/features/beacons/presentation/beacons_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/beacon_row.dart';
+import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -250,6 +251,74 @@ void main() {
     expect(transport.calledProcedures, [
       '/dzeroth.beacons.v1.BeaconService/ListBeacons',
     ]);
+    expect(refreshRequests, 1);
+  });
+
+  testWidgets('kill switch on Load more, and the GetMe that follows fails: '
+      'paused, no Load more button, no further list RPC', (tester) async {
+    final getMe = StreamController<Set<String>>();
+    addTearDown(getMe.close);
+    const enabledFeatures = {kFeatureBeacons};
+    var refreshRequests = 0;
+    var listCalls = 0;
+    final transport = FakeTransport((procedure, input) async {
+      listCalls++;
+      // Page 1 answers with a next page; page 2 meets the kill switch.
+      if (listCalls == 1) {
+        return pb.ListBeaconsResponse(
+          views: [
+            beaconView(startAt: DateTime.now().add(const Duration(hours: 2))),
+          ],
+          nextPageToken: 'p2',
+        );
+      }
+      throw serverError(
+        connect.Code.failedPrecondition,
+        common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+        metadata: {'feature': kFeatureBeacons},
+      );
+    });
+    final repository = BeaconsRepository(
+      apiClient: ApiClient.withTransport(transport),
+      gate: ServiceFeatureGate(
+        isEnabled: () => enabledFeatures.contains(kFeatureBeacons),
+        onDisabledByServer: () => refreshRequests++,
+      ),
+    );
+
+    await pumpPlansRouter(
+      tester,
+      beacons: repository,
+      features: enabledFeatures,
+      featureChanges: getMe.stream,
+      routes: routes(),
+    );
+    expect(find.text('Coffee'), findsOneWidget);
+    expect(find.text('Load more'), findsOneWidget);
+    expect(refreshRequests, 0);
+
+    await tester.tap(find.text('Load more'));
+    await tester.pumpAndSettle();
+
+    expect(transport.calledProcedures, hasLength(2));
+    expect(refreshRequests, 1);
+    expectPaused();
+
+    // A failed GetMe keeps the cached flag set: `beacons` is still listed.
+    getMe.add(enabledFeatures);
+    await tester.pumpAndSettle();
+
+    expectPaused();
+    expect(find.text('Load more'), findsNothing);
+    expect(find.text('Coffee'), findsNothing);
+    expect(find.byType(BeaconRow), findsNothing);
+    expect(find.text("Plans aren't available yet."), findsNothing);
+    expect(find.text('Try again'), findsNothing);
+    expect(find.byTooltip('New plan'), findsNothing);
+    expect(find.byType(RefreshIndicator), findsNothing);
+    await tester.drag(find.byType(AppStateView), const Offset(0, 300));
+    await tester.pumpAndSettle();
+    expect(transport.calledProcedures, hasLength(2));
     expect(refreshRequests, 1);
   });
 

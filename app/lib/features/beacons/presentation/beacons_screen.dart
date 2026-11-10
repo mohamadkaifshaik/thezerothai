@@ -160,8 +160,9 @@ class _PlansListState extends State<_PlansList> {
               // lists it (a kill switch before the next `GetMe`, or that
               // `GetMe` failing): the same paused page, with no action and
               // no retry, so nothing more is sent from here.
-              if (state.status == BeaconsLoad.error &&
-                  state.error is FeatureDisabledException) {
+              // Whatever the status: a first load (error) and a Load more
+              // (ready, rows kept) end the same way.
+              if (state.error is FeatureDisabledException) {
                 return const _PlansPausedColumn();
               }
               return Column(
