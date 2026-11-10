@@ -27,12 +27,20 @@ type orphanEnv struct {
 
 func newOrphanEnv(t *testing.T, mode config.ProfileMediaRetire) *orphanEnv {
 	t.Helper()
+	return newOrphanEnvMode(t, mode, config.MediaOrphanSweepDelete, false)
+}
+
+// newOrphanEnvMode builds the env under a MEDIA_ORPHAN_SWEEP mode, optionally as a dry run.
+func newOrphanEnvMode(t *testing.T, mode config.ProfileMediaRetire, sweep config.MediaOrphanSweep, dryRun bool) *orphanEnv {
+	t.Helper()
 	e := &orphanEnv{
 		repo: newFakeOrphanRepo(), obj: newFakeObjects(),
 		drafts:   &fakeDraftHolds{held: map[string]map[string]bool{}},
 		profiles: &fakeProfileImages{urls: map[string][]string{}},
 	}
-	s, err := NewOrphanSweeper(OrphanSweepDeps{Repo: e.repo, Objects: e.obj, Drafts: e.drafts, Profiles: e.profiles, RetireMode: mode})
+	s, err := NewOrphanSweeper(OrphanSweepDeps{
+		Repo: e.repo, Objects: e.obj, Drafts: e.drafts, Profiles: e.profiles, RetireMode: mode, Mode: sweep, DryRun: dryRun,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,8 +385,9 @@ func TestOrphanSweep_CrashAfterTheClaimResumes(t *testing.T) {
 	}
 }
 
-// TestOrphanSweep_HolderErrorWritesNothingForThatOwner: an unknown hold is never read as free; other owners still run.
-func TestOrphanSweep_HolderErrorWritesNothingForThatOwner(t *testing.T) {
+// TestOrphanSweep_HolderErrorNeverMarksThatOwner: an unknown hold is never read as free (the owner's documents are
+// postponed, never marked; TestOrphanSweep_HolderErrorPostponesThatOwner checks the push); other owners still run.
+func TestOrphanSweep_HolderErrorNeverMarksThatOwner(t *testing.T) {
 	e := newOrphanEnv(t, config.ProfileMediaRetireAll)
 	post := e.seed(uidA, PurposePost, sweepNow.Add(-time.Minute))
 	avatar := e.seed(uidB, PurposeAvatar, sweepNow.Add(-time.Minute))
@@ -387,8 +396,8 @@ func TestOrphanSweep_HolderErrorWritesNothingForThatOwner(t *testing.T) {
 	if err == nil || res.Failed != 1 || res.Marked != 1 {
 		t.Fatalf("res=%+v err=%v, want uidA failed and uidB marked", res, err)
 	}
-	if e.doc(post).OrphanedAt != nil || !timeIs(e.doc(post).OrphanCheckAt, sweepNow.Add(-time.Minute)) {
-		t.Fatalf("the failed owner's document was written: %+v", e.doc(post))
+	if e.doc(post).OrphanedAt != nil {
+		t.Fatalf("the failed owner's document was marked: %+v", e.doc(post))
 	}
 	if e.doc(avatar).OrphanedAt == nil {
 		t.Fatal("the other owner was not swept")
@@ -478,7 +487,7 @@ func TestFinalize_SetsOrphanCheckAtOnReadyOnly(t *testing.T) {
 	}
 }
 
-// TestOrphanedDocsAreRefused: the mark makes the article cover preview refuse the image (the avatar and banner resolvers
+// TestOrphanedDocsAreRefused: the mark (and the claim) makes the article cover preview refuse the image (the avatar and banner resolvers
 // and LoadForPost are covered over the real repo in the integration test).
 func TestOrphanedDocsAreRefused(t *testing.T) {
 	m := sweepNow
@@ -489,5 +498,10 @@ func TestOrphanedDocsAreRefused(t *testing.T) {
 	d.OrphanedAt = &m
 	if usablePostCover(d, uidA) || !d.Orphaned() {
 		t.Fatal("a marked image must not be a usable cover")
+	}
+	// A claimed image stays refused even without the mark (the claim field is permanent; its objects may be gone).
+	d.OrphanedAt, d.OrphanDeletingAt = nil, &m
+	if usablePostCover(d, uidA) || !d.Orphaned() || !d.Deleting() {
+		t.Fatal("a claimed image must not be a usable cover")
 	}
 }

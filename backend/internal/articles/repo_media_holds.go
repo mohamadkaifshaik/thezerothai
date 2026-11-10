@@ -1,4 +1,4 @@
-// repo_media_holds.go answers the media orphan sweep (media/orphan_sweep.go, through an apiserver adapter): which of a
+// repo_media_holds.go answers the media orphan sweep (media/orphan_sweep.go, through media.NewDraftHolds; the interface is CoverHolds in api.go): which of a
 // user's images an unpublished article draft names as its cover. SaveArticle stores the id without touching the media
 // document (the cover is claimed only when the article is published, inside the root post transaction), and drafts never
 // expire, so the orphan sweep must count these images as held.
@@ -22,11 +22,10 @@ const (
 	coverHoldLimit = 100
 )
 
-// MediaHolds is the read side the orphan sweep's adapter uses.
-type MediaHolds struct{ client *firestore.Client }
+// mediaHolds implements CoverHolds (api.go).
+type mediaHolds struct{ client *firestore.Client }
 
-// NewMediaHolds builds it on the shared Firestore client.
-func NewMediaHolds(client *firestore.Client) *MediaHolds { return &MediaHolds{client: client} }
+var _ CoverHolds = (*mediaHolds)(nil)
 
 type coverHoldDoc struct {
 	AuthorID     string `firestore:"authorId"`
@@ -36,7 +35,7 @@ type coverHoldDoc struct {
 
 // DraftCoverHolds reports which of ids an unpublished article of uid (a draft, or one whose publication is pending) names
 // as its cover. It reads fresh: one query per 30 ids (at least 1 read each).
-func (h *MediaHolds) DraftCoverHolds(ctx context.Context, uid string, ids []string) (map[string]bool, error) {
+func (h *mediaHolds) DraftCoverHolds(ctx context.Context, uid string, ids []string) (map[string]bool, error) {
 	out := make(map[string]bool, len(ids))
 	for start := 0; start < len(ids); start += coverHoldChunk {
 		chunk := ids[start:min(start+coverHoldChunk, len(ids))]

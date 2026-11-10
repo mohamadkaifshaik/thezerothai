@@ -35,34 +35,6 @@ type mediaModule struct {
 	orphans *media.OrphanSweeper
 }
 
-// draftMediaHolds adapts the posts repo (PENDING scheduled drafts) and the articles read side (unpublished draft covers)
-// to media.DraftHolds: fresh reads, an image either one names is held. media imports neither module.
-type draftMediaHolds struct {
-	scheduled interface {
-		PendingScheduledMediaHolds(ctx context.Context, uid string, ids []string) (map[string]bool, error)
-	}
-	articles interface {
-		DraftCoverHolds(ctx context.Context, uid string, ids []string) (map[string]bool, error)
-	}
-}
-
-func (h draftMediaHolds) HeldByDrafts(ctx context.Context, uid string, ids []string) (map[string]bool, error) {
-	held, err := h.scheduled.PendingScheduledMediaHolds(ctx, uid, ids)
-	if err != nil {
-		return nil, err
-	}
-	covers, err := h.articles.DraftCoverHolds(ctx, uid, ids)
-	if err != nil {
-		return nil, err
-	}
-	for id := range covers {
-		held[id] = true
-	}
-	return held, nil
-}
-
-var _ media.DraftHolds = draftMediaHolds{}
-
 // mediaProcedures is the DEGRADED_MODE=nomedia block list: every procedure that creates or publishes media.
 func mediaProcedures() degraded.ProcedureSet {
 	return degraded.NewProcedureSet(
@@ -139,8 +111,8 @@ func wireMedia(cfg config.Config, log *slog.Logger, fs *firestore.Client, featur
 		return nil, fmt.Errorf("media service: %w", err)
 	}
 	orphans, err := media.NewOrphanSweeper(media.OrphanSweepDeps{
-		Repo: repo, Objects: buckets, Profiles: users, RetireMode: cfg.ProfileMediaRetire,
-		Drafts: draftMediaHolds{scheduled: postsRepo, articles: articles.NewMediaHolds(fs)},
+		Repo: repo, Objects: buckets, Profiles: users, RetireMode: cfg.ProfileMediaRetire, Mode: cfg.MediaOrphanSweep, Log: log,
+		Drafts: media.NewDraftHolds(postsRepo, articles.NewMediaHolds(fs)),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("media orphan sweep: %w", err)

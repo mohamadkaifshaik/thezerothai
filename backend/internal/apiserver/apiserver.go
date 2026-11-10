@@ -804,7 +804,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	routes.internal("/internal/cron/daily-maintenance", dailyMaintenanceHandler(lifecycle.CronHandler(), stepChain{
 		pollVoteSweepStep{sweeper: engagementRepo, ttl: cfg.Composer.PollVoteTTLAfterClose, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now},
 		trendsRefresher,
-		mediaOrphanSweepStep{sweeper: mediaMod.orphans, limit: media.OrphanSweepPage, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now},
+		mediaOrphanSweepStep{sweeper: mediaMod.orphans, mode: cfg.MediaOrphanSweep, limit: media.OrphanSweepPage, readOnly: cfg.Degraded == config.DegradedReadonly, log: log, now: time.Now},
 	}, log, cfg.ProjectID, time.Now))
 	routes.internal("/internal/cron/trends-refresh", search.NewRefreshHandler(trendsRefresher, log, cfg.ProjectID))
 	// The scheduled-post publish sweep (Cloud Scheduler every 5 min, prod). POST only, 25 s deadline and panic

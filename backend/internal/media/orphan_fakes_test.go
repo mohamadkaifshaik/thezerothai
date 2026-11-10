@@ -18,11 +18,15 @@ type fakeOrphanRepo struct {
 	// writer (an attach, another run) that commits first.
 	beforeSet func(id string)
 	setErr    error
+	// deleteErr, when set, fails the next DeleteOrphan calls (the document stays) without consuming the precondition.
+	deleteErr error
+	// undecodable are ids the due query returns ahead of every real document but that cannot be decoded.
+	undecodable []string
 }
 
 func newFakeOrphanRepo() *fakeOrphanRepo { return &fakeOrphanRepo{fakeRepo: newFakeRepo()} }
 
-func (r *fakeOrphanRepo) DueOrphans(_ context.Context, now time.Time, limit int) ([]*Doc, error) {
+func (r *fakeOrphanRepo) DueOrphans(_ context.Context, now time.Time, limit int) (DuePage, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.dueLimits = append(r.dueLimits, limit)
@@ -39,10 +43,20 @@ func (r *fakeOrphanRepo) DueOrphans(_ context.Context, now time.Time, limit int)
 		}
 		return due[i].ID < due[j].ID
 	})
-	if len(due) > limit {
-		due = due[:limit]
+	var p DuePage
+	for _, id := range r.undecodable {
+		if p.Read < limit {
+			p.Read++
+			p.Undecodable = append(p.Undecodable, id)
+		}
 	}
-	return due, nil
+	for _, d := range due {
+		if p.Read < limit {
+			p.Read++
+			p.Docs = append(p.Docs, d)
+		}
+	}
+	return p, nil
 }
 
 func optTime(t time.Time) *time.Time {
@@ -71,10 +85,32 @@ func (r *fakeOrphanRepo) SetOrphanState(_ context.Context, id string, updateTime
 	return d.UpdateTime, nil
 }
 
+func (r *fakeOrphanRepo) ClaimOrphan(_ context.Context, id string, updateTime, checkAt, deletingAt time.Time) (time.Time, error) {
+	if r.beforeSet != nil {
+		r.beforeSet(id)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sets++
+	if r.setErr != nil {
+		return time.Time{}, r.setErr
+	}
+	d, ok := r.docs[id]
+	if !ok || !d.UpdateTime.Equal(updateTime) {
+		return time.Time{}, ErrConflict
+	}
+	d.OrphanCheckAt, d.OrphanDeletingAt = optTime(checkAt), optTime(deletingAt)
+	d.UpdateTime = d.UpdateTime.Add(time.Second)
+	return d.UpdateTime, nil
+}
+
 func (r *fakeOrphanRepo) DeleteOrphan(_ context.Context, id string, updateTime time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.deletes++
+	if r.deleteErr != nil {
+		return r.deleteErr
+	}
 	d, ok := r.docs[id]
 	switch {
 	case !ok:

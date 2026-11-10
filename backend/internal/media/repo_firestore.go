@@ -93,10 +93,17 @@ type Doc struct {
 	// resolvers refuse the document, so nothing new can attach it; the sweep deletes it on a run at least OrphanGrace later,
 	// after checking the holders again, or removes the mark when something holds it after all.
 	OrphanedAt *time.Time `firestore:"orphanedAt,omitempty"`
+	// OrphanDeletingAt is the sweep's claim: phase 2 writes it before it deletes any object, and nothing ever removes it
+	// (SetOrphanState cannot). A claimed document's objects may already be gone, so it is never restored: every later run
+	// in delete mode finishes the delete, and LoadForPost and the resolvers refuse it as they refuse a mark.
+	OrphanDeletingAt *time.Time `firestore:"orphanDeletingAt,omitempty"`
 }
 
-// Orphaned reports whether the orphan sweep has marked the document for deletion.
-func (d *Doc) Orphaned() bool { return d.OrphanedAt != nil }
+// Orphaned reports whether the orphan sweep has marked or claimed the document for deletion: nothing new may attach it.
+func (d *Doc) Orphaned() bool { return d.OrphanedAt != nil || d.OrphanDeletingAt != nil }
+
+// Deleting reports whether the orphan sweep has claimed the document (its objects may be gone): never restored.
+func (d *Doc) Deleting() bool { return d.OrphanDeletingAt != nil }
 
 // ThumbType is the content type of the thumbnail objects: ThumbContentType, else ContentType.
 func (d *Doc) ThumbType() string {

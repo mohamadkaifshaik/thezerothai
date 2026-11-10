@@ -33,7 +33,7 @@ func (c *Claim) Attach(b store.Batch, postID string) {
 // Attacher is what posts consumes (through its own consumer-side interface).
 type Attacher interface {
 	// LoadForPost reads ids inside tx and validates them for uid: every id must exist, be owned by uid, have
-	// purpose POST, be READY or READY_UNSCREENED, not be attached to a post yet, and not be marked by the orphan
+	// purpose POST, be READY or READY_UNSCREENED, not be attached to a post yet, and not be marked or claimed by the orphan
 	// sweep (the mark and this read serialize on the document, so either the attach or the mark wins). It must be
 	// called before the transaction's first write.
 	LoadForPost(ctx context.Context, tx *firestore.Transaction, uid string, ids []string) (*Claim, error)
@@ -124,7 +124,8 @@ func usablePostCover(d *Doc, uid string) bool {
 
 // resolveOwned is the one lookup behind the profile-image resolvers: ErrNotReady unless the document
 // exists, is owned by uid, has the given purpose, is published (READY or READY_UNSCREENED) and is not retired
-// (a retired image's objects are scheduled for deletion, so it can never be set again), and not marked by the orphan sweep.
+// (a retired image's objects are scheduled for deletion, so it can never be set again), and not marked or claimed by
+// the orphan sweep (Doc.Orphaned; a claimed image's objects may already be gone).
 func (l *Library) resolveOwned(ctx context.Context, uid, mediaID string, p Purpose) (Ref, error) {
 	if !mediaIDPattern.MatchString(mediaID) {
 		return Ref{}, ErrNotReady

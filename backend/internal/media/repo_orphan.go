@@ -9,7 +9,9 @@
 //
 // Every write is a field-level Update or a Delete with a LastUpdateTime precondition, never a Set: a write that lands after
 // the account eraser cannot recreate the document, and a write that lost a race to an attach (Claim.Attach moves the
-// UpdateTime) is refused as ErrConflict.
+// UpdateTime) is refused as ErrConflict. Fields: orphanCheckAt and orphanedAt (SetOrphanState), and orphanDeletingAt, the
+// permanent claim, written only by ClaimOrphan and never removed (no write here or in SetOrphanState can delete it). None
+// is a TTL field.
 package media
 
 import (
@@ -25,13 +27,28 @@ import (
 
 // OrphanRepo is the orphan sweep's storage seam; *FirestoreRepo implements it.
 type OrphanRepo interface {
-	// DueOrphans returns up to limit documents whose orphanCheckAt is at or before now, oldest first.
-	DueOrphans(ctx context.Context, now time.Time, limit int) ([]*Doc, error)
+	// DueOrphans reads up to limit documents whose orphanCheckAt is at or before now, oldest first. A document it cannot
+	// decode is returned by id in Undecodable, never as an error.
+	DueOrphans(ctx context.Context, now time.Time, limit int) (DuePage, error)
 	// SetOrphanState writes orphanCheckAt and orphanedAt as st says (a zero time deletes the field), conditional on
-	// updateTime (ErrConflict when the document changed or is gone), and returns the new UpdateTime.
+	// updateTime (ErrConflict when the document changed or is gone), and returns the new UpdateTime. It never touches
+	// orphanDeletingAt.
 	SetOrphanState(ctx context.Context, id string, updateTime time.Time, st OrphanState) (time.Time, error)
+	// ClaimOrphan is phase 2's claim: orphanDeletingAt = deletingAt (permanent) and orphanCheckAt = checkAt, orphanedAt
+	// untouched, conditional on updateTime like SetOrphanState.
+	ClaimOrphan(ctx context.Context, id string, updateTime, checkAt, deletingAt time.Time) (time.Time, error)
 	// DeleteOrphan deletes the document conditional on updateTime: ErrConflict when it changed since; nil when it is already gone.
 	DeleteOrphan(ctx context.Context, id string, updateTime time.Time) error
+}
+
+// DuePage is one DueOrphans read.
+type DuePage struct {
+	// Docs are the decoded due documents, oldest check first.
+	Docs []*Doc
+	// Read is every document the query returned, decodable or not: Read == limit means there may be more.
+	Read int
+	// Undecodable are the ids of documents that could not be decoded (skipped; logged by the sweep, id only).
+	Undecodable []string
 }
 
 // OrphanState is the pair of sweep fields one SetOrphanState writes. A zero time deletes the field.
@@ -43,24 +60,26 @@ type OrphanState struct {
 var _ OrphanRepo = (*FirestoreRepo)(nil)
 
 // DueOrphans implements OrphanRepo.
-func (r *FirestoreRepo) DueOrphans(ctx context.Context, now time.Time, limit int) ([]*Doc, error) {
+func (r *FirestoreRepo) DueOrphans(ctx context.Context, now time.Time, limit int) (DuePage, error) {
 	if limit < 1 {
-		return nil, fmt.Errorf("media: due orphans: limit %d", limit)
+		return DuePage{}, fmt.Errorf("media: due orphans: limit %d", limit)
 	}
 	snaps, err := r.client.Collection(mediaCollection).Where("orphanCheckAt", "<=", now.UTC()).
 		OrderBy("orphanCheckAt", firestore.Asc).Limit(limit).Documents(ctx).GetAll()
 	if err != nil {
-		return nil, fmt.Errorf("media: due orphans: %w", err)
+		return DuePage{}, fmt.Errorf("media: due orphans: %w", err)
 	}
-	out := make([]*Doc, 0, len(snaps))
+	p := DuePage{Docs: make([]*Doc, 0, len(snaps)), Read: len(snaps)}
 	for _, s := range snaps {
 		d, err := decode(s)
 		if err != nil {
-			return nil, err
+			// One bad document must not stall the queue: skip it (its id is logged by the sweep), sweep the rest.
+			p.Undecodable = append(p.Undecodable, s.Ref.ID)
+			continue
 		}
-		out = append(out, d)
+		p.Docs = append(p.Docs, d)
 	}
-	return out, nil
+	return p, nil
 }
 
 func timeOrDelete(t time.Time) any {
@@ -76,6 +95,17 @@ func (r *FirestoreRepo) SetOrphanState(ctx context.Context, id string, updateTim
 		{Path: "orphanCheckAt", Value: timeOrDelete(st.CheckAt)},
 		{Path: "orphanedAt", Value: timeOrDelete(st.OrphanedAt)},
 	}, updateTime, "set orphan state")
+}
+
+// ClaimOrphan implements OrphanRepo.
+func (r *FirestoreRepo) ClaimOrphan(ctx context.Context, id string, updateTime, checkAt, deletingAt time.Time) (time.Time, error) {
+	if deletingAt.IsZero() || checkAt.IsZero() {
+		return time.Time{}, errors.New("media: claim orphan: zero time")
+	}
+	return r.updateAt(ctx, id, []firestore.Update{
+		{Path: "orphanCheckAt", Value: checkAt.UTC()},
+		{Path: "orphanDeletingAt", Value: deletingAt.UTC()},
+	}, updateTime, "claim orphan")
 }
 
 // DeleteOrphan implements OrphanRepo.
@@ -102,9 +132,9 @@ type OrphanBackfillPage struct {
 }
 
 // needsOrphanCheck reports whether a document predating the sweep should become a candidate: published, unattached,
-// not retired, and carrying neither sweep field yet.
+// not retired, and carrying no sweep field yet.
 func needsOrphanCheck(d *Doc) bool {
-	return d.Published() && d.PostID == "" && d.RetiredAt == nil && d.OrphanCheckAt == nil && d.OrphanedAt == nil
+	return d.Published() && d.PostID == "" && d.RetiredAt == nil && d.OrphanCheckAt == nil && d.OrphanedAt == nil && d.OrphanDeletingAt == nil
 }
 
 // BackfillOrphanChecks reads one page (<= limit) of media documents after the id `after`, in id order, and sets

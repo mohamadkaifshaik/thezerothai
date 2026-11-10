@@ -1,4 +1,4 @@
-// repo_scheduled_holds.go answers the media orphan sweep (media/orphan_sweep.go, through an apiserver adapter): which of a
+// repo_scheduled_holds.go answers the media orphan sweep (media/orphan_sweep.go, through media.NewDraftHolds; the interface is ScheduledMediaHolds in api.go): which of a
 // user's images a PENDING scheduled post still names. A schedule validates its images but never reserves them, so the
 // images stay unattached until the publish sweep attaches them, up to SCHEDULED_HORIZON later (and an edit can move
 // publish_at again); the orphan sweep must count them as held.

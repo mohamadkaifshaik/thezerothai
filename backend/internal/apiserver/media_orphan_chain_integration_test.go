@@ -27,12 +27,14 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// seedDueMedia is seedMedia with orphanCheckAt a minute in the past: an orphan-sweep candidate now.
+// seedDueMedia is seedMedia with orphanCheckAt a minute in the past and createdAt more than N ago (the sweep's clock
+// sanity check refuses to mark a younger image): an orphan-sweep candidate now.
 func (e *lifecycleEnv) seedDueMedia(t *testing.T, uid string, purpose media.Purpose) string {
 	t.Helper()
 	id := e.seedMedia(t, uid, purpose)
 	if _, err := e.fs.Collection("media").Doc(id).Update(context.Background(), []firestore.Update{
 		{Path: "orphanCheckAt", Value: time.Now().Add(-time.Minute).UTC()},
+		{Path: "createdAt", Value: time.Now().Add(-media.OrphanAfter - 24*time.Hour).UTC()},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -67,6 +69,7 @@ func TestMediaOrphanChain_DailyStepHoldersAndAttachPaths(t *testing.T) {
 	e := newLifecycleEnvCfg(t, nil, func(c *config.Config) {
 		mediaOn(c)
 		c.FeatureScheduledPosts = flags.Spec{Name: "scheduled_posts", Mode: flags.On}
+		c.MediaOrphanSweep = config.MediaOrphanSweepDelete
 	})
 	a := e.newUser(t)
 	scheduled := e.seedDueMedia(t, a.uid, media.PurposePost)
@@ -104,8 +107,8 @@ func TestMediaOrphanChain_DailyStepHoldersAndAttachPaths(t *testing.T) {
 
 	start := time.Now()
 	e.runDailyMaintenance(t)
-	if lines := e.logs.messageLines("media_orphan_sweep"); len(lines) == 0 || lines[len(lines)-1]["outcome"] != "ok" {
-		t.Fatalf("media_orphan_sweep lines = %v, want an ok line", lines)
+	if lines := e.logs.messageLines("media_orphan_sweep"); len(lines) == 0 || lines[len(lines)-1]["outcome"] != "ok" || lines[len(lines)-1]["mode"] != "delete" {
+		t.Fatalf("media_orphan_sweep lines = %v, want an ok line in delete mode", lines)
 	}
 	later := func(d *media.Doc) bool {
 		return d.OrphanCheckAt != nil && d.OrphanCheckAt.After(start.Add(media.OrphanAfter-time.Hour))
@@ -153,5 +156,42 @@ func TestMediaOrphanChain_DailyStepHoldersAndAttachPaths(t *testing.T) {
 	}
 	if d := e.mediaDoc(t, scheduled); d == nil || d.PostID == "" || d.OrphanCheckAt != nil {
 		t.Fatalf("scheduled image after publish = %+v, want attached and no check", d)
+	}
+}
+
+// TestMediaOrphanChain_KillSwitch: with MEDIA_ORPHAN_SWEEP unset (off) the daily step logs that it is off and touches
+// nothing; in mark mode it marks a free image and, past the grace, defers it instead of deleting it.
+func TestMediaOrphanChain_KillSwitch(t *testing.T) {
+	off := newLifecycleEnvCfg(t, nil, mediaOn)
+	a := off.newUser(t)
+	free := off.seedDueMedia(t, a.uid, media.PurposePost)
+	off.runDailyMaintenance(t)
+	if lines := off.logs.messageLines("media_orphan_sweep"); len(lines) == 0 || lines[len(lines)-1]["outcome"] != "disabled" {
+		t.Fatalf("media_orphan_sweep lines = %v, want a disabled line", lines)
+	}
+	if d := off.mediaDoc(t, free); d == nil || d.OrphanedAt != nil || d.OrphanCheckAt == nil {
+		t.Fatalf("free image under off = %+v, want untouched", d)
+	}
+
+	mark := newLifecycleEnvCfg(t, nil, func(c *config.Config) {
+		mediaOn(c)
+		c.MediaOrphanSweep = config.MediaOrphanSweepMark
+	})
+	b := mark.newUser(t)
+	free = mark.seedDueMedia(t, b.uid, media.PurposePost)
+	mark.runDailyMaintenance(t)
+	if d := mark.mediaDoc(t, free); d == nil || d.OrphanedAt == nil {
+		t.Fatalf("free image under mark = %+v, want marked", d)
+	}
+	past := time.Now().Add(-media.OrphanGrace - time.Minute).UTC()
+	if _, err := mark.fs.Collection("media").Doc(free).Update(context.Background(), []firestore.Update{
+		{Path: "orphanedAt", Value: past}, {Path: "orphanCheckAt", Value: past},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	mark.runDailyMaintenance(t)
+	d := mark.mediaDoc(t, free)
+	if d == nil || d.OrphanDeletingAt != nil || d.OrphanedAt == nil || d.OrphanCheckAt == nil || !d.OrphanCheckAt.After(time.Now()) {
+		t.Fatalf("free image past the grace under mark = %+v, want marked, unclaimed, deferred", d)
 	}
 }

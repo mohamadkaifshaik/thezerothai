@@ -28,6 +28,15 @@ import (
 type hookedOrphanRepo struct {
 	*FirestoreRepo
 	before func(id string)
+	// deleteErr, when set, fails DeleteOrphan without touching the document (a document delete that did not finish).
+	deleteErr error
+}
+
+func (h *hookedOrphanRepo) DeleteOrphan(ctx context.Context, id string, ut time.Time) error {
+	if h.deleteErr != nil {
+		return h.deleteErr
+	}
+	return h.FirestoreRepo.DeleteOrphan(ctx, id, ut)
 }
 
 func (h *hookedOrphanRepo) SetOrphanState(ctx context.Context, id string, ut time.Time, st OrphanState) (time.Time, error) {
@@ -50,6 +59,12 @@ type orphanIntEnv struct {
 
 func newOrphanIntEnv(t *testing.T, mode config.ProfileMediaRetire) *orphanIntEnv {
 	t.Helper()
+	return newOrphanIntEnvMode(t, mode, config.MediaOrphanSweepDelete)
+}
+
+// newOrphanIntEnvMode is newOrphanIntEnv under a MEDIA_ORPHAN_SWEEP mode.
+func newOrphanIntEnvMode(t *testing.T, mode config.ProfileMediaRetire, sweep config.MediaOrphanSweep) *orphanIntEnv {
+	t.Helper()
 	if os.Getenv("STORAGE_EMULATOR_HOST") == "" {
 		t.Skip("STORAGE_EMULATOR_HOST not set; run via `make test-int`")
 	}
@@ -65,7 +80,7 @@ func newOrphanIntEnv(t *testing.T, mode config.ProfileMediaRetire) *orphanIntEnv
 		buckets: buckets, drafts: &fakeDraftHolds{held: map[string]map[string]bool{}},
 		profiles: &fakeProfileImages{urls: map[string][]string{}},
 	}
-	e.sweeper, err = NewOrphanSweeper(OrphanSweepDeps{Repo: e.hooked, Objects: buckets, Drafts: e.drafts, Profiles: e.profiles, RetireMode: mode})
+	e.sweeper, err = NewOrphanSweeper(OrphanSweepDeps{Repo: e.hooked, Objects: buckets, Drafts: e.drafts, Profiles: e.profiles, RetireMode: mode, Mode: sweep})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,8 +240,8 @@ func TestIntegration_OrphanSweepNeverTouchesAnAttachedImage(t *testing.T) {
 		t.Fatalf("attached doc = postId %q orphanCheckAt %v, want the post and no check", d.PostID, d.OrphanCheckAt)
 	}
 	due, err := ie.real.DueOrphans(context.Background(), testNow.Add(10*OrphanAfter), 10)
-	if err != nil || len(due) != 0 {
-		t.Fatalf("due = %v, %v: an attached image is never a candidate", due, err)
+	if err != nil || len(due.Docs) != 0 {
+		t.Fatalf("due = %+v, %v: an attached image is never a candidate", due, err)
 	}
 }
 
