@@ -1,5 +1,6 @@
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
 import 'package:dzeroth/core/widgets/app_top_bar.dart';
 import 'package:dzeroth/core/widgets/context_pane.dart';
@@ -251,7 +252,8 @@ void main() {
   });
 
   group('flag modes: only ui_shell + ui_tablet draws a pane', () {
-    const widths = [600.0, 834.0, 839.0, 840.0, 1024.0, 1199.0, 1200.0];
+    // Both sides of every boundary, plus a phone and the iPad landscape.
+    final widths = {360.0, ...kBoundaryWidths, 1024.0}.toList()..sort();
     final base = {...kContextPaneFlags}
       ..removeAll({kFeatureUiShell, kFeatureUiTablet});
     for (final MapEntry(key: mode, value: modeFlags)
@@ -282,7 +284,15 @@ void main() {
             find.byType(ContextPaneScope),
             tablet && tabletBand ? findsOneWidget : findsNothing,
           );
-          if (!(tablet && tabletBand)) {
+          if (width < AppBreakpoints.mobile) {
+            // Phones: the bar, no rail of either kind, nothing fetched.
+            expect(find.byType(AppBottomBar), findsOneWidget);
+            expect(find.byType(NavigationRail), findsNothing);
+            expect(find.byType(AppNavRail), findsNothing);
+            expect(find.byType(AppSideColumn), findsNothing);
+            expect(rig.trendCalls, 0);
+            expect(rig.suggestionCalls, 0);
+          } else if (!(tablet && tabletBand)) {
             expect(find.byType(NavigationRail), findsOneWidget);
             expect(find.byType(AppNavRail), findsNothing);
             if (width < AppBreakpoints.tablet) {
@@ -633,6 +643,49 @@ void main() {
         await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
         expect(focused(railHome), isTrue, reason: 'and to the rail');
       });
+    }
+  });
+
+  group('the search pill panel inside the pane', () {
+    for (final frame in const [Size(840, 1194), Size(932, 430)]) {
+      for (final scale in kTabletTextScales) {
+        testWidgets('${frame.width.toInt()} x ${frame.height.toInt()} '
+            'x$scale: typing opens the suggestions inside the window', (
+          tester,
+        ) async {
+          final rig = ContextPaneRig();
+          await rig.pump(
+            tester,
+            width: frame.width,
+            height: frame.height,
+            textScale: scale,
+          );
+          final field = inContextPane(find.byType(TextField));
+          await tester.tap(field);
+          await tester.pump();
+          await tester.enterText(field, 'tag');
+          await tester.pump(const Duration(milliseconds: 600));
+          await tester.pumpAndSettle();
+
+          final panel = find.byWidgetPredicate(
+            (w) => w is Semantics && w.properties.label == 'Search suggestions',
+          );
+          expect(panel, findsOneWidget);
+          final rect = tester.getRect(panel);
+          final window = Offset.zero & frame;
+          expect(rect.left, greaterThanOrEqualTo(window.left));
+          expect(rect.right, lessThanOrEqualTo(window.right));
+          expect(rect.top, greaterThanOrEqualTo(window.top));
+          expect(rect.bottom, lessThanOrEqualTo(window.bottom + 0.5));
+          // Anchored under the pill, in the pane's column.
+          final pill = tester.getRect(
+            inContextPane(find.byType(AppSearchField)),
+          );
+          expect(rect.left, closeTo(pill.left, 1));
+          expect(rig.search.calls, contains('trends:tag'));
+          expectNoOverflow(tester);
+        });
+      }
     }
   });
 

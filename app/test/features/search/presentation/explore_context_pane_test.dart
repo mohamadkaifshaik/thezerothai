@@ -1,6 +1,7 @@
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_top_bar.dart';
+import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/who_to_follow_card.dart';
 import 'package:dzeroth/features/search/presentation/explore_screen.dart';
@@ -79,20 +80,28 @@ void main() {
   // Home in the app, but the screen itself is what is under test here.
   for (final MapEntry(key: mode, value: modeFlags)
       in kTabletFlagModes.entries) {
-    if (modeFlags.length == 2) continue;
-    testWidgets('$mode at 1024 dp: inline, as today', (tester) async {
-      final rig = ContextPaneRig();
-      await rig.pump(
+    // Every mode on a phone (599), and every mode but the tablet one at
+    // 1024: the inline card, as today.
+    for (final width in [599.0, 1024.0]) {
+      if (modeFlags.length == 2 && width == 1024) continue;
+      testWidgets('$mode at ${width.toInt()} dp: inline, as today', (
         tester,
-        location: '/explore',
-        height: 2400,
-        flags: {...base, ...modeFlags},
-        page: page,
-      );
+      ) async {
+        final rig = ContextPaneRig();
+        await rig.pump(
+          tester,
+          location: '/explore',
+          width: width,
+          height: 2400,
+          flags: {...base, ...modeFlags},
+          page: page,
+        );
 
-      expect(findContextPane(), findsNothing);
-      expect(inExplore(find.byType(WhoToFollowCard)), findsOneWidget);
-    });
+        expect(findContextPane(), findsNothing);
+        expect(find.byType(ContextPaneScope), findsNothing);
+        expect(inExplore(find.byType(WhoToFollowCard)), findsOneWidget);
+      });
+    }
   }
 
   testWidgets('desktop (1200 dp) with ui_tablet on: inline, and the side '
@@ -183,5 +192,48 @@ void main() {
     widths: const [840, 1024],
     textScales: kTabletTextScales,
     heights: {840: 1194, 1024: 768},
+  );
+
+  // The tablet matrix (plan section 5.5): 5 widths x 2 scales x 2 themes.
+  forEachThemeAndWidth(
+    'tablet matrix: Explore fits its pane, the card in one place',
+    (tester, env) async {
+      final rig = ContextPaneRig();
+      await rig.pump(
+        tester,
+        location: '/explore',
+        width: env.size.width,
+        height: env.size.height,
+        brightness: env.brightness,
+        textScale: env.textScale,
+        page: page,
+      );
+
+      expectNoOverflow(tester);
+      expectTabletPanes(tester, find.byType(ExploreScreen), env.size.width);
+      final bandB = env.size.width >= AppBreakpoints.expanded;
+      if (!bandB) {
+        // Inline at the end of the page: build it (a lazy list).
+        await tester.scrollUntilVisible(
+          inExplore(find.byType(WhoToFollowCard)),
+          300,
+          scrollable: inExplore(find.byType(Scrollable)).first,
+        );
+        await tester.pumpAndSettle();
+        expectNoOverflow(tester);
+      }
+      expect(find.byType(WhoToFollowCard), findsOneWidget);
+      expect(
+        inContextPane(find.byType(WhoToFollowCard)),
+        bandB ? findsOneWidget : findsNothing,
+      );
+      expect(
+        inExplore(find.byType(WhoToFollowCard)),
+        bandB ? findsNothing : findsOneWidget,
+      );
+    },
+    widths: kTabletMatrixWidths,
+    textScales: kTabletTextScales,
+    heights: kTabletHeights,
   );
 }

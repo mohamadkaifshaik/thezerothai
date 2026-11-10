@@ -18,6 +18,7 @@ import '../../../support/fake_push_messaging.dart';
 import '../../../support/fake_push_opt_in_store.dart';
 import '../../../support/geometry.dart';
 import '../../../support/notifications_fixtures.dart';
+import '../../../support/theme_harness.dart';
 
 class _MockNotificationsRepository extends Mock
     implements NotificationsRepository {}
@@ -63,14 +64,20 @@ void main() {
   Future<ContextPaneRig> open(
     WidgetTester tester, {
     required double width,
+    double height = 768,
     Set<String> flags = const {...kContextPaneFlags, 'private_accounts'},
     int pending = 12,
+    Brightness brightness = Brightness.light,
+    double textScale = 1,
   }) async {
     final rig = ContextPaneRig();
     await rig.pump(
       tester,
       location: '/notifications',
       width: width,
+      height: height,
+      brightness: brightness,
+      textScale: textScale,
       flags: flags,
       pendingFollowRequests: pending,
       isProtected: true,
@@ -177,4 +184,40 @@ void main() {
     expect(findContextPane(), findsNothing);
     expect(find.text('Follow requests · 12'), findsOneWidget);
   });
+
+  // The tablet matrix (plan section 5.5): 5 widths x 2 scales x 2 themes,
+  // and 840.
+  forEachThemeAndWidth(
+    'tablet matrix: the list and its Follow requests row fit the primary pane',
+    (tester, env) async {
+      await open(
+        tester,
+        width: env.size.width,
+        height: env.size.height,
+        brightness: env.brightness,
+        textScale: env.textScale,
+      );
+
+      expectNoOverflow(tester);
+      expectTabletPanes(
+        tester,
+        find.byType(NotificationsScreen),
+        env.size.width,
+      );
+      final row = inScreen(find.byType(FollowRequestsRow));
+      expect(row, findsOneWidget);
+      expect(
+        tester.getRect(row).top,
+        tester.getRect(inScreen(find.byType(AppTabBar))).bottom,
+      );
+      expectMinTarget(tester, row);
+      if (env.size.width >= 840) {
+        expect(inContextPane(find.text("What's happening")), findsOneWidget);
+      }
+    },
+    // Plus 840, the narrowest band B primary (439 dp).
+    widths: [...kTabletMatrixWidths, 840],
+    textScales: kTabletTextScales,
+    heights: {...kTabletHeights, 840: 1194},
+  );
 }
