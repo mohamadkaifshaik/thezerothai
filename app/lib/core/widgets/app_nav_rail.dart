@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -37,8 +39,9 @@ enum AppNavRailDensity {
 /// - The [destinations] keep their order. The primary ones show the icon
 ///   over a 12 sp label (a 56 dp item); the secondary ones, after a divider,
 ///   are icon-only 48 dp items with a tooltip. Above a text scale of
-///   [maxLabelTextScale], and in [AppNavRailDensity.compact], the primary
-///   items are icon-only too. Every item is announced with its full label
+///   [maxLabelTextScale], when the widest label does not fit the item at the
+///   user's text scale (a label is never shrunk, wrapped or ellipsized), and
+///   in [AppNavRailDensity.compact], the primary items are icon-only too. Every item is announced with its full label
 ///   and its badge, as selected or not; the selected one has the indicator
 ///   pill, the filled glyph and the bold label (never colour alone).
 /// - The destination with `onActivate` is More: it opens a menu instead of
@@ -47,12 +50,14 @@ enum AppNavRailDensity {
 ///   their indexes; More is then shown whenever it has rows (its own,
 ///   [moreHasOwnRows], or folded ones) and is the selected item when the
 ///   selected destination is folded into it.
-/// - [compose] follows the items; [account] is pinned to the bottom. The
+/// - [compose] follows the items, and is pinned under them when they do not
+///   all fit above it; [account] is pinned to the bottom. The
 ///   brand mark tops the rail when at least [brandHeight] is available
 ///   (decorative: no semantics).
 /// - Keyboard: one Tab stop (the selected item, else the first); the arrow
-///   keys move between the items, the compose button and the account; Enter
-///   or Space activates.
+///   keys move between the items, the compose button and the account, and
+///   the Tab stop moves with them, so Tab and Shift+Tab leave the rail from
+///   wherever the focus is; leaving resets it. Enter or Space activates.
 class AppNavRail extends StatefulWidget {
   const AppNavRail({
     super.key,
@@ -111,8 +116,13 @@ class AppNavRail extends StatefulWidget {
   static const double composeGap = AppSpacing.md;
   static const double accountSlot = 64;
 
+  /// The compose button's slot: the gap and the 52 dp button.
+  static const double composeSlot = composeGap + AppSize.railPostHeight;
+
   /// The indicator pill behind the selected glyph.
-  static const Size indicatorSize = Size(56, 32);
+  static const double indicatorWidth = 56;
+  static const double indicatorHeight = 32;
+  static const Size indicatorSize = Size(indicatorWidth, indicatorHeight);
 
   @override
   State<AppNavRail> createState() => _AppNavRailState();
@@ -130,6 +140,11 @@ class _AppNavRailState extends State<AppNavRail> {
 
   // The keyboard ring of the last build, in visual order.
   List<Object> _ring = const [];
+
+  // The stop the arrow keys moved to: the Tab stop while the focus stays in
+  // the rail (roving tabindex), so Tab and Shift+Tab leave the rail from
+  // it. Null: the selected item (else the first) is the Tab stop.
+  Object? _roving;
 
   @override
   void dispose() {
@@ -163,11 +178,18 @@ class _AppNavRailState extends State<AppNavRail> {
     if (current < 0) return;
     final next = (current + by).clamp(0, _ring.length - 1);
     if (next == current) return;
-    final wrapper = _stops[_ring[next]];
+    final stop = _ring[next];
+    final wrapper = _stops[stop];
     final target = wrapper?.descendants
         .where((n) => n.canRequestFocus)
         .firstOrNull;
     if (target == null) return;
+    // The Tab stop moves with the focus: now (a Tab before the next frame
+    // must already leave from here) and in the next build.
+    for (final MapEntry(key: s, value: node) in _stops.entries) {
+      node.descendantsAreTraversable = s == stop;
+    }
+    setState(() => _roving = stop);
     target.requestFocus();
     final context = target.context;
     if (context != null) {
@@ -223,9 +245,17 @@ class _AppNavRailState extends State<AppNavRail> {
             top: padding.top,
             bottom: padding.bottom,
           ),
-          child: LayoutBuilder(
-            builder: (context, constraints) =>
-                _rail(context, constraints.maxHeight),
+          // Leaving the rail gives the Tab stop back to the selected item.
+          child: Focus(
+            canRequestFocus: false,
+            skipTraversal: true,
+            onFocusChange: (focused) {
+              if (!focused && _roving != null) setState(() => _roving = null);
+            },
+            child: LayoutBuilder(
+              builder: (context, constraints) =>
+                  _rail(context, constraints.maxHeight),
+            ),
           ),
         ),
       ),
@@ -234,14 +264,11 @@ class _AppNavRailState extends State<AppNavRail> {
 
   Widget _rail(BuildContext context, double available) {
     final density = AppNavRailDensity.of(available);
-    final labels =
-        density != AppNavRailDensity.compact &&
-        MediaQuery.textScalerOf(context).scale(1) <=
-            AppNavRail.maxLabelTextScale;
     final destinations = widget.destinations;
     final more = destinations.indexWhere((d) => d.onActivate != null);
+    // Secondaries fold only into an existing More.
     final folded = <int>[
-      if (density != AppNavRailDensity.full)
+      if (density != AppNavRailDensity.full && more >= 0)
         for (var i = 0; i < destinations.length; i++)
           if (i != more && destinations[i].group == AppNavGroup.secondary) i,
     ];
@@ -261,15 +288,26 @@ class _AppNavRailState extends State<AppNavRail> {
     if (selected != null && folded.contains(selected)) {
       selected = showMore ? more : null;
     }
+    // Labels only while the widest one fits the item at the user's text
+    // scale (never shrunk); otherwise every item is icon-only.
+    final labelLine = density == AppNavRailDensity.compact
+        ? null
+        : _RailItem.labelLineHeight(context, [
+            for (final i in primaries) destinations[i].label,
+          ]);
+    final labels = labelLine != null;
     final visible = [...primaries, ...secondaries];
-    final tabStop = selected != null && visible.contains(selected)
-        ? selected
-        : visible.firstOrNull;
     _ring = [
       ...visible,
       if (widget.compose != null) _Slot.compose,
       if (widget.account != null) _Slot.account,
     ];
+    final roving = _roving;
+    final Object? tabStop = roving != null && _ring.contains(roving)
+        ? roving
+        : selected != null && visible.contains(selected)
+        ? selected
+        : visible.firstOrNull;
 
     Widget item(int i, {required bool labelled}) {
       final destination = destinations[i];
@@ -288,14 +326,41 @@ class _AppNavRailState extends State<AppNavRail> {
       return _stop(i, tabStop: i == tabStop, child: child);
     }
 
+    // The compose button follows the items while they all fit above it;
+    // otherwise (R3, or tall labelled items at a large text scale) it is
+    // pinned under the scrolling items, never scrolled out of view.
+    final itemsHeight =
+        primaries.length *
+            (labels
+                ? math.max(
+                    AppNavRail.labelledItemHeight,
+                    _RailItem.labelledChrome + labelLine,
+                  )
+                : AppNavRail.itemHeight) +
+        (primaries.isNotEmpty && secondaries.isNotEmpty
+            ? AppNavRail.dividerHeight
+            : 0) +
+        secondaries.length * AppNavRail.itemHeight;
+    final brand = available >= AppNavRail.brandHeight;
+    final region =
+        available -
+        AppNavRail.topGap -
+        (brand ? _BrandMark.slot : 0) -
+        (widget.account != null ? AppNavRail.accountSlot : 0);
+    final pinCompose =
+        density == AppNavRailDensity.compact ||
+        itemsHeight + AppNavRail.composeSlot > region;
+
     final compose = widget.compose == null
         ? null
         : Padding(
             padding: const EdgeInsets.only(top: AppNavRail.composeGap),
-            child: _stop(_Slot.compose, tabStop: false, child: widget.compose!),
+            child: _stop(
+              _Slot.compose,
+              tabStop: tabStop == _Slot.compose,
+              child: widget.compose!,
+            ),
           );
-    // R3 pins the compose button under the scrolling destinations.
-    final pinCompose = density == AppNavRailDensity.compact;
     return Shortcuts(
       shortcuts: const {
         SingleActivator(LogicalKeyboardKey.arrowUp): DirectionalFocusIntent(
@@ -310,7 +375,7 @@ class _AppNavRailState extends State<AppNavRail> {
         child: Column(
           children: [
             const SizedBox(height: AppNavRail.topGap),
-            if (available >= AppNavRail.brandHeight) const _BrandMark(),
+            if (brand) const _BrandMark(),
             // Scrolls only when the items do not fit (R3, or a large text
             // scale): never an overflow.
             Expanded(
@@ -334,7 +399,7 @@ class _AppNavRailState extends State<AppNavRail> {
                 child: Center(
                   child: _stop(
                     _Slot.account,
-                    tabStop: false,
+                    tabStop: tabStop == _Slot.account,
                     child: widget.account!,
                   ),
                 ),
@@ -390,6 +455,45 @@ class _RailItem extends StatelessWidget {
   /// is 77 dp at 12 sp w800 in DM Sans).
   static const double _inset = 1;
 
+  /// The widest a label may be: the item's width.
+  static const double _labelMax = AppSize.railCompact - 2 * _inset;
+
+  /// A labelled item without its label line: the 2 dp padding on each side,
+  /// the 32 dp pill and the 4 dp gap.
+  static const double labelledChrome =
+      AppSpacing.xs + AppNavRail.indicatorHeight + AppSpacing.xs;
+
+  static TextStyle? _labelStyle(ThemeData theme, {required bool selected}) =>
+      theme.textTheme.labelSmall?.copyWith(
+        fontWeight: selected
+            ? AppTypeTokens.weightDisplay
+            : AppTypeTokens.weightLabel,
+      );
+
+  /// The height of a label line when every one of [labels] fits the item at
+  /// the text scale of [context] (measured in the selected, widest weight);
+  /// null when the scale is above [AppNavRail.maxLabelTextScale] or one does
+  /// not fit. A label is never shrunk, wrapped or ellipsized.
+  static double? labelLineHeight(BuildContext context, List<String> labels) {
+    final scaler = MediaQuery.textScalerOf(context);
+    if (scaler.scale(1) > AppNavRail.maxLabelTextScale) return null;
+    final style = _labelStyle(Theme.of(context), selected: true);
+    var line = 0.0;
+    for (final label in labels) {
+      final painter = TextPainter(
+        text: TextSpan(text: label, style: style),
+        textDirection: Directionality.of(context),
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final fits = painter.width <= _labelMax;
+      line = math.max(line, painter.height);
+      painter.dispose();
+      if (!fits) return null;
+    }
+    return line;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -421,22 +525,14 @@ class _RailItem extends StatelessWidget {
             children: [
               pill,
               const SizedBox(height: AppSpacing.xs),
-              // A long label shrinks to the item width; it never wraps or
-              // ellipsizes.
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  destination.label,
-                  maxLines: 1,
-                  softWrap: false,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontWeight: selected
-                        ? AppTypeTokens.weightDisplay
-                        : AppTypeTokens.weightLabel,
-                    color: selected
-                        ? theme.colorScheme.onSurface
-                        : colors.text2,
-                  ),
+              // Shown only when it fits at the user's scale
+              // ([labelLineHeight]): drawn at that scale, never shrunk.
+              Text(
+                destination.label,
+                maxLines: 1,
+                softWrap: false,
+                style: _labelStyle(theme, selected: selected)?.copyWith(
+                  color: selected ? theme.colorScheme.onSurface : colors.text2,
                 ),
               ),
             ],
@@ -505,6 +601,9 @@ class _BrandMark extends StatelessWidget {
   const _BrandMark();
 
   static const double _size = AppSize.avatarMd;
+
+  /// The mark and the space under it.
+  static const double slot = _size + AppSpacing.sm;
 
   @override
   Widget build(BuildContext context) => ExcludeSemantics(

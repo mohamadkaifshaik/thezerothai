@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../support/app_fonts.dart';
 import '../../support/contrast.dart';
 import '../../support/geometry.dart';
 import '../../support/theme_harness.dart';
@@ -90,6 +91,20 @@ const _labels = [
   'More',
 ];
 
+// Primaries with short labels (test-only names), so labels fit at 1.3.
+const _shortLabels = ['Home', 'Feed', 'Plans', 'Inbox', 'Chat'];
+
+List<AppNavDestination> _short() => [
+  for (final (i, d) in _shell().indexed)
+    i < 5
+        ? AppNavDestination(
+            icon: d.icon,
+            selectedIcon: d.selectedIcon,
+            label: _shortLabels[i],
+          )
+        : d,
+];
+
 const _composeKey = Key('compose');
 const _accountKey = Key('account');
 const _bodyKey = Key('body-button');
@@ -111,54 +126,58 @@ Future<void> _pump(
   EdgeInsets padding = EdgeInsets.zero,
   bool compose = true,
   bool account = true,
+  bool before = false,
 }) => pumpThemed(
   tester,
   Builder(
     builder: (context) => MediaQuery(
       data: MediaQuery.of(context).copyWith(padding: padding),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(
-            width: AppSize.railCompact + padding.left,
-            child: FocusTraversalGroup(
-              child: AppNavRail(
-                destinations: destinations ?? _shell(),
-                selectedIndex: selected,
-                onDestinationSelected: onSelected ?? (_) {},
-                moreHasOwnRows: moreHasOwnRows,
-                onMoreFolded: onMoreFolded,
-                compose: compose
-                    ? IconButton(
-                        key: _composeKey,
-                        tooltip: 'New post',
-                        onPressed: () {},
-                        icon: const Icon(Icons.edit_outlined),
-                      )
-                    : null,
-                account: account
-                    ? IconButton(
-                        key: _accountKey,
-                        tooltip: 'Account menu',
-                        onPressed: () {},
-                        icon: const Icon(Icons.account_circle),
-                      )
-                    : null,
-              ),
-            ),
-          ),
-          Expanded(
-            child: FocusTraversalGroup(
-              child: Center(
-                child: TextButton(
-                  key: _bodyKey,
-                  onPressed: () {},
-                  child: const Text('body'),
+      child: _withBefore(
+        before,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: AppSize.railCompact + padding.left,
+              child: FocusTraversalGroup(
+                child: AppNavRail(
+                  destinations: destinations ?? _shell(),
+                  selectedIndex: selected,
+                  onDestinationSelected: onSelected ?? (_) {},
+                  moreHasOwnRows: moreHasOwnRows,
+                  onMoreFolded: onMoreFolded,
+                  compose: compose
+                      ? IconButton(
+                          key: _composeKey,
+                          tooltip: 'New post',
+                          onPressed: () {},
+                          icon: const Icon(Icons.edit_outlined),
+                        )
+                      : null,
+                  account: account
+                      ? IconButton(
+                          key: _accountKey,
+                          tooltip: 'Account menu',
+                          onPressed: () {},
+                          icon: const Icon(Icons.account_circle),
+                        )
+                      : null,
                 ),
               ),
             ),
-          ),
-        ],
+            Expanded(
+              child: FocusTraversalGroup(
+                child: Center(
+                  child: TextButton(
+                    key: _bodyKey,
+                    onPressed: () {},
+                    child: const Text('body'),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     ),
   ),
@@ -167,6 +186,27 @@ Future<void> _pump(
   brightness: brightness,
   useScaffold: true,
 );
+
+const _beforeKey = Key('before-button');
+
+/// [child], under a focusable control that comes before the rail in the
+/// traversal order when [before] is set.
+Widget _withBefore(bool before, Widget child) => before
+    ? Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              key: _beforeKey,
+              onPressed: () {},
+              child: const Text('before'),
+            ),
+          ),
+          Expanded(child: child),
+        ],
+      )
+    : child;
 
 /// The rail items that are drawn, top to bottom, by their glyph.
 List<String> _visible(WidgetTester tester, List<AppNavDestination> all) {
@@ -185,6 +225,10 @@ List<String> _visible(WidgetTester tester, List<AppNavDestination> all) {
 }
 
 void main() {
+  // Label visibility depends on measured widths: use the bundled DM Sans
+  // (the default test font draws every glyph 1 em wide).
+  setUpAll(loadAppFonts);
+
   test('density thresholds: R1 from 700, R2 from 500, R3 below', () {
     expect(AppNavRailDensity.of(1366), AppNavRailDensity.full);
     expect(AppNavRailDensity.of(700), AppNavRailDensity.full);
@@ -332,6 +376,15 @@ void main() {
       expectNoOverflow(tester);
     });
 
+    testWidgets('without a More destination nothing folds: the secondaries '
+        'stay on the rail', (tester) async {
+      final noMore = _shell().where((d) => d.onActivate == null).toList();
+      await _pump(tester, height: 640, destinations: noMore);
+
+      expect(_visible(tester, noMore), _labels.take(9));
+      expectNoOverflow(tester);
+    });
+
     testWidgets('More shows even without rows of its own', (tester) async {
       await _pump(tester, height: 640, moreHasOwnRows: false);
 
@@ -407,11 +460,103 @@ void main() {
   });
 
   group('labels and text scale', () {
-    testWidgets('at 1.3 the primaries keep their labels', (tester) async {
-      await _pump(tester, textScale: 1.3);
+    testWidgets('at 1.0 the labels show at their own size, never through a '
+        'FittedBox', (tester) async {
+      await _pump(tester, selected: 3);
 
-      expect(_inRail(find.text('Notifications')), findsOneWidget);
+      for (final label in _labels.take(5)) {
+        final text = _inRail(find.text(label));
+        expect(text, findsOneWidget, reason: label);
+        expect(
+          find.ancestor(of: text, matching: find.byType(FittedBox)),
+          findsNothing,
+          reason: label,
+        );
+        expect(tester.getSize(text).height, 16, reason: label);
+      }
+    });
+
+    testWidgets('at 1.3 "Notifications" (100 dp) does not fit the item: the '
+        'rail is icon-only with tooltips rather than shrinking the label', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await _pump(tester, textScale: 1.3, selected: 3);
+
+      for (final label in _labels) {
+        expect(_inRail(find.text(label)), findsNothing, reason: label);
+        expect(_inRail(find.byTooltip(label)), findsOneWidget, reason: label);
+      }
+      expect(
+        tester.getSemantics(_inRail(find.byIcon(Icons.notifications))),
+        isSemantics(label: 'Notifications', isSelected: true),
+      );
       expectNoOverflow(tester);
+      handle.dispose();
+    });
+
+    testWidgets('at 1.3 labels that fit are drawn at the full scale', (
+      tester,
+    ) async {
+      await _pump(tester, textScale: 1.3, destinations: _short());
+
+      for (final label in _shortLabels) {
+        final text = _inRail(find.text(label));
+        expect(text, findsOneWidget, reason: label);
+        // 12 sp x 1.3 x 1.33 line height: the user's scale, unshrunk.
+        expect(tester.getSize(text).height, 21, reason: label);
+        expect(
+          find.ancestor(of: text, matching: find.byType(FittedBox)),
+          findsNothing,
+          reason: label,
+        );
+      }
+      expectNoOverflow(tester);
+    });
+
+    testWidgets('1024 x 500 at 1.3 (R2, labelled items taller than 56): the '
+        'compose button is pinned, never scrolled out of view', (tester) async {
+      await _pump(tester, height: 500, textScale: 1.3, destinations: _short());
+
+      expect(_inRail(find.text('Inbox')), findsOneWidget);
+      final compose = tester.getRect(find.byKey(_composeKey));
+      final account = tester.getRect(find.byKey(_accountKey));
+      final region = tester.getRect(_inRail(find.byType(Scrollable)));
+      expect(compose.top, greaterThanOrEqualTo(region.bottom));
+      expect(compose.bottom, lessThanOrEqualTo(account.top));
+      // The items scroll above it instead.
+      expect(
+        tester
+            .state<ScrollableState>(_inRail(find.byType(Scrollable)))
+            .position
+            .maxScrollExtent,
+        greaterThan(0),
+      );
+      expectNoOverflow(tester);
+    });
+
+    testWidgets('R1 where everything fits: compose follows the items', (
+      tester,
+    ) async {
+      await _pump(tester, height: 768, destinations: _short());
+
+      final more = tester.getRect(
+        find
+            .ancestor(
+              of: _inRail(find.byIcon(Icons.more_horiz)),
+              matching: find.byType(InkWell),
+            )
+            .first,
+      );
+      final compose = tester.getRect(find.byKey(_composeKey));
+      expect(compose.top - more.bottom, closeTo(AppNavRail.composeGap, 0.5));
+      // Inside the destination region, right after the items.
+      expect(
+        compose.bottom,
+        lessThanOrEqualTo(
+          tester.getRect(_inRail(find.byType(Scrollable))).bottom,
+        ),
+      );
     });
 
     for (final scale in [1.31, 2.0]) {
@@ -585,6 +730,65 @@ void main() {
         isTrue,
       );
     });
+
+    Future<void> shiftTab(WidgetTester tester) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.pump();
+    }
+
+    // Arrowed-to stops: a non-selected item, compose, the account chip.
+    final stops = <String, (int, Finder Function())>{
+      'an item (Explore)': (1, () => _inRail(find.byIcon(Icons.search))),
+      'compose': (10, () => find.byIcon(Icons.edit_outlined)),
+      'the account': (11, () => find.byIcon(Icons.account_circle)),
+    };
+    for (final MapEntry(key: name, value: (downs, finder)) in stops.entries) {
+      Future<void> arrowTo(WidgetTester tester) async {
+        await _pump(tester, selected: 0, before: true);
+        // Into the rail from the control before it.
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(
+          Focus.of(tester.element(find.text('before'))).hasPrimaryFocus,
+          isTrue,
+        );
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(focused(tester, _inRail(find.byIcon(Icons.home))), isTrue);
+        for (var i = 0; i < downs; i++) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+          await tester.pump();
+        }
+        expect(focused(tester, finder()), isTrue, reason: name);
+      }
+
+      testWidgets('from $name reached by the arrows, Tab leaves the rail for '
+          'the pane', (tester) async {
+        await arrowTo(tester);
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(
+          Focus.of(tester.element(find.text('body'))).hasPrimaryFocus,
+          isTrue,
+        );
+      });
+
+      testWidgets('from $name reached by the arrows, Shift+Tab leaves the '
+          'rail for what comes before it', (tester) async {
+        await arrowTo(tester);
+        await shiftTab(tester);
+        expect(
+          Focus.of(tester.element(find.text('before'))).hasPrimaryFocus,
+          isTrue,
+        );
+        // Coming back in lands on the selected item again.
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(focused(tester, _inRail(find.byIcon(Icons.home))), isTrue);
+      });
+    }
 
     testWidgets('the arrows walk the items, then compose and the account; '
         'Enter activates', (tester) async {

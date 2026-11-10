@@ -237,6 +237,9 @@ class MainShell extends StatelessWidget {
     );
     final ownHandle = ownProfile?.handle;
 
+    final refreshFailed = context.select(
+      (OnboardingBloc bloc) => bloc.state.refreshFailed,
+    );
     final canCompose = canComposeAt(context, location);
     final newShell = isFeatureEnabled(context, kFeatureUiShell);
     final showFab = newShell ? showComposeFabAt(context, location) : canCompose;
@@ -381,6 +384,7 @@ class MainShell extends StatelessWidget {
             AppMoreMenuFoldedRow(
               icon: tabs[i].destination.icon,
               label: tabs[i].destination.label,
+              selected: tabs[i].tab == selected,
               onSelected: () => select(i),
             ),
         ],
@@ -441,15 +445,30 @@ class MainShell extends StatelessWidget {
       onDestinationSelected: select,
       // A failed GetMe behind a cached profile: a non-blocking Retry over
       // every destination, never a hard stop (offline warm start).
-      body: Column(
-        children: [
-          const AccountRefreshBanner(),
-          Expanded(
-            child: masterDetail && location == AppRouter.settingsPath
-                ? const SettingsDetailPlaceholder()
-                : child,
-          ),
-        ],
+      // The tablet pane keeps the top inset (no outer SafeArea): while the
+      // banner shows it sits below the inset and the page under it does not
+      // pad by the inset again. Elsewhere the inset is already taken (0).
+      body: Builder(
+        builder: (pane) {
+          final inset = refreshFailed ? MediaQuery.paddingOf(pane).top : 0.0;
+          return Column(
+            children: [
+              Padding(
+                padding: EdgeInsets.only(top: inset),
+                child: const AccountRefreshBanner(),
+              ),
+              Expanded(
+                child: MediaQuery.removePadding(
+                  context: pane,
+                  removeTop: inset > 0,
+                  child: masterDetail && location == AppRouter.settingsPath
+                      ? const SettingsDetailPlaceholder()
+                      : child,
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

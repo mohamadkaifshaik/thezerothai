@@ -16,11 +16,16 @@ class AppMoreMenuFoldedRow {
     required this.icon,
     required this.label,
     required this.onSelected,
+    this.selected = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onSelected;
+
+  /// The current page is this destination: the row is marked (accent, check
+  /// glyph, announced as selected).
+  final bool selected;
 }
 
 /// The menu behind the rail's "More" item (600 dp and up): the [entries] as
@@ -62,7 +67,11 @@ abstract final class AppMoreMenu {
         for (final row in folded)
           PopupMenuItem<Object>(
             value: row,
-            child: AppMenuItemRow(icon: row.icon, label: row.label),
+            child: AppMenuItemRow(
+              icon: row.icon,
+              label: row.label,
+              selected: row.selected ? true : null,
+            ),
           ),
         if (articles)
           const PopupMenuItem<Object>(

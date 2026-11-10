@@ -1789,9 +1789,8 @@ void main() {
     });
 
     testWidgets('per-pane safe areas: no outer SafeArea; the rail takes the '
-        'leading inset, the pane gets the top, trailing and bottom ones', (
-      tester,
-    ) async {
+        'leading inset, the pane stops at the trailing one and gets the top '
+        'and bottom ones', (tester) async {
       const padding = EdgeInsets.fromLTRB(44, 24, 30, 20);
       late EdgeInsets bodyPadding;
       await pumpTablet(
@@ -1820,13 +1819,9 @@ void main() {
         tester.getRect(find.byType(AppNavRail)),
         const Rect.fromLTWH(0, 0, 124, 430),
       );
-      // The pane runs under the status bar and to the trailing edge; its
-      // header and scrollables pad themselves.
-      expect(
-        tester.getRect(find.byKey(_bodyKey)),
-        const Rect.fromLTRB(124, 0, 932, 430),
-      );
-      expect(bodyPadding, const EdgeInsets.fromLTRB(0, 24, 30, 20));
+      // The pane runs under the status bar and ends at the trailing inset:
+      // its rect is the geometry's content. Its header and scrollables pad
+      // themselves by the top and bottom insets.
       final geometry = ShellGeometry.maybeOf(
         tester.element(find.byKey(_bodyKey)),
       )!;
@@ -1834,6 +1829,48 @@ void main() {
         geometry.content,
         const Rect.fromLTWH(124, 0, 932 - 124 - 30, 430),
       );
+      expect(tester.getRect(find.byKey(_bodyKey)), geometry.content);
+      expect(bodyPadding, const EdgeInsets.fromLTRB(0, 24, 0, 20));
+      // The trailing strip is the page colour.
+      final strip = find.byWidgetPredicate(
+        (w) =>
+            w is ColoredBox &&
+            w.color == appLightTheme.scaffoldBackgroundColor &&
+            w.key == const ValueKey('tablet-trailing-inset'),
+      );
+      expect(tester.getRect(strip), const Rect.fromLTRB(902, 0, 932, 430));
+    });
+
+    testWidgets('a landscape notch on both sides: the rail clears the '
+        'leading one, list rows end before the trailing one', (tester) async {
+      const padding = EdgeInsets.fromLTRB(44, 0, 47, 21);
+      await pumpTablet(
+        tester,
+        tablet(
+          body: ListView.builder(
+            itemCount: 20,
+            itemExtent: 48,
+            itemBuilder: (context, i) =>
+                ColoredBox(color: Colors.transparent, key: ValueKey('row-$i')),
+          ),
+        ),
+        width: 932,
+        height: 430,
+        padding: padding,
+      );
+
+      final row = tester.getRect(find.byKey(const ValueKey('row-0')));
+      expect(row.right, lessThanOrEqualTo(932 - 47));
+      expect(row.left, greaterThanOrEqualTo(44 + AppSize.railCompact));
+      final home = tester.getRect(
+        find.descendant(
+          of: find.byType(AppNavRail),
+          matching: find.byIcon(Icons.home),
+        ),
+      );
+      expect(home.left, greaterThanOrEqualTo(44));
+      expect(home.center.dx, closeTo(44 + AppSize.railCompact / 2, 0.5));
+      expectNoOverflow(tester);
     });
 
     testWidgets('a ShellBottomInsetSliver is as tall as the bottom inset '

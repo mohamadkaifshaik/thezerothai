@@ -23,9 +23,10 @@ export 'shell_geometry.dart' show ShellLayout;
 /// - `600-1199dp`, [ShellLayout.tablet] (`ui_shell` + `ui_tablet`): the
 ///   [AppNavRail] pinned to the leading edge and the [body] filling the rest
 ///   of the width as one pane, with no outer `SafeArea`: the rail pads itself
-///   by the leading, top and bottom insets, and the pane gets the top,
-///   trailing and bottom ones (its header pads by the top inset, its
-///   scrollables by the bottom one). The pane carries a [ShellGeometry].
+///   by the leading, top and bottom insets; the pane ends at the trailing
+///   inset (a strip in the page colour fills it) and gets the top and bottom
+///   ones (its header pads by the top inset, its scrollables by the bottom
+///   one). The pane is exactly the content of its [ShellGeometry].
 ///   [sideColumn] and [masterPane] are not shown there (later tablet phases).
 /// - `>= 1200dp` (desktop/web): an extended `NavigationRail` with the "Post"
 ///   pill on top and the account chip at the bottom, the 600dp content column
@@ -189,6 +190,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     );
     final compose = widget.onCompose;
     final ltr = direction == TextDirection.ltr;
+    final trailing = ltr ? media.padding.right : media.padding.left;
     return Scaffold(
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -211,15 +213,26 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
             ),
           ),
           Expanded(
-            // The rail took the leading inset; the pane keeps the others.
+            // The rail took the leading inset and the strip below takes the
+            // trailing one (a `ListView` pads only along its scroll axis, so
+            // the pane must stop there itself): the pane is
+            // `geometry.content` and keeps the top and bottom insets.
             child: MediaQuery.removePadding(
               context: context,
-              removeLeft: ltr,
-              removeRight: !ltr,
+              removeLeft: true,
+              removeRight: true,
               child: ShellGeometry(
                 data: geometry,
                 child: FocusTraversalGroup(child: widget.body),
               ),
+            ),
+          ),
+          // The trailing inset (a landscape notch), in the page colour.
+          SizedBox(
+            width: trailing,
+            child: ColoredBox(
+              key: const ValueKey('tablet-trailing-inset'),
+              color: Theme.of(context).scaffoldBackgroundColor,
             ),
           ),
         ],

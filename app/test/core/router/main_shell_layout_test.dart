@@ -26,6 +26,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/features/onboarding/presentation/widgets/account_refresh_banner.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/shared/widgets/primitives/app_badge.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_menu_item_row.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
@@ -95,6 +96,7 @@ void main() {
     double height = 900,
     int pendingFollowRequests = 0,
     GraphRepository? graph,
+    EdgeInsets padding = EdgeInsets.zero,
   }) async {
     whenListen(
       onboarding,
@@ -217,8 +219,11 @@ void main() {
             theme: buildAppTheme(brightness: brightness),
             routerConfig: router,
             builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(textScale)),
+              data: MediaQuery.of(context).copyWith(
+                textScaler: TextScaler.linear(textScale),
+                padding: padding,
+                viewPadding: padding,
+              ),
               child: child!,
             ),
           ),
@@ -1955,6 +1960,30 @@ void main() {
         expect(find.text('communities body'), findsOneWidget);
       });
 
+      testWidgets('the More menu marks the folded row of the current page '
+          'as selected', (tester) async {
+        await pump(
+          tester,
+          width: 1024,
+          height: 640,
+          location: '/bookmarks',
+          flags: allFlags,
+        );
+
+        await tester.tap(inRail(find.byIcon(Icons.more_horiz)));
+        await tester.pumpAndSettle();
+        AppMenuItemRow row(String label) => tester.widget<AppMenuItemRow>(
+          find.ancestor(
+            of: menuItem(label),
+            matching: find.byType(AppMenuItemRow),
+          ),
+        );
+        expect(row('History').selected, isTrue);
+        for (final label in ['Lists', 'Communities', 'Profile', 'Articles']) {
+          expect(row(label).selected, isNull, reason: label);
+        }
+      });
+
       testWidgets('on a folded page More is the selected item', (tester) async {
         final handle = tester.ensureSemantics();
         await pump(
@@ -2006,6 +2035,43 @@ void main() {
 
         expect(railOrder(tester), ['Home', 'Plans', 'Profile']);
       });
+    });
+
+    testWidgets('the refresh banner sits below the top inset, and the top '
+        'bar does not add the inset again under it', (tester) async {
+      await pump(
+        tester,
+        width: 834,
+        height: 1194,
+        flags: allFlags,
+        refreshFailed: true,
+        padding: const EdgeInsets.only(top: 24),
+      );
+
+      final banner = tester.getRect(find.byType(AccountRefreshBanner));
+      final bar = tester.getRect(find.byType(AppTopBar));
+      expect(banner.top, greaterThanOrEqualTo(24));
+      expect(banner.left, 80);
+      // No second gap: the bar follows the banner and is its bare 53 dp.
+      expect(bar.top, banner.bottom);
+      expect(bar.height, AppSize.headerRow);
+      expect(find.text(kAccountRefreshFailedMessage), findsOneWidget);
+    });
+
+    testWidgets('without the banner the top bar takes the top inset itself', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        width: 834,
+        height: 1194,
+        flags: allFlags,
+        padding: const EdgeInsets.only(top: 24),
+      );
+
+      final bar = tester.getRect(find.byType(AppTopBar));
+      expect(bar.top, 0);
+      expect(bar.height, AppSize.headerRow + 24);
     });
 
     testWidgets('the account avatar opens the account menu with the 1000+ '
