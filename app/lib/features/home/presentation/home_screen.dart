@@ -156,13 +156,19 @@ class _FollowingFeed extends StatelessWidget {
             // nothing unless `follow_suggestions` + `graph` are on and the
             // shared list has rows. Beside a tablet context pane that shows
             // it (band B) it lives there instead: one card, one placement.
-            if (!ContextPaneScope.shows(
-              context,
-              ContextSectionKind.whoToFollow,
-            ))
-              const SliverToBoxAdapter(
-                child: WhoToFollowCard(margin: EdgeInsets.all(AppSpacing.md)),
-              ),
+            // The sliver stays either way, so the slivers after it keep
+            // their place (and their state) when the window crosses 840.
+            SliverToBoxAdapter(
+              child:
+                  ContextPaneScope.shows(
+                    context,
+                    ContextSectionKind.whoToFollow,
+                  )
+                  ? const SizedBox.shrink()
+                  : const WhoToFollowCard(
+                      margin: EdgeInsets.all(AppSpacing.md),
+                    ),
+            ),
             if (canCompose)
               const SliverToBoxAdapter(child: HomeComposerEntry()),
           ],

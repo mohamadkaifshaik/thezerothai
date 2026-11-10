@@ -47,11 +47,14 @@ class ExploreScreen extends StatelessWidget {
             const ExploreTrendsSection(),
           // Inline at every width, except beside a tablet context pane that
           // shows it (band B, tablet plan section 4.1: "trends | Who to
-          // follow"): one card, one placement.
-          if (!ContextPaneScope.shows(context, ContextSectionKind.whoToFollow))
-            const SliverToBoxAdapter(
-              child: WhoToFollowCard(margin: EdgeInsets.all(AppSpacing.md)),
-            ),
+          // follow"): one card, one placement. The sliver itself stays, so
+          // the list keeps its shape across 840.
+          SliverToBoxAdapter(
+            child:
+                ContextPaneScope.shows(context, ContextSectionKind.whoToFollow)
+                ? const SizedBox.shrink()
+                : const WhoToFollowCard(margin: EdgeInsets.all(AppSpacing.md)),
+          ),
           const ShellBottomInsetSliver(),
         ],
       ),

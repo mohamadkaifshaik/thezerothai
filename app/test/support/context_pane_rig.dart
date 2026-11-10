@@ -5,6 +5,7 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/core/widgets/app_top_bar.dart';
 import 'package:dzeroth/core/widgets/context_pane.dart';
+import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
@@ -280,3 +281,30 @@ Finder findContextPane() => find.byType(ContextPane);
 /// [finder] inside the context pane.
 Finder inContextPane(Finder finder) =>
     find.descendant(of: findContextPane(), matching: finder);
+
+/// Plan section 3's geometry for the page [primary] in a [width] dp window
+/// with no side insets, on the tablet layout: the page starts after the
+/// 80 dp rail; band A gives it the whole content, band B (when the page has
+/// a pane, [hasPane]) the rest after the hairline and the context pane of
+/// `ShellGeometry.contextPaneWidthFor`. Rail + page (+ 1 + pane) = W.
+void expectTabletPanes(
+  WidgetTester tester,
+  Finder primary,
+  double width, {
+  bool hasPane = true,
+}) {
+  final page = tester.getRect(primary);
+  final content = width - AppSize.railCompact;
+  expect(page.left, AppSize.railCompact, reason: 'page starts after the rail');
+  final bandB = width >= AppBreakpoints.expanded;
+  if (!bandB || !hasPane) {
+    expect(findContextPane(), findsNothing);
+    expect(page.width, content, reason: 'the page takes the whole content');
+    return;
+  }
+  final pane = ShellGeometry.contextPaneWidthFor(content);
+  expect(tester.getRect(findContextPane()).width, pane);
+  expect(page.width, content - 1 - pane);
+  expect(tester.getRect(findContextPane()).left, page.right + 1);
+  expect(AppSize.railCompact + page.width + 1 + pane, width);
+}
