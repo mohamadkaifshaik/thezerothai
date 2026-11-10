@@ -183,7 +183,8 @@ type Config struct {
 	// UpdateBeacon, RequestToJoin and RespondToJoinRequest need it on for the caller; the reads, WithdrawJoinRequest,
 	// LeaveBeacon, RemoveParticipant and CancelBeacon only need it not globally off, so a caller dropped from the allowlist
 	// can still read, leave and cancel. A community-audience beacon also needs FEATURE_COMMUNITIES on for the caller.
-	// FEATURE_BEACONS[_ALLOWLIST|_PERCENT], default off in every environment (dev stays on an allowlist, no prod raise).
+	// FEATURE_BEACONS[_ALLOWLIST|_PERCENT], default off when unset in every environment; dev sets it on (ADR-0034 §4), no
+	// prod raise yet.
 	FeatureBeacons flags.Spec
 	// FeaturePostBeaconEmbed is the flag (wire name `post_beacon_embed`) gating CreatePostRequest.beacon_id (a plan shared on a
 	// root post) and, while globally off, stripping Post.beacon from every response. On for the caller on top of FEATURE_BEACONS
