@@ -165,6 +165,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			postsv1connect.PostServiceDeletePostProcedure:                      rlPostDelete,
 			postsv1connect.PostServiceSchedulePostProcedure:                    rlPostCreate,
 			postsv1connect.PostServiceCancelScheduledPostProcedure:             rlPostCreate,
+			postsv1connect.PostServicePublishScheduledPostNowProcedure:         rlPostCreate,
+			postsv1connect.PostServiceUpdateScheduledPostProcedure:             rlPostCreate,
 			articlesv1connect.ArticleServicePublishArticleProcedure:            rlPostCreate,
 			moderationv1connect.ModerationServiceReportContentProcedure:        rlReport,
 			engagementv1connect.EngagementServiceLikePostProcedure:             rlEngagement,

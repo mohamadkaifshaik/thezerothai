@@ -254,6 +254,11 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 		return res, errBlocked
 	}
 
+	// F9: the recipient's FOLLOWING_ONLY policy, after the block and before every cap so no cap can reveal it.
+	if dmPolicyRefuses(conv, p.UID, p.RecipientFollowingOnly, theirs.Following[p.UID]) {
+		return res, errDMPolicy
+	}
+
 	dec, derr := decideSend(conv, p.UID, res.Mutual, p.MaxUnanswered)
 	if errors.Is(derr, ErrRequestLimit) {
 		// The refused send may be the replay of the last allowed message of this key: answer it as a replay.
