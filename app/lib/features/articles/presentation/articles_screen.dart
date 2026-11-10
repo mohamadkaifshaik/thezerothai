@@ -22,6 +22,7 @@ import '../../posts/presentation/post_error_messages.dart'
 import '../domain/article.dart';
 import '../domain/articles_repository.dart';
 import 'article_text_controller.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 
 class ArticlesScreen extends StatefulWidget {
   const ArticlesScreen({
@@ -426,7 +427,7 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
       return;
     }
     final record = _record!;
-    final options = await showDialog<_PublishOptions>(
+    final options = await showAppMaterialDialog<_PublishOptions>(
       context: context,
       builder: (_) => _PublishDialog(
         draft: _draft,
@@ -534,7 +535,7 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
   }
 
   Future<void> _delete(ArticleRecord article) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete article?'),
@@ -1184,7 +1185,7 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
       return;
     }
     final controller = TextEditingController();
-    final link = await showDialog<String>(
+    final link = await showAppMaterialDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Add link'),

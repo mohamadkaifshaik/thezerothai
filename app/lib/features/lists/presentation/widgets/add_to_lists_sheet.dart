@@ -5,6 +5,7 @@ import '../../../../core/network/app_exception.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_error_view.dart';
 import '../../../../shared/widgets/primitives/app_empty_view.dart';
+import '../../../../shared/widgets/primitives/app_sheet.dart';
 import '../../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../data/lists_repository.dart';
 import '../bloc/add_to_lists_cubit.dart';
@@ -16,21 +17,24 @@ enum AddToListsResult { done, createList }
 
 /// Opens "Add to Lists" for the person [userId]: your lists with a
 /// checkbox each, checked when they are in it. A bottom sheet, at most 600dp
-/// wide. 1 `ListUserLists` on open, one Add or Remove per toggle (optimistic,
-/// rolled back with the reason). Resolves with how it was closed.
+/// wide (a dialog on the tablet layout, 600-1199 dp). 1 `ListUserLists` on
+/// open, one Add or Remove per toggle (optimistic, rolled back with the
+/// reason). Resolves with how it was closed.
 Future<AddToListsResult?> showAddToListsSheet(
   BuildContext context, {
   required ListsRepository repository,
   required String userId,
   required String handle,
 }) {
-  return showModalBottomSheet<AddToListsResult>(
+  return showAppSheet<AddToListsResult>(
     context: context,
-    useRootNavigator: true,
-    isScrollControlled: true,
-    useSafeArea: true,
-    showDragHandle: true,
-    constraints: const BoxConstraints(maxWidth: AppBreakpoints.mobile),
+    material: const MaterialSheetOptions(
+      useRootNavigator: true,
+      isScrollControlled: true,
+      useSafeArea: true,
+      showDragHandle: true,
+      constraints: BoxConstraints(maxWidth: AppBreakpoints.mobile),
+    ),
     builder: (_) => BlocProvider(
       create: (_) =>
           AddToListsCubit(repository: repository, userId: userId)..load(),

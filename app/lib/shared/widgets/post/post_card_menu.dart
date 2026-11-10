@@ -309,7 +309,7 @@ class _PostMenuState extends State<_PostMenu> {
       return;
     }
     if (control.pinnedPostId.isNotEmpty) {
-      final replace = await showDialog<bool>(
+      final replace = await showAppMaterialDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Replace your pinned post?'),
@@ -380,7 +380,7 @@ class _PostMenuState extends State<_PostMenu> {
     final control = widget.moderationControl!;
     final messenger = ScaffoldMessenger.of(context);
     final postId = widget.post.postId;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(
@@ -488,7 +488,7 @@ class _PostMenuState extends State<_PostMenu> {
 
   Future<void> _delete(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete this post?'),

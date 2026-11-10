@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../shared/widgets/primitives/app_sheet.dart';
 import '../../../../shared/widgets/primitives/sheet_option_row.dart';
 
 /// What the user picked in the repost sheet.
@@ -13,15 +14,21 @@ enum RepostChoice { repost, undoRepost, quote }
 ///
 /// With [restricted] (another user's followers-only post) Repost and
 /// Quote are shown disabled under a line saying why; Undo repost stays.
+///
+/// On the tablet layout (600-1199 dp) it is a menu hung from [anchor] (the
+/// Repost button), never a bottom sheet.
 Future<RepostChoice?> showRepostSheet(
   BuildContext context, {
   required bool reposted,
   required bool canQuote,
   bool restricted = false,
+  BuildContext? anchor,
 }) {
-  return showModalBottomSheet<RepostChoice>(
+  return showAppSheet<RepostChoice>(
     context: context,
-    showDragHandle: true,
+    material: const MaterialSheetOptions(showDragHandle: true),
+    onTablet: AppSheetOnTablet.menu,
+    anchor: anchor,
     builder: (context) => SafeArea(
       child: Column(
         mainAxisSize: MainAxisSize.min,

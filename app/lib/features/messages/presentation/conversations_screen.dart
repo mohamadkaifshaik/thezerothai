@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 import 'dart:ui' show SemanticsRole;
 
 import 'package:flutter/foundation.dart' show ValueListenable;
@@ -27,6 +26,7 @@ import 'widgets/conversation_row.dart';
 import 'widgets/messaging_access_builder.dart';
 import 'widgets/not_encrypted_note.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
+import '../../../core/widgets/shell_geometry.dart';
 
 /// `/messages` and `/messages/requests`: the inbox.
 ///
@@ -238,9 +238,9 @@ class _ConversationsViewState extends State<_ConversationsView>
             : null,
         body: LayoutBuilder(
           builder: (context, constraints) {
-            final inset = math.max(
-              0.0,
-              (constraints.maxWidth - AppBreakpoints.mobile) / 2,
+            final inset = ShellGeometry.readableInset(
+              context,
+              constraints.maxWidth,
             );
             return BlocBuilder<ConversationsCubit, ConversationsState>(
               builder: (context, state) {

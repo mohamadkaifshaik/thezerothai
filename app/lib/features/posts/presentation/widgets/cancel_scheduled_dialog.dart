@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../shared/widgets/primitives/app_dialog.dart';
 
 /// "Cancel this scheduled post?", laid out like X's confirmation: a
 /// centred card with a bold title, one muted sentence, a full-width RED filled
@@ -8,7 +9,7 @@ import '../../../../core/theme/app_theme.dart';
 /// one. An alert dialog (announced as one, focus kept inside). Resolves to
 /// true for "Cancel post", false for "Keep" or a dismissed dialog.
 Future<bool> showCancelScheduledDialog(BuildContext context) async {
-  final cancel = await showDialog<bool>(
+  final cancel = await showAppMaterialDialog<bool>(
     context: context,
     builder: (_) => const CancelScheduledDialog(),
   );

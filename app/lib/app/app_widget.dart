@@ -21,6 +21,7 @@ import '../core/theme/theme_mode_cubit.dart';
 import '../core/telemetry/telemetry_device_forget.dart';
 import '../core/telemetry/usage_reporter.dart';
 import '../core/widgets/service_paused_view.dart';
+import '../core/widgets/tablet_modal.dart';
 import '../features/account/data/account_repository.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/auth/presentation/bloc/auth_bloc.dart';
@@ -594,7 +595,10 @@ class _AppWidgetState extends State<AppWidget> {
                       child: TelemetryForgetScope(
                         forget: widget.telemetryForget,
                         child: _PausedOverlay(
-                          child: child ?? const SizedBox.shrink(),
+                          // Same tree at every width and flag state.
+                          child: TabletRouteSnackBars(
+                            child: child ?? const SizedBox.shrink(),
+                          ),
                         ),
                       ),
                     ),

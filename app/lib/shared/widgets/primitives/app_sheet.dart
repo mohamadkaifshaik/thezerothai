@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/tablet_modal.dart';
+import 'app_dialog.dart';
 
 /// How [showAppSheet] presents its content.
 enum AppSheetPresentation {
@@ -30,23 +32,67 @@ AppSheetPresentation appSheetPresentationFor(
     ? AppSheetPresentation.menu
     : AppSheetPresentation.sheet;
 
+/// What a bottom sheet becomes on the tablet layout (`ui_shell` +
+/// `ui_tablet`, 600-1199 dp), which has no bottom sheets (tablet plan
+/// sections 4.2 and 5.4).
+enum AppSheetOnTablet {
+  /// A menu anchored at the trigger (pickers: repost, audience, reply
+  /// audience). Needs an `anchor`; without one it is a [dialog].
+  menu,
+
+  /// A dialog centred on the content area, at most [AppSize.dialogMax] wide
+  /// (forms and longer content: report, add to lists, join note,
+  /// appearance, image description).
+  dialog,
+}
+
+/// The arguments of a call site's own `showModalBottomSheet`, for
+/// [showAppSheet]'s `material`: outside the tablet layout the sheet is
+/// exactly `showModalBottomSheet` with these (and the builder, unchanged), so
+/// phones, desktop and the 600-1199 dp layout with `ui_tablet` off keep
+/// today's sheet (ruling R-1). The defaults are `showModalBottomSheet`'s.
+@immutable
+class MaterialSheetOptions {
+  const MaterialSheetOptions({
+    this.showDragHandle,
+    this.isScrollControlled = false,
+    this.useSafeArea = false,
+    this.useRootNavigator = false,
+    this.constraints,
+  });
+
+  final bool? showDragHandle;
+  final bool isScrollControlled;
+  final bool useSafeArea;
+  final bool useRootNavigator;
+  final BoxConstraints? constraints;
+}
+
 /// Shows [builder] as a bottom sheet, or (with [anchor] and [menuFromWidth])
 /// as a menu anchored at the trigger once the window is wide enough. The same
 /// content serves both, so a caller chooses by width and nothing else changes.
 ///
 /// Sheet: top radius 32, a 36 x 4 drag handle inside a 48 dp target, scroll
 /// controlled, in the safe area, at most [maxWidth] wide (640, as before), on
-/// the root navigator.
+/// the root navigator. With [material] the sheet is instead the call site's
+/// own `showModalBottomSheet` ([MaterialSheetOptions]).
 ///
 /// Menu: [menuWidth] wide, hung below the anchor (above it when there is no
 /// room), clamped to the window, scrolling when taller than the room. Arrow
 /// keys move between its items.
 ///
+/// Tablet layout (`ui_shell` + `ui_tablet`, 600-1199 dp): never a bottom
+/// sheet. [onTablet] picks the anchored menu (with an [anchor]) or a dialog
+/// centred on the content area, `min(tabletDialogMaxWidth, C - 48)` wide,
+/// on the root navigator with the barrier over the whole window (the rail
+/// is inert). The content keeps its own title. [tabletScrollable] scrolls
+/// content that does not scroll itself.
+///
 /// The content sits in a `Flexible` under the handle: content that can be
 /// taller than the window (a long list) scrolls itself, with a shrink-wrapped
 /// `ListView` for instance.
 ///
-/// Focus (both): it moves into the content when nothing inside holds it,
+/// Focus (all): it moves into the content when nothing inside holds it,
 /// Tab cycles inside, Escape and the system back close it, and focus returns
 /// to whatever held it before. [semanticLabel] names the sheet or menu.
 Future<T?> showAppSheet<T>({
@@ -59,7 +105,48 @@ Future<T?> showAppSheet<T>({
   BuildContext? anchor,
   double menuFromWidth = double.infinity,
   double menuWidth = 320,
+  MaterialSheetOptions? material,
+  AppSheetOnTablet onTablet = AppSheetOnTablet.dialog,
+  double tabletDialogMaxWidth = AppSize.dialogMax,
+  bool tabletScrollable = false,
 }) {
+  final host = TabletModalHost.of(context);
+  if (host != null) {
+    if (onTablet == AppSheetOnTablet.menu && anchor != null) {
+      return _showAnchoredMenu<T>(
+        context: context,
+        anchor: anchor,
+        builder: builder,
+        width: menuWidth,
+        semanticLabel: semanticLabel,
+        isDismissible: isDismissible,
+        host: host,
+      );
+    }
+    return showAppDialog<T>(
+      context: context,
+      maxWidth: tabletDialogMaxWidth,
+      barrierDismissible: isDismissible,
+      builder: (dialogContext) => _TabletSheetContent(
+        semanticLabel: semanticLabel,
+        scrollable: tabletScrollable,
+        child: builder(dialogContext),
+      ),
+    );
+  }
+  if (material != null) {
+    return showModalBottomSheet<T>(
+      context: context,
+      showDragHandle: material.showDragHandle,
+      isScrollControlled: material.isScrollControlled,
+      useSafeArea: material.useSafeArea,
+      useRootNavigator: material.useRootNavigator,
+      constraints: material.constraints,
+      isDismissible: isDismissible,
+      enableDrag: enableDrag,
+      builder: builder,
+    );
+  }
   final width = MediaQuery.sizeOf(context).width;
   final presentation = appSheetPresentationFor(
     width,
@@ -112,6 +199,7 @@ Future<T?> _showAnchoredMenu<T>({
   required double width,
   required String? semanticLabel,
   required bool isDismissible,
+  TabletModalHost? host,
 }) {
   final box = anchor.findRenderObject() as RenderBox?;
   final rect = box != null && box.hasSize
@@ -128,21 +216,98 @@ Future<T?> _showAnchoredMenu<T>({
       opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
       child: child,
     ),
-    pageBuilder: (menuContext, _, _) => CustomSingleChildLayout(
-      delegate: _AnchoredMenuLayout(
-        anchor: rect,
-        width: width,
-        padding: MediaQuery.paddingOf(menuContext),
-        viewInsets: MediaQuery.viewInsetsOf(menuContext),
-        textDirection: Directionality.of(menuContext),
-      ),
-      child: _AppMenuSurface(
-        semanticLabel: semanticLabel,
-        isDismissible: isDismissible,
-        child: builder(menuContext),
-      ),
-    ),
+    pageBuilder: (menuContext, _, _) {
+      final menu = CustomSingleChildLayout(
+        delegate: _AnchoredMenuLayout(
+          anchor: rect,
+          width: width,
+          padding: MediaQuery.paddingOf(menuContext),
+          viewInsets: MediaQuery.viewInsetsOf(menuContext),
+          textDirection: Directionality.of(menuContext),
+        ),
+        child: _AppMenuSurface(
+          semanticLabel: semanticLabel,
+          isDismissible: isDismissible,
+          // The tablet menu shows content written for a sheet: the window's
+          // safe area and keyboard are the layout's business, not the rows'.
+          child: host == null
+              ? builder(menuContext)
+              : MediaQuery.removeViewInsets(
+                  context: menuContext,
+                  removeLeft: true,
+                  removeTop: true,
+                  removeRight: true,
+                  removeBottom: true,
+                  child: Builder(
+                    builder: (context) => MediaQuery.removePadding(
+                      context: context,
+                      removeLeft: true,
+                      removeTop: true,
+                      removeRight: true,
+                      removeBottom: true,
+                      child: Builder(builder: builder),
+                    ),
+                  ),
+                ),
+        ),
+      );
+      return host == null ? menu : TabletModalScope(host: host, child: menu);
+    },
   );
+}
+
+/// Sheet content shown in the tablet dialog: the drag handle's room becomes
+/// top padding, the window's safe area is the dialog's (not the rows'), and
+/// it is named like the sheet.
+class _TabletSheetContent extends StatelessWidget {
+  const _TabletSheetContent({
+    required this.semanticLabel,
+    required this.scrollable,
+    required this.child,
+  });
+
+  final String? semanticLabel;
+  final bool scrollable;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final content = Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.md),
+      child: MediaQuery.removePadding(
+        context: context,
+        removeLeft: true,
+        removeTop: true,
+        removeRight: true,
+        removeBottom: true,
+        child: child,
+      ),
+    );
+    return _FocusIntoContent(
+      child: Semantics(
+        scopesRoute: true,
+        namesRoute: semanticLabel != null,
+        explicitChildNodes: true,
+        label: semanticLabel,
+        // The frame paints the surface above the dialog's own Material, so
+        // the rows' ink needs one of its own.
+        child: Material(
+          type: MaterialType.transparency,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Flexible(
+                child: scrollable
+                    ? SingleChildScrollView(child: content)
+                    : content,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Positions the menu: below the anchor (above when there is no room), its

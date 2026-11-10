@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -26,6 +25,7 @@ import 'widgets/feed_post_row.dart';
 import 'widgets/new_posts_pill.dart';
 import '../../../shared/widgets/post/timeline_gap_row.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
+import '../../../core/widgets/shell_geometry.dart';
 
 /// How often the foreground tick fires: it re-renders relative times
 /// ("5m", no RPC) and asks the cubit for a throttled refresh, which sends at
@@ -306,9 +306,9 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
     return LayoutBuilder(
       builder: (context, constraints) {
         // Cap the content width on tablet/desktop, centered.
-        final inset = math.max(
-          0.0,
-          (constraints.maxWidth - AppBreakpoints.mobile) / 2,
+        final inset = ShellGeometry.readableInset(
+          context,
+          constraints.maxWidth,
         );
         return BlocBuilder<TimelineCubit, TimelineState>(
           builder: (context, state) {

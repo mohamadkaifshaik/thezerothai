@@ -6,6 +6,7 @@ import '../../../../shared/format/scheduled_time.dart';
 import '../../../../shared/widgets/primitives/app_form_header.dart';
 import '../../domain/schedule_rules.dart';
 import '../bloc/schedule_dialog_cubit.dart';
+import '../../../../shared/widgets/primitives/app_dialog.dart';
 
 /// The L-9 note (security review, founder-approved): shown only when
 /// photos are attached, because an uploaded image has a public URL before the
@@ -133,8 +134,9 @@ Future<ScheduleDialogResult?> showScheduleDialog(
       ),
     );
   }
-  return showDialog<ScheduleDialogResult>(
+  return showAppMaterialDialog<ScheduleDialogResult>(
     context: context,
+    maxWidth: 440,
     builder: (_) => Dialog(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 440),
