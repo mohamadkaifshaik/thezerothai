@@ -284,8 +284,10 @@ func liveStatus(accepted, openSpots int) Status {
 // Update implements Repo: one transaction. Reads, fresh: idempotency (a replay returns), the beacon (owner-checked). A
 // CANCELLED or ENDED beacon (at p.Now) refuses with ErrCancelled / ErrEnded and writes nothing. The set fields that differ
 // are written field-level (never a Set, so a deleted beacon stays deleted); open_spots below accepted_count is VALIDATION
-// "open_spots"; the stored status follows accepted_count against the new open_spots. Nothing to change writes only the
-// idempotency document.
+// "open_spots"; the stored status follows accepted_count against the new open_spots. A change of start, duration or cost
+// (F28, repo_reschedule.go) refuses with ErrStarted once the stored start passed, and a new start or duration also
+// rewrites the TTL and window of every participant and membership row in the same commit. Nothing to change writes only
+// the idempotency document.
 func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResult, error) {
 	if err := r.ready(); err != nil {
 		return UpdateResult{}, err
@@ -340,12 +342,18 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 				d.Status = s
 			}
 		}
+		plan, err := r.planReschedule(ctx, tx, p, &d)
+		if err != nil {
+			return err
+		}
+		updates = append(updates, plan.beacon...)
 		b := store.NewFirestoreTxBatch(tx)
 		outcome := Unchanged
 		if len(updates) > 0 {
 			d.UpdatedAt = p.Now.UTC() // the service's clock, the same one that decided ENDED
 			updates = append(updates, firestore.Update{Path: "updatedAt", Value: d.UpdatedAt})
 			b.Update(r.ref(p.BeaconID), updates)
+			plan.stage(b)
 			outcome = Written
 		}
 		r.putIdem(b, p.UID, p.IdemKey, rpcUpdateBeacon, p.RequestHash, p.BeaconID)
@@ -353,6 +361,9 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 			return err
 		}
 		res = UpdateResult{Outcome: outcome, Beacon: d.beacon(p.BeaconID)}
+		if outcome == Written && plan.changed {
+			res.Rescheduled, res.Accepted = true, plan.accepted
+		}
 		return nil
 	})
 	store.NoteTxnAttempts(ctx, "beacons_txn_contention", attempts)
@@ -361,7 +372,8 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 
 // Cancel implements Repo: one transaction. Reads, fresh: idempotency (a replay returns), the beacon (owner-checked). An
 // already CANCELLED beacon is success with the idempotency document only; an ENDED one (at p.Now) is ErrEnded and writes
-// nothing; otherwise the status and the organiser's membership state become cancelled.
+// nothing; otherwise the status and the organiser's membership state become cancelled, and p.Stage (when set) adds its
+// writes to the same commit.
 func (r *FirestoreRepo) Cancel(ctx context.Context, p CancelParams) (CancelResult, error) {
 	if err := r.ready(); err != nil {
 		return CancelResult{}, err
@@ -403,6 +415,9 @@ func (r *FirestoreRepo) Cancel(ctx context.Context, p CancelParams) (CancelResul
 			{Path: "updatedAt", Value: now},
 		})
 		b.Set(r.membershipRef(p.UID, p.BeaconID), map[string]any{"state": d.Status}, firestore.MergeAll)
+		if p.Stage != nil {
+			p.Stage(b, d.beacon(p.BeaconID)) // the cancellation outbox item (B07): after every read, in this commit
+		}
 		r.putIdem(b, p.UID, p.IdemKey, rpcCancelBeacon, p.RequestHash, p.BeaconID)
 		if err := b.Err(); err != nil {
 			return err

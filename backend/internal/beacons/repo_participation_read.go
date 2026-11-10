@@ -30,6 +30,41 @@ func (r *FirestoreRepo) GetParticipant(ctx context.Context, beaconID, uid string
 	return d.participant(beaconID), nil
 }
 
+// GetParticipants implements Repo: one GetAll of beacons/{id}/beaconParticipants/{uid} over beaconIDs (at most a page),
+// outside any transaction; a missing row is absent from the map.
+func (r *FirestoreRepo) GetParticipants(ctx context.Context, uid string, beaconIDs []string) (map[string]Participant, error) {
+	if err := r.readable(); err != nil {
+		return nil, err
+	}
+	out := make(map[string]Participant, len(beaconIDs))
+	if len(beaconIDs) == 0 {
+		return out, nil
+	}
+	refs := make([]*firestore.DocumentRef, 0, len(beaconIDs))
+	for _, id := range beaconIDs {
+		refs = append(refs, r.participantRef(id, uid))
+	}
+	snaps, err := r.client.GetAll(ctx, refs)
+	if err != nil {
+		return nil, logger.RedactErr(fmt.Errorf("beacons: get participants: %w", err), append([]string{uid}, beaconIDs...)...)
+	}
+	for i, s := range snaps {
+		if !s.Exists() {
+			continue
+		}
+		id := beaconIDs[i]
+		var d participantDoc
+		if err := s.DataTo(&d); err != nil {
+			return nil, logger.RedactErr(fmt.Errorf("beacons: decode participant: %w", err), uid, id)
+		}
+		if d.UID == "" {
+			d.UID = uid
+		}
+		out[id] = d.participant(id)
+	}
+	return out, nil
+}
+
 // ListMemberships implements Repo: users/{uid}/beaconMemberships, role in q.Roles when set, endAt >= now soonest first
 // (upcoming) or endAt < now most recent first (past), then document id, resuming after (q.AfterEndAt, q.AfterID).
 // Composite index (role, endAt) in both directions.
@@ -64,6 +99,37 @@ func (r *FirestoreRepo) ListMemberships(ctx context.Context, q MembershipQuery) 
 			return nil, logger.RedactErr(fmt.Errorf("beacons: decode membership: %w", err), q.UID, s.Ref.ID)
 		}
 		out = append(out, m.membership(s.Ref.ID))
+	}
+	return out, nil
+}
+
+// GetMemberships implements Repo: one GetAll of users/{uid}/beaconMemberships/{id} over beaconIDs (at most a page);
+// a missing row is absent from the map.
+func (r *FirestoreRepo) GetMemberships(ctx context.Context, uid string, beaconIDs []string) (map[string]Membership, error) {
+	if err := r.readable(); err != nil {
+		return nil, err
+	}
+	out := make(map[string]Membership, len(beaconIDs))
+	if len(beaconIDs) == 0 {
+		return out, nil
+	}
+	refs := make([]*firestore.DocumentRef, 0, len(beaconIDs))
+	for _, id := range beaconIDs {
+		refs = append(refs, r.membershipRef(uid, id))
+	}
+	snaps, err := r.client.GetAll(ctx, refs)
+	if err != nil {
+		return nil, logger.RedactErr(fmt.Errorf("beacons: get memberships: %w", err), append([]string{uid}, beaconIDs...)...)
+	}
+	for i, s := range snaps {
+		if !s.Exists() {
+			continue
+		}
+		var m membershipDoc
+		if err := s.DataTo(&m); err != nil {
+			return nil, logger.RedactErr(fmt.Errorf("beacons: decode membership: %w", err), uid, beaconIDs[i])
+		}
+		out[beaconIDs[i]] = m.membership(beaconIDs[i])
 	}
 	return out, nil
 }

@@ -27,6 +27,7 @@ import '../../moderation/presentation/report_sheet.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/beacons_repository.dart';
 import '../domain/beacon_labels.dart';
+import 'beacon_icons.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/beacon_detail_cubit.dart';
 import 'bloc/beacon_detail_state.dart';
@@ -104,7 +105,7 @@ class _BeaconScreenState extends State<BeaconScreen> {
   Future<void> _cancel() async {
     if (!await _confirm(
       title: 'Cancel this plan?',
-      body: 'Everyone who joined will be told.',
+      body: 'People who joined will get a notification.',
       keep: 'Keep',
       action: 'Cancel plan',
     )) {

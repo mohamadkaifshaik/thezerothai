@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:connectrpc/connect.dart' as connect;
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/feature_flags/service_feature_gate.dart';
 import 'package:dzeroth/core/network/api_client.dart';
@@ -938,7 +939,9 @@ void main() {
           tester,
           find.ancestor(
             of: find.text('Retry'),
-            matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+            matching: find.byWidgetPredicate(
+              (w) => w is ButtonStyleButton || w is AppPillButton,
+            ),
           ),
           reason: 'Retry',
         );

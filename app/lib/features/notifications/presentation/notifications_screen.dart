@@ -131,7 +131,6 @@ class _NotificationsViewState extends State<_NotificationsView>
                     slivers: [
                       AppTopBar.sliver(
                         title: 'Notifications',
-                        showAccountAvatar: false,
                         centerTitle: true,
                       ),
                       _inset(

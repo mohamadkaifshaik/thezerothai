@@ -460,9 +460,9 @@ variable "feature_communities_percent" {
 }
 
 variable "feature_beacons" {
-  description = "FEATURE_BEACONS rollout mode for Beacons/Plans (docs/beacons-plan.md; gates every BeaconService RPC): off | allowlist | percent | on. Default off; ramp deliberately, never ahead of communities."
+  description = "FEATURE_BEACONS rollout mode for Beacons/Plans (docs/beacons-plan.md; gates every BeaconService RPC): off | allowlist | percent | on. Default on in dev (ADR-0034 §4: Plans is never turned off); set off as the kill switch. A community-audience plan still needs FEATURE_COMMUNITIES for the caller."
   type        = string
-  default     = "off"
+  default     = "on"
 
   validation {
     condition     = contains(["off", "allowlist", "percent", "on"], var.feature_beacons)

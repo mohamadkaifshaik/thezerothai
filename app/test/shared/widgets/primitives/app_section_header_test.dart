@@ -3,6 +3,9 @@ import 'package:dzeroth/shared/widgets/primitives/app_section_header.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/contrast.dart';
+import '../../../support/theme_harness.dart';
+
 Widget _host(
   Widget child, {
   Brightness brightness = Brightness.dark,
@@ -100,5 +103,48 @@ void main() {
       await tester.pumpWidget(_host(header));
       expect(find.text('const'), findsOneWidget);
     });
+  });
+
+  forEachThemeAndWidth(
+    'AppSectionHeader eyebrow: uppercase accent kicker, header title, fits',
+    (tester, env) async {
+      final handle = tester.ensureSemantics();
+      await pumpThemed(
+        tester,
+        const SingleChildScrollView(
+          child: AppSectionHeader(
+            eyebrow: 'Your lists',
+            title: 'Pinned lists and communities',
+            subtitle: '3 lists',
+          ),
+        ),
+        brightness: env.brightness,
+        size: env.size,
+        textScale: env.textScale,
+      );
+      expect(tester.takeException(), isNull);
+      final colors = env.isDark ? AppColors.dark : AppColors.light;
+      final kicker = tester.widget<Text>(find.text('YOUR LISTS'));
+      expect(kicker.style?.color, colors.accentText);
+      expect(kicker.style?.fontFamily, contains(AppFonts.display));
+      expect(
+        tester.getSemantics(find.text('Pinned lists and communities')),
+        matchesSemantics(label: 'Pinned lists and communities', isHeader: true),
+      );
+      final scheme = buildAppTheme(brightness: env.brightness).colorScheme;
+      expect(
+        contrast(colors.accentText, scheme.surface),
+        greaterThanOrEqualTo(4.5),
+      );
+      handle.dispose();
+    },
+    widths: kRedesignWidths,
+    textScales: kRedesignTextScales,
+  );
+
+  testWidgets('without an eyebrow nothing extra is drawn', (tester) async {
+    await pumpThemed(tester, const AppSectionHeader(title: 'Plain'));
+    expect(find.text('PLAIN'), findsNothing);
+    expect(find.text('Plain'), findsOneWidget);
   });
 }

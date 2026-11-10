@@ -117,7 +117,7 @@ void main() {
   });
 
   group('look', () {
-    testWidgets('own is accent with white text; the peer\'s is raised', (
+    testWidgets('own is primary, onPrimary text; the peer\'s is raised', (
       tester,
     ) async {
       await pumpThemed(
@@ -139,7 +139,7 @@ void main() {
                       .decoration
                   as BoxDecoration)
               .color!;
-      expect(fill(1), const Color(0xFF1D9BF0));
+      expect(fill(1), AppPalette.tealText);
       expect(fill(1), colors.primary);
       expect(fill(2), colors.surfaceContainerHigh);
       final mine = tester.widget<Text>(
@@ -148,7 +148,8 @@ void main() {
           matching: find.byType(Text),
         ),
       );
-      expect(mine.textSpan!.style?.color, const Color(0xFFFFFFFF));
+      expect(mine.textSpan!.style?.color, colors.onPrimary);
+      expect(colors.onPrimary, AppPalette.white);
     });
 
     testWidgets('tombstones are italic and muted', (tester) async {

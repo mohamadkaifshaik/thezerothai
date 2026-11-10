@@ -171,7 +171,7 @@ void main() {
           '$mode ${brightness.name} ${size.width.toInt()} provider and email layouts',
           (tester) async {
             final previousPlatform = debugDefaultTargetPlatformOverride;
-            debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+            debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
             try {
               await open(tester, screen, size: size, brightness: brightness);
               expect(find.text(heading), findsOneWidget);
@@ -361,6 +361,20 @@ void main() {
     verifyNever(() => bloc.add(any()));
   });
 
+  testWidgets('iOS sign-in screen shows Google only and does not overflow', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    try {
+      await open(tester, const SignInScreen());
+      expect(find.text('Continue with Google'), findsOneWidget);
+      expect(find.text('Continue with Apple'), findsNothing);
+      expect(tester.takeException(), isNull);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
   testWidgets(
     'provider actions use existing events and Apple keeps its availability',
     (tester) async {
@@ -369,7 +383,7 @@ void main() {
       await tester.tap(find.text('Continue with Google'));
       verify(() => bloc.add(const AuthGoogleSignInRequested())).called(1);
       final previousPlatform = debugDefaultTargetPlatformOverride;
-      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
       try {
         await open(tester, const SignInScreen());
         await tester.tap(find.text('Continue with Apple'));

@@ -171,6 +171,14 @@ func (s *Server) UpdateProfile(ctx context.Context, req *connect.Request[identit
 		Website:        req.Msg.Website,
 		PinnedPostID:   req.Msg.PinnedPostId,
 		IsPrivate:      req.Msg.IsPrivate,
+		ReadReceipts:   req.Msg.ReadReceipts,
+	}
+	if req.Msg.DmPolicy != nil {
+		pol, ok := dmPolicyFromProto(req.Msg.GetDmPolicy())
+		if !ok {
+			return nil, apierr.Validation("dm_policy", "dm_policy must be EVERYONE_REQUESTS or FOLLOWING_ONLY")
+		}
+		params.DMPolicy = &pol
 	}
 	profile, err := s.svc.UpdateProfile(ctx, uid, params)
 	if err != nil {
@@ -255,7 +263,16 @@ func (s *Server) GetAccountExport(ctx context.Context, req *connect.Request[iden
 	if s.lifecycle == nil {
 		return nil, connect.NewError(connect.CodeUnimplemented, errUnimplementedPhase1)
 	}
-	view, err := s.lifecycle.GetAccountExport(ctx, uid, req.Msg.GetExportId())
+	// The signed URL hands over the whole account, so it is released only to a recent sign-in, like
+	// RequestAccountExport. Status polling itself stays open (no gate, no error) so the app can watch the job for
+	// far longer than the sign-in window; the app re-authenticates up front on the Download tap and calls again to
+	// receive the URL. A READY export with no URL therefore means "re-auth to download", not "not ready". This uses
+	// the side-effect-free IsRecentSignIn, not RequireRecentSignIn: a stale poll here is a normal success, so it must
+	// not log reauth_required. A wiring mistake (reauthMaxAge 0) fails closed: IsRecentSignIn is false, URL withheld.
+	// The decision is made before the lifecycle call so a stale poll never signs a URL (A17): nothing is signed only to
+	// be discarded, and a signer failure cannot fail a poll that would not have received the URL anyway.
+	recent := authn.IsRecentSignIn(ctx, s.reauthMaxAge, s.now())
+	view, err := s.lifecycle.GetAccountExport(ctx, uid, req.Msg.GetExportId(), recent)
 	if err != nil {
 		return nil, err
 	}
@@ -264,13 +281,7 @@ func (s *Server) GetAccountExport(ctx context.Context, req *connect.Request[iden
 		Status:    toProtoExportStatus(view.Status),
 		ExpiresAt: timestamppb.New(view.ExpiresAt),
 	}
-	// The signed URL hands over the whole account, so it is released only to a recent sign-in, like
-	// RequestAccountExport. Status polling itself stays open (no gate, no error) so the app can watch the job for
-	// far longer than the sign-in window; the app re-authenticates up front on the Download tap and calls again to
-	// receive the URL. A READY export with no URL therefore means "re-auth to download", not "not ready". This uses
-	// the side-effect-free IsRecentSignIn, not RequireRecentSignIn: a stale poll here is a normal success, so it must
-	// not log reauth_required. A wiring mistake (reauthMaxAge 0) fails closed: IsRecentSignIn is false, URL withheld.
-	if authn.IsRecentSignIn(ctx, s.reauthMaxAge, s.now()) {
+	if recent {
 		resp.DownloadUrl = view.DownloadURL
 		if !view.URLExpiresAt.IsZero() {
 			resp.DownloadUrlExpiresAt = timestamppb.New(view.URLExpiresAt)
@@ -311,6 +322,26 @@ func toProtoStatus(s AccountStatus) identityv1.AccountStatus {
 	}
 }
 
+// dmPolicyToProto maps the stored policy to the wire enum; the default is UNSPECIFIED (which clients read as
+// EVERYONE_REQUESTS), so an account that never set it, and every profile while the flag is globally off, carry 0.
+func dmPolicyToProto(p DMPolicy) identityv1.DmPolicy {
+	if p == DMPolicyFollowingOnly {
+		return identityv1.DmPolicy_DM_POLICY_FOLLOWING_ONLY
+	}
+	return identityv1.DmPolicy_DM_POLICY_UNSPECIFIED
+}
+
+// dmPolicyFromProto maps a requested policy; UNSPECIFIED and unknown values are not valid requests (ok=false).
+func dmPolicyFromProto(p identityv1.DmPolicy) (DMPolicy, bool) {
+	switch p {
+	case identityv1.DmPolicy_DM_POLICY_EVERYONE_REQUESTS:
+		return DMPolicyEveryoneRequests, true
+	case identityv1.DmPolicy_DM_POLICY_FOLLOWING_ONLY:
+		return DMPolicyFollowingOnly, true
+	}
+	return "", false
+}
+
 func toProtoProfile(p Profile) *identityv1.Profile {
 	return &identityv1.Profile{
 		UserId:               p.UserID,
@@ -324,6 +355,8 @@ func toProtoProfile(p Profile) *identityv1.Profile {
 		Location:             p.Location,
 		Website:              p.Website,
 		PinnedPostId:         p.PinnedPostID,
+		ReadReceipts:         p.ReadReceipts,
+		DmPolicy:             dmPolicyToProto(p.DMPolicy),
 		IsPrivate:            p.IsPrivate,
 		Verified:             p.Verified,
 		SubscriptionVerified: p.SubscriptionVerified,

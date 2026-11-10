@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -225,6 +226,8 @@ func TestNotificationID(t *testing.T) {
 		{TypeBeaconRequest, "u1", beaconA, t0, "beacon_request_" + beaconA + "_u1", true},
 		{TypeBeaconAccepted, "u1", beaconA, t0, "beacon_accepted_" + beaconA, true},
 		{TypeBeaconCancelled, "u1", beaconA, t0, "beacon_cancelled_" + beaconA, true},
+		{TypeBeaconUpdated, "u1", beaconA, t0, "beacon_updated_" + beaconA + "_" + strconv.FormatInt(t0.UnixMilli(), 10), true},
+		{TypeBeaconUpdated, "u1", beaconA, t0.In(time.FixedZone("x", 3600)), "beacon_updated_" + beaconA + "_" + strconv.FormatInt(t0.UnixMilli(), 10), true},
 		{"poke", "u1", postA, t0, "", false},
 	}
 	for _, tt := range tests {

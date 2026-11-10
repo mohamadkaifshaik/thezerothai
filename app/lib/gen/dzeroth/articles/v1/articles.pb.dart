@@ -36,6 +36,7 @@ class Article extends $pb.GeneratedMessage {
     $core.bool? publicationPending,
     $core.String? publicationCaption,
     $1.ReplyPolicy? publicationReplyPolicy,
+    $core.String? excerpt,
   }) {
     final result = Article._();
     if (articleId != null) result.articleId = articleId;
@@ -53,6 +54,7 @@ class Article extends $pb.GeneratedMessage {
       result.publicationCaption = publicationCaption;
     if (publicationReplyPolicy != null)
       result.publicationReplyPolicy = publicationReplyPolicy;
+    if (excerpt != null) result.excerpt = excerpt;
     return result;
   }
 
@@ -84,6 +86,7 @@ class Article extends $pb.GeneratedMessage {
     ..aOS(11, _omitFieldNames ? '' : 'publicationCaption')
     ..aE<$1.ReplyPolicy>(12, _omitFieldNames ? '' : 'publicationReplyPolicy',
         enumValues: $1.ReplyPolicy.values)
+    ..aOS(13, _omitFieldNames ? '' : 'excerpt')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -142,7 +145,8 @@ class Article extends $pb.GeneratedMessage {
   @$pb.TagNumber(4)
   void clearTitle() => $_clearField(4);
 
-  /// JSON array of validated structured blocks; never HTML.
+  /// JSON array of validated structured blocks; never HTML. Empty in ListArticles responses: open an article
+  /// with GetArticle to read its body.
   @$pb.TagNumber(5)
   $core.String get bodyJson => $_getSZ(4);
   @$pb.TagNumber(5)
@@ -216,6 +220,17 @@ class Article extends $pb.GeneratedMessage {
   $core.bool hasPublicationReplyPolicy() => $_has(11);
   @$pb.TagNumber(12)
   void clearPublicationReplyPolicy() => $_clearField(12);
+
+  /// Plain-text excerpt of the body (whitespace collapsed, at most 280 Unicode code points), computed by the
+  /// server on read. Set on every response, including ListArticles where body_json is empty. Never HTML.
+  @$pb.TagNumber(13)
+  $core.String get excerpt => $_getSZ(12);
+  @$pb.TagNumber(13)
+  set excerpt($core.String value) => $_setString(12, value);
+  @$pb.TagNumber(13)
+  $core.bool hasExcerpt() => $_has(12);
+  @$pb.TagNumber(13)
+  void clearExcerpt() => $_clearField(13);
 }
 
 class GetArticleRequest extends $pb.GeneratedMessage {

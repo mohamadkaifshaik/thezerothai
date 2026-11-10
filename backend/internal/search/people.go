@@ -43,6 +43,46 @@ type PeopleDeps struct {
 	Graph graph.Reader
 	// PrefixEntries is CACHE_SEARCH_PREFIX_ENTRIES; <= 0 means the default 2,000.
 	PrefixEntries int
+	// Prefixes, when set, is the shared prefix cache (NewPrefixCache) that other modules also read through (F36:
+	// communities' SearchCommunityMembers); nil builds a private one over Directory with PrefixEntries.
+	Prefixes *PrefixCache
+}
+
+// PrefixCache is the shared 60 s (prefix, limit) cache over identity's handle-prefix query (F36 exposes it to
+// communities through apiserver). It holds the RAW directory answer: profiles with their status, never filtered for a
+// viewer, so one entry can serve every viewer and every module; each caller applies its own visibility rules after
+// the read and must not edit the returned slice. Staleness bound: prefixCacheTTL from the fill, per instance.
+type PrefixCache struct {
+	dir     HandleDirectory
+	entries *cache.LRU[prefixKey, []identity.Profile]
+}
+
+// NewPrefixCache builds the cache over dir with at most entries keys (<= 0 means the default 2,000).
+func NewPrefixCache(dir HandleDirectory, entries int) *PrefixCache {
+	if entries <= 0 {
+		entries = defaultPrefixEntries
+	}
+	return &PrefixCache{dir: dir, entries: cache.New[prefixKey, []identity.Profile](entries, prefixCacheTTL)}
+}
+
+// Lookup is SearchHandles through the cache: prefix must already be lower-cased and validated, limit clamped 1..20 by
+// the caller. hit reports a cache answer (0 reads). The returned slice is shared and read-only.
+func (c *PrefixCache) Lookup(ctx context.Context, prefix string, limit int) (profiles []identity.Profile, hit bool, err error) {
+	key := prefixKey{prefix: prefix, limit: limit}
+	if profiles, hit = c.entries.Get(key); hit {
+		return profiles, true, nil
+	}
+	if profiles, err = c.dir.SearchHandles(ctx, prefix, limit); err != nil {
+		return nil, false, err
+	}
+	c.entries.Set(key, profiles)
+	return profiles, false, nil
+}
+
+// SearchHandles is Lookup without the hit flag, so *PrefixCache satisfies HandleDirectory-shaped seams.
+func (c *PrefixCache) SearchHandles(ctx context.Context, prefix string, limit int) ([]identity.Profile, error) {
+	profiles, _, err := c.Lookup(ctx, prefix, limit)
+	return profiles, err
 }
 
 // prefixKey is the cache key: the lower-cased prefix and the limit the directory was asked for. Never viewer scoped.
@@ -53,21 +93,20 @@ type prefixKey struct {
 
 // people holds the SearchPeople dependencies and the shared prefix cache.
 type people struct {
-	dir   HandleDirectory
 	graph graph.Reader
-	// entries caches the RAW directory answer per (prefix, limit), shared by every viewer.
+	// prefixes caches the RAW directory answer per (prefix, limit), shared by every viewer (PrefixCache).
 	// Staleness bound: prefixCacheTTL (60 s) from the fill, per instance. The entry holds profiles with their status
 	// and is filtered per viewer after the read, so no block, mute, follow or status of any viewer is ever cached in it
 	// and an entry can safely serve two viewers who see different rows. The cached slices are read-only.
-	entries *cache.LRU[prefixKey, []identity.Profile]
+	prefixes *PrefixCache
 }
 
 func newPeople(d PeopleDeps) *people {
-	n := d.PrefixEntries
-	if n <= 0 {
-		n = defaultPrefixEntries
+	pc := d.Prefixes
+	if pc == nil {
+		pc = NewPrefixCache(d.Directory, d.PrefixEntries)
 	}
-	return &people{dir: d.Directory, graph: d.Graph, entries: cache.New[prefixKey, []identity.Profile](n, prefixCacheTTL)}
+	return &people{graph: d.Graph, prefixes: pc}
 }
 
 // peopleLimit applies D1 step 9: negative is VALIDATION `limit`, 0 means 10, above 20 is clamped.
@@ -126,14 +165,9 @@ func (s *service) People(ctx context.Context, uid, query string, limit int32) (*
 
 // search is the cached read plus the per-viewer filter for a validated prefix.
 func (p *people) search(ctx context.Context, uid, prefix string, limit int) (*searchv1.SearchPeopleResponse, error) {
-	key := prefixKey{prefix: prefix, limit: limit}
-	profiles, hit := p.entries.Get(key)
-	if !hit {
-		var err error
-		if profiles, err = p.dir.SearchHandles(ctx, prefix, limit); err != nil {
-			return nil, mapErr("search handles", err, uid)
-		}
-		p.entries.Set(key, profiles)
+	profiles, hit, err := p.prefixes.Lookup(ctx, prefix, limit)
+	if err != nil {
+		return nil, mapErr("search handles", err, uid)
 	}
 	logger.SetRequestField(ctx, "cache_hit", hit)
 	if len(profiles) == 0 { // nothing to filter: no graph read

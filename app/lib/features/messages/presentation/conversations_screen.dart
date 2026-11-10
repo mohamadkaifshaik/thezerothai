@@ -252,16 +252,15 @@ class _ConversationsViewState extends State<_ConversationsView>
                       if (_isInbox)
                         AppTopBar.sliver(
                           title: 'Messages',
-                          showAccountAvatar: false,
                           centerTitle: true,
                           actions: [
                             if (widget.canCompose &&
                                 MediaQuery.sizeOf(context).width >=
                                     AppBreakpoints.mobile)
-                              IconButton(
+                              AppTopBarAction(
+                                icon: Icons.mail_outline,
                                 tooltip: 'New message',
                                 onPressed: widget.onNewMessage,
-                                icon: const Icon(Icons.mail_outline),
                               ),
                           ],
                         )

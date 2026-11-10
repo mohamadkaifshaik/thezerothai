@@ -7,6 +7,8 @@ import (
 	"sort"
 	"time"
 
+	"cloud.google.com/go/firestore"
+
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
@@ -71,8 +73,24 @@ func (r *fakeRepo) DeleteOwn(ctx context.Context, id, authorID string, stage ...
 	}
 	delete(r.docs, id)
 	r.postsCount--
+	r.stagedInDelete += len(stage)
+	for _, st := range stage {
+		st(nopBatch{})
+	}
 	return true, nil
 }
+
+// nopBatch is a store.Batch that discards writes (the fakes record what they stage themselves).
+type nopBatch struct{}
+
+func (b nopBatch) Set(*firestore.DocumentRef, interface{}, ...firestore.SetOption) store.Batch {
+	return b
+}
+func (b nopBatch) Create(*firestore.DocumentRef, interface{}) store.Batch { return b }
+func (b nopBatch) Update(*firestore.DocumentRef, []firestore.Update, ...firestore.Precondition) store.Batch {
+	return b
+}
+func (b nopBatch) Delete(*firestore.DocumentRef, ...firestore.Precondition) store.Batch { return b }
 
 // Conversation implements Repo for unit tests: the conversation's posts in id order strictly after `after`,
 // at most limit.

@@ -57,6 +57,12 @@ type Profile struct {
 	Location       string
 	Website        string
 	PinnedPostID   string
+	// ReadReceipts is the owner's "Read receipts" setting (F3), stored default false. Messaging reads it through the 60 s
+	// profile cache. Shown only to the owner and omitted (false) while FEATURE_READ_RECEIPTS is globally off.
+	ReadReceipts bool
+	// DMPolicy is who may start a direct message with the account (F9); "" = DMPolicyEveryoneRequests, the stored default.
+	// A plain string type so Profile stays comparable. Omitted from the RPC responses while dm_policy is globally off.
+	DMPolicy DMPolicy
 	// HomeTabsEnc is users/{uid}.homeTabs in a comparable, immutable form (Profile must stay comparable: UpdateProfile detects a
 	// no-op with ==). Read it with HomeTabs(); only HomeTabsAdapter writes it.
 	HomeTabsEnc string
@@ -68,6 +74,26 @@ type Profile struct {
 	DeletionRequestedAt time.Time
 	DeletionJob         *DeletionJob
 }
+
+// ReadReceiptsFlag is the wire name of FEATURE_READ_RECEIPTS (F3). It gates SETTING read_receipts=true through UpdateProfile
+// (false is never gated, the undo rule), the receipt stamp of MarkConversationRead and the peer_read_at of ListMessages. While
+// it is globally off Profile.read_receipts is omitted from every response.
+const ReadReceiptsFlag = "read_receipts"
+
+// DMPolicy is the "who can message me" setting. The strings are the stored values; the zero value is the default.
+type DMPolicy string
+
+const (
+	// DMPolicyEveryoneRequests is today's behaviour: anyone can message, a sender the account does not follow arrives as a request.
+	DMPolicyEveryoneRequests DMPolicy = ""
+	// DMPolicyFollowingOnly lets only accounts the owner follows start a conversation or add to a pending request.
+	DMPolicyFollowingOnly DMPolicy = "following_only"
+)
+
+// DMPolicyFlag is the wire name of FEATURE_DM_POLICY (F9). It gates SETTING FOLLOWING_ONLY through UpdateProfile; going back to
+// EVERYONE_REQUESTS is never gated (the undo rule). While it is globally off Profile.dm_policy is omitted from every
+// response, and messaging ignores a stored FOLLOWING_ONLY (it applies only to a recipient with the flag on).
+const DMPolicyFlag = "dm_policy"
 
 // ProfileTarget is the GetProfile oneof: exactly one of UserID/Handle is set.
 type ProfileTarget struct {
@@ -117,6 +143,12 @@ type UpdateProfileParams struct {
 	Website       *string
 	PinnedPostID  *string
 	IsPrivate     *bool
+	// ReadReceipts (F3): nil = unchanged. true needs FEATURE_READ_RECEIPTS on for the caller (FEATURE_DISABLED
+	// feature=read_receipts, before any read); false never does.
+	ReadReceipts *bool
+	// DMPolicy (F9): nil = unchanged. Setting DMPolicyFollowingOnly needs FEATURE_DM_POLICY on for the caller
+	// (FEATURE_DISABLED feature=dm_policy, before any read); DMPolicyEveryoneRequests never does.
+	DMPolicy *DMPolicy
 }
 
 // Service is the Connect handler's dependency and the only thing server.go talks to.

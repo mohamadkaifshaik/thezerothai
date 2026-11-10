@@ -47,7 +47,7 @@ class AltTextChip extends StatelessWidget {
                 child: Text(
                   'ALT',
                   maxLines: 1,
-                  style: theme.textTheme.labelMedium?.copyWith(
+                  style: theme.textTheme.labelSmall?.copyWith(
                     color: colors.onSurface,
                     fontWeight: FontWeight.w700,
                   ),

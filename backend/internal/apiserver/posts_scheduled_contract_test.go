@@ -42,6 +42,9 @@ func TestPostsContract_ScheduledPostsFlagOff(t *testing.T) {
 	_, calls["SchedulePost"] = env.posts.SchedulePost(ctx, authed(token, &postsv1.SchedulePostRequest{IdempotencyKey: contractKey("sched"), Text: "later", PublishAt: at}))
 	_, calls["ListScheduledPosts"] = env.posts.ListScheduledPosts(ctx, authed(token, &postsv1.ListScheduledPostsRequest{}))
 	_, calls["CancelScheduledPost"] = env.posts.CancelScheduledPost(ctx, authed(token, &postsv1.CancelScheduledPostRequest{IdempotencyKey: contractKey("cancel"), ScheduledId: "0123456789abcdef0123456789abcdef"}))
+	_, calls["PublishScheduledPostNow"] = env.posts.PublishScheduledPostNow(ctx, authed(token, &postsv1.PublishScheduledPostNowRequest{IdempotencyKey: contractKey("now"), ScheduledId: "0123456789abcdef0123456789abcdef"}))
+	editedText := "edited"
+	_, calls["UpdateScheduledPost"] = env.posts.UpdateScheduledPost(ctx, authed(token, &postsv1.UpdateScheduledPostRequest{IdempotencyKey: contractKey("edit"), ScheduledId: "0123456789abcdef0123456789abcdef", Text: &editedText}))
 	for name, err := range calls {
 		d := wireError(t, err, connect.CodeFailedPrecondition)
 		assertReason(t, d, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED)
@@ -162,4 +165,51 @@ func TestPostsContract_ScheduledPostsAllowlistCohort(t *testing.T) {
 	if d.GetReason() == commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED {
 		t.Errorf("outside caller's Cancel was FEATURE_DISABLED: %v", d)
 	}
+}
+
+// TestPostsContract_ScheduledPostNowAndEdit: over the real Build chain, Edit changes a pending item and Post now
+// publishes it through the sweep's transaction (neither answers Unimplemented), and an edit after publish is refused.
+func TestPostsContract_ScheduledPostNowAndEdit(t *testing.T) {
+	ctx := context.Background()
+	env := newChain(t, func(cfg *config.Config) {
+		cfg.FeatureScheduledPosts = flags.Spec{Name: "scheduled_posts", Mode: flags.On}
+	})
+	token, _ := mintToken(t, "")
+	env.createProfile(t, token)
+	other, _ := mintToken(t, "")
+	env.createProfile(t, other)
+
+	sched, err := env.posts.SchedulePost(ctx, authed(token, &postsv1.SchedulePostRequest{
+		IdempotencyKey: contractKey("sn"), Text: "later", PublishAt: timestamppb.New(time.Now().Add(3 * time.Hour)),
+	}))
+	if err != nil {
+		t.Fatalf("SchedulePost: %v", err)
+	}
+	id := sched.Msg.GetScheduledPost().GetScheduledId()
+
+	text := "edited text"
+	edited, err := env.posts.UpdateScheduledPost(ctx, authed(token, &postsv1.UpdateScheduledPostRequest{IdempotencyKey: contractKey("ed"), ScheduledId: id, Text: &text}))
+	if err != nil || edited.Msg.GetScheduledPost().GetText() != text {
+		t.Fatalf("UpdateScheduledPost = %v, %v", edited, err)
+	}
+	// Another user's id is NOT_FOUND for both.
+	_, err = env.posts.UpdateScheduledPost(ctx, authed(other, &postsv1.UpdateScheduledPostRequest{IdempotencyKey: contractKey("ed2"), ScheduledId: id, Text: &text}))
+	wireError(t, err, connect.CodeNotFound)
+	_, err = env.posts.PublishScheduledPostNow(ctx, authed(other, &postsv1.PublishScheduledPostNowRequest{IdempotencyKey: contractKey("pn0"), ScheduledId: id}))
+	wireError(t, err, connect.CodeNotFound)
+
+	now, err := env.posts.PublishScheduledPostNow(ctx, authed(token, &postsv1.PublishScheduledPostNowRequest{IdempotencyKey: contractKey("pn1"), ScheduledId: id}))
+	if err != nil {
+		t.Fatalf("PublishScheduledPostNow: %v", err)
+	}
+	item := now.Msg.GetScheduledPost()
+	if item.GetStatus() != postsv1.ScheduledPostStatus_SCHEDULED_POST_STATUS_PUBLISHED || item.GetPostId() == "" {
+		t.Fatalf("item = %v, want PUBLISHED with a post id", item)
+	}
+	replay, err := env.posts.PublishScheduledPostNow(ctx, authed(token, &postsv1.PublishScheduledPostNowRequest{IdempotencyKey: contractKey("pn1"), ScheduledId: id}))
+	if err != nil || replay.Msg.GetScheduledPost().GetPostId() != item.GetPostId() {
+		t.Fatalf("replay = %v, %v; want the same post", replay, err)
+	}
+	_, err = env.posts.UpdateScheduledPost(ctx, authed(token, &postsv1.UpdateScheduledPostRequest{IdempotencyKey: contractKey("ed3"), ScheduledId: id, Text: &text}))
+	wireError(t, err, connect.CodeFailedPrecondition)
 }
