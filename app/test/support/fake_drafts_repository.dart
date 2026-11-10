@@ -117,7 +117,9 @@ class FakeDraftsRepository implements DraftsRepository {
 
   /// Like the real store, minus the windows and the "row gone" memory: the
   /// row is stored if missing, a key of the same kind is reused, a key of the
-  /// other kind blocks, and [forceNew] mints over it.
+  /// other kind blocks, and [forceNew] mints over it. It never returns a
+  /// [SendClaim.startedAt] and never expires a key (no
+  /// [SendBlock.unconfirmed]): window tests use the real store.
   @override
   Future<SendClaim> claimSend({
     required ComposerDraft draft,

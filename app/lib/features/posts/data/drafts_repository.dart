@@ -46,12 +46,13 @@ enum SendBlock {
 /// The answer of [DraftsRepository.claimSend].
 @immutable
 class SendClaim {
-  const SendClaim.key(String this.key, {required this.reused})
+  const SendClaim.key(String this.key, {required this.reused, this.startedAt})
     : block = null,
       pendingKind = null;
   const SendClaim.blocked(SendBlock this.block, {this.pendingKind})
     : key = null,
-      reused = false;
+      reused = false,
+      startedAt = null;
 
   /// The idempotency key to send under; null when [block] is set.
   final String? key;
@@ -59,6 +60,10 @@ class SendClaim {
   /// The key was already stored by an earlier send of this draft (so that
   /// send may have landed), as opposed to freshly minted now.
   final bool reused;
+
+  /// When [key] was first minted (the row's start time, which a reuse does
+  /// not refresh): its window, [sendKeyExpired], runs from here.
+  final DateTime? startedAt;
   final SendBlock? block;
 
   /// For [SendBlock.otherKind]: the kind that is pending.
@@ -74,6 +79,21 @@ const kPostSendKeyWindow = Duration(hours: 23);
 /// A scheduled item keeps its key for 7 days after it reaches a terminal
 /// state; the window ends that long after its publish time.
 const kScheduleSendKeyAfterPublish = Duration(days: 7);
+
+/// Whether a pending key of [kind], minted at [startedAt], is past its window
+/// at [now], so the server may no longer recognise it. The one rule for the
+/// stored key and for the key a composer remembers when the store fails.
+bool sendKeyExpired({
+  required SendKind kind,
+  required DateTime? startedAt,
+  required DateTime? publishAt,
+  required DateTime now,
+}) {
+  if (kind == SendKind.schedule && publishAt != null) {
+    return now.isAfter(publishAt.add(kScheduleSendKeyAfterPublish));
+  }
+  return startedAt == null || now.difference(startedAt) >= kPostSendKeyWindow;
+}
 
 /// The only reader and writer of unsent posts on this device.
 /// Drafts live in `ComposerDraftEntries`, keyed `{uid, draftId}`: every
@@ -297,9 +317,19 @@ class DraftsRepository {
           return const SendClaim.blocked(SendBlock.unconfirmed);
         }
         _seen.add(draft.id);
-        return SendClaim.key(stored, reused: true);
+        return SendClaim.key(
+          stored,
+          reused: true,
+          startedAt: row.sendStartedAt,
+        );
       }
       final key = newKey();
+      // Cut to the whole second the column stores, so the time returned is
+      // the one a later reuse reads back.
+      final now = DateTime.fromMillisecondsSinceEpoch(
+        _now().millisecondsSinceEpoch ~/ 1000 * 1000,
+        isUtc: true,
+      );
       if (row != null) {
         _seen.add(draft.id);
         await (db.update(table)..where(
@@ -310,23 +340,20 @@ class DraftsRepository {
                 sendKey: Value(key),
                 sendKind: Value(kind.name),
                 sendPublishAt: Value(publishAt?.toUtc()),
-                sendStartedAt: Value(_now()),
+                sendStartedAt: Value(now),
               ),
             );
       }
-      return SendClaim.key(key, reused: false);
+      return SendClaim.key(key, reused: false, startedAt: now);
     });
   }
 
-  bool _expired(ComposerDraftRow row, SendKind kind) {
-    final now = _now();
-    final publishAt = row.sendPublishAt;
-    if (kind == SendKind.schedule && publishAt != null) {
-      return now.isAfter(publishAt.add(kScheduleSendKeyAfterPublish));
-    }
-    final started = row.sendStartedAt;
-    return started == null || now.difference(started) >= kPostSendKeyWindow;
-  }
+  bool _expired(ComposerDraftRow row, SendKind kind) => sendKeyExpired(
+    kind: kind,
+    startedAt: row.sendStartedAt,
+    publishAt: row.sendPublishAt,
+    now: _now(),
+  );
 
   /// Forgets the pending key [key] of a draft after an answer that proves no
   /// post was created. Only a row still holding exactly [key] is changed, and
