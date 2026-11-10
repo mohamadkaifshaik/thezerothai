@@ -136,7 +136,11 @@ type SendParams struct {
 	// RecipientGraphInTx reads the recipient.s graph/{uid} through the transaction (graph.TxReader.SnapshotInTx, uncached).
 	// Required. Blocked[caller] refuses the send before every cap; Following[caller] makes
 	// the conversation mutual; Muted[caller] makes it silent.
-	RecipientGraphInTx func(ctx context.Context, tx *firestore.Transaction) (graph.Snapshot, error)
+	// RecipientFollowingOnly (F9): the recipient's dm_policy is FOLLOWING_ONLY and FEATURE_DM_POLICY is on for them, as the
+	// service read it from the recipient's profile (instance-cached, at most CACHE_TTL stale). The rule itself runs in the
+	// transaction against the recipient's fresh Following set (dmPolicyRefuses).
+	RecipientFollowingOnly bool
+	RecipientGraphInTx     func(ctx context.Context, tx *firestore.Transaction) (graph.Snapshot, error)
 	// RecipientInTx reads the recipient.s users/{uid} through the transaction (identity.TxProfiles.ProfileInTx). It
 	// is called only when this send creates the conversation (purge race, security review L-3); a missing
 	// document or a status other than ACTIVE refuses the send. Required for a new conversation.

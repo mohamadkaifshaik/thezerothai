@@ -67,7 +67,9 @@ type exportProfile struct {
 	Website      string `json:"website,omitempty"`
 	PinnedPostID string `json:"pinnedPostId,omitempty"`
 	// ReadReceipts (F3) is the "Read receipts" setting; omitted while off (the default).
-	ReadReceipts   bool            `json:"readReceipts,omitempty"`
+	ReadReceipts bool `json:"readReceipts,omitempty"`
+	// DMPolicy (F9) is who may message the account; omitted for the default.
+	DMPolicy       string          `json:"dmPolicy,omitempty"`
 	HomeTabs       []exportHomeTab `json:"homeTabs,omitempty"`
 	IsPrivate      bool            `json:"isPrivate"`
 	Verified       bool            `json:"verified"`
@@ -81,7 +83,8 @@ func profileSection(p Profile) exportProfile {
 	return exportProfile{
 		UserID: p.UserID, Handle: p.Handle, DisplayName: p.DisplayName, Bio: p.Bio, AvatarURL: p.AvatarURL,
 		IsPrivate: p.IsPrivate, Verified: p.Verified, FollowersCount: p.FollowersCount, FollowingCount: p.FollowingCount,
-		BannerURL: p.BannerURL, Location: p.Location, Website: p.Website, PinnedPostID: p.PinnedPostID, ReadReceipts: p.ReadReceipts, HomeTabs: exportHomeTabs(p),
+		BannerURL: p.BannerURL, Location: p.Location, Website: p.Website, PinnedPostID: p.PinnedPostID, ReadReceipts: p.ReadReceipts,
+		DMPolicy: string(p.DMPolicy), HomeTabs: exportHomeTabs(p),
 		PostsCount: p.PostsCount, CreatedAt: p.CreatedAt.UTC(),
 	}
 }

@@ -200,6 +200,21 @@ message Profile {
   // neither sends receipts (MarkConversationRead stores no read time for the peer) nor sees any (Conversation.peer_read_at
   // is never set). The stored value returns when the flag is back on.
   bool read_receipts = 20;
+  // Who can start a direct message with this account (F9). UNSPECIFIED means EVERYONE_REQUESTS (today's behaviour).
+  // Always UNSPECIFIED while FEATURE_DM_POLICY is globally off, in every Profile including the owner's own; the stored
+  // value returns when the flag is back on. Clients grey out a recipient whose policy is FOLLOWING_ONLY unless that
+  // account follows the caller (the server decides: SendMessage answers CANNOT_MESSAGE).
+  DmPolicy dm_policy = 19;
+}
+
+// Who may start a direct message with an account. Existing accepted conversations always keep working.
+enum DmPolicy {
+  // Same as EVERYONE_REQUESTS. Every account created before the setting existed has it.
+  DM_POLICY_UNSPECIFIED = 0;
+  // Anyone can message; a sender the account does not follow arrives as a message request (messaging.proto).
+  DM_POLICY_EVERYONE_REQUESTS = 1;
+  // Only accounts that this account follows can start a conversation or add to a pending request.
+  DM_POLICY_FOLLOWING_ONLY = 2;
 }
 
 message CreateProfileRequest {
@@ -300,6 +315,11 @@ message UpdateProfileRequest {
   // the caller's receipts from the peer and the peer's from the caller at once on the serving instance, and within the
   // profile cache TTL (60 s) on another one.
   optional bool read_receipts = 11;
+  // Who can message the caller (F9). FOLLOWING_ONLY needs FEATURE_DM_POLICY on for the caller (FAILED_PRECONDITION +
+  // FEATURE_DISABLED, metadata["feature"] = "dm_policy", checked before any read); EVERYONE_REQUESTS is never gated (the
+  // undo rule). UNSPECIFIED is rejected: INVALID_ARGUMENT + VALIDATION, metadata["field"] = "dm_policy". The change
+  // reaches SendMessage on other instances within the profile cache TTL (60 s). Existing accepted conversations keep working.
+  optional DmPolicy dm_policy = 10;
 }
 
 message UpdateProfileResponse {

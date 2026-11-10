@@ -143,7 +143,12 @@ type FanoutDeps struct {
 	// separate from PushLimit so a chatty thread cannot starve follow or reply pushes and vice versa.
 	// Nil means unlimited. Keyed uid|message.
 	MessagePushLimit *ratelimit.Limiter
-	Now              func() time.Time
+	// Prefs (F6) is the recipient's push preference lookup, cached 60 s (PrefsStore). It is consulted only for a
+	// recipient with FEATURE_NOTIFICATION_PREFS on, before the push limiter, and only when a push would be sent. Nil
+	// disables the check. A lookup error fails open (the push goes out): a settings blip must not drop pushes, and a
+	// redelivery would not resend them anyway.
+	Prefs PrefsReader
+	Now   func() time.Time
 }
 
 // pushLimiterIdleTTL keeps an idle recipient's bucket longer than its refill window so an eviction can never refill
@@ -186,6 +191,9 @@ type Outcome struct {
 	SuppressedProtected int
 	// Throttled counts recipients whose push was skipped by the per-recipient hourly limit (the row was written).
 	Throttled int
+	// PrefSuppressed counts pushes skipped because the recipient switched that type group's push off (F6). The row, if
+	// the type has one, was written.
+	PrefSuppressed int
 }
 
 // Deliver processes one event idempotently. A non-nil error means "retry": at least one recipient hit
@@ -339,6 +347,10 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 	// Every row is committed before the first push: FCM latency (up to the handler budget) must not delay a later
 	// recipient's commit past the 5 s since-token settle window.
 	for _, pd := range toPush {
+		if f.prefsSuppress(ctx, pd.uid, pd.p.Type) {
+			out.PrefSuppressed++
+			continue
+		}
 		if pd.p.Type.pushOnly() {
 			if f.d.MessagePushLimit != nil {
 				if ok, _ := f.d.MessagePushLimit.Allow(messageLimitKey(pd.uid)); !ok {
@@ -357,6 +369,20 @@ func (f *Fanout) Deliver(ctx context.Context, e Event) (Outcome, error) {
 		out.Pruned += pruned
 	}
 	return out, errors.Join(errs...)
+}
+
+// prefsSuppress reports whether uid switched push off for the group of t (F6). It costs nothing unless FEATURE_NOTIFICATION_PREFS
+// is on for uid and a Prefs lookup is wired, and one Firestore read per 60 s per recipient per instance when it is.
+func (f *Fanout) prefsSuppress(ctx context.Context, uid string, t Type) bool {
+	if f.d.Prefs == nil || f.d.Flags == nil || !f.d.Flags.Enabled(uid, PrefsFlagName) {
+		return false
+	}
+	p, err := f.d.Prefs.PrefsFor(ctx, uid)
+	if err != nil {
+		f.d.Log.WarnContext(ctx, "notification_prefs_failed", "uid_hash", logger.HashUID(uid), "err", logger.RedactErr(err, uid))
+		return false
+	}
+	return !p.PushAllowed(t)
 }
 
 // blockedBy reports whether actor has blocked recipient. The recipient's snapshot (already fetched) answers
@@ -439,7 +465,7 @@ func (f *Fanout) Handler() http.Handler {
 		attrs := append([]any{
 			"event", "notification_delivery", "type", string(m.Type), "message_id", d.MessageID, "delivery_attempt", d.Attempt,
 			"recipients", len(m.RecipientIDs), "created", out.Created, "duplicate", out.Duplicate, "suppressed", out.Suppressed, "suppressed_protected", out.SuppressedProtected,
-			"dropped", out.Dropped, "pushed", out.Pushed, "pruned", out.Pruned, "push_throttled", out.Throttled,
+			"dropped", out.Dropped, "pushed", out.Pushed, "pruned", out.Pruned, "push_throttled", out.Throttled, "push_pref_suppressed", out.PrefSuppressed,
 			"rpc", fanoutRPC,
 			"elapsed_ms", f.d.Now().Sub(started).Milliseconds(),
 		}, logger.TraceAttrs(ctx)...)

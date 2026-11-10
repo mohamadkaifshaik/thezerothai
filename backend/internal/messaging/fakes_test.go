@@ -333,6 +333,13 @@ func (f *fakeRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
 	if theirs.Blocked[p.UID] {
 		return SendResult{}, errBlocked
 	}
+	var conv *ConvDoc
+	if c, ok := f.convs[p.ConvID]; ok {
+		conv = &c
+	}
+	if dmPolicyRefuses(conv, p.UID, p.RecipientFollowingOnly, theirs.Following[p.UID]) {
+		return SendResult{}, errDMPolicy
+	}
 	f.mu.Lock()
 	res := f.sendRes
 	f.mu.Unlock()

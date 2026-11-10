@@ -46,6 +46,10 @@ var (
 	// ErrScheduledWindowFull is returned by CreateScheduled when ScheduledCreateParams.WindowCap PENDING items already
 	// sit within +/-ScheduledWindowRadius of the new publish time. Nothing is written.
 	ErrScheduledWindowFull = errors.New("posts: scheduled window is full")
+	// ErrScheduledNotPending is returned by UpdateScheduled for an item that is PUBLISHED, CANCELLED or FAILED.
+	ErrScheduledNotPending = errors.New("posts: scheduled post is not pending")
+	// ErrScheduledLocked is returned by UpdateScheduled within ScheduledEditLockout of the stored publish time.
+	ErrScheduledLocked = errors.New("posts: scheduled post is about to be published")
 	// errScheduledTransition is a programming error: an impossible transition request.
 	errScheduledTransition = errors.New("posts: invalid scheduled transition")
 )
@@ -84,6 +88,11 @@ type ScheduledRepo interface {
 	// CancelScheduled moves a PENDING or FAILED item to CANCELLED, clearing its draft. Nothing is written and
 	// changed=false when the item is already PUBLISHED or CANCELLED: the current state is returned.
 	CancelScheduled(ctx context.Context, uid, id string, now time.Time, ttl time.Duration) (post *ScheduledPost, changed bool, err error)
+	// UpdateScheduled edits a PENDING item in one transaction (F11). Order inside each attempt, reads first: the item
+	// (ErrScheduledNotFound; ErrScheduledNotPending unless PENDING), then, only when nothing differs, it returns the item
+	// with changed=false and writes nothing (idempotent by state); ErrScheduledLocked within ScheduledEditLockout of the
+	// stored publishAt; when publishAt moves, quotas/{uid} and the window count (the item itself excluded; ErrScheduledWindowFull).
+	UpdateScheduled(ctx context.Context, p ScheduledUpdateParams) (post *ScheduledPost, changed bool, err error)
 	// TransitionScheduled applies a transition outside the publish transaction, conditional on the document being
 	// unchanged since ref.UpdateTime. applied=false (and nothing written) when it changed or vanished.
 	TransitionScheduled(ctx context.Context, ref ScheduledRef, t ScheduledTransition, now time.Time, ttl time.Duration) (next ScheduledRef, applied bool, err error)
@@ -658,4 +667,120 @@ func (r *FirestoreRepo) DueScheduled(ctx context.Context, now time.Time, limit i
 		page.Next = &ScheduledDueCursor{publishAt: at, ref: last.Ref}
 	}
 	return page, nil
+}
+
+// ScheduledUpdateParams is the edit the UpdateScheduled transaction applies. A nil field is unchanged. The service has
+// validated and normalised every value (Text is NFC and parsed, PublishAt is a whole minute inside the bounds).
+type ScheduledUpdateParams struct {
+	UID, ID     string
+	Text        *string
+	ReplyPolicy *ReplyPolicy
+	PublishAt   *time.Time
+	Now         time.Time
+	// WindowCap is the most PENDING items allowed within +/-ScheduledWindowRadius of a new PublishAt, the item itself
+	// not counted. Required (>= 1) when PublishAt is set.
+	WindowCap int
+}
+
+// UpdateScheduled implements ScheduledRepo.
+func (r *FirestoreRepo) UpdateScheduled(ctx context.Context, p ScheduledUpdateParams) (*ScheduledPost, bool, error) {
+	ref, err := r.scheduledRef(p.UID, p.ID)
+	if err != nil {
+		return nil, false, err
+	}
+	if p.PublishAt != nil && (p.WindowCap < 1 || r.w.Quotas == nil) {
+		return nil, false, errors.New("posts: repo has no scheduled-post writers configured")
+	}
+	ctx, cancel := context.WithTimeout(ctx, createTxTimeout)
+	defer cancel()
+
+	var (
+		out     *ScheduledPost
+		changed bool
+	)
+	_, err = store.RunTransaction(ctx, r.client, func(ctx context.Context, tx *firestore.Transaction) error {
+		changed = false
+		snap, err := tx.Get(ref)
+		if status.Code(err) == codes.NotFound {
+			return ErrScheduledNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("posts: get scheduled: %w", err)
+		}
+		cur, err := decodeScheduled(snap, p.UID)
+		if err != nil {
+			return err
+		}
+		out = cur
+		if cur.Status != ScheduledPending || cur.Draft == nil {
+			return ErrScheduledNotPending
+		}
+		var ups []firestore.Update
+		next := copyDraftFor(cur)
+		if p.Text != nil && *p.Text != cur.Draft.Text {
+			ups = append(ups, firestore.Update{Path: "draft.text", Value: *p.Text})
+			next.Draft.Text = *p.Text
+		}
+		if p.ReplyPolicy != nil && *p.ReplyPolicy != cur.Draft.ReplyPolicy {
+			if *p.ReplyPolicy == ReplyPolicyEveryone {
+				ups = append(ups, firestore.Update{Path: "draft.replyPolicy", Value: firestore.Delete})
+			} else {
+				ups = append(ups, firestore.Update{Path: "draft.replyPolicy", Value: string(*p.ReplyPolicy)})
+			}
+			next.Draft.ReplyPolicy = *p.ReplyPolicy
+		}
+		moved := p.PublishAt != nil && !p.PublishAt.Equal(cur.PublishAt)
+		if moved {
+			next.PublishAt = p.PublishAt.UTC().Truncate(time.Minute)
+			ups = append(ups, firestore.Update{Path: "publishAt", Value: next.PublishAt})
+		}
+		if len(ups) == 0 {
+			return nil // nothing differs: the replay of an applied edit
+		}
+		if cur.PublishAt.Sub(p.Now) < ScheduledEditLockout {
+			return ErrScheduledLocked
+		}
+		var qrec quota.Record
+		if moved {
+			// Same serialization point as CreateScheduled: every schedule or move by one user reads and writes
+			// quotas/{uid}, so the window count below is exact. The count stays AFTER the quotas read.
+			if qrec, err = r.w.Quotas.Get(ctx, tx, p.UID); err != nil {
+				return fmt.Errorf("posts: schedule lock read: %w", err)
+			}
+			n, err := countQuery(ctx, windowQuery(ref.Parent, next.PublishAt, p.WindowCap+1+1), tx)
+			if err != nil {
+				return fmt.Errorf("posts: window count: %w", err)
+			}
+			if !cur.PublishAt.Before(next.PublishAt.Add(-ScheduledWindowRadius)) && !cur.PublishAt.After(next.PublishAt.Add(ScheduledWindowRadius)) {
+				n--
+			}
+			if n >= int64(p.WindowCap) {
+				return ErrScheduledWindowFull
+			}
+		}
+		ups = append(ups, firestore.Update{Path: "updatedAt", Value: p.Now.UTC()})
+		next.UpdatedAt = p.Now.UTC()
+		b := store.NewFirestoreTxBatch(tx)
+		if moved {
+			quota.Touch(b, r.w.Quotas.Ref(p.UID), qrec)
+		}
+		b.Update(ref, ups)
+		if err := b.Err(); err != nil {
+			return err
+		}
+		out, changed = next, true
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return out, changed, nil
+}
+
+// copyDraftFor returns a copy of p whose Draft can be changed without touching p.
+func copyDraftFor(p *ScheduledPost) *ScheduledPost {
+	cp := *p
+	d := *p.Draft
+	cp.Draft = &d
+	return &cp
 }

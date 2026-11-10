@@ -45,6 +45,7 @@ class Profile extends $pb.GeneratedMessage {
     $core.String? website,
     $core.String? pinnedPostId,
     $core.bool? subscriptionVerified,
+    DmPolicy? dmPolicy,
     $core.bool? readReceipts,
   }) {
     final result = Profile._();
@@ -67,6 +68,7 @@ class Profile extends $pb.GeneratedMessage {
     if (pinnedPostId != null) result.pinnedPostId = pinnedPostId;
     if (subscriptionVerified != null)
       result.subscriptionVerified = subscriptionVerified;
+    if (dmPolicy != null) result.dmPolicy = dmPolicy;
     if (readReceipts != null) result.readReceipts = readReceipts;
     return result;
   }
@@ -104,6 +106,8 @@ class Profile extends $pb.GeneratedMessage {
     ..aOS(16, _omitFieldNames ? '' : 'website')
     ..aOS(17, _omitFieldNames ? '' : 'pinnedPostId')
     ..aOB(18, _omitFieldNames ? '' : 'subscriptionVerified')
+    ..aE<DmPolicy>(19, _omitFieldNames ? '' : 'dmPolicy',
+        enumValues: DmPolicy.values)
     ..aOB(20, _omitFieldNames ? '' : 'readReceipts')
     ..hasRequiredFields = false;
 
@@ -317,16 +321,29 @@ class Profile extends $pb.GeneratedMessage {
   @$pb.TagNumber(18)
   void clearSubscriptionVerified() => $_clearField(18);
 
+  /// Who can start a direct message with this account (F9). UNSPECIFIED means EVERYONE_REQUESTS (today's behaviour).
+  /// Always UNSPECIFIED while FEATURE_DM_POLICY is globally off, in every Profile including the owner's own; the stored
+  /// value returns when the flag is back on. Clients grey out a recipient whose policy is FOLLOWING_ONLY unless that
+  /// account follows the caller (the server decides: SendMessage answers CANNOT_MESSAGE).
+  @$pb.TagNumber(19)
+  DmPolicy get dmPolicy => $_getN(18);
+  @$pb.TagNumber(19)
+  set dmPolicy(DmPolicy value) => $_setField(19, value);
+  @$pb.TagNumber(19)
+  $core.bool hasDmPolicy() => $_has(18);
+  @$pb.TagNumber(19)
+  void clearDmPolicy() => $_clearField(19);
+
   /// The caller's own "Read receipts" setting (F3), owner only: false in every Profile of another user, and always false
   /// while FEATURE_READ_RECEIPTS is globally off. Default false (off, opt-in). It is reciprocal: with it off the caller
   /// neither sends receipts (MarkConversationRead stores no read time for the peer) nor sees any (Conversation.peer_read_at
   /// is never set). The stored value returns when the flag is back on.
   @$pb.TagNumber(20)
-  $core.bool get readReceipts => $_getBF(18);
+  $core.bool get readReceipts => $_getBF(19);
   @$pb.TagNumber(20)
-  set readReceipts($core.bool value) => $_setBool(18, value);
+  set readReceipts($core.bool value) => $_setBool(19, value);
   @$pb.TagNumber(20)
-  $core.bool hasReadReceipts() => $_has(18);
+  $core.bool hasReadReceipts() => $_has(19);
   @$pb.TagNumber(20)
   void clearReadReceipts() => $_clearField(20);
 }
@@ -975,6 +992,7 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
     $core.String? location,
     $core.String? website,
     $core.String? pinnedPostId,
+    DmPolicy? dmPolicy,
     $core.bool? readReceipts,
   }) {
     final result = UpdateProfileRequest._();
@@ -987,6 +1005,7 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
     if (location != null) result.location = location;
     if (website != null) result.website = website;
     if (pinnedPostId != null) result.pinnedPostId = pinnedPostId;
+    if (dmPolicy != null) result.dmPolicy = dmPolicy;
     if (readReceipts != null) result.readReceipts = readReceipts;
     return result;
   }
@@ -1014,6 +1033,8 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
     ..aOS(7, _omitFieldNames ? '' : 'location')
     ..aOS(8, _omitFieldNames ? '' : 'website')
     ..aOS(9, _omitFieldNames ? '' : 'pinnedPostId')
+    ..aE<DmPolicy>(10, _omitFieldNames ? '' : 'dmPolicy',
+        enumValues: DmPolicy.values)
     ..aOB(11, _omitFieldNames ? '' : 'readReceipts')
     ..hasRequiredFields = false;
 
@@ -1141,17 +1162,30 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(9)
   void clearPinnedPostId() => $_clearField(9);
 
+  /// Who can message the caller (F9). FOLLOWING_ONLY needs FEATURE_DM_POLICY on for the caller (FAILED_PRECONDITION +
+  /// FEATURE_DISABLED, metadata["feature"] = "dm_policy", checked before any read); EVERYONE_REQUESTS is never gated (the
+  /// undo rule). UNSPECIFIED is rejected: INVALID_ARGUMENT + VALIDATION, metadata["field"] = "dm_policy". The change
+  /// reaches SendMessage on other instances within the profile cache TTL (60 s). Existing accepted conversations keep working.
+  @$pb.TagNumber(10)
+  DmPolicy get dmPolicy => $_getN(9);
+  @$pb.TagNumber(10)
+  set dmPolicy(DmPolicy value) => $_setField(10, value);
+  @$pb.TagNumber(10)
+  $core.bool hasDmPolicy() => $_has(9);
+  @$pb.TagNumber(10)
+  void clearDmPolicy() => $_clearField(10);
+
   /// Read receipts on or off (F3). true needs FEATURE_READ_RECEIPTS on for the caller (FAILED_PRECONDITION +
   /// FEATURE_DISABLED, metadata["feature"] = "read_receipts", checked before any read); false is never gated (the undo
   /// rule). Not retroactive: only conversations read while it is on carry a read time for the peer. Turning it off hides
   /// the caller's receipts from the peer and the peer's from the caller at once on the serving instance, and within the
   /// profile cache TTL (60 s) on another one.
   @$pb.TagNumber(11)
-  $core.bool get readReceipts => $_getBF(9);
+  $core.bool get readReceipts => $_getBF(10);
   @$pb.TagNumber(11)
-  set readReceipts($core.bool value) => $_setBool(9, value);
+  set readReceipts($core.bool value) => $_setBool(10, value);
   @$pb.TagNumber(11)
-  $core.bool hasReadReceipts() => $_has(9);
+  $core.bool hasReadReceipts() => $_has(10);
   @$pb.TagNumber(11)
   void clearReadReceipts() => $_clearField(11);
 }

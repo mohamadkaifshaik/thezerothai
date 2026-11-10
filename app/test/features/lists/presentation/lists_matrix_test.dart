@@ -1,3 +1,4 @@
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/lists/data/lists_repository.dart';
 import 'package:dzeroth/features/lists/presentation/bloc/list_detail_state.dart';
@@ -360,5 +361,7 @@ void main() {
 /// The button (not its label) that carries [label].
 Finder _button(String label) => find.ancestor(
   of: find.text(label),
-  matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+  matching: find.byWidgetPredicate(
+    (w) => w is ButtonStyleButton || w is AppPillButton,
+  ),
 );
