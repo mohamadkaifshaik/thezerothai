@@ -76,6 +76,51 @@ func (m ProfileMediaRetire) Allows(purpose string) bool {
 	}
 }
 
+// MediaOrphanSweep is MEDIA_ORPHAN_SWEEP: the kill switch of the media orphan sweep (internal/media/orphan_sweep.go), the
+// last step of the daily-maintenance cron. Per-project operations config, not a FEATURE_ flag (no cohort, no allowlist, no
+// RPC), and it defaults to off: a project marks or deletes nothing until its operator sets it.
+type MediaOrphanSweep string
+
+const (
+	// MediaOrphanSweepOff (default): the step reads and writes nothing. Marks already written stay (the marked images keep
+	// being refused by the attach and the resolvers) until the switch is raised again.
+	MediaOrphanSweepOff MediaOrphanSweep = "off"
+	// MediaOrphanSweepMark: phase 1 and the restore paths only. The sweep marks, holds, keeps and restores, but never
+	// claims or deletes: a soak that shows what delete would remove.
+	MediaOrphanSweepMark MediaOrphanSweep = "mark"
+	// MediaOrphanSweepDelete: both phases (mark, then claim and delete at least OrphanGrace later).
+	MediaOrphanSweepDelete MediaOrphanSweep = "delete"
+)
+
+func (m MediaOrphanSweep) valid() bool {
+	switch m {
+	case MediaOrphanSweepOff, MediaOrphanSweepMark, MediaOrphanSweepDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+// Runs reports whether the sweep reads and writes at all (mark or delete). The zero value is off.
+func (m MediaOrphanSweep) Runs() bool {
+	return m == MediaOrphanSweepMark || m == MediaOrphanSweepDelete
+}
+
+// Deletes reports whether the sweep may claim and delete (delete only).
+func (m MediaOrphanSweep) Deletes() bool { return m == MediaOrphanSweepDelete }
+
+// ParseMediaOrphanSweep parses MEDIA_ORPHAN_SWEEP: "" is off, anything outside off|mark|delete is an error (startup fails).
+func ParseMediaOrphanSweep(v string) (MediaOrphanSweep, error) {
+	if v == "" {
+		return MediaOrphanSweepOff, nil
+	}
+	m := MediaOrphanSweep(v)
+	if !m.valid() {
+		return "", fmt.Errorf("config: invalid MEDIA_ORPHAN_SWEEP %q (want off|mark|delete)", v)
+	}
+	return m, nil
+}
+
 // ParseProfileMediaRetire parses PROFILE_MEDIA_RETIRE: "" is off, anything outside off|banner|all is an error. Load uses
 // it, and so does opsctl, which has no Cloud Run environment and reads the same variable from the operator's shell.
 func ParseProfileMediaRetire(v string) (ProfileMediaRetire, error) {
