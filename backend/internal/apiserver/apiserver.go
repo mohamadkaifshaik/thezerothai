@@ -212,6 +212,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// Messaging counts the unread conversations (identity never imports messaging); its repo is built here
 	// because identity needs the counter at construction and the messaging service needs identity.Directory.
 	messagingRepo := messaging.NewFirestoreRepo(fsClient, quota.New(fsClient))
+	// Notifications counts GetMe's unread badge the same way (identity never imports notifications): the repo is built
+	// here, before identity, and gets its Directory once identity exists (below).
+	notifRepo := notifications.NewFirestoreRepo(fsClient).WithLogger(log)
 	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
 		identity.WithFeatureFlags(featureFlags),
 		identity.WithBlockChecker(graphSvc),
@@ -225,6 +228,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithMediaRetirer(profileMediaRetirer{jobs: mediaMod.jobs}, log),
 		identity.WithPinChecker(pinChecker),
 		identity.WithMessageBadge(messaging.NewUnreadBadge(messagingRepo), log), // GetMe.unread_conversation_count
+		// GetMe.unread_notification_count: the unseen rows the caller would see (block, mute, blocked-by and the F-04
+		// overflow lookup applied), not the raw count().
+		identity.WithNotificationBadge(notifications.NewUnreadBadge(notifRepo, graphSvc, graphSvc), log),
 		identity.WithExtrasFlags(featureFlags),
 		// An unprotect publishes the privacy_public job (graph accepts the pending requests).
 		identity.WithPrivacyListener(graph.NewPrivacyListener(jobsPublisher), log),
@@ -243,7 +249,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 
 	// --- notifications: rows + FCM push, fed by graph and posts through the emitter slot. The Firebase
 	// Messaging client and the Pub/Sub publisher are created lazily on first use (no I/O before ListenAndServe).
-	notifRepo := notifications.NewFirestoreRepo(fsClient).WithDirectory(identitySvc.(identity.Directory))
+	notifRepo.WithDirectory(identitySvc.(identity.Directory))
 	var pushSender notifications.PushSender = notifications.LogSender{Log: log}
 	var tokenValidator notifications.TokenValidator = notifications.NopValidator{}
 	if cfg.NotificationsDelivery == "pubsub" {
@@ -753,10 +759,17 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// loader. GetTrends reads trends/current through a 10 min instance copy; the refresher is the
 	// daily step (and the standalone route). Both go through search.TrendsStore, the only code that touches the collection.
 	trendsStore := search.NewTrendsRepo(fsClient)
+	// F-03: SearchPosts drops every row whose author is not ACTIVE through identity's Directory, the rule GetPost and
+	// GetUserTimeline apply (a REPOST of such an author's post is dropped, a QUOTE of one is tombstoned). WithPosts stays
+	// Unimplemented without it, so refuse to start instead.
+	var searchAuthors search.AuthorDirectory = identitySvc.(identity.Directory)
+	if err := requireAuthorStatusSeams([]protectedSeam{{"search.PostsDeps.Authors (identity.Directory)", searchAuthors}}); err != nil {
+		return nil, nil, err
+	}
 	searchServer := search.NewServer(search.New(featureFlags,
 		search.WithPeople(search.PeopleDeps{Directory: identitySvc.(identity.Directory), Graph: graphSvc, PrefixEntries: cfg.Search.PrefixCacheEntries, Prefixes: handlePrefixes}),
 		search.WithPosts(search.PostsDeps{
-			Posts: postsSvc, Graph: graphSvc, Viewer: engagementMod, Audience: searchAudience,
+			Posts: postsSvc, Graph: graphSvc, Viewer: engagementMod, Audience: searchAudience, Authors: searchAuthors,
 			CursorKey: cfg.CursorHMACKey, TagEntries: cfg.Search.TagCacheEntries,
 		}),
 		search.WithTrends(trendsStore, nil),

@@ -218,6 +218,11 @@ type overflowBlocks struct {
 // as a failed caller-graph read: no row whose visibility is unknown is returned, and no token moves past rows that
 // were never shown.
 func (s *service) overflowBlockers(ctx context.Context, uid string, rows []Notification, snap graph.Snapshot) (*overflowBlocks, error) {
+	return lookupOverflowBlockers(ctx, s.d.Blocks, uid, rows, snap)
+}
+
+// lookupOverflowBlockers is overflowBlockers on an explicit lookup (List and the unread badge share it).
+func lookupOverflowBlockers(ctx context.Context, lookup BlockLookup, uid string, rows []Notification, snap graph.Snapshot) (*overflowBlocks, error) {
 	known := func(id string) bool { return id == "" || snapHides(snap, id) }
 	ov := &overflowBlocks{checked: map[string]bool{}}
 	candidates := make([]string, 0, graph.MaxBlockLookup)
@@ -238,10 +243,10 @@ func (s *service) overflowBlockers(ctx context.Context, uid string, rows []Notif
 	if len(candidates) == 0 {
 		return ov, nil
 	}
-	if s.d.Blocks == nil {
+	if lookup == nil {
 		return nil, logger.RedactErr(errors.New("notifications: caller blockedBy overflowed and no block lookup is wired"), uid)
 	}
-	blockers, err := s.d.Blocks.BlockersAmong(ctx, uid, candidates)
+	blockers, err := lookup.BlockersAmong(ctx, uid, candidates)
 	if err != nil {
 		// The cause chain can name other users' graph documents: redact every uid the lookup was asked about.
 		return nil, logger.RedactErr(fmt.Errorf("notifications: overflow block lookup: %w", err), append([]string{uid}, candidates...)...)
@@ -257,18 +262,19 @@ func snapHides(snap graph.Snapshot, id string) bool {
 
 // visible applies the caller's social context at read time. A row is hidden when its displayed (most recent)
 // actor is blocked or muted by the caller, or blocks the caller: the same set the timelines and thread replies
-// use. For a collapsed row the other actors that are suppressed are subtracted from the count.
+// use. For a collapsed row the other actors that are suppressed are subtracted from the count, and they are pruned
+// from the returned row's ActorIDs (a fresh slice; the input's backing array is never written).
+//
+// The pruning is what keeps the wire count right: ToProto sends max(ActorCount, len(ActorIDs)), and that max must
+// stay, because a row written before actorCount existed and folded once afterwards stores actorCount=1
+// (Increment on a missing field) with more ids than that. With the hidden ids pruned, both terms of the max exclude
+// the hidden actors, so neither can bring them back.
 //
 // ov is nil unless the caller's blockedBy overflowed; the snapshot alone then decides, with no read. When it is
 // set, an actor the graph lookup reports as a blocker is hidden by the same rule, and a folded actor the lookup did
 // not cover (past its cap) is treated as suppressed for the count: fail closed. The shown actor is always covered.
 func visible(n Notification, snap graph.Snapshot, ov *overflowBlocks) (Notification, bool) {
-	hidden := func(id string) bool { return snapHides(snap, id) }
-	if ov != nil {
-		hidden = func(id string) bool {
-			return snapHides(snap, id) || ov.blockers[id] || (id != "" && !ov.checked[id])
-		}
-	}
+	hidden := hiddenRule(snap, ov)
 	if hidden(n.Actor.UserID) {
 		return n, false
 	}
@@ -280,8 +286,26 @@ func visible(n Notification, snap graph.Snapshot, ov *overflowBlocks) (Notificat
 	}
 	if suppressed > 0 {
 		n.ActorCount = max(max(n.ActorCount, len(n.ActorIDs))-suppressed, 1)
+		kept := make([]string, 0, len(n.ActorIDs)-suppressed)
+		for _, id := range n.ActorIDs {
+			if !hidden(id) {
+				kept = append(kept, id)
+			}
+		}
+		n.ActorIDs = kept
 	}
 	return n, true
+}
+
+// hiddenRule is the per-actor hide rule of one read: the snapshot alone, or with the overflow lookup's answer (a
+// reported blocker, or an actor the lookup did not cover, is hidden).
+func hiddenRule(snap graph.Snapshot, ov *overflowBlocks) func(id string) bool {
+	if ov == nil {
+		return func(id string) bool { return snapHides(snap, id) }
+	}
+	return func(id string) bool {
+		return snapHides(snap, id) || ov.blockers[id] || (id != "" && !ov.checked[id])
+	}
 }
 
 // sinceToken returns the token for the next refresh: the newest returned row trailing by SettleWindow, the old
