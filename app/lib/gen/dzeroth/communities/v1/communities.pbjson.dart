@@ -682,6 +682,52 @@ final $typed_data.Uint8List listCommunityMembersResponseDescriptor =
         'RoLmNvbW11bml0aWVzLnYxLkNvbW11bml0eU1lbWJlclIHbWVtYmVycxImCg9uZXh0X3BhZ2Vf'
         'dG9rZW4YAiABKAlSDW5leHRQYWdlVG9rZW4=');
 
+@$core.Deprecated('Use searchCommunityMembersRequestDescriptor instead')
+const SearchCommunityMembersRequest$json = {
+  '1': 'SearchCommunityMembersRequest',
+  '2': [
+    {'1': 'community_id', '3': 1, '4': 1, '5': 9, '10': 'communityId'},
+    {'1': 'prefix', '3': 2, '4': 1, '5': 9, '10': 'prefix'},
+    {
+      '1': 'filter',
+      '3': 3,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.communities.v1.CommunityMemberFilter',
+      '10': 'filter'
+    },
+    {'1': 'limit', '3': 4, '4': 1, '5': 5, '10': 'limit'},
+  ],
+};
+
+/// Descriptor for `SearchCommunityMembersRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List searchCommunityMembersRequestDescriptor = $convert.base64Decode(
+    'Ch1TZWFyY2hDb21tdW5pdHlNZW1iZXJzUmVxdWVzdBIhCgxjb21tdW5pdHlfaWQYASABKAlSC2'
+    'NvbW11bml0eUlkEhYKBnByZWZpeBgCIAEoCVIGcHJlZml4EkUKBmZpbHRlchgDIAEoDjItLmR6'
+    'ZXJvdGguY29tbXVuaXRpZXMudjEuQ29tbXVuaXR5TWVtYmVyRmlsdGVyUgZmaWx0ZXISFAoFbG'
+    'ltaXQYBCABKAVSBWxpbWl0');
+
+@$core.Deprecated('Use searchCommunityMembersResponseDescriptor instead')
+const SearchCommunityMembersResponse$json = {
+  '1': 'SearchCommunityMembersResponse',
+  '2': [
+    {
+      '1': 'members',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.communities.v1.CommunityMember',
+      '10': 'members'
+    },
+  ],
+};
+
+/// Descriptor for `SearchCommunityMembersResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List searchCommunityMembersResponseDescriptor =
+    $convert.base64Decode(
+        'Ch5TZWFyY2hDb21tdW5pdHlNZW1iZXJzUmVzcG9uc2USQQoHbWVtYmVycxgBIAMoCzInLmR6ZX'
+        'JvdGguY29tbXVuaXRpZXMudjEuQ29tbXVuaXR5TWVtYmVyUgdtZW1iZXJz');
+
 @$core.Deprecated('Use hideCommunityPostRequestDescriptor instead')
 const HideCommunityPostRequest$json = {
   '1': 'HideCommunityPostRequest',
@@ -873,6 +919,12 @@ const $core.Map<$core.String, $core.dynamic> CommunityServiceBase$json = {
       '4': {'34': 1},
     },
     {
+      '1': 'SearchCommunityMembers',
+      '2': '.dzeroth.communities.v1.SearchCommunityMembersRequest',
+      '3': '.dzeroth.communities.v1.SearchCommunityMembersResponse',
+      '4': {'34': 1},
+    },
+    {
       '1': 'HideCommunityPost',
       '2': '.dzeroth.communities.v1.HideCommunityPostRequest',
       '3': '.dzeroth.communities.v1.HideCommunityPostResponse'
@@ -930,6 +982,10 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.communities.v1.ListCommunityMembersResponse':
       ListCommunityMembersResponse$json,
   '.dzeroth.communities.v1.CommunityMember': CommunityMember$json,
+  '.dzeroth.communities.v1.SearchCommunityMembersRequest':
+      SearchCommunityMembersRequest$json,
+  '.dzeroth.communities.v1.SearchCommunityMembersResponse':
+      SearchCommunityMembersResponse$json,
   '.dzeroth.communities.v1.HideCommunityPostRequest':
       HideCommunityPostRequest$json,
   '.dzeroth.communities.v1.HideCommunityPostResponse':
@@ -966,13 +1022,15 @@ final $typed_data.Uint8List communityServiceDescriptor = $convert.base64Decode(
     'eVJlcXVlc3QaLi5kemVyb3RoLmNvbW11bml0aWVzLnYxLkxlYXZlQ29tbXVuaXR5UmVzcG9uc2'
     'UShgEKFExpc3RDb21tdW5pdHlNZW1iZXJzEjMuZHplcm90aC5jb21tdW5pdGllcy52MS5MaXN0'
     'Q29tbXVuaXR5TWVtYmVyc1JlcXVlc3QaNC5kemVyb3RoLmNvbW11bml0aWVzLnYxLkxpc3RDb2'
-    '1tdW5pdHlNZW1iZXJzUmVzcG9uc2UiA5ACARJ4ChFIaWRlQ29tbXVuaXR5UG9zdBIwLmR6ZXJv'
-    'dGguY29tbXVuaXRpZXMudjEuSGlkZUNvbW11bml0eVBvc3RSZXF1ZXN0GjEuZHplcm90aC5jb2'
-    '1tdW5pdGllcy52MS5IaWRlQ29tbXVuaXR5UG9zdFJlc3BvbnNlEoEBChRSZXN0b3JlQ29tbXVu'
-    'aXR5UG9zdBIzLmR6ZXJvdGguY29tbXVuaXRpZXMudjEuUmVzdG9yZUNvbW11bml0eVBvc3RSZX'
-    'F1ZXN0GjQuZHplcm90aC5jb21tdW5pdGllcy52MS5SZXN0b3JlQ29tbXVuaXR5UG9zdFJlc3Bv'
-    'bnNlEmwKDVNldE1lbWJlclJvbGUSLC5kemVyb3RoLmNvbW11bml0aWVzLnYxLlNldE1lbWJlcl'
-    'JvbGVSZXF1ZXN0Gi0uZHplcm90aC5jb21tdW5pdGllcy52MS5TZXRNZW1iZXJSb2xlUmVzcG9u'
-    'c2USfQoRTGlzdE1vZGVyYXRpb25Mb2cSMC5kemVyb3RoLmNvbW11bml0aWVzLnYxLkxpc3RNb2'
-    'RlcmF0aW9uTG9nUmVxdWVzdBoxLmR6ZXJvdGguY29tbXVuaXRpZXMudjEuTGlzdE1vZGVyYXRp'
-    'b25Mb2dSZXNwb25zZSIDkAIB');
+    '1tdW5pdHlNZW1iZXJzUmVzcG9uc2UiA5ACARKMAQoWU2VhcmNoQ29tbXVuaXR5TWVtYmVycxI1'
+    'LmR6ZXJvdGguY29tbXVuaXRpZXMudjEuU2VhcmNoQ29tbXVuaXR5TWVtYmVyc1JlcXVlc3QaNi'
+    '5kemVyb3RoLmNvbW11bml0aWVzLnYxLlNlYXJjaENvbW11bml0eU1lbWJlcnNSZXNwb25zZSID'
+    'kAIBEngKEUhpZGVDb21tdW5pdHlQb3N0EjAuZHplcm90aC5jb21tdW5pdGllcy52MS5IaWRlQ2'
+    '9tbXVuaXR5UG9zdFJlcXVlc3QaMS5kemVyb3RoLmNvbW11bml0aWVzLnYxLkhpZGVDb21tdW5p'
+    'dHlQb3N0UmVzcG9uc2USgQEKFFJlc3RvcmVDb21tdW5pdHlQb3N0EjMuZHplcm90aC5jb21tdW'
+    '5pdGllcy52MS5SZXN0b3JlQ29tbXVuaXR5UG9zdFJlcXVlc3QaNC5kemVyb3RoLmNvbW11bml0'
+    'aWVzLnYxLlJlc3RvcmVDb21tdW5pdHlQb3N0UmVzcG9uc2USbAoNU2V0TWVtYmVyUm9sZRIsLm'
+    'R6ZXJvdGguY29tbXVuaXRpZXMudjEuU2V0TWVtYmVyUm9sZVJlcXVlc3QaLS5kemVyb3RoLmNv'
+    'bW11bml0aWVzLnYxLlNldE1lbWJlclJvbGVSZXNwb25zZRJ9ChFMaXN0TW9kZXJhdGlvbkxvZx'
+    'IwLmR6ZXJvdGguY29tbXVuaXRpZXMudjEuTGlzdE1vZGVyYXRpb25Mb2dSZXF1ZXN0GjEuZHpl'
+    'cm90aC5jb21tdW5pdGllcy52MS5MaXN0TW9kZXJhdGlvbkxvZ1Jlc3BvbnNlIgOQAgE=');

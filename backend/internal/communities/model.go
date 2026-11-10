@@ -219,6 +219,9 @@ type Service interface {
 	ListCommunities(ctx context.Context, uid, pageToken string) ([]View, error)
 	// ListCommunityMembers is one member page (BANNED for the owner and moderators only).
 	ListCommunityMembers(ctx context.Context, uid string, in MembersInput) (MembersPage, error)
+	// SearchCommunityMembers finds members (JOINED) or, for the owner and moderators, banned users of one community by
+	// handle prefix: at most limit rows (1..20), handle order, no page token (F36, FEATURE_COMMUNITY_MEMBER_SEARCH).
+	SearchCommunityMembers(ctx context.Context, uid string, in SearchInput) ([]MemberItem, error)
 }
 
 // IDSource issues community ids (a Snowflake node, rule 1). *snowflake.Node satisfies it.

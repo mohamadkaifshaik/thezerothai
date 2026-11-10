@@ -139,6 +139,28 @@ abstract final class CommunityService {
     idempotency: connect.Idempotency.noSideEffects,
   );
 
+  /// Find members of one community by handle prefix (F36). Flags: communities, then community_member_search (header).
+  /// prefix: one optional leading "@", then 2-15 characters of [A-Za-z0-9_] (matched lower-cased), else VALIDATION
+  /// "prefix", before any lookup. limit: 0 => 20, clamped to 1..20 (never a validation error). filter: UNSPECIFIED or
+  /// JOINED searches the members (anyone who may list them); BANNED the banned users, for the owner and moderators only,
+  /// else FORBIDDEN "not_moderator" after the community read (as on the Banned page); any other value => VALIDATION
+  /// "filter". A missing or SUSPENDED community is the one NOT_FOUND.
+  /// How: the first `limit` handles of the WHOLE platform that start with the prefix (identity's handle-prefix query,
+  /// through the same 60 s per-instance (prefix, limit) cache SearchPeople uses), then one batch read of those users'
+  /// member docs in this community, keeping the ones in the filter's state. So it answers at most `limit` rows and a
+  /// member whose handle shares a very common prefix with many non-members can be missed: the client says "No members
+  /// found for that handle. Try more of their handle.", never "not a member". Display names are not searched. Rows are
+  /// built exactly as on ListCommunityMembers (live row, role, since, account not ACTIVE left out, the D7 block drops
+  /// for a caller who is not the owner or a moderator), in handle order. There is no page_token: the owner approved this
+  /// exception to the cursor rule (2026-11-09), because the answer is a bounded top-N, not a list to page through.
+  static const searchCommunityMembers = connect.Spec(
+    '/$name/SearchCommunityMembers',
+    connect.StreamType.unary,
+    dzerothcommunitiesv1communities.SearchCommunityMembersRequest.new,
+    dzerothcommunitiesv1communities.SearchCommunityMembersResponse.new,
+    idempotency: connect.Idempotency.noSideEffects,
+  );
+
   /// Hide a post from this community's view, or a reply from its conversations.
   /// Owner or moderator, else FORBIDDEN "not_moderator"; ARCHIVED => COMMUNITY_STATE "community_archived".
   /// post_id must be a root post created into this community (Post.community.id == community_id) or a reply at any

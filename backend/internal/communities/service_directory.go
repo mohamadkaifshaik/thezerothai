@@ -147,6 +147,39 @@ func setOf(in []string) map[string]bool {
 	return m
 }
 
+// memberItems builds the member rows exactly as ListCommunityMembers shows them (SearchCommunityMembers reuses it): a row
+// whose account is missing or not ACTIVE is left out, and so are the D7 drops for a caller who is not the owner or a
+// moderator (a member the caller blocks or who blocks the caller; a muted member is shown). The role is BANNED on the
+// banned page, else the community document's role (MEMBER when none). The drops are logged by cause, never the uids.
+func memberItems(ctx context.Context, c Community, rows []MemberRow, profiles map[string]identity.Profile, snap graph.Snapshot, isMod, banned bool) []MemberItem {
+	items := make([]MemberItem, 0, len(rows))
+	var inactive, blocked, blockedBy int
+	for _, r := range rows {
+		p, ok := profiles[r.UID]
+		switch {
+		case !ok || p.Status != identity.AccountStatusActive:
+			inactive++
+			continue
+		case !isMod && snap.Blocked[r.UID]:
+			blocked++
+			continue
+		case !isMod && snap.BlockedBy[r.UID]:
+			blockedBy++
+			continue
+		}
+		role := RoleBanned
+		if !banned {
+			if role = c.RoleOf(r.UID); role == RoleNone {
+				role = RoleMember
+			}
+		}
+		items = append(items, MemberItem{Profile: p, Since: r.At, Relationship: graph.RelationshipFor(snap, r.UID), Role: role})
+	}
+	logger.SetRequestField(ctx, fieldRowsDropped, inactive+blocked+blockedBy)
+	logger.SetRequestField(ctx, fieldDroppedBy, map[string]int{causeInactive: inactive, causeBlocked: blocked, causeBlockedBy: blockedBy})
+	return items
+}
+
 func membersBinding(uid, cid string, f MemberFilter) string {
 	return cursorBindingLabel + "|" + uid + "|" + cid + "|" + f.String()
 }
@@ -218,31 +251,7 @@ func (s *service) ListCommunityMembers(ctx context.Context, uid string, in Membe
 	if err != nil {
 		return MembersPage{}, mapErr(ctx, "members", uid, cid, fmt.Errorf("load graph: %w", err))
 	}
-	page := MembersPage{Items: make([]MemberItem, 0, len(rows))}
-	var inactive, blocked, blockedBy int
-	for _, r := range rows {
-		p, ok := profiles[r.UID]
-		switch {
-		case !ok || p.Status != identity.AccountStatusActive:
-			inactive++
-			continue
-		case !isMod && snap.Blocked[r.UID]:
-			blocked++
-			continue
-		case !isMod && snap.BlockedBy[r.UID]:
-			blockedBy++
-			continue
-		}
-		role := RoleBanned
-		if in.Filter != FilterBanned {
-			if role = c.RoleOf(r.UID); role == RoleNone {
-				role = RoleMember
-			}
-		}
-		page.Items = append(page.Items, MemberItem{Profile: p, Since: r.At, Relationship: graph.RelationshipFor(snap, r.UID), Role: role})
-	}
-	logger.SetRequestField(ctx, fieldRowsDropped, inactive+blocked+blockedBy)
-	logger.SetRequestField(ctx, fieldDroppedBy, map[string]int{causeInactive: inactive, causeBlocked: blocked, causeBlockedBy: blockedBy})
+	page := MembersPage{Items: memberItems(ctx, c, rows, profiles, snap, isMod, in.Filter == FilterBanned)}
 	if more {
 		last := rows[len(rows)-1]
 		page.NextPageToken = cursor.Encode(s.d.CursorKey, binding, cursor.Cursor{CreatedAt: last.At, DocID: last.UID})

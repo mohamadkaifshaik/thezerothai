@@ -84,6 +84,11 @@ func (s *fakeService) ListCommunities(_ context.Context, uid, token string) ([]V
 	return s.dirViews, s.err
 }
 
+func (s *fakeService) SearchCommunityMembers(_ context.Context, uid string, in SearchInput) ([]MemberItem, error) {
+	s.searchIn, s.gotUser = append(s.searchIn, in), uid
+	return s.searchItems, s.err
+}
+
 func (s *fakeService) ListCommunityMembers(_ context.Context, uid string, in MembersInput) (MembersPage, error) {
 	s.membersIn, s.gotUser = append(s.membersIn, in), uid
 	return s.members, s.err
