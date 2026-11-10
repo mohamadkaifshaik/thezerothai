@@ -26,6 +26,14 @@ enum ReplyAudience {
     ReplyAudience.mentionedOnly => ReplyPolicy.REPLY_POLICY_MENTIONED_ONLY,
   };
 
+  /// The option a stored [policy] shows as. Anything not narrower
+  /// (UNSPECIFIED, EVERYONE, a reserved or unknown value) is [everyone].
+  static ReplyAudience fromWire(ReplyPolicy policy) => switch (policy) {
+    ReplyPolicy.REPLY_POLICY_FOLLOWING => ReplyAudience.following,
+    ReplyPolicy.REPLY_POLICY_MENTIONED_ONLY => ReplyAudience.mentionedOnly,
+    _ => ReplyAudience.everyone,
+  };
+
   /// The option name in the "Who can reply?" sheet.
   String get optionLabel => switch (this) {
     ReplyAudience.everyone => 'Everyone',
