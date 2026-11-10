@@ -390,7 +390,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	postsRepo.SetRepostLinks(engagementMod)
 	postsSvc.(interface{ SetRepostLinks(posts.RepostLinks) }).SetRepostLinks(engagementMod)
 	engagementServer := engagement.NewServer(engagementMod, featureFlags, engagement.WithBookmarks(engagementMod))
-	postsServer := posts.NewServer(postsSvc, featureFlags, posts.WithViewerFlags(engagementMod), posts.WithScheduler(postsSvc.(posts.Scheduler)))
+	postsServer := posts.NewServer(postsSvc, featureFlags, posts.WithViewerFlags(engagementMod), posts.WithScheduler(postsSvc.(posts.Scheduler)), posts.WithScheduledEditor(postsSvc.(posts.ScheduledEditor)))
 	// The removal log is built only when FEATURE_REMOVED_IDS is not off: off means no instance cache, no reads and
 	// no reset of cached client feeds (timeline treats a nil Removals as "no removed_ids"). Allowlist and percent
 	// modes are enforced per caller in timeline.removedIDs.

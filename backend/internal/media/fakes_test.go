@@ -416,10 +416,41 @@ func md5b64(data []byte) string {
 	return base64.StdEncoding.EncodeToString(sum[:])
 }
 
-// jpegBytes and webpBytes are minimal files with the right magic bytes.
-func jpegBytes(tag string) []byte { return append([]byte{0xFF, 0xD8, 0xFF, 0xE0}, []byte(tag)...) }
-func webpBytes(tag string) []byte {
-	return append([]byte("RIFF\x00\x00\x00\x00WEBPVP8 "), []byte(tag)...)
+// jpegBytes and webpBytes are minimal file headers of the size item() declares (1200 x 800), carrying tag so every
+// file has its own MD5. verify reads the real pixel size (B14), so a fixture for another declared size uses
+// jpegSized / webpSized.
+func jpegBytes(tag string) []byte { return jpegSized(tag, 1200, 800) }
+func webpBytes(tag string) []byte { return webpSized(tag, 1200, 800) }
+
+// jpegSegment is one JPEG marker segment (the 16-bit length counts itself).
+func jpegSegment(marker byte, payload []byte) []byte {
+	n := len(payload) + 2
+	return append([]byte{0xFF, marker, byte(n >> 8), byte(n)}, payload...)
+}
+
+// jpegSized is SOI, a JFIF APP0, a COM segment holding tag, and a baseline grayscale SOF0 of w x h: what
+// image/jpeg.DecodeConfig needs to report the size (no pixel data follows).
+func jpegSized(tag string, w, h int) []byte {
+	b := []byte{0xFF, 0xD8}
+	b = append(b, jpegSegment(0xE0, []byte("JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"))...)
+	b = append(b, jpegSegment(0xFE, []byte(tag))...)
+	return append(b, jpegSegment(0xC0, []byte{8, byte(h >> 8), byte(h), byte(w >> 8), byte(w), 1, 1, 0x11, 0})...)
+}
+
+// vp8Frame is the start of a lossy VP8 key frame of w x h: frame tag (key frame, shown), start code, 14-bit sizes.
+func vp8Frame(w, h int) []byte {
+	return []byte{0x10, 0x00, 0x00, 0x9d, 0x01, 0x2a, byte(w), byte(w>>8) & 0x3f, byte(h), byte(h>>8) & 0x3f}
+}
+
+// vp8lHeader is the start of a lossless VP8L bitstream of w x h: the 0x2f signature, then w-1 and h-1 in 14 bits each.
+func vp8lHeader(w, h int) []byte {
+	bits := uint32(w-1)&0x3fff | (uint32(h-1)&0x3fff)<<14
+	return []byte{0x2f, byte(bits), byte(bits >> 8), byte(bits >> 16), byte(bits >> 24)}
+}
+
+// webpSized is a simple lossy WebP of w x h whose VP8 chunk carries tag after the frame header.
+func webpSized(tag string, w, h int) []byte {
+	return riff(chunk("VP8 ", append(vp8Frame(w, h), tag...)))
 }
 
 type fakeFlags map[string]bool

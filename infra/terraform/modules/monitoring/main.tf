@@ -516,3 +516,68 @@ resource "google_monitoring_alert_policy" "daily_maintenance_missing" { # cost-a
     auto_close = "3600s"
   }
 }
+
+// 9. Outbox items that used up their retries. The api writes one ERROR `outbox_item_stuck` line per item that crossed the
+// attempt threshold (kind, uid_hash, scrubbed cause); the logger renames slog's msg key to `message`. The metric is labelled
+// by kind only: uid_hash and cause are never labels (cardinality, and they stay out of metric data). Free log-based
+// metric, like the ones above; the alert is part of the prod ops alerts (enable_ops_alerts), so dev has the metric only.
+resource "google_logging_metric" "outbox_item_stuck" { # cost-approved: founder 2026-11-09 (outbox stuck alert)
+  project     = var.project_id
+  name        = "outbox_item_stuck"
+  description = "Outbox items that exhausted their retries (ERROR outbox_item_stuck from the api), by kind."
+  filter      = "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"api\" AND severity>=ERROR AND jsonPayload.message=\"outbox_item_stuck\""
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+
+    labels {
+      key         = "kind"
+      value_type  = "STRING"
+      description = "Outbox item kind (e.g. post_delete)."
+    }
+  }
+
+  label_extractors = {
+    "kind" = "EXTRACT(jsonPayload.kind)"
+  }
+}
+
+// Any occurrence opens an incident: a stuck item is a durable job (e.g. post-delete cleanup) that is not completing. The
+// log line is written once per item, so a count above 0 in 10 minutes is a new stuck item; the incident auto-closes after
+// an hour without one. Grouped by kind so each kind gets its own incident.
+resource "google_monitoring_alert_policy" "outbox_item_stuck" { # cost-approved: founder 2026-11-09 (outbox stuck alert)
+  count        = var.enable_ops_alerts ? 1 : 0
+  project      = var.project_id
+  display_name = "Outbox item stuck after retries (${var.env})"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "outbox_item_stuck, 10 min sum, per kind"
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.outbox_item_stuck.name}\" resource.type=\"cloud_run_revision\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+
+      aggregations {
+        alignment_period     = "600s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+        group_by_fields      = ["metric.label.kind"]
+      }
+    }
+  }
+
+  notification_channels = [for c in google_monitoring_notification_channel.email : c.id]
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "An outbox item used up its retries and is stuck; the incident names its kind. Logs Explorer: resource.type=\"cloud_run_revision\" jsonPayload.message=\"outbox_item_stuck\" shows kind, uid_hash and the scrubbed cause, and the api's Error Reporting has a matching entry (outbox sweep). Find and fix the cause in the logged cause field, then check the item is processed or replay it. A privacy-relevant kind such as post_delete cleanup should not be left stuck."
+  }
+
+  alert_strategy {
+    auto_close = "3600s"
+  }
+}
