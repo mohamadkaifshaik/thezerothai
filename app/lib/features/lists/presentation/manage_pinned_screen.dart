@@ -23,6 +23,7 @@ import 'bloc/lists_cubit.dart';
 import 'bloc/lists_state.dart';
 import 'lists_error_messages.dart';
 import 'widgets/list_row.dart';
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// `/home/pinned`: Manage pinned timelines. Following is fixed on
 /// top; under it the pinned tabs, each with a drag handle, "Move up" / "Move
@@ -172,6 +173,7 @@ class _ManagePinnedScreenState extends State<ManagePinnedScreen> {
         ),
         ..._addSlivers(own, addable, canPin, muted),
         const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.xl)),
+        const ShellBottomInsetSliver(),
       ],
     );
   }

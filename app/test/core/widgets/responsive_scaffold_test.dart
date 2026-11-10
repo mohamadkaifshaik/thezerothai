@@ -2,6 +2,7 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/app_shell_scope.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
+import 'package:dzeroth/core/widgets/shell_bottom_inset_sliver.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -1016,6 +1017,127 @@ void main() {
       );
     });
 
+    group('ShellBottomInsetSliver', () {
+      /// A page (its own `Scaffold`, as every shell screen) with two tabs,
+      /// each a `CustomScrollView` of [rows] 60 dp rows, ending with the
+      /// helper when [inset] is set. The tabs scroll below the depth of the
+      /// shell's scroll-hide listener, so the bar never hides here.
+      Widget tabbedPage({required bool inset, int rows = 12}) =>
+          DefaultTabController(
+            length: 2,
+            child: Scaffold(
+              body: TabBarView(
+                children: [
+                  for (final tab in ['a', 'b'])
+                    CustomScrollView(
+                      key: PageStorageKey(tab),
+                      slivers: [
+                        SliverFixedExtentList.builder(
+                          itemExtent: rowHeight,
+                          itemCount: rows,
+                          itemBuilder: (context, i) =>
+                              Text('$tab $i', key: ValueKey('$tab-$i')),
+                        ),
+                        if (inset) const ShellBottomInsetSliver(),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          );
+
+      // A zero-tall sliver counts as offstage, so the finders include it.
+      double insetHeight(WidgetTester tester) => tester
+          .widget<SizedBox>(
+            find.descendant(
+              of: find.byType(ShellBottomInsetSliver, skipOffstage: false),
+              matching: find.byType(SizedBox, skipOffstage: false),
+            ),
+          )
+          .height!;
+
+      testWidgets('a TabBarView tab: without the helper its last row stays '
+          'under the pill; with it, the row scrolls above the pill while the '
+          'bar stays up', (tester) async {
+        // 12 rows end at 720, inside the 90 dp of the bar (its top: 710).
+        await pumpFloating(tester, body: tabbedPage(inset: false));
+        await tester.drag(find.text('a 3'), const Offset(0, -300));
+        await tester.pumpAndSettle();
+        expect(tester.getRect(find.byKey(const ValueKey('a-11'))).bottom, 720);
+        expect(tester.getRect(pillFinder).top, 710);
+
+        await pumpFloating(tester, body: tabbedPage(inset: true));
+        await tester.drag(find.text('a 3'), const Offset(0, -300));
+        await tester.pumpAndSettle();
+
+        expect(
+          tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity)).opacity,
+          1,
+        );
+        final pill = tester.getRect(pillFinder);
+        final last = tester.getRect(find.byKey(const ValueKey('a-11')));
+        expect(last.bottom, lessThanOrEqualTo(pill.top));
+        expect(insetHeight(tester), 90);
+      });
+
+      testWidgets('ui_shell off: zero tall, the tab is unchanged', (
+        tester,
+      ) async {
+        await pumpFloating(
+          tester,
+          floatingBar: false,
+          body: tabbedPage(inset: true),
+        );
+        await tester.drag(find.text('a 3'), const Offset(0, -300));
+        await tester.pumpAndSettle();
+
+        expect(insetHeight(tester), 0);
+        // The rows fit above the docked bar: nothing scrolled.
+        expect(tester.getRect(find.byKey(const ValueKey('a-11'))).bottom, 720);
+        expect(tester.getRect(find.byType(AppBottomBar)).top, 744);
+      });
+
+      for (final safeBottom in [0.0, 34.0]) {
+        testWidgets('as tall as the bar and the $safeBottom dp safe area', (
+          tester,
+        ) async {
+          await pumpFloating(
+            tester,
+            safeBottom: safeBottom,
+            body: tabbedPage(inset: true),
+          );
+
+          expect(insetHeight(tester), 90 + safeBottom);
+        });
+      }
+
+      testWidgets('zero tall under a SafeArea, which already takes the '
+          'padding', (tester) async {
+        await pumpFloating(
+          tester,
+          safeBottom: 34,
+          body: SafeArea(child: tabbedPage(inset: true)),
+        );
+
+        expect(insetHeight(tester), 0);
+      });
+
+      for (final width in [600.0, 1200.0]) {
+        testWidgets('zero tall on the ${width.toInt()} dp rail layout', (
+          tester,
+        ) async {
+          await pumpFloating(
+            tester,
+            width: width,
+            safeBottom: 34,
+            body: tabbedPage(inset: true),
+          );
+
+          expect(insetHeight(tester), 0);
+        });
+      }
+    });
+
     testWidgets('an open keyboard takes the bar and its padding away', (
       tester,
     ) async {
@@ -1089,7 +1211,8 @@ void main() {
           );
         }
       },
-      widths: const [360, 599, 600, 834, 1200, 1440],
+      // The shared widths plus the last phone width below 600 dp.
+      widths: {...kRedesignWidths, ...kMatrixWidths, 599.0}.toList(),
       textScales: kMatrixTextScalesLarge,
     );
   });

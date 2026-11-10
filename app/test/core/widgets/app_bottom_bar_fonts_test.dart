@@ -42,6 +42,7 @@ Future<void> _pump(
   required double width,
   required double textScale,
   int selected = 4,
+  Brightness brightness = Brightness.light,
 }) => pumpThemed(
   tester,
   Align(
@@ -54,6 +55,7 @@ Future<void> _pump(
   ),
   size: Size(width, 800),
   textScale: textScale,
+  brightness: brightness,
 );
 
 /// The label / icon-only switch with the bundled fonts (the other bar tests
@@ -109,4 +111,30 @@ void main() {
     expect(find.byTooltip('Notifications'), findsOneWidget);
     expectNoOverflow(tester);
   });
+
+  // Opt-in goldens (`RUN_GOLDENS=1`, baselines from Linux CI only; no PNG is
+  // committed from Windows): the bar at 360 dp, labelled at 1.0 and
+  // icon-only at 2.0, light and dark. Without the variable only the overflow
+  // check runs.
+  forEachThemeAndWidth(
+    'golden',
+    (tester, env) async {
+      await _pump(
+        tester,
+        width: env.size.width,
+        textScale: env.textScale,
+        brightness: env.brightness,
+        selected: 0,
+      );
+      expectNoOverflow(tester);
+      await expectGolden(
+        tester,
+        find.byType(AppFloatingBottomBar),
+        'floating_bar',
+        env,
+      );
+    },
+    widths: const [360],
+    textScales: kRedesignTextScales,
+  );
 }

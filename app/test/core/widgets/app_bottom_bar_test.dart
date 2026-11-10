@@ -572,9 +572,9 @@ void main() {
         }
         handle.dispose();
       },
-      // The bar is phone chrome: the narrowest phone, the matrix phone and
-      // the last width below the 600dp boundary.
-      widths: const [320, 360, 599],
+      // The shared widths (the shell only mounts the bar below 600 dp, so
+      // the narrowest phone and the last phone width are added).
+      widths: {320.0, ...kRedesignWidths, ...kMatrixWidths, 599.0}.toList(),
       textScales: kMatrixTextScalesLarge,
     );
   });

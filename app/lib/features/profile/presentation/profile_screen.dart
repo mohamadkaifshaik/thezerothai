@@ -44,6 +44,7 @@ import 'bloc/profile_state.dart';
 import 'widgets/pinned_post_section.dart';
 import 'widgets/profile_header.dart';
 import '../../../shared/widgets/post/protected_posts_view.dart';
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// `GetProfile(handle | user_id)` + (when the graph flag is on) the viewer's
 /// relationship, rendered as [ProfileHeader], then (posts flag on) the Posts
@@ -687,6 +688,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
                 onShow: () => setState(() => _showBlockedPosts = true),
               ),
             ),
+            const ShellBottomInsetSliver(),
           ],
         ),
       );
@@ -827,6 +829,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
               SliverToBoxAdapter(
                 child: ProtectedPostsView(handle: profile.handle),
               ),
+              const ShellBottomInsetSliver(),
             ],
           ),
         );

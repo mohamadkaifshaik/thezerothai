@@ -235,7 +235,8 @@ class W3ProfileRig {
 
   /// Pumps the profile screen (opened by handle `kaif`). [rtl] puts a
   /// right-to-left `Directionality` inside the `MaterialApp` builder (above
-  /// it, `Localizations` would override it).
+  /// it, `Localizations` would override it). [wrap] puts the screen inside
+  /// other chrome (the shell's `ResponsiveScaffold`).
   Future<void> open(
     WidgetTester tester, {
     Size size = const Size(400, 800),
@@ -243,7 +244,9 @@ class W3ProfileRig {
     double textScale = 1,
     bool rtl = false,
     bool settle = true,
+    Widget Function(Widget screen)? wrap,
   }) async {
+    const screen = ProfileScreen(handle: 'kaif');
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -274,7 +277,7 @@ class W3ProfileRig {
                 child: child!,
               ),
             ),
-            home: const ProfileScreen(handle: 'kaif'),
+            home: wrap == null ? screen : wrap(screen),
           ),
         ),
       ),

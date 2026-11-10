@@ -42,6 +42,7 @@ import 'composer_screen.dart';
 import 'post_error_messages.dart';
 import 'widgets/draft_problem_hint.dart';
 import 'widgets/post_unavailable_view.dart';
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 part 'thread_context.dart';
 part 'thread_footer.dart';
@@ -523,6 +524,7 @@ class _ThreadList extends StatelessWidget {
                 SliverToBoxAdapter(
                   child: _Footer(state: state, empty: replies.isEmpty),
                 ),
+                const ShellBottomInsetSliver(),
               ],
             ),
           ),

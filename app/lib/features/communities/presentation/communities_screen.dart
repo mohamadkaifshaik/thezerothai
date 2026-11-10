@@ -18,6 +18,7 @@ import 'bloc/communities_state.dart';
 import 'communities_error_messages.dart';
 import 'widgets/community_join_control.dart';
 import 'widgets/community_row.dart';
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// `/communities`: "My Communities" and "Explore Communities" (the
 /// directory, top 50) with Join pills, and a Create entry for creators.
@@ -106,6 +107,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                           const SliverToBoxAdapter(
                             child: SizedBox(height: AppSpacing.lg),
                           ),
+                          const ShellBottomInsetSliver(),
                         ],
                       ),
                     ),

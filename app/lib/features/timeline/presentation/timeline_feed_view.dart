@@ -25,6 +25,7 @@ import 'timeline_error_messages.dart';
 import 'widgets/feed_post_row.dart';
 import 'widgets/new_posts_pill.dart';
 import '../../../shared/widgets/post/timeline_gap_row.dart';
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// How often the foreground tick fires: it re-renders relative times
 /// ("5m", no RPC) and asks the cubit for a throttled refresh, which sends at
@@ -354,6 +355,7 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
                   reportsEnabled,
                   engagementEnabled,
                 ),
+                const ShellBottomInsetSliver(),
               ],
             );
             final stack = Stack(
