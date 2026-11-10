@@ -108,8 +108,8 @@ func TestRequireAuthorStatusSeams(t *testing.T) {
 // fakeAuthorDir is a non-nil stand-in for the Directory; only its nil-ness matters to the check.
 type fakeAuthorDir struct{ identity.Directory }
 
-// The guard for F-03: apiserver.go still hands identity's Directory to SearchPosts and checks it at startup. A source scan
-// (no emulator), so a refactor that drops it fails `make ci`.
+// The guard for F-03: apiserver.go still hands identity's Directory to SearchPosts and to the timeline and checks both at
+// startup. A source scan (no emulator), so a refactor that drops it fails `make ci`.
 func TestAuthorStatusSeamWiredInBuild(t *testing.T) {
 	t.Parallel()
 	b, err := os.ReadFile("apiserver.go")
@@ -121,6 +121,10 @@ func TestAuthorStatusSeamWiredInBuild(t *testing.T) {
 		"var searchAuthors search.AuthorDirectory = identitySvc.(identity.Directory)",
 		"requireAuthorStatusSeams([]protectedSeam{",
 		"Authors: searchAuthors,",
+		// The feeds' author-status Directory (Home, list, community, profile copies).
+		"timelineDir := identitySvc.(identity.Directory)",
+		`{"timeline.Deps.Directory (identity.Directory)", timelineDir}`,
+		"Directory: timelineDir,",
 	} {
 		if !strings.Contains(src, want) {
 			t.Errorf("apiserver.go no longer contains %q", want)

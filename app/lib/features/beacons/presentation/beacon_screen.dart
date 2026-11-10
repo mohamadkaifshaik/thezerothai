@@ -33,6 +33,7 @@ import 'bloc/beacon_detail_cubit.dart';
 import 'bloc/beacon_detail_state.dart';
 import 'widgets/beacon_status_pill.dart';
 import 'widgets/join_note_sheet.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// The NOT_FOUND text of the plan report sheet.
 const kReportBeaconNotFound = "This plan isn't available to report any more.";
@@ -82,7 +83,7 @@ class _BeaconScreenState extends State<BeaconScreen> {
     required String keep,
     required String action,
   }) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),

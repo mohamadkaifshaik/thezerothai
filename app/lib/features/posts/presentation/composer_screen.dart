@@ -57,6 +57,7 @@ import 'widgets/reply_audience_sheet.dart';
 import 'widgets/schedule_controls.dart';
 import 'widgets/schedule_dialog.dart';
 import 'widgets/send_conflict_dialog.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// Shown when a picked draft could not be opened.
 const kDraftGoneMessage = 'That draft is no longer available.';
@@ -722,11 +723,15 @@ class _ComposerViewState extends State<_ComposerView> {
                     mainAxisSize: hasPoll ? MainAxisSize.min : MainAxisSize.max,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      AudiencePill(
-                        audience: state.audience,
-                        onTap: state.isSubmitting
-                            ? null
-                            : () => _chooseAudience(context, state),
+                      // The pill's own context: the tablet menu hangs
+                      // from it.
+                      Builder(
+                        builder: (pill) => AudiencePill(
+                          audience: state.audience,
+                          onTap: state.isSubmitting
+                              ? null
+                              : () => _chooseAudience(context, state, pill),
+                        ),
                       ),
                       if (hasPoll) field else Expanded(child: field),
                     ],
@@ -741,12 +746,14 @@ class _ComposerViewState extends State<_ComposerView> {
   Future<void> _chooseAudience(
     BuildContext context,
     ComposerState state,
+    BuildContext anchor,
   ) async {
     final cubit = context.read<ComposerCubit>();
     final picked = await showAudienceSheet(
       context,
       selected: state.audience,
       communities: state.communityChoices,
+      anchor: anchor,
     );
     if (picked != null && !cubit.isClosed) cubit.audienceChanged(picked);
   }
@@ -765,7 +772,7 @@ class _ComposerViewState extends State<_ComposerView> {
       case LeaveAction.none:
         break;
       case LeaveAction.discardMedia:
-        final discard = await showDialog<bool>(
+        final discard = await showAppMaterialDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Discard this post?'),
@@ -1106,8 +1113,13 @@ class _ReplyAudienceLink extends StatelessWidget {
   final bool enabled;
   final ValueChanged<ReplyAudience> onChanged;
 
-  Future<void> _open(BuildContext context) async {
-    final picked = await showReplyAudienceSheet(context, selected: audience);
+  /// [anchor] is the link's own context (the tablet menu hangs from it).
+  Future<void> _open(BuildContext anchor) async {
+    final picked = await showReplyAudienceSheet(
+      anchor,
+      selected: audience,
+      anchor: anchor,
+    );
     if (picked != null) onChanged(picked);
   }
 
@@ -1119,38 +1131,40 @@ class _ReplyAudienceLink extends StatelessWidget {
         : theme.colorScheme.onSurfaceVariant;
     return Align(
       alignment: AlignmentDirectional.centerStart,
-      child: Semantics(
-        button: true,
-        enabled: enabled,
-        label: audience.linkLabel,
-        hint: 'Choose who can reply',
-        excludeSemantics: true,
-        onTap: enabled ? () => _open(context) : null,
-        child: InkWell(
-          onTap: enabled ? () => _open(context) : null,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: AppSpacing.xxl),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    replyAudienceIcon(audience),
-                    size: AppIconSize.sm,
-                    color: color,
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Flexible(
-                    child: Text(
-                      audience.linkLabel,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: color,
-                        fontWeight: FontWeight.w600,
+      child: Builder(
+        builder: (link) => Semantics(
+          button: true,
+          enabled: enabled,
+          label: audience.linkLabel,
+          hint: 'Choose who can reply',
+          excludeSemantics: true,
+          onTap: enabled ? () => _open(link) : null,
+          child: InkWell(
+            onTap: enabled ? () => _open(link) : null,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: AppSpacing.xxl),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      replyAudienceIcon(audience),
+                      size: AppIconSize.sm,
+                      color: color,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Flexible(
+                      child: Text(
+                        audience.linkLabel,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: color,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

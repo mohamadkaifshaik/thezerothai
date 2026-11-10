@@ -18,6 +18,7 @@ import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/lists_repository.dart';
 import 'lists_error_messages.dart';
 import 'widgets/list_unavailable_view.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// `/lists/:id/members`: the people on a List, newest first, each
 /// with a Follow button; the owner also gets Remove.
@@ -82,7 +83,7 @@ class _ListMembersScreenState extends State<ListMembersScreen> {
 
   Future<void> _remove(graph.UserListItem item) async {
     final handle = item.user.handle;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Remove @$handle?'),

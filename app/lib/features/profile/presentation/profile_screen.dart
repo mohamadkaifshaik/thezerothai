@@ -45,6 +45,7 @@ import 'widgets/pinned_post_section.dart';
 import 'widgets/profile_header.dart';
 import '../../../shared/widgets/post/protected_posts_view.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
+import '../../../core/widgets/shell_geometry.dart';
 
 /// `GetProfile(handle | user_id)` + (when the graph flag is on) the viewer's
 /// relationship, rendered as [ProfileHeader], then (posts flag on) the Posts
@@ -1030,9 +1031,9 @@ class _ProfileScrollScaffold extends StatelessWidget {
     final background = Theme.of(context).scaffoldBackgroundColor;
     return LayoutBuilder(
       builder: (context, constraints) {
-        final inset = math.max(
-          0.0,
-          (constraints.maxWidth - AppBreakpoints.mobile) / 2,
+        final inset = ShellGeometry.readableInset(
+          context,
+          constraints.maxWidth,
         );
         Widget centred(Widget sliver) => SliverPadding(
           padding: EdgeInsets.symmetric(horizontal: inset),

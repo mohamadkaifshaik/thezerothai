@@ -104,15 +104,20 @@ func (s *Server) home(ctx context.Context, uid string, req *timelinev1.GetHomeTi
 	if err := af.finish(); err != nil {
 		return nil, err
 	}
+	// Author status (F-03) on the cut page; the tokens below stay on the raw window.
+	items, err := s.activeOnly(ctx, uid, page.Items, af.embed)
+	if err != nil {
+		return nil, err
+	}
 
-	out := &timelinev1.GetHomeTimelineResponse{Posts: s.toViews(ctx, uid, snap.Following, nil, page.Items, af.embed), RemovedIds: removed}
+	out := &timelinev1.GetHomeTimelineResponse{Posts: s.toViews(ctx, uid, snap.Following, nil, items, af.embed), RemovedIds: removed}
 	it := s.tokens(f, md, tok, page, res.entries, start)
 	out.SinceToken, out.NextPageToken, out.GapPageToken = it.since, it.next, it.gap
 	logger.SetRequestField(ctx, fieldClamped, it.clamped)
 	logger.SetRequestField(ctx, fieldChunks, res.chunks)
 	logger.SetRequestField(ctx, fieldFromCache, res.fromHit)
-	logger.SetRequestField(ctx, fieldReturned, len(page.Items))
-	logger.SetRequestField(ctx, fieldFiltered, page.Filtered)
+	logger.SetRequestField(ctx, fieldReturned, len(items))
+	logger.SetRequestField(ctx, fieldFiltered, page.Filtered+len(page.Items)-len(items))
 	logger.SetRequestField(ctx, fieldGap, out.GetGapPageToken() != "")
 	return out, nil
 }
@@ -412,6 +417,11 @@ func (s *Server) user(ctx context.Context, caller string, req *timelinev1.GetUse
 	// FEATURE_ENGAGEMENT state is (the flags only gate viewer-flag hydration).
 	items, embed, err := s.filterEmbeds(ctx, caller, target, res.page.Items)
 	if err != nil {
+		return nil, err
+	}
+	// Author status (F-03) of the posts the page's copies embed: the target itself was proven ACTIVE by checkVisible, so a
+	// page without a copy of another author's post asks the Directory nothing.
+	if items, err = s.activeOnly(ctx, caller, items, embed, target); err != nil {
 		return nil, err
 	}
 	out := &timelinev1.GetUserTimelineResponse{Posts: s.toViews(ctx, caller, following, blocked, items, embed), RemovedIds: removed}

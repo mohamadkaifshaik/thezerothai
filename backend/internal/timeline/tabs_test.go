@@ -753,6 +753,7 @@ func TestTabs_DropRules(t *testing.T) {
 				default:
 					makeCopy(ctl, posts.KindRepost) // a repost of another author
 					ctl.EmbeddedAuthorID, ctl.Embedded.Author = "uid-other", posts.AuthorSnapshot{UserID: "uid-other"}
+					r.dir.profiles["uid-other"] = identity.Profile{UserID: "uid-other", Status: identity.AccountStatusActive}
 					makeCopy(cp, posts.KindRepost)
 				}
 				r.graph.snaps["me"] = tc.snap

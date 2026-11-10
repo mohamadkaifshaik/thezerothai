@@ -204,6 +204,11 @@ abstract final class AppSize {
   static const double dialogMax = 560;
   static const double composerDialogMax = 600;
 
+  /// Width range of a confirm or alert dialog on the tablet layout ("D
+  /// 280-400", tablet plan section 4.2).
+  static const double alertDialogMin = 280;
+  static const double alertDialogMax = 400;
+
   /// Width of a side sheet (the chat info sheet).
   static const double sideSheet = 360;
 }

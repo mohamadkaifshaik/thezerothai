@@ -49,8 +49,9 @@ func requireProtectedSeams(seams []protectedSeam) error {
 var errProtectedSeamMissing = errors.New("apiserver: protected-author seam missing")
 
 // requireAuthorStatusSeams is the same startup check for the author-status Directory a read surface filters rows with
-// (F-03: SearchPosts drops rows whose author is not ACTIVE). search.WithPosts already refuses to build SearchPosts without
-// it (Unimplemented, never unfiltered rows); this makes the wiring regression fail the deploy instead of switching search off.
+// (F-03: SearchPosts and the timeline feeds drop rows whose author is not ACTIVE). search.WithPosts already refuses to build
+// SearchPosts without it (Unimplemented, never unfiltered rows) and the feeds fail a page closed; this makes the wiring
+// regression fail the deploy instead of switching search or the feeds off.
 func requireAuthorStatusSeams(seams []protectedSeam) error {
 	missing := nilSeams(seams)
 	if len(missing) == 0 {

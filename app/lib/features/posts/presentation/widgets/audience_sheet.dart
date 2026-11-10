@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/communities/v1/communities.pb.dart' as pbc;
+import '../../../../shared/widgets/primitives/app_sheet.dart';
 import '../../../../shared/widgets/primitives/sheet_option_row.dart';
 import '../../../communities/presentation/widgets/community_row.dart';
 import '../../domain/compose_audience.dart';
@@ -11,18 +12,24 @@ import '../../domain/compose_audience.dart';
 /// "Choose audience" (`composer.md` §3): `Everyone`, then a "My
 /// Communities" section with one row per community the caller is in (name,
 /// "N members"). Picking one closes the sheet and returns it; dismissing
-/// returns null. A bottom sheet at every width, like the "Who can reply?"
-/// sheet. Every row is a `menuItem`, the chosen one marked selected and with
-/// a check.
+/// returns null. A bottom sheet on phones and desktop, like the "Who can
+/// reply?" sheet. Every row is a `menuItem`, the chosen one marked selected
+/// and with a check. On the tablet layout (600-1199 dp) it is a menu hung
+/// from [anchor] (the audience pill) instead.
 Future<ComposeAudience?> showAudienceSheet(
   BuildContext context, {
   required ComposeAudience selected,
   required List<pbc.Community> communities,
+  BuildContext? anchor,
 }) {
-  return showModalBottomSheet<ComposeAudience>(
+  return showAppSheet<ComposeAudience>(
     context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
+    material: const MaterialSheetOptions(
+      showDragHandle: true,
+      isScrollControlled: true,
+    ),
+    onTablet: AppSheetOnTablet.menu,
+    anchor: anchor,
     builder: (_) => AudienceSheet(selected: selected, communities: communities),
   );
 }

@@ -46,6 +46,7 @@ import 'widgets/messaging_access_builder.dart';
 import 'widgets/outgoing_bubble.dart';
 import 'widgets/request_banner.dart';
 import 'widgets/thread_push_scope.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// The line that replaces the composer on a read-only conversation.
 const kThreadReadOnlyText = "You can't reply to this conversation";
@@ -444,7 +445,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
 
   Future<void> _delete(ThreadCubit cubit, {bool request = false}) async {
     if (cubit.state.accepting || cubit.state.deleting || _blocking) return;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(

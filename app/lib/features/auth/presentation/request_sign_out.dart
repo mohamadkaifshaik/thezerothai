@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
+import '../../../core/widgets/tablet_modal.dart';
 import '../../posts/data/drafts_repository.dart';
 import '../../posts/presentation/widgets/draft_dialogs.dart';
 import 'bloc/auth_bloc.dart';
@@ -45,6 +46,10 @@ Future<void> requestSignOut(BuildContext context) async {
   if (_deciding[auth] ?? false) return;
   _deciding[auth] = true;
   final navigator = Navigator.of(context, rootNavigator: true);
+  // Where the dialog sits on the tablet layout is decided here, from the
+  // button (a shell page or the rail: beside the rail); the navigator's own
+  // context below knows nothing of the shell.
+  final host = TabletModalHost.of(context);
   final messenger = ScaffoldMessenger.maybeOf(context);
   final report = context.read<UnexpectedErrorReporter?>();
   try {
@@ -61,7 +66,7 @@ Future<void> requestSignOut(BuildContext context) async {
       return;
     }
     if (!navigator.mounted) return;
-    final choice = await showSignOutDraftsDialog(navigator.context);
+    final choice = await showSignOutDraftsDialog(navigator.context, host: host);
     if (choice == null) return;
     if (choice == SignOutDraftsChoice.delete) {
       try {

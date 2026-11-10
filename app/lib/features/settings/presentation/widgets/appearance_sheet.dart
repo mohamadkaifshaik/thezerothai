@@ -3,18 +3,21 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/theme_mode_cubit.dart';
+import '../../../../shared/widgets/primitives/app_sheet.dart';
 
-/// The bottom sheet of Settings > Appearance: System default, Light, Dark.
-/// The choice applies at once and is saved on the device (0 RPCs).
+/// The bottom sheet of Settings > Appearance: System default, Light, Dark
+/// (a dialog on the tablet layout, 600-1199 dp). The choice applies at once
+/// and is saved on the device (0 RPCs).
 class AppearanceSheet extends StatelessWidget {
   const AppearanceSheet({super.key});
 
   /// Opens the sheet; it reads the [ThemeModeCubit] of [context].
   static Future<void> show(BuildContext context) {
     final cubit = context.read<ThemeModeCubit>();
-    return showModalBottomSheet<void>(
+    return showAppSheet<void>(
       context: context,
-      showDragHandle: true,
+      material: const MaterialSheetOptions(showDragHandle: true),
+      tabletScrollable: true,
       builder: (_) => BlocProvider<ThemeModeCubit>.value(
         value: cubit,
         child: const AppearanceSheet(),

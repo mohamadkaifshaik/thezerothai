@@ -37,6 +37,7 @@ import 'widgets/community_about.dart';
 import 'widgets/community_header.dart';
 import 'widgets/community_unavailable_view.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// `/communities/:id`: header, then Posts and About tabs.
 ///
@@ -155,7 +156,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   Future<void> _leave() async {
     final name = _detail.state.community?.name ?? 'this Community';
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Leave $name?'),

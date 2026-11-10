@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../shared/widgets/primitives/app_sheet.dart';
 import '../../../../shared/widgets/primitives/sheet_option_row.dart';
 import '../../domain/reply_audience.dart';
 
@@ -14,15 +15,19 @@ IconData replyAudienceIcon(ReplyAudience audience) => switch (audience) {
 /// The "Who can reply?" sheet of the composer: the three launch
 /// options, each with a leading icon and a radio on the right, [selected]
 /// checked. Picking one closes the sheet and returns it; dismissing returns
-/// null. A bottom sheet at every width, like the app's other pickers
-/// (Material caps its width on wide screens).
+/// null. A bottom sheet on phones and desktop, like the app's other pickers
+/// (Material caps its width on wide screens); on the tablet layout
+/// (600-1199 dp) a menu hung from [anchor] (the "Everyone can reply" link).
 Future<ReplyAudience?> showReplyAudienceSheet(
   BuildContext context, {
   required ReplyAudience selected,
+  BuildContext? anchor,
 }) {
-  return showModalBottomSheet<ReplyAudience>(
+  return showAppSheet<ReplyAudience>(
     context: context,
-    showDragHandle: true,
+    material: const MaterialSheetOptions(showDragHandle: true),
+    onTablet: AppSheetOnTablet.menu,
+    anchor: anchor,
     builder: (_) => ReplyAudienceSheet(selected: selected),
   );
 }

@@ -19,6 +19,7 @@ import 'beacons_error_messages.dart';
 import 'bloc/beacon_people_cubit.dart';
 import 'bloc/beacon_people_state.dart';
 import 'widgets/participant_row.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// `/plans/:id/people` (R38): who is going, and for the organiser the
 /// requests with their notes and the controls (Accept; Decline, Decline and
@@ -103,7 +104,7 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
     required String body,
     required String action,
   }) async {
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
