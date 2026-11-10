@@ -35,3 +35,4 @@
 	featureDrafts, err := flags.LoadSpec("DRAFTS", "drafts", flags.Off)
 	featureGif, err := flags.LoadSpec("GIF", "gif", flags.Off)
 	featureBeacons, err := flags.LoadSpec("BEACONS", "beacons", flags.Off)
+	featureChatSharedPlans, err := flags.LoadSpec("CHAT_SHARED_PLANS", "chat_shared_plans", flags.Off)
