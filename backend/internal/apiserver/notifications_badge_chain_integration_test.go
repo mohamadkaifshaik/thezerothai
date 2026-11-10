@@ -58,4 +58,17 @@ func TestNotificationBadgeChain_GetMeSkipsHiddenRows(t *testing.T) {
 	if n := got.Msg.GetUnreadNotificationCount(); n != 1 {
 		t.Errorf("unread_notification_count = %d, want 1 (only the friend's row; blocked and muted rows hidden)", n)
 	}
+	// A user with no graph doc (an empty snapshot, not an error) and no rows still gets GetMe, with a badge of 0: the
+	// badge's snapshot read must not break the bootstrap call. The doc is removed here, before anything on this server
+	// has read (and cached) friend's snapshot.
+	if _, err := e.fs.Collection("graph").Doc(friend).Delete(ctx); err != nil {
+		t.Fatalf("delete graph doc: %v", err)
+	}
+	fresh, err := e.identity.GetMe(ctx, authed(friendTok, &identityv1.GetMeRequest{}))
+	if err != nil {
+		t.Fatalf("GetMe for a user with no graph doc: %v", err)
+	}
+	if n := fresh.Msg.GetUnreadNotificationCount(); n != 0 {
+		t.Errorf("fresh user's unread_notification_count = %d, want 0", n)
+	}
 }
