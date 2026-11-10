@@ -13,6 +13,7 @@ import (
 	"cloud.google.com/go/firestore"
 
 	mediav1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1/mediav1connect"
+	"github.com/dzeroth/dzeroth/backend/internal/articles"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
@@ -30,7 +31,37 @@ type mediaModule struct {
 	library *media.Library
 	purger  *media.Purger
 	jobs    *media.Jobs
+	// orphans is the orphan sweep of the daily-maintenance cron (media_orphan_sweep.go).
+	orphans *media.OrphanSweeper
 }
+
+// draftMediaHolds adapts the posts repo (PENDING scheduled drafts) and the articles read side (unpublished draft covers)
+// to media.DraftHolds: fresh reads, an image either one names is held. media imports neither module.
+type draftMediaHolds struct {
+	scheduled interface {
+		PendingScheduledMediaHolds(ctx context.Context, uid string, ids []string) (map[string]bool, error)
+	}
+	articles interface {
+		DraftCoverHolds(ctx context.Context, uid string, ids []string) (map[string]bool, error)
+	}
+}
+
+func (h draftMediaHolds) HeldByDrafts(ctx context.Context, uid string, ids []string) (map[string]bool, error) {
+	held, err := h.scheduled.PendingScheduledMediaHolds(ctx, uid, ids)
+	if err != nil {
+		return nil, err
+	}
+	covers, err := h.articles.DraftCoverHolds(ctx, uid, ids)
+	if err != nil {
+		return nil, err
+	}
+	for id := range covers {
+		held[id] = true
+	}
+	return held, nil
+}
+
+var _ media.DraftHolds = draftMediaHolds{}
 
 // mediaProcedures is the DEGRADED_MODE=nomedia block list: every procedure that creates or publishes media.
 func mediaProcedures() degraded.ProcedureSet {
@@ -107,7 +138,15 @@ func wireMedia(cfg config.Config, log *slog.Logger, fs *firestore.Client, featur
 	if err != nil {
 		return nil, fmt.Errorf("media service: %w", err)
 	}
+	orphans, err := media.NewOrphanSweeper(media.OrphanSweepDeps{
+		Repo: repo, Objects: buckets, Profiles: users, RetireMode: cfg.ProfileMediaRetire,
+		Drafts: draftMediaHolds{scheduled: postsRepo, articles: articles.NewMediaHolds(fs)},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("media orphan sweep: %w", err)
+	}
 	return &mediaModule{
+		orphans: orphans,
 		server:  media.NewServer(svc, featureFlags),
 		library: media.NewLibrary(repo, cfg.MediaPublicBaseURL),
 		purger:  media.NewPurger(repo, buckets, cfg.MediaPublicBaseURL),
