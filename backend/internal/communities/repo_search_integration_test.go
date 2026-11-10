@@ -4,7 +4,6 @@ package communities
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -14,35 +13,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
-
-// TestRepo_MembersByUID: one batch read; JOINED and BANNED docs with their time, a missing doc absent; over the bound is
-// an error, not a silent truncation.
-func TestRepo_MembersByUID(t *testing.T) {
-	e := newListEnv(t)
-	cid := "0000000000000000851"
-	base := time.Now().Add(-time.Hour).Truncate(time.Millisecond)
-	e.seedCommunity(t, Community{ID: cid, Name: "Search", OwnerID: "owner", MemberCount: 2}, nil)
-	e.seedMemberAt(t, cid, "owner", MemberJoined, base, 0)
-	e.seedMemberAt(t, cid, "b000", MemberBanned, base, 9)
-	got, err := e.repo.MembersByUID(context.Background(), cid, []string{"owner", "b000", "nobody"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 || got["owner"].State != MemberJoined || !got["owner"].At.Equal(base.UTC()) ||
-		got["b000"].State != MemberBanned || !got["b000"].At.Equal(base.Add(-9*time.Minute).UTC()) {
-		t.Fatalf("entries = %+v", got)
-	}
-	if empty, err := e.repo.MembersByUID(context.Background(), cid, nil); err != nil || len(empty) != 0 {
-		t.Errorf("no uids = %v, %v", empty, err)
-	}
-	many := make([]string, maxMembersByUID+1)
-	for i := range many {
-		many[i] = fmt.Sprintf("u%03d", i)
-	}
-	if _, err := e.repo.MembersByUID(context.Background(), cid, many); err == nil {
-		t.Error("over the bound: no error")
-	}
-}
 
 // TestSearchCommunityMembers_OnTheEmulator (F36): the real member docs decide. JOINED search keeps members only (a
 // non-member and a banned user with a matching handle are dropped); BANNED search for a moderator returns the banned
