@@ -31,6 +31,7 @@ import '../widgets/privacy_policy_link.dart';
 import '../widgets/shell_geometry.dart';
 import 'app_router.dart';
 import 'compose_gate.dart';
+import 'context_sections.dart';
 
 /// The navigation chrome around the authenticated top-level destinations.
 ///
@@ -390,6 +391,11 @@ class MainShell extends StatelessWidget {
         ],
       ),
       masterPane: masterDetail ? _SettingsMaster(selectedPath: location) : null,
+      // Band B's context pane (tablet layout only; the scaffold shows it
+      // from 840dp). Desktop keeps the side column below (ruling R-1).
+      contextSections: tabletLayout
+          ? contextSectionsFor(location, context)
+          : null,
       selectedIndex: selectedIndex == null || selectedIndex < 0
           ? null
           : selectedIndex,

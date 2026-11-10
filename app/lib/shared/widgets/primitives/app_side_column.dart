@@ -74,28 +74,21 @@ class AppSideColumn extends StatelessWidget {
             const SizedBox(height: AppSpacing.md),
           ],
           if (card != null) ...[
-            _ProfileCard(profile: card),
+            AppSideProfileCard(profile: card),
             const SizedBox(height: AppSpacing.md),
           ],
           ...sections,
-          if (links.isNotEmpty)
-            AppSurface(
-              padding: const EdgeInsets.all(AppSpacing.xs),
-              child: Material(
-                type: MaterialType.transparency,
-                child: Column(
-                  children: [for (final link in links) _LinkRow(link: link)],
-                ),
-              ),
-            ),
+          if (links.isNotEmpty) AppSideLinks(links: links),
         ],
       ),
     );
   }
 }
 
-class _ProfileCard extends StatelessWidget {
-  const _ProfileCard({required this.profile});
+/// The signed-in user's card of the [AppSideColumn] and of the tablet
+/// context pane: avatar, name and handle, opening [AppSideProfile.onTap].
+class AppSideProfileCard extends StatelessWidget {
+  const AppSideProfileCard({super.key, required this.profile});
 
   final AppSideProfile profile;
 
@@ -153,6 +146,27 @@ class _ProfileCard extends StatelessWidget {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The quick links of the [AppSideColumn] and the tablet context pane's
+/// footer: one outlined surface with a row per link (48 dp each).
+class AppSideLinks extends StatelessWidget {
+  const AppSideLinks({super.key, required this.links});
+
+  final List<AppSideLink> links;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppSurface(
+      padding: const EdgeInsets.all(AppSpacing.xs),
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          children: [for (final link in links) _LinkRow(link: link)],
         ),
       ),
     );

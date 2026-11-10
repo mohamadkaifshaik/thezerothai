@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_shell_scope.dart';
 import '../../../core/widgets/app_top_bar.dart';
+import '../../../core/widgets/context_pane.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../graph/presentation/widgets/who_to_follow_card.dart';
@@ -44,8 +45,15 @@ class ExploreScreen extends StatelessWidget {
           ),
           if (isFeatureEnabled(context, kFeatureTrends))
             const ExploreTrendsSection(),
-          const SliverToBoxAdapter(
-            child: WhoToFollowCard(margin: EdgeInsets.all(AppSpacing.md)),
+          // Inline at every width, except beside a tablet context pane that
+          // shows it (band B, tablet plan section 4.1: "trends | Who to
+          // follow"): one card, one placement. The sliver itself stays, so
+          // the list keeps its shape across 840.
+          SliverToBoxAdapter(
+            child:
+                ContextPaneScope.shows(context, ContextSectionKind.whoToFollow)
+                ? const SizedBox.shrink()
+                : const WhoToFollowCard(margin: EdgeInsets.all(AppSpacing.md)),
           ),
           const ShellBottomInsetSliver(),
         ],
