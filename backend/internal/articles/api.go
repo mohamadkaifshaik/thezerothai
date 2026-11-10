@@ -15,6 +15,16 @@ type PostGone interface {
 	PostGone(ctx context.Context, postID string) (bool, error)
 }
 
+// CoverHolds is the read the media orphan sweep uses (media.ArticleCoverHolds, through media.NewDraftHolds in apiserver
+// and opsctl): which of uid's image ids an unpublished article of uid names as its cover. Fresh reads, one query per 30
+// ids; a full page reports the whole chunk held (it cannot tell, so never "free"). Implemented in repo_media_holds.go.
+type CoverHolds interface {
+	DraftCoverHolds(ctx context.Context, uid string, ids []string) (map[string]bool, error)
+}
+
+// NewMediaHolds builds CoverHolds on the shared Firestore client.
+func NewMediaHolds(client *firestore.Client) CoverHolds { return &mediaHolds{client: client} }
+
 // ErrNotFound is EvidenceReader's answer when no published article is rooted at the given post.
 var ErrNotFound = errors.New("articles: article not found")
 

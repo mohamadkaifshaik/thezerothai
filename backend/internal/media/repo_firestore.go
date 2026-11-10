@@ -84,7 +84,26 @@ type Doc struct {
 	// set with it (RetiredAt + RetiredDocTTL): until then the document keeps the image inside the account eraser and the
 	// export.
 	RetiredAt *time.Time `firestore:"retiredAt,omitempty"`
+	// OrphanCheckAt is when the orphan sweep (orphan_sweep.go) next looks at this document. FinalizeUpload sets it to
+	// readyAt + OrphanAfter on every READY document; Claim.Attach deletes it in the CreatePost transaction, so an
+	// attached image is never a candidate. Absent = not a candidate. It is NOT a TTL field: Firestore never deletes on it,
+	// the sweep does (objects first, document last). Indexed by the automatic single-field index (no override).
+	OrphanCheckAt *time.Time `firestore:"orphanCheckAt,omitempty"`
+	// OrphanedAt is the sweep's mark: set when a candidate was found held by nothing. From then on LoadForPost and the
+	// resolvers refuse the document, so nothing new can attach it; the sweep deletes it on a run at least OrphanGrace later,
+	// after checking the holders again, or removes the mark when something holds it after all.
+	OrphanedAt *time.Time `firestore:"orphanedAt,omitempty"`
+	// OrphanDeletingAt is the sweep's claim: phase 2 writes it before it deletes any object, and nothing ever removes it
+	// (SetOrphanState cannot). A claimed document's objects may already be gone, so it is never restored: every later run
+	// in delete mode finishes the delete, and LoadForPost and the resolvers refuse it as they refuse a mark.
+	OrphanDeletingAt *time.Time `firestore:"orphanDeletingAt,omitempty"`
 }
+
+// Orphaned reports whether the orphan sweep has marked or claimed the document for deletion: nothing new may attach it.
+func (d *Doc) Orphaned() bool { return d.OrphanedAt != nil || d.OrphanDeletingAt != nil }
+
+// Deleting reports whether the orphan sweep has claimed the document (its objects may be gone): never restored.
+func (d *Doc) Deleting() bool { return d.OrphanDeletingAt != nil }
 
 // ThumbType is the content type of the thumbnail objects: ThumbContentType, else ContentType.
 func (d *Doc) ThumbType() string {
@@ -123,6 +142,9 @@ type Resolution struct {
 	RejectionReason string
 	// ExpireAt, when non-zero, keeps a TTL on the document (REJECTED docs); zero removes the field (published).
 	ExpireAt time.Time
+	// OrphanCheckAt, when non-zero, makes the published document an orphan-sweep candidate from that time on (READY:
+	// readyAt + OrphanAfter); zero removes the field (REJECTED).
+	OrphanCheckAt time.Time
 }
 
 // Repo is media's storage seam.
@@ -325,6 +347,11 @@ func (r *FirestoreRepo) Resolve(ctx context.Context, id string, updateTime time.
 		updates = append(updates, firestore.Update{Path: "expireAt", Value: firestore.Delete})
 	} else {
 		updates = append(updates, firestore.Update{Path: "expireAt", Value: res.ExpireAt})
+	}
+	if res.OrphanCheckAt.IsZero() {
+		updates = append(updates, firestore.Update{Path: "orphanCheckAt", Value: firestore.Delete})
+	} else {
+		updates = append(updates, firestore.Update{Path: "orphanCheckAt", Value: res.OrphanCheckAt})
 	}
 	_, err := r.updateAt(ctx, id, updates, updateTime, "resolve media")
 	return err

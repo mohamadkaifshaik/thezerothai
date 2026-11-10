@@ -22,17 +22,19 @@ type Claim struct {
 
 // Attach appends one write per image to b: media/{id}.postId = postID. Call it inside the same transaction that
 // created the post. A post's images can therefore never be attached to a second post, and the post-delete job
-// knows which post an image belonged to.
+// knows which post an image belonged to. The same write deletes orphanCheckAt: an attached image is never an orphan-sweep
+// candidate again (the post_delete job owns it from now on).
 func (c *Claim) Attach(b store.Batch, postID string) {
 	for _, r := range c.refs {
-		b.Update(r, []firestore.Update{{Path: "postId", Value: postID}})
+		b.Update(r, []firestore.Update{{Path: "postId", Value: postID}, {Path: "orphanCheckAt", Value: firestore.Delete}})
 	}
 }
 
 // Attacher is what posts consumes (through its own consumer-side interface).
 type Attacher interface {
 	// LoadForPost reads ids inside tx and validates them for uid: every id must exist, be owned by uid, have
-	// purpose POST, be READY or READY_UNSCREENED, and not be attached to a post yet. It must be
+	// purpose POST, be READY or READY_UNSCREENED, not be attached to a post yet, and not be marked or claimed by the orphan
+	// sweep (the mark and this read serialize on the document, so either the attach or the mark wins). It must be
 	// called before the transaction's first write.
 	LoadForPost(ctx context.Context, tx *firestore.Transaction, uid string, ids []string) (*Claim, error)
 }
@@ -82,7 +84,7 @@ func (l *Library) LoadForPost(ctx context.Context, tx *firestore.Transaction, ui
 		if err != nil {
 			return nil, err
 		}
-		if d.OwnerID != uid || d.Purpose != string(PurposePost) || !d.Published() || d.PostID != "" {
+		if d.OwnerID != uid || d.Purpose != string(PurposePost) || !d.Published() || d.PostID != "" || d.Orphaned() {
 			return nil, ErrNotReady
 		}
 		c.Refs = append(c.Refs, l.ref(d))
@@ -117,12 +119,13 @@ func (l *Library) ResolvePostCover(ctx context.Context, uid, mediaID string) (Re
 	return l.ref(d), nil
 }
 func usablePostCover(d *Doc, uid string) bool {
-	return d != nil && d.OwnerID == uid && d.Purpose == string(PurposePost) && d.Published() && d.PostID == "" && d.RetiredAt == nil && d.ContentType != ContentTypeGIF
+	return d != nil && d.OwnerID == uid && d.Purpose == string(PurposePost) && d.Published() && d.PostID == "" && d.RetiredAt == nil && !d.Orphaned() && d.ContentType != ContentTypeGIF
 }
 
 // resolveOwned is the one lookup behind the profile-image resolvers: ErrNotReady unless the document
 // exists, is owned by uid, has the given purpose, is published (READY or READY_UNSCREENED) and is not retired
-// (a retired image's objects are scheduled for deletion, so it can never be set again).
+// (a retired image's objects are scheduled for deletion, so it can never be set again), and not marked or claimed by
+// the orphan sweep (Doc.Orphaned; a claimed image's objects may already be gone).
 func (l *Library) resolveOwned(ctx context.Context, uid, mediaID string, p Purpose) (Ref, error) {
 	if !mediaIDPattern.MatchString(mediaID) {
 		return Ref{}, ErrNotReady
@@ -132,7 +135,7 @@ func (l *Library) resolveOwned(ctx context.Context, uid, mediaID string, p Purpo
 		return Ref{}, err
 	}
 	d, ok := docs[mediaID]
-	if !ok || d.OwnerID != uid || d.Purpose != string(p) || !d.Published() || d.RetiredAt != nil {
+	if !ok || d.OwnerID != uid || d.Purpose != string(p) || !d.Published() || d.RetiredAt != nil || d.Orphaned() {
 		return Ref{}, ErrNotReady
 	}
 	return l.ref(d), nil

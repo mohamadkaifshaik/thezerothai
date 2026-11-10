@@ -102,6 +102,12 @@ func (r *fakeRepo) Resolve(_ context.Context, id string, updateTime time.Time, r
 		e := res.ExpireAt
 		d.ExpireAt = &e
 	}
+	if res.OrphanCheckAt.IsZero() {
+		d.OrphanCheckAt = nil
+	} else {
+		o := res.OrphanCheckAt
+		d.OrphanCheckAt = &o
+	}
 	d.UpdateTime = d.UpdateTime.Add(time.Second)
 	return nil
 }
@@ -506,12 +512,15 @@ func (t *fakeTagger) SetPublicCustomTime(_ context.Context, object string, at ti
 
 // fakeProfileImages answers the fresh users/{uid} read: the URLs each uid's profile holds now.
 type fakeProfileImages struct {
+	mu    sync.Mutex
 	urls  map[string][]string
 	reads int
 	err   error
 }
 
 func (f *fakeProfileImages) ProfileImageURLs(_ context.Context, uid string) ([]string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.reads++
 	if f.err != nil {
 		return nil, false, f.err

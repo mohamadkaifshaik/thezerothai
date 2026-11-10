@@ -348,6 +348,9 @@ type Config struct {
 	// ProfileMediaRetire is PROFILE_MEDIA_RETIRE (default off): which replaced or removed profile
 	// images the profile_media_retired step deletes after the grace. Per-project retention, not a FEATURE_ flag.
 	ProfileMediaRetire ProfileMediaRetire
+	// MediaOrphanSweep is MEDIA_ORPHAN_SWEEP (default off): the media orphan sweep's kill switch, off | mark (phase 1 and
+	// the restore paths, never a delete) | delete. Per-project operations config, not a FEATURE_ flag.
+	MediaOrphanSweep MediaOrphanSweep
 	// AuthIdentityAudit is AUTH_IDENTITY_AUDIT (default false): GetMe logs a WARN when the token's signing identity
 	// or email differs from what the account had at sign-up. Detection only, it never rejects or changes a
 	// response. A plain switch, not a FEATURE_ flag: a flag gates RPCs and would answer FAILED_PRECONDITION.
@@ -810,6 +813,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	mediaOrphanSweep, err := ParseMediaOrphanSweep(os.Getenv("MEDIA_ORPHAN_SWEEP"))
+	if err != nil {
+		return Config{}, err
+	}
 	visionScreenThumb := true
 	switch v := strings.ToLower(getenv("VISION_SCREEN_THUMB", "true")); v {
 	case "true", "1":
@@ -1092,6 +1099,7 @@ func Load() (Config, error) {
 		MediaPublicBaseURL:           strings.TrimRight(getenv("MEDIA_PUBLIC_BASE_URL", "https://storage.googleapis.com/"+mediaBucket), "/"),
 		VisionScreenThumb:            visionScreenThumb,
 		ProfileMediaRetire:           profileMediaRetire,
+		MediaOrphanSweep:             mediaOrphanSweep,
 		AuthIdentityAudit:            authIdentityAudit,
 	}, nil
 }
