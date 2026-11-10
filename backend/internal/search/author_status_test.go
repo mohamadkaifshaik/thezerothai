@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -368,5 +369,28 @@ func TestPosts_AuthorStatus_RequestLine(t *testing.T) {
 		if got, ok := info.Get(k); !ok || fmt.Sprint(got) != fmt.Sprint(v) {
 			t.Errorf("%s = %v (%v), want %v", k, got, ok, v)
 		}
+	}
+}
+
+// Security review (low): a Directory error can name an author (identity's "decode profile <uid>"). The error SearchPosts
+// returns, and the cause chain mw.reportError logs, carries no raw uid of the batch or of the caller.
+func TestPosts_AuthorStatus_DirectoryErrorRedactsTheBatch(t *testing.T) {
+	t.Parallel()
+	const author, quoted, caller = "uid-author-secret", "uid-quoted-secret", "uid-caller-secret"
+	r := newRig(map[string][]*posts.Post{"go": {mkPost(2, author, quoteOf(origID, quoted)), mkPost(1, author)}})
+	r.authors.err = fmt.Errorf("identity: decode profile %s: bad field; and %s; caller %s", author, quoted, caller)
+	_, err := r.svc.Posts(context.Background(), caller, "go", latest, 0, "")
+	if err == nil {
+		t.Fatal("err = nil, want a failure")
+	}
+	for _, msg := range []string{err.Error(), logger.CauseChain(err)} {
+		for _, id := range []string{author, quoted, caller} {
+			if strings.Contains(msg, id) {
+				t.Errorf("error text %q leaks %s", msg, id)
+			}
+		}
+	}
+	if !strings.Contains(logger.CauseChain(err), logger.HashUID(author)) {
+		t.Errorf("error text %q lacks the author's hash", logger.CauseChain(err))
 	}
 }

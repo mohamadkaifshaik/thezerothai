@@ -526,7 +526,8 @@ func (r *postsRuntime) activeAuthors(ctx context.Context, uid string, rows []*po
 	for batch := range slices.Chunk(want, authorBatch) {
 		profiles, err := r.d.Authors.GetProfiles(ctx, batch)
 		if err != nil {
-			return nil, logger.RedactErr(fmt.Errorf("search: author status: %w", err), uid)
+			// identity's errors can name an author ("decode profile <uid>"): redact the batch too, as GetPost redacts its author.
+			return nil, logger.RedactErr(fmt.Errorf("search: author status: %w", err), append([]string{uid}, batch...)...)
 		}
 		for a, p := range profiles {
 			if p.Status == identity.AccountStatusActive {
