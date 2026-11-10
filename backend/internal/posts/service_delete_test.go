@@ -331,6 +331,7 @@ func TestGetForViewer_EmbeddedAuthorBlock(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newDeleteEnv()
+			e.dir.profiles[embUID] = identity.Profile{UserID: embUID, Status: identity.AccountStatusActive} // F-03 reads the copied author too
 			d := e.repo.docs[pidOther]
 			d.Kind, d.Embedded, d.EmbeddedAuthorID = tt.kind, tt.embedded, tt.embAuthor
 			if tt.snaps != nil {
@@ -353,6 +354,7 @@ func TestGetForViewer_EmbeddedAuthorBlock(t *testing.T) {
 func TestGetForViewer_OwnCopyIsExempt(t *testing.T) {
 	const embUID = "uid-embedded"
 	e := newDeleteEnv()
+	e.dir.profiles[embUID] = identity.Profile{UserID: embUID, Status: identity.AccountStatusActive}
 	d := e.repo.docs[pidOther]
 	d.AuthorID = testUID
 	d.Author = AuthorSnapshot{UserID: testUID}

@@ -12,7 +12,6 @@ import (
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	searchv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
-	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 	"github.com/dzeroth/dzeroth/backend/internal/timeline"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -460,24 +459,20 @@ func (r *postsRuntime) filter(ctx context.Context, uid string, rows []*posts.Pos
 		}
 		cands = append(cands, p)
 	}
-	active, err := r.activeAuthors(ctx, uid, cands)
+	// One cache-first Directory read for the authors and embedded authors of the candidates (posts.ResolveActiveAuthors: the
+	// caller is never asked, batches of 50, so a window of more than 50 distinct uids makes two; a failure is an error).
+	active, err := posts.ResolveActiveAuthors(ctx, r.d.Authors, uid, cands)
 	if err != nil {
-		return filtered{}, err
+		return filtered{}, fmt.Errorf("search: %w", err) // already redacted
 	}
 	f.kept = make([]*posts.Post, 0, len(cands))
 	for _, p := range cands {
-		if !active(p.AuthorID) {
+		verdict := active.Verdict(p)
+		if verdict == posts.AuthorDrop { // the author, or the author a REPOST copies, is not ACTIVE
 			f.tally.inactive++
 			continue
 		}
-		embedGone := false
-		if ea := p.EmbeddedAuthor(); ea != "" && !active(ea) {
-			if p.Kind != posts.KindQuote { // a REPOST of it: the clean-up deletes the copy
-				f.tally.inactive++
-				continue
-			}
-			embedGone = true
-		}
+		embedGone := verdict == posts.AuthorTombstone
 		d, err := r.d.Audience.Decide(ctx, uid, snap, p, posts.SurfaceList)
 		if err != nil {
 			return filtered{}, err // an apierr (UNAVAILABLE) passes through
@@ -501,55 +496,6 @@ func (r *postsRuntime) filter(ctx context.Context, uid string, rows []*posts.Pos
 		f.kept = append(f.kept, p)
 	}
 	return f, nil
-}
-
-// activeAuthors reads the account status of the authors of rows and of the posts their QUOTEs and REPOSTs copy, through
-// identity.Directory.GetProfiles (cache-first, 60 s): an author it returns with status ACTIVE is active; a missing,
-// SUSPENDED or DELETING one is not. Each uid is asked once; the caller is never asked and is active (the account-status
-// interceptor admits only ACTIVE callers, as posts' reply policy also assumes). One call per page, in batches of
-// authorBatch (the Directory's limit), so a window of more than 50 distinct uids makes two. No uid, no call. A failure is
-// an error: status is never assumed.
-func (r *postsRuntime) activeAuthors(ctx context.Context, uid string, rows []*posts.Post) (func(string) bool, error) {
-	seen := map[string]bool{}
-	var want []string
-	add := func(a string) {
-		if a != "" && a != uid && !seen[a] {
-			seen[a] = true
-			want = append(want, a)
-		}
-	}
-	for _, p := range rows {
-		add(p.AuthorID)
-		add(p.EmbeddedAuthor())
-	}
-	active := make(map[string]bool, len(want))
-	for batch := range slices.Chunk(want, authorBatch) {
-		profiles, err := r.d.Authors.GetProfiles(ctx, batch)
-		if err != nil {
-			// identity's errors can name an author ("decode profile <uid>"): redact the batch too, as GetPost redacts its author.
-			return nil, logger.RedactErr(fmt.Errorf("search: author status: %w", err), append([]string{uid}, batch...)...)
-		}
-		for a, p := range profiles {
-			if p.Status == identity.AccountStatusActive {
-				active[a] = true
-			}
-		}
-	}
-	return func(a string) bool { return a == uid || active[a] }, nil
-}
-
-// tombstoned is a copy of the QUOTE q as posts' TombstoneQuotes leaves it once the quoted post's author is gone: the embed
-// reduced to {post id, unavailable}, no quoteOfId and no embedded author. q itself (shared through the tag entry) is never
-// changed.
-func tombstoned(q *posts.Post) *posts.Post {
-	c := *q
-	id := q.QuoteOfID
-	if q.Embedded != nil && q.Embedded.PostID != "" {
-		id = q.Embedded.PostID
-	}
-	c.Embedded = &posts.Embedded{PostID: id, Unavailable: true}
-	c.QuoteOfID, c.EmbeddedAuthorID = "", ""
-	return &c
 }
 
 // Drop causes of blockCause.
@@ -604,7 +550,7 @@ func (r *postsRuntime) views(ctx context.Context, uid string, kept []*posts.Post
 	for _, p := range kept {
 		src := p
 		if f.gone[p.ID] {
-			src = tombstoned(p)
+			src = posts.TombstonedQuote(p)
 		}
 		v := posts.ToView(src, vs, uid)
 		if st, ok := f.embed[p.ID]; ok {

@@ -164,13 +164,18 @@ func (s *Server) communityTimeline(ctx context.Context, uid string, req *timelin
 	if err := af.finish(); err != nil {
 		return nil, err
 	}
-	out.Posts = s.toViews(ctx, uid, snap.Following, nil, page.Items, af.embed)
-	applyCommunityReplyHint(out.Posts, page.Items, c, role)
+	// Author status (F-03), for moderators too (a suspension is not F14). Tokens stay on the raw window.
+	items, err := s.activeOnly(ctx, uid, page.Items, af.embed)
+	if err != nil {
+		return nil, err
+	}
+	out.Posts = s.toViews(ctx, uid, snap.Following, nil, items, af.embed)
+	applyCommunityReplyHint(out.Posts, items, c, role)
 	it := s.tokens(f, md, tok, page, res.entries, start)
 	out.SinceToken, out.NextPageToken, out.GapPageToken = it.since, it.next, it.gap
 	logger.SetRequestField(ctx, fieldClamped, it.clamped)
-	logger.SetRequestField(ctx, fieldReturned, len(page.Items))
-	logger.SetRequestField(ctx, fieldFiltered, page.Filtered)
+	logger.SetRequestField(ctx, fieldReturned, len(items))
+	logger.SetRequestField(ctx, fieldFiltered, page.Filtered+len(page.Items)-len(items))
 	logger.SetRequestField(ctx, fieldGap, out.GetGapPageToken() != "")
 	return out, nil
 }

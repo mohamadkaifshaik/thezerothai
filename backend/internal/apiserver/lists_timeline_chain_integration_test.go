@@ -17,6 +17,8 @@ import (
 
 	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
@@ -86,6 +88,13 @@ func seedList(t *testing.T, fs *firestore.Client, owner string, private bool, me
 	}
 	var postIDs []string
 	for i, m := range members {
+		// A member with no users doc gets an ACTIVE one: the feed drops rows whose author is not ACTIVE (F-03). A real
+		// user's doc is left as it is.
+		if _, err := fs.Collection("users").Doc(m).Create(ctx, map[string]any{
+			"handle": "h" + m, "handleLower": "h" + m, "displayName": m, "status": "ACTIVE", "createdAt": now,
+		}); err != nil && status.Code(err) != codes.AlreadyExists {
+			t.Fatalf("seed member profile: %v", err)
+		}
 		pid := fmt.Sprintf("%019d", rand.Int64N(9_000_000_000_000_000_000)+1)
 		if _, err := fs.Collection("posts").Doc(pid).Set(ctx, map[string]any{
 			"authorId": m, "author": map[string]any{"userId": m, "handle": "h" + m},
