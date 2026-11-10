@@ -41,3 +41,4 @@
 	featureReadReceipts, err := flags.LoadSpec("READ_RECEIPTS", "read_receipts", flags.Off)
 	featureDMPolicy, err := flags.LoadSpec("DM_POLICY", "dm_policy", flags.Off)
 	featureNotificationPrefs, err := flags.LoadSpec("NOTIFICATION_PREFS", "notification_prefs", flags.Off)
+	featureUITablet, err := flags.LoadSpec("UI_TABLET", "ui_tablet", flags.Off)

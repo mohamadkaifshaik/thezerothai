@@ -253,6 +253,12 @@ type Config struct {
 	// [_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureUIShell flags.Spec
 
+	// FeatureUITablet is the client-only UI flag (wire name `ui_tablet`, tablet layout plan) gating the tablet shell
+	// at 600-1199 dp. It only has an effect when ui_shell is also on for the caller; with it off, 600-1199 dp keeps
+	// today's layout. No RPC is gated by it, it only reaches clients through GetMe.enabled_features.
+	// FEATURE_UI_TABLET[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureUITablet flags.Spec
+
 	// FeatureShells is the client-only UI flag (wire name `shells`) showing the W8
 	// coming-soon pages (Creator tools, Premium, Advertise, Calls) and their drawer and rail entries. No RPC is gated by
 	// it, it only reaches clients through GetMe.enabled_features. FEATURE_SHELLS[_ALLOWLIST|_PERCENT], default off in
@@ -941,6 +947,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureUITablet, err := flags.LoadSpec("UI_TABLET", "ui_tablet", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureShells, err := flags.LoadSpec("SHELLS", "shells", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1057,6 +1067,7 @@ func Load() (Config, error) {
 		FeatureDrafts:                featureDrafts,
 		FeatureGif:                   featureGif,
 		FeatureUIShell:               featureUIShell,
+		FeatureUITablet:              featureUITablet,
 		FeatureShells:                featureShells,
 		FeatureCrashReporting:        featureCrashReporting,
 		FeatureAnalytics:             featureAnalytics,
