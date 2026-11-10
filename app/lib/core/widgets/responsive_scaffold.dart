@@ -4,10 +4,12 @@ import 'package:flutter/rendering.dart';
 import '../../shared/widgets/primitives/app_pill_button.dart';
 import '../theme/app_theme.dart';
 import 'app_bottom_bar.dart';
-import 'app_nav_destination.dart';
+import 'app_nav_rail.dart';
 import 'app_shell_scope.dart';
+import 'shell_geometry.dart';
 
 export 'app_nav_destination.dart';
+export 'shell_geometry.dart' show ShellLayout;
 
 /// Adaptive shell used by every top-level, authenticated screen:
 ///
@@ -15,9 +17,16 @@ export 'app_nav_destination.dart';
 ///   [AppFloatingBottomBar] pill over the body), the avatar [drawer]
 ///   (opened from the screen's top bar through an [AppShellScope]) and, when
 ///   [onCompose] is set and [showFab] is true, a floating compose button.
-/// - `600-1199dp` (tablet): an icon-only `NavigationRail` with a round compose
-///   button on top and the avatar at the bottom; the content is capped at
-///   600dp.
+/// - `600-1199dp` (tablet), [ShellLayout.legacy]: an icon-only
+///   `NavigationRail` with a round compose button on top and the avatar at
+///   the bottom; the content is capped at 600dp and the cluster is centred.
+/// - `600-1199dp`, [ShellLayout.tablet] (`ui_shell` + `ui_tablet`): the
+///   [AppNavRail] pinned to the leading edge and the [body] filling the rest
+///   of the width as one pane, with no outer `SafeArea`: the rail pads itself
+///   by the leading, top and bottom insets, and the pane gets the top,
+///   trailing and bottom ones (its header pads by the top inset, its
+///   scrollables by the bottom one). The pane carries a [ShellGeometry].
+///   [sideColumn] and [masterPane] are not shown there (later tablet phases).
 /// - `>= 1200dp` (desktop/web): an extended `NavigationRail` with the "Post"
 ///   pill on top and the account chip at the bottom, the 600dp content column
 ///   between two hairlines, and the 350dp [sideColumn] when a screen provides
@@ -44,7 +53,22 @@ class ResponsiveScaffold extends StatefulWidget {
     this.accountChipBuilder,
     this.masterPane,
     this.floatingBar = false,
+    this.layout = ShellLayout.legacy,
+    this.moreHasOwnRows = true,
+    this.onMoreFolded,
   });
+
+  /// The composition at 600-1199dp. [ShellLayout.tablet] only with
+  /// `ui_shell` and `ui_tablet` both on; phones and desktop ignore it.
+  final ShellLayout layout;
+
+  /// Tablet layout only: whether the More destination (the one with
+  /// `onActivate`) has rows of its own. See [AppNavRail.moreHasOwnRows].
+  final bool moreHasOwnRows;
+
+  /// Tablet layout only: opens More with the destinations folded into it at
+  /// a short height. See [AppNavRail.onMoreFolded].
+  final void Function(BuildContext anchor, List<int> folded)? onMoreFolded;
 
   /// The selected destination, or null when none is (Settings).
   final int? selectedIndex;
@@ -143,8 +167,63 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         if (width < AppBreakpoints.mobile) return _narrow(context);
-        return _wide(context, isDesktop: width >= AppBreakpoints.tablet);
+        final isDesktop = width >= AppBreakpoints.tablet;
+        if (!isDesktop && widget.layout == ShellLayout.tablet) {
+          return _tablet(context, constraints.biggest);
+        }
+        return _wide(context, isDesktop: isDesktop);
       },
+    );
+  }
+
+  /// The tablet shell (600-1199dp, [ShellLayout.tablet]): the pinned rail,
+  /// then the body as one pane over the rest of the width.
+  Widget _tablet(BuildContext context, Size window) {
+    final media = MediaQuery.of(context);
+    final direction = Directionality.of(context);
+    final geometry = ShellGeometry.contentRectFor(
+      window,
+      media.padding,
+      ShellLayout.tablet,
+      textDirection: direction,
+    );
+    final compose = widget.onCompose;
+    final ltr = direction == TextDirection.ltr;
+    return Scaffold(
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: geometry.railWidth,
+            // Focus order: the rail, then the pane.
+            child: FocusTraversalGroup(
+              child: AppNavRail(
+                destinations: widget.destinations,
+                selectedIndex: widget.selectedIndex,
+                onDestinationSelected: widget.onDestinationSelected,
+                compose: compose == null
+                    ? null
+                    : _GradientComposeCircle(onPressed: compose),
+                account: widget.accountChipBuilder?.call(false),
+                moreHasOwnRows: widget.moreHasOwnRows,
+                onMoreFolded: widget.onMoreFolded,
+              ),
+            ),
+          ),
+          Expanded(
+            // The rail took the leading inset; the pane keeps the others.
+            child: MediaQuery.removePadding(
+              context: context,
+              removeLeft: ltr,
+              removeRight: !ltr,
+              child: ShellGeometry(
+                data: geometry,
+                child: FocusTraversalGroup(child: widget.body),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -7,6 +7,7 @@ import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/core/widgets/app_account_chip.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/app_drawer.dart';
+import 'package:dzeroth/core/widgets/app_nav_rail.dart';
 import 'package:dzeroth/core/widgets/app_top_bar.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
@@ -1534,7 +1535,8 @@ void main() {
       final desktop = width >= AppBreakpoints.tablet;
 
       testWidgets('$w: the primary five, then the secondaries; no group '
-          'divider until T1; the rail is styled', (tester) async {
+          'divider on the NavigationRail (ui_tablet off); the rail is '
+          'styled', (tester) async {
         await pump(tester, width: width, flags: allFlags);
 
         final labels = railLabels(tester);
@@ -1732,5 +1734,344 @@ void main() {
       matrix('redesign widths', kRedesignWidths, heights: kRedesignHeights);
       matrix('boundaries', kMatrixWidths);
     }
+  });
+
+  group('tablet shell (ui_shell + ui_tablet, T1)', () {
+    const allFlags = {
+      'posts',
+      'search',
+      'beacons',
+      'notifications',
+      'messaging',
+      'lists',
+      'communities',
+      'bookmarks',
+      kFeatureUiTablet,
+    };
+    Finder inRail(Finder f) =>
+        find.descendant(of: find.byType(AppNavRail), matching: f);
+    Finder menuItem(String label) => find.descendant(
+      of: find.byWidgetPredicate((w) => w is PopupMenuItem),
+      matching: find.text(label),
+    );
+    // The rail's items top to bottom, by the tooltip or label they carry.
+    List<String> railOrder(WidgetTester tester) {
+      final items = <(double, String)>[];
+      for (final label in [
+        'Home',
+        'Explore',
+        'Plans',
+        'Notifications',
+        'Messages',
+        'Lists',
+        'Communities',
+        'History',
+        'Profile',
+        'More',
+      ]) {
+        final f = find.descendant(
+          of: find.byType(AppNavRail),
+          matching: find.byWidgetPredicate(
+            (w) =>
+                (w is Text && w.data == label) ||
+                (w is Tooltip && w.message == label),
+          ),
+        );
+        if (f.evaluate().isNotEmpty) {
+          items.add((tester.getCenter(f.first).dy, label));
+        }
+      }
+      items.sort((a, b) => a.$1.compareTo(b.$1));
+      return [for (final i in items) i.$2];
+    }
+
+    testWidgets('834 dp: the pinned rail in ADR-0034 order with the group '
+        'divider; the page fills the rest, its header the full pane', (
+      tester,
+    ) async {
+      await pump(tester, width: 834, height: 1194, flags: allFlags);
+
+      expect(find.byType(NavigationRail), findsNothing);
+      expect(railOrder(tester), [
+        'Home',
+        'Explore',
+        'Plans',
+        'Notifications',
+        'Messages',
+        'Lists',
+        'Communities',
+        'History',
+        'Profile',
+        'More',
+      ]);
+      expect(inRail(find.byType(Divider)), findsOneWidget);
+      expect(tester.getRect(find.byType(AppNavRail)).left, 0);
+      expect(tester.getRect(find.byType(AppNavRail)).width, 80);
+      expect(
+        tester.getRect(find.byType(AppTopBar)),
+        const Rect.fromLTWH(80, 0, 754, 53),
+      );
+      // The account avatar (collapsed chip) and the compose circle.
+      expect(inRail(find.byType(AppAccountChip)), findsOneWidget);
+      expect(find.text('@alice'), findsNothing);
+      expect(inRail(find.byTooltip('New post')), findsOneWidget);
+      // No phone chrome.
+      expect(find.byType(AppBottomBar), findsNothing);
+      expect(find.bySemanticsLabel('Open account menu'), findsNothing);
+      expect(find.byType(AppSideColumn), findsNothing);
+    });
+
+    testWidgets('ui_tablet needs ui_shell: with ui_shell off the legacy '
+        'NavigationRail stays at 834 dp', (tester) async {
+      await pump(tester, width: 834, flags: allFlags, newShell: false);
+
+      expect(find.byType(AppNavRail), findsNothing);
+      expect(find.byType(NavigationRail), findsOneWidget);
+      expect(find.byType(AppAccountChip), findsNothing);
+    });
+
+    testWidgets('ui_tablet off: today\'s NavigationRail at 834 dp', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        width: 834,
+        flags: {...allFlags}..remove(kFeatureUiTablet),
+      );
+
+      expect(find.byType(AppNavRail), findsNothing);
+      expect(find.byType(NavigationRail), findsOneWidget);
+    });
+
+    testWidgets('phones and desktop are unchanged with ui_tablet on', (
+      tester,
+    ) async {
+      await pump(tester, flags: allFlags);
+      expect(find.byType(AppFloatingBottomBar), findsOneWidget);
+      expect(find.byType(AppNavRail), findsNothing);
+
+      for (final width in [1200.0, 1440.0]) {
+        await pump(tester, width: width, flags: allFlags);
+        expect(find.byType(AppNavRail), findsNothing);
+        final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
+        expect(rail.extended, isTrue);
+        expect(find.byType(AppSideColumn), findsOneWidget);
+      }
+    });
+
+    testWidgets('desktop keeps today\'s More rule: no rows, no More', (
+      tester,
+    ) async {
+      await pump(tester, width: 1440, flags: const {kFeatureUiTablet});
+
+      // (The extended account chip draws a "more" glyph of its own.)
+      final labels = [
+        for (final d
+            in tester
+                .widget<NavigationRail>(find.byType(NavigationRail))
+                .destinations)
+          ((d.label is Semantics ? (d.label as Semantics).child : d.label)
+                  as Text)
+              .data,
+      ];
+      expect(labels, ['Home', 'Plans', 'Profile']);
+    });
+
+    testWidgets('More opens its menu beside the item from the keyboard; '
+        'Escape closes it and gives the focus back', (tester) async {
+      await pump(
+        tester,
+        width: 834,
+        height: 1194,
+        flags: const {'posts', kFeatureUiTablet},
+      );
+      final more = inRail(find.byIcon(Icons.more_horiz));
+      final node = Focus.of(tester.element(more));
+      node.requestFocus();
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(menuItem('Articles'), findsOneWidget);
+      expect(node.hasPrimaryFocus, isFalse);
+      final menu = tester.getRect(
+        find
+            .ancestor(
+              of: find.text('Articles'),
+              matching: find.byType(Material),
+            )
+            .first,
+      );
+      // To the right of the rail, level with the item.
+      expect(menu.left, greaterThanOrEqualTo(78));
+      expect(menu.top, closeTo(tester.getRect(more).top, 16));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(menuItem('Articles'), findsNothing);
+      expect(node.hasPrimaryFocus, isTrue);
+    });
+
+    testWidgets('a rail tap navigates and selects', (tester) async {
+      await pump(tester, width: 834, height: 1194, flags: allFlags);
+
+      await tester.tap(inRail(find.byIcon(Icons.list_alt_outlined)));
+      await tester.pumpAndSettle();
+      expect(find.text('lists body'), findsOneWidget);
+      expect(inRail(find.byIcon(Icons.list_alt)), findsOneWidget);
+    });
+
+    group('R2 (1024 x 640): More absorbs the secondaries', () {
+      testWidgets('the menu lists Lists, Communities, History and Profile '
+          'above Articles; a row opens its page', (tester) async {
+        await pump(tester, width: 1024, height: 640, flags: allFlags);
+
+        expect(railOrder(tester), [
+          'Home',
+          'Explore',
+          'Plans',
+          'Notifications',
+          'Messages',
+          'More',
+        ]);
+        await tester.tap(inRail(find.byIcon(Icons.more_horiz)));
+        await tester.pumpAndSettle();
+        const order = [
+          'Lists',
+          'Communities',
+          'History',
+          'Profile',
+          'Articles',
+        ];
+        final ys = [
+          for (final label in order) tester.getCenter(menuItem(label)).dy,
+        ];
+        for (var i = 1; i < ys.length; i++) {
+          expect(ys[i], greaterThan(ys[i - 1]), reason: order[i]);
+        }
+
+        await tester.tap(menuItem('Communities'));
+        await tester.pumpAndSettle();
+        expect(find.text('communities body'), findsOneWidget);
+      });
+
+      testWidgets('on a folded page More is the selected item', (tester) async {
+        final handle = tester.ensureSemantics();
+        await pump(
+          tester,
+          width: 1024,
+          height: 640,
+          location: '/bookmarks',
+          flags: allFlags,
+        );
+
+        expect(
+          tester.getSemantics(inRail(find.byIcon(Icons.more_horiz))),
+          isSemantics(label: 'More, menu', isSelected: true),
+        );
+        handle.dispose();
+      });
+
+      testWidgets('More shows even with no rows of its own (no posts, no '
+          'shells); its Profile row goes home without a profile', (
+        tester,
+      ) async {
+        await pump(
+          tester,
+          width: 1024,
+          height: 640,
+          flags: const {kFeatureUiTablet},
+          profile: false,
+          location: '/plans',
+        );
+
+        await tester.tap(inRail(find.byIcon(Icons.more_horiz)));
+        await tester.pumpAndSettle();
+        expect(menuItem('Profile'), findsOneWidget);
+        expect(menuItem('Articles'), findsNothing);
+        await tester.tap(menuItem('Profile'));
+        await tester.pumpAndSettle();
+        expect(find.text('home body'), findsOneWidget);
+      });
+
+      testWidgets('R1 keeps today\'s rule: no rows of its own, no More', (
+        tester,
+      ) async {
+        await pump(
+          tester,
+          width: 1024,
+          height: 768,
+          flags: const {kFeatureUiTablet},
+        );
+
+        expect(railOrder(tester), ['Home', 'Plans', 'Profile']);
+      });
+    });
+
+    testWidgets('the account avatar opens the account menu with the 1000+ '
+        'follow-request count', (tester) async {
+      final graph = _MockGraph();
+      when(() => graph.followRequestsUnavailable).thenReturn(false);
+      await pump(
+        tester,
+        width: 834,
+        height: 1194,
+        flags: const {'posts', 'graph', 'private_accounts', kFeatureUiTablet},
+        pendingFollowRequests: 1500,
+        graph: graph,
+      );
+
+      expectMinTarget(tester, find.byType(AppAccountChip));
+      await tester.tap(find.byType(AppAccountChip));
+      await tester.pumpAndSettle();
+      for (final label in ['Profile', 'Follow requests', 'Settings']) {
+        expect(menuItem(label), findsOneWidget, reason: label);
+      }
+      expect(find.text('1000+'), findsOneWidget);
+    });
+
+    testWidgets('unread badges are spoken on the rail', (tester) async {
+      final handle = tester.ensureSemantics();
+      final badge = UnreadBadgeCubit(7);
+      addTearDown(badge.close);
+      await pump(
+        tester,
+        width: 834,
+        height: 1194,
+        flags: allFlags,
+        badge: badge,
+      );
+
+      expect(find.bySemanticsLabel('Notifications, 7 unread'), findsOneWidget);
+      handle.dispose();
+    });
+
+    forEachThemeAndWidth(
+      'the shell fits: no overflow, rail + pane = W, 48 dp targets',
+      (tester, env) async {
+        for (final height in {env.size.height, ...kTabletLandscapeHeights}) {
+          await pump(
+            tester,
+            width: env.size.width,
+            height: height,
+            flags: allFlags,
+            brightness: env.brightness,
+            textScale: env.textScale,
+          );
+
+          expectNoOverflow(tester);
+          final rail = tester.getRect(find.byType(AppNavRail));
+          final header = tester.getRect(find.byType(AppTopBar));
+          expect(rail.left, 0);
+          expect(header.left, rail.right);
+          expect(rail.width + header.width, env.size.width);
+          expectMinTarget(tester, inRail(find.byTooltip('New post')));
+          expectMinTarget(tester, find.byType(AppAccountChip));
+        }
+      },
+      widths: kTabletMatrixWidths,
+      textScales: kTabletTextScales,
+      heights: kTabletHeights,
+    );
   });
 }

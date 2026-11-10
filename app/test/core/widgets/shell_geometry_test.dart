@@ -1,0 +1,144 @@
+import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/core/widgets/shell_geometry.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import '../../support/theme_harness.dart';
+
+void main() {
+  group('ShellBand', () {
+    test('the bands switch at 600, 840 and 1200', () {
+      expect(
+        {for (final w in kBoundaryWidths) w: ShellBand.of(w)},
+        {
+          599.0: ShellBand.phone,
+          600.0: ShellBand.medium,
+          839.0: ShellBand.medium,
+          840.0: ShellBand.expanded,
+          1199.0: ShellBand.expanded,
+          1200.0: ShellBand.desktop,
+        },
+      );
+      expect(AppBreakpoints.expanded, 840);
+      expect(ShellBand.medium.isTablet, isTrue);
+      expect(ShellBand.expanded.isTablet, isTrue);
+      expect(ShellBand.phone.isTablet, isFalse);
+      expect(ShellBand.desktop.isTablet, isFalse);
+    });
+  });
+
+  group('ShellGeometry.contentRectFor', () {
+    test('tablet layout, no insets: C = W - 80 (plan section 3)', () {
+      final expected = {
+        600.0: 520.0,
+        673.0: 593.0,
+        744.0: 664.0,
+        800.0: 720.0,
+        834.0: 754.0,
+        839.0: 759.0,
+        840.0: 760.0,
+        1024.0: 944.0,
+        1133.0: 1053.0,
+        1180.0: 1100.0,
+        1194.0: 1114.0,
+        1199.0: 1119.0,
+      };
+      for (final MapEntry(key: w, value: c) in expected.entries) {
+        final g = ShellGeometry.contentRectFor(
+          Size(w, 900),
+          EdgeInsets.zero,
+          ShellLayout.tablet,
+        );
+        expect(g.tablet, isTrue, reason: '$w');
+        expect(g.railWidth, AppSize.railCompact, reason: '$w');
+        expect(g.content, Rect.fromLTWH(80, 0, c, 900), reason: '$w');
+        // No dead strip: the rail and the content make up the window.
+        expect(g.railWidth + g.content.width, w, reason: '$w');
+      }
+    });
+
+    test('the leading inset widens the rail; the trailing one ends the '
+        'content', () {
+      const padding = EdgeInsets.fromLTRB(44, 24, 30, 21);
+      final ltr = ShellGeometry.contentRectFor(
+        const Size(932, 430),
+        padding,
+        ShellLayout.tablet,
+      );
+      expect(ltr.band, ShellBand.expanded);
+      expect(ltr.railWidth, 80 + 44);
+      expect(ltr.content, const Rect.fromLTWH(124, 0, 932 - 124 - 30, 430));
+
+      // Right to left: the rail and its inset are on the right.
+      final rtl = ShellGeometry.contentRectFor(
+        const Size(932, 430),
+        padding,
+        ShellLayout.tablet,
+        textDirection: TextDirection.rtl,
+      );
+      expect(rtl.railWidth, 80 + 30);
+      expect(rtl.content, const Rect.fromLTWH(44, 0, 932 - 110 - 44, 430));
+    });
+
+    test('phones, desktop and the legacy layout are not modelled: the whole '
+        'window, no rail', () {
+      for (final (width, layout) in [
+        (599.0, ShellLayout.tablet),
+        (1200.0, ShellLayout.tablet),
+        (1440.0, ShellLayout.tablet),
+        (600.0, ShellLayout.legacy),
+        (834.0, ShellLayout.legacy),
+        (1199.0, ShellLayout.legacy),
+      ]) {
+        final g = ShellGeometry.contentRectFor(
+          Size(width, 800),
+          const EdgeInsets.only(left: 20, right: 20),
+          layout,
+        );
+        expect(g.tablet, isFalse, reason: '$width $layout');
+        expect(g.railWidth, 0, reason: '$width $layout');
+        expect(
+          g.content,
+          Rect.fromLTWH(0, 0, width, 800),
+          reason: '$width $layout',
+        );
+        expect(g.band, ShellBand.of(width));
+      }
+    });
+  });
+
+  testWidgets('maybeOf reads the published geometry and is null without '
+      'one', (tester) async {
+    final data = ShellGeometry.contentRectFor(
+      const Size(834, 1194),
+      EdgeInsets.zero,
+      ShellLayout.tablet,
+    );
+    ShellGeometryData? seen;
+    ShellGeometryData? outside;
+    await tester.pumpWidget(
+      Column(
+        textDirection: TextDirection.ltr,
+        children: [
+          Builder(
+            builder: (context) {
+              outside = ShellGeometry.maybeOf(context);
+              return const SizedBox();
+            },
+          ),
+          ShellGeometry(
+            data: data,
+            child: Builder(
+              builder: (context) {
+                seen = ShellGeometry.maybeOf(context);
+                return const SizedBox();
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+    expect(seen, data);
+    expect(outside, isNull);
+  });
+}

@@ -1,10 +1,13 @@
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
+import 'package:dzeroth/core/widgets/app_nav_rail.dart';
 import 'package:dzeroth/core/widgets/app_shell_scope.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
 import 'package:dzeroth/core/widgets/shell_bottom_inset_sliver.dart';
+import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/contrast.dart';
@@ -1463,7 +1466,7 @@ void main() {
       }
 
       testWidgets('$w: the primaries, then the secondaries, in list order; no '
-          'divider until T1', (tester) async {
+          'divider on the NavigationRail (ui_tablet off)', (tester) async {
         // No selection: every glyph is the outline one.
         await _pump(
           tester,
@@ -1486,7 +1489,9 @@ void main() {
           expect(ys[i], greaterThan(ys[i - 1]), reason: shell[i].label);
         }
         // Ruling: `NavigationRail.leading`/`trailing` sit above or below all
-        // the items, so the group divider waits for T1's `AppNavRail`.
+        // the items, so the group divider is `AppNavRail`'s (the tablet
+        // layout, asserted in the 'tablet layout' group below). This rail
+        // stays as it was.
         expect(inRail(find.byType(Divider)), findsNothing);
       });
 
@@ -1587,5 +1592,405 @@ void main() {
       );
       matrix(kMatrixWidths, kRedesignTextScales, set: 'boundaries');
     }
+  });
+
+  group('tablet layout (ui_shell + ui_tablet, T1)', () {
+    // The new shell's rail: five primaries, four secondaries and More.
+    List<AppNavDestination> shell() => [
+      const AppNavDestination(
+        icon: Icons.home_outlined,
+        selectedIcon: Icons.home,
+        label: 'Home',
+      ),
+      const AppNavDestination(
+        icon: Icons.search,
+        selectedIcon: Icons.manage_search,
+        label: 'Explore',
+      ),
+      const AppNavDestination(
+        icon: Icons.track_changes,
+        selectedIcon: Icons.adjust,
+        label: 'Plans',
+      ),
+      const AppNavDestination(
+        icon: Icons.notifications_none,
+        selectedIcon: Icons.notifications,
+        label: 'Notifications',
+      ),
+      const AppNavDestination(
+        icon: Icons.mail_outline,
+        selectedIcon: Icons.mail,
+        label: 'Messages',
+      ),
+      const AppNavDestination(
+        icon: Icons.list_alt_outlined,
+        selectedIcon: Icons.list_alt,
+        label: 'Lists',
+        group: AppNavGroup.secondary,
+      ),
+      const AppNavDestination(
+        icon: Icons.groups_outlined,
+        selectedIcon: Icons.groups,
+        label: 'Communities',
+        group: AppNavGroup.secondary,
+      ),
+      const AppNavDestination(
+        icon: Icons.bookmark_border,
+        selectedIcon: Icons.bookmark,
+        label: 'History',
+        group: AppNavGroup.secondary,
+      ),
+      const AppNavDestination(
+        icon: Icons.person_outline,
+        selectedIcon: Icons.person,
+        label: 'Profile',
+        group: AppNavGroup.secondary,
+      ),
+      AppNavDestination(
+        icon: Icons.more_horiz,
+        selectedIcon: Icons.more_horiz,
+        label: 'More',
+        semanticsLabel: 'More, menu',
+        group: AppNavGroup.secondary,
+        onActivate: (_) {},
+      ),
+    ];
+
+    Widget tablet({
+      Widget? body,
+      ShellLayout layout = ShellLayout.tablet,
+      int? selected = 0,
+      ValueChanged<int>? onSelected,
+      void Function(BuildContext anchor, List<int> folded)? onMoreFolded,
+    }) => ResponsiveScaffold(
+      selectedIndex: selected,
+      onDestinationSelected: onSelected ?? (_) {},
+      destinations: shell(),
+      onCompose: () {},
+      redesignedRail: true,
+      floatingBar: true,
+      layout: layout,
+      onMoreFolded: onMoreFolded,
+      drawer: const Drawer(),
+      sideColumn: const SizedBox(key: _sideKey, height: 10),
+      accountChipBuilder: (extended) => SizedBox(
+        key: const Key('chip'),
+        width: extended ? 200 : 40,
+        height: 40,
+      ),
+      body: body ?? const SizedBox.expand(key: _bodyKey),
+    );
+
+    /// Pumps with safe-area [padding] (and the matching view padding).
+    Future<void> pumpTablet(
+      WidgetTester tester,
+      Widget child, {
+      double width = 834,
+      double height = 1194,
+      EdgeInsets padding = EdgeInsets.zero,
+      double textScale = 1,
+      Brightness brightness = Brightness.light,
+    }) => pumpThemed(
+      tester,
+      MediaQuery(
+        data: MediaQueryData(
+          size: Size(width, height),
+          padding: padding,
+          viewPadding: padding,
+          textScaler: TextScaler.linear(textScale),
+        ),
+        child: child,
+      ),
+      size: Size(width, height),
+      textScale: textScale,
+      brightness: brightness,
+      useScaffold: false,
+    );
+
+    Finder inRail(Finder f) =>
+        find.descendant(of: find.byType(AppNavRail), matching: f);
+
+    for (final width in kTabletMatrixWidths) {
+      testWidgets('${width.toInt()} dp: the rail is pinned at x = 0 and the '
+          'body fills the rest: no dead strip', (tester) async {
+        await pumpTablet(tester, tablet(), width: width);
+
+        expect(find.byType(NavigationRail), findsNothing);
+        expect(find.byType(AppBottomBar), findsNothing);
+        expect(
+          tester.getRect(find.byType(AppNavRail)),
+          Rect.fromLTWH(0, 0, AppSize.railCompact, 1194),
+        );
+        expect(
+          tester.getRect(find.byKey(_bodyKey)),
+          Rect.fromLTWH(80, 0, width - 80, 1194),
+        );
+        // No side column, drawer scope or phone compose button.
+        expect(find.byKey(_sideKey), findsNothing);
+        expect(find.byType(FloatingActionButton), findsNothing);
+        expect(find.byKey(const Key('chip')), findsOneWidget);
+        expectSize(tester, find.byKey(const Key('chip')), width: 40);
+        final geometry = ShellGeometry.maybeOf(
+          tester.element(find.byKey(_bodyKey)),
+        )!;
+        expect(geometry.tablet, isTrue);
+        expect(geometry.content, tester.getRect(find.byKey(_bodyKey)));
+      });
+    }
+
+    testWidgets('the group divider sits between the primaries and the '
+        'secondaries (the phase 3.5 tripwire, tablet side)', (tester) async {
+      await pumpTablet(tester, tablet());
+
+      final divider = inRail(find.byType(Divider));
+      expect(divider, findsOneWidget);
+      final y = tester.getCenter(divider).dy;
+      expect(
+        y,
+        greaterThan(
+          tester.getCenter(inRail(find.byIcon(Icons.mail_outline))).dy,
+        ),
+      );
+      expect(
+        y,
+        lessThan(
+          tester.getCenter(inRail(find.byIcon(Icons.list_alt_outlined))).dy,
+        ),
+      );
+    });
+
+    testWidgets('the compose button is the 52 dp gradient circle "New '
+        'post"', (tester) async {
+      await pumpTablet(tester, tablet());
+
+      final glyph = inRail(find.byIcon(Icons.edit_outlined));
+      final fill = tester.widget<DecoratedBox>(
+        find.ancestor(
+          of: glyph,
+          matching: find.byWidgetPredicate(
+            (w) =>
+                w is DecoratedBox &&
+                w.decoration is ShapeDecoration &&
+                (w.decoration as ShapeDecoration).gradient != null,
+          ),
+        ),
+      );
+      expect(
+        (fill.decoration as ShapeDecoration).gradient,
+        AppColors.light.primaryFillGradient,
+      );
+      expectSize(
+        tester,
+        find.byWidget(fill),
+        width: AppSize.railPostHeight,
+        height: AppSize.railPostHeight,
+      );
+      expect(inRail(find.byTooltip('New post')), findsOneWidget);
+    });
+
+    testWidgets('per-pane safe areas: no outer SafeArea; the rail takes the '
+        'leading inset, the pane gets the top, trailing and bottom ones', (
+      tester,
+    ) async {
+      const padding = EdgeInsets.fromLTRB(44, 24, 30, 20);
+      late EdgeInsets bodyPadding;
+      await pumpTablet(
+        tester,
+        tablet(
+          body: Builder(
+            builder: (context) {
+              bodyPadding = MediaQuery.paddingOf(context);
+              return const SizedBox.expand(key: _bodyKey);
+            },
+          ),
+        ),
+        width: 932,
+        height: 430,
+        padding: padding,
+      );
+
+      expect(
+        find.ancestor(
+          of: find.byKey(_bodyKey),
+          matching: find.byType(SafeArea),
+        ),
+        findsNothing,
+      );
+      expect(
+        tester.getRect(find.byType(AppNavRail)),
+        const Rect.fromLTWH(0, 0, 124, 430),
+      );
+      // The pane runs under the status bar and to the trailing edge; its
+      // header and scrollables pad themselves.
+      expect(
+        tester.getRect(find.byKey(_bodyKey)),
+        const Rect.fromLTRB(124, 0, 932, 430),
+      );
+      expect(bodyPadding, const EdgeInsets.fromLTRB(0, 24, 30, 20));
+      final geometry = ShellGeometry.maybeOf(
+        tester.element(find.byKey(_bodyKey)),
+      )!;
+      expect(
+        geometry.content,
+        const Rect.fromLTWH(124, 0, 932 - 124 - 30, 430),
+      );
+    });
+
+    testWidgets('a ShellBottomInsetSliver is as tall as the bottom inset '
+        '(the rail layouts of ui_tablet off keep it zero)', (tester) async {
+      await pumpTablet(
+        tester,
+        tablet(
+          body: const CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(child: SizedBox(height: 10)),
+              ShellBottomInsetSliver(),
+            ],
+          ),
+        ),
+        padding: const EdgeInsets.only(bottom: 20),
+      );
+
+      expect(
+        tester
+            .widget<SizedBox>(
+              find.descendant(
+                of: find.byType(ShellBottomInsetSliver),
+                matching: find.byType(SizedBox),
+              ),
+            )
+            .height,
+        20,
+      );
+    });
+
+    testWidgets('phones and desktop ignore the layout; ShellLayout.legacy '
+        'keeps the centred NavigationRail', (tester) async {
+      await pumpTablet(tester, tablet(), width: 599);
+      expect(find.byType(AppFloatingBottomBar), findsOneWidget);
+      expect(find.byType(AppNavRail), findsNothing);
+
+      for (final width in [1200.0, 1440.0]) {
+        await pumpTablet(tester, tablet(), width: width, height: 900);
+        expect(find.byType(AppNavRail), findsNothing);
+        final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
+        expect(rail.extended, isTrue);
+        expect(find.byKey(_sideKey), findsOneWidget);
+        // (At 1200 the side column squeezes the column, as today.)
+        if (width == 1440) {
+          expectSize(tester, find.byKey(_bodyKey), width: AppSize.contentMax);
+        }
+      }
+
+      await pumpTablet(tester, tablet(layout: ShellLayout.legacy));
+      expect(find.byType(AppNavRail), findsNothing);
+      expect(find.byType(NavigationRail), findsOneWidget);
+      expectSize(tester, find.byKey(_bodyKey), width: AppSize.contentMax);
+      expect(
+        ShellGeometry.maybeOf(tester.element(find.byKey(_bodyKey))),
+        isNull,
+      );
+    });
+
+    testWidgets('boundaries: the chrome at each side of 600, 840 and 1200', (
+      tester,
+    ) async {
+      for (final width in kBoundaryWidths) {
+        await pumpTablet(tester, tablet(), width: width, height: 900);
+        final band = ShellBand.of(width);
+        expect(
+          find.byType(AppNavRail),
+          band.isTablet ? findsOneWidget : findsNothing,
+          reason: '$width',
+        );
+        expect(
+          find.byType(NavigationRail),
+          band == ShellBand.desktop ? findsOneWidget : findsNothing,
+          reason: '$width',
+        );
+        expect(
+          find.byType(AppFloatingBottomBar),
+          band == ShellBand.phone ? findsOneWidget : findsNothing,
+          reason: '$width',
+        );
+        expectNoOverflow(tester);
+      }
+    });
+
+    testWidgets('focus order: the rail (its one Tab stop), then the pane', (
+      tester,
+    ) async {
+      await pumpTablet(
+        tester,
+        tablet(
+          selected: 3,
+          body: Center(
+            child: TextButton(onPressed: () {}, child: const Text('in pane')),
+          ),
+        ),
+      );
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(
+        Focus.of(tester.element(inRail(find.byIcon(Icons.notifications))))
+            .hasPrimaryFocus,
+        isTrue,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(
+        Focus.of(tester.element(find.text('in pane'))).hasPrimaryFocus,
+        isTrue,
+      );
+    });
+
+    testWidgets('R2 (1024 x 640): More is handed the folded secondaries', (
+      tester,
+    ) async {
+      final folded = <List<int>>[];
+      await pumpTablet(
+        tester,
+        tablet(onMoreFolded: (anchor, rows) => folded.add(rows)),
+        width: 1024,
+        height: 640,
+      );
+
+      expect(inRail(find.byIcon(Icons.list_alt_outlined)), findsNothing);
+      await tester.tap(inRail(find.byIcon(Icons.more_horiz)));
+      expect(folded, [
+        [5, 6, 7, 8],
+      ]);
+    });
+
+    // Tablet plan section 5.5: 5 widths x 2 scales x 2 themes, portrait,
+    // then the landscape heights (R2 and R3 included).
+    forEachThemeAndWidth(
+      'no overflow; regions sum to W; 48 dp compose target',
+      (tester, env) async {
+        for (final height in {env.size.height, ...kTabletLandscapeHeights}) {
+          await pumpTablet(
+            tester,
+            tablet(),
+            width: env.size.width,
+            height: height,
+            brightness: env.brightness,
+            textScale: env.textScale,
+          );
+
+          expectNoOverflow(tester);
+          final rail = tester.getRect(find.byType(AppNavRail));
+          final body = tester.getRect(find.byKey(_bodyKey));
+          expect(rail.left, 0);
+          expect(rail.width, AppSize.railCompact);
+          expect(body.left, rail.right);
+          expect(rail.width + body.width, env.size.width);
+          expectMinTarget(tester, inRail(find.byTooltip('New post')));
+        }
+      },
+      widths: kTabletMatrixWidths,
+      textScales: kTabletTextScales,
+      heights: kTabletHeights,
+    );
   });
 }

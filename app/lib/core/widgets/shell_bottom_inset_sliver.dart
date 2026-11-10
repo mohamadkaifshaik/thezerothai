@@ -9,7 +9,10 @@ import 'package:flutter/widgets.dart';
 /// `CustomScrollView` does not, hence this sliver. It is zero tall wherever
 /// the padding is already taken: the docked bar of the legacy chrome (the
 /// `Scaffold` removes it from the body), the wide layouts and a `SafeArea`
-/// above the scroll view, so those layouts are unchanged.
+/// above the scroll view, so those layouts are unchanged. The tablet layout
+/// (`ui_tablet`, no outer `SafeArea`) passes the bottom safe-area inset
+/// through, so there it keeps the end of the content clear of the home
+/// indicator.
 ///
 /// Under a `NestedScrollView` put it in the inner scroll views (the tabs).
 /// `test/guards/shell_bottom_inset_guard_test.dart` checks every call site.
