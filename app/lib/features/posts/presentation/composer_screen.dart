@@ -11,6 +11,7 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/telemetry/usage_reporter.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/router/close_routes_above.dart';
 import '../../../core/storage/app_database.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
@@ -585,9 +586,13 @@ class _ComposerViewState extends State<_ComposerView> {
   }
 
   void _onState(BuildContext context, ComposerState state) {
+    // Leaving already (posted, closed, or the session ended): the cubit may
+    // still emit until the route is gone, and none of it may act again.
+    if (_left) return;
     // Signed out, or another account now (the composer was opened in an
-    // ended session): leave at once. Nothing is asked and nothing is saved;
-    // the cubit sends nothing from here on.
+    // ended session): leave at once, with any dialog or sheet open over it.
+    // Nothing is asked and nothing is saved; the cubit sends nothing from
+    // here on.
     if (state.sessionEnded) return _leave(context);
     final notice = state.audienceNotice;
     if (notice != null) {
@@ -750,7 +755,7 @@ class _ComposerViewState extends State<_ComposerView> {
   /// the old "Discard this post?" because media is never kept. Never while the
   /// post is being sent.
   Future<void> _requestClose(BuildContext context, ComposerState state) async {
-    if (state.isSubmitting) return;
+    if (_left || state.isSubmitting) return;
     final cubit = context.read<ComposerCubit>();
     final gif =
         widget.mediaEnabled && context.read<AttachmentsCubit>().state.hasGif;
@@ -805,9 +810,16 @@ class _ComposerViewState extends State<_ComposerView> {
     _leave(context);
   }
 
+  /// Set by the first [_leave]: the composer leaves once. A second pop would
+  /// take the page under it (or `go` Home would reset the stack).
+  bool _left = false;
+
   /// Back to where the composer was opened from (Home when it was the first
-  /// page).
+  /// page), closing first whatever is open over it. Once only.
   void _leave(BuildContext context) {
+    if (_left) return;
+    _left = true;
+    closeRoutesAbove(context);
     if (context.canPop()) {
       context.pop();
     } else {

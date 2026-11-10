@@ -362,7 +362,11 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
   /// Throws an [AppException]: the first failure of the whole call (quota,
   /// degraded mode, network, ...), a per-image network failure, or a
   /// [ValidationException] (`field: media`) when moderation refused an image.
-  Future<UploadedAttachments> uploadAll() async {
+  ///
+  /// [stillWanted] is asked before each request of the upload; once it answers
+  /// false (the session ended) no further request starts and an
+  /// [UploadInterruptedException] is thrown.
+  Future<UploadedAttachments> uploadAll({bool Function()? stillWanted}) async {
     final items = state.items;
     final jobs = [
       for (final a in items)
@@ -382,6 +386,7 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
       outcomes = await _uploader.upload(
         purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
         jobs: jobs,
+        stillWanted: stillWanted,
         onProgress: (id, progress) => _update(
           id,
           (a) => a.status == AttachmentStatus.uploading

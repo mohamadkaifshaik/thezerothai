@@ -65,6 +65,58 @@ void main() {
     for (final id in ids) UploadJob(id: id, image: fakeProcessed(id)),
   ];
 
+  group('a session that ended stops the upload', () {
+    test('nothing is reserved once it is no longer wanted', () async {
+      stubCreate(['m1']);
+      stubPutOk();
+      stubFinalize(readyResult);
+
+      await expectLater(
+        uploader.upload(
+          purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+          jobs: jobs(['a']),
+          stillWanted: () => false,
+        ),
+        throwsA(isA<UploadInterruptedException>()),
+      );
+
+      verifyNever(
+        () => repo.createUpload(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          purpose: any(named: 'purpose'),
+          images: any(named: 'images'),
+        ),
+      );
+    });
+
+    test('ended during a PUT: no further PUT and no finalize', () async {
+      stubCreate(['m1', 'm2']);
+      var wanted = true;
+      var puts = 0;
+      when(() => repo.putObject(any(), any())).thenAnswer((_) async {
+        if (++puts == 1) wanted = false;
+      });
+      stubFinalize(readyResult);
+
+      await expectLater(
+        uploader.upload(
+          purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+          jobs: jobs(['a', 'b']),
+          stillWanted: () => wanted,
+        ),
+        throwsA(isA<UploadInterruptedException>()),
+      );
+
+      expect(puts, 1, reason: 'the PUT already on the wire finished');
+      verifyNever(
+        () => repo.finalizeUpload(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          items: any(named: 'items'),
+        ),
+      );
+    });
+  });
+
   test(
     'reserves, PUTs full then thumb, finalizes and reports progress',
     () async {

@@ -350,9 +350,9 @@ class ComposerCubit extends Cubit<ComposerState> {
     Uuid? uuid,
     DateTime Function()? clock,
     UsageReporter usage = const UsageReporter.none(),
+    SessionEpoch? sessionEpoch,
   }) : quoteOfPostId = '',
-       // A reply has no await before its RPC (no draft row, no photos).
-       _session = SessionEpoch(),
+       _session = sessionEpoch ?? SessionEpoch(),
        _usage = usage,
        _repository = postsRepository,
        _pending = null,
@@ -376,6 +376,7 @@ class ComposerCubit extends Cubit<ComposerState> {
        super(ComposerState(draft: analyzePostDraft(''))) {
     _baseline = _base;
     _openedSession = _session.value;
+    _sessionSub = _session.ended.listen((_) => _sessionHasEnded());
   }
 
   static ComposerDraft _baseDraft(
@@ -486,7 +487,10 @@ class ComposerCubit extends Cubit<ComposerState> {
     }
     try {
       final draft = await repo.read(_draftUid, id);
-      if (draft == null || isClosed) return DraftLoadResult.gone;
+      // The session may have ended while the row was read.
+      if (draft == null || isClosed || _sessionOver) {
+        return DraftLoadResult.gone;
+      }
       return loadDraft(draft);
     } catch (_, stack) {
       _reportDraftStorage(stack);
@@ -722,18 +726,20 @@ class ComposerCubit extends Cubit<ComposerState> {
   /// the posts repository writes its cache under). The composer belongs to
   /// the session it was opened in: once a sign-out or an account switch ends
   /// it, nothing is sent, uploaded or saved any more (also when the screen
-  /// is still open), and the screen leaves. Without one (tests, a reply) a
-  /// private epoch that never ends is used.
+  /// is still open), and the screen leaves (the thread's reply bar empties
+  /// instead). Without one (tests) a private epoch that never ends is used.
   final SessionEpoch _session;
   late final int _openedSession;
   StreamSubscription<int>? _sessionSub;
 
   bool get _sessionOver => _session.value != _openedSession;
 
-  /// Says once that the session ended; the screen then leaves.
+  /// Says once that the session ended; the screen then leaves (a composer
+  /// screen) or empties its field (the thread's reply bar). The old account's
+  /// text is dropped with it.
   void _sessionHasEnded() {
     if (isClosed || state.sessionEnded) return;
-    emit(state.copyWith(sessionEnded: true));
+    emit(state.copyWith(sessionEnded: true, draft: analyzePostDraft('')));
   }
 
   /// The send key claimed on the draft row for the send in flight.
@@ -838,12 +844,8 @@ class ComposerCubit extends Cubit<ComposerState> {
     if (!isClosed && !_sessionOver) return true;
     _releaseClaim();
     if (!isClosed) {
-      emit(
-        state.copyWith(
-          status: ComposerStatus.editing,
-          sessionEnded: _sessionOver ? true : null,
-        ),
-      );
+      emit(state.copyWith(status: ComposerStatus.editing));
+      if (_sessionOver) _sessionHasEnded();
     }
     return false;
   }
@@ -1237,7 +1239,11 @@ class ComposerCubit extends Cubit<ComposerState> {
       return null;
     }
     try {
-      final uploaded = await attachments.uploadAll();
+      // No upload request starts once the session ended: A's photos must not
+      // become media of the next account.
+      final uploaded = await attachments.uploadAll(
+        stillWanted: () => !_sessionOver,
+      );
       // The screen may have gone while the photos uploaded: never create
       // a post nobody is waiting for (and never one that lost its photos).
       return isClosed ? null : uploaded;
@@ -1245,6 +1251,12 @@ class ComposerCubit extends Cubit<ComposerState> {
       // Already reported where it happened (repository / uploader): never
       // report an upload failure a second time here.
       if (isClosed) return null;
+      if (_sessionOver) {
+        // Stopped for the session: nothing failed, the screen leaves.
+        emit(state.copyWith(status: ComposerStatus.editing));
+        _sessionHasEnded();
+        return null;
+      }
       emit(
         state.copyWith(
           status: ComposerStatus.editing,

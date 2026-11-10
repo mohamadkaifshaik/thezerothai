@@ -27,6 +27,16 @@ class _HeldDrafts extends DraftsRepository {
   final Completer<String> cleared = Completer<String>();
   int claims = 0;
 
+  /// Holds [read] until it completes.
+  Completer<void>? readGate;
+
+  @override
+  Future<ComposerDraft?> read(String uid, String draftId) async {
+    final hold = readGate;
+    if (hold != null) await hold.future;
+    return super.read(uid, draftId);
+  }
+
   /// The texts handed to [autosave], in order.
   final List<String> autosaved = [];
 
@@ -217,6 +227,28 @@ void main() {
       expect(server.received, 0);
     });
 
+    test('the session ends during a PUT: no finalize, no RPC', () async {
+      final put = Completer<void>();
+      stubHappyUpload(media, onPut: (_) => put.future);
+      final c = open(attachments: attachments, drafts: false);
+      await attach();
+
+      final sent = c.submit();
+      await untilCalled(() => media.putObject(any(), any()));
+      db.sessionEpoch.end();
+      put.complete();
+      await sent;
+
+      verifyNever(
+        () => media.finalizeUpload(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          items: any(named: 'items'),
+        ),
+      );
+      expect(server.received, 0);
+      expect(c.state.error, isNull, reason: 'nothing to tell: it left');
+    });
+
     test('an idle photo post whose session ended starts no upload', () async {
       stubHappyUpload(media);
       final c = open(attachments: attachments, drafts: false);
@@ -275,6 +307,20 @@ void main() {
       expect(repo.autosaved, isNot(contains('typed after the switch')));
       expect(result, DraftSaveResult.skipped);
       expect(await storedText(c.draftId), 'from the old account');
+    });
+
+    test('a saved draft read across the switch is not loaded', () async {
+      final seed = await saved('from the old account');
+      final c = open()..textChanged('typed here');
+      repo.readGate = Completer<void>();
+
+      final loading = c.loadSavedDraft(seed.draftId);
+      db.sessionEpoch.end();
+      repo.readGate!.complete();
+
+      expect(await loading, DraftLoadResult.gone);
+      expect(c.state.draft.text, isNot('from the old account'));
+      expect(c.draftId, isNot(seed.draftId));
     });
 
     test('a composer with no session epoch behaves as before', () async {
