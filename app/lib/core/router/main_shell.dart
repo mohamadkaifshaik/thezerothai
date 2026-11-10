@@ -28,6 +28,7 @@ import '../widgets/app_drawer.dart';
 import '../widgets/app_more_menu.dart';
 import '../widgets/responsive_scaffold.dart';
 import '../widgets/privacy_policy_link.dart';
+import '../widgets/shell_geometry.dart';
 import 'app_router.dart';
 import 'compose_gate.dart';
 
@@ -236,6 +237,9 @@ class MainShell extends StatelessWidget {
     );
     final ownHandle = ownProfile?.handle;
 
+    final refreshFailed = context.select(
+      (OnboardingBloc bloc) => bloc.state.refreshFailed,
+    );
     final canCompose = canComposeAt(context, location);
     final newShell = isFeatureEnabled(context, kFeatureUiShell);
     final showFab = newShell ? showComposeFabAt(context, location) : canCompose;
@@ -265,6 +269,17 @@ class MainShell extends StatelessWidget {
     // Explore: the new shell with `search` on, second after Home.
     final exploreEntry = newShell && isFeatureEnabled(context, kFeatureSearch);
     final shellEntries = shellEntriesFor(context);
+    // The tablet shell (600-1199dp): `ui_shell` and `ui_tablet` both on.
+    // Either off keeps today's 600-1199dp layout; phones and desktop never
+    // change with it.
+    final width = MediaQuery.sizeOf(context).width;
+    final tabletLayout =
+        newShell &&
+        isFeatureEnabled(context, kFeatureUiTablet) &&
+        ShellBand.of(width).isTablet;
+    // More's own rows: the shell entries and Articles (`posts`).
+    final moreHasOwnRows =
+        shellEntries.isNotEmpty || isFeatureEnabled(context, kFeaturePosts);
     final tabs = _destinationsFor(
       newShell: newShell,
       explore: exploreEntry,
@@ -277,9 +292,12 @@ class MainShell extends StatelessWidget {
       // no Plans tab.
       plans: newShell,
       settings: !newShell,
-      onMore: shellEntries.isEmpty && !isFeatureEnabled(context, kFeaturePosts)
-          ? null
-          : (anchor) => AppMoreMenu.show(anchor, entries: shellEntries),
+      // The tablet rail keeps More whenever it has rows, folded secondary
+      // destinations included (a short window); `AppNavRail` hides it when
+      // it has none.
+      onMore: moreHasOwnRows || tabletLayout
+          ? (anchor) => AppMoreMenu.show(anchor, entries: shellEntries)
+          : null,
     );
     final selected = _selectedTab(settingsTab: !newShell);
     final selectedIndex = selected == null
@@ -317,13 +335,60 @@ class MainShell extends StatelessWidget {
     // only in the new shell.
     final onSettings = location.startsWith(AppRouter.settingsPath);
     final masterDetail =
-        newShell &&
-        onSettings &&
-        MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet;
+        newShell && onSettings && width >= AppBreakpoints.tablet;
+
+    void select(int index) {
+      switch (tabs[index].tab) {
+        case _Tab.home:
+          context.go('/home');
+        case _Tab.explore:
+          context.go(AppRouter.explorePath);
+        case _Tab.notifications:
+          context.go(AppRouter.notificationsPath);
+        case _Tab.messages:
+          context.go(AppRouter.messagesPath);
+        case _Tab.lists:
+          context.go(AppRouter.listsPath);
+        case _Tab.communities:
+          context.go(AppRouter.communitiesPath);
+        case _Tab.plans:
+          context.go(AppRouter.plansPath);
+        case _Tab.bookmarks:
+          context.go(AppRouter.bookmarksPath);
+        case _Tab.settings:
+          context.go(AppRouter.settingsPath);
+        case _Tab.more:
+          // Opens a menu through `onActivate`; never navigates.
+          break;
+        case _Tab.profile:
+          context.go(
+            ownHandle == null || ownHandle.isEmpty
+                ? '/home'
+                : '/profile/$ownHandle',
+          );
+      }
+    }
 
     return ResponsiveScaffold(
       // The redesigned rail look (600dp and up) with the new shell only.
       redesignedRail: newShell,
+      layout: tabletLayout ? ShellLayout.tablet : ShellLayout.legacy,
+      moreHasOwnRows: moreHasOwnRows,
+      // A short tablet rail folds Lists, Communities, History and Profile
+      // into More: they head its menu and open as from the rail.
+      onMoreFolded: (anchor, folded) => AppMoreMenu.show(
+        anchor,
+        entries: shellEntries,
+        folded: [
+          for (final i in folded)
+            AppMoreMenuFoldedRow(
+              icon: tabs[i].destination.icon,
+              label: tabs[i].destination.label,
+              selected: tabs[i].tab == selected,
+              onSelected: () => select(i),
+            ),
+        ],
+      ),
       masterPane: masterDetail ? _SettingsMaster(selectedPath: location) : null,
       selectedIndex: selectedIndex == null || selectedIndex < 0
           ? null
@@ -377,48 +442,33 @@ class MainShell extends StatelessWidget {
         ],
       ),
       destinations: destinations,
-      onDestinationSelected: (index) {
-        switch (tabs[index].tab) {
-          case _Tab.home:
-            context.go('/home');
-          case _Tab.explore:
-            context.go(AppRouter.explorePath);
-          case _Tab.notifications:
-            context.go(AppRouter.notificationsPath);
-          case _Tab.messages:
-            context.go(AppRouter.messagesPath);
-          case _Tab.lists:
-            context.go(AppRouter.listsPath);
-          case _Tab.communities:
-            context.go(AppRouter.communitiesPath);
-          case _Tab.plans:
-            context.go(AppRouter.plansPath);
-          case _Tab.bookmarks:
-            context.go(AppRouter.bookmarksPath);
-          case _Tab.settings:
-            context.go(AppRouter.settingsPath);
-          case _Tab.more:
-            // Opens a menu through `onActivate`; never navigates.
-            break;
-          case _Tab.profile:
-            context.go(
-              ownHandle == null || ownHandle.isEmpty
-                  ? '/home'
-                  : '/profile/$ownHandle',
-            );
-        }
-      },
+      onDestinationSelected: select,
       // A failed GetMe behind a cached profile: a non-blocking Retry over
       // every destination, never a hard stop (offline warm start).
-      body: Column(
-        children: [
-          const AccountRefreshBanner(),
-          Expanded(
-            child: masterDetail && location == AppRouter.settingsPath
-                ? const SettingsDetailPlaceholder()
-                : child,
-          ),
-        ],
+      // The tablet pane keeps the top inset (no outer SafeArea): while the
+      // banner shows it sits below the inset and the page under it does not
+      // pad by the inset again. Elsewhere the inset is already taken (0).
+      body: Builder(
+        builder: (pane) {
+          final inset = refreshFailed ? MediaQuery.paddingOf(pane).top : 0.0;
+          return Column(
+            children: [
+              Padding(
+                padding: EdgeInsets.only(top: inset),
+                child: const AccountRefreshBanner(),
+              ),
+              Expanded(
+                child: MediaQuery.removePadding(
+                  context: pane,
+                  removeTop: inset > 0,
+                  child: masterDetail && location == AppRouter.settingsPath
+                      ? const SettingsDetailPlaceholder()
+                      : child,
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

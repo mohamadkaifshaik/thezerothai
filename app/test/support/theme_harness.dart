@@ -22,6 +22,34 @@ const kRedesignTextScales = <double>[1.0, 2.0];
 /// [forEachThemeAndWidth].
 final kRedesignHeights = <double, double>{360: 800, 834: 1194, 1440: 900};
 
+/// The widths (dp) the tablet-layout tests run at (tablet plan section 5.5):
+/// band A (600, 744, 834) and band B (1024, 1194). Separate from
+/// [kMatrixWidths] so existing matrices do not multiply.
+const kTabletMatrixWidths = <double>[600, 744, 834, 1024, 1194];
+
+/// The widths on both sides of every layout boundary: phone / tablet,
+/// band A / band B, tablet / desktop.
+const kBoundaryWidths = <double>[599, 600, 839, 840, 1199, 1200];
+
+/// The text scales of the tablet matrix (1.3 stays in [kMatrixTextScales]).
+const kTabletTextScales = <double>[1.0, 2.0];
+
+/// Viewport heights (dp) per [kTabletMatrixWidths] width, for the
+/// `heights:` parameter of [forEachThemeAndWidth]: portrait iPad mini
+/// 744 x 1133, iPad 11-inch 834 x 1194, the 12.9/13-inch iPad Pro portrait
+/// 1024 x 1366 (band B), and the 11-inch iPad in landscape 1194 x 834.
+final kTabletHeights = <double, double>{
+  600: 960,
+  744: 1133,
+  834: 1194,
+  1024: 1366,
+  1194: 834,
+};
+
+/// Short landscape heights (dp) of the tablet bands: a tablet in landscape
+/// (768, 834) and a phone in landscape at 844 dp wide (390, rail R3).
+const kTabletLandscapeHeights = <double>[768, 834, 390];
+
 /// The full text-scale axis of the W3 client matrix: the shared
 /// stops plus the accessibility maximum, 2.0. Pass it as `textScales:` to
 /// [forEachThemeAndWidth] to cover every cell: 360 / 600 / 1200 dp x light /
