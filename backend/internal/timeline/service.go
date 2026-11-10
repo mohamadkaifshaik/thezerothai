@@ -291,7 +291,7 @@ func (s *Server) toViews(ctx context.Context, uid string, following, blocked map
 	if len(ps) > 0 {
 		vs = posts.HydrateViewer(ctx, s.deps.Flags, s.deps.Viewer, uid)
 	}
-	vs = vs.WithBlockedAuthors(blocked)
+	vs = posts.HydrateBeacons(ctx, s.deps.Flags, s.plans, vs, uid, ps...).WithBlockedAuthors(blocked)
 	out := make([]*postsv1.PostView, 0, len(ps))
 	for _, p := range ps {
 		v := posts.ToView(p, vs, uid)

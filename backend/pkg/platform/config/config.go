@@ -185,6 +185,10 @@ type Config struct {
 	// can still read, leave and cancel. A community-audience beacon also needs FEATURE_COMMUNITIES on for the caller.
 	// FEATURE_BEACONS[_ALLOWLIST|_PERCENT], default off in every environment (dev stays on an allowlist, no prod raise).
 	FeatureBeacons flags.Spec
+	// FeaturePostBeaconEmbed is the flag (wire name `post_beacon_embed`) gating CreatePostRequest.beacon_id (a plan shared on a
+	// root post) and, while globally off, stripping Post.beacon from every response. On for the caller on top of FEATURE_BEACONS
+	// on for the caller. FEATURE_POST_BEACON_EMBED[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeaturePostBeaconEmbed flags.Spec
 	// FeatureChatSharedPlans is the flag (wire name `chat_shared_plans`) gating BeaconService.ListSharedBeacons, the "plans
 	// you share" strip of a chat. On for the caller on top of FEATURE_BEACONS not globally off.
 	// FEATURE_CHAT_SHARED_PLANS[_ALLOWLIST|_PERCENT], default off in every environment.
@@ -864,6 +868,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featurePostBeaconEmbed, err := flags.LoadSpec("POST_BEACON_EMBED", "post_beacon_embed", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureChatSharedPlans, err := flags.LoadSpec("CHAT_SHARED_PLANS", "chat_shared_plans", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1025,6 +1033,7 @@ func Load() (Config, error) {
 		FeatureLists:              featureLists,
 		FeatureCommunities:        featureCommunities,
 		FeatureBeacons:            featureBeacons,
+		FeaturePostBeaconEmbed:    featurePostBeaconEmbed,
 		FeatureChatSharedPlans:    featureChatSharedPlans,
 		FeatureReadReceipts:       featureReadReceipts,
 		FeatureProfileExtras:      featureProfileExtras,

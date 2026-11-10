@@ -96,6 +96,10 @@ func communityBoundsOf(w Window) communityBounds {
 // (fail closed: never an ordinary post).
 func (s *service) SetCommunityGate(g CommunityGate) { s.community = g }
 
+// SetBeaconPlans wires the plan reader of CreatePost's beacon_id (EmbedTarget). Set once at startup, before ListenAndServe,
+// because beacons is built after posts. Without it a set beacon_id stays FEATURE_DISABLED feature=post_beacon_embed.
+func (s *service) SetBeaconPlans(p BeaconPlans) { s.beacons = p }
+
 // ByCommunity implements Reader.
 func (s *service) ByCommunity(ctx context.Context, cid string, w Window, limit int) ([]*Post, error) {
 	if cid == "" {

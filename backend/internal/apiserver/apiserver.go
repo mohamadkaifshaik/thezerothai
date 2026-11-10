@@ -733,6 +733,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return nil, nil, errors.New("beacons service does not implement BeaconReporter")
 	}
 	lateBeacons.r = beaconReporter // bound before ListenAndServe: a BEACON report can now reach the beacon
+	// Post.beacon: CreatePost's beacon_id and the card hydration of every post producer.
+	wirePostPlans(beaconsSvc, postsSvc, postsServer, timelineServer)
 	beaconsServer := beacons.NewServer(featureFlags, beaconsSvc)
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return beaconsv1connect.NewBeaconServiceHandler(beaconsServer, o...)
