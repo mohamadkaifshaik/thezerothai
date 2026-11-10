@@ -7,6 +7,7 @@ import 'package:uuid/uuid.dart';
 
 import 'auth_token_provider.dart';
 import 'connect_error_mapper.dart';
+import 'request_session.dart';
 
 /// Adds a fresh `X-Request-Id` to every call, so backend logs and client
 /// error reports can be correlated (the health and logging rule).
@@ -48,19 +49,55 @@ final class ServicePausedInterceptor {
   }
 }
 
+/// What [AuthHeadersInterceptor] bound each in-flight request to: the account
+/// uid when the request entered the transport, or [_unbound] when no session
+/// existed then. Read again by [RequestSessionGuard] before every attempt (a
+/// retry re-sends the same request object).
+final Expando<Object> _binding = Expando('request session');
+
+/// The [_binding] of a request that entered the transport with no session.
+const Object _unbound = _Unbound();
+
+final class _Unbound {
+  const _Unbound();
+}
+
 /// Attaches the Firebase ID token and the Firebase App Check token to every
 /// outgoing call. Both are refreshed lazily by the providers,
 /// which cache the underlying platform tokens for their own TTL.
+///
+/// With [sessionUid] wired, a call is bound at transport entry: to the
+/// account signed in when the request enters the interceptor chain (read
+/// synchronously, before any await), not when the user acted. After both
+/// token fetches the call is refused with [RequestSessionChangedException],
+/// and never sent, when the session moved to another account or signed out,
+/// or when the ID token is not that account's (the auth SDK answers with
+/// whoever is signed in by then). A call that enters with no session is not
+/// bound and goes as before.
+///
+/// Awaits a screen makes before it issues the RPC (e.g. an upload, then
+/// CreatePost) are outside this window: the screen-level session binding of
+/// the composer, replies and uploads (#788) covers them, and the server
+/// already refuses media ids that are not the caller's.
 final class AuthHeadersInterceptor {
-  const AuthHeadersInterceptor(this._authTokens, this._appCheckTokens);
+  const AuthHeadersInterceptor(
+    this._authTokens,
+    this._appCheckTokens, {
+    SessionUidReader? sessionUid,
+  }) : _sessionUid = sessionUid;
 
   final AuthTokenProvider _authTokens;
   final AppCheckTokenProvider _appCheckTokens;
+  final SessionUidReader? _sessionUid;
 
   connect.AnyFn<I, O> call<I extends Object, O extends Object>(
     connect.AnyFn<I, O> next,
   ) {
     return (request) async {
+      // Synchronous, before the first await: the account this call is for.
+      final reader = _sessionUid;
+      final bound = reader?.call();
+      if (reader != null) _binding[request] = bound ?? _unbound;
       final idToken = await _authTokens.getIdToken();
       if (idToken != null) {
         request.headers.set('authorization', ['Bearer $idToken']);
@@ -79,6 +116,45 @@ final class AuthHeadersInterceptor {
       }
       if (appCheckToken != null) {
         request.headers.set('x-firebase-appcheck', [appCheckToken]);
+      }
+      if (bound != null &&
+          (reader?.call() != bound ||
+              idToken == null ||
+              idTokenUid(idToken) != bound)) {
+        throw const RequestSessionChangedException();
+      }
+      return next(request);
+    };
+  }
+}
+
+/// Re-checks, right before every send (the first attempt and each
+/// [RetryInterceptor] retry), that the session is still the account
+/// [AuthHeadersInterceptor] bound the call to. Sits innermost, after
+/// [RetryInterceptor]: a retry after a switch is refused with
+/// [RequestSessionChangedException] and never sent. Unbound calls pass.
+///
+/// It finds the binding by request object identity: any interceptor placed
+/// between [AuthHeadersInterceptor] and this guard must pass the same request
+/// object on (never a copy), or the binding is lost (asserted in debug).
+final class RequestSessionGuard {
+  const RequestSessionGuard(this._sessionUid);
+
+  final SessionUidReader _sessionUid;
+
+  connect.AnyFn<I, O> call<I extends Object, O extends Object>(
+    connect.AnyFn<I, O> next,
+  ) {
+    return (request) async {
+      final binding = _binding[request];
+      final current = _sessionUid();
+      assert(
+        binding != null || current == null,
+        'A request reached RequestSessionGuard with a session but no binding: '
+        'it did not pass AuthHeadersInterceptor as the same object.',
+      );
+      if (binding is String && current != binding) {
+        throw const RequestSessionChangedException();
       }
       return next(request);
     };

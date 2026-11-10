@@ -2,6 +2,7 @@ import 'package:connectrpc/connect.dart' as connect;
 
 import '../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'app_exception.dart';
+import 'request_session.dart';
 
 /// Converts a [connect.ConnectException] (or any other error thrown while
 /// making a call) into a typed [AppException] the UI can branch on.
@@ -9,6 +10,14 @@ import 'app_exception.dart';
 /// Branches on `dzeroth.common.v1.ErrorDetail.reason`, never on the message
 /// text (see `common.proto`).
 AppException mapConnectError(Object error) {
+  // Refused client-side, never sent: the account changed while the call
+  // waited for its tokens. The session-ended type, with its existing copy;
+  // never the retryable NetworkException below.
+  if (error is RequestSessionChangedException) {
+    return const UnauthenticatedException(
+      'Your session expired. Please sign in again.',
+    );
+  }
   if (error is! connect.ConnectException) {
     return NetworkException(error.toString());
   }

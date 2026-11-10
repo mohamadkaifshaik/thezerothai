@@ -42,6 +42,7 @@ void main() {
       authTokens: auth,
       appCheckTokens: appCheck,
       httpClient: httpClient,
+      sessionUid: () => null,
       onServicePaused: () => paused++,
     );
   }
