@@ -123,10 +123,10 @@ func TestList_BlockedByOverflow(t *testing.T) {
 				t.Fatalf("rows = %q, want %q", got, tc.wantIDs)
 			}
 			for _, n := range res.Notifications {
-				// The domain count, as TestList_HidesSuppressedActorsAtReadTime asserts it (ToProto re-maxes it with
-				// len(ActorIDs) on both paths; reported as a pre-existing follow-up, not changed here).
-				if want, ok := tc.wantCount[n.ID]; ok && n.ActorCount != want {
-					t.Errorf("%s actor count = %d, want %d", n.ID, n.ActorCount, want)
+				// The domain count and the wire count agree: visible() prunes the hidden ids, so ToProto's max with
+				// len(ActorIDs) cannot bring them back (TestList_WireActorCountExcludesHiddenActors).
+				if want, ok := tc.wantCount[n.ID]; ok && (n.ActorCount != want || int(ToProto(n).GetActorCount()) != want) {
+					t.Errorf("%s actor count = %d (wire %d), want %d", n.ID, n.ActorCount, ToProto(n).GetActorCount(), want)
 				}
 				if tc.snap.BlockedByOverflow && tc.blockers[n.Actor.UserID] {
 					t.Errorf("%s shows blocker %s as its actor", n.ID, n.Actor.UserID)
@@ -256,13 +256,19 @@ func TestList_BlockedByOverflow_CapCoversShownActorsFirst(t *testing.T) {
 	}
 	for _, n := range res.Notifications {
 		unknown := 0
-		for _, id := range n.ActorIDs {
+		for _, id := range repo.rows["me"][n.ID].ActorIDs { // the stored ids: the returned ones are pruned
 			if !asked[id] {
 				unknown++
 			}
 		}
-		if want := MaxActorIDs - unknown; n.ActorCount != max(want, 1) {
-			t.Errorf("%s count = %d, want %d (%d folded actors unchecked)", n.ID, n.ActorCount, max(want, 1), unknown)
+		want := max(MaxActorIDs-unknown, 1)
+		if n.ActorCount != want || int(ToProto(n).GetActorCount()) != want {
+			t.Errorf("%s count = %d (wire %d), want %d (%d folded actors unchecked)", n.ID, n.ActorCount, ToProto(n).GetActorCount(), want, unknown)
+		}
+		for _, id := range n.ActorIDs {
+			if !asked[id] {
+				t.Errorf("%s still carries unchecked folded actor %s", n.ID, id)
+			}
 		}
 	}
 }

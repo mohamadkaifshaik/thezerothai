@@ -249,7 +249,9 @@ func typeToProto(t Type) notificationsv1.NotificationType {
 	return notificationsv1.NotificationType_NOTIFICATION_TYPE_UNSPECIFIED
 }
 
-// ToProto maps a domain Notification to its wire form.
+// ToProto maps a domain Notification to its wire form. actor_count is max(ActorCount, len(ActorIDs)), at least 1:
+// the max covers legacy rows whose stored count is 0 or below the ids (see visible), and List has already
+// subtracted the hidden actors from ActorCount and pruned them from ActorIDs.
 func ToProto(n Notification) *notificationsv1.Notification {
 	count := max(n.ActorCount, len(n.ActorIDs))
 	if count < 1 {

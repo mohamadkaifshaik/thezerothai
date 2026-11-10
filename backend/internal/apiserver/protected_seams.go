@@ -39,12 +39,7 @@ type protectedSeam struct {
 // requireProtectedSeams returns an error naming every seam that is nil (including a typed nil), or nil when all eight
 // are wired. It runs before ListenAndServe, so a refactor that drops one fails the deploy, not a user's privacy.
 func requireProtectedSeams(seams []protectedSeam) error {
-	var missing []string
-	for _, s := range seams {
-		if isNilSeam(s.value) {
-			missing = append(missing, s.name)
-		}
-	}
+	missing := nilSeams(seams)
 	if len(missing) == 0 {
 		return nil
 	}
@@ -52,6 +47,30 @@ func requireProtectedSeams(seams []protectedSeam) error {
 }
 
 var errProtectedSeamMissing = errors.New("apiserver: protected-author seam missing")
+
+// requireAuthorStatusSeams is the same startup check for the author-status Directory a read surface filters rows with
+// (F-03: SearchPosts drops rows whose author is not ACTIVE). search.WithPosts already refuses to build SearchPosts without
+// it (Unimplemented, never unfiltered rows); this makes the wiring regression fail the deploy instead of switching search off.
+func requireAuthorStatusSeams(seams []protectedSeam) error {
+	missing := nilSeams(seams)
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("author-status seams not wired: %s: %w", strings.Join(missing, ", "), errAuthorStatusSeamMissing)
+}
+
+var errAuthorStatusSeamMissing = errors.New("apiserver: author-status seam missing")
+
+// nilSeams names every seam that is nil, typed nils included, in order.
+func nilSeams(seams []protectedSeam) []string {
+	var missing []string
+	for _, s := range seams {
+		if isNilSeam(s.value) {
+			missing = append(missing, s.name)
+		}
+	}
+	return missing
+}
 
 func isNilSeam(v any) bool {
 	if v == nil {
