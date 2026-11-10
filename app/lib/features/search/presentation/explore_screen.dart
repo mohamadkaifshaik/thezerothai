@@ -35,7 +35,7 @@ class ExploreScreen extends StatelessWidget {
           SliverPersistentHeader(
             pinned: true,
             delegate: _ExploreHeader(
-              extent: rowHeight + AppSize.headerRow,
+              extent: rowHeight + AppTabBar.heightFor(context),
               rowHeight: rowHeight,
             ),
           ),
