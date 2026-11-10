@@ -129,7 +129,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 
 	// Beacons: CreateBeacon, UpdateBeacon and CancelBeacon share one per-user bucket (RATE_LIMIT_BEACONS_WRITE_PER_MIN,
 	// 10/min per instance); the five participation RPCs share another (RATE_LIMIT_BEACONS_ACTION_PER_MIN, 20/min); the
-	// four reads a third (RATE_LIMIT_BEACONS_READ_PER_MIN, 30/min). CreateBeacon alone carries the in-memory daily cap
+	// five reads (Get, ListBeacons, ListMyBeacons, ListParticipants, ListSharedBeacons) a third (RATE_LIMIT_BEACONS_READ_PER_MIN, 30/min). CreateBeacon alone carries the in-memory daily cap
 	// BEACONS_CREATED_PER_DAY (limit_name "beacons_created_daily"). All twelve are mapped now so PR 3 touches no rate limits.
 	rlBeaconsWrite := ratelimit.NewLimiter(cfg.RateLimit.BeaconsWritePerUserPerMinute, idleBucketTTL)
 	rlBeaconsAction := ratelimit.NewLimiter(cfg.RateLimit.BeaconsActionPerUserPerMinute, idleBucketTTL)
@@ -165,6 +165,8 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			postsv1connect.PostServiceDeletePostProcedure:                        rlPostDelete,
 			postsv1connect.PostServiceSchedulePostProcedure:                      rlPostCreate,
 			postsv1connect.PostServiceCancelScheduledPostProcedure:               rlPostCreate,
+			postsv1connect.PostServicePublishScheduledPostNowProcedure:           rlPostCreate,
+			postsv1connect.PostServiceUpdateScheduledPostProcedure:               rlPostCreate,
 			articlesv1connect.ArticleServicePublishArticleProcedure:              rlPostCreate,
 			moderationv1connect.ModerationServiceReportContentProcedure:          rlReport,
 			engagementv1connect.EngagementServiceLikePostProcedure:               rlEngagement,
@@ -234,6 +236,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			beaconsv1connect.BeaconServiceListBeaconsProcedure:                   rlBeaconsRead,
 			beaconsv1connect.BeaconServiceListMyBeaconsProcedure:                 rlBeaconsRead,
 			beaconsv1connect.BeaconServiceListParticipantsProcedure:              rlBeaconsRead,
+			beaconsv1connect.BeaconServiceListSharedBeaconsProcedure:             rlBeaconsRead,
 		},
 		DailyCaps: map[string]ratelimit.NamedDailyCap{
 			graphv1connect.GraphServiceFollowProcedure:   {Name: "graph_mutation_daily", Cap: graphMutationDailyCap},

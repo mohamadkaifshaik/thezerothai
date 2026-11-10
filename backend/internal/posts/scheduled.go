@@ -70,6 +70,9 @@ const (
 	// ScheduledWindowRadius is the half-width of the per-author window cap: at most config.Scheduled.PerAuthorPerRun
 	// PENDING items within +/-ScheduledWindowRadius of a new publish_at (review L-3; fixed by design, not config).
 	ScheduledWindowRadius = 4 * time.Minute
+	// ScheduledEditLockout is how close to publish_at an item stops being editable (UpdateScheduledPost), so an edit
+	// cannot race the sweep that is about to publish it. Fixed by design, not config.
+	ScheduledEditLockout = 60 * time.Second
 	// ScheduledDefaultPage and ScheduledMaxPage are the ListScheduledPosts page sizes (0 means the default; rule 5).
 	ScheduledDefaultPage = 20
 	ScheduledMaxPage     = MaxLimit

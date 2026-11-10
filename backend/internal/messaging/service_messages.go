@@ -28,6 +28,7 @@ const (
 	fieldSinceRetire = "since_retired"
 	fieldCacheHit    = "cache_hit"
 	fieldEntryFound  = "entry_found"
+	fieldReceipt     = "read_receipt"
 )
 
 // Token bindings: a message token opens only for the uid, the conversation and the token kind it was issued for.
@@ -187,6 +188,8 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 		snap  graph.Snapshot
 		entry EntryDoc
 		found bool
+		// callerReceipts is the caller's own read-receipts setting, loaded only on a first page with the flag on for both.
+		callerReceipts bool
 	)
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(4)
@@ -200,10 +203,18 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 		rows, err = s.d.Repo.ListMessages(gctx, in.convID, MessageQuery{Limit: in.limit, Before: in.before, After: in.after, ClearedAt: conv.ClearedAt[uid]})
 		return err
 	}))
+	// F3: the caller's own setting rides on the peer profile lookup (one batched, cache-first call) of a first page, only
+	// when the flag is on for both sides; the rest of the receipt rule runs after the page is read.
+	wantReceipt := first && s.flags != nil && s.flags.Enabled(uid, identity.ReadReceiptsFlag) && s.flags.Enabled(peer, identity.ReadReceiptsFlag)
 	if withConv && peer != DeletedUID {
 		g.Go(s.recovered(ctx, func() error {
-			got, err := s.d.Profiles.GetProfiles(gctx, []string{peer})
+			lookup := []string{peer}
+			if wantReceipt {
+				lookup = append(lookup, uid)
+			}
+			got, err := s.d.Profiles.GetProfiles(gctx, lookup)
 			prof, live = got[peer], err == nil && got[peer].UserID != ""
+			callerReceipts = wantReceipt && err == nil && got[uid].ReadReceipts
 			if err != nil {
 				return fmt.Errorf("messaging: peer profile: %w", err)
 			}
@@ -265,6 +276,9 @@ func (s *service) listMessages(ctx context.Context, uid string, in messagesInput
 		resp.Conversation = threadConversation(in.convID, conv, uid, peer, prof, live, blocked, snap, own)
 		if first {
 			resp.Conversation.UnreadCount, resp.Conversation.Silent = entry.UnreadCount, entry.Silent
+			if live && peer != DeletedUID {
+				resp.Conversation.PeerReadAt = s.peerReadAt(ctx, conv, in.convID, peer, callerReceipts, prof.ReadReceipts, snap)
+			}
 		}
 	}
 	return resp, nil
@@ -371,7 +385,9 @@ func (s *service) MarkRead(ctx context.Context, uid string, req *messagingv1.Mar
 		return nil, errors.New("messaging: mark read is not configured")
 	}
 	logger.SetRequestField(ctx, fieldConvHash, logger.HashConversation(id))
-	found, err := s.d.Repo.MarkRead(ctx, uid, id, s.d.Now())
+	receipt := s.receiptsOn(ctx, uid)
+	logger.SetRequestField(ctx, fieldReceipt, receipt)
+	found, err := s.d.Repo.MarkRead(ctx, uid, id, s.d.Now(), receipt)
 	if err != nil {
 		if ce := ctxFailure(ctx); ce != nil {
 			return nil, ce
@@ -383,6 +399,39 @@ func (s *service) MarkRead(ctx context.Context, uid string, req *messagingv1.Mar
 		s.d.Badge.Forget(uid)
 	}
 	return &messagingv1.MarkConversationReadResponse{}, nil
+}
+
+// receiptsOn is the caller's side of the read-receipts rule (F3): FEATURE_READ_RECEIPTS on for uid AND uid's own setting on.
+// The setting comes from the cache-first Profiles seam (60 s, refreshed on the serving instance by the write), so MarkRead
+// stays at 0 reads when the profile is warm. A lookup failure reads as off: the mark-read still succeeds and stores no receipt.
+func (s *service) receiptsOn(ctx context.Context, uid string) bool {
+	if s.flags == nil || s.d.Profiles == nil || !s.flags.Enabled(uid, identity.ReadReceiptsFlag) {
+		return false
+	}
+	got, err := s.d.Profiles.GetProfiles(ctx, []string{uid})
+	if err != nil {
+		s.d.Log.WarnContext(ctx, "read_receipt_setting_unavailable", "error", redactErr(fmt.Errorf("messaging: receipt setting: %w", err), uid).Error())
+		return false
+	}
+	return got[uid].ReadReceipts
+}
+
+// peerReadAt is the peer's receipt for a first ListMessages page: set only when the flag is on for both, both settings are on
+// (callerOn and peerOn come from the profiles the page already loaded) and neither side blocks the other, then ONE read of the
+// peer's own entry. Zero otherwise, including a missing entry and a failed read (WARN, never fails the page).
+func (s *service) peerReadAt(ctx context.Context, conv ConvDoc, convID, peer string, callerOn, peerOn bool, snap graph.Snapshot) *timestamppb.Timestamp {
+	if !callerOn || !peerOn || snap.Blocked[peer] || peerBlockedCaller(snap, peer) {
+		return nil
+	}
+	entry, found, err := s.d.Repo.GetEntry(ctx, peer, convID, entryFolder(conv, peer))
+	if err != nil {
+		s.d.Log.WarnContext(ctx, "peer_read_receipt_unavailable", "error", redactErr(fmt.Errorf("messaging: peer entry: %w", err), peer, convID).Error())
+		return nil
+	}
+	if !found || entry.ReadReceiptAt.IsZero() {
+		return nil
+	}
+	return timestamppb.New(entry.ReadReceiptAt)
 }
 
 // peerBlockedCaller is the one rule for "the peer blocked the caller, or the list cannot say" (security review M-2):

@@ -81,6 +81,8 @@ type service struct {
 	aud       *Audience
 	// community is the CreatePost gate (SetCommunityGate); nil = a set community_id is FEATURE_DISABLED.
 	community CommunityGate
+	// beacons is the plan reader of CreatePost's beacon_id (SetBeaconPlans); nil fails closed with FEATURE_DISABLED.
+	beacons BeaconPlans
 }
 
 // Option configures New.

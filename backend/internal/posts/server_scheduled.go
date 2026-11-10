@@ -19,6 +19,10 @@ import (
 // answer Unimplemented (after the flag checks).
 func WithScheduler(sc Scheduler) ServerOption { return func(s *Server) { s.scheduler = sc } }
 
+// WithScheduledEditor wires the service behind PublishScheduledPostNow and UpdateScheduledPost. Without it they answer
+// Unimplemented (after the flag checks).
+func WithScheduledEditor(e ScheduledEditor) ServerOption { return func(s *Server) { s.editor = e } }
+
 // GloballyOffChecker is the optional second seam of FlagChecker: it tells the kill switch (a flag off for everyone)
 // apart from a rollout the caller is merely outside of. *flags.Registry implements it. A FlagChecker without it falls
 // back to the per-caller answer.
@@ -125,6 +129,63 @@ func (s *Server) CancelScheduledPost(ctx context.Context, req *connect.Request[p
 		return nil, err
 	}
 	return connect.NewResponse(&postsv1.CancelScheduledPostResponse{ScheduledPost: ScheduledToProto(p)}), nil
+}
+
+// PublishScheduledPostNow is behind FEATURE_POSTS and FEATURE_SCHEDULED_POSTS for the caller (it creates a post, like
+// SchedulePost). It shares the CreatePost rate-limit bucket.
+func (s *Server) PublishScheduledPostNow(ctx context.Context, req *connect.Request[postsv1.PublishScheduledPostNowRequest]) (*connect.Response[postsv1.PublishScheduledPostNowResponse], error) {
+	uid, err := s.guardScheduled(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	if s.editor == nil {
+		return s.UnimplementedPostServiceHandler.PublishScheduledPostNow(ctx, req)
+	}
+	ctx, cancel := context.WithTimeout(ctx, createDeadline)
+	defer cancel()
+	p, err := s.editor.PublishScheduledNow(ctx, uid, req.Msg.GetIdempotencyKey(), req.Msg.GetScheduledId(), s.mediaEnabled(uid))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&postsv1.PublishScheduledPostNowResponse{ScheduledPost: ScheduledToProto(p)}), nil
+}
+
+// UpdateScheduledPost is behind FEATURE_POSTS and FEATURE_SCHEDULED_POSTS for the caller. It shares the CreatePost
+// rate-limit bucket.
+func (s *Server) UpdateScheduledPost(ctx context.Context, req *connect.Request[postsv1.UpdateScheduledPostRequest]) (*connect.Response[postsv1.UpdateScheduledPostResponse], error) {
+	uid, err := s.guardScheduled(ctx, true)
+	if err != nil {
+		return nil, err
+	}
+	if s.editor == nil {
+		return s.UnimplementedPostServiceHandler.UpdateScheduledPost(ctx, req)
+	}
+	ctx, cancel := context.WithTimeout(ctx, createDeadline)
+	defer cancel()
+	m := req.Msg
+	in := UpdateScheduledInput{
+		IdempotencyKey: m.GetIdempotencyKey(), ScheduledID: m.GetScheduledId(),
+		ReplyAudienceEnabled: s.replyAudienceEnabled(uid),
+	}
+	if m.Text != nil {
+		t := m.GetText()
+		in.Text = &t
+	}
+	if m.ReplyPolicy != nil {
+		rp := int32(m.GetReplyPolicy())
+		in.ReplyPolicy = &rp
+	}
+	if ts := m.GetPublishAt(); ts != nil {
+		in.HasPublishAt = true
+		if ts.CheckValid() == nil {
+			in.PublishAt = ts.AsTime()
+		}
+	}
+	p, err := s.editor.UpdateScheduled(ctx, uid, in)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&postsv1.UpdateScheduledPostResponse{ScheduledPost: ScheduledToProto(p)}), nil
 }
 
 // ScheduledToProto converts a stored item to its wire shape. Text, media, reply policy and the labels come from the

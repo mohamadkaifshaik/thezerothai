@@ -25,6 +25,7 @@ const (
 	fieldTxnAttempts        = "txn_attempts"
 	fieldFeature            = "feature"
 	fieldHasPoll            = "has_poll"
+	fieldHasBeacon          = "has_beacon"
 	fieldCommunityRefused   = "community_refused"    // flag_off or not_wired; a set community_id only, never the id
 	fieldCommunityPost      = "community_post"       // bool: this CreatePost carries a community_id, never the id
 	fieldCommunityGate      = "community_gate"       // the gate's outcome enum: admitted, rejected, rejected:protected, rejected:forbidden, rejected:cap

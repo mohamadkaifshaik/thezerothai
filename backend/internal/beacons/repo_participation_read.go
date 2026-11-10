@@ -103,6 +103,37 @@ func (r *FirestoreRepo) ListMemberships(ctx context.Context, q MembershipQuery) 
 	return out, nil
 }
 
+// GetMemberships implements Repo: one GetAll of users/{uid}/beaconMemberships/{id} over beaconIDs (at most a page);
+// a missing row is absent from the map.
+func (r *FirestoreRepo) GetMemberships(ctx context.Context, uid string, beaconIDs []string) (map[string]Membership, error) {
+	if err := r.readable(); err != nil {
+		return nil, err
+	}
+	out := make(map[string]Membership, len(beaconIDs))
+	if len(beaconIDs) == 0 {
+		return out, nil
+	}
+	refs := make([]*firestore.DocumentRef, 0, len(beaconIDs))
+	for _, id := range beaconIDs {
+		refs = append(refs, r.membershipRef(uid, id))
+	}
+	snaps, err := r.client.GetAll(ctx, refs)
+	if err != nil {
+		return nil, logger.RedactErr(fmt.Errorf("beacons: get memberships: %w", err), append([]string{uid}, beaconIDs...)...)
+	}
+	for i, s := range snaps {
+		if !s.Exists() {
+			continue
+		}
+		var m membershipDoc
+		if err := s.DataTo(&m); err != nil {
+			return nil, logger.RedactErr(fmt.Errorf("beacons: decode membership: %w", err), uid, beaconIDs[i])
+		}
+		out[beaconIDs[i]] = m.membership(beaconIDs[i])
+	}
+	return out, nil
+}
+
 // GetBeacons implements Repo: one GetAll over the ids; a missing document is absent from the map.
 func (r *FirestoreRepo) GetBeacons(ctx context.Context, ids []string) (map[string]Beacon, error) {
 	if err := r.readable(); err != nil {

@@ -124,3 +124,10 @@ func participantStateToProto(st string) beaconsv1.ParticipantState {
 	}
 	return beaconsv1.ParticipantState_PARTICIPANT_STATE_UNSPECIFIED
 }
+
+// PreviewActivityProto and PreviewStatusProto render a PlanPreview's enums for the post embed adapter (apiserver), so the
+// wire mapping stays in one place.
+func PreviewActivityProto(a Activity) beaconsv1.BeaconActivity { return activityToProto(a) }
+
+// PreviewStatusProto is PreviewActivityProto for the effective status.
+func PreviewStatusProto(s Status) beaconsv1.BeaconStatus { return statusToProto(s) }
