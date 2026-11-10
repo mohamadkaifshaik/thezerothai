@@ -693,6 +693,34 @@ variable "feature_ui_shell_percent" {
   }
 }
 
+variable "feature_ui_tablet" {
+  description = "FEATURE_UI_TABLET rollout mode for the tablet shell at 600-1199 dp (client-only; needs ui_shell on to have any effect): off | allowlist | percent | on. Default off; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_ui_tablet)
+    error_message = "feature_ui_tablet must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_ui_tablet_allowlist" {
+  description = "FEATURE_UI_TABLET_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_ui_tablet_percent" {
+  description = "FEATURE_UI_TABLET_PERCENT: 0-100, only meaningful when feature_ui_tablet = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_ui_tablet_percent >= 0 && var.feature_ui_tablet_percent <= 100 && floor(var.feature_ui_tablet_percent) == var.feature_ui_tablet_percent
+    error_message = "feature_ui_tablet_percent must be an integer 0-100."
+  }
+}
+
 variable "feature_shells" {
   description = "FEATURE_SHELLS rollout mode for the W8 coming-soon pages (client-only; Creator tools, Premium, Advertise, Calls and their entries): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string
