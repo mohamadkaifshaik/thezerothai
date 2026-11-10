@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // beaconA is a 19-digit beacon id (the same Snowflake shape as a post id).
@@ -26,6 +28,7 @@ func TestDeliver_BeaconRowsAndPushes(t *testing.T) {
 		{TypeBeaconRequest, "beacon_request_" + beaconA + "_alice"},
 		{TypeBeaconAccepted, "beacon_accepted_" + beaconA},
 		{TypeBeaconCancelled, "beacon_cancelled_" + beaconA},
+		{TypeBeaconUpdated, "beacon_updated_" + beaconA + "_" + strconv.FormatInt(t0.UnixMilli(), 10)},
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.t), func(t *testing.T) {
@@ -218,5 +221,30 @@ func TestEmitterBeaconNeedsOnlyNotificationsFlag(t *testing.T) {
 	mustNoErr(t, e.Emit(context.Background(), beaconEvent(TypeBeaconAccepted)))
 	if len(pub.data) != 1 {
 		t.Errorf("published with notifications off for the recipient")
+	}
+}
+
+// TestDeliver_BeaconUpdatedOneRowPerEdit (F28): a redelivery of the same edit is a duplicate (no second row, no second
+// push); a later edit of the same beacon is a new row and a new push.
+func TestDeliver_BeaconUpdatedOneRowPerEdit(t *testing.T) {
+	r := newRig(t, nil)
+	r.addDevice("bob", "d1", "tok-1")
+	first := beaconEvent(TypeBeaconUpdated)
+	for range 2 {
+		_, err := r.f.Deliver(context.Background(), first)
+		mustNoErr(t, err)
+	}
+	second := first
+	second.At = first.At.Add(time.Minute)
+	out, err := r.f.Deliver(context.Background(), second)
+	mustNoErr(t, err)
+	if out.Created != 1 || out.Pushed != 1 {
+		t.Fatalf("second edit = %+v, want a new row and push", out)
+	}
+	if n := len(r.repo.rows["bob"]); n != 2 {
+		t.Fatalf("rows = %v, want 2 (one per edit)", r.repo.rows["bob"])
+	}
+	if len(r.sender.sent) != 2 {
+		t.Fatalf("pushes = %d, want 2", len(r.sender.sent))
 	}
 }

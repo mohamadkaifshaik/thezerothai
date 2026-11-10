@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
@@ -118,6 +119,10 @@ func notificationID(t Type, actorID, subject string, at time.Time) string {
 		return "beacon_request_" + subject + "_" + actorID // one row per requester per beacon; a re-request inside the TTL is AlreadyExists
 	case TypeBeaconAccepted, TypeBeaconCancelled:
 		return string(t) + "_" + subject // one per beacon in the recipient's own subtree
+	case TypeBeaconUpdated:
+		// One per edit: the edit's commit time (the beacon's updatedAt) is in the id, so a redelivery of the same edit is
+		// AlreadyExists while a later edit is a new row.
+		return string(t) + "_" + subject + "_" + strconv.FormatInt(at.UTC().UnixMilli(), 10)
 	}
 	return ""
 }

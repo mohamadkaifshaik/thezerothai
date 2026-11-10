@@ -109,10 +109,9 @@ func (s *Server) CreateBeacon(ctx context.Context, req *connect.Request[beaconsv
 func (s *Server) UpdateBeacon(ctx context.Context, req *connect.Request[beaconsv1.UpdateBeaconRequest]) (*connect.Response[beaconsv1.UpdateBeaconResponse], error) {
 	m := req.Msg
 	view, err := s.viewAction(ctx, "UpdateBeacon", true, func(ctx context.Context, uid string) (View, error) {
-		in := UpdateInput{Key: m.GetIdempotencyKey(), BeaconID: m.GetBeaconId(), Title: m.Title, Details: m.Details, Venue: m.Venue}
-		if m.OpenSpots != nil {
-			n := int(m.GetOpenSpots())
-			in.OpenSpots = &n
+		in, err := updateInputFromProto(m)
+		if err != nil {
+			return View{}, err
 		}
 		return s.svc.UpdateBeacon(ctx, uid, in)
 	})
@@ -154,7 +153,11 @@ func (s *Server) ListBeacons(ctx context.Context, req *connect.Request[beaconsv1
 	}
 	defer cancel()
 	m := req.Msg
-	in := ListInput{CommunityID: m.GetCommunityId(), Public: m.GetPublic(), Limit: m.GetLimit(), PageToken: m.GetPageToken()}
+	activity, err := listActivityFromProto(m.GetActivity())
+	if err != nil {
+		return nil, err
+	}
+	in := ListInput{CommunityID: m.GetCommunityId(), Public: m.GetPublic(), Activity: activity, Limit: m.GetLimit(), PageToken: m.GetPageToken()}
 	if m.GetFrom() != nil {
 		in.From = m.GetFrom().AsTime()
 	}
