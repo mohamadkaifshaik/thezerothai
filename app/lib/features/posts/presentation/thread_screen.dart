@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/storage/app_database.dart';
 import '../../../core/telemetry/usage_reporter.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
@@ -102,6 +103,10 @@ class ThreadScreen extends StatelessWidget {
             postsRepository: context.read<PostsRepository>(),
             replyToPostId: postId,
             usage: UsageScope.of(context),
+            // Bound to the session the thread was opened in: after a
+            // sign-out or an account switch the reply bar empties and sends
+            // nothing (the thread page itself stays).
+            sessionEpoch: context.read<AppDatabase?>()?.sessionEpoch,
           ),
         ),
       ],

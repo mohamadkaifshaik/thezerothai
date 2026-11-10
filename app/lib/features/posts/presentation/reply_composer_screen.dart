@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/router/close_routes_above.dart';
+import '../../../core/storage/app_database.dart';
 import '../../../core/telemetry/usage_reporter.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../shared/widgets/post/conversation_row.dart';
@@ -47,6 +49,9 @@ class ReplyComposerScreen extends StatelessWidget {
         postsRepository: context.read<PostsRepository>(),
         replyToPostId: postId,
         usage: UsageScope.of(context),
+        // Bound to the session it was opened in: after a sign-out or an
+        // account switch nothing typed here is sent, and the screen leaves.
+        sessionEpoch: context.read<AppDatabase?>()?.sessionEpoch,
       ),
       child: _ReplyEditor(parent: view),
     ),
@@ -63,6 +68,24 @@ class _ReplyEditor extends StatefulWidget {
 class _ReplyEditorState extends State<_ReplyEditor> {
   bool _leaving = false;
   bool _asking = false;
+
+  /// Set by the first [_leaveOnce]: the screen pops once, whatever the cubit
+  /// emits until the route is gone.
+  bool _left = false;
+
+  /// Leaves after this frame (so [PopScope] lets it), closing first any
+  /// dialog open over the screen. Once only.
+  void _leaveOnce([pb.PostView? result]) {
+    if (_left) return;
+    _left = true;
+    setState(() => _leaving = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Already off the stack (a sign-out redirect replaced it): a pop or a
+      // `go` now would take the new stack's page.
+      if (!mounted || !closeRoutesAbove(context)) return;
+      _pop(result);
+    });
+  }
 
   void _pop([pb.PostView? result]) {
     if (context.canPop()) {
@@ -97,10 +120,7 @@ class _ReplyEditorState extends State<_ReplyEditor> {
       _asking = false;
       if (!mounted || discard != true) return;
     }
-    setState(() => _leaving = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _pop();
-    });
+    _leaveOnce();
   }
 
   @override
@@ -109,11 +129,12 @@ class _ReplyEditorState extends State<_ReplyEditor> {
     final blocked = !repliesOn || replyKnownNotAllowed(widget.parent);
     return BlocConsumer<ComposerCubit, ComposerState>(
       listener: (context, state) {
-        if (state.status == ComposerStatus.posted) {
-          setState(() => _leaving = true);
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) _pop(state.created);
-          });
+        if (_left) return;
+        if (state.sessionEnded) {
+          // Signed out, or another account: leave, asking nothing.
+          _leaveOnce();
+        } else if (state.status == ComposerStatus.posted) {
+          _leaveOnce(state.created);
         } else if (state.error != null) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(replyErrorMessage(state.error!))),

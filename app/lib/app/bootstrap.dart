@@ -62,6 +62,8 @@ import '../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../features/posts/data/posts_repository.dart';
 import '../features/posts/domain/composer_attachment_rules.dart'
     show kFeatureGif;
+import '../features/posts/domain/reply_audience.dart'
+    show kFeatureReplyAudience;
 import '../features/timeline/data/timeline_repository.dart';
 import '../features/timeline/data/timeline_store.dart';
 import '../firebase_options.dart' as dev_firebase;
@@ -253,6 +255,8 @@ Future<void> bootstrap() async {
     store: timelineStore,
     gate: postsGate,
     currentUid: () => authRepository.currentUser?.uid,
+    isReplyAudienceEnabled: () =>
+        onboardingBloc.state.enabledFeatures.contains(kFeatureReplyAudience),
   );
   // media: gated by `GetMe.enabled_features` containing `media`; the PUT
   // to the signed URL uses its own bare HTTP client (no auth headers).

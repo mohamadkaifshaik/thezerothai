@@ -14,6 +14,12 @@ import '../domain/schedule_rules.dart';
 const kMediaCombinationMessage =
     "A GIF can't go with photos or a schedule. Remove one and try again.";
 
+/// FEATURE_DISABLED `reply_audience`: the flag went off after the audience
+/// was chosen. The caller drops the audience, so the post is open to everyone.
+const kReplyAudienceUnavailableMessage =
+    "Choosing who can reply isn't available right now. Your post will be "
+    'open to everyone.';
+
 /// Friendly, typed messages for a failed CreatePost (shown in a snackbar;
 /// never the raw server text). [EmailNotVerifiedException] is normally
 /// handled by showing `VerifyEmailView` instead; the text is the fallback.
@@ -151,8 +157,7 @@ String scheduleErrorMessage(AppException error) {
     ValidationException(field: 'media_ids') => kMediaCombinationMessage,
     // The audience is dropped by the composer ("Everyone"), so say so.
     FeatureDisabledException(feature: kFeatureReplyAudience) =>
-      "Choosing who can reply isn't available right now. Your post will be "
-          'open to everyone.',
+      kReplyAudienceUnavailableMessage,
     FeatureDisabledException() => "Scheduling isn't available right now.",
     // A lost response may still have scheduled the post: never say it was not.
     NetworkException() =>
