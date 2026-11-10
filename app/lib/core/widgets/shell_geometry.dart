@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 
 import '../theme/app_theme.dart';
@@ -135,6 +137,16 @@ class ShellGeometry extends InheritedWidget {
 
   static ShellGeometryData? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<ShellGeometry>()?.data;
+
+  /// The side inset that centres a reading column in a pane [width] wide
+  /// (tablet plan sections 3 and 5.4): on the tablet layout the column grows
+  /// to [AppSize.readableMax]; everywhere else it stays
+  /// [AppBreakpoints.mobile] wide, as before.
+  static double readableInset(BuildContext context, double width) {
+    final tablet = maybeOf(context)?.tablet ?? false;
+    final column = tablet ? AppSize.readableMax : AppBreakpoints.mobile;
+    return math.max(0.0, (width - column) / 2);
+  }
 
   @override
   bool updateShouldNotify(ShellGeometry oldWidget) => data != oldWidget.data;

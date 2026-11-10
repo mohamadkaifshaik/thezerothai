@@ -23,6 +23,7 @@ import 'composer_screen.dart';
 import 'post_error_messages.dart';
 import 'widgets/draft_problem_hint.dart';
 import 'widgets/loaded_post.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 
 class ReplyComposerScreen extends StatelessWidget {
   const ReplyComposerScreen({super.key, required this.postId});
@@ -100,7 +101,7 @@ class _ReplyEditorState extends State<_ReplyEditor> {
     if (_asking || state.isSubmitting) return;
     if (state.draft.text.isNotEmpty) {
       _asking = true;
-      final discard = await showDialog<bool>(
+      final discard = await showAppMaterialDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Discard reply?'),

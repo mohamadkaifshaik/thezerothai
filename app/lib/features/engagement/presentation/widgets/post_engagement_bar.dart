@@ -157,7 +157,8 @@ class PostEngagementBar extends StatelessWidget {
                     : null,
                 onLike: () =>
                     cubit.setLiked(target, liked: !current.liked, shown: shown),
-                onRepost: () => _repost(context, cubit, target, current, shown),
+                onRepostFrom: (anchor) =>
+                    _repost(context, cubit, target, current, shown, anchor),
                 onBookmark: onBookmark,
                 onShareAt: shareLinks == null
                     ? null
@@ -191,6 +192,7 @@ class PostEngagementBar extends StatelessWidget {
     String target,
     EngagementEntry current,
     EngagementEntry shown,
+    BuildContext anchor,
   ) async {
     // Quote needs `engagement` + `quotes` in GetMe.enabled_features and no
     // remembered server FEATURE_DISABLED for it.
@@ -208,6 +210,7 @@ class PostEngagementBar extends StatelessWidget {
       reposted: current.reposted,
       canQuote: canQuote,
       restricted: restricted,
+      anchor: anchor,
     );
     if (choice == null) return;
     switch (choice) {

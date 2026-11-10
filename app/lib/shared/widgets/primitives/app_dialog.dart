@@ -3,6 +3,7 @@ import 'dart:ui' show SemanticsRole;
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/tablet_modal.dart';
 import 'app_pill_button.dart';
 
 /// Shows a dialog on the root navigator (above the shell) with the redesign
@@ -14,16 +15,46 @@ import 'app_pill_button.dart';
 /// returns to whatever held it before the dialog opened.
 ///
 /// [destructive] announces the dialog as an alert dialog. Call sites pass a
-/// body built from [AppDialog] or [AppConfirmDialog]. The dialog is centred on
-/// the window; a later change can centre it on the content area without
-/// touching call sites.
+/// body built from [AppDialog] or [AppConfirmDialog].
+///
+/// On the tablet layout (`ui_shell` + `ui_tablet`, 600-1199 dp) the dialog is
+/// centred on the content area instead of the window, `min(maxWidth, C - 48)`
+/// wide ([TabletModalHost]); the barrier still covers the whole window, rail
+/// included. Elsewhere it is centred on the window, as before.
+///
+/// [host] overrides the tablet presentation resolved from [context]: a
+/// caller that opens the dialog from a navigator's own context after an
+/// `await` resolves it from its own context first
+/// (`TabletModalHost.of(context)`) and passes it here.
 Future<T?> showAppDialog<T>({
   required BuildContext context,
   required WidgetBuilder builder,
   double maxWidth = 560,
   bool destructive = false,
   bool barrierDismissible = true,
+  TabletModalHost? host,
 }) {
+  final resolved = host ?? TabletModalHost.of(context);
+  if (resolved != null) {
+    return showDialog<T>(
+      context: context,
+      useRootNavigator: true,
+      // The insets carry the safe area (the content area starts past it).
+      useSafeArea: false,
+      barrierDismissible: barrierDismissible,
+      builder: (dialogContext) => TabletModalScope(
+        host: resolved,
+        child: Builder(
+          builder: (context) => _AppDialogFrame(
+            maxWidth: maxWidth,
+            destructive: destructive,
+            insetPadding: resolved.dialogInsets(context),
+            child: builder(context),
+          ),
+        ),
+      ),
+    );
+  }
   return showDialog<T>(
     context: context,
     useRootNavigator: true,
@@ -37,16 +68,73 @@ Future<T?> showAppDialog<T>({
   );
 }
 
+/// Shows a dialog whose [builder] returns the whole Material dialog (an
+/// `AlertDialog`, a `Dialog`), for the call sites that predate [AppDialog].
+///
+/// Outside the tablet layout this is exactly
+/// `showDialog(context:, barrierDismissible:, builder:)`, so phones, desktop
+/// and the 600-1199 dp layout with `ui_tablet` off do not change (ruling
+/// R-1).
+///
+/// On the tablet layout (`ui_shell` + `ui_tablet`, 600-1199 dp) it goes on
+/// the root navigator with the barrier over the whole window (rail
+/// included), and the dialog is centred on the content area, between
+/// [minWidth] and `min(maxWidth, C - 48)` wide, its height at most
+/// `H - keyboard - 48` (tablet plan section 5.4). The defaults are the
+/// confirm and alert range, 280-400; a form dialog passes its own width.
+/// The dialog picks both up from the ambient `DialogTheme`, so a call site
+/// that sets `insetPadding` or `constraints` itself keeps its own. [host] is
+/// as for [showAppDialog].
+Future<T?> showAppMaterialDialog<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  double minWidth = AppSize.alertDialogMin,
+  double maxWidth = AppSize.alertDialogMax,
+  bool barrierDismissible = true,
+  TabletModalHost? host,
+}) {
+  final resolved = host ?? TabletModalHost.of(context);
+  if (resolved == null) {
+    return showDialog<T>(
+      context: context,
+      barrierDismissible: barrierDismissible,
+      builder: builder,
+    );
+  }
+  return showDialog<T>(
+    context: context,
+    useRootNavigator: true,
+    useSafeArea: false,
+    barrierDismissible: barrierDismissible,
+    builder: (_) => TabletModalScope(
+      host: resolved,
+      child: Builder(
+        builder: (context) => DialogTheme(
+          data: DialogTheme.of(context).copyWith(
+            insetPadding: resolved.dialogInsets(context),
+            constraints: BoxConstraints(minWidth: minWidth, maxWidth: maxWidth),
+          ),
+          child: Builder(builder: builder),
+        ),
+      ),
+    ),
+  );
+}
+
 class _AppDialogFrame extends StatelessWidget {
   const _AppDialogFrame({
     required this.maxWidth,
     required this.destructive,
     required this.child,
+    this.insetPadding = const EdgeInsets.all(AppSpacing.lg),
   });
 
   final double maxWidth;
   final bool destructive;
   final Widget child;
+
+  /// Space around the dialog (the keyboard inset is added to it).
+  final EdgeInsets insetPadding;
 
   @override
   Widget build(BuildContext context) {
@@ -58,7 +146,7 @@ class _AppDialogFrame extends StatelessWidget {
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       // Dialog adds the keyboard inset to this, so the height stops above it.
-      insetPadding: const EdgeInsets.all(AppSpacing.lg),
+      insetPadding: insetPadding,
       constraints: BoxConstraints(maxWidth: maxWidth),
       semanticsRole: destructive
           ? SemanticsRole.alertDialog
