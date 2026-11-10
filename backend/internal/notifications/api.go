@@ -229,6 +229,39 @@ type Social = graph.Reader
 // overflowed, to establish whether the actors on the page have blocked the caller.
 type BlockLookup = graph.BlockLookup
 
+// UnreadBadgeCap is the most unseen rows the GetMe badge counts (the client shows "99+" at the cap).
+const UnreadBadgeCap = 100
+
+// UnreadStore is the storage half of UnreadBadge (*FirestoreRepo implements it). Both reads are on the caller's own
+// users/{uid}/notifications with createdAt > since and Limit limit.
+type UnreadStore interface {
+	// CountUnread is a count() aggregation of the unseen rows.
+	CountUnread(ctx context.Context, uid string, since time.Time, limit int) (int64, error)
+	// UnreadActors returns the displayed actor id of each unseen row, newest first (a projection on actor.userId).
+	UnreadActors(ctx context.Context, uid string, since time.Time, limit int) ([]string, error)
+}
+
+// UnreadBadge implements identity.NotificationBadge without identity importing this package: the method has
+// exactly the interface's shape, so apiserver passes it to identity.WithNotificationBadge. It counts the unseen rows
+// ListNotifications would show (see UnreadNotifications), at most UnreadBadgeCap.
+type UnreadBadge struct {
+	store  UnreadStore
+	social Social
+	blocks BlockLookup
+}
+
+// NewUnreadBadge builds the badge. social is the caller's cached graph snapshot (required); blocks is asked only
+// when the caller's blockedBy overflowed (nil then fails the count, as it fails List).
+func NewUnreadBadge(store UnreadStore, social Social, blocks BlockLookup) *UnreadBadge {
+	return &UnreadBadge{store: store, social: social, blocks: blocks}
+}
+
+// UnreadNotifications returns how many rows newer than since the caller would see in ListNotifications, capped at
+// UnreadBadgeCap. It never writes. See unreadVisible for the reads.
+func (b *UnreadBadge) UnreadNotifications(ctx context.Context, uid string, since time.Time) (int64, error) {
+	return b.unreadVisible(ctx, uid, since)
+}
+
 // Checkpoint resumes Eraser.PurgeUser across calls. The zero value starts from the beginning.
 type Checkpoint struct {
 	// Step: 0 devices, 1 the user's own notifications, 2 notifications other users hold about this user.

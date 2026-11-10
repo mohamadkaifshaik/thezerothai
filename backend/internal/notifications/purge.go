@@ -335,7 +335,7 @@ func (r *FirestoreRepo) ExportUser(ctx context.Context, uid string, w io.Writer)
 		for _, s := range docs {
 			var d notificationDoc
 			if err := s.DataTo(&d); err != nil {
-				return fmt.Errorf("notifications: export decode %s: %w", s.Ref.ID, err)
+				return fmt.Errorf("notifications: export decode row %s: %w", logger.HashUID(s.Ref.ID), err)
 			}
 			if !first {
 				if _, err := io.WriteString(w, ","); err != nil {
