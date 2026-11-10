@@ -1,6 +1,15 @@
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
+import 'package:dzeroth/core/widgets/tablet_modal.dart';
+import 'package:dzeroth/features/account/presentation/widgets/password_prompt_dialog.dart';
+import 'package:dzeroth/features/posts/presentation/bloc/composer_cubit.dart'
+    show SendConflict;
+import 'package:dzeroth/features/posts/presentation/widgets/cancel_scheduled_dialog.dart';
+import 'package:dzeroth/features/posts/presentation/widgets/draft_dialogs.dart';
+import 'package:dzeroth/features/posts/presentation/widgets/send_conflict_dialog.dart';
+import 'package:dzeroth/features/profile/presentation/widgets/block_confirmation_dialog.dart';
+import 'package:dzeroth/shared/widgets/user/cancel_follow_request_dialog.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_dialog.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_sheet.dart';
 import 'package:dzeroth/shared/widgets/primitives/sheet_option_row.dart';
@@ -311,6 +320,53 @@ void main() {
       );
     });
 
+    testWidgets('top and bottom insets are 24 dp, or the safe area where it '
+        'is taller; a tall dialog stays clear of both', (tester) async {
+      Future<EdgeInsets> insetsFor(EdgeInsets padding) async {
+        late EdgeInsets insets;
+        await pumpTabletModalHost(
+          tester,
+          width: 834,
+          padding: padding,
+          trigger: (context) {
+            insets = const TabletModalHost(overShell: true)
+                .dialogInsets(context);
+            return const SizedBox();
+          },
+        );
+        return insets;
+      }
+
+      // No safe area: 24 all round, past the 80 dp rail on the left.
+      expect(
+        await insetsFor(EdgeInsets.zero),
+        const EdgeInsets.fromLTRB(80 + 24, 24, 24, 24),
+      );
+      // A short status bar (under 24 dp) does not add to the margin.
+      expect(
+        await insetsFor(const EdgeInsets.only(top: 20, bottom: 10)),
+        const EdgeInsets.fromLTRB(80 + 24, 24, 24, 24),
+      );
+      // A tall one replaces it.
+      expect(
+        await insetsFor(const EdgeInsets.only(top: 47, bottom: 34)),
+        const EdgeInsets.fromLTRB(80 + 24, 47, 24, 34),
+      );
+
+      await pumpTabletModalHost(
+        tester,
+        trigger: _triggers,
+        width: 834,
+        height: 600,
+        padding: const EdgeInsets.only(top: 47, bottom: 34),
+      );
+      await _tap(tester, _longKey);
+      final box = openDialogRect(tester);
+      expect(box.top, greaterThanOrEqualTo(47 - 0.5));
+      expect(box.bottom, lessThanOrEqualTo(600 - 34 + 0.5));
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('a full-screen route (no rail) centres on the window', (
       tester,
     ) async {
@@ -329,6 +385,110 @@ void main() {
         maxWidth: AppSize.alertDialogMax,
       );
     });
+  });
+
+  group('dialogs opened outside the panes', () {
+    testWidgets('from the rail (the account chip): centred on the content '
+        'area', (tester) async {
+      await pumpTabletModalHost(
+        tester,
+        trigger: (_) => const SizedBox(),
+        width: 834,
+        accountChipBuilder: (_) => Builder(
+          builder: (chip) => IconButton(
+            key: const Key('chip'),
+            icon: const Icon(Icons.person),
+            onPressed: () => showAppMaterialDialog<void>(
+              context: chip,
+              builder: (_) => const AlertDialog(title: Text('Sign out?')),
+            ),
+          ),
+        ),
+      );
+
+      await _tap(tester, const Key('chip'));
+
+      _expectCentredOn(
+        tester,
+        tabletContentRect(const Size(834, 1194)),
+        maxWidth: AppSize.alertDialogMax,
+      );
+    });
+
+    testWidgets("from the root navigator's own context, with the host "
+        'resolved at the button: centred on the content area', (tester) async {
+      await pumpTabletModalHost(
+        tester,
+        width: 1024,
+        trigger: (context) => TextButton(
+          onPressed: () async {
+            final host = TabletModalHost.of(context);
+            final navigator = Navigator.of(context, rootNavigator: true);
+            await Future<void>.value();
+            await showSignOutDraftsDialog(navigator.context, host: host);
+          },
+          child: const Text('sign out'),
+        ),
+      );
+
+      await tester.tap(find.text('sign out'));
+      await tester.pumpAndSettle();
+
+      _expectCentredOn(
+        tester,
+        tabletContentRect(const Size(1024, 1194)),
+        maxWidth: AppSize.alertDialogMax,
+      );
+    });
+  });
+
+  group('confirm dialogs at 280-400 dp with text at 2.0', () {
+    final dialogs = <String, void Function(BuildContext)>{
+      'save post': (c) =>
+          showSavePostDialog(c, mediaNote: 'Images are not kept.'),
+      'discard drafts': (c) => showDiscardDraftsDialog(c, count: 3),
+      'sign out with drafts': (c) => showSignOutDraftsDialog(c),
+      'password prompt': (c) => showPasswordPromptDialog(c),
+      'cancel scheduled': (c) => showCancelScheduledDialog(c),
+      'block': (c) => showBlockConfirmationDialog(c),
+      'cancel follow request': (c) => showCancelFollowRequestDialog(c),
+      for (final conflict in SendConflict.values)
+        'send conflict ${conflict.name}': (c) =>
+            showSendConflictDialog(c, conflict),
+    };
+    const windows = [Size(1194, 834), Size(1024, 768), Size(600, 960)];
+    for (final entry in dialogs.entries) {
+      // One test per window: a dialog left open would block the next tap.
+      for (final window in windows) {
+        testWidgets('${entry.key} in ${window.width.toInt()} x '
+            '${window.height.toInt()}: no overflow, centred on the content '
+            'area', (tester) async {
+          await pumpTabletModalHost(
+            tester,
+            width: window.width,
+            height: window.height,
+            textScale: 2,
+            trigger: (context) => TextButton(
+              onPressed: () => entry.value(context),
+              child: const Text('open'),
+            ),
+          );
+          await tester.tap(find.text('open'));
+          await tester.pumpAndSettle();
+
+          expect(tester.takeException(), isNull);
+          expect(find.byType(Dialog), findsOneWidget);
+          final box = openDialogRect(tester);
+          expect(
+            box.center.dx,
+            closeTo(tabletContentRect(window).center.dx, 1),
+          );
+          expect(box.width, lessThanOrEqualTo(AppSize.alertDialogMax + 0.5));
+          expect(box.bottom, lessThanOrEqualTo(window.height - 24 + 0.5));
+          expect(box.top, greaterThanOrEqualTo(24 - 0.5));
+        });
+      }
+    }
   });
 
   group('sheets on the tablet layout', () {

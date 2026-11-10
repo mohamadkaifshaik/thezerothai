@@ -47,6 +47,7 @@ Future<void> pumpTabletModalHost(
   Brightness brightness = Brightness.light,
   double textScale = 1,
   Widget Function(Widget app)? wrap,
+  Widget Function(bool extended)? accountChipBuilder,
 }) async {
   tabletHarnessSelections.clear();
   tester.view.devicePixelRatio = 1;
@@ -101,6 +102,7 @@ Future<void> pumpTabletModalHost(
           redesignedRail: true,
           floatingBar: true,
           onCompose: () {},
+          accountChipBuilder: accountChipBuilder,
           destinations: const [
             AppNavDestination(
               icon: Icons.home_outlined,

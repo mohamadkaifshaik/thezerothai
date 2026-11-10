@@ -71,26 +71,29 @@ class TabletModalHost {
   ).content;
 
   /// The `insetPadding` of a dialog shown without a `SafeArea`
-  /// (`useSafeArea: false`): [margin] inside the content area and inside the
-  /// safe area on every side. The dialog is centred on the content area and
-  /// at most `C - 48` wide; `Dialog` adds the keyboard inset to this, so the
-  /// height stops at `H - keyboard - 48` (less the safe area).
+  /// (`useSafeArea: false`): [margin] inside the content area (and inside the
+  /// side safe area) on the left and right, so the dialog is centred on the
+  /// content area and at most `C - 48` wide. Top and bottom are [margin], or
+  /// the safe area where that is taller (a status bar over 24 dp), so the
+  /// height is `H - keyboard - 48` (`Dialog` adds the keyboard inset).
   EdgeInsets dialogInsets(BuildContext modalContext) {
     final size = MediaQuery.sizeOf(modalContext);
     final padding = MediaQuery.paddingOf(modalContext);
     final content = contentIn(modalContext);
     return EdgeInsets.fromLTRB(
       math.max(content.left, padding.left) + margin,
-      padding.top + margin,
+      math.max(padding.top, margin),
       math.max(size.width - content.right, padding.right) + margin,
-      padding.bottom + margin,
+      math.max(padding.bottom, margin),
     );
   }
 }
 
-/// Carries the [TabletModalHost] of a tablet modal into its route, so a
-/// dialog opened from inside it (the list editor's delete confirmation, the
-/// report's block confirmation) is centred the same way.
+/// Carries a [TabletModalHost] down the tree: around the tablet shell (so a
+/// modal opened from the rail, its account menu included, is over the shell)
+/// and into a tablet modal's route (so a dialog opened from inside it, the
+/// list editor's delete confirmation for instance, is centred the same
+/// way).
 class TabletModalScope extends InheritedWidget {
   const TabletModalScope({super.key, required this.host, required super.child});
 

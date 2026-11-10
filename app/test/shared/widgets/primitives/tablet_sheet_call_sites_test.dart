@@ -152,52 +152,54 @@ void main() {
       );
 
   for (final site in _sites) {
-    for (final width in [599.0, 834.0, 1024.0, 1200.0]) {
-      final tablet = width >= 600 && width < 1200;
-      final expected = !tablet
-          ? 'a bottom sheet'
-          : site.shape == _Shape.menu
-          ? 'a menu'
-          : 'a dialog';
-      testWidgets('${site.name} at ${width.toInt()} dp is $expected', (
-        tester,
-      ) async {
-        await pumpTabletModalHost(
-          tester,
-          width: width,
-          height: 1194,
-          wrap: providers,
-          trigger: (context) => TextButton(
-            onPressed: () => site.open(context),
-            child: const Text('open'),
-          ),
-        );
+    for (final textScale in [1.0, 2.0]) {
+      for (final width in [599.0, 834.0, 1024.0, 1200.0]) {
+        final tablet = width >= 600 && width < 1200;
+        final expected = !tablet
+            ? 'a bottom sheet'
+            : site.shape == _Shape.menu
+            ? 'a menu'
+            : 'a dialog';
+        testWidgets('${site.name} at ${width.toInt()} dp, text $textScale, is '
+            '$expected', (tester) async {
+          await pumpTabletModalHost(
+            tester,
+            width: width,
+            height: 1194,
+            textScale: textScale,
+            wrap: providers,
+            trigger: (context) => TextButton(
+              onPressed: () => site.open(context),
+              child: const Text('open'),
+            ),
+          );
 
-        await tester.tap(find.text('open'));
-        await tester.pumpAndSettle();
+          await tester.tap(find.text('open'));
+          await tester.pumpAndSettle();
 
-        expect(find.text(site.marker), findsOneWidget);
-        expect(tester.takeException(), isNull);
-        if (!tablet) {
-          expect(find.byType(BottomSheet), findsOneWidget);
-          return;
-        }
-        expect(find.byType(BottomSheet), findsNothing);
-        if (site.shape == _Shape.dialog) {
-          expect(find.byType(Dialog), findsOneWidget);
-          final box = openDialogRect(tester);
-          final content = tabletContentRect(Size(width, 1194));
-          expect(box.center.dx, closeTo(content.center.dx, 1));
-          expect(box.width, lessThanOrEqualTo(560.5));
-        } else {
-          expect(find.byType(Dialog), findsNothing);
-          // Hung from the trigger.
-          final trigger = tester.getRect(find.byKey(kTabletTriggerKey));
-          final marker = tester.getRect(find.text(site.marker));
-          expect(marker.top, greaterThan(trigger.bottom));
-          expect(marker.top, lessThan(trigger.bottom + 80));
-        }
-      });
+          expect(find.text(site.marker), findsOneWidget);
+          expect(tester.takeException(), isNull);
+          if (!tablet) {
+            expect(find.byType(BottomSheet), findsOneWidget);
+            return;
+          }
+          expect(find.byType(BottomSheet), findsNothing);
+          if (site.shape == _Shape.dialog) {
+            expect(find.byType(Dialog), findsOneWidget);
+            final box = openDialogRect(tester);
+            final content = tabletContentRect(Size(width, 1194));
+            expect(box.center.dx, closeTo(content.center.dx, 1));
+            expect(box.width, lessThanOrEqualTo(560.5));
+          } else {
+            expect(find.byType(Dialog), findsNothing);
+            // Hung from the trigger.
+            final trigger = tester.getRect(find.byKey(kTabletTriggerKey));
+            final marker = tester.getRect(find.text(site.marker));
+            expect(marker.top, greaterThan(trigger.bottom));
+            expect(marker.top, lessThan(trigger.bottom + 80));
+          }
+        });
+      }
     }
   }
 }

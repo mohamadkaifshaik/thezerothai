@@ -191,11 +191,16 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     );
     final ltr = direction == TextDirection.ltr;
     final trailing = ltr ? media.padding.right : media.padding.left;
-    // This is the root Scaffold of the shell's routes, so it shows their snack
-    // bars: centred over the pane area, not the rail.
-    return TabletSnackBarTheme(
-      content: geometry.content,
-      child: _tabletScaffold(context, geometry, trailing),
+    // A modal opened from anywhere in the shell (the rail's account menu
+    // included, not only the panes) is over the rail: it centres on the
+    // content area. This is the root Scaffold of the shell's routes, so it
+    // shows their snack bars: centred over the pane area, not the rail.
+    return TabletModalScope(
+      host: const TabletModalHost(overShell: true),
+      child: TabletSnackBarTheme(
+        content: geometry.content,
+        child: _tabletScaffold(context, geometry, trailing),
+      ),
     );
   }
 

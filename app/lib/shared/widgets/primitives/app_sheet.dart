@@ -86,7 +86,7 @@ class MaterialSheetOptions {
 /// centred on the content area, `min(tabletDialogMaxWidth, C - 48)` wide,
 /// on the root navigator with the barrier over the whole window (the rail
 /// is inert). The content keeps its own title. [tabletScrollable] scrolls
-/// content that does not scroll itself.
+/// content that does not scroll itself. [host] is as for [showAppDialog].
 ///
 /// The content sits in a `Flexible` under the handle: content that can be
 /// taller than the window (a long list) scrolls itself, with a shrink-wrapped
@@ -109,8 +109,9 @@ Future<T?> showAppSheet<T>({
   AppSheetOnTablet onTablet = AppSheetOnTablet.dialog,
   double tabletDialogMaxWidth = AppSize.dialogMax,
   bool tabletScrollable = false,
+  TabletModalHost? host,
 }) {
-  final host = TabletModalHost.of(context);
+  host ??= TabletModalHost.of(context);
   if (host != null) {
     if (onTablet == AppSheetOnTablet.menu && anchor != null) {
       return _showAnchoredMenu<T>(
@@ -125,6 +126,7 @@ Future<T?> showAppSheet<T>({
     }
     return showAppDialog<T>(
       context: context,
+      host: host,
       maxWidth: tabletDialogMaxWidth,
       barrierDismissible: isDismissible,
       builder: (dialogContext) => _TabletSheetContent(
