@@ -48,7 +48,7 @@
 // Errors (clients branch on ErrorDetail.reason):
 //   - INVALID_ARGUMENT + VALIDATION, metadata["field"] in beacon_id | user_id | community_id | audience | activity |
 //     title | details | venue | start_at | duration_minutes | open_spots | cost | chat_preference | note | response |
-//     page_token | idempotency_key; before any lookup. limit is never a validation error: it is clamped (0 = 20, above
+//     page_token | idempotency_key | peer_user_id; before any lookup. limit is never a validation error: it is clamped (0 = 20, above
 //     50 = 50), the lists precedent.
 //   - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "beacons" (or "communities" for a community
 //     audience while that flag is off for the caller).
@@ -66,7 +66,7 @@
 //     user) | "beacon_participants" (open_spots above BEACONS_MAX_OPEN_SPOTS, 20); nothing is written.
 //   - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_BEACONS_WRITE_PER_MIN (10: Create, Update, Cancel),
 //     RATE_LIMIT_BEACONS_ACTION_PER_MIN (20: Request, Withdraw, Respond, Leave, Remove), RATE_LIMIT_BEACONS_READ_PER_MIN
-//     (30: Get, List*) per uid per instance, and the daily cap BEACONS_CREATED_PER_DAY (10, limit_name
+//     (30: Get, List*, ListSharedBeacons) per uid per instance, and the daily cap BEACONS_CREATED_PER_DAY (10, limit_name
 //     "beacons_created_daily"); honour retry_after.
 //   - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
 package beaconsv1connect
@@ -135,6 +135,9 @@ const (
 	// BeaconServiceListParticipantsProcedure is the fully-qualified name of the BeaconService's
 	// ListParticipants RPC.
 	BeaconServiceListParticipantsProcedure = "/dzeroth.beacons.v1.BeaconService/ListParticipants"
+	// BeaconServiceListSharedBeaconsProcedure is the fully-qualified name of the BeaconService's
+	// ListSharedBeacons RPC.
+	BeaconServiceListSharedBeaconsProcedure = "/dzeroth.beacons.v1.BeaconService/ListSharedBeacons"
 )
 
 // BeaconServiceClient is a client for the dzeroth.beacons.v1.BeaconService service.
@@ -203,6 +206,19 @@ type BeaconServiceClient interface {
 	// (the organiser sees everyone), so a page may hold fewer rows than accepted_count. limit is clamped (0 = 20, above
 	// 50 = 50).
 	ListParticipants(context.Context, *connect.Request[v1.ListParticipantsRequest]) (*connect.Response[v1.ListParticipantsResponse], error)
+	// The upcoming (OPEN or FULL, not yet ended) beacons that the caller and peer_user_id are both in (as organiser or
+	// ACCEPTED participant), soonest first, for the "plans you share" strip of a chat. Needs FEATURE_CHAT_SHARED_PLANS on
+	// for the caller (else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "chat_shared_plans", before any
+	// lookup) and FEATURE_BEACONS not globally off. A block in either direction with the peer, an unknown or non-ACTIVE
+	// peer, or no shared plan is an empty page (never an error, so nothing leaks). A beacon hidden by the platform and one
+	// whose organiser has a block with the caller are dropped as in ListMyBeacons; a community beacon is returned only
+	// while BOTH users are still JOINED members of its community (a viewer or peer who left or was banned drops it). The
+	// peer_user_id must be a valid user id and not the caller's (VALIDATION "peer_user_id"). limit is clamped (0 = 3, above
+	// 10 = 10). Each call examines at most 10 of the caller's upcoming memberships (soonest first) and answers the shared
+	// ones among them, so a page may hold fewer than limit rows, or none, while next_page_token is set; page_token is an
+	// opaque signed cursor bound to the caller and the peer, VALIDATION "page_token" when invalid or expired. Shares the
+	// RATE_LIMIT_BEACONS_READ_PER_MIN bucket.
+	ListSharedBeacons(context.Context, *connect.Request[v1.ListSharedBeaconsRequest]) (*connect.Response[v1.ListSharedBeaconsResponse], error)
 }
 
 // NewBeaconServiceClient constructs a client for the dzeroth.beacons.v1.BeaconService service. By
@@ -292,6 +308,13 @@ func NewBeaconServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		listSharedBeacons: connect.NewClient[v1.ListSharedBeaconsRequest, v1.ListSharedBeaconsResponse](
+			httpClient,
+			baseURL+BeaconServiceListSharedBeaconsProcedure,
+			connect.WithSchema(beaconServiceMethods.ByName("ListSharedBeacons")),
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -309,6 +332,7 @@ type beaconServiceClient struct {
 	leaveBeacon          *connect.Client[v1.LeaveBeaconRequest, v1.LeaveBeaconResponse]
 	removeParticipant    *connect.Client[v1.RemoveParticipantRequest, v1.RemoveParticipantResponse]
 	listParticipants     *connect.Client[v1.ListParticipantsRequest, v1.ListParticipantsResponse]
+	listSharedBeacons    *connect.Client[v1.ListSharedBeaconsRequest, v1.ListSharedBeaconsResponse]
 }
 
 // CreateBeacon calls dzeroth.beacons.v1.BeaconService.CreateBeacon.
@@ -369,6 +393,11 @@ func (c *beaconServiceClient) RemoveParticipant(ctx context.Context, req *connec
 // ListParticipants calls dzeroth.beacons.v1.BeaconService.ListParticipants.
 func (c *beaconServiceClient) ListParticipants(ctx context.Context, req *connect.Request[v1.ListParticipantsRequest]) (*connect.Response[v1.ListParticipantsResponse], error) {
 	return c.listParticipants.CallUnary(ctx, req)
+}
+
+// ListSharedBeacons calls dzeroth.beacons.v1.BeaconService.ListSharedBeacons.
+func (c *beaconServiceClient) ListSharedBeacons(ctx context.Context, req *connect.Request[v1.ListSharedBeaconsRequest]) (*connect.Response[v1.ListSharedBeaconsResponse], error) {
+	return c.listSharedBeacons.CallUnary(ctx, req)
 }
 
 // BeaconServiceHandler is an implementation of the dzeroth.beacons.v1.BeaconService service.
@@ -437,6 +466,19 @@ type BeaconServiceHandler interface {
 	// (the organiser sees everyone), so a page may hold fewer rows than accepted_count. limit is clamped (0 = 20, above
 	// 50 = 50).
 	ListParticipants(context.Context, *connect.Request[v1.ListParticipantsRequest]) (*connect.Response[v1.ListParticipantsResponse], error)
+	// The upcoming (OPEN or FULL, not yet ended) beacons that the caller and peer_user_id are both in (as organiser or
+	// ACCEPTED participant), soonest first, for the "plans you share" strip of a chat. Needs FEATURE_CHAT_SHARED_PLANS on
+	// for the caller (else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "chat_shared_plans", before any
+	// lookup) and FEATURE_BEACONS not globally off. A block in either direction with the peer, an unknown or non-ACTIVE
+	// peer, or no shared plan is an empty page (never an error, so nothing leaks). A beacon hidden by the platform and one
+	// whose organiser has a block with the caller are dropped as in ListMyBeacons; a community beacon is returned only
+	// while BOTH users are still JOINED members of its community (a viewer or peer who left or was banned drops it). The
+	// peer_user_id must be a valid user id and not the caller's (VALIDATION "peer_user_id"). limit is clamped (0 = 3, above
+	// 10 = 10). Each call examines at most 10 of the caller's upcoming memberships (soonest first) and answers the shared
+	// ones among them, so a page may hold fewer than limit rows, or none, while next_page_token is set; page_token is an
+	// opaque signed cursor bound to the caller and the peer, VALIDATION "page_token" when invalid or expired. Shares the
+	// RATE_LIMIT_BEACONS_READ_PER_MIN bucket.
+	ListSharedBeacons(context.Context, *connect.Request[v1.ListSharedBeaconsRequest]) (*connect.Response[v1.ListSharedBeaconsResponse], error)
 }
 
 // NewBeaconServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -522,6 +564,13 @@ func NewBeaconServiceHandler(svc BeaconServiceHandler, opts ...connect.HandlerOp
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	beaconServiceListSharedBeaconsHandler := connect.NewUnaryHandler(
+		BeaconServiceListSharedBeaconsProcedure,
+		svc.ListSharedBeacons,
+		connect.WithSchema(beaconServiceMethods.ByName("ListSharedBeacons")),
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.beacons.v1.BeaconService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case BeaconServiceCreateBeaconProcedure:
@@ -548,6 +597,8 @@ func NewBeaconServiceHandler(svc BeaconServiceHandler, opts ...connect.HandlerOp
 			beaconServiceRemoveParticipantHandler.ServeHTTP(w, r)
 		case BeaconServiceListParticipantsProcedure:
 			beaconServiceListParticipantsHandler.ServeHTTP(w, r)
+		case BeaconServiceListSharedBeaconsProcedure:
+			beaconServiceListSharedBeaconsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -603,4 +654,8 @@ func (UnimplementedBeaconServiceHandler) RemoveParticipant(context.Context, *con
 
 func (UnimplementedBeaconServiceHandler) ListParticipants(context.Context, *connect.Request[v1.ListParticipantsRequest]) (*connect.Response[v1.ListParticipantsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.beacons.v1.BeaconService.ListParticipants is not implemented"))
+}
+
+func (UnimplementedBeaconServiceHandler) ListSharedBeacons(context.Context, *connect.Request[v1.ListSharedBeaconsRequest]) (*connect.Response[v1.ListSharedBeaconsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.beacons.v1.BeaconService.ListSharedBeacons is not implemented"))
 }

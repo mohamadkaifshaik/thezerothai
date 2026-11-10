@@ -29,8 +29,8 @@ void main() {
     expect(Theme.of(captured).brightness, Brightness.dark);
     expect(
       Theme.of(captured).colorScheme.surface,
-      const Color(0xFF000000),
-      reason: 'the X dark page',
+      AppPalette.navy,
+      reason: 'the navy dark page',
     );
     expectSize(tester, find.byKey(const Key('box')), width: 100, height: 50);
   });

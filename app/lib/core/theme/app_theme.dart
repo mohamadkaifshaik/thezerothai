@@ -3,10 +3,13 @@ import 'package:flutter/material.dart';
 /// Design tokens shared by every screen. Never hard-code a `Color(0x...)` or
 /// a raw size outside this file.
 ///
-/// The colour system follows the founder decision of 2026-10-22: match X's
-/// colouring (dark and light), no indigo seed and no gradient. Sizes are dp
-/// (X's CSS px; the research scale was verified at 1.25). The evidence is in
-/// the X reference captures (`02_ui_design_tokens.md`, `10_light_dark_theme.md`).
+/// The colour system is the redesign of ADR-0033 (with amendment 1): pearl
+/// and navy surfaces, teal actions, and gradients only where the design
+/// defines them ([AppGradients]). The ADR's accessibility corrections
+/// override the design tokens where they conflict (teal text on light is
+/// [AppPalette.tealText]; borders reach 3:1; danger text on dark is
+/// [AppPalette.dangerOnDark]). Sizes are dp; the legacy chrome sizes below
+/// were measured on x.com and migrate section by section.
 abstract final class AppSpacing {
   static const double xs = 4;
   static const double sm = 8;
@@ -23,6 +26,9 @@ abstract final class AppSpacing {
 
   /// Minimum width of a short filled action button (an app-bar "Save").
   static const double minButtonWidth = 72;
+
+  /// Vertical content padding of a text field (dz.css `.field`: 16 x 13).
+  static const double fieldVertical = 13;
 }
 
 /// Icon sizes (dp). Visuals sit inside a 48dp tap target.
@@ -68,10 +74,29 @@ abstract final class AppLayout {
 }
 
 abstract final class AppRadius {
+  /// Legacy, migrate in sections.
   static const double sm = 8;
+
+  /// Legacy, migrate in sections.
   static const double md = 12;
+
+  /// Legacy, migrate in sections.
   static const double lg = 16;
+
+  /// Legacy, migrate in sections.
   static const double pill = 999;
+
+  // Redesign tokens (ADR-0033).
+  static const double card = 24;
+  static const double cardSmall = 20;
+  static const double field = 16;
+  static const double tile = 14;
+  static const double bubble = 22;
+  static const double bubbleTail = 6;
+  static const double sheetTop = 32;
+
+  /// Menus, popup menus and snackbars.
+  static const double menu = 16;
 }
 
 /// Responsive layout breakpoints.
@@ -132,50 +157,28 @@ abstract final class AppSize {
 
   /// Mobile floating compose button.
   static const double fab = 56;
+
+  // Redesign tokens (ADR-0033). `bottomNav` and `fab` switch in phase 3.
+  static const double buttonHeight = 52;
+  static const double buttonHeightLarge = 56;
+  static const double floatingNavHeight = 66;
+  static const double floatingNavInset = 20;
+  static const double floatingNavBottom = 24;
+  static const double fabRedesign = 58;
+  static const double avatarRow = 44;
+  static const double avatarPost = 42;
+  static const double avatarLg = 56;
+  static const double avatarXl = 120;
+
+  /// Boundary width of outline buttons and chips (component themes).
+  static const double componentBorder = 1.5;
 }
-
-// --- Palette (X, dark) -----------------------------------------------------
-const Color _darkBackground = Color(0xFF000000);
-const Color _darkSurfaceLow = Color(0xFF080808);
-const Color _darkSurface = Color(0xFF141414);
-const Color _darkSurfaceHigh = Color(0xFF1D1D1D);
-const Color _darkSurfaceHighest = Color(0xFF262626);
-const Color _darkTextPrimary = Color(0xFFE7E9EA);
-const Color _darkTextSecondary = Color(0xFF71767B);
-const Color _darkBorder = Color(0xFF2F3336);
-const Color _darkOutline = Color(0xFF333639);
-
-// --- Palette (X, light) ----------------------------------------------------
-const Color _lightBackground = Color(0xFFFFFFFF);
-const Color _lightSurfaceLow = Color(0xFFFAFAFA);
-const Color _lightSurface = Color(0xFFF7F9F9);
-const Color _lightSurfaceHigh = Color(0xFFF2F2F2);
-const Color _lightSurfaceHighest = Color(0xFFEBEBEB);
-const Color _lightTextPrimary = Color(0xFF0F1419);
-const Color _lightTextSecondary = Color(0xFF536471);
-const Color _lightBorder = Color(0xFFEFF3F4);
-const Color _lightOutline = Color(0xFFCFD9DE);
-
-/// The one accent, identical in both themes (tab bar, links, badge, unread
-/// dot, FAB).
-const Color _accent = Color(0xFF1D9BF0);
-
-/// Small accent *text* on white fails 4.5:1 with [_accent] (3.00:1); this
-/// darker blue (4.72:1) is used for links and hashtags in the light theme
-/// (decision D1 of the W0 plan). Icons, fills and the
-/// tab bar keep [_accent].
-const Color _lightAccentText = Color(0xFF1478BD);
-
-/// Semantic colours shared by both themes (X: like heart, repost arrows, live).
-const Color _like = Color(0xFFF91880);
-const Color _repost = Color(0xFF00BA7C);
-const Color _live = Color(0xFFF91880);
-const Color _recommendation = Color(0xFF794BC4);
 
 /// Semantic colours that the Material [ColorScheme] has no slot for.
 ///
-/// Read them with `context.appColors`. Everything here is a *state* or
-/// *role* colour, never a brand colour (there is no brand gradient).
+/// Read them with `context.appColors`. State and role colours come from the
+/// [AppPalette] token family; the one brand gradient is [primaryFillGradient]
+/// (ADR-0033 §6: gradients only where the design defines them).
 @immutable
 class AppColors extends ThemeExtension<AppColors> {
   const AppColors({
@@ -192,32 +195,43 @@ class AppColors extends ThemeExtension<AppColors> {
     required this.disabledPillLabel,
     required this.selectedRow,
     required this.scrim,
+    required this.primaryFillGradient,
+    required this.primaryFillLabel,
+    required this.dangerFill,
+    required this.onDangerFill,
+    required this.uiBorder,
+    required this.hairline,
+    required this.text2,
+    required this.selectedIndicator,
+    required this.navBarSurface,
+    required this.navBarSelected,
+    required this.navBarUnselected,
   });
 
-  /// Like heart and liked state.
+  /// Like heart and liked state: the danger red of the theme (text-safe on
+  /// every surface step, because it also tints the count).
   final Color like;
 
-  /// Repost icon and reposted state.
+  /// Repost icon and reposted state (teal; the label also changes).
   final Color repost;
 
-  /// Live broadcast indicator.
+  /// Live broadcast indicator (danger family).
   final Color live;
 
-  /// Recommendation / assistant notification icon.
+  /// Recommendation / assistant notification icon (teal family).
   final Color recommendation;
 
-  /// A positive status (available handle): the repost green.
+  /// A positive status (available handle).
   final Color positive;
 
-  /// Colour for small accent *text* (links, hashtags, "Show more"). Equal to
-  /// the accent in dark; a darker blue in light so it passes 4.5:1.
+  /// Colour for small accent *text* (links, hashtags, "Show more"):
+  /// tealText on light, tealElectric on dark.
   final Color accentText;
 
-  /// Secondary text on a raised surface (cards with a fill). Dark
-  /// `onSurfaceVariant` drops below 4.5:1 on those steps; this does not.
+  /// Secondary text on a raised surface (cards with a fill).
   final Color secondaryOnRaised;
 
-  /// The strong (inverse) pill: light fill on dark, dark fill on light.
+  /// The strong (inverse) pill: navy on light, pearl on dark.
   final Color strongPillFill;
   final Color strongPillLabel;
 
@@ -231,44 +245,88 @@ class AppColors extends ThemeExtension<AppColors> {
   /// Barrier colour behind drawers, dialogs and sheets.
   final Color scrim;
 
+  /// The primary button / own-bubble gradient and its label (navy on both
+  /// ends: 9.61 and 7.30).
+  final LinearGradient primaryFillGradient;
+  final Color primaryFillLabel;
+
+  /// Destructive fills (both themes) and their label.
+  final Color dangerFill;
+  final Color onDangerFill;
+
+  /// Boundary of fields, chips and outline buttons (>= 3:1).
+  final Color uiBorder;
+
+  /// Decorative divider only (translucent; never a component boundary).
+  final Color hairline;
+
+  /// Secondary-strong text (field labels, rail rows).
+  final Color text2;
+
+  /// Selected tab / chip indicator.
+  final Color selectedIndicator;
+
+  /// The floating navigation bar: navy in both themes (design F16).
+  final Color navBarSurface;
+  final Color navBarSelected;
+  final Color navBarUnselected;
+
   /// Photo viewers retain a dark canvas in both light and dark themes.
   static const photoBackground = Color(0xFF000000);
   static const onPhotoBackground = Color(0xFFFFFFFF);
 
   static const AppColors dark = AppColors(
-    like: _like,
-    repost: _repost,
-    live: _live,
-    recommendation: _recommendation,
-    positive: _repost,
-    accentText: _accent,
-    secondaryOnRaised: Color(0xFF999999),
-    strongPillFill: Color(0xFFEFF3F4),
-    strongPillLabel: Color(0xFF0F1419),
-    disabledPillFill: Color(0xFF3C3D3D),
-    disabledPillLabel: Color(0xFF9A9D9F),
-    selectedRow: Color(0xFF16181C),
-    // X's scrim over black measured #242d34 = rgba(91, 112, 131, 0.4).
-    scrim: Color(0x665B7083),
+    like: AppPalette.dangerOnDark,
+    repost: AppPalette.tealElectric,
+    live: AppPalette.dangerOnDark,
+    recommendation: AppPalette.tealElectric,
+    positive: AppPalette.tealElectric,
+    accentText: AppPalette.tealElectric,
+    secondaryOnRaised: AppPalette.mutedOnDark,
+    strongPillFill: AppPalette.pearl,
+    strongPillLabel: AppPalette.navy,
+    disabledPillFill: AppPalette.darkContainerHighest,
+    disabledPillLabel: AppPalette.mutedOnDark,
+    selectedRow: AppPalette.darkContainerHigh,
+    scrim: AppPalette.scrim,
+    primaryFillGradient: AppGradients.primaryButton,
+    primaryFillLabel: AppPalette.navy,
+    dangerFill: AppPalette.danger,
+    onDangerFill: AppPalette.white,
+    uiBorder: AppPalette.uiBorderOnDark,
+    hairline: AppPalette.hairlineDark,
+    text2: AppPalette.text2OnDark,
+    selectedIndicator: AppPalette.tealElectric,
+    navBarSurface: AppPalette.navy,
+    navBarSelected: AppPalette.tealElectric,
+    navBarUnselected: AppPalette.mutedOnDark,
   );
 
   static const AppColors light = AppColors(
-    like: _like,
-    repost: _repost,
-    live: _live,
-    recommendation: _recommendation,
-    positive: _repost,
-    accentText: _lightAccentText,
-    secondaryOnRaised: _lightTextSecondary,
-    strongPillFill: Color(0xFF0F1419),
-    strongPillLabel: Color(0xFFFFFFFF),
-    // To confirm against X (the disabled light pill was not observed).
-    disabledPillFill: Color(0x660F1419),
-    disabledPillLabel: Color(0xFFFFFFFF),
-    // To confirm against X (the selected light row was not observed).
-    selectedRow: Color(0xFFF7F9F9),
-    // Measured: a white page became #d9d9da = black at about 15 %.
-    scrim: Color(0x26000000),
+    like: AppPalette.danger,
+    repost: AppPalette.tealText,
+    live: AppPalette.danger,
+    recommendation: AppPalette.tealText,
+    positive: AppPalette.tealText,
+    accentText: AppPalette.tealText,
+    secondaryOnRaised: AppPalette.mutedOnLight,
+    strongPillFill: AppPalette.navy,
+    strongPillLabel: AppPalette.pearl,
+    disabledPillFill: AppPalette.lightContainerHighest,
+    disabledPillLabel: AppPalette.mutedOnLight,
+    selectedRow: AppPalette.lightContainerHigh,
+    scrim: AppPalette.scrim,
+    primaryFillGradient: AppGradients.primaryButton,
+    primaryFillLabel: AppPalette.navy,
+    dangerFill: AppPalette.danger,
+    onDangerFill: AppPalette.white,
+    uiBorder: AppPalette.uiBorderOnLight,
+    hairline: AppPalette.hairlineLight,
+    text2: AppPalette.text2,
+    selectedIndicator: AppPalette.tealText,
+    navBarSurface: AppPalette.navy,
+    navBarSelected: AppPalette.tealElectric,
+    navBarUnselected: AppPalette.mutedOnDark,
   );
 
   @override
@@ -286,6 +344,17 @@ class AppColors extends ThemeExtension<AppColors> {
     Color? disabledPillLabel,
     Color? selectedRow,
     Color? scrim,
+    LinearGradient? primaryFillGradient,
+    Color? primaryFillLabel,
+    Color? dangerFill,
+    Color? onDangerFill,
+    Color? uiBorder,
+    Color? hairline,
+    Color? text2,
+    Color? selectedIndicator,
+    Color? navBarSurface,
+    Color? navBarSelected,
+    Color? navBarUnselected,
   }) {
     return AppColors(
       like: like ?? this.like,
@@ -301,6 +370,17 @@ class AppColors extends ThemeExtension<AppColors> {
       disabledPillLabel: disabledPillLabel ?? this.disabledPillLabel,
       selectedRow: selectedRow ?? this.selectedRow,
       scrim: scrim ?? this.scrim,
+      primaryFillGradient: primaryFillGradient ?? this.primaryFillGradient,
+      primaryFillLabel: primaryFillLabel ?? this.primaryFillLabel,
+      dangerFill: dangerFill ?? this.dangerFill,
+      onDangerFill: onDangerFill ?? this.onDangerFill,
+      uiBorder: uiBorder ?? this.uiBorder,
+      hairline: hairline ?? this.hairline,
+      text2: text2 ?? this.text2,
+      selectedIndicator: selectedIndicator ?? this.selectedIndicator,
+      navBarSurface: navBarSurface ?? this.navBarSurface,
+      navBarSelected: navBarSelected ?? this.navBarSelected,
+      navBarUnselected: navBarUnselected ?? this.navBarUnselected,
     );
   }
 
@@ -322,6 +402,21 @@ class AppColors extends ThemeExtension<AppColors> {
       disabledPillLabel: mix(disabledPillLabel, other.disabledPillLabel),
       selectedRow: mix(selectedRow, other.selectedRow),
       scrim: mix(scrim, other.scrim),
+      primaryFillGradient: LinearGradient.lerp(
+        primaryFillGradient,
+        other.primaryFillGradient,
+        t,
+      )!,
+      primaryFillLabel: mix(primaryFillLabel, other.primaryFillLabel),
+      dangerFill: mix(dangerFill, other.dangerFill),
+      onDangerFill: mix(onDangerFill, other.onDangerFill),
+      uiBorder: mix(uiBorder, other.uiBorder),
+      hairline: mix(hairline, other.hairline),
+      text2: mix(text2, other.text2),
+      selectedIndicator: mix(selectedIndicator, other.selectedIndicator),
+      navBarSurface: mix(navBarSurface, other.navBarSurface),
+      navBarSelected: mix(navBarSelected, other.navBarSelected),
+      navBarUnselected: mix(navBarUnselected, other.navBarUnselected),
     );
   }
 }
@@ -344,70 +439,75 @@ ColorScheme _colorScheme(Brightness brightness) {
   if (brightness == Brightness.light) {
     return const ColorScheme(
       brightness: Brightness.light,
-      primary: _accent,
-      onPrimary: Color(0xFFFFFFFF),
-      primaryContainer: _lightSurfaceHigh,
-      onPrimaryContainer: _lightTextPrimary,
-      secondary: _accent,
-      onSecondary: Color(0xFFFFFFFF),
-      secondaryContainer: _lightSurfaceHigh,
-      onSecondaryContainer: _lightTextPrimary,
-      // No separate tertiary: there is no gradient any more.
-      tertiary: _accent,
-      onTertiary: Color(0xFFFFFFFF),
-      error: Color(0xFFBA1A1A),
-      onError: Color(0xFFFFFFFF),
-      surface: _lightBackground,
-      onSurface: _lightTextPrimary,
-      onSurfaceVariant: _lightTextSecondary,
-      surfaceDim: _lightBackground,
-      surfaceBright: _lightBackground,
-      surfaceContainerLowest: _lightBackground,
-      surfaceContainerLow: _lightSurfaceLow,
-      surfaceContainer: _lightSurface,
-      surfaceContainerHigh: _lightSurfaceHigh,
-      surfaceContainerHighest: _lightSurfaceHighest,
-      outline: _lightOutline,
-      outlineVariant: _lightBorder,
-      shadow: Color(0xFF000000),
-      scrim: Color(0xFF000000),
-      inverseSurface: _lightTextPrimary,
-      onInverseSurface: _lightBackground,
-      inversePrimary: _accent,
+      // tealText, not the bright teal: Material defaults (focus ring, switch,
+      // progress, text-button foreground) stay AA on pearl (5.43).
+      primary: AppPalette.tealText,
+      onPrimary: AppPalette.white,
+      primaryContainer: AppPalette.lightContainerHigh,
+      onPrimaryContainer: AppPalette.navy,
+      // The `.btn.navy`.
+      secondary: AppPalette.navy,
+      onSecondary: AppPalette.pearl,
+      secondaryContainer: AppPalette.lightContainerHigh,
+      onSecondaryContainer: AppPalette.navy,
+      // Tertiary has no role and stays banned in lib/ (it mirrors primary).
+      tertiary: AppPalette.tealText,
+      onTertiary: AppPalette.white,
+      error: AppPalette.danger,
+      onError: AppPalette.white,
+      surface: AppPalette.pearl,
+      onSurface: AppPalette.navy,
+      onSurfaceVariant: AppPalette.mutedOnLight,
+      surfaceDim: AppPalette.lightContainerHighest,
+      surfaceBright: AppPalette.white,
+      surfaceContainerLowest: AppPalette.white,
+      surfaceContainerLow: AppPalette.lightContainerLow,
+      // Cards and fields.
+      surfaceContainer: AppPalette.white,
+      surfaceContainerHigh: AppPalette.lightContainerHigh,
+      surfaceContainerHighest: AppPalette.lightContainerHighest,
+      outline: AppPalette.uiBorderOnLight,
+      outlineVariant: AppPalette.hairlineLight,
+      shadow: AppPalette.navyDeep,
+      scrim: AppPalette.navyDeep,
+      inverseSurface: AppPalette.navy,
+      onInverseSurface: AppPalette.pearl,
+      inversePrimary: AppPalette.tealElectric,
       surfaceTint: Colors.transparent,
     );
   }
   return const ColorScheme(
     brightness: Brightness.dark,
-    primary: _accent,
-    onPrimary: Color(0xFFFFFFFF),
-    primaryContainer: _darkSurfaceHigh,
-    onPrimaryContainer: _darkTextPrimary,
-    secondary: _accent,
-    onSecondary: Color(0xFFFFFFFF),
-    secondaryContainer: _darkSurfaceHigh,
-    onSecondaryContainer: _darkTextPrimary,
-    tertiary: _accent,
-    onTertiary: Color(0xFFFFFFFF),
-    error: Color(0xFFFFB4AB),
-    onError: Color(0xFF690005),
-    surface: _darkBackground,
-    onSurface: _darkTextPrimary,
-    onSurfaceVariant: _darkTextSecondary,
-    surfaceDim: _darkBackground,
-    surfaceBright: _darkSurfaceHighest,
-    surfaceContainerLowest: _darkBackground,
-    surfaceContainerLow: _darkSurfaceLow,
-    surfaceContainer: _darkSurface,
-    surfaceContainerHigh: _darkSurfaceHigh,
-    surfaceContainerHighest: _darkSurfaceHighest,
-    outline: _darkOutline,
-    outlineVariant: _darkBorder,
-    shadow: Color(0xFF000000),
-    scrim: Color(0xFF000000),
-    inverseSurface: _darkTextPrimary,
-    onInverseSurface: _darkBackground,
-    inversePrimary: _accent,
+    primary: AppPalette.tealElectric,
+    onPrimary: AppPalette.navy,
+    primaryContainer: AppPalette.darkContainerHigh,
+    onPrimaryContainer: AppPalette.pearl,
+    secondary: AppPalette.pearl,
+    onSecondary: AppPalette.navy,
+    secondaryContainer: AppPalette.darkContainerHigh,
+    onSecondaryContainer: AppPalette.pearl,
+    tertiary: AppPalette.tealElectric,
+    onTertiary: AppPalette.navy,
+    // Amendment 1: danger text and icons on dark; fills use dangerFill.
+    error: AppPalette.dangerOnDark,
+    onError: AppPalette.navy,
+    surface: AppPalette.darkSurface,
+    onSurface: AppPalette.pearl,
+    onSurfaceVariant: AppPalette.mutedOnDark,
+    surfaceDim: AppPalette.darkContainerLowest,
+    surfaceBright: AppPalette.darkContainerHighest,
+    surfaceContainerLowest: AppPalette.darkContainerLowest,
+    surfaceContainerLow: AppPalette.darkContainerLow,
+    surfaceContainer: AppPalette.darkContainer,
+    surfaceContainerHigh: AppPalette.darkContainerHigh,
+    surfaceContainerHighest: AppPalette.darkContainerHighest,
+    outline: AppPalette.uiBorderOnDark,
+    outlineVariant: AppPalette.hairlineDark,
+    shadow: AppPalette.navyDeep,
+    scrim: AppPalette.navyDeep,
+    inverseSurface: AppPalette.pearl,
+    onInverseSurface: AppPalette.navy,
+    inversePrimary: AppPalette.tealText,
     surfaceTint: Colors.transparent,
   );
 }
@@ -416,57 +516,60 @@ ThemeData buildAppTheme({required Brightness brightness}) {
   final isDark = brightness == Brightness.dark;
   final colorScheme = _colorScheme(brightness);
   final appColors = isDark ? AppColors.dark : AppColors.light;
-  final text = ThemeData(brightness: brightness).textTheme;
-  final textTheme = text
-      .copyWith(
-        // Post body and composer text: X's 15dp on a 20dp line pitch.
-        bodyLarge: text.bodyLarge?.copyWith(fontSize: 15, height: 1.33),
-        bodyMedium: text.bodyMedium?.copyWith(fontSize: 14, height: 1.35),
-        // Display names, section titles.
-        titleSmall: text.titleSmall?.copyWith(
-          fontSize: 15,
-          fontWeight: FontWeight.w700,
-        ),
-        titleMedium: text.titleMedium?.copyWith(
-          fontSize: 17,
-          fontWeight: FontWeight.w700,
-        ),
-        // Page titles, nav labels, drawer rows: bold 20dp (was w800).
-        titleLarge: text.titleLarge?.copyWith(
-          fontSize: 20,
-          fontWeight: FontWeight.w700,
-        ),
-        // The profile name is capped at 22dp.
-        headlineSmall: text.headlineSmall?.copyWith(
-          fontSize: 22,
-          fontWeight: FontWeight.w700,
-        ),
-        labelLarge: text.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-      )
-      .apply(
-        bodyColor: colorScheme.onSurface,
-        displayColor: colorScheme.onSurface,
-      );
+  final textTheme = buildAppTextTheme().apply(
+    bodyColor: colorScheme.onSurface,
+    displayColor: colorScheme.onSurface,
+  );
   final pillShape = RoundedRectangleBorder(
     borderRadius: BorderRadius.circular(AppRadius.pill),
   );
-  final border = BorderSide(color: colorScheme.outlineVariant);
-  // Dialogs, sheets and menus sit one step above the page in dark; in light
-  // the page is already white.
+  final hairline = BorderSide(color: appColors.hairline);
+  // Component boundaries (outline buttons, chips) are >= 3:1 (ADR-0033 §4).
+  final boundary = BorderSide(
+    color: colorScheme.outline,
+    width: AppSize.componentBorder,
+  );
+  // Sheets and menus sit one step above the page in dark; in light they
+  // share the pearl page. Dialogs use the page surface (pearl / navy).
   final modalColor = isDark
       ? colorScheme.surfaceContainer
       : colorScheme.surface;
+  const tapTarget = Size(AppSpacing.minTapTarget, AppSpacing.minTapTarget);
+  // Filled and outlined buttons stretch to their parent's width by default
+  // (existing call sites rely on it) and are 48 dp tall.
+  const stretchTarget = Size.fromHeight(AppSpacing.minTapTarget);
+  final menuShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(AppRadius.menu),
+    side: BorderSide(color: colorScheme.outline),
+  );
+  OutlineInputBorder fieldBorder(Color color, {double width = 1}) =>
+      OutlineInputBorder(
+        borderRadius: BorderRadius.circular(AppRadius.field),
+        borderSide: BorderSide(color: color, width: width),
+      );
+  bool selected(Set<WidgetState> states) =>
+      states.contains(WidgetState.selected);
+  bool disabled(Set<WidgetState> states) =>
+      states.contains(WidgetState.disabled);
   return ThemeData(
     useMaterial3: true,
     colorScheme: colorScheme,
     brightness: brightness,
+    // Text outside the text theme defaults to the body family. The text
+    // theme's own families win: ThemeData merges it over the defaults.
+    fontFamily: AppFonts.body,
     textTheme: textTheme,
     scaffoldBackgroundColor: colorScheme.surface,
     canvasColor: colorScheme.surface,
-    visualDensity: VisualDensity.adaptivePlatformDensity,
+    // 48 dp targets on every platform (D6): Material's adaptive density and
+    // shrink-wrapped targets would make desktop and web controls smaller.
+    visualDensity: VisualDensity.standard,
+    materialTapTargetSize: MaterialTapTargetSize.padded,
     extensions: [appColors],
+    // Elevation stays 0 everywhere; depth comes only from AppShadows, which
+    // the phase 2 primitives paint.
     dividerTheme: DividerThemeData(
-      color: colorScheme.outlineVariant,
+      color: appColors.hairline,
       thickness: 1,
       space: 1,
     ),
@@ -477,39 +580,63 @@ ThemeData buildAppTheme({required Brightness brightness}) {
       scrolledUnderElevation: 0,
       surfaceTintColor: Colors.transparent,
       titleTextStyle: textTheme.titleLarge,
-      shape: Border(bottom: border),
+      shape: Border(bottom: hairline),
     ),
-    // The default FilledButton is X's strong (inverse) pill: light fill on
-    // dark, dark fill on light. Accent-coloured buttons are explicit
-    // (`FloatingActionButton`); there is no gradient.
+    cardTheme: CardThemeData(
+      elevation: 0,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.card),
+      ),
+    ),
+    // The default FilledButton is the strong (inverse) pill, the `.btn.navy`:
+    // navy on light, pearl on dark. `ButtonStyle` cannot paint a gradient, so
+    // the teal gradient primary (`AppColors.primaryFillGradient`) is a
+    // primitive (PR 2.1).
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        minimumSize: const Size.fromHeight(AppSpacing.minTapTarget),
+        minimumSize: stretchTarget,
         shape: pillShape,
         textStyle: textTheme.labelLarge,
         backgroundColor: appColors.strongPillFill,
         foregroundColor: appColors.strongPillLabel,
         disabledBackgroundColor: appColors.disabledPillFill,
         disabledForegroundColor: appColors.disabledPillLabel,
+        elevation: 0,
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        minimumSize: const Size.fromHeight(AppSpacing.minTapTarget),
+        minimumSize: stretchTarget,
         shape: pillShape,
-        side: BorderSide(color: colorScheme.outline),
+        side: boundary,
         textStyle: textTheme.labelLarge,
         foregroundColor: colorScheme.onSurface,
+        elevation: 0,
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
-        minimumSize: const Size(
-          AppSpacing.minTapTarget,
-          AppSpacing.minTapTarget,
-        ),
+        minimumSize: tapTarget,
         shape: pillShape,
+        textStyle: textTheme.labelLarge,
         foregroundColor: appColors.accentText,
+        elevation: 0,
+      ),
+    ),
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        minimumSize: tapTarget,
+        shape: pillShape,
+        textStyle: textTheme.labelLarge,
+      ).copyWith(elevation: const WidgetStatePropertyAll(0)),
+    ),
+    // The design draws navy at 6 %; onSurface is navy on light and keeps the
+    // hover visible on the navy page (pearl at 6 %).
+    iconButtonTheme: IconButtonThemeData(
+      style: IconButton.styleFrom(
+        minimumSize: tapTarget,
+        hoverColor: colorScheme.onSurface.withValues(alpha: 0.06),
       ),
     ),
     floatingActionButtonTheme: FloatingActionButtonThemeData(
@@ -521,52 +648,83 @@ ThemeData buildAppTheme({required Brightness brightness}) {
       highlightElevation: 0,
       shape: const CircleBorder(),
     ),
+    // dz.css `.field`: labels above the field, a >= 3:1 boundary, the
+    // selected-indicator colour at 2 dp on focus.
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
-      fillColor: colorScheme.surfaceContainer,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        borderSide: border,
+      fillColor: isDark
+          ? AppPalette.fieldFillDark
+          : colorScheme.surfaceContainer,
+      isDense: false,
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.fieldVertical,
       ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        borderSide: border,
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        borderSide: BorderSide(color: colorScheme.primary, width: 2),
+      floatingLabelBehavior: FloatingLabelBehavior.always,
+      border: fieldBorder(colorScheme.outline),
+      enabledBorder: fieldBorder(colorScheme.outline),
+      focusedBorder: fieldBorder(appColors.selectedIndicator, width: 2),
+      errorBorder: fieldBorder(colorScheme.error),
+      focusedErrorBorder: fieldBorder(colorScheme.error, width: 2),
+      hintStyle: TextStyle(color: colorScheme.onSurfaceVariant),
+      errorStyle: textTheme.bodySmall?.copyWith(color: colorScheme.error),
+      helperStyle: textTheme.bodySmall?.copyWith(
+        color: colorScheme.onSurfaceVariant,
       ),
     ),
+    // Pills with a >= 3:1 boundary; the selected one takes the indicator
+    // colour and keeps its check mark (never colour alone). The visual is
+    // 32 dp inside a 48 dp target (materialTapTargetSize above).
+    chipTheme: ChipThemeData(
+      shape: pillShape,
+      side: WidgetStateBorderSide.resolveWith(
+        (states) => boundary.copyWith(
+          color: selected(states) && !disabled(states)
+              ? appColors.selectedIndicator
+              : colorScheme.outline,
+        ),
+      ),
+      labelStyle: textTheme.labelSmall?.copyWith(
+        fontWeight: AppTypeTokens.weightUi,
+      ),
+      elevation: 0,
+      pressElevation: 0,
+    ),
+    // The selected glyph is onPrimary on the indicator (selectedIndicator is
+    // the primary); the filled icon variant also marks it. Phase 3 restyles.
     navigationBarTheme: NavigationBarThemeData(
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       height: AppSize.bottomNav,
-      indicatorColor: Colors.transparent,
+      indicatorColor: appColors.selectedIndicator,
       labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
       backgroundColor: colorScheme.surface,
-      // X's bar: every glyph is the primary text colour; only the filled
-      // variant marks the selected one.
-      iconTheme: WidgetStatePropertyAll(
-        IconThemeData(color: colorScheme.onSurface, size: AppIconSize.lg),
+      labelTextStyle: WidgetStatePropertyAll(textTheme.labelMedium),
+      iconTheme: WidgetStateProperty.resolveWith(
+        (states) => IconThemeData(
+          color: selected(states)
+              ? colorScheme.onPrimary
+              : colorScheme.onSurface,
+          size: AppIconSize.lg,
+        ),
       ),
     ),
     navigationRailTheme: NavigationRailThemeData(
       backgroundColor: colorScheme.surface,
-      indicatorColor: Colors.transparent,
+      indicatorColor: appColors.selectedIndicator,
       selectedIconTheme: IconThemeData(
-        color: colorScheme.onSurface,
+        color: colorScheme.onPrimary,
         size: AppIconSize.lg,
       ),
       unselectedIconTheme: IconThemeData(
         color: colorScheme.onSurface,
         size: AppIconSize.lg,
       ),
-      selectedLabelTextStyle: textTheme.titleLarge?.copyWith(
-        fontWeight: FontWeight.w700,
+      // Weight marks the selected label too, not colour alone.
+      selectedLabelTextStyle: textTheme.labelMedium?.copyWith(
+        fontWeight: AppTypeTokens.weightUi,
       ),
-      unselectedLabelTextStyle: textTheme.titleLarge?.copyWith(
-        fontWeight: FontWeight.w400,
-      ),
+      unselectedLabelTextStyle: textTheme.labelMedium,
     ),
     drawerTheme: DrawerThemeData(
       backgroundColor: colorScheme.surface,
@@ -576,40 +734,62 @@ ThemeData buildAppTheme({required Brightness brightness}) {
       width: AppSize.drawerWidth,
       shape: const RoundedRectangleBorder(),
     ),
+    // ThemeData cannot carry a BoxShadow list: the dialog primitive (PR 2.6)
+    // paints AppShadows.brand.
     dialogTheme: DialogThemeData(
-      backgroundColor: modalColor,
+      backgroundColor: colorScheme.surface,
       surfaceTintColor: Colors.transparent,
       barrierColor: appColors.scrim,
+      elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.lg),
+        borderRadius: BorderRadius.circular(AppRadius.card),
       ),
     ),
+    // PopupMenuItem is 48 dp tall by default (kMinInteractiveDimension).
     popupMenuTheme: PopupMenuThemeData(
       color: modalColor,
       surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
-        side: border,
+      elevation: 0,
+      shape: menuShape,
+    ),
+    menuTheme: MenuThemeData(
+      style: MenuStyle(
+        backgroundColor: WidgetStatePropertyAll(modalColor),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        elevation: const WidgetStatePropertyAll(0),
+        shape: WidgetStatePropertyAll(menuShape),
       ),
     ),
+    menuButtonTheme: MenuButtonThemeData(
+      style: MenuItemButton.styleFrom(minimumSize: tapTarget),
+    ),
+    // The drag handle is a 48 dp target.
     bottomSheetTheme: BottomSheetThemeData(
       backgroundColor: modalColor,
       surfaceTintColor: Colors.transparent,
       modalBarrierColor: appColors.scrim,
+      elevation: 0,
+      modalElevation: 0,
+      showDragHandle: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.sheetTop),
+        ),
       ),
     ),
-    // Dark: a raised dark toast. Light: an inverse (dark) toast, because the
-    // accent text cannot reach 4.5:1 on a light-grey surface.
+    // A navy toast on light, navy2 on the navy page; the action is
+    // tealElectric (9.61 on navy, 7.60 on navy2).
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
+      elevation: 0,
       backgroundColor: isDark
-          ? colorScheme.surfaceContainerHighest
+          ? colorScheme.surfaceContainerHigh
           : colorScheme.inverseSurface,
       // M3 defaults assume an inverse-surface snackbar; on the dark surface
       // they fail WCAG AA (F4 M1), so the colours are set explicitly.
-      actionTextColor: isDark ? appColors.accentText : _accent,
+      actionTextColor: isDark
+          ? appColors.accentText
+          : colorScheme.inversePrimary,
       closeIconColor: isDark
           ? colorScheme.onSurfaceVariant
           : colorScheme.onInverseSurface,
@@ -617,14 +797,64 @@ ThemeData buildAppTheme({required Brightness brightness}) {
         color: isDark ? colorScheme.onSurface : colorScheme.onInverseSurface,
       ),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.md),
+        borderRadius: BorderRadius.circular(AppRadius.menu),
       ),
     ),
-    // Count badges are accent blue with a white count (X's unread dot is the
-    // accent), not the Material error colour.
+    // AppTabBar is restyled in phase 2; this covers Material's TabBar.
+    tabBarTheme: TabBarThemeData(
+      indicator: UnderlineTabIndicator(
+        borderSide: BorderSide(
+          color: appColors.selectedIndicator,
+          width: AppSize.tabIndicator,
+        ),
+      ),
+      labelColor: colorScheme.onSurface,
+      unselectedLabelColor: colorScheme.onSurfaceVariant,
+      dividerColor: appColors.hairline,
+    ),
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith((states) {
+        if (disabled(states)) return null;
+        return selected(states) ? colorScheme.onPrimary : colorScheme.outline;
+      }),
+      trackColor: WidgetStateProperty.resolveWith((states) {
+        if (disabled(states)) return null;
+        return selected(states)
+            ? appColors.selectedIndicator
+            : colorScheme.surfaceContainerHighest;
+      }),
+      trackOutlineColor: WidgetStateProperty.resolveWith((states) {
+        if (disabled(states)) return null;
+        return selected(states) ? Colors.transparent : colorScheme.outline;
+      }),
+    ),
+    checkboxTheme: CheckboxThemeData(
+      fillColor: WidgetStateProperty.resolveWith((states) {
+        if (disabled(states)) return null;
+        return selected(states)
+            ? appColors.selectedIndicator
+            : Colors.transparent;
+      }),
+      checkColor: WidgetStatePropertyAll(colorScheme.onPrimary),
+      side: WidgetStateBorderSide.resolveWith((states) {
+        if (disabled(states)) return null;
+        return selected(states)
+            ? const BorderSide(width: 0, color: Colors.transparent)
+            : BorderSide(color: colorScheme.outline, width: 2);
+      }),
+    ),
+    radioTheme: RadioThemeData(
+      fillColor: WidgetStateProperty.resolveWith((states) {
+        if (disabled(states)) return null;
+        return selected(states)
+            ? appColors.selectedIndicator
+            : colorScheme.outline;
+      }),
+    ),
+    // dz.css `.count`: navy on light, pearl on dark.
     badgeTheme: BadgeThemeData(
-      backgroundColor: colorScheme.primary,
-      textColor: colorScheme.onPrimary,
+      backgroundColor: appColors.strongPillFill,
+      textColor: appColors.strongPillLabel,
     ),
     progressIndicatorTheme: ProgressIndicatorThemeData(
       color: colorScheme.primary,
@@ -768,4 +998,294 @@ abstract final class AppAuthPalette {
   static const googleYellow = Color(0xFFFBBC05);
   static const googleRed = Color(0xFFEA4335);
   static const white = Color(0xFFFFFFFF);
+}
+
+/// Raw redesign colour tokens (ADR-0033). The [ColorScheme]s and [AppColors]
+/// read them; widgets read the theme, not these.
+abstract final class AppPalette {
+  static const Color navy = Color(0xFF0D1528);
+  static const Color navy2 = Color(0xFF1B2A44);
+  static const Color navyDeep = Color(0xFF08101F);
+  static const Color pearl = Color(0xFFF6F4EF);
+  static const Color white = Color(0xFFFFFFFF);
+  static const Color teal = Color(0xFF12B8A6);
+
+  /// Large display text only (3.77 on pearl); never body text.
+  static const Color tealDark = Color(0xFF0B8C7F);
+  static const Color tealElectric = Color(0xFF19D3BE);
+  static const Color text2 = Color(0xFF2A3446);
+
+  // Accessibility set.
+  static const Color tealText = Color(0xFF087066);
+  static const Color uiBorderOnLight = Color(0xFF7A8392);
+  static const Color uiBorderOnDark = Color(0xFF7B879B);
+  static const Color mutedOnLight = Color(0xFF5B6475);
+  static const Color mutedOnDark = Color(0xFF9AA3B2);
+
+  /// Danger fill (white label 6.57) and danger text on light (5.98).
+  static const Color danger = Color(0xFFB42318);
+
+  /// Danger text and icons on dark (D2): 6.53 on navy.
+  static const Color dangerOnDark = Color(0xFFF97066);
+
+  /// Decorative only; never for input, chip or button borders.
+  static const Color hairlineLight = Color(0x140D1528);
+  static const Color hairlineDark = Color(0x1AF6F4EF);
+  static const Color scrim = Color(0x7A08101F);
+
+  // Dark container ladder (D4).
+  static const Color darkContainerLowest = navyDeep;
+  static const Color darkSurface = navy;
+  static const Color darkContainerLow = Color(0xFF121C33);
+  static const Color darkContainer = Color(0xFF16223B);
+  static const Color darkContainerHigh = navy2;
+  static const Color darkContainerHighest = Color(0xFF22324F);
+
+  // Light container ladder (PR 1.3). surface is pearl; Lowest and Container
+  // are white.
+  static const Color lightContainerLow = Color(0xFFFAF9F6);
+  static const Color lightContainerHigh = Color(0xFFEEF1F4);
+  static const Color lightContainerHighest = Color(0xFFE6EAEE);
+
+  /// text2 on dark: pearl at 80 % over navy (dz.css `.dark .field label`).
+  static const Color text2OnDark = Color(0xFFC7C7C7);
+
+  /// Fallback avatar backgrounds (initials). The first three take
+  /// [avatarInkOnTint] (navy), the last, [avatarTintNavy], takes
+  /// [avatarInkOnNavy] (pearl); every pair is at least 4.5:1.
+  static const Color avatarTintSlate = Color(0xFFC9D3DC);
+  static const Color avatarTintMint = Color(0xFFBFE9E2);
+  static const Color avatarTintSand = Color(0xFFE3DCCB);
+  static const Color avatarTintNavy = navy;
+  static const List<Color> avatarTints = [
+    avatarTintSlate,
+    avatarTintMint,
+    avatarTintSand,
+    avatarTintNavy,
+  ];
+  static const Color avatarInkOnTint = navy;
+  static const Color avatarInkOnNavy = pearl;
+
+  /// Text field fill on dark: dz.css `rgba(246,244,239,.06)` (pearl at 6 %).
+  static const Color fieldFillDark = Color(0x0FF6F4EF);
+}
+
+/// Redesign gradients. Declared only here.
+abstract final class AppGradients {
+  static const LinearGradient primaryButton = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [AppPalette.tealElectric, AppPalette.teal],
+  );
+  static const LinearGradient mineBubble = primaryButton;
+  static const LinearGradient card = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [AppPalette.white, AppPalette.lightContainerHigh],
+  );
+  static const LinearGradient lightBubble = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [AppPalette.white, AppPalette.lightContainerHighest],
+  );
+  static const LinearGradient darkCard = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [AppPalette.navy2, AppPalette.navy],
+  );
+
+  /// dz.css `.hero`: radial-gradient(120% 120% at 85% 0%, ...).
+  static const RadialGradient hero = RadialGradient(
+    center: Alignment(0.7, -1),
+    radius: 1.2,
+    colors: [AppPalette.navy2, AppPalette.navy, AppPalette.navyDeep],
+    stops: [0, 0.55, 1],
+  );
+}
+
+/// Redesign shadows (outer parts only; Flutter has no inset shadow).
+abstract final class AppShadows {
+  static const List<BoxShadow> card = [
+    BoxShadow(color: Color(0x2E0D1528), offset: Offset(0, 11), blurRadius: 25),
+  ];
+  static const List<BoxShadow> brand = [
+    BoxShadow(color: Color(0x380D1528), offset: Offset(0, 11), blurRadius: 25),
+  ];
+  static const List<BoxShadow> primaryGlow = [
+    BoxShadow(color: Color(0x5919D3BE), offset: Offset(0, 10), blurRadius: 26),
+  ];
+  static const List<BoxShadow> navBar = [
+    BoxShadow(color: Color(0x590D1528), offset: Offset(0, 14), blurRadius: 30),
+  ];
+}
+
+/// Redesign motion tokens.
+class AppMotion {
+  const AppMotion._({required this.movement});
+
+  static const Curve expoOut = Cubic(0.16, 1, 0.3, 1);
+  static const Curve backOut = Cubic(0.34, 1.56, 0.64, 1);
+  static const Duration expoOutShort = Duration(milliseconds: 300);
+  static const Duration expoOutLong = Duration(milliseconds: 450);
+  static const Duration backOutDuration = Duration(milliseconds: 350);
+  static const Duration headlineStaggerMin = Duration(milliseconds: 80);
+  static const Duration headlineStaggerMax = Duration(milliseconds: 200);
+
+  static const AppMotion full = AppMotion._(movement: true);
+  static const AppMotion reduced = AppMotion._(movement: false);
+
+  /// Whether slides and scales may run. When false, use a plain fade.
+  final bool movement;
+
+  /// Zero-movement fades under reduced motion.
+  static AppMotion of(BuildContext context) =>
+      MediaQuery.disableAnimationsOf(context) ? reduced : full;
+
+  /// Distance an element may travel while entering (0 when reduced).
+  double offset(double distance) => movement ? distance : 0;
+}
+
+/// Redesign typography tokens (ADR-0033 §2). [buildAppTextTheme] and
+/// [AppTextStyles] are built from them.
+abstract final class AppTypeTokens {
+  static const List<double> displaySizes = [28, 32, 36, 40, 48, 52];
+  static const double displayTracking = -0.035;
+  static const double displayLineHeight = 1.02;
+  static const double eyebrowSize = 12;
+  static const FontWeight eyebrowWeight = FontWeight.w700;
+  static const double eyebrowTracking = 0.24;
+  static const double wordmarkSize = 15;
+  static const FontWeight wordmarkWeight = FontWeight.w700;
+  static const double wordmarkTracking = 0.13;
+  static const double bodySize = 15;
+  static const double bodyLineHeight = 1.42;
+  static const double focalPostSize = 17;
+  static const double focalPostLineHeight = 24;
+  static const FontWeight weightDisplay = FontWeight.w800;
+  static const FontWeight weightUi = FontWeight.w700;
+  static const FontWeight weightLabel = FontWeight.w600;
+  static const FontWeight weightBody = FontWeight.w500;
+}
+
+/// The two bundled families (`pubspec.yaml`; each is one variable TTF). The
+/// engine maps `fontWeight` onto their `wght` axis (outcome A of the redesign
+/// plan §1.2, `test/core/theme/typography_test.dart`), so styles set
+/// `fontWeight` only, never `fontVariations`.
+abstract final class AppFonts {
+  /// Display, headings, screen titles, wordmark and eyebrow.
+  static const String display = 'Manrope';
+
+  /// Body, UI labels, buttons, inputs and post text.
+  static const String body = 'DM Sans';
+}
+
+TextStyle _type(
+  String family,
+  double size,
+  FontWeight weight, {
+  required double height,
+  double tracking = 0,
+}) => TextStyle(
+  fontFamily: family,
+  fontSize: size,
+  fontWeight: weight,
+  height: height,
+  // Tracking is relative to size (em), never an absolute value.
+  letterSpacing: tracking * size,
+  textBaseline: TextBaseline.alphabetic,
+  leadingDistribution: TextLeadingDistribution.even,
+);
+
+TextStyle _display(double size) => _type(
+  AppFonts.display,
+  size,
+  AppTypeTokens.weightDisplay,
+  height: AppTypeTokens.displayLineHeight,
+  tracking: AppTypeTokens.displayTracking,
+);
+
+/// The redesign type scale (ADR-0033 §2), built from scratch so no Material
+/// default (tracking, line height, weight) leaks in. Colourless: the theme
+/// applies `onSurface`.
+///
+/// Headings and labels have no design tracking or line height; they use 0
+/// tracking and the line heights below on purpose (not Material's values).
+TextTheme buildAppTextTheme() {
+  const w800 = AppTypeTokens.weightDisplay;
+  const w700 = AppTypeTokens.weightUi;
+  const w600 = AppTypeTokens.weightLabel;
+  const w500 = AppTypeTokens.weightBody;
+  const display = AppFonts.display;
+  const body = AppFonts.body;
+  return TextTheme(
+    displayLarge: _display(52),
+    displayMedium: _display(40),
+    displaySmall: _display(28),
+    headlineLarge: _type(display, 24, w800, height: 1.25),
+    headlineMedium: _type(display, 22, w800, height: 1.25),
+    headlineSmall: _type(display, 20, w800, height: 1.25),
+    // Top bar and screen titles.
+    titleLarge: _type(display, 20, w800, height: 1.25),
+    titleMedium: _type(body, 17, w700, height: 1.3),
+    // Display names, section titles: 15 sp on a 20 dp line.
+    titleSmall: _type(body, 15, w700, height: 1.33),
+    // Post body and composer text.
+    bodyLarge: _type(
+      body,
+      AppTypeTokens.bodySize,
+      w500,
+      height: AppTypeTokens.bodyLineHeight,
+    ),
+    bodyMedium: _type(body, 14, w500, height: 1.4),
+    bodySmall: _type(body, 13, w500, height: 1.35),
+    // Buttons.
+    labelLarge: _type(body, 15, w700, height: 1.33),
+    labelMedium: _type(body, 14, w600, height: 1.33),
+    labelSmall: _type(body, 12, w600, height: 1.33),
+  );
+}
+
+/// Redesign text styles outside the Material text theme. Each takes the
+/// active theme so it carries the scheme's colours.
+abstract final class AppTextStyles {
+  /// Small uppercase kicker above a heading: Manrope 12 sp w700, +0.24 em.
+  /// Uppercase the string at the call site (`toUpperCase()`); it is never the
+  /// only carrier of information (ADR-0033 §4).
+  static TextStyle eyebrow(ThemeData theme) => _type(
+    AppFonts.display,
+    AppTypeTokens.eyebrowSize,
+    AppTypeTokens.eyebrowWeight,
+    height: 1.33,
+    tracking: AppTypeTokens.eyebrowTracking,
+  ).copyWith(color: theme.colorScheme.onSurfaceVariant);
+
+  /// The "DZEROTH" wordmark: Manrope 15 sp w700, +0.13 em.
+  static TextStyle wordmark(ThemeData theme) => _type(
+    AppFonts.display,
+    AppTypeTokens.wordmarkSize,
+    AppTypeTokens.wordmarkWeight,
+    height: 1.2,
+    tracking: AppTypeTokens.wordmarkTracking,
+  ).copyWith(color: theme.colorScheme.onSurface);
+
+  /// The opened post's text: DM Sans 17 sp on a 24 dp line.
+  static TextStyle focalPost(ThemeData theme) => _type(
+    AppFonts.body,
+    AppTypeTokens.focalPostSize,
+    AppTypeTokens.weightBody,
+    height: AppTypeTokens.focalPostLineHeight / AppTypeTokens.focalPostSize,
+  ).copyWith(color: theme.colorScheme.onSurface);
+
+  /// The accented part of a display headline, in the accent text colour
+  /// (tealText on light, tealElectric on dark; AA at any size). [size] is one
+  /// of [AppTypeTokens.displaySizes].
+  static TextStyle displayAccent(ThemeData theme, {double size = 28}) {
+    assert(AppTypeTokens.displaySizes.contains(size), 'not a display size');
+    final colors =
+        theme.extension<AppColors>() ??
+        (theme.brightness == Brightness.dark
+            ? AppColors.dark
+            : AppColors.light);
+    return _display(size).copyWith(color: colors.accentText);
+  }
 }

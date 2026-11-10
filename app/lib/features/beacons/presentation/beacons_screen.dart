@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_shell_scope.dart';
+import '../../../core/widgets/app_top_bar.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
@@ -73,6 +75,16 @@ class _BeaconsScreenState extends State<BeaconsScreen> {
                   AppBackHeader(
                     title: 'Plans',
                     onBack: _back,
+                    // A primary destination: at the root of a phone shell it
+                    // leads with the avatar (drawer, Profile) instead of Back;
+                    // when something can be popped, Back stays.
+                    leading:
+                        MediaQuery.sizeOf(context).width <
+                                    AppBreakpoints.mobile &&
+                                AppShellScope.maybeOf(context) != null &&
+                                !context.canPop()
+                        ? const AppAvatarButton()
+                        : null,
                     actions: [
                       IconButton(
                         tooltip: 'My plans',
