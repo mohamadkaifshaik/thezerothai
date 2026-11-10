@@ -2,6 +2,7 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
 import 'package:dzeroth/core/widgets/app_shell_scope.dart';
+import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
 import 'package:dzeroth/core/widgets/shell_bottom_inset_sliver.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
@@ -2081,5 +2082,206 @@ void main() {
       textScales: kTabletTextScales,
       heights: kTabletHeights,
     );
+  });
+
+  group('context pane (band B, tablet layout, T3)', () {
+    const paneKey = Key('pane-section');
+    const sections = [
+      ContextSection(
+        ContextSectionKind.trends,
+        SizedBox(key: paneKey, height: 120),
+      ),
+      ContextSection(ContextSectionKind.links, Text('footer')),
+    ];
+
+    Widget shell({
+      ShellLayout layout = ShellLayout.tablet,
+      List<ContextSection>? contextSections = sections,
+      Widget? body,
+    }) => ResponsiveScaffold(
+      selectedIndex: 0,
+      onDestinationSelected: (_) {},
+      destinations: _destinations,
+      onCompose: () {},
+      redesignedRail: true,
+      floatingBar: true,
+      layout: layout,
+      sideColumn: const SizedBox(key: _sideKey, height: 10),
+      contextSections: contextSections,
+      body: body ?? const SizedBox.expand(key: _bodyKey),
+    );
+
+    Future<void> pumpAt(
+      WidgetTester tester,
+      Widget child, {
+      double width = 1024,
+      double height = 768,
+      EdgeInsets padding = EdgeInsets.zero,
+    }) => pumpThemed(
+      tester,
+      MediaQuery(
+        data: MediaQueryData(
+          size: Size(width, height),
+          padding: padding,
+          viewPadding: padding,
+        ),
+        child: child,
+      ),
+      size: Size(width, height),
+      useScaffold: false,
+    );
+
+    final table = <double, (double, double)>{
+      840: (439, 320),
+      1024: (623, 320),
+      1133: (680, 372),
+      1199: (680, 438),
+    };
+    for (final MapEntry(key: width, value: (primary, pane)) in table.entries) {
+      testWidgets('${width.toInt()} dp: body ${primary.toInt()}, hairline, '
+          'pane ${pane.toInt()}', (tester) async {
+        await pumpAt(tester, shell(), width: width);
+
+        expect(
+          tester.getRect(find.byKey(_bodyKey)),
+          Rect.fromLTWH(80, 0, primary, 768),
+        );
+        expect(
+          tester.getRect(find.byType(ContextPane)),
+          Rect.fromLTWH(80 + primary + 1, 0, pane, 768),
+        );
+        expect(find.byKey(paneKey), findsOneWidget);
+        expect(find.text('footer'), findsOneWidget);
+        expect(find.byKey(_sideKey), findsNothing);
+        expect(
+          tester.widget<ContextPaneScope>(find.byType(ContextPaneScope)).shown,
+          {ContextSectionKind.trends, ContextSectionKind.links},
+        );
+      });
+    }
+
+    for (final width in [600.0, 834.0, 839.0]) {
+      testWidgets('band A (${width.toInt()} dp): no pane, the body keeps the '
+          'content, the page is told nothing is in a pane', (tester) async {
+        await pumpAt(tester, shell(), width: width);
+
+        expect(find.byType(ContextPane), findsNothing);
+        expect(find.byKey(paneKey), findsNothing);
+        expect(
+          tester.getRect(find.byKey(_bodyKey)),
+          Rect.fromLTWH(80, 0, width - 80, 768),
+        );
+        expect(
+          tester.widget<ContextPaneScope>(find.byType(ContextPaneScope)).shown,
+          isEmpty,
+        );
+      });
+    }
+
+    for (final empty in [null, <ContextSection>[]]) {
+      testWidgets('band B with ${empty == null ? 'no' : 'empty'} sections: '
+          'one pane, as in T1', (tester) async {
+        await pumpAt(tester, shell(contextSections: empty));
+
+        expect(find.byType(ContextPane), findsNothing);
+        expect(
+          tester.getRect(find.byKey(_bodyKey)),
+          const Rect.fromLTWH(80, 0, 944, 768),
+        );
+      });
+    }
+
+    testWidgets('the legacy layout ignores the sections at 1024 dp', (
+      tester,
+    ) async {
+      await pumpAt(tester, shell(layout: ShellLayout.legacy));
+
+      expect(find.byType(ContextPane), findsNothing);
+      expect(find.byType(ContextPaneScope), findsNothing);
+      expect(find.byType(NavigationRail), findsOneWidget);
+      expect(tester.getSize(find.byKey(_bodyKey)).width, AppSize.contentMax);
+    });
+
+    testWidgets('desktop ignores them and keeps the side column', (
+      tester,
+    ) async {
+      await pumpAt(tester, shell(), width: 1280, height: 900);
+
+      expect(find.byType(ContextPane), findsNothing);
+      expect(find.byType(ContextPaneScope), findsNothing);
+      expect(find.byKey(_sideKey), findsOneWidget);
+    });
+
+    testWidgets('phones ignore them', (tester) async {
+      await pumpAt(tester, shell(), width: 599, height: 900);
+
+      expect(find.byType(ContextPane), findsNothing);
+      expect(find.byType(ContextPaneScope), findsNothing);
+    });
+
+    testWidgets('insets: the pane pads its content by the top and bottom '
+        'ones and stops at the trailing one', (tester) async {
+      await pumpAt(
+        tester,
+        shell(),
+        padding: const EdgeInsets.fromLTRB(44, 24, 30, 20),
+      );
+
+      // Rail 124; C = 1024 - 124 - 30 = 870; pane 320; body 549.
+      expect(
+        tester.getRect(find.byType(ContextPane)),
+        const Rect.fromLTWH(124 + 549 + 1, 0, 320, 768),
+      );
+      expect(tester.getTopLeft(find.byKey(paneKey)).dy, 24 + AppSpacing.md);
+      final scroll = tester.widget<SingleChildScrollView>(
+        find.descendant(
+          of: find.byType(ContextPane),
+          matching: find.byType(SingleChildScrollView),
+        ),
+      );
+      expect(
+        scroll.padding,
+        const EdgeInsets.fromLTRB(16, 24 + 16, 16, 20 + 16),
+      );
+    });
+
+    testWidgets('focus: the rail, the body, then the pane', (tester) async {
+      await pumpAt(
+        tester,
+        shell(
+          contextSections: [
+            ContextSection(
+              ContextSectionKind.links,
+              TextButton(onPressed: () {}, child: const Text('in pane')),
+            ),
+          ],
+          body: Center(
+            child: TextButton(onPressed: () {}, child: const Text('in body')),
+          ),
+        ),
+      );
+
+      bool focused(String text) =>
+          Focus.of(tester.element(find.text(text))).hasPrimaryFocus;
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(
+        Focus.of(
+          tester.element(
+            find.descendant(
+              of: find.byType(AppNavRail),
+              matching: find.byIcon(Icons.home),
+            ),
+          ),
+        ).hasPrimaryFocus,
+        isTrue,
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(focused('in body'), isTrue);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(focused('in pane'), isTrue);
+    });
   });
 }

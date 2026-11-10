@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/graph/presentation/bloc/suggestions_cubit.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
+import 'package:dzeroth/features/graph/presentation/widgets/who_to_follow_card.dart';
 import 'package:dzeroth/features/home/presentation/home_screen.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
 import 'package:dzeroth/features/notifications/data/push_messaging.dart';
@@ -133,6 +135,7 @@ void main() {
     Stream<OnboardingState> states = const Stream<OnboardingState>.empty(),
     double textScale = 1,
     SuggestionsCubit? suggestions,
+    Set<ContextSectionKind>? paneShows,
   }) async {
     whenListen(
       onboardingBloc,
@@ -169,7 +172,14 @@ void main() {
               ? MaterialApp(
                   theme: theme ?? appLightTheme,
                   builder: scaled(textScale),
-                  home: const HomeScreen(),
+                  // The tablet shell's scope (T3): what its context pane
+                  // shows beside the page.
+                  home: paneShows == null
+                      ? const HomeScreen()
+                      : ContextPaneScope(
+                          shown: paneShows,
+                          child: const HomeScreen(),
+                        ),
                 )
               : MaterialApp.router(
                   theme: theme ?? appLightTheme,
@@ -928,6 +938,55 @@ void main() {
         identical(tester.widget(find.byType(TimelineFeedView)), feedBefore),
         isTrue,
       );
+    });
+  });
+
+  group('who to follow beside the tablet context pane (T3)', () {
+    const on = {'posts', 'notifications', 'graph', 'follow_suggestions'};
+    late FakeSuggestionsRepository suggestionRepo;
+    late SuggestionsCubit suggestions;
+
+    setUp(() {
+      suggestionRepo = FakeSuggestionsRepository([
+        for (var i = 1; i <= 5; i++) suggestedUser(i),
+      ]);
+      suggestions = SuggestionsCubit(repository: suggestionRepo);
+      stubCached(snapshotOf([2, 1]));
+      stubRefresh(snapshotOf([2, 1]));
+    });
+
+    tearDown(() => suggestions.close());
+
+    testWidgets('a pane that shows it: no inline card, nothing asked by '
+        'Home', (tester) async {
+      await open(
+        tester,
+        features: on,
+        suggestions: suggestions,
+        paneShows: const {
+          ContextSectionKind.whoToFollow,
+          ContextSectionKind.links,
+        },
+      );
+
+      expect(find.byType(WhoToFollowCard), findsNothing);
+      expect(find.text('Who to follow'), findsNothing);
+      expect(suggestionRepo.calls, 0);
+      expect(find.text('post 2'), findsOneWidget);
+    });
+
+    testWidgets('a pane without it (band A, or a page whose pane lacks it): '
+        'the inline card stays', (tester) async {
+      await open(
+        tester,
+        features: on,
+        suggestions: suggestions,
+        paneShows: const {ContextSectionKind.links},
+      );
+
+      expect(find.text('Who to follow'), findsOneWidget);
+      expect(find.byType(UserListRow), findsNWidgets(3));
+      expect(suggestionRepo.calls, 1);
     });
   });
 

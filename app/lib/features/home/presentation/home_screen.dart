@@ -7,6 +7,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/router/compose_gate.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_top_bar.dart';
+import '../../../core/widgets/context_pane.dart';
 import '../../../core/widgets/telemetry_consent_card.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../graph/presentation/widgets/who_to_follow_card.dart';
@@ -153,10 +154,15 @@ class _FollowingFeed extends StatelessWidget {
             const SliverToBoxAdapter(child: TelemetryConsentCard()),
             // "Who to follow": once, under the opt-in card; draws
             // nothing unless `follow_suggestions` + `graph` are on and the
-            // shared list has rows.
-            const SliverToBoxAdapter(
-              child: WhoToFollowCard(margin: EdgeInsets.all(AppSpacing.md)),
-            ),
+            // shared list has rows. Beside a tablet context pane that shows
+            // it (band B) it lives there instead: one card, one placement.
+            if (!ContextPaneScope.shows(
+              context,
+              ContextSectionKind.whoToFollow,
+            ))
+              const SliverToBoxAdapter(
+                child: WhoToFollowCard(margin: EdgeInsets.all(AppSpacing.md)),
+              ),
             if (canCompose)
               const SliverToBoxAdapter(child: HomeComposerEntry()),
           ],

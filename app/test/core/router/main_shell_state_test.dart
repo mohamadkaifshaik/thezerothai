@@ -3,6 +3,7 @@ import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
+import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
@@ -38,7 +39,8 @@ class _ProbeCubit extends Cubit<int> {
 /// `Navigator` a `GlobalKey` and `ResponsiveScaffold` re-parents it instead of
 /// rebuilding it (fact F4). Run in every chrome the shell can draw: legacy
 /// (`ui_shell` off), the redesign without the tablet layout, and the tablet
-/// layout (`ui_shell` + `ui_tablet`).
+/// layout (`ui_shell` + `ui_tablet`), whose band B also adds the context
+/// pane (T3).
 void main() {
   late _MockOnboardingBloc onboarding;
   late _MockAuthBloc auth;
@@ -180,6 +182,15 @@ void main() {
           expect(
             find.byType(NavigationRail),
             width >= AppBreakpoints.mobile && !(tablet && tabletBand)
+                ? findsOneWidget
+                : findsNothing,
+            reason: reason,
+          );
+          // Band B adds the context pane beside the page (T3); the page
+          // still keeps its state.
+          expect(
+            find.byType(ContextPane),
+            tablet && tabletBand && width >= AppBreakpoints.expanded
                 ? findsOneWidget
                 : findsNothing,
             reason: reason,

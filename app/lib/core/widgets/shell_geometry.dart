@@ -13,7 +13,8 @@ enum ShellBand {
   /// 600-839 dp, band A: rail + one fluid column.
   medium,
 
-  /// 840-1199 dp, band B: rail + two panes (from T3 on; T1 draws one).
+  /// 840-1199 dp, band B: rail + two panes (the primary and, where the page
+  /// has one, the context pane; list-detail from T4 on).
   expanded,
 
   /// >= 1200 dp: the desktop composition, unchanged (ruling R-1).
@@ -134,6 +135,18 @@ class ShellGeometry extends InheritedWidget {
       content: Rect.fromLTWH(left, 0, width, window.height),
     );
   }
+
+  /// The width of band B's context pane (tablet plan section 3, code P) for a
+  /// content area [contentWidth] (C) wide: `clamp(C - 1 - 680, 320, 440)`.
+  /// The primary pane takes the rest after the 1 dp hairline between the two,
+  /// so it reaches [AppSize.readableMax] from C = 1001 and never goes below
+  /// 439 (at 840 dp). [ShellGeometryData.content] stays the whole C: dialogs
+  /// and snack bars centre on both panes together.
+  static double contextPaneWidthFor(double contentWidth) =>
+      (contentWidth - 1 - AppSize.readableMax).clamp(
+        AppSize.contextPaneMin,
+        AppSize.contextPaneMax,
+      );
 
   static ShellGeometryData? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<ShellGeometry>()?.data;
