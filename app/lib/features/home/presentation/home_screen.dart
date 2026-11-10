@@ -139,7 +139,9 @@ class _FollowingFeed extends StatelessWidget {
           headerSlivers: [
             // 53dp top bar: the avatar button (narrow layouts, opens the
             // drawer) and the title, over the theme's bottom hairline.
-            AppTopBar.sliver(title: 'Posts', centerTitle: true),
+            // With `ui_shell` on it shows the DZEROTH wordmark, still named
+            // "Posts" for assistive technology.
+            AppTopBar.sliver(title: 'Posts', centerTitle: true, wordmark: true),
             SliverToBoxAdapter(child: tabBar),
             // One opt-in card above the feed; hidden unless the
             // notifications flag is on and push can be offered.
