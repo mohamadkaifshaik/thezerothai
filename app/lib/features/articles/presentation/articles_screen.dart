@@ -16,6 +16,9 @@ import '../../media/data/image_picker_service.dart';
 import '../../media/data/media_repository.dart';
 import '../../media/data/media_uploader.dart';
 import '../../media/domain/image_processor.dart';
+import '../../posts/domain/reply_audience.dart';
+import '../../posts/presentation/post_error_messages.dart'
+    show kReplyAudienceUnavailableMessage;
 import '../domain/article.dart';
 import '../domain/articles_repository.dart';
 import 'article_text_controller.dart';
@@ -204,6 +207,10 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
   String _message(Object error) => isArticleDraftLimit(error)
       // Fixed copy, not the server's text; nothing in the editor is touched.
       ? articleDraftLimitMessage
+      // The flag went off after the dialog offered a narrower audience.
+      : error is FeatureDisabledException &&
+            error.feature == kFeatureReplyAudience
+      ? kReplyAudienceUnavailableMessage
       : error is AppException
       ? error.message
       : 'Could not load or save this article. Please try again.';
@@ -424,8 +431,9 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
       builder: (_) => _PublishDialog(
         draft: _draft,
         initialCaption: _retryOptions?.caption ?? record.publicationCaption,
-        initialPolicy: _retryOptions?.policy ?? record.publicationReplyPolicy,
+        initialPolicy: _retryOptions?.policy ?? record.publicationReplyAudience,
         locked: record.publicationPending || _retryOptions != null,
+        canChooseReplyAudience: _repository.canChooseReplyAudience,
       ),
     );
     if (options == null || !mounted) return;
@@ -443,10 +451,17 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
         _record!,
         idempotencyKey: publishKey,
         caption: options.caption,
-        replyPolicy: options.policy,
+        replyAudience: options.policy,
       );
       if (mounted) context.go('/articles/${published.draft.id}');
     } catch (error) {
+      // FEATURE_DISABLED is FAILED_PRECONDITION, which clears the pending
+      // key server-side: the next try may choose again (only Everyone now,
+      // the gate remembers the answer), even if the refresh below fails.
+      if (error is FeatureDisabledException &&
+          error.feature == kFeatureReplyAudience) {
+        _retryOptions = null;
+      }
       if (mounted) setState(() => _error = _message(error));
       try {
         final refreshed = await _repository.get(record.draft.id);
@@ -1376,32 +1391,49 @@ class _EditableBlock {
 class _PublishOptions {
   const _PublishOptions(this.caption, this.policy);
   final String caption;
-  final String policy;
+  final ReplyAudience policy;
 }
 
 class _PublishDialog extends StatefulWidget {
   const _PublishDialog({
     required this.draft,
     this.initialCaption = '',
-    this.initialPolicy = 'everyone',
+    this.initialPolicy = ReplyAudience.everyone,
     this.locked = false,
+    this.canChooseReplyAudience = false,
   });
   final ArticleDraft draft;
   final String initialCaption;
-  final String initialPolicy;
+  final ReplyAudience initialPolicy;
+
+  /// A publication is pending (or being retried): the caption and policy
+  /// of its first attempt are shown read-only and sent again.
   final bool locked;
+
+  /// `reply_audience` is usable ([ArticlesRepository.canChooseReplyAudience]).
+  /// Without it, like the composer, there is no reply control and the
+  /// article goes out as Everyone.
+  final bool canChooseReplyAudience;
   @override
   State<_PublishDialog> createState() => _PublishDialogState();
 }
 
 class _PublishDialogState extends State<_PublishDialog> {
   final _caption = TextEditingController();
-  String _policy = 'everyone';
+  ReplyAudience _policy = ReplyAudience.everyone;
+
+  /// A locked retry keeps its stored choice visible (disabled) even with the
+  /// capability gone: it must be sent again unchanged.
+  bool get _showReplyAudience => widget.canChooseReplyAudience || widget.locked;
+
   @override
   void initState() {
     super.initState();
     _caption.text = widget.initialCaption;
-    _policy = widget.initialPolicy;
+    // A refused earlier choice may still be stored on the record.
+    _policy = _showReplyAudience
+        ? widget.initialPolicy
+        : ReplyAudience.everyone;
   }
 
   @override
@@ -1429,31 +1461,29 @@ class _PublishDialogState extends State<_PublishDialog> {
               trailing: Icon(Icons.check_circle),
             ),
             const Divider(),
-            Text(
-              'Who can reply?',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            DropdownButtonFormField<String>(
-              initialValue: _policy,
-              decoration: const InputDecoration(
-                labelText: 'Choose who can reply to this Article',
+            if (_showReplyAudience) ...[
+              Text(
+                'Who can reply?',
+                style: Theme.of(context).textTheme.titleMedium,
               ),
-              items: const [
-                DropdownMenuItem(value: 'everyone', child: Text('Everyone')),
-                DropdownMenuItem(
-                  value: 'following',
-                  child: Text('Accounts you follow'),
+              DropdownButtonFormField<ReplyAudience>(
+                initialValue: _policy,
+                decoration: const InputDecoration(
+                  labelText: 'Choose who can reply to this Article',
                 ),
-                DropdownMenuItem(
-                  value: 'mentioned',
-                  child: Text('Only accounts you mention'),
-                ),
-              ],
-              onChanged: widget.locked
-                  ? null
-                  : (value) => setState(() => _policy = value!),
-            ),
-            const SizedBox(height: AppSpacing.lg),
+                items: [
+                  for (final audience in ReplyAudience.values)
+                    DropdownMenuItem(
+                      value: audience,
+                      child: Text(audience.optionLabel),
+                    ),
+                ],
+                onChanged: widget.locked
+                    ? null
+                    : (value) => setState(() => _policy = value!),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+            ],
             TextField(
               controller: _caption,
               readOnly: widget.locked,

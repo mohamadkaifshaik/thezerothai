@@ -13,6 +13,9 @@ import 'package:dzeroth/features/articles/domain/article.dart';
 import 'package:dzeroth/features/articles/domain/articles_repository.dart';
 import 'package:dzeroth/features/articles/presentation/article_text_controller.dart';
 import 'package:dzeroth/features/articles/presentation/articles_screen.dart';
+import 'package:dzeroth/features/posts/domain/reply_audience.dart';
+import 'package:dzeroth/features/posts/presentation/post_error_messages.dart';
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 
 const _screenshots = bool.fromEnvironment('ARTICLE_SCREENSHOTS');
@@ -120,13 +123,29 @@ class _Repository implements ArticlesRepository {
   }
 
   @override
+  bool canChooseReplyAudience = false;
+  final publishedAudiences = <ReplyAudience>[];
+  // When set, publish() is refused with it (and the record is unchanged).
+  Object? publishError;
+
+  @override
   Future<ArticleRecord> publish(
     ArticleRecord article, {
     required String idempotencyKey,
     String caption = '',
-    String replyPolicy = 'everyone',
+    ReplyAudience replyAudience = ReplyAudience.everyone,
   }) async {
     publishKey = idempotencyKey;
+    publishedAudiences.add(replyAudience);
+    if (publishError case final error?) {
+      // What the real repository does with FEATURE_DISABLED reply_audience:
+      // the posts gate remembers it until the next GetMe.
+      if (error is FeatureDisabledException &&
+          error.feature == kFeatureReplyAudience) {
+        canChooseReplyAudience = false;
+      }
+      throw error;
+    }
     record = ArticleRecord(
       draft: article.draft,
       updatedAt: article.updatedAt,
@@ -599,5 +618,159 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Saved'), findsOneWidget);
     expect(repository.record.draft.title, 'Unsaved');
+  });
+
+  group('publish reply audience', () {
+    const restricted = ['Accounts you follow', 'Only accounts you mention'];
+    _Repository publishable({
+      bool pending = false,
+      ReplyPolicy stored = ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
+    }) => _Repository()
+      ..record = ArticleRecord(
+        draft: ArticleDraft(
+          id: 'draft',
+          authorId: 'owner',
+          title: 'Title',
+          blocks: [
+            ArticleBlock(
+              kind: ArticleBlockKind.paragraph,
+              runs: [ArticleTextRun(text: 'Body')],
+            ),
+          ],
+        ),
+        updatedAt: DateTime.now().toUtc(),
+        publicationPending: pending,
+        publicationReplyPolicy: stored,
+      );
+    Future<GoRouter> pumpEditor(
+      WidgetTester tester,
+      _Repository repository,
+    ) async {
+      final router = GoRouter(
+        initialLocation: '/compose/articles/edit/draft',
+        routes: [
+          GoRoute(
+            path: '/compose/articles/edit/:id',
+            builder: (_, state) =>
+                ArticlesScreen(articleId: state.pathParameters['id']),
+          ),
+          GoRoute(
+            path: '/articles/:id',
+            builder: (_, _) => const Scaffold(body: Text('Reader')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        RepositoryProvider<ArticlesRepository>.value(
+          value: repository,
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return router;
+    }
+
+    Future<void> openDialog(WidgetTester tester) async {
+      await tester.tap(find.text('Publish').first);
+      await tester.pumpAndSettle();
+      expect(find.text('Publish Article'), findsOneWidget);
+    }
+
+    Future<void> confirm(WidgetTester tester) async {
+      await tester.tap(find.widgetWithText(FilledButton, 'Publish').last);
+      await tester.pumpAndSettle();
+    }
+
+    final dropdown = find.byType(DropdownButtonFormField<ReplyAudience>);
+
+    testWidgets('with reply_audience off the dialog offers no restricted '
+        'choice and publishes as Everyone', (tester) async {
+      // A refused earlier choice is still stored on the record.
+      final repository = publishable(
+        stored: ReplyPolicy.REPLY_POLICY_FOLLOWING,
+      );
+      final router = await pumpEditor(tester, repository);
+      await openDialog(tester);
+      // Like the composer: no reply control at all.
+      expect(find.text('Who can reply?'), findsNothing);
+      expect(dropdown, findsNothing);
+      for (final label in restricted) {
+        expect(find.text(label), findsNothing);
+      }
+      await confirm(tester);
+      expect(repository.publishedAudiences, [ReplyAudience.everyone]);
+      expect(router.routeInformationProvider.value.uri.path, '/articles/draft');
+    });
+
+    for (final audience in ReplyAudience.values) {
+      testWidgets('with reply_audience on all three choices are offered and '
+          '${audience.name} is published', (tester) async {
+        final repository = publishable()..canChooseReplyAudience = true;
+        await pumpEditor(tester, repository);
+        await openDialog(tester);
+        expect(find.text('Who can reply?'), findsOneWidget);
+        await tester.tap(dropdown);
+        await tester.pumpAndSettle();
+        for (final label in ['Everyone', ...restricted]) {
+          expect(find.text(label), findsWidgets);
+        }
+        await tester.tap(find.text(audience.optionLabel).last);
+        await tester.pumpAndSettle();
+        await confirm(tester);
+        expect(repository.publishedAudiences, [audience]);
+      });
+    }
+
+    testWidgets('FEATURE_DISABLED reply_audience mid-session shows the '
+        'reply-audience copy and the next try offers only Everyone', (
+      tester,
+    ) async {
+      final repository = publishable()
+        ..canChooseReplyAudience = true
+        ..publishError = const FeatureDisabledException(
+          'server says no',
+          feature: kFeatureReplyAudience,
+        );
+      final router = await pumpEditor(tester, repository);
+      await openDialog(tester);
+      await tester.tap(dropdown);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Accounts you follow').last);
+      await tester.pumpAndSettle();
+      await confirm(tester);
+      expect(find.text(kReplyAudienceUnavailableMessage), findsOneWidget);
+      expect(find.text('server says no'), findsNothing);
+      repository.publishError = null;
+      await openDialog(tester);
+      expect(dropdown, findsNothing);
+      await confirm(tester);
+      expect(repository.publishedAudiences, [
+        ReplyAudience.following,
+        ReplyAudience.everyone,
+      ]);
+      expect(router.routeInformationProvider.value.uri.path, '/articles/draft');
+    });
+
+    testWidgets('a pending publication shows its stored choice locked even '
+        'with the capability gone', (tester) async {
+      final repository = publishable(
+        pending: true,
+        stored: ReplyPolicy.REPLY_POLICY_FOLLOWING,
+      );
+      await pumpEditor(tester, repository);
+      await openDialog(tester);
+      expect(find.text('Accounts you follow'), findsOneWidget);
+      expect(
+        tester
+            .widget<DropdownButton<ReplyAudience>>(
+              find.byType(DropdownButton<ReplyAudience>),
+            )
+            .onChanged,
+        isNull,
+      );
+      await confirm(tester);
+      expect(repository.publishedAudiences, [ReplyAudience.following]);
+    });
   });
 }

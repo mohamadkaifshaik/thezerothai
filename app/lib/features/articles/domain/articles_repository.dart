@@ -1,3 +1,5 @@
+import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
+import '../../posts/domain/reply_audience.dart';
 import 'article.dart';
 
 class ArticleRecord {
@@ -11,7 +13,7 @@ class ArticleRecord {
     this.authorAvatar = '',
     this.publicationPending = false,
     this.publicationCaption = '',
-    this.publicationReplyPolicy = 'everyone',
+    this.publicationReplyPolicy = ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
     this.excerpt = '',
   });
   final ArticleDraft draft;
@@ -23,7 +25,15 @@ class ArticleRecord {
   final String authorAvatar;
   final bool publicationPending;
   final String publicationCaption;
-  final String publicationReplyPolicy;
+
+  /// The reply policy stored with a pending (or refused) publication, exactly
+  /// as the server holds it: a retry under the pending key must repeat it
+  /// (the server compares the raw value, so UNSPECIFIED and EVERYONE differ).
+  final ReplyPolicy publicationReplyPolicy;
+
+  /// [publicationReplyPolicy] as a publish-dialog choice.
+  ReplyAudience get publicationReplyAudience =>
+      ReplyAudience.fromWire(publicationReplyPolicy);
 
   /// Server-computed plain-text excerpt. List rows carry only this (their
   /// draft has no blocks); open the article with get() to read the body.
@@ -52,6 +62,10 @@ class ArticleRevisionConflict implements Exception {
 
 /// Every write is acknowledged by the service before the UI says it is saved.
 abstract class ArticlesRepository {
+  /// Whether the publish dialog may offer a narrower reply audience: the
+  /// viewer's `enabled_features` lists `reply_audience` and no FEATURE_DISABLED
+  /// answer for it arrived since the last `GetMe`. Otherwise only Everyone.
+  bool get canChooseReplyAudience;
   Future<ArticleRecord> create();
   Future<ArticleRecord> get(String id);
   Future<ArticlePage> list({required bool published, String pageToken = ''});
@@ -60,10 +74,16 @@ abstract class ArticlesRepository {
     required int expectedRevision,
   });
   Future<void> delete(ArticleRecord article);
+
+  /// Publishes [article]. [replyAudience] goes out as [ReplyAudience.wire]
+  /// (Everyone is UNSPECIFIED, which the server takes with `reply_audience`
+  /// on or off). A publication already pending on the server repeats its
+  /// stored [ArticleRecord.publicationReplyPolicy] instead, so a retry under
+  /// the same key is never refused as locked because the capability changed.
   Future<ArticleRecord> publish(
     ArticleRecord article, {
     required String idempotencyKey,
     String caption = '',
-    String replyPolicy = 'everyone',
+    ReplyAudience replyAudience = ReplyAudience.everyone,
   });
 }

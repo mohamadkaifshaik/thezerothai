@@ -9,10 +9,12 @@ import 'package:dzeroth/features/articles/data/rpc_articles_repository.dart';
 import 'package:dzeroth/features/articles/domain/article.dart';
 import 'package:dzeroth/features/articles/domain/articles_repository.dart';
 import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
+import 'package:dzeroth/features/posts/domain/reply_audience.dart';
 import 'package:dzeroth/features/timeline/data/timeline_store.dart';
 import 'package:dzeroth/features/timeline/domain/feed_key.dart';
 import 'package:dzeroth/gen/dzeroth/articles/v1/articles.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/fake_transport.dart';
@@ -38,6 +40,7 @@ void main() {
       store: store,
       gate: PostsFeatureGate(isPostsEnabled: () => enabled),
       currentUid: () => uid,
+      isReplyAudienceEnabled: () => false,
     );
   });
   tearDown(() => db.close());
@@ -163,6 +166,7 @@ void main() {
             onUnexpectedError: (error, _) => reported.add(error),
           ),
           currentUid: () => uid,
+          isReplyAudienceEnabled: () => false,
         );
         reply.completeError(
           connect.ConnectException(connect.Code.aborted, 'article changed'),
@@ -185,6 +189,7 @@ void main() {
           onUnexpectedError: (error, _) => reported.add(error),
         ),
         currentUid: () => uid,
+        isReplyAudienceEnabled: () => false,
       );
       reply.completeError(
         serverError(
@@ -218,6 +223,141 @@ void main() {
     });
   });
 
+  group('publish reply policy', () {
+    late _PublishServer server;
+    // `reply_audience` in the viewer's enabled_features (GetMe).
+    late bool flagListed;
+    late RpcArticlesRepository publisher;
+    setUp(() {
+      server = _PublishServer();
+      flagListed = false;
+      publisher = RpcArticlesRepository(
+        apiClient: ApiClient.withTransport(FakeTransport(server.handle)),
+        store: store,
+        gate: PostsFeatureGate(isPostsEnabled: () => true),
+        currentUid: () => uid,
+        isReplyAudienceEnabled: () => flagListed,
+      );
+    });
+    ArticleRecord draft({
+      bool pending = false,
+      ReplyPolicy stored = ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
+    }) => ArticleRecord(
+      draft: ArticleDraft(id: 'a' * 32, authorId: uid, revision: 2),
+      updatedAt: DateTime.now().toUtc(),
+      publicationPending: pending,
+      publicationReplyPolicy: stored,
+    );
+
+    test('with posts on and reply_audience off the default publish sends '
+        'UNSPECIFIED and succeeds', () async {
+      final published = await publisher.publish(draft(), idempotencyKey: 'k');
+      expect(server.sent, [ReplyPolicy.REPLY_POLICY_UNSPECIFIED]);
+      expect(published.published, isTrue);
+    });
+
+    test('the capability follows enabled_features and the gate', () {
+      expect(publisher.canChooseReplyAudience, isFalse);
+      flagListed = true;
+      expect(publisher.canChooseReplyAudience, isTrue);
+    });
+
+    test(
+      'with reply_audience on every choice maps like the composer',
+      () async {
+        flagListed = true;
+        server.replyAudienceOn = true;
+        for (final audience in ReplyAudience.values) {
+          await publisher.publish(
+            draft(),
+            idempotencyKey: 'k-${audience.name}',
+            replyAudience: audience,
+          );
+        }
+        expect(server.sent, [
+          ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
+          ReplyPolicy.REPLY_POLICY_FOLLOWING,
+          ReplyPolicy.REPLY_POLICY_MENTIONED_ONLY,
+        ]);
+      },
+    );
+
+    test('the flag turned off mid-session is FEATURE_DISABLED reply_audience '
+        'and the capability goes until the next GetMe', () async {
+      flagListed = true;
+      final error = await publisher
+          .publish(
+            draft(),
+            idempotencyKey: 'k',
+            replyAudience: ReplyAudience.following,
+          )
+          .then<Object?>((_) => null, onError: (Object e) => e);
+      expect(
+        error,
+        isA<FeatureDisabledException>().having(
+          (e) => e.feature,
+          'feature',
+          kFeatureReplyAudience,
+        ),
+      );
+      expect(publisher.canChooseReplyAudience, isFalse);
+      // The refusal cleared the pending key: Everyone goes through.
+      await publisher.publish(draft(), idempotencyKey: 'k');
+      expect(server.sent.last, ReplyPolicy.REPLY_POLICY_UNSPECIFIED);
+    });
+
+    for (final stored in [
+      // Left pending by a client that sent an explicit EVERYONE.
+      ReplyPolicy.REPLY_POLICY_EVERYONE,
+      ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
+      ReplyPolicy.REPLY_POLICY_FOLLOWING,
+    ]) {
+      test('a pending publication repeats its stored $stored', () async {
+        server
+          ..replyAudienceOn = true
+          ..pendingKey = 'k'
+          ..pendingPolicy = stored;
+        // The capability changed since the first attempt: the dialog shows
+        // the stored choice locked, and the stored value goes out unchanged.
+        final published = await publisher.publish(
+          draft(pending: true, stored: stored),
+          idempotencyKey: 'k',
+          replyAudience: ReplyAudience.fromWire(stored),
+        );
+        expect(server.sent, [stored]);
+        expect(published.published, isTrue);
+      });
+    }
+
+    test('a retry after a lost reply resends the first choice even if the '
+        'capability went in between', () async {
+      flagListed = true;
+      server
+        ..replyAudienceOn = true
+        ..loseNextReply = true;
+      await expectLater(
+        publisher.publish(
+          draft(),
+          idempotencyKey: 'k',
+          replyAudience: ReplyAudience.following,
+        ),
+        throwsA(isA<NetworkException>()),
+      );
+      flagListed = false;
+      // The screen keeps the first options for the key and the refresh says
+      // pending; the stored FOLLOWING is resent, not a coerced UNSPECIFIED.
+      await publisher.publish(
+        draft(pending: true, stored: ReplyPolicy.REPLY_POLICY_FOLLOWING),
+        idempotencyKey: 'k',
+        replyAudience: ReplyAudience.following,
+      );
+      expect(server.sent, [
+        ReplyPolicy.REPLY_POLICY_FOLLOWING,
+        ReplyPolicy.REPLY_POLICY_FOLLOWING,
+      ]);
+    });
+  });
+
   test('disabled articles make no RPC', () async {
     enabled = false;
     await expectLater(
@@ -226,4 +366,61 @@ void main() {
     );
     expect(transport.calledProcedures, isEmpty);
   });
+}
+
+/// PublishArticle as the backend answers it. posts.Create refuses any
+/// reply_policy but UNSPECIFIED with FEATURE_DISABLED `reply_audience` while
+/// that flag is off, which clears the pending key
+/// (backend/internal/posts/service_create.go, articles/service.go). A retry
+/// under a pending key must repeat the stored caption and policy exactly, or
+/// it is refused as locked.
+class _PublishServer {
+  bool replyAudienceOn = false;
+  final sent = <ReplyPolicy>[];
+
+  /// The pending publication left by an earlier attempt, if any.
+  String pendingKey = '';
+  ReplyPolicy pendingPolicy = ReplyPolicy.REPLY_POLICY_UNSPECIFIED;
+
+  /// Store the pending key, then lose the reply (UNAVAILABLE) once.
+  bool loseNextReply = false;
+
+  Future<Object> handle(String procedure, Object input) async {
+    final request = input as pb.PublishArticleRequest;
+    sent.add(request.replyPolicy);
+    if (pendingKey.isNotEmpty &&
+        (pendingKey != request.idempotencyKey ||
+            pendingPolicy != request.replyPolicy)) {
+      throw connect.ConnectException(
+        connect.Code.failedPrecondition,
+        'article publication is in progress or complete',
+      );
+    }
+    pendingKey = request.idempotencyKey;
+    pendingPolicy = request.replyPolicy;
+    if (loseNextReply) {
+      loseNextReply = false;
+      throw connect.ConnectException(connect.Code.unavailable, 'lost');
+    }
+    if (pendingPolicy != ReplyPolicy.REPLY_POLICY_UNSPECIFIED &&
+        !replyAudienceOn) {
+      pendingKey = '';
+      throw serverError(
+        connect.Code.failedPrecondition,
+        common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+        metadata: {'feature': kFeatureReplyAudience},
+      );
+    }
+    pendingKey = '';
+    return pb.PublishArticleResponse(
+      article: pb.Article(
+        articleId: request.articleId,
+        authorId: 'alice',
+        revision: request.expectedRevision,
+        bodyJson: '[]',
+        postId: 'post-1',
+        publicationReplyPolicy: request.replyPolicy,
+      ),
+    );
+  }
 }
