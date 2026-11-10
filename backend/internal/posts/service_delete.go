@@ -191,8 +191,8 @@ func (s *service) GetForViewer(ctx context.Context, callerUID, postID string) (_
 //
 // The author-status rule (F-03) covers the copy too: a REPOST of a post whose author is not ACTIVE is ErrNotFound, and a
 // QUOTE of one is returned as its tombstoned copy (TombstonedQuote; the cached post is never changed), the way the feeds
-// and search show it until the copy clean-up reaches it. The row author and the embedded author are read in the one
-// Directory call.
+// and search show it until the copy clean-up reaches it, after the block and audience rules have judged the original copy.
+// The row author and the embedded author are read in the one Directory call.
 func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post, error) {
 	p, err := s.Get(ctx, postID)
 	if errors.Is(err, ErrNotFound) {
@@ -214,11 +214,9 @@ func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post
 	if err != nil {
 		return nil, logger.RedactErr(fmt.Errorf("posts: get: load author: %w", err), callerUID, p.AuthorID, p.EmbeddedAuthor())
 	}
-	switch active.Verdict(p) {
-	case AuthorDrop:
+	verdict := active.Verdict(p)
+	if verdict == AuthorDrop {
 		return nil, ErrNotFound
-	case AuthorTombstone:
-		p = TombstonedQuote(p)
 	}
 
 	// A QUOTE or REPOST also carries a frozen copy of another user's post: when that author blocks the caller
@@ -244,6 +242,11 @@ func (s *service) viewable(ctx context.Context, callerUID, postID string) (*Post
 	}
 	if d.Verdict != Show {
 		return nil, ErrNotFound
+	}
+	// The tombstone replaces the copy only now, so the block and audience rules above judged the original (as the feeds'
+	// embedAllowed and search's blockCause do).
+	if verdict == AuthorTombstone {
+		p = TombstonedQuote(p)
 	}
 	return p, nil
 }

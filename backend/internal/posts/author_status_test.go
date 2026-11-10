@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
@@ -181,7 +182,16 @@ func TestGetForViewer_EmbeddedAuthorStatus(t *testing.T) {
 			}
 		})
 	}
+	// The block rule still sees the original copy, as the feeds (embedAllowed) and search (blockCause) do: a QUOTE whose
+	// copied author is SUSPENDED and blocks the caller is NOT_FOUND, not a tombstone.
 	e := newDeleteEnv()
+	statusCopy(e.repo.docs[pidOther], KindQuote, goneUID)
+	e.dir.profiles[goneUID] = identity.Profile{UserID: goneUID, Status: identity.AccountStatusSuspended}
+	e.graph.snaps = map[string]graph.Snapshot{testUID: {BlockedBy: map[string]bool{goneUID: true}}}
+	_, err := e.get(pidOther)
+	wantPostNotFound(t, err)
+
+	e = newDeleteEnv()
 	statusCopy(e.repo.docs[pidOther], KindQuote, goneUID)
 	e.dir.profileErr = errors.New("down")
 	if _, err := e.get(pidOther); err == nil {
