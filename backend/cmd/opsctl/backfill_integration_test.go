@@ -20,12 +20,18 @@ import (
 // End-to-end emulator test of `opsctl backfill-has-media`: the real run() flag handling and output over the real posts
 // repo. The opener wires only the backfiller (openFirestore also needs the Auth Admin client, which this command does not).
 
+// backfillTestClient opens a client on a fresh emulator project (demo-test-<random>), so no two tests share a document.
 func backfillTestClient(t *testing.T) (*firestore.Client, string) {
+	t.Helper()
+	return testClientFor(t, fmt.Sprintf("demo-test-%d", rand.Int63()))
+}
+
+// testClientFor opens a client on the given emulator project; it must be unique to the test (and to each -count run).
+func testClientFor(t *testing.T, project string) (*firestore.Client, string) {
 	t.Helper()
 	if os.Getenv("FIRESTORE_EMULATOR_HOST") == "" {
 		t.Skip("FIRESTORE_EMULATOR_HOST not set; run via `make test-int`")
 	}
-	project := fmt.Sprintf("demo-test-%d", rand.Int63())
 	client, err := firestore.NewClient(context.Background(), project)
 	if err != nil {
 		t.Fatalf("firestore.NewClient: %v", err)
