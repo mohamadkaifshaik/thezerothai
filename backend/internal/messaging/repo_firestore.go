@@ -497,8 +497,11 @@ func (r *FirestoreRepo) ListMessages(ctx context.Context, convID string, q Messa
 // MarkRead implements Repo: a field-level Update (never Set) of the caller's own entry; Update carries the Exists precondition by
 // definition, so a missing entry (unknown id, non-participant, deleted for the caller) is NotFound and writes nothing. dmInbox is tried
 // first, then dmRequests: an entry lives in exactly one of them. It reads nothing, and a NotFound attempt writes nothing.
-func (r *FirestoreRepo) MarkRead(ctx context.Context, uid, convID string, at time.Time) (bool, error) {
+func (r *FirestoreRepo) MarkRead(ctx context.Context, uid, convID string, at time.Time, receipt bool) (bool, error) {
 	updates := []firestore.Update{{Path: "unreadCount", Value: 0}, {Path: "lastReadAt", Value: wireTime(at)}}
+	if receipt {
+		updates = append(updates, firestore.Update{Path: "readReceiptAt", Value: wireTime(at)})
+	}
 	for _, ref := range []*firestore.DocumentRef{r.inboxRef(uid, convID), r.requestsRef(uid, convID)} {
 		_, err := ref.Update(ctx, updates) // Update itself requires the document to exist (an explicit Exists precondition is refused by the SDK)
 		switch status.Code(err) {

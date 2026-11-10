@@ -48,12 +48,15 @@ type fakeRepo struct {
 	msgQueries  []MessageQuery
 	msgErr      error
 	marked      []string
+	receipts    []string // MarkRead calls that carried a read receipt (uid|conv)
 	markMissing bool
 	markErr     error
 
 	// entryGets records GetEntry calls as "uid|folder|convID"; entryErr is what it answers when set.
 	entryGets []string
 	entryErr  error
+	// entryErrFor fails GetEntry for these uids only (nil = none).
+	entryErrFor map[string]error
 
 	// accepts and deletes record the calls; lifeErr is returned by both when set; writes and deletedDocs count the
 	// documents the fake wrote and deleted.
@@ -203,10 +206,13 @@ func (f *fakeRepo) ListMessages(_ context.Context, convID string, q MessageQuery
 	return out, nil
 }
 
-func (f *fakeRepo) MarkRead(_ context.Context, uid, convID string, _ time.Time) (bool, error) {
+func (f *fakeRepo) MarkRead(_ context.Context, uid, convID string, _ time.Time, receipt bool) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.marked = append(f.marked, uid+"|"+convID)
+	if receipt {
+		f.receipts = append(f.receipts, uid+"|"+convID)
+	}
 	return !f.markMissing, f.markErr
 }
 
@@ -220,6 +226,9 @@ func (f *fakeRepo) GetEntry(_ context.Context, uid, convID, folder string) (Entr
 	f.entryGets = append(f.entryGets, uid+"|"+folder+"|"+convID)
 	if f.entryErr != nil {
 		return EntryDoc{}, false, f.entryErr
+	}
+	if err := f.entryErrFor[uid]; err != nil {
+		return EntryDoc{}, false, err
 	}
 	collection := dmInboxCollection
 	if folder == entryRequests {

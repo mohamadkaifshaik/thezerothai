@@ -185,6 +185,11 @@ type Config struct {
 	// can still read, leave and cancel. A community-audience beacon also needs FEATURE_COMMUNITIES on for the caller.
 	// FEATURE_BEACONS[_ALLOWLIST|_PERCENT], default off in every environment (dev stays on an allowlist, no prod raise).
 	FeatureBeacons flags.Spec
+	// FeatureReadReceipts is the flag (wire name `read_receipts`) gating read receipts (F3): UpdateProfile.read_receipts=true,
+	// the receipt stamp of MarkConversationRead and Conversation.peer_read_at of ListMessages need it on for the caller (peer_read_at
+	// also for the peer); Profile.read_receipts is shown unless it is globally off. Needs `messaging` for any effect.
+	// FEATURE_READ_RECEIPTS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureReadReceipts flags.Spec
 	// FeatureDMPolicy is the flag (wire name `dm_policy`) gating the "Who can message me" setting (F9): setting
 	// UpdateProfile.dm_policy to FOLLOWING_ONLY needs it on for the caller, Profile.dm_policy is shown unless it is globally
 	// off, and SendMessage applies a recipient's FOLLOWING_ONLY only when it is on for that recipient. Needs `messaging` for
@@ -855,6 +860,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureReadReceipts, err := flags.LoadSpec("READ_RECEIPTS", "read_receipts", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureDMPolicy, err := flags.LoadSpec("DM_POLICY", "dm_policy", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1008,6 +1017,7 @@ func Load() (Config, error) {
 		FeatureLists:              featureLists,
 		FeatureCommunities:        featureCommunities,
 		FeatureBeacons:            featureBeacons,
+		FeatureReadReceipts:       featureReadReceipts,
 		FeatureProfileExtras:      featureProfileExtras,
 		FeatureProfileTabs:        featureProfileTabs,
 		FeatureLikesList:          featureLikesList,

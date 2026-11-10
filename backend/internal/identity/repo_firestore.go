@@ -63,6 +63,9 @@ type userDoc struct {
 	Location       string `firestore:"location,omitempty"`
 	Website        string `firestore:"website,omitempty"`
 	PinnedPostID   string `firestore:"pinnedPostId,omitempty"`
+	// ReadReceipts (F3): absent = off. omitempty keeps a whole-doc rewrite from adding the field to a doc that does not have it.
+	// Not part of the author snapshot.
+	ReadReceipts bool `firestore:"readReceipts,omitempty"`
 	// DMPolicy (F9): absent = everyone_requests. omitempty keeps a whole-doc rewrite from adding the field to a doc that
 	// does not have it. Not part of the author snapshot.
 	DMPolicy string `firestore:"dmPolicy,omitempty"`
@@ -93,6 +96,7 @@ func (d userDoc) toProfile(uid string) Profile {
 		Location:             d.Location,
 		Website:              d.Website,
 		PinnedPostID:         d.PinnedPostID,
+		ReadReceipts:         d.ReadReceipts,
 		DMPolicy:             DMPolicy(d.DMPolicy),
 		HomeTabsEnc:          encodeHomeTabs(d.HomeTabs),
 		AuthBaselineEnc:      encodeAuthBaseline(d.AuthBaseline),
@@ -126,6 +130,7 @@ func profileToDoc(p Profile) userDoc {
 		Location:             p.Location,
 		Website:              p.Website,
 		PinnedPostID:         p.PinnedPostID,
+		ReadReceipts:         p.ReadReceipts,
 		DMPolicy:             string(p.DMPolicy),
 		HomeTabs:             decodeHomeTabs(p.HomeTabsEnc),
 		AuthBaseline:         decodeAuthBaseline(p.AuthBaselineEnc),

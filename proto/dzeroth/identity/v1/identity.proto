@@ -195,6 +195,11 @@ message Profile {
   // Paid subscription verification entitlement. Set only by trusted subscription administration after confirming
   // an active paid subscription; unrelated to verified identity or email status.
   bool subscription_verified = 18;
+  // The caller's own "Read receipts" setting (F3), owner only: false in every Profile of another user, and always false
+  // while FEATURE_READ_RECEIPTS is globally off. Default false (off, opt-in). It is reciprocal: with it off the caller
+  // neither sends receipts (MarkConversationRead stores no read time for the peer) nor sees any (Conversation.peer_read_at
+  // is never set). The stored value returns when the flag is back on.
+  bool read_receipts = 20;
   // Who can start a direct message with this account (F9). UNSPECIFIED means EVERYONE_REQUESTS (today's behaviour).
   // Always UNSPECIFIED while FEATURE_DM_POLICY is globally off, in every Profile including the owner's own; the stored
   // value returns when the flag is back on. Clients grey out a recipient whose policy is FOLLOWING_ONLY unless that
@@ -304,6 +309,12 @@ message UpdateProfileRequest {
   // case (missing, deleted, hidden, another user's post, a REPOST) is the same INVALID_ARGUMENT + VALIDATION,
   // metadata["field"] = "pinned_post_id", so the call is no existence oracle. One pin; a new value replaces it.
   optional string pinned_post_id = 9;
+  // Read receipts on or off (F3). true needs FEATURE_READ_RECEIPTS on for the caller (FAILED_PRECONDITION +
+  // FEATURE_DISABLED, metadata["feature"] = "read_receipts", checked before any read); false is never gated (the undo
+  // rule). Not retroactive: only conversations read while it is on carry a read time for the peer. Turning it off hides
+  // the caller's receipts from the peer and the peer's from the caller at once on the serving instance, and within the
+  // profile cache TTL (60 s) on another one.
+  optional bool read_receipts = 11;
   // Who can message the caller (F9). FOLLOWING_ONLY needs FEATURE_DM_POLICY on for the caller (FAILED_PRECONDITION +
   // FEATURE_DISABLED, metadata["feature"] = "dm_policy", checked before any read); EVERYONE_REQUESTS is never gated (the
   // undo rule). UNSPECIFIED is rejected: INVALID_ARGUMENT + VALIDATION, metadata["field"] = "dm_policy". The change

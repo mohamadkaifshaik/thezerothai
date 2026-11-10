@@ -57,6 +57,9 @@ type Profile struct {
 	Location       string
 	Website        string
 	PinnedPostID   string
+	// ReadReceipts is the owner's "Read receipts" setting (F3), stored default false. Messaging reads it through the 60 s
+	// profile cache. Shown only to the owner and omitted (false) while FEATURE_READ_RECEIPTS is globally off.
+	ReadReceipts bool
 	// DMPolicy is who may start a direct message with the account (F9); "" = DMPolicyEveryoneRequests, the stored default.
 	// A plain string type so Profile stays comparable. Omitted from the RPC responses while dm_policy is globally off.
 	DMPolicy DMPolicy
@@ -71,6 +74,11 @@ type Profile struct {
 	DeletionRequestedAt time.Time
 	DeletionJob         *DeletionJob
 }
+
+// ReadReceiptsFlag is the wire name of FEATURE_READ_RECEIPTS (F3). It gates SETTING read_receipts=true through UpdateProfile
+// (false is never gated, the undo rule), the receipt stamp of MarkConversationRead and the peer_read_at of ListMessages. While
+// it is globally off Profile.read_receipts is omitted from every response.
+const ReadReceiptsFlag = "read_receipts"
 
 // DMPolicy is the "who can message me" setting. The strings are the stored values; the zero value is the default.
 type DMPolicy string
@@ -135,6 +143,9 @@ type UpdateProfileParams struct {
 	Website       *string
 	PinnedPostID  *string
 	IsPrivate     *bool
+	// ReadReceipts (F3): nil = unchanged. true needs FEATURE_READ_RECEIPTS on for the caller (FEATURE_DISABLED
+	// feature=read_receipts, before any read); false never does.
+	ReadReceipts *bool
 	// DMPolicy (F9): nil = unchanged. Setting DMPolicyFollowingOnly needs FEATURE_DM_POLICY on for the caller
 	// (FEATURE_DISABLED feature=dm_policy, before any read); DMPolicyEveryoneRequests never does.
 	DMPolicy *DMPolicy

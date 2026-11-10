@@ -27,8 +27,9 @@ type Repo interface {
 	// ListMessages reads one page of a conversation's messages.
 	ListMessages(ctx context.Context, convID string, q MessageQuery) ([]MessageRow, error)
 	// MarkRead sets unreadCount = 0 and lastReadAt on the caller's own entry, in dmInbox else dmRequests, with an Exists
-	// precondition, with no read; found is false (and nothing is written) when neither entry exists.
-	MarkRead(ctx context.Context, uid, convID string, at time.Time) (found bool, err error)
+	// precondition, with no read; found is false (and nothing is written) when neither entry exists. receipt also sets
+	// readReceiptAt (F3: the caller's read-receipts setting is on); false leaves any earlier readReceiptAt as it was.
+	MarkRead(ctx context.Context, uid, convID string, at time.Time, receipt bool) (found bool, err error)
 	// GetEntry reads the caller's own entry in one folder (entryInbox or entryRequests, from entryFolder). found is false for a missing entry (delete-for-me, or never created).
 	GetEntry(ctx context.Context, uid, convID, folder string) (entry EntryDoc, found bool, err error)
 	// GetMessage reads one stored message (report a message); found is false for a missing document.

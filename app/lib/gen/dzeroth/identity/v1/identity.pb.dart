@@ -46,6 +46,7 @@ class Profile extends $pb.GeneratedMessage {
     $core.String? pinnedPostId,
     $core.bool? subscriptionVerified,
     DmPolicy? dmPolicy,
+    $core.bool? readReceipts,
   }) {
     final result = Profile._();
     if (userId != null) result.userId = userId;
@@ -68,6 +69,7 @@ class Profile extends $pb.GeneratedMessage {
     if (subscriptionVerified != null)
       result.subscriptionVerified = subscriptionVerified;
     if (dmPolicy != null) result.dmPolicy = dmPolicy;
+    if (readReceipts != null) result.readReceipts = readReceipts;
     return result;
   }
 
@@ -106,6 +108,7 @@ class Profile extends $pb.GeneratedMessage {
     ..aOB(18, _omitFieldNames ? '' : 'subscriptionVerified')
     ..aE<DmPolicy>(19, _omitFieldNames ? '' : 'dmPolicy',
         enumValues: DmPolicy.values)
+    ..aOB(20, _omitFieldNames ? '' : 'readReceipts')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -330,6 +333,19 @@ class Profile extends $pb.GeneratedMessage {
   $core.bool hasDmPolicy() => $_has(18);
   @$pb.TagNumber(19)
   void clearDmPolicy() => $_clearField(19);
+
+  /// The caller's own "Read receipts" setting (F3), owner only: false in every Profile of another user, and always false
+  /// while FEATURE_READ_RECEIPTS is globally off. Default false (off, opt-in). It is reciprocal: with it off the caller
+  /// neither sends receipts (MarkConversationRead stores no read time for the peer) nor sees any (Conversation.peer_read_at
+  /// is never set). The stored value returns when the flag is back on.
+  @$pb.TagNumber(20)
+  $core.bool get readReceipts => $_getBF(19);
+  @$pb.TagNumber(20)
+  set readReceipts($core.bool value) => $_setBool(19, value);
+  @$pb.TagNumber(20)
+  $core.bool hasReadReceipts() => $_has(19);
+  @$pb.TagNumber(20)
+  void clearReadReceipts() => $_clearField(20);
 }
 
 class CreateProfileRequest extends $pb.GeneratedMessage {
@@ -977,6 +993,7 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
     $core.String? website,
     $core.String? pinnedPostId,
     DmPolicy? dmPolicy,
+    $core.bool? readReceipts,
   }) {
     final result = UpdateProfileRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
@@ -989,6 +1006,7 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
     if (website != null) result.website = website;
     if (pinnedPostId != null) result.pinnedPostId = pinnedPostId;
     if (dmPolicy != null) result.dmPolicy = dmPolicy;
+    if (readReceipts != null) result.readReceipts = readReceipts;
     return result;
   }
 
@@ -1017,6 +1035,7 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
     ..aOS(9, _omitFieldNames ? '' : 'pinnedPostId')
     ..aE<DmPolicy>(10, _omitFieldNames ? '' : 'dmPolicy',
         enumValues: DmPolicy.values)
+    ..aOB(11, _omitFieldNames ? '' : 'readReceipts')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1155,6 +1174,20 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
   $core.bool hasDmPolicy() => $_has(9);
   @$pb.TagNumber(10)
   void clearDmPolicy() => $_clearField(10);
+
+  /// Read receipts on or off (F3). true needs FEATURE_READ_RECEIPTS on for the caller (FAILED_PRECONDITION +
+  /// FEATURE_DISABLED, metadata["feature"] = "read_receipts", checked before any read); false is never gated (the undo
+  /// rule). Not retroactive: only conversations read while it is on carry a read time for the peer. Turning it off hides
+  /// the caller's receipts from the peer and the peer's from the caller at once on the serving instance, and within the
+  /// profile cache TTL (60 s) on another one.
+  @$pb.TagNumber(11)
+  $core.bool get readReceipts => $_getBF(10);
+  @$pb.TagNumber(11)
+  set readReceipts($core.bool value) => $_setBool(10, value);
+  @$pb.TagNumber(11)
+  $core.bool hasReadReceipts() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearReadReceipts() => $_clearField(11);
 }
 
 class UpdateProfileResponse extends $pb.GeneratedMessage {

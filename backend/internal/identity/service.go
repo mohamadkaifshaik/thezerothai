@@ -396,6 +396,9 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 		}
 	}
 	out := s.present(profile)
+	if callerUID != uid {
+		out.ReadReceipts = false // the setting is the owner's alone
+	}
 	if out.PinnedPostID != "" && callerUID != uid {
 		out.PinnedPostID = s.pinForViewer(ctx, callerUID, uid, out.PinnedPostID)
 	}
@@ -413,6 +416,10 @@ func (s *service) present(p Profile) Profile {
 	if s.extras == nil || s.extras.GloballyOff(ProfileExtrasFlag) {
 		p.PinnedPostID = ""
 		p.Website = ""
+	}
+	// The same kill switch for the read-receipts setting (F3); the stored value comes back with the flag.
+	if s.extras == nil || s.extras.GloballyOff(ReadReceiptsFlag) {
+		p.ReadReceipts = false
 	}
 	// The same kill switch for the "who can message me" setting (F9): the stored value comes back with the flag.
 	if s.extras == nil || s.extras.GloballyOff(DMPolicyFlag) {
@@ -438,6 +445,19 @@ func (s *service) extrasDisabled(ctx context.Context, uid string) error {
 	}
 	if flags.Guard(ctx, enabled, uid, ProfileExtrasFlag) != nil {
 		return flags.DisabledError().WithMeta("feature", ProfileExtrasFlag)
+	}
+	return nil
+}
+
+// readReceiptsDisabled is the read_receipts gate for UpdateProfile: nil when FEATURE_READ_RECEIPTS is on for uid, otherwise
+// FEATURE_DISABLED with metadata feature=read_receipts. No flags wired = off. It never reads Firestore.
+func (s *service) readReceiptsDisabled(ctx context.Context, uid string) error {
+	var enabled func(uid, name string) bool
+	if s.extras != nil {
+		enabled = s.extras.Enabled
+	}
+	if flags.Guard(ctx, enabled, uid, ReadReceiptsFlag) != nil {
+		return flags.DisabledError().WithMeta("feature", ReadReceiptsFlag)
 	}
 	return nil
 }
@@ -498,6 +518,12 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	// together with other fields is refused whole (the M-1 mixed rule). is_private=false is never gated (the undo rule).
 	if params.IsPrivate != nil && *params.IsPrivate {
 		if err := s.privateAccountsDisabled(ctx, uid); err != nil {
+			return Profile{}, err
+		}
+	}
+	// F3: only read_receipts=true is gated (false is the undo and never is), before any read.
+	if params.ReadReceipts != nil && *params.ReadReceipts {
+		if err := s.readReceiptsDisabled(ctx, uid); err != nil {
 			return Profile{}, err
 		}
 	}
@@ -654,6 +680,10 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		}
 		if params.IsPrivate != nil {
 			p.IsPrivate = *params.IsPrivate
+		}
+		if params.ReadReceipts != nil {
+			note("read_receipts", *params.ReadReceipts != p.ReadReceipts)
+			p.ReadReceipts = *params.ReadReceipts
 		}
 		if params.DMPolicy != nil {
 			note("dm_policy", *params.DMPolicy != p.DMPolicy)

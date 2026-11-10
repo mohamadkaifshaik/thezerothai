@@ -104,6 +104,7 @@ const Profile$json = {
       '5': 8,
       '10': 'subscriptionVerified'
     },
+    {'1': 'read_receipts', '3': 20, '4': 1, '5': 8, '10': 'readReceipts'},
     {
       '1': 'dm_policy',
       '3': 19,
@@ -128,8 +129,9 @@ final $typed_data.Uint8List profileDescriptor = $convert.base64Decode(
     'clVybBIoChBiYW5uZXJfdGh1bWJfdXJsGA4gASgJUg5iYW5uZXJUaHVtYlVybBIaCghsb2NhdG'
     'lvbhgPIAEoCVIIbG9jYXRpb24SGAoHd2Vic2l0ZRgQIAEoCVIHd2Vic2l0ZRIkCg5waW5uZWRf'
     'cG9zdF9pZBgRIAEoCVIMcGlubmVkUG9zdElkEjMKFXN1YnNjcmlwdGlvbl92ZXJpZmllZBgSIA'
-    'EoCFIUc3Vic2NyaXB0aW9uVmVyaWZpZWQSOgoJZG1fcG9saWN5GBMgASgOMh0uZHplcm90aC5p'
-    'ZGVudGl0eS52MS5EbVBvbGljeVIIZG1Qb2xpY3k=');
+    'EoCFIUc3Vic2NyaXB0aW9uVmVyaWZpZWQSIwoNcmVhZF9yZWNlaXB0cxgUIAEoCFIMcmVhZFJl'
+    'Y2VpcHRzEjoKCWRtX3BvbGljeRgTIAEoDjIdLmR6ZXJvdGguaWRlbnRpdHkudjEuRG1Qb2xpY3'
+    'lSCGRtUG9saWN5');
 
 @$core.Deprecated('Use createProfileRequestDescriptor instead')
 const CreateProfileRequest$json = {
@@ -378,12 +380,21 @@ const UpdateProfileRequest$json = {
       '17': true
     },
     {
+      '1': 'read_receipts',
+      '3': 11,
+      '4': 1,
+      '5': 8,
+      '9': 8,
+      '10': 'readReceipts',
+      '17': true
+    },
+    {
       '1': 'dm_policy',
       '3': 10,
       '4': 1,
       '5': 14,
       '6': '.dzeroth.identity.v1.DmPolicy',
-      '9': 8,
+      '9': 9,
       '10': 'dmPolicy',
       '17': true
     },
@@ -397,6 +408,7 @@ const UpdateProfileRequest$json = {
     {'1': '_location'},
     {'1': '_website'},
     {'1': '_pinned_post_id'},
+    {'1': '_read_receipts'},
     {'1': '_dm_policy'},
   ],
 };
@@ -409,11 +421,12 @@ final $typed_data.Uint8List updateProfileRequestDescriptor = $convert.base64Deco
     'lkiAEBEiIKCmlzX3ByaXZhdGUYBSABKAhIA1IJaXNQcml2YXRliAEBEisKD2Jhbm5lcl9tZWRp'
     'YV9pZBgGIAEoCUgEUg1iYW5uZXJNZWRpYUlkiAEBEh8KCGxvY2F0aW9uGAcgASgJSAVSCGxvY2'
     'F0aW9uiAEBEh0KB3dlYnNpdGUYCCABKAlIBlIHd2Vic2l0ZYgBARIpCg5waW5uZWRfcG9zdF9p'
-    'ZBgJIAEoCUgHUgxwaW5uZWRQb3N0SWSIAQESPwoJZG1fcG9saWN5GAogASgOMh0uZHplcm90aC'
-    '5pZGVudGl0eS52MS5EbVBvbGljeUgIUghkbVBvbGljeYgBAUIPCg1fZGlzcGxheV9uYW1lQgYK'
-    'BF9iaW9CEgoQX2F2YXRhcl9tZWRpYV9pZEINCgtfaXNfcHJpdmF0ZUISChBfYmFubmVyX21lZG'
-    'lhX2lkQgsKCV9sb2NhdGlvbkIKCghfd2Vic2l0ZUIRCg9fcGlubmVkX3Bvc3RfaWRCDAoKX2Rt'
-    'X3BvbGljeQ==');
+    'ZBgJIAEoCUgHUgxwaW5uZWRQb3N0SWSIAQESKAoNcmVhZF9yZWNlaXB0cxgLIAEoCEgIUgxyZW'
+    'FkUmVjZWlwdHOIAQESPwoJZG1fcG9saWN5GAogASgOMh0uZHplcm90aC5pZGVudGl0eS52MS5E'
+    'bVBvbGljeUgJUghkbVBvbGljeYgBAUIPCg1fZGlzcGxheV9uYW1lQgYKBF9iaW9CEgoQX2F2YX'
+    'Rhcl9tZWRpYV9pZEINCgtfaXNfcHJpdmF0ZUISChBfYmFubmVyX21lZGlhX2lkQgsKCV9sb2Nh'
+    'dGlvbkIKCghfd2Vic2l0ZUIRCg9fcGlubmVkX3Bvc3RfaWRCEAoOX3JlYWRfcmVjZWlwdHNCDA'
+    'oKX2RtX3BvbGljeQ==');
 
 @$core.Deprecated('Use updateProfileResponseDescriptor instead')
 const UpdateProfileResponse$json = {
