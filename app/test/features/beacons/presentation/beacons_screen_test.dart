@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/core/widgets/app_shell_scope.dart';
 import 'package:dzeroth/features/beacons/domain/beacon_labels.dart';
 import 'package:dzeroth/features/beacons/presentation/beacons_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/beacon_row.dart';
@@ -82,6 +85,62 @@ void main() {
     expect(find.text('Open'), findsNothing);
     expect(find.byType(BeaconRow), findsNWidgets(2));
     expect(server.calls, ['list:']);
+  });
+
+  group('phone chrome (ADR-0034)', () {
+    testWidgets('inside the shell the header leads with the account avatar '
+        '(drawer), not Back', (tester) async {
+      var opened = 0;
+      await pumpPlansRouter(
+        tester,
+        beacons: server,
+        features: const {},
+        routes: [
+          GoRoute(
+            path: '/plans',
+            builder: (_, _) => AppShellScope(
+              openDrawer: () => opened++,
+              child: const BeaconsScreen(),
+            ),
+          ),
+        ],
+      );
+
+      expect(find.byTooltip('Back'), findsNothing);
+      await tester.tap(find.bySemanticsLabel('Account menu'));
+      expect(opened, 1);
+    });
+
+    testWidgets('when a page can be popped, Back stays', (tester) async {
+      final router = await pumpPlansRouter(
+        tester,
+        beacons: server,
+        features: const {},
+        initialLocation: '/start',
+        routes: [
+          GoRoute(path: '/start', builder: (_, _) => stubPage('start')),
+          GoRoute(
+            path: '/plans',
+            builder: (_, _) => AppShellScope(
+              openDrawer: () {},
+              child: const BeaconsScreen(),
+            ),
+          ),
+        ],
+      );
+      unawaited(router.push('/plans'));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Back'), findsOneWidget);
+      expect(find.bySemanticsLabel('Account menu'), findsNothing);
+    });
+
+    testWidgets('outside the shell the Back button stays', (tester) async {
+      await open(tester);
+
+      expect(find.byTooltip('Back'), findsOneWidget);
+      expect(find.bySemanticsLabel('Account menu'), findsNothing);
+    });
   });
 
   testWidgets('empty state and the New plan entry', (tester) async {
