@@ -176,12 +176,14 @@ class MediaUploader {
   /// [gifBusyDelays] (jittered) before the answer is treated as a missing
   /// object. A photo's MEDIA_NOT_READY is never retried here.
   Future<List<pb.MediaResult>> _finalize({
+    required void Function() check,
     required String key,
     required List<FinalizeRequestItem> items,
     required bool waitForGifSlot,
   }) async {
     var screeningAttempts = 0;
     for (var attempt = 0; ; attempt++) {
+      check();
       try {
         return await _repository.finalizeUpload(
           idempotencyKey: key,
@@ -224,10 +226,38 @@ class MediaUploader {
   /// Per-image PUT failures are [UploadOutcomeStatus.failed] outcomes.
   /// [onProgress] receives `(jobId, 0..1)` (full and thumb objects, weighted
   /// by size).
+  ///
+  /// [stillWanted] is asked before every CreateUpload, every PUT and every
+  /// FinalizeUpload (repeats included): once it answers false (the session
+  /// ended) nothing more is sent and an [UploadInterruptedException] is
+  /// thrown. A request already on the wire is not recalled.
   Future<List<UploadOutcome>> upload({
     required pb.MediaPurpose purpose,
     required List<UploadJob> jobs,
     void Function(String jobId, double progress)? onProgress,
+    bool Function()? stillWanted,
+  }) async {
+    void check() {
+      if (stillWanted != null && !stillWanted()) throw const _Stopped();
+    }
+
+    try {
+      return await _upload(
+        purpose: purpose,
+        jobs: jobs,
+        onProgress: onProgress,
+        check: check,
+      );
+    } on _Stopped {
+      throw const UploadInterruptedException('The upload was stopped.');
+    }
+  }
+
+  Future<List<UploadOutcome>> _upload({
+    required pb.MediaPurpose purpose,
+    required List<UploadJob> jobs,
+    required void Function(String jobId, double progress)? onProgress,
+    required void Function() check,
   }) async {
     final now = _clock();
     final todo = [
@@ -280,6 +310,7 @@ class MediaUploader {
           '${[for (final j in batch) '${j.id}:${j.image.fullMd5}:${j.image.thumbMd5}:'
                 '${j.image.fullBytes.length}:${j.image.thumbBytes.length}:'
                 '${j.image.width}x${j.image.height}'].join(',')}';
+      check();
       final targets = await _repository.createUpload(
         idempotencyKey: _key(intent),
         purpose: purpose,
@@ -315,8 +346,10 @@ class MediaUploader {
         final full = job.image.fullBytes;
         final thumb = job.image.thumbBytes;
         final total = full.length + thumb.length;
+        check();
         await _repository.putObject(reservation.target.full, full);
         onProgress?.call(job.id, full.length / total);
+        check();
         await _repository.putObject(reservation.target.thumb, thumb);
         onProgress?.call(job.id, 1);
         reservation.putDone = true;
@@ -353,6 +386,7 @@ class MediaUploader {
       final List<pb.MediaResult> results;
       try {
         results = await _finalize(
+          check: check,
           key: _key(finalizeIntent),
           items: [
             for (final job in toFinalize)
@@ -425,4 +459,11 @@ class MediaUploader {
             ),
     ];
   }
+}
+
+/// Thrown inside [MediaUploader.upload] when its caller no longer wants the
+/// upload; not an [AppException], so no per-image handler takes it for a
+/// failed image.
+class _Stopped implements Exception {
+  const _Stopped();
 }

@@ -11,6 +11,8 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/telemetry/usage_reporter.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/router/close_routes_above.dart';
+import '../../../core/storage/app_database.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
@@ -223,6 +225,11 @@ class ComposerScreen extends StatelessWidget {
             uid: uid,
             initialDraft: initial,
             usage: UsageScope.of(context),
+            // The session the posts repository writes under: a send that
+            // outlives it (sign-out, account switch) is not sent. The app
+            // always provides the database; a test tree without one gets a
+            // private epoch that never ends.
+            sessionEpoch: context.read<AppDatabase?>()?.sessionEpoch,
           )..loadAudiences(),
         ),
       ],
@@ -487,9 +494,11 @@ class _ComposerViewState extends State<_ComposerView> {
   }
 
   Future<void> _loadPicked(ComposerCubit cubit, String? draftId) async {
-    if (draftId == null || !mounted || cubit.isClosed) return;
+    if (draftId == null || !mounted || _left || cubit.isClosed) return;
     final result = await cubit.loadSavedDraft(draftId);
-    if (!mounted) return;
+    // Leaving meanwhile, or about to (the session ended): no notice on the
+    // page under it.
+    if (!mounted || _left || cubit.sessionEnded) return;
     switch (result) {
       case DraftLoadResult.loaded:
         _controller.text = cubit.state.draft.text;
@@ -579,6 +588,14 @@ class _ComposerViewState extends State<_ComposerView> {
   }
 
   void _onState(BuildContext context, ComposerState state) {
+    // Leaving already (posted, closed, or the session ended): the cubit may
+    // still emit until the route is gone, and none of it may act again.
+    if (_left) return;
+    // Signed out, or another account now (the composer was opened in an
+    // ended session): leave at once, with any dialog or sheet open over it.
+    // Nothing is asked and nothing is saved; the cubit sends nothing from
+    // here on.
+    if (state.sessionEnded) return _leave(context);
     final notice = state.audienceNotice;
     if (notice != null) {
       context.read<ComposerCubit>().audienceNoticeShown();
@@ -609,12 +626,7 @@ class _ComposerViewState extends State<_ComposerView> {
             const SnackBar(content: Text(kReplyPolicyNotAppliedMessage)),
           );
       }
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go(AppRouter.homePath);
-      }
-      return;
+      return _leave(context);
     }
     final error = state.error;
     // The server refused the time (too soon, too far): reopen the dialog
@@ -745,7 +757,7 @@ class _ComposerViewState extends State<_ComposerView> {
   /// the old "Discard this post?" because media is never kept. Never while the
   /// post is being sent.
   Future<void> _requestClose(BuildContext context, ComposerState state) async {
-    if (state.isSubmitting) return;
+    if (_left || state.isSubmitting) return;
     final cubit = context.read<ComposerCubit>();
     final gif =
         widget.mediaEnabled && context.read<AttachmentsCubit>().state.hasGif;
@@ -797,6 +809,21 @@ class _ComposerViewState extends State<_ComposerView> {
         }
     }
     if (!context.mounted) return;
+    _leave(context);
+  }
+
+  /// Set by the first [_leave]: the composer leaves once. A second pop would
+  /// take the page under it (or `go` Home would reset the stack).
+  bool _left = false;
+
+  /// Back to where the composer was opened from (Home when it was the first
+  /// page), closing first whatever is open over it. Once only.
+  void _leave(BuildContext context) {
+    if (_left) return;
+    _left = true;
+    // Already off the stack (a sign-out redirect replaced it): popping or
+    // going Home now would take the new stack's page.
+    if (!closeRoutesAbove(context)) return;
     if (context.canPop()) {
       context.pop();
     } else {
@@ -811,6 +838,7 @@ class _ComposerViewState extends State<_ComposerView> {
       // (pop, snackbar) must run once per status or error change only.
       listenWhen: (prev, curr) =>
           prev.status != curr.status ||
+          prev.sessionEnded != curr.sessionEnded ||
           !identical(prev.error, curr.error) ||
           prev.sendConflict != curr.sendConflict ||
           prev.audienceNotice != curr.audienceNotice ||
@@ -839,6 +867,7 @@ class _ComposerViewState extends State<_ComposerView> {
         // replaces the composer, but the attachments are still held.
         final canLeaveFreely =
             state.status == ComposerStatus.posted ||
+            state.sessionEnded ||
             (!state.isSubmitting && cubit.leaveAction == LeaveAction.none);
         if (state.error is EmailNotVerifiedException) {
           return PopScope(
