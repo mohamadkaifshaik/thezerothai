@@ -180,6 +180,14 @@ type MyBeaconsInput struct {
 	PageToken string
 }
 
+// SharedInput is a ListSharedBeacons request after the transport layer: the upcoming beacons the viewer and PeerUID are
+// both in.
+type SharedInput struct {
+	PeerUID   string
+	Limit     int32
+	PageToken string
+}
+
 // ListParticipantsInput is a ListParticipants request after the transport layer: Requested selects the REQUESTED rows
 // (organiser only), else the ACCEPTED ones.
 type ListParticipantsInput struct {
@@ -256,10 +264,11 @@ type UpdateInput struct {
 }
 
 // ListInput is a ListBeacons request after the transport layer. Exactly one of CommunityID and Public is set; a zero
-// From means now.
+// From means now; an empty Activity means every activity.
 type ListInput struct {
 	CommunityID string
 	Public      bool
+	Activity    Activity
 	From        time.Time
 	Limit       int32
 	PageToken   string
@@ -426,10 +435,12 @@ type CancelResult struct {
 	Beacon  Beacon
 }
 
-// ListQuery is one ListByAudience read: communityId == CommunityID ("" = public), status in [open, full], startAt >= From,
-// ordered by startAt then id, resuming after (AfterStartAt, AfterID) when AfterID is set, at most Limit docs.
+// ListQuery is one ListByAudience read: communityId == CommunityID ("" = public), activity == Activity when set, status in
+// [open, full], startAt >= From, ordered by startAt then id, resuming after (AfterStartAt, AfterID) when AfterID is set, at
+// most Limit docs.
 type ListQuery struct {
 	CommunityID  string
+	Activity     Activity
 	From         time.Time
 	AfterStartAt time.Time
 	AfterID      string
@@ -463,6 +474,9 @@ type Repo interface {
 	GetParticipants(ctx context.Context, uid string, beaconIDs []string) (map[string]Participant, error)
 	// ListMemberships runs MembershipQuery (reads = rows returned, minimum 1).
 	ListMemberships(ctx context.Context, q MembershipQuery) ([]Membership, error)
+	// GetMemberships reads uid's own beaconMemberships rows for beaconIDs in one GetAll, keyed by beacon id; a beacon
+	// without a row is absent from the map.
+	GetMemberships(ctx context.Context, uid string, beaconIDs []string) (map[string]Membership, error)
 	// GetBeacons reads the named beacons in one GetAll; missing ids are absent from the map.
 	GetBeacons(ctx context.Context, ids []string) (map[string]Beacon, error)
 	// ListParticipants runs ParticipantQuery (reads = rows returned, minimum 1).
@@ -496,6 +510,15 @@ type Service interface {
 	// ListParticipants returns a page of a beacon's ACCEPTED rows (organiser and accepted participants) or REQUESTED rows
 	// with notes (organiser only), oldest first.
 	ListParticipants(ctx context.Context, viewer string, in ListParticipantsInput) (ParticipantsPage, error)
+	// Previews returns the live preview of each plan viewer may see, keyed by beacon id (an id that is absent is
+	// "Plan unavailable"), in one batch read. The consumer is the post embed (FEATURE_POST_BEACON_EMBED).
+	Previews(ctx context.Context, viewer string, beaconIDs []string) (map[string]PlanPreview, error)
+	// EmbedTarget returns the plan uid may share on a post: their own, not hidden, OPEN or FULL (ErrNotFound,
+	// ErrCancelled or ErrEnded otherwise); FEATURE_BEACONS must be on for uid.
+	EmbedTarget(ctx context.Context, uid, beaconID string) (PlanPreview, error)
+	// ListShared returns the upcoming beacons viewer and in.PeerUID are both in (organiser or ACCEPTED), soonest first,
+	// for the chat strip (FEATURE_CHAT_SHARED_PLANS, gated by the handler). Read-only over existing data.
+	ListShared(ctx context.Context, viewer string, in SharedInput) (Page, error)
 }
 
 // Limits are the caps the service needs, from config (BeaconsConfig).

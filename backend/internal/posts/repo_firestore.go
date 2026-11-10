@@ -18,6 +18,7 @@ import (
 
 	"cloud.google.com/go/firestore"
 
+	beaconsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -91,6 +92,10 @@ var _ Repo = (*FirestoreRepo)(nil)
 // postDoc is the posts/{postId} shape; counters start at 0. Embedded and mentionIds are not
 // written yet; media is written from (empty unless the post has images).
 type postDoc struct {
+	// BeaconID and Beacon are the plan a root post shares and its frozen snapshot; absent = none. Never queried: exempt-able
+	// from indexing (see the PR follow-ups).
+	BeaconID       string          `firestore:"beaconId,omitempty"`
+	Beacon         *beaconDoc      `firestore:"beacon,omitempty"`
 	HasArticle     bool            `firestore:"hasArticle"`
 	Article        *ArticlePreview `firestore:"article,omitempty"`
 	AuthorID       string          `firestore:"authorId"`
@@ -213,6 +218,28 @@ type embeddedDoc struct {
 	Poll *embeddedPollDoc `firestore:"poll,omitempty"`
 }
 
+// beaconDoc is the frozen plan snapshot of postDoc.Beacon.
+type beaconDoc struct {
+	Title       string    `firestore:"title"`
+	Activity    int32     `firestore:"activity"`
+	StartAt     time.Time `firestore:"startAt"`
+	CommunityID string    `firestore:"communityId,omitempty"`
+}
+
+func beaconToDoc(b *BeaconSnapshot) *beaconDoc {
+	if b == nil {
+		return nil
+	}
+	return &beaconDoc{Title: b.Title, Activity: int32(b.Activity), StartAt: b.StartAt, CommunityID: b.CommunityID}
+}
+
+func (d *beaconDoc) snapshot() *BeaconSnapshot {
+	if d == nil {
+		return nil
+	}
+	return &BeaconSnapshot{Title: d.Title, Activity: beaconsv1.BeaconActivity(d.Activity), StartAt: d.StartAt.UTC(), CommunityID: d.CommunityID}
+}
+
 type mentionDoc struct {
 	UserID string `firestore:"userId"`
 	Handle string `firestore:"handle"`
@@ -233,6 +260,7 @@ type mediaDoc struct {
 // toDoc converts a domain Post to its stored shape (used by writers, and by integration-test seeding).
 func toDoc(p *Post) postDoc {
 	d := postDoc{
+		BeaconID: p.BeaconID, Beacon: beaconToDoc(p.Beacon),
 		HasArticle: p.Kind == KindPost && !p.IsReply && p.Article != nil && p.Article.ArticleID != "",
 		Article:    cloneArticle(p.Article),
 		AuthorID:   p.AuthorID,
@@ -293,8 +321,9 @@ func toDoc(p *Post) postDoc {
 
 func (d postDoc) toPost(id string) *Post {
 	p := &Post{
-		Article: cloneArticle(d.Article),
-		ID:      id, AuthorID: d.AuthorID,
+		Article:  cloneArticle(d.Article),
+		BeaconID: d.BeaconID, Beacon: d.Beacon.snapshot(),
+		ID: id, AuthorID: d.AuthorID,
 		Author: AuthorSnapshot{
 			UserID: d.Author.UserID, Handle: d.Author.Handle, DisplayName: d.Author.DisplayName,
 			AvatarURL: d.Author.AvatarURL, Verified: d.Author.Verified,

@@ -30,6 +30,7 @@ var beaconReadProcedures = []string{
 	beaconsv1connect.BeaconServiceListBeaconsProcedure,
 	beaconsv1connect.BeaconServiceListMyBeaconsProcedure,
 	beaconsv1connect.BeaconServiceListParticipantsProcedure,
+	beaconsv1connect.BeaconServiceListSharedBeaconsProcedure,
 }
 
 // beaconsRateLimitViolations asserts the wiring: each group shares one limiter, the three limiters are three different

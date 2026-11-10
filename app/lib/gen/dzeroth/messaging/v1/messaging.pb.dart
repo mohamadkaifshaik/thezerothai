@@ -37,6 +37,7 @@ class Conversation extends $pb.GeneratedMessage {
     $core.bool? canReply,
     $core.bool? silent,
     $1.Timestamp? updatedAt,
+    $1.Timestamp? peerReadAt,
   }) {
     final result = Conversation._();
     if (id != null) result.id = id;
@@ -49,6 +50,7 @@ class Conversation extends $pb.GeneratedMessage {
     if (canReply != null) result.canReply = canReply;
     if (silent != null) result.silent = silent;
     if (updatedAt != null) result.updatedAt = updatedAt;
+    if (peerReadAt != null) result.peerReadAt = peerReadAt;
     return result;
   }
 
@@ -80,6 +82,8 @@ class Conversation extends $pb.GeneratedMessage {
     ..aOB(8, _omitFieldNames ? '' : 'canReply')
     ..aOB(9, _omitFieldNames ? '' : 'silent')
     ..aOM<$1.Timestamp>(10, _omitFieldNames ? '' : 'updatedAt',
+        subBuilder: $1.Timestamp.$_createMessage)
+    ..aOM<$1.Timestamp>(11, _omitFieldNames ? '' : 'peerReadAt',
         subBuilder: $1.Timestamp.$_createMessage)
     ..hasRequiredFields = false;
 
@@ -217,6 +221,23 @@ class Conversation extends $pb.GeneratedMessage {
   void clearUpdatedAt() => $_clearField(10);
   @$pb.TagNumber(10)
   $1.Timestamp ensureUpdatedAt() => $_ensure(9);
+
+  /// When the peer last marked this conversation read, if both of you have read receipts on (F3); unset otherwise.
+  /// Messages with created_at at or before it are seen. ListMessages first page only (one extra read of the peer's own
+  /// entry; a since or older page and every ListConversations row leave it unset, so polls stay free): re-open or
+  /// refresh the thread to update it. Unset when FEATURE_READ_RECEIPTS is off for the caller, when either side has the
+  /// setting off (reciprocal: your own off hides it at once on the serving instance, the peer's within the 60 s profile
+  /// cache), when the peer never read with receipts on, when either side blocks the other, and when the peer is gone.
+  @$pb.TagNumber(11)
+  $1.Timestamp get peerReadAt => $_getN(10);
+  @$pb.TagNumber(11)
+  set peerReadAt($1.Timestamp value) => $_setField(11, value);
+  @$pb.TagNumber(11)
+  $core.bool hasPeerReadAt() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearPeerReadAt() => $_clearField(11);
+  @$pb.TagNumber(11)
+  $1.Timestamp ensurePeerReadAt() => $_ensure(10);
 }
 
 /// The last message of a conversation as shown in the list.
@@ -1481,7 +1502,11 @@ class MessagingServiceApi {
           'ListMessages', request, ListMessagesResponse());
 
   /// Marks the conversation read for the caller: unread count 0 and the read time on the caller's own entry (a field
-  /// update with an Exists precondition). The read time is never shown to the peer (no read receipts, F4). A missing
+  /// update with an Exists precondition). The read time (last_read_at) is never shown to the peer. When the caller's "Read
+  /// receipts" setting is on (identity Profile.read_receipts, FEATURE_READ_RECEIPTS on for the caller; read from the 60 s
+  /// profile cache, no extra Firestore read) the same update also stores read_receipt_at on the caller's entry, which the
+  /// peer can see as Conversation.peer_read_at only while both sides have receipts on (F3: opt-in, reciprocal, never
+  /// retroactive: a read made while the setting was off stores no receipt). A missing
   /// entry (unknown id, non-participant, deleted for the caller) => success, writing nothing. Evicts the caller's
   /// unread_conversation_count cache on this instance. Call only when the client holds unread_count > 0.
   /// Flag: not globally off. Refused under DEGRADED_MODE=readonly.

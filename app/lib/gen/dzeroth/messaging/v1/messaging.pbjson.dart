@@ -138,6 +138,14 @@ const Conversation$json = {
       '6': '.google.protobuf.Timestamp',
       '10': 'updatedAt'
     },
+    {
+      '1': 'peer_read_at',
+      '3': 11,
+      '4': 1,
+      '5': 11,
+      '6': '.google.protobuf.Timestamp',
+      '10': 'peerReadAt'
+    },
   ],
 };
 
@@ -151,7 +159,8 @@ final $typed_data.Uint8List conversationDescriptor = $convert.base64Decode(
     'UYBiABKAsyJC5kemVyb3RoLm1lc3NhZ2luZy52MS5NZXNzYWdlUHJldmlld1ILbGFzdE1lc3Nh'
     'Z2USIQoMdW5yZWFkX2NvdW50GAcgASgDUgt1bnJlYWRDb3VudBIbCgljYW5fcmVwbHkYCCABKA'
     'hSCGNhblJlcGx5EhYKBnNpbGVudBgJIAEoCFIGc2lsZW50EjkKCnVwZGF0ZWRfYXQYCiABKAsy'
-    'Gi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wUgl1cGRhdGVkQXQ=');
+    'Gi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wUgl1cGRhdGVkQXQSPAoMcGVlcl9yZWFkX2F0GA'
+    'sgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcFIKcGVlclJlYWRBdA==');
 
 @$core.Deprecated('Use messagePreviewDescriptor instead')
 const MessagePreview$json = {

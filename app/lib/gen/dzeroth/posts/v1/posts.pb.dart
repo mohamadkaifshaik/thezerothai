@@ -18,6 +18,7 @@ import 'package:protobuf/protobuf.dart' as $pb;
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as $0;
 
+import '../../beacons/v1/beacons.pbenum.dart' as $2;
 import '../../common/v1/common.pb.dart' as $1;
 import 'posts.pbenum.dart';
 
@@ -566,6 +567,7 @@ class Post extends $pb.GeneratedMessage {
     Poll? poll,
     CommunityRef? community,
     ArticlePreview? article,
+    BeaconPreview? beacon,
   }) {
     final result = Post._();
     if (postId != null) result.postId = postId;
@@ -591,6 +593,7 @@ class Post extends $pb.GeneratedMessage {
     if (poll != null) result.poll = poll;
     if (community != null) result.community = community;
     if (article != null) result.article = article;
+    if (beacon != null) result.beacon = beacon;
     return result;
   }
 
@@ -642,6 +645,8 @@ class Post extends $pb.GeneratedMessage {
         subBuilder: CommunityRef.$_createMessage)
     ..aOM<ArticlePreview>(23, _omitFieldNames ? '' : 'article',
         subBuilder: ArticlePreview.$_createMessage)
+    ..aOM<BeaconPreview>(24, _omitFieldNames ? '' : 'beacon',
+        subBuilder: BeaconPreview.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -880,6 +885,20 @@ class Post extends $pb.GeneratedMessage {
   void clearArticle() => $_clearField(23);
   @$pb.TagNumber(23)
   ArticlePreview ensureArticle() => $_ensure(22);
+
+  /// The plan this post shares (CreatePostRequest.beacon_id), decided for the viewer of this response (BeaconPreview).
+  /// Unset for a post with no plan, for a REPOST or QUOTE row (the card is on the original), and everywhere while
+  /// FEATURE_POST_BEACON_EMBED is globally off.
+  @$pb.TagNumber(24)
+  BeaconPreview get beacon => $_getN(23);
+  @$pb.TagNumber(24)
+  set beacon(BeaconPreview value) => $_setField(24, value);
+  @$pb.TagNumber(24)
+  $core.bool hasBeacon() => $_has(23);
+  @$pb.TagNumber(24)
+  void clearBeacon() => $_clearField(24);
+  @$pb.TagNumber(24)
+  BeaconPreview ensureBeacon() => $_ensure(23);
 }
 
 /// Bounded summary only. The reader fetches the authorized body separately.
@@ -1051,6 +1070,151 @@ class CommunityRef extends $pb.GeneratedMessage {
   $core.bool hasName() => $_has(1);
   @$pb.TagNumber(2)
   void clearName() => $_clearField(2);
+}
+
+/// The plan a post shares (Post.beacon), always decided for the viewer of this response: when the viewer may see the plan,
+/// every field is its live value (a snapshot frozen at create time is never put on the wire); otherwise only beacon_id and
+/// unavailable = true are set ("Plan unavailable": a plan that is hidden, deleted, blocked, or a community plan the viewer
+/// is no longer a member of). An ENDED or CANCELLED plan is still available: status says so. Producers that do not hydrate
+/// plans (search, bookmarks, likes, article posts) emit the unavailable form. Join opens
+/// dzeroth.beacons.v1.BeaconService.RequestToJoin, only when GetMe.enabled_features lists "beacons".
+class BeaconPreview extends $pb.GeneratedMessage {
+  factory BeaconPreview({
+    $core.String? beaconId,
+    $core.bool? unavailable,
+    $core.String? title,
+    $2.BeaconActivity? activity,
+    $0.Timestamp? startAt,
+    $2.BeaconStatus? status,
+    $core.String? communityId,
+  }) {
+    final result = BeaconPreview._();
+    if (beaconId != null) result.beaconId = beaconId;
+    if (unavailable != null) result.unavailable = unavailable;
+    if (title != null) result.title = title;
+    if (activity != null) result.activity = activity;
+    if (startAt != null) result.startAt = startAt;
+    if (status != null) result.status = status;
+    if (communityId != null) result.communityId = communityId;
+    return result;
+  }
+
+  BeaconPreview._();
+
+  factory BeaconPreview.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      BeaconPreview()..mergeFromBuffer(data, registry);
+  factory BeaconPreview.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      BeaconPreview()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'BeaconPreview',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: BeaconPreview.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'beaconId')
+    ..aOB(2, _omitFieldNames ? '' : 'unavailable')
+    ..aOS(3, _omitFieldNames ? '' : 'title')
+    ..aE<$2.BeaconActivity>(4, _omitFieldNames ? '' : 'activity',
+        enumValues: $2.BeaconActivity.values)
+    ..aOM<$0.Timestamp>(5, _omitFieldNames ? '' : 'startAt',
+        subBuilder: $0.Timestamp.$_createMessage)
+    ..aE<$2.BeaconStatus>(6, _omitFieldNames ? '' : 'status',
+        enumValues: $2.BeaconStatus.values)
+    ..aOS(7, _omitFieldNames ? '' : 'communityId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  BeaconPreview clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  BeaconPreview copyWith(void Function(BeaconPreview) updates) =>
+      super.copyWith((message) => updates(message as BeaconPreview))
+          as BeaconPreview;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use BeaconPreview() / BeaconPreview.new instead')
+  static BeaconPreview create() => BeaconPreview._();
+  static $pb.GeneratedMessage $_createMessage() => BeaconPreview._();
+  @$core.override
+  BeaconPreview createEmptyInstance() => BeaconPreview._();
+  @$core.pragma('dart2js:noInline')
+  static BeaconPreview getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<BeaconPreview>(
+          BeaconPreview.$_createMessage);
+  static BeaconPreview? _defaultInstance;
+
+  /// 19-digit Snowflake of the plan.
+  @$pb.TagNumber(1)
+  $core.String get beaconId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set beaconId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasBeaconId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearBeaconId() => $_clearField(1);
+
+  /// True when the viewer cannot see the plan; every field below is then empty.
+  @$pb.TagNumber(2)
+  $core.bool get unavailable => $_getBF(1);
+  @$pb.TagNumber(2)
+  set unavailable($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasUnavailable() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearUnavailable() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get title => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set title($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasTitle() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearTitle() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $2.BeaconActivity get activity => $_getN(3);
+  @$pb.TagNumber(4)
+  set activity($2.BeaconActivity value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasActivity() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearActivity() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $0.Timestamp get startAt => $_getN(4);
+  @$pb.TagNumber(5)
+  set startAt($0.Timestamp value) => $_setField(5, value);
+  @$pb.TagNumber(5)
+  $core.bool hasStartAt() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearStartAt() => $_clearField(5);
+  @$pb.TagNumber(5)
+  $0.Timestamp ensureStartAt() => $_ensure(4);
+
+  /// Live: OPEN, FULL, CANCELLED, or ENDED (derived from the clock).
+  @$pb.TagNumber(6)
+  $2.BeaconStatus get status => $_getN(5);
+  @$pb.TagNumber(6)
+  set status($2.BeaconStatus value) => $_setField(6, value);
+  @$pb.TagNumber(6)
+  $core.bool hasStatus() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearStatus() => $_clearField(6);
+
+  /// The community the plan is scoped to; empty for a public plan.
+  @$pb.TagNumber(7)
+  $core.String get communityId => $_getSZ(6);
+  @$pb.TagNumber(7)
+  set communityId($core.String value) => $_setString(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasCommunityId() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearCommunityId() => $_clearField(7);
 }
 
 /// A post as seen by the caller. Viewer flags come from userLikes/{uid} (cached 60 s) while
@@ -1261,6 +1425,7 @@ class CreatePostRequest extends $pb.GeneratedMessage {
     $core.bool? madeWithAi,
     PollDraft? poll,
     $core.String? communityId,
+    $core.String? beaconId,
   }) {
     final result = CreatePostRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
@@ -1274,6 +1439,7 @@ class CreatePostRequest extends $pb.GeneratedMessage {
     if (madeWithAi != null) result.madeWithAi = madeWithAi;
     if (poll != null) result.poll = poll;
     if (communityId != null) result.communityId = communityId;
+    if (beaconId != null) result.beaconId = beaconId;
     return result;
   }
 
@@ -1304,6 +1470,7 @@ class CreatePostRequest extends $pb.GeneratedMessage {
     ..aOM<PollDraft>(10, _omitFieldNames ? '' : 'poll',
         subBuilder: PollDraft.$_createMessage)
     ..aOS(11, _omitFieldNames ? '' : 'communityId')
+    ..aOS(12, _omitFieldNames ? '' : 'beaconId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1423,6 +1590,17 @@ class CreatePostRequest extends $pb.GeneratedMessage {
   $core.bool hasCommunityId() => $_has(10);
   @$pb.TagNumber(11)
   void clearCommunityId() => $_clearField(11);
+
+  /// Share one of the caller's own OPEN or FULL plans on a root post: a 19-digit beacon id; FEATURE_POST_BEACON_EMBED.
+  /// "" => no plan. Rules in the CreatePost comment.
+  @$pb.TagNumber(12)
+  $core.String get beaconId => $_getSZ(11);
+  @$pb.TagNumber(12)
+  set beaconId($core.String value) => $_setString(11, value);
+  @$pb.TagNumber(12)
+  $core.bool hasBeaconId() => $_has(11);
+  @$pb.TagNumber(12)
+  void clearBeaconId() => $_clearField(12);
 }
 
 class CreatePostResponse extends $pb.GeneratedMessage {
@@ -2619,6 +2797,338 @@ class CancelScheduledPostResponse extends $pb.GeneratedMessage {
   ScheduledPost ensureScheduledPost() => $_ensure(0);
 }
 
+class PublishScheduledPostNowRequest extends $pb.GeneratedMessage {
+  factory PublishScheduledPostNowRequest({
+    $core.String? idempotencyKey,
+    $core.String? scheduledId,
+  }) {
+    final result = PublishScheduledPostNowRequest._();
+    if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (scheduledId != null) result.scheduledId = scheduledId;
+    return result;
+  }
+
+  PublishScheduledPostNowRequest._();
+
+  factory PublishScheduledPostNowRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PublishScheduledPostNowRequest()..mergeFromBuffer(data, registry);
+  factory PublishScheduledPostNowRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PublishScheduledPostNowRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'PublishScheduledPostNowRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: PublishScheduledPostNowRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..aOS(2, _omitFieldNames ? '' : 'scheduledId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PublishScheduledPostNowRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PublishScheduledPostNowRequest copyWith(
+          void Function(PublishScheduledPostNowRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as PublishScheduledPostNowRequest))
+          as PublishScheduledPostNowRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use PublishScheduledPostNowRequest() / PublishScheduledPostNowRequest.new instead')
+  static PublishScheduledPostNowRequest create() =>
+      PublishScheduledPostNowRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      PublishScheduledPostNowRequest._();
+  @$core.override
+  PublishScheduledPostNowRequest createEmptyInstance() =>
+      PublishScheduledPostNowRequest._();
+  @$core.pragma('dart2js:noInline')
+  static PublishScheduledPostNowRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<PublishScheduledPostNowRequest>(
+          PublishScheduledPostNowRequest.$_createMessage);
+  static PublishScheduledPostNowRequest? _defaultInstance;
+
+  /// Format-validated (16-64 characters of [A-Za-z0-9_-]); the operation is idempotent by state.
+  @$pb.TagNumber(1)
+  $core.String get idempotencyKey => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set idempotencyKey($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIdempotencyKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIdempotencyKey() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get scheduledId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set scheduledId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasScheduledId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearScheduledId() => $_clearField(2);
+}
+
+class PublishScheduledPostNowResponse extends $pb.GeneratedMessage {
+  factory PublishScheduledPostNowResponse({
+    ScheduledPost? scheduledPost,
+  }) {
+    final result = PublishScheduledPostNowResponse._();
+    if (scheduledPost != null) result.scheduledPost = scheduledPost;
+    return result;
+  }
+
+  PublishScheduledPostNowResponse._();
+
+  factory PublishScheduledPostNowResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PublishScheduledPostNowResponse()..mergeFromBuffer(data, registry);
+  factory PublishScheduledPostNowResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      PublishScheduledPostNowResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'PublishScheduledPostNowResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: PublishScheduledPostNowResponse.$_createMessage)
+    ..aOM<ScheduledPost>(1, _omitFieldNames ? '' : 'scheduledPost',
+        subBuilder: ScheduledPost.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PublishScheduledPostNowResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  PublishScheduledPostNowResponse copyWith(
+          void Function(PublishScheduledPostNowResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as PublishScheduledPostNowResponse))
+          as PublishScheduledPostNowResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use PublishScheduledPostNowResponse() / PublishScheduledPostNowResponse.new instead')
+  static PublishScheduledPostNowResponse create() =>
+      PublishScheduledPostNowResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      PublishScheduledPostNowResponse._();
+  @$core.override
+  PublishScheduledPostNowResponse createEmptyInstance() =>
+      PublishScheduledPostNowResponse._();
+  @$core.pragma('dart2js:noInline')
+  static PublishScheduledPostNowResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<PublishScheduledPostNowResponse>(
+          PublishScheduledPostNowResponse.$_createMessage);
+  static PublishScheduledPostNowResponse? _defaultInstance;
+
+  /// PUBLISHED with post_id set (text and media are cleared once published).
+  @$pb.TagNumber(1)
+  ScheduledPost get scheduledPost => $_getN(0);
+  @$pb.TagNumber(1)
+  set scheduledPost(ScheduledPost value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasScheduledPost() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearScheduledPost() => $_clearField(1);
+  @$pb.TagNumber(1)
+  ScheduledPost ensureScheduledPost() => $_ensure(0);
+}
+
+class UpdateScheduledPostRequest extends $pb.GeneratedMessage {
+  factory UpdateScheduledPostRequest({
+    $core.String? idempotencyKey,
+    $core.String? scheduledId,
+    $core.String? text,
+    $0.Timestamp? publishAt,
+    ReplyPolicy? replyPolicy,
+  }) {
+    final result = UpdateScheduledPostRequest._();
+    if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (scheduledId != null) result.scheduledId = scheduledId;
+    if (text != null) result.text = text;
+    if (publishAt != null) result.publishAt = publishAt;
+    if (replyPolicy != null) result.replyPolicy = replyPolicy;
+    return result;
+  }
+
+  UpdateScheduledPostRequest._();
+
+  factory UpdateScheduledPostRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UpdateScheduledPostRequest()..mergeFromBuffer(data, registry);
+  factory UpdateScheduledPostRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UpdateScheduledPostRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'UpdateScheduledPostRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: UpdateScheduledPostRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..aOS(2, _omitFieldNames ? '' : 'scheduledId')
+    ..aOS(3, _omitFieldNames ? '' : 'text')
+    ..aOM<$0.Timestamp>(4, _omitFieldNames ? '' : 'publishAt',
+        subBuilder: $0.Timestamp.$_createMessage)
+    ..aE<ReplyPolicy>(5, _omitFieldNames ? '' : 'replyPolicy',
+        enumValues: ReplyPolicy.values)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UpdateScheduledPostRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UpdateScheduledPostRequest copyWith(
+          void Function(UpdateScheduledPostRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as UpdateScheduledPostRequest))
+          as UpdateScheduledPostRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use UpdateScheduledPostRequest() / UpdateScheduledPostRequest.new instead')
+  static UpdateScheduledPostRequest create() => UpdateScheduledPostRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      UpdateScheduledPostRequest._();
+  @$core.override
+  UpdateScheduledPostRequest createEmptyInstance() =>
+      UpdateScheduledPostRequest._();
+  @$core.pragma('dart2js:noInline')
+  static UpdateScheduledPostRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<UpdateScheduledPostRequest>(
+          UpdateScheduledPostRequest.$_createMessage);
+  static UpdateScheduledPostRequest? _defaultInstance;
+
+  /// Format-validated (16-64 characters of [A-Za-z0-9_-]); the operation is idempotent by state.
+  @$pb.TagNumber(1)
+  $core.String get idempotencyKey => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set idempotencyKey($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIdempotencyKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIdempotencyKey() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get scheduledId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set scheduledId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasScheduledId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearScheduledId() => $_clearField(2);
+
+  /// CreatePost text rules. Unset keeps the stored text.
+  @$pb.TagNumber(3)
+  $core.String get text => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set text($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasText() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearText() => $_clearField(3);
+
+  /// UTC; truncated to the minute. Unset keeps the stored time.
+  @$pb.TagNumber(4)
+  $0.Timestamp get publishAt => $_getN(3);
+  @$pb.TagNumber(4)
+  set publishAt($0.Timestamp value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasPublishAt() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearPublishAt() => $_clearField(4);
+  @$pb.TagNumber(4)
+  $0.Timestamp ensurePublishAt() => $_ensure(3);
+
+  /// Unset keeps the stored policy; UNSPECIFIED and EVERYONE both mean "everyone".
+  @$pb.TagNumber(5)
+  ReplyPolicy get replyPolicy => $_getN(4);
+  @$pb.TagNumber(5)
+  set replyPolicy(ReplyPolicy value) => $_setField(5, value);
+  @$pb.TagNumber(5)
+  $core.bool hasReplyPolicy() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearReplyPolicy() => $_clearField(5);
+}
+
+class UpdateScheduledPostResponse extends $pb.GeneratedMessage {
+  factory UpdateScheduledPostResponse({
+    ScheduledPost? scheduledPost,
+  }) {
+    final result = UpdateScheduledPostResponse._();
+    if (scheduledPost != null) result.scheduledPost = scheduledPost;
+    return result;
+  }
+
+  UpdateScheduledPostResponse._();
+
+  factory UpdateScheduledPostResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UpdateScheduledPostResponse()..mergeFromBuffer(data, registry);
+  factory UpdateScheduledPostResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UpdateScheduledPostResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'UpdateScheduledPostResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.posts.v1'),
+      createEmptyInstance: UpdateScheduledPostResponse.$_createMessage)
+    ..aOM<ScheduledPost>(1, _omitFieldNames ? '' : 'scheduledPost',
+        subBuilder: ScheduledPost.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UpdateScheduledPostResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UpdateScheduledPostResponse copyWith(
+          void Function(UpdateScheduledPostResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as UpdateScheduledPostResponse))
+          as UpdateScheduledPostResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use UpdateScheduledPostResponse() / UpdateScheduledPostResponse.new instead')
+  static UpdateScheduledPostResponse create() =>
+      UpdateScheduledPostResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      UpdateScheduledPostResponse._();
+  @$core.override
+  UpdateScheduledPostResponse createEmptyInstance() =>
+      UpdateScheduledPostResponse._();
+  @$core.pragma('dart2js:noInline')
+  static UpdateScheduledPostResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<UpdateScheduledPostResponse>(
+          UpdateScheduledPostResponse.$_createMessage);
+  static UpdateScheduledPostResponse? _defaultInstance;
+
+  /// The item after the edit (PENDING, with its text and media).
+  @$pb.TagNumber(1)
+  ScheduledPost get scheduledPost => $_getN(0);
+  @$pb.TagNumber(1)
+  set scheduledPost(ScheduledPost value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasScheduledPost() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearScheduledPost() => $_clearField(1);
+  @$pb.TagNumber(1)
+  ScheduledPost ensureScheduledPost() => $_ensure(0);
+}
+
 class PostServiceApi {
   final $pb.RpcClient _client;
 
@@ -2733,6 +3243,16 @@ class PostServiceApi {
   /// included) => PERMISSION_DENIED + FORBIDDEN metadata["reason"] = "not_member", writing nothing. The member doc is cached
   /// 60 s on this path, so a ban reaches other instances' reply path within 60 s. The community and member doc are cached. With communities globally off, community posts behave as
   /// ordinary posts: no label and no reply gate (the kill switch).
+  /// Plan embeds (FEATURE_POST_BEACON_EMBED, wire name "post_beacon_embed"; dzeroth.beacons.v1 header): a set beacon_id
+  /// shares one of the caller's own plans on a root post. A set beacon_id while the flag is off for the caller (or no plan
+  /// reader is wired) => FAILED_PRECONDITION + FEATURE_DISABLED metadata["feature"] = "post_beacon_embed", before any lookup,
+  /// checked after "polls" in the order above (the beacons flag, "beacons", must also be on for the caller). Not 19 digits,
+  /// or together with reply_to_post_id, quote_of_post_id or a poll => VALIDATION field "beacon_id". Then, after the community
+  /// gate and before mentions: a missing, hidden or someone else's plan => NOT_FOUND "beacon not found" (one message for all,
+  /// so no plan leaks); an ENDED or CANCELLED one => FAILED_PRECONDITION metadata["reason"] = "ended" | "cancelled"; a
+  /// community plan with a community_id other than its community => VALIDATION field "beacon_id" (a public plan may go in
+  /// any post). The post doc stores beaconId and a frozen snapshot (title, activity, start_at, community); the request hash
+  /// covers beacon_id only when it is set. Nothing is written on a refusal.
   $async.Future<CreatePostResponse> createPost(
           $pb.ClientContext? ctx, CreatePostRequest request) =>
       _client.invoke<CreatePostResponse>(
@@ -2852,6 +3372,36 @@ class PostServiceApi {
           $pb.ClientContext? ctx, CancelScheduledPostRequest request) =>
       _client.invoke<CancelScheduledPostResponse>(ctx, 'PostService',
           'CancelScheduledPost', request, CancelScheduledPostResponse());
+
+  /// Publish a PENDING scheduled post immediately ("Post now"). Needs FEATURE_POSTS and FEATURE_SCHEDULED_POSTS on for
+  /// the caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "scheduled_posts"); shares the CreatePost
+  /// rate-limit bucket. It runs the sweep's publish transaction (same code path), which re-reads the item as PENDING, so
+  /// a race with the sweep or a cancel publishes at most once. The response is the item PUBLISHED with post_id. Idempotent
+  /// by state: an item already PUBLISHED (a retry, or the sweep won) is returned unchanged. A CANCELLED item, or a FAILED
+  /// one, is FAILED_PRECONDITION; if the publish transaction itself retires the item (media no longer available, account
+  /// restricted) the response is the FAILED item. scheduled_id must match ^[0-9a-f]{32}$ (else VALIDATION); unknown =>
+  /// NOT_FOUND. idempotency_key is format-validated (VALIDATION when malformed) but not stored.
+  $async.Future<PublishScheduledPostNowResponse> publishScheduledPostNow(
+          $pb.ClientContext? ctx, PublishScheduledPostNowRequest request) =>
+      _client.invoke<PublishScheduledPostNowResponse>(
+          ctx,
+          'PostService',
+          'PublishScheduledPostNow',
+          request,
+          PublishScheduledPostNowResponse());
+
+  /// Edit a PENDING scheduled post. Needs FEATURE_POSTS and FEATURE_SCHEDULED_POSTS on for the caller. Only the fields
+  /// that are set change; at least one must be set (else VALIDATION). text follows the CreatePost rules (a post that
+  /// carries media may have empty text), publish_at the SchedulePost rules (truncated to the minute, within [now + 2 min,
+  /// now + 60 d], and the +/-4 min window cap, LIMIT_REACHED "scheduled_window"), reply_policy the CreatePost rules
+  /// (needs FEATURE_REPLY_AUDIENCE). Media and the labels are not editable. An item that is not PENDING (published,
+  /// cancelled, failed) or whose stored publish_at is less than 60 s away is FAILED_PRECONDITION; unknown =>
+  /// NOT_FOUND. Idempotent by state: an edit whose values already equal the stored ones writes nothing and returns the
+  /// item. idempotency_key is format-validated but not stored. Shares the CreatePost rate-limit bucket.
+  $async.Future<UpdateScheduledPostResponse> updateScheduledPost(
+          $pb.ClientContext? ctx, UpdateScheduledPostRequest request) =>
+      _client.invoke<UpdateScheduledPostResponse>(ctx, 'PostService',
+          'UpdateScheduledPost', request, UpdateScheduledPostResponse());
 }
 
 const $core.bool _omitFieldNames =

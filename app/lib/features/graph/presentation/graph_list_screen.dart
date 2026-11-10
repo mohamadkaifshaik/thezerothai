@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
@@ -154,7 +153,7 @@ class _GraphListScreenState extends State<GraphListScreen> {
 }
 
 /// The Followers / Following switch. The selected tab is told apart by more
-/// than colour: a bold label and a primary underline (the tab itself is
+/// than colour: a bold label and the themed underline (the tab itself is
 /// announced as selected).
 class _GraphTabBar extends StatelessWidget {
   const _GraphTabBar();
@@ -170,13 +169,13 @@ class _GraphTabBar extends StatelessWidget {
       labelColor: theme.colorScheme.onSurface,
       unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
       labelStyle: theme.textTheme.titleSmall?.copyWith(
-        fontWeight: FontWeight.w800,
+        fontWeight: FontWeight.w700,
       ),
       unselectedLabelStyle: theme.textTheme.titleSmall?.copyWith(
-        fontWeight: FontWeight.w500,
+        fontWeight: FontWeight.w600,
       ),
-      indicatorColor: theme.colorScheme.primary,
-      indicatorWeight: AppSpacing.xs,
+      // The indicator (colour and 4dp weight) comes from `TabBarThemeData`:
+      // its `indicator` overrides `indicatorColor` / `indicatorWeight`.
       indicatorSize: TabBarIndicatorSize.tab,
       dividerColor: theme.colorScheme.outlineVariant,
       dividerHeight: 1,

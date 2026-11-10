@@ -57,6 +57,22 @@ service NotificationService {
   // Rate limit: default per-minute bucket; no daily cap.
   // Deletes the device doc and its token index.
   rpc UnregisterDevice(UnregisterDeviceRequest) returns (UnregisterDeviceResponse);
+
+  // The caller's push preferences: per type group, push on or off. Needs FEATURE_NOTIFICATIONS and
+  // FEATURE_NOTIFICATION_PREFS on for the caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
+  // "notification_prefs" for the latter), before any lookup. A user who never saved anything has every group on (today's
+  // behaviour). Reads users/{caller}/settings/notifications (1 read). Rate limit: default per-minute bucket.
+  rpc GetNotificationPrefs(GetNotificationPrefsRequest) returns (GetNotificationPrefsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Replaces the caller's push preferences (every group is sent; false = push off for that group). Same flags as
+  // GetNotificationPrefs. The in-app list and the badge are never affected: a muted group still writes its row, only the
+  // FCM push is skipped. The fan-out reads the preference through a 60 s per-instance cache, so another instance can keep
+  // pushing for up to 60 s after the change. Idempotent by state (a full replace; an update equal to the stored value
+  // writes nothing); idempotency_key is format-validated (VALIDATION when malformed) but not stored. A caller without a
+  // profile => FAILED_PRECONDITION + PROFILE_REQUIRED. Rate limit: default per-minute bucket.
+  rpc UpdateNotificationPrefs(UpdateNotificationPrefsRequest) returns (UpdateNotificationPrefsResponse);
 }
 
 enum NotificationType {
@@ -167,3 +183,34 @@ message UnregisterDeviceRequest {
 }
 
 message UnregisterDeviceResponse {}
+
+// Push on or off per notification type group. true = the push is sent (the default for everyone).
+message NotificationPrefs {
+  // Plans: a join request, an accepted request, a cancelled plan.
+  bool plans_push = 1;
+  // Mentions and replies: MENTION, REPLY, QUOTE.
+  bool mentions_replies_push = 2;
+  // Likes and reposts: LIKE, REPOST.
+  bool likes_reposts_push = 3;
+  // Followers: FOLLOW, FOLLOW_REQUEST, FOLLOW_ACCEPTED.
+  bool followers_push = 4;
+  // Messages: the direct-message push (which has no in-app row).
+  bool messages_push = 5;
+}
+
+message GetNotificationPrefsRequest {}
+
+message GetNotificationPrefsResponse {
+  NotificationPrefs prefs = 1;
+}
+
+message UpdateNotificationPrefsRequest {
+  // Format-validated (16-64 characters of [A-Za-z0-9_-]); the operation is a full replace, idempotent by state.
+  string idempotency_key = 1;
+  // Required: every group is sent, a missing one is off.
+  NotificationPrefs prefs = 2;
+}
+
+message UpdateNotificationPrefsResponse {
+  NotificationPrefs prefs = 1;
+}

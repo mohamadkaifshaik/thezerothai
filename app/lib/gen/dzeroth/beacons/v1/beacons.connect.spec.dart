@@ -62,10 +62,12 @@ abstract final class BeaconService {
     idempotency: connect.Idempotency.noSideEffects,
   );
 
-  /// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first. Hidden beacons and
-  /// beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A community audience
-  /// needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50); page_token is an
-  /// opaque signed cursor bound to the caller and the audience, VALIDATION "page_token" when invalid or expired.
+  /// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first, optionally of one
+  /// activity (UNSPECIFIED = every activity; a value outside the enum => VALIDATION "activity", before any lookup).
+  /// Hidden beacons and beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A
+  /// community audience needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50);
+  /// page_token is an opaque signed cursor bound to the caller, the audience and the activity filter, VALIDATION
+  /// "page_token" when invalid, expired or issued for another filter.
   static const listBeacons = connect.Spec(
     '/$name/ListBeacons',
     connect.StreamType.unary,
@@ -154,6 +156,26 @@ abstract final class BeaconService {
     connect.StreamType.unary,
     dzerothbeaconsv1beacons.ListParticipantsRequest.new,
     dzerothbeaconsv1beacons.ListParticipantsResponse.new,
+    idempotency: connect.Idempotency.noSideEffects,
+  );
+
+  /// The upcoming (OPEN or FULL, not yet ended) beacons that the caller and peer_user_id are both in (as organiser or
+  /// ACCEPTED participant), soonest first, for the "plans you share" strip of a chat. Needs FEATURE_CHAT_SHARED_PLANS on
+  /// for the caller (else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "chat_shared_plans", before any
+  /// lookup) and FEATURE_BEACONS not globally off. A block in either direction with the peer, an unknown or non-ACTIVE
+  /// peer, or no shared plan is an empty page (never an error, so nothing leaks). A beacon hidden by the platform and one
+  /// whose organiser has a block with the caller are dropped as in ListMyBeacons; a community beacon is returned only
+  /// while BOTH users are still JOINED members of its community (a viewer or peer who left or was banned drops it). The
+  /// peer_user_id must be a valid user id and not the caller's (VALIDATION "peer_user_id"). limit is clamped (0 = 3, above
+  /// 10 = 10). Each call examines at most 10 of the caller's upcoming memberships (soonest first) and answers the shared
+  /// ones among them, so a page may hold fewer than limit rows, or none, while next_page_token is set; page_token is an
+  /// opaque signed cursor bound to the caller and the peer, VALIDATION "page_token" when invalid or expired. Shares the
+  /// RATE_LIMIT_BEACONS_READ_PER_MIN bucket.
+  static const listSharedBeacons = connect.Spec(
+    '/$name/ListSharedBeacons',
+    connect.StreamType.unary,
+    dzerothbeaconsv1beacons.ListSharedBeaconsRequest.new,
+    dzerothbeaconsv1beacons.ListSharedBeaconsResponse.new,
     idempotency: connect.Idempotency.noSideEffects,
   );
 }

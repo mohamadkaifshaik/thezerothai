@@ -347,6 +347,7 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.posts.v1.ArticlePreview': $1.ArticlePreview$json,
   '.dzeroth.posts.v1.Mention': $1.Mention$json,
   '.dzeroth.posts.v1.CommunityRef': $1.CommunityRef$json,
+  '.dzeroth.posts.v1.BeaconPreview': $1.BeaconPreview$json,
   '.dzeroth.articles.v1.ListArticlesRequest': ListArticlesRequest$json,
   '.dzeroth.articles.v1.ListArticlesResponse': ListArticlesResponse$json,
   '.dzeroth.articles.v1.SaveArticleRequest': SaveArticleRequest$json,

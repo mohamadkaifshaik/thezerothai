@@ -114,6 +114,9 @@ type PublishParams struct {
 	// fresh media claim, never from the URLs stored in the draft.
 	MediaIDs  []string
 	MediaAlts []string
+	// ExpectUpdateTime (optional, Post now) is the scheduled doc's update time the Draft was parsed from. When the
+	// transaction reads another, an edit landed in between: nothing is published (PublishNoop) and the caller re-reads.
+	ExpectUpdateTime time.Time
 	// ResolveMentions resolves the draft's @mention candidates (nil: none). It runs last in each attempt, cache-first,
 	// outside transactional isolation.
 	ResolveMentions func(ctx context.Context) ([]Mention, error)
@@ -178,6 +181,8 @@ func (r *FirestoreRepo) publishAttempt(ctx context.Context, tx *firestore.Transa
 		return PublishResult{}, err
 	case sched.Status != ScheduledPending:
 		return PublishResult{Outcome: PublishNoop}, nil
+	case !p.ExpectUpdateTime.IsZero() && !sched.UpdateTime.Equal(p.ExpectUpdateTime):
+		return PublishResult{Outcome: PublishNoop}, nil // edited since the draft was read
 	}
 	b := store.NewFirestoreTxBatch(tx)
 

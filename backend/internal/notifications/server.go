@@ -15,6 +15,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 )
 
 // rpcDeadline bounds every NotificationService call (<= 10 s).
@@ -25,10 +26,24 @@ type Server struct {
 	notificationsv1connect.UnimplementedNotificationServiceHandler
 	svc   Service
 	flags FlagChecker
+	// prefs serves GetNotificationPrefs and UpdateNotificationPrefs (WithPrefs); nil answers Unimplemented once the flags pass.
+	prefs PrefsService
 }
 
+// ServerOption configures NewServer.
+type ServerOption func(*Server)
+
+// WithPrefs wires the service behind GetNotificationPrefs and UpdateNotificationPrefs (F6).
+func WithPrefs(p PrefsService) ServerOption { return func(s *Server) { s.prefs = p } }
+
 // NewServer builds the Connect handler. Use with notificationsv1connect.NewNotificationServiceHandler.
-func NewServer(svc Service, fl FlagChecker) *Server { return &Server{svc: svc, flags: fl} }
+func NewServer(svc Service, fl FlagChecker, opts ...ServerOption) *Server {
+	s := &Server{svc: svc, flags: fl}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
 
 var _ notificationsv1connect.NotificationServiceHandler = (*Server)(nil)
 
@@ -46,6 +61,79 @@ func (s *Server) guard(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return uid, nil
+}
+
+// guardPrefs is the flag check of the two preference RPCs: FEATURE_NOTIFICATIONS first (guard), then
+// FEATURE_NOTIFICATION_PREFS for the caller, answered FEATURE_DISABLED with metadata feature=notification_prefs.
+func (s *Server) guardPrefs(ctx context.Context) (string, error) {
+	uid, err := s.guard(ctx)
+	if err != nil {
+		return "", err
+	}
+	var enabled func(uid, name string) bool
+	if s.flags != nil {
+		enabled = s.flags.Enabled
+	}
+	if err := flags.Guard(ctx, enabled, uid, PrefsFlagName); err != nil {
+		logger.SetRequestField(ctx, "feature", PrefsFlagName)
+		return "", flags.DisabledError().WithMeta("feature", PrefsFlagName)
+	}
+	return uid, nil
+}
+
+// GetNotificationPrefs implements the RPC (F6).
+func (s *Server) GetNotificationPrefs(ctx context.Context, req *connect.Request[notificationsv1.GetNotificationPrefsRequest]) (*connect.Response[notificationsv1.GetNotificationPrefsResponse], error) {
+	uid, err := s.guardPrefs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.prefs == nil {
+		return s.UnimplementedNotificationServiceHandler.GetNotificationPrefs(ctx, req)
+	}
+	ctx, cancel := context.WithTimeout(ctx, rpcDeadline)
+	defer cancel()
+	p, err := s.prefs.GetPrefs(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&notificationsv1.GetNotificationPrefsResponse{Prefs: PrefsToProto(p)}), nil
+}
+
+// UpdateNotificationPrefs implements the RPC (F6).
+func (s *Server) UpdateNotificationPrefs(ctx context.Context, req *connect.Request[notificationsv1.UpdateNotificationPrefsRequest]) (*connect.Response[notificationsv1.UpdateNotificationPrefsResponse], error) {
+	uid, err := s.guardPrefs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.prefs == nil {
+		return s.UnimplementedNotificationServiceHandler.UpdateNotificationPrefs(ctx, req)
+	}
+	if req.Msg.GetPrefs() == nil {
+		return nil, apierr.Validation("prefs", "prefs is required")
+	}
+	ctx, cancel := context.WithTimeout(ctx, rpcDeadline)
+	defer cancel()
+	p, err := s.prefs.UpdatePrefs(ctx, uid, req.Msg.GetIdempotencyKey(), PrefsFromProto(req.Msg.GetPrefs()))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&notificationsv1.UpdateNotificationPrefsResponse{Prefs: PrefsToProto(p)}), nil
+}
+
+// PrefsToProto maps Prefs to its wire form.
+func PrefsToProto(p Prefs) *notificationsv1.NotificationPrefs {
+	return &notificationsv1.NotificationPrefs{
+		PlansPush: p.Plans, MentionsRepliesPush: p.MentionsReplies, LikesRepostsPush: p.LikesReposts,
+		FollowersPush: p.Followers, MessagesPush: p.Messages,
+	}
+}
+
+// PrefsFromProto maps the wire form to Prefs.
+func PrefsFromProto(m *notificationsv1.NotificationPrefs) Prefs {
+	return Prefs{
+		Plans: m.GetPlansPush(), MentionsReplies: m.GetMentionsRepliesPush(), LikesReposts: m.GetLikesRepostsPush(),
+		Followers: m.GetFollowersPush(), Messages: m.GetMessagesPush(),
+	}
 }
 
 // ListNotifications implements the RPC.

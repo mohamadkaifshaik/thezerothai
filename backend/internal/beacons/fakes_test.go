@@ -38,13 +38,16 @@ type fakeRepo struct {
 	queries []ListQuery
 
 	// participation (PR 3)
-	participants  map[string]Participant // key beaconID|uid
-	presult       ParticipantResult
-	perr          error
-	requestedBy   []RequestParams
-	respondedBy   []RespondParams
-	transitioned  []StateParams
-	memberships   []Membership
+	participants map[string]Participant // key beaconID|uid
+	presult      ParticipantResult
+	perr         error
+	requestedBy  []RequestParams
+	respondedBy  []RespondParams
+	transitioned []StateParams
+	memberships  []Membership
+	// theirs is the peer side of GetMemberships, keyed uid|beaconID; mgets records each batch.
+	theirs        map[string]Membership
+	mgets         []participantBatch
 	mqueries      []MembershipQuery
 	plist         []Participant
 	plistErr      error // ListParticipants only (the shared err would also fail the cancel)
@@ -148,6 +151,19 @@ func (f *fakeRepo) ListMemberships(_ context.Context, q MembershipQuery) ([]Memb
 	return append([]Membership(nil), f.memberships[:n]...), f.err
 }
 
+func (f *fakeRepo) GetMemberships(_ context.Context, uid string, beaconIDs []string) (map[string]Membership, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mgets = append(f.mgets, participantBatch{uid: uid, ids: append([]string(nil), beaconIDs...)})
+	out := map[string]Membership{}
+	for _, id := range beaconIDs {
+		if m, ok := f.theirs[uid+"|"+id]; ok {
+			out[id] = m
+		}
+	}
+	return out, f.err
+}
+
 func (f *fakeRepo) GetBeacons(_ context.Context, ids []string) (map[string]Beacon, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -220,15 +236,24 @@ func (f *fakeRepo) ListByAudience(_ context.Context, q ListQuery) ([]Beacon, err
 	if f.err != nil {
 		return nil, f.err
 	}
-	n := min(len(f.rows), max(q.Limit, 0))
-	return append([]Beacon(nil), f.rows[:n]...), nil
+	rows := f.rows
+	if q.Activity != "" {
+		rows = nil
+		for _, b := range f.rows {
+			if b.Activity == q.Activity {
+				rows = append(rows, b)
+			}
+		}
+	}
+	n := min(len(rows), max(q.Limit, 0))
+	return append([]Beacon(nil), rows[:n]...), nil
 }
 
 func (f *fakeRepo) calls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.createdBy) + len(f.updatedBy) + len(f.cancelledBy) + len(f.queries) +
-		len(f.requestedBy) + len(f.respondedBy) + len(f.transitioned) + len(f.mqueries) + len(f.pqueries) + len(f.beaconBatches) + len(f.participantBatches)
+		len(f.requestedBy) + len(f.respondedBy) + len(f.transitioned) + len(f.mqueries) + len(f.pqueries) + len(f.beaconBatches) + len(f.participantBatches) + len(f.mgets)
 }
 
 // fakeDirectory serves one profile map; the embedded nil interface panics on any method the service must not call.

@@ -55,6 +55,7 @@ func toProtoAt(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.Pos
 	}
 	out.Media = mediaRefsToProto(p.Media)
 	out.Poll = pollToProto(p, vs, viewer, now)
+	out.Beacon = beaconToProto(p, vs)
 	return out
 }
 

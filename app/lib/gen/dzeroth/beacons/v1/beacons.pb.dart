@@ -1353,6 +1353,7 @@ class ListBeaconsRequest extends $pb.GeneratedMessage {
     $1.Timestamp? from,
     $core.int? limit,
     $core.String? pageToken,
+    BeaconActivity? activity,
   }) {
     final result = ListBeaconsRequest._();
     if (communityId != null) result.communityId = communityId;
@@ -1360,6 +1361,7 @@ class ListBeaconsRequest extends $pb.GeneratedMessage {
     if (from != null) result.from = from;
     if (limit != null) result.limit = limit;
     if (pageToken != null) result.pageToken = pageToken;
+    if (activity != null) result.activity = activity;
     return result;
   }
 
@@ -1390,6 +1392,8 @@ class ListBeaconsRequest extends $pb.GeneratedMessage {
         subBuilder: $1.Timestamp.$_createMessage)
     ..aI(4, _omitFieldNames ? '' : 'limit')
     ..aOS(5, _omitFieldNames ? '' : 'pageToken')
+    ..aE<BeaconActivity>(6, _omitFieldNames ? '' : 'activity',
+        enumValues: BeaconActivity.values)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1470,6 +1474,17 @@ class ListBeaconsRequest extends $pb.GeneratedMessage {
   $core.bool hasPageToken() => $_has(4);
   @$pb.TagNumber(5)
   void clearPageToken() => $_clearField(5);
+
+  /// Only beacons of this activity; UNSPECIFIED (the default) = every activity. Filtered in the query (composite
+  /// index communityId, activity, status, startAt), so a page is never emptied by the filter.
+  @$pb.TagNumber(6)
+  BeaconActivity get activity => $_getN(5);
+  @$pb.TagNumber(6)
+  set activity(BeaconActivity value) => $_setField(6, value);
+  @$pb.TagNumber(6)
+  $core.bool hasActivity() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearActivity() => $_clearField(6);
 }
 
 class ListBeaconsResponse extends $pb.GeneratedMessage {
@@ -2572,6 +2587,163 @@ class ListParticipantsResponse extends $pb.GeneratedMessage {
   void clearNextPageToken() => $_clearField(2);
 }
 
+class ListSharedBeaconsRequest extends $pb.GeneratedMessage {
+  factory ListSharedBeaconsRequest({
+    $core.String? peerUserId,
+    $core.int? limit,
+    $core.String? pageToken,
+  }) {
+    final result = ListSharedBeaconsRequest._();
+    if (peerUserId != null) result.peerUserId = peerUserId;
+    if (limit != null) result.limit = limit;
+    if (pageToken != null) result.pageToken = pageToken;
+    return result;
+  }
+
+  ListSharedBeaconsRequest._();
+
+  factory ListSharedBeaconsRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListSharedBeaconsRequest()..mergeFromBuffer(data, registry);
+  factory ListSharedBeaconsRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListSharedBeaconsRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListSharedBeaconsRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.beacons.v1'),
+      createEmptyInstance: ListSharedBeaconsRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'peerUserId')
+    ..aI(2, _omitFieldNames ? '' : 'limit')
+    ..aOS(3, _omitFieldNames ? '' : 'pageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListSharedBeaconsRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListSharedBeaconsRequest copyWith(
+          void Function(ListSharedBeaconsRequest) updates) =>
+      super.copyWith((message) => updates(message as ListSharedBeaconsRequest))
+          as ListSharedBeaconsRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListSharedBeaconsRequest() / ListSharedBeaconsRequest.new instead')
+  static ListSharedBeaconsRequest create() => ListSharedBeaconsRequest._();
+  static $pb.GeneratedMessage $_createMessage() => ListSharedBeaconsRequest._();
+  @$core.override
+  ListSharedBeaconsRequest createEmptyInstance() =>
+      ListSharedBeaconsRequest._();
+  @$core.pragma('dart2js:noInline')
+  static ListSharedBeaconsRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListSharedBeaconsRequest>(
+          ListSharedBeaconsRequest.$_createMessage);
+  static ListSharedBeaconsRequest? _defaultInstance;
+
+  /// The other user of the chat.
+  @$pb.TagNumber(1)
+  $core.String get peerUserId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set peerUserId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPeerUserId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPeerUserId() => $_clearField(1);
+
+  /// Clamped: 0 = 3, above 10 = 10.
+  @$pb.TagNumber(2)
+  $core.int get limit => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set limit($core.int value) => $_setSignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasLimit() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearLimit() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get pageToken => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set pageToken($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasPageToken() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearPageToken() => $_clearField(3);
+}
+
+class ListSharedBeaconsResponse extends $pb.GeneratedMessage {
+  factory ListSharedBeaconsResponse({
+    $core.Iterable<BeaconView>? views,
+    $core.String? nextPageToken,
+  }) {
+    final result = ListSharedBeaconsResponse._();
+    if (views != null) result.views.addAll(views);
+    if (nextPageToken != null) result.nextPageToken = nextPageToken;
+    return result;
+  }
+
+  ListSharedBeaconsResponse._();
+
+  factory ListSharedBeaconsResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListSharedBeaconsResponse()..mergeFromBuffer(data, registry);
+  factory ListSharedBeaconsResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      ListSharedBeaconsResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ListSharedBeaconsResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.beacons.v1'),
+      createEmptyInstance: ListSharedBeaconsResponse.$_createMessage)
+    ..pPM<BeaconView>(1, _omitFieldNames ? '' : 'views',
+        subBuilder: BeaconView.$_createMessage)
+    ..aOS(2, _omitFieldNames ? '' : 'nextPageToken')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListSharedBeaconsResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ListSharedBeaconsResponse copyWith(
+          void Function(ListSharedBeaconsResponse) updates) =>
+      super.copyWith((message) => updates(message as ListSharedBeaconsResponse))
+          as ListSharedBeaconsResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use ListSharedBeaconsResponse() / ListSharedBeaconsResponse.new instead')
+  static ListSharedBeaconsResponse create() => ListSharedBeaconsResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      ListSharedBeaconsResponse._();
+  @$core.override
+  ListSharedBeaconsResponse createEmptyInstance() =>
+      ListSharedBeaconsResponse._();
+  @$core.pragma('dart2js:noInline')
+  static ListSharedBeaconsResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ListSharedBeaconsResponse>(
+          ListSharedBeaconsResponse.$_createMessage);
+  static ListSharedBeaconsResponse? _defaultInstance;
+
+  /// Each view carries the caller's own viewer state.
+  @$pb.TagNumber(1)
+  $pb.PbList<BeaconView> get views => $_getList(0);
+
+  @$pb.TagNumber(2)
+  $core.String get nextPageToken => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set nextPageToken($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNextPageToken() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNextPageToken() => $_clearField(2);
+}
+
 class BeaconServiceApi {
   final $pb.RpcClient _client;
 
@@ -2620,10 +2792,12 @@ class BeaconServiceApi {
       _client.invoke<GetBeaconResponse>(
           ctx, 'BeaconService', 'GetBeacon', request, GetBeaconResponse());
 
-  /// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first. Hidden beacons and
-  /// beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A community audience
-  /// needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50); page_token is an
-  /// opaque signed cursor bound to the caller and the audience, VALIDATION "page_token" when invalid or expired.
+  /// OPEN and FULL beacons of one audience whose start_at >= from (default now), soonest first, optionally of one
+  /// activity (UNSPECIFIED = every activity; a value outside the enum => VALIDATION "activity", before any lookup).
+  /// Hidden beacons and beacons across a block with the caller are dropped (the caller's graph snapshot, 60 s). A
+  /// community audience needs the caller JOINED (FORBIDDEN "not_member"). limit is clamped (0 = 20, above 50 = 50);
+  /// page_token is an opaque signed cursor bound to the caller, the audience and the activity filter, VALIDATION
+  /// "page_token" when invalid, expired or issued for another filter.
   $async.Future<ListBeaconsResponse> listBeacons(
           $pb.ClientContext? ctx, ListBeaconsRequest request) =>
       _client.invoke<ListBeaconsResponse>(
@@ -2695,6 +2869,23 @@ class BeaconServiceApi {
           $pb.ClientContext? ctx, ListParticipantsRequest request) =>
       _client.invoke<ListParticipantsResponse>(ctx, 'BeaconService',
           'ListParticipants', request, ListParticipantsResponse());
+
+  /// The upcoming (OPEN or FULL, not yet ended) beacons that the caller and peer_user_id are both in (as organiser or
+  /// ACCEPTED participant), soonest first, for the "plans you share" strip of a chat. Needs FEATURE_CHAT_SHARED_PLANS on
+  /// for the caller (else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "chat_shared_plans", before any
+  /// lookup) and FEATURE_BEACONS not globally off. A block in either direction with the peer, an unknown or non-ACTIVE
+  /// peer, or no shared plan is an empty page (never an error, so nothing leaks). A beacon hidden by the platform and one
+  /// whose organiser has a block with the caller are dropped as in ListMyBeacons; a community beacon is returned only
+  /// while BOTH users are still JOINED members of its community (a viewer or peer who left or was banned drops it). The
+  /// peer_user_id must be a valid user id and not the caller's (VALIDATION "peer_user_id"). limit is clamped (0 = 3, above
+  /// 10 = 10). Each call examines at most 10 of the caller's upcoming memberships (soonest first) and answers the shared
+  /// ones among them, so a page may hold fewer than limit rows, or none, while next_page_token is set; page_token is an
+  /// opaque signed cursor bound to the caller and the peer, VALIDATION "page_token" when invalid or expired. Shares the
+  /// RATE_LIMIT_BEACONS_READ_PER_MIN bucket.
+  $async.Future<ListSharedBeaconsResponse> listSharedBeacons(
+          $pb.ClientContext? ctx, ListSharedBeaconsRequest request) =>
+      _client.invoke<ListSharedBeaconsResponse>(ctx, 'BeaconService',
+          'ListSharedBeacons', request, ListSharedBeaconsResponse());
 }
 
 const $core.bool _omitFieldNames =

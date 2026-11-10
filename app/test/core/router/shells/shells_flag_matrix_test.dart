@@ -112,10 +112,7 @@ void main() {
           for (final label in labels) {
             expect(
               find.text(label),
-              label == entry.label &&
-                      (width >= 600 || kind == ShellKind.premium)
-                  ? findsOneWidget
-                  : findsNothing,
+              label == entry.label ? findsOneWidget : findsNothing,
               reason: '$label with only ${kind.name} at $dp',
             );
           }
@@ -144,7 +141,7 @@ void main() {
       }
     });
 
-    shellsTest('both flags on: layout-specific entries, $dp', (tester) async {
+    shellsTest('both flags on: entries per layout, $dp', (tester) async {
       await pumpShellsApp(tester, size: size);
       if (width < 600) {
         await openDrawer(tester);
@@ -153,11 +150,7 @@ void main() {
         await tester.pumpAndSettle();
       }
       for (final label in labels) {
-        expect(
-          find.text(label),
-          width >= 600 || label == 'Premium' ? findsOneWidget : findsNothing,
-          reason: label,
-        );
+        expect(find.text(label), findsOneWidget, reason: label);
       }
     });
   }

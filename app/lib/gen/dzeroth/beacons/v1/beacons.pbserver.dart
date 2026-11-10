@@ -45,6 +45,8 @@ abstract class BeaconServiceBase extends $pb.GeneratedService {
       $pb.ServerContext ctx, $2.RemoveParticipantRequest request);
   $async.Future<$2.ListParticipantsResponse> listParticipants(
       $pb.ServerContext ctx, $2.ListParticipantsRequest request);
+  $async.Future<$2.ListSharedBeaconsResponse> listSharedBeacons(
+      $pb.ServerContext ctx, $2.ListSharedBeaconsRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
@@ -72,6 +74,8 @@ abstract class BeaconServiceBase extends $pb.GeneratedService {
         return $2.RemoveParticipantRequest();
       case 'ListParticipants':
         return $2.ListParticipantsRequest();
+      case 'ListSharedBeacons':
+        return $2.ListSharedBeaconsRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -106,6 +110,8 @@ abstract class BeaconServiceBase extends $pb.GeneratedService {
         return removeParticipant(ctx, request as $2.RemoveParticipantRequest);
       case 'ListParticipants':
         return listParticipants(ctx, request as $2.ListParticipantsRequest);
+      case 'ListSharedBeacons':
+        return listSharedBeacons(ctx, request as $2.ListSharedBeaconsRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

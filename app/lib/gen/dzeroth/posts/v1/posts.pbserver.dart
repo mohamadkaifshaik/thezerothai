@@ -15,43 +15,51 @@ import 'dart:core' as $core;
 
 import 'package:protobuf/protobuf.dart' as $pb;
 
-import 'posts.pb.dart' as $2;
+import 'posts.pb.dart' as $3;
 import 'posts.pbjson.dart';
 
 export 'posts.pb.dart';
 
 abstract class PostServiceBase extends $pb.GeneratedService {
-  $async.Future<$2.CreatePostResponse> createPost(
-      $pb.ServerContext ctx, $2.CreatePostRequest request);
-  $async.Future<$2.DeletePostResponse> deletePost(
-      $pb.ServerContext ctx, $2.DeletePostRequest request);
-  $async.Future<$2.GetPostResponse> getPost(
-      $pb.ServerContext ctx, $2.GetPostRequest request);
-  $async.Future<$2.GetThreadResponse> getThread(
-      $pb.ServerContext ctx, $2.GetThreadRequest request);
-  $async.Future<$2.SchedulePostResponse> schedulePost(
-      $pb.ServerContext ctx, $2.SchedulePostRequest request);
-  $async.Future<$2.ListScheduledPostsResponse> listScheduledPosts(
-      $pb.ServerContext ctx, $2.ListScheduledPostsRequest request);
-  $async.Future<$2.CancelScheduledPostResponse> cancelScheduledPost(
-      $pb.ServerContext ctx, $2.CancelScheduledPostRequest request);
+  $async.Future<$3.CreatePostResponse> createPost(
+      $pb.ServerContext ctx, $3.CreatePostRequest request);
+  $async.Future<$3.DeletePostResponse> deletePost(
+      $pb.ServerContext ctx, $3.DeletePostRequest request);
+  $async.Future<$3.GetPostResponse> getPost(
+      $pb.ServerContext ctx, $3.GetPostRequest request);
+  $async.Future<$3.GetThreadResponse> getThread(
+      $pb.ServerContext ctx, $3.GetThreadRequest request);
+  $async.Future<$3.SchedulePostResponse> schedulePost(
+      $pb.ServerContext ctx, $3.SchedulePostRequest request);
+  $async.Future<$3.ListScheduledPostsResponse> listScheduledPosts(
+      $pb.ServerContext ctx, $3.ListScheduledPostsRequest request);
+  $async.Future<$3.CancelScheduledPostResponse> cancelScheduledPost(
+      $pb.ServerContext ctx, $3.CancelScheduledPostRequest request);
+  $async.Future<$3.PublishScheduledPostNowResponse> publishScheduledPostNow(
+      $pb.ServerContext ctx, $3.PublishScheduledPostNowRequest request);
+  $async.Future<$3.UpdateScheduledPostResponse> updateScheduledPost(
+      $pb.ServerContext ctx, $3.UpdateScheduledPostRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
       case 'CreatePost':
-        return $2.CreatePostRequest();
+        return $3.CreatePostRequest();
       case 'DeletePost':
-        return $2.DeletePostRequest();
+        return $3.DeletePostRequest();
       case 'GetPost':
-        return $2.GetPostRequest();
+        return $3.GetPostRequest();
       case 'GetThread':
-        return $2.GetThreadRequest();
+        return $3.GetThreadRequest();
       case 'SchedulePost':
-        return $2.SchedulePostRequest();
+        return $3.SchedulePostRequest();
       case 'ListScheduledPosts':
-        return $2.ListScheduledPostsRequest();
+        return $3.ListScheduledPostsRequest();
       case 'CancelScheduledPost':
-        return $2.CancelScheduledPostRequest();
+        return $3.CancelScheduledPostRequest();
+      case 'PublishScheduledPostNow':
+        return $3.PublishScheduledPostNowRequest();
+      case 'UpdateScheduledPost':
+        return $3.UpdateScheduledPostRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -61,20 +69,26 @@ abstract class PostServiceBase extends $pb.GeneratedService {
       $core.String methodName, $pb.GeneratedMessage request) {
     switch (methodName) {
       case 'CreatePost':
-        return createPost(ctx, request as $2.CreatePostRequest);
+        return createPost(ctx, request as $3.CreatePostRequest);
       case 'DeletePost':
-        return deletePost(ctx, request as $2.DeletePostRequest);
+        return deletePost(ctx, request as $3.DeletePostRequest);
       case 'GetPost':
-        return getPost(ctx, request as $2.GetPostRequest);
+        return getPost(ctx, request as $3.GetPostRequest);
       case 'GetThread':
-        return getThread(ctx, request as $2.GetThreadRequest);
+        return getThread(ctx, request as $3.GetThreadRequest);
       case 'SchedulePost':
-        return schedulePost(ctx, request as $2.SchedulePostRequest);
+        return schedulePost(ctx, request as $3.SchedulePostRequest);
       case 'ListScheduledPosts':
-        return listScheduledPosts(ctx, request as $2.ListScheduledPostsRequest);
+        return listScheduledPosts(ctx, request as $3.ListScheduledPostsRequest);
       case 'CancelScheduledPost':
         return cancelScheduledPost(
-            ctx, request as $2.CancelScheduledPostRequest);
+            ctx, request as $3.CancelScheduledPostRequest);
+      case 'PublishScheduledPostNow':
+        return publishScheduledPostNow(
+            ctx, request as $3.PublishScheduledPostNowRequest);
+      case 'UpdateScheduledPost':
+        return updateScheduledPost(
+            ctx, request as $3.UpdateScheduledPostRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

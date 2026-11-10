@@ -15,7 +15,10 @@ import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/graph/presentation/bloc/suggestions_cubit.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/who_to_follow_card.dart';
+import 'package:dzeroth/features/messages/presentation/bloc/messages_badge_cubit.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/unread_badge_cubit.dart';
+import 'package:dzeroth/features/search/data/recent_searches_store.dart';
+import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -28,7 +31,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../support/fake_search_repository.dart';
 import '../../support/geometry.dart';
+import '../../support/search_field_rig.dart';
 import '../../support/suggestions_fixtures.dart';
 import '../../support/theme_harness.dart';
 
@@ -142,6 +147,11 @@ void main() {
           ),
         ),
         GoRoute(
+          path: '/u/:handle',
+          builder: (context, state) =>
+              page('/u/${state.pathParameters['handle']}', 'user body'),
+        ),
+        GoRoute(
           path: '/settings',
           builder: (context, state) => page('/settings', 'settings body'),
         ),
@@ -163,6 +173,8 @@ void main() {
     // The shell reads the cubit whenever the notifications flag is on.
     final effectiveBadge = badge ?? UnreadBadgeCubit(0);
     if (badge == null) addTearDown(effectiveBadge.close);
+    final messagesBadge = MessagesBadgeCubit();
+    addTearDown(messagesBadge.close);
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = Size(width, 900);
     addTearDown(tester.view.reset);
@@ -172,14 +184,24 @@ void main() {
           BlocProvider<OnboardingBloc>.value(value: onboarding),
           BlocProvider<AuthBloc>.value(value: auth),
           BlocProvider<UnreadBadgeCubit>.value(value: effectiveBadge),
+          BlocProvider<MessagesBadgeCubit>.value(value: messagesBadge),
           if (suggestions != null)
             BlocProvider<SuggestionsCubit>.value(value: suggestions),
           BlocProvider<ThemeModeCubit>(
             create: (_) => ThemeModeCubit(_MemoryThemeStore()),
           ),
         ],
-        child: RepositoryProvider<GraphRepository>.value(
-          value: _MockGraph(),
+        child: MultiRepositoryProvider(
+          providers: [
+            RepositoryProvider<GraphRepository>.value(value: _MockGraph()),
+            // The side column's search pill (Explore on, 1200dp and up).
+            RepositoryProvider<SearchRepository>.value(
+              value: FakeSearchRepository(),
+            ),
+            RepositoryProvider<RecentSearchesStore>.value(
+              value: FakeRecentSearchesStore(),
+            ),
+          ],
           child: MaterialApp.router(
             theme: buildAppTheme(brightness: brightness),
             routerConfig: router,
@@ -265,14 +287,21 @@ void main() {
   });
 
   group('phone (360dp)', () {
-    testWidgets('bottom bar with Home, Notifications and Profile only: no '
-        'Settings', (tester) async {
+    testWidgets('bottom bar with Home and Notifications only: no Profile, '
+        'no Settings', (tester) async {
       await pump(tester);
 
       expect(find.byType(AppBottomBar), findsOneWidget);
       expect(find.byIcon(Icons.home), findsOneWidget);
       expect(find.byIcon(Icons.notifications_none), findsOneWidget);
-      expect(find.byIcon(Icons.person_outline), findsWidgets);
+      // The only person glyph left is the avatar fallback in the top bar.
+      expect(
+        find.descendant(
+          of: find.byType(AppBottomBar),
+          matching: find.byIcon(Icons.person_outline),
+        ),
+        findsNothing,
+      );
       expect(find.byIcon(Icons.settings_outlined), findsNothing);
       expect(find.byIcon(Icons.settings), findsNothing);
     });
@@ -288,8 +317,11 @@ void main() {
       expect(find.byIcon(Icons.notifications), findsOneWidget);
       expect(find.byIcon(Icons.home), findsNothing);
 
+      // Profile is not in the phone bar: no cell is selected on it.
       await pump(tester, location: '/profile/alice');
-      expect(find.byIcon(Icons.person), findsOneWidget);
+      expect(find.byIcon(Icons.person), findsNothing);
+      expect(find.byIcon(Icons.home), findsNothing);
+      expect(find.byIcon(Icons.notifications), findsNothing);
     });
 
     testWidgets('on Settings no tab is selected', (tester) async {
@@ -308,23 +340,54 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('notifications body'), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.person_outline).last);
-      await tester.pumpAndSettle();
-      expect(find.text('profile body'), findsOneWidget);
-
       await tester.tap(find.byIcon(Icons.home_outlined));
       await tester.pumpAndSettle();
       expect(find.text('home body'), findsOneWidget);
     });
 
-    testWidgets('Profile goes home when there is no profile yet', (
+    testWidgets('the drawer carries the secondaries: Profile, Lists, '
+        'Communities, History', (tester) async {
+      await pump(
+        tester,
+        flags: const {'posts', 'lists', 'communities', 'bookmarks'},
+      );
+      await tester.tap(find.bySemanticsLabel('Account menu'));
+      await tester.pumpAndSettle();
+
+      final drawer = find.byType(AppDrawer);
+      for (final label in ['Profile', 'Lists', 'Communities', 'History']) {
+        expect(
+          find.descendant(of: drawer, matching: find.text(label)),
+          findsOneWidget,
+          reason: label,
+        );
+      }
+    });
+
+    testWidgets('Profile is reached through the drawer, not the bar', (
       tester,
     ) async {
-      await pump(tester, profile: false);
+      await pump(tester);
 
-      // (The avatar fallback in the top bar is also person_outline; the bar
-      // cell is the last one.)
-      await tester.tap(find.byIcon(Icons.person_outline).last);
+      await tester.tap(find.bySemanticsLabel('Account menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Profile'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('profile body'), findsOneWidget);
+      expect(find.byType(AppDrawer), findsNothing);
+    });
+
+    testWidgets('on the rail, Profile goes home when there is no profile '
+        'yet', (tester) async {
+      await pump(tester, width: 800, profile: false);
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(NavigationRail),
+          matching: find.byIcon(Icons.person_outline),
+        ),
+      );
       await tester.pumpAndSettle();
       expect(find.text('home body'), findsOneWidget);
     });
@@ -918,19 +981,19 @@ void main() {
                       .data,
             )
             .toList();
-        expect(labels, ['Home', 'Communities', 'Plans', 'Profile']);
+        expect(labels, ['Home', 'Plans', 'Communities', 'Profile']);
 
         await tester.tap(find.byIcon(Icons.event_outlined));
         await tester.pumpAndSettle();
         expect(find.text('plans body'), findsOneWidget);
         // The Plans page selects the Plans tab (its filled icon shows).
-        expect(tester.widget<NavigationRail>(rail).selectedIndex, 2);
+        expect(tester.widget<NavigationRail>(rail).selectedIndex, 1);
         expect(find.byIcon(Icons.event), findsOneWidget);
       });
     }
 
-    testWidgets('absent with beacons off or ui_shell off; never in the '
-        'phone bottom bar', (tester) async {
+    testWidgets('absent with beacons off or ui_shell off; a bar cell on '
+        'phones (ADR-0034)', (tester) async {
       for (final width in [360.0, 600.0, 1300.0]) {
         await pump(tester, width: width, flags: const {'posts'});
         expect(find.byIcon(Icons.event_outlined), findsNothing);
@@ -943,10 +1006,12 @@ void main() {
         expect(find.byIcon(Icons.event_outlined), findsNothing);
       }
       await pump(tester, flags: const {'beacons'});
-      expect(find.byIcon(Icons.event_outlined), findsNothing);
       expect(
-        find.byKey(const ValueKey('drawer-plans'), skipOffstage: false),
-        findsNothing,
+        find.descendant(
+          of: find.byType(AppBottomBar),
+          matching: find.byIcon(Icons.event_outlined),
+        ),
+        findsOneWidget,
       );
     });
   });
@@ -1029,6 +1094,167 @@ void main() {
           );
         }
       }
+    });
+  });
+
+  group('destination model (ADR-0034)', () {
+    // The destinations behind flags, in the order the bar and rail show them.
+    const gated = [
+      ('search', Icons.search, 'Explore'),
+      ('beacons', Icons.event_outlined, 'Plans'),
+      ('notifications', Icons.notifications_none, 'Notifications'),
+      ('messaging', Icons.mail_outline, 'Messages'),
+    ];
+
+    List<IconData> barIcons(WidgetTester tester) => [
+      for (final icon in tester.widgetList<Icon>(
+        find.descendant(
+          of: find.byType(AppBottomBar),
+          matching: find.byType(Icon),
+        ),
+      ))
+        icon.icon!,
+    ];
+
+    NavigationRail rail(WidgetTester tester) =>
+        tester.widget<NavigationRail>(find.byType(NavigationRail));
+
+    List<String> railLabels(WidgetTester tester) => rail(tester).destinations
+        .map(
+          (d) =>
+              ((d.label is Semantics ? (d.label as Semantics).child : d.label)
+                      as Text)
+                  .data!,
+        )
+        .toList();
+
+    testWidgets('phone: the bar shows the remaining primaries for every '
+        'flag set, in order, never Profile', (tester) async {
+      for (var mask = 0; mask < 1 << gated.length; mask++) {
+        final on = [
+          for (var i = 0; i < gated.length; i++)
+            if (mask & (1 << i) != 0) gated[i],
+        ];
+        // Off any tab, so every cell is outlined.
+        await pump(
+          tester,
+          location: '/profile/alice',
+          flags: {for (final g in on) g.$1},
+        );
+        expect(
+          barIcons(tester),
+          [Icons.home_outlined, for (final g in on) g.$2],
+          reason: 'flags ${on.map((g) => g.$1)}',
+        );
+      }
+    });
+
+    for (final width in [834.0, 1440.0]) {
+      testWidgets('${width.toInt()}dp: the rail lists the primaries, then '
+          'Lists, Communities, History, Profile, More', (tester) async {
+        await pump(
+          tester,
+          width: width,
+          flags: const {
+            'posts',
+            'search',
+            'beacons',
+            'notifications',
+            'messaging',
+            'lists',
+            'communities',
+            'bookmarks',
+          },
+        );
+
+        expect(railLabels(tester), [
+          'Home',
+          'Explore',
+          'Plans',
+          'Notifications',
+          'Messages',
+          'Lists',
+          'Communities',
+          'History',
+          'Profile',
+          'More',
+        ]);
+        expect(find.byType(AppBottomBar), findsNothing);
+      });
+
+      testWidgets('${width.toInt()}dp: with the optional primaries off the '
+          'rail keeps Home and Profile', (tester) async {
+        await pump(tester, width: width, flags: const {});
+
+        expect(railLabels(tester), ['Home', 'Profile']);
+      });
+    }
+
+    testWidgets('selection: Profile and /u/ select the Profile rail item; '
+        'no phone bar cell is selected', (tester) async {
+      const flags = {'search', 'notifications'};
+      for (final path in ['/profile/alice', '/u/bob']) {
+        await pump(tester, width: 834, location: path, flags: flags);
+        expect(
+          rail(tester).selectedIndex,
+          railLabels(tester).indexOf('Profile'),
+          reason: path,
+        );
+
+        await pump(tester, location: path, flags: flags);
+        expect(barIcons(tester), [
+          Icons.home_outlined,
+          Icons.search,
+          Icons.notifications_none,
+        ], reason: path);
+      }
+    });
+
+    testWidgets('selection: a primary tab is filled on the bar and indexed '
+        'on the rail', (tester) async {
+      const flags = {'search', 'beacons', 'notifications'};
+      await pump(tester, location: '/plans', flags: flags);
+      expect(barIcons(tester), [
+        Icons.home_outlined,
+        Icons.search,
+        Icons.event,
+        Icons.notifications_none,
+      ]);
+
+      await pump(tester, width: 834, location: '/notifications', flags: flags);
+      expect(rail(tester).selectedIndex, 3);
+    });
+
+    testWidgets('legacy chrome (ui_shell off) keeps its destinations and '
+        'order, Profile included', (tester) async {
+      const flags = {
+        'posts',
+        'search',
+        'beacons',
+        'notifications',
+        'messaging',
+        'lists',
+        'communities',
+        'bookmarks',
+      };
+      await pump(tester, newShell: false, flags: flags);
+      expect(barIcons(tester), [
+        Icons.home,
+        Icons.notifications_none,
+        Icons.person_outline,
+        Icons.settings_outlined,
+      ]);
+
+      await pump(tester, width: 1300, newShell: false, flags: flags);
+      // (More is the shell-entries menu; unchanged by the new destination
+      // model.)
+      expect(railLabels(tester), [
+        'Home',
+        'Notifications',
+        'Profile',
+        'Settings',
+        'More',
+      ]);
     });
   });
 

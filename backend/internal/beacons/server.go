@@ -153,7 +153,11 @@ func (s *Server) ListBeacons(ctx context.Context, req *connect.Request[beaconsv1
 	}
 	defer cancel()
 	m := req.Msg
-	in := ListInput{CommunityID: m.GetCommunityId(), Public: m.GetPublic(), Limit: m.GetLimit(), PageToken: m.GetPageToken()}
+	activity, err := listActivityFromProto(m.GetActivity())
+	if err != nil {
+		return nil, err
+	}
+	in := ListInput{CommunityID: m.GetCommunityId(), Public: m.GetPublic(), Activity: activity, Limit: m.GetLimit(), PageToken: m.GetPageToken()}
 	if m.GetFrom() != nil {
 		in.From = m.GetFrom().AsTime()
 	}
@@ -271,4 +275,23 @@ func (s *Server) ListParticipants(ctx context.Context, req *connect.Request[beac
 		out.Participants = append(out.Participants, toParticipant(r))
 	}
 	return connect.NewResponse(out), nil
+}
+
+// ListSharedBeacons is read class (FEATURE_BEACONS not globally off) plus its own gate: FEATURE_CHAT_SHARED_PLANS on for the
+// caller, checked before any Firestore work.
+func (s *Server) ListSharedBeacons(ctx context.Context, req *connect.Request[beaconsv1.ListSharedBeaconsRequest]) (*connect.Response[beaconsv1.ListSharedBeaconsResponse], error) {
+	ctx, cancel, uid, err := s.entry(ctx, "ListSharedBeacons", false)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	if err := GuardSharedPlans(ctx, s.flags, uid); err != nil {
+		return nil, err
+	}
+	m := req.Msg
+	page, err := s.svc.ListShared(ctx, uid, SharedInput{PeerUID: m.GetPeerUserId(), Limit: m.GetLimit(), PageToken: m.GetPageToken()})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&beaconsv1.ListSharedBeaconsResponse{Views: renderViews(page.Views), NextPageToken: page.NextPageToken}), nil
 }

@@ -87,7 +87,7 @@ func TestImports_OnlySeamsOfPostsGraphIdentity(t *testing.T) {
 			"KindPost": true, "KindReply": true, "KindQuote": true, "KindRepost": true,
 			"VisibilityPublic": true, "VisibilityFollowers": true,
 			// Viewer flags are posts' ViewerFlags seam; ToView renders them.
-			"ViewerFlags": true, "ViewerSet": true, "ToView": true, "Audience": true, "NewSnapshotAudience": true, "SurfaceDirect": true, "SurfaceOwnProfile": true, "Surface": true, "Show": true, "ApplyEmbedState": true, "ApplyWireVisibility": true, "EngagementFlagName": true, "BookmarksFlagName": true, "HydrateViewer": true, "Poll": true,
+			"ViewerFlags": true, "ViewerSet": true, "ToView": true, "Audience": true, "NewSnapshotAudience": true, "SurfaceDirect": true, "SurfaceOwnProfile": true, "Surface": true, "Show": true, "ApplyEmbedState": true, "ApplyWireVisibility": true, "EngagementFlagName": true, "BookmarksFlagName": true, "HydrateViewer": true, "Poll": true, "BeaconPlans": true, "BeaconLive": true, "HydrateBeacons": true, "PostBeaconFlagName": true,
 		},
 		"graph": {"Reader": true, "Snapshot": true},
 		// lists: the Reader seam, its value type, the flag gate and the three exports GetListTimeline shares with GetList.
