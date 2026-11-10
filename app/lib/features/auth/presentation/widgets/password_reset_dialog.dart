@@ -4,10 +4,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../data/auth_repository.dart';
 import '../bloc/password_reset_cubit.dart';
 import 'auth_design.dart';
+import '../../../../shared/widgets/primitives/app_dialog.dart';
 
 Future<void> showPasswordResetDialog(BuildContext context, String email) {
   final repository = context.read<AuthRepository>();
-  return showDialog<void>(
+  return showAppMaterialDialog<void>(
     context: context,
     builder: (_) => BlocProvider(
       create: (_) => PasswordResetCubit(repository),

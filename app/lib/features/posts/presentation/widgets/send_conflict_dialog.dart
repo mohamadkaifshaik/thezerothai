@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../bloc/composer_cubit.dart';
+import '../../../../shared/widgets/primitives/app_dialog.dart';
 
 /// What the user chose in [SendConflictDialog].
 enum SendConflictChoice {
@@ -78,7 +79,7 @@ class SendConflictCopy {
 Future<SendConflictChoice?> showSendConflictDialog(
   BuildContext context,
   SendConflict conflict,
-) => showDialog<SendConflictChoice>(
+) => showAppMaterialDialog<SendConflictChoice>(
   context: context,
   builder: (_) => SendConflictDialog(conflict: conflict),
 );

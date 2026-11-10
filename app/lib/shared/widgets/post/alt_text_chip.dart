@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../primitives/app_sheet.dart';
 
 /// The "ALT" chip on a posted image that has a description: a small pill in
 /// a 48dp tap target. Tapping it opens [showAltTextSheet]. Place it
@@ -62,12 +63,15 @@ class AltTextChip extends StatelessWidget {
 }
 
 /// The bottom sheet that shows an image's description ([text], selectable,
-/// scrolls: a description can be 1,000 characters).
+/// scrolls: a description can be 1,000 characters). A dialog on the tablet
+/// layout (600-1199 dp).
 Future<void> showAltTextSheet(BuildContext context, {required String text}) {
-  return showModalBottomSheet<void>(
+  return showAppSheet<void>(
     context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
+    material: const MaterialSheetOptions(
+      showDragHandle: true,
+      isScrollControlled: true,
+    ),
     builder: (_) => AltTextSheet(text: text),
   );
 }

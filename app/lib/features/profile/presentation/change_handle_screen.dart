@@ -17,6 +17,7 @@ import '../../onboarding/presentation/bloc/onboarding_event.dart';
 import 'bloc/change_handle_cubit.dart';
 import 'profile_edit_error_messages.dart';
 import 'widgets/profile_edit_unavailable.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// Settings -> Change handle (`/settings/handle`, only reachable with the
 /// `profile_snapshot` flag on). Live availability check, a confirmation that
@@ -63,7 +64,7 @@ class _ChangeHandleViewState extends State<_ChangeHandleView> {
 
   Future<void> _confirmAndSave(BuildContext context, String handle) async {
     final cubit = context.read<ChangeHandleCubit>();
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showAppMaterialDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Change your handle to @$handle?'),

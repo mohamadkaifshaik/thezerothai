@@ -11,6 +11,7 @@ class PostActions {
   const PostActions({
     this.onReply,
     this.onRepost,
+    this.onRepostFrom,
     this.onLike,
     this.onBookmark,
     this.onShare,
@@ -19,6 +20,10 @@ class PostActions {
 
   final VoidCallback? onReply;
   final VoidCallback? onRepost;
+
+  /// Like [onRepost], with the Repost button's context, so the tablet layout
+  /// can hang its menu from the button. Takes precedence over [onRepost].
+  final ValueChanged<BuildContext>? onRepostFrom;
   final VoidCallback? onLike;
   final VoidCallback? onBookmark;
   final VoidCallback? onShare;
@@ -96,15 +101,19 @@ class PostActionBar extends StatelessWidget {
           onPressed: actions.onReply,
           disabledHint: actions.onReply == null ? replyDisabledHint : null,
         ),
-      if (_shows(actions.onRepost))
-        _ActionButton(
-          icon: Icons.repeat,
-          iconSize: iconSize,
-          label: reposted ? 'Undo repost' : 'Repost',
-          count: repostCount,
-          active: reposted,
-          activeColor: colors.repost,
-          onPressed: actions.onRepost,
+      if (_shows(actions.onRepost) || actions.onRepostFrom != null)
+        Builder(
+          builder: (buttonContext) => _ActionButton(
+            icon: Icons.repeat,
+            iconSize: iconSize,
+            label: reposted ? 'Undo repost' : 'Repost',
+            count: repostCount,
+            active: reposted,
+            activeColor: colors.repost,
+            onPressed: actions.onRepostFrom != null
+                ? () => actions.onRepostFrom!(buttonContext)
+                : actions.onRepost,
+          ),
         ),
       if (_shows(actions.onLike))
         _ActionButton(

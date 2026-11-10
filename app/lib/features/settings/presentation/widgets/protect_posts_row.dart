@@ -7,6 +7,7 @@ import '../../../onboarding/presentation/bloc/onboarding_event.dart';
 import '../bloc/protect_posts_cubit.dart';
 import '../protect_posts_messages.dart';
 import '../../../../shared/widgets/primitives/settings_group.dart';
+import '../../../../shared/widgets/primitives/app_dialog.dart';
 
 /// The "Protect your posts" switch of Settings > Privacy & safety.
 ///
@@ -74,7 +75,7 @@ Future<bool?> showProtectPostsConfirm(
   BuildContext context, {
   required bool turnOn,
 }) {
-  return showDialog<bool>(
+  return showAppMaterialDialog<bool>(
     context: context,
     builder: (context) {
       final theme = Theme.of(context);

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../../../../shared/widgets/primitives/app_dialog.dart';
+
 /// Confirms a block before it happens (irreversible follow-edge
 /// removal, and the target won't be able to follow back or see the profile
 /// until unblocked). Returns `true` only if the user tapped "Block".
 Future<bool> showBlockConfirmationDialog(BuildContext context) async {
-  final confirmed = await showDialog<bool>(
+  final confirmed = await showAppMaterialDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
       title: const Text('Block this account?'),

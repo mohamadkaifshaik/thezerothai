@@ -21,7 +21,7 @@ import (
 )
 
 // nonActive stands in for SUSPENDED (nonActive) and DELETING (nonActive + 1) here: the import lint lets timeline
-// name only AccountStatusActive, and the home must not look at status at all. The emulator test uses the real values.
+// name only AccountStatusActive (the feeds compare against it alone). The emulator test uses the real values.
 const nonActive = identity.AccountStatusActive + 1
 
 type rig struct {
@@ -42,6 +42,8 @@ func newRig(t *testing.T) *rig {
 		graph: &fakeGraph{snaps: map[string]graph.Snapshot{}},
 		dir:   &fakeDirectory{profiles: map[string]identity.Profile{}},
 	}
+	// The author makeCopy's copies embed is an ACTIVE account (F-03 reads it on every feed); author status has its own tests.
+	r.dir.profiles[embAuthor] = identity.Profile{UserID: embAuthor, Status: identity.AccountStatusActive}
 	r.srv = NewServer(Deps{
 		Flags: fakeFlags{on: true}, Posts: r.posts, Graph: r.graph, Directory: r.dir,
 		CursorKey: testKey, TokenTTL: 720 * time.Hour, SettleWindow: 15 * time.Second, Now: c.Now,
@@ -232,9 +234,8 @@ func TestHome_FiltersBlockedMutedBlockedByAndKeepsSelf(t *testing.T) {
 	snap.Blocked = following("f3")
 	snap.BlockedBy = following("f4") // stale following still lists f4 (D6)
 	r.graph.snaps["me"] = snap
-	// A SUSPENDED author is not filtered (D10): f5 is suspended and the Directory fails if the home reads status.
+	// A SUSPENDED author is filtered per row (F-03, which replaced D10's "the home never reads status").
 	r.dir.profiles["f5"] = identity.Profile{UserID: "f5", Status: nonActive}
-	r.dir.err = errors.New("home must not read account status")
 	for _, a := range []string{"f1", "f2", "f3", "f4", "f5", "me"} {
 		r.posts.add(a, r.ms(-time.Minute))
 	}
@@ -243,21 +244,21 @@ func TestHome_FiltersBlockedMutedBlockedByAndKeepsSelf(t *testing.T) {
 	for _, v := range resp.Posts {
 		got[v.Post.Author.UserId] = true
 	}
-	for _, a := range []string{"f1", "f5", "me"} {
+	for _, a := range []string{"f1", "me"} {
 		if !got[a] {
 			t.Errorf("home is missing %s", a)
 		}
 	}
-	for _, a := range []string{"f2", "f3", "f4"} {
+	for _, a := range []string{"f2", "f3", "f4", "f5"} {
 		if got[a] {
-			t.Errorf("home shows %s (muted/blocked/blocked-by)", a)
+			t.Errorf("home shows %s (muted/blocked/blocked-by/suspended)", a)
 		}
 	}
 }
 
-// D6 home column: SUSPENDED, DELETING and users-doc-missing authors stay in the home (D10: the home never reads
-// status, so the Directory is armed to fail if it is touched), an overflowed caller sees the same authors, both-block
-// drops the author, and a non-followed author is absent.
+// D6 home column: SUSPENDED, DELETING and users-doc-missing authors leave the home (F-03, which replaced D10's "the home
+// never reads status"), an overflowed caller sees the same authors, both-block drops the author, and a non-followed author
+// is absent.
 func TestHome_D6Matrix(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -267,13 +268,13 @@ func TestHome_D6Matrix(t *testing.T) {
 		wantAbsent []string
 	}{
 		{"own and followed authors", func(r *rig) {}, []string{"me", "f1", "f2", "f3"}, []string{"s1"}},
-		{"SUSPENDED author stays", func(r *rig) {
+		{"SUSPENDED author dropped", func(r *rig) {
 			r.dir.profiles["f1"] = identity.Profile{UserID: "f1", Status: nonActive}
-		}, []string{"me", "f1", "f2", "f3"}, []string{"s1"}},
-		{"DELETING author stays", func(r *rig) {
+		}, []string{"me", "f2", "f3"}, []string{"f1", "s1"}},
+		{"DELETING author dropped", func(r *rig) {
 			r.dir.profiles["f2"] = identity.Profile{UserID: "f2", Status: nonActive + 1}
-		}, []string{"me", "f1", "f2", "f3"}, []string{"s1"}},
-		{"users doc missing author stays", func(r *rig) { delete(r.dir.profiles, "f3") }, []string{"me", "f1", "f2", "f3"}, []string{"s1"}},
+		}, []string{"me", "f1", "f3"}, []string{"f2", "s1"}},
+		{"users doc missing author dropped", func(r *rig) { delete(r.dir.profiles, "f3") }, []string{"me", "f1", "f2"}, []string{"f3", "s1"}},
 		{"blockedByOverflow caller: all stay, no extra read", func(r *rig) {
 			r.graph.snaps["me"] = graph.Snapshot{Following: r.graph.snaps["me"].Following, BlockedByOverflow: true}
 		}, []string{"me", "f1", "f2", "f3"}, []string{"s1"}},
@@ -288,14 +289,13 @@ func TestHome_D6Matrix(t *testing.T) {
 			t.Parallel()
 			r := newRig(t)
 			r.follow("me", 3)
-			r.dir.err = errors.New("home must not read account status")
 			tc.setup(r)
 			for _, a := range []string{"me", "f1", "f2", "f3", "s1"} { // s1 is nobody's followee
 				r.posts.add(a, r.ms(-time.Minute))
 			}
 			resp, err := r.home("me", "", "", 50)
 			if err != nil {
-				t.Fatalf("home read status or failed: %v", err)
+				t.Fatalf("home failed: %v", err)
 			}
 			got := map[string]bool{}
 			for _, v := range resp.Posts {
