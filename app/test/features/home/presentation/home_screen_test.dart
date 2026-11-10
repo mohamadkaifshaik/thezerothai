@@ -199,6 +199,38 @@ void main() {
     verifyNever(() => timeline.refresh(feed));
   });
 
+  group('top bar (PR 3.3)', () {
+    testWidgets('ui_shell on: the DZEROTH wordmark, still the "Posts" '
+        'header for assistive technology', (tester) async {
+      final handle = tester.ensureSemantics();
+      stubCached(snapshotOf([2, 1]));
+      stubRefresh(snapshotOf([2, 1]));
+
+      await open(tester, features: const {'posts', 'ui_shell'});
+
+      expect(find.text('DZEROTH'), findsOneWidget);
+      expect(find.text('Posts'), findsNothing);
+      expect(
+        tester.getSemantics(find.text('DZEROTH')),
+        isSemantics(label: 'Posts', isHeader: true),
+      );
+      expect(tester.takeException(), isNull);
+      handle.dispose();
+    });
+
+    testWidgets('ui_shell off: the legacy "Posts" title, no wordmark', (
+      tester,
+    ) async {
+      stubCached(snapshotOf([2, 1]));
+      stubRefresh(snapshotOf([2, 1]));
+
+      await open(tester);
+
+      expect(find.text('Posts'), findsOneWidget);
+      expect(find.text('DZEROTH'), findsNothing);
+    });
+  });
+
   testWidgets('renders the cache first, then offers the new post in a pill', (
     tester,
   ) async {

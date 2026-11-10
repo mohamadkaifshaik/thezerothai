@@ -15,6 +15,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_empty_view.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_icon_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -418,6 +419,47 @@ void main() {
       await open(tester, onNewMessage: () => taps++);
       await tester.tap(find.byTooltip('New message'));
 
+      expect(taps, 1);
+    });
+
+    testWidgets('wide + ui_shell: a raised top bar action (PR 3.3)', (
+      tester,
+    ) async {
+      stub(cached: [conv('a', snippet: 'one')]);
+      var taps = 0;
+
+      await open(
+        tester,
+        features: const {'messaging', 'ui_shell'},
+        size: const Size(1200, 800),
+        onNewMessage: () => taps++,
+      );
+
+      final button = tester.widget<AppIconButton>(find.byType(AppIconButton));
+      expect(button.raised, isTrue);
+      expect(button.tooltip, 'New message');
+      await tester.tap(find.byTooltip('New message'));
+      expect(taps, 1);
+    });
+
+    testWidgets('wide, ui_shell off: the legacy plain icon button', (
+      tester,
+    ) async {
+      stub(cached: [conv('a', snippet: 'one')]);
+      var taps = 0;
+
+      await open(
+        tester,
+        size: const Size(1200, 800),
+        onNewMessage: () => taps++,
+      );
+
+      expect(find.byType(AppIconButton), findsNothing);
+      expect(
+        find.widgetWithIcon(IconButton, Icons.mail_outline),
+        findsOneWidget,
+      );
+      await tester.tap(find.byTooltip('New message'));
       expect(taps, 1);
     });
   });
