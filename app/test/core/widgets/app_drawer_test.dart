@@ -171,7 +171,7 @@ void main() {
   }
 
   Future<void> openDrawer(WidgetTester tester) async {
-    await tester.tap(find.bySemanticsLabel('Account menu'));
+    await tester.tap(find.bySemanticsLabel('Open account menu'));
     await tester.pumpAndSettle();
   }
 

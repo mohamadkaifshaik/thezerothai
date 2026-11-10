@@ -15,6 +15,7 @@ import '../data/lists_repository.dart';
 import 'bloc/lists_cubit.dart';
 import 'bloc/lists_state.dart';
 import 'widgets/list_row.dart';
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// `/u/:userId/lists`: another person's public Lists. 1 `ListUserLists`
 /// per open. A row opens the list (`/lists/:id`). The `lists` flag gates
@@ -145,6 +146,7 @@ class _UserListsScreenState extends State<UserListsScreen> {
                   );
                 },
               ),
+              const ShellBottomInsetSliver(),
             ],
           ),
         );

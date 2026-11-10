@@ -186,7 +186,12 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 600),
                 child: ListView(
-                  padding: const EdgeInsets.all(AppSpacing.md),
+                  // Plus the floating bar's inset (`ui_shell`); 0 under the
+                  // docked bar.
+                  padding: const EdgeInsets.all(AppSpacing.md).copyWith(
+                    bottom:
+                        AppSpacing.md + MediaQuery.paddingOf(context).bottom,
+                  ),
                   children: [
                     Text(
                       'Delete your account?',

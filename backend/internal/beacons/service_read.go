@@ -170,13 +170,19 @@ func (s *service) sealed() error {
 	return nil
 }
 
-// listBinding ties a ListBeacons token to the viewer and the audience, so it opens for no one else and no other list.
-func listBinding(viewer, communityID string) string {
+// listBinding ties a ListBeacons token to the viewer, the audience and the activity filter, so it opens for no one else and
+// no other list. Without a filter the binding is the pre-filter one, byte for byte, so tokens issued before the field
+// existed still open.
+func listBinding(viewer, communityID string, activity Activity) string {
 	audience := "public"
 	if communityID != "" {
 		audience = "c:" + communityID
 	}
-	return "beacons|list|" + viewer + "|" + audience
+	b := "beacons|list|" + viewer + "|" + audience
+	if activity != "" {
+		b += "|a:" + string(activity)
+	}
+	return b
 }
 
 // decodeAfter opens a ListBeacons token to the (startAt, id) of the last row returned. An empty token is the first page.
@@ -219,7 +225,10 @@ func (s *service) ListBeacons(ctx context.Context, viewer string, in ListInput) 
 	if err := s.sealed(); err != nil {
 		return Page{}, mapErr(ctx, "list", viewer, "", err)
 	}
-	binding := listBinding(viewer, in.CommunityID)
+	if err := validateListActivity(in.Activity); err != nil {
+		return Page{}, mapErr(ctx, "list", viewer, "", err)
+	}
+	binding := listBinding(viewer, in.CommunityID, in.Activity)
 	afterStart, afterID, err := s.decodeAfter(binding, in.PageToken)
 	if err != nil {
 		return Page{}, mapErr(ctx, "list", viewer, "", err)
@@ -230,7 +239,7 @@ func (s *service) ListBeacons(ctx context.Context, viewer string, in ListInput) 
 		from = now
 	}
 	size := limits.ClampPageSize(in.Limit)
-	rows, err := s.d.Repo.ListByAudience(ctx, ListQuery{CommunityID: in.CommunityID, From: from, AfterStartAt: afterStart, AfterID: afterID, Limit: size + 1})
+	rows, err := s.d.Repo.ListByAudience(ctx, ListQuery{CommunityID: in.CommunityID, Activity: in.Activity, From: from, AfterStartAt: afterStart, AfterID: afterID, Limit: size + 1})
 	if err != nil {
 		return Page{}, mapErr(ctx, "list", viewer, "", err)
 	}

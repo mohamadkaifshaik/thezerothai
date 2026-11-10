@@ -28,6 +28,7 @@ import '../domain/search_routes.dart';
 import 'bloc/search_results_cubit.dart';
 import 'bloc/search_results_state.dart';
 import 'widgets/app_search_field.dart';
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// Copy of the results screen (our own wording).
 const kSearchPostsHintTitle = 'Search posts by #hashtag';
@@ -366,7 +367,10 @@ class _PeopleBodyState extends State<_PeopleBody> {
           onRefresh: cubit.refresh,
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            slivers: _slivers(context, cubit, state, graphOn),
+            slivers: [
+              ..._slivers(context, cubit, state, graphOn),
+              const ShellBottomInsetSliver(),
+            ],
           ),
         );
       },

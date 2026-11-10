@@ -36,6 +36,7 @@ import 'communities_error_messages.dart';
 import 'widgets/community_about.dart';
 import 'widgets/community_header.dart';
 import 'widgets/community_unavailable_view.dart';
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// `/communities/:id`: header, then Posts and About tabs.
 ///
@@ -342,6 +343,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                         slivers: [
                           ...headerSlivers,
                           ...communityAboutSlivers(context, state),
+                          const ShellBottomInsetSliver(),
                         ],
                       ),
                     ),

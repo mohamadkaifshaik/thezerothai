@@ -323,7 +323,10 @@ class SettingsList extends StatelessWidget {
     ];
 
     return ListView(
-      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+      // Plus the floating bar's inset (`ui_shell`); 0 under the docked bar.
+      padding: EdgeInsets.only(
+        bottom: AppSpacing.lg + MediaQuery.paddingOf(context).bottom,
+      ),
       children: [
         for (final (title, rows) in groups)
           if (rows.isNotEmpty) SettingsGroup(title: title, rows: rows),

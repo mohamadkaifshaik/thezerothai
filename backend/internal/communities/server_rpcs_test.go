@@ -17,21 +17,23 @@ import (
 
 // fakeService records what the handlers pass down and answers canned values.
 type fakeService struct {
-	create    []CreateInput
-	update    []UpdateInput
-	get       []string
-	view      View
-	detail    Detail
-	err       error
-	gotUser   string
-	join      []MembershipInput
-	leave     []MembershipInput
-	my        []string
-	list      MyCommunities
-	dirViews  []View
-	dirCalls  int
-	members   MembersPage
-	membersIn []MembersInput
+	create      []CreateInput
+	update      []UpdateInput
+	get         []string
+	view        View
+	detail      Detail
+	err         error
+	gotUser     string
+	join        []MembershipInput
+	leave       []MembershipInput
+	my          []string
+	list        MyCommunities
+	dirViews    []View
+	dirCalls    int
+	members     MembersPage
+	membersIn   []MembersInput
+	searchIn    []SearchInput
+	searchItems []MemberItem
 
 	// moderation, guarded by modMu
 	modMu    sync.Mutex

@@ -164,3 +164,36 @@ func TestBeaconCancel_BypassesRecipientCap(t *testing.T) {
 		}
 	}
 }
+
+// TestBeaconNotifier_UpdatedChunks (F28): a change of start, duration or cost reaches every accepted participant as
+// beacon_updated events of at most notifications.MaxRecipientsPerEvent, in order, stamped with the edit time; nobody
+// accepted means no event; an empty slot is a no-op.
+func TestBeaconNotifier_UpdatedChunks(t *testing.T) {
+	at := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct{ n, wantEvents int }{{0, 0}, {1, 1}, {10, 1}, {11, 2}, {20, 2}} {
+		uids := make([]string, tc.n)
+		for i := range uids {
+			uids[i] = fmt.Sprintf("p%02d", i)
+		}
+		rec := &recordingEmitter{}
+		if err := (beaconNotifier{slot: &emitterSlot{em: rec}}).Updated(context.Background(), beacons.UpdateEvent{BeaconID: beaconNotifID, OrganiserUID: "uid-o", ParticipantUIDs: uids, At: at}); err != nil {
+			t.Fatalf("%d participants: %v", tc.n, err)
+		}
+		if len(rec.events) != tc.wantEvents {
+			t.Fatalf("%d participants: events = %d, want %d", tc.n, len(rec.events), tc.wantEvents)
+		}
+		var got []string
+		for _, e := range rec.events {
+			if e.Type != notifications.TypeBeaconUpdated || e.ActorID != "uid-o" || e.BeaconID != beaconNotifID || e.PostID != "" || !e.At.Equal(at) {
+				t.Errorf("%d participants: event = %+v", tc.n, e)
+			}
+			got = append(got, e.RecipientIDs...)
+		}
+		if strings.Join(got, ",") != strings.Join(uids, ",") {
+			t.Errorf("%d participants: recipients = %v, want %v", tc.n, got, uids)
+		}
+	}
+	if err := (beaconNotifier{slot: &emitterSlot{}}).Updated(context.Background(), beacons.UpdateEvent{BeaconID: beaconNotifID, OrganiserUID: "uid-o", ParticipantUIDs: []string{"p"}}); err != nil {
+		t.Errorf("empty slot Updated = %v", err)
+	}
+}

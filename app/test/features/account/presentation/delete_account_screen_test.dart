@@ -10,6 +10,8 @@ import 'package:dzeroth/core/telemetry/telemetry_device_forget.dart';
 import 'package:drift/native.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
+import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
 import 'package:dzeroth/features/account/presentation/delete_account_screen.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
@@ -46,6 +48,57 @@ class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
 
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
+
+const _shellDestinations = [
+  AppNavDestination(
+    icon: Icons.home_outlined,
+    selectedIcon: Icons.home,
+    label: 'Home',
+  ),
+  AppNavDestination(
+    icon: Icons.notifications_none,
+    selectedIcon: Icons.notifications,
+    label: 'Notifications',
+  ),
+];
+
+/// [screen] inside the shell's phone chrome: the floating bar (`ui_shell` on)
+/// or the docked legacy bar.
+Widget _inShell(Widget screen, {required bool floating}) => ResponsiveScaffold(
+  selectedIndex: null,
+  onDestinationSelected: (_) {},
+  destinations: _shellDestinations,
+  floatingBar: floating,
+  body: screen,
+);
+
+/// Jumps the page's list to its end: not a user scroll, so the floating bar
+/// stays up.
+Future<void> _jumpToEnd(WidgetTester tester, Finder inList) async {
+  final position = tester
+      .state<ScrollableState>(
+        find.ancestor(of: inList, matching: find.byType(Scrollable)).first,
+      )
+      .position;
+  position.jumpTo(position.maxScrollExtent);
+  await tester.pumpAndSettle();
+}
+
+Rect _pillRect(WidgetTester tester) => tester.getRect(
+  find.descendant(
+    of: find.byType(AppFloatingBottomBar),
+    matching: find.byType(Material),
+  ),
+);
+
+double _barOpacity(WidgetTester tester) => tester
+    .widget<AnimatedOpacity>(
+      find.ancestor(
+        of: find.byType(AppBottomBar),
+        matching: find.byType(AnimatedOpacity),
+      ),
+    )
+    .opacity;
 
 void main() {
   late _MockAccounts accounts;
@@ -114,6 +167,7 @@ void main() {
     double textScale = 1,
     String initial = AppRouter.deleteAccountPath,
     TelemetryDeviceForget? telemetry,
+    bool? floatingBar,
   }) async {
     if (size != null) {
       tester.view.physicalSize = size;
@@ -125,7 +179,9 @@ void main() {
       routes: [
         GoRoute(
           path: AppRouter.deleteAccountPath,
-          builder: (_, _) => const DeleteAccountScreen(),
+          builder: (_, _) => floatingBar == null
+              ? const DeleteAccountScreen()
+              : _inShell(const DeleteAccountScreen(), floating: floatingBar),
         ),
         GoRoute(
           path: AppRouter.accountDeletedPath,
@@ -687,6 +743,114 @@ void main() {
     expect(handleMatches('@Kaif', 'kAIF'), isTrue);
     expect(handleMatches('', ''), isFalse);
     expect(handleMatches('kai', 'kaif'), isFalse);
+  });
+
+  testWidgets('the onboarding route (outside the shell) keeps the 16 dp '
+      'padding over a 34 dp home indicator', (tester) async {
+    // A caller with no profile yet reaches the page from onboarding, through
+    // the real router: a root route, no bottom bar.
+    final noProfile = _MockOnboardingBloc();
+    whenListen(
+      noProfile,
+      const Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(
+        status: OnboardingStatus.profileRequired,
+      ),
+    );
+    final appRouter = AppRouter(authBloc: authBloc, onboardingBloc: noProfile);
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.padding = const FakeViewPadding(bottom: 34);
+    tester.view.viewPadding = const FakeViewPadding(bottom: 34);
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MultiRepositoryProvider(
+        providers: [
+          RepositoryProvider<AccountRepository>.value(value: accounts),
+          RepositoryProvider<AuthRepository>.value(value: auth),
+          RepositoryProvider<PushOptInStore>.value(value: optIn),
+          RepositoryProvider<DraftsRepository>.value(value: drafts),
+          RepositoryProvider<UnexpectedErrorReporter>.value(
+            value: (error, _) => reported.add(error),
+          ),
+        ],
+        child: MultiBlocProvider(
+          providers: [
+            BlocProvider<AuthBloc>.value(value: authBloc),
+            BlocProvider<OnboardingBloc>.value(value: noProfile),
+          ],
+          child: TelemetryForgetScope(
+            forget: const TelemetryDeviceForget.none(),
+            child: MaterialApp.router(routerConfig: appRouter.router),
+          ),
+        ),
+      ),
+    );
+    appRouter.router.go(AppRouter.onboardingDeletePath);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DeleteAccountScreen), findsOneWidget);
+    final list = tester.widget<ListView>(
+      find.descendant(
+        of: find.byType(DeleteAccountScreen),
+        matching: find.byType(ListView),
+      ),
+    );
+    // The page's own padding, exactly as before the floating bar: the
+    // home-indicator inset is not added outside the shell.
+    expect(list.padding, const EdgeInsets.all(16));
+  });
+
+  group('under the shell bar (bottom inset)', () {
+    Finder deleteButton() =>
+        find.widgetWithText(FilledButton, 'Delete my account');
+
+    /// The height at which the final action ends 40 dp above the bottom
+    /// edge: inside the 90 dp of the floating bar, on a page that fits the
+    /// screen without the bar.
+    Future<double> shortHeight(WidgetTester tester) async {
+      await pump(tester, size: const Size(360, 2000), floatingBar: false);
+      return (tester.getRect(deleteButton()).bottom + 40).roundToDouble();
+    }
+
+    testWidgets('ui_shell on: "Delete my account" ends above the pill', (
+      tester,
+    ) async {
+      final height = await shortHeight(tester);
+      await pump(tester, size: Size(360, height), floatingBar: true);
+      await _jumpToEnd(tester, deleteButton());
+
+      expect(_barOpacity(tester), 1);
+      final pill = _pillRect(tester);
+      expect(pill.top, height - 90);
+      expect(
+        tester.getRect(deleteButton()).bottom,
+        lessThanOrEqualTo(pill.top),
+      );
+    });
+
+    testWidgets('ui_shell off: the docked bar; the page is unchanged', (
+      tester,
+    ) async {
+      final height = await shortHeight(tester);
+      await pump(tester, size: Size(360, height), floatingBar: false);
+      final before = tester.getRect(deleteButton());
+      await _jumpToEnd(tester, deleteButton());
+
+      expect(find.byType(AppFloatingBottomBar), findsNothing);
+      final barTop = tester.getRect(find.byType(AppBottomBar)).top;
+      expect(barTop, height - 56);
+      // The list keeps its 16 dp padding: the docked bar takes the inset.
+      final list = tester.widget<ListView>(
+        find.ancestor(of: deleteButton(), matching: find.byType(ListView)),
+      );
+      expect(list.padding, const EdgeInsets.all(16));
+      expect(tester.getRect(deleteButton()).bottom, lessThanOrEqualTo(barTop));
+      expect(
+        tester.getRect(deleteButton()).bottom,
+        lessThanOrEqualTo(before.bottom),
+      );
+    });
   });
 }
 

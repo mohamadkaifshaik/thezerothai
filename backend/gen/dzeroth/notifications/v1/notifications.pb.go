@@ -78,6 +78,9 @@ const (
 	NotificationType_NOTIFICATION_TYPE_BEACON_ACCEPTED NotificationType = 11
 	// actor (the organiser) cancelled a beacon you were accepted to (beacon_id). post_id is empty.
 	NotificationType_NOTIFICATION_TYPE_BEACON_CANCELLED NotificationType = 12
+	// actor (the organiser) changed the start time, duration or cost of a beacon you were accepted to (beacon_id).
+	// post_id is empty. One row per edit; you stay accepted and may leave. Tapping opens the beacon.
+	NotificationType_NOTIFICATION_TYPE_BEACON_UPDATED NotificationType = 13
 )
 
 // Enum value maps for NotificationType.
@@ -96,6 +99,7 @@ var (
 		10: "NOTIFICATION_TYPE_BEACON_REQUEST",
 		11: "NOTIFICATION_TYPE_BEACON_ACCEPTED",
 		12: "NOTIFICATION_TYPE_BEACON_CANCELLED",
+		13: "NOTIFICATION_TYPE_BEACON_UPDATED",
 	}
 	NotificationType_value = map[string]int32{
 		"NOTIFICATION_TYPE_UNSPECIFIED":      0,
@@ -111,6 +115,7 @@ var (
 		"NOTIFICATION_TYPE_BEACON_REQUEST":   10,
 		"NOTIFICATION_TYPE_BEACON_ACCEPTED":  11,
 		"NOTIFICATION_TYPE_BEACON_CANCELLED": 12,
+		"NOTIFICATION_TYPE_BEACON_UPDATED":   13,
 	}
 )
 
@@ -204,7 +209,7 @@ type Notification struct {
 	PostId string `protobuf:"bytes,5,opt,name=post_id,json=postId,proto3" json:"post_id,omitempty"`
 	// Last activity; the sort key.
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	// Subject beacon (BEACON_REQUEST, BEACON_ACCEPTED and BEACON_CANCELLED only; empty otherwise). Tapping opens the
+	// Subject beacon (BEACON_REQUEST, BEACON_ACCEPTED, BEACON_CANCELLED and BEACON_UPDATED only; empty otherwise). Tapping opens the
 	// beacon (BeaconService.GetBeacon).
 	BeaconId      string `protobuf:"bytes,7,opt,name=beacon_id,json=beaconId,proto3" json:"beacon_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1030,7 +1035,7 @@ const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12A\n" +
 	"\x05prefs\x18\x02 \x01(\v2+.dzeroth.notifications.v1.NotificationPrefsR\x05prefs\"d\n" +
 	"\x1fUpdateNotificationPrefsResponse\x12A\n" +
-	"\x05prefs\x18\x01 \x01(\v2+.dzeroth.notifications.v1.NotificationPrefsR\x05prefs*\xc7\x03\n" +
+	"\x05prefs\x18\x01 \x01(\v2+.dzeroth.notifications.v1.NotificationPrefsR\x05prefs*\xed\x03\n" +
 	"\x10NotificationType\x12!\n" +
 	"\x1dNOTIFICATION_TYPE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18NOTIFICATION_TYPE_FOLLOW\x10\x01\x12\x1d\n" +
@@ -1045,7 +1050,8 @@ const file_dzeroth_notifications_v1_notifications_proto_rawDesc = "" +
 	" NOTIFICATION_TYPE_BEACON_REQUEST\x10\n" +
 	"\x12%\n" +
 	"!NOTIFICATION_TYPE_BEACON_ACCEPTED\x10\v\x12&\n" +
-	"\"NOTIFICATION_TYPE_BEACON_CANCELLED\x10\f*g\n" +
+	"\"NOTIFICATION_TYPE_BEACON_CANCELLED\x10\f\x12$\n" +
+	" NOTIFICATION_TYPE_BEACON_UPDATED\x10\r*g\n" +
 	"\x0eDevicePlatform\x12\x1f\n" +
 	"\x1bDEVICE_PLATFORM_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13DEVICE_PLATFORM_IOS\x10\x01\x12\x1b\n" +

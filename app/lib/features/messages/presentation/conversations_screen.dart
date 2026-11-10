@@ -26,6 +26,7 @@ import 'messaging_error_messages.dart';
 import 'widgets/conversation_row.dart';
 import 'widgets/messaging_access_builder.dart';
 import 'widgets/not_encrypted_note.dart';
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// `/messages` and `/messages/requests`: the inbox.
 ///
@@ -257,10 +258,10 @@ class _ConversationsViewState extends State<_ConversationsView>
                             if (widget.canCompose &&
                                 MediaQuery.sizeOf(context).width >=
                                     AppBreakpoints.mobile)
-                              IconButton(
+                              AppTopBarAction(
+                                icon: Icons.mail_outline,
                                 tooltip: 'New message',
                                 onPressed: widget.onNewMessage,
-                                icon: const Icon(Icons.mail_outline),
                               ),
                           ],
                         )
@@ -300,6 +301,7 @@ class _ConversationsViewState extends State<_ConversationsView>
                           ),
                         ),
                       ..._body(context, cubit, state, inset),
+                      const ShellBottomInsetSliver(),
                     ],
                   ),
                 );

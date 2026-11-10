@@ -21,6 +21,7 @@ import '../../domain/engagement_entry.dart';
 import '../../domain/engagement_feature_flag.dart';
 import '../bloc/bookmarks_cubit.dart';
 import '../bloc/engagement_cubit.dart';
+import '../../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// The scrolling list of one History tab (/): live
 /// [PostCard] rows over a `CustomScrollView` with pull to refresh, a skeleton
@@ -261,6 +262,7 @@ class _HistoryPostListState extends State<HistoryPostList> {
               (!widget.noticeFromPaging || widget.rows.isEmpty))
             SliverToBoxAdapter(child: _notice(notice)),
           ..._body(viewerUserId, engagementEnabled, reportsEnabled),
+          const ShellBottomInsetSliver(),
         ],
       ),
     );

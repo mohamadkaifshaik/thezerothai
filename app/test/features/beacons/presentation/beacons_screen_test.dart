@@ -111,7 +111,7 @@ void main() {
       );
 
       expect(find.byTooltip('Back'), findsNothing);
-      await tester.tap(find.bySemanticsLabel('Account menu'));
+      await tester.tap(find.bySemanticsLabel('Open account menu'));
       expect(opened, 1);
     });
 
@@ -134,14 +134,14 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byTooltip('Back'), findsOneWidget);
-      expect(find.bySemanticsLabel('Account menu'), findsNothing);
+      expect(find.bySemanticsLabel('Open account menu'), findsNothing);
     });
 
     testWidgets('outside the shell the Back button stays', (tester) async {
       await open(tester);
 
       expect(find.byTooltip('Back'), findsOneWidget);
-      expect(find.bySemanticsLabel('Account menu'), findsNothing);
+      expect(find.bySemanticsLabel('Open account menu'), findsNothing);
     });
   });
 

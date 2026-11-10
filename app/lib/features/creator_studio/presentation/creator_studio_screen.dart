@@ -46,7 +46,10 @@ class CreatorStudioScreen extends StatelessWidget {
           ),
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+              // The floating bar's inset (`ui_shell`); 0 under the docked bar.
+              padding: EdgeInsets.only(
+                bottom: AppSpacing.lg + MediaQuery.paddingOf(context).bottom,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [

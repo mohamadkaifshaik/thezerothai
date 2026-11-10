@@ -123,8 +123,8 @@ void main() {
 
     expectPaused();
     expect(find.byTooltip('Back'), findsNothing);
-    expectMinTarget(tester, find.bySemanticsLabel('Account menu'));
-    await tester.tap(find.bySemanticsLabel('Account menu'));
+    expectMinTarget(tester, find.bySemanticsLabel('Open account menu'));
+    await tester.tap(find.bySemanticsLabel('Open account menu'));
     expect(opened, 1);
     expect(server.calls, isEmpty);
   });
