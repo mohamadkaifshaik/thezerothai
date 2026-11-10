@@ -22,7 +22,8 @@ type fakeSchedRepo struct {
 	attemptWinners map[int]*ScheduledPost
 
 	// Error injection (the first non-nil wins for its method) and call counters.
-	getErr, countPendingErr, createErr, cancelErr error
+	getErr, countPendingErr, createErr, cancelErr, updateErr error
+	updates                                                  int
 	// windowErr fails the in-transaction window count (after the quotas read).
 	windowErr                             error
 	gets, pendingCounts, creates, cancels int

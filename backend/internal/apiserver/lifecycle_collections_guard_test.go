@@ -84,6 +84,7 @@ var lifecycleCollections = []collectionRow{
 	// users hold about them (collection-group array-contains on actorIds).
 	{Name: "notifications", Sub: true, Disposition: erasedByStep, Step: "notifications", Section: "notifications", Owner: "notifications", Cite: "ADR-0017 D10, ADR-0011 Q1"},
 	{Name: "devices", Sub: true, Disposition: erasedByStep, Step: "notifications", ExportNote: "FCM tokens are never exported; platform and timestamps are in the notifications section", Owner: "notifications", Cite: "ADR-0017 D1, D10"},
+	{Name: "settings", Sub: true, Disposition: erasedByStep, Step: "notifications", Section: "notifications", Owner: "notifications", ExportNote: "", Cite: "ADR-0017 D10 extended by F6: users/{uid}/settings/notifications is deleted in purge step 0 and exported under the notifications section's settings key"},
 	{Name: "deviceTokens", Disposition: erasedByStep, Step: "notifications", ExportNote: "reverse index sha256(token) -> uid; the token itself is never exported", Owner: "notifications", Cite: "ADR-0017 D1, D10"},
 
 	// Declared in the data model, no code yet.
