@@ -137,6 +137,21 @@ type Reader interface {
 	Snapshot(ctx context.Context, uid string) (Snapshot, error)
 }
 
+// MaxBlockLookup is the most candidates one BlockLookup.BlockersAmong call accepts (twice the 50-row
+// notifications page: every shown actor plus some of the folded ones).
+const MaxBlockLookup = 100
+
+// BlockLookup is the batched form of the IsBlockedBy overflow fallback, for a read path that must establish at once
+// whether any of several users has blocked the viewer (notifications List on an account whose blockedBy overflowed).
+type BlockLookup interface {
+	// BlockersAmong returns the candidates that have blocked viewerUID. The viewer's cached blockedBy answers first;
+	// only when it overflowed are the candidates' own graph docs consulted: cache first, every miss in one batched
+	// read, no read per candidate. At most MaxBlockLookup distinct candidates (more is an error, nothing is read). An
+	// error means the answer is unknown for every candidate not already in the viewer's blockedBy: the caller must
+	// not treat it as "not blocked". The error text names no uid.
+	BlockersAmong(ctx context.Context, viewerUID string, candidateUIDs []string) (map[string]bool, error)
+}
+
 // TxReader lets another module read graph/{uid} INSIDE its own transaction, uncached, so a concurrent write of that
 // document (a Block, Mute, Follow or Unfollow of the owner, or anyone's Block of the owner, which writes blockedBy)
 // conflicts with the transaction instead of being missed. It is the read-side companion of Reader for the one path

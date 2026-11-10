@@ -42,6 +42,9 @@ const (
 type Repo interface {
 	// GetSnapshot reads graph/{uid} (Reader.Snapshot's cache-miss path). Missing doc -> empty Snapshot, no error.
 	GetSnapshot(ctx context.Context, uid string) (Snapshot, error)
+	// GetSnapshots reads graph/{uid} for every uid in one batched read (BlockLookup's cache-miss path). A missing
+	// doc is an empty Snapshot, no error. The error text names no uid.
+	GetSnapshots(ctx context.Context, uids []string) (map[string]Snapshot, error)
 
 	// Follow runs the whole Follow transaction (the target's users doc is read inside it, so the
 	// repo decides edge versus request; the returned FollowState says which).
@@ -181,6 +184,7 @@ func (s *service) knownInactive(uids []string) map[string]bool {
 
 var _ Service = (*service)(nil)
 var _ Reader = (*service)(nil)
+var _ BlockLookup = (*service)(nil)
 var _ FollowEvents = (*service)(nil)
 var _ identity.BlockChecker = (*service)(nil)
 var _ identity.FollowRequestCounter = (*service)(nil)
@@ -220,6 +224,67 @@ func (s *service) IsBlockedBy(ctx context.Context, viewerUID, targetUID string) 
 		return false, err
 	}
 	return targetSnap.isBlocked(viewerUID), nil
+}
+
+// BlockersAmong implements BlockLookup: IsBlockedBy for many targets at once. It reads the viewer's snapshot (cached);
+// without overflow that answers every candidate. With overflow, each candidate's own snapshot is taken from the cache,
+// and the misses are read in one batched GetAll and cached like any Snapshot read (60 s). Reads: 0 or 1 for the viewer,
+// plus at most one batched read of at most MaxBlockLookup docs.
+func (s *service) BlockersAmong(ctx context.Context, viewerUID string, candidateUIDs []string) (map[string]bool, error) {
+	seen := make(map[string]bool, len(candidateUIDs))
+	distinct := make([]string, 0, len(candidateUIDs))
+	for _, uid := range candidateUIDs {
+		if uid == "" || uid == viewerUID || seen[uid] {
+			continue
+		}
+		seen[uid] = true
+		distinct = append(distinct, uid)
+	}
+	if len(distinct) > MaxBlockLookup {
+		return nil, fmt.Errorf("graph: block lookup of %d users exceeds %d", len(distinct), MaxBlockLookup)
+	}
+	out := map[string]bool{}
+	if len(distinct) == 0 {
+		return out, nil
+	}
+	viewer, err := s.Snapshot(ctx, viewerUID)
+	if err != nil {
+		return nil, fmt.Errorf("graph: block lookup: viewer graph: %w", err)
+	}
+	var misses []string
+	for _, uid := range distinct {
+		switch {
+		case viewer.isBlockedBy(uid):
+			out[uid] = true
+		case !viewer.BlockedByOverflow:
+			// The viewer's blockedBy is complete: not in it means not blocked.
+		default:
+			if snap, ok := s.cache.Get(uid); ok {
+				noteCacheHit(ctx, true)
+				if snap.isBlocked(viewerUID) {
+					out[uid] = true
+				}
+				continue
+			}
+			misses = append(misses, uid)
+		}
+	}
+	if len(misses) == 0 {
+		return out, nil
+	}
+	noteCacheHit(ctx, false)
+	snaps, err := s.repo.GetSnapshots(ctx, misses)
+	if err != nil {
+		return nil, fmt.Errorf("graph: block lookup: %w", err)
+	}
+	for _, uid := range misses {
+		snap := snaps[uid] // a missing doc is an empty Snapshot: nobody blocked
+		s.cache.Set(uid, snap)
+		if snap.isBlocked(viewerUID) {
+			out[uid] = true
+		}
+	}
+	return out, nil
 }
 
 // IsFollowing implements identity.BlockChecker: whether viewerUID follows targetUID, from the viewer's cached snapshot

@@ -21,6 +21,10 @@ type fakeRepo struct {
 	err       error
 	calls     int
 
+	batchCalls int
+	batchUIDs  [][]string
+	batchErr   error
+
 	followResult   Relationship
 	followOutcome  MutationOutcome
 	followErr      error
@@ -208,6 +212,20 @@ func (f *fakeRepo) GetSnapshot(_ context.Context, uid string) (Snapshot, error) 
 		return s, nil
 	}
 	return Snapshot{Following: map[string]bool{}, Blocked: map[string]bool{}, Muted: map[string]bool{}, BlockedBy: map[string]bool{}, Requested: map[string]bool{}}, nil
+}
+
+// GetSnapshots serves the batched read from the same map; batchCalls counts calls, batchUIDs records each call's uids.
+func (f *fakeRepo) GetSnapshots(_ context.Context, uids []string) (map[string]Snapshot, error) {
+	f.batchCalls++
+	f.batchUIDs = append(f.batchUIDs, append([]string(nil), uids...))
+	if f.batchErr != nil {
+		return nil, f.batchErr
+	}
+	out := make(map[string]Snapshot, len(uids))
+	for _, u := range uids {
+		out[u] = f.snapshots[u]
+	}
+	return out, nil
 }
 
 func (f *fakeRepo) Follow(_ context.Context, callerUID, targetUID string, now time.Time) (Relationship, MutationOutcome, error) {
