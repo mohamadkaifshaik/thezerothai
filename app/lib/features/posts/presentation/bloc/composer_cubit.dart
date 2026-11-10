@@ -103,6 +103,7 @@ class ComposerState {
     this.communityChoices = const [],
     this.audienceNotice,
     this.communityNotApplied = false,
+    this.sessionEnded = false,
   });
 
   final PostDraft draft;
@@ -183,11 +184,16 @@ class ComposerState {
   /// warns once and offers to delete the post.
   final bool communityNotApplied;
 
+  /// The session this composer was opened in has ended (a sign-out or an
+  /// account switch): nothing is sent or saved any more, and the screen
+  /// leaves.
+  final bool sessionEnded;
+
   bool get hasPoll => poll != null;
   bool get isScheduling => scheduledAt != null;
   bool get isSubmitting => status == ComposerStatus.submitting;
   bool get canSubmit {
-    if (status != ComposerStatus.editing) return false;
+    if (status != ComposerStatus.editing || sessionEnded) return false;
     // A poll needs its question (the post text) and every rule to hold; it
     // never travels with photos.
     final poll = this.poll;
@@ -221,6 +227,7 @@ class ComposerState {
     AudienceNotice? audienceNotice,
     bool clearAudienceNotice = false,
     bool? communityNotApplied,
+    bool? sessionEnded,
     bool clearSendConflict = false,
     bool clearPoll = false,
     bool clearError = false,
@@ -253,6 +260,7 @@ class ComposerState {
         ? null
         : (audienceNotice ?? this.audienceNotice),
     communityNotApplied: communityNotApplied ?? this.communityNotApplied,
+    sessionEnded: sessionEnded ?? this.sessionEnded,
   );
 }
 
@@ -328,6 +336,8 @@ class ComposerCubit extends Cubit<ComposerState> {
          ),
        ) {
     _baseline = _base;
+    _openedSession = _session.value;
+    _sessionSub = _session.ended.listen((_) => _sessionHasEnded());
     _watchAttachments();
   }
 
@@ -365,6 +375,7 @@ class ComposerCubit extends Cubit<ComposerState> {
        _base = _baseDraft('', null, clock ?? DateTime.now),
        super(ComposerState(draft: analyzePostDraft(''))) {
     _baseline = _base;
+    _openedSession = _session.value;
   }
 
   static ComposerDraft _baseDraft(
@@ -414,7 +425,7 @@ class ComposerCubit extends Cubit<ComposerState> {
 
   /// Unsent posts are in use: `drafts` is on (the screen passes a repository
   /// only then), for a new root post.
-  bool get draftsActive => _drafts != null && !_draftDone;
+  bool get draftsActive => _drafts != null && !_draftDone && !_sessionOver;
 
   /// The draft's id (the same row until it is posted or discarded).
   String get draftId => _base.id;
@@ -436,7 +447,8 @@ class ComposerCubit extends Cubit<ComposerState> {
 
   /// What leaving the composer needs now (see [LeaveAction]).
   LeaveAction get leaveAction {
-    if (state.isSubmitting) return LeaveAction.none;
+    // The account changed: nothing of it is kept or asked about.
+    if (state.isSubmitting || _sessionOver) return LeaveAction.none;
     final media = state.hasAttachments;
     if (!draftsActive) {
       return media ? LeaveAction.discardMedia : LeaveAction.none;
@@ -469,7 +481,9 @@ class ComposerCubit extends Cubit<ComposerState> {
   /// neither is dropped silently). The composer is then left as it was.
   Future<DraftLoadResult> loadSavedDraft(String id) async {
     final repo = _drafts;
-    if (repo == null || state.isSubmitting) return DraftLoadResult.gone;
+    if (repo == null || state.isSubmitting || _sessionOver) {
+      return DraftLoadResult.gone;
+    }
     try {
       final draft = await repo.read(_draftUid, id);
       if (draft == null || isClosed) return DraftLoadResult.gone;
@@ -489,7 +503,10 @@ class ComposerCubit extends Cubit<ComposerState> {
   /// (a schedule is never part of a draft, and a scheduled post has no poll).
   /// Ignored while the post is being sent.
   DraftLoadResult loadDraft(ComposerDraft draft) {
-    if (state.isSubmitting || _drafts == null || draft.uid != _draftUid) {
+    if (state.isSubmitting ||
+        _drafts == null ||
+        draft.uid != _draftUid ||
+        _sessionOver) {
       return DraftLoadResult.gone;
     }
     final loadsPoll = draft.poll != null && rules.showPoll;
@@ -524,7 +541,9 @@ class ComposerCubit extends Cubit<ComposerState> {
   /// failure is reported without the text and answers `skipped`.
   Future<DraftSaveResult> saveDraft() async {
     final repo = _drafts;
-    if (repo == null) return DraftSaveResult.skipped;
+    // Never written once the session ended: the store would take it under the
+    // next session.
+    if (repo == null || _sessionOver) return DraftSaveResult.skipped;
     try {
       final saved = currentDraft;
       final result = await repo.upsert(saved);
@@ -577,7 +596,7 @@ class ComposerCubit extends Cubit<ComposerState> {
   void onChange(Change<ComposerState> change) {
     super.onChange(change);
     final repo = _drafts;
-    if (repo == null || _draftDone || _loadingDraft) return;
+    if (repo == null || _draftDone || _loadingDraft || _sessionOver) return;
     final a = change.currentState;
     final b = change.nextState;
     // Only edits are kept: not sending, not the reset after a schedule.
@@ -700,12 +719,22 @@ class ComposerCubit extends Cubit<ComposerState> {
   final DateTime Function() _clock;
 
   /// The signed-in session's generation (`AppDatabase.sessionEpoch`, the one
-  /// the posts repository writes its cache under). A send captures it before
-  /// its first await and goes out only while it is unchanged: a sign-out or an
-  /// account switch ends it, and the old content must never leave under the
-  /// next session. Without one (tests, a reply) a private epoch that never
-  /// ends is used.
+  /// the posts repository writes its cache under). The composer belongs to
+  /// the session it was opened in: once a sign-out or an account switch ends
+  /// it, nothing is sent, uploaded or saved any more (also when the screen
+  /// is still open), and the screen leaves. Without one (tests, a reply) a
+  /// private epoch that never ends is used.
   final SessionEpoch _session;
+  late final int _openedSession;
+  StreamSubscription<int>? _sessionSub;
+
+  bool get _sessionOver => _session.value != _openedSession;
+
+  /// Says once that the session ended; the screen then leaves.
+  void _sessionHasEnded() {
+    if (isClosed || state.sessionEnded) return;
+    emit(state.copyWith(sessionEnded: true));
+  }
 
   /// The send key claimed on the draft row for the send in flight.
   ({String key, bool reused})? _claimed;
@@ -800,15 +829,22 @@ class ComposerCubit extends Cubit<ComposerState> {
     }
   }
 
-  /// Whether the send started under [session] may still go out: the screen
-  /// is open and the session is the one it started in. If not, nothing is
-  /// sent: a key freshly claimed for it is released and, while the screen is
-  /// open, the composer is editable again (no error: nothing failed, the
-  /// account changed).
-  bool _mayStillSend(int session) {
-    if (!isClosed && _session.value == session) return true;
+  /// Whether the send in flight may still go out: the screen is open and the
+  /// session is the one the composer was opened in. If not, nothing is sent:
+  /// a key freshly claimed for it is released and, while the screen is open,
+  /// the composer leaves `submitting` (no error: nothing failed, the account
+  /// changed) and says the session ended.
+  bool _mayStillSend() {
+    if (!isClosed && !_sessionOver) return true;
     _releaseClaim();
-    if (!isClosed) emit(state.copyWith(status: ComposerStatus.editing));
+    if (!isClosed) {
+      emit(
+        state.copyWith(
+          status: ComposerStatus.editing,
+          sessionEnded: _sessionOver ? true : null,
+        ),
+      );
+    }
     return false;
   }
 
@@ -877,6 +913,7 @@ class ComposerCubit extends Cubit<ComposerState> {
 
   @override
   Future<void> close() async {
+    await _sessionSub?.cancel();
     await _attachmentsSub?.cancel();
     return super.close();
   }
@@ -896,6 +933,7 @@ class ComposerCubit extends Cubit<ComposerState> {
         audience: state.audience,
         communityChoices: state.communityChoices,
         audienceNotice: state.audienceNotice,
+        sessionEnded: state.sessionEnded,
       ),
     );
   }
@@ -1274,13 +1312,14 @@ class ComposerCubit extends Cubit<ComposerState> {
     final force = _forceNewKey;
     _forceNewKey = false;
     if (!state.canSubmit) return;
-    // The session this send belongs to, read before any await.
-    final session = _session.value;
+    // Opened under another session (the account changed with the screen
+    // open): nothing leaves, on this tap or any later one.
+    if (_sessionOver) return _sessionHasEnded();
     final publishAt = state.scheduledAt;
     // SchedulePost has no poll field: a poll never takes that path (the
     // rules already keep the two apart; this is the last guard).
     if (publishAt != null && !state.hasPoll) {
-      return _submitScheduled(publishAt, force, session);
+      return _submitScheduled(publishAt, force);
     }
     final text = state.draft.text;
     final poll = state.poll;
@@ -1299,7 +1338,7 @@ class ComposerCubit extends Cubit<ComposerState> {
         : _noClaim;
     if (claim.refused) return;
     // Closed or signed out while claiming: no upload starts either.
-    if (!_mayStillSend(session)) return;
+    if (!_mayStillSend()) return;
 
     // On-device previews for the optimistic row (taken before upload).
     final thumbnails = [
@@ -1330,7 +1369,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     // The last check before anything leaves: no await from here to the
     // repository reading the session as createPost starts, and no optimistic
     // row of the old account.
-    if (!_mayStillSend(session)) return;
+    if (!_mayStillSend()) return;
     final key = claim.key ?? _keyFor(intent);
 
     final pending = _pending;
@@ -1420,11 +1459,7 @@ class ComposerCubit extends Cubit<ComposerState> {
   ///
   /// On success the composer is reset to empty; [ComposerState.scheduledNotice]
   /// carries the stored item for the one "Your post will be sent on ..." toast.
-  Future<void> _submitScheduled(
-    DateTime publishAt,
-    bool force,
-    int session,
-  ) async {
+  Future<void> _submitScheduled(DateTime publishAt, bool force) async {
     if (!canSchedule) {
       emit(
         state.copyWith(
@@ -1450,7 +1485,7 @@ class ComposerCubit extends Cubit<ComposerState> {
         ? await _claim(SendKind.schedule, force: force, publishAt: publishAt)
         : _noClaim;
     if (claim.refused) return;
-    if (!_mayStillSend(session)) return;
+    if (!_mayStillSend()) return;
     final uploaded = _hasAttached ? await _uploadAttached() : _noUploads;
     if (uploaded == null) return _releaseClaim();
     final media = _mediaKind(uploaded.mediaIds);
@@ -1458,7 +1493,7 @@ class ComposerCubit extends Cubit<ComposerState> {
     final intent =
         's:${publishAt.millisecondsSinceEpoch}\u0001'
         '${_bodyKey(text, uploaded.mediaIds, uploaded.altTexts, policy)}';
-    if (!_mayStillSend(session)) return;
+    if (!_mayStillSend()) return;
     final key = claim.key ?? _keyFor(intent);
     try {
       final scheduled = await _repository.schedulePost(
@@ -1488,6 +1523,7 @@ class ComposerCubit extends Cubit<ComposerState> {
           draft: analyzePostDraft(''),
           scheduledNotice: scheduled,
           communityChoices: state.communityChoices,
+          sessionEnded: state.sessionEnded,
         ),
       );
       // The images now belong to the scheduled item.

@@ -585,6 +585,10 @@ class _ComposerViewState extends State<_ComposerView> {
   }
 
   void _onState(BuildContext context, ComposerState state) {
+    // Signed out, or another account now (the composer was opened in an
+    // ended session): leave at once. Nothing is asked and nothing is saved;
+    // the cubit sends nothing from here on.
+    if (state.sessionEnded) return _leave(context);
     final notice = state.audienceNotice;
     if (notice != null) {
       context.read<ComposerCubit>().audienceNoticeShown();
@@ -615,12 +619,7 @@ class _ComposerViewState extends State<_ComposerView> {
             const SnackBar(content: Text(kReplyPolicyNotAppliedMessage)),
           );
       }
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go(AppRouter.homePath);
-      }
-      return;
+      return _leave(context);
     }
     final error = state.error;
     // The server refused the time (too soon, too far): reopen the dialog
@@ -803,6 +802,12 @@ class _ComposerViewState extends State<_ComposerView> {
         }
     }
     if (!context.mounted) return;
+    _leave(context);
+  }
+
+  /// Back to where the composer was opened from (Home when it was the first
+  /// page).
+  void _leave(BuildContext context) {
     if (context.canPop()) {
       context.pop();
     } else {
@@ -817,6 +822,7 @@ class _ComposerViewState extends State<_ComposerView> {
       // (pop, snackbar) must run once per status or error change only.
       listenWhen: (prev, curr) =>
           prev.status != curr.status ||
+          prev.sessionEnded != curr.sessionEnded ||
           !identical(prev.error, curr.error) ||
           prev.sendConflict != curr.sendConflict ||
           prev.audienceNotice != curr.audienceNotice ||
@@ -845,6 +851,7 @@ class _ComposerViewState extends State<_ComposerView> {
         // replaces the composer, but the attachments are still held.
         final canLeaveFreely =
             state.status == ComposerStatus.posted ||
+            state.sessionEnded ||
             (!state.isSubmitting && cubit.leaveAction == LeaveAction.none);
         if (state.error is EmailNotVerifiedException) {
           return PopScope(

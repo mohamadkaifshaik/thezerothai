@@ -70,4 +70,31 @@ void main() {
 
     expect(server.received, 0, reason: 'nothing under the new session');
   });
+
+  testWidgets('an idle composer closes when the account switches, sending '
+      'and saving nothing', (tester) async {
+    final db = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(() => tester.runAsync(db.close));
+    final server = FakePostsServer();
+    final drafts = FakeDraftsRepository();
+    await pumpW6Composer(
+      tester,
+      posts: server,
+      drafts: drafts,
+      wrapApp: (app) =>
+          RepositoryProvider<AppDatabase>.value(value: db, child: app),
+    );
+    await tester.enterText(find.byType(TextField), 'from the old account');
+    await tester.pump();
+    final saves = drafts.autosaves;
+
+    db.sessionEpoch.end();
+    await tester.pumpAndSettle();
+
+    expect(find.text('home page'), findsOneWidget, reason: 'the composer left');
+    expect(find.byType(TextField), findsNothing);
+    expect(find.text('Save post?'), findsNothing, reason: 'nothing is asked');
+    expect(server.received, 0);
+    expect(drafts.autosaves, saves, reason: 'nothing saved after the switch');
+  });
 }

@@ -25,6 +25,16 @@ class _HeldDrafts extends DraftsRepository {
   Completer<void>? gate;
   final Completer<void> started = Completer<void>();
   final Completer<String> cleared = Completer<String>();
+  int claims = 0;
+
+  /// The texts handed to [autosave], in order.
+  final List<String> autosaved = [];
+
+  @override
+  void autosave(ComposerDraft draft) {
+    autosaved.add(draft.text);
+    super.autosave(draft);
+  }
 
   @override
   Future<SendClaim> claimSend({
@@ -34,6 +44,7 @@ class _HeldDrafts extends DraftsRepository {
     DateTime? publishAt,
     bool forceNew = false,
   }) async {
+    claims++;
     if (!started.isCompleted) started.complete();
     final hold = gate;
     if (hold != null) await hold.future;
@@ -77,7 +88,11 @@ void main() {
     await db.close();
   });
 
-  ComposerCubit open({AttachmentsCubit? attachments, bool drafts = true}) {
+  ComposerCubit open({
+    AttachmentsCubit? attachments,
+    bool drafts = true,
+    bool bound = true,
+  }) {
     final cubit = ComposerCubit(
       postsRepository: server,
       pending: pending,
@@ -87,7 +102,7 @@ void main() {
       attachments: attachments,
       drafts: drafts ? repo : null,
       uid: _uid,
-      sessionEpoch: db.sessionEpoch,
+      sessionEpoch: bound ? db.sessionEpoch : null,
     );
     addTearDown(cubit.close);
     return cubit;
@@ -98,6 +113,10 @@ void main() {
     await c.saveDraft();
     return c;
   }
+
+  Future<String?> storedText(String id) async => (await (db.select(
+    db.composerDraftEntries,
+  )..where((t) => t.draftId.equals(id))).getSingleOrNull())?.draftText;
 
   Future<String?> storedKey(String id) async => (await (db.select(
     db.composerDraftEntries,
@@ -196,6 +215,79 @@ void main() {
         ),
       );
       expect(server.received, 0);
+    });
+
+    test('an idle photo post whose session ended starts no upload', () async {
+      stubHappyUpload(media);
+      final c = open(attachments: attachments, drafts: false);
+      await attach();
+      db.sessionEpoch.end();
+
+      await c.submit();
+
+      verifyNever(
+        () => media.createUpload(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          purpose: any(named: 'purpose'),
+          images: any(named: 'images'),
+        ),
+      );
+      expect(server.received, 0);
+    });
+  });
+
+  group('bound to the session it was opened in (A to B with it open)', () {
+    test(
+      'an idle composer sends nothing, on the first tap or the next',
+      () async {
+        final c = await saved('from the old account');
+        db.sessionEpoch.end();
+
+        await c.submit();
+        await c.submit();
+
+        expect(server.received, 0);
+        expect(repo.claims, 0, reason: 'no key is claimed for it');
+        expect(pending.state, isEmpty, reason: 'no optimistic row');
+        expect(c.state.status, ComposerStatus.editing);
+      },
+    );
+
+    test('an idle schedule sends nothing', () async {
+      final c = await saved('from the old account');
+      c.scheduleChanged(DateTime.now().add(const Duration(days: 1)));
+      db.sessionEpoch.end();
+
+      await c.submit();
+      await c.submit();
+
+      expect(server.received, 0);
+      expect(repo.claims, 0);
+    });
+
+    test('a draft edit after the switch is not written', () async {
+      final c = await saved('from the old account');
+      db.sessionEpoch.end();
+
+      c.textChanged('typed after the switch');
+      final result = await c.saveDraft();
+
+      expect(repo.autosaved, isNot(contains('typed after the switch')));
+      expect(result, DraftSaveResult.skipped);
+      expect(await storedText(c.draftId), 'from the old account');
+    });
+
+    test('a composer with no session epoch behaves as before', () async {
+      final c = open(bound: false)..textChanged('hello');
+      expect(await c.saveDraft(), DraftSaveResult.saved);
+      db.sessionEpoch.end();
+
+      c.textChanged('hello again');
+      await c.submit();
+
+      expect(repo.autosaved, contains('hello again'));
+      expect(server.accepted, hasLength(1));
+      expect(c.state.status, ComposerStatus.posted);
     });
   });
 
