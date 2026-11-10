@@ -171,11 +171,13 @@ class DraftsRepository {
   /// included: what "Delete them" at sign-out and Settings' "Delete unsent
   /// posts on this device" would remove. Only that uid's rows. Reads
   /// nothing of the content and does not mark any id as seen. 0 RPCs.
-  Future<int> count(String uid) => _countQuery(uid).getSingle();
+  Future<int> count(String uid) async =>
+      await _countQuery(uid).getSingleOrNull() ?? 0;
 
   /// [count] again whenever the rows change; the Settings entry shows only
   /// while it is above 0. Emits the current value first.
-  Stream<int> watchCount(String uid) => _countQuery(uid).watchSingle();
+  Stream<int> watchCount(String uid) =>
+      _countQuery(uid).watchSingleOrNull().map((n) => n ?? 0);
 
   Selectable<int> _countQuery(String uid) {
     final table = _database.composerDraftEntries;
