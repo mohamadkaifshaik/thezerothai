@@ -4,6 +4,7 @@ import 'package:dzeroth/core/router/main_shell.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
+import 'package:dzeroth/core/widgets/shell_bottom_inset_sliver.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
@@ -383,6 +384,17 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    /// Height of the page's `ShellBottomInsetSliver` (a zero-tall sliver
+    /// counts as offstage, so the finders include it).
+    double insetHeight(WidgetTester tester) => tester
+        .widget<SizedBox>(
+          find.descendant(
+            of: find.byType(ShellBottomInsetSliver, skipOffstage: false),
+            matching: find.byType(SizedBox, skipOffstage: false),
+          ),
+        )
+        .height!;
+
     Finder pill() => find.descendant(
       of: find.byType(AppFloatingBottomBar),
       matching: find.byType(Material),
@@ -484,6 +496,8 @@ void main() {
           tester.getRect(find.text('#tag10')).bottom,
           lessThanOrEqualTo(barTop),
         );
+        // The inset adds nothing under the docked bar.
+        expect(insetHeight(tester), 0);
       });
     });
 

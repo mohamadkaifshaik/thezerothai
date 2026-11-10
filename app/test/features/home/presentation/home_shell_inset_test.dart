@@ -2,6 +2,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
+import 'package:dzeroth/core/widgets/shell_bottom_inset_sliver.dart';
 import 'package:dzeroth/features/home/presentation/home_screen.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/push_cubit.dart';
@@ -198,5 +199,14 @@ void main() {
     final barTop = tester.getRect(find.byType(AppBottomBar)).top;
     expect(barTop, height - 56);
     expect(tester.getRect(lastRow()).bottom, lessThanOrEqualTo(barTop));
+    // The inset adds nothing under the docked bar (a zero-tall sliver counts
+    // as offstage, so the finders include it).
+    final inset = tester.widget<SizedBox>(
+      find.descendant(
+        of: find.byType(ShellBottomInsetSliver, skipOffstage: false),
+        matching: find.byType(SizedBox, skipOffstage: false),
+      ),
+    );
+    expect(inset.height, 0);
   });
 }
