@@ -183,7 +183,8 @@ type Config struct {
 	// UpdateBeacon, RequestToJoin and RespondToJoinRequest need it on for the caller; the reads, WithdrawJoinRequest,
 	// LeaveBeacon, RemoveParticipant and CancelBeacon only need it not globally off, so a caller dropped from the allowlist
 	// can still read, leave and cancel. A community-audience beacon also needs FEATURE_COMMUNITIES on for the caller.
-	// FEATURE_BEACONS[_ALLOWLIST|_PERCENT], default off in every environment (dev stays on an allowlist, no prod raise).
+	// FEATURE_BEACONS[_ALLOWLIST|_PERCENT], default off when unset in every environment; dev sets it on (ADR-0034 §4), no
+	// prod raise yet.
 	FeatureBeacons flags.Spec
 	// FeatureCommunityMemberSearch is the flag (wire name `community_member_search`) gating CommunityService
 	// SearchCommunityMembers (F36), checked after FEATURE_COMMUNITIES. FEATURE_COMMUNITY_MEMBER_SEARCH[_ALLOWLIST|_PERCENT],
