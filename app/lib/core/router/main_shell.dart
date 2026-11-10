@@ -3,7 +3,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
-import '../../features/beacons/domain/beacons_feature_flag.dart';
 import '../../features/communities/domain/communities_feature_flag.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
 import '../../features/graph/presentation/graph_feature_flags.dart';
@@ -35,8 +34,8 @@ import 'compose_gate.dart';
 /// The navigation chrome around the authenticated top-level destinations.
 ///
 /// With the `ui_shell` flag on (ADR-0034): Home, Explore, Plans, Notifications
-/// and Messages (each behind its flag; Plans keeps its `beacons` gate until it
-/// is retired) are the bottom
+/// and Messages (each behind its flag, except Plans: it is never turned off,
+/// and with `beacons` off its page shows the paused state) are the bottom
 /// bar and the first rail items; Lists, Communities, History, Profile and More
 /// follow on the rail and in the drawer (Profile also from the avatar);
 /// Settings and Sign out live in the avatar drawer (phones) and the account
@@ -92,8 +91,9 @@ class MainShell extends StatelessWidget {
         ? const _Destination(
             _Tab.plans,
             AppNavDestination(
-              icon: Icons.event_outlined,
-              selectedIcon: Icons.event,
+              // The design's target glyph, from the bundled icon font.
+              icon: Icons.track_changes,
+              selectedIcon: Icons.adjust,
               label: 'Plans',
             ),
           )
@@ -270,7 +270,9 @@ class MainShell extends StatelessWidget {
       bookmarks: bookmarksEntry,
       lists: newShell && isFeatureEnabled(context, kFeatureLists),
       communities: newShell && isFeatureEnabled(context, kFeatureCommunities),
-      plans: newShell && isFeatureEnabled(context, kFeatureBeacons),
+      // Never gated on `beacons` (ADR-0034 section 4); the legacy chrome has
+      // no Plans tab.
+      plans: newShell,
       settings: !newShell,
       onMore: shellEntries.isEmpty && !isFeatureEnabled(context, kFeaturePosts)
           ? null

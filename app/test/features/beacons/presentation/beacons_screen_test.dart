@@ -4,6 +4,7 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/widgets/app_shell_scope.dart';
 import 'package:dzeroth/features/beacons/domain/beacon_labels.dart';
+import 'package:dzeroth/features/beacons/domain/beacons_feature_flag.dart';
 import 'package:dzeroth/features/beacons/presentation/beacons_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/beacon_row.dart';
 import 'package:dzeroth/features/communities/data/communities_repository.dart';
@@ -55,6 +56,9 @@ void main() {
     tester,
     beacons: server,
     communities: communities,
+    // The screen reads the flag: off is the paused state
+    // (beacons_screen_paused_test.dart).
+    features: const {kFeatureBeacons},
     routes: routes(),
   );
 
@@ -94,7 +98,7 @@ void main() {
       await pumpPlansRouter(
         tester,
         beacons: server,
-        features: const {},
+        features: const {kFeatureBeacons},
         routes: [
           GoRoute(
             path: '/plans',
@@ -115,16 +119,14 @@ void main() {
       final router = await pumpPlansRouter(
         tester,
         beacons: server,
-        features: const {},
+        features: const {kFeatureBeacons},
         initialLocation: '/start',
         routes: [
           GoRoute(path: '/start', builder: (_, _) => stubPage('start')),
           GoRoute(
             path: '/plans',
-            builder: (_, _) => AppShellScope(
-              openDrawer: () {},
-              child: const BeaconsScreen(),
-            ),
+            builder: (_, _) =>
+                AppShellScope(openDrawer: () {}, child: const BeaconsScreen()),
           ),
         ],
       );
