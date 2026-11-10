@@ -856,6 +856,9 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	featureDMPolicy, err := flags.LoadSpec("DM_POLICY", "dm_policy", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureNotificationPrefs, err := flags.LoadSpec("NOTIFICATION_PREFS", "notification_prefs", flags.Off)
 	if err != nil {
 		return Config{}, err
