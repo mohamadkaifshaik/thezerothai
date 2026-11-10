@@ -352,4 +352,7 @@ type Repo interface {
 	ListByMemberCount(ctx context.Context, limit int) ([]Community, error)
 	// ListMembers is one member page (joinedAt or bannedAt DESC, __name__ DESC; presence of the field is the filter).
 	ListMembers(ctx context.Context, q MembersQuery) ([]MemberRow, error)
+	// MembersByUID reads the member docs of uids in communityID with one GetAll (at most maxMembersByUID uids). A uid
+	// without a JOINED or BANNED doc is absent from the map.
+	MembersByUID(ctx context.Context, communityID string, uids []string) (map[string]MemberEntry, error)
 }
