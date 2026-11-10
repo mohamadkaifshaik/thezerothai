@@ -338,6 +338,8 @@ class ComposerCubit extends Cubit<ComposerState> {
     _baseline = _base;
     _openedSession = _session.value;
     _sessionSub = _session.ended.listen((_) => _sessionHasEnded());
+    // Also the tile's Retry, which the grid calls on the attachments directly.
+    attachments?.stopWhen(() => !_sessionOver);
     _watchAttachments();
   }
 
@@ -733,6 +735,10 @@ class ComposerCubit extends Cubit<ComposerState> {
   StreamSubscription<int>? _sessionSub;
 
   bool get _sessionOver => _session.value != _openedSession;
+
+  /// The session this composer was opened in has ended, known at once (the
+  /// state's [ComposerState.sessionEnded] follows on the next event).
+  bool get sessionEnded => _sessionOver;
 
   /// Says once that the session ended; the screen then leaves (a composer
   /// screen) or empties its field (the thread's reply bar). The old account's

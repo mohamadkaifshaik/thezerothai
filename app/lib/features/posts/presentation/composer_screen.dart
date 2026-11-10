@@ -494,9 +494,11 @@ class _ComposerViewState extends State<_ComposerView> {
   }
 
   Future<void> _loadPicked(ComposerCubit cubit, String? draftId) async {
-    if (draftId == null || !mounted || cubit.isClosed) return;
+    if (draftId == null || !mounted || _left || cubit.isClosed) return;
     final result = await cubit.loadSavedDraft(draftId);
-    if (!mounted) return;
+    // Leaving meanwhile, or about to (the session ended): no notice on the
+    // page under it.
+    if (!mounted || _left || cubit.sessionEnded) return;
     switch (result) {
       case DraftLoadResult.loaded:
         _controller.text = cubit.state.draft.text;
@@ -819,7 +821,9 @@ class _ComposerViewState extends State<_ComposerView> {
   void _leave(BuildContext context) {
     if (_left) return;
     _left = true;
-    closeRoutesAbove(context);
+    // Already off the stack (a sign-out redirect replaced it): popping or
+    // going Home now would take the new stack's page.
+    if (!closeRoutesAbove(context)) return;
     if (context.canPop()) {
       context.pop();
     } else {

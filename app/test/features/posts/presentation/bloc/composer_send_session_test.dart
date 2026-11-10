@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:drift/native.dart';
+import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/features/media/data/media_uploader.dart';
 import 'package:dzeroth/features/media/presentation/bloc/attachments_cubit.dart';
@@ -163,6 +164,52 @@ void main() {
     expect(server.received, 0);
     expect(c.state.status, ComposerStatus.editing);
   });
+
+  test(
+    'a Retry in flight when the session ends stops its finalize loop',
+    () async {
+      final media = MockMediaRepository();
+      void Function()? onWait;
+      final uploader = MediaUploader(
+        repository: media,
+        // The screening repeats wait here; the test may end the session.
+        delay: (_) async => onWait?.call(),
+      );
+      final attachments = AttachmentsCubit(
+        picker: FakeImagePicker()..next = [imageBytes('a')],
+        processor: FakeImageProcessor(),
+        uploader: uploader,
+      );
+      addTearDown(attachments.close);
+      stubHappyUpload(media);
+      var finalizes = 0;
+      when(
+        () => media.finalizeUpload(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          items: any(named: 'items'),
+        ),
+      ).thenAnswer((_) async {
+        finalizes++;
+        throw const ScreeningUnavailableException('checks are down');
+      });
+      open(attachments: attachments, drafts: false);
+      await attachments.pick();
+      await expectLater(
+        attachments.uploadAll(),
+        throwsA(isA<ScreeningUnavailableException>()),
+      );
+      final tile = attachments.state.items.single;
+      expect(tile.status, AttachmentStatus.unchecked);
+      final before = finalizes;
+
+      // The tile's Retry, as the grid calls it; the session ends at its first
+      // wait between two FinalizeUpload attempts.
+      onWait = db.sessionEpoch.end;
+      await attachments.retryCheck(tile.id);
+
+      expect(finalizes - before, 1, reason: 'no FinalizeUpload after the end');
+    },
+  );
 
   group('with photos', () {
     late FakeImagePicker picker;

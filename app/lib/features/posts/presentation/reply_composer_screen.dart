@@ -80,8 +80,9 @@ class _ReplyEditorState extends State<_ReplyEditor> {
     _left = true;
     setState(() => _leaving = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      closeRoutesAbove(context);
+      // Already off the stack (a sign-out redirect replaced it): a pop or a
+      // `go` now would take the new stack's page.
+      if (!mounted || !closeRoutesAbove(context)) return;
       _pop(result);
     });
   }

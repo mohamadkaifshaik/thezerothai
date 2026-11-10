@@ -7,6 +7,8 @@ import 'package:dzeroth/features/posts/data/drafts_repository.dart';
 import 'package:dzeroth/features/posts/domain/composer_draft.dart';
 import 'package:dzeroth/features/posts/domain/reply_audience.dart';
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import 'package:dzeroth/features/posts/presentation/composer_screen.dart'
+    show kDraftGoneMessage;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
@@ -245,6 +247,41 @@ void main() {
 
       expect(find.text('Who can reply?'), findsNothing);
       expect(find.text('from the old account'), findsNothing);
+      expectBackOnThePostPage();
+    });
+
+    testWidgets('a redirect replaced the stack first: the leave pops nothing', (
+      tester,
+    ) async {
+      final rig = await openOverAPage(tester, drafts: FakeDraftsRepository());
+      await tester.enterText(find.byType(TextField), 'from the old account');
+      await tester.pump();
+      // What a sign-out redirect does: a new stack, the composer leaving it.
+      rig.router.go('/post/2');
+      await tester.pump();
+
+      db.sessionEpoch.end();
+      await tester.pumpAndSettle();
+
+      expect(find.text('post detail page'), findsOneWidget);
+      expect(find.text('New post'), findsNothing);
+      expect(find.text('home page'), findsNothing, reason: 'no go(home)');
+    });
+
+    testWidgets('a draft picked as the session ends shows no "draft gone" '
+        'notice under the composer', (tester) async {
+      final rig = await openOverAPage(tester, drafts: FakeDraftsRepository());
+      await tester.enterText(find.byType(TextField), 'from the old account');
+      await tester.pump();
+      await tester.tap(find.text('Drafts'));
+      await tester.pumpAndSettle();
+      expect(find.text('drafts list'), findsOneWidget);
+
+      rig.router.pop('deadbeefdeadbeef');
+      db.sessionEpoch.end();
+      await tester.pumpAndSettle();
+
+      expect(find.text(kDraftGoneMessage), findsNothing);
       expectBackOnThePostPage();
     });
   });

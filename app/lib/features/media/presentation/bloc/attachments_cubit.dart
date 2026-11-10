@@ -363,9 +363,9 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
   /// degraded mode, network, ...), a per-image network failure, or a
   /// [ValidationException] (`field: media`) when moderation refused an image.
   ///
-  /// [stillWanted] is asked before each request of the upload; once it answers
-  /// false (the session ended) no further request starts and an
-  /// [UploadInterruptedException] is thrown.
+  /// [stillWanted] (else the one given to [stopWhen]) is asked before each
+  /// request of the upload; once it answers false (the session ended) no
+  /// further request starts and an [UploadInterruptedException] is thrown.
   Future<UploadedAttachments> uploadAll({bool Function()? stillWanted}) async {
     final items = state.items;
     final jobs = [
@@ -386,7 +386,7 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
       outcomes = await _uploader.upload(
         purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
         jobs: jobs,
-        stillWanted: stillWanted,
+        stillWanted: stillWanted ?? _stillWanted,
         onProgress: (id, progress) => _update(
           id,
           (a) => a.status == AttachmentStatus.uploading
@@ -493,10 +493,20 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     );
   }
 
+  /// Whether uploads may still go on, set by the composer that owns these
+  /// photos (its session has not ended). Asked by [uploadAll] and by the
+  /// tile's Retry ([retryCheck]), which the grid calls directly.
+  bool Function()? _stillWanted;
+
+  /// Stops every later upload request, of [uploadAll] and of the tile's Retry,
+  /// once [stillWanted] answers false.
+  void stopWhen(bool Function() stillWanted) => _stillWanted = stillWanted;
+
   /// The tile's Retry: FinalizeUpload again for
   /// the same media id. The uploader remembers the finished PUTs, so nothing
-  /// is re-uploaded and no upload quota is spent.
-  Future<void> retryCheck(String id) async {
+  /// is re-uploaded and no upload quota is spent. [stillWanted] (else the one
+  /// given to [stopWhen]) stops its repeats like [uploadAll]'s.
+  Future<void> retryCheck(String id, {bool Function()? stillWanted}) async {
     final tile = state.items.where((a) => a.id == id).firstOrNull;
     final image = tile?.image;
     if (tile == null ||
@@ -509,6 +519,7 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
       final outcomes = await _uploader.upload(
         purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
         jobs: [UploadJob(id: id, image: image)],
+        stillWanted: stillWanted ?? _stillWanted,
       );
       final outcome = outcomes.single;
       _update(
