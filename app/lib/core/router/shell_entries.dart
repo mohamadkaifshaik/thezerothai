@@ -50,14 +50,14 @@ class ShellEntry {
   final bool opensAsDialog;
 }
 
-/// Every shell in rail More-menu order. The phone drawer positions Calls
-/// before feature rows and the remaining shells after History. The only place
-/// a shell's icon and label are named.
+/// Every shell in order: the rail More menu and the phone drawer list all four,
+/// in this order (the drawer after History, before Settings and Privacy). The
+/// only place a shell's icon and label are named.
 const List<ShellEntry> kShellEntries = [
   ShellEntry(
     kind: ShellKind.creatorStudio,
     icon: Icons.insights_outlined,
-    label: 'Creator tools',
+    label: 'Creator Studio',
     path: AppRouter.creatorStudioPath,
   ),
   ShellEntry(

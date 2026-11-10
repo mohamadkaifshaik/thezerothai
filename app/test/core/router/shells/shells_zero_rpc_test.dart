@@ -27,7 +27,7 @@ void main() {
   });
 
   final pages = {
-    'Creator tools': AppRouter.creatorStudioPath,
+    'Creator Studio': AppRouter.creatorStudioPath,
     'Advertise': AppRouter.advertisePath,
     'Calls': AppRouter.callsPath,
   };
@@ -99,7 +99,7 @@ void main() {
     test('no import of a data/ repository, ApiClient, a generated client '
         'or a connect/http/Firebase package', () {
       // Generated message types (`*.pb.dart`) are plain data and stay allowed
-      // (Creator tools names `Profile` to read the counts already in memory);
+      // (Creator Studio names `Profile` to read the counts already in memory);
       // generated service clients and specs are not.
       final forbidden = RegExp(
         r'/data/|api_client|\.connect\.|connectrpc|package:connect|'
@@ -157,7 +157,7 @@ void main() {
             readers.add(f.path);
           }
         }
-        expect(readers, isNotEmpty, reason: 'Creator tools reads the profile');
+        expect(readers, isNotEmpty, reason: 'Creator Studio reads the profile');
       },
     );
   });

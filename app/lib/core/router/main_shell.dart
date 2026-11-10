@@ -177,7 +177,7 @@ class MainShell extends StatelessWidget {
           ),
         ),
       if (newShell) ...[profileTab, ?settingsTab],
-      // Rail only: the menu of the shell entries (Creator tools, Premium, ...).
+      // Rail only: the menu of the shell entries (Creator Studio, Premium, ...).
       // It opens a menu at the item and never navigates; below 600dp the
       // drawer carries those entries.
       if (onMore != null)
