@@ -30,6 +30,7 @@ import 'package:dzeroth/shared/widgets/primitives/app_menu_item_row.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -2133,6 +2134,15 @@ void main() {
           expect(rail.width + header.width, env.size.width);
           expectMinTarget(tester, inRail(find.byTooltip('New post')));
           expectMinTarget(tester, find.byType(AppAccountChip));
+          // No rail label is clipped.
+          for (final element in inRail(find.byType(RichText)).evaluate()) {
+            final paragraph = element.renderObject! as RenderParagraph;
+            expect(
+              paragraph.didExceedMaxLines,
+              isFalse,
+              reason: paragraph.text.toPlainText(),
+            );
+          }
         }
       },
       widths: kTabletMatrixWidths,

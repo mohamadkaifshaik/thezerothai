@@ -1,5 +1,6 @@
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/app_fonts.dart';
@@ -83,6 +84,7 @@ void main() {
         expect(tester.getSize(text).width, lessThanOrEqualTo(78));
       }
       expectNoOverflow(tester);
+      _expectUnclipped(tester);
     });
   }
 
@@ -112,8 +114,92 @@ void main() {
         expect(tester.getSize(text).width, lessThanOrEqualTo(78));
       }
       expectNoOverflow(tester);
+      _expectUnclipped(tester);
     });
   }
+
+  // Every scale from 1.00 to 1.30 in 0.01 steps, with Notifications
+  // selected (w800) and not (w600, laid out at the shared balanced width):
+  // every label shows, none is clipped, none is shrunk.
+  for (final selected in [3, 0]) {
+    testWidgets('1.00 to 1.30: every label shows in full, Notifications '
+        '${selected == 3 ? 'selected' : 'unselected'}', (tester) async {
+      for (var step = 0; step <= 30; step++) {
+        final scale = 1 + step / 100;
+        await pumpRail(tester, selected: selected, textScale: scale);
+
+        final line = 12 * scale * 1.33;
+        for (final d in _five) {
+          final text = find.text(d.label);
+          expect(text, findsOneWidget, reason: '${d.label} x$scale');
+          final paragraph = tester.renderObject<RenderParagraph>(text);
+          expect(
+            paragraph.didExceedMaxLines,
+            isFalse,
+            reason: '${d.label} x$scale',
+          );
+          final size = tester.getSize(text);
+          expect(
+            size.width,
+            lessThanOrEqualTo(78),
+            reason: '${d.label} x$scale',
+          );
+          // At most two lines at the user's scale: never shrunk.
+          expect(
+            size.height,
+            lessThanOrEqualTo(2 * line.ceilToDouble() + 1),
+            reason: '${d.label} x$scale',
+          );
+          expect(
+            size.height,
+            greaterThanOrEqualTo(line.floorToDouble()),
+            reason: '${d.label} x$scale',
+          );
+        }
+        expectNoOverflow(tester);
+        _expectUnclipped(tester);
+      }
+    });
+  }
+
+  testWidgets('1.00 to 1.30: "Notifications" breaks at the same point '
+      'selected and unselected, and its item keeps its height', (tester) async {
+    const label = 'Notifications';
+    // The index of the first character on the second line (none: length).
+    int breakAt() {
+      final paragraph = tester.renderObject<RenderParagraph>(find.text(label));
+      double top(int i) => paragraph
+          .getBoxesForSelection(
+            TextSelection(baseOffset: i, extentOffset: i + 1),
+          )
+          .first
+          .top;
+      for (var i = 1; i < label.length; i++) {
+        if (top(i) > top(0) + 1) return i;
+      }
+      return label.length;
+    }
+
+    double itemHeight() => tester
+        .getSize(
+          find
+              .ancestor(of: find.text(label), matching: find.byType(InkWell))
+              .first,
+        )
+        .height;
+
+    for (var step = 0; step <= 30; step++) {
+      final scale = 1 + step / 100;
+      await pumpRail(tester, selected: 3, textScale: scale);
+      final selected = (breakAt(), itemHeight());
+      await pumpRail(tester, selected: 0, textScale: scale);
+      expect((breakAt(), itemHeight()), selected, reason: 'x$scale');
+      // Balanced from the first wrap on: never "Notification / s".
+      if (selected.$1 < label.length) {
+        expect(selected.$1, inInclusiveRange(5, 8), reason: 'x$scale');
+      }
+    }
+  });
 
   testWidgets('above 1.3 the rail is icon-only with tooltips', (tester) async {
     await pumpRail(tester, selected: 3, textScale: 1.31);
@@ -123,7 +209,26 @@ void main() {
       expect(find.byTooltip(d.label), findsOneWidget, reason: d.label);
     }
     expectNoOverflow(tester);
+    _expectUnclipped(tester);
   });
 }
 
 void _ignore(int _) {}
+
+/// Every text the rail draws is drawn in full: no label needs more lines
+/// than it may show (a clipped label would pass the size and overflow
+/// checks).
+void _expectUnclipped(WidgetTester tester) {
+  final paragraphs = find.descendant(
+    of: find.byType(AppNavRail),
+    matching: find.byType(RichText),
+  );
+  for (final element in paragraphs.evaluate()) {
+    final paragraph = element.renderObject! as RenderParagraph;
+    expect(
+      paragraph.didExceedMaxLines,
+      isFalse,
+      reason: paragraph.text.toPlainText(),
+    );
+  }
+}

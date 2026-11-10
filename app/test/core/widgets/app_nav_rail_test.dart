@@ -287,6 +287,7 @@ void main() {
         AppColors.light.hairline,
       );
       expectNoOverflow(tester);
+      _expectUnclipped(tester);
     });
 
     testWidgets('pinned at x = 0, 80 dp wide, on the rail surface with a '
@@ -386,6 +387,7 @@ void main() {
       ]);
       expect(activated, isEmpty);
       expectNoOverflow(tester);
+      _expectUnclipped(tester);
     });
 
     testWidgets('without a More destination nothing folds: the secondaries '
@@ -395,6 +397,7 @@ void main() {
 
       expect(_visible(tester, noMore), _labels.take(9));
       expectNoOverflow(tester);
+      _expectUnclipped(tester);
     });
 
     testWidgets('More shows even without rows of its own', (tester) async {
@@ -440,6 +443,7 @@ void main() {
       final region = tester.getRect(_inRail(find.byType(Scrollable)));
       expect(region.bottom, lessThanOrEqualTo(compose.top));
       expectNoOverflow(tester);
+      _expectUnclipped(tester);
 
       // Scrolling the region leaves the pinned controls where they are.
       await tester.drag(
@@ -531,6 +535,7 @@ void main() {
         }
         expect(find.bySemanticsLabel('Notifications'), findsOneWidget);
         expectNoOverflow(tester);
+        _expectUnclipped(tester);
         handle.dispose();
       });
     }
@@ -572,6 +577,7 @@ void main() {
         );
       }
       expectNoOverflow(tester);
+      _expectUnclipped(tester);
     });
 
     // R2's floor is 500, but with labels at 1.3 the folded stack is
@@ -604,6 +610,7 @@ void main() {
         // Every item is in view: nothing scrolled away.
         expect(more.bottom, lessThanOrEqualTo(region.bottom));
         expectNoOverflow(tester);
+        _expectUnclipped(tester);
       });
     }
 
@@ -635,6 +642,7 @@ void main() {
         0,
       );
       expectNoOverflow(tester);
+      _expectUnclipped(tester);
     });
 
     testWidgets('1024 x 700 at 1.3: the full stack with two-line '
@@ -648,6 +656,7 @@ void main() {
       await _pump(tester, height: 768, textScale: 1.3);
       expect(_inRail(find.byIcon(Icons.list_alt_outlined)), findsOneWidget);
       expectNoOverflow(tester);
+      _expectUnclipped(tester);
     });
 
     testWidgets('R1 where everything fits: compose follows the items', (
@@ -689,6 +698,7 @@ void main() {
           isSemantics(label: 'Notifications', isSelected: true),
         );
         expectNoOverflow(tester);
+        _expectUnclipped(tester);
         handle.dispose();
       });
     }
@@ -807,6 +817,7 @@ void main() {
       lessThanOrEqualTo(430 - 20),
     );
     expectNoOverflow(tester);
+    _expectUnclipped(tester);
   });
 
   group('keyboard: roving focus', () {
@@ -1008,6 +1019,7 @@ void main() {
           selected: 3,
         );
         expectNoOverflow(tester);
+        _expectUnclipped(tester);
         final compose = tester.getRect(find.byKey(_composeKey));
         final account = tester.getRect(find.byKey(_accountKey));
         expect(
@@ -1042,6 +1054,7 @@ void main() {
         );
 
         expectNoOverflow(tester);
+        _expectUnclipped(tester);
         expect(
           tester.getRect(find.byType(AppNavRail)),
           Rect.fromLTWH(0, 0, 80, height),
@@ -1064,4 +1077,22 @@ void main() {
     textScales: kTabletTextScales,
     heights: kTabletHeights,
   );
+}
+
+/// Every text the rail draws is drawn in full: no label needs more lines
+/// than it may show (a clipped label would pass the size and overflow
+/// checks).
+void _expectUnclipped(WidgetTester tester) {
+  final paragraphs = find.descendant(
+    of: find.byType(AppNavRail),
+    matching: find.byType(RichText),
+  );
+  for (final element in paragraphs.evaluate()) {
+    final paragraph = element.renderObject! as RenderParagraph;
+    expect(
+      paragraph.didExceedMaxLines,
+      isFalse,
+      reason: paragraph.text.toPlainText(),
+    );
+  }
 }

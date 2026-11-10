@@ -150,6 +150,41 @@ class _AppNavRailState extends State<AppNavRail> {
   // The keyboard ring of the last build, in visual order.
   List<Object> _ring = const [];
 
+  // The measured label layouts and what they were measured for: the labels,
+  // the text scaler, both label styles and the direction. A build with the
+  // same inputs (an arrow key, a badge update) reuses them.
+  Object? _labelKey;
+  List<_LabelLayout>? _labelLayouts;
+
+  List<_LabelLayout>? _labelLayoutsFor(
+    BuildContext context,
+    List<String> labels,
+  ) {
+    final theme = Theme.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    final selectedStyle = _RailItem._labelStyle(theme, selected: true);
+    final unselectedStyle = _RailItem._labelStyle(theme, selected: false);
+    final direction = Directionality.of(context);
+    final key = (
+      labels.join('\u0000'),
+      scaler,
+      selectedStyle,
+      unselectedStyle,
+      direction,
+    );
+    if (key != _labelKey) {
+      _labelKey = key;
+      _labelLayouts = _RailItem.measure(
+        labels: labels,
+        scaler: scaler,
+        selectedStyle: selectedStyle,
+        unselectedStyle: unselectedStyle,
+        direction: direction,
+      );
+    }
+    return _labelLayouts;
+  }
+
   // The stop the arrow keys moved to: the Tab stop while the focus stays in
   // the rail (roving tabindex), so Tab and Shift+Tab leave the rail from
   // it. Null: the selected item (else the first) is the Tab stop.
@@ -293,7 +328,7 @@ class _AppNavRailState extends State<AppNavRail> {
     // Labels only while every one fits the item in at most two lines at the
     // user's text scale (never shrunk); otherwise every item is icon-only.
     // All or nothing, so the rail stays uniform.
-    final layouts = _RailItem.labelLayouts(context, [
+    final layouts = _labelLayoutsFor(context, [
       for (final i in primaries) destinations[i].label,
     ]);
 
@@ -571,68 +606,90 @@ class _RailItem extends StatelessWidget {
       );
 
   /// How each of [labels] is laid out, when every one fits the item in at
-  /// most [maxLabelLines] lines at the text scale of [context] (measured in
-  /// the selected, widest weight); null when the scale is above
-  /// [AppNavRail.maxLabelTextScale] or one does not fit. A label is never
-  /// shrunk or ellipsized.
+  /// most [maxLabelLines] lines at [scaler] in both weights (the selected
+  /// [selectedStyle] and the unselected [unselectedStyle]); null when the
+  /// scale is above [AppNavRail.maxLabelTextScale] or one does not fit. A
+  /// label is never shrunk or ellipsized. Pure: the rail caches the result
+  /// (about twenty `TextPainter` layouts) per labels, scale, styles and
+  /// direction.
   ///
   /// A label wraps at its spaces at the item's width. A single word wider
   /// than the item ("Notifications" from about 1.01) can only break inside
   /// the word: it is laid out at the narrowest width that still keeps it to
-  /// two lines, so the halves are balanced ("Notifi / cations", not
-  /// "Notification / s"); the text itself is unchanged.
-  static List<_LabelLayout>? labelLayouts(
-    BuildContext context,
-    List<String> labels,
-  ) {
-    final scaler = MediaQuery.textScalerOf(context);
+  /// two lines in both weights (the wider of the two balanced widths), so
+  /// the halves are balanced ("Notifi / cations", not "Notification / s")
+  /// and the width does not change with the selection; the text itself is
+  /// unchanged. The item reserves the taller of the two weights' heights.
+  static List<_LabelLayout>? measure({
+    required List<String> labels,
+    required TextScaler scaler,
+    required TextStyle? selectedStyle,
+    required TextStyle? unselectedStyle,
+    required TextDirection direction,
+  }) {
     if (scaler.scale(1) > AppNavRail.maxLabelTextScale) return null;
-    final style = _labelStyle(Theme.of(context), selected: true);
-    final direction = Directionality.of(context);
-    TextPainter laidOut(String text, double width, {int? maxLines}) =>
-        TextPainter(
-          text: TextSpan(text: text, style: style),
-          textDirection: direction,
-          textAlign: TextAlign.center,
-          textScaler: scaler,
-          maxLines: maxLines,
-        )..layout(maxWidth: width);
+    final styles = [selectedStyle, unselectedStyle];
+    TextPainter laidOut(
+      String text,
+      TextStyle? style,
+      double width, {
+      int? maxLines,
+    }) => TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: direction,
+      textAlign: TextAlign.center,
+      textScaler: scaler,
+      maxLines: maxLines,
+    )..layout(maxWidth: width);
+
+    // Lines and height of [label] at [width] in every style; null when one
+    // needs more than [maxLabelLines] lines.
+    (int, double)? fit(String label, double width) {
+      var lines = 0;
+      var height = 0.0;
+      for (final style in styles) {
+        final painter = laidOut(label, style, width, maxLines: maxLabelLines);
+        final exceeded = painter.didExceedMaxLines;
+        lines = math.max(lines, painter.computeLineMetrics().length);
+        height = math.max(height, painter.height);
+        painter.dispose();
+        if (exceeded) return null;
+      }
+      return (lines, height);
+    }
 
     final layouts = <_LabelLayout>[];
     for (final label in labels) {
-      final full = laidOut(label, _labelMax, maxLines: maxLabelLines);
-      final fits = !full.didExceedMaxLines;
-      final lines = full.computeLineMetrics().length;
-      var height = full.height;
-      full.dispose();
-      if (!fits) return null;
-      var width = _labelMax;
-      final overlong = label.split(RegExp(r'\s+')).any((word) {
-        final painter = laidOut(word, double.infinity);
-        final wide = painter.width > _labelMax;
-        painter.dispose();
-        return wide;
-      });
-      if (lines > 1 && overlong) {
-        var lo = 0.0;
-        var hi = _labelMax;
-        for (var step = 0; step < 10; step++) {
-          final mid = (lo + hi) / 2;
-          final painter = laidOut(label, mid, maxLines: maxLabelLines);
-          final ok = !painter.didExceedMaxLines;
-          painter.dispose();
-          if (ok) {
-            hi = mid;
-          } else {
-            lo = mid;
-          }
-        }
-        width = math.min(hi.ceilToDouble(), _labelMax);
-        final balanced = laidOut(label, width, maxLines: maxLabelLines);
-        height = balanced.height;
-        balanced.dispose();
+      final full = fit(label, _labelMax);
+      if (full == null) return null;
+      final (lines, height) = full;
+      // One line, or a wrap at a space: the item's width.
+      if (lines == 1 ||
+          !label.split(RegExp(r'\s+')).any((word) {
+            final painter = laidOut(word, selectedStyle, double.infinity);
+            final wide = painter.width > _labelMax;
+            painter.dispose();
+            return wide;
+          })) {
+        layouts.add(_LabelLayout(width: _labelMax, height: height));
+        continue;
       }
-      layouts.add(_LabelLayout(width: width, height: height));
+      // A word wider than the item: the narrowest width that keeps every
+      // weight to two lines.
+      var lo = 0.0;
+      var hi = _labelMax;
+      for (var step = 0; step < 10; step++) {
+        final mid = (lo + hi) / 2;
+        if (fit(label, mid) != null) {
+          hi = mid;
+        } else {
+          lo = mid;
+        }
+      }
+      final width = math.min(hi.ceilToDouble(), _labelMax);
+      final balanced = fit(label, width);
+      if (balanced == null) return null;
+      layouts.add(_LabelLayout(width: width, height: balanced.$2));
     }
     return layouts;
   }
@@ -668,7 +725,7 @@ class _RailItem extends StatelessWidget {
             children: [
               pill,
               const SizedBox(height: AppSpacing.xs),
-              // Shown only when it fits ([labelLayouts]): at the user's
+              // Shown only when it fits ([measure]): at the user's
               // scale, never shrunk, in at most two centred lines.
               SizedBox(
                 width: label!.width,
