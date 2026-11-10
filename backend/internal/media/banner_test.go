@@ -14,6 +14,11 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
+// bannerFull and bannerThumb are WebP headers of the client's banner sizes (1500 x 500 and 600 x 200): verify reads the
+// real size (B14).
+func bannerFull(tag string) []byte  { return webpSized(tag, 1500, 500) }
+func bannerThumb(tag string) []byte { return webpSized(tag, 600, 200) }
+
 // bannerItem is a well-formed banner declaration: 1500 x 500 WebP.
 func bannerItem(full, thumb []byte) UploadItem {
 	it := item(full, thumb, "image/webp")
@@ -24,7 +29,7 @@ func bannerItem(full, thumb []byte) UploadItem {
 // bannerUpload runs CreateUpload(BANNER) and the client's two PUTs.
 func (e *env) bannerUpload(t *testing.T, uid, tag string) UploadTarget {
 	t.Helper()
-	full, thumb := webpBytes("F"+tag), webpBytes("T"+tag)
+	full, thumb := bannerFull("F"+tag), bannerThumb("T"+tag)
 	tgs, err := e.svc.CreateUpload(context.Background(), uid, CreateUploadInput{
 		IdempotencyKey: "key-" + tag + "-0123456789", Purpose: PurposeBanner, Items: []UploadItem{bannerItem(full, thumb)},
 	})
@@ -36,7 +41,7 @@ func (e *env) bannerUpload(t *testing.T, uid, tag string) UploadTarget {
 }
 
 func TestCreateUpload_BannerValidation(t *testing.T) {
-	good := bannerItem(webpBytes("a"), webpBytes("b"))
+	good := bannerItem(bannerFull("a"), bannerThumb("b"))
 	with := func(f func(*UploadItem)) UploadItem { i := good; f(&i); return i }
 	tests := []struct {
 		name  string
@@ -95,7 +100,7 @@ func TestCreateUpload_BannerCapsDoNotLeakToOtherPurposes(t *testing.T) {
 
 func TestCreateUpload_BannerSignsBannerCapsAndStoresPurposeAndSizes(t *testing.T) {
 	e := newEnv(t, envOpts{})
-	full, thumb := webpBytes("full-image"), webpBytes("thumb")
+	full, thumb := bannerFull("full-image"), bannerThumb("thumb")
 	tgs, err := e.svc.CreateUpload(context.Background(), uidA, CreateUploadInput{
 		IdempotencyKey: key1, Purpose: PurposeBanner, Items: []UploadItem{bannerItem(full, thumb)},
 	})
@@ -221,7 +226,7 @@ func TestFinalize_BannerOverTheStoredSizeIsRejected(t *testing.T) {
 
 // bannerReq is a CreateUpload request for a good banner.
 func bannerReq(key string) *mediav1.CreateUploadRequest {
-	full, thumb := webpBytes("F"), webpBytes("T")
+	full, thumb := bannerFull("F"), bannerThumb("T")
 	return &mediav1.CreateUploadRequest{
 		IdempotencyKey: key, Purpose: mediav1.MediaPurpose_MEDIA_PURPOSE_BANNER,
 		Items: []*mediav1.UploadItem{{
@@ -315,7 +320,7 @@ func TestServer_BannerEndToEnd(t *testing.T) {
 	if e.repo.docs[tg.GetMediaId()].Purpose != string(PurposeBanner) || tg.GetFull().GetHeaders()["x-goog-content-length-range"] != "0,1048576" {
 		t.Fatalf("doc=%+v target=%v", e.repo.docs[tg.GetMediaId()], tg)
 	}
-	e.put(uidA, UploadTarget{MediaID: tg.GetMediaId()}, webpBytes("F"), webpBytes("T"), "image/webp")
+	e.put(uidA, UploadTarget{MediaID: tg.GetMediaId()}, bannerFull("F"), bannerThumb("T"), "image/webp")
 	// Finalize is not flag-gated on profile_extras: an upload started before the flag was lowered can complete.
 	s = NewServer(e.svc, fakeFlags{FlagName: true})
 	fin, err := s.FinalizeUpload(authedCtx(uidA), connect.NewRequest(&mediav1.FinalizeUploadRequest{

@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../primitives/app_skeleton.dart';
 
 /// Placeholder rows shaped like user rows (avatar, name, handle), shown while
-/// a people list's first page loads. Static (no shimmer): cheap, and respects
-/// reduced motion. Announced once as [semanticsLabel].
+/// a people list's first page loads. Built on [AppSkeletonScope]: a slow pulse
+/// that is static under reduced motion. Announced once as [semanticsLabel].
 class UserListSkeleton extends StatelessWidget {
   const UserListSkeleton({
     super.key,
@@ -20,57 +21,18 @@ class UserListSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    Widget bar(double widthFactor) => FractionallySizedBox(
-      alignment: AlignmentDirectional.centerStart,
-      widthFactor: widthFactor,
-      child: Container(
-        height: AppSpacing.md,
-        decoration: BoxDecoration(
-          color: colors.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(AppRadius.sm),
-        ),
-      ),
-    );
-    return Semantics(
-      liveRegion: true,
-      label: semanticsLabel,
-      child: ExcludeSemantics(
-        child: Column(
-          children: [
-            for (var i = 0; i < rows; i++) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.sm,
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: _avatarSize,
-                      height: _avatarSize,
-                      decoration: BoxDecoration(
-                        color: colors.surfaceContainerHigh,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.md),
-                    Expanded(
-                      child: Column(
-                        children: [
-                          bar(0.5),
-                          const SizedBox(height: AppSpacing.sm),
-                          bar(0.3),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(height: 1),
-            ],
+    return AppSkeletonScope(
+      semanticsLabel: semanticsLabel,
+      child: Column(
+        children: [
+          for (var i = 0; i < rows; i++) ...[
+            const AppSkeletonRow(
+              avatarSize: _avatarSize,
+              barWidths: [0.5, 0.3],
+            ),
+            const Divider(height: 1),
           ],
-        ),
+        ],
       ),
     );
   }

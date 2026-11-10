@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../shared/format/coarse_wait.dart';
 import '../network/app_exception.dart';
+import '../../shared/widgets/primitives/app_pill_button.dart';
 import '../theme/app_theme.dart';
 
 /// User-facing text for a [RateLimitedException]. A daily limit says it resets
@@ -24,10 +25,18 @@ String rateLimitedMessage(RateLimitedException error) {
 /// Never shows a raw exception message from an unrecognized source; always
 /// branches on the exception type, not on its text.
 class AppErrorView extends StatelessWidget {
-  const AppErrorView({super.key, required this.error, this.onRetry});
+  const AppErrorView({
+    super.key,
+    required this.error,
+    this.onRetry,
+    this.retrying = false,
+  });
 
   final AppException error;
   final VoidCallback? onRetry;
+
+  /// A retry is running: Retry shows its busy state and ignores taps.
+  final bool retrying;
 
   @override
   Widget build(BuildContext context) {
@@ -98,18 +107,27 @@ class AppErrorView extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 40, color: Theme.of(context).colorScheme.error),
+              ExcludeSemantics(
+                child: Icon(
+                  icon,
+                  size: 40,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ),
               const SizedBox(height: AppSpacing.md),
               Text(
                 title,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge,
+                style: Theme.of(context).textTheme.titleMedium,
               ),
               if (canRetry && onRetry != null) ...[
                 const SizedBox(height: AppSpacing.md),
-                FilledButton.tonal(
+                AppPillButton(
+                  label: 'Retry',
+                  variant: AppButtonVariant.outline,
                   onPressed: onRetry,
-                  child: const Text('Retry'),
+                  busy: retrying,
+                  busySemanticsLabel: 'Retrying',
                 ),
               ],
             ],

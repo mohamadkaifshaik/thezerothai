@@ -1,5 +1,15 @@
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
-import '../../graph/data/graph_repository.dart';
+
+/// One page of the empty-query people list. [nextPageToken] is the opaque
+/// cursor for the next page, empty on the last one.
+class PeoplePage {
+  const PeoplePage({required this.items, required this.nextPageToken});
+
+  final List<graph.UserListItem> items;
+  final String nextPageToken;
+
+  bool get hasMore => nextPageToken.isNotEmpty;
+}
 
 /// The server flag (`GetMe.enabled_features`) of W4's people search. The
 /// picker asks a [PeopleSource] to search only while it is on for the caller;
@@ -17,7 +27,7 @@ const kPickerSearchFlag = 'search';
 ///   filters the rows it already loaded instead.
 abstract interface class PeopleSource {
   /// One page of the empty-query list. [pageToken] is empty for the first.
-  Future<GraphPage> page({required int pageSize, required String pageToken});
+  Future<PeoplePage> page({required int pageSize, required String pageToken});
 
   /// True when [search] asks the server. The picker also needs the `search`
   /// flag ([kPickerSearchFlag]) before it calls it.
@@ -26,33 +36,4 @@ abstract interface class PeopleSource {
   /// Typeahead rows for [query] (the picker sends it normalised, at least
   /// two characters, debounced). Only called when [searchesRemotely].
   Future<List<graph.UserListItem>> search(String query);
-}
-
-/// The people the caller follows (`GraphService.ListFollowing`, the existing
-/// graph read row). No remote search.
-class FollowingPeopleSource implements PeopleSource {
-  const FollowingPeopleSource({
-    required GraphRepository graphRepository,
-    required this.userId,
-  }) : _graph = graphRepository;
-
-  final GraphRepository _graph;
-
-  /// The caller's own user id.
-  final String userId;
-
-  @override
-  Future<GraphPage> page({required int pageSize, required String pageToken}) =>
-      _graph.listFollowing(
-        userId: userId,
-        pageSize: pageSize,
-        pageToken: pageToken,
-      );
-
-  @override
-  bool get searchesRemotely => false;
-
-  @override
-  Future<List<graph.UserListItem>> search(String query) async =>
-      throw UnsupportedError('Following cannot search remotely');
 }

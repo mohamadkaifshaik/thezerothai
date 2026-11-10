@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_shell_scope.dart';
+import '../../../core/widgets/app_top_bar.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../graph/presentation/widgets/who_to_follow_card.dart';
@@ -35,7 +37,7 @@ class ExploreScreen extends StatelessWidget {
           SliverPersistentHeader(
             pinned: true,
             delegate: _ExploreHeader(
-              extent: rowHeight + AppSize.headerRow,
+              extent: rowHeight + AppTabBar.heightFor(context),
               rowHeight: rowHeight,
             ),
           ),
@@ -73,6 +75,7 @@ class _ExploreHeader extends SliverPersistentHeaderDelegate {
     bool overlapsContent,
   ) {
     final colors = Theme.of(context).colorScheme;
+    final narrow = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
     return ColoredBox(
       color: colors.surface.withValues(alpha: 0.92),
       child: Column(
@@ -81,7 +84,14 @@ class _ExploreHeader extends SliverPersistentHeaderDelegate {
             height: rowHeight,
             child: Row(
               children: [
-                const SizedBox(width: AppSpacing.md),
+                // Phones: the avatar opens the drawer (Profile, Lists...).
+                if (narrow && AppShellScope.maybeOf(context) != null)
+                  const Padding(
+                    padding: EdgeInsets.only(left: AppSpacing.sm),
+                    child: AppAvatarButton(),
+                  )
+                else
+                  const SizedBox(width: AppSpacing.md),
                 Expanded(child: const Center(child: AppSearchField())),
                 const SizedBox(width: AppSpacing.md),
               ],

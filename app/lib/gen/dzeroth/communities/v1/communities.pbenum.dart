@@ -127,15 +127,22 @@ class CommunityMemberFilter extends $pb.ProtobufEnum {
       CommunityMemberFilter._(
           2, _omitEnumNames ? '' : 'COMMUNITY_MEMBER_FILTER_BANNED');
 
+  /// The owner and the moderators (roles OWNER and MODERATOR, from the community document), owner first, then the
+  /// moderators by user id. Owner and moderators only.
+  static const CommunityMemberFilter COMMUNITY_MEMBER_FILTER_MODERATORS =
+      CommunityMemberFilter._(
+          3, _omitEnumNames ? '' : 'COMMUNITY_MEMBER_FILTER_MODERATORS');
+
   static const $core.List<CommunityMemberFilter> values =
       <CommunityMemberFilter>[
     COMMUNITY_MEMBER_FILTER_UNSPECIFIED,
     COMMUNITY_MEMBER_FILTER_JOINED,
     COMMUNITY_MEMBER_FILTER_BANNED,
+    COMMUNITY_MEMBER_FILTER_MODERATORS,
   ];
 
   static final $core.List<CommunityMemberFilter?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 2);
+      $pb.ProtobufEnum.$_initByValueList(values, 3);
   static CommunityMemberFilter? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

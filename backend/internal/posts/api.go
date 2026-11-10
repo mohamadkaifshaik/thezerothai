@@ -9,7 +9,9 @@ package posts
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -17,6 +19,8 @@ import (
 
 	"cloud.google.com/go/firestore"
 
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/outbox"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
@@ -153,6 +157,10 @@ type Post struct {
 	// CommunityHidden is the label switch only: a moderator hide sets it, a restore clears it. It never feeds Hidden() or
 	// the audience; ToView drops the community label while it is true. Absent = false.
 	CommunityHidden bool
+	// BeaconID is the plan this root post shares (CreatePostRequest.beacon_id), "" for none, and Beacon its snapshot frozen at
+	// create time (never put on the wire: the live card comes from BeaconPlans.Previews, see beaconToProto).
+	BeaconID string
+	Beacon   *BeaconSnapshot
 }
 
 // CommunityLabel is the community {id, name} snapshot a community post stores: a rename does not rewrite old posts.
@@ -405,6 +413,11 @@ type CreateInput struct {
 	// CommunitiesGloballyOff is FEATURE_COMMUNITIES off for everyone (the kill switch; server.go, never from the request): a reply into a
 	// community conversation then skips CommunityGate.CanReply.
 	CommunitiesGloballyOff bool
+	// BeaconID is the request's beacon_id, "" for none; BeaconEmbedEnabled is the FEATURE_POST_BEACON_EMBED decision for the
+	// caller, made by server.go (never from the request). A set BeaconID with it false, or with no BeaconPlans wired, is
+	// FEATURE_DISABLED (metadata feature=post_beacon_embed), checked after polls and before any read.
+	BeaconID           string
+	BeaconEmbedEnabled bool
 }
 
 // ArticlePublication loads the frozen draft inside the root post transaction;
@@ -459,6 +472,55 @@ type PostDeleteJobs interface {
 	PostDeleted(ctx context.Context, uid, postID string, mediaIDs []string) error
 }
 
+// PostDeleteOutbox makes the post_delete job durable (*outbox.Outbox implements it). DeletePost stages one item
+// (kind PostDeleteOutboxKind, key = the post id, payload = PostDeleteWork) in the delete batch itself, publishes after the
+// commit as before and calls Done when the publish succeeded. A lost publish or a crash leaves the item, and the outbox
+// sweep (apiserver) republishes it through the same PostDeleteJobs.PostDeleted; the job's steps are idempotent.
+type PostDeleteOutbox interface {
+	Stage(b store.Batch, e outbox.Entry) error
+	Done(ctx context.Context, e outbox.Entry) error
+}
+
+// PostDeleteOutboxKind is the outbox kind of a deleted post's pending post_delete publish.
+const PostDeleteOutboxKind = "post_delete"
+
+// PostDeleteWork is the outbox payload: the PostDeleteJobs.PostDeleted arguments.
+type PostDeleteWork struct {
+	UID      string   `json:"uid"`
+	PostID   string   `json:"postId"`
+	MediaIDs []string `json:"mediaIds"`
+}
+
+// PostDeleteEntry builds the outbox entry of a deleted post (deterministic id post_delete:<postId>).
+func PostDeleteEntry(uid, postID string, mediaIDs []string) (outbox.Entry, error) {
+	w := PostDeleteWork{UID: uid, PostID: postID, MediaIDs: mediaIDs}
+	if err := w.validate(); err != nil {
+		return outbox.Entry{}, err
+	}
+	data, err := json.Marshal(w)
+	if err != nil {
+		return outbox.Entry{}, fmt.Errorf("posts: encode post_delete work: %w", err)
+	}
+	e := outbox.Entry{Kind: PostDeleteOutboxKind, Key: postID, UID: uid, Payload: data}
+	return e, e.Validate()
+}
+
+// DecodePostDeleteWork parses and validates an outbox payload written by PostDeleteEntry.
+func DecodePostDeleteWork(data []byte) (PostDeleteWork, error) {
+	var w PostDeleteWork
+	if err := json.Unmarshal(data, &w); err != nil {
+		return w, fmt.Errorf("posts: decode post_delete work: %w", err)
+	}
+	return w, w.validate()
+}
+
+func (w PostDeleteWork) validate() error {
+	if !ids.ValidUID(w.UID) || !ids.ValidPostID(w.PostID) {
+		return errors.New("posts: post_delete work: invalid uid or post id")
+	}
+	return nil
+}
+
 // EngagementFlagName is the wire name of FEATURE_ENGAGEMENT. It gates the quote path of CreatePost
 // and viewer-flag hydration here; engagement.FlagName is the same string and gates its own RPCs. FEATURE_POSTS is
 // still required.
@@ -482,6 +544,10 @@ type ViewerSet struct {
 	// blockedAuthors is the viewer's outgoing block set (graph snapshot.Blocked), set by the producers that show a post by an author the viewer
 	// blocks (GetPost, GetThread, the author's profile timeline) and read only by ToViewAt for viewer_poll_vote_blocked. Read-only.
 	blockedAuthors map[string]bool
+	// beacons is the live plan state of the page (WithBeacons) and beaconsOff is FEATURE_POST_BEACON_EMBED globally off
+	// (ToView drops Post.beacon). Read-only.
+	beacons    map[string]BeaconLive
+	beaconsOff bool
 }
 
 // NewViewerSet builds a ViewerSet from post-id lists (no bookmarks).
@@ -511,7 +577,7 @@ func NewViewerSetWithBookmarks(liked, reposted, bookmarked []string) ViewerSet {
 // FEATURE_ENGAGEMENT off may see, so the wider hydration never leaks like or repost flags.
 // The poll choices go with them; the polls-globally-off mark stays (it is not viewer state).
 func (v ViewerSet) BookmarksOnly() ViewerSet {
-	return ViewerSet{bookmarked: v.bookmarked, pollsOff: v.pollsOff, communitiesOff: v.communitiesOff}
+	return ViewerSet{bookmarked: v.bookmarked, pollsOff: v.pollsOff, communitiesOff: v.communitiesOff, beacons: v.beacons, beaconsOff: v.beaconsOff}
 }
 
 // WithPollVotes returns v plus the viewer's poll choices, from userLikes.pollVotes entries "<postId>:<index>[:<closesAtUnix>]" (newest last).

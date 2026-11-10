@@ -313,7 +313,14 @@ type Conversation struct {
 	// it is filled on the first page only, from the caller's own entry.
 	Silent bool `protobuf:"varint,9,opt,name=silent,proto3" json:"silent,omitempty"`
 	// Last activity on the caller's entry; the ListConversations sort key.
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	// When the peer last marked this conversation read, if both of you have read receipts on (F3); unset otherwise.
+	// Messages with created_at at or before it are seen. ListMessages first page only (one extra read of the peer's own
+	// entry; a since or older page and every ListConversations row leave it unset, so polls stay free): re-open or
+	// refresh the thread to update it. Unset when FEATURE_READ_RECEIPTS is off for the caller, when either side has the
+	// setting off (reciprocal: your own off hides it at once on the serving instance, the peer's within the 60 s profile
+	// cache), when the peer never read with receipts on, when either side blocks the other, and when the peer is gone.
+	PeerReadAt    *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=peer_read_at,json=peerReadAt,proto3" json:"peer_read_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -414,6 +421,13 @@ func (x *Conversation) GetSilent() bool {
 func (x *Conversation) GetUpdatedAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.UpdatedAt
+	}
+	return nil
+}
+
+func (x *Conversation) GetPeerReadAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.PeerReadAt
 	}
 	return nil
 }
@@ -1291,7 +1305,7 @@ var File_dzeroth_messaging_v1_messaging_proto protoreflect.FileDescriptor
 
 const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"\n" +
-	"$dzeroth/messaging/v1/messaging.proto\x12\x14dzeroth.messaging.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe2\x03\n" +
+	"$dzeroth/messaging/v1/messaging.proto\x12\x14dzeroth.messaging.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa0\x04\n" +
 	"\fConversation\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
 	"\x04kind\x18\x02 \x01(\x0e2&.dzeroth.messaging.v1.ConversationKindR\x04kind\x125\n" +
@@ -1304,7 +1318,9 @@ const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"\x06silent\x18\t \x01(\bR\x06silent\x129\n" +
 	"\n" +
 	"updated_at\x18\n" +
-	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xbc\x01\n" +
+	" \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12<\n" +
+	"\fpeer_read_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\n" +
+	"peerReadAt\"\xbc\x01\n" +
 	"\x0eMessagePreview\x12\x18\n" +
 	"\asnippet\x18\x01 \x01(\tR\asnippet\x12\x1b\n" +
 	"\tfrom_self\x18\x02 \x01(\bR\bfromSelf\x128\n" +
@@ -1435,33 +1451,34 @@ var file_dzeroth_messaging_v1_messaging_proto_depIdxs = []int32{
 	2,  // 3: dzeroth.messaging.v1.Conversation.folder:type_name -> dzeroth.messaging.v1.Folder
 	5,  // 4: dzeroth.messaging.v1.Conversation.last_message:type_name -> dzeroth.messaging.v1.MessagePreview
 	20, // 5: dzeroth.messaging.v1.Conversation.updated_at:type_name -> google.protobuf.Timestamp
-	3,  // 6: dzeroth.messaging.v1.MessagePreview.state:type_name -> dzeroth.messaging.v1.MessageState
-	20, // 7: dzeroth.messaging.v1.MessagePreview.created_at:type_name -> google.protobuf.Timestamp
-	3,  // 8: dzeroth.messaging.v1.Message.state:type_name -> dzeroth.messaging.v1.MessageState
-	20, // 9: dzeroth.messaging.v1.Message.created_at:type_name -> google.protobuf.Timestamp
-	6,  // 10: dzeroth.messaging.v1.SendMessageResponse.message:type_name -> dzeroth.messaging.v1.Message
-	4,  // 11: dzeroth.messaging.v1.SendMessageResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
-	2,  // 12: dzeroth.messaging.v1.ListConversationsRequest.folder:type_name -> dzeroth.messaging.v1.Folder
-	4,  // 13: dzeroth.messaging.v1.ListConversationsResponse.conversations:type_name -> dzeroth.messaging.v1.Conversation
-	6,  // 14: dzeroth.messaging.v1.ListMessagesResponse.messages:type_name -> dzeroth.messaging.v1.Message
-	4,  // 15: dzeroth.messaging.v1.ListMessagesResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
-	7,  // 16: dzeroth.messaging.v1.MessagingService.SendMessage:input_type -> dzeroth.messaging.v1.SendMessageRequest
-	9,  // 17: dzeroth.messaging.v1.MessagingService.ListConversations:input_type -> dzeroth.messaging.v1.ListConversationsRequest
-	11, // 18: dzeroth.messaging.v1.MessagingService.ListMessages:input_type -> dzeroth.messaging.v1.ListMessagesRequest
-	13, // 19: dzeroth.messaging.v1.MessagingService.MarkConversationRead:input_type -> dzeroth.messaging.v1.MarkConversationReadRequest
-	15, // 20: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:input_type -> dzeroth.messaging.v1.AcceptMessageRequestRequest
-	17, // 21: dzeroth.messaging.v1.MessagingService.DeleteConversation:input_type -> dzeroth.messaging.v1.DeleteConversationRequest
-	8,  // 22: dzeroth.messaging.v1.MessagingService.SendMessage:output_type -> dzeroth.messaging.v1.SendMessageResponse
-	10, // 23: dzeroth.messaging.v1.MessagingService.ListConversations:output_type -> dzeroth.messaging.v1.ListConversationsResponse
-	12, // 24: dzeroth.messaging.v1.MessagingService.ListMessages:output_type -> dzeroth.messaging.v1.ListMessagesResponse
-	14, // 25: dzeroth.messaging.v1.MessagingService.MarkConversationRead:output_type -> dzeroth.messaging.v1.MarkConversationReadResponse
-	16, // 26: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:output_type -> dzeroth.messaging.v1.AcceptMessageRequestResponse
-	18, // 27: dzeroth.messaging.v1.MessagingService.DeleteConversation:output_type -> dzeroth.messaging.v1.DeleteConversationResponse
-	22, // [22:28] is the sub-list for method output_type
-	16, // [16:22] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	20, // 6: dzeroth.messaging.v1.Conversation.peer_read_at:type_name -> google.protobuf.Timestamp
+	3,  // 7: dzeroth.messaging.v1.MessagePreview.state:type_name -> dzeroth.messaging.v1.MessageState
+	20, // 8: dzeroth.messaging.v1.MessagePreview.created_at:type_name -> google.protobuf.Timestamp
+	3,  // 9: dzeroth.messaging.v1.Message.state:type_name -> dzeroth.messaging.v1.MessageState
+	20, // 10: dzeroth.messaging.v1.Message.created_at:type_name -> google.protobuf.Timestamp
+	6,  // 11: dzeroth.messaging.v1.SendMessageResponse.message:type_name -> dzeroth.messaging.v1.Message
+	4,  // 12: dzeroth.messaging.v1.SendMessageResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
+	2,  // 13: dzeroth.messaging.v1.ListConversationsRequest.folder:type_name -> dzeroth.messaging.v1.Folder
+	4,  // 14: dzeroth.messaging.v1.ListConversationsResponse.conversations:type_name -> dzeroth.messaging.v1.Conversation
+	6,  // 15: dzeroth.messaging.v1.ListMessagesResponse.messages:type_name -> dzeroth.messaging.v1.Message
+	4,  // 16: dzeroth.messaging.v1.ListMessagesResponse.conversation:type_name -> dzeroth.messaging.v1.Conversation
+	7,  // 17: dzeroth.messaging.v1.MessagingService.SendMessage:input_type -> dzeroth.messaging.v1.SendMessageRequest
+	9,  // 18: dzeroth.messaging.v1.MessagingService.ListConversations:input_type -> dzeroth.messaging.v1.ListConversationsRequest
+	11, // 19: dzeroth.messaging.v1.MessagingService.ListMessages:input_type -> dzeroth.messaging.v1.ListMessagesRequest
+	13, // 20: dzeroth.messaging.v1.MessagingService.MarkConversationRead:input_type -> dzeroth.messaging.v1.MarkConversationReadRequest
+	15, // 21: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:input_type -> dzeroth.messaging.v1.AcceptMessageRequestRequest
+	17, // 22: dzeroth.messaging.v1.MessagingService.DeleteConversation:input_type -> dzeroth.messaging.v1.DeleteConversationRequest
+	8,  // 23: dzeroth.messaging.v1.MessagingService.SendMessage:output_type -> dzeroth.messaging.v1.SendMessageResponse
+	10, // 24: dzeroth.messaging.v1.MessagingService.ListConversations:output_type -> dzeroth.messaging.v1.ListConversationsResponse
+	12, // 25: dzeroth.messaging.v1.MessagingService.ListMessages:output_type -> dzeroth.messaging.v1.ListMessagesResponse
+	14, // 26: dzeroth.messaging.v1.MessagingService.MarkConversationRead:output_type -> dzeroth.messaging.v1.MarkConversationReadResponse
+	16, // 27: dzeroth.messaging.v1.MessagingService.AcceptMessageRequest:output_type -> dzeroth.messaging.v1.AcceptMessageRequestResponse
+	18, // 28: dzeroth.messaging.v1.MessagingService.DeleteConversation:output_type -> dzeroth.messaging.v1.DeleteConversationResponse
+	23, // [23:29] is the sub-list for method output_type
+	17, // [17:23] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_messaging_v1_messaging_proto_init() }

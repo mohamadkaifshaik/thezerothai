@@ -37,6 +37,7 @@ const (
 	limitOpen         = "beacons_open"
 	limitParticipants = "beacon_participants"
 	limitPending      = "beacon_requests_pending"
+	limitEditRows     = "beacon_edit_rows"
 
 	// notFoundText is the one message of every NOT_FOUND this module answers (byte-identical for every cause).
 	notFoundText = "beacon not found"
@@ -100,8 +101,60 @@ func createHash(b Beacon) string {
 		b.CommunityID, b.Activity, b.Title, b.Details, b.Venue, b.StartAt.UnixMicro(), b.DurationMin, b.OpenSpots, b.Cost, b.ChatPref))
 }
 
-func updateHash(beaconID string, title, details, venue *string, spots *int) string {
-	return idempotency.HashRequest(fmt.Sprintf("beacon_id=%s|title=%s|details=%s|venue=%s|open_spots=%s", beaconID, optString(title), optString(details), optString(venue), optInt(spots)))
+// updateHash is the UpdateBeacon request hash. Without start_at, duration and cost it is the pre-F28 string byte for
+// byte, so a retry in flight across the deploy still matches its stored idempotency record.
+func updateHash(beaconID string, title, details, venue *string, spots *int, sched schedule) string {
+	s := fmt.Sprintf("beacon_id=%s|title=%s|details=%s|venue=%s|open_spots=%s", beaconID, optString(title), optString(details), optString(venue), optInt(spots))
+	if sched.set() {
+		start := "unset"
+		if sched.start != nil {
+			start = strconv.FormatInt(sched.start.UnixMicro(), 10)
+		}
+		cost := "unset"
+		if sched.cost != nil {
+			cost = string(*sched.cost)
+		}
+		s += fmt.Sprintf("|start=%s|duration=%s|cost=%s", start, optInt(sched.duration), cost)
+	}
+	return idempotency.HashRequest(s)
+}
+
+// schedule is the F28 part of an UpdateBeacon request: the start (UTC, microseconds, the stored precision), the duration
+// and the cost, each nil when unchanged.
+type schedule struct {
+	start    *time.Time
+	duration *int
+	cost     *Cost
+}
+
+func (s schedule) set() bool { return s.start != nil || s.duration != nil || s.cost != nil }
+
+// normalizeSchedule validates the F28 fields of in at now (the CreateBeacon rules, VALIDATION naming the field) and
+// returns them normalized.
+func normalizeSchedule(in UpdateInput, now time.Time) (schedule, error) {
+	var out schedule
+	if in.StartAt != nil {
+		if err := validateStart(*in.StartAt, now); err != nil {
+			return schedule{}, err
+		}
+		start := in.StartAt.UTC().Truncate(time.Microsecond)
+		out.start = &start
+	}
+	if in.DurationMin != nil {
+		if err := validateDuration(*in.DurationMin); err != nil {
+			return schedule{}, err
+		}
+		d := *in.DurationMin
+		out.duration = &d
+	}
+	if in.Cost != nil {
+		if *in.Cost == "" {
+			return schedule{}, apierr.Validation("cost", "cost must be set")
+		}
+		c := *in.Cost
+		out.cost = &c
+	}
+	return out, nil
 }
 
 func cancelHash(beaconID string) string { return idempotency.HashRequest("beacon_id=" + beaconID) }
@@ -132,27 +185,111 @@ func (s *service) social(ctx context.Context, uid string) (graph.Snapshot, error
 }
 
 // requireMember is the community-audience gate: FEATURE_COMMUNITIES (on for the caller when mustBeOn, else not globally
-// off), then the caller's role must be owner, moderator or member; none, banned, a missing community or a nil reader is
-// ErrNotMember (fail closed).
-func (s *service) requireMember(ctx context.Context, uid, communityID string, mustBeOn bool) error {
+// off), then communityVerdict. write marks a path that adds to the community (CreateBeacon, RequestToJoin, an ACCEPT).
+func (s *service) requireMember(ctx context.Context, uid, communityID string, mustBeOn, write bool) error {
 	if err := GuardCommunities(ctx, s.d.CommunityFlags, uid, mustBeOn); err != nil {
 		return err
 	}
+	return s.communityVerdict(ctx, uid, communityID, write)
+}
+
+// communityVerdict is uid's standing in a community, the flag aside, mirroring communities.PostGate.Admit: the
+// community (cache-first, 60 s), then uid's role (cached). A missing community is the one ErrNotFound, the same answer
+// as SUSPENDED, so nobody can tell deleted from suspended. On a write the community state decides first, whatever the
+// role: SUSPENDED is ErrNotFound for everyone (the platform took it offline), ARCHIVED is COMMUNITY_STATE
+// community_archived (communities.StateConflict). On a read SUSPENDED is ErrNotFound to everyone but the community's
+// owner. Then a nil reader or a role other than owner, moderator or member (none, banned) is ErrNotMember (fail
+// closed). Any other error is returned (not a refusal).
+func (s *service) communityVerdict(ctx context.Context, uid, communityID string, write bool) error {
 	if s.d.Communities == nil {
 		return ErrNotMember
+	}
+	c, err := s.d.Communities.Get(ctx, communityID)
+	if err != nil {
+		if errors.Is(err, communities.ErrNotFound) {
+			return ErrNotFound
+		}
+		return logger.RedactErr(fmt.Errorf("beacons: community: %w", err), uid, communityID)
+	}
+	if write && c.Status == communities.StatusSuspended {
+		return ErrNotFound
+	}
+	if write && c.Status == communities.StatusArchived {
+		return communities.StateConflict(communities.StateArchived)
 	}
 	role, err := s.d.Communities.Role(ctx, communityID, uid)
 	if err != nil {
 		if errors.Is(err, communities.ErrNotFound) {
-			return ErrNotMember
+			return ErrNotFound
 		}
 		return logger.RedactErr(fmt.Errorf("beacons: community role: %w", err), uid, communityID)
+	}
+	if c.Status == communities.StatusSuspended && role != communities.RoleOwner {
+		return ErrNotFound
 	}
 	switch role {
 	case communities.RoleOwner, communities.RoleModerator, communities.RoleMember:
 		return nil
 	}
 	return ErrNotMember
+}
+
+// communityVerdicts answers communityVerdict (read) for each distinct community of a list page: true renders. A refusal
+// (not a member, suspended, missing, FEATURE_COMMUNITIES globally off) is false; any other error fails the page.
+func (s *service) communityVerdicts(ctx context.Context, uid string, cids []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(cids))
+	if len(cids) == 0 || s.d.CommunityFlags == nil || s.d.CommunityFlags.GloballyOff(communities.FlagName) {
+		return out, nil
+	}
+	for _, cid := range cids {
+		err := s.communityVerdict(ctx, uid, cid, false)
+		switch {
+		case err == nil:
+			out[cid] = true
+		case errors.Is(err, ErrNotMember), errors.Is(err, ErrNotFound):
+		default:
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// blockCheck answers "is there a block between viewer and other, either way" for one request. The viewer's own graph
+// (cached, 60 s) holds both directions until its blockedBy overflowed; past that, a block the other user holds is read
+// from their own graph (once per user per request, posts/timeline precedent), and a failed read is an error (the caller
+// fails closed).
+type blockCheck struct {
+	s      *service
+	viewer string
+	snap   graph.Snapshot
+	others map[string]bool
+}
+
+func (s *service) blocks(ctx context.Context, viewer string) (*blockCheck, error) {
+	snap, err := s.social(ctx, viewer)
+	if err != nil {
+		return nil, err
+	}
+	return &blockCheck{s: s, viewer: viewer, snap: snap, others: map[string]bool{}}, nil
+}
+
+func (c *blockCheck) blocked(ctx context.Context, other string) (bool, error) {
+	if c.snap.Blocked[other] || c.snap.BlockedBy[other] {
+		return true, nil
+	}
+	if !c.snap.BlockedByOverflow {
+		return false, nil
+	}
+	if v, ok := c.others[other]; ok {
+		return v, nil
+	}
+	osnap, err := c.s.social(ctx, other)
+	if err != nil {
+		return false, err
+	}
+	v := osnap.Blocked[c.viewer]
+	c.others[other] = v
+	return v, nil
 }
 
 // begin records the op on the request line.
@@ -200,6 +337,13 @@ func mapErr(ctx context.Context, op, uid, beaconID string, err error) error {
 	case errors.Is(err, ErrCancelled):
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:cancelled")
 		return stateConflict("cancelled")
+	case errors.Is(err, ErrStarted):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:started")
+		return stateConflict("started")
+	case errors.Is(err, ErrEditRows):
+		logger.SetRequestField(ctx, fieldOutcome, "rejected:limit_reached")
+		logger.SetRequestField(ctx, "limit", limitEditRows)
+		return limitReached(limitEditRows, "too many participant rows to reschedule this beacon")
 	case errors.Is(err, ErrFull):
 		logger.SetRequestField(ctx, fieldOutcome, "rejected:full")
 		return stateConflict("full")
@@ -329,7 +473,7 @@ func (s *service) CreateBeacon(ctx context.Context, uid string, in CreateInput) 
 		return View{}, mapErr(ctx, "create", uid, "", err)
 	}
 	if b.CommunityID != "" {
-		if err := s.requireMember(ctx, uid, b.CommunityID, true); err != nil {
+		if err := s.requireMember(ctx, uid, b.CommunityID, true, true); err != nil {
 			return View{}, mapErr(ctx, "create", uid, "", err)
 		}
 	}
@@ -396,61 +540,47 @@ func (s *service) UpdateBeacon(ctx context.Context, uid string, in UpdateInput) 
 			return View{}, mapErr(ctx, "update", uid, in.BeaconID, err)
 		}
 	}
+	now := s.now()
+	sched, err := normalizeSchedule(in, now)
+	if err != nil {
+		return View{}, mapErr(ctx, "update", uid, in.BeaconID, err)
+	}
 	a, err := s.organised(ctx, uid, in.BeaconID)
 	if err != nil {
 		return View{}, mapErr(ctx, "update", uid, in.BeaconID, err)
 	}
 	res, err := s.d.Repo.Update(ctx, UpdateParams{
 		UID: uid, BeaconID: in.BeaconID, IdemKey: idempotency.Key(uid, rpcUpdateBeacon, in.Key),
-		RequestHash: updateHash(in.BeaconID, title, details, venue, in.OpenSpots),
-		Title:       title, Details: details, Venue: venue, OpenSpots: in.OpenSpots, Now: s.now(),
+		RequestHash: updateHash(in.BeaconID, title, details, venue, in.OpenSpots, sched),
+		Title:       title, Details: details, Venue: venue, OpenSpots: in.OpenSpots,
+		StartAt: sched.start, DurationMin: sched.duration, Cost: sched.cost, MaxEditRows: MaxEditRows, Now: now,
 	})
 	if err != nil {
 		return View{}, mapErr(ctx, "update", uid, in.BeaconID, err)
 	}
 	noteOutcome(ctx, res.Outcome)
+	if res.Outcome == Written && res.Rescheduled {
+		s.notifyUpdated(ctx, res)
+	}
 	return s.view(res.Beacon, a.organiser, uid), nil
 }
 
-// CancelBeacon implements Service: validation, visibility and organiser, then one transaction.
-func (s *service) CancelBeacon(ctx context.Context, uid, key, beaconID string) error {
-	begin(ctx, "cancel")
-	if err := validateKey(key); err != nil {
-		return mapErr(ctx, "cancel", uid, beaconID, err)
-	}
-	if err := validateBeaconID(beaconID); err != nil {
-		return mapErr(ctx, "cancel", uid, beaconID, err)
-	}
-	if _, err := s.organised(ctx, uid, beaconID); err != nil {
-		return mapErr(ctx, "cancel", uid, beaconID, err)
-	}
-	now := s.now()
-	res, err := s.d.Repo.Cancel(ctx, CancelParams{
-		UID: uid, BeaconID: beaconID, IdemKey: idempotency.Key(uid, rpcCancelBeacon, key), RequestHash: cancelHash(beaconID), Now: now,
-	})
-	if err != nil {
-		return mapErr(ctx, "cancel", uid, beaconID, err)
-	}
-	noteOutcome(ctx, res.Outcome)
-	s.notifyCancelled(ctx, beaconID, res, now)
-	return nil
-}
+// MaxEditRows bounds the participant rows (every state) one reschedule rewrites: each costs a participant write and a
+// membership write, so 200 rows plus the beacon, the organiser's membership and the idempotency doc stay under 500 writes
+// in the one transaction. ACCEPTED rows are bounded by BEACONS_MAX_OPEN_SPOTS (20); the rest are requests and history.
+const MaxEditRows = 200
 
-// notifyCancelled hands a cancel that wrote to the Events seam with the participants accepted at that moment (R23): one
-// ListParticipants read, skipped when nobody was accepted. The cancel already committed, so a failed read is logged
-// (hash only) and the event dropped; the RPC still succeeds.
-func (s *service) notifyCancelled(ctx context.Context, beaconID string, res CancelResult, now time.Time) {
-	if s.d.Events == nil || res.Outcome != Written || res.Beacon.AcceptedCount <= 0 {
+// notifyUpdated hands a committed change of start, duration or cost to the Events seam with the participants accepted at
+// that commit (F28). Nobody accepted means no event. Best effort: the update already committed, so a failure is logged
+// and never fails the RPC; a replay of the same key does not re-send (the outcome is Replayed).
+func (s *service) notifyUpdated(ctx context.Context, res UpdateResult) {
+	logger.SetRequestField(ctx, "notified", len(res.Accepted))
+	if s.d.Events == nil || len(res.Accepted) == 0 {
 		return
 	}
-	rows, err := s.d.Repo.ListParticipants(ctx, ParticipantQuery{BeaconID: beaconID, State: PStateAccepted, Limit: s.d.Limits.MaxOpenSpots})
-	if err != nil {
-		slog.WarnContext(ctx, "beacon_cancel_participants_failed", "beacon_hash", logger.HashUID(beaconID), "err", logger.RedactErr(err, beaconID).Error())
-		return
+	b := res.Beacon
+	if err := s.d.Events.Updated(ctx, UpdateEvent{BeaconID: b.ID, OrganiserUID: b.OrganiserID, ParticipantUIDs: res.Accepted, At: b.UpdatedAt}); err != nil {
+		slog.WarnContext(ctx, "beacon_update_notices_failed", "beacon_hash", logger.HashUID(b.ID),
+			"err", logger.RedactErr(err, append([]string{b.ID, b.OrganiserID}, res.Accepted...)...).Error())
 	}
-	uids := make([]string, 0, len(rows))
-	for _, p := range rows {
-		uids = append(uids, p.UID)
-	}
-	s.d.Events.Cancelled(ctx, CancelEvent{BeaconID: beaconID, OrganiserUID: res.Beacon.OrganiserID, ParticipantUIDs: uids, At: now})
 }

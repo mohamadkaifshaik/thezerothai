@@ -114,6 +114,19 @@ func validateAudience(communityID string, public bool) error {
 	return nil
 }
 
+// validateListActivity: the ListBeacons filter is empty (every activity) or one stored activity value.
+func validateListActivity(a Activity) error {
+	if a == "" {
+		return nil
+	}
+	for _, v := range activityByProto {
+		if v == a {
+			return nil
+		}
+	}
+	return apierr.Validation("activity", "activity is not a known value")
+}
+
 // ---- enum conversion, both ways ----
 
 var activityByProto = map[beaconsv1.BeaconActivity]Activity{
@@ -131,6 +144,18 @@ func activityFromProto(a beaconsv1.BeaconActivity) (Activity, error) {
 		return v, nil
 	}
 	return "", apierr.Validation("activity", "activity must be set")
+}
+
+// listActivityFromProto converts ListBeaconsRequest.activity: UNSPECIFIED is no filter (""), a known value its stored
+// form, anything else (a value this server does not know) VALIDATION "activity".
+func listActivityFromProto(a beaconsv1.BeaconActivity) (Activity, error) {
+	if a == beaconsv1.BeaconActivity_BEACON_ACTIVITY_UNSPECIFIED {
+		return "", nil
+	}
+	if v, ok := activityByProto[a]; ok {
+		return v, nil
+	}
+	return "", apierr.Validation("activity", "activity is not a known value")
 }
 
 func activityToProto(a Activity) beaconsv1.BeaconActivity {

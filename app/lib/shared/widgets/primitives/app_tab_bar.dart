@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -16,10 +18,12 @@ class AppTab {
 }
 
 /// The text-only tab row of every screen with tabs (Home, Notifications,
-/// Profile, History, Explore): a 53dp row, the active label bold in the
-/// primary text colour, inactive labels in the secondary colour, and a 4dp
-/// accent bar **as wide as the label** under the active tab, flush with the
-/// 1px hairline below the row.
+/// Profile, History, Explore): a row at least 48dp tall (it grows with the
+/// text scale), the active label w700 in the primary text colour, inactive
+/// labels w600 in the secondary colour, and a 4 x 44dp `selectedIndicator`
+/// bar centred under the active tab, flush with the 1px hairline below the
+/// row. Selection therefore reads from weight and the bar, never colour
+/// alone.
 ///
 /// Two layouts, as on X:
 /// - content-sized (default): labels keep their natural width with a
@@ -61,6 +65,22 @@ class AppTabBar extends StatelessWidget {
   /// Spoken name of the whole group.
   final String? semanticLabel;
 
+  /// The height of the bar at the ambient text scale: one title line plus
+  /// [AppSpacing.md] above and below, never under the 48dp target. A pinned
+  /// sliver header that holds the bar reserves exactly this.
+  static double heightFor(BuildContext context) {
+    final style = Theme.of(context).textTheme.titleSmall;
+    // Scale the font size first, then apply the line height: a non-linear
+    // text scaler (Android 14+) is not linear in the whole line.
+    final line =
+        MediaQuery.textScalerOf(context).scale(style?.fontSize ?? 15) *
+        (style?.height ?? 1.33);
+    return math.max(
+      AppSpacing.minTapTarget,
+      math.max(line, AppIconSize.md) + 2 * AppSpacing.md,
+    );
+  }
+
   void _move(int delta) {
     final next = (selectedIndex + delta).clamp(0, tabs.length - 1);
     if (next != selectedIndex) onChanged(next);
@@ -69,7 +89,10 @@ class AppTabBar extends StatelessWidget {
   Widget _scrolling(List<Widget> items) {
     final scroller = SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      child: Row(children: [...items, ?trailing]),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [...items, ?trailing],
+      ),
     );
     if (fixedTrailing == null) return scroller;
     return Row(
@@ -97,6 +120,7 @@ class AppTabBar extends StatelessWidget {
     ];
     final Widget row = equalWidth
         ? Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               for (final item in items) Expanded(child: item),
               ?trailing,
@@ -122,7 +146,7 @@ class AppTabBar extends StatelessWidget {
           // loose width): the hairline spans the whole row.
           child: SizedBox(
             width: double.infinity,
-            height: AppSize.headerRow,
+            height: heightFor(context),
             child: row,
           ),
         ),
@@ -130,6 +154,9 @@ class AppTabBar extends StatelessWidget {
     );
   }
 }
+
+/// Width of the selected-tab indicator (design: 44 x 4).
+const double _indicatorWidth = 44;
 
 class _TabItem extends StatelessWidget {
   const _TabItem({
@@ -150,7 +177,7 @@ class _TabItem extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final style = theme.textTheme.titleSmall?.copyWith(
-      fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+      fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
       color: selected ? colors.onSurface : colors.onSurfaceVariant,
     );
     final label = Row(
@@ -183,35 +210,34 @@ class _TabItem extends StatelessWidget {
       excludeSemantics: true,
       child: InkWell(
         onTap: onTap,
-        // Centred with loose constraints: in the equal-width layout the tab
-        // is wider than its label, but the indicator must stay label-wide.
-        child: Center(
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
-            // The Stack is as wide as the label, so the indicator (positioned
-            // left and right 0) is exactly the label width.
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Center(widthFactor: 1, child: label),
-                if (selected)
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      key: const ValueKey('tab-indicator'),
-                      height: AppSize.tabIndicator,
-                      decoration: BoxDecoration(
-                        color: colors.primary,
-                        borderRadius: BorderRadius.circular(
-                          AppSize.tabIndicator,
-                        ),
-                      ),
+        // The label is centred; the indicator is a fixed 4 x 44dp bar
+        // centred at the bottom of the whole tab cell.
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            minHeight: AppSpacing.minTapTarget,
+            minWidth: AppSpacing.minTapTarget,
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+                child: label,
+              ),
+              if (selected)
+                Positioned(
+                  bottom: 0,
+                  child: Container(
+                    key: const ValueKey('tab-indicator'),
+                    width: _indicatorWidth,
+                    height: AppSize.tabIndicator,
+                    decoration: BoxDecoration(
+                      color: context.appColors.selectedIndicator,
+                      borderRadius: BorderRadius.circular(AppSize.tabIndicator),
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
         ),
       ),

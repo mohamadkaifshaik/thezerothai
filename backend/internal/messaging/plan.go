@@ -47,6 +47,21 @@ func decideSend(conv *ConvDoc, uid string, mutual bool, maxUnanswered int64) (se
 	return sendDecision{State: stateRequest, IncRequest: true, RecipientInRequests: true}, nil
 }
 
+// dmPolicyRefuses is the F9 rule: a recipient whose policy is FOLLOWING_ONLY (and has the feature on) refuses a message from an
+// account they do not follow when it would start a conversation (conv is nil) or add to a request that was never accepted
+// (the caller is the requester). It never refuses an existing ACCEPTED conversation, nor the reply of the request's own
+// recipient (that reply accepts it), whoever follows whom. recipientFollowsCaller is the recipient's Following[caller] as the
+// send transaction read it, so an unfollow by the recipient takes effect at once. A block is decided before this.
+func dmPolicyRefuses(conv *ConvDoc, uid string, recipientFollowingOnly, recipientFollowsCaller bool) bool {
+	if !recipientFollowingOnly || recipientFollowsCaller {
+		return false
+	}
+	if conv == nil {
+		return true
+	}
+	return conv.State == stateRequest && conv.RequestTo != uid
+}
+
 // decideAccept applies the AcceptMessageRequest rules to the conversation document the accept transaction read.
 // conv is nil when the document is missing. Only the recipient of the request (requestTo) may accept:
 // an unknown id, a non-participant, the requester and a conversation that never was a request (mutual follows, no

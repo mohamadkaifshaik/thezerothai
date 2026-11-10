@@ -1,16 +1,12 @@
 import 'dart:io';
-import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dzeroth/core/theme/app_theme.dart';
 
-double _contrast(Color a, Color b) {
-  final l1 = a.computeLuminance();
-  final l2 = b.computeLuminance();
-  return (math.max(l1, l2) + 0.05) / (math.min(l1, l2) + 0.05);
-}
+import '../../support/contrast.dart';
 
 /// Source files under `lib/` that must obey the colour rules (everything
 /// except generated code and the theme file itself).
@@ -23,16 +19,23 @@ Iterable<File> _appSources() => Directory('lib')
       return !p.startsWith('lib/gen/') && p != 'lib/core/theme/app_theme.dart';
     });
 
+/// [fg] composited over [bg] (contrast() ignores alpha).
+Color _over(Color fg, Color bg) => Color.alphaBlend(fg, bg);
+
 void main() {
   for (final entry in {'light': appLightTheme, 'dark': appDarkTheme}.entries) {
-    test('${entry.key} snackbar action and close icon meet WCAG AA', () {
+    test('${entry.key} snackbar action, close icon and text meet WCAG AA', () {
       final snack = entry.value.snackBarTheme;
       final bg = snack.backgroundColor!;
       expect(snack.actionTextColor, isNotNull);
       expect(snack.closeIconColor, isNotNull);
-      expect(_contrast(snack.actionTextColor!, bg), greaterThanOrEqualTo(4.5));
+      expect(contrast(snack.actionTextColor!, bg), greaterThanOrEqualTo(4.5));
       // Icons are non-text UI: WCAG 1.4.11 asks for 3:1.
-      expect(_contrast(snack.closeIconColor!, bg), greaterThanOrEqualTo(3.0));
+      expect(contrast(snack.closeIconColor!, bg), greaterThanOrEqualTo(3.0));
+      expect(
+        contrast(snack.contentTextStyle!.color!, bg),
+        greaterThanOrEqualTo(4.5),
+      );
     });
   }
 
@@ -41,12 +44,24 @@ void main() {
     final theme = entry.value;
     final colors = theme.colorScheme;
     final app = theme.extension<AppColors>()!;
-    final raised = {
+    final steps = {
+      'surface': colors.surface,
+      'surfaceContainerLowest': colors.surfaceContainerLowest,
       'surfaceContainerLow': colors.surfaceContainerLow,
       'surfaceContainer': colors.surfaceContainer,
       'surfaceContainerHigh': colors.surfaceContainerHigh,
       'surfaceContainerHighest': colors.surfaceContainerHighest,
     };
+
+    void textOnEveryStep(Color c, String role) {
+      for (final step in steps.entries) {
+        expect(
+          contrast(c, step.value),
+          greaterThanOrEqualTo(4.5),
+          reason: '$role on ${step.key}',
+        );
+      }
+    }
 
     group('$name palette', () {
       test('builds a Material 3 theme of the right brightness', () {
@@ -61,96 +76,163 @@ void main() {
         );
       });
 
-      test('onSurface is >= 4.5:1 on every surface step', () {
-        expect(_contrast(colors.onSurface, colors.surface), greaterThan(4.5));
-        for (final layer in raised.entries) {
+      test('onSurface is >= 4.5:1 on every container step', () {
+        textOnEveryStep(colors.onSurface, 'onSurface');
+      });
+
+      test('onSurfaceVariant (also the field hint) is >= 4.5:1 on surface, '
+          'surfaceContainer and surfaceContainerHigh', () {
+        for (final bg in [
+          colors.surface,
+          colors.surfaceContainer,
+          colors.surfaceContainerHigh,
+        ]) {
           expect(
-            _contrast(colors.onSurface, layer.value),
+            contrast(colors.onSurfaceVariant, bg),
             greaterThanOrEqualTo(4.5),
-            reason: 'onSurface on ${layer.key}',
+            reason: 'onSurfaceVariant on $bg',
           );
         }
       });
 
-      test('onSurfaceVariant is >= 4.5:1 on the page surface', () {
+      test('secondaryOnRaised is >= 4.5:1 on every step', () {
+        textOnEveryStep(app.secondaryOnRaised, 'secondaryOnRaised');
+      });
+
+      test('text roles are >= 4.5:1 on every step', () {
+        textOnEveryStep(app.accentText, 'accentText');
+        textOnEveryStep(app.text2, 'text2');
+        textOnEveryStep(colors.error, 'error (danger text)');
+        // State colours also tint the action counts, so they are text-safe.
+        textOnEveryStep(app.like, 'like');
+        textOnEveryStep(app.repost, 'repost');
+        textOnEveryStep(app.live, 'live');
+        textOnEveryStep(app.recommendation, 'recommendation');
+        textOnEveryStep(app.positive, 'positive');
+      });
+
+      test('primary text is >= 4.5:1 on surface and onPrimary on primary', () {
         expect(
-          _contrast(colors.onSurfaceVariant, colors.surface),
+          contrast(colors.primary, colors.surface),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          contrast(colors.onPrimary, colors.primary),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          contrast(colors.onSecondary, colors.secondary),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          contrast(colors.onInverseSurface, colors.inverseSurface),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          contrast(colors.inversePrimary, colors.inverseSurface),
           greaterThanOrEqualTo(4.5),
         );
       });
 
-      test('secondary text on a raised surface uses secondaryOnRaised '
-          '(>= 4.5:1 on every step)', () {
-        for (final layer in raised.entries) {
+      test('onError is >= 4.5:1 on error; the danger fill label too', () {
+        expect(
+          contrast(colors.onError, colors.error),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          contrast(app.onDangerFill, app.dangerFill),
+          greaterThanOrEqualTo(4.5),
+        );
+      });
+
+      test('outline and uiBorder are >= 3:1 on surface and surfaceContainer '
+          '(component boundaries)', () {
+        for (final c in [colors.outline, app.uiBorder]) {
+          expect(contrast(c, colors.surface), greaterThanOrEqualTo(3.0));
           expect(
-            _contrast(app.secondaryOnRaised, layer.value),
-            greaterThanOrEqualTo(4.5),
-            reason: 'secondaryOnRaised on ${layer.key}',
+            contrast(c, colors.surfaceContainer),
+            greaterThanOrEqualTo(3.0),
           );
         }
       });
 
-      test('accentText is >= 4.5:1 on the page surface', () {
+      test('the selected indicator is >= 3:1 on surface (non-text UI) and '
+          'text-safe', () {
         expect(
-          _contrast(app.accentText, colors.surface),
+          contrast(app.selectedIndicator, colors.surface),
           greaterThanOrEqualTo(4.5),
         );
       });
 
       test('the strong pill label is >= 4.5:1 on its fill', () {
         expect(
-          _contrast(app.strongPillLabel, app.strongPillFill),
+          contrast(app.strongPillLabel, app.strongPillFill),
           greaterThanOrEqualTo(4.5),
         );
       });
 
-      test('the accent fill is >= 3:1 against the page (non-text UI) and '
-          'the FAB glyph on it too', () {
-        // Dark 7.0:1; light 3.0:1 (X's own blue on white). Used for fills,
-        // indicators and icons; small text uses accentText instead.
+      test('the primary gradient label is >= 4.5:1 on both ends', () {
+        for (final end in app.primaryFillGradient.colors) {
+          expect(
+            contrast(app.primaryFillLabel, end),
+            greaterThanOrEqualTo(4.5),
+          );
+        }
+      });
+
+      test('the floating nav bar is navy with AA glyphs', () {
+        expect(app.navBarSurface, AppPalette.navy);
+        expect(app.navBarSelected, AppPalette.tealElectric);
+        expect(app.navBarUnselected, AppPalette.mutedOnDark);
         expect(
-          _contrast(colors.primary, colors.surface),
-          greaterThanOrEqualTo(3.0),
+          contrast(app.navBarSelected, app.navBarSurface),
+          greaterThanOrEqualTo(4.5),
         );
         expect(
-          _contrast(colors.onPrimary, colors.primary),
-          greaterThanOrEqualTo(3.0),
+          contrast(app.navBarUnselected, app.navBarSurface),
+          greaterThanOrEqualTo(4.5),
         );
       });
 
       test('the hairline stays visible and is not heavier than 3:1', () {
-        final ratio = _contrast(colors.outlineVariant, colors.surface);
-        expect(ratio, greaterThanOrEqualTo(1.1));
-        expect(ratio, lessThan(3.0));
+        for (final hairline in [colors.outlineVariant, app.hairline]) {
+          final ratio = contrast(
+            _over(hairline, colors.surface),
+            colors.surface,
+          );
+          expect(ratio, greaterThanOrEqualTo(1.1));
+          expect(ratio, lessThan(3.0));
+        }
       });
 
-      test('there is no separate tertiary: no gradient any more', () {
+      test('tertiary has no role: it mirrors primary', () {
         expect(colors.tertiary, colors.primary);
-      });
-
-      test('the accent is X blue in both themes', () {
-        expect(colors.primary, const Color(0xFF1D9BF0));
-      });
-
-      test('semantic colours are the X state colours', () {
-        expect(app.like, const Color(0xFFF91880));
-        expect(app.repost, const Color(0xFF00BA7C));
-        expect(app.live, const Color(0xFFF91880));
-        expect(app.recommendation, const Color(0xFF794BC4));
+        expect(colors.onTertiary, colors.onPrimary);
       });
 
       test('modal barriers use the theme scrim', () {
+        expect(app.scrim, AppPalette.scrim);
         expect(theme.dialogTheme.barrierColor, app.scrim);
         expect(theme.bottomSheetTheme.modalBarrierColor, app.scrim);
         expect(theme.drawerTheme.scrimColor, app.scrim);
         expect(theme.drawerTheme.width, AppSize.drawerWidth);
       });
+
+      test('AppColors lerp and copyWith carry every role', () {
+        final other = name == 'dark' ? AppColors.light : AppColors.dark;
+        expect(app.lerp(other, 0).primaryFillGradient, app.primaryFillGradient);
+        expect(app.lerp(other, 1).navBarUnselected, other.navBarUnselected);
+        expect(app.lerp(other, 1).text2, other.text2);
+        expect(app.copyWith(hairline: other.hairline).hairline, other.hairline);
+        expect(app.copyWith().selectedIndicator, app.selectedIndicator);
+      });
     });
   }
 
-  test('dark surfaces layer strictly lighter, starting at pure black', () {
+  test('dark surfaces layer strictly lighter, starting at navyDeep', () {
     final colors = appDarkTheme.colorScheme;
     final ladder = [
+      colors.surfaceContainerLowest,
       colors.surface,
       colors.surfaceContainerLow,
       colors.surfaceContainer,
@@ -164,36 +246,84 @@ void main() {
         reason: 'layer $i is lighter than layer ${i - 1}',
       );
     }
-    expect(colors.surface, const Color(0xFF000000));
+    expect(colors.surfaceContainerLowest, AppPalette.navyDeep);
   });
 
-  test('dark palette tokens (founder decision 2026-10-22: X colours)', () {
+  test('dark scheme (ADR-0033, navy; D2 and D4)', () {
     final colors = appDarkTheme.colorScheme;
-    expect(colors.surface, const Color(0xFF000000));
-    expect(colors.onSurface, const Color(0xFFE7E9EA));
-    expect(colors.onSurfaceVariant, const Color(0xFF71767B));
-    expect(colors.outlineVariant, const Color(0xFF2F3336));
-    expect(colors.outline, const Color(0xFF333639));
-    expect(colors.primary, const Color(0xFF1D9BF0));
+    expect(colors.surfaceContainerLowest, AppPalette.navyDeep);
+    expect(colors.surface, AppPalette.navy);
+    expect(colors.surfaceContainerLow, AppPalette.darkContainerLow);
+    expect(colors.surfaceContainer, AppPalette.darkContainer);
+    expect(colors.surfaceContainerHigh, AppPalette.navy2);
+    expect(colors.surfaceContainerHighest, AppPalette.darkContainerHighest);
+    expect(colors.onSurface, AppPalette.pearl);
+    expect(colors.onSurfaceVariant, AppPalette.mutedOnDark);
+    expect(colors.primary, AppPalette.tealElectric);
+    expect(colors.onPrimary, AppPalette.navy);
+    expect(colors.secondary, AppPalette.pearl);
+    expect(colors.onSecondary, AppPalette.navy);
+    expect(colors.error, AppPalette.dangerOnDark);
+    expect(colors.onError, AppPalette.navy);
+    expect(colors.outline, AppPalette.uiBorderOnDark);
+    expect(colors.outlineVariant, AppPalette.hairlineDark);
+    expect(colors.inverseSurface, AppPalette.pearl);
     final app = appDarkTheme.extension<AppColors>()!;
-    expect(app.strongPillFill, const Color(0xFFEFF3F4));
-    expect(app.strongPillLabel, const Color(0xFF0F1419));
-    expect(app.scrim, const Color(0x665B7083));
+    expect(app.accentText, AppPalette.tealElectric);
+    expect(app.strongPillFill, AppPalette.pearl);
+    expect(app.strongPillLabel, AppPalette.navy);
+    expect(app.selectedIndicator, AppPalette.tealElectric);
+    expect(app.uiBorder, AppPalette.uiBorderOnDark);
+    expect(app.hairline, AppPalette.hairlineDark);
+    expect(app.like, AppPalette.dangerOnDark);
+    expect(app.repost, AppPalette.tealElectric);
+    expect(app.live, AppPalette.dangerOnDark);
+    expect(app.recommendation, AppPalette.tealElectric);
   });
 
-  test('light palette tokens (founder decision 2026-10-22: X colours)', () {
+  test('light scheme (ADR-0033, pearl)', () {
     final colors = appLightTheme.colorScheme;
-    expect(colors.surface, const Color(0xFFFFFFFF));
-    expect(colors.onSurface, const Color(0xFF0F1419));
-    expect(colors.onSurfaceVariant, const Color(0xFF536471));
-    expect(colors.outlineVariant, const Color(0xFFEFF3F4));
-    expect(colors.outline, const Color(0xFFCFD9DE));
-    expect(colors.primary, const Color(0xFF1D9BF0));
+    expect(colors.surface, AppPalette.pearl);
+    expect(colors.surfaceContainerLowest, AppPalette.white);
+    expect(colors.surfaceContainerLow, const Color(0xFFFAF9F6));
+    expect(colors.surfaceContainer, AppPalette.white);
+    expect(colors.surfaceContainerHigh, const Color(0xFFEEF1F4));
+    expect(colors.surfaceContainerHighest, const Color(0xFFE6EAEE));
+    expect(colors.onSurface, AppPalette.navy);
+    expect(colors.onSurfaceVariant, AppPalette.mutedOnLight);
+    expect(colors.primary, AppPalette.tealText);
+    expect(colors.onPrimary, AppPalette.white);
+    expect(colors.secondary, AppPalette.navy);
+    expect(colors.onSecondary, AppPalette.pearl);
+    expect(colors.error, AppPalette.danger);
+    expect(colors.onError, AppPalette.white);
+    expect(colors.outline, AppPalette.uiBorderOnLight);
+    expect(colors.outlineVariant, AppPalette.hairlineLight);
+    expect(colors.inverseSurface, AppPalette.navy);
+    expect(colors.scrim, AppPalette.navyDeep);
     final app = appLightTheme.extension<AppColors>()!;
-    expect(app.strongPillFill, const Color(0xFF0F1419));
-    expect(app.strongPillLabel, const Color(0xFFFFFFFF));
-    expect(app.accentText, const Color(0xFF1478BD));
-    expect(app.scrim, const Color(0x26000000));
+    expect(app.accentText, AppPalette.tealText);
+    expect(app.strongPillFill, AppPalette.navy);
+    expect(app.strongPillLabel, AppPalette.pearl);
+    expect(app.selectedIndicator, AppPalette.tealText);
+    expect(app.uiBorder, AppPalette.uiBorderOnLight);
+    expect(app.hairline, AppPalette.hairlineLight);
+    expect(app.text2, AppPalette.text2);
+    expect(app.like, AppPalette.danger);
+    expect(app.repost, AppPalette.tealText);
+    expect(app.live, AppPalette.danger);
+    expect(app.recommendation, AppPalette.tealText);
+  });
+
+  test('fills shared by both themes', () {
+    for (final app in [AppColors.light, AppColors.dark]) {
+      expect(app.primaryFillGradient, AppGradients.primaryButton);
+      expect(app.primaryFillLabel, AppPalette.navy);
+      expect(app.dangerFill, AppPalette.danger);
+      expect(app.onDangerFill, AppPalette.white);
+      expect(app.navBarSurface, AppPalette.navy);
+    }
+    expect(AppColors.photoBackground, const Color(0xFF000000));
   });
 
   test('the default FilledButton is the strong inverse pill', () {
@@ -209,15 +339,20 @@ void main() {
     }
   });
 
-  test('the type scale (founder decision 2026-10-22)', () {
-    final text = appLightTheme.textTheme;
-    expect(text.bodyLarge!.fontSize, 15);
-    expect(text.bodyLarge!.height, closeTo(1.33, 0.001));
-    expect(text.titleSmall!.fontSize, 15);
-    expect(text.titleSmall!.fontWeight, FontWeight.w700);
-    expect(text.titleLarge!.fontSize, 20);
-    expect(text.titleLarge!.fontWeight, FontWeight.w700);
-    expect(text.headlineSmall!.fontSize, 22);
+  test('the type scale is DM Sans and Manrope (ADR-0033; typography_test)', () {
+    for (final theme in [appLightTheme, appDarkTheme]) {
+      final text = theme.textTheme;
+      expect(text.displayLarge!.fontFamily, AppFonts.display);
+      expect(text.titleLarge!.fontFamily, AppFonts.display);
+      expect(text.titleLarge!.fontSize, 20);
+      expect(text.titleLarge!.fontWeight, FontWeight.w800);
+      expect(text.bodyLarge!.fontFamily, AppFonts.body);
+      expect(text.bodyLarge!.fontSize, 15);
+      expect(text.bodyLarge!.height, closeTo(1.42, 0.001));
+      expect(text.titleSmall!.fontSize, 15);
+      expect(text.titleSmall!.fontWeight, FontWeight.w700);
+      expect(text.headlineSmall!.fontSize, 20);
+    }
   });
 
   test('size tokens match the research values', () {
@@ -235,7 +370,7 @@ void main() {
     expect(AppBreakpoints.tablet, 1200);
   });
 
-  group('colour rules hold across lib/ (decision 2026-10-22)', () {
+  group('gradients only via AppGradients (ADR-0033 §6)', () {
     test('no gradient, no seed colour and no tertiary slot in use', () {
       final offenders = <String>[];
       for (final file in _appSources()) {
@@ -271,4 +406,657 @@ void main() {
       expect(offenders, isEmpty);
     });
   });
+
+  group('redesign tokens', () {
+    test('palette matches tokens.json with the a11y overrides', () {
+      expect(AppPalette.navy, const Color(0xFF0D1528));
+      expect(AppPalette.navy2, const Color(0xFF1B2A44));
+      expect(AppPalette.navyDeep, const Color(0xFF08101F));
+      expect(AppPalette.pearl, const Color(0xFFF6F4EF));
+      expect(AppPalette.white, const Color(0xFFFFFFFF));
+      expect(AppPalette.teal, const Color(0xFF12B8A6));
+      expect(AppPalette.tealDark, const Color(0xFF0B8C7F));
+      expect(AppPalette.tealElectric, const Color(0xFF19D3BE));
+      expect(AppPalette.text2, const Color(0xFF2A3446));
+      expect(AppPalette.tealText, const Color(0xFF087066));
+      expect(AppPalette.uiBorderOnLight, const Color(0xFF7A8392));
+      expect(AppPalette.uiBorderOnDark, const Color(0xFF7B879B));
+      expect(AppPalette.mutedOnLight, const Color(0xFF5B6475));
+      expect(AppPalette.mutedOnDark, const Color(0xFF9AA3B2));
+      expect(AppPalette.danger, const Color(0xFFB42318));
+      expect(AppPalette.dangerOnDark, const Color(0xFFF97066));
+      expect(AppPalette.hairlineLight, const Color(0x140D1528));
+      expect(AppPalette.hairlineDark, const Color(0x1AF6F4EF));
+      expect(AppPalette.scrim, const Color(0x7A08101F));
+    });
+
+    test('dark container ladder (D4)', () {
+      expect(AppPalette.darkContainerLowest, const Color(0xFF08101F));
+      expect(AppPalette.darkSurface, const Color(0xFF0D1528));
+      expect(AppPalette.darkContainerLow, const Color(0xFF121C33));
+      expect(AppPalette.darkContainer, const Color(0xFF16223B));
+      expect(AppPalette.darkContainerHigh, const Color(0xFF1B2A44));
+      expect(AppPalette.darkContainerHighest, const Color(0xFF22324F));
+      final ladder = [
+        AppPalette.darkContainerLowest,
+        AppPalette.darkSurface,
+        AppPalette.darkContainerLow,
+        AppPalette.darkContainer,
+        AppPalette.darkContainerHigh,
+        AppPalette.darkContainerHighest,
+      ];
+      for (final c in ladder) {
+        expect(contrast(AppPalette.mutedOnDark, c), greaterThanOrEqualTo(4.5));
+        expect(contrast(AppPalette.tealElectric, c), greaterThanOrEqualTo(4.5));
+        expect(contrast(AppPalette.dangerOnDark, c), greaterThanOrEqualTo(4.5));
+        expect(contrast(AppPalette.uiBorderOnDark, c), greaterThanOrEqualTo(3));
+      }
+    });
+
+    test('gradients', () {
+      expect(AppGradients.primaryButton.colors, const [
+        Color(0xFF19D3BE),
+        Color(0xFF12B8A6),
+      ]);
+      expect(AppGradients.mineBubble.colors, AppGradients.primaryButton.colors);
+      expect(AppGradients.primaryButton.begin, Alignment.topLeft);
+      expect(AppGradients.primaryButton.end, Alignment.bottomRight);
+      expect(AppGradients.card.colors, const [
+        Color(0xFFFFFFFF),
+        Color(0xFFEEF1F4),
+      ]);
+      expect(AppGradients.lightBubble.colors, const [
+        Color(0xFFFFFFFF),
+        Color(0xFFE6EAEE),
+      ]);
+      expect(AppGradients.darkCard.colors, const [
+        Color(0xFF1B2A44),
+        Color(0xFF0D1528),
+      ]);
+      expect(AppGradients.hero.colors, const [
+        Color(0xFF1B2A44),
+        Color(0xFF0D1528),
+        Color(0xFF08101F),
+      ]);
+      expect(AppGradients.hero.stops, const [0, 0.55, 1]);
+      expect(AppGradients.hero.radius, 1.2);
+      expect(AppGradients.hero.center, const Alignment(0.7, -1));
+    });
+
+    test('shadows', () {
+      BoxShadow s(List<BoxShadow> l) => l.single;
+      expect(s(AppShadows.card).offset, const Offset(0, 11));
+      expect(s(AppShadows.card).blurRadius, 25);
+      expect(s(AppShadows.card).color.a, closeTo(0.18, 0.005));
+      expect(s(AppShadows.brand).color.a, closeTo(0.22, 0.005));
+      expect(s(AppShadows.primaryGlow).offset, const Offset(0, 10));
+      expect(s(AppShadows.primaryGlow).blurRadius, 26);
+      expect(s(AppShadows.primaryGlow).color.a, closeTo(0.35, 0.005));
+      expect(s(AppShadows.navBar).offset, const Offset(0, 14));
+      expect(s(AppShadows.navBar).blurRadius, 30);
+      expect(s(AppShadows.navBar).color.a, closeTo(0.35, 0.005));
+    });
+
+    test('radius and size', () {
+      expect(AppRadius.card, 24);
+      expect(AppRadius.cardSmall, 20);
+      expect(AppRadius.field, 16);
+      expect(AppRadius.tile, 14);
+      expect(AppRadius.bubble, 22);
+      expect(AppRadius.bubbleTail, 6);
+      expect(AppRadius.sheetTop, 32);
+      expect(
+        [AppRadius.sm, AppRadius.md, AppRadius.lg, AppRadius.pill],
+        [8, 12, 16, 999],
+      );
+      expect(AppSize.buttonHeight, 52);
+      expect(AppSize.buttonHeightLarge, 56);
+      expect(AppSize.floatingNavHeight, 66);
+      expect(AppSize.floatingNavInset, 20);
+      expect(AppSize.floatingNavBottom, 24);
+      expect(AppSize.fabRedesign, 58);
+      expect(AppSize.avatarRow, 44);
+      expect(AppSize.avatarPost, 42);
+      expect(AppSize.avatarLg, 56);
+      expect(AppSize.avatarXl, 120);
+      expect(AppSize.bottomNav, 56);
+      expect(AppSize.fab, 56);
+    });
+
+    test('typography tokens', () {
+      expect(AppTypeTokens.displaySizes, [28, 32, 36, 40, 48, 52]);
+      expect(AppTypeTokens.displayTracking, -0.035);
+      expect(AppTypeTokens.displayLineHeight, 1.02);
+      expect(AppTypeTokens.eyebrowSize, 12);
+      expect(AppTypeTokens.eyebrowWeight, FontWeight.w700);
+      expect(AppTypeTokens.eyebrowTracking, 0.24);
+      expect(AppTypeTokens.wordmarkSize, 15);
+      expect(AppTypeTokens.wordmarkTracking, 0.13);
+      expect(AppTypeTokens.bodySize, 15);
+      expect(AppTypeTokens.bodyLineHeight, 1.42);
+      expect(AppTypeTokens.focalPostSize, 17);
+      expect(AppTypeTokens.focalPostLineHeight, 24);
+      expect(AppTypeTokens.weightDisplay, FontWeight.w800);
+      expect(AppTypeTokens.weightUi, FontWeight.w700);
+      expect(AppTypeTokens.weightLabel, FontWeight.w600);
+      expect(AppTypeTokens.weightBody, FontWeight.w500);
+    });
+
+    test('motion curves and durations', () {
+      expect(AppMotion.expoOut, const Cubic(0.16, 1, 0.3, 1));
+      expect(AppMotion.backOut, const Cubic(0.34, 1.56, 0.64, 1));
+      expect(AppMotion.expoOutShort.inMilliseconds, 300);
+      expect(AppMotion.expoOutLong.inMilliseconds, 450);
+      expect(AppMotion.backOutDuration.inMilliseconds, 350);
+      expect(AppMotion.headlineStaggerMin.inMilliseconds, 80);
+      expect(AppMotion.headlineStaggerMax.inMilliseconds, 200);
+    });
+
+    testWidgets('AppMotion.of returns zero movement under reduced motion', (
+      tester,
+    ) async {
+      late AppMotion normal;
+      late AppMotion reduced;
+      await tester.pumpWidget(
+        MediaQuery(
+          data: const MediaQueryData(),
+          child: Builder(
+            builder: (c) {
+              normal = AppMotion.of(c);
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+      await tester.pumpWidget(
+        MediaQuery(
+          data: const MediaQueryData(disableAnimations: true),
+          child: Builder(
+            builder: (c) {
+              reduced = AppMotion.of(c);
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+      expect(normal.offset(24), 24);
+      expect(reduced.movement, isFalse);
+      expect(reduced.offset(24), 0);
+    });
+
+    test('contrast table (ADR-0033 section 1.3)', () {
+      const ee = Color(0xFFEEF1F4);
+      void atLeast(Color a, Color b, double min, double expected) {
+        final r = contrast(a, b);
+        expect(r, greaterThanOrEqualTo(min), reason: '$a on $b = $r');
+        expect(r, closeTo(expected, 0.02), reason: '$a on $b = $r');
+      }
+
+      // tealText on light.
+      atLeast(AppPalette.tealText, AppPalette.pearl, 4.5, 5.43);
+      atLeast(AppPalette.tealText, AppPalette.white, 4.5, 5.97);
+      atLeast(AppPalette.tealText, ee, 4.5, 5.26);
+      // Borders.
+      atLeast(AppPalette.uiBorderOnLight, AppPalette.pearl, 3, 3.48);
+      atLeast(AppPalette.uiBorderOnLight, AppPalette.white, 3, 3.83);
+      atLeast(AppPalette.uiBorderOnLight, ee, 3, 3.37);
+      atLeast(AppPalette.uiBorderOnDark, AppPalette.navy, 3, 5.01);
+      atLeast(AppPalette.uiBorderOnDark, AppPalette.navy2, 3, 3.96);
+      atLeast(AppPalette.uiBorderOnDark, AppPalette.navyDeep, 3, 5.24);
+      // Muted text.
+      atLeast(AppPalette.mutedOnLight, AppPalette.pearl, 4.5, 5.42);
+      atLeast(AppPalette.mutedOnLight, AppPalette.white, 4.5, 5.96);
+      atLeast(AppPalette.mutedOnDark, AppPalette.navy, 4.5, 7.15);
+      atLeast(AppPalette.mutedOnDark, AppPalette.navy2, 4.5, 5.65);
+      // Label on the primary gradient (both ends).
+      atLeast(AppPalette.navy, AppPalette.tealElectric, 4.5, 9.61);
+      atLeast(AppPalette.navy, AppPalette.teal, 4.5, 7.30);
+      // Teal text and indicator on dark.
+      atLeast(AppPalette.tealElectric, AppPalette.navy, 4.5, 9.61);
+      atLeast(AppPalette.tealElectric, AppPalette.navy2, 4.5, 7.60);
+      // onPrimary (light).
+      atLeast(AppPalette.white, AppPalette.tealText, 4.5, 5.97);
+      // Danger.
+      atLeast(AppPalette.danger, AppPalette.pearl, 4.5, 5.98);
+      atLeast(AppPalette.white, AppPalette.danger, 4.5, 6.57);
+      expect(
+        contrast(AppPalette.danger, AppPalette.navy),
+        lessThan(3),
+        reason: 'D2: danger fill is not usable as text on navy (2.77)',
+      );
+      atLeast(AppPalette.dangerOnDark, AppPalette.navy, 4.5, 6.53);
+      atLeast(AppPalette.dangerOnDark, AppPalette.navy2, 4.5, 5.16);
+    });
+
+    test('tealDark is large display text only', () {
+      final r = contrast(AppPalette.tealDark, AppPalette.pearl);
+      expect(r, closeTo(3.77, 0.02));
+      expect(r, greaterThanOrEqualTo(3));
+      expect(r, lessThan(4.5), reason: 'fails body text: keep it >= 24 sp');
+    });
+
+    test('teal accents fail on light, so they are never text there', () {
+      expect(contrast(AppPalette.teal, AppPalette.pearl), closeTo(2.27, 0.02));
+      expect(contrast(AppPalette.tealElectric, AppPalette.pearl), lessThan(3));
+      // And the active light theme assigns neither to a text role.
+      final scheme = appLightTheme.colorScheme;
+      for (final c in [
+        scheme.onSurface,
+        scheme.onSurfaceVariant,
+        scheme.onPrimary,
+        scheme.onSecondary,
+        appLightTheme.textTheme.bodyMedium?.color,
+        appLightTheme.textTheme.bodySmall?.color,
+        appLightTheme.textTheme.titleMedium?.color,
+      ]) {
+        expect(c, isNot(AppPalette.teal));
+        expect(c, isNot(AppPalette.tealElectric));
+      }
+    });
+  });
+
+  group('auth palette contrast', () {
+    void check(String label, Color fg, Map<String, Color> bgs) {
+      for (final bg in bgs.entries) {
+        test('$label on ${bg.key} is at least 4.5:1', () {
+          expect(contrast(fg, bg.value), greaterThanOrEqualTo(4.5));
+        });
+      }
+    }
+
+    check('muted', AppAuthPalette.muted, {
+      'paper': AppAuthPalette.paper,
+      'white': AppAuthPalette.white,
+      'tabTrack': AppAuthPalette.tabTrack,
+      'welcome': AppAuthPalette.welcome,
+    });
+    check('link', AppAuthPalette.link, {'paper': AppAuthPalette.paper});
+    check('darkMuted', AppAuthPalette.darkMuted, {
+      'navy': AppAuthPalette.navy,
+      'darkField': AppAuthPalette.darkField,
+      'darkTabTrack': AppAuthPalette.darkTabTrack,
+      'darkSelectedTab': AppAuthPalette.darkSelectedTab,
+      'darkWelcome': AppAuthPalette.darkWelcome,
+    });
+  });
+
+  _componentThemes();
+}
+
+/// Every [WidgetState] alone, plus none: what a `ButtonStyle` is resolved for.
+final _stateSets = <Set<WidgetState>>[
+  <WidgetState>{},
+  for (final state in WidgetState.values) {state},
+];
+
+/// PR 1.5: component themes resolve to tokens, 48 dp targets, elevation 0.
+void _componentThemes() {
+  test('density is standard and targets padded on every platform (D6)', () {
+    for (final platform in TargetPlatform.values) {
+      debugDefaultTargetPlatformOverride = platform;
+      try {
+        for (final brightness in Brightness.values) {
+          final theme = buildAppTheme(brightness: brightness);
+          expect(
+            theme.visualDensity,
+            VisualDensity.standard,
+            reason: '$platform',
+          );
+          expect(
+            theme.materialTapTargetSize,
+            MaterialTapTargetSize.padded,
+            reason: '$platform',
+          );
+        }
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    }
+  });
+
+  for (final entry in {'light': appLightTheme, 'dark': appDarkTheme}.entries) {
+    final name = entry.key;
+    final theme = entry.value;
+    final isDark = name == 'dark';
+    final scheme = theme.colorScheme;
+    final app = theme.extension<AppColors>()!;
+
+    group('$name component themes', () {
+      test('every ButtonStyle resolves minimumSize >= 48 x 48 and elevation 0 '
+          'in every state', () {
+        final styles = <String, ButtonStyle>{
+          'filled': theme.filledButtonTheme.style!,
+          'outlined': theme.outlinedButtonTheme.style!,
+          'text': theme.textButtonTheme.style!,
+          'elevated': theme.elevatedButtonTheme.style!,
+          'icon': theme.iconButtonTheme.style!,
+          'menu item': theme.menuButtonTheme.style!,
+        };
+        for (final style in styles.entries) {
+          for (final states in _stateSets) {
+            final size = style.value.minimumSize!.resolve(states)!;
+            final why = '${style.key} $states';
+            expect(size.width, greaterThanOrEqualTo(48), reason: why);
+            expect(size.height, greaterThanOrEqualTo(48), reason: why);
+            final elevation = style.value.elevation?.resolve(states);
+            if (style.key != 'icon' && style.key != 'menu item') {
+              expect(elevation, 0, reason: why);
+            }
+          }
+        }
+      });
+
+      test('buttons resolve to tokens', () {
+        final filled = theme.filledButtonTheme.style!;
+        expect(
+          filled.minimumSize!.resolve({})!.height,
+          AppSpacing.minTapTarget,
+        );
+        expect(
+          filled.shape!.resolve({}),
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+        );
+        expect(filled.backgroundColor!.resolve({}), app.strongPillFill);
+        expect(
+          filled.backgroundColor!.resolve({}),
+          isDark ? AppPalette.pearl : AppPalette.navy,
+        );
+
+        final outlined = theme.outlinedButtonTheme.style!;
+        final side = outlined.side!.resolve({})!;
+        expect(side.color, scheme.outline);
+        expect(side.width, 1.5);
+        expect(contrast(side.color, scheme.surface), greaterThanOrEqualTo(3));
+
+        final text = theme.textButtonTheme.style!;
+        expect(
+          text.foregroundColor!.resolve({}),
+          isDark ? AppPalette.tealElectric : AppPalette.tealText,
+        );
+        expect(text.minimumSize!.resolve({}), const Size(48, 48));
+
+        final icon = theme.iconButtonTheme.style!;
+        expect(icon.minimumSize!.resolve({}), const Size(48, 48));
+        expect(
+          icon.overlayColor!.resolve({WidgetState.hovered}),
+          scheme.onSurface.withValues(alpha: 0.06),
+        );
+        if (!isDark) expect(scheme.onSurface, AppPalette.navy);
+      });
+
+      test('text fields: tokens, labels above, >= 3:1 borders', () {
+        final input = theme.inputDecorationTheme;
+        final fill = input.fillColor!;
+        expect(fill, isDark ? AppPalette.fieldFillDark : AppPalette.white);
+        expect(input.filled, isTrue);
+        expect(input.isDense, isFalse);
+        expect(
+          input.contentPadding,
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+        );
+        expect(input.floatingLabelBehavior, FloatingLabelBehavior.always);
+
+        final enabled = input.enabledBorder! as OutlineInputBorder;
+        expect(enabled.borderRadius, BorderRadius.circular(AppRadius.field));
+        expect(enabled.borderSide.color, scheme.outline);
+        expect(
+          (input.border! as OutlineInputBorder).borderSide.color,
+          scheme.outline,
+        );
+        final focused = input.focusedBorder! as OutlineInputBorder;
+        expect(focused.borderSide.color, app.selectedIndicator);
+        expect(focused.borderSide.width, 2);
+        for (final b in [input.errorBorder!, input.focusedErrorBorder!]) {
+          expect((b as OutlineInputBorder).borderSide.color, scheme.error);
+        }
+        expect(input.hintStyle!.color, scheme.onSurfaceVariant);
+        expect(input.errorStyle!.fontSize, 13);
+        expect(input.errorStyle!.color, scheme.error);
+        expect(input.helperStyle!.fontSize, 13);
+        expect(input.helperStyle!.color, scheme.onSurfaceVariant);
+
+        // The field sits on the page, a dialog (also the page surface) or a
+        // sheet; the fill is translucent on dark, so composite it first.
+        final pages = {
+          'surface': scheme.surface,
+          'sheet': theme.bottomSheetTheme.backgroundColor!,
+          'dialog': theme.dialogTheme.backgroundColor!,
+        };
+        for (final page in pages.entries) {
+          final field = _over(fill, page.value);
+          for (final c in {
+            'enabled border': scheme.outline,
+            'focused border': app.selectedIndicator,
+            'error border': scheme.error,
+          }.entries) {
+            final why = '${c.key} on ${page.key}';
+            expect(
+              contrast(c.value, field),
+              greaterThanOrEqualTo(3),
+              reason: '$why fill',
+            );
+            expect(
+              contrast(c.value, page.value),
+              greaterThanOrEqualTo(3),
+              reason: why,
+            );
+          }
+          for (final c in {
+            'hint': scheme.onSurfaceVariant,
+            'error text': scheme.error,
+            'input text': scheme.onSurface,
+          }.entries) {
+            expect(
+              contrast(c.value, field),
+              greaterThanOrEqualTo(4.5),
+              reason: '${c.key} on the ${page.key} field',
+            );
+          }
+        }
+      });
+
+      test('chips: pill, 1.5 dp boundary, selected indicator, 12 sp w700', () {
+        final chip = theme.chipTheme;
+        expect(
+          chip.shape,
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+        );
+        final side = chip.side! as WidgetStateBorderSide;
+        final on = side.resolve({WidgetState.selected})!;
+        final off = side.resolve({})!;
+        expect(on.color, app.selectedIndicator);
+        expect(on.width, 1.5);
+        expect(off.color, scheme.outline);
+        expect(off.width, 1.5);
+        for (final c in [on.color, off.color]) {
+          expect(contrast(c, scheme.surface), greaterThanOrEqualTo(3));
+        }
+        expect(chip.labelStyle!.fontSize, 12);
+        expect(chip.labelStyle!.fontWeight, FontWeight.w700);
+        expect(chip.elevation, 0);
+        expect(chip.pressElevation, 0);
+      });
+
+      test('navigation bar and rail: indicator, labelMedium, glyph >= 3:1 '
+          'on the indicator', () {
+        final bar = theme.navigationBarTheme;
+        final rail = theme.navigationRailTheme;
+        expect(bar.indicatorColor, app.selectedIndicator);
+        expect(rail.indicatorColor, app.selectedIndicator);
+        void isLabelMedium(TextStyle? style) {
+          final want = theme.textTheme.labelMedium!;
+          expect(style!.fontFamily, want.fontFamily);
+          expect(style.fontSize, want.fontSize);
+        }
+
+        isLabelMedium(bar.labelTextStyle!.resolve({}));
+        isLabelMedium(rail.unselectedLabelTextStyle);
+        isLabelMedium(rail.selectedLabelTextStyle);
+        expect(rail.selectedLabelTextStyle!.fontSize, 14);
+        // Weight, not colour alone, marks the selected label.
+        expect(rail.selectedLabelTextStyle!.fontWeight, FontWeight.w700);
+        expect(rail.unselectedLabelTextStyle!.fontWeight, FontWeight.w600);
+        final glyphs = [
+          bar.iconTheme!.resolve({WidgetState.selected})!.color!,
+          rail.selectedIconTheme!.color!,
+        ];
+        for (final glyph in glyphs) {
+          expect(glyph, scheme.onPrimary);
+          expect(
+            contrast(glyph, app.selectedIndicator),
+            greaterThanOrEqualTo(3),
+          );
+        }
+        expect(
+          contrast(rail.unselectedIconTheme!.color!, scheme.surface),
+          greaterThanOrEqualTo(3),
+        );
+      });
+
+      test('dialogs, sheets and menus: radii, scrim, elevation 0', () {
+        final dialog = theme.dialogTheme;
+        expect(
+          dialog.backgroundColor,
+          isDark ? AppPalette.navy : AppPalette.pearl,
+        );
+        expect(
+          dialog.shape,
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        );
+        expect(dialog.barrierColor, AppPalette.scrim);
+        expect(dialog.elevation, 0);
+
+        final sheet = theme.bottomSheetTheme;
+        expect(sheet.showDragHandle, isTrue);
+        expect(
+          sheet.shape,
+          const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          ),
+        );
+        expect(sheet.elevation, 0);
+        expect(sheet.modalElevation, 0);
+
+        final menuShape = RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: scheme.outline),
+        );
+        expect(theme.popupMenuTheme.shape, menuShape);
+        expect(theme.popupMenuTheme.elevation, 0);
+        final menu = theme.menuTheme.style!;
+        expect(menu.shape!.resolve({}), menuShape);
+        expect(menu.elevation!.resolve({}), 0);
+        expect(
+          contrast(scheme.outline, theme.popupMenuTheme.color!),
+          greaterThanOrEqualTo(3),
+        );
+      });
+
+      test('snackbar: floating navy toast, radius 16, elevation 0', () {
+        final snack = theme.snackBarTheme;
+        expect(snack.behavior, SnackBarBehavior.floating);
+        expect(
+          snack.backgroundColor,
+          isDark ? AppPalette.navy2 : AppPalette.navy,
+        );
+        expect(snack.actionTextColor, AppPalette.tealElectric);
+        expect(snack.elevation, 0);
+        expect(
+          snack.shape,
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        );
+      });
+
+      test('tab bar: 4 dp indicator in the selected-indicator colour', () {
+        final indicator = theme.tabBarTheme.indicator! as UnderlineTabIndicator;
+        expect(indicator.borderSide.width, AppSize.tabIndicator);
+        expect(indicator.borderSide.color, app.selectedIndicator);
+        expect(
+          indicator.borderSide.color,
+          isDark ? AppPalette.tealElectric : AppPalette.tealText,
+        );
+      });
+
+      test('switch, checkbox and radio: selected indicator, unselected '
+          'boundary >= 3:1', () {
+        final sw = theme.switchTheme;
+        final cb = theme.checkboxTheme;
+        final radio = theme.radioTheme;
+        const on = {WidgetState.selected};
+        const off = <WidgetState>{};
+        expect(sw.trackColor!.resolve(on), app.selectedIndicator);
+        expect(cb.fillColor!.resolve(on), app.selectedIndicator);
+        expect(radio.fillColor!.resolve(on), app.selectedIndicator);
+        // The glyph on the selected fill.
+        for (final glyph in [
+          sw.thumbColor!.resolve(on)!,
+          cb.checkColor!.resolve(on)!,
+        ]) {
+          expect(
+            contrast(glyph, app.selectedIndicator),
+            greaterThanOrEqualTo(3),
+          );
+        }
+        // Unselected boundaries against the page.
+        for (final c in [
+          sw.trackOutlineColor!.resolve(off)!,
+          (cb.side! as WidgetStateBorderSide).resolve(off)!.color,
+          radio.fillColor!.resolve(off)!,
+        ]) {
+          expect(c, scheme.outline);
+          expect(contrast(c, scheme.surface), greaterThanOrEqualTo(3));
+        }
+        expect(
+          contrast(sw.thumbColor!.resolve(off)!, sw.trackColor!.resolve(off)!),
+          greaterThanOrEqualTo(3),
+        );
+        // Disabled falls back to Material's defaults.
+        expect(sw.trackColor!.resolve({WidgetState.disabled}), isNull);
+      });
+
+      test('badge, progress, divider, card and app bar', () {
+        expect(
+          theme.badgeTheme.backgroundColor,
+          isDark ? AppPalette.pearl : AppPalette.navy,
+        );
+        expect(
+          contrast(
+            theme.badgeTheme.textColor!,
+            theme.badgeTheme.backgroundColor!,
+          ),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(theme.progressIndicatorTheme.color, scheme.primary);
+        expect(theme.dividerTheme.color, app.hairline);
+        expect(theme.cardTheme.elevation, 0);
+        expect(
+          theme.cardTheme.shape,
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        );
+        final title = theme.appBarTheme.titleTextStyle!;
+        expect(title.fontFamily, AppFonts.display);
+        expect(title.fontSize, theme.textTheme.titleLarge!.fontSize);
+        expect(title.fontWeight, FontWeight.w800);
+      });
+
+      test('elevation is 0 everywhere', () {
+        expect(theme.appBarTheme.elevation, 0);
+        expect(theme.appBarTheme.scrolledUnderElevation, 0);
+        expect(theme.cardTheme.elevation, 0);
+        expect(theme.dialogTheme.elevation, 0);
+        expect(theme.drawerTheme.elevation, 0);
+        expect(theme.popupMenuTheme.elevation, 0);
+        expect(theme.bottomSheetTheme.elevation, 0);
+        expect(theme.bottomSheetTheme.modalElevation, 0);
+        expect(theme.snackBarTheme.elevation, 0);
+        expect(theme.navigationBarTheme.elevation, 0);
+        expect(theme.floatingActionButtonTheme.elevation, 0);
+        expect(theme.chipTheme.elevation, 0);
+      });
+    });
+  }
 }

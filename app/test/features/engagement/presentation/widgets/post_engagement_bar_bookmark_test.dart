@@ -265,7 +265,7 @@ void main() {
     final on = tester.getSemantics(find.bySemanticsLabel('Bookmarked'));
     expect(on.flagsCollection.isSelected, Tristate.isTrue);
     expect(on.rect.size.shortestSide, greaterThanOrEqualTo(48));
-    expect(tester.widget<Icon>(filled()).color, const Color(0xFF1D9BF0));
+    expect(tester.widget<Icon>(filled()).color, AppPalette.tealElectric);
     handle.dispose();
   });
 
@@ -529,7 +529,7 @@ void main() {
 
   testWidgets('light theme: the filled icon is the accent', (tester) async {
     await pump(tester, _view(), serverState: true, theme: appLightTheme);
-    expect(tester.widget<Icon>(filled()).color, const Color(0xFF1D9BF0));
+    expect(tester.widget<Icon>(filled()).color, AppPalette.tealText);
   });
 
   // ---------------------------------------------------------------------
@@ -581,7 +581,7 @@ void main() {
               expect(target.rect.size.shortestSide, greaterThanOrEqualTo(48));
               expect(
                 tester.widget<Icon>(filled()).color,
-                const Color(0xFF1D9BF0),
+                dark ? AppPalette.tealElectric : AppPalette.tealText,
               );
               handle.dispose();
             },

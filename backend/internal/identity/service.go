@@ -154,10 +154,19 @@ func notFoundErr() error {
 // caller who never completes sign-up, so without it such a caller could burn one Firestore read per
 // request indefinitely.
 func (s *service) getProfileCached(ctx context.Context, uid string) (Profile, error) {
+	return s.loadProfile(ctx, uid, true)
+}
+
+// loadProfile is getProfileCached with a switch for the negative cache. GetMe passes useNegative=false: it is
+// the call a client makes right after CreateProfile, which may have committed through another instance whose
+// write this instance's cache never saw, so a cached "no profile yet" must not answer it. GetMe runs once per
+// session start/refresh, so one extra read for a profile-less caller is cheap; the per-request interceptor path
+// keeps the short negative cache. A miss still refreshes the negative entry for that path.
+func (s *service) loadProfile(ctx context.Context, uid string, useNegative bool) (Profile, error) {
 	if p, ok := s.cache.GetProfile(uid); ok {
 		return p, nil
 	}
-	if s.cache.GetNotFound(uid) {
+	if useNegative && s.cache.GetNotFound(uid) {
 		return Profile{}, notFoundErr()
 	}
 	p, err := s.repo.GetProfile(ctx, uid)
@@ -247,7 +256,7 @@ func (s *service) CheckHandleAvailability(ctx context.Context, handle string) (b
 // messaging on; every other caller and every hit (30 s) reads nothing. A failed count is WARN
 // unread_conversations_failed with the badge at 0.
 func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
-	profile, err := s.getProfileCached(ctx, uid)
+	profile, err := s.loadProfile(ctx, uid, false)
 	if err != nil {
 		return MeResult{}, err
 	}
@@ -387,6 +396,9 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 		}
 	}
 	out := s.present(profile)
+	if callerUID != uid {
+		out.ReadReceipts = false // the setting is the owner's alone
+	}
 	if out.PinnedPostID != "" && callerUID != uid {
 		out.PinnedPostID = s.pinForViewer(ctx, callerUID, uid, out.PinnedPostID)
 	}
@@ -404,6 +416,14 @@ func (s *service) present(p Profile) Profile {
 	if s.extras == nil || s.extras.GloballyOff(ProfileExtrasFlag) {
 		p.PinnedPostID = ""
 		p.Website = ""
+	}
+	// The same kill switch for the read-receipts setting (F3); the stored value comes back with the flag.
+	if s.extras == nil || s.extras.GloballyOff(ReadReceiptsFlag) {
+		p.ReadReceipts = false
+	}
+	// The same kill switch for the "who can message me" setting (F9): the stored value comes back with the flag.
+	if s.extras == nil || s.extras.GloballyOff(DMPolicyFlag) {
+		p.DMPolicy = DMPolicyEveryoneRequests
 	}
 	return p
 }
@@ -425,6 +445,32 @@ func (s *service) extrasDisabled(ctx context.Context, uid string) error {
 	}
 	if flags.Guard(ctx, enabled, uid, ProfileExtrasFlag) != nil {
 		return flags.DisabledError().WithMeta("feature", ProfileExtrasFlag)
+	}
+	return nil
+}
+
+// readReceiptsDisabled is the read_receipts gate for UpdateProfile: nil when FEATURE_READ_RECEIPTS is on for uid, otherwise
+// FEATURE_DISABLED with metadata feature=read_receipts. No flags wired = off. It never reads Firestore.
+func (s *service) readReceiptsDisabled(ctx context.Context, uid string) error {
+	var enabled func(uid, name string) bool
+	if s.extras != nil {
+		enabled = s.extras.Enabled
+	}
+	if flags.Guard(ctx, enabled, uid, ReadReceiptsFlag) != nil {
+		return flags.DisabledError().WithMeta("feature", ReadReceiptsFlag)
+	}
+	return nil
+}
+
+// dmPolicyDisabled is the dm_policy gate for UpdateProfile: nil when FEATURE_DM_POLICY is on for uid, otherwise
+// FEATURE_DISABLED with metadata feature=dm_policy. No flags wired = off. It never reads Firestore.
+func (s *service) dmPolicyDisabled(ctx context.Context, uid string) error {
+	var enabled func(uid, name string) bool
+	if s.extras != nil {
+		enabled = s.extras.Enabled
+	}
+	if flags.Guard(ctx, enabled, uid, DMPolicyFlag) != nil {
+		return flags.DisabledError().WithMeta("feature", DMPolicyFlag)
 	}
 	return nil
 }
@@ -475,6 +521,12 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 			return Profile{}, err
 		}
 	}
+	// F3: only read_receipts=true is gated (false is the undo and never is), before any read.
+	if params.ReadReceipts != nil && *params.ReadReceipts {
+		if err := s.readReceiptsDisabled(ctx, uid); err != nil {
+			return Profile{}, err
+		}
+	}
 	if params.DisplayName != nil && displayNameIssue(*params.DisplayName) {
 		return Profile{}, apierr.Validation("display_name", "display name must be 1-50 characters and contain a visible character")
 	}
@@ -487,6 +539,12 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	// would normalise to a clear) is still a set here.
 	if setsExtra(params.BannerMediaID) || setsExtra(params.Location) || setsExtra(params.Website) || setsExtra(params.PinnedPostID) {
 		if err := s.extrasDisabled(ctx, uid); err != nil {
+			return Profile{}, err
+		}
+	}
+	// F9: only FOLLOWING_ONLY is gated (EVERYONE_REQUESTS is the undo and never is), before any read.
+	if params.DMPolicy != nil && *params.DMPolicy == DMPolicyFollowingOnly {
+		if err := s.dmPolicyDisabled(ctx, uid); err != nil {
 			return Profile{}, err
 		}
 	}
@@ -622,6 +680,14 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		}
 		if params.IsPrivate != nil {
 			p.IsPrivate = *params.IsPrivate
+		}
+		if params.ReadReceipts != nil {
+			note("read_receipts", *params.ReadReceipts != p.ReadReceipts)
+			p.ReadReceipts = *params.ReadReceipts
+		}
+		if params.DMPolicy != nil {
+			note("dm_policy", *params.DMPolicy != p.DMPolicy)
+			p.DMPolicy = *params.DMPolicy
 		}
 		if *p != orig {
 			p.UpdatedAt = now

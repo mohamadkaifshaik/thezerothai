@@ -12,6 +12,10 @@ import '../../../core/network/auth_token_provider.dart';
 import '../domain/app_user.dart';
 import '../domain/auth_failure.dart';
 
+/// How long [AuthRepository.sendPasswordResetEmail] waits before it sends
+/// another reset email to the same address.
+const kPasswordResetCooldown = Duration(seconds: 60);
+
 /// Outcome of [AuthRepository.reauthenticate].
 class ReauthResult {
   const ReauthResult({this.appleAuthorizationCode});
@@ -33,20 +37,28 @@ class AuthRepository implements AuthTokenProvider {
     fb.FirebaseAuth? firebaseAuth,
     GoogleSignIn? googleSignIn,
     this.googleWebClientId,
+    this.googleIosClientId,
     this.appleServiceId,
     this.appleRedirectUri,
     @visibleForTesting bool isWeb = kIsWeb,
     @visibleForTesting TargetPlatform? platform,
+    @visibleForTesting DateTime Function()? clock,
   }) : _firebaseAuth = firebaseAuth ?? fb.FirebaseAuth.instance,
        _googleSignIn = googleSignIn ?? GoogleSignIn.instance,
        _isWeb = isWeb,
-       _platform = platform ?? defaultTargetPlatform;
+       _platform = platform ?? defaultTargetPlatform,
+       _clock = clock ?? DateTime.now;
 
   /// Provider configuration of this build (from `AppConfig`): the one source
   /// for sign-in and re-authentication. [googleWebClientId] is the Web OAuth
   /// client of the build's Firebase project; [appleServiceId] and
   /// [appleRedirectUri] drive Apple's web flow (web and Android).
   final String? googleWebClientId;
+
+  /// The iOS OAuth client id of this build's Firebase project (from the
+  /// matching `firebase_options*.dart`), passed to Google Sign-In as
+  /// `clientId` on iOS only.
+  final String? googleIosClientId;
   final String? appleServiceId;
   final String? appleRedirectUri;
   final TargetPlatform _platform;
@@ -66,6 +78,11 @@ class AuthRepository implements AuthTokenProvider {
   final fb.FirebaseAuth _firebaseAuth;
   final GoogleSignIn _googleSignIn;
   final bool _isWeb;
+  final DateTime Function() _clock;
+
+  /// Lower-cased address -> when its last reset request was answered
+  /// (see [sendPasswordResetEmail]). In memory only, pruned on every request.
+  final Map<String, DateTime> _resetSentAt = {};
   bool _googleInitialized = false;
 
   /// True when [reauthenticate] needs a fresh user gesture (web popups are
@@ -135,15 +152,40 @@ class AuthRepository implements AuthTokenProvider {
     }
   }
 
-  /// Firebase owns the reset link and password update; no credentials are stored.
+  /// Sends a password-reset email. Firebase owns the reset link and the
+  /// password update; no credentials are stored. Every outcome looks the same
+  /// to the caller (no account enumeration) except the two the user can act
+  /// on: no connection ([AuthFailure.network]) and Firebase's own throttle
+  /// ([AuthFailure.tooManyRequests]). Any other Firebase code (unknown or
+  /// disabled account, a malformed address, an unexpected code) is the
+  /// neutral success; its raw message never reaches the UI.
+  ///
+  /// One request per address per [kPasswordResetCooldown]: a repeat inside
+  /// the window is the same neutral success without calling Firebase. The
+  /// window lives here, not in the dialog, so closing and reopening it does
+  /// not reset it. It starts only when the request was answered (sent or
+  /// neutral), never after a network or throttle failure, so those can be
+  /// retried at once.
   Future<void> sendPasswordResetEmail(String email) async {
+    final address = email.trim();
+    final key = address.toLowerCase();
+    final now = _clock();
+    _resetSentAt.removeWhere(
+      (_, at) => now.difference(at) >= kPasswordResetCooldown,
+    );
+    if (_resetSentAt.containsKey(key)) return;
     try {
-      await _firebaseAuth.sendPasswordResetEmail(email: email.trim());
+      await _firebaseAuth.sendPasswordResetEmail(email: address);
     } on fb.FirebaseAuthException catch (e) {
-      // Give the same result for unknown addresses to avoid account enumeration.
-      if (e.code == 'user-not-found') return;
-      throw _mapFirebaseAuthException(e);
+      switch (e.code) {
+        case 'network-request-failed':
+          throw const AuthFailure.network();
+        case 'too-many-requests':
+          throw const AuthFailure.tooManyRequests();
+      }
+      // Everything else: the same result as a sent email.
     }
+    _resetSentAt[key] = _clock();
   }
 
   /// Re-fetches the user from Firebase so `emailVerified` reflects a recent
@@ -158,11 +200,22 @@ class AuthRepository implements AuthTokenProvider {
 
   Future<void> _ensureGoogleInitialized({String? serverClientId}) async {
     if (_googleInitialized) return;
-    await _googleSignIn.initialize(
-      serverClientId: (serverClientId == null || serverClientId.isEmpty)
-          ? null
-          : serverClientId,
-    );
+    final server = (serverClientId == null || serverClientId.isEmpty)
+        ? null
+        : serverClientId;
+    final iosClient = googleIosClientId;
+    // iOS needs the build's own iOS OAuth client (GIDClientID in Info.plist
+    // carries the same value); other platforms must not receive it.
+    if (_platform == TargetPlatform.iOS &&
+        iosClient != null &&
+        iosClient.isNotEmpty) {
+      await _googleSignIn.initialize(
+        clientId: iosClient,
+        serverClientId: server,
+      );
+    } else {
+      await _googleSignIn.initialize(serverClientId: server);
+    }
     _googleInitialized = true;
   }
 

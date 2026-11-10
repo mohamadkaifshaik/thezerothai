@@ -3,12 +3,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-Widget _host() => MaterialApp(
+Widget _host({bool iosAppleEnabled = false}) => MaterialApp(
   home: Scaffold(
     body: SocialSignInButtons(
       isSubmitting: false,
       onGoogleTap: () {},
       onAppleTap: () {},
+      appleOnIosEnabled: iosAppleEnabled,
     ),
   ),
 );
@@ -16,13 +17,38 @@ Widget _host() => MaterialApp(
 void main() {
   tearDown(() => debugDefaultTargetPlatformOverride = null);
 
-  testWidgets('shows Google and Apple on iOS (native Apple flow)', (
-    tester,
-  ) async {
+  testWidgets('hides Apple but shows Google on iOS by default', (tester) async {
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     await tester.pumpWidget(_host());
 
     expect(find.text('Continue with Google'), findsOneWidget);
+    expect(find.text('Continue with Apple'), findsNothing);
+    // No leftover spacer: the buttons Column holds just the Google button.
+    final column = tester.widget<Column>(
+      find.descendant(
+        of: find.byType(SocialSignInButtons),
+        matching: find.byType(Column),
+      ),
+    );
+    expect(column.children, hasLength(1));
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('shows Apple on iOS when the switch is enabled', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    await tester.pumpWidget(_host(iosAppleEnabled: true));
+
+    expect(find.text('Continue with Google'), findsOneWidget);
+    expect(find.text('Continue with Apple'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('shows Apple on macOS regardless of the iOS switch', (
+    tester,
+  ) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    await tester.pumpWidget(_host());
+
     expect(find.text('Continue with Apple'), findsOneWidget);
     debugDefaultTargetPlatformOverride = null;
   });

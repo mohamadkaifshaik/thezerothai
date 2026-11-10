@@ -287,15 +287,16 @@ type AccountLifecycle interface {
 	DeleteAccount(ctx context.Context, uid, idempotencyKey string) (time.Time, error)
 	// RequestAccountExport starts (or replays) an export of uid's own data.
 	RequestAccountExport(ctx context.Context, uid, idempotencyKey string) (ExportView, error)
-	// GetAccountExport returns the status of uid's export; NOT_FOUND for anything else.
-	GetAccountExport(ctx context.Context, uid, exportID string) (ExportView, error)
+	// GetAccountExport returns the status of uid's export; NOT_FOUND for anything else. withURL asks for a signed
+	// download URL on a READY export; without it nothing is signed.
+	GetAccountExport(ctx context.Context, uid, exportID string, withURL bool) (ExportView, error)
 }
 
 // ExportView is the client-facing view of an export.
 type ExportView struct {
 	ID     string
 	Status ExportStatus
-	// DownloadURL and URLExpiresAt are set only when Status is READY.
+	// DownloadURL and URLExpiresAt are set only when Status is READY and the URL was asked for (withURL).
 	DownloadURL  string
 	URLExpiresAt time.Time
 	ExpiresAt    time.Time

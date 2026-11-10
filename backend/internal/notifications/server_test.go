@@ -91,7 +91,7 @@ func TestServer_ListMapsRowsAndTokens(t *testing.T) {
 }
 
 func TestToProto(t *testing.T) {
-	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted, TypeBeaconRequest, TypeBeaconAccepted, TypeBeaconCancelled} {
+	for _, ty := range []Type{TypeFollow, TypeMention, TypeReply, TypeLike, TypeRepost, TypeQuote, TypeFollowRequest, TypeFollowAccepted, TypeBeaconRequest, TypeBeaconAccepted, TypeBeaconCancelled, TypeBeaconUpdated} {
 		got := ToProto(Notification{ID: "i", Type: ty, CreatedAt: t0})
 		if got.Type == notificationsv1.NotificationType_NOTIFICATION_TYPE_UNSPECIFIED {
 			t.Errorf("%s maps to UNSPECIFIED", ty)
@@ -105,6 +105,9 @@ func TestToProto(t *testing.T) {
 	}
 	if got := ToProto(Notification{Type: TypeBeaconCancelled, BeaconID: beaconA, CreatedAt: t0}); got.Type != notificationsv1.NotificationType_NOTIFICATION_TYPE_BEACON_CANCELLED || got.BeaconId != beaconA || got.PostId != "" {
 		t.Errorf("beacon row = %+v, want BEACON_CANCELLED with beacon_id and no post_id", got)
+	}
+	if got := ToProto(Notification{Type: TypeBeaconUpdated, BeaconID: beaconA, CreatedAt: t0}); got.Type != notificationsv1.NotificationType_NOTIFICATION_TYPE_BEACON_UPDATED || got.BeaconId != beaconA || got.PostId != "" {
+		t.Errorf("beacon row = %+v, want BEACON_UPDATED with beacon_id and no post_id", got)
 	}
 }
 

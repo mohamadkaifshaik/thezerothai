@@ -27,8 +27,9 @@ type Repo interface {
 	// ListMessages reads one page of a conversation's messages.
 	ListMessages(ctx context.Context, convID string, q MessageQuery) ([]MessageRow, error)
 	// MarkRead sets unreadCount = 0 and lastReadAt on the caller's own entry, in dmInbox else dmRequests, with an Exists
-	// precondition, with no read; found is false (and nothing is written) when neither entry exists.
-	MarkRead(ctx context.Context, uid, convID string, at time.Time) (found bool, err error)
+	// precondition, with no read; found is false (and nothing is written) when neither entry exists. receipt also sets
+	// readReceiptAt (F3: the caller's read-receipts setting is on); false leaves any earlier readReceiptAt as it was.
+	MarkRead(ctx context.Context, uid, convID string, at time.Time, receipt bool) (found bool, err error)
 	// GetEntry reads the caller's own entry in one folder (entryInbox or entryRequests, from entryFolder). found is false for a missing entry (delete-for-me, or never created).
 	GetEntry(ctx context.Context, uid, convID, folder string) (entry EntryDoc, found bool, err error)
 	// GetMessage reads one stored message (report a message); found is false for a missing document.
@@ -135,7 +136,11 @@ type SendParams struct {
 	// RecipientGraphInTx reads the recipient.s graph/{uid} through the transaction (graph.TxReader.SnapshotInTx, uncached).
 	// Required. Blocked[caller] refuses the send before every cap; Following[caller] makes
 	// the conversation mutual; Muted[caller] makes it silent.
-	RecipientGraphInTx func(ctx context.Context, tx *firestore.Transaction) (graph.Snapshot, error)
+	// RecipientFollowingOnly (F9): the recipient's dm_policy is FOLLOWING_ONLY and FEATURE_DM_POLICY is on for them, as the
+	// service read it from the recipient's profile (instance-cached, at most CACHE_TTL stale). The rule itself runs in the
+	// transaction against the recipient's fresh Following set (dmPolicyRefuses).
+	RecipientFollowingOnly bool
+	RecipientGraphInTx     func(ctx context.Context, tx *firestore.Transaction) (graph.Snapshot, error)
 	// RecipientInTx reads the recipient.s users/{uid} through the transaction (identity.TxProfiles.ProfileInTx). It
 	// is called only when this send creates the conversation (purge race, security review L-3); a missing
 	// document or a status other than ACTIVE refuses the send. Required for a new conversation.

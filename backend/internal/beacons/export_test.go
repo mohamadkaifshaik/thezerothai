@@ -71,6 +71,75 @@ func TestExporter_StreamsBothSectionsAcrossPages(t *testing.T) {
 	}
 }
 
+// TestWithOwnParticipation (D03): a membership row carries the exporting user's own participant note and times; a
+// missing row leaves them empty and a row naming another user is never copied.
+func TestWithOwnParticipation(t *testing.T) {
+	req, resp := testNow.Add(-time.Hour), testNow
+	rows := []ExportedMembership{
+		{BeaconID: "b-accepted", Role: RoleParticipant, State: PStateAccepted},
+		{BeaconID: "b-requested", Role: RoleRequester, State: PStateRequested},
+		{BeaconID: "b-organiser", Role: RoleOrganiser, State: string(StatusOpen)},
+		{BeaconID: "b-foreign", Role: RoleParticipant, State: PStateAccepted},
+	}
+	own := map[string]participantDoc{
+		"b-accepted":  {UID: "me", State: PStateAccepted, Note: "see you there", RequestedAt: req, RespondedAt: resp},
+		"b-requested": {UID: "me", State: PStateRequested, Note: "can I join?", RequestedAt: req},
+		"b-foreign":   {UID: "someone-else", State: PStateAccepted, Note: "their secret note", RequestedAt: req, RespondedAt: resp},
+	}
+	got := withOwnParticipation("me", rows, own)
+	tm := func(p *time.Time) string {
+		if p == nil {
+			return "-"
+		}
+		return p.Format(time.RFC3339)
+	}
+	for _, tt := range []struct {
+		i               int
+		note, req, resp string
+	}{
+		{0, "see you there", req.Format(time.RFC3339), resp.Format(time.RFC3339)},
+		{1, "can I join?", req.Format(time.RFC3339), "-"},
+		{2, "", "-", "-"},
+		{3, "", "-", "-"},
+	} {
+		m := got[tt.i]
+		if m.Note != tt.note || tm(m.RequestedAt) != tt.req || tm(m.RespondedAt) != tt.resp {
+			t.Errorf("%s: note=%q requested=%s responded=%s, want %q %s %s", m.BeaconID, m.Note, tm(m.RequestedAt), tm(m.RespondedAt), tt.note, tt.req, tt.resp)
+		}
+	}
+}
+
+// TestExporter_MembershipCarriesOwnNote (D03): the streamed membership row includes the user's note and request and
+// response times, and omits them when unset (an organiser row), with no other participant data in the document.
+func TestExporter_MembershipCarriesOwnNote(t *testing.T) {
+	req := testNow.Add(-time.Hour).UTC()
+	src := fakeSource{memberships: []ExportedMembership{
+		{BeaconID: "0000000000000000001", Role: RoleRequester, State: PStateRequested, Note: "can I join?", RequestedAt: &req},
+		{BeaconID: "0000000000000000002", Role: RoleOrganiser, State: string(StatusOpen)},
+	}}
+	var buf bytes.Buffer
+	if err := NewExporter(src).ExportUser(context.Background(), "me", &buf); err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Memberships []map[string]any `json:"memberships"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, buf.String())
+	}
+	if len(out.Memberships) != 2 {
+		t.Fatalf("memberships = %+v", out.Memberships)
+	}
+	if m := out.Memberships[0]; m["note"] != "can I join?" || m["requestedAt"] != req.Format(time.RFC3339Nano) || m["respondedAt"] != nil {
+		t.Errorf("requester row = %v", m)
+	}
+	for _, k := range []string{"note", "requestedAt", "respondedAt"} {
+		if _, ok := out.Memberships[1][k]; ok {
+			t.Errorf("organiser row has %q: %v", k, out.Memberships[1])
+		}
+	}
+}
+
 // TestExporter_EmptyUser: no rows is still a valid document with both arrays.
 func TestExporter_EmptyUser(t *testing.T) {
 	var buf bytes.Buffer

@@ -157,7 +157,7 @@ class Notification extends $pb.GeneratedMessage {
   @$pb.TagNumber(6)
   $1.Timestamp ensureCreatedAt() => $_ensure(5);
 
-  /// Subject beacon (BEACON_REQUEST, BEACON_ACCEPTED and BEACON_CANCELLED only; empty otherwise). Tapping opens the
+  /// Subject beacon (BEACON_REQUEST, BEACON_ACCEPTED, BEACON_CANCELLED and BEACON_UPDATED only; empty otherwise). Tapping opens the
   /// beacon (BeaconService.GetBeacon).
   @$pb.TagNumber(7)
   $core.String get beaconId => $_getSZ(6);
@@ -759,6 +759,382 @@ class UnregisterDeviceResponse extends $pb.GeneratedMessage {
   static UnregisterDeviceResponse? _defaultInstance;
 }
 
+/// Push on or off per notification type group. true = the push is sent (the default for everyone).
+class NotificationPrefs extends $pb.GeneratedMessage {
+  factory NotificationPrefs({
+    $core.bool? plansPush,
+    $core.bool? mentionsRepliesPush,
+    $core.bool? likesRepostsPush,
+    $core.bool? followersPush,
+    $core.bool? messagesPush,
+  }) {
+    final result = NotificationPrefs._();
+    if (plansPush != null) result.plansPush = plansPush;
+    if (mentionsRepliesPush != null)
+      result.mentionsRepliesPush = mentionsRepliesPush;
+    if (likesRepostsPush != null) result.likesRepostsPush = likesRepostsPush;
+    if (followersPush != null) result.followersPush = followersPush;
+    if (messagesPush != null) result.messagesPush = messagesPush;
+    return result;
+  }
+
+  NotificationPrefs._();
+
+  factory NotificationPrefs.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      NotificationPrefs()..mergeFromBuffer(data, registry);
+  factory NotificationPrefs.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      NotificationPrefs()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'NotificationPrefs',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.notifications.v1'),
+      createEmptyInstance: NotificationPrefs.$_createMessage)
+    ..aOB(1, _omitFieldNames ? '' : 'plansPush')
+    ..aOB(2, _omitFieldNames ? '' : 'mentionsRepliesPush')
+    ..aOB(3, _omitFieldNames ? '' : 'likesRepostsPush')
+    ..aOB(4, _omitFieldNames ? '' : 'followersPush')
+    ..aOB(5, _omitFieldNames ? '' : 'messagesPush')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  NotificationPrefs clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  NotificationPrefs copyWith(void Function(NotificationPrefs) updates) =>
+      super.copyWith((message) => updates(message as NotificationPrefs))
+          as NotificationPrefs;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use NotificationPrefs() / NotificationPrefs.new instead')
+  static NotificationPrefs create() => NotificationPrefs._();
+  static $pb.GeneratedMessage $_createMessage() => NotificationPrefs._();
+  @$core.override
+  NotificationPrefs createEmptyInstance() => NotificationPrefs._();
+  @$core.pragma('dart2js:noInline')
+  static NotificationPrefs getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<NotificationPrefs>(
+          NotificationPrefs.$_createMessage);
+  static NotificationPrefs? _defaultInstance;
+
+  /// Plans: a join request, an accepted request, a cancelled plan.
+  @$pb.TagNumber(1)
+  $core.bool get plansPush => $_getBF(0);
+  @$pb.TagNumber(1)
+  set plansPush($core.bool value) => $_setBool(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPlansPush() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPlansPush() => $_clearField(1);
+
+  /// Mentions and replies: MENTION, REPLY, QUOTE.
+  @$pb.TagNumber(2)
+  $core.bool get mentionsRepliesPush => $_getBF(1);
+  @$pb.TagNumber(2)
+  set mentionsRepliesPush($core.bool value) => $_setBool(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasMentionsRepliesPush() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearMentionsRepliesPush() => $_clearField(2);
+
+  /// Likes and reposts: LIKE, REPOST.
+  @$pb.TagNumber(3)
+  $core.bool get likesRepostsPush => $_getBF(2);
+  @$pb.TagNumber(3)
+  set likesRepostsPush($core.bool value) => $_setBool(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasLikesRepostsPush() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearLikesRepostsPush() => $_clearField(3);
+
+  /// Followers: FOLLOW, FOLLOW_REQUEST, FOLLOW_ACCEPTED.
+  @$pb.TagNumber(4)
+  $core.bool get followersPush => $_getBF(3);
+  @$pb.TagNumber(4)
+  set followersPush($core.bool value) => $_setBool(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasFollowersPush() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearFollowersPush() => $_clearField(4);
+
+  /// Messages: the direct-message push (which has no in-app row).
+  @$pb.TagNumber(5)
+  $core.bool get messagesPush => $_getBF(4);
+  @$pb.TagNumber(5)
+  set messagesPush($core.bool value) => $_setBool(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasMessagesPush() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearMessagesPush() => $_clearField(5);
+}
+
+class GetNotificationPrefsRequest extends $pb.GeneratedMessage {
+  factory GetNotificationPrefsRequest() => GetNotificationPrefsRequest._();
+
+  GetNotificationPrefsRequest._();
+
+  factory GetNotificationPrefsRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetNotificationPrefsRequest()..mergeFromBuffer(data, registry);
+  factory GetNotificationPrefsRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetNotificationPrefsRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'GetNotificationPrefsRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.notifications.v1'),
+      createEmptyInstance: GetNotificationPrefsRequest.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetNotificationPrefsRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetNotificationPrefsRequest copyWith(
+          void Function(GetNotificationPrefsRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as GetNotificationPrefsRequest))
+          as GetNotificationPrefsRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use GetNotificationPrefsRequest() / GetNotificationPrefsRequest.new instead')
+  static GetNotificationPrefsRequest create() =>
+      GetNotificationPrefsRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      GetNotificationPrefsRequest._();
+  @$core.override
+  GetNotificationPrefsRequest createEmptyInstance() =>
+      GetNotificationPrefsRequest._();
+  @$core.pragma('dart2js:noInline')
+  static GetNotificationPrefsRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<GetNotificationPrefsRequest>(
+          GetNotificationPrefsRequest.$_createMessage);
+  static GetNotificationPrefsRequest? _defaultInstance;
+}
+
+class GetNotificationPrefsResponse extends $pb.GeneratedMessage {
+  factory GetNotificationPrefsResponse({
+    NotificationPrefs? prefs,
+  }) {
+    final result = GetNotificationPrefsResponse._();
+    if (prefs != null) result.prefs = prefs;
+    return result;
+  }
+
+  GetNotificationPrefsResponse._();
+
+  factory GetNotificationPrefsResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetNotificationPrefsResponse()..mergeFromBuffer(data, registry);
+  factory GetNotificationPrefsResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      GetNotificationPrefsResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'GetNotificationPrefsResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.notifications.v1'),
+      createEmptyInstance: GetNotificationPrefsResponse.$_createMessage)
+    ..aOM<NotificationPrefs>(1, _omitFieldNames ? '' : 'prefs',
+        subBuilder: NotificationPrefs.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetNotificationPrefsResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetNotificationPrefsResponse copyWith(
+          void Function(GetNotificationPrefsResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as GetNotificationPrefsResponse))
+          as GetNotificationPrefsResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use GetNotificationPrefsResponse() / GetNotificationPrefsResponse.new instead')
+  static GetNotificationPrefsResponse create() =>
+      GetNotificationPrefsResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      GetNotificationPrefsResponse._();
+  @$core.override
+  GetNotificationPrefsResponse createEmptyInstance() =>
+      GetNotificationPrefsResponse._();
+  @$core.pragma('dart2js:noInline')
+  static GetNotificationPrefsResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<GetNotificationPrefsResponse>(
+          GetNotificationPrefsResponse.$_createMessage);
+  static GetNotificationPrefsResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  NotificationPrefs get prefs => $_getN(0);
+  @$pb.TagNumber(1)
+  set prefs(NotificationPrefs value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPrefs() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPrefs() => $_clearField(1);
+  @$pb.TagNumber(1)
+  NotificationPrefs ensurePrefs() => $_ensure(0);
+}
+
+class UpdateNotificationPrefsRequest extends $pb.GeneratedMessage {
+  factory UpdateNotificationPrefsRequest({
+    $core.String? idempotencyKey,
+    NotificationPrefs? prefs,
+  }) {
+    final result = UpdateNotificationPrefsRequest._();
+    if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
+    if (prefs != null) result.prefs = prefs;
+    return result;
+  }
+
+  UpdateNotificationPrefsRequest._();
+
+  factory UpdateNotificationPrefsRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UpdateNotificationPrefsRequest()..mergeFromBuffer(data, registry);
+  factory UpdateNotificationPrefsRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UpdateNotificationPrefsRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'UpdateNotificationPrefsRequest',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.notifications.v1'),
+      createEmptyInstance: UpdateNotificationPrefsRequest.$_createMessage)
+    ..aOS(1, _omitFieldNames ? '' : 'idempotencyKey')
+    ..aOM<NotificationPrefs>(2, _omitFieldNames ? '' : 'prefs',
+        subBuilder: NotificationPrefs.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UpdateNotificationPrefsRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UpdateNotificationPrefsRequest copyWith(
+          void Function(UpdateNotificationPrefsRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as UpdateNotificationPrefsRequest))
+          as UpdateNotificationPrefsRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use UpdateNotificationPrefsRequest() / UpdateNotificationPrefsRequest.new instead')
+  static UpdateNotificationPrefsRequest create() =>
+      UpdateNotificationPrefsRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      UpdateNotificationPrefsRequest._();
+  @$core.override
+  UpdateNotificationPrefsRequest createEmptyInstance() =>
+      UpdateNotificationPrefsRequest._();
+  @$core.pragma('dart2js:noInline')
+  static UpdateNotificationPrefsRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<UpdateNotificationPrefsRequest>(
+          UpdateNotificationPrefsRequest.$_createMessage);
+  static UpdateNotificationPrefsRequest? _defaultInstance;
+
+  /// Format-validated (16-64 characters of [A-Za-z0-9_-]); the operation is a full replace, idempotent by state.
+  @$pb.TagNumber(1)
+  $core.String get idempotencyKey => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set idempotencyKey($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasIdempotencyKey() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearIdempotencyKey() => $_clearField(1);
+
+  /// Required: every group is sent, a missing one is off.
+  @$pb.TagNumber(2)
+  NotificationPrefs get prefs => $_getN(1);
+  @$pb.TagNumber(2)
+  set prefs(NotificationPrefs value) => $_setField(2, value);
+  @$pb.TagNumber(2)
+  $core.bool hasPrefs() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearPrefs() => $_clearField(2);
+  @$pb.TagNumber(2)
+  NotificationPrefs ensurePrefs() => $_ensure(1);
+}
+
+class UpdateNotificationPrefsResponse extends $pb.GeneratedMessage {
+  factory UpdateNotificationPrefsResponse({
+    NotificationPrefs? prefs,
+  }) {
+    final result = UpdateNotificationPrefsResponse._();
+    if (prefs != null) result.prefs = prefs;
+    return result;
+  }
+
+  UpdateNotificationPrefsResponse._();
+
+  factory UpdateNotificationPrefsResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UpdateNotificationPrefsResponse()..mergeFromBuffer(data, registry);
+  factory UpdateNotificationPrefsResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      UpdateNotificationPrefsResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'UpdateNotificationPrefsResponse',
+      package: const $pb.PackageName(
+          _omitMessageNames ? '' : 'dzeroth.notifications.v1'),
+      createEmptyInstance: UpdateNotificationPrefsResponse.$_createMessage)
+    ..aOM<NotificationPrefs>(1, _omitFieldNames ? '' : 'prefs',
+        subBuilder: NotificationPrefs.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UpdateNotificationPrefsResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UpdateNotificationPrefsResponse copyWith(
+          void Function(UpdateNotificationPrefsResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as UpdateNotificationPrefsResponse))
+          as UpdateNotificationPrefsResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use UpdateNotificationPrefsResponse() / UpdateNotificationPrefsResponse.new instead')
+  static UpdateNotificationPrefsResponse create() =>
+      UpdateNotificationPrefsResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      UpdateNotificationPrefsResponse._();
+  @$core.override
+  UpdateNotificationPrefsResponse createEmptyInstance() =>
+      UpdateNotificationPrefsResponse._();
+  @$core.pragma('dart2js:noInline')
+  static UpdateNotificationPrefsResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<UpdateNotificationPrefsResponse>(
+          UpdateNotificationPrefsResponse.$_createMessage);
+  static UpdateNotificationPrefsResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  NotificationPrefs get prefs => $_getN(0);
+  @$pb.TagNumber(1)
+  set prefs(NotificationPrefs value) => $_setField(1, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPrefs() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPrefs() => $_clearField(1);
+  @$pb.TagNumber(1)
+  NotificationPrefs ensurePrefs() => $_ensure(0);
+}
+
 class NotificationServiceApi {
   final $pb.RpcClient _client;
 
@@ -805,6 +1181,30 @@ class NotificationServiceApi {
           $pb.ClientContext? ctx, UnregisterDeviceRequest request) =>
       _client.invoke<UnregisterDeviceResponse>(ctx, 'NotificationService',
           'UnregisterDevice', request, UnregisterDeviceResponse());
+
+  /// The caller's push preferences: per type group, push on or off. Needs FEATURE_NOTIFICATIONS and
+  /// FEATURE_NOTIFICATION_PREFS on for the caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
+  /// "notification_prefs" for the latter), before any lookup. A user who never saved anything has every group on (today's
+  /// behaviour). Reads users/{caller}/settings/notifications (1 read). Rate limit: default per-minute bucket.
+  $async.Future<GetNotificationPrefsResponse> getNotificationPrefs(
+          $pb.ClientContext? ctx, GetNotificationPrefsRequest request) =>
+      _client.invoke<GetNotificationPrefsResponse>(ctx, 'NotificationService',
+          'GetNotificationPrefs', request, GetNotificationPrefsResponse());
+
+  /// Replaces the caller's push preferences (every group is sent; false = push off for that group). Same flags as
+  /// GetNotificationPrefs. The in-app list and the badge are never affected: a muted group still writes its row, only the
+  /// FCM push is skipped. The fan-out reads the preference through a 60 s per-instance cache, so another instance can keep
+  /// pushing for up to 60 s after the change. Idempotent by state (a full replace; an update equal to the stored value
+  /// writes nothing); idempotency_key is format-validated (VALIDATION when malformed) but not stored. A caller without a
+  /// profile => FAILED_PRECONDITION + PROFILE_REQUIRED. Rate limit: default per-minute bucket.
+  $async.Future<UpdateNotificationPrefsResponse> updateNotificationPrefs(
+          $pb.ClientContext? ctx, UpdateNotificationPrefsRequest request) =>
+      _client.invoke<UpdateNotificationPrefsResponse>(
+          ctx,
+          'NotificationService',
+          'UpdateNotificationPrefs',
+          request,
+          UpdateNotificationPrefsResponse());
 }
 
 const $core.bool _omitFieldNames =

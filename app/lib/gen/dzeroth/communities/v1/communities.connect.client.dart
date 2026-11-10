@@ -181,7 +181,12 @@ extension type CommunityServiceClient (connect.Transport _transport) {
   /// joined first (`communityMembers ORDER BY joinedAt DESC, __name__ DESC`, the presence of joinedAt is the filter).
   /// filter BANNED: its banned users, most recently banned first (`ORDER BY bannedAt DESC, __name__ DESC`), for the
   /// owner and moderators only, else FORBIDDEN "not_moderator" after the community read. Both run on the automatic
-  /// index (D3). Each row carries the user's role and UserListItem.since = joinedAt (JOINED) or bannedAt (BANNED).
+  /// index (D3). filter MODERATORS: the owner and the moderators (at most 1 + COMMUNITY_MAX_MODERATORS rows, read from the
+  /// community document and one batch read of their member docs; no query, no index), owner first then moderators by
+  /// user id, for the owner and moderators only, else FORBIDDEN "not_moderator" after the community read; a listed user
+  /// whose member doc is not JOINED is left out. Any other filter value => VALIDATION "filter" (after the flag gate,
+  /// before any lookup). Each row carries the user's role and UserListItem.since = joinedAt (JOINED, MODERATORS) or
+  /// bannedAt (BANNED).
   /// Rows whose account is not ACTIVE are left out, and so are the D7 drops for the caller (header comment: a block
   /// either way drops the row unless the caller is the owner or a moderator, who see every member; a muted member is
   /// shown). A protected member (user.is_private) is left out for a caller who is not the owner, a moderator, that
@@ -200,6 +205,37 @@ extension type CommunityServiceClient (connect.Transport _transport) {
   }) {
     return connect.Client(_transport).unary(
       specs.CommunityService.listCommunityMembers,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
+
+  /// Find members of one community by handle prefix (F36). Flags: communities, then community_member_search (header).
+  /// prefix: one optional leading "@", then 2-15 characters of [A-Za-z0-9_] (matched lower-cased), else VALIDATION
+  /// "prefix", before any lookup. limit: 0 => 20, clamped to 1..20 (never a validation error). filter: UNSPECIFIED or
+  /// JOINED searches the members (anyone who may list them); BANNED the banned users, for the owner and moderators only,
+  /// else FORBIDDEN "not_moderator" after the community read (as on the Banned page); any other value => VALIDATION
+  /// "filter". A missing or SUSPENDED community is the one NOT_FOUND.
+  /// How: the first `limit` handles of the WHOLE platform that start with the prefix (identity's handle-prefix query,
+  /// through the same 60 s per-instance (prefix, limit) cache SearchPeople uses), then one batch read of those users'
+  /// member docs in this community, keeping the ones in the filter's state. So it answers at most `limit` rows and a
+  /// member whose handle shares a very common prefix with many non-members can be missed: the client says "No members
+  /// found for that handle. Try more of their handle.", never "not a member". Display names are not searched. Rows are
+  /// built exactly as on ListCommunityMembers (live row, role, since, account not ACTIVE left out, the D7 block drops
+  /// for a caller who is not the owner or a moderator), in handle order. There is no page_token: the owner approved this
+  /// exception to the cursor rule (2026-11-09), because the answer is a bounded top-N, not a list to page through.
+  Future<dzerothcommunitiesv1communities.SearchCommunityMembersResponse> searchCommunityMembers(
+    dzerothcommunitiesv1communities.SearchCommunityMembersRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.CommunityService.searchCommunityMembers,
       input,
       signal: signal,
       headers: headers,
