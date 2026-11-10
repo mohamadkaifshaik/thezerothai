@@ -17,6 +17,7 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/fake_articles_server.dart';
 import '../../../support/fake_transport.dart';
 import '../../../support/posts_fixtures.dart';
 
@@ -224,12 +225,16 @@ void main() {
   });
 
   group('publish reply policy', () {
-    late _PublishServer server;
+    late FakeArticlesServer server;
     // `reply_audience` in the viewer's enabled_features (GetMe).
     late bool flagListed;
     late RpcArticlesRepository publisher;
     setUp(() {
-      server = _PublishServer();
+      server = FakeArticlesServer(
+        articleId: 'a' * 32,
+        authorId: 'alice',
+        revision: 2,
+      );
       flagListed = false;
       publisher = RpcArticlesRepository(
         apiClient: ApiClient.withTransport(FakeTransport(server.handle)),
@@ -268,6 +273,7 @@ void main() {
         flagListed = true;
         server.replyAudienceOn = true;
         for (final audience in ReplyAudience.values) {
+          server.published = false;
           await publisher.publish(
             draft(),
             idempotencyKey: 'k-${audience.name}',
@@ -316,7 +322,7 @@ void main() {
         server
           ..replyAudienceOn = true
           ..pendingKey = 'k'
-          ..pendingPolicy = stored;
+          ..replyPolicy = stored;
         // The capability changed since the first attempt: the dialog shows
         // the stored choice locked, and the stored value goes out unchanged.
         final published = await publisher.publish(
@@ -366,61 +372,4 @@ void main() {
     );
     expect(transport.calledProcedures, isEmpty);
   });
-}
-
-/// PublishArticle as the backend answers it. posts.Create refuses any
-/// reply_policy but UNSPECIFIED with FEATURE_DISABLED `reply_audience` while
-/// that flag is off, which clears the pending key
-/// (backend/internal/posts/service_create.go, articles/service.go). A retry
-/// under a pending key must repeat the stored caption and policy exactly, or
-/// it is refused as locked.
-class _PublishServer {
-  bool replyAudienceOn = false;
-  final sent = <ReplyPolicy>[];
-
-  /// The pending publication left by an earlier attempt, if any.
-  String pendingKey = '';
-  ReplyPolicy pendingPolicy = ReplyPolicy.REPLY_POLICY_UNSPECIFIED;
-
-  /// Store the pending key, then lose the reply (UNAVAILABLE) once.
-  bool loseNextReply = false;
-
-  Future<Object> handle(String procedure, Object input) async {
-    final request = input as pb.PublishArticleRequest;
-    sent.add(request.replyPolicy);
-    if (pendingKey.isNotEmpty &&
-        (pendingKey != request.idempotencyKey ||
-            pendingPolicy != request.replyPolicy)) {
-      throw connect.ConnectException(
-        connect.Code.failedPrecondition,
-        'article publication is in progress or complete',
-      );
-    }
-    pendingKey = request.idempotencyKey;
-    pendingPolicy = request.replyPolicy;
-    if (loseNextReply) {
-      loseNextReply = false;
-      throw connect.ConnectException(connect.Code.unavailable, 'lost');
-    }
-    if (pendingPolicy != ReplyPolicy.REPLY_POLICY_UNSPECIFIED &&
-        !replyAudienceOn) {
-      pendingKey = '';
-      throw serverError(
-        connect.Code.failedPrecondition,
-        common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
-        metadata: {'feature': kFeatureReplyAudience},
-      );
-    }
-    pendingKey = '';
-    return pb.PublishArticleResponse(
-      article: pb.Article(
-        articleId: request.articleId,
-        authorId: 'alice',
-        revision: request.expectedRevision,
-        bodyJson: '[]',
-        postId: 'post-1',
-        publicationReplyPolicy: request.replyPolicy,
-      ),
-    );
-  }
 }

@@ -457,10 +457,17 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     } catch (error) {
       // FEATURE_DISABLED is FAILED_PRECONDITION, which clears the pending
       // key server-side: the next try may choose again (only Everyone now,
-      // the gate remembers the answer), even if the refresh below fails.
+      // the gate remembers the answer), even if the refresh below fails. A
+      // record still marked pending would re-lock the dialog and resend the
+      // refused policy, so it stops being pending here too.
       if (error is FeatureDisabledException &&
           error.feature == kFeatureReplyAudience) {
         _retryOptions = null;
+        if (_record case final current?
+            when current.publicationPending &&
+                current.draft.id == record.draft.id) {
+          _record = current.withPublicationRefused();
+        }
       }
       if (mounted) setState(() => _error = _message(error));
       try {

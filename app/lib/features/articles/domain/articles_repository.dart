@@ -40,6 +40,22 @@ class ArticleRecord {
   final String excerpt;
   bool get published => postId.isNotEmpty;
 
+  /// This record once the server refused its pending publication
+  /// definitively (which clears the pending key): the same article, no
+  /// longer pending, its stored caption and policy kept.
+  ArticleRecord withPublicationRefused() => ArticleRecord(
+    draft: draft,
+    updatedAt: updatedAt,
+    postId: postId,
+    coverUrl: coverUrl,
+    authorName: authorName,
+    authorHandle: authorHandle,
+    authorAvatar: authorAvatar,
+    publicationCaption: publicationCaption,
+    publicationReplyPolicy: publicationReplyPolicy,
+    excerpt: excerpt,
+  );
+
   /// The list summary: the server excerpt, or one derived from loaded blocks.
   String get summary => excerpt.isNotEmpty ? excerpt : draft.excerpt();
 }
@@ -77,9 +93,12 @@ abstract class ArticlesRepository {
 
   /// Publishes [article]. [replyAudience] goes out as [ReplyAudience.wire]
   /// (Everyone is UNSPECIFIED, which the server takes with `reply_audience`
-  /// on or off). A publication already pending on the server repeats its
-  /// stored [ArticleRecord.publicationReplyPolicy] instead, so a retry under
-  /// the same key is never refused as locked because the capability changed.
+  /// on or off).
+  ///
+  /// While [article] is `publicationPending`, [replyAudience] is ignored: the
+  /// stored [ArticleRecord.publicationReplyPolicy] is sent exactly, so a retry
+  /// under the pending key is never refused as locked because the capability
+  /// changed since the first attempt.
   Future<ArticleRecord> publish(
     ArticleRecord article, {
     required String idempotencyKey,

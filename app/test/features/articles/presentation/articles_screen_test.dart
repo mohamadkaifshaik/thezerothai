@@ -2,20 +2,31 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:connectrpc/connect.dart' as connect;
+import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/storage/app_database.dart';
+import 'package:dzeroth/features/articles/data/rpc_articles_repository.dart';
 import 'package:dzeroth/features/articles/domain/article.dart';
 import 'package:dzeroth/features/articles/domain/articles_repository.dart';
 import 'package:dzeroth/features/articles/presentation/article_text_controller.dart';
 import 'package:dzeroth/features/articles/presentation/articles_screen.dart';
 import 'package:dzeroth/features/posts/domain/reply_audience.dart';
+import 'package:dzeroth/features/posts/domain/posts_feature_flag.dart';
 import 'package:dzeroth/features/posts/presentation/post_error_messages.dart';
+import 'package:dzeroth/features/timeline/data/timeline_store.dart';
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
+
+import '../../../support/fake_articles_server.dart';
+import '../../../support/fake_transport.dart';
+
 import 'package:dzeroth/core/theme/app_theme.dart';
 
 const _screenshots = bool.fromEnvironment('ARTICLE_SCREENSHOTS');
@@ -771,6 +782,96 @@ void main() {
       );
       await confirm(tester);
       expect(repository.publishedAudiences, [ReplyAudience.following]);
+    });
+
+    group('against the articles service rules, reply_audience off', () {
+      late FakeArticlesServer server;
+      late AppDatabase db;
+      setUp(() {
+        server = FakeArticlesServer();
+        db = AppDatabase.forTesting(NativeDatabase.memory());
+      });
+      tearDown(() => db.close());
+      Future<GoRouter> pumpService(WidgetTester tester) async {
+        final router = GoRouter(
+          initialLocation: '/compose/articles/edit/draft',
+          routes: [
+            GoRoute(
+              path: '/compose/articles/edit/:id',
+              builder: (_, state) =>
+                  ArticlesScreen(articleId: state.pathParameters['id']),
+            ),
+            GoRoute(
+              path: '/articles/:id',
+              builder: (_, _) => const Scaffold(body: Text('Reader')),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+        await tester.pumpWidget(
+          RepositoryProvider<ArticlesRepository>.value(
+            value: RpcArticlesRepository(
+              apiClient: ApiClient.withTransport(FakeTransport(server.handle)),
+              store: TimelineStore(db),
+              gate: PostsFeatureGate(isPostsEnabled: () => true),
+              currentUid: () => server.authorId,
+              isReplyAudienceEnabled: () => false,
+            ),
+            child: MaterialApp.router(routerConfig: router),
+          ),
+        );
+        await tester.pumpAndSettle();
+        return router;
+      }
+
+      testWidgets('a refused pending FOLLOWING whose refresh fails is not '
+          'resent: the next publish goes out as UNSPECIFIED', (tester) async {
+        server.leavePending(ReplyPolicy.REPLY_POLICY_FOLLOWING);
+        final router = await pumpService(tester);
+        server.getError = connect.ConnectException(
+          connect.Code.unavailable,
+          'offline',
+        );
+        await openDialog(tester);
+        // Locked to the stored choice: it must be sent again unchanged.
+        expect(find.text('Accounts you follow'), findsOneWidget);
+        await confirm(tester);
+        expect(find.text(kReplyAudienceUnavailableMessage), findsOneWidget);
+        await openDialog(tester);
+        expect(dropdown, findsNothing);
+        await confirm(tester);
+        expect(server.sent, [
+          ReplyPolicy.REPLY_POLICY_FOLLOWING,
+          ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
+        ]);
+        expect(server.published, isTrue);
+        expect(
+          router.routeInformationProvider.value.uri.path,
+          '/articles/draft',
+        );
+      });
+
+      testWidgets('a legacy pending EVERYONE is refused once with the '
+          'reply-audience copy, then publishes as UNSPECIFIED', (tester) async {
+        server.leavePending(ReplyPolicy.REPLY_POLICY_EVERYONE);
+        final router = await pumpService(tester);
+        await openDialog(tester);
+        await confirm(tester);
+        expect(find.text(kReplyAudienceUnavailableMessage), findsOneWidget);
+        expect(server.published, isFalse);
+        await openDialog(tester);
+        expect(dropdown, findsNothing);
+        await confirm(tester);
+        expect(server.sent, [
+          ReplyPolicy.REPLY_POLICY_EVERYONE,
+          ReplyPolicy.REPLY_POLICY_UNSPECIFIED,
+        ]);
+        expect(server.published, isTrue);
+        expect(
+          router.routeInformationProvider.value.uri.path,
+          '/articles/draft',
+        );
+      });
     });
   });
 }
