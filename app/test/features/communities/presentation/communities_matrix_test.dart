@@ -398,6 +398,10 @@ void main() {
           );
           await tester.pump();
         }
+        // Built is not on screen: a lazy list builds rows inside its cache
+        // extent, below the viewport, so scroll the button in before tapping.
+        await tester.ensureVisible(find.byTooltip('More options').first);
+        await tester.pumpAndSettle();
         await tester.tap(find.byTooltip('More options').first);
         await tester.pumpAndSettle();
         expectNoOverflow(tester);
