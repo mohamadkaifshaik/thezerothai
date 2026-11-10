@@ -226,6 +226,26 @@ service PostService {
   // format-validated (VALIDATION when malformed) but not stored.
   // Terminal items expire by TTL after SCHEDULED_TERMINAL_TTL (default 7 days).
   rpc CancelScheduledPost(CancelScheduledPostRequest) returns (CancelScheduledPostResponse);
+
+  // Publish a PENDING scheduled post immediately ("Post now"). Needs FEATURE_POSTS and FEATURE_SCHEDULED_POSTS on for
+  // the caller (FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "scheduled_posts"); shares the CreatePost
+  // rate-limit bucket. It runs the sweep's publish transaction (same code path), which re-reads the item as PENDING, so
+  // a race with the sweep or a cancel publishes at most once. The response is the item PUBLISHED with post_id. Idempotent
+  // by state: an item already PUBLISHED (a retry, or the sweep won) is returned unchanged. A CANCELLED item, or a FAILED
+  // one, is FAILED_PRECONDITION; if the publish transaction itself retires the item (media no longer available, account
+  // restricted) the response is the FAILED item. scheduled_id must match ^[0-9a-f]{32}$ (else VALIDATION); unknown =>
+  // NOT_FOUND. idempotency_key is format-validated (VALIDATION when malformed) but not stored.
+  rpc PublishScheduledPostNow(PublishScheduledPostNowRequest) returns (PublishScheduledPostNowResponse);
+
+  // Edit a PENDING scheduled post. Needs FEATURE_POSTS and FEATURE_SCHEDULED_POSTS on for the caller. Only the fields
+  // that are set change; at least one must be set (else VALIDATION). text follows the CreatePost rules (a post that
+  // carries media may have empty text), publish_at the SchedulePost rules (truncated to the minute, within [now + 2 min,
+  // now + 60 d], and the +/-4 min window cap, LIMIT_REACHED "scheduled_window"), reply_policy the CreatePost rules
+  // (needs FEATURE_REPLY_AUDIENCE). Media and the labels are not editable. An item that is not PENDING (published,
+  // cancelled, failed) or whose stored publish_at is less than 60 s away is FAILED_PRECONDITION; unknown =>
+  // NOT_FOUND. Idempotent by state: an edit whose values already equal the stored ones writes nothing and returns the
+  // item. idempotency_key is format-validated but not stored. Shares the CreatePost rate-limit bucket.
+  rpc UpdateScheduledPost(UpdateScheduledPostRequest) returns (UpdateScheduledPostResponse);
 }
 
 enum PostKind {
@@ -632,5 +652,33 @@ message CancelScheduledPostRequest {
 
 message CancelScheduledPostResponse {
   // The current state; PUBLISHED means it was too late to cancel (not an error).
+  ScheduledPost scheduled_post = 1;
+}
+
+message PublishScheduledPostNowRequest {
+  // Format-validated (16-64 characters of [A-Za-z0-9_-]); the operation is idempotent by state.
+  string idempotency_key = 1;
+  string scheduled_id = 2;
+}
+
+message PublishScheduledPostNowResponse {
+  // PUBLISHED with post_id set (text and media are cleared once published).
+  ScheduledPost scheduled_post = 1;
+}
+
+message UpdateScheduledPostRequest {
+  // Format-validated (16-64 characters of [A-Za-z0-9_-]); the operation is idempotent by state.
+  string idempotency_key = 1;
+  string scheduled_id = 2;
+  // CreatePost text rules. Unset keeps the stored text.
+  optional string text = 3;
+  // UTC; truncated to the minute. Unset keeps the stored time.
+  google.protobuf.Timestamp publish_at = 4;
+  // Unset keeps the stored policy; UNSPECIFIED and EVERYONE both mean "everyone".
+  optional ReplyPolicy reply_policy = 5;
+}
+
+message UpdateScheduledPostResponse {
+  // The item after the edit (PENDING, with its text and media).
   ScheduledPost scheduled_post = 1;
 }
