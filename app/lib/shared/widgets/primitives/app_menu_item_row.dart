@@ -27,25 +27,28 @@ class AppMenuItemRow extends StatelessWidget {
     final color = destructive
         ? theme.colorScheme.error
         : theme.colorScheme.onSurface;
-    return Row(
-      children: [
-        ExcludeSemantics(
-          child: Icon(
-            icon,
-            size: AppIconSize.md,
-            color: destructive
-                ? theme.colorScheme.error
-                : theme.colorScheme.onSurfaceVariant,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
+      child: Row(
+        children: [
+          ExcludeSemantics(
+            child: Icon(
+              icon,
+              size: AppIconSize.md,
+              color: destructive
+                  ? theme.colorScheme.error
+                  : theme.colorScheme.onSurfaceVariant,
+            ),
           ),
-        ),
-        const SizedBox(width: AppSpacing.md),
-        Expanded(
-          child: Text(
-            label,
-            style: theme.textTheme.bodyLarge?.copyWith(color: color),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodyLarge?.copyWith(color: color),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

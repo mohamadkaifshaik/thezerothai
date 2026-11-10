@@ -5,6 +5,9 @@ import 'package:dzeroth/shared/widgets/primitives/app_menu_item_row.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/contrast.dart';
+import '../../../support/theme_harness.dart';
+
 Widget _host(
   Widget child, {
   Brightness brightness = Brightness.dark,
@@ -122,4 +125,30 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   });
+
+  forEachThemeAndWidth(
+    'AppMenuItemRow is at least 48 dp tall, fits and keeps contrast',
+    (tester, env) async {
+      await pumpThemed(
+        tester,
+        const AppMenuItemRow(
+          icon: Icons.block,
+          label: 'Block this account and hide their posts',
+          destructive: true,
+        ),
+        brightness: env.brightness,
+        size: env.size,
+        textScale: env.textScale,
+      );
+      expect(tester.takeException(), isNull);
+      expect(
+        tester.getSize(find.byType(AppMenuItemRow)).height,
+        greaterThanOrEqualTo(AppSpacing.minTapTarget),
+      );
+      final scheme = buildAppTheme(brightness: env.brightness).colorScheme;
+      expect(contrast(scheme.error, scheme.surface), greaterThanOrEqualTo(4.5));
+    },
+    widths: kRedesignWidths,
+    textScales: kRedesignTextScales,
+  );
 }
