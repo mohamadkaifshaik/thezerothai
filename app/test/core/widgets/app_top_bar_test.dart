@@ -332,8 +332,9 @@ void main() {
       expect(tester.getRect(find.byKey(const Key('body'))).top, 58);
     });
 
-    testWidgets('the fixed constructor stays 53dp at 2.0 and clips instead '
-        'of overflowing or scaling down', (tester) async {
+    testWidgets('the fixed constructor cannot grow: a block taller than '
+        '53dp at 2.0 is a loud overflow, not a silent clip or scale-down '
+        '(use AppTopBar.of)', (tester) async {
       await pump(
         tester,
         uiShell: true,
@@ -348,7 +349,41 @@ void main() {
         tolerance: 0,
       );
       expect(inBar(find.byType(FittedBox)), findsNothing);
-      expectNoOverflow(tester);
+      expect(inBar(find.byType(ClipRect)), findsNothing);
+      final error = tester.takeException();
+      expect(error, isFlutterError);
+      expect(error.toString(), contains('overflowed'));
+    });
+
+    testWidgets('the sliver overrides only the text scaler: the paddings '
+        'are those inside the app bar', (tester) async {
+      seed(uiShell: true);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: appLightTheme,
+          home: MediaQuery(
+            data: const MediaQueryData(
+              size: Size(360, 800),
+              padding: EdgeInsets.only(top: 24),
+              textScaler: TextScaler.linear(2),
+            ),
+            child: BlocProvider<OnboardingBloc>.value(
+              value: onboarding,
+              child: Scaffold(
+                body: CustomScrollView(
+                  slivers: [AppTopBar.sliver(title: 'Notifications')],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final inner = MediaQuery.of(tester.element(find.text('Notifications')));
+      expect(inner.textScaler, const TextScaler.linear(2));
+      // The app bar's safe area consumed the status bar inset.
+      expect(inner.padding.top, 0);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('wordmark: draws DZEROTH centred in the wordmark style, '

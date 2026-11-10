@@ -36,8 +36,12 @@ import 'app_shell_scope.dart';
 ///
 /// Use [AppTopBar.of] as a `Scaffold.appBar`, or [AppTopBar.sliver] at the
 /// top of a `CustomScrollView` (floating and snapping, like the Home feed).
-/// [AppTopBar.new] is the fixed 53dp bar; with `ui_shell` on it clips a title
-/// block that is taller than the row.
+/// [AppTopBar.new] is the fixed 53dp bar: with `ui_shell` on it cannot grow,
+/// so a title block taller than the row overflows (a layout error in debug
+/// and tests). Use [AppTopBar.of] wherever the text scale can exceed 1.0.
+///
+/// Every variant reads the `ui_shell` flag from an [OnboardingBloc], which
+/// must be provided above the bar; without one the build throws.
 class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
   const AppTopBar({
     super.key,
@@ -215,8 +219,6 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
               centerTitle: centerTitle,
               wordmark: wordmark,
               redesign: true,
-              // A bar built without [AppTopBar.of] cannot grow: clip.
-              clipText: _height == null,
             ),
           ),
         ),
@@ -272,8 +274,10 @@ class _SliverTopBar extends StatelessWidget {
         backgroundColor: colors.surface.withValues(alpha: _alpha),
         // Material's `AppBar` caps the text scale of its title at 1.34; the
         // row has grown to fit, so give the title the ambient scale back.
-        title: MediaQuery(
-          data: MediaQuery.of(context),
+        // Only the scaler is overridden: the paddings stay those the app
+        // bar's own safe area has already consumed.
+        title: _AmbientTextScale(
+          textScaler: MediaQuery.textScalerOf(context),
           child: _BarRow(
             title: title,
             subtitle: subtitle,
@@ -309,6 +313,20 @@ class _SliverTopBar extends StatelessWidget {
   }
 }
 
+/// Replaces only the text scaler of the nearest `MediaQuery` for [child].
+class _AmbientTextScale extends StatelessWidget {
+  const _AmbientTextScale({required this.textScaler, required this.child});
+
+  final TextScaler textScaler;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => MediaQuery(
+    data: MediaQuery.of(context).copyWith(textScaler: textScaler),
+    child: child,
+  );
+}
+
 /// The content of the bar: avatar button, title block, trailing actions.
 class _BarRow extends StatelessWidget {
   const _BarRow({
@@ -320,7 +338,6 @@ class _BarRow extends StatelessWidget {
     this.fitText = false,
     this.wordmark = false,
     this.redesign = false,
-    this.clipText = false,
   });
 
   final String? title;
@@ -337,9 +354,6 @@ class _BarRow extends StatelessWidget {
 
   /// `ui_shell` is on.
   final bool redesign;
-
-  /// Redesign only: clip a title block taller than a fixed row.
-  final bool clipText;
 
   @override
   Widget build(BuildContext context) {
@@ -377,16 +391,6 @@ class _BarRow extends StatelessWidget {
             ),
         ],
       );
-      if (clipText) {
-        return ClipRect(
-          child: OverflowBox(
-            minHeight: 0,
-            maxHeight: double.infinity,
-            alignment: centered ? Alignment.center : Alignment.centerLeft,
-            child: block,
-          ),
-        );
-      }
       if (width == null) return block;
       return FittedBox(
         fit: BoxFit.scaleDown,
@@ -474,6 +478,9 @@ class _Wordmark extends StatelessWidget {
 
 /// A trailing action of the top bar: a raised [AppIconButton] with `ui_shell`
 /// on, the plain icon button of the legacy bar with it off.
+///
+/// It reads the flag from an [OnboardingBloc], which must be provided above
+/// it; without one the build throws.
 class AppTopBarAction extends StatelessWidget {
   const AppTopBarAction({
     super.key,
