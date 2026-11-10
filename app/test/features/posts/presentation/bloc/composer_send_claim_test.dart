@@ -248,6 +248,24 @@ void main() {
       expect(c.state.error, isA<UnknownApiException>());
     });
 
+    test('a remembered key with an edited body, store broken: the server '
+        'refuses it and the earlier version is named', () async {
+      final c = await saved('hello');
+      server.script.add(ServerReply.drop);
+      await c.submit();
+      final k1 = server.receivedKeys.single;
+
+      c.textChanged('hello, edited');
+      repo.broken = true;
+      await c.submit();
+
+      expect(server.receivedKeys, [k1, k1], reason: 'K1, never a new key');
+      expect(server.accepted, hasLength(1));
+      expect(c.state.sendConflict, SendConflict.earlierVersionSent);
+      expect(c.state.error, isNull);
+      expect(c.state.draft.text, 'hello, edited');
+    });
+
     test('a key proven unused is forgotten with the row\'s', () async {
       final c = await saved('hello');
       server.refusals.add(const ValidationException('bad'));
