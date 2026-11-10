@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/contrast.dart';
 import '../../../support/geometry.dart';
 import '../../../support/theme_harness.dart';
 
@@ -31,46 +32,145 @@ Widget _bar({
 
 void main() {
   group('AppTabBar', () {
-    forEachThemeAndWidth('is a 53dp row and nothing overflows', (
-      tester,
-      env,
-    ) async {
-      await pumpThemed(
-        tester,
-        _bar(),
-        brightness: env.brightness,
-        size: env.size,
-        textScale: env.textScale,
-      );
+    forEachThemeAndWidth(
+      'is at least 48dp tall, nothing overflows, targets and contrast hold',
+      (tester, env) async {
+        final handle = tester.ensureSemantics();
+        await pumpThemed(
+          tester,
+          _bar(selected: 1),
+          brightness: env.brightness,
+          size: env.size,
+          textScale: env.textScale,
+        );
 
-      expectSize(tester, find.byType(AppTabBar), height: AppSize.headerRow);
-      expectNoOverflow(tester);
-    });
+        final height = tester.getSize(find.byType(AppTabBar)).height;
+        expect(height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+        if (env.textScale == 1.0) {
+          expect(height, lessThan(AppSpacing.minTapTarget + 8));
+        } else {
+          // Grows with the text instead of clipping.
+          expect(height, greaterThan(AppSpacing.minTapTarget + 8));
+        }
+        expectNoOverflow(tester);
+        for (final label in ['For you', 'Following']) {
+          final tab = find.ancestor(
+            of: find.text(label),
+            matching: find.byType(InkWell),
+          );
+          expectMinTarget(tester, tab, reason: 'tab $label');
+        }
+        await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
 
-    testWidgets('the indicator is 4dp, accent, and exactly as wide as the '
-        'active label (content-sized)', (tester) async {
-      await pumpThemed(tester, _bar(selected: 1), size: const Size(400, 800));
+        final theme = Theme.of(tester.element(find.byType(AppTabBar)));
+        final surface = theme.colorScheme.surface;
+        final selected = tester.widget<Text>(find.text('Following')).style!;
+        final unselected = tester.widget<Text>(find.text('For you')).style!;
+        expect(contrast(selected.color!, surface), greaterThanOrEqualTo(4.5));
+        expect(contrast(unselected.color!, surface), greaterThanOrEqualTo(4.5));
+        expect(
+          contrast(theme.extension<AppColors>()!.selectedIndicator, surface),
+          greaterThanOrEqualTo(3.0),
+        );
+        handle.dispose();
+      },
+      widths: kRedesignWidths,
+      textScales: kRedesignTextScales,
+      heights: kRedesignHeights,
+    );
 
-      final indicator = find.byKey(const ValueKey('tab-indicator'));
-      expect(indicator, findsOneWidget);
-      expectSize(
-        tester,
-        indicator,
-        width: tester.getSize(find.text('Following')).width,
-        height: AppSize.tabIndicator,
-      );
-      final decoration =
-          tester.widget<Container>(indicator).decoration! as BoxDecoration;
-      expect(decoration.color, AppPalette.tealText);
-      // Flush with the bottom of the row (the 1px hairline is below it).
-      expect(
-        tester.getRect(indicator).bottom,
-        closeTo(tester.getRect(find.byType(AppTabBar)).bottom - 1, 1.01),
-      );
-    });
+    forEachThemeAndWidth(
+      'four tabs: no overflow, scrollable only when needed, last tab '
+      'reachable',
+      (tester, env) async {
+        await pumpThemed(
+          tester,
+          _bar(selected: 3),
+          brightness: env.brightness,
+          size: env.size,
+          textScale: env.textScale,
+        );
 
-    testWidgets('equal-width: tabs share the width but the indicator stays '
-        'label-wide', (tester) async {
+        expectNoOverflow(tester);
+        final scroller = tester.state<ScrollableState>(find.byType(Scrollable));
+        final overflows = scroller.position.maxScrollExtent > 0;
+        if (env.size.width >= 834 && env.textScale == 1.0) {
+          expect(overflows, isFalse);
+        }
+        if (env.size.width == 360 && env.textScale == 2.0) {
+          // Four tabs at 2.0 cannot fit 360dp: the row scrolls.
+          expect(overflows, isTrue);
+          await tester.dragUntilVisible(
+            find.text('Crypto'),
+            find.byType(Scrollable),
+            const Offset(-200, 0),
+          );
+          await tester.pumpAndSettle();
+          expect(find.text('Crypto').hitTestable(), findsOneWidget);
+          expectNoOverflow(tester);
+        }
+      },
+      widths: kRedesignWidths,
+      textScales: kRedesignTextScales,
+      heights: kRedesignHeights,
+    );
+
+    forEachThemeAndWidth(
+      'the indicator is 4 x 44dp in the selectedIndicator token, centred '
+      'under the active tab, flush with the hairline',
+      (tester, env) async {
+        await pumpThemed(
+          tester,
+          _bar(selected: 1),
+          brightness: env.brightness,
+          size: env.size,
+          textScale: env.textScale,
+        );
+
+        final indicator = find.byKey(const ValueKey('tab-indicator'));
+        expect(indicator, findsOneWidget);
+        expectSize(tester, indicator, width: 44, height: AppSize.tabIndicator);
+        final decoration =
+            tester.widget<Container>(indicator).decoration! as BoxDecoration;
+        final tokens = env.isDark ? AppColors.dark : AppColors.light;
+        expect(decoration.color, tokens.selectedIndicator);
+        final tab = find.ancestor(
+          of: find.text('Following'),
+          matching: find.byType(InkWell),
+        );
+        expect(
+          tester.getCenter(indicator).dx,
+          closeTo(tester.getCenter(tab).dx, 0.5),
+        );
+        expect(
+          tester.getRect(indicator).bottom,
+          closeTo(tester.getRect(find.byType(AppTabBar)).bottom - 1, 1.01),
+        );
+      },
+      widths: kRedesignWidths,
+      textScales: kRedesignTextScales,
+      heights: kRedesignHeights,
+    );
+
+    for (final brightness in Brightness.values) {
+      testWidgets('golden: four tabs ${brightness.name}', (tester) async {
+        final env = MatrixEnv(
+          brightness: brightness,
+          size: const Size(360, 800),
+          textScale: 1.0,
+        );
+        await pumpThemed(
+          tester,
+          RepaintBoundary(child: _bar(selected: 1)),
+          brightness: brightness,
+          size: env.size,
+        );
+        await expectGolden(tester, find.byType(AppTabBar), 'app_tab_bar', env);
+      });
+    }
+
+    testWidgets('equal-width: tabs share the width, indicator stays 44dp '
+        'and centred in its tab', (tester) async {
       await pumpThemed(
         tester,
         _bar(
@@ -86,11 +186,9 @@ void main() {
       final all = tester.getCenter(find.text('All')).dx;
       final mentions = tester.getCenter(find.text('Mentions')).dx;
       expect(mentions - all, closeTo(250, 1));
-      expectSize(
-        tester,
-        find.byKey(const ValueKey('tab-indicator')),
-        width: tester.getSize(find.text('All')).width,
-      );
+      final indicator = find.byKey(const ValueKey('tab-indicator'));
+      expectSize(tester, indicator, width: 44);
+      expect(tester.getCenter(indicator).dx, closeTo(all, 0.5));
     });
 
     testWidgets('content-sized gap between labels is 44dp on a phone and '
@@ -119,8 +217,8 @@ void main() {
       expectNoOverflow(tester);
     });
 
-    testWidgets('active label is bold primary text, inactive is regular '
-        'secondary text', (tester) async {
+    testWidgets('selected label is w700 primary text, unselected is w600 '
+        'secondary text (weight, not colour alone)', (tester) async {
       await pumpThemed(tester, _bar(), brightness: Brightness.dark);
       final colors = appDarkTheme.colorScheme;
 
@@ -128,7 +226,7 @@ void main() {
       final inactive = tester.widget<Text>(find.text('Following')).style!;
       expect(active.fontWeight, FontWeight.w700);
       expect(active.color, colors.onSurface);
-      expect(inactive.fontWeight, FontWeight.w400);
+      expect(inactive.fontWeight, FontWeight.w600);
       expect(inactive.color, colors.onSurfaceVariant);
       expect(active.fontSize, 15);
     });

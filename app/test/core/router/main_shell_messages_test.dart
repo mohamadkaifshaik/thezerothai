@@ -173,7 +173,7 @@ void main() {
     }
   });
 
-  testWidgets('sits after Notifications and before Profile in the bar', (
+  testWidgets('sits after Notifications, the last cell of the bar', (
     tester,
   ) async {
     await pump(tester);
@@ -184,7 +184,10 @@ void main() {
         .dx;
     expect(x(Icons.home), lessThan(x(Icons.notifications_none)));
     expect(x(Icons.notifications_none), lessThan(x(Icons.mail_outline)));
-    expect(x(Icons.mail_outline), lessThan(x(Icons.person_outline)));
+    expect(
+      find.descendant(of: bar, matching: find.byIcon(Icons.person_outline)),
+      findsNothing,
+    );
   });
 
   testWidgets('without notifications it follows Home', (tester) async {
@@ -195,7 +198,6 @@ void main() {
         .getCenter(find.descendant(of: bar, matching: find.byIcon(icon)))
         .dx;
     expect(x(Icons.home), lessThan(x(Icons.mail_outline)));
-    expect(x(Icons.mail_outline), lessThan(x(Icons.person_outline)));
   });
 
   group('selection', () {

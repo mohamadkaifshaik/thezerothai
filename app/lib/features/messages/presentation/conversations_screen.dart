@@ -252,7 +252,6 @@ class _ConversationsViewState extends State<_ConversationsView>
                       if (_isInbox)
                         AppTopBar.sliver(
                           title: 'Messages',
-                          showAccountAvatar: false,
                           centerTitle: true,
                           actions: [
                             if (widget.canCompose &&

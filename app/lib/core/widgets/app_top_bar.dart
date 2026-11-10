@@ -38,8 +38,9 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
 
   final List<Widget>? actions;
 
-  /// Whether narrow layouts show the account drawer button. Home owns this
-  /// affordance; other primary destinations can leave the leading slot clear.
+  /// Whether narrow layouts show the account drawer button. Every primary
+  /// destination keeps it: with Profile off the phone bar (ADR-0034) the avatar
+  /// is how phones reach Profile and the secondary destinations.
   final bool showAccountAvatar;
 
   /// Centers the title independently of the leading and trailing controls.

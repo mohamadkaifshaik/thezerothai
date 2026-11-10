@@ -23,8 +23,8 @@ export 'app_nav_destination.dart';
 ///
 /// Mirrors X's web layout. The
 /// destinations are the high-frequency ones only; Settings/Sign out live in
-/// the drawer and the account chip menu. A destination marked
-/// `AppNavDestination.railOnly` (Bookmarks) is left out of the phone bar; one
+/// the drawer and the account chip menu. A destination in
+/// `AppNavGroup.secondary` (Lists, History...) is left out of the phone bar; one
 /// with `onActivate` (More) opens a menu anchored at its icon instead of
 /// navigating.
 class ResponsiveScaffold extends StatefulWidget {
@@ -136,7 +136,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     // both ways (the selection of a rail-only one is "none").
     final bar = <int>[
       for (var i = 0; i < widget.destinations.length; i++)
-        if (!widget.destinations[i].railOnly) i,
+        if (widget.destinations[i].group == AppNavGroup.primary) i,
     ];
     final selected = widget.selectedIndex == null
         ? -1
