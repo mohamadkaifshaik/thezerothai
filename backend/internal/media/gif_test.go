@@ -20,11 +20,15 @@ import (
 // Image/gif for post media. The sampled-frame screening comes later; these tests cover the content-type
 // table, the thumbnail's own type, magic bytes, the flag, the cap rule and the cleanup names.
 
-// gifBytes is a valid one-frame GIF whose bytes depend on tag (the screen parses it since then).
-func gifBytes(tag string) []byte {
+// gifBytes is a valid one-frame GIF of the size item() declares (1200 x 800) whose bytes depend on tag (the screen
+// parses it, and verify reads its logical screen size). A fixture for another declared size uses gifSized.
+func gifBytes(tag string) []byte { return gifSized(tag, 1200, 800) }
+
+// gifSized is a valid one-frame GIF whose logical screen and only frame are w x h, its colour derived from tag.
+func gifSized(tag string, w, h int) []byte {
 	sum := md5.Sum([]byte(tag))
 	pal := color.Palette{color.White, color.RGBA{R: sum[0], G: sum[1], B: sum[2], A: 255}}
-	return encodeTestGIF(8, 8, pal, []testFrame{{rect: image.Rect(0, 0, 8, 8), idx: 1, delay: 10}})
+	return encodeTestGIF(w, h, pal, []testFrame{{rect: image.Rect(0, 0, w, h), idx: 1, delay: 10}})
 }
 
 func pngBytes(tag string) []byte {

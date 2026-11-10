@@ -15,6 +15,15 @@ import (
 // These are project limits, not claims about X's server implementation.
 const maxBodyBytes = 180000
 
+// maxDraftsPerAuthor caps an author's unpublished drafts (pending publications included). Only creating a new
+// draft id is refused at the cap; editing, publishing and deleting an existing draft always stay allowed, so an
+// author already over it (drafts made before the cap) is never locked out. draftLimitName is the
+// LIMIT_REACHED metadata["limit"] value the client matches.
+const (
+	maxDraftsPerAuthor = 50
+	draftLimitName     = "article_drafts"
+)
+
 type textRun struct {
 	Text  string   `json:"text"`
 	Marks []string `json:"marks"`
