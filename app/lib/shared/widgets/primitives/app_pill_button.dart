@@ -56,6 +56,7 @@ class AppPillButton extends StatelessWidget {
     this.variant = AppButtonVariant.primary,
     this.size = AppButtonSize.regular,
     this.singleLine = false,
+    this.autofocus = false,
   });
 
   final String label;
@@ -75,6 +76,9 @@ class AppPillButton extends StatelessWidget {
   /// button width themselves (the form header); everywhere else the label
   /// wraps and the button grows.
   final bool singleLine;
+
+  /// Takes focus when its route opens (the safe action of a dialog).
+  final bool autofocus;
 
   @override
   Widget build(BuildContext context) {
@@ -126,6 +130,7 @@ class AppPillButton extends StatelessWidget {
               ),
               child: InkWell(
                 borderRadius: radius,
+                autofocus: autofocus,
                 onTap: enabled ? onPressed : null,
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
