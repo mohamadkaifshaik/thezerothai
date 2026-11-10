@@ -379,5 +379,6 @@ class _EmptyUploader extends Mock implements MediaUploader {
     required pb_media.MediaPurpose purpose,
     required List<UploadJob> jobs,
     void Function(String jobId, double progress)? onProgress,
+    bool Function()? stillWanted,
   }) async => const [];
 }
