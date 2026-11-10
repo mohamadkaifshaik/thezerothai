@@ -34,6 +34,11 @@ var errRecipientInactive = fmt.Errorf("%w: recipient is not active", ErrCannotMe
 // Like errRecipientInactive it only gives the log its own refused_reason; the wire answer is the same.
 var errBlocked = fmt.Errorf("%w: blocked", ErrCannotMessage)
 
+// errDMPolicy is ErrCannotMessage for a send the recipient's FOLLOWING_ONLY "who can message me" policy refuses (F9). Like
+// errBlocked it only gives the log its own refused_reason; the wire answer is the same CANNOT_MESSAGE, so a policy refusal
+// reveals nothing a block would not (and the sender cannot tell the two apart).
+var errDMPolicy = fmt.Errorf("%w: recipient accepts messages from accounts they follow only", ErrCannotMessage)
+
 // checkRecipient is the status rule of a send that creates a conversation, applied to the transaction's read of the
 // recipient's users document: absent or not ACTIVE is errRecipientInactive; any other read error is returned as is.
 func checkRecipient(p identity.Profile, err error) error {

@@ -85,6 +85,59 @@ func (AccountStatus) EnumDescriptor() ([]byte, []int) {
 	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{0}
 }
 
+// Who may start a direct message with an account. Existing accepted conversations always keep working.
+type DmPolicy int32
+
+const (
+	// Same as EVERYONE_REQUESTS. Every account created before the setting existed has it.
+	DmPolicy_DM_POLICY_UNSPECIFIED DmPolicy = 0
+	// Anyone can message; a sender the account does not follow arrives as a message request (messaging.proto).
+	DmPolicy_DM_POLICY_EVERYONE_REQUESTS DmPolicy = 1
+	// Only accounts that this account follows can start a conversation or add to a pending request.
+	DmPolicy_DM_POLICY_FOLLOWING_ONLY DmPolicy = 2
+)
+
+// Enum value maps for DmPolicy.
+var (
+	DmPolicy_name = map[int32]string{
+		0: "DM_POLICY_UNSPECIFIED",
+		1: "DM_POLICY_EVERYONE_REQUESTS",
+		2: "DM_POLICY_FOLLOWING_ONLY",
+	}
+	DmPolicy_value = map[string]int32{
+		"DM_POLICY_UNSPECIFIED":       0,
+		"DM_POLICY_EVERYONE_REQUESTS": 1,
+		"DM_POLICY_FOLLOWING_ONLY":    2,
+	}
+)
+
+func (x DmPolicy) Enum() *DmPolicy {
+	p := new(DmPolicy)
+	*p = x
+	return p
+}
+
+func (x DmPolicy) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DmPolicy) Descriptor() protoreflect.EnumDescriptor {
+	return file_dzeroth_identity_v1_identity_proto_enumTypes[1].Descriptor()
+}
+
+func (DmPolicy) Type() protoreflect.EnumType {
+	return &file_dzeroth_identity_v1_identity_proto_enumTypes[1]
+}
+
+func (x DmPolicy) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DmPolicy.Descriptor instead.
+func (DmPolicy) EnumDescriptor() ([]byte, []int) {
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{1}
+}
+
 type ExportStatus int32
 
 const (
@@ -121,11 +174,11 @@ func (x ExportStatus) String() string {
 }
 
 func (ExportStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_dzeroth_identity_v1_identity_proto_enumTypes[1].Descriptor()
+	return file_dzeroth_identity_v1_identity_proto_enumTypes[2].Descriptor()
 }
 
 func (ExportStatus) Type() protoreflect.EnumType {
-	return &file_dzeroth_identity_v1_identity_proto_enumTypes[1]
+	return &file_dzeroth_identity_v1_identity_proto_enumTypes[2]
 }
 
 func (x ExportStatus) Number() protoreflect.EnumNumber {
@@ -134,7 +187,7 @@ func (x ExportStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ExportStatus.Descriptor instead.
 func (ExportStatus) EnumDescriptor() ([]byte, []int) {
-	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{1}
+	return file_dzeroth_identity_v1_identity_proto_rawDescGZIP(), []int{2}
 }
 
 type Profile struct {
@@ -183,8 +236,13 @@ type Profile struct {
 	// Paid subscription verification entitlement. Set only by trusted subscription administration after confirming
 	// an active paid subscription; unrelated to verified identity or email status.
 	SubscriptionVerified bool `protobuf:"varint,18,opt,name=subscription_verified,json=subscriptionVerified,proto3" json:"subscription_verified,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// Who can start a direct message with this account (F9). UNSPECIFIED means EVERYONE_REQUESTS (today's behaviour).
+	// Always UNSPECIFIED while FEATURE_DM_POLICY is globally off, in every Profile including the owner's own; the stored
+	// value returns when the flag is back on. Clients grey out a recipient whose policy is FOLLOWING_ONLY unless that
+	// account follows the caller (the server decides: SendMessage answers CANNOT_MESSAGE).
+	DmPolicy      DmPolicy `protobuf:"varint,19,opt,name=dm_policy,json=dmPolicy,proto3,enum=dzeroth.identity.v1.DmPolicy" json:"dm_policy,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Profile) Reset() {
@@ -341,6 +399,13 @@ func (x *Profile) GetSubscriptionVerified() bool {
 		return x.SubscriptionVerified
 	}
 	return false
+}
+
+func (x *Profile) GetDmPolicy() DmPolicy {
+	if x != nil {
+		return x.DmPolicy
+	}
+	return DmPolicy_DM_POLICY_UNSPECIFIED
 }
 
 type CreateProfileRequest struct {
@@ -854,7 +919,12 @@ type UpdateProfileRequest struct {
 	// The caller's own POST, QUOTE or REPLY that is visible (never a REPOST); "" unpins. Every other
 	// case (missing, deleted, hidden, another user's post, a REPOST) is the same INVALID_ARGUMENT + VALIDATION,
 	// metadata["field"] = "pinned_post_id", so the call is no existence oracle. One pin; a new value replaces it.
-	PinnedPostId  *string `protobuf:"bytes,9,opt,name=pinned_post_id,json=pinnedPostId,proto3,oneof" json:"pinned_post_id,omitempty"`
+	PinnedPostId *string `protobuf:"bytes,9,opt,name=pinned_post_id,json=pinnedPostId,proto3,oneof" json:"pinned_post_id,omitempty"`
+	// Who can message the caller (F9). FOLLOWING_ONLY needs FEATURE_DM_POLICY on for the caller (FAILED_PRECONDITION +
+	// FEATURE_DISABLED, metadata["feature"] = "dm_policy", checked before any read); EVERYONE_REQUESTS is never gated (the
+	// undo rule). UNSPECIFIED is rejected: INVALID_ARGUMENT + VALIDATION, metadata["field"] = "dm_policy". The change
+	// reaches SendMessage on other instances within the profile cache TTL (60 s). Existing accepted conversations keep working.
+	DmPolicy      *DmPolicy `protobuf:"varint,10,opt,name=dm_policy,json=dmPolicy,proto3,enum=dzeroth.identity.v1.DmPolicy,oneof" json:"dm_policy,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -950,6 +1020,13 @@ func (x *UpdateProfileRequest) GetPinnedPostId() string {
 		return *x.PinnedPostId
 	}
 	return ""
+}
+
+func (x *UpdateProfileRequest) GetDmPolicy() DmPolicy {
+	if x != nil && x.DmPolicy != nil {
+		return *x.DmPolicy
+	}
+	return DmPolicy_DM_POLICY_UNSPECIFIED
 }
 
 type UpdateProfileResponse struct {
@@ -1404,7 +1481,7 @@ var File_dzeroth_identity_v1_identity_proto protoreflect.FileDescriptor
 
 const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\n" +
-	"\"dzeroth/identity/v1/identity.proto\x12\x13dzeroth.identity.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xfb\x04\n" +
+	"\"dzeroth/identity/v1/identity.proto\x12\x13dzeroth.identity.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb7\x05\n" +
 	"\aProfile\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x16\n" +
 	"\x06handle\x18\x02 \x01(\tR\x06handle\x12!\n" +
@@ -1429,7 +1506,8 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\blocation\x18\x0f \x01(\tR\blocation\x12\x18\n" +
 	"\awebsite\x18\x10 \x01(\tR\awebsite\x12$\n" +
 	"\x0epinned_post_id\x18\x11 \x01(\tR\fpinnedPostId\x123\n" +
-	"\x15subscription_verified\x18\x12 \x01(\bR\x14subscriptionVerified\"z\n" +
+	"\x15subscription_verified\x18\x12 \x01(\bR\x14subscriptionVerified\x12:\n" +
+	"\tdm_policy\x18\x13 \x01(\x0e2\x1d.dzeroth.identity.v1.DmPolicyR\bdmPolicy\"z\n" +
 	"\x14CreateProfileRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x16\n" +
 	"\x06handle\x18\x02 \x01(\tR\x06handle\x12!\n" +
@@ -1456,7 +1534,7 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x06handle\x18\x02 \x01(\tH\x00R\x06handleB\b\n" +
 	"\x06target\"L\n" +
 	"\x12GetProfileResponse\x126\n" +
-	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\"\xe3\x03\n" +
+	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\"\xb2\x04\n" +
 	"\x14UpdateProfileRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12&\n" +
 	"\fdisplay_name\x18\x02 \x01(\tH\x00R\vdisplayName\x88\x01\x01\x12\x15\n" +
@@ -1467,7 +1545,9 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x0fbanner_media_id\x18\x06 \x01(\tH\x04R\rbannerMediaId\x88\x01\x01\x12\x1f\n" +
 	"\blocation\x18\a \x01(\tH\x05R\blocation\x88\x01\x01\x12\x1d\n" +
 	"\awebsite\x18\b \x01(\tH\x06R\awebsite\x88\x01\x01\x12)\n" +
-	"\x0epinned_post_id\x18\t \x01(\tH\aR\fpinnedPostId\x88\x01\x01B\x0f\n" +
+	"\x0epinned_post_id\x18\t \x01(\tH\aR\fpinnedPostId\x88\x01\x01\x12?\n" +
+	"\tdm_policy\x18\n" +
+	" \x01(\x0e2\x1d.dzeroth.identity.v1.DmPolicyH\bR\bdmPolicy\x88\x01\x01B\x0f\n" +
 	"\r_display_nameB\x06\n" +
 	"\x04_bioB\x12\n" +
 	"\x10_avatar_media_idB\r\n" +
@@ -1476,7 +1556,9 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\t_locationB\n" +
 	"\n" +
 	"\b_websiteB\x11\n" +
-	"\x0f_pinned_post_id\"O\n" +
+	"\x0f_pinned_post_idB\f\n" +
+	"\n" +
+	"_dm_policy\"O\n" +
 	"\x15UpdateProfileResponse\x126\n" +
 	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\"]\n" +
 	"\x13ChangeHandleRequest\x12'\n" +
@@ -1507,7 +1589,11 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x1aACCOUNT_STATUS_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15ACCOUNT_STATUS_ACTIVE\x10\x01\x12\x1c\n" +
 	"\x18ACCOUNT_STATUS_SUSPENDED\x10\x02\x12\x1b\n" +
-	"\x17ACCOUNT_STATUS_DELETING\x10\x03*{\n" +
+	"\x17ACCOUNT_STATUS_DELETING\x10\x03*d\n" +
+	"\bDmPolicy\x12\x19\n" +
+	"\x15DM_POLICY_UNSPECIFIED\x10\x00\x12\x1f\n" +
+	"\x1bDM_POLICY_EVERYONE_REQUESTS\x10\x01\x12\x1c\n" +
+	"\x18DM_POLICY_FOLLOWING_ONLY\x10\x02*{\n" +
 	"\fExportStatus\x12\x1d\n" +
 	"\x19EXPORT_STATUS_UNSPECIFIED\x10\x00\x12\x19\n" +
 	"\x15EXPORT_STATUS_PENDING\x10\x01\x12\x17\n" +
@@ -1537,70 +1623,73 @@ func file_dzeroth_identity_v1_identity_proto_rawDescGZIP() []byte {
 	return file_dzeroth_identity_v1_identity_proto_rawDescData
 }
 
-var file_dzeroth_identity_v1_identity_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_dzeroth_identity_v1_identity_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_dzeroth_identity_v1_identity_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_dzeroth_identity_v1_identity_proto_goTypes = []any{
 	(AccountStatus)(0),                      // 0: dzeroth.identity.v1.AccountStatus
-	(ExportStatus)(0),                       // 1: dzeroth.identity.v1.ExportStatus
-	(*Profile)(nil),                         // 2: dzeroth.identity.v1.Profile
-	(*CreateProfileRequest)(nil),            // 3: dzeroth.identity.v1.CreateProfileRequest
-	(*CreateProfileResponse)(nil),           // 4: dzeroth.identity.v1.CreateProfileResponse
-	(*CheckHandleAvailabilityRequest)(nil),  // 5: dzeroth.identity.v1.CheckHandleAvailabilityRequest
-	(*CheckHandleAvailabilityResponse)(nil), // 6: dzeroth.identity.v1.CheckHandleAvailabilityResponse
-	(*GetMeRequest)(nil),                    // 7: dzeroth.identity.v1.GetMeRequest
-	(*GetMeResponse)(nil),                   // 8: dzeroth.identity.v1.GetMeResponse
-	(*GetProfileRequest)(nil),               // 9: dzeroth.identity.v1.GetProfileRequest
-	(*GetProfileResponse)(nil),              // 10: dzeroth.identity.v1.GetProfileResponse
-	(*UpdateProfileRequest)(nil),            // 11: dzeroth.identity.v1.UpdateProfileRequest
-	(*UpdateProfileResponse)(nil),           // 12: dzeroth.identity.v1.UpdateProfileResponse
-	(*ChangeHandleRequest)(nil),             // 13: dzeroth.identity.v1.ChangeHandleRequest
-	(*ChangeHandleResponse)(nil),            // 14: dzeroth.identity.v1.ChangeHandleResponse
-	(*DeleteAccountRequest)(nil),            // 15: dzeroth.identity.v1.DeleteAccountRequest
-	(*DeleteAccountResponse)(nil),           // 16: dzeroth.identity.v1.DeleteAccountResponse
-	(*RequestAccountExportRequest)(nil),     // 17: dzeroth.identity.v1.RequestAccountExportRequest
-	(*RequestAccountExportResponse)(nil),    // 18: dzeroth.identity.v1.RequestAccountExportResponse
-	(*GetAccountExportRequest)(nil),         // 19: dzeroth.identity.v1.GetAccountExportRequest
-	(*GetAccountExportResponse)(nil),        // 20: dzeroth.identity.v1.GetAccountExportResponse
-	(*timestamppb.Timestamp)(nil),           // 21: google.protobuf.Timestamp
-	(*v1.HomeTab)(nil),                      // 22: dzeroth.common.v1.HomeTab
+	(DmPolicy)(0),                           // 1: dzeroth.identity.v1.DmPolicy
+	(ExportStatus)(0),                       // 2: dzeroth.identity.v1.ExportStatus
+	(*Profile)(nil),                         // 3: dzeroth.identity.v1.Profile
+	(*CreateProfileRequest)(nil),            // 4: dzeroth.identity.v1.CreateProfileRequest
+	(*CreateProfileResponse)(nil),           // 5: dzeroth.identity.v1.CreateProfileResponse
+	(*CheckHandleAvailabilityRequest)(nil),  // 6: dzeroth.identity.v1.CheckHandleAvailabilityRequest
+	(*CheckHandleAvailabilityResponse)(nil), // 7: dzeroth.identity.v1.CheckHandleAvailabilityResponse
+	(*GetMeRequest)(nil),                    // 8: dzeroth.identity.v1.GetMeRequest
+	(*GetMeResponse)(nil),                   // 9: dzeroth.identity.v1.GetMeResponse
+	(*GetProfileRequest)(nil),               // 10: dzeroth.identity.v1.GetProfileRequest
+	(*GetProfileResponse)(nil),              // 11: dzeroth.identity.v1.GetProfileResponse
+	(*UpdateProfileRequest)(nil),            // 12: dzeroth.identity.v1.UpdateProfileRequest
+	(*UpdateProfileResponse)(nil),           // 13: dzeroth.identity.v1.UpdateProfileResponse
+	(*ChangeHandleRequest)(nil),             // 14: dzeroth.identity.v1.ChangeHandleRequest
+	(*ChangeHandleResponse)(nil),            // 15: dzeroth.identity.v1.ChangeHandleResponse
+	(*DeleteAccountRequest)(nil),            // 16: dzeroth.identity.v1.DeleteAccountRequest
+	(*DeleteAccountResponse)(nil),           // 17: dzeroth.identity.v1.DeleteAccountResponse
+	(*RequestAccountExportRequest)(nil),     // 18: dzeroth.identity.v1.RequestAccountExportRequest
+	(*RequestAccountExportResponse)(nil),    // 19: dzeroth.identity.v1.RequestAccountExportResponse
+	(*GetAccountExportRequest)(nil),         // 20: dzeroth.identity.v1.GetAccountExportRequest
+	(*GetAccountExportResponse)(nil),        // 21: dzeroth.identity.v1.GetAccountExportResponse
+	(*timestamppb.Timestamp)(nil),           // 22: google.protobuf.Timestamp
+	(*v1.HomeTab)(nil),                      // 23: dzeroth.common.v1.HomeTab
 }
 var file_dzeroth_identity_v1_identity_proto_depIdxs = []int32{
-	21, // 0: dzeroth.identity.v1.Profile.created_at:type_name -> google.protobuf.Timestamp
-	2,  // 1: dzeroth.identity.v1.CreateProfileResponse.profile:type_name -> dzeroth.identity.v1.Profile
-	2,  // 2: dzeroth.identity.v1.GetMeResponse.profile:type_name -> dzeroth.identity.v1.Profile
-	0,  // 3: dzeroth.identity.v1.GetMeResponse.status:type_name -> dzeroth.identity.v1.AccountStatus
-	22, // 4: dzeroth.identity.v1.GetMeResponse.home_tabs:type_name -> dzeroth.common.v1.HomeTab
-	2,  // 5: dzeroth.identity.v1.GetProfileResponse.profile:type_name -> dzeroth.identity.v1.Profile
-	2,  // 6: dzeroth.identity.v1.UpdateProfileResponse.profile:type_name -> dzeroth.identity.v1.Profile
-	2,  // 7: dzeroth.identity.v1.ChangeHandleResponse.profile:type_name -> dzeroth.identity.v1.Profile
-	21, // 8: dzeroth.identity.v1.DeleteAccountResponse.deletion_requested_at:type_name -> google.protobuf.Timestamp
-	1,  // 9: dzeroth.identity.v1.RequestAccountExportResponse.status:type_name -> dzeroth.identity.v1.ExportStatus
-	1,  // 10: dzeroth.identity.v1.GetAccountExportResponse.status:type_name -> dzeroth.identity.v1.ExportStatus
-	21, // 11: dzeroth.identity.v1.GetAccountExportResponse.download_url_expires_at:type_name -> google.protobuf.Timestamp
-	21, // 12: dzeroth.identity.v1.GetAccountExportResponse.expires_at:type_name -> google.protobuf.Timestamp
-	3,  // 13: dzeroth.identity.v1.IdentityService.CreateProfile:input_type -> dzeroth.identity.v1.CreateProfileRequest
-	5,  // 14: dzeroth.identity.v1.IdentityService.CheckHandleAvailability:input_type -> dzeroth.identity.v1.CheckHandleAvailabilityRequest
-	7,  // 15: dzeroth.identity.v1.IdentityService.GetMe:input_type -> dzeroth.identity.v1.GetMeRequest
-	9,  // 16: dzeroth.identity.v1.IdentityService.GetProfile:input_type -> dzeroth.identity.v1.GetProfileRequest
-	11, // 17: dzeroth.identity.v1.IdentityService.UpdateProfile:input_type -> dzeroth.identity.v1.UpdateProfileRequest
-	13, // 18: dzeroth.identity.v1.IdentityService.ChangeHandle:input_type -> dzeroth.identity.v1.ChangeHandleRequest
-	15, // 19: dzeroth.identity.v1.IdentityService.DeleteAccount:input_type -> dzeroth.identity.v1.DeleteAccountRequest
-	17, // 20: dzeroth.identity.v1.IdentityService.RequestAccountExport:input_type -> dzeroth.identity.v1.RequestAccountExportRequest
-	19, // 21: dzeroth.identity.v1.IdentityService.GetAccountExport:input_type -> dzeroth.identity.v1.GetAccountExportRequest
-	4,  // 22: dzeroth.identity.v1.IdentityService.CreateProfile:output_type -> dzeroth.identity.v1.CreateProfileResponse
-	6,  // 23: dzeroth.identity.v1.IdentityService.CheckHandleAvailability:output_type -> dzeroth.identity.v1.CheckHandleAvailabilityResponse
-	8,  // 24: dzeroth.identity.v1.IdentityService.GetMe:output_type -> dzeroth.identity.v1.GetMeResponse
-	10, // 25: dzeroth.identity.v1.IdentityService.GetProfile:output_type -> dzeroth.identity.v1.GetProfileResponse
-	12, // 26: dzeroth.identity.v1.IdentityService.UpdateProfile:output_type -> dzeroth.identity.v1.UpdateProfileResponse
-	14, // 27: dzeroth.identity.v1.IdentityService.ChangeHandle:output_type -> dzeroth.identity.v1.ChangeHandleResponse
-	16, // 28: dzeroth.identity.v1.IdentityService.DeleteAccount:output_type -> dzeroth.identity.v1.DeleteAccountResponse
-	18, // 29: dzeroth.identity.v1.IdentityService.RequestAccountExport:output_type -> dzeroth.identity.v1.RequestAccountExportResponse
-	20, // 30: dzeroth.identity.v1.IdentityService.GetAccountExport:output_type -> dzeroth.identity.v1.GetAccountExportResponse
-	22, // [22:31] is the sub-list for method output_type
-	13, // [13:22] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	22, // 0: dzeroth.identity.v1.Profile.created_at:type_name -> google.protobuf.Timestamp
+	1,  // 1: dzeroth.identity.v1.Profile.dm_policy:type_name -> dzeroth.identity.v1.DmPolicy
+	3,  // 2: dzeroth.identity.v1.CreateProfileResponse.profile:type_name -> dzeroth.identity.v1.Profile
+	3,  // 3: dzeroth.identity.v1.GetMeResponse.profile:type_name -> dzeroth.identity.v1.Profile
+	0,  // 4: dzeroth.identity.v1.GetMeResponse.status:type_name -> dzeroth.identity.v1.AccountStatus
+	23, // 5: dzeroth.identity.v1.GetMeResponse.home_tabs:type_name -> dzeroth.common.v1.HomeTab
+	3,  // 6: dzeroth.identity.v1.GetProfileResponse.profile:type_name -> dzeroth.identity.v1.Profile
+	1,  // 7: dzeroth.identity.v1.UpdateProfileRequest.dm_policy:type_name -> dzeroth.identity.v1.DmPolicy
+	3,  // 8: dzeroth.identity.v1.UpdateProfileResponse.profile:type_name -> dzeroth.identity.v1.Profile
+	3,  // 9: dzeroth.identity.v1.ChangeHandleResponse.profile:type_name -> dzeroth.identity.v1.Profile
+	22, // 10: dzeroth.identity.v1.DeleteAccountResponse.deletion_requested_at:type_name -> google.protobuf.Timestamp
+	2,  // 11: dzeroth.identity.v1.RequestAccountExportResponse.status:type_name -> dzeroth.identity.v1.ExportStatus
+	2,  // 12: dzeroth.identity.v1.GetAccountExportResponse.status:type_name -> dzeroth.identity.v1.ExportStatus
+	22, // 13: dzeroth.identity.v1.GetAccountExportResponse.download_url_expires_at:type_name -> google.protobuf.Timestamp
+	22, // 14: dzeroth.identity.v1.GetAccountExportResponse.expires_at:type_name -> google.protobuf.Timestamp
+	4,  // 15: dzeroth.identity.v1.IdentityService.CreateProfile:input_type -> dzeroth.identity.v1.CreateProfileRequest
+	6,  // 16: dzeroth.identity.v1.IdentityService.CheckHandleAvailability:input_type -> dzeroth.identity.v1.CheckHandleAvailabilityRequest
+	8,  // 17: dzeroth.identity.v1.IdentityService.GetMe:input_type -> dzeroth.identity.v1.GetMeRequest
+	10, // 18: dzeroth.identity.v1.IdentityService.GetProfile:input_type -> dzeroth.identity.v1.GetProfileRequest
+	12, // 19: dzeroth.identity.v1.IdentityService.UpdateProfile:input_type -> dzeroth.identity.v1.UpdateProfileRequest
+	14, // 20: dzeroth.identity.v1.IdentityService.ChangeHandle:input_type -> dzeroth.identity.v1.ChangeHandleRequest
+	16, // 21: dzeroth.identity.v1.IdentityService.DeleteAccount:input_type -> dzeroth.identity.v1.DeleteAccountRequest
+	18, // 22: dzeroth.identity.v1.IdentityService.RequestAccountExport:input_type -> dzeroth.identity.v1.RequestAccountExportRequest
+	20, // 23: dzeroth.identity.v1.IdentityService.GetAccountExport:input_type -> dzeroth.identity.v1.GetAccountExportRequest
+	5,  // 24: dzeroth.identity.v1.IdentityService.CreateProfile:output_type -> dzeroth.identity.v1.CreateProfileResponse
+	7,  // 25: dzeroth.identity.v1.IdentityService.CheckHandleAvailability:output_type -> dzeroth.identity.v1.CheckHandleAvailabilityResponse
+	9,  // 26: dzeroth.identity.v1.IdentityService.GetMe:output_type -> dzeroth.identity.v1.GetMeResponse
+	11, // 27: dzeroth.identity.v1.IdentityService.GetProfile:output_type -> dzeroth.identity.v1.GetProfileResponse
+	13, // 28: dzeroth.identity.v1.IdentityService.UpdateProfile:output_type -> dzeroth.identity.v1.UpdateProfileResponse
+	15, // 29: dzeroth.identity.v1.IdentityService.ChangeHandle:output_type -> dzeroth.identity.v1.ChangeHandleResponse
+	17, // 30: dzeroth.identity.v1.IdentityService.DeleteAccount:output_type -> dzeroth.identity.v1.DeleteAccountResponse
+	19, // 31: dzeroth.identity.v1.IdentityService.RequestAccountExport:output_type -> dzeroth.identity.v1.RequestAccountExportResponse
+	21, // 32: dzeroth.identity.v1.IdentityService.GetAccountExport:output_type -> dzeroth.identity.v1.GetAccountExportResponse
+	24, // [24:33] is the sub-list for method output_type
+	15, // [15:24] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_identity_v1_identity_proto_init() }
@@ -1618,7 +1707,7 @@ func file_dzeroth_identity_v1_identity_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_identity_v1_identity_proto_rawDesc), len(file_dzeroth_identity_v1_identity_proto_rawDesc)),
-			NumEnums:      2,
+			NumEnums:      3,
 			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
