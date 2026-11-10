@@ -27,6 +27,10 @@ import (
 // GetMe.enabled_features.
 const FlagName = "beacons"
 
+// SharedPlansFlagName is the wire name of FEATURE_CHAT_SHARED_PLANS, the `feature` metadata of its FEATURE_DISABLED and the
+// string in GetMe.enabled_features: the "plans you share" strip of a chat (ListSharedBeacons).
+const SharedPlansFlagName = "chat_shared_plans"
+
 // FlagChecker is the seam to pkg/platform/flags.Registry (*flags.Registry satisfies it): Enabled answers "is the flag on
 // for this caller", GloballyOff "is it the kill switch" (off for everyone; a rollout the caller is outside of is not).
 type FlagChecker interface {
@@ -46,6 +50,13 @@ func Guard(ctx context.Context, fc FlagChecker, uid string) error {
 // from an allowlist can still read, leave and cancel. Same error shape as Guard. A nil checker is off for everyone.
 func GuardNotOff(ctx context.Context, fc FlagChecker, uid string) error {
 	return guard(ctx, func(_, name string) bool { return fc != nil && !fc.GloballyOff(name) }, uid, FlagName)
+}
+
+// GuardSharedPlans is the gate of ListSharedBeacons on top of GuardNotOff: FEATURE_CHAT_SHARED_PLANS must be on for the
+// caller, before any Firestore access. Disabled is FAILED_PRECONDITION + FEATURE_DISABLED with metadata
+// feature=chat_shared_plans. A nil checker is off for everyone.
+func GuardSharedPlans(ctx context.Context, fc FlagChecker, uid string) error {
+	return guard(ctx, func(uid, name string) bool { return fc != nil && fc.Enabled(uid, name) }, uid, SharedPlansFlagName)
 }
 
 // GuardCommunities is the gate a community-audience beacon adds: FEATURE_COMMUNITIES on for the caller when mustBeOn

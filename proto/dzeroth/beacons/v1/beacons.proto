@@ -46,7 +46,7 @@ syntax = "proto3";
 // Errors (clients branch on ErrorDetail.reason):
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in beacon_id | user_id | community_id | audience | activity |
 //   title | details | venue | start_at | duration_minutes | open_spots | cost | chat_preference | note | response |
-//   page_token | idempotency_key; before any lookup. limit is never a validation error: it is clamped (0 = 20, above
+//   page_token | idempotency_key | peer_user_id; before any lookup. limit is never a validation error: it is clamped (0 = 20, above
 //   50 = 50), the lists precedent.
 // - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "beacons" (or "communities" for a community
 //   audience while that flag is off for the caller).
@@ -64,7 +64,7 @@ syntax = "proto3";
 //   user) | "beacon_participants" (open_spots above BEACONS_MAX_OPEN_SPOTS, 20); nothing is written.
 // - RESOURCE_EXHAUSTED + RATE_LIMITED: RATE_LIMIT_BEACONS_WRITE_PER_MIN (10: Create, Update, Cancel),
 //   RATE_LIMIT_BEACONS_ACTION_PER_MIN (20: Request, Withdraw, Respond, Leave, Remove), RATE_LIMIT_BEACONS_READ_PER_MIN
-//   (30: Get, List*) per uid per instance, and the daily cap BEACONS_CREATED_PER_DAY (10, limit_name
+//   (30: Get, List*, ListSharedBeacons) per uid per instance, and the daily cap BEACONS_CREATED_PER_DAY (10, limit_name
 //   "beacons_created_daily"); honour retry_after.
 // - DEGRADED_MODE=readonly refuses every mutation through the existing interceptor; the reads still answer.
 package dzeroth.beacons.v1;
@@ -145,6 +145,21 @@ service BeaconService {
   // (the organiser sees everyone), so a page may hold fewer rows than accepted_count. limit is clamped (0 = 20, above
   // 50 = 50).
   rpc ListParticipants(ListParticipantsRequest) returns (ListParticipantsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // The upcoming (OPEN or FULL, not yet ended) beacons that the caller and peer_user_id are both in (as organiser or
+  // ACCEPTED participant), soonest first, for the "plans you share" strip of a chat. Needs FEATURE_CHAT_SHARED_PLANS on
+  // for the caller (else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "chat_shared_plans", before any
+  // lookup) and FEATURE_BEACONS not globally off. A block in either direction with the peer, an unknown or non-ACTIVE
+  // peer, or no shared plan is an empty page (never an error, so nothing leaks). A beacon hidden by the platform and one
+  // whose organiser has a block with the caller are dropped as in ListMyBeacons; a community beacon is returned only
+  // while BOTH users are still JOINED members of its community (a viewer or peer who left or was banned drops it). The
+  // peer_user_id must be a valid user id and not the caller's (VALIDATION "peer_user_id"). limit is clamped (0 = 3, above
+  // 10 = 10). Each call examines at most 10 of the caller's upcoming memberships (soonest first) and answers the shared
+  // ones among them, so a page may hold fewer than limit rows, or none, while next_page_token is set; page_token is an
+  // opaque signed cursor bound to the caller and the peer, VALIDATION "page_token" when invalid or expired. Shares the
+  // RATE_LIMIT_BEACONS_READ_PER_MIN bucket.
+  rpc ListSharedBeacons(ListSharedBeaconsRequest) returns (ListSharedBeaconsResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 }
@@ -431,5 +446,19 @@ message ListParticipantsRequest {
 
 message ListParticipantsResponse {
   repeated Participant participants = 1;
+  string next_page_token = 2;
+}
+
+message ListSharedBeaconsRequest {
+  // The other user of the chat.
+  string peer_user_id = 1;
+  // Clamped: 0 = 3, above 10 = 10.
+  int32 limit = 2;
+  string page_token = 3;
+}
+
+message ListSharedBeaconsResponse {
+  // Each view carries the caller's own viewer state.
+  repeated BeaconView views = 1;
   string next_page_token = 2;
 }

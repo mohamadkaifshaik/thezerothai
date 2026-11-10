@@ -185,6 +185,10 @@ type Config struct {
 	// can still read, leave and cancel. A community-audience beacon also needs FEATURE_COMMUNITIES on for the caller.
 	// FEATURE_BEACONS[_ALLOWLIST|_PERCENT], default off in every environment (dev stays on an allowlist, no prod raise).
 	FeatureBeacons flags.Spec
+	// FeatureChatSharedPlans is the flag (wire name `chat_shared_plans`) gating BeaconService.ListSharedBeacons, the "plans
+	// you share" strip of a chat. On for the caller on top of FEATURE_BEACONS not globally off.
+	// FEATURE_CHAT_SHARED_PLANS[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureChatSharedPlans flags.Spec
 	// FeatureReadReceipts is the flag (wire name `read_receipts`) gating read receipts (F3): UpdateProfile.read_receipts=true,
 	// the receipt stamp of MarkConversationRead and Conversation.peer_read_at of ListMessages need it on for the caller (peer_read_at
 	// also for the peer); Profile.read_receipts is shown unless it is globally off. Needs `messaging` for any effect.
@@ -860,6 +864,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureChatSharedPlans, err := flags.LoadSpec("CHAT_SHARED_PLANS", "chat_shared_plans", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureReadReceipts, err := flags.LoadSpec("READ_RECEIPTS", "read_receipts", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1017,6 +1025,7 @@ func Load() (Config, error) {
 		FeatureLists:              featureLists,
 		FeatureCommunities:        featureCommunities,
 		FeatureBeacons:            featureBeacons,
+		FeatureChatSharedPlans:    featureChatSharedPlans,
 		FeatureReadReceipts:       featureReadReceipts,
 		FeatureProfileExtras:      featureProfileExtras,
 		FeatureProfileTabs:        featureProfileTabs,
