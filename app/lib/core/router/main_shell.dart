@@ -105,6 +105,9 @@ class MainShell extends StatelessWidget {
               icon: Icons.notifications_none,
               selectedIcon: Icons.notifications,
               label: 'Notifications',
+              // The short visible label of the floating phone bar (D3); the
+              // rail and the semantics keep the full one.
+              barLabel: 'Alerts',
             ),
           )
         : null;
@@ -287,6 +290,7 @@ class MainShell extends StatelessWidget {
             icon: t.destination.icon,
             selectedIcon: t.destination.selectedIcon,
             label: t.destination.label,
+            barLabel: t.destination.barLabel,
             badgeLabel: unreadBadgeLabel(unread),
             badgeSemanticLabel: '${unreadBadgeLabel(unread)} unread',
           )
@@ -295,6 +299,8 @@ class MainShell extends StatelessWidget {
             icon: t.destination.icon,
             selectedIcon: t.destination.selectedIcon,
             label: t.destination.label,
+            barLabel: t.destination.barLabel,
+            badgeCount: unreadMessages,
             badgeLabel: unreadBadgeLabel(unreadMessages),
             badgeSemanticLabel: unreadMessages == 1
                 ? '1 unread conversation'
@@ -321,6 +327,7 @@ class MainShell extends StatelessWidget {
       onCompose: canCompose ? openCompose : null,
       showFab: showFab,
       drawer: newShell ? const AppDrawer() : null,
+      floatingBar: newShell,
       accountChipBuilder: newShell
           ? (extended) => AppAccountChip(extended: extended)
           : null,

@@ -684,6 +684,416 @@ void main() {
     }
   });
 
+  group('floating bar (ui_shell)', () {
+    const rowHeight = 60.0;
+    const rows = 40;
+
+    final pillFinder = find.descendant(
+      of: find.byType(AppFloatingBottomBar),
+      matching: find.byType(Material),
+    );
+
+    Widget list({ScrollController? controller}) => ListView.builder(
+      controller: controller,
+      itemCount: rows,
+      itemExtent: rowHeight,
+      itemBuilder: (context, i) => Text('row $i', key: ValueKey('row-$i')),
+    );
+
+    /// The scaffold with the floating bar inside a view with [safeBottom] of
+    /// bottom safe area and [keyboard] of bottom view inset.
+    Future<void> pumpFloating(
+      WidgetTester tester, {
+      Widget? body,
+      VoidCallback? onCompose,
+      ValueChanged<int>? onSelected,
+      double safeBottom = 0,
+      double keyboard = 0,
+      double width = 360,
+      double textScale = 1,
+      Brightness brightness = Brightness.light,
+      bool disableAnimations = false,
+      bool floatingBar = true,
+    }) {
+      final size = Size(width, 800);
+      // An open keyboard covers the bottom safe area (padding drops to 0).
+      final padding = EdgeInsets.only(bottom: keyboard > 0 ? 0 : safeBottom);
+      return pumpThemed(
+        tester,
+        MediaQuery(
+          data: MediaQueryData(
+            size: size,
+            textScaler: TextScaler.linear(textScale),
+            padding: padding,
+            viewPadding: EdgeInsets.only(bottom: safeBottom),
+            viewInsets: EdgeInsets.only(bottom: keyboard),
+            disableAnimations: disableAnimations,
+          ),
+          child: ResponsiveScaffold(
+            selectedIndex: 0,
+            onDestinationSelected: onSelected ?? (_) {},
+            destinations: _destinations,
+            onCompose: onCompose,
+            floatingBar: floatingBar,
+            body: body ?? const SizedBox.expand(key: _bodyKey),
+          ),
+        ),
+        size: size,
+        brightness: brightness,
+        textScale: textScale,
+        useScaffold: false,
+      );
+    }
+
+    testWidgets('the pill floats over a full-height body', (tester) async {
+      await pumpFloating(tester);
+
+      expect(find.byType(AppFloatingBottomBar), findsOneWidget);
+      // The body runs to the bottom edge, behind the bar.
+      expect(
+        tester.getRect(find.byKey(_bodyKey)),
+        const Rect.fromLTRB(0, 0, 360, 800),
+      );
+      expect(
+        tester.getRect(pillFinder),
+        const Rect.fromLTRB(20, 800 - 24 - 66, 340, 800 - 24),
+      );
+    });
+
+    testWidgets('off: the docked bar, the body ends above it and gets no '
+        'bottom padding', (tester) async {
+      late EdgeInsets padding;
+      await pumpFloating(
+        tester,
+        floatingBar: false,
+        onCompose: () {},
+        body: Builder(
+          builder: (context) {
+            padding = MediaQuery.paddingOf(context);
+            return const SizedBox.expand(key: _bodyKey);
+          },
+        ),
+      );
+
+      expect(find.byType(AppFloatingBottomBar), findsNothing);
+      expect(
+        tester.getRect(find.byType(AppBottomBar)),
+        const Rect.fromLTRB(0, 800 - 56, 360, 800),
+      );
+      expect(tester.getRect(find.byKey(_bodyKey)).bottom, 800 - 56);
+      expect(padding.bottom, 0);
+      expectSize(
+        tester,
+        find.byType(FloatingActionButton),
+        width: AppSize.fab,
+        height: AppSize.fab,
+        tolerance: 0,
+      );
+    });
+
+    for (final safeBottom in [0.0, 34.0]) {
+      testWidgets('the body gets 66 + 24 + $safeBottom of bottom padding and '
+          'view padding', (tester) async {
+        late MediaQueryData media;
+        await pumpFloating(
+          tester,
+          safeBottom: safeBottom,
+          body: Builder(
+            builder: (context) {
+              media = MediaQuery.of(context);
+              return const SizedBox.expand();
+            },
+          ),
+        );
+
+        expect(media.padding.bottom, 66 + 24 + safeBottom);
+        expect(media.viewPadding.bottom, 66 + 24 + safeBottom);
+        expect(media.padding.bottom, 800 - tester.getRect(pillFinder).top);
+      });
+    }
+
+    testWidgets('the last list row scrolls into view above the bar', (
+      tester,
+    ) async {
+      final controller = ScrollController();
+      addTearDown(controller.dispose);
+      await pumpFloating(tester, body: list(controller: controller));
+
+      controller.jumpTo(controller.position.maxScrollExtent);
+      await tester.pump();
+
+      // The bar is still there (a jump is not a user scroll).
+      final pill = tester.getRect(pillFinder);
+      final last = tester.getRect(
+        find.byKey(const ValueKey('row-${rows - 1}')),
+      );
+      expect(last.bottom, lessThanOrEqualTo(pill.top));
+      expect(last.bottom, 800 - 90);
+    });
+
+    testWidgets('a SafeArea in the page ends above the bar', (tester) async {
+      await pumpFloating(
+        tester,
+        safeBottom: 34,
+        body: const SafeArea(child: SizedBox.expand(key: _bodyKey)),
+      );
+
+      expect(
+        tester.getRect(find.byKey(_bodyKey)).bottom,
+        tester.getRect(pillFinder).top,
+      );
+    });
+
+    for (final brightness in Brightness.values) {
+      testWidgets('the compose button is the 58dp gradient primary, above the '
+          'bar, in ${brightness.name}', (tester) async {
+        var composed = 0;
+        await pumpFloating(
+          tester,
+          onCompose: () => composed++,
+          brightness: brightness,
+        );
+
+        final fab = find.byType(FloatingActionButton);
+        expectSize(tester, fab, width: 58, height: 58, tolerance: 0);
+        final pill = tester.getRect(pillFinder);
+        final rect = tester.getRect(fab);
+        expect(rect.overlaps(pill), isFalse);
+        expect(rect.bottom, pill.top - 16);
+
+        final decoration =
+            tester
+                    .widget<DecoratedBox>(
+                      find
+                          .ancestor(
+                            of: fab,
+                            matching: find.byType(DecoratedBox),
+                          )
+                          .first,
+                    )
+                    .decoration
+                as ShapeDecoration;
+        expect(decoration.gradient, AppGradients.primaryButton);
+        expect(decoration.shadows, AppShadows.primaryGlow);
+        expect(decoration.shape, const CircleBorder());
+        final icon = tester.widget<Icon>(find.byIcon(Icons.edit_outlined));
+        final iconColor = IconTheme.of(tester.element(find.byWidget(icon)))
+            .color;
+        expect(iconColor, AppPalette.navy);
+
+        await tester.tap(find.byTooltip('New post'));
+        expect(composed, 1);
+      });
+    }
+
+    testWidgets('the compose button of a page scaffold also clears the bar', (
+      tester,
+    ) async {
+      await pumpFloating(
+        tester,
+        body: Scaffold(
+          body: const SizedBox.expand(),
+          floatingActionButton: FloatingActionButton(
+            key: const Key('page-fab'),
+            onPressed: () {},
+            child: const Icon(Icons.mail_outline),
+          ),
+        ),
+      );
+
+      final fab = tester.getRect(find.byKey(const Key('page-fab')));
+      final pill = tester.getRect(pillFinder);
+      expect(fab.overlaps(pill), isFalse);
+      expect(fab.bottom, lessThanOrEqualTo(pill.top));
+    });
+
+    testWidgets('the page stays tappable around the pill', (tester) async {
+      var taps = 0;
+      final picked = <int>[];
+      await pumpFloating(
+        tester,
+        onSelected: picked.add,
+        body: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => taps++,
+          child: const SizedBox.expand(),
+        ),
+      );
+
+      final pill = tester.getRect(pillFinder);
+      await tester.tapAt(Offset(8, pill.center.dy));
+      await tester.tapAt(Offset(352, pill.center.dy));
+      await tester.tapAt(Offset(180, pill.bottom + 12));
+      expect(taps, 3);
+      expect(picked, isEmpty);
+
+      await tester.tap(find.byIcon(Icons.person_outline));
+      expect(taps, 3);
+      expect(picked, [2]);
+    });
+
+    testWidgets('scrolling down slides and fades the bar away, scrolling up '
+        'brings it back; the padding does not move', (tester) async {
+      final picked = <int>[];
+      late EdgeInsets padding;
+      await pumpFloating(
+        tester,
+        onSelected: picked.add,
+        body: Builder(
+          builder: (context) {
+            padding = MediaQuery.paddingOf(context);
+            return list();
+          },
+        ),
+      );
+      final shown = tester.getRect(pillFinder);
+
+      await tester.drag(find.byType(ListView), const Offset(0, -300));
+      await tester.pumpAndSettle();
+
+      final slide = tester.widget<AnimatedSlide>(find.byType(AnimatedSlide));
+      expect(slide.offset, const Offset(0, 1));
+      expect(
+        tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity)).opacity,
+        0,
+      );
+      // Off the bottom edge, and not a tap target while hidden.
+      expect(tester.getRect(pillFinder).top, greaterThanOrEqualTo(800));
+      await tester.tapAt(shown.center);
+      expect(picked, isEmpty);
+      expect(padding.bottom, 90);
+
+      await tester.drag(find.byType(ListView), const Offset(0, 100));
+      await tester.pumpAndSettle();
+
+      expect(tester.getRect(pillFinder), shown);
+      expect(
+        tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity)).opacity,
+        1,
+      );
+      await tester.tapAt(shown.center);
+      expect(picked, [1]);
+    });
+
+    testWidgets('a hidden bar leaves the semantics tree', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pumpFloating(tester, body: list());
+      bool excluded() => tester
+          .widget<ExcludeSemantics>(
+            find
+                .ancestor(
+                  of: find.byType(AppBottomBar),
+                  matching: find.byType(ExcludeSemantics),
+                )
+                .first,
+          )
+          .excluding;
+      expect(excluded(), isFalse);
+      expect(tester.getSemantics(find.byIcon(Icons.home)).label, 'Home');
+
+      await tester.drag(find.byType(ListView), const Offset(0, -300));
+      await tester.pumpAndSettle();
+
+      expect(excluded(), isTrue);
+      handle.dispose();
+    });
+
+    testWidgets('reduced motion: the bar fades without moving', (tester) async {
+      await pumpFloating(tester, body: list(), disableAnimations: true);
+      final shown = tester.getRect(pillFinder);
+
+      await tester.drag(find.byType(ListView), const Offset(0, -300));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<AnimatedSlide>(find.byType(AnimatedSlide)).offset,
+        Offset.zero,
+      );
+      expect(tester.getRect(pillFinder), shown);
+      expect(
+        tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity)).opacity,
+        0,
+      );
+    });
+
+    testWidgets('an open keyboard takes the bar and its padding away', (
+      tester,
+    ) async {
+      late MediaQueryData media;
+      await pumpFloating(
+        tester,
+        safeBottom: 34,
+        keyboard: 300,
+        onCompose: () {},
+        body: Builder(
+          builder: (context) {
+            media = MediaQuery.of(context);
+            return const SizedBox.expand(key: _bodyKey);
+          },
+        ),
+      );
+
+      expect(find.byType(AppBottomBar), findsNothing);
+      expect(find.byType(AppFloatingBottomBar), findsNothing);
+      expect(media.padding.bottom, 0);
+      // The page ends at the keyboard.
+      expect(tester.getRect(find.byKey(_bodyKey)).bottom, 800 - 300);
+    });
+
+    testWidgets('opening the keyboard keeps the page state and the field '
+        'focus', (tester) async {
+      final focus = FocusNode();
+      addTearDown(focus.dispose);
+      final field = TextField(key: const Key('field'), focusNode: focus);
+      await pumpFloating(tester, body: field);
+      focus.requestFocus();
+      await tester.pump();
+      final state = tester.state(find.byKey(const Key('field')));
+      expect(find.byType(AppFloatingBottomBar), findsOneWidget);
+
+      await pumpFloating(tester, body: field, keyboard: 300);
+
+      expect(find.byType(AppFloatingBottomBar), findsNothing);
+      expect(tester.state(find.byKey(const Key('field'))), same(state));
+      expect(focus.hasFocus, isTrue);
+    });
+
+    forEachThemeAndWidth(
+      'no overflow; the bar only below 600dp',
+      (tester, env) async {
+        await pumpFloating(
+          tester,
+          onCompose: () {},
+          width: env.size.width,
+          brightness: env.brightness,
+          textScale: env.textScale,
+        );
+
+        expectNoOverflow(tester);
+        final phone = env.size.width < AppBreakpoints.mobile;
+        expect(
+          find.byType(AppFloatingBottomBar),
+          phone ? findsOneWidget : findsNothing,
+        );
+        expect(
+          find.byType(NavigationRail),
+          phone ? findsNothing : findsOneWidget,
+        );
+        if (phone) {
+          expectMinTarget(tester, find.byType(FloatingActionButton));
+          expect(
+            tester
+                .getRect(find.byType(FloatingActionButton))
+                .overlaps(tester.getRect(pillFinder)),
+            isFalse,
+          );
+        }
+      },
+      widths: const [360, 599, 600, 834, 1200, 1440],
+      textScales: kMatrixTextScalesLarge,
+    );
+  });
+
   forEachThemeAndWidth('does not overflow at any theme, width or text scale', (
     tester,
     env,

@@ -380,6 +380,8 @@ void main() {
             )
             .first,
       );
+      // Lay out the reveal, so the button is on screen when it is tapped.
+      await tester.pump();
       expect(find.text('#tag10'), findsOneWidget);
       expect(find.text('#tag11', skipOffstage: false), findsNothing);
       await tester.tap(find.text('Show more'));
