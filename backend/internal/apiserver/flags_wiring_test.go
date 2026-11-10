@@ -37,6 +37,43 @@ func TestFeatureRegistry_IncludesBeacons(t *testing.T) {
 	}
 }
 
+// TestFeatureRegistry_IncludesCommunityMemberSearch (F36): every mode of FEATURE_COMMUNITY_MEMBER_SEARCH reaches the
+// registry Build wires, and unset is off for everyone.
+func TestFeatureRegistry_IncludesCommunityMemberSearch(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		env         map[string]string
+		inA, inZ    bool
+		globallyOff bool
+	}{
+		{"unset is off", nil, false, false, true},
+		{"off", map[string]string{"FEATURE_COMMUNITY_MEMBER_SEARCH": "off"}, false, false, true},
+		{"allowlist", map[string]string{"FEATURE_COMMUNITY_MEMBER_SEARCH": "allowlist", "FEATURE_COMMUNITY_MEMBER_SEARCH_ALLOWLIST": "uid-a"}, true, false, false},
+		{"percent 100", map[string]string{"FEATURE_COMMUNITY_MEMBER_SEARCH": "percent", "FEATURE_COMMUNITY_MEMBER_SEARCH_PERCENT": "100"}, true, true, false},
+		{"on", map[string]string{"FEATURE_COMMUNITY_MEMBER_SEARCH": "on"}, true, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, k := range []string{"FEATURE_COMMUNITY_MEMBER_SEARCH", "FEATURE_COMMUNITY_MEMBER_SEARCH_ALLOWLIST", "FEATURE_COMMUNITY_MEMBER_SEARCH_PERCENT"} {
+				t.Setenv(k, tc.env[k])
+			}
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatalf("config.Load: %v", err)
+			}
+			reg := featureRegistry(cfg)
+			if got := reg.Enabled("uid-a", "community_member_search"); got != tc.inA {
+				t.Errorf("uid-a enabled = %v, want %v", got, tc.inA)
+			}
+			if got := reg.Enabled("uid-z", "community_member_search"); got != tc.inZ {
+				t.Errorf("uid-z enabled = %v, want %v", got, tc.inZ)
+			}
+			if got := reg.GloballyOff("community_member_search"); got != tc.globallyOff {
+				t.Errorf("globally off = %v, want %v", got, tc.globallyOff)
+			}
+		})
+	}
+}
+
 // TestFeatureRegistry_IncludesChatSharedPlans: the registry reports `chat_shared_plans` for an allowlisted caller only,
 // and it is off when FEATURE_CHAT_SHARED_PLANS is unset (default off); a spec left out of featureRegistry would be silently
 // off for everyone.

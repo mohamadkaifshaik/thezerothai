@@ -75,7 +75,11 @@ type Deps struct {
 	OnPostRestored func(communityID string)
 	// CursorKey seals ListCommunityMembers page tokens (config.CursorHMACKey).
 	CursorKey []byte
-	Limits    Limits
+	// Flags answers FEATURE_COMMUNITY_MEMBER_SEARCH (the registry); nil keeps SearchCommunityMembers off for everyone.
+	Flags FlagChecker
+	// Handles is the shared handle-prefix cache SearchCommunityMembers reads candidates from (search.PrefixCache).
+	Handles HandlePrefixReader
+	Limits  Limits
 }
 
 type service struct {

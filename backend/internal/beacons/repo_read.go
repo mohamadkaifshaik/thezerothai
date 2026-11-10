@@ -44,14 +44,19 @@ func (r *FirestoreRepo) Get(ctx context.Context, id string) (Beacon, error) {
 	return d.beacon(snap.Ref.ID), nil
 }
 
-// ListByAudience implements Repo: communityId == q.CommunityID ("" = public), status in [open, full], startAt >= q.From,
-// ordered by startAt then document id, resuming after (q.AfterStartAt, q.AfterID), with a Limit. Composite index
-// (communityId, status, startAt). Hidden beacons are returned; the service drops them.
+// ListByAudience implements Repo: communityId == q.CommunityID ("" = public), activity == q.Activity when set, status in
+// [open, full], startAt >= q.From, ordered by startAt then document id, resuming after (q.AfterStartAt, q.AfterID), with a
+// Limit. Composite indexes (communityId, status, startAt) and, with an activity, (communityId, activity, status, startAt)
+// (TestFirestoreIndexesCoverTheBeaconQueries). Hidden beacons are returned; the service drops them.
 func (r *FirestoreRepo) ListByAudience(ctx context.Context, q ListQuery) ([]Beacon, error) {
 	if err := r.readable(); err != nil {
 		return nil, err
 	}
-	fq := r.col().Where("communityId", "==", q.CommunityID).Where("status", "in", liveStatuses).
+	fq := r.col().Where("communityId", "==", q.CommunityID)
+	if q.Activity != "" {
+		fq = fq.Where("activity", "==", string(q.Activity))
+	}
+	fq = fq.Where("status", "in", liveStatuses).
 		Where("startAt", ">=", q.From.UTC()).OrderBy("startAt", firestore.Asc).OrderBy(firestore.DocumentID, firestore.Asc)
 	if q.AfterID != "" {
 		fq = fq.StartAfter(q.AfterStartAt.UTC(), r.ref(q.AfterID))

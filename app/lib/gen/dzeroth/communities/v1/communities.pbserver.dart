@@ -37,6 +37,8 @@ abstract class CommunityServiceBase extends $pb.GeneratedService {
       $pb.ServerContext ctx, $3.LeaveCommunityRequest request);
   $async.Future<$3.ListCommunityMembersResponse> listCommunityMembers(
       $pb.ServerContext ctx, $3.ListCommunityMembersRequest request);
+  $async.Future<$3.SearchCommunityMembersResponse> searchCommunityMembers(
+      $pb.ServerContext ctx, $3.SearchCommunityMembersRequest request);
   $async.Future<$3.HideCommunityPostResponse> hideCommunityPost(
       $pb.ServerContext ctx, $3.HideCommunityPostRequest request);
   $async.Future<$3.RestoreCommunityPostResponse> restoreCommunityPost(
@@ -64,6 +66,8 @@ abstract class CommunityServiceBase extends $pb.GeneratedService {
         return $3.LeaveCommunityRequest();
       case 'ListCommunityMembers':
         return $3.ListCommunityMembersRequest();
+      case 'SearchCommunityMembers':
+        return $3.SearchCommunityMembersRequest();
       case 'HideCommunityPost':
         return $3.HideCommunityPostRequest();
       case 'RestoreCommunityPost':
@@ -97,6 +101,9 @@ abstract class CommunityServiceBase extends $pb.GeneratedService {
       case 'ListCommunityMembers':
         return listCommunityMembers(
             ctx, request as $3.ListCommunityMembersRequest);
+      case 'SearchCommunityMembers':
+        return searchCommunityMembers(
+            ctx, request as $3.SearchCommunityMembersRequest);
       case 'HideCommunityPost':
         return hideCommunityPost(ctx, request as $3.HideCommunityPostRequest);
       case 'RestoreCommunityPost':
