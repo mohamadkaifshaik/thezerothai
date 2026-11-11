@@ -11,6 +11,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/context_pane.dart';
 import '../../../core/widgets/context_pane_slots.dart';
+import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../core/router/compose_gate.dart';
@@ -1223,7 +1224,12 @@ class _ProfileScrollScaffold extends StatelessWidget {
                 ),
                 sliver: centred(
                   PinnedHeaderSliver(
-                    child: ColoredBox(color: background, child: tabBar),
+                    // The tabs sit in the reading column; on the tablet
+                    // layout their hairline spans the pane.
+                    child: ColoredBox(
+                      color: background,
+                      child: AppMainColumnBleed(bleed: inset, child: tabBar!),
+                    ),
                   ),
                 ),
               ),

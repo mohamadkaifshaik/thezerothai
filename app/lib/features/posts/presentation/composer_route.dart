@@ -2,14 +2,12 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:go_router/go_router.dart';
 
+import '../../../core/router/page_below.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shell_geometry.dart';
 import '../../../core/widgets/tablet_layout.dart';
 import '../../../core/widgets/tablet_modal.dart';
-import '../../messages/domain/messages_list_detail.dart';
-import '../../messages/presentation/thread_route_page.dart';
 
 /// How a composer route (`/compose`, `/compose/reply/:id`) draws its editor
 /// now (tablet plan section 4.1, Composer and ReplyComposer rows; 5.4).
@@ -245,21 +243,11 @@ class _ComposerRouteFrameState extends State<ComposerRouteFrame> {
 }
 
 /// Whether the page right under the route with [pageKey] draws the tablet
-/// rail: a shell page (`ShellRouteMatch`), or the Messages split page (a
-/// root thread route at 840-1199 dp, which draws `MainShell` itself). A
-/// full-screen root page (Drafts, the photo viewer, a thread below 840 dp)
-/// has no rail: the dialog then centres on the window (T2 ruling 2).
-bool composerOverRail(BuildContext context, LocalKey pageKey) {
-  final router = GoRouter.maybeOf(context);
-  if (router == null) return false;
-  final matches = router.routerDelegate.currentConfiguration.matches;
-  final index = matches.indexWhere((m) => m.pageKey == pageKey);
-  if (index <= 0) return false;
-  final below = matches[index - 1];
-  if (below is ShellRouteMatch) return true;
-  return isMessagesThreadLocation(below.matchedLocation) &&
-      messagesSplitPageAt(context);
-}
+/// rail ([pageBelowDrawsRail]): the dialog then centres on the content area
+/// beside it; over a full-screen root page it centres on the window (T2
+/// ruling 2).
+bool composerOverRail(BuildContext context, LocalKey pageKey) =>
+    pageBelowDrawsRail(context, pageKey);
 
 /// The composer dialog of the tablet layout (code D 600): at most
 /// `min(600, C - 48)` wide and `min(85 % of H, 720)` tall, within

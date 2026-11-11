@@ -361,15 +361,37 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 ];
                 if (_tab == 1) {
                   return AppMainColumn(
-                    child: RefreshIndicator(
-                      onRefresh: _detail.load,
-                      child: CustomScrollView(
-                        slivers: [
-                          ...headerSlivers,
-                          ...communityAboutSlivers(context, state),
-                          const ShellBottomInsetSliver(),
-                        ],
-                      ),
+                    // On the tablet layout the scroll view spans the pane,
+                    // as on the Posts tab (`TimelineFeedView`): a drag, a
+                    // wheel or the scrollbar beside the column reach it,
+                    // and the header's divider and the tab hairline reach
+                    // the pane's edges. Its slivers keep to the column.
+                    // Elsewhere this is today's column.
+                    scrollsAcrossPane: true,
+                    child: Builder(
+                      builder: (context) {
+                        final inset = AppMainColumnBleed.of(context);
+                        Widget centred(Widget sliver) => SliverPadding(
+                          padding: EdgeInsets.symmetric(horizontal: inset),
+                          sliver: AppMainColumnBleed(
+                            bleed: inset,
+                            child: sliver,
+                          ),
+                        );
+                        return RefreshIndicator(
+                          onRefresh: _detail.load,
+                          child: CustomScrollView(
+                            slivers: [
+                              for (final sliver in [
+                                ...headerSlivers,
+                                ...communityAboutSlivers(context, state),
+                              ])
+                                centred(sliver),
+                              const ShellBottomInsetSliver(),
+                            ],
+                          ),
+                        );
+                      },
                     ),
                   );
                 }

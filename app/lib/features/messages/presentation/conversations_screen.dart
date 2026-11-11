@@ -13,6 +13,7 @@ import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
+import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
@@ -374,9 +375,12 @@ class _ConversationsViewState extends State<ConversationsList>
     return storage == null ? view : PageStorage(bucket: storage, child: view);
   }
 
+  /// [sliver] in the reading column. Its header's divider (the Requests
+  /// folder's back header) spans the pane: the inset is its bleed (0
+  /// wherever the column fills the pane).
   Widget _inset(double inset, Widget sliver) => SliverPadding(
     padding: EdgeInsets.symmetric(horizontal: inset),
-    sliver: sliver,
+    sliver: AppMainColumnBleed(bleed: inset, child: sliver),
   );
 
   List<Widget> _body(

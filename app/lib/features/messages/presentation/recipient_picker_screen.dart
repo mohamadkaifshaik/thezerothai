@@ -9,7 +9,9 @@ import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/router/page_below.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/tablet_modal.dart';
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../shared/widgets/primitives/app_back_header.dart';
@@ -56,17 +58,35 @@ class RecipientPickerPage extends Page<void> {
       settings: this,
       barrierDismissible: true,
       barrierLabel: 'Close',
-      builder: (context) => RecipientPickerDialog(source: source),
+      // [DialogPageFrame] adds the safe area (but on the tablet layout).
+      useSafeArea: false,
+      builder: (context) => DialogPageFrame(
+        builder: (context, host) =>
+            RecipientPickerDialog(source: source, host: host),
+      ),
     );
   }
 }
 
 /// The frame of the picker: [Dialog.fullscreen] under 600 dp, a 600 dp card
 /// above (as the Premium dialog). The content is [RecipientPicker].
+///
+/// On the tablet layout ([host], tablet plan section 4.1 "RecipientPicker")
+/// the card is `min(600, C - 48)` wide and `min(H - 48, 640)` tall, centred
+/// on the content area beside the rail; the barrier covers the whole
+/// window, rail included.
 class RecipientPickerDialog extends StatelessWidget {
-  const RecipientPickerDialog({super.key, this.source, this.onPicked});
+  const RecipientPickerDialog({
+    super.key,
+    this.source,
+    this.onPicked,
+    this.host,
+  });
 
   final PeopleSource? source;
+
+  /// The tablet presentation (`dialogPageHost`); null: today's.
+  final TabletModalHost? host;
   final void Function(BuildContext context, common.AuthorSnapshot peer)?
   onPicked;
 
@@ -79,7 +99,8 @@ class RecipientPickerDialog extends StatelessWidget {
     }
     final theme = Theme.of(context);
     return Dialog(
-      insetPadding: const EdgeInsets.all(AppSpacing.lg),
+      insetPadding:
+          host?.dialogInsets(context) ?? const EdgeInsets.all(AppSpacing.lg),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.lg),
         side: BorderSide(color: theme.colorScheme.outlineVariant),
