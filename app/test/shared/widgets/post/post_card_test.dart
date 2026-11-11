@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
@@ -279,7 +280,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Delete'));
       await tester.pumpAndSettle();
       expect(deleted, [postId(7)]);
     });
@@ -373,7 +374,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Block @alice'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
       await tester.pumpAndSettle();
 
       verify(
@@ -602,7 +603,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Delete'));
       await tester.pumpAndSettle();
 
       expect(find.textContaining("Couldn't delete"), findsOneWidget);

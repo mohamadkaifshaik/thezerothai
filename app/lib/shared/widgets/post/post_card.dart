@@ -39,7 +39,7 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import '../../format/relative_time.dart';
 import '../primitives/app_avatar.dart';
-import '../primitives/app_dialog.dart';
+import '../primitives/app_alert_confirm.dart';
 import '../primitives/app_menu_item_row.dart';
 import 'embedded_post_card.dart';
 import 'post_action_bar.dart';
@@ -386,6 +386,10 @@ class PostCard extends StatelessWidget {
     // runs straight into the middle of it.
     final wideFocal = asFocal && windowWidth >= AppBreakpoints.mobile;
     final largeAvatar = wideFocal && _post.replyToPostId.isEmpty;
+    // Below 600 the opened post's avatar is the design's 46 dp (an opened
+    // reply keeps 42 for its rail).
+    final phoneFocalAvatar =
+        asFocal && !wideFocal && _post.replyToPostId.isEmpty;
     final avatarSize = largeAvatar ? AppAvatarSize.lg : AppAvatarSize.post;
     final avatarBox = largeAvatar ? AppSize.avatarLg : AppSpacing.minTapTarget;
 
@@ -410,11 +414,17 @@ class PostCard extends StatelessWidget {
           height: avatarBox,
           child: Center(
             // Initials on a tint while there is no picture (the designs).
-            child: AppAvatar.sized(
-              url: author.avatarUrl,
-              size: avatarSize,
-              name: author.displayName,
-            ),
+            child: phoneFocalAvatar
+                ? AppAvatar(
+                    url: author.avatarUrl,
+                    radius: AppFocalPost.phoneAvatar / 2,
+                    name: author.displayName,
+                  )
+                : AppAvatar.sized(
+                    url: author.avatarUrl,
+                    size: avatarSize,
+                    name: author.displayName,
+                  ),
           ),
         ),
       ),
@@ -574,7 +584,11 @@ class PostCard extends StatelessWidget {
             reposted: view.repostedByViewer,
             actions: actions!,
             spread: asFocal,
-            iconSize: asFocal ? AppFocalPost.actionIcon : AppIconSize.action,
+            iconSize: asFocal
+                ? (wideFocal
+                      ? AppFocalPost.actionIcon
+                      : AppFocalPost.actionIconPhone)
+                : AppIconSize.action,
           )
         : engagementEnabled
         ? PostEngagementBar(
@@ -583,7 +597,11 @@ class PostCard extends StatelessWidget {
             bookmarkEnabled: bookmarkEnabled,
             onReply: onReply,
             spread: asFocal,
-            iconSize: asFocal ? AppFocalPost.actionIcon : AppIconSize.action,
+            iconSize: asFocal
+                ? (wideFocal
+                      ? AppFocalPost.actionIcon
+                      : AppFocalPost.actionIconPhone)
+                : AppIconSize.action,
           )
         : null;
 

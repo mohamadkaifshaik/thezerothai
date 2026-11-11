@@ -660,7 +660,7 @@ void main() {
       stubThread((_) async => pb.GetThreadResponse(focal: focal));
     }
 
-    testWidgets('NOT_ALLOWED disables the docked composer, with no reason', (
+    testWidgets('NOT_ALLOWED disables the reply row, with no reason', (
       tester,
     ) async {
       stubFocal(ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED);
@@ -719,11 +719,8 @@ void main() {
   }
 
   for (final width in const [360.0, 800.0]) {
-    final inline = width >= 600;
-    testWidgets('at $width the reply entry\'s Reply is '
-        '${inline ? 'the compact pill (inline)' : 'unchanged (docked)'}', (
-      tester,
-    ) async {
+    testWidgets('at $width the reply row Reply is the compact pill '
+        '(the row under the open post at every width)', (tester) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = Size(width, 900);
       addTearDown(tester.view.reset);
@@ -735,7 +732,7 @@ void main() {
       final reply = tester.widget<AppPillButton>(
         find.widgetWithText(AppPillButton, 'Reply'),
       );
-      expect(reply.compact, inline);
+      expect(reply.compact, isTrue);
     });
   }
 }

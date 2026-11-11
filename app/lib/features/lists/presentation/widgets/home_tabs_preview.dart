@@ -44,7 +44,7 @@ class HomeTabsPreviewPlaceholder extends StatelessWidget {
 /// The Home tab bar as Manage pinned will leave it (tablet plan section 4.1,
 /// ManagePinned: "preview of Home tabs", inline at the top in band A, beside
 /// the editor in band B; T8b): Following first and selected, then [labels]
-/// in order, then Home's "+", drawn by the same [AppTabBar] as Home so the
+/// in order, drawn by the same [AppTabBar] as Home so the
 /// weights and the indicator match.
 ///
 /// It is a picture, not a control: it takes no pointer or focus and is
@@ -64,7 +64,6 @@ class HomeTabsPreviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
     final tabs = ['Following', ...labels];
     return ContextPaneCard(
       title: kHomeTabsPreviewTitle,
@@ -86,11 +85,6 @@ class HomeTabsPreviewCard extends StatelessWidget {
                     selectedIndex: 0,
                     onChanged: (_) {},
                     tabs: [for (final t in tabs) AppTab(label: t)],
-                    // Home's "+" for Manage pinned, as a picture.
-                    fixedTrailing: SizedBox.square(
-                      dimension: AppSpacing.minTapTarget,
-                      child: Icon(Icons.add, color: muted),
-                    ),
                   ),
                 ),
               ),

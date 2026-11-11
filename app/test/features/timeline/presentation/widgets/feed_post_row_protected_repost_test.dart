@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/feature_flags/feature_flags.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
@@ -361,7 +362,7 @@ void main() {
       await tester.pumpAndSettle();
       // The confirmation dialog.
       expect(find.text('Delete this post?'), findsOneWidget);
-      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Delete'));
       await tester.pumpAndSettle();
       // Delete acts on the REPOST row's own id (the server releases the
       // reposts doc and the count in the same batch).

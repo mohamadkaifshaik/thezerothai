@@ -54,6 +54,11 @@ abstract final class AppFocalPost {
   static const double bodySizeWide = 21;
   static const double bodyLineHeightWide = 29.4;
   static const double actionIcon = 20;
+
+  /// Below 600dp the actions keep the list glyph size and the avatar is 46dp
+  /// (the mobile PostDetail design).
+  static const double actionIconPhone = 18;
+  static const double phoneAvatar = 46;
 }
 
 /// Opacity levels for tints over a surface.
@@ -65,6 +70,9 @@ abstract final class AppOpacity {
   /// Fill of the leading result bar of a poll (accent over the surface); the
   /// other bars use the border colour. Text over it keeps AA in both themes.
   static const double pollLeadingBar = 0.35;
+
+  /// The thread rail between connected posts: the accent at this alpha.
+  static const double threadRail = 0.35;
 }
 
 /// Page-level layout widths (dp) of the desktop/web shell.

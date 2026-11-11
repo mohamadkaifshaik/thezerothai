@@ -1,3 +1,4 @@
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
@@ -204,7 +205,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Block @orig'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
       await tester.pumpAndSettle();
       verify(
         () => graphRepository.block(
@@ -229,7 +230,7 @@ void main() {
       expect(find.text('Block @orig'), findsOneWidget);
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Delete'));
       await tester.pumpAndSettle();
       expect(deleted, [postId(50)]);
     });
@@ -371,7 +372,7 @@ void main() {
       await open(tester);
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Delete'));
       await tester.pumpAndSettle();
       expect(deleted, [postId(50)]);
     });

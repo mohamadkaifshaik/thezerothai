@@ -6,6 +6,7 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/shell_geometry.dart';
 import '../../../shared/widgets/post/blocked_post_gate.dart';
 import '../../../shared/widgets/post/post_card.dart';
@@ -67,7 +68,11 @@ class _Frame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Post')),
+      appBar: AppTopBar.of(
+        context,
+        title: 'Post',
+        onBack: () => leavePostScreen(context),
+      ),
       body: SafeArea(child: child),
     );
   }
@@ -81,19 +86,11 @@ class _PostDetailView extends StatefulWidget {
 }
 
 class _PostDetailViewState extends State<_PostDetailView> {
-  void _leave(BuildContext context) {
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.go(AppRouter.homePath);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return BlocConsumer<PostDetailCubit, PostDetailState>(
       listenWhen: (before, after) => after.status == PostDetailStatus.deleted,
-      listener: (context, state) => _leave(context),
+      listener: (context, state) => leavePostScreen(context),
       builder: (context, state) {
         final cubit = context.read<PostDetailCubit>();
         return _Frame(

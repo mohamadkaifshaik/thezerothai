@@ -37,7 +37,12 @@ class UserListRow extends StatelessWidget {
     this.horizontalInset = AppSpacing.md,
     this.verticalInset = AppSpacing.sm,
     this.handleStyle,
+    this.avatarGap = AppSpacing.md,
   });
+
+  /// The space between the avatar and the name column; the Follow requests
+  /// rows draw the design's 12.
+  final double avatarGap;
 
   /// Merged over the @handle line's style (the community members page draws
   /// the design's 13 sp).
@@ -146,7 +151,7 @@ class UserListRow extends StatelessWidget {
                 gap: AppSpacing.sm,
                 minBodyWidth: _minNameColumnWidth,
                 lead: Padding(
-                  padding: const EdgeInsetsDirectional.only(end: AppSpacing.md),
+                  padding: EdgeInsetsDirectional.only(end: avatarGap),
                   child: ExcludeSemantics(
                     child: AppAvatar(url: user.avatarUrl, radius: avatarRadius),
                   ),

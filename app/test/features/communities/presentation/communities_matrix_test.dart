@@ -426,8 +426,8 @@ void main() {
         await tester.tap(find.byTooltip('More options').first);
         await tester.pumpAndSettle();
         expectNoOverflow(tester);
-        expect(find.text('Remove from Community'), findsOneWidget);
-        await tester.tap(find.text('Remove from Community'));
+        expect(find.text('Remove from community'), findsOneWidget);
+        await tester.tap(find.text('Remove from community'));
         await tester.pumpAndSettle();
         expectNoOverflow(tester);
         expect(find.text('Remove'), findsOneWidget);

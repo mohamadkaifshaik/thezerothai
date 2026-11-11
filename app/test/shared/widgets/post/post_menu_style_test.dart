@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -155,7 +156,7 @@ void main() {
       expect(find.text('Delete this post?'), findsOneWidget);
       expect(find.text("This can't be undone."), findsOneWidget);
 
-      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Cancel'));
       await tester.pumpAndSettle();
       expect(deleted, isEmpty);
 
@@ -163,7 +164,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Delete'));
       await tester.pumpAndSettle();
       expect(deleted, [postId(7)]);
     });

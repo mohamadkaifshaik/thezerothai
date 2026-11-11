@@ -85,7 +85,7 @@ void main() {
   ) async {
     await open(tester, view(), mod: control());
     await openMenu(tester);
-    expect(find.text('Remove from Community'), findsOneWidget);
+    expect(find.text('Remove from community'), findsOneWidget);
   });
 
   testWidgets('with reports off the menu still exists for a moderator', (
@@ -114,7 +114,7 @@ void main() {
   testWidgets('confirm, hide, then Undo restores', (tester) async {
     await open(tester, view(), mod: control());
     await openMenu(tester);
-    await tester.tap(find.text('Remove from Community'));
+    await tester.tap(find.text('Remove from community'));
     await tester.pumpAndSettle();
     expect(find.text('Remove this post from Chess club?'), findsOneWidget);
     await tester.tap(find.text('Remove'));
@@ -130,7 +130,7 @@ void main() {
   testWidgets('Cancel hides nothing', (tester) async {
     await open(tester, view(), mod: control());
     await openMenu(tester);
-    await tester.tap(find.text('Remove from Community'));
+    await tester.tap(find.text('Remove from community'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
@@ -143,7 +143,7 @@ void main() {
     );
     await open(tester, view(), mod: control());
     await openMenu(tester);
-    await tester.tap(find.text('Remove from Community'));
+    await tester.tap(find.text('Remove from community'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Remove'));
     await tester.pumpAndSettle();

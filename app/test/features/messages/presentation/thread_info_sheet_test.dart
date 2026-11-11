@@ -1,4 +1,5 @@
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
@@ -411,7 +412,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(sheet(), findsNothing);
       expect(find.text('Block this account?'), findsOneWidget);
-      await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
       await tester.pumpAndSettle();
       verify(
         () => graphRepo.block(

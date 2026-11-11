@@ -27,6 +27,7 @@ import '../../timeline/presentation/bloc/timeline_cubit.dart';
 import '../../timeline/presentation/timeline_feed_view.dart';
 import 'widgets/home_composer_entry.dart';
 import 'widgets/home_tabs_view.dart';
+import 'widgets/pinned_timelines_button.dart';
 
 /// The Home timeline (section 7): the cached feed renders at
 /// once, then one throttled refresh with `since_token`; pull-to-refresh,
@@ -81,6 +82,7 @@ class HomeScreen extends StatelessWidget {
             canCompose: canCompose,
             tabBar: tabBar,
             active: active,
+            showPinnedControl: true,
           ),
         ),
       ),
@@ -97,7 +99,11 @@ class _FollowingFeed extends StatelessWidget {
     required this.canCompose,
     required this.tabBar,
     required this.active,
+    this.showPinnedControl = false,
   });
+
+  /// The bar's round "Pinned timelines" button.
+  final bool showPinnedControl;
 
   final String? viewerUserId;
   final bool canCompose;
@@ -142,7 +148,15 @@ class _FollowingFeed extends StatelessWidget {
             // drawer) and the title, over the theme's bottom hairline.
             // With `ui_shell` on it shows the DZEROTH wordmark, still named
             // "Posts" for assistive technology.
-            AppTopBar.sliver(title: 'Posts', centerTitle: true, wordmark: true),
+            AppTopBar.sliver(
+              title: 'Posts',
+              centerTitle: true,
+              wordmark: true,
+              // Pinned timelines exist only with the tabs (lists + ui_shell).
+              actions: showPinnedControl
+                  ? const [PinnedTimelinesButton()]
+                  : null,
+            ),
             SliverToBoxAdapter(child: tabBar),
             // One opt-in card above the feed; hidden unless the
             // notifications flag is on and push can be offered.

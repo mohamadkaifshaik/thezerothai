@@ -554,7 +554,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Delete'));
     await tester.pumpAndSettle();
 
     verify(
@@ -589,7 +589,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Delete'));
     await tester.pumpAndSettle();
 
     expect(find.text('post 2'), findsOneWidget);

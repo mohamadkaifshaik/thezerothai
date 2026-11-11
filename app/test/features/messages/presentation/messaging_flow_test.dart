@@ -1,3 +1,4 @@
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/messages/presentation/conversations_screen.dart';
 import 'package:dzeroth/features/messages/presentation/report_conversation.dart';
@@ -103,7 +104,7 @@ void main() {
     await tester.tap(find.text('Block @sam'));
     await tester.pumpAndSettle();
     expect(find.text('Block this account?'), findsOneWidget);
-    await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
     await tester.pumpAndSettle();
     expect(server.blocks.single.userId, 'u-sam');
     expect(find.text(kThreadReadOnlyText), findsOneWidget);

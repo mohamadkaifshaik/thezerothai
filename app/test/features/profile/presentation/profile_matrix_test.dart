@@ -1,5 +1,6 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:connectrpc/connect.dart' as connect;
+import 'package:dzeroth/shared/widgets/primitives/app_dialog.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
@@ -603,7 +604,7 @@ void main() {
       for (final label in ['Cancel', 'Replace']) {
         final button = find.ancestor(
           of: find.descendant(
-            of: find.byType(AlertDialog),
+            of: find.byType(AppConfirmDialog),
             matching: find.text(label),
           ),
           matching: find.byWidgetPredicate(

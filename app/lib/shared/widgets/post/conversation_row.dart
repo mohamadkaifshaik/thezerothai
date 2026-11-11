@@ -21,6 +21,9 @@ class ConversationRow extends StatelessWidget {
   Widget build(BuildContext context) {
     // The middle of the card's avatar column, from its gutter.
     final rail = postCardGutterOf(context) + AppSpacing.minTapTarget / 2 - 1;
+    // The design's teal rail: the accent at 35%.
+    final railColor = Theme.of(context).colorScheme.primary
+        .withValues(alpha: AppOpacity.threadRail);
     return Stack(
       children: [
         if (connectBefore)
@@ -29,7 +32,7 @@ class ConversationRow extends StatelessWidget {
             top: 0,
             height: kPostListTop,
             width: 2,
-            child: ColoredBox(color: Theme.of(context).dividerColor),
+            child: ColoredBox(color: railColor),
           ),
         if (connectAfter)
           PositionedDirectional(
@@ -37,7 +40,7 @@ class ConversationRow extends StatelessWidget {
             top: kPostListTop + AppSpacing.minTapTarget,
             bottom: 0,
             width: 2,
-            child: ColoredBox(color: Theme.of(context).dividerColor),
+            child: ColoredBox(color: railColor),
           ),
         child,
       ],

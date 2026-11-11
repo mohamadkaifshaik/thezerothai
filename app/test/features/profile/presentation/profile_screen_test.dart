@@ -1,3 +1,4 @@
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/widgets/app_error_view.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
@@ -421,7 +422,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Block'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
     await tester.pumpAndSettle();
 
     verify(
@@ -603,7 +604,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Block'));
       await tester.pumpAndSettle();
-      await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
       await tester.pumpAndSettle();
 
       expect(find.text('Follows you'), findsNothing);
