@@ -218,4 +218,92 @@ void main() {
     expect(cubit.state.selected.id, 'c1');
     expect(cubit.state.views.single.beacon.beaconId, 'c1-a');
   });
+
+  // Tablet T5: the hoisted list is shown by two placements; the band B list
+  // pane only makes sure it is loaded, the route's open refreshes it, and a
+  // refresh never doubles a load in flight.
+  group('ensureLoaded and refresh', () {
+    test('ensureLoaded loads the first time only', () async {
+      stubList((_, _) => BeaconsPage(views: [_view('1')]));
+      final cubit = BeaconsCubit(repository: beacons);
+      addTearDown(cubit.close);
+
+      expect(cubit.started, isFalse);
+      await cubit.ensureLoaded();
+      expect(cubit.started, isTrue);
+      await cubit.ensureLoaded();
+      expect(calls, hasLength(1));
+      expect(cubit.state.views.single.beacon.beaconId, '1');
+    });
+
+    test(
+      'refresh while the first load is in flight sends nothing more',
+      () async {
+        final gate = Completer<BeaconsPage>();
+        when(
+          () => beacons.listBeacons(
+            communityId: any(named: 'communityId'),
+            limit: any(named: 'limit'),
+            pageToken: any(named: 'pageToken'),
+          ),
+        ).thenAnswer((inv) {
+          calls.add((
+            communityId: inv.namedArguments[#communityId] as String,
+            limit: inv.namedArguments[#limit] as int,
+            pageToken: inv.namedArguments[#pageToken] as String,
+          ));
+          return calls.length == 1
+              ? gate.future
+              : Future.value(BeaconsPage(views: [_view('2')]));
+        });
+        final cubit = BeaconsCubit(repository: beacons);
+        addTearDown(cubit.close);
+
+        final first = cubit.ensureLoaded();
+        await cubit.refresh();
+        expect(calls, hasLength(1));
+        gate.complete(BeaconsPage(views: [_view('1')]));
+        await first;
+        expect(cubit.state.views.single.beacon.beaconId, '1');
+
+        // Done: a refresh is one more ListBeacons, and the rows stay on screen
+        // while it runs (no skeleton).
+        final again = cubit.refresh();
+        expect(cubit.state.status, BeaconsLoad.ready);
+        await again;
+        expect(calls, hasLength(2));
+        expect(cubit.state.views.single.beacon.beaconId, '2');
+      },
+    );
+
+    test(
+      'a failed load still counts as started; refresh tries again',
+      () async {
+        var fail = true;
+        when(
+          () => beacons.listBeacons(
+            communityId: any(named: 'communityId'),
+            limit: any(named: 'limit'),
+            pageToken: any(named: 'pageToken'),
+          ),
+        ).thenAnswer((inv) async {
+          calls.add((communityId: '', limit: 20, pageToken: ''));
+          if (fail) throw NetworkException('offline');
+          return BeaconsPage(views: [_view('1')]);
+        });
+        final cubit = BeaconsCubit(repository: beacons);
+        addTearDown(cubit.close);
+
+        await cubit.ensureLoaded();
+        expect(cubit.state.status, BeaconsLoad.error);
+        await cubit.ensureLoaded();
+        expect(calls, hasLength(1));
+
+        fail = false;
+        await cubit.refresh();
+        expect(calls, hasLength(2));
+        expect(cubit.state.status, BeaconsLoad.ready);
+      },
+    );
+  });
 }
