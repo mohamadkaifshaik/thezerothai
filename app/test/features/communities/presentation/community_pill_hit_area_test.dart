@@ -84,10 +84,13 @@ void main() {
               )
               .first,
         );
-        final paneRow = width == 1024;
+        // Under the row: in the pane (1024), or a card row whose name would
+        // get under 140 dp beside the pill (R10 review item 14; 360 in the
+        // test font).
+        final paneRow = box.top >= row.bottom - 0.5;
         if (paneRow) {
-          // In the pane the pill sits under the row: its box starts where
-          // the row's ink ends (the 6 dp band was the row's dead space).
+          // The pill sits under the row: its box starts where the row's ink
+          // ends (the 6 dp band was the row's dead space).
           expect(row.bottom, box.top);
         } else {
           // Inline the pill follows the row's ink, which ends at the box.

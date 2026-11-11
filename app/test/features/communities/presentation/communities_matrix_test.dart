@@ -140,6 +140,9 @@ void main() {
       expectNoOverflow(tester);
       expect(find.byTooltip('Create a community'), findsOneWidget);
       // R10 (F23): Explore is the second tab.
+      // R10 review item 3: the tab bar may scroll; bring the tab into view.
+      await tester.ensureVisible(find.text('Explore'));
+      await tester.pump();
       await tester.tap(find.text('Explore'));
       await tester.pumpAndSettle();
       expectNoOverflow(tester);
@@ -157,6 +160,9 @@ void main() {
         expectNoOverflow(tester);
         // R10 (F23): one list per tab, each with its own Retry.
         expect(find.text('Retry'), findsOneWidget);
+        // R10 review item 3: the tab bar may scroll; bring the tab into view.
+        await tester.ensureVisible(find.text('Explore'));
+        await tester.pump();
         await tester.tap(find.text('Explore'));
         await tester.pumpAndSettle();
         expectNoOverflow(tester);
@@ -176,6 +182,9 @@ void main() {
       await open(tester, env);
       expectNoOverflow(tester);
       expect(find.text('Retry'), findsNothing);
+      // R10 review item 3: the tab bar may scroll; bring the tab into view.
+      await tester.ensureVisible(find.text('Explore'));
+      await tester.pump();
       await tester.tap(find.text('Explore'));
       await tester.pumpAndSettle();
       expectNoOverflow(tester);

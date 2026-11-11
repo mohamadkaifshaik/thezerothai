@@ -355,6 +355,9 @@ void main() {
     stubLists(joined: [_member(3, plain)], bannedList: [_member(9, banned)]);
     stubSetRole(role: pb.CommunityRole.COMMUNITY_ROLE_NONE);
     await open(tester);
+    // R10 review item 3: the tab bar may scroll; bring the tab into view.
+    await tester.ensureVisible(find.text('Banned'));
+    await tester.pump();
     await tester.tap(find.text('Banned'));
     await tester.pumpAndSettle();
     expect(find.text('Member 9'), findsOneWidget);

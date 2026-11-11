@@ -60,6 +60,9 @@ void main() {
 
   /// R10 (F23): Explore is the second tab on phones.
   Future<void> showExplore(WidgetTester tester) async {
+    // R10 review item 3: the tab bar may scroll; bring the tab into view.
+    await tester.ensureVisible(find.text('Explore'));
+    await tester.pump();
     await tester.tap(find.text('Explore'));
     await tester.pumpAndSettle();
   }
@@ -192,6 +195,9 @@ void main() {
     );
     await tester.pump();
     expect(find.bySemanticsLabel('Loading your Communities'), findsOneWidget);
+    // R10 review item 3: the tab bar may scroll; bring the tab into view.
+    await tester.ensureVisible(find.text('Explore'));
+    await tester.pump();
     await tester.tap(find.text('Explore'));
     await tester.pump();
     expect(

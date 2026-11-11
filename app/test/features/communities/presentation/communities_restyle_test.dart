@@ -207,10 +207,8 @@ void main() {
 
     group('no match over a list that may be cut short (F37 v1)', () {
       for (final searchOn in [true, false]) {
-        testWidgets('50 loaded rows, search ${searchOn ? 'on' : 'off'}: "No '
-            'loaded Communities match."${searchOn ? ' and Try Search' : ''}', (
-          tester,
-        ) async {
+        testWidgets('50 loaded rows, search ${searchOn ? 'on' : 'off'}: the '
+            '"shown" note and no Try Search (review item 1)', (tester) async {
           final rig = CommunitiesTabletRig();
           rig.server.directory = _directoryOf(50);
           await rig.pump(
@@ -225,20 +223,8 @@ void main() {
           await tester.pumpAndSettle();
           expect(find.text(kNoLoadedCommunitiesMatch), findsOneWidget);
           expect(find.text(kNoCommunitiesMatch), findsNothing);
-          expect(
-            find.text('Try Search'),
-            searchOn ? findsOneWidget : findsNothing,
-          );
-          if (searchOn) {
-            final button = find.ancestor(
-              of: find.text('Try Search'),
-              matching: find.byType(TextButton),
-            );
-            expect(
-              tester.getSize(button).height,
-              greaterThanOrEqualTo(AppSpacing.minTapTarget),
-            );
-          }
+          // R10 review item 1: global search has no communities.
+          expect(find.text('Try Search'), findsNothing);
         });
       }
 
@@ -265,11 +251,7 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(inContextPane(find.text(kNoLoadedCommunitiesMatch)), findsOne);
-        expect(inContextPane(find.text('Try Search')), findsOneWidget);
-        await tester.tap(inContextPane(find.text('Try Search')));
-        await tester.pumpAndSettle();
-        expect(rig.uri.path, '/search');
-        expect(rig.uri.queryParameters['q'], 'zzz');
+        expect(find.text('Try Search'), findsNothing);
       });
     });
 
@@ -352,11 +334,13 @@ void main() {
       expect(join.left, closeTo(name.left, 1));
     });
 
-    testWidgets('text scale 1.3 at 360: the pill stays beside the name', (
+    testWidgets('text scale 1.3 at 744: the pill stays beside the name', (
       tester,
     ) async {
+      // R10 review item 14: at 360 the name would get under 140 dp in the
+      // test font, so the pill stacks there; 744 keeps it beside.
       final rig = CommunitiesTabletRig();
-      await rig.pump(tester, width: 360, textScale: 1.3);
+      await rig.pump(tester, width: 744, textScale: 1.3);
       await showExploreTab(tester);
       final row = find.byKey(const ValueKey('explore-78'));
       final name = tester.getRect(
@@ -368,10 +352,12 @@ void main() {
       expect(join.left, greaterThan(name.right));
     });
 
-    testWidgets('RTL at 360: the Join pill is at the start side of the card '
+    testWidgets('RTL at 744: the Join pill is at the start side of the card '
         '(left), the name after the tile (right)', (tester) async {
       final rig = CommunitiesTabletRig();
-      await rig.pump(tester, width: 360, textDirection: TextDirection.rtl);
+      // R10 review item 14: 744, where the pill sits beside the name (at
+      // 360 it stacks in the test font).
+      await rig.pump(tester, width: 744, textDirection: TextDirection.rtl);
       await showExploreTab(tester);
       final row = find.byKey(const ValueKey('explore-78'));
       final join = tester.getRect(
@@ -672,8 +658,8 @@ void main() {
       expect(find.text('Member 1'), findsOneWidget);
     });
 
-    testWidgets('the Moderators tab searches members and keeps the owner and '
-        'moderators; Banned asks BANNED', (tester) async {
+    testWidgets('the Moderators tab filters its own list with no call '
+        '(review item 7); Banned asks BANNED', (tester) async {
       final rig = CommunitiesTabletRig();
       rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
       await rig.pump(
@@ -682,26 +668,21 @@ void main() {
         width: 360,
         flags: _searchFlags,
       );
-      await tester.tap(find.text('Moderators'));
-      await tester.pumpAndSettle();
+      await tapCommunityTab(tester, 'Moderators');
       await _type(tester, kSearchMembersHint, 'm');
       // One character: the tab's own list (the owner and Mo).
       expect(find.text('Olivia'), findsOneWidget);
       await _type(tester, kSearchMembersHint, 'mo');
-      expect(
-        rig.server.calls.last,
-        'search:$kRigCommunityId:mo:COMMUNITY_MEMBER_FILTER_JOINED',
-      );
+      expect(rig.server.count('search:'), 0);
       expect(find.text('Mo'), findsOneWidget);
       expect(find.text('Olivia'), findsNothing);
 
-      await tester.tap(find.text('Banned'));
-      await tester.pumpAndSettle();
+      await tapCommunityTab(tester, 'Banned');
       expect(
         rig.server.calls.last,
         'search:$kRigCommunityId:mo:COMMUNITY_MEMBER_FILTER_BANNED',
       );
-      expect(find.text(kNoMembersFoundTitle), findsOneWidget);
+      expect(find.text(kNoBannedFoundTitle), findsOneWidget);
     });
 
     for (final (name, error) in <(String, AppException)>[
@@ -940,7 +921,7 @@ void main() {
       await _type(tester, kSearchMembersHint, 'zz');
       expect(
         tester.getSemantics(_field(kSearchMembersHint)).label,
-        contains(kSearchMembersHint),
+        contains(kSearchMembersLabel),
       );
       final communities = CommunitiesTabletRig();
       await communities.pump(tester, width: 360);

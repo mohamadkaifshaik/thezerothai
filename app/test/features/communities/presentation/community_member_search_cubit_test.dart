@@ -115,30 +115,21 @@ void main() {
     });
   });
 
-  test('scopes: Banned asks BANNED; Moderators asks JOINED and keeps the '
-      'owner and moderators; a scope change asks at once', () {
+  test('scopes: Banned asks BANNED at once; Moderators is local (the page '
+      'filters its own list, no call; review item 7)', () {
     fakeAsync((async) {
       final cubit = build();
-      server.answer = [
-        _row('o', role: pb.CommunityRole.COMMUNITY_ROLE_OWNER),
-        _row('m', role: pb.CommunityRole.COMMUNITY_ROLE_MODERATOR),
-        _row('p'),
-      ];
       cubit.textChanged('ab');
       async.elapse(_debounce);
       async.flushMicrotasks();
-      expect(cubit.state.results, hasLength(3));
+      expect(server.calls, hasLength(1));
 
       cubit.setScope(MemberSearchScope.moderators);
       async.flushMicrotasks();
-      expect(
-        server.calls.last.$2,
-        pb.CommunityMemberFilter.COMMUNITY_MEMBER_FILTER_JOINED,
-      );
-      expect(
-        [for (final r in cubit.state.results) r.user.user.userId],
-        ['o', 'm'],
-      );
+      expect(cubit.state.status, MemberSearchStatus.local);
+      expect(cubit.state.prefix, 'ab');
+      expect(cubit.state.results, isEmpty);
+      expect(server.calls, hasLength(1));
 
       cubit.setScope(MemberSearchScope.banned);
       async.flushMicrotasks();
@@ -146,7 +137,38 @@ void main() {
         server.calls.last.$2,
         pb.CommunityMemberFilter.COMMUNITY_MEMBER_FILTER_BANNED,
       );
-      expect(server.calls, hasLength(3));
+      expect(server.calls, hasLength(2));
+      cubit.close();
+    });
+  });
+
+  test('more than 15 handle characters: tooLong, no call (review item 4)', () {
+    fakeAsync((async) {
+      final cubit = build();
+      cubit.textChanged('abcdefghijklmnop');
+      async.elapse(_debounce * 2);
+      expect(cubit.state.status, MemberSearchStatus.tooLong);
+      expect(server.calls, isEmpty);
+      cubit.close();
+    });
+  });
+
+  test('the last results stay while the next search loads (review item 8), '
+      'but not across tabs', () {
+    fakeAsync((async) {
+      final cubit = build();
+      cubit.textChanged('ab');
+      async.elapse(_debounce);
+      async.flushMicrotasks();
+      server.hold = Completer<void>();
+      cubit.textChanged('abc');
+      expect(cubit.state.status, MemberSearchStatus.loading);
+      expect(cubit.state.results, hasLength(2));
+      expect(cubit.state.resultsPrefix, 'ab');
+      cubit.setScope(MemberSearchScope.banned);
+      expect(cubit.state.results, isEmpty);
+      server.hold!.complete();
+      async.flushMicrotasks();
       cubit.close();
     });
   });

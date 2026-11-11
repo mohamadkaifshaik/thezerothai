@@ -104,33 +104,29 @@ void main() {
         final rig = CommunitiesTabletRig();
         rig.server.directory = _directoryOf(3);
         await rig.pump(tester, width: w);
-        final bandB = w >= 840 && w < 1200;
-        expect(
-          inCommunitiesPage(find.text(_emptyMineBandB)),
-          bandB ? findsOneWidget : findsNothing,
-        );
-        expect(
-          inCommunitiesPage(find.text(_emptyMineOld)),
-          bandB ? findsNothing : findsOneWidget,
-        );
+        // R10 review item 10: one sentence in every layout ("Explore" is
+        // the tab, or band B's Explore communities card).
+        expect(inCommunitiesPage(find.text(_emptyMineOld)), findsOneWidget);
+        expect(find.text(_emptyMineBandB), findsNothing);
       });
     }
   });
 
-  group('2. the description in the Community pane', () {
-    testWidgets('band B: a description card first, then Rules', (tester) async {
+  group('2. the description (R10 review item 11: in the header)', () {
+    testWidgets('band B: the description is in the page header, and the '
+        'pane starts with Rules (no description card)', (tester) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, location: _communityPath, width: 1024);
-      final about = inContextPane(find.text('About this Community'));
-      final description = inContextPane(
-        find.text('Openings, endgames and puzzles'),
-      );
-      expect(about, findsOneWidget);
-      expect(description, findsOneWidget);
+      expect(find.text('About this Community'), findsNothing);
       expect(
-        tester.getRect(description).bottom,
-        lessThan(tester.getRect(inContextPane(find.text('Rules'))).top),
+        inContextPane(find.text('Openings, endgames and puzzles')),
+        findsNothing,
       );
+      expect(
+        inCommunitiesPage(find.text('Openings, endgames and puzzles')),
+        findsOneWidget,
+      );
+      expect(inContextPane(find.text('Rules')), findsOneWidget);
     });
 
     testWidgets('band B: no description, no card', (tester) async {
@@ -570,16 +566,9 @@ void main() {
         expect(link, findsOneWidget);
         // The header's button has the same label.
         expect(inCommunitiesPage(find.text('Moderation log')), findsOneWidget);
-        // First in the pane: above the description and the rules.
+        // First in the pane: above the rules (the description card is gone,
+        // R10 review item 11).
         final top = tester.getRect(link).top;
-        expect(
-          top,
-          lessThan(
-            tester
-                .getRect(inContextPane(find.text('About this Community')))
-                .top,
-          ),
-        );
         expect(
           top,
           lessThan(tester.getRect(inContextPane(find.text('Rules'))).top),

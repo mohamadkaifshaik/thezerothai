@@ -606,9 +606,18 @@ Finder inCommunitiesPage(Finder finder) =>
 
 /// Selects the Communities page's "Explore" tab (R10, F23: phones, tablet
 /// band A and desktop; band B has no tabs) and settles.
-Future<void> showExploreTab(WidgetTester tester) async {
-  await tester.tap(
-    find.descendant(of: find.byType(AppTabBar), matching: find.text('Explore')),
+Future<void> showExploreTab(WidgetTester tester) =>
+    tapCommunityTab(tester, 'Explore');
+
+/// Taps the tab [label] of the page's tab bar, scrolled into view first (at
+/// large text, or in a narrow window, the bar scrolls; R10 review item 3).
+Future<void> tapCommunityTab(WidgetTester tester, String label) async {
+  final tab = find.descendant(
+    of: find.byType(AppTabBar),
+    matching: find.text(label),
   );
+  await tester.ensureVisible(tab);
+  await tester.pumpAndSettle();
+  await tester.tap(tab);
   await tester.pumpAndSettle();
 }

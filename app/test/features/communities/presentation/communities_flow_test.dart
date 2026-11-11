@@ -357,6 +357,9 @@ void main() {
 
       // 1. Communities: the directory lists it, I am not in it. Join.
       // R10 (F23): the directory is the Explore tab.
+      // R10 review item 3: the tab bar may scroll; bring the tab into view.
+      await tester.ensureVisible(find.text('Explore'));
+      await tester.pump();
       await tester.tap(find.text('Explore'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Join'));
