@@ -823,4 +823,43 @@ void main() {
       }
     }
   });
+
+  group('desktop (>= 1200): the new leaves keep the master list', () {
+    for (final width in [1200.0, 1440.0]) {
+      testWidgets('${width.toInt()}: Notifications and Message settings', (
+        tester,
+      ) async {
+        final rig = SettingsTabletRig();
+        await rig.pump(
+          tester,
+          width: width,
+          height: 1400,
+          flags: {...kSettingsTabletFlags, ..._prefsFlags, ..._privacyFlags},
+          ownPrivacy: _store(),
+          notifications: notifications,
+        );
+        Finder inList(Finder f) =>
+            find.descendant(of: find.byType(SettingsList), matching: f);
+        String? selected() => [
+          for (final r in tester.widgetList<SettingsRow>(
+            inList(find.byType(SettingsRow)),
+          ))
+            if (r.selected) r.title,
+        ].singleOrNull;
+
+        await _tap(tester, inList(_row('Notifications')));
+        expect(rig.uri.path, AppRouter.notificationSettingsPath);
+        expect(find.byType(SettingsList), findsOneWidget);
+        expect(selected(), 'Notifications');
+        expect(find.text('Notification settings'), findsOneWidget);
+
+        await _tap(tester, inList(_row(kMessageSettingsTitle)));
+        expect(rig.uri.path, AppRouter.messageSettingsPath);
+        expect(find.byType(SettingsList), findsOneWidget);
+        expect(selected(), kMessageSettingsTitle);
+        expect(find.widgetWithText(AppFilterPill, 'Everyone'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  });
 }

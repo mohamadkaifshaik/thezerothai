@@ -495,7 +495,7 @@ void main() {
   group('R4: the archive line (F27)', () {
     testWidgets('READY shows "Available until" from expires_at, never the '
         "link's 15 minutes", (tester) async {
-      final until = DateTime.utc(2026, 11, 18, 9, 30);
+      final until = DateTime.now().toUtc().add(const Duration(days: 7));
       when(() => accounts.getExport(exportId: 'exp-1')).thenAnswer(
         (_) async => AccountExport(
           exportId: 'exp-1',
@@ -551,7 +551,7 @@ void main() {
             exportId: 'exp-1',
             status: ExportStatus.EXPORT_STATUS_READY,
             downloadUrl: _downloadUrl,
-            expiresAt: DateTime.utc(2026, 11, 18),
+            expiresAt: DateTime.now().toUtc().add(const Duration(days: 7)),
           ),
         );
         await pump(tester, width: width, textScale: scale);
