@@ -96,6 +96,9 @@ void main() {
           final back = tester.getRect(find.byTooltip('Back'));
           expect(title.left, greaterThanOrEqualTo(back.right - 1));
           expect(title.left, lessThan(120));
+          // The design: Back's centre at x = 38, the title at x = 68.
+          expect(back.center.dx, moreOrLessEquals(38, epsilon: 1));
+          expect(title.left, moreOrLessEquals(68, epsilon: 1));
         });
       }
 

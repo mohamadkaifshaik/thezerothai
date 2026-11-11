@@ -422,8 +422,10 @@ class _BarRow extends StatelessWidget {
     }
 
     final leading = onBack != null
+        // PostDetail/PostThread .dc.html: the 44 dp Back disc at x = 16
+        // (its 48 dp target starts at 14) and the title at x = 68.
         ? Padding(
-            padding: const EdgeInsetsDirectional.only(start: AppSpacing.xs),
+            padding: const EdgeInsetsDirectional.only(start: 14, end: 6),
             child: AppIconButton(
               icon: Icons.chevron_left,
               tooltip: 'Back',
