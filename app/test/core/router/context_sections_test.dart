@@ -127,6 +127,8 @@ void main() {
       ('/explore', '/profile/alice'): '/profile/alice',
       ('/home', '/u/u1'): '/u/u1',
       ('/post/p1', '/profile/alice'): '/profile/alice',
+      // Over a plan (no pane of its own, T5): the profile's pane.
+      ('/plans/b1', '/u/u1'): '/u/u1',
       // Followers, Following and Edit profile over a profile: their own
       // family (Who to follow; no pane), never the profile's media strip.
       ('/profile/alice', '/profile/alice/followers'):
