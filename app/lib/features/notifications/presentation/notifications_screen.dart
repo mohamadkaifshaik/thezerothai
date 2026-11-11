@@ -25,6 +25,7 @@ import 'notifications_error_messages.dart';
 import 'widgets/follow_requests_row.dart';
 import 'widgets/notification_row.dart';
 import 'widgets/push_opt_in_card.dart';
+import 'widgets/notification_settings_action.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/widgets/shell_geometry.dart';
 
@@ -133,6 +134,7 @@ class _NotificationsViewState extends State<_NotificationsView>
                       AppTopBar.sliver(
                         title: 'Notifications',
                         centerTitle: true,
+                        actions: const [NotificationSettingsAction()],
                       ),
                       _inset(
                         inset,

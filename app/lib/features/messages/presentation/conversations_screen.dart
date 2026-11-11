@@ -27,6 +27,7 @@ import 'messages_list_detail.dart';
 import 'widgets/conversation_row.dart';
 import 'widgets/messaging_access_builder.dart';
 import 'widgets/not_encrypted_note.dart';
+import '../../settings/presentation/widgets/message_settings_action.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/widgets/shell_geometry.dart';
 
@@ -319,6 +320,7 @@ class _ConversationsViewState extends State<ConversationsList>
                                 tooltip: 'New message',
                                 onPressed: widget.onNewMessage,
                               ),
+                            const MessageSettingsAction(),
                           ],
                         )
                       else

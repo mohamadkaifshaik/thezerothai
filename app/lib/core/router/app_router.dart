@@ -53,7 +53,9 @@ import '../../features/messages/presentation/widgets/request_banner.dart';
 import '../../features/search/domain/search_feature_flags.dart';
 import '../../features/search/domain/search_results_tab.dart';
 import '../../features/search/presentation/search_results_screen.dart';
+import '../../features/notifications/domain/notification_prefs.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
+import '../../features/notifications/presentation/notification_settings_screen.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/search/presentation/explore_screen.dart';
 import '../feature_flags/ui_shell_feature_flag.dart';
@@ -84,6 +86,7 @@ import '../../features/profile/presentation/change_handle_screen.dart';
 import '../../features/profile/presentation/edit_profile_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/settings/domain/settings_categories.dart';
+import '../../features/settings/presentation/message_settings_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../widgets/splash_screen.dart';
@@ -165,6 +168,15 @@ class AppRouter {
   // Edit profile and Change handle, behind the `profile_snapshot` flag.
   static const editProfilePath = '/settings/profile';
   static const changeHandlePath = '/settings/handle';
+
+  /// Push preferences (F6); Settings unless `notifications` and
+  /// `notification_prefs` are on for the caller.
+  static const notificationSettingsPath = '/settings/notifications';
+
+  /// Who can message you and read receipts (F9, F3). Never redirected: the
+  /// page shows each setting by its own rule, the undo of one whose flag went
+  /// off included.
+  static const messageSettingsPath = '/settings/messages';
   // The Scheduled posts list, behind the `posts` and
   // `scheduled_posts` flags. A root-level full-screen route like /compose, NOT
   // a ShellRoute child: the composer pushes it over itself (dialog link, toast
@@ -650,6 +662,16 @@ class AppRouter {
             builder: (context, state) =>
                 const AuthGate(child: DeleteAccountScreen()),
           ),
+          GoRoute(
+            path: notificationSettingsPath,
+            builder: (context, state) =>
+                const AuthGate(child: NotificationSettingsScreen()),
+          ),
+          GoRoute(
+            path: messageSettingsPath,
+            builder: (context, state) =>
+                const AuthGate(child: MessageSettingsScreen()),
+          ),
         ],
       ),
       // The people picker (a dialog on the root navigator) and the
@@ -872,7 +894,8 @@ class AppRouter {
             _messagesFlagRedirect(loc) ??
             _followRequestsRedirect(loc) ??
             _exploreFlagRedirect(loc) ??
-            _notificationsFlagRedirect(loc);
+            _notificationsFlagRedirect(loc) ??
+            _notificationPrefsFlagRedirect(loc);
       case OnboardingStatus.error:
         // GetMe failed with nothing usable (no cached profile, or right
         // after CreateProfile): a full-screen Retry, never Home with every
@@ -1163,6 +1186,17 @@ class AppRouter {
     return _onboardingBloc.state.enabledFeatures.contains(kFeatureSearch)
         ? null
         : homePath;
+  }
+
+  /// Notification settings redirect to Settings unless `notifications` and
+  /// `notification_prefs` are both on for this caller.
+  String? _notificationPrefsFlagRedirect(String loc) {
+    if (loc != notificationSettingsPath) return null;
+    final features = _onboardingBloc.state.enabledFeatures;
+    return features.contains(kFeatureNotifications) &&
+            features.contains(kFeatureNotificationPrefs)
+        ? null
+        : settingsPath;
   }
 
   static final _profileEditRoutes = RegExp(r'^/settings/(?:profile|handle)$');
