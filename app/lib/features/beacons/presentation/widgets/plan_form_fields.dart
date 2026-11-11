@@ -44,8 +44,8 @@ const kPlanCosts = <pb.BeaconCost>[
 const kPlanStartedNote =
     "This plan has started, so its time and cost can't change.";
 
-/// One group of a plan form: its label (a heading for screen readers, as
-/// before) over [child].
+/// One group of a plan form (the designs' `.field label`: 14 sp w600 in
+/// text2): its label, a heading for screen readers as before, over [child].
 class PlanFormSection extends StatelessWidget {
   const PlanFormSection({super.key, required this.title, required this.child});
 
@@ -62,7 +62,12 @@ class PlanFormSection extends StatelessWidget {
         children: [
           Semantics(
             header: true,
-            child: Text(title, style: theme.textTheme.titleMedium),
+            child: Text(
+              title,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: context.appColors.text2,
+              ),
+            ),
           ),
           const SizedBox(height: AppSpacing.sm),
           child,
@@ -316,6 +321,89 @@ class _PickerField extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// "Open spots" with its stepper at the end (the designs' PlanCreate and
+/// PlanEdit): two raised 48 dp round buttons around the count, the count
+/// spoken as "3 open spots", and an optional muted [helper] under them.
+class PlanSpotsStepper extends StatelessWidget {
+  const PlanSpotsStepper({
+    super.key,
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.enabled,
+    required this.onChanged,
+    this.helper,
+  });
+
+  final int value;
+  final int min;
+  final int max;
+  final bool enabled;
+  final ValueChanged<int> onChanged;
+  final String? helper;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final style = IconButton.styleFrom(
+      backgroundColor: theme.brightness == Brightness.dark
+          ? theme.colorScheme.surfaceContainerHigh
+          : AppPalette.white,
+      elevation: 1,
+      shadowColor: AppPalette.navy.withValues(alpha: 0.2),
+      minimumSize: const Size.square(AppSpacing.minTapTarget),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.md, bottom: AppSpacing.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Semantics(
+                  header: true,
+                  child: Text('Open spots', style: theme.textTheme.titleSmall),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Fewer spots',
+                style: style,
+                icon: const Icon(Icons.remove_circle_outline),
+                onPressed: enabled && value > min
+                    ? () => onChanged(value - 1)
+                    : null,
+              ),
+              const SizedBox(width: AppSpacing.smd),
+              Semantics(
+                label: '$value open spots',
+                excludeSemantics: true,
+                child: Text('$value', style: theme.textTheme.titleLarge),
+              ),
+              const SizedBox(width: AppSpacing.smd),
+              IconButton(
+                tooltip: 'More spots',
+                style: style,
+                icon: const Icon(Icons.add_circle_outline),
+                onPressed: enabled && value < max
+                    ? () => onChanged(value + 1)
+                    : null,
+              ),
+            ],
+          ),
+          if (helper != null)
+            Text(
+              helper!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

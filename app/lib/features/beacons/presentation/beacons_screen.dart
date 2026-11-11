@@ -13,6 +13,7 @@ import '../../../core/widgets/app_state_view.dart';
 import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/shell_geometry.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
+import '../../../shared/widgets/primitives/app_chip.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
@@ -318,15 +319,16 @@ class PlansList extends StatelessWidget {
                       context,
                       cubit,
                       state,
-                      yourPlans
-                          ? YourPlansSection(
-                              session: session,
-                              selectedId: split ? selectedId : null,
-                              onOpenPlan: (id) => _openPlan(context, id),
-                              onSeeAll: () =>
-                                  _push(context, AppRouter.plansMinePath),
-                            )
-                          : null,
+                      _top(context, split ? null : const PlansHeadline(), [
+                        if (yourPlans)
+                          YourPlansSection(
+                            session: session,
+                            selectedId: split ? selectedId : null,
+                            onOpenPlan: (id) => _openPlan(context, id),
+                            onSeeAll: () =>
+                                _push(context, AppRouter.plansMinePath),
+                          ),
+                      ]),
                     ),
                   ),
                 ),
@@ -338,8 +340,21 @@ class PlansList extends StatelessWidget {
     );
   }
 
-  /// The rows, or the loading, error and empty states. [top] ("Your
-  /// plans") scrolls with them; without it the tree is exactly today's.
+  /// What scrolls above the rows: the headline (the page), then "Your
+  /// plans" (the tablet layout).
+  Widget? _top(BuildContext context, Widget? headline, List<Widget> rest) {
+    final all = [?headline, ...rest];
+    if (all.isEmpty) return null;
+    if (all.length == 1) return all.single;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: all,
+    );
+  }
+
+  /// The rows, or the loading, error and empty states. [top] (the headline,
+  /// "Your plans") scrolls with them.
   Widget _body(
     BuildContext context,
     BeaconsCubit cubit,
@@ -449,21 +464,63 @@ class _AudienceChips extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.xs,
+        AppSpacing.md,
+        0,
       ),
-      child: Wrap(
-        spacing: AppSpacing.sm,
-        runSpacing: AppSpacing.xs,
-        children: [
-          for (final a in state.audiences)
-            ChoiceChip(
-              label: Text(a.name),
-              selected: a == state.selected,
-              onSelected: (_) => onSelect(a),
-            ),
-        ],
+      child: Semantics(
+        container: true,
+        explicitChildNodes: true,
+        label: 'Who can see them',
+        child: Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.xs,
+          children: [
+            for (final a in state.audiences)
+              AppFilterPill(
+                label: a.name,
+                selected: a == state.selected,
+                onPressed: () => onSelect(a),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The designs' headline over the Plans list: "What's your plan?", with
+/// "plan" in the accent colour. On the page only (not in band B's narrow
+/// list pane, whose header already says Plans); it scrolls with the rows.
+class PlansHeadline extends StatelessWidget {
+  const PlansHeadline({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final base = theme.textTheme.displaySmall;
+    return Padding(
+      key: const ValueKey('plans-headline'),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.sm,
+        AppSpacing.md,
+        AppSpacing.sm,
+      ),
+      child: Semantics(
+        header: true,
+        child: Text.rich(
+          TextSpan(
+            style: base,
+            children: [
+              const TextSpan(text: "What's your "),
+              TextSpan(text: 'plan', style: AppTextStyles.displayAccent(theme)),
+              const TextSpan(text: '?'),
+            ],
+          ),
+        ),
       ),
     );
   }

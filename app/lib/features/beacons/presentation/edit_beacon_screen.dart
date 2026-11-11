@@ -556,66 +556,18 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                                             _update(() => _cost = c),
                                       ),
                                     ),
-                                  const SizedBox(height: AppSpacing.md),
-                                  Semantics(
-                                    header: true,
-                                    child: Text(
-                                      'Open spots',
-                                      style: theme.textTheme.titleMedium,
-                                    ),
+                                  PlanSpotsStepper(
+                                    value: _openSpots ?? 0,
+                                    min: minSpots,
+                                    max: kBeaconMaxSpots,
+                                    enabled: !busy,
+                                    onChanged: (n) =>
+                                        _update(() => _openSpots = n),
+                                    helper: b != null && b.acceptedCount > 0
+                                        ? '${b.acceptedCount} already going; '
+                                              'the spots cannot go below that.'
+                                        : null,
                                   ),
-                                  Row(
-                                    children: [
-                                      IconButton(
-                                        tooltip: 'Fewer spots',
-                                        icon: const Icon(
-                                          Icons.remove_circle_outline,
-                                        ),
-                                        onPressed:
-                                            busy ||
-                                                (_openSpots ?? 0) <= minSpots
-                                            ? null
-                                            : () => _update(
-                                                () => _openSpots =
-                                                    _openSpots! - 1,
-                                              ),
-                                      ),
-                                      Semantics(
-                                        label: '${_openSpots ?? 0} open spots',
-                                        excludeSemantics: true,
-                                        child: Text(
-                                          '${_openSpots ?? 0}',
-                                          style: theme.textTheme.titleMedium,
-                                        ),
-                                      ),
-                                      IconButton(
-                                        tooltip: 'More spots',
-                                        icon: const Icon(
-                                          Icons.add_circle_outline,
-                                        ),
-                                        onPressed:
-                                            busy ||
-                                                (_openSpots ?? 0) >=
-                                                    kBeaconMaxSpots
-                                            ? null
-                                            : () => _update(
-                                                () => _openSpots =
-                                                    _openSpots! + 1,
-                                              ),
-                                      ),
-                                    ],
-                                  ),
-                                  if (b != null && b.acceptedCount > 0)
-                                    Text(
-                                      '${b.acceptedCount} already going; the '
-                                      'spots cannot go below that.',
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(
-                                            color: theme
-                                                .colorScheme
-                                                .onSurfaceVariant,
-                                          ),
-                                    ),
                                   if (b != null) ...[
                                     const SizedBox(height: AppSpacing.lg),
                                     _ReadOnly(

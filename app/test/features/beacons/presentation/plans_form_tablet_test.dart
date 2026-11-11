@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
@@ -317,7 +318,7 @@ void main() {
         realForms: true,
       );
       final hold = rig.server.holdGet = Completer<void>();
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Edit'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Edit'));
       await tester.pump();
       expect(_paneKinds(tester), _formKinds);
       expect(inContextPane(find.text(kPlanPreviewTitle)), findsOneWidget);
@@ -587,8 +588,8 @@ void main() {
       (599, 1),
       (599, 2),
     ]) {
-      testWidgets('plan page at ${w.toInt()} x$scale: the label whole, at '
-          'the end of the row', (tester) async {
+      testWidgets('plan page at ${w.toInt()} x$scale: the label whole, '
+          'over the name (R12, the designs\' PlanDetail)', (tester) async {
         final rig = PlansTabletRig();
         await rig.pump(
           tester,
@@ -602,8 +603,12 @@ void main() {
           tester.renderObject<RenderParagraph>(label).didExceedMaxLines,
           isFalse,
         );
-        final row = find.ancestor(of: label, matching: find.byType(Row)).first;
-        expect(tester.getRect(label).right, tester.getRect(row).right);
+        final name = find.text('Orla');
+        expect(
+          tester.getRect(label).bottom,
+          lessThanOrEqualTo(tester.getRect(name).top),
+        );
+        expect(tester.getRect(label).left, tester.getRect(name).left);
       });
     }
 
@@ -1121,7 +1126,7 @@ void main() {
         );
         await _tapInForm(
           tester,
-          find.widgetWithText(OutlinedButton, 'Cancel plan'),
+          find.widgetWithText(AppPillButton, 'Cancel plan'),
         );
         expect(find.text('Cancel this plan?'), findsOneWidget);
         final rect = openDialogRect(tester);

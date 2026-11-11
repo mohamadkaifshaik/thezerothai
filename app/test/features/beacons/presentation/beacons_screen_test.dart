@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dzeroth/shared/widgets/primitives/app_chip.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/widgets/app_shell_scope.dart';
@@ -242,7 +243,8 @@ void main() {
       'community shows its copy while Public still loads', (tester) async {
     server.public.add(beaconView(startAt: start(2)));
     await open(tester);
-    expect(find.byType(ChoiceChip), findsNothing);
+    // Audience pills only with communities (the activity row is F29's).
+    expect(find.widgetWithText(AppFilterPill, 'Public'), findsNothing);
 
     final communities = _MockCommunities();
     when(() => communities.enabled).thenReturn(true);
@@ -262,8 +264,8 @@ void main() {
     server.refusals.clear();
     await open(tester, communities: communities);
 
-    expect(find.widgetWithText(ChoiceChip, 'Public'), findsOneWidget);
-    expect(find.widgetWithText(ChoiceChip, 'Gardeners'), findsOneWidget);
+    expect(find.widgetWithText(AppFilterPill, 'Public'), findsOneWidget);
+    expect(find.widgetWithText(AppFilterPill, 'Gardeners'), findsOneWidget);
     server.refusals.add(
       CommunityForbiddenException(CommunityForbiddenReason.notMember),
     );
