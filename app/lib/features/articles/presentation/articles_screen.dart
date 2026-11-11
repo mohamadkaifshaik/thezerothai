@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -38,6 +39,13 @@ bool articleLibraryShownAt(double width, {required bool tablet}) =>
 /// content area is the window), today's side column elsewhere.
 double articleLibraryWidth(double width, {required bool tablet}) =>
     tablet ? ShellGeometry.listPaneWidthFor(width) : AppSize.sideColumn;
+
+/// The longest line of the reader's prose (its body blocks), in dp. The
+/// reader's column is the readable 680 on the tablet layout; its title,
+/// cover and byline use it all, but body text stops here so a line stays
+/// comfortable to read. On phones and desktop the column is narrower than
+/// this, so nothing changes there.
+const double kArticleProseMax = 600;
 
 /// Band B of the tablet layout: the editor's library pane carries "Publish
 /// settings" (the audience and who can reply), so the publish dialog does
@@ -1434,47 +1442,62 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
                   subtitle: Text('@${_record!.authorHandle}'),
                 ),
               const SizedBox(height: AppSpacing.lg),
-              for (final block in _record!.draft.blocks)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                  child: block.kind == ArticleBlockKind.divider
-                      ? const Divider()
-                      : block.kind == ArticleBlockKind.image
-                      ? Text(block.altText)
-                      : Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SelectableText.rich(
-                              TextSpan(
-                                style: _blockStyle(context, block.kind),
-                                children: [
-                                  if (block.kind ==
-                                      ArticleBlockKind.bulletedListItem)
-                                    const TextSpan(text: '• '),
-                                  ...block.runs.map(
-                                    (r) => TextSpan(
-                                      text: r.text,
-                                      style: articleRunStyle(r),
+              // The prose: at most [kArticleProseMax] a line, from the
+              // start edge under the title (the column may be wider).
+              LayoutBuilder(
+                builder: (context, constraints) => Padding(
+                  padding: EdgeInsetsDirectional.only(
+                    end: math.max(0, constraints.maxWidth - kArticleProseMax),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final block in _record!.draft.blocks)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                          child: block.kind == ArticleBlockKind.divider
+                              ? const Divider()
+                              : block.kind == ArticleBlockKind.image
+                              ? Text(block.altText)
+                              : Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SelectableText.rich(
+                                      TextSpan(
+                                        style: _blockStyle(context, block.kind),
+                                        children: [
+                                          if (block.kind ==
+                                              ArticleBlockKind.bulletedListItem)
+                                            const TextSpan(text: '• '),
+                                          ...block.runs.map(
+                                            (r) => TextSpan(
+                                              text: r.text,
+                                              style: articleRunStyle(r),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            for (final link
-                                in block.runs
-                                    .map((r) => r.link)
-                                    .whereType<String>()
-                                    .toSet())
-                              TextButton(
-                                onPressed: () => launchUrl(
-                                  Uri.parse(link),
-                                  mode: LaunchMode.externalApplication,
+                                    for (final link
+                                        in block.runs
+                                            .map((r) => r.link)
+                                            .whereType<String>()
+                                            .toSet())
+                                      TextButton(
+                                        onPressed: () => launchUrl(
+                                          Uri.parse(link),
+                                          mode: LaunchMode.externalApplication,
+                                        ),
+                                        child: Text(link),
+                                      ),
+                                  ],
                                 ),
-                                child: Text(link),
-                              ),
-                          ],
                         ),
+                    ],
+                  ),
                 ),
+              ),
               if (_record!.published && _record!.postId.isNotEmpty)
                 TextButton(
                   onPressed: () => context.push('/post/${_record!.postId}'),

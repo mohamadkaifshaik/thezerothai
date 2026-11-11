@@ -22,10 +22,22 @@ import '../../../core/widgets/shell_geometry.dart';
 ///
 /// The same widgets at every width (only values change), so crossing 600,
 /// 840 or 1200 dp keeps the page's state.
+///
+/// [scrollsAcrossPane]: the [child] is a scroll view that keeps its slivers in
+/// the column itself (a `SliverPadding` of [AppMainColumnBleed.of] on each
+/// side). On the tablet layout it is then laid out across the whole pane, so
+/// a drag, a wheel or a scrollbar in the space beside the column reaches it
+/// (a parent hit-tests its own box first). Everywhere else it is the same
+/// column as without it.
 class AppMainColumn extends StatelessWidget {
-  const AppMainColumn({super.key, required this.child});
+  const AppMainColumn({
+    super.key,
+    required this.child,
+    this.scrollsAcrossPane = false,
+  });
 
   final Widget child;
+  final bool scrollsAcrossPane;
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +50,9 @@ class AppMainColumn extends StatelessWidget {
         final BoxConstraints box;
         if (tablet && pane.isFinite) {
           column = math.min(pane, AppSize.readableMax);
-          box = BoxConstraints.tightFor(width: column);
+          box = BoxConstraints.tightFor(
+            width: scrollsAcrossPane ? pane : column,
+          );
         } else {
           column = pane;
           box = const BoxConstraints(maxWidth: AppLayout.mainColumnMaxWidth);

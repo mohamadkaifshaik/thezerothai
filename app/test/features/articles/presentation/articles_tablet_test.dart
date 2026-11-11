@@ -698,4 +698,79 @@ void main() {
       }
     }
   });
+
+  // T8e and the UX review: the reader's column is the readable 680, but its
+  // prose stops at about 600 dp a line (`kArticleProseMax`), start-aligned
+  // under the title. Phones and desktop (a 600 column, so 552 of text) are
+  // unchanged.
+  group('the reader: prose line length', () {
+    _Repo longRead() {
+      final repo = _Repo();
+      repo.record = ArticleRecord(
+        draft: ArticleDraft(
+          id: 'draft',
+          authorId: 'owner',
+          title: 'Harbour notes',
+          blocks: [
+            ArticleBlock(
+              kind: ArticleBlockKind.paragraph,
+              runs: [ArticleTextRun(text: 'The tide came in slowly. ' * 30)],
+            ),
+          ],
+        ),
+        updatedAt: DateTime.now().toUtc(),
+      );
+      return repo;
+    }
+
+    Rect title(WidgetTester tester) =>
+        tester.getRect(find.text('Harbour notes').last);
+    Rect prose(WidgetTester tester) =>
+        tester.getRect(find.byType(SelectableText).first);
+
+    for (final (width, rtl) in [
+      (1024.0, false),
+      (839.0, false),
+      (1024.0, true),
+    ]) {
+      testWidgets('${width.toInt()}${rtl ? ' RTL' : ''}: the column 680, the '
+          'prose at most 600 under the title', (tester) async {
+        await open(
+          tester,
+          longRead(),
+          location: '/articles/draft',
+          width: width,
+          textDirection: rtl ? TextDirection.rtl : TextDirection.ltr,
+        );
+        // The column (680) less its 24 dp padding on each side.
+        expect(title(tester).width, moreOrLessEquals(680 - 48));
+        expect(title(tester).center.dx, moreOrLessEquals(width / 2));
+        expect(prose(tester).width, lessThanOrEqualTo(kArticleProseMax));
+        expect(prose(tester).width, greaterThan(kArticleProseMax - 40));
+        if (rtl) {
+          expect(prose(tester).right, moreOrLessEquals(title(tester).right));
+        } else {
+          expect(prose(tester).left, moreOrLessEquals(title(tester).left));
+        }
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    for (final width in [360.0, 1440.0]) {
+      testWidgets('${width.toInt()}: the prose as wide as the title, as '
+          'before', (tester) async {
+        await open(
+          tester,
+          longRead(),
+          location: '/articles/draft',
+          width: width,
+        );
+        expect(
+          prose(tester).width,
+          moreOrLessEquals(title(tester).width, epsilon: 40),
+        );
+        expect(prose(tester).left, moreOrLessEquals(title(tester).left));
+      });
+    }
+  });
 }

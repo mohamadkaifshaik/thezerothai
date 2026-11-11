@@ -194,10 +194,13 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
             ),
             body: Center(
               child: ConstrainedBox(
-                // 680 on the tablet layout (the readable column), else
-                // 600.
+                // 680 as a Settings leaf in the tablet shell (the readable
+                // column); 600 everywhere else, including
+                // `/onboarding/delete-account` (AU: no shell, plan 4.2).
                 constraints: BoxConstraints(
-                  maxWidth: ShellGeometry.readableMaxWidth(context),
+                  maxWidth: (ShellGeometry.maybeOf(context)?.tablet ?? false)
+                      ? AppSize.readableMax
+                      : AppSize.contentMax,
                 ),
                 child: ListView(
                   // Plus the floating bar's inset (`ui_shell`); 0 under the

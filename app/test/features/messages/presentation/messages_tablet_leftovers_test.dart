@@ -351,4 +351,37 @@ void main() {
       });
     }
   });
+
+  // UX review: the Requests folder's header (a back header in the reading
+  // column) spans the pane, as the Inbox's top bar does.
+  group('the Requests header in band A', () {
+    for (final width in [600.0, 834.0, 839.0]) {
+      testWidgets('${width.toInt()}: its divider spans the pane', (
+        tester,
+      ) async {
+        await open(
+          tester,
+          width: width,
+          location: AppRouter.messageRequestsPath,
+        );
+        final header = find.ancestor(
+          of: find.text('Message requests'),
+          matching: find.byType(AppBackHeader),
+        );
+        expect(header, findsOneWidget);
+        final divider = tester.getRect(
+          find.descendant(of: header, matching: find.byType(Divider)),
+        );
+        expect(divider.left, moreOrLessEquals(80));
+        expect(divider.right, moreOrLessEquals(width));
+        // The back button stays in the reading column.
+        final column = width - 80 < 680 ? width - 80 : 680.0;
+        expect(
+          tester.getRect(find.byTooltip('Back')).left,
+          greaterThanOrEqualTo(80 + (width - 80 - column) / 2),
+        );
+        await done(tester);
+      });
+    }
+  });
 }

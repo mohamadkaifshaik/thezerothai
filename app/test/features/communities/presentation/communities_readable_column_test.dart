@@ -4,6 +4,7 @@ import 'package:dzeroth/features/communities/presentation/community_members_scre
 import 'package:dzeroth/shared/widgets/primitives/app_back_header.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_main_column.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -139,4 +140,55 @@ void main() {
       await done(tester);
     });
   }
+
+  // UX review must-fix: the About tab's scroll view takes input across the
+  // whole pane (as the Posts tab does), not only inside the 680 column. A
+  // drag or a wheel in the gutter scrolls it, and the pane edge (where a
+  // scrollbar sits) hit-tests to its viewport.
+  testWidgets('Community About tab at 839: the gutter scrolls it', (
+    tester,
+  ) async {
+    final rig = CommunitiesTabletRig();
+    await rig.pump(
+      tester,
+      location: AppRouter.communityPath(kRigCommunityId),
+      width: 839,
+      height: 420,
+      textScale: 1.5,
+    );
+    await tester.tap(
+      find.descendant(of: find.byType(AppTabBar), matching: find.text('About')),
+    );
+    await tester.pumpAndSettle();
+    final primary = tester.getRect(
+      find.byKey(const ValueKey('tablet-primary')),
+    );
+    final scrollable = find
+        .ancestor(of: find.byType(AppTabBar), matching: find.byType(Scrollable))
+        .first;
+    ScrollPosition position() =>
+        tester.state<ScrollableState>(scrollable).position;
+    expect(position().maxScrollExtent, greaterThan(100));
+
+    // The gutter: left of the 680 column (39.5 dp wide at 839).
+    final gutter = Offset(primary.left + 12, primary.center.dy);
+    expect(tester.getRect(find.byType(AppTabBar)).left, greaterThan(gutter.dx));
+    await tester.dragFrom(gutter, const Offset(0, -80));
+    await tester.pumpAndSettle();
+    expect(position().pixels, greaterThan(0), reason: 'a drag in the gutter');
+
+    final before = position().pixels;
+    final mouse = TestPointer(1, PointerDeviceKind.mouse);
+    await tester.sendEventToBinding(mouse.hover(gutter));
+    await tester.sendEventToBinding(mouse.scroll(const Offset(0, 40)));
+    await tester.pumpAndSettle();
+    expect(position().pixels, greaterThan(before), reason: 'a wheel there');
+
+    // The pane's trailing edge, where the scrollbar is drawn, reaches the
+    // scroll view (its pointer listeners), not only the column.
+    final edge = Offset(primary.right - 2, primary.center.dy);
+    final hits = tester.hitTestOnBinding(edge).path.map((e) => e.target);
+    expect(hits, contains(tester.renderObject(scrollable)));
+    await done(tester);
+  });
 }

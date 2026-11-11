@@ -416,4 +416,68 @@ void main() {
       );
     }
   });
+
+  group('scrollsAcrossPane: the child (a scroll view) spans the pane', () {
+    const key = ValueKey('across');
+    Future<void> pumpAcross(WidgetTester tester, double width) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = Size(width, 900);
+      addTearDown(tester.view.reset);
+      final onboarding = _MockOnboardingBloc();
+      whenListen(
+        onboarding,
+        const Stream<OnboardingState>.empty(),
+        initialState: OnboardingState(
+          status: OnboardingStatus.ready,
+          enabledFeatures: _tabletFlags,
+          profile: identity.Profile(userId: 'u1', handle: 'alice'),
+        ),
+      );
+      await tester.pumpWidget(
+        BlocProvider<OnboardingBloc>.value(
+          value: onboarding,
+          child: MaterialApp(
+            theme: buildAppTheme(brightness: Brightness.light),
+            home: Scaffold(
+              body: AppMainColumn(
+                scrollsAcrossPane: true,
+                child: Builder(
+                  builder: (context) => Padding(
+                    key: key,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: AppMainColumnBleed.of(context),
+                    ),
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('839 (a full-screen page on the tablet layout): the child is '
+        'the window, its bleed centres a 680 column', (tester) async {
+      await pumpAcross(tester, 839);
+      expect(
+        tester.getRect(find.byKey(key)),
+        const Rect.fromLTWH(0, 0, 839, 900),
+      );
+      expect(tester.getRect(find.byType(SizedBox).last).width, 680);
+      expect(_columnDecoration(tester).border, isNull);
+    });
+
+    for (final width in [360.0, 1440.0]) {
+      testWidgets('${width.toInt()}: the same column as without it', (
+        tester,
+      ) async {
+        await pumpAcross(tester, width);
+        final rect = tester.getRect(find.byKey(key));
+        expect(rect.width, width < 600 ? width : 600);
+        expect(rect.center.dx, width / 2);
+        expect(_columnDecoration(tester).border, isNotNull);
+      });
+    }
+  });
 }
