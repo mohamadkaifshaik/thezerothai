@@ -118,6 +118,9 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
   /// Band A's inline tips, open or closed; kept across resizes.
   var _tipsOpen = false;
 
+  /// Band A's open Preview dialog, if any.
+  ModalRoute<void>? _previewRoute;
+
   DateTime _now() => (widget.now ?? DateTime.now)();
 
   @override
@@ -223,26 +226,50 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
   void _openPreview() => showAppDialog<void>(
     context: context,
     maxWidth: AppSize.dialogMax,
-    builder: (dialogContext) => AppDialog(
-      title: kPlanPreviewTitle,
-      body: ValueListenableBuilder<pb.Beacon>(
-        valueListenable: _draft,
-        // The dialog pads its title and body already: the preview's lines
-        // start where the title does.
-        builder: (context, draft, _) => PlanPreview(
-          beacon: draft,
-          showOrganiser: draft.hasOrganiser(),
-          inset: 0,
+    builder: (dialogContext) {
+      _previewRoute = ModalRoute.of(dialogContext);
+      return AppDialog(
+        title: kPlanPreviewTitle,
+        body: ValueListenableBuilder<pb.Beacon>(
+          valueListenable: _draft,
+          // The dialog pads its title and body already: the preview's lines
+          // start where the title does.
+          builder: (context, draft, _) => PlanPreview(
+            beacon: draft,
+            showOrganiser: draft.hasOrganiser(),
+            inset: 0,
+          ),
         ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(),
-          child: const Text('Close'),
-        ),
-      ],
-    ),
-  );
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      );
+    },
+  ).whenComplete(() => _previewRoute = null);
+
+  /// Band A's Preview dialog belongs to band A: past 840 the pane shows the
+  /// preview (it would show twice, once behind the scrim), and at 1200 or
+  /// under 600 there is no preview. When the header action goes away with
+  /// the dialog open, the dialog is popped after that frame.
+  void _closePreviewOffBandA(bool previewAction) {
+    final route = _previewRoute;
+    if (previewAction || route == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Once per dialog, however many builds asked.
+      if (!identical(_previewRoute, route) || !route.isActive) return;
+      _previewRoute = null;
+      final navigator = route.navigator;
+      if (navigator == null) return;
+      if (route.isCurrent) {
+        navigator.maybePop();
+      } else {
+        navigator.removeRoute(route);
+      }
+    });
+  }
 
   void _cancel() {
     if (context.canPop()) {
@@ -375,6 +402,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
         !ContextPaneScope.shows(context, ContextSectionKind.planPreview);
     final tipsInline =
         tablet && !ContextPaneScope.shows(context, ContextSectionKind.planTips);
+    _closePreviewOffBandA(previewAction);
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
