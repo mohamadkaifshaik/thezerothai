@@ -46,13 +46,7 @@ class CommunityCoverBand extends StatelessWidget {
     final band = SizedBox(
       height: kCommunityCoverBandHeight + top,
       child: DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [AppPalette.navy2, AppPalette.navy],
-          ),
-        ),
+        decoration: const BoxDecoration(gradient: AppGradients.communityCover),
         child: ClipRect(
           child: Stack(
             fit: StackFit.expand,
