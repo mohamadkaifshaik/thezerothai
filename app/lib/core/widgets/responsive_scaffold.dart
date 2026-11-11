@@ -76,7 +76,10 @@ class ResponsiveScaffold extends StatefulWidget {
   final List<ContextSection>? contextSections;
 
   /// The composition at 600-1199dp. [ShellLayout.tablet] only with
-  /// `ui_shell` and `ui_tablet` both on; phones and desktop ignore it.
+  /// `ui_shell` and `ui_tablet` both on; phones ignore it. On desktop the
+  /// composition is the same in both, but [ShellLayout.tablet] centres
+  /// modals and snack bars on the feed column and groups the focus
+  /// traversal by pane (D1).
   final ShellLayout layout;
 
   /// Tablet layout only: whether the More destination (the one with
@@ -498,6 +501,27 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     );
   }
 
+  /// The extended rail's width at the last layout (the desktop column is
+  /// placed after it): [AppSize.railExtended], or more when its labels need
+  /// it (large text).
+  double _railWidth = AppSize.railExtended;
+  bool _railReported = false;
+
+  void _onRailWidth(double width) {
+    if (width == _railWidth && _railReported) return;
+    // Measured during layout: the modal scope and the snack bar theme take
+    // it in the next frame, and so do the dialog pages on the root
+    // navigator (`DesktopShellRail`).
+    final changed = width != _railWidth;
+    _railWidth = width;
+    _railReported = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      DesktopShellRail.report(context, width);
+      if (changed) setState(() {});
+    });
+  }
+
   Widget _wide(BuildContext context, {required bool isDesktop}) {
     final colors = Theme.of(context).colorScheme;
     final master = isDesktop ? widget.masterPane : null;
@@ -506,53 +530,23 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     final accountChip = widget.accountChipBuilder?.call(isDesktop);
     // `ui_shell` only; null keeps the theme's legacy rail as it is.
     final style = widget.redesignedRail ? _RailStyle.of(context) : null;
-    return Scaffold(
+    // The desktop layout (D1): both flags (`layout` is tablet) at >= 1200 dp.
+    // Modals and snack bars centre on the feed column, and Tab moves through
+    // the rail, the master pane, the column and the side column in turn.
+    // Elsewhere (desktop with either flag off, the legacy 600-1199 dp
+    // layout) the tree is today's.
+    final desktop = isDesktop && widget.layout == ShellLayout.tablet;
+    Widget group(Widget child) =>
+        desktop ? FocusTraversalGroup(child: child) : child;
+    final scaffold = Scaffold(
       body: SafeArea(
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            NavigationRail(
-              extended: isDesktop,
-              selectedIndex: widget.selectedIndex,
-              onDestinationSelected: _selectOnRail,
-              indicatorShape: style?.indicatorShape,
-              indicatorColor: style?.indicatorColor,
-              selectedIconTheme: style?.selectedIconTheme,
-              unselectedIconTheme: style?.unselectedIconTheme,
-              selectedLabelTextStyle: style?.selectedLabelTextStyle,
-              unselectedLabelTextStyle: style?.unselectedLabelTextStyle,
-              // X's order: the items, then the Post control right below them,
-              // then (pushed to the bottom) the account chip.
-              trailing: Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.max,
-                  children: [
-                    if (compose != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: AppSpacing.md),
-                        child: switch ((isDesktop, style != null)) {
-                          (true, false) => _PostPill(onPressed: compose),
-                          (false, false) => _ComposeCircle(onPressed: compose),
-                          (true, true) => _GradientPostPill(onPressed: compose),
-                          (false, true) => _GradientComposeCircle(
-                            onPressed: compose,
-                          ),
-                        },
-                      ),
-                    const Spacer(),
-                    if (accountChip != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                        child: accountChip,
-                      ),
-                  ],
-                ),
-              ),
-              destinations: [
-                for (var i = 0; i < widget.destinations.length; i++)
-                  _railDestination(i, widget.destinations[i]),
-              ],
+            _WidthProbe(
+              onWidth: desktop ? _onRailWidth : null,
+              child: group(_wideRail(isDesktop, style, compose, accountChip)),
             ),
             if (master != null)
               SizedBox(
@@ -563,7 +557,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                       left: BorderSide(color: colors.outlineVariant),
                     ),
                   ),
-                  child: master,
+                  child: group(master),
                 ),
               ),
             // The feed column: at most 600dp, between two hairlines.
@@ -576,7 +570,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                       vertical: BorderSide(color: colors.outlineVariant),
                     ),
                   ),
-                  child: widget.body,
+                  child: group(widget.body),
                 ),
               ),
             ),
@@ -589,7 +583,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
                     padding: const EdgeInsets.symmetric(
                       vertical: AppSpacing.md,
                     ),
-                    child: side,
+                    child: group(side),
                   ),
                 ),
               ),
@@ -597,6 +591,113 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
         ),
       ),
     );
+    if (!desktop) return scaffold;
+    final slots = DesktopColumnSlots(
+      master: master != null,
+      side: side != null,
+      railWidth: _railWidth,
+    );
+    final media = MediaQuery.of(context);
+    // A modal opened from anywhere in the shell (the rail's account menu
+    // included) centres on the column, and so do the shell's snack bars.
+    return TabletModalScope(
+      host: TabletModalHost(overShell: true, desktop: slots),
+      child: TabletSnackBarTheme(
+        content: slots.columnFor(
+          media.size,
+          media.padding,
+          textDirection: Directionality.of(context),
+        ),
+        child: scaffold,
+      ),
+    );
+  }
+
+  Widget _wideRail(
+    bool isDesktop,
+    _RailStyle? style,
+    VoidCallback? compose,
+    Widget? accountChip,
+  ) {
+    return NavigationRail(
+      extended: isDesktop,
+      selectedIndex: widget.selectedIndex,
+      onDestinationSelected: _selectOnRail,
+      indicatorShape: style?.indicatorShape,
+      indicatorColor: style?.indicatorColor,
+      selectedIconTheme: style?.selectedIconTheme,
+      unselectedIconTheme: style?.unselectedIconTheme,
+      selectedLabelTextStyle: style?.selectedLabelTextStyle,
+      unselectedLabelTextStyle: style?.unselectedLabelTextStyle,
+      // X's order: the items, then the Post control right below them,
+      // then (pushed to the bottom) the account chip.
+      trailing: Expanded(
+        child: Column(
+          mainAxisSize: MainAxisSize.max,
+          children: [
+            if (compose != null)
+              Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.md),
+                child: switch ((isDesktop, style != null)) {
+                  (true, false) => _PostPill(onPressed: compose),
+                  (false, false) => _ComposeCircle(onPressed: compose),
+                  (true, true) => _GradientPostPill(onPressed: compose),
+                  (false, true) => _GradientComposeCircle(onPressed: compose),
+                },
+              ),
+            const Spacer(),
+            if (accountChip != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                child: accountChip,
+              ),
+          ],
+        ),
+      ),
+      destinations: [
+        for (var i = 0; i < widget.destinations.length; i++)
+          _railDestination(i, widget.destinations[i]),
+      ],
+    );
+  }
+}
+
+/// Reports its child's laid-out width to [onWidth] (when set) after each
+/// layout; it paints and hit-tests as its child alone.
+class _WidthProbe extends SingleChildRenderObjectWidget {
+  const _WidthProbe({required this.onWidth, required super.child});
+
+  final ValueChanged<double>? onWidth;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderWidthProbe(onWidth);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderWidthProbe renderObject,
+  ) {
+    renderObject.onWidth = onWidth;
+  }
+}
+
+class _RenderWidthProbe extends RenderProxyBox {
+  _RenderWidthProbe(this._onWidth);
+
+  ValueChanged<double>? _onWidth;
+  ValueChanged<double>? get onWidth => _onWidth;
+  set onWidth(ValueChanged<double>? value) {
+    if (value == _onWidth) return;
+    _onWidth = value;
+    // A listener that arrives (the flags turn on) learns the width now.
+    markNeedsLayout();
+  }
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    onWidth?.call(size.width);
   }
 }
 

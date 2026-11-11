@@ -192,6 +192,10 @@ abstract final class AppSize {
   /// Width of the pinned `AppNavRail` (plus the leading safe-area inset).
   static const double railCompact = 80;
 
+  /// Width of the extended `NavigationRail` of the desktop layout (>= 1200
+  /// dp): Material's `minExtendedWidth`, which the app's theme keeps.
+  static const double railExtended = 256;
+
   /// Widest a reading column (posts, forms, settings rows) grows inside a
   /// tablet pane; the pane and its header span the full width.
   static const double readableMax = 680;

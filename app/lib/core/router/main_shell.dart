@@ -42,6 +42,7 @@ import '../widgets/shell_geometry.dart';
 import 'app_router.dart';
 import 'compose_gate.dart';
 import 'context_sections.dart';
+import 'page_below.dart';
 
 /// The navigation chrome around the authenticated top-level destinations.
 ///
@@ -369,7 +370,7 @@ class MainShell extends StatelessWidget {
     // the route draws itself (`SettingsScreen`), so the shell navigator is
     // never swapped out. The scaffold and `SettingsScreen` take the same
     // 840 / 1200 decisions from the same flags and width.
-    final onSettings = location.startsWith(AppRouter.settingsPath);
+    final onSettings = isSettingsLocation(location);
     final masterDetail =
         newShell && onSettings && width >= AppBreakpoints.tablet;
     final settingsListDetail =
@@ -458,7 +459,11 @@ class MainShell extends StatelessWidget {
       child: ResponsiveScaffold(
         // The redesigned rail look (600dp and up) with the new shell only.
         redesignedRail: newShell,
-        layout: tabletLayout ? ShellLayout.tablet : ShellLayout.legacy,
+        // Both flags at any width: from 1200dp the desktop composition is
+        // unchanged, but modals and snack bars centre on its column (D1).
+        layout: newShell && isFeatureEnabled(context, kFeatureUiTablet)
+            ? ShellLayout.tablet
+            : ShellLayout.legacy,
         moreHasOwnRows: moreHasOwnRows,
         // A short tablet rail folds Lists, Communities, History and Profile
         // into More: they head its menu and open as from the rail.

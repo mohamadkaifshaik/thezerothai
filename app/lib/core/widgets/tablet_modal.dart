@@ -8,8 +8,79 @@ import '../feature_flags/ui_shell_feature_flag.dart';
 import '../theme/app_theme.dart';
 import 'shell_geometry.dart';
 
+/// Which panes the desktop shell (`ResponsiveScaffold` at >= 1200 dp) shows
+/// around its feed column, for [ShellGeometry.desktopColumnFor]: the
+/// Settings [master] pane before it, or the [side] column after it.
+@immutable
+class DesktopColumnSlots {
+  const DesktopColumnSlots({
+    this.master = false,
+    this.side = true,
+    this.railWidth = AppSize.railExtended,
+  });
+
+  /// The 350 dp list pane between the rail and the column (Settings). The
+  /// side column is not shown with it.
+  final bool master;
+
+  /// The 24 + 350 dp side column after the column (when there is no
+  /// [master] pane).
+  final bool side;
+
+  /// The extended rail's laid-out width: [AppSize.railExtended], or more
+  /// when its labels need it (large text).
+  final double railWidth;
+
+  /// The column for a [window] with the safe-area [padding].
+  Rect columnFor(
+    Size window,
+    EdgeInsets padding, {
+    TextDirection textDirection = TextDirection.ltr,
+  }) => ShellGeometry.desktopColumnFor(
+    window,
+    padding,
+    master: master,
+    side: side,
+    railWidth: railWidth,
+    textDirection: textDirection,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      other is DesktopColumnSlots &&
+      other.master == master &&
+      other.side == side &&
+      other.railWidth == railWidth;
+
+  @override
+  int get hashCode => Object.hash(master, side, railWidth);
+}
+
+/// The laid-out width of the desktop shell's extended rail, kept per root
+/// navigator: the shell reports it after a layout that changed it, and a
+/// dialog that is a page of its own on that navigator (`/premium`,
+/// `/messages/new`), which cannot see the shell's [TabletModalScope], reads
+/// it to place the column under it. Weakly keyed: it goes with the
+/// navigator.
+abstract final class DesktopShellRail {
+  static final _widths = Expando<double>('desktop shell rail width');
+
+  /// Records [width] for the root navigator above [shellContext].
+  static void report(BuildContext shellContext, double width) {
+    final root = Navigator.maybeOf(shellContext, rootNavigator: true);
+    if (root != null) _widths[root] = width;
+  }
+
+  /// The width last reported under the root navigator of [context], or
+  /// [AppSize.railExtended] when no desktop shell has reported one.
+  static double widthFor(BuildContext context) {
+    final root = Navigator.maybeOf(context, rootNavigator: true);
+    return (root == null ? null : _widths[root]) ?? AppSize.railExtended;
+  }
+}
+
 /// Where a modal surface (dialog, menu, sheet turned dialog) opened on the
-/// tablet layout sits (tablet plan section 5.4).
+/// tablet or desktop layout sits (tablet plan section 5.4; D1).
 ///
 /// The tablet layout is `ui_shell` and `ui_tablet` both on and a window of
 /// 600-1199 dp. There the modal goes on the root navigator, its barrier
@@ -19,31 +90,48 @@ import 'shell_geometry.dart';
 /// ([overShell]), the whole window when it was opened from a full-screen
 /// route (the composer, a DM thread), which has no rail.
 ///
-/// Phones (< 600), desktop (>= 1200) and the 600-1199 layout with either flag
-/// off get no host ([of] is null): callers keep today's presentation exactly
-/// (ruling R-1).
+/// The desktop layout (the same two flags, >= 1200 dp) does the same, but
+/// centres a modal opened from the shell on its feed column ([desktop]),
+/// and lets it be as wide as the window allows (`min(spec, W - 48)`), not
+/// only the column.
+///
+/// Phones (< 600) and every width with either flag off get no host ([of] is
+/// null): callers keep today's presentation exactly (ruling R-1).
 @immutable
 class TabletModalHost {
-  const TabletModalHost({required this.overShell});
+  const TabletModalHost({
+    required this.overShell,
+    this.desktop = const DesktopColumnSlots(),
+  });
 
   /// A rail is under the barrier: the modal was opened from a shell page, or
   /// from a modal that was.
   final bool overShell;
 
+  /// The panes of the desktop shell under the barrier ([overShell]), which
+  /// place its column at >= 1200 dp. Unused below 1200 dp.
+  final DesktopColumnSlots desktop;
+
   /// Space between a modal and the edges of the content area.
   static const double margin = AppSpacing.lg;
 
-  /// The host for a modal opened from [context] now, or null when the
-  /// tablet layout is not in effect. Safe in event handlers (no
-  /// dependencies are registered) and without an `OnboardingBloc` above
-  /// [context] (no flags: no tablet layout).
+  /// The host for a modal opened from [context] now, or null when neither
+  /// the tablet nor the desktop layout is in effect. Safe in event handlers
+  /// (no dependencies are registered) and without an `OnboardingBloc` above
+  /// [context] (no flags: no host).
   static TabletModalHost? of(BuildContext context) {
-    final width = MediaQuery.sizeOf(context).width;
-    if (!ShellBand.of(width).isTablet) return null;
-    final shell = context.getInheritedWidgetOfExactType<ShellGeometry>()?.data;
-    if (shell != null && shell.tablet) {
-      return const TabletModalHost(overShell: true);
+    final band = ShellBand.of(MediaQuery.sizeOf(context).width);
+    if (band == ShellBand.phone) return null;
+    if (band.isTablet) {
+      final shell = context
+          .getInheritedWidgetOfExactType<ShellGeometry>()
+          ?.data;
+      if (shell != null && shell.tablet) {
+        return const TabletModalHost(overShell: true);
+      }
     }
+    // The tablet and desktop shells carry a scope (a modal opened from the
+    // rail is over the shell too), and so does a modal's route.
     final modal = context.getInheritedWidgetOfExactType<TabletModalScope>();
     if (modal != null) return modal.host;
     return _tabletFlagsOn(context)
@@ -62,29 +150,71 @@ class TabletModalHost {
 
   /// The content area in window coordinates, for the window of
   /// [modalContext] (a context inside the modal's route, so that a rotation
-  /// while it is open moves it along).
-  Rect contentIn(BuildContext modalContext) => ShellGeometry.contentRectFor(
-    MediaQuery.sizeOf(modalContext),
-    MediaQuery.paddingOf(modalContext),
-    overShell ? ShellLayout.tablet : ShellLayout.legacy,
-    textDirection: Directionality.of(modalContext),
-  ).content;
+  /// or a resize while it is open moves it along). At >= 1200 dp it is the
+  /// desktop shell's feed column ([overShell]) or the whole window.
+  Rect contentIn(BuildContext modalContext) {
+    final size = MediaQuery.sizeOf(modalContext);
+    final padding = MediaQuery.paddingOf(modalContext);
+    final direction = Directionality.of(modalContext);
+    if (ShellBand.of(size.width) == ShellBand.desktop) {
+      return overShell
+          ? desktop.columnFor(size, padding, textDirection: direction)
+          : Offset.zero & size;
+    }
+    return ShellGeometry.contentRectFor(
+      size,
+      padding,
+      overShell ? ShellLayout.tablet : ShellLayout.legacy,
+      textDirection: direction,
+    ).content;
+  }
 
   /// The `insetPadding` of a dialog shown without a `SafeArea`
-  /// (`useSafeArea: false`): [margin] inside the content area (and inside the
-  /// side safe area) on the left and right, so the dialog is centred on the
-  /// content area and at most `C - 48` wide. Top and bottom are [margin], or
-  /// the safe area where that is taller (a status bar over 24 dp), so the
-  /// height is `H - keyboard - 48` (`Dialog` adds the keyboard inset).
-  EdgeInsets dialogInsets(BuildContext modalContext) {
+  /// (`useSafeArea: false`). Top and bottom are [margin], or the safe area
+  /// where that is taller (a status bar over 24 dp), so the height is
+  /// `H - keyboard - 48` (`Dialog` adds the keyboard inset).
+  ///
+  /// Below 1200 dp: [margin] inside the content area (and inside the side
+  /// safe area) on the left and right, so the dialog is centred on the
+  /// content area and at most `C - 48` wide.
+  ///
+  /// From 1200 dp: centred on the content area (the desktop column) but as
+  /// wide as the window allows, `min(maxWidth, W - 48)` inside the side safe
+  /// area. A dialog of [maxWidth] that would cross the window's margin
+  /// beside an off-centre column (1200 dp with the Settings pane) moves just
+  /// enough to keep its width; without [maxWidth] (the date and time
+  /// pickers, which size themselves) the room is symmetric about the centre.
+  EdgeInsets dialogInsets(BuildContext modalContext, {double? maxWidth}) {
     final size = MediaQuery.sizeOf(modalContext);
     final padding = MediaQuery.paddingOf(modalContext);
     final content = contentIn(modalContext);
+    final top = math.max(padding.top, margin);
+    final bottom = math.max(padding.bottom, margin);
+    if (ShellBand.of(size.width) != ShellBand.desktop) {
+      return EdgeInsets.fromLTRB(
+        math.max(content.left, padding.left) + margin,
+        top,
+        math.max(size.width - content.right, padding.right) + margin,
+        bottom,
+      );
+    }
+    final start = padding.left + margin;
+    final end = math.max(start, size.width - padding.right - margin);
+    final centre = content.center.dx.clamp(start, end);
+    final double half;
+    final double mid;
+    if (maxWidth != null) {
+      half = math.min(maxWidth, end - start) / 2;
+      mid = centre.clamp(start + half, end - half);
+    } else {
+      half = math.min(centre - start, end - centre);
+      mid = centre;
+    }
     return EdgeInsets.fromLTRB(
-      math.max(content.left, padding.left) + margin,
-      math.max(padding.top, margin),
-      math.max(size.width - content.right, padding.right) + margin,
-      math.max(padding.bottom, margin),
+      mid - half,
+      top,
+      size.width - mid - half,
+      bottom,
     );
   }
 }
@@ -101,14 +231,16 @@ class TabletModalScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(TabletModalScope oldWidget) =>
-      host.overShell != oldWidget.host.overShell;
+      host.overShell != oldWidget.host.overShell ||
+      host.desktop != oldWidget.host.desktop;
 }
 
 /// Places the floating snack bars of the `Scaffold`s below it on the tablet
-/// layout (tablet plan section 4.2): at most [AppSize.dialogMax] wide and
-/// centred over [content] (window coordinates), never over the rail. The
-/// tablet shell passes its content area; [TabletRouteSnackBars] passes the
-/// window for full-screen routes.
+/// and desktop layouts (tablet plan section 4.2; D1): at most
+/// [AppSize.dialogMax] wide and centred over [content] (window coordinates),
+/// never over the rail. The tablet shell passes its content area, the
+/// desktop shell its feed column; [TabletRouteSnackBars] passes the window
+/// for full-screen routes.
 class TabletSnackBarTheme extends StatelessWidget {
   const TabletSnackBarTheme({
     super.key,
@@ -138,10 +270,11 @@ class TabletSnackBarTheme extends StatelessWidget {
 }
 
 /// The snack bars of full-screen routes (the composer, a DM thread: no rail)
-/// on the tablet layout: at most [AppSize.dialogMax] wide, centred on the
-/// window. Sits above the router, so it builds the same tree at every width
-/// and flag state (only the theme's data changes); outside the tablet layout
-/// the theme is passed on unchanged.
+/// on the tablet and desktop layouts (>= 600 dp, both flags): at most
+/// [AppSize.dialogMax] wide, centred on the window. Sits above the router,
+/// so it builds the same tree at every width and flag state (only the
+/// theme's data changes); on phones and with either flag off the theme is
+/// passed on unchanged.
 class TabletRouteSnackBars extends StatelessWidget {
   const TabletRouteSnackBars({super.key, required this.child});
 
@@ -151,7 +284,7 @@ class TabletRouteSnackBars extends StatelessWidget {
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final tablet =
-        ShellBand.of(width).isTablet &&
+        ShellBand.of(width) != ShellBand.phone &&
         isFeatureEnabled(context, kFeatureUiShell) &&
         isFeatureEnabled(context, kFeatureUiTablet);
     return Theme(

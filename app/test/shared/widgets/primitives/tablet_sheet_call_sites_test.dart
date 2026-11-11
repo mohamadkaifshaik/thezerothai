@@ -1,4 +1,5 @@
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
+import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/join_note_sheet.dart';
 import 'package:dzeroth/features/engagement/presentation/widgets/repost_sheet.dart';
@@ -22,8 +23,9 @@ import '../../../support/tablet_modal_harness.dart';
 
 /// Every bottom sheet of tablet plan section 4.2: a menu (repost, audience,
 /// reply audience) or a dialog (report, add to lists, join note, appearance,
-/// image description) on the tablet layout at 600-1199 dp, and the same
-/// bottom sheet as before on phones and desktop (ruling R-1).
+/// image description) on the tablet layout at 600-1199 dp and on the
+/// desktop layout from 1200 dp (D1), and the same bottom sheet as before on
+/// phones and with either flag off (ruling R-1).
 
 class _MockModeration extends Mock implements ModerationRepository {}
 
@@ -153,8 +155,11 @@ void main() {
 
   for (final site in _sites) {
     for (final textScale in [1.0, 2.0]) {
-      for (final width in [599.0, 834.0, 1024.0, 1200.0]) {
-        final tablet = width >= 600 && width < 1200;
+      for (final width in [599.0, 834.0, 1024.0, 1200.0, 1440.0]) {
+        // D1: the desktop layout (>= 1200, both flags) maps the sheets as
+        // the tablet layout does, centred on the desktop column.
+        final tablet = width >= 600;
+        final desktop = width >= 1200;
         final expected = !tablet
             ? 'a bottom sheet'
             : site.shape == _Shape.menu
@@ -187,7 +192,9 @@ void main() {
           if (site.shape == _Shape.dialog) {
             expect(find.byType(Dialog), findsOneWidget);
             final box = openDialogRect(tester);
-            final content = tabletContentRect(Size(width, 1194));
+            final content = desktop
+                ? desktopColumnRect(tester, Size(width, 1194))
+                : tabletContentRect(Size(width, 1194));
             expect(box.center.dx, closeTo(content.center.dx, 1));
             expect(box.width, lessThanOrEqualTo(560.5));
           } else {
@@ -200,6 +207,35 @@ void main() {
           }
         });
       }
+    }
+  }
+  // Desktop with either flag off: the same bottom sheet as before (R-1).
+  for (final site in _sites) {
+    for (final flags in [
+      {kFeatureUiShell},
+      {kFeatureUiTablet},
+    ]) {
+      testWidgets('${site.name} at 1440 dp with only $flags is a bottom '
+          'sheet', (tester) async {
+        await pumpTabletModalHost(
+          tester,
+          width: 1440,
+          height: 1194,
+          flags: flags,
+          wrap: providers,
+          trigger: (context) => TextButton(
+            onPressed: () => site.open(context),
+            child: const Text('open'),
+          ),
+        );
+
+        await tester.tap(find.text('open'));
+        await tester.pumpAndSettle();
+
+        expect(find.text(site.marker), findsOneWidget);
+        expect(find.byType(BottomSheet), findsOneWidget);
+        expect(find.byType(Dialog), findsNothing);
+      });
     }
   }
 }

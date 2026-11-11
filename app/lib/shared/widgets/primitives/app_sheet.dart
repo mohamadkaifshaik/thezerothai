@@ -87,6 +87,8 @@ class MaterialSheetOptions {
 /// on the root navigator with the barrier over the whole window (the rail
 /// is inert). The content keeps its own title. [tabletScrollable] scrolls
 /// content that does not scroll itself. [host] is as for [showAppDialog].
+/// The desktop layout (the same flags, >= 1200 dp) does the same: the menu
+/// at the trigger, or the dialog centred on the shell's feed column (D1).
 ///
 /// The content sits in a `Flexible` under the handle: content that can be
 /// taller than the window (a long list) scrolls itself, with a shrink-wrapped

@@ -24,7 +24,8 @@ class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
 /// opens from the root navigator's own context after an `await`. On the
 /// tablet layout it is still centred on the content area beside the rail
 /// (tablet plan section 5.4): the presentation is resolved at the button.
-/// Phones, desktop and either flag off keep the window-centred dialog
+/// On the desktop layout (>= 1200 dp, D1) it is centred on the shell's feed
+/// column. Phones and either flag off keep the window-centred dialog
 /// (ruling R-1).
 void main() {
   setUpAll(() => registerFallbackValue(const AuthSignOutRequested()));
@@ -160,9 +161,27 @@ void main() {
     });
   }
 
-  for (final width in [599.0, 1200.0]) {
-    testWidgets('${width.toInt()} dp with both flags: centred on the window, '
-        'as before', (tester) async {
+  testWidgets('599 dp with both flags: centred on the window, as before', (
+    tester,
+  ) async {
+    await pumpTabletModalHost(
+      tester,
+      width: 599,
+      wrap: providers,
+      trigger: button,
+    );
+
+    await open(tester);
+
+    expect(openDialogRect(tester).center.dx, closeTo(599 / 2, 1));
+  });
+
+  // D1: the desktop layout centres it on the shell's feed column, from a
+  // page and from the rail (the account chip), the host still resolved at
+  // the button.
+  for (final width in [1200.0, 1440.0]) {
+    testWidgets('${width.toInt()} dp with both flags, from a shell page: '
+        'centred on the desktop column, at most 400 wide', (tester) async {
       await pumpTabletModalHost(
         tester,
         width: width,
@@ -172,7 +191,48 @@ void main() {
 
       await open(tester);
 
-      expect(openDialogRect(tester).center.dx, closeTo(width / 2, 1));
+      final box = openDialogRect(tester);
+      final column = desktopColumnRect(tester, Size(width, 1194));
+      expect(box.center.dx, closeTo(column.center.dx, 1));
+      expect(box.width, lessThanOrEqualTo(AppSize.alertDialogMax + 0.5));
+    });
+  }
+
+  testWidgets('1440 dp with both flags, from the rail: centred on the '
+      'desktop column', (tester) async {
+    await pumpTabletModalHost(
+      tester,
+      width: 1440,
+      wrap: providers,
+      trigger: (_) => const SizedBox(),
+      accountChipBuilder: (_) => Builder(builder: button),
+    );
+
+    await open(tester);
+
+    final column = desktopColumnRect(tester, const Size(1440, 1194));
+    expect(openDialogRect(tester).center.dx, closeTo(column.center.dx, 1));
+  });
+
+  for (final flags in [
+    {kFeatureUiShell},
+    {kFeatureUiTablet},
+    <String>{},
+  ]) {
+    testWidgets('1200 dp with only $flags: centred on the window, as before', (
+      tester,
+    ) async {
+      await pumpTabletModalHost(
+        tester,
+        width: 1200,
+        flags: flags,
+        wrap: providers,
+        trigger: button,
+      );
+
+      await open(tester);
+
+      expect(openDialogRect(tester).center.dx, closeTo(1200 / 2, 1));
     });
   }
 }

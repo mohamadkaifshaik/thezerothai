@@ -20,7 +20,9 @@ import 'app_pill_button.dart';
 /// On the tablet layout (`ui_shell` + `ui_tablet`, 600-1199 dp) the dialog is
 /// centred on the content area instead of the window, `min(maxWidth, C - 48)`
 /// wide ([TabletModalHost]); the barrier still covers the whole window, rail
-/// included. Elsewhere it is centred on the window, as before.
+/// included. On the desktop layout (the same flags, >= 1200 dp) it is
+/// centred on the shell's feed column, `min(maxWidth, W - 48)` wide (D1).
+/// Elsewhere it is centred on the window, as before.
 ///
 /// [host] overrides the tablet presentation resolved from [context]: a
 /// caller that opens the dialog from a navigator's own context after an
@@ -48,7 +50,7 @@ Future<T?> showAppDialog<T>({
           builder: (context) => _AppDialogFrame(
             maxWidth: maxWidth,
             destructive: destructive,
-            insetPadding: resolved.dialogInsets(context),
+            insetPadding: resolved.dialogInsets(context, maxWidth: maxWidth),
             child: builder(context),
           ),
         ),
@@ -71,10 +73,11 @@ Future<T?> showAppDialog<T>({
 /// Shows a dialog whose [builder] returns the whole Material dialog (an
 /// `AlertDialog`, a `Dialog`), for the call sites that predate [AppDialog].
 ///
-/// Outside the tablet layout this is exactly
-/// `showDialog(context:, barrierDismissible:, builder:)`, so phones, desktop
-/// and the 600-1199 dp layout with `ui_tablet` off do not change (ruling
-/// R-1).
+/// Outside the tablet and desktop layouts this is exactly
+/// `showDialog(context:, barrierDismissible:, builder:)`, so phones and
+/// every width with either flag off do not change (ruling R-1). On the
+/// desktop layout (>= 1200 dp, both flags) it is as below, centred on the
+/// shell's feed column and `min(maxWidth, W - 48)` at most (D1).
 ///
 /// On the tablet layout (`ui_shell` + `ui_tablet`, 600-1199 dp) it goes on
 /// the root navigator with the barrier over the whole window (rail
@@ -111,7 +114,7 @@ Future<T?> showAppMaterialDialog<T>({
       child: Builder(
         builder: (context) => DialogTheme(
           data: DialogTheme.of(context).copyWith(
-            insetPadding: resolved.dialogInsets(context),
+            insetPadding: resolved.dialogInsets(context, maxWidth: maxWidth),
             constraints: BoxConstraints(minWidth: minWidth, maxWidth: maxWidth),
           ),
           child: Builder(builder: builder),
