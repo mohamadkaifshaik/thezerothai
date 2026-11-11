@@ -484,4 +484,54 @@ void main() {
     expect(rig.shellPages, 1);
     await done(tester);
   });
+
+  // T7: the composer dialog over a thread. The split page draws the rail
+  // (band B), so the dialog centres on the content area beside it; the
+  // full-screen thread (band A) has none, so it centres on the window.
+  group('the composer over a thread (T7)', () {
+    for (final width in [1024.0, 700.0]) {
+      testWidgets('${width.toInt()}: centred on the '
+          '${width >= 840 ? 'content area beside the rail' : 'window'}', (
+        tester,
+      ) async {
+        final posts = _MockPosts();
+        when(() => posts.subFeatureEnabled(any())).thenReturn(false);
+        final pending = PendingPostsCubit();
+        addTearDown(pending.close);
+        final rig = await open(
+          tester,
+          width: width,
+          flags: {...kMessagesTabletFlags, 'posts'},
+          extraProviders: [
+            RepositoryProvider<PostsRepository>.value(value: posts),
+          ],
+          extraBlocs: [BlocProvider<PendingPostsCubit>.value(value: pending)],
+        );
+        await tester.tap(
+          width >= 840
+              ? inMessagesPane(conversationRow(inboxId(0)))
+              : conversationRow(inboxId(0)),
+        );
+        await tester.pumpAndSettle();
+        width >= 840 ? expectSplit(inboxId(0)) : expectFullScreen();
+        // Messages has no New post control (`canComposeAt`): a pushed
+        // location (a notification tap) opens the composer over the thread.
+        unawaited(rig.appRouter.router.push(AppRouter.composePath));
+        await tester.pumpAndSettle();
+        expect(rig.stack.last, AppRouter.composePath);
+        final composer = find.byType(ComposerScreen);
+        expect(
+          find.ancestor(of: composer, matching: find.byType(Dialog)),
+          findsOneWidget,
+        );
+        final centre = tester.getRect(composer).center.dx;
+        expect(
+          centre,
+          moreOrLessEquals(width >= 840 ? 80 + (width - 80) / 2 : width / 2),
+        );
+        expect(rig.shellPages, 1);
+        await done(tester);
+      });
+    }
+  });
 }

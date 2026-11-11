@@ -11,6 +11,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/network/app_exception.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/shell_geometry.dart';
+import '../../../core/widgets/tablet_layout.dart';
 import '../../../gen/dzeroth/media/v1/media.pbenum.dart';
 import '../../media/data/image_picker_service.dart';
 import '../../media/data/media_repository.dart';
@@ -23,6 +25,27 @@ import '../domain/article.dart';
 import '../domain/articles_repository.dart';
 import 'article_text_controller.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
+
+/// Whether the article library shows beside the page in a window [width]
+/// wide: from 840dp on the tablet layout ([tablet]: both flags, 600-1199dp;
+/// tablet plan section 4.1, Article row), from 1200dp everywhere else
+/// (today's rule; desktop unchanged, ruling R-1).
+bool articleLibraryShownAt(double width, {required bool tablet}) =>
+    width >= (tablet ? AppBreakpoints.expanded : AppBreakpoints.tablet);
+
+/// The library's width beside the page: the list pane of band B on the
+/// tablet layout (`clamp(0.4 * W, 320, 400)`: the editor has no rail, so its
+/// content area is the window), today's side column elsewhere.
+double articleLibraryWidth(double width, {required bool tablet}) =>
+    tablet ? ShellGeometry.listPaneWidthFor(width) : AppSize.sideColumn;
+
+/// Band B of the tablet layout: the editor's library pane carries "Publish
+/// settings" (the audience and who can reply), so the publish dialog does
+/// not (tablet plan section 6, item 5). Band A, phones, desktop and either
+/// flag off keep them in the dialog.
+bool articlePublishSettingsInPaneAt(BuildContext context) =>
+    tabletLayoutAt(context) &&
+    ShellBand.of(MediaQuery.sizeOf(context).width) == ShellBand.expanded;
 
 class ArticlesScreen extends StatefulWidget {
   const ArticlesScreen({
@@ -70,6 +93,16 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
   Timer? _debounce;
   _PublishOptions? _retryOptions;
 
+  /// Who can reply, as chosen in the library pane's "Publish settings" (band
+  /// B) or in the last publish dialog; null until the author chooses. The
+  /// publish dialog opens on it.
+  ReplyAudience? _policyChoice;
+
+  /// The page (the editor, the reader, the library list) keeps its state
+  /// when the library appears or goes beside it (crossing 840 or 1200dp):
+  /// the same element is re-parented, so focus, selection and scroll stay.
+  final _bodyKey = GlobalKey(debugLabel: 'article-body');
+
   @override
   void initState() {
     super.initState();
@@ -84,7 +117,10 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
         widget.articleId != null &&
         !widget.reader &&
         !widget.focus &&
-        MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet) {
+        articleLibraryShownAt(
+          MediaQuery.sizeOf(context).width,
+          tablet: tabletLayoutAt(context, listen: false),
+        )) {
       _sideRequested = true;
       unawaited(_loadSide());
     }
@@ -135,6 +171,7 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
       _coverJob = null;
       _coverUploader = null;
       _retryOptions = null;
+      _policyChoice = null;
       _saving = false;
       _dirty = false;
       _conflict = null;
@@ -429,15 +466,21 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     final record = _record!;
     final options = await showAppMaterialDialog<_PublishOptions>(
       context: context,
+      // On the tablet layout a form dialog (D 560): the confirm width (400)
+      // cannot hold the reply choices (T2 ruling 4). Elsewhere unchanged.
+      maxWidth: AppSize.dialogMax,
       builder: (_) => _PublishDialog(
         draft: _draft,
         initialCaption: _retryOptions?.caption ?? record.publicationCaption,
-        initialPolicy: _retryOptions?.policy ?? record.publicationReplyAudience,
+        initialPolicy: _publishPolicy(record),
         locked: record.publicationPending || _retryOptions != null,
         canChooseReplyAudience: _repository.canChooseReplyAudience,
+        // Focus mode has no library beside it.
+        libraryBeside: !widget.focus && !widget.reader,
       ),
     );
     if (options == null || !mounted) return;
+    _policyChoice = options.policy;
     setState(() => _busy = true);
     _retryOptions = options;
     final publishKey = sha256
@@ -486,6 +529,15 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
       if (mounted) setState(() => _busy = false);
     }
   }
+
+  /// The reply policy a publication goes out with: a locked retry's or a
+  /// pending publication's stored one, else the author's choice, else what
+  /// the record stores.
+  ReplyAudience _publishPolicy(ArticleRecord record) =>
+      _retryOptions?.policy ??
+      (record.publicationPending
+          ? record.publicationReplyAudience
+          : _policyChoice ?? record.publicationReplyAudience);
 
   Future<void> _cover({bool retry = false}) async {
     if (_busy) return;
@@ -583,6 +635,11 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
         : read
         ? _reader()
         : _editor();
+    // The tablet layout (both flags, 600-1199dp) moves the library's
+    // threshold and width (tablet plan section 4.1, Article row).
+    final tablet = tabletLayoutAt(context);
+    final sides = tablet ? MediaQuery.paddingOf(context) : EdgeInsets.zero;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
     return PopScope(
       canPop: !_dirty && !_saving,
       onPopInvokedWithResult: (didPop, _) async {
@@ -702,8 +759,13 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
               ),
             Expanded(
               child: LayoutBuilder(
-                builder: (context, constraints) =>
-                    _withLibrary(constraints, body),
+                builder: (context, constraints) => _withLibrary(
+                  constraints,
+                  body,
+                  tablet: tablet,
+                  sides: sides,
+                  rtl: rtl,
+                ),
               ),
             ),
           ],
@@ -712,40 +774,104 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     );
   }
 
-  Widget _withLibrary(BoxConstraints constraints, Widget body) {
-    if (widget.articleId == null &&
-        constraints.maxWidth >= AppBreakpoints.tablet &&
-        !_loading) {
+  /// [sides]: the window's safe-area insets on the tablet layout (zero
+  /// elsewhere). There the library sits at the leading edge and the page at
+  /// the trailing edge of the window, so each pads by its side's inset (a
+  /// landscape phone's notch), and the library is the list pane of
+  /// `C = W - insets` (tablet plan section 3).
+  Widget _withLibrary(
+    BoxConstraints constraints,
+    Widget page, {
+    required bool tablet,
+    required EdgeInsets sides,
+    required bool rtl,
+  }) {
+    final body = KeyedSubtree(key: _bodyKey, child: page);
+    final wide = articleLibraryShownAt(constraints.maxWidth, tablet: tablet);
+    final libraryWidth = articleLibraryWidth(
+      constraints.maxWidth - sides.horizontal,
+      tablet: tablet,
+    );
+    final leadingInset = EdgeInsets.only(
+      left: rtl ? 0 : sides.left,
+      right: rtl ? sides.right : 0,
+    );
+    final trailingInset = EdgeInsets.only(
+      left: rtl ? sides.left : 0,
+      right: rtl ? 0 : sides.right,
+    );
+    Widget pad(EdgeInsets insets, Widget child) => insets == EdgeInsets.zero
+        ? child
+        : Padding(padding: insets, child: child);
+    if (widget.articleId == null && wide && !_loading) {
       return Row(
         children: [
-          SizedBox(width: AppSize.sideColumn, child: body),
+          pad(leadingInset, SizedBox(width: libraryWidth, child: body)),
           const VerticalDivider(width: 1),
-          Expanded(child: _writingWelcome()),
+          Expanded(child: pad(trailingInset, _writingWelcome())),
         ],
       );
     }
     final showLibrary =
-        widget.articleId != null &&
-        !widget.reader &&
-        !widget.focus &&
-        constraints.maxWidth >= AppBreakpoints.tablet;
+        widget.articleId != null && !widget.reader && !widget.focus && wide;
+    // Band B of the tablet layout: "Publish settings" above the library,
+    // for a draft that can still be published.
+    final record = _record;
+    final settings =
+        showLibrary &&
+        tablet &&
+        ShellBand.of(constraints.maxWidth) == ShellBand.expanded &&
+        record != null &&
+        !record.published;
     if (showLibrary && !_sideRequested) {
       _sideRequested = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) unawaited(_loadSide());
       });
     }
+    final library = _sideLoading
+        ? const Center(child: CircularProgressIndicator())
+        : _library();
     return showLibrary
         ? Row(
             children: [
-              SizedBox(
-                width: AppSize.sideColumn,
-                child: _sideLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _library(),
+              pad(
+                leadingInset,
+                SizedBox(
+                  width: libraryWidth,
+                  child: settings
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // At most a third of the pane (a landscape phone
+                            // at large text): the settings scroll, the
+                            // library keeps the rest.
+                            ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxHeight: constraints.maxHeight / 3,
+                              ),
+                              child: SingleChildScrollView(
+                                child: _PublishSettings(
+                                  policy: _publishPolicy(record),
+                                  locked:
+                                      record.publicationPending ||
+                                      _retryOptions != null,
+                                  canChooseReplyAudience:
+                                      _repository.canChooseReplyAudience,
+                                  onChanged: (value) =>
+                                      setState(() => _policyChoice = value),
+                                ),
+                              ),
+                            ),
+                            const Divider(height: 1),
+                            Expanded(child: library),
+                          ],
+                        )
+                      : library,
+                ),
               ),
               const VerticalDivider(width: 1),
-              Expanded(child: body),
+              Expanded(child: pad(trailingInset, body)),
             ],
           )
         : body;
@@ -1409,8 +1535,15 @@ class _PublishDialog extends StatefulWidget {
     this.initialPolicy = ReplyAudience.everyone,
     this.locked = false,
     this.canChooseReplyAudience = false,
+    this.libraryBeside = false,
   });
   final ArticleDraft draft;
+
+  /// The page shows the library beside it where the window allows (not in
+  /// focus mode): in band B of the tablet layout its "Publish settings"
+  /// then hold the audience and who can reply, and this dialog does not
+  /// ([articlePublishSettingsInPaneAt], decided live).
+  final bool libraryBeside;
   final String initialCaption;
   final ReplyAudience initialPolicy;
 
@@ -1451,7 +1584,16 @@ class _PublishDialogState extends State<_PublishDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) {
+    final settingsHere =
+        !widget.libraryBeside || !articlePublishSettingsInPaneAt(context);
+    return _dialog(context, settingsHere: settingsHere);
+  }
+
+  Widget _dialog(
+    BuildContext context, {
+    required bool settingsHere,
+  }) => AlertDialog(
     title: const Text('Publish Article'),
     content: SizedBox(
       width: AppSize.contentMax,
@@ -1460,16 +1602,18 @@ class _PublishDialogState extends State<_PublishDialog> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              'Choose your audience',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const ListTile(
-              title: Text('Everyone'),
-              trailing: Icon(Icons.check_circle),
-            ),
-            const Divider(),
-            if (_showReplyAudience) ...[
+            if (settingsHere) ...[
+              Text(
+                'Choose your audience',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const ListTile(
+                title: Text('Everyone'),
+                trailing: Icon(Icons.check_circle),
+              ),
+              const Divider(),
+            ],
+            if (settingsHere && _showReplyAudience) ...[
               Text(
                 'Who can reply?',
                 style: Theme.of(context).textTheme.titleMedium,
@@ -1543,4 +1687,66 @@ class _PublishDialogState extends State<_PublishDialog> {
       ),
     ],
   );
+}
+
+/// "Publish settings" at the top of the editor's library pane in band B of
+/// the tablet layout (tablet plan section 6, item 5): the audience (only
+/// Everyone until the new-features audience exists) and who can reply,
+/// with the publish dialog's rules: no reply control without
+/// `reply_audience` unless a pending publication must be resent, and a
+/// pending or retried publication's choice shown read-only.
+class _PublishSettings extends StatelessWidget {
+  const _PublishSettings({
+    required this.policy,
+    required this.locked,
+    required this.canChooseReplyAudience,
+    required this.onChanged,
+  });
+
+  final ReplyAudience policy;
+  final bool locked;
+  final bool canChooseReplyAudience;
+  final ValueChanged<ReplyAudience> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final showReplyAudience = canChooseReplyAudience || locked;
+    return Padding(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Semantics(
+            header: true,
+            child: Text('Publish settings', style: theme.textTheme.titleLarge),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text('Choose your audience', style: theme.textTheme.titleMedium),
+          const ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text('Everyone'),
+            trailing: Icon(Icons.check_circle),
+          ),
+          if (showReplyAudience)
+            DropdownButtonFormField<ReplyAudience>(
+              // A new value from outside (the dialog, a reload) rebuilds it.
+              key: ValueKey('publish-settings-$policy-$locked'),
+              initialValue: policy,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Who can reply?'),
+              items: [
+                for (final audience in ReplyAudience.values)
+                  DropdownMenuItem(
+                    value: audience,
+                    child: Text(audience.optionLabel),
+                  ),
+              ],
+              onChanged: locked ? null : (value) => onChanged(value!),
+            ),
+        ],
+      ),
+    );
+  }
 }

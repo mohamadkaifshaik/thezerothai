@@ -64,6 +64,7 @@ import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../../features/onboarding/presentation/create_profile_screen.dart';
 import '../../features/onboarding/presentation/session_error_screen.dart';
+import '../../features/posts/presentation/composer_route.dart';
 import '../../features/posts/presentation/composer_screen.dart';
 import '../../features/posts/presentation/drafts_screen.dart';
 import '../../features/posts/domain/composer_draft.dart' show kFeatureDrafts;
@@ -335,34 +336,7 @@ class AppRouter {
           child: const DeleteAccountScreen(),
         ),
       ),
-      GoRoute(
-        path: '/compose/reply/:id',
-        pageBuilder: (context, state) => CustomTransitionPage<pb.PostView>(
-          key: state.pageKey,
-          opaque: false,
-          barrierColor: context.appColors.scrim,
-          transitionsBuilder: (context, animation, secondary, child) =>
-              FadeTransition(opacity: animation, child: child),
-          child: AuthGate(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final editor = ReplyComposerScreen(
-                  postId: state.pathParameters['id']!,
-                );
-                if (constraints.maxWidth < 700) return editor;
-                return Dialog(
-                  clipBehavior: Clip.antiAlias,
-                  child: SizedBox(
-                    width: 600,
-                    height: constraints.maxHeight * .85,
-                    child: editor,
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-      ),
+      composeReplyRoute(),
       GoRoute(
         path: '/post/:id/photo/:index',
         builder: (context, state) => AuthGate(
@@ -372,29 +346,7 @@ class AppRouter {
           ),
         ),
       ),
-      // Full-screen, outside the shell: no nav chrome while writing.
-      GoRoute(
-        path: composePath,
-        builder: (context, state) {
-          final quote = state.uri.queryParameters['quote'] ?? '';
-          final draft = state.uri.queryParameters['draft'] ?? '';
-          final community = state.uri.queryParameters['community'] ?? '';
-          return AuthGate(
-            child: ComposerScreen(
-              // Only a well-formed community id (19 digits) preselects one.
-              communityId: _postIdPattern.hasMatch(community) ? community : '',
-              // Only a well-formed post id (19 digits) starts a quote.
-              quoteOfPostId: _postIdPattern.hasMatch(quote) ? quote : '',
-              // Only a well-formed draft id (16 lower-case hex) opens a draft;
-              // an unknown one starts a new post (it never adopts the id).
-              draftId: _draftIdPattern.hasMatch(draft) ? draft : '',
-              quotePreview: state.extra is pb.EmbeddedPost
-                  ? state.extra as pb.EmbeddedPost
-                  : null,
-            ),
-          );
-        },
-      ),
+      composeRoute(),
       // Full-screen, outside the shell, so it can be pushed over the composer.
       GoRoute(
         path: scheduledPostsPath,
@@ -941,6 +893,79 @@ class AppRouter {
         return null;
     }
   }
+
+  /// `/compose/reply/:id`, the reply composer (also mounted by the tablet
+  /// composer tests, so they drive this definition). Full screen below
+  /// 600dp on the tablet layout (700 elsewhere), the content-area dialog at
+  /// 600-1199dp on it, today's dialog from 700 elsewhere; one editor across
+  /// every switch (tablet plan sections 4.1 and 5.2).
+  static GoRoute composeReplyRoute() => GoRoute(
+    path: '/compose/reply/:id',
+    pageBuilder: (context, state) => CustomTransitionPage<pb.PostView>(
+      key: state.pageKey,
+      opaque: false,
+      barrierColor: context.appColors.scrim,
+      transitionsBuilder: (context, animation, secondary, child) =>
+          FadeTransition(opacity: animation, child: child),
+      child: AuthGate(
+        child: ComposerRouteFrame(
+          pageKey: state.pageKey,
+          reply: true,
+          semanticLabel: 'Reply',
+          // The page's barrier is the scrim.
+          drawScrim: false,
+          editor: ReplyComposerScreen(postId: state.pathParameters['id']!),
+        ),
+      ),
+    ),
+  );
+
+  /// `/compose`, the post and quote composer (also mounted by the tablet
+  /// composer tests). Outside the shell: no nav chrome while writing. Full
+  /// screen on phones and desktop; on the tablet layout (600-1199dp) a
+  /// dialog over the page it was opened from, or full screen on a cold
+  /// start (tablet plan 4.1, Composer row). The page is never opaque and is
+  /// the same type at every width (`ComposerPage`).
+  static GoRoute composeRoute() => GoRoute(
+    path: composePath,
+    pageBuilder: (context, state) {
+      final quote = state.uri.queryParameters['quote'] ?? '';
+      final draft = state.uri.queryParameters['draft'] ?? '';
+      final community = state.uri.queryParameters['community'] ?? '';
+      final quoteId = _postIdPattern.hasMatch(quote) ? quote : '';
+      return ComposerPage<void>(
+        // What go_router's default `MaterialPage` carried.
+        key: state.pageKey,
+        name: state.name ?? state.path,
+        arguments: <String, String>{
+          ...state.pathParameters,
+          ...state.uri.queryParameters,
+        },
+        restorationId: state.pageKey.value,
+        child: AuthGate(
+          child: ComposerRouteFrame(
+            pageKey: state.pageKey,
+            reply: false,
+            semanticLabel: quoteId.isEmpty ? 'New post' : 'Quote',
+            editor: ComposerScreen(
+              // Only a well-formed community id (19 digits) preselects
+              // one.
+              communityId: _postIdPattern.hasMatch(community) ? community : '',
+              // Only a well-formed post id (19 digits) starts a quote.
+              quoteOfPostId: quoteId,
+              // Only a well-formed draft id (16 lower-case hex) opens a
+              // draft; an unknown one starts a new post (it never adopts
+              // the id).
+              draftId: _draftIdPattern.hasMatch(draft) ? draft : '',
+              quotePreview: state.extra is pb.EmbeddedPost
+                  ? state.extra as pb.EmbeddedPost
+                  : null,
+            ),
+          ),
+        ),
+      );
+    },
+  );
 
   static final _postIdPattern = RegExp(r'^\d{19}$');
   static final _draftIdPattern = RegExp(r'^[0-9a-f]{16}$');
