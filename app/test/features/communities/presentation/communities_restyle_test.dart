@@ -823,10 +823,12 @@ void main() {
       for (final row in rows.evaluate()) {
         final tile = find.descendant(
           of: find.byWidget(row.widget),
-          matching: find.byType(AppTileIcon),
+          matching: find.byKey(const ValueKey('moderation-log-tile')),
         );
         expect(tester.getSize(tile), const Size.square(kModerationLogTileSize));
-        expect(tester.widget<AppTileIcon>(tile).icon, Icons.block);
+        // R10b: a neutral tile drawn in the feature (was the teal AppTileIcon).
+        final glyph = find.descendant(of: tile, matching: find.byType(Icon));
+        expect(tester.widget<Icon>(glyph).icon, Icons.block);
       }
     });
   });

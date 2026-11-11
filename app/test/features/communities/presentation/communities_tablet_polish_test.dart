@@ -83,16 +83,10 @@ Future<void> _fillRule(
   await tester.tap(find.text('Add a rule'));
   await tester.pumpAndSettle();
   if (title.isNotEmpty) {
-    await tester.enterText(
-      find.widgetWithText(TextField, 'Rule 1 title'),
-      title,
-    );
+    await tester.enterText(createFormField('Rule 1 title'), title);
   }
   if (details.isNotEmpty) {
-    await tester.enterText(
-      find.widgetWithText(TextField, 'Rule 1 details'),
-      details,
-    );
+    await tester.enterText(createFormField('Rule 1 details'), details);
   }
   await tester.pumpAndSettle();
 }

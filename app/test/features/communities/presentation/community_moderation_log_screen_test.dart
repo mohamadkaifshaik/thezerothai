@@ -57,6 +57,12 @@ void main() {
 
   setUp(() {
     communities = _MockCommunities();
+    // The header's subtitle names the community (R10b: one GetCommunity).
+    when(() => communities.getCommunity(any())).thenAnswer(
+      (_) async => pb.GetCommunityResponse(
+        community: pb.Community(communityId: '77', name: 'Coffee club'),
+      ),
+    );
   });
 
   void stubLog(
@@ -157,11 +163,13 @@ void main() {
     expectNoOverflow(tester);
     expect(find.text('Moderation log'), findsOneWidget);
     expect(find.text('@mo removed a post'), findsOneWidget);
-    expect(find.text('@mo banned @raider'), findsOneWidget);
     expect(find.text('3h'), findsOneWidget);
     expect(find.text('Restore'), findsOneWidget);
     // R10: the rows are taller (the action tile), so at 360 x2.0 the third
-    // entry is below the fold of the lazy list.
+    // entry is below the fold of the lazy list. R10b: so is the second, now
+    // that the header's subtitle ("Coffee club · Moderators only") wraps.
+    await tester.scrollUntilVisible(find.text('@mo banned @raider'), 100);
+    expect(find.text('@mo banned @raider'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('Moderation action'), 100);
     expectNoOverflow(tester);
     expect(find.text('Moderation action'), findsOneWidget);
@@ -185,7 +193,7 @@ void main() {
   testWidgets('NOT_FOUND: the unavailable view', (tester) async {
     stubLog([], error: const NotFoundException('gone'));
     await open(tester);
-    expect(find.text('This Community is unavailable'), findsOneWidget);
+    expect(find.text('This community is unavailable'), findsOneWidget);
   });
 
   testWidgets('a network failure offers Retry', (tester) async {

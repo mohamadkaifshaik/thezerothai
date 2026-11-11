@@ -46,6 +46,8 @@ import 'package:mocktail/mocktail.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as ts;
 
+import 'package:dzeroth/shared/widgets/primitives/app_text_field.dart';
+
 import 'fake_search_repository.dart';
 import 'search_field_rig.dart';
 import 'suggestions_fixtures.dart';
@@ -154,6 +156,9 @@ class FakeCommunitiesServer extends Mock implements CommunitiesRepository {
   /// The community's description (GetCommunity).
   String description = 'Openings, endgames and puzzles';
 
+  /// Non-null: GetCommunity fails with it (after its hold, if any).
+  AppException? getError;
+
   /// Non-null: GetCommunity waits for it (the page's loading state).
   Completer<void>? holdGet;
 
@@ -219,6 +224,8 @@ class FakeCommunitiesServer extends Mock implements CommunitiesRepository {
   Future<pb.GetCommunityResponse> getCommunity(String communityId) async {
     calls.add('get:$communityId');
     await holdGet?.future;
+    final error = getError;
+    if (error != null) throw error;
     return pb.GetCommunityResponse(
       community: _community(),
       rules: rules,
@@ -621,3 +628,10 @@ Future<void> tapCommunityTab(WidgetTester tester, String label) async {
   await tester.tap(tab);
   await tester.pumpAndSettle();
 }
+
+/// The text field of the create page's [AppTextField] labelled [label] (R10b:
+/// the label is drawn above the field, not inside it).
+Finder createFormField(String label) => find.descendant(
+  of: find.byWidgetPredicate((w) => w is AppTextField && w.label == label),
+  matching: find.byType(TextField),
+);

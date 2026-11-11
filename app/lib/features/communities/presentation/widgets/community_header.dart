@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/pin_to_home.dart';
 import '../../../../shared/widgets/primitives/app_status_pill.dart';
+import '../../../../shared/widgets/primitives/app_skeleton.dart';
 import '../../../lists/presentation/widgets/list_unavailable_view.dart'
     show kListOutlinedButtonStyle;
 import '../../../../gen/dzeroth/communities/v1/communities.pbenum.dart'
@@ -10,12 +11,22 @@ import '../../../../gen/dzeroth/communities/v1/communities.pbenum.dart'
 import '../../domain/community_role.dart';
 import '../bloc/community_detail_state.dart';
 import 'community_join_control.dart';
+import 'community_about.dart' show communityModeratorsOf;
+import 'community_member_avatars.dart';
 import 'community_row.dart';
 
-/// A community's name as its page header draws it (the design's `h1`: 800,
-/// tight; R10), shared by the Create preview so the preview matches the page.
-TextStyle? communityNameStyle(ThemeData theme) => theme.textTheme.headlineSmall
-    ?.copyWith(fontWeight: FontWeight.w800, letterSpacing: -0.5, height: 1.1);
+/// A community's name as its page header draws it (the design's `h1`: 32 sp
+/// display, w800, line height 1.02, tracking -0.035 em; R10b), shared by the
+/// Create preview so the preview matches the page.
+TextStyle? communityNameStyle(ThemeData theme) {
+  final size = AppTypeTokens.displaySizes[1]; // 32
+  return theme.textTheme.displaySmall?.copyWith(
+    fontSize: size,
+    fontWeight: AppTypeTokens.weightDisplay,
+    height: AppTypeTokens.displayLineHeight,
+    letterSpacing: size * AppTypeTokens.displayTracking,
+  );
+}
 
 /// The top of `/communities/:id`: name, "N members" (opens the members
 /// page), the Join / Joined / Banned control and Pin / Unpin from Home.
@@ -86,25 +97,22 @@ class CommunityHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
+    final colors = context.appColors;
     final community = state.community;
     if (community == null) {
-      return Padding(
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Semantics(
-              header: true,
-              child: Text('Community', style: theme.textTheme.titleLarge),
+      if (state.status == CommunityDetailStatus.error) {
+        return Padding(
+          padding: _kHeaderPadding,
+          child: Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton(
+              onPressed: onRetry,
+              child: const Text("Couldn't load Community details. Retry"),
             ),
-            if (state.status == CommunityDetailStatus.error)
-              TextButton(
-                onPressed: onRetry,
-                child: const Text("Couldn't load Community details. Retry"),
-              ),
-          ],
-        ),
-      );
+          ),
+        );
+      }
+      return const _HeaderPlaceholder();
     }
     final role = community.role;
     final badge = communityRoleBadge(role);
@@ -117,8 +125,10 @@ class CommunityHeader extends StatelessWidget {
             full: state.pinFull,
             writeUnavailable: state.pinWriteUnavailable,
           );
+    final countLabel = communityMemberCountLabel(community);
+    final people = communityModeratorsOf(state);
     return Padding(
-      padding: const EdgeInsets.all(AppSpacing.md),
+      padding: _kHeaderPadding,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -140,71 +150,107 @@ class CommunityHeader extends StatelessWidget {
           // tab has it whole). An empty one draws nothing.
           if (community.description.trim().isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: AppSpacing.xs),
+              padding: const EdgeInsets.only(top: AppSpacing.sm),
               child: Text(
                 community.description.trim(),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
+                // dz: 14 w500 in text2.
                 style: theme.textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w500,
+                  color: colors.text2,
                 ),
               ),
             ),
-          Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: Semantics(
-              button: true,
-              label: '${communityMemberCountLabel(community)}, see members',
-              excludeSemantics: true,
-              onTap: onMembers,
-              child: TextButton(
-                onPressed: onMembers,
-                style: TextButton.styleFrom(
-                  textStyle: theme.textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
+          // The people row: avatars, "N members" (opens the members page),
+          // and Join / Joined at the end. It wraps (Join under the count)
+          // when it does not fit, at large text.
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.xs),
+            child: Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CommunityMemberAvatars(people: people),
+                    Flexible(
+                      child: Semantics(
+                        button: true,
+                        label: '$countLabel, see members',
+                        excludeSemantics: true,
+                        onTap: onMembers,
+                        child: TextButton(
+                          onPressed: onMembers,
+                          style: TextButton.styleFrom(
+                            foregroundColor: colors.accentText,
+                            // The gap after the avatars, only when there are
+                            // avatars.
+                            padding: EdgeInsetsDirectional.only(
+                              start: people.isEmpty ? 0 : AppSpacing.smd,
+                            ),
+                            minimumSize: const Size(
+                              AppSpacing.minTapTarget,
+                              AppSpacing.minTapTarget,
+                            ),
+                            textStyle: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          child: Text(countLabel),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                CommunityJoinControl(
+                  state: join,
+                  name: community.name,
+                  busy: state.joinBusy,
+                  onJoin: onJoin,
+                  onLeave: role.isOwner ? null : onLeave,
+                ),
+              ],
+            ),
+          ),
+          if (onCompose != null || onModerationLog != null || !banned) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                if (onCompose != null)
+                  OutlinedButton.icon(
+                    style: kListOutlinedButtonStyle,
+                    onPressed: onCompose,
+                    icon: const Icon(Icons.edit_outlined, size: AppIconSize.md),
+                    label: const Text('Post'),
                   ),
-                ),
-                child: Text(communityMemberCountLabel(community)),
-              ),
+                if (onModerationLog != null)
+                  OutlinedButton.icon(
+                    style: kListOutlinedButtonStyle,
+                    onPressed: onModerationLog,
+                    icon: const Icon(
+                      Icons.shield_outlined,
+                      size: AppIconSize.md,
+                    ),
+                    label: const Text('Moderation log'),
+                  ),
+                if (!banned)
+                  PinToHomeButton(
+                    pinned: state.pinned,
+                    full: state.pinFull,
+                    writeUnavailable: state.pinWriteUnavailable,
+                    busy: state.pinBusy,
+                    onToggle: onTogglePin,
+                  ),
+              ],
             ),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              CommunityJoinControl(
-                state: join,
-                name: community.name,
-                busy: state.joinBusy,
-                onJoin: onJoin,
-                onLeave: role.isOwner ? null : onLeave,
-              ),
-              if (onCompose != null)
-                OutlinedButton.icon(
-                  style: kListOutlinedButtonStyle,
-                  onPressed: onCompose,
-                  icon: const Icon(Icons.edit_outlined, size: AppIconSize.md),
-                  label: const Text('Post'),
-                ),
-              if (onModerationLog != null)
-                OutlinedButton.icon(
-                  style: kListOutlinedButtonStyle,
-                  onPressed: onModerationLog,
-                  icon: const Icon(Icons.shield_outlined, size: AppIconSize.md),
-                  label: const Text('Moderation log'),
-                ),
-              if (!banned)
-                PinToHomeButton(
-                  pinned: state.pinned,
-                  full: state.pinFull,
-                  writeUnavailable: state.pinWriteUnavailable,
-                  busy: state.pinBusy,
-                  onToggle: onTogglePin,
-                ),
-            ],
-          ),
+          ],
           if (hint != null)
             Padding(
               padding: const EdgeInsets.only(top: AppSpacing.sm),
@@ -214,6 +260,93 @@ class CommunityHeader extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// The header's side inset (dz `20px`) and padding (`16px 20px 12px`).
+const double _kInset = 20;
+
+const _kHeaderPadding = EdgeInsets.fromLTRB(
+  _kInset,
+  AppSpacing.md,
+  _kInset,
+  AppSpacing.smd,
+);
+
+/// The header while `GetCommunity` is in flight: the loaded header's shape,
+/// block for block (name line, one description line, the 48 dp people row,
+/// the 48 dp row of Post / Moderation log / Pin buttons), so the tabs under
+/// it do not move when it answers. The description is drawn as one line (a
+/// longer one adds its second line when it arrives).
+class _HeaderPlaceholder extends StatelessWidget {
+  const _HeaderPlaceholder();
+
+  /// A 48 dp slot holding a 36 dp pill, as the loaded buttons sit.
+  static Widget _slot(double width) => SizedBox(
+    height: AppSpacing.minTapTarget,
+    child: Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: AppSkeletonBlock(width: width, height: 36, radius: AppRadius.pill),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final body = Theme.of(context).textTheme.bodyMedium;
+    final name = Theme.of(context).textTheme.displaySmall;
+    // The loaded lines' heights at the ambient text scale.
+    final scaler = MediaQuery.textScalerOf(context);
+    final nameHeight = scaler.scale(32) * (name?.height ?? 1.02);
+    final lineHeight = scaler.scale(14) * (body?.height ?? 1.4);
+    return AppSkeletonScope(
+      semanticsLabel: 'Loading Community',
+      child: Padding(
+        padding: _kHeaderPadding,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AppSkeletonBlock(width: 200, height: nameHeight),
+            const SizedBox(height: AppSpacing.sm),
+            SizedBox(
+              height: lineHeight,
+              child: const Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: AppSkeletonBlock(width: 260, height: 12),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            SizedBox(
+              height: AppSpacing.minTapTarget,
+              child: Row(
+                children: [
+                  const AppSkeletonBlock(
+                    width: kCommunityHeaderAvatarSize,
+                    height: kCommunityHeaderAvatarSize,
+                    circle: true,
+                  ),
+                  const SizedBox(width: AppSpacing.smd),
+                  const AppSkeletonBlock(width: 96, height: 14),
+                  const Spacer(),
+                  const AppSkeletonBlock(
+                    width: 88,
+                    height: 36,
+                    radius: AppRadius.pill,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Row(
+              children: [
+                _slot(72),
+                const SizedBox(width: AppSpacing.sm),
+                _slot(120),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
