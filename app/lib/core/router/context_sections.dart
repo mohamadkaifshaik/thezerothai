@@ -9,7 +9,8 @@ import '../../features/communities/presentation/widgets/community_preview.dart'
     show CommunityPreviewCard;
 import '../../features/communities/presentation/widgets/explore_communities_pane.dart'
     show ExploreCommunitiesPanePlaceholder;
-import '../../features/communities/presentation/widgets/moderation_log_about.dart';
+import '../../features/communities/presentation/widgets/moderation_log_about.dart'
+    show ModerationLogAboutPlaceholder;
 import '../../features/graph/presentation/graph_feature_flags.dart';
 import '../../features/graph/presentation/widgets/who_to_follow_card.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -68,7 +69,8 @@ enum ContextFamily {
   /// moderation log", lent by the page (its one `GetCommunity`).
   community,
 
-  /// `/communities/:id/moderation-log` (T8a): "About this log" (static).
+  /// `/communities/:id/moderation-log` (T8a): "About this log", lent by the
+  /// page once its log lists entries (the caller moderates).
   moderationLog,
 }
 
@@ -218,10 +220,10 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
           const CommunityAboutPanePlaceholder(),
         ),
       ],
-      ContextFamily.moderationLog => const [
-        ContextSection(
+      ContextFamily.moderationLog => [
+        lent(
           ContextSectionKind.moderationLogAbout,
-          ModerationLogAbout(),
+          const ModerationLogAboutPlaceholder(),
         ),
       ],
       ContextFamily.none => const <ContextSection>[],

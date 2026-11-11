@@ -204,6 +204,11 @@ void main() {
         ContextSectionKind.communityPreview,
         CommunityPreviewCard,
       ),
+      (
+        _logPath,
+        ContextSectionKind.moderationLogAbout,
+        ModerationLogAboutPlaceholder,
+      ),
     ]) {
       testWidgets('$location: the lent slot waits with $placeholder', (
         tester,
@@ -223,6 +228,7 @@ void main() {
       (const ExploreCommunitiesPanePlaceholder(), 'Explore Communities'),
       (const CommunityAboutPanePlaceholder(), 'Rules'),
       (const CommunityPreviewCard(), 'Preview'),
+      (const ModerationLogAboutPlaceholder(), kModerationLogAboutTitle),
     ]) {
       testWidgets('${placeholder.runtimeType} is the "$title" card', (
         tester,
@@ -320,6 +326,79 @@ void main() {
       rig.server.logError = const NotFoundException('gone');
       await rig.pump(tester, location: _logPath, width: 744);
       expect(find.byType(ModerationLogAbout), findsNothing);
+    });
+  });
+
+  group('band B: About this log in the pane only for a loaded log (the '
+      'band A rule)', () {
+    Finder restoreCopy() => find.textContaining('You can restore');
+
+    for (final (name, error) in <(String, AppException?)>[
+      (
+        'locked',
+        CommunityForbiddenException(CommunityForbiddenReason.notModerator),
+      ),
+      ('not found', const NotFoundException('gone')),
+      ('failed', const UnknownApiException('down')),
+    ]) {
+      testWidgets('$name: no card and no restore copy in the pane', (
+        tester,
+      ) async {
+        final rig = CommunitiesTabletRig();
+        rig.server.logError = error;
+        await rig.pump(tester, location: _logPath, width: 1024);
+        expect(findContextPane(), findsOneWidget);
+        expect(restoreCopy(), findsNothing);
+        expect(find.text(kModerationLogAboutTitle), findsNothing);
+      });
+    }
+
+    testWidgets('a moderator\'s empty log: no card (as band A)', (
+      tester,
+    ) async {
+      final rig = CommunitiesTabletRig();
+      rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
+      rig.server.logEntries = [];
+      await rig.pump(tester, location: _logPath, width: 1024);
+      expect(find.text('Nothing here yet'), findsOneWidget);
+      expect(find.text(kModerationLogAboutTitle), findsNothing);
+    });
+
+    testWidgets('a moderator: the placeholder while the log loads, then the '
+        'card', (tester) async {
+      final rig = CommunitiesTabletRig();
+      rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
+      final hold = rig.server.holdLog = Completer<void>();
+      await rig.pump(tester, location: _logPath, width: 1024, settle: false);
+      expect(
+        inContextPane(find.text(kModerationLogAboutTitle)),
+        findsOneWidget,
+      );
+      expect(restoreCopy(), findsNothing);
+
+      hold.complete();
+      await tester.pumpAndSettle();
+      expect(inContextPane(find.text(kModerationLogAboutText)), findsOneWidget);
+      expect(rig.server.count('log:'), 1);
+    });
+
+    testWidgets('pushed from the community pane: one pump shows the '
+        'placeholder, not a blank pane or the copy', (tester) async {
+      final rig = CommunitiesTabletRig();
+      rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
+      await rig.pump(tester, location: _communityPath, width: 1024);
+      final hold = rig.server.holdLog = Completer<void>();
+      unawaited(rig.router.push(_logPath));
+      await tester.pump();
+      expect(
+        inContextPane(find.text(kModerationLogAboutTitle)),
+        findsOneWidget,
+      );
+      expect(restoreCopy(), findsNothing);
+
+      hold.complete();
+      await tester.pumpAndSettle();
+      expect(inContextPane(find.text(kModerationLogAboutText)), findsOneWidget);
     });
   });
 

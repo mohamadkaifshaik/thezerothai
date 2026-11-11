@@ -7,6 +7,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/context_pane.dart';
+import '../../../core/widgets/context_pane_slots.dart';
 import '../../../core/widgets/shell_geometry.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
@@ -54,6 +55,37 @@ class _CommunityModerationLogScreenState
   )..load();
   final _scroll = ScrollController();
 
+  /// Band B's context pane: "About this log" over this page's [_log], only
+  /// once it lists entries (the caller moderates), as band A's list; the
+  /// placeholder while it loads; nothing when it is locked, gone, failed or
+  /// empty (T8a polish).
+  final _paneLease = ContextPaneLease();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _paneLease.attach(
+      context,
+      AppRouter.communityModerationLogPath(widget.communityId),
+      {
+        ContextSectionKind.moderationLogAbout: (context) =>
+            BlocBuilder<CommunityModerationLogCubit, ModerationLogState>(
+              bloc: _log,
+              buildWhen: (a, b) =>
+                  (a.status == ModerationLogStatus.loading) !=
+                      (b.status == ModerationLogStatus.loading) ||
+                  moderationLogListed(a) != moderationLogListed(b),
+              builder: (context, state) =>
+                  state.status == ModerationLogStatus.loading
+                  ? const ModerationLogAboutPlaceholder()
+                  : moderationLogListed(state)
+                  ? const ModerationLogAbout()
+                  : const SizedBox.shrink(),
+            ),
+      },
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -68,6 +100,7 @@ class _CommunityModerationLogScreenState
 
   @override
   void dispose() {
+    _paneLease.dispose();
     _scroll.dispose();
     _log.close();
     _moderation.close();
