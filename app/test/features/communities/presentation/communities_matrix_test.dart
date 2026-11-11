@@ -138,25 +138,38 @@ void main() {
       stub();
       await open(tester, env);
       expectNoOverflow(tester);
-      expect(find.byTooltip('Create a Community'), findsOneWidget);
+      expect(find.byTooltip('Create a community'), findsOneWidget);
+      // R10 (F23): Explore is the second tab.
+      // R10 review item 3: the tab bar may scroll; bring the tab into view.
+      await tester.ensureVisible(find.text('Explore'));
+      await tester.pump();
+      await tester.tap(find.text('Explore'));
+      await tester.pumpAndSettle();
+      expectNoOverflow(tester);
       expect(find.text('No Communities to explore yet.'), findsOneWidget);
     }, textScales: kMatrixTextScalesLarge);
 
-    forEachThemeAndWidth('both sections failed: two Retry buttons fit', (
-      tester,
-      env,
-    ) async {
-      stub(
-        mineError: const NetworkException('offline'),
-        dirError: const NetworkException('offline'),
-      );
-      await open(tester, env);
-      expectNoOverflow(tester);
-      expect(find.text('Retry'), findsNWidgets(2));
-      for (final retry in find.text('Retry').evaluate()) {
-        expect(retry, isNotNull);
-      }
-    }, textScales: kMatrixTextScalesLarge);
+    forEachThemeAndWidth(
+      'both lists failed: each tab has its Retry, and fits',
+      (tester, env) async {
+        stub(
+          mineError: const NetworkException('offline'),
+          dirError: const NetworkException('offline'),
+        );
+        await open(tester, env);
+        expectNoOverflow(tester);
+        // R10 (F23): one list per tab, each with its own Retry.
+        expect(find.text('Retry'), findsOneWidget);
+        // R10 review item 3: the tab bar may scroll; bring the tab into view.
+        await tester.ensureVisible(find.text('Explore'));
+        await tester.pump();
+        await tester.tap(find.text('Explore'));
+        await tester.pumpAndSettle();
+        expectNoOverflow(tester);
+        expect(find.text('Retry'), findsOneWidget);
+      },
+      textScales: kMatrixTextScalesLarge,
+    );
 
     forEachThemeAndWidth('RPC not served yet: a calm note, no overflow', (
       tester,
@@ -167,6 +180,13 @@ void main() {
         dirError: const FeatureDisabledException('x', feature: 'communities'),
       );
       await open(tester, env);
+      expectNoOverflow(tester);
+      expect(find.text('Retry'), findsNothing);
+      // R10 review item 3: the tab bar may scroll; bring the tab into view.
+      await tester.ensureVisible(find.text('Explore'));
+      await tester.pump();
+      await tester.tap(find.text('Explore'));
+      await tester.pumpAndSettle();
       expectNoOverflow(tester);
       expect(find.text('Retry'), findsNothing);
     }, textScales: kMatrixTextScalesLarge);
@@ -644,7 +664,7 @@ void main() {
         await tester.tap(find.text('Create'));
         await tester.pumpAndSettle();
         expectNoOverflow(tester);
-        expect(find.text('Create a Community'), findsOneWidget);
+        expect(find.text('Create a community'), findsOneWidget);
       },
       textScales: kMatrixTextScalesLarge,
       height: 1200,

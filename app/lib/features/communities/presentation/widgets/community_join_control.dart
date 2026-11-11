@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/app_pill_button.dart';
 
 /// What [CommunityJoinControl] shows. The caller maps the server's
@@ -54,39 +53,31 @@ class CommunityJoinControl extends StatelessWidget {
           label: 'Join $name',
           excludeSemantics: true,
           onTap: enabled ? onJoin : null,
+          // dz.css `.btn.navy.sm` (R10).
           child: AppPillButton(
             label: 'Join',
             compact: true,
+            variant: AppButtonVariant.navy,
             onPressed: enabled ? onJoin : null,
           ),
         );
       case CommunityJoinState.joined:
         final tappable = onLeave != null && !busy;
+        // dz.css `.btn.outline.sm`: the shared compact pill, so a tap
+        // anywhere in its 48 dp box is the pill's (it was a 36 dp
+        // shrink-wrapped OutlinedButton in a 48 dp box that only the 36 dp
+        // took taps in). The spoken label stays this node's.
         return Semantics(
           button: onLeave != null,
           enabled: tappable,
           label: onLeave != null ? 'Joined $name, leave' : 'Joined $name',
           excludeSemantics: true,
           onTap: tappable ? onLeave : null,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              minWidth: 88,
-              minHeight: AppSpacing.minTapTarget,
-            ),
-            child: Center(
-              widthFactor: 1,
-              child: OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(88, AppSize.pillCompact),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.md,
-                  ),
-                ),
-                onPressed: tappable ? onLeave : null,
-                child: const Text('Joined'),
-              ),
-            ),
+          child: AppPillButton(
+            label: 'Joined',
+            compact: true,
+            variant: AppButtonVariant.outline,
+            onPressed: tappable ? onLeave : null,
           ),
         );
       case CommunityJoinState.banned:
