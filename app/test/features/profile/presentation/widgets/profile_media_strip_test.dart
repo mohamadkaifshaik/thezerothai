@@ -58,9 +58,12 @@ Future<void> _pumpChild(WidgetTester tester, Widget child) async {
     MaterialApp(
       theme: buildAppTheme(brightness: Brightness.light),
       home: Scaffold(
-        body: Align(
-          alignment: Alignment.topLeft,
-          child: SizedBox(width: 320, child: child),
+        // Natural heights, as in the pane's scroll view.
+        body: SingleChildScrollView(
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(width: 320, child: child),
+          ),
         ),
       ),
     ),
@@ -165,6 +168,7 @@ void main() {
     ) async {
       await _pump(tester, _six);
       final strip = tester.getSize(find.byType(ProfileMediaStrip)).height;
+      expect(strip, lessThan(600), reason: 'its own height, not the body');
       await _pumpChild(tester, const ProfileMediaStripPlaceholder());
       expect(
         tester.getSize(find.byType(ProfileMediaStripPlaceholder)).height,
