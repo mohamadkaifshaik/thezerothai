@@ -566,6 +566,7 @@ class _AppWidgetState extends State<AppWidget> {
     authBloc: widget.authBloc,
     onboardingBloc: widget.onboardingBloc,
     messagingGate: widget.messagingRepository.gate,
+    ownPrivacy: _ownPrivacy,
   );
 
   @override

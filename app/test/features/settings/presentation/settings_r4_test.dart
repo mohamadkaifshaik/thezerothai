@@ -862,4 +862,78 @@ void main() {
       });
     }
   });
+
+  group('R4 review', () {
+    testWidgets('UX 6: back from Scheduled posts reloads the count', (
+      tester,
+    ) async {
+      var calls = 0;
+      when(
+        () => postsRepo.listScheduledPosts(
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+        ),
+      ).thenAnswer(
+        (_) async => posts.ListScheduledPostsResponse(
+          scheduledPosts: [
+            if (calls++ == 0)
+              posts.ScheduledPost(
+                status: posts.ScheduledPostStatus.SCHEDULED_POST_STATUS_PENDING,
+              ),
+          ],
+        ),
+      );
+      final rig = SettingsTabletRig();
+      await rig.pump(tester, width: 360, height: 2000, posts: postsRepo);
+      expect(
+        tester.widget<SettingsRow>(_row('Scheduled posts')).subtitle,
+        '1 post waiting',
+      );
+      await _tap(tester, _row('Scheduled posts'));
+      expect(find.text('Scheduled stub'), findsOneWidget);
+      rig.router.pop();
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<SettingsRow>(_row('Scheduled posts')).subtitle,
+        isNull,
+      );
+      expect(calls, 2);
+    });
+
+    for (final (scale, note) in [(1.0, false), (1.5, false), (2.0, true)]) {
+      testWidgets('UX 10: device text x$scale ${note ? 'notes' : 'no note'}', (
+        tester,
+      ) async {
+        final cubit = TextSizeCubit(_MemoryTextSize());
+        addTearDown(cubit.close);
+        final rig = SettingsTabletRig();
+        await rig.pump(
+          tester,
+          width: 360,
+          height: 3000,
+          textScale: scale,
+          textSize: cubit,
+        );
+        expect(
+          find.text('Your device text size is already large.'),
+          note ? findsOneWidget : findsNothing,
+        );
+      });
+    }
+
+    testWidgets('UX 11: no "Notifications" header over the lone row', (
+      tester,
+    ) async {
+      final rig = SettingsTabletRig();
+      await rig.pump(
+        tester,
+        width: 360,
+        height: 2400,
+        flags: {...kSettingsTabletFlags, ..._prefsFlags},
+        notifications: notifications,
+      );
+      expect(find.text('Notifications'), findsOneWidget);
+      expect(_row('Notifications'), findsOneWidget);
+    });
+  });
 }

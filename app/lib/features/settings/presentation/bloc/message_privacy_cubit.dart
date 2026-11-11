@@ -3,6 +3,7 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
+import '../../../../core/storage/session_epoch.dart';
 import '../../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../../onboarding/data/identity_repository.dart';
 import '../../data/own_privacy_store.dart';
@@ -56,7 +57,9 @@ class MessagePrivacyCubit extends Cubit<MessagePrivacyState> {
     required String uid,
     required void Function(identity.Profile profile) onProfileUpdated,
     Uuid? uuid,
+    SessionEpoch? sessionEpoch,
   }) : _identity = identityRepository,
+       _epoch = sessionEpoch,
        _store = store,
        _uid = uid,
        _onProfileUpdated = onProfileUpdated,
@@ -71,6 +74,11 @@ class MessagePrivacyCubit extends Cubit<MessagePrivacyState> {
   final void Function(identity.Profile profile) _onProfileUpdated;
   final Uuid _uuid;
   final Map<String, String> _keys = {};
+
+  /// The cache's session epoch (null in tests): an answer that arrives
+  /// after the session ended (sign-out mid-save) is never recorded
+  /// (security review m1).
+  final SessionEpoch? _epoch;
 
   static OwnPrivacy? _mine(OwnPrivacy? value, String uid) =>
       value != null && uid.isNotEmpty && value.userId == uid ? value : null;
@@ -125,10 +133,12 @@ class MessagePrivacyCubit extends Cubit<MessagePrivacyState> {
     required bool receipts,
   }) async {
     final key = _keys[intent] ??= _uuid.v4();
+    final epoch = _epoch?.value;
     try {
       final profile = await call(key);
       _keys.remove(intent);
-      if (profile.userId == _uid) {
+      final sameSession = epoch == null || _epoch!.allows(epoch);
+      if (!isClosed && sameSession && profile.userId == _uid) {
         _store.record(profile);
         _onProfileUpdated(profile);
       }

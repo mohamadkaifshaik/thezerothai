@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/feature_flags/feature_flags.dart';
+import '../../../../core/storage/app_database.dart';
 import '../../../../shared/widgets/primitives/settings_group.dart';
 import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../onboarding/data/identity_repository.dart';
@@ -40,6 +41,7 @@ class MessagePrivacyScope extends StatelessWidget {
         onProfileUpdated: (profile) => context.read<OnboardingBloc>().add(
           OnboardingProfileUpdated(profile),
         ),
+        sessionEpoch: context.read<AppDatabase?>()?.sessionEpoch,
       ),
       child: BlocListener<MessagePrivacyCubit, MessagePrivacyState>(
         listenWhen: (before, after) =>
@@ -127,7 +129,10 @@ class ReadReceiptsRow extends StatelessWidget {
       icon: Icons.done_all,
       title: kReadReceiptsTitle,
       subtitle: kReadReceiptsSubtitle,
+      // The explanation is the point of the row: never cut at large text.
+      subtitleMaxLines: null,
       toggled: confirmed.readReceipts,
+      busy: state.savingReceipts != null,
       onTap: state.busy
           ? null
           : () => context.read<MessagePrivacyCubit>().setReadReceipts(
@@ -164,6 +169,7 @@ class WhoCanMessageRow extends StatelessWidget {
             SettingsChoice(who, who.label),
       ],
       note: kWhoCanMessageNote,
+      busy: state.savingWho != null,
       onSelected: state.busy
           ? null
           : (who) => context.read<MessagePrivacyCubit>().setWhoCanMessage(who),

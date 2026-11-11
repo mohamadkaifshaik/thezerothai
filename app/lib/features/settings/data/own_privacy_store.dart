@@ -48,8 +48,15 @@ class OwnPrivacyStore {
 OwnPrivacy ownPrivacyOf(identity.Profile profile) => OwnPrivacy(
   userId: profile.userId,
   readReceipts: profile.readReceipts,
-  whoCanMessage: whoCanMessageOf(profile.dmPolicy),
+  whoCanMessage: profile.unknownFields.hasField(_dmPolicyField)
+      // A value newer than this app: the protobuf runtime keeps it in the
+      // unknown fields and reads the field as UNSPECIFIED. Never Everyone.
+      ? null
+      : whoCanMessageOf(profile.dmPolicy),
 );
+
+/// `Profile.dm_policy`'s field number.
+const _dmPolicyField = 19;
 
 /// UNSPECIFIED (every account from before the setting) is Everyone.
 WhoCanMessage whoCanMessageOf(DmPolicy policy) =>

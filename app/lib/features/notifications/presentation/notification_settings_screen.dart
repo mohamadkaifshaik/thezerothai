@@ -7,11 +7,9 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
-import '../../../shared/widgets/primitives/app_section_header.dart';
-import '../../../shared/widgets/primitives/app_skeleton.dart';
-import '../../../shared/widgets/primitives/app_surface.dart';
 import '../../../shared/widgets/primitives/headline_message.dart';
 import '../../../shared/widgets/primitives/settings_group.dart';
+import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../beacons/domain/beacons_feature_flag.dart';
 import '../../messages/domain/messaging_feature_gate.dart';
 import '../../messages/presentation/widgets/messaging_access_builder.dart';
@@ -72,14 +70,25 @@ class NotificationSettingsBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final repository = context.read<NotificationsRepository?>();
-    if (repository == null || !notificationPrefsEnabled(context)) {
+    final uid = context.select((AuthBloc bloc) => bloc.state.user?.uid);
+    if (repository == null ||
+        uid == null ||
+        uid.isEmpty ||
+        !notificationPrefsEnabled(context)) {
       return const _Unavailable();
     }
     return BlocProvider<NotificationPrefsCubit>(
+      // One cubit per account (security review M1): a switch of account
+      // with the page open builds a fresh one that loads the new account's
+      // values; the old one's answers and saves are dropped.
+      key: ValueKey(uid),
       create: (context) {
         final onboarding = context.read<OnboardingBloc>();
+        final auth = context.read<AuthBloc>();
         final cubit = NotificationPrefsCubit(
           repository: repository,
+          uid: uid,
+          currentUid: () => auth.state.user?.uid,
           onFeatureDisabled: () =>
               onboarding.add(const OnboardingRefreshRequested()),
         );
@@ -145,7 +154,13 @@ class NotificationSettingsBody extends StatelessWidget {
         if (prefs == null) {
           return ListView(
             padding: padding,
-            children: [_Placeholder(rows: groups.length)],
+            children: [
+              SettingsGroupPlaceholder(
+                title: kPushNotificationsHeader,
+                rows: groups.length,
+                semanticsLabel: 'Loading notification settings',
+              ),
+            ],
           );
         }
         final cubit = context.read<NotificationPrefsCubit>();
@@ -160,9 +175,12 @@ class NotificationSettingsBody extends StatelessWidget {
                     icon: _icon(group),
                     title: group.label,
                     subtitle: group.description,
+                    subtitleMaxLines: null,
                     // The server's value, also while a save runs (then
-                    // every switch waits, disabled).
+                    // every switch waits, disabled; the one being saved
+                    // shows progress).
                     toggled: prefs.isOn(group),
+                    busy: state.saving == group,
                     onTap: state.saving != null
                         ? null
                         : () => cubit.setGroup(group, on: !prefs.isOn(group)),
@@ -196,66 +214,6 @@ class _Note extends StatelessWidget {
         kPushNotificationsNote,
         style: theme.textTheme.bodySmall?.copyWith(
           color: theme.colorScheme.onSurfaceVariant,
-        ),
-      ),
-    );
-  }
-}
-
-/// The card while `GetNotificationPrefs` runs: the header and [rows] rows of
-/// the same shape, so nothing jumps when the switches arrive.
-class _Placeholder extends StatelessWidget {
-  const _Placeholder({required this.rows});
-
-  final int rows;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppSkeletonScope(
-      semanticsLabel: 'Loading notification settings',
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: AppSpacing.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const AppSectionHeader(title: kPushNotificationsHeader),
-            AppSurface(
-              padding: EdgeInsets.zero,
-              margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-              child: Column(
-                children: [
-                  for (var i = 0; i < rows; i++) ...[
-                    if (i > 0) const Divider(height: 1),
-                    const SizedBox(
-                      height: AppSpacing.xxl + AppSpacing.sm,
-                      child: Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                        ),
-                        child: Row(
-                          children: [
-                            AppSkeletonBlock(
-                              width: AppSpacing.xl + AppSpacing.sm,
-                              height: AppSpacing.xl + AppSpacing.sm,
-                              radius: AppRadius.md,
-                            ),
-                            SizedBox(width: AppSpacing.md),
-                            Expanded(
-                              child: FractionallySizedBox(
-                                alignment: AlignmentDirectional.centerStart,
-                                widthFactor: 0.6,
-                                child: AppSkeletonBlock(height: AppSpacing.md),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
         ),
       ),
     );

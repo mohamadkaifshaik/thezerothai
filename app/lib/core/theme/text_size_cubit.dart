@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:logging/logging.dart';
@@ -6,9 +8,10 @@ import '../storage/app_database.dart';
 
 /// The in-app text size (F7): a factor on top of the system text scale.
 ///
-/// It **multiplies** the system scale, never replaces it ([AppTextScaler]):
-/// a person who set a large system size keeps it, and 115 % / 130 % make text
-/// larger still. Replacing could shrink text below an accessibility setting.
+/// It **multiplies** the system scale, never replaces it ([AppTextScaler]),
+/// and is **capped at [kAppTextScaleCap]** (R4 review): the in-app size only
+/// raises text, up to 2.0, never lowers a system scale that is already
+/// larger. Replacing could shrink text below an accessibility setting.
 enum AppTextSize {
   standard(1.0, '100%'),
   large(1.15, '115%'),
@@ -81,9 +84,14 @@ class TextSizeCubit extends Cubit<AppTextSize> {
   }
 }
 
-/// The system [TextScaler] times [factor]. It wraps the system scaler rather
-/// than flattening it to a linear factor, so a nonlinear system scale
-/// (Android 14) keeps its curve: `scale(x) = system.scale(x) * factor`.
+/// The most the in-app text size raises text to (a multiple of the font
+/// size); a system scale above it is kept as it is.
+const double kAppTextScaleCap = 2.0;
+
+/// The system [TextScaler] times [factor], capped. It wraps the system
+/// scaler rather than flattening it to a linear factor, so a nonlinear system
+/// scale (Android 14) keeps its curve:
+/// `scale(x) = max(s, min(s * factor, 2.0 * x))` with `s = system.scale(x)`.
 @immutable
 class AppTextScaler extends TextScaler {
   const AppTextScaler(this.system, this.factor);
@@ -92,11 +100,17 @@ class AppTextScaler extends TextScaler {
   final double factor;
 
   @override
-  double scale(double fontSize) => system.scale(fontSize) * factor;
+  double scale(double fontSize) {
+    final s = system.scale(fontSize);
+    return math.max(s, math.min(s * factor, kAppTextScaleCap * fontSize));
+  }
 
   @override
-  // ignore: deprecated_member_use
-  double get textScaleFactor => system.textScaleFactor * factor;
+  double get textScaleFactor {
+    // ignore: deprecated_member_use
+    final s = system.textScaleFactor;
+    return math.max(s, math.min(s * factor, kAppTextScaleCap));
+  }
 
   @override
   bool operator ==(Object other) =>
@@ -130,9 +144,28 @@ class AppTextSizeScope extends StatelessWidget {
       (cubit) => cubit?.state ?? AppTextSize.standard,
     );
     final media = MediaQuery.of(context);
-    return MediaQuery(
-      data: media.copyWith(textScaler: appTextScaler(media.textScaler, size)),
-      child: child,
+    return _SystemTextScaler(
+      scaler: media.textScaler,
+      child: MediaQuery(
+        data: media.copyWith(textScaler: appTextScaler(media.textScaler, size)),
+        child: child,
+      ),
     );
   }
+
+  /// The device's own text scaler, before the in-app size (the Text size
+  /// row's "already large" note); the [MediaQuery] one outside the scope.
+  static TextScaler systemScalerOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_SystemTextScaler>()?.scaler ??
+      MediaQuery.textScalerOf(context);
+}
+
+class _SystemTextScaler extends InheritedWidget {
+  const _SystemTextScaler({required this.scaler, required super.child});
+
+  final TextScaler scaler;
+
+  @override
+  bool updateShouldNotify(_SystemTextScaler oldWidget) =>
+      scaler != oldWidget.scaler;
 }

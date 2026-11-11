@@ -1,13 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/feature_flags/feature_flags.dart';
+import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_error_view.dart';
 import '../../../shared/widgets/primitives/headline_message.dart';
 import '../../../shared/widgets/primitives/settings_group.dart';
 import '../../messages/presentation/widgets/messaging_access_builder.dart';
 import '../../messages/domain/messaging_feature_gate.dart';
+import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../onboarding/presentation/bloc/onboarding_event.dart';
+import '../../onboarding/presentation/bloc/onboarding_state.dart';
 import '../domain/message_privacy.dart';
+import 'bloc/message_privacy_cubit.dart';
 import 'message_settings_messages.dart';
 import 'settings_up.dart';
 import 'widgets/message_privacy_rows.dart';
@@ -54,6 +61,42 @@ class MessageSettingsScreen extends StatelessWidget {
       messagingOn: messagingOn,
     );
     if (!visible.any) {
+      // A flag is on but this session has no server answer yet (a refresh
+      // running, or failed): a placeholder or the error, never "not
+      // available" (R4 review UX 2).
+      final flagOn =
+          isFeatureEnabled(context, kFeatureReadReceipts) ||
+          isFeatureEnabled(context, kFeatureDmPolicy);
+      final waiting =
+          context.select<MessagePrivacyCubit?, bool>(
+            (cubit) => cubit != null && cubit.state.confirmed == null,
+          ) &&
+          flagOn;
+      if (waiting) {
+        final onboarding = context.watch<OnboardingBloc>().state;
+        final failed =
+            onboarding.refreshFailed ||
+            onboarding.status == OnboardingStatus.error;
+        return ListView(
+          padding: const EdgeInsets.only(top: AppSpacing.md),
+          children: [
+            if (failed)
+              AppErrorView(
+                error:
+                    onboarding.error ??
+                    const NetworkException("Couldn't load your settings."),
+                onRetry: () => context.read<OnboardingBloc>().add(
+                  const OnboardingRefreshRequested(),
+                ),
+              )
+            else
+              const SettingsGroupPlaceholder(
+                rows: 2,
+                semanticsLabel: kMessageSettingsLoading,
+              ),
+          ],
+        );
+      }
       return ListView(
         padding: const EdgeInsets.all(AppSpacing.md),
         children: const [

@@ -107,6 +107,7 @@ void main() {
     WidgetTester tester, {
     double width = 400,
     double textScale = 1,
+    bool use24Hour = false,
   }) async {
     tester.view.physicalSize = Size(width, 900);
     tester.view.devicePixelRatio = 1;
@@ -115,8 +116,10 @@ void main() {
       providers(
         MaterialApp(
           builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: TextScaler.linear(textScale)),
+            data: MediaQuery.of(context).copyWith(
+              textScaler: TextScaler.linear(textScale),
+              alwaysUse24HourFormat: use24Hour,
+            ),
             child: child!,
           ),
           home: const DataExportScreen(),
@@ -518,6 +521,29 @@ void main() {
       );
       expect(find.textContaining('15 min'), findsNothing);
       expect(find.text('Download'), findsOneWidget);
+    });
+
+    testWidgets('the time follows the device 24-hour setting', (tester) async {
+      final until = DateTime.now().toUtc().add(const Duration(days: 7));
+      when(() => accounts.getExport(exportId: 'exp-1')).thenAnswer(
+        (_) async => AccountExport(
+          exportId: 'exp-1',
+          status: ExportStatus.EXPORT_STATUS_READY,
+          downloadUrl: _downloadUrl,
+          expiresAt: until,
+        ),
+      );
+      await pump(tester, use24Hour: true);
+      await tapRequest(tester);
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pump();
+      expect(
+        find.text(
+          'Ready · Available until '
+          '${formatScheduledTime(until, use24Hour: true)}',
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('READY without expires_at just says Ready', (tester) async {

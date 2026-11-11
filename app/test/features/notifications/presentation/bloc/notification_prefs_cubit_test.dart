@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
@@ -39,6 +41,7 @@ void main() {
 
   NotificationPrefsCubit build() => NotificationPrefsCubit(
     repository: repo,
+    uid: 'uid-a',
     onFeatureDisabled: () => disabledCalls++,
     uuid: _SeqUuid(),
   );
@@ -280,5 +283,48 @@ void main() {
       ],
       verify: (_) => expect(disabledCalls, 1),
     );
+  });
+
+  group('M1: bound to the account', () {
+    test('a load answer after an account switch is dropped', () async {
+      var current = 'uid-a';
+      final answer = Completer<NotificationPushPrefs>();
+      when(() => repo.getPushPrefs()).thenAnswer((_) => answer.future);
+      final cubit = NotificationPrefsCubit(
+        repository: repo,
+        uid: 'uid-a',
+        currentUid: () => current,
+      );
+      final load = cubit.load();
+      current = 'uid-b';
+      answer.complete(_server);
+      await load;
+      expect(cubit.state.prefs, isNull);
+      await cubit.close();
+    });
+
+    test('no save once the session belongs to another account', () async {
+      var current = 'uid-a';
+      final cubit = NotificationPrefsCubit(
+        repository: repo,
+        uid: 'uid-a',
+        currentUid: () => current,
+      );
+      cubit.emit(
+        const NotificationPrefsState(
+          status: NotificationPrefsStatus.ready,
+          prefs: _server,
+        ),
+      );
+      current = 'uid-b';
+      await cubit.setGroup(NotificationPrefsGroup.plans, on: false);
+      verifyNever(
+        () => repo.updatePushPrefs(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          prefs: any(named: 'prefs'),
+        ),
+      );
+      await cubit.close();
+    });
   });
 }

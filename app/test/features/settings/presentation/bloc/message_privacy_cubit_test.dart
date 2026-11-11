@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/storage/session_epoch.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/features/settings/data/own_privacy_store.dart';
 import 'package:dzeroth/features/settings/domain/message_privacy.dart';
@@ -357,5 +360,43 @@ void main() {
     expect(store.value?.readReceipts, isFalse);
     expect(updated, isEmpty);
     await cubit.close();
+  });
+
+  group('m1: a save answer of an ended session', () {
+    test('is not recorded and not handed on', () async {
+      final epoch = SessionEpoch();
+      store.record(_profile());
+      stubUpdate((_) async {
+        // Sign-out while the call was in flight.
+        epoch.end();
+        return _profile(receipts: true);
+      });
+      final cubit = MessagePrivacyCubit(
+        identityRepository: repo,
+        store: store,
+        uid: 'me',
+        onProfileUpdated: updated.add,
+        uuid: uuid,
+        sessionEpoch: epoch,
+      );
+      await cubit.setReadReceipts(on: true);
+      expect(store.value?.readReceipts, isFalse);
+      expect(updated, isEmpty);
+      expect(cubit.state.busy, isFalse);
+      await cubit.close();
+    });
+
+    test('a closed cubit records nothing', () async {
+      store.record(_profile());
+      final done = Completer<identity.Profile>();
+      stubUpdate((_) => done.future);
+      final cubit = build();
+      final save = cubit.setReadReceipts(on: true);
+      await cubit.close();
+      done.complete(_profile(receipts: true));
+      await save;
+      expect(store.value?.readReceipts, isFalse);
+      expect(updated, isEmpty);
+    });
   });
 }

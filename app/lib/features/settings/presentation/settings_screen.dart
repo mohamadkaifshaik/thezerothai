@@ -333,7 +333,7 @@ class SettingsList extends StatelessWidget {
       open: open,
       selected: selected,
     );
-    final groups = <(String, List<Widget>)>[
+    final groups = <(String?, List<Widget>)>[
       ('Messaging', [?rows.messages]),
       ('Account', [?rows.email, ?rows.editProfile, ?rows.changeHandle]),
       ('Posts', [?rows.scheduled]),
@@ -349,7 +349,9 @@ class SettingsList extends StatelessWidget {
           ?rows.readReceipts,
         ],
       ),
-      ('Notifications', [?rows.notifications]),
+      // A lone "Notifications" row needs no "Notifications" header above it
+      // (R4 review UX 11): its card stands alone.
+      (null, [?rows.notifications]),
       ('Your data', [?rows.export, ?rows.unsent]),
       ('About', [rows.communityRules, rows.privacyPolicy]),
       ('Session', [?rows.deleteAccount, rows.signOut]),
@@ -680,6 +682,13 @@ _SettingsRows _rowsFor(
                 SettingsChoice(size, size.label),
             ],
             onSelected: (size) => context.read<TextSizeCubit>().select(size),
+            // The device text is already at the cap: the choice changes
+            // nothing visible, so say why (R4 review UX 10).
+            note:
+                AppTextSizeScope.systemScalerOf(context).scale(_capProbe) >=
+                    kAppTextScaleCap * _capProbe
+                ? 'Your device text size is already large.'
+                : null,
           ),
     protect: showProtect ? const ProtectPostsRow() : null,
     // Only on Android, only while the kind's flag is on.
@@ -762,3 +771,6 @@ _SettingsRows _rowsFor(
     plansOn: plansOn,
   );
 }
+
+/// The font size the Text size row checks the device scale at (body text).
+const double _capProbe = 14;

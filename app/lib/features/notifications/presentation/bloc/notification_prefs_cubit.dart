@@ -52,31 +52,44 @@ abstract class NotificationPrefsState with _$NotificationPrefsState {
 ///   it succeeded.
 /// - A FEATURE_DISABLED answer makes the page "not available" and calls
 ///   [onFeatureDisabled] (the screen refreshes the flag set).
+/// - Bound to one account ([uid], security review M1): while [currentUid]
+///   names another account no save is sent and no answer is taken, so one
+///   account's values can never be shown to, or saved for, another. The
+///   screen also keys the cubit by uid, so a switch builds a fresh one.
 class NotificationPrefsCubit extends Cubit<NotificationPrefsState> {
   NotificationPrefsCubit({
     required NotificationsRepository repository,
+    required String uid,
+    String? Function()? currentUid,
     void Function()? onFeatureDisabled,
     Uuid? uuid,
   }) : _repository = repository,
+       _uid = uid,
+       _currentUid = currentUid,
        _onFeatureDisabled = onFeatureDisabled,
        _uuid = uuid ?? const Uuid(),
        super(const NotificationPrefsState());
 
   final NotificationsRepository _repository;
+  final String _uid;
+  final String? Function()? _currentUid;
+
+  /// The session still belongs to [_uid] (and this cubit is open).
+  bool get _mine => !isClosed && (_currentUid == null || _currentUid() == _uid);
   final void Function()? _onFeatureDisabled;
   final Uuid _uuid;
   final Map<NotificationPushPrefs, String> _keys = {};
   bool _loading = false;
 
   Future<void> load() async {
-    if (_loading || state.saving != null) return;
+    if (_loading || state.saving != null || !_mine) return;
     _loading = true;
     emit(
       state.copyWith(status: NotificationPrefsStatus.loading, loadError: null),
     );
     try {
       final prefs = await _repository.getPushPrefs();
-      if (isClosed) return;
+      if (!_mine) return;
       emit(state.copyWith(status: NotificationPrefsStatus.ready, prefs: prefs));
     } on FeatureDisabledException {
       if (isClosed) return;
@@ -109,7 +122,8 @@ class NotificationPrefsCubit extends Cubit<NotificationPrefsState> {
     required bool on,
   }) async {
     final current = state.prefs;
-    if (state.status != NotificationPrefsStatus.ready ||
+    if (!_mine ||
+        state.status != NotificationPrefsStatus.ready ||
         current == null ||
         state.saving != null ||
         current.isOn(group) == on) {
@@ -124,7 +138,7 @@ class NotificationPrefsCubit extends Cubit<NotificationPrefsState> {
         prefs: target,
       );
       _keys.remove(target);
-      if (isClosed) return;
+      if (!_mine) return;
       emit(state.copyWith(prefs: saved, saving: null));
     } on FeatureDisabledException catch (error) {
       if (isClosed) return;

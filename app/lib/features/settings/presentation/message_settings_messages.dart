@@ -9,12 +9,17 @@ const kWhoCanMessageTitle = 'Who can message you';
 
 /// The note under the choice: what "People you follow" does and does not do.
 const kWhoCanMessageNote =
-    'Conversations you already accepted keep working whatever you choose.';
+    "Conversations you've already accepted keep working either way.";
 
 /// The "Read receipts" switch (F3; the owner's third-round ruling: it is
 /// reciprocal).
 const kReadReceiptsTitle = 'Read receipts';
-const kReadReceiptsSubtitle = "When off, you won't send or see read receipts.";
+const kReadReceiptsSubtitle =
+    "When off, you won't send or see read receipts. They only show when you "
+    'both have them on.';
+
+/// The Message settings page while its values load.
+const kMessageSettingsLoading = 'Loading message settings';
 
 /// The page with none of its controls available to the caller.
 const kMessageSettingsUnavailableTitle = "Message settings aren't available";

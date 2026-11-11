@@ -295,7 +295,8 @@ class _ArchiveRow extends StatelessWidget {
     final until = expiresAt;
     final status = until == null
         ? 'Ready'
-        : 'Ready \u00b7 Available until ${formatScheduledTime(until)}';
+        : 'Ready \u00b7 Available until '
+              '${formatScheduledTime(until, use24Hour: MediaQuery.alwaysUse24HourFormatOf(context))}';
     return MergeSemantics(
       child: Row(
         children: [

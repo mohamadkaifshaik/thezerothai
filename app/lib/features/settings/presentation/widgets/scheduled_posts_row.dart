@@ -23,7 +23,7 @@ class ScheduledPostsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final repository = context.read<PostsRepository?>();
-    if (repository == null) return const _Row(subtitle: null);
+    if (repository == null) return const _Row(subtitle: null, onReturn: null);
     return BlocProvider<ScheduledWaitingCubit>(
       create: (_) {
         final cubit = ScheduledWaitingCubit(repository: repository);
@@ -31,22 +31,32 @@ class ScheduledPostsRow extends StatelessWidget {
         return cubit;
       },
       child: BlocBuilder<ScheduledWaitingCubit, ScheduledWaiting?>(
-        builder: (context, waiting) => _Row(subtitle: waiting?.label),
+        builder: (context, waiting) => _Row(
+          subtitle: waiting?.label,
+          // Back from the list: it may have changed (posted, cancelled).
+          onReturn: context.read<ScheduledWaitingCubit>().load,
+        ),
       ),
     );
   }
 }
 
 class _Row extends StatelessWidget {
-  const _Row({required this.subtitle});
+  const _Row({required this.subtitle, required this.onReturn});
 
   final String? subtitle;
+
+  /// Called when the Scheduled posts page closes (the count is reloaded).
+  final Future<void> Function()? onReturn;
 
   @override
   Widget build(BuildContext context) => SettingsRow(
     icon: Icons.schedule_send_outlined,
     title: ScheduledPostsRow.title,
     subtitle: subtitle,
-    onTap: () => context.push(AppRouter.scheduledPostsPath),
+    onTap: () async {
+      await context.push<void>(AppRouter.scheduledPostsPath);
+      await onReturn?.call();
+    },
   );
 }

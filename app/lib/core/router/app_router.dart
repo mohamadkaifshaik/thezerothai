@@ -86,6 +86,8 @@ import '../../features/profile/presentation/change_handle_screen.dart';
 import '../../features/profile/presentation/edit_profile_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/settings/domain/settings_categories.dart';
+import '../../features/settings/data/own_privacy_store.dart';
+import '../../features/settings/domain/message_privacy.dart';
 import '../../features/settings/presentation/message_settings_screen.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
@@ -102,15 +104,21 @@ class AppRouter {
     required AuthBloc authBloc,
     required OnboardingBloc onboardingBloc,
     MessagingFeatureGate? messagingGate,
+    OwnPrivacyStore? ownPrivacy,
   }) : _authBloc = authBloc,
        _onboardingBloc = onboardingBloc,
-       _messagingGate = messagingGate {
+       _messagingGate = messagingGate,
+       _ownPrivacy = ownPrivacy {
     // Pushed post overlays must be addressable on web and survive reload.
     GoRouter.optionURLReflectsImperativeAPIs = true;
   }
 
   final AuthBloc _authBloc;
   final OnboardingBloc _onboardingBloc;
+
+  /// The caller's read receipts and DM policy as the server answered (the
+  /// Message settings redirect's undo rule); null in tests.
+  final OwnPrivacyStore? _ownPrivacy;
 
   /// Decides the read-only Messages routes and re-runs the redirects
   /// when the probe answers or messaging turns out to be globally off. Null
@@ -173,9 +181,9 @@ class AppRouter {
   /// `notification_prefs` are on for the caller.
   static const notificationSettingsPath = '/settings/notifications';
 
-  /// Who can message you and read receipts (F9, F3). Never redirected: the
-  /// page shows each setting by its own rule, the undo of one whose flag went
-  /// off included.
+  /// Who can message you and read receipts (F9, F3). Settings when both
+  /// flags are off for the caller, unless one of the two is set (the undo
+  /// rule: it can always be turned back).
   static const messageSettingsPath = '/settings/messages';
   // The Scheduled posts list, behind the `posts` and
   // `scheduled_posts` flags. A root-level full-screen route like /compose, NOT
@@ -895,7 +903,8 @@ class AppRouter {
             _followRequestsRedirect(loc) ??
             _exploreFlagRedirect(loc) ??
             _notificationsFlagRedirect(loc) ??
-            _notificationPrefsFlagRedirect(loc);
+            _notificationPrefsFlagRedirect(loc) ??
+            _messageSettingsFlagRedirect(loc);
       case OnboardingStatus.error:
         // GetMe failed with nothing usable (no cached profile, or right
         // after CreateProfile): a full-screen Retry, never Home with every
@@ -1197,6 +1206,24 @@ class AppRouter {
             features.contains(kFeatureNotificationPrefs)
         ? null
         : settingsPath;
+  }
+
+  /// Message settings redirect to Settings with `read_receipts` and
+  /// `dm_policy` both off, unless the signed-in account has one of them set
+  /// (receipts on, or anything but Everyone): then the page is the way back.
+  String? _messageSettingsFlagRedirect(String loc) {
+    if (loc != messageSettingsPath) return null;
+    final features = _onboardingBloc.state.enabledFeatures;
+    if (features.contains(kFeatureReadReceipts) ||
+        features.contains(kFeatureDmPolicy)) {
+      return null;
+    }
+    final mine = _ownPrivacy?.value;
+    final uid = _authBloc.state.user?.uid;
+    if (mine != null && mine.userId == uid && ownPrivacyIsSet(mine)) {
+      return null;
+    }
+    return settingsPath;
   }
 
   static final _profileEditRoutes = RegExp(r'^/settings/(?:profile|handle)$');

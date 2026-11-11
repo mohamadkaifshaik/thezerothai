@@ -37,7 +37,11 @@ class OwnPrivacy {
   /// signed-in uid, so another account's values are never shown.
   final String userId;
   final bool readReceipts;
-  final WhoCanMessage whoCanMessage;
+
+  /// Null: a policy this app version does not know (a newer server value,
+  /// security review m2). It is never shown as Everyone; Settings selects
+  /// nothing and still offers the way back to Everyone.
+  final WhoCanMessage? whoCanMessage;
 
   @override
   bool operator ==(Object other) =>
@@ -52,7 +56,7 @@ class OwnPrivacy {
   /// No values: the uid is personal data and stays out of logs.
   @override
   String toString() =>
-      'OwnPrivacy(readReceipts: $readReceipts, who: ${whoCanMessage.name})';
+      'OwnPrivacy(readReceipts: $readReceipts, who: ${whoCanMessage?.name ?? 'unknown'})';
 }
 
 /// Whether the "Read receipts" switch shows: with the flag on (and Messages
@@ -67,11 +71,17 @@ bool readReceiptsRowVisible({
 }) => value || (flagOn && messagingOn && !refused);
 
 /// Whether the "Who can message you" choice shows: with the flag on (and
-/// Messages usable), or whatever the flags say while it is "People you
-/// follow", so it can always be set back to Everyone (the undo rule).
+/// Messages usable), or whatever the flags say while it is anything but
+/// Everyone ("People you follow", or a policy this app does not know), so it
+/// can always be set back to Everyone (the undo rule).
 bool whoCanMessageRowVisible({
   required bool flagOn,
   required bool messagingOn,
-  required WhoCanMessage value,
+  required WhoCanMessage? value,
   bool refused = false,
-}) => value == WhoCanMessage.following || (flagOn && messagingOn && !refused);
+}) => value != WhoCanMessage.everyone || (flagOn && messagingOn && !refused);
+
+/// Whether [value] is anything but the defaults (receipts off, Everyone):
+/// then the Message settings page stays reachable with its flags off.
+bool ownPrivacyIsSet(OwnPrivacy value) =>
+    value.readReceipts || value.whoCanMessage != WhoCanMessage.everyone;

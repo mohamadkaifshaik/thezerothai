@@ -76,7 +76,7 @@ void main() {
     );
   });
 
-  group('AppTextScaler (multiply, never replace)', () {
+  group('AppTextScaler (multiply, capped at 2.0, never below the system)', () {
     test('the factors are 100 / 115 / 130 %', () {
       expect([for (final s in AppTextSize.values) s.factor], [1.0, 1.15, 1.3]);
       expect(
@@ -93,18 +93,56 @@ void main() {
       );
     });
 
-    test('multiplies a linear system scale', () {
-      final scaler = appTextScaler(
-        const TextScaler.linear(2),
-        AppTextSize.larger,
-      );
-      expect(scaler.scale(10), closeTo(26, 1e-9));
+    // R4 review, UX must-fix 1: the in-app size only raises text, up to
+    // 2.0, and never lowers a system scale that is already larger.
+    for (final system in [1.0, 1.5, 2.0, 2.5]) {
+      for (final size in AppTextSize.values) {
+        test('system $system x ${size.label}', () {
+          final expected = system >= 2.0
+              ? system
+              : (system * size.factor).clamp(system, 2.0);
+          final scaler = appTextScaler(TextScaler.linear(system), size);
+          expect(scaler.scale(10), closeTo(10 * expected, 1e-9));
+          // ignore: deprecated_member_use
+          expect(scaler.textScaleFactor, closeTo(expected, 1e-9));
+        });
+      }
+    }
+
+    test('keeps a nonlinear system curve under the cap', () {
+      final scaler = appTextScaler(const _CurvedScaler(), AppTextSize.large);
+      // Small text is already at 2.0: unchanged.
+      expect(scaler.scale(10), closeTo(20, 1e-9));
+      // Large text (1.5x) grows by 115 %, still under 2.0.
+      expect(scaler.scale(30), closeTo(30 * 1.5 * 1.15, 1e-9));
     });
 
-    test('keeps a nonlinear system curve', () {
-      final scaler = appTextScaler(const _CurvedScaler(), AppTextSize.large);
-      expect(scaler.scale(10), closeTo(10 * 2 * 1.15, 1e-9));
-      expect(scaler.scale(30), closeTo(30 * 1.5 * 1.15, 1e-9));
+    testWidgets('the system scaler is readable under the scope', (
+      tester,
+    ) async {
+      final cubit = TextSizeCubit(_MemoryStore());
+      addTearDown(cubit.close);
+      await cubit.select(AppTextSize.large);
+      late TextScaler system;
+      await tester.pumpWidget(
+        BlocProvider.value(
+          value: cubit,
+          child: MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(1.5)),
+              child: AppTextSizeScope(child: child!),
+            ),
+            home: Builder(
+              builder: (context) {
+                system = AppTextSizeScope.systemScalerOf(context);
+                return const SizedBox();
+              },
+            ),
+          ),
+        ),
+      );
+      expect(system.scale(10), 15);
     });
   });
 
@@ -126,19 +164,20 @@ void main() {
     ) async {
       final cubit = TextSizeCubit(_MemoryStore());
       addTearDown(cubit.close);
-      await tester.pumpWidget(app(cubit, system: 2));
-      expect(_Probe.scaleOf(tester), 2);
+      await tester.pumpWidget(app(cubit, system: 1.5));
+      expect(_Probe.scaleOf(tester), 1.5);
       final before = tester.state(find.byType(_Probe));
 
       await cubit.select(AppTextSize.larger);
       await tester.pump();
-      expect(_Probe.scaleOf(tester), closeTo(2.6, 1e-9));
+      // 1.5 x 130 % = 1.95, under the 2.0 cap.
+      expect(_Probe.scaleOf(tester), closeTo(1.95, 1e-9));
       // The same tree at every size: nothing remounted.
       expect(identical(tester.state(find.byType(_Probe)), before), isTrue);
 
       await cubit.select(AppTextSize.standard);
       await tester.pump();
-      expect(_Probe.scaleOf(tester), 2);
+      expect(_Probe.scaleOf(tester), 1.5);
     });
 
     testWidgets('dialogs get it too', (tester) async {
