@@ -49,6 +49,12 @@ enum ContextSectionKind {
 
   /// `/u/:id/lists`: the card of the Lists' owner (T8b).
   listsOwner,
+
+  /// `/plans/new`, `/plans/:id/edit`: the live preview of the form (T8d).
+  planPreview,
+
+  /// `/plans/new`, `/plans/:id/edit`: "Tips for a good plan" (T8d).
+  planTips,
 }
 
 /// One section of band B's context pane: a self-gating widget (it draws
