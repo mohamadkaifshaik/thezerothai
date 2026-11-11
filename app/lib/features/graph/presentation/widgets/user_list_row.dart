@@ -33,7 +33,17 @@ class UserListRow extends StatelessWidget {
     this.showDivider = true,
     this.extraAction,
     this.followSource = FollowSource.list,
+    this.avatarRadius = 20,
+    this.inset = AppSpacing.md,
   });
+
+  /// The avatar's radius (dp); the default 20 is the list standard. The
+  /// community members page draws the design's 44 dp avatar (22).
+  final double avatarRadius;
+
+  /// The row's start and end padding; the community members page uses the
+  /// design's 20.
+  final double inset;
 
   /// Where the row is shown, for the `follow` usage event.
   final FollowSource followSource;
@@ -112,8 +122,8 @@ class UserListRow extends StatelessWidget {
             child: Padding(
               // Directional, so RTL mirrors the gaps (T8b review note).
               padding: EdgeInsetsDirectional.only(
-                start: AppSpacing.md,
-                end: onDismiss == null ? AppSpacing.md : AppSpacing.xs,
+                start: inset,
+                end: onDismiss == null ? inset : AppSpacing.xs,
                 top: AppSpacing.sm,
                 bottom: AppSpacing.sm,
               ),
@@ -127,7 +137,7 @@ class UserListRow extends StatelessWidget {
                 lead: Padding(
                   padding: const EdgeInsetsDirectional.only(end: AppSpacing.md),
                   child: ExcludeSemantics(
-                    child: AppAvatar(url: user.avatarUrl),
+                    child: AppAvatar(url: user.avatarUrl, radius: avatarRadius),
                   ),
                 ),
                 body: Column(

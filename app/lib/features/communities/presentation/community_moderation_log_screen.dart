@@ -55,6 +55,11 @@ class _CommunityModerationLogScreenState
   )..load();
   final _scroll = ScrollController();
 
+  /// The community's name for the header's second line ("Chess club ·
+  /// Moderators only", the design's subtitle); empty until `GetCommunity`
+  /// answers (its one call; the line is kept so the page does not move).
+  String _communityName = '';
+
   /// Band B's context pane: "About this log" over this page's [_log], only
   /// once it lists entries (the caller moderates), as band A's list; the
   /// placeholder while it loads; nothing when it is locked, gone, failed or
@@ -89,6 +94,7 @@ class _CommunityModerationLogScreenState
   @override
   void initState() {
     super.initState();
+    _loadName();
     _scroll.addListener(() {
       if (!_scroll.hasClients) return;
       final p = _scroll.position;
@@ -96,6 +102,18 @@ class _CommunityModerationLogScreenState
         _log.loadMore();
       }
     });
+  }
+
+  Future<void> _loadName() async {
+    try {
+      final r = await context.read<CommunitiesRepository>().getCommunity(
+        widget.communityId,
+      );
+      if (!mounted) return;
+      setState(() => _communityName = r.community.name);
+    } on AppException {
+      // No name, no subtitle; the log reports its own errors.
+    }
   }
 
   @override
@@ -252,7 +270,37 @@ class _CommunityModerationLogScreenState
         child: AppMainColumn(
           child: Column(
             children: [
-              AppBackHeader(title: 'Moderation log', onBack: _back),
+              AppBackHeader(
+                title: 'Moderation log',
+                onBack: _back,
+                titleContent: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Moderation log',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    ExcludeSemantics(
+                      excluding: _communityName.isEmpty,
+                      child: Text(
+                        _communityName.isEmpty
+                            ? ' '
+                            : '$_communityName · Moderators only',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        // dz: 12 w600, muted.
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: context.appColors.secondaryOnRaised,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               Expanded(
                 child:
                     BlocBuilder<
