@@ -108,32 +108,46 @@ class PlanSummary extends StatelessWidget {
         ),
         if (showOrganiser) ...[
           const SizedBox(height: AppSpacing.md),
-          Row(
-            children: [
-              AppAvatar(url: b.organiser.avatarUrl, radius: 20),
-              const SizedBox(width: AppSpacing.smd),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      b.organiser.displayName.isEmpty
-                          ? b.organiser.handle
-                          : b.organiser.displayName,
-                      style: theme.textTheme.titleSmall,
-                    ),
-                    Text(
-                      '@${b.organiser.handle}',
-                      style: theme.textTheme.bodySmall?.copyWith(color: muted),
-                    ),
-                  ],
+          // The role label keeps its natural width while it fits, and gives
+          // way (ellipsis) past 40 % of the row: large text in a narrow
+          // column, such as the 320 dp context pane at 2.0.
+          LayoutBuilder(
+            builder: (context, constraints) => Row(
+              children: [
+                AppAvatar(url: b.organiser.avatarUrl, radius: 20),
+                const SizedBox(width: AppSpacing.smd),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        b.organiser.displayName.isEmpty
+                            ? b.organiser.handle
+                            : b.organiser.displayName,
+                        style: theme.textTheme.titleSmall,
+                      ),
+                      Text(
+                        '@${b.organiser.handle}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: muted,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              Text(
-                'Organiser',
-                style: theme.textTheme.bodySmall?.copyWith(color: muted),
-              ),
-            ],
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: constraints.maxWidth * 0.4,
+                  ),
+                  child: Text(
+                    'Organiser',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(color: muted),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
         if (b.details.isNotEmpty) ...[
