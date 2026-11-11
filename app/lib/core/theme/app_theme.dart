@@ -204,6 +204,10 @@ abstract final class AppSize {
   static const double dialogMax = 560;
   static const double composerDialogMax = 600;
 
+  /// Tallest the composer dialogs grow: `min(85 % of H, this)` (tablet plan
+  /// section 4.1, Composer row).
+  static const double composerDialogMaxHeight = 720;
+
   /// Width range of a confirm or alert dialog on the tablet layout ("D
   /// 280-400", tablet plan section 4.2).
   static const double alertDialogMin = 280;
