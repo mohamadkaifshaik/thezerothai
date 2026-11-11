@@ -97,9 +97,15 @@ class AppFormHeader extends StatelessWidget {
                     Expanded(
                       child: LayoutBuilder(
                         builder: (context, rest) {
-                          final quiet = secondaryLabel == null
-                              ? rest.maxWidth
-                              : rest.maxWidth / 2;
+                          // Phones and desktop: as before. On the tablet layout
+                          // the title always keeps a share of what is left
+                          // (a title with no width loses its semantics node),
+                          // so Cancel and the secondary button take at most
+                          // an equal part each.
+                          final parts = secondaryLabel == null ? 1 : 2;
+                          final quiet = tablet
+                              ? rest.maxWidth / (parts + 1)
+                              : rest.maxWidth / parts;
                           final cap = BoxConstraints(
                             maxWidth: row * share < quiet ? row * share : quiet,
                           );
@@ -119,6 +125,8 @@ class AppFormHeader extends StatelessWidget {
                               Expanded(
                                 child: Semantics(
                                   header: true,
+                                  label: title,
+                                  excludeSemantics: true,
                                   child: Text(
                                     title,
                                     maxLines: 1,

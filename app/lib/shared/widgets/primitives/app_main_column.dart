@@ -185,14 +185,26 @@ class _RenderBleedHitRegion extends RenderProxyBox {
   set allowsScrollView(bool value) {
     if (value == _allowsScrollView) return;
     _allowsScrollView = value;
-    // The widened children decide at layout whether they may widen.
-    for (final target in _targets) {
-      target.markNeedsLayout();
+    // Every interactive bleed below decides at layout whether it may widen,
+    // registered or not (one that fell back is in no set).
+    void visit(RenderObject node) {
+      if (node is _RenderBleed && node.interactive) node.markNeedsLayout();
+      node.visitChildren(visit);
     }
+
+    visitChildren(visit);
   }
 
   final Set<_RenderBleed> _targets = {};
 
+  /// Hit testing outside the column. Known limits, by design: a gesture
+  /// handler, `Listener` or `TapRegion` that is an ancestor of the header
+  /// (a `GestureDetector` around it) does not see a gutter event, as its own
+  /// box ends at the column; only the header's controls and the pane-wide
+  /// scroll view (when there is one) do. Nothing in the app wraps a header
+  /// in one. The cost is one `getTransformTo` per registered header per hit
+  /// test (one or two per page), and none for a point inside the column,
+  /// which is where mouse hovers almost always are.
   @override
   bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
     for (final target in _targets) {
@@ -237,6 +249,8 @@ class _RenderBleedHitRegion extends RenderProxyBox {
       if (node is RenderIgnorePointer && node.ignoring) return false;
       if (node is RenderAbsorbPointer && node.absorbing) return false;
       if (node is RenderOffstage && node.offstage) return false;
+      if (node is RenderSliverIgnorePointer && node.ignoring) return false;
+      if (node is RenderSliverOffstage && node.offstage) return false;
       if (node is RenderIndexedStack && !_shown(node, child)) return false;
       final clip = node.describeApproximatePaintClip(child);
       if (clip != null) {
@@ -414,7 +428,64 @@ class _RenderBleed extends RenderProxyBox {
   @override
   void paint(PaintingContext context, Offset offset) {
     final child = this.child;
-    if (child != null) context.paintChild(child, offset - Offset(_applied, 0));
+    if (child == null) return;
+    final shift = offset - Offset(_applied, 0);
+    final region = _region;
+    if (region == null || _applied == 0) {
+      context.paintChild(child, shift);
+      return;
+    }
+    // What the region would not deliver to (a scrolled header's part under
+    // a pinned sliver, per the viewport's own paint clip) is not painted
+    // beside the column either: nothing is drawn that cannot be tapped.
+    final visible = _visibleBeyondColumn();
+    if (visible == null) {
+      context.paintChild(child, shift);
+      return;
+    }
+    final path = Path()
+      ..addRect(Offset.zero & size)
+      ..addRect(visible.intersect(Rect.fromLTRB(-_applied, -1e5, 0, 1e5)))
+      ..addRect(
+        visible.intersect(
+          Rect.fromLTRB(size.width, -1e5, size.width + _applied, 1e5),
+        ),
+      );
+    context.pushClipPath(
+      needsCompositing,
+      offset,
+      Rect.fromLTWH(-_applied, 0, size.width + 2 * _applied, size.height),
+      path.shift(Offset.zero),
+      (context, offset) => context.paintChild(child, shift),
+    );
+  }
+
+  /// The part of this box's row (in its own coordinates) that every paint
+  /// clip between it and the region leaves visible; null when all of it is.
+  Rect? _visibleBeyondColumn() {
+    final full = Rect.fromLTWH(
+      -_applied,
+      0,
+      size.width + 2 * _applied,
+      size.height,
+    );
+    var visible = full;
+    RenderObject child = this;
+    for (
+      var node = parent;
+      node != null && node != _region;
+      node = node.parent
+    ) {
+      final clip = node.describeApproximatePaintClip(child);
+      if (clip != null) {
+        final inverse = Matrix4.tryInvert(getTransformTo(node));
+        if (inverse == null) return null;
+        visible = visible.intersect(MatrixUtils.transformRect(inverse, clip));
+        if (visible.isEmpty) return Rect.zero;
+      }
+      child = node;
+    }
+    return visible == full ? null : visible;
   }
 
   @override
@@ -432,6 +503,14 @@ class _RenderBleed extends RenderProxyBox {
   @override
   void applyPaintTransform(RenderBox child, Matrix4 transform) {
     transform.translateByDouble(-_applied, 0, 0, 1);
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    // A reattach (a moved or reparented subtree) lost the registration in
+    // detach; layout puts it back.
+    markNeedsLayout();
   }
 
   @override

@@ -611,6 +611,81 @@ void main() {
       }
     }
 
+    for (final (name, wrap, widened)
+        in <(String, Widget Function(Widget), bool)>[
+          ('AbsorbPointer', (h) => AbsorbPointer(child: h), true),
+          ('Offstage', (h) => Offstage(child: h), false),
+          (
+            'a hidden IndexedStack child',
+            (h) => IndexedStack(
+              index: 1,
+              children: [h, const SizedBox(height: 8)],
+            ),
+            false,
+          ),
+        ]) {
+      testWidgets('$name over a header: a tap in the gutter does nothing', (
+        tester,
+      ) async {
+        await _pump(tester, width: 1024, pane: _Pane.root, wrapHeader: wrap);
+        final back = tester.getRect(
+          find.byTooltip('Back', skipOffstage: false),
+        );
+        if (widened) expect(back.left, AppSpacing.xs);
+        await tester.tapAt(back.center);
+        await tester.pumpAndSettle();
+        expect(_backTaps, 0);
+      });
+    }
+
+    testWidgets('439 dp at text scale 2.0: the title is still announced, as '
+        'a header, after Cancel and before the action', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await _pump(
+        tester,
+        width: 840,
+        pane: _Pane.context,
+        textScale: 2,
+        form: true,
+        title: 'Edit plan',
+        actionLabel: 'Schedule',
+      );
+      expect(tester.takeException(), isNull);
+      final finder = find.bySemanticsLabel('Edit plan');
+      expect(finder, findsOneWidget);
+      final node = tester.getSemantics(finder);
+      expect(node, containsSemantics(isHeader: true, label: 'Edit plan'));
+      var matrix = Matrix4.identity();
+      for (SemanticsNode? n = node; n != null; n = n.parent) {
+        if (n.transform != null) matrix = n.transform!.multiplied(matrix);
+      }
+      final rect = MatrixUtils.transformRect(matrix, node.rect);
+      expect(rect.width, greaterThan(0));
+      final cancel = tester.getRect(find.widgetWithText(TextButton, 'Cancel'));
+      final action = tester.getRect(find.byType(AppPillButton));
+      expect(rect.left, greaterThanOrEqualTo(cancel.right - 0.5));
+      expect(rect.right, lessThanOrEqualTo(action.left + 0.5));
+      semantics.dispose();
+    });
+
+    for (final form in [false, true]) {
+      testWidgets('text scale 2.0 at 600: ${form ? 'form' : 'back'} header '
+          'meets the tap target guideline', (tester) async {
+        final semantics = tester.ensureSemantics();
+        await _pump(
+          tester,
+          width: 600,
+          pane: _Pane.primary,
+          textScale: 2,
+          form: form,
+          title: 'Edit plan',
+          actionLabel: 'Schedule',
+        );
+        await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+        semantics.dispose();
+      });
+    }
+
     testWidgets('Back follows the pane edge across 599, 600, 1199, 1200 and '
         'back (same widgets: the page keeps its state)', (tester) async {
       await _pump(tester, width: 599, pane: _Pane.root);
@@ -793,6 +868,8 @@ void main() {
       WidgetTester tester, {
       required bool across,
       double width = 1024,
+      List<Widget> Function(double inset)? before,
+      Widget Function(Widget headerSliver)? wrapSliver,
     }) async {
       tester.view.devicePixelRatio = 1;
       tester.view.physicalSize = Size(width, 600);
@@ -810,13 +887,17 @@ void main() {
       Widget slivers(double inset) => CustomScrollView(
         key: rows,
         slivers: [
-          SliverPadding(
-            padding: EdgeInsets.symmetric(horizontal: inset),
-            sliver: AppMainColumnBleed(
-              bleed: inset,
-              child: SliverToBoxAdapter(child: _header()),
-            ),
-          ),
+          ...?before?.call(inset),
+          () {
+            final header = SliverPadding(
+              padding: EdgeInsets.symmetric(horizontal: inset),
+              sliver: AppMainColumnBleed(
+                bleed: inset,
+                child: SliverToBoxAdapter(child: _header()),
+              ),
+            );
+            return wrapSliver == null ? header : wrapSliver(header);
+          }(),
           SliverPadding(
             padding: EdgeInsets.symmetric(horizontal: inset),
             sliver: SliverList.builder(
@@ -883,6 +964,91 @@ void main() {
       expect(_backTaps, 0);
     });
 
+    testWidgets('a pane-wide pinned bar over a scrolled header takes the tap '
+        'where it covers it; the visible part still goes back', (tester) async {
+      await pumpScrolling(
+        tester,
+        across: true,
+        before: (inset) => [
+          SliverPersistentHeader(
+            pinned: true,
+            delegate: _PinnedBar(height: 56),
+          ),
+        ],
+      );
+      await tester.drag(find.byKey(rows), const Offset(0, -30));
+      await tester.pumpAndSettle();
+      final moved = tester.getRect(find.byTooltip('Back'));
+      expect(moved.top, lessThan(56), reason: 'partly under the bar');
+      expect(moved.bottom, greaterThan(60), reason: 'partly below it');
+      // Under the pane-wide bar, in the gutter: the bar takes it.
+      await tester.tapAt(Offset(moved.center.dx, 40));
+      await tester.pumpAndSettle();
+      expect(_backTaps, 0);
+      // Below the bar: what is visible works.
+      await tester.tapAt(Offset(moved.center.dx, 59));
+      await tester.pumpAndSettle();
+      expect(_backTaps, 1);
+    });
+
+    testWidgets('a column-capped pinned bar over a scrolled header: the '
+        'gutter part under the overlap is neither painted nor tapped; '
+        'below it both work', (tester) async {
+      await pumpScrolling(
+        tester,
+        across: true,
+        before: (inset) => [
+          SliverPadding(
+            padding: EdgeInsets.symmetric(horizontal: inset),
+            sliver: SliverPersistentHeader(
+              pinned: true,
+              delegate: _PinnedBar(height: 56),
+            ),
+          ),
+        ],
+      );
+      Object row() => tester.renderObject(
+        find
+            .byWidgetPredicate((w) => w.runtimeType.toString() == '_Bleed')
+            .first,
+      );
+      expect(row(), isNot(paints..clipPath()), reason: 'nothing overlaps yet');
+      await tester.drag(find.byKey(rows), const Offset(0, -30));
+      await tester.pumpAndSettle();
+      expect(row(), paints..clipPath(), reason: 'the overlap is clipped');
+      final moved = tester.getRect(find.byTooltip('Back'));
+      await tester.tapAt(Offset(moved.center.dx, 40));
+      await tester.pumpAndSettle();
+      expect(_backTaps, 0);
+      await tester.tapAt(Offset(moved.center.dx, 59));
+      await tester.pumpAndSettle();
+      expect(_backTaps, 1);
+    });
+
+    testWidgets('a sliver that ignores pointers takes no gutter tap', (
+      tester,
+    ) async {
+      await pumpScrolling(
+        tester,
+        across: true,
+        wrapSliver: (sliver) => SliverIgnorePointer(sliver: sliver),
+      );
+      await tester.tapAt(tester.getRect(find.byTooltip('Back')).center);
+      expect(_backTaps, 0);
+    });
+
+    testWidgets('an offstage sliver takes no gutter tap', (tester) async {
+      await pumpScrolling(
+        tester,
+        across: true,
+        wrapSliver: (sliver) => SliverOffstage(sliver: sliver),
+      );
+      await tester.tapAt(
+        tester.getRect(find.byTooltip('Back', skipOffstage: false)).center,
+      );
+      expect(_backTaps, 0);
+    });
+
     testWidgets('a scroll view inside the column clips there: the controls '
         'stay in the column', (tester) async {
       await pumpScrolling(tester, across: false);
@@ -894,4 +1060,28 @@ void main() {
       expect(_backTaps, 1);
     });
   });
+}
+
+/// A pinned bar of a fixed height (the pinned-sliver tests).
+class _PinnedBar extends SliverPersistentHeaderDelegate {
+  _PinnedBar({required this.height});
+
+  final double height;
+
+  @override
+  double get minExtent => height;
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlaps) =>
+      ColoredBox(
+        color: Colors.blueGrey,
+        child: SizedBox(height: height),
+      );
+
+  @override
+  bool shouldRebuild(covariant _PinnedBar oldDelegate) =>
+      oldDelegate.height != height;
 }
