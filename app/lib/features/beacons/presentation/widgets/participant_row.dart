@@ -4,10 +4,11 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../../shared/widgets/primitives/app_avatar.dart';
 
-/// One participant: avatar, name, @handle and, on a request row for the
-/// organiser, the note. The text area is the tap target (>= 48dp) and speaks
-/// name, handle and note as one label; [trailing] holds the organiser's
-/// controls.
+/// One participant (R12, the designs' PlanPeople): a 44 dp avatar, name,
+/// @handle and, on a request row for the organiser, the note. The text area
+/// is the tap target (>= 48dp) and speaks name, handle and note as one
+/// label; [trailing] holds the organiser's menu and [footer] (a request's
+/// Decline and Accept) sits under the row. Rows are split by a hairline.
 class ParticipantRow extends StatelessWidget {
   const ParticipantRow({
     super.key,
@@ -15,12 +16,14 @@ class ParticipantRow extends StatelessWidget {
     this.showNote = false,
     this.onTap,
     this.trailing,
+    this.footer,
   });
 
   final pb.Participant participant;
   final bool showNote;
   final VoidCallback? onTap;
   final Widget? trailing;
+  final Widget? footer;
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +33,7 @@ class ParticipantRow extends StatelessWidget {
     final name = u.displayName.isEmpty ? u.handle : u.displayName;
     final note = showNote ? participant.note : '';
     final spoken = [name, '@${u.handle}', if (note.isNotEmpty) note].join(', ');
-    return Row(
+    final row = Row(
       children: [
         Expanded(
           child: Semantics(
@@ -52,7 +55,11 @@ class ParticipantRow extends StatelessWidget {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      AppAvatar(url: u.avatarUrl, radius: 20),
+                      AppAvatar(
+                        url: u.avatarUrl,
+                        name: name,
+                        radius: AppSize.avatarRow / 2,
+                      ),
                       const SizedBox(width: AppSpacing.smd),
                       Expanded(
                         child: Column(
@@ -74,7 +81,12 @@ class ParticipantRow extends StatelessWidget {
                             ),
                             if (note.isNotEmpty) ...[
                               const SizedBox(height: AppSpacing.xs),
-                              Text(note, style: theme.textTheme.bodyMedium),
+                              Text(
+                                note,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: context.appColors.text2,
+                                ),
+                              ),
                             ],
                           ],
                         ),
@@ -88,6 +100,28 @@ class ParticipantRow extends StatelessWidget {
         ),
         ?trailing,
       ],
+    );
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: context.appColors.hairline)),
+      ),
+      child: footer == null
+          ? row
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                row,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md,
+                    0,
+                    AppSpacing.md,
+                    AppSpacing.smd,
+                  ),
+                  child: footer,
+                ),
+              ],
+            ),
     );
   }
 }

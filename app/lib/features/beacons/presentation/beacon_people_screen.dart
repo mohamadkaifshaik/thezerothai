@@ -10,6 +10,8 @@ import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_menu_item_row.dart';
+import '../../../shared/widgets/primitives/app_notice_banner.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_section_header.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
@@ -300,7 +302,8 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
                           cubit: requests,
                           empty: 'No requests yet',
                           showNote: true,
-                          trailing: (p) => _requestControls(p, requests),
+                          trailing: (p) => _requestMenu(p, requests),
+                          footer: (p) => _requestActions(p, requests),
                           onTap: _openProfile,
                         )
                       : _List(
@@ -321,35 +324,47 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
   void _openProfile(pb.Participant p) =>
       context.push(AppRouter.profileByIdPath(p.user.userId));
 
-  Widget _requestControls(pb.Participant p, BeaconPeopleCubit requests) {
+  /// A request's Decline and Accept, side by side under the row (the
+  /// designs' PlanPeople): halves of the row, never cut at large text.
+  Widget _requestActions(pb.Participant p, BeaconPeopleCubit requests) {
     final busy = requests.state.busyUserId != null;
-    final canBlock = context.read<GraphRepository?>() != null;
+    final busyHere = requests.state.busyUserId == p.user.userId;
     return Row(
-      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextButton(
-          onPressed: busy ? null : () => requests.accept(p.user.userId),
-          child: const Text('Accept'),
+        Expanded(
+          child: AppPillButton(
+            label: 'Decline',
+            variant: AppButtonVariant.outline,
+            onPressed: busy ? null : () => _decline(p, block: false),
+          ),
         ),
-        PopupMenuButton<String>(
-          tooltip: 'Request options',
-          icon: const Icon(Icons.more_horiz),
-          enabled: !busy,
-          onSelected: (value) => _decline(p, block: value == 'block'),
-          itemBuilder: (context) => [
-            const PopupMenuItem(
-              value: 'decline',
-              child: AppMenuItemRow(icon: Icons.close, label: 'Decline'),
-            ),
-            if (canBlock)
-              const PopupMenuItem(
-                value: 'block',
-                child: AppMenuItemRow(
-                  icon: Icons.block,
-                  label: 'Decline and block',
-                ),
-              ),
-          ],
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: AppPillButton(
+            label: 'Accept',
+            busy: busyHere,
+            busySemanticsLabel: 'Accepting',
+            onPressed: busy ? null : () => requests.accept(p.user.userId),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// "Decline and block" (the request's menu; with no blocking, no menu).
+  /// Decline itself is the pill under the row, so it is not repeated here.
+  Widget? _requestMenu(pb.Participant p, BeaconPeopleCubit requests) {
+    if (context.read<GraphRepository?>() == null) return null;
+    return PopupMenuButton<String>(
+      tooltip: 'Request options',
+      icon: const Icon(Icons.more_horiz),
+      enabled: requests.state.busyUserId == null,
+      onSelected: (_) => _decline(p, block: true),
+      itemBuilder: (context) => const [
+        PopupMenuItem(
+          value: 'block',
+          child: AppMenuItemRow(icon: Icons.block, label: 'Decline and block'),
         ),
       ],
     );
@@ -379,12 +394,14 @@ class _List extends StatelessWidget {
     required this.onTap,
     this.showNote = false,
     this.trailing,
+    this.footer,
   });
 
   final BeaconPeopleCubit cubit;
   final String empty;
   final bool showNote;
-  final Widget Function(pb.Participant)? trailing;
+  final Widget? Function(pb.Participant)? trailing;
+  final Widget Function(pb.Participant)? footer;
   final void Function(pb.Participant) onTap;
 
   @override
@@ -443,6 +460,7 @@ class _List extends StatelessWidget {
                     showNote: showNote,
                     onTap: () => onTap(p),
                     trailing: trailing?.call(p),
+                    footer: footer?.call(p),
                   );
                 },
               ),
@@ -469,26 +487,11 @@ class _PendingBlockRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final who = handle.isEmpty ? 'this person' : '@$handle';
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.xs,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              'Blocking $who failed.',
-              style: Theme.of(context).textTheme.bodyMedium
-                  ?.copyWith(color: Theme.of(context).colorScheme.error),
-            ),
-          ),
-          TextButton(
-            onPressed: busy ? null : onRetry,
-            child: const Text('Retry'),
-          ),
-        ],
-      ),
+    // The designs' status banner: the shared notice with its 48 dp Retry
+    // (none while an action is in flight).
+    return AppNoticeBanner(
+      message: 'Blocking $who failed.',
+      onRetry: busy ? null : onRetry,
     );
   }
 }

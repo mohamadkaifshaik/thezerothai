@@ -126,8 +126,8 @@ class PlansTabletRig {
   /// The hoisted session, or null with `hoisted: false`.
   PlansSession? session;
 
-  /// The create form's picker seams with `realForms` (both, or neither:
-  /// the real pickers).
+  /// The create and edit forms' picker seams with `realForms` (both, or
+  /// neither: the real pickers).
   BeaconPickDate? pickDate;
   BeaconPickTime? pickTime;
 
@@ -152,6 +152,9 @@ class PlansTabletRig {
     TextDirection textDirection = TextDirection.ltr,
     bool realForms = false,
     bool profile = true,
+
+    /// False: pump a frame or two only, for a screen held loading.
+    bool settle = true,
   }) async {
     addTearDown(flagChanges.close);
     OnboardingState ready(Set<String> set) => OnboardingState(
@@ -263,7 +266,15 @@ class PlansTabletRig {
             GoRoute(
               path: '/plans/:id/edit',
               builder: (context, state) => realForms
-                  ? EditBeaconScreen(beaconId: state.pathParameters['id']!)
+                  ? (pickDate == null || pickTime == null
+                        ? EditBeaconScreen(
+                            beaconId: state.pathParameters['id']!,
+                          )
+                        : EditBeaconScreen(
+                            beaconId: state.pathParameters['id']!,
+                            pickDate: pickDate!,
+                            pickTime: pickTime!,
+                          ))
                   : Scaffold(appBar: AppBar(title: const Text('Edit stub'))),
             ),
           ],
@@ -309,7 +320,12 @@ class PlansTabletRig {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+    }
   }
 
   /// Resizes the window and settles.

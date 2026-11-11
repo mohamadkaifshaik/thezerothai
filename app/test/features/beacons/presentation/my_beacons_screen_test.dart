@@ -1,3 +1,4 @@
+import 'package:dzeroth/shared/widgets/primitives/app_chip.dart';
 import 'package:dzeroth/features/beacons/presentation/my_beacons_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/beacon_row.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
@@ -56,7 +57,7 @@ void main() {
     await tester.tap(find.text('Past'));
     await tester.pumpAndSettle();
     expect(server.calls, ['mine', 'mine']);
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Organising'));
+    await tester.tap(find.widgetWithText(AppFilterPill, 'Organising'));
     await tester.pumpAndSettle();
     expect(server.calls, ['mine', 'mine', 'mine']);
 
@@ -79,12 +80,20 @@ void main() {
       );
     }
     await open(tester);
-    final list = find.byType(Scrollable).first;
+    // The plans list (R12's cards are taller; scoped to the list).
+    final list = find
+        .descendant(
+          of: find.byType(RefreshIndicator),
+          matching: find.byType(Scrollable),
+        )
+        .first;
     await tester.scrollUntilVisible(
       find.text('Load more'),
       300,
       scrollable: list,
     );
+    await tester.ensureVisible(find.text('Load more'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Load more'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(

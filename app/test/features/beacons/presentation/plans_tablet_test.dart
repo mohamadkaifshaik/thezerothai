@@ -287,8 +287,8 @@ void main() {
       await rig.pump(tester, location: AppRouter.planPath(kBeaconIdA));
       expect(findPlansPane(), findsOneWidget);
 
-      await tester.ensureVisible(find.text('People · 1'));
-      await tester.tap(find.text('People · 1'));
+      await tester.ensureVisible(find.text('People · 1 going'));
+      await tester.tap(find.text('People · 1 going'));
       await tester.pumpAndSettle();
       expect(rig.uri.path, AppRouter.planPeoplePath(kBeaconIdA));
       expect(find.byType(BeaconPeopleScreen), findsOneWidget);
@@ -346,8 +346,8 @@ void main() {
       rig.server.going[kBeaconIdA] = [participant(userId: 'ann', name: 'Ann')];
       await rig.pump(tester, location: AppRouter.planPath(kBeaconIdA));
 
-      await tester.ensureVisible(find.text('People · 1'));
-      await tester.tap(find.text('People · 1'));
+      await tester.ensureVisible(find.text('People · 1 going'));
+      await tester.tap(find.text('People · 1 going'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Ann'));
       await tester.pumpAndSettle();
