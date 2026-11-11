@@ -126,9 +126,36 @@ void main() {
       // never the communities page's lent sections.
       ('/communities', '/plans/mine'): '/plans/mine',
       ('/communities/77', '/profile/alice'): '/profile/alice',
-      // Neither side is a communities page: T3's base-route rule, unchanged.
-      ('/explore', '/profile/alice'): '/explore',
+      // The profile pages are pushed too (T8c): a profile over Explore, Home
+      // or a post gets its own pane (this row read `/explore` before T8c).
+      ('/explore', '/profile/alice'): '/profile/alice',
+      ('/home', '/u/u1'): '/u/u1',
+      ('/post/p1', '/profile/alice'): '/profile/alice',
+      // Over a plan (no pane of its own, T5): the profile's pane.
+      ('/plans/b1', '/u/u1'): '/u/u1',
+      // Followers, Following and Edit profile over a profile: their own
+      // family (Who to follow; no pane), never the profile's media strip.
+      ('/profile/alice', '/profile/alice/followers'):
+          '/profile/alice/followers',
+      ('/u/u1', '/profile/alice/following'): '/profile/alice/following',
+      ('/profile/alice', AppRouter.editProfilePath): AppRouter.editProfilePath,
+      // A Settings page pushed over anything decides its own (no) pane: the
+      // own profile pushed over Home, then Edit profile from it.
+      ('/home', AppRouter.editProfilePath): AppRouter.editProfilePath,
+      ('/explore', AppRouter.changeHandlePath): AppRouter.changeHandlePath,
+      // A plan's detail over Home keeps T5's base-route rule.
+      ('/home', '/plans/b1'): '/home',
+      // A person's Lists over their profile (T8b's owner card), and a post
+      // over the own profile (the global set): their own family.
+      ('/profile/alice', '/u/u1/lists'): '/u/u1/lists',
+      ('/profile/alice', '/post/p1'): '/post/p1',
+      // Neither side is a communities or profile page: T3's base-route rule,
+      // unchanged.
+      ('/explore', '/post/p1'): '/explore',
       ('/home', '/post/p1'): '/home',
+      // Not a prefix match: `/profiles` and `/user` are not profile pages.
+      ('/home', '/profiles'): '/home',
+      ('/home', '/user/u1'): '/home',
       // No top page known (no router): the base route.
       ('/communities', null): '/communities',
       ('/home', null): '/home',
@@ -207,7 +234,9 @@ void main() {
       // Not a Lists page: T3's base-route rule, unchanged.
       ('/home', '/home'): '/home',
       ('/home', '/listsx'): '/home',
-      ('/home', '/u/o1'): '/home',
+      // A profile over Home follows T8c's profile rule (the top page
+      // decides; this row read `/home` in T8b).
+      ('/home', '/u/o1'): '/u/o1',
     };
     for (final MapEntry(key: (base, top), value: expected) in cases.entries) {
       test('pane location: base $base, top $top -> $expected', () {

@@ -13,6 +13,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/features/posts/domain/reply_audience.dart';
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -365,18 +366,12 @@ void main() {
       ('a phone', 390.0, _tabletFlags),
     ]) {
       testWidgets('$name: in the dialog, not in a pane', (tester) async {
-        // A phone's dialog (today's, unchanged) cannot fit the reply
-        // dropdown's longest choice (a pre-existing overflow, reported in
-        // T7): it is checked without the reply control.
-        final phone = width < 600;
-        final repo = _Repo(canChoose: !phone);
+        final repo = _Repo();
         await open(tester, repo, width: width, height: 900, flags: flags);
         expect(paneSettings(), findsNothing);
         await openPublish(tester);
-        expect(
-          inDialog(find.text('Who can reply?')),
-          phone ? findsNothing : findsOneWidget,
-        );
+        expect(tester.takeException(), isNull);
+        expect(inDialog(find.text('Who can reply?')), findsOneWidget);
         expect(inDialog(find.text('Choose your audience')), findsOneWidget);
       });
     }
@@ -451,6 +446,163 @@ void main() {
       await open(tester, repo);
       expect(paneSettings(), findsNothing);
     });
+  });
+
+  // "Who can reply?" fits its width at every size: the closed field shows
+  // the chosen option whole or ellipsized on one line, never cut through a
+  // glyph, and the open menu shows every option whole (wrapping if it must).
+  // The longest option is chosen. Where the reply control is depends on the
+  // width and flags: the publish dialog everywhere except band B of the
+  // tablet layout (840 with both flags), where it is the library pane's.
+  group('"Who can reply?" fits its width', () {
+    final field = find.byType(DropdownButtonFormField<ReplyAudience>);
+    const longest = ReplyAudience.mentionedOnly;
+
+    /// Every line [text] lays out is painted whole: its box holds all of
+    /// its lines, and a line cut short ends in an ellipsis.
+    void expectNotClipped(
+      WidgetTester tester,
+      Finder text, {
+      required bool ellipsisAllowed,
+      required String reason,
+    }) {
+      final paragraph = tester.renderObject<RenderParagraph>(text);
+      expect(paragraph.size.width, greaterThan(0), reason: reason);
+      expect(
+        paragraph.size.height,
+        greaterThanOrEqualTo(
+          paragraph.getMaxIntrinsicHeight(paragraph.size.width) - 0.01,
+        ),
+        reason: '$reason: lines cut off vertically',
+      );
+      if (paragraph.didExceedMaxLines) {
+        expect(ellipsisAllowed, isTrue, reason: '$reason: truncated');
+        expect(
+          paragraph.overflow,
+          TextOverflow.ellipsis,
+          reason: '$reason: cut without an ellipsis',
+        );
+      }
+    }
+
+    Future<void> expectFieldFits(
+      WidgetTester tester,
+      Finder control,
+      double width,
+    ) async {
+      expect(control, findsOneWidget);
+      // The closed field: the chosen option, on one line within the field.
+      final selected = find.descendant(
+        of: control,
+        matching: find.text(longest.optionLabel),
+      );
+      expect(selected, findsOneWidget);
+      expectNotClipped(
+        tester,
+        selected,
+        ellipsisAllowed: true,
+        reason: 'selected',
+      );
+      final box = tester.getRect(
+        find.descendant(of: control, matching: find.byType(InputDecorator)),
+      );
+      final text = tester.getRect(selected);
+      expect(text.left, greaterThanOrEqualTo(box.left - 0.01));
+      expect(text.right, lessThanOrEqualTo(box.right + 0.01));
+      expect(text.top, greaterThanOrEqualTo(box.top - 0.01));
+      expect(text.bottom, lessThanOrEqualTo(box.bottom + 0.01));
+      expect(box.left, greaterThanOrEqualTo(0));
+      expect(box.right, lessThanOrEqualTo(width));
+
+      // The open menu: every option whole. (The pane's settings scroll
+      // beyond a third of its height: bring the field into view first.)
+      await tester.ensureVisible(control);
+      await tester.pumpAndSettle();
+      await tester.tap(control);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'the open menu');
+      for (final audience in ReplyAudience.values) {
+        final option = find.text(audience.optionLabel).last;
+        expectNotClipped(
+          tester,
+          option,
+          ellipsisAllowed: false,
+          reason: 'menu ${audience.name}',
+        );
+        final rect = tester.getRect(option);
+        expect(rect.left, greaterThanOrEqualTo(0));
+        expect(rect.right, lessThanOrEqualTo(width));
+      }
+      // Close the menu on the same choice.
+      await tester.tap(find.text(longest.optionLabel).last);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'the closed menu');
+    }
+
+    // The editor page behind the dialog overflows on its own in these cells
+    // (pre-existing, not the reply control, reported separately): on phones
+    // the AppBar's actions (articles_screen.dart:649), the "Draft" status
+    // row (:1067) and the cover placeholder (:1118); beside the library at
+    // 840 x2.0, the cover placeholder. The page is not under test here; the
+    // reply control, the dialog and the menu are.
+    bool appBarOverflows(double width, double scale) =>
+        width == 320 || (width <= 390 && scale == 2.0);
+    bool pageOverflows(double width, double scale, {required bool inPane}) =>
+        appBarOverflows(width, scale) || (inPane && scale == 2.0);
+
+    for (final MapEntry(key: mode, value: flags) in {
+      'neither': const <String>{},
+      'ui_shell + ui_tablet': _tabletFlags,
+    }.entries) {
+      for (final width in <double>[320, 360, 390, 599, 600, 840, 1440]) {
+        final inPane = flags.isNotEmpty && width >= 840 && width < 1200;
+        for (final scale in <double>[1.0, 2.0]) {
+          for (final direction in TextDirection.values) {
+            testWidgets('$mode at ${width.toInt()} x$scale ${direction.name}: '
+                '${inPane ? 'the pane' : 'the dialog'}', (tester) async {
+              await open(
+                tester,
+                _Repo(stored: ReplyPolicy.REPLY_POLICY_MENTIONED_ONLY),
+                width: width,
+                height: 900,
+                flags: flags,
+                textScale: scale,
+                textDirection: direction,
+              );
+              final page = tester.takeException();
+              if (!pageOverflows(width, scale, inPane: inPane)) {
+                expect(page, isNull, reason: 'the editor');
+              }
+              if (inPane) {
+                // The only reply control before the dialog opens.
+                expect(paneSettings(), findsOneWidget);
+                await expectFieldFits(tester, field, width);
+              }
+              if (appBarOverflows(width, scale)) {
+                // The overflowing AppBar can push Publish out of reach; the
+                // page is not under test here, so press it directly.
+                tester
+                    .widget<FilledButton>(
+                      find.widgetWithText(FilledButton, 'Publish').first,
+                    )
+                    .onPressed!();
+                await tester.pumpAndSettle();
+                expect(find.text('Publish Article'), findsOneWidget);
+              } else {
+                await openPublish(tester);
+              }
+              expect(tester.takeException(), isNull, reason: 'the dialog');
+              if (inPane) {
+                expect(inDialog(field), findsNothing);
+              } else {
+                expect(inDialog(find.text('Who can reply?')), findsOneWidget);
+                await expectFieldFits(tester, inDialog(field), width);
+              }
+            });
+          }
+        }
+      }
+    }
   });
 
   group('the editor survives the library coming and going', () {
