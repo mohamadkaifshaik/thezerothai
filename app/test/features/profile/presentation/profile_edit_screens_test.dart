@@ -380,7 +380,7 @@ void main() {
     ) async {
       await open(tester, '/settings/handle');
 
-      expect(find.text('Current handle: @kaif'), findsOneWidget);
+      expect(find.text('CURRENT · @kaif'), findsOneWidget);
       expect(find.textContaining('once every 7 days'), findsOneWidget);
       expect(change(tester).onPressed, isNull);
     });
@@ -527,7 +527,7 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('Current handle: @kaif'), findsOneWidget);
+      expect(find.text('CURRENT · @kaif'), findsOneWidget);
       // Save stays off until the cooldown passes, with the time left inline.
       expect(
         find.text('You can change your handle again in 5 days.'),
@@ -586,7 +586,7 @@ void main() {
         find.text("Your profile isn't available right now."),
         findsOneWidget,
       );
-      expect(find.textContaining('Current handle'), findsNothing);
+      expect(find.textContaining('CURRENT'), findsNothing);
     });
 
     testWidgets('FEATURE_DISABLED degrades: friendly text and a flag refresh', (

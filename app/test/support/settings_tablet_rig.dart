@@ -4,6 +4,7 @@ import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/core/theme/text_size_cubit.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
@@ -14,14 +15,19 @@ import 'package:dzeroth/features/graph/presentation/managed_accounts_screen.dart
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/messages_badge_cubit.dart';
+import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/unread_badge_cubit.dart';
+import 'package:dzeroth/features/notifications/presentation/notification_settings_screen.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/posts/data/drafts_repository.dart';
+import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/profile/presentation/change_handle_screen.dart';
+import 'package:dzeroth/features/settings/data/own_privacy_store.dart';
 import 'package:dzeroth/features/settings/domain/settings_categories.dart';
+import 'package:dzeroth/features/settings/presentation/message_settings_screen.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
 import 'package:dzeroth/features/settings/presentation/settings_up.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
@@ -43,7 +49,7 @@ class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
 
 class _MockGraph extends Mock implements GraphRepository {}
 
-class _MockIdentity extends Mock implements IdentityRepository {}
+class SettingsRigIdentity extends Mock implements IdentityRepository {}
 
 class _MockMessaging extends Mock implements MessagingRepository {}
 
@@ -126,6 +132,13 @@ class SettingsTabletRig {
 
   /// The (mock) auth bloc, for `verify`.
   late AuthBloc auth;
+
+  /// The (mock) onboarding bloc, for `verify` (flag refreshes).
+  late OnboardingBloc onboarding;
+
+  /// The (mock) identity repository: stub `updateProfile` before an R4
+  /// save (read receipts, who can message).
+  final identityRepository = SettingsRigIdentity();
   final launcher = FakeUrlLauncher();
 
   /// The location of the top page, query included (a pushed one too).
@@ -144,9 +157,13 @@ class SettingsTabletRig {
     EdgeInsets padding = EdgeInsets.zero,
     MessagingFeatureGate? messagingGate,
     FakeDraftsRepository? drafts,
+    OwnPrivacyStore? ownPrivacy,
+    TextSizeCubit? textSize,
+    NotificationsRepository? notifications,
+    PostsRepository? posts,
   }) async {
     UrlLauncherPlatform.instance = launcher;
-    final onboarding = _MockOnboardingBloc();
+    final onboarding = this.onboarding = _MockOnboardingBloc();
     whenListen(
       onboarding,
       const Stream<OnboardingState>.empty(),
@@ -188,7 +205,6 @@ class SettingsTabletRig {
       ).thenAnswer((_) async => const GraphPage(items: [], nextPageToken: ''));
     }
     when(() => graph.followRequestsUnavailable).thenReturn(false);
-    final identityRepository = _MockIdentity();
     when(() => identityRepository.privateAccountsRefused).thenReturn(false);
     when(() => identityRepository.checkHandleAvailability(any())).thenAnswer(
       (_) async => identity.CheckHandleAvailabilityResponse(available: true),
@@ -253,6 +269,15 @@ class SettingsTabletRig {
             ),
             for (final path in kStubLeaves)
               GoRoute(path: path, builder: (context, state) => stubLeaf(path)),
+            // R4: the real leaves.
+            GoRoute(
+              path: AppRouter.notificationSettingsPath,
+              builder: (context, state) => const NotificationSettingsScreen(),
+            ),
+            GoRoute(
+              path: AppRouter.messageSettingsPath,
+              builder: (context, state) => const MessageSettingsScreen(),
+            ),
           ],
         ),
       ],
@@ -271,6 +296,8 @@ class SettingsTabletRig {
         BlocProvider<ThemeModeCubit>(
           create: (_) => ThemeModeCubit(_MemoryThemeStore()),
         ),
+        if (textSize != null)
+          BlocProvider<TextSizeCubit>.value(value: textSize),
       ],
       child: MultiRepositoryProvider(
         providers: [
@@ -283,6 +310,14 @@ class SettingsTabletRig {
           // drafts question); none without it.
           if (drafts != null)
             RepositoryProvider<DraftsRepository>.value(value: drafts),
+          if (ownPrivacy != null)
+            RepositoryProvider<OwnPrivacyStore>.value(value: ownPrivacy),
+          if (notifications != null)
+            RepositoryProvider<NotificationsRepository>.value(
+              value: notifications,
+            ),
+          if (posts != null)
+            RepositoryProvider<PostsRepository>.value(value: posts),
         ],
         child: MaterialApp.router(
           theme: buildAppTheme(brightness: brightness),
@@ -295,7 +330,8 @@ class SettingsTabletRig {
                 padding: padding,
                 viewPadding: padding,
               ),
-              child: child!,
+              // The app root's text size (F7): a no-op without a cubit.
+              child: AppTextSizeScope(child: child!),
             ),
           ),
         ),

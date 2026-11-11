@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
+    as ts;
 import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
@@ -59,7 +61,9 @@ class EditBeaconState {
 /// `/plans/:id/edit`: one GetBeacon for the starting values, then one
 /// UpdateBeacon carrying only the fields that differ (presence is the server's
 /// diff). One key per distinct payload, reused on a retry (R36). Nothing
-/// changed means no call.
+/// changed means no call. F28 adds the start, duration and cost; an answer
+/// without them (an older server) keeps the form open with
+/// [kPlanScheduleNotSaved].
 class EditBeaconCubit extends Cubit<EditBeaconState> {
   EditBeaconCubit({
     required BeaconsRepository repository,
@@ -87,11 +91,17 @@ class EditBeaconCubit extends Cubit<EditBeaconState> {
     }
   }
 
+  /// Saves the form. [startAt], [durationMinutes] and [cost] (F28) are sent
+  /// only when given and different from the loaded plan; the screen gives
+  /// none once the plan has started (the server refuses them then).
   Future<void> save({
     required String title,
     required String details,
     required String venue,
     required int openSpots,
+    DateTime? startAt,
+    int? durationMinutes,
+    pb.BeaconCost? cost,
   }) async {
     final view = state.view;
     if (state.busy || view == null) return;
@@ -101,10 +111,18 @@ class EditBeaconCubit extends Cubit<EditBeaconState> {
     if (details != b.details) request.details = details;
     if (venue != b.venue) request.venue = venue;
     if (openSpots != b.openSpots) request.openSpots = openSpots;
+    if (startAt != null && !startAt.isAtSameMomentAs(b.startAt.toDateTime())) {
+      request.startAt = ts.Timestamp.fromDateTime(startAt.toUtc());
+    }
+    if (durationMinutes != null && durationMinutes != b.durationMinutes) {
+      request.durationMinutes = durationMinutes;
+    }
+    if (cost != null && cost != b.cost) request.cost = cost;
     if (!request.hasTitle() &&
         !request.hasDetails() &&
         !request.hasVenue() &&
-        !request.hasOpenSpots()) {
+        !request.hasOpenSpots() &&
+        !_movesSchedule(request)) {
       emit(state.copyWith(saved: view, clearSaveError: true));
       return;
     }
@@ -120,10 +138,41 @@ class EditBeaconCubit extends Cubit<EditBeaconState> {
         request: request,
       );
       if (isClosed) return;
+      if (!_scheduleApplied(request, saved.beacon)) {
+        // A server from before F28 answers OK and ignores the new fields:
+        // not "saved". The view is its answer, so a retry sends only what
+        // is still different.
+        emit(
+          state.copyWith(
+            busy: false,
+            view: saved,
+            saveError: kPlanScheduleNotSaved,
+          ),
+        );
+        return;
+      }
       emit(state.copyWith(busy: false, view: saved, saved: saved));
     } on AppException catch (error) {
       if (isClosed) return;
       emit(state.copyWith(busy: false, saveError: beaconsErrorMessage(error)));
     }
   }
+
+  static bool _movesSchedule(pb.UpdateBeaconRequest r) =>
+      r.hasStartAt() || r.hasDurationMinutes() || r.hasCost();
+
+  /// Whether [saved] carries the start, duration and cost [sent] asked for.
+  static bool _scheduleApplied(pb.UpdateBeaconRequest sent, pb.Beacon saved) =>
+      (!sent.hasStartAt() ||
+          saved.startAt.toDateTime().isAtSameMomentAs(
+            sent.startAt.toDateTime(),
+          )) &&
+      (!sent.hasDurationMinutes() ||
+          saved.durationMinutes == sent.durationMinutes) &&
+      (!sent.hasCost() || saved.cost == sent.cost);
 }
+
+/// The save error when the server kept the old start, duration or cost
+/// (F28 not deployed there yet).
+const kPlanScheduleNotSaved =
+    "The new time or cost wasn't saved. Try again later.";

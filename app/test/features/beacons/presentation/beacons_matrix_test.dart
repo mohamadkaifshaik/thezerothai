@@ -64,6 +64,19 @@ void main() {
         env,
       );
       expectNoOverflow(tester);
+      // R12: the plan cards are taller than the old rows, so the full plan
+      // can be below the fold at large text: scroll to it.
+      await tester.scrollUntilVisible(
+        find.text('Full'),
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byType(RefreshIndicator),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      expectNoOverflow(tester);
       expect(find.text('Full'), findsOneWidget);
     },
     textScales: kMatrixTextScalesLarge,

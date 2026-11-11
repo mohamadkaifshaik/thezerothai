@@ -4,6 +4,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/communities/data/communities_repository.dart';
 import 'package:dzeroth/features/communities/presentation/community_screen.dart';
+import 'package:dzeroth/features/communities/presentation/widgets/community_header.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/lists/data/home_tabs_repository.dart';
 import 'package:dzeroth/features/lists/domain/home_tab_entry.dart';
@@ -176,7 +177,16 @@ void main() {
       await tester.pumpAndSettle();
 
       expectNoOverflow(tester);
-      expect(find.text('Openings, endgames and puzzles'), findsOneWidget);
+      // R10 review item 11: the header shows the description too (2 lines
+      // at most); the About tab keeps it whole.
+      expect(
+        find.descendant(
+          of: find.byType(CommunityHeader),
+          matching: find.text('Openings, endgames and puzzles'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Openings, endgames and puzzles'), findsNWidgets(2));
       expect(find.text('1.'), findsOneWidget);
       expect(find.text('Be kind'), findsOneWidget);
       expect(find.text('Stay on topic'), findsOneWidget);

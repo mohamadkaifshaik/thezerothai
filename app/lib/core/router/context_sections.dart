@@ -12,6 +12,8 @@ import '../../features/communities/presentation/widgets/community_about.dart'
     show CommunityAboutPanePlaceholder;
 import '../../features/communities/presentation/widgets/community_preview.dart'
     show CommunityPreviewCard;
+import '../../features/communities/presentation/widgets/community_search_field.dart'
+    show CommunitySearchField, kSearchMembersHint, kSearchMembersLabel;
 import '../../features/communities/presentation/widgets/explore_communities_pane.dart'
     show ExploreCommunitiesPanePlaceholder;
 import '../../features/communities/presentation/widgets/moderation_log_about.dart'
@@ -25,6 +27,8 @@ import '../../features/lists/presentation/widgets/list_members_pane.dart'
     show ListMembersPanePlaceholder;
 import '../../features/lists/presentation/widgets/lists_owner_card.dart'
     show ListsOwnerCardPlaceholder;
+import '../../features/notifications/presentation/widgets/follow_requests_card.dart'
+    show FollowRequestsCardSlot, followRequestsCardAllowed;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/profile/presentation/widgets/profile_media_strip.dart'
@@ -61,7 +65,8 @@ enum ContextFamily {
   /// itself).
   explore,
 
-  /// Notifications: What's happening.
+  /// Notifications: the follow-requests card (F16, lent by the page), then
+  /// What's happening.
   notifications,
 
   /// Search results: What's happening (the filters wait for F22).
@@ -74,8 +79,9 @@ enum ContextFamily {
   /// like.
   profile,
 
-  /// `/communities` (T8a): "Explore Communities", lent by the page (its
-  /// directory and Join). F37's scoped "Search Communities" waits.
+  /// `/communities` (T8a): "Search communities" over "Explore
+  /// communities", lent by the page (its filter, directory and Join; F37,
+  /// R10).
   communities,
 
   /// `/communities/new` (T8a): the live preview of the form, lent by the
@@ -89,6 +95,10 @@ enum ContextFamily {
   /// `/communities/:id/moderation-log` (T8a): "About this log", lent by the
   /// page once its log lists entries (the caller moderates).
   moderationLog,
+
+  /// `/communities/:id/members` (R10): "Search members", lent by the page,
+  /// with `community_member_search` on (F36); the global set without it.
+  communityMembers,
 
   /// `/lists/:id` (T8b): a preview of the List's members, lent by the page.
   listDetail,
@@ -218,8 +228,9 @@ ContextFamily contextFamilyFor(String location) {
     ['communities'] => ContextFamily.communities,
     ['communities', 'new'] => ContextFamily.communityCreate,
     ['communities', _, 'moderation-log'] => ContextFamily.moderationLog,
-    // CommunityMembers: the global set (F36's "Search members" waits).
-    ['communities', _, 'members'] => ContextFamily.global,
+    // CommunityMembers: "Search members" (F36), or the global set with its
+    // flag off (see [contextSectionsFor]).
+    ['communities', _, 'members'] => ContextFamily.communityMembers,
     ['communities', _] => ContextFamily.community,
     // Lists (T8b). `/lists` and `/lists/:id/members` keep the global set
     // (F10 keeps "Discover new Lists" out; F31's suggestions wait).
@@ -250,10 +261,17 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
     ContextFamily.communities ||
     ContextFamily.communityCreate ||
     ContextFamily.community ||
-    ContextFamily.moderationLog => true,
+    ContextFamily.moderationLog ||
+    ContextFamily.communityMembers => true,
     _ => false,
   };
   if (communitiesFamily && !isFeatureEnabled(context, kFeatureCommunities)) {
+    family = ContextFamily.global;
+  }
+  // The members page's search needs its own flag too (F36); without it the
+  // page keeps the global set (T8a ruling 11).
+  if (family == ContextFamily.communityMembers &&
+      !isFeatureEnabled(context, kFeatureCommunityMemberSearch)) {
     family = ContextFamily.global;
   }
   // Likewise the Lists pages need `lists` (T8b).
@@ -303,22 +321,26 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
 
   return [
     ...switch (family) {
-      ContextFamily.global => [
-        if (search)
-          const ContextSection(
-            ContextSectionKind.search,
-            Padding(
-              padding: EdgeInsets.only(bottom: AppSpacing.md),
-              child: AppSearchField(),
-            ),
-          ),
-        ?_profileSection(context),
-        if (trends) whatsHappening,
-        if (suggestions) whoToFollow('Who to follow'),
-      ],
+      ContextFamily.global => contextGlobalSections(context),
       ContextFamily.explore ||
       ContextFamily.people => [if (suggestions) whoToFollow('Who to follow')],
-      ContextFamily.notifications ||
+      // F16 (R8): the follow-requests card, lent by the page over its own
+      // `ListFollowRequests(3)`, above What's happening. Listed only under
+      // the card's own rule, so the page's inline row steps aside exactly
+      // while the pane holds the card.
+      ContextFamily.notifications => [
+        // Only while Notifications itself is the top page: a post or a
+        // search pushed over it keeps the family (base route) but not the
+        // page's card, as on desktop.
+        if ((_shellTopLocation(context) ?? location) ==
+                AppRouter.notificationsPath &&
+            followRequestsCardAllowed(context))
+          const ContextSection(
+            ContextSectionKind.followRequests,
+            FollowRequestsCardSlot(),
+          ),
+        if (trends) whatsHappening,
+      ],
       ContextFamily.search => [if (trends) whatsHappening],
       // The media strip (T8c), lent by the profile page over its own Media
       // tab feed: only with the feed's flags (`posts`, `profile_tabs`).
@@ -351,6 +373,15 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
         lent(
           ContextSectionKind.moderationLogAbout,
           const ModerationLogAboutPlaceholder(),
+        ),
+      ],
+      ContextFamily.communityMembers => [
+        lent(
+          ContextSectionKind.memberSearch,
+          const CommunitySearchField(
+            hint: kSearchMembersHint,
+            label: kSearchMembersLabel,
+          ),
         ),
       ],
       ContextFamily.listDetail => [
@@ -400,6 +431,37 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
   ];
 }
 
+/// The global set, top to bottom: the search pill, the profile card, What's
+/// happening and Who to follow, each gated as everywhere else (no footer).
+/// [contextSectionsFor]'s global family; a page whose own lent section goes
+/// away may draw these in its slot instead of a blank pane (R10: the members
+/// page when the server turns member search off).
+List<ContextSection> contextGlobalSections(BuildContext context) {
+  final search = isFeatureEnabled(context, kFeatureSearch);
+  final trends = search && isFeatureEnabled(context, kFeatureTrends);
+  return [
+    if (search)
+      const ContextSection(
+        ContextSectionKind.search,
+        Padding(
+          padding: EdgeInsets.only(bottom: AppSpacing.md),
+          child: AppSearchField(),
+        ),
+      ),
+    ?_profileSection(context),
+    if (trends)
+      const ContextSection(ContextSectionKind.trends, WhatsHappeningCard()),
+    if (isFollowSuggestionsEnabled(context))
+      const ContextSection(
+        ContextSectionKind.whoToFollow,
+        WhoToFollowCard(
+          title: 'Who to follow',
+          margin: EdgeInsets.only(bottom: AppSpacing.md),
+        ),
+      ),
+  ];
+}
+
 /// The signed-in user's card, from the profile already loaded (nothing is
 /// fetched); null without one.
 ContextSection? _profileSection(BuildContext context) {
@@ -420,4 +482,21 @@ ContextSection? _profileSection(BuildContext context) {
       ),
     ),
   );
+}
+
+/// The location of the top page inside the shell's navigator, or null
+/// without a router or a shell match (R8; the same rule as `MainShell`'s).
+String? _shellTopLocation(BuildContext context) {
+  final router = GoRouter.maybeOf(context);
+  if (router == null) return null;
+  for (final match
+      in router.routerDelegate.currentConfiguration.matches.reversed) {
+    if (match is! ShellRouteMatch) continue;
+    var leaf = match.matches.last;
+    while (leaf is ShellRouteMatch) {
+      leaf = leaf.matches.last;
+    }
+    return leaf.matchedLocation;
+  }
+  return null;
 }

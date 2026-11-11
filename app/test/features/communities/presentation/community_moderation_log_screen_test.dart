@@ -158,9 +158,13 @@ void main() {
     expect(find.text('Moderation log'), findsOneWidget);
     expect(find.text('@mo removed a post'), findsOneWidget);
     expect(find.text('@mo banned @raider'), findsOneWidget);
-    expect(find.text('Moderation action'), findsOneWidget);
     expect(find.text('3h'), findsOneWidget);
     expect(find.text('Restore'), findsOneWidget);
+    // R10: the rows are taller (the action tile), so at 360 x2.0 the third
+    // entry is below the fold of the lazy list.
+    await tester.scrollUntilVisible(find.text('Moderation action'), 100);
+    expectNoOverflow(tester);
+    expect(find.text('Moderation action'), findsOneWidget);
   }, textScales: kMatrixTextScalesLarge);
 
   testWidgets('empty log: a sentence', (tester) async {

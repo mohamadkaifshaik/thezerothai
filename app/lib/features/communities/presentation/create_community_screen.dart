@@ -209,10 +209,10 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
               return Column(
                 children: [
                   AppFormHeader(
-                    title: 'Create a Community',
+                    title: 'Create a community',
                     actionLabel: 'Create',
                     busy: busy,
-                    busySemanticsLabel: 'Creating Community',
+                    busySemanticsLabel: 'Creating community',
                     onCancel: _cancel,
                     onAction: _canCreate && !busy ? _create : null,
                     secondaryLabel: previewAction ? _previewTitle : null,

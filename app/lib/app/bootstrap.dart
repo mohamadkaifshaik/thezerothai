@@ -56,6 +56,7 @@ import '../features/notifications/domain/notifications_feature_flag.dart';
 import '../features/notifications/presentation/bloc/push_cubit.dart';
 import '../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../features/onboarding/data/identity_repository.dart';
+import '../features/settings/data/own_privacy_store.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_event.dart';
 import '../features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -371,6 +372,14 @@ Future<void> bootstrap() async {
     (response, epoch) =>
         homeTabsRepository.adoptFromMe(response.homeTabs, epoch: epoch),
   );
+  // Read receipts and DM policy as the server answered (F3, F9), fed
+  // before the first GetMe can run.
+  final ownPrivacy = OwnPrivacyStore();
+  feedOwnPrivacyStore(
+    ownPrivacy,
+    identityRepository: identityRepository,
+    database: database,
+  );
   final listsRepository = ListsRepository(
     apiClient: apiClient,
     gate: listsGate,
@@ -460,6 +469,7 @@ Future<void> bootstrap() async {
       telemetryConsent: telemetryConsent,
       unreadBadgeCubit: unreadBadgeCubit,
       servicePausedCubit: servicePaused,
+      ownPrivacyStore: ownPrivacy,
       shareLinks: ShareLinks(origin: config.shareOrigin),
       usage: UsageReporter.controller(telemetry),
       telemetryForget: TelemetryDeviceForget.of(

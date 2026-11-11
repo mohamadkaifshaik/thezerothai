@@ -8,6 +8,11 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/shell_geometry.dart';
+import '../../../shared/format/scheduled_time.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
+import '../../../shared/widgets/primitives/app_section_header.dart';
+import '../../../shared/widgets/primitives/app_surface.dart';
+import '../../../shared/widgets/primitives/app_tile_icon.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/domain/auth_failure.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
@@ -104,17 +109,33 @@ class _DataExportScreenState extends State<DataExportScreen> {
             child: BlocBuilder<DataExportCubit, DataExportState>(
               bloc: _export,
               builder: (context, state) => ListView(
-                padding: const EdgeInsets.all(AppSpacing.lg),
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
                 children: [
-                  Text(
-                    'Get a copy of the data we hold about you: your profile, '
-                    'posts and the accounts you follow. You can run one '
-                    'export at a time, and each export stays available for '
-                    '7 days.',
-                    style: Theme.of(context).textTheme.bodyLarge,
+                  AppSectionHeader(
+                    eyebrow: 'Your archive',
+                    title: _headline(state),
+                    subtitle:
+                        'A copy of the data we hold about you: your profile, '
+                        'posts, plans, messages and the accounts you follow, '
+                        'as a JSON file. You can run one export at a time, '
+                        'and each export stays available for 7 days.',
                   ),
-                  const SizedBox(height: AppSpacing.lg),
-                  _body(context, state),
+                  const SizedBox(height: AppSpacing.sm),
+                  AppSurface(
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (state.phase == DataExportPhase.ready) ...[
+                          _ArchiveRow(expiresAt: state.export?.expiresAt),
+                          const SizedBox(height: AppSpacing.md),
+                        ],
+                        _body(context, state),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -124,11 +145,42 @@ class _DataExportScreenState extends State<DataExportScreen> {
     );
   }
 
+  /// The page's heading for each phase (the design: "Your data, ready.").
+  static String _headline(DataExportState state) => switch (state.phase) {
+    DataExportPhase.idle => 'Get a copy of your data.',
+    DataExportPhase.requesting ||
+    DataExportPhase.waiting ||
+    DataExportPhase.checkBackLater => 'Preparing your data.',
+    DataExportPhase.ready => 'Your data, ready.',
+    DataExportPhase.expired => 'Get a new copy of your data.',
+    DataExportPhase.failed => "Your data isn't ready.",
+  };
+
   void _request() =>
       _export.request(promptPassword: () => showPasswordPromptDialog(context));
 
-  Widget _requestButton(String label) =>
-      FilledButton(onPressed: _request, child: Text(label));
+  /// The design's full-width 56 dp gradient pill (DataExport.dc.html).
+  static Widget _action(
+    String label,
+    VoidCallback? onPressed, {
+    AppButtonVariant variant = AppButtonVariant.primary,
+    IconData? icon,
+    bool busy = false,
+    String? busySemanticsLabel,
+  }) => SizedBox(
+    width: double.infinity,
+    child: AppPillButton(
+      label: label,
+      onPressed: onPressed,
+      variant: variant,
+      size: AppButtonSize.large,
+      icon: icon,
+      busy: busy,
+      busySemanticsLabel: busySemanticsLabel,
+    ),
+  );
+
+  Widget _requestButton(String label) => _action(label, _request);
 
   Widget _body(BuildContext context, DataExportState state) {
     switch (state.phase) {
@@ -168,16 +220,12 @@ class _DataExportScreenState extends State<DataExportScreen> {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: AppSpacing.md),
-              FilledButton.icon(
-                onPressed: state.refreshing ? null : _download,
-                icon: state.refreshing
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.download_outlined),
-                label: const Text('Download'),
+              _action(
+                'Download',
+                _download,
+                icon: Icons.download_outlined,
+                busy: state.refreshing,
+                busySemanticsLabel: 'Getting a fresh link',
               ),
             ],
           ),
@@ -192,9 +240,10 @@ class _DataExportScreenState extends State<DataExportScreen> {
                 'back later; you can also reopen this page.',
               ),
               const SizedBox(height: AppSpacing.md),
-              OutlinedButton(
-                onPressed: _export.resume,
-                child: const Text('Check again'),
+              _action(
+                'Check again',
+                _export.resume,
+                variant: AppButtonVariant.text,
               ),
             ],
           ),
@@ -242,11 +291,53 @@ class _DataExportScreenState extends State<DataExportScreen> {
           const SizedBox(height: AppSpacing.md),
           // A known export only needs its link again, not a new request.
           _export.canResume
-              ? FilledButton(
-                  onPressed: _export.resume,
-                  child: const Text('Try again'),
-                )
+              ? _action('Try again', _export.resume)
               : _requestButton('Try again'),
+        ],
+      ),
+    );
+  }
+}
+
+/// The ready archive (F27): what it is and until when it can be fetched.
+/// The date is the archive's `expires_at` (7 days after the request); the
+/// download link itself is signed for 15 minutes on each tap, so it is never
+/// the date shown. No date known: the line just says Ready.
+class _ArchiveRow extends StatelessWidget {
+  const _ArchiveRow({required this.expiresAt});
+
+  final DateTime? expiresAt;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final until = expiresAt;
+    final status = until == null
+        ? 'Ready'
+        : 'Ready \u00b7 Available until '
+              '${formatScheduledTime(until, use24Hour: MediaQuery.alwaysUse24HourFormatOf(context))}';
+    return MergeSemantics(
+      child: Row(
+        children: [
+          const AppTileIcon(
+            icon: Icons.description_outlined,
+            size: AppSpacing.xl + AppSpacing.sm,
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Your data export', style: theme.textTheme.bodyLarge),
+                Text(
+                  status,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

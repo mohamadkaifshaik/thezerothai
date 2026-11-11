@@ -82,6 +82,38 @@ void main() {
     expect(page.hasMore, isFalse);
   });
 
+  // F29: the activity chips filter on the server (ListBeaconsRequest.activity
+  // = 6). "All" sends no activity, so the request is today's, byte for byte.
+  test('listBeacons with an activity sends it; All sends none', () async {
+    answer = (_) => pb.ListBeaconsResponse();
+
+    await repo.listBeacons(
+      activity: pb.BeaconActivity.BEACON_ACTIVITY_COFFEE,
+      pageToken: 't2',
+    );
+    await repo.listBeacons();
+    await repo.listBeacons(
+      activity: pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED,
+    );
+
+    final filtered = requests[0] as pb.ListBeaconsRequest;
+    expect(filtered.hasActivity(), isTrue);
+    expect(filtered.activity, pb.BeaconActivity.BEACON_ACTIVITY_COFFEE);
+    expect(filtered.pageToken, 't2');
+    expect(filtered.public, isTrue);
+    for (final all in requests.skip(1).cast<pb.ListBeaconsRequest>()) {
+      expect(all.hasActivity(), isFalse);
+      // As main built it: limit and token set, then the audience.
+      expect(
+        all.writeToBuffer(),
+        (pb.ListBeaconsRequest(
+          limit: 0,
+          pageToken: '',
+        )..public = true).writeToBuffer(),
+      );
+    }
+  });
+
   test('getBeacon sends the id and returns the view', () async {
     answer = (_) => pb.GetBeaconResponse(view: _view());
 

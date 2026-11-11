@@ -363,7 +363,10 @@ void main() {
       tester,
     ) async {
       await open(tester, '/settings/handle');
-      expect(find.text('Current handle: @kaif'), findsOneWidget);
+      // R4 design (ChangeHandle.dc.html): the eyebrow and the headline.
+      expect(find.text('CURRENT \u00b7 @kaif'), findsOneWidget);
+      expect(find.text('Pick a new handle.'), findsOneWidget);
+      expect(gradient(tester).size, AppButtonSize.large);
       expect(find.textContaining('once every 7 days'), findsOneWidget);
       expect(find.text(kHandleFormatMessage), findsOneWidget);
       expect(gradient(tester).onPressed, isNull);

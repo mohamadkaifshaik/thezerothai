@@ -11,7 +11,6 @@ import 'package:dzeroth/features/posts/domain/compose_audience.dart';
 import 'package:dzeroth/features/posts/domain/reply_audience.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/audience_sheet.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/reply_audience_sheet.dart';
-import 'package:dzeroth/features/settings/presentation/widgets/appearance_sheet.dart';
 import 'package:dzeroth/gen/dzeroth/moderation/v1/moderation.pbenum.dart';
 import 'package:dzeroth/shared/widgets/post/alt_text_chip.dart';
 import 'package:flutter/material.dart';
@@ -109,7 +108,6 @@ final _sites = [
     (c) => showJoinNoteSheet(c, title: 'Sunday run'),
     'Ask to join',
   ),
-  _Site('appearance', _Shape.dialog, AppearanceSheet.show, 'Appearance'),
   _Site(
     'image description',
     _Shape.dialog,

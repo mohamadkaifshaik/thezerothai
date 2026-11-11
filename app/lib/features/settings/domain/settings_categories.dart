@@ -6,15 +6,16 @@
 /// 6). A leaf page (`/settings/<leaf>`) belongs to the category of
 /// [settingsCategoryOfLeaf].
 ///
-/// Only the categories whose rows exist are listed. The design's
-/// Notifications, Creator tools, Calls and Advertise categories have no rows
-/// in the app yet (approved new features), so they stay out until they are
-/// built. "Scheduled posts" sits between Display and About in the list but is
+/// Only the categories whose rows exist are listed. Notifications (F6, the
+/// push switches) shows with `notifications` and `notification_prefs` on.
+/// The design's Creator tools, Calls and Advertise categories are More-menu
+/// pages, not Settings rows, so they stay out. "Scheduled posts" sits between Display and About in the list but is
 /// not a category: it opens the root `/scheduled` route full screen and never
 /// becomes a selection. Sign out ends the list.
 enum SettingsCategory {
   account('account', 'Your account'),
   privacy('privacy', 'Privacy & safety'),
+  notifications('notifications', 'Notifications'),
   display('display', 'Display'),
   about('about', 'About');
 
@@ -52,7 +53,10 @@ SettingsCategory? settingsCategoryOfLeaf(String path) => switch (path) {
   '/settings/handle' ||
   '/settings/export' ||
   '/settings/delete-account' => SettingsCategory.account,
-  '/settings/blocked' || '/settings/muted' => SettingsCategory.privacy,
+  '/settings/blocked' ||
+  '/settings/muted' ||
+  '/settings/messages' => SettingsCategory.privacy,
+  '/settings/notifications' => SettingsCategory.notifications,
   _ => null,
 };
 

@@ -4,6 +4,7 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/network/rate_limit_hold.dart';
 import '../../../gen/dzeroth/notifications/v1/notifications.pb.dart' as pb;
 import '../../../gen/dzeroth/notifications/v1/notifications.pbenum.dart';
+import '../domain/notification_prefs.dart';
 import 'notifications_store.dart';
 
 /// Pages fetched in a row when the server answers a short or empty page while
@@ -264,6 +265,61 @@ class NotificationsRepository {
       ),
     );
   }
+
+  /// The caller's push preferences (F6, `GetNotificationPrefs`, 1 read).
+  ///
+  /// Not through `gate.run`: a FEATURE_DISABLED answer here can be about
+  /// `notification_prefs` alone, and must never mark the whole notifications
+  /// service off (the list and the badge keep working). With the
+  /// `notifications` gate closed no RPC is sent.
+  Future<NotificationPushPrefs> getPushPrefs() async {
+    if (!_gate.enabled) {
+      throw const FeatureDisabledException('This feature is not available.');
+    }
+    final response = await guardApiCall(
+      () => _apiClient.notifications.getNotificationPrefs(
+        pb.GetNotificationPrefsRequest(),
+      ),
+    );
+    return _pushPrefsFromWire(response.prefs);
+  }
+
+  /// Replaces the caller's push preferences with [prefs] (every group is
+  /// sent: build it from the last server answer, never from defaults) and
+  /// returns the server's copy. [idempotencyKey] is reused when the same
+  /// change is retried. Same gate rule as [getPushPrefs].
+  Future<NotificationPushPrefs> updatePushPrefs({
+    required String idempotencyKey,
+    required NotificationPushPrefs prefs,
+  }) async {
+    if (!_gate.enabled) {
+      throw const FeatureDisabledException('This feature is not available.');
+    }
+    final response = await guardApiCall(
+      () => _apiClient.notifications.updateNotificationPrefs(
+        pb.UpdateNotificationPrefsRequest(
+          idempotencyKey: idempotencyKey,
+          prefs: pb.NotificationPrefs(
+            plansPush: prefs.plans,
+            mentionsRepliesPush: prefs.mentionsReplies,
+            likesRepostsPush: prefs.likesReposts,
+            followersPush: prefs.followers,
+            messagesPush: prefs.messages,
+          ),
+        ),
+      ),
+    );
+    return _pushPrefsFromWire(response.prefs);
+  }
+
+  static NotificationPushPrefs _pushPrefsFromWire(pb.NotificationPrefs p) =>
+      NotificationPushPrefs(
+        plans: p.plansPush,
+        mentionsReplies: p.mentionsRepliesPush,
+        likesReposts: p.likesRepostsPush,
+        followers: p.followersPush,
+        messages: p.messagesPush,
+      );
 
   // --- internals -----------------------------------------------------------
 

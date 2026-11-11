@@ -27,6 +27,8 @@ identity.UpdateProfileRequest buildUpdateProfileRequest({
   String? website,
   String? pinnedPostId,
   bool? isPrivate,
+  bool? readReceipts,
+  identity.DmPolicy? dmPolicy,
 }) {
   final request = identity.UpdateProfileRequest(idempotencyKey: idempotencyKey);
   if (avatarMediaId != null) request.avatarMediaId = avatarMediaId;
@@ -37,6 +39,8 @@ identity.UpdateProfileRequest buildUpdateProfileRequest({
   if (website != null) request.website = website;
   if (pinnedPostId != null) request.pinnedPostId = pinnedPostId;
   if (isPrivate != null) request.isPrivate = isPrivate;
+  if (readReceipts != null) request.readReceipts = readReceipts;
+  if (dmPolicy != null) request.dmPolicy = dmPolicy;
   return request;
 }
 
@@ -172,6 +176,9 @@ class IdentityRepository {
   /// pin menu) and pass null otherwise. An exact `""` clears one and is
   /// accepted from any caller whatever the flag (Amendment 1 A2), so without
   /// the flag a caller sends clears alone.
+  /// [readReceipts] (F3) and [dmPolicy] (F9) are the message-privacy
+  /// settings; the Settings switches send each alone. Turning receipts on and
+  /// FOLLOWING_ONLY need their flags for the caller; the undo values never do.
   /// [idempotencyKey] must be reused when retrying the same edit. Updates
   /// the local profile cache with the server's copy.
   Future<identity.Profile> updateProfile({
@@ -184,6 +191,8 @@ class IdentityRepository {
     String? website,
     String? pinnedPostId,
     bool? isPrivate,
+    bool? readReceipts,
+    identity.DmPolicy? dmPolicy,
   }) {
     return guardApiCall(() async {
       final epoch = _database.sessionEpoch.value;
@@ -197,6 +206,8 @@ class IdentityRepository {
         website: website,
         pinnedPostId: pinnedPostId,
         isPrivate: isPrivate,
+        readReceipts: readReceipts,
+        dmPolicy: dmPolicy,
       );
       final response = await _apiClient.identity.updateProfile(request);
       await _cacheProfile(response.profile, epoch);

@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:drift/native.dart';
+import 'package:dzeroth/features/settings/data/own_privacy_store.dart';
+import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/app/app_widget.dart';
 import 'package:dzeroth/core/network/service_paused_cubit.dart';
 import 'package:dzeroth/core/router/app_router.dart';
@@ -173,6 +175,7 @@ void main() {
     SearchRepository? searchRepository,
     BeaconsRepository? beaconsRepository,
     MessagingRepository? messagingRepository,
+    OwnPrivacyStore? ownPrivacyStore,
   }) async {
     whenListen(authBloc, authStates.stream, initialState: auth);
     whenListen(
@@ -208,6 +211,7 @@ void main() {
         listsRepository: listsRepository,
         homeTabsRepository: homeTabsRepository,
         beaconsRepository: beaconsRepository,
+        ownPrivacyStore: ownPrivacyStore,
       ),
     );
     await tester.pump();
@@ -340,6 +344,46 @@ void main() {
     await tester.pump();
 
     expect(suggestions.clears, 1);
+  });
+
+  group('message privacy belongs to the account (R4)', () {
+    for (final (label, next) in [
+      ('sign-out', const AuthState(status: AuthStatus.unauthenticated)),
+      (
+        'a direct switch to another account',
+        const AuthState(
+          status: AuthStatus.authenticated,
+          user: AppUser(
+            uid: 'uid-2',
+            email: 'b@example.com',
+            emailVerified: true,
+            isPasswordProvider: true,
+          ),
+        ),
+      ),
+    ]) {
+      testWidgets('$label forgets the read receipts and DM policy', (
+        tester,
+      ) async {
+        final store = OwnPrivacyStore()
+          ..record(identity.Profile(userId: 'uid-1', readReceipts: true));
+        await pump(
+          tester,
+          auth: const AuthState(status: AuthStatus.authenticated, user: user),
+          onboarding: ready(),
+          ownPrivacyStore: store,
+        );
+        expect(store.value?.readReceipts, isTrue);
+
+        authStates.add(next);
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)),
+        );
+        await tester.pump();
+
+        expect(store.value, isNull);
+      });
+    }
   });
 
   testWidgets('sign-out releases the posts and search rate-limit holds', (

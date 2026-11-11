@@ -9,6 +9,7 @@ void main() {
       [
         ('account', 'Your account'),
         ('privacy', 'Privacy & safety'),
+        ('notifications', 'Notifications'),
         ('display', 'Display'),
         ('about', 'About'),
       ],
@@ -46,6 +47,8 @@ void main() {
           AppRouter.deleteAccountPath,
           AppRouter.blockedAccountsPath,
           AppRouter.mutedAccountsPath,
+          AppRouter.messageSettingsPath,
+          AppRouter.notificationSettingsPath,
         ])
           path: settingsCategoryOfLeaf(path),
       },
@@ -56,6 +59,8 @@ void main() {
         AppRouter.deleteAccountPath: SettingsCategory.account,
         AppRouter.blockedAccountsPath: SettingsCategory.privacy,
         AppRouter.mutedAccountsPath: SettingsCategory.privacy,
+        AppRouter.messageSettingsPath: SettingsCategory.privacy,
+        AppRouter.notificationSettingsPath: SettingsCategory.notifications,
       },
     );
     for (final other in [

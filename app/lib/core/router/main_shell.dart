@@ -18,6 +18,8 @@ import '../../features/messages/presentation/bloc/messages_badge_cubit.dart';
 import '../../features/messages/presentation/messages_list_detail.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
+import '../../features/notifications/presentation/widgets/follow_requests_card.dart'
+    show FollowRequestsCardSlot, followRequestsCardAllowed;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/widgets/account_refresh_banner.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
@@ -522,6 +524,15 @@ class MainShell extends StatelessWidget {
           // `follow_suggestions` all on. The card draws nothing until the shared
           // list has rows, so the column is unchanged otherwise.
           sections: [
+            // F16 (R8): on Notifications, the follow-requests card the page
+            // lends (its own `ListFollowRequests(3)`), above the trends.
+            // The page's inline row steps aside under the same rule
+            // (`followRequestsCardBeside`). The top page decides, so a
+            // profile pushed over Notifications does not keep the card.
+            if ((_shellTopLocation(context) ?? location) ==
+                    AppRouter.notificationsPath &&
+                followRequestsCardAllowed(context))
+              const FollowRequestsCardSlot(),
             // "What's happening": the top 5 trends; draws nothing unless
             // `search` + `trends` are on and the shared list has rows.
             if (exploreEntry) const WhatsHappeningCard(),

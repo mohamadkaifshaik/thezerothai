@@ -59,16 +59,25 @@ class BeaconsRepository {
   /// Upcoming OPEN and FULL plans of one audience, soonest first: the public
   /// audience when [communityId] is empty, else that community's. [limit] 0
   /// means the server default (20); max 50.
+  ///
+  /// [activity] keeps one activity (F29, filtered on the server, so a page
+  /// is never emptied here); UNSPECIFIED is every activity and sends no
+  /// filter, so that request is byte for byte the unfiltered one. A server
+  /// from before F29 ignores the field: the caller drops other activities.
   Future<BeaconsPage> listBeacons({
     String communityId = '',
     int limit = 0,
     String pageToken = '',
+    pb.BeaconActivity activity = pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED,
   }) async {
     final request = pb.ListBeaconsRequest(limit: limit, pageToken: pageToken);
     if (communityId.isEmpty) {
       request.public = true;
     } else {
       request.communityId = communityId;
+    }
+    if (activity != pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED) {
+      request.activity = activity;
     }
     final r = await _call(() => _apiClient.beacons.listBeacons(request));
     return BeaconsPage(views: r.views.toList(), nextPageToken: r.nextPageToken);
