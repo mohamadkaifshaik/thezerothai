@@ -113,13 +113,26 @@ class CommunityPreview extends StatelessWidget {
           ),
           child: Text(
             kCommunityPreviewStanding,
-            style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+            // The header's count line: 14 w700 in the accent text colour.
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: context.appColors.accentText,
+            ),
           ),
         ),
         if (draft.description.isNotEmpty)
           Padding(
             padding: EdgeInsets.fromLTRB(inset, 0, inset, AppSpacing.sm),
-            child: Text(draft.description, style: theme.textTheme.bodyLarge),
+            // As the header draws it: 14 w500 in text2, 2 lines at most.
+            child: Text(
+              draft.description,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w500,
+                color: context.appColors.text2,
+              ),
+            ),
           ),
         Padding(
           padding: EdgeInsets.fromLTRB(inset, AppSpacing.sm, inset, 0),

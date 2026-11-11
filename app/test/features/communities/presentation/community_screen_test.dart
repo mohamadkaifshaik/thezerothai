@@ -324,14 +324,14 @@ void main() {
     expect(find.textContaining('Unpin one first'), findsOneWidget);
   });
 
-  testWidgets('NOT_FOUND shows "This Community is unavailable"', (
+  testWidgets('NOT_FOUND shows "This community is unavailable"', (
     tester,
   ) async {
     when(() => communities.getCommunity('77'))
         .thenThrow(const NotFoundException('gone'));
     await open(tester);
 
-    expect(find.text('This Community is unavailable'), findsOneWidget);
+    expect(find.text('This community is unavailable'), findsOneWidget);
     expect(find.text('Join'), findsNothing);
   });
 

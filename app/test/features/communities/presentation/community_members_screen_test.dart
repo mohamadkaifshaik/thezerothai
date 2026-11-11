@@ -123,7 +123,7 @@ void main() {
     expect(find.text('No members yet'), findsOneWidget);
   });
 
-  testWidgets('NOT_FOUND shows "This Community is unavailable"', (
+  testWidgets('NOT_FOUND shows "This community is unavailable"', (
     tester,
   ) async {
     when(
@@ -135,7 +135,7 @@ void main() {
       ),
     ).thenThrow(const NotFoundException('gone'));
     await open(tester);
-    expect(find.text('This Community is unavailable'), findsOneWidget);
+    expect(find.text('This community is unavailable'), findsOneWidget);
   });
 
   testWidgets('a not-yet-served RPC reads as "not available"', (tester) async {

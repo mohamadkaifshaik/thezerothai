@@ -1141,6 +1141,14 @@ abstract final class AppGradients {
     colors: [AppPalette.navy2, AppPalette.navy],
   );
 
+  /// The community cover band (Community.dc.html `.cover`): a diagonal
+  /// navy wash under the teal rings.
+  static const LinearGradient communityCover = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [AppPalette.navy2, AppPalette.navy],
+  );
+
   /// dz.css `.hero`: radial-gradient(120% 120% at 85% 0%, ...).
   static const RadialGradient hero = RadialGradient(
     center: Alignment(0.7, -1),
