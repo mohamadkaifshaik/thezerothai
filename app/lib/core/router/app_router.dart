@@ -80,6 +80,7 @@ import '../../features/premium/presentation/premium_dialog.dart';
 import '../../features/profile/presentation/change_handle_screen.dart';
 import '../../features/profile/presentation/edit_profile_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
+import '../../features/settings/domain/settings_categories.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../widgets/splash_screen.dart';
@@ -428,8 +429,12 @@ class AppRouter {
                 ),
         ),
       ShellRoute(
-        builder: (context, state, child) =>
-            MainShell(location: state.matchedLocation, child: child),
+        builder: (context, state, child) => MainShell(
+          location: state.matchedLocation,
+          // The query too: Settings' list pane reads its `?c=`.
+          uri: state.uri,
+          child: child,
+        ),
         routes: [
           GoRoute(
             path: homePath,
@@ -646,8 +651,13 @@ class AppRouter {
           ),
           GoRoute(
             path: settingsPath,
-            builder: (context, state) =>
-                const AuthGate(child: SettingsScreen()),
+            // `?c=<category>` opens a category on the tablet layout (tablet
+            // plan section 4.3); every other layout ignores it.
+            builder: (context, state) => AuthGate(
+              child: SettingsScreen(
+                categoryId: state.uri.queryParameters[kSettingsCategoryParam],
+              ),
+            ),
           ),
           GoRoute(
             path: blockedAccountsPath,

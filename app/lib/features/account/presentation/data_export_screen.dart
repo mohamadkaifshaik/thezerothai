@@ -4,11 +4,13 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/session_wiring.dart';
 import '../../../core/storage/app_database.dart';
+import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/domain/auth_failure.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
+import '../../settings/presentation/settings_up.dart';
 import '../data/account_repository.dart';
 import 'bloc/account_cubit.dart';
 import 'bloc/data_export_cubit.dart';
@@ -82,7 +84,14 @@ class _DataExportScreenState extends State<DataExportScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Download my data')),
+      appBar: AppBar(
+        // The tablet layout with nothing to pop: up to Your account.
+        leading: settingsUpButton(
+          context,
+          settingsUpLocation(AppRouter.exportDataPath),
+        ),
+        title: const Text('Download my data'),
+      ),
       body: SafeArea(
         child: Align(
           alignment: Alignment.topCenter,

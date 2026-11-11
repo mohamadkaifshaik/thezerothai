@@ -2084,6 +2084,91 @@ void main() {
     );
   });
 
+  group('list pane (band B, tablet layout, T4)', () {
+    const masterKey = Key('master');
+    const sections = [ContextSection(ContextSectionKind.links, Text('footer'))];
+
+    Widget shell({ShellLayout layout = ShellLayout.tablet}) =>
+        ResponsiveScaffold(
+          selectedIndex: 0,
+          onDestinationSelected: (_) {},
+          destinations: _destinations,
+          onCompose: () {},
+          redesignedRail: true,
+          floatingBar: true,
+          layout: layout,
+          sideColumn: const SizedBox(key: _sideKey, height: 10),
+          masterPane: const SizedBox.expand(key: masterKey),
+          contextSections: sections,
+          body: const SizedBox.expand(key: _bodyKey),
+        );
+
+    Future<void> pumpAt(WidgetTester tester, Widget child, double width) =>
+        pumpThemed(
+          tester,
+          MediaQuery(
+            data: MediaQueryData(size: Size(width, 768)),
+            child: child,
+          ),
+          size: Size(width, 768),
+          useScaffold: false,
+        );
+
+    for (final (width, list, detail) in const [
+      (840.0, 320.0, 439.0),
+      (1024.0, 377.0, 566.0),
+      (1199.0, 400.0, 718.0),
+    ]) {
+      testWidgets('${width.toInt()} dp: rail | list ${list.toInt()} | '
+          'hairline | detail ${detail.toInt()}; no context pane', (
+        tester,
+      ) async {
+        await pumpAt(tester, shell(), width);
+
+        expect(
+          tester.getRect(find.byKey(masterKey)),
+          Rect.fromLTWH(80, 0, list, 768),
+        );
+        expect(
+          tester.getRect(find.byKey(_bodyKey)),
+          Rect.fromLTWH(80 + list + 1, 0, detail, 768),
+        );
+        expect(find.byType(ContextPane), findsNothing);
+        expect(find.text('footer'), findsNothing);
+        expect(find.byKey(_sideKey), findsNothing);
+      });
+    }
+
+    for (final width in [600.0, 839.0]) {
+      testWidgets('band A (${width.toInt()} dp): no list pane, the body keeps '
+          'the content', (tester) async {
+        await pumpAt(tester, shell(), width);
+
+        expect(find.byKey(masterKey), findsNothing);
+        expect(
+          tester.getRect(find.byKey(_bodyKey)),
+          Rect.fromLTWH(80, 0, width - 80, 768),
+        );
+      });
+    }
+
+    testWidgets('the legacy layout ignores it below 1200 dp', (tester) async {
+      await pumpAt(tester, shell(layout: ShellLayout.legacy), 1024);
+
+      expect(find.byKey(masterKey), findsNothing);
+    });
+
+    testWidgets('desktop keeps it in place of the side column (unchanged)', (
+      tester,
+    ) async {
+      await pumpAt(tester, shell(), 1300);
+
+      expect(find.byKey(masterKey), findsOneWidget);
+      expect(tester.getSize(find.byKey(masterKey)).width, AppSize.sideColumn);
+      expect(find.byKey(_sideKey), findsNothing);
+    });
+  });
+
   group('context pane (band B, tablet layout, T3)', () {
     const paneKey = Key('pane-section');
     const sections = [

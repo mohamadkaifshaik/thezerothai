@@ -10,6 +10,7 @@ import 'package:dzeroth/features/graph/presentation/widgets/who_to_follow_card.d
 import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/search/presentation/widgets/app_search_field.dart';
 import 'package:dzeroth/features/search/presentation/widgets/whats_happening_card.dart';
+import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
 import 'package:flutter/material.dart';
@@ -345,7 +346,6 @@ void main() {
     }
 
     for (final location in [
-      '/settings',
       '/messages',
       '/plans',
       '/plans/b1',
@@ -363,6 +363,22 @@ void main() {
         expect(rig.suggestionCalls, 0);
       });
     }
+
+    // T4: Settings is list-detail in band B, so its list pane takes the
+    // place of the context pane (plan section 3, code LD).
+    testWidgets('/settings: no context pane; the Settings list pane instead', (
+      tester,
+    ) async {
+      final rig = ContextPaneRig();
+      await rig.pump(tester, location: '/settings');
+
+      expect(findContextPane(), findsNothing);
+      expect(find.byType(SettingsCategoriesPane), findsOneWidget);
+      final list = ShellGeometry.listPaneWidthFor(1024 - 80);
+      expect(primaryRect(tester).width, 1024 - 80 - list - 1);
+      expect(rig.trendCalls, 0);
+      expect(rig.suggestionCalls, 0);
+    });
 
     testWidgets('navigating swaps the sections; the pane stays', (
       tester,

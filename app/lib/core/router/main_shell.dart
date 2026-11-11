@@ -23,6 +23,7 @@ import '../feature_flags/feature_flags.dart';
 import '../feature_flags/ui_shell_feature_flag.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_account_chip.dart';
+import '../../features/settings/domain/settings_categories.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/app_more_menu.dart';
@@ -48,10 +49,21 @@ import 'context_sections.dart';
 /// Wired as a `ShellRoute` builder in
 /// [AppRouter] so it persists navigation state across pushes.
 class MainShell extends StatelessWidget {
-  const MainShell({super.key, required this.location, required this.child});
+  const MainShell({
+    super.key,
+    required this.location,
+    required this.child,
+    this.uri,
+  });
 
+  /// The matched location (a path, no query).
   final String location;
   final Widget child;
+
+  /// The whole location, query included (the `ShellRoute` passes
+  /// `state.uri`); defaults to [location]. Settings' list pane reads its
+  /// category (`?c=`) from it (tablet plan section 4.3).
+  final Uri? uri;
 
   /// The destinations, in display order (primaries first, then secondaries).
   static List<_Destination> _destinationsFor({
@@ -333,10 +345,16 @@ class MainShell extends StatelessWidget {
 
     void openCompose() => context.push(AppRouter.composePath);
     // Settings is master-detail from 1200dp (the list beside the open page),
-    // only in the new shell.
+    // only in the new shell. On the tablet layout it is list-detail from
+    // 840dp (band B): the categories beside the category or leaf page, which
+    // the route draws itself (`SettingsScreen`), so the shell navigator is
+    // never swapped out. The scaffold and `SettingsScreen` take the same
+    // 840 / 1200 decisions from the same flags and width.
     final onSettings = location.startsWith(AppRouter.settingsPath);
     final masterDetail =
         newShell && onSettings && width >= AppBreakpoints.tablet;
+    final settingsListDetail =
+        tabletLayout && onSettings && ShellBand.of(width) == ShellBand.expanded;
 
     void select(int index) {
       switch (tabs[index].tab) {
@@ -390,7 +408,13 @@ class MainShell extends StatelessWidget {
             ),
         ],
       ),
-      masterPane: masterDetail ? _SettingsMaster(selectedPath: location) : null,
+      masterPane: masterDetail
+          ? _SettingsMaster(selectedPath: location)
+          : settingsListDetail
+          ? SettingsCategoriesPane(
+              selected: settingsCategoryForUri(uri ?? Uri.parse(location)),
+            )
+          : null,
       // Band B's context pane (tablet layout only; the scaffold shows it
       // from 840dp). Desktop keeps the side column below (ruling R-1).
       contextSections: tabletLayout

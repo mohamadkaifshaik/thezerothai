@@ -148,6 +148,14 @@ class ShellGeometry extends InheritedWidget {
         AppSize.contextPaneMax,
       );
 
+  /// The width of band B's list pane (tablet plan section 3, code LD) for a
+  /// content area [contentWidth] (C) wide: `clamp(0.4 * C, 320, 400)`, in
+  /// whole dp. The detail takes the rest after the 1 dp hairline between the
+  /// two: 840 -> 320 / 439, 1024 -> 377 / 566, 1199 -> 400 / 718.
+  static double listPaneWidthFor(double contentWidth) => (contentWidth * 0.4)
+      .floorToDouble()
+      .clamp(AppSize.listPaneMin, AppSize.listPaneMax);
+
   static ShellGeometryData? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<ShellGeometry>()?.data;
 
