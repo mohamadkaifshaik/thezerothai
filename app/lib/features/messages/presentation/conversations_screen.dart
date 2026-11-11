@@ -373,8 +373,12 @@ class _ConversationsViewState extends State<ConversationsList>
         ),
       ),
     );
+    // The Requests header's Back reaches the pane's edge (T8f).
+    final region = AppBleedHitRegion(allowsScrollView: true, child: view);
     final storage = widget.storage;
-    return storage == null ? view : PageStorage(bucket: storage, child: view);
+    return storage == null
+        ? region
+        : PageStorage(bucket: storage, child: region);
   }
 
   /// [sliver] in the reading column. Its header's divider (the Requests

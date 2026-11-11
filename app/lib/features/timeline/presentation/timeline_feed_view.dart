@@ -383,12 +383,17 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
                   ),
               ],
             );
-            if (!widget.fillViewport) return stack;
+            // The header slivers' controls reach the pane's edges (T8f).
+            final region = AppBleedHitRegion(
+              allowsScrollView: true,
+              child: stack,
+            );
+            if (!widget.fillViewport) return region;
             // After every change of the rows, once laid out.
             return BlocListener<TimelineCubit, TimelineState>(
               listener: (context, state) => WidgetsBinding.instance
                   .addPostFrameCallback((_) => _fillIfShort()),
-              child: stack,
+              child: region,
             );
           },
         );
