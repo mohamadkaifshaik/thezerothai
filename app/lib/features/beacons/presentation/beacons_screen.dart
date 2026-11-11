@@ -16,8 +16,10 @@ import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
+import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../communities/data/communities_repository.dart';
 import '../data/beacons_repository.dart';
+import '../domain/beacon_labels.dart';
 import '../domain/beacons_feature_flag.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/beacons_cubit.dart';
@@ -25,6 +27,7 @@ import 'bloc/beacons_state.dart';
 import 'bloc/plans_session.dart';
 import 'plans_list_detail.dart';
 import 'widgets/beacon_row.dart';
+import 'widgets/plans_activity_filter.dart';
 import 'widgets/your_plans_section.dart';
 
 /// `/plans`: the selected audience's upcoming plans (R30). The audience chips
@@ -47,6 +50,11 @@ class BeaconsScreen extends StatelessWidget {
         : const _PlansPaused();
   }
 }
+
+/// The empty state of an activity chip with no plans (F29): "No walk plans
+/// yet".
+String plansFilteredEmptyTitle(pb.BeaconActivity activity) =>
+    'No ${activityLabel(activity).toLowerCase()} plans yet';
 
 /// The paused copy (accepted, ADR-0034 section 4).
 const kPlansPausedTitle = 'Plans are paused';
@@ -291,6 +299,15 @@ class PlansList extends StatelessWidget {
                 ),
                 if (state.audiences.length > 1)
                   _AudienceChips(state: state, onSelect: cubit.select),
+                // F29: on every state but paused, so a filter with no plans
+                // or a failed one is one tap from another activity.
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                  child: PlansActivityFilter(
+                    selected: state.activity,
+                    onSelected: cubit.selectActivity,
+                  ),
+                ),
                 Expanded(
                   child: RefreshIndicator(
                     onRefresh: () {
@@ -355,13 +372,27 @@ class PlansList extends StatelessWidget {
           top,
         );
       case BeaconsLoad.ready:
-        if (state.views.isEmpty) {
+        // A filtered page an older server left empty still has its token:
+        // Load more, not the empty state.
+        if (state.views.isEmpty && !state.hasMore) {
           return _scrollable(
-            const AppEmptyView(
-              icon: Icons.event_outlined,
-              title: 'No plans yet',
-              subtitle: 'Create one and invite people along.',
-            ),
+            state.filtered
+                ? AppEmptyView(
+                    icon: Icons.event_outlined,
+                    title: plansFilteredEmptyTitle(state.activity),
+                    subtitle: 'Try another activity, or create one.',
+                    action: TextButton(
+                      onPressed: () => cubit.selectActivity(
+                        pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED,
+                      ),
+                      child: const Text('See all plans'),
+                    ),
+                  )
+                : const AppEmptyView(
+                    icon: Icons.event_outlined,
+                    title: 'No plans yet',
+                    subtitle: 'Create one and invite people along.',
+                  ),
             top,
           );
         }

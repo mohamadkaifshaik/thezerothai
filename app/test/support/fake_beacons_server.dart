@@ -109,16 +109,33 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
     );
   }
 
+  /// The `activity` of every ListBeacons, in order (F29; UNSPECIFIED = All).
+  final List<pb.BeaconActivity> listActivities = [];
+
+  /// A server from before F29: it ignores `activity` and answers the whole
+  /// list.
+  bool ignoresActivity = false;
+
   @override
   Future<BeaconsPage> listBeacons({
     String communityId = '',
     int limit = 0,
     String pageToken = '',
+    pb.BeaconActivity activity = pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED,
   }) async {
+    listActivities.add(activity);
     _refuse('list:$communityId');
-    final source = communityId.isEmpty
+    final audience = communityId.isEmpty
         ? public
-        : (byCommunity[communityId] ?? const []);
+        : (byCommunity[communityId] ?? const <pb.BeaconView>[]);
+    final source =
+        ignoresActivity ||
+            activity == pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED
+        ? audience
+        : [
+            for (final v in audience)
+              if (v.beacon.activity == activity) v,
+          ];
     return _page(source, limit, pageToken);
   }
 

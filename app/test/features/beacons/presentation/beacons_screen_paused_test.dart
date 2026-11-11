@@ -27,6 +27,10 @@ import '../../../support/theme_harness.dart';
 /// `/plans` with `beacons` off for the caller (ADR-0034 section 4): the page
 /// stays and says Plans are paused, with no create action and no RPC; a kill
 /// switch in mid-session ends there too.
+/// [text] inside a plan row: the activity chips (F29) carry "Coffee" too.
+Finder _inRow(String text) =>
+    find.descendant(of: find.byType(BeaconRow), matching: find.text(text));
+
 void main() {
   // The accepted copy, byte for byte.
   const title = 'Plans are paused';
@@ -140,7 +144,7 @@ void main() {
     expect(find.text(title), findsNothing);
     expect(find.text(body), findsNothing);
     expect(find.byType(AppStateView), findsNothing);
-    expect(find.text('Coffee'), findsOneWidget);
+    expect(_inRow('Coffee'), findsOneWidget);
     expect(find.byTooltip('New plan'), findsOneWidget);
     expect(server.calls, ['list:']);
   });
@@ -293,7 +297,7 @@ void main() {
       featureChanges: getMe.stream,
       routes: routes(),
     );
-    expect(find.text('Coffee'), findsOneWidget);
+    expect(_inRow('Coffee'), findsOneWidget);
     expect(find.text('Load more'), findsOneWidget);
     expect(refreshRequests, 0);
 
@@ -357,7 +361,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text(title), findsNothing);
-    expect(find.text('Coffee'), findsOneWidget);
+    expect(_inRow('Coffee'), findsOneWidget);
     expect(server.calls, ['list:']);
   });
 
