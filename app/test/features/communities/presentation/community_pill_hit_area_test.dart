@@ -90,6 +90,20 @@ void main() {
           expect(row.right, lessThanOrEqualTo(box.left));
           expect(box.left - row.right, lessThan(AppSpacing.sm));
         }
+        // Just outside the box, on the row: the row opens the community.
+        final outside = paneRow
+            ? Offset(pill.center.dx, box.top - 1)
+            : Offset(box.left - 1, pill.top - 5);
+        expect(row.contains(outside), isTrue);
+        await tester.tapAt(outside);
+        await tester.pumpAndSettle();
+        expect(rig.uri.path, AppRouter.communityPath('78'));
+        expect(rig.server.count('join:'), 0);
+
+        rig.router.pop();
+        await tester.pumpAndSettle();
+        expect(rig.uri.path, AppRouter.communitiesPath);
+        expect(tester.getRect(_joinPill()), box);
         // Just inside the box, beside the pill: the Join pill.
         await tester.tapAt(
           paneRow
@@ -99,15 +113,6 @@ void main() {
         await tester.pumpAndSettle();
         expect(rig.server.count('join:78'), 1);
         expect(rig.uri.path, AppRouter.communitiesPath);
-        // Just outside the box, on the row: the row opens the community.
-        await tester.tapAt(
-          paneRow
-              ? Offset(pill.center.dx, box.top - 1)
-              : Offset(row.right - 1, pill.center.dy),
-        );
-        await tester.pumpAndSettle();
-        expect(rig.uri.path, AppRouter.communityPath('78'));
-        expect(rig.server.count('join:78'), 1);
       });
     }
   });
@@ -177,15 +182,17 @@ void main() {
         expect(rig.server.count('join:'), 0);
         expect(rig.uri.path, AppRouter.communityPath(kRigCommunityId));
 
-        // The last dp of Join's box, then the first of Pin's.
-        await tester.tapAt(Offset(joinBox.right - 1, join.bottom + 5));
-        await tester.pumpAndSettle();
-        expect(rig.server.count('join:$kRigCommunityId'), 1);
-        expect(rig.pinCalls, 0);
+        // The first dp of Pin's box, then the last of Join's (a join turns
+        // Join into the wider "Joined", which moves Pin: Join goes last).
         await tester.tapAt(Offset(pinBox.left + 1, pinPill.top - 5));
         await tester.pumpAndSettle();
         expect(rig.pinCalls, 1);
-        expect(rig.server.count('join:'), 1);
+        expect(rig.server.count('join:'), 0);
+        expect(tester.getRect(pin()), pinBox);
+        await tester.tapAt(Offset(joinBox.right - 1, join.bottom + 5));
+        await tester.pumpAndSettle();
+        expect(rig.server.count('join:$kRigCommunityId'), 1);
+        expect(rig.pinCalls, 1);
       });
     }
   });
