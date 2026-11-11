@@ -59,6 +59,11 @@ enum ContextSectionKind {
 
   /// `/plans/new`, `/plans/:id/edit`: "Tips for a good plan" (T8d).
   planTips,
+
+  /// `/notifications`: the first follow requests with Accept and "See all
+  /// requests" (F16, R8). The inline Follow requests row hides while it
+  /// shows.
+  followRequests,
 }
 
 /// One section of band B's context pane: a self-gating widget (it draws
@@ -115,11 +120,19 @@ class ContextPaneCard extends StatelessWidget {
     required this.title,
     required this.child,
     this.margin = const EdgeInsets.only(bottom: AppSpacing.md),
+    this.titleTrailing,
+    this.titleSemanticsLabel,
   });
 
   final String title;
   final Widget child;
   final EdgeInsetsGeometry margin;
+
+  /// Drawn after the title on its line (a count badge); nothing when null.
+  final Widget? titleTrailing;
+
+  /// What the heading says instead of [title] (the title with its count).
+  final String? titleSemanticsLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -139,17 +152,29 @@ class ContextPaneCard extends StatelessWidget {
             ),
             child: Semantics(
               header: true,
-              child: Text(
-                title,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              label: titleSemanticsLabel,
+              excludeSemantics: titleSemanticsLabel != null,
+              child: _titleRow(theme),
             ),
           ),
           child,
         ],
       ),
+    );
+  }
+
+  Widget _titleRow(ThemeData theme) {
+    final text = Text(
+      title,
+      style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+    );
+    final trailing = titleTrailing;
+    if (trailing == null) return text;
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.xs,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [text, trailing],
     );
   }
 }

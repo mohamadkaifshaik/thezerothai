@@ -25,6 +25,8 @@ import '../../features/lists/presentation/widgets/list_members_pane.dart'
     show ListMembersPanePlaceholder;
 import '../../features/lists/presentation/widgets/lists_owner_card.dart'
     show ListsOwnerCardPlaceholder;
+import '../../features/notifications/presentation/widgets/follow_requests_card.dart'
+    show FollowRequestsCardSlot, followRequestsCardAllowed;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/profile/presentation/widgets/profile_media_strip.dart'
@@ -61,7 +63,8 @@ enum ContextFamily {
   /// itself).
   explore,
 
-  /// Notifications: What's happening.
+  /// Notifications: the follow-requests card (F16, lent by the page), then
+  /// What's happening.
   notifications,
 
   /// Search results: What's happening (the filters wait for F22).
@@ -318,7 +321,18 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
       ],
       ContextFamily.explore ||
       ContextFamily.people => [if (suggestions) whoToFollow('Who to follow')],
-      ContextFamily.notifications ||
+      // F16 (R8): the follow-requests card, lent by the page over its own
+      // `ListFollowRequests(3)`, above What's happening. Listed only under
+      // the card's own rule, so the page's inline row steps aside exactly
+      // while the pane holds the card.
+      ContextFamily.notifications => [
+        if (followRequestsCardAllowed(context))
+          const ContextSection(
+            ContextSectionKind.followRequests,
+            FollowRequestsCardSlot(),
+          ),
+        if (trends) whatsHappening,
+      ],
       ContextFamily.search => [if (trends) whatsHappening],
       // The media strip (T8c), lent by the profile page over its own Media
       // tab feed: only with the feed's flags (`posts`, `profile_tabs`).

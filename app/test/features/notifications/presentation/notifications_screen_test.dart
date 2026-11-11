@@ -13,15 +13,20 @@ import 'package:dzeroth/features/notifications/presentation/bloc/push_opt_in_cub
 import 'package:dzeroth/features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import 'package:dzeroth/features/notifications/presentation/notifications_screen.dart';
 import 'package:dzeroth/features/notifications/presentation/widgets/notification_row.dart';
+import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pb.dart'
     as pb;
 import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pbenum.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_notice_banner.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_surface.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_tile_icon.dart';
+import 'package:dzeroth/shared/widgets/user/follow_button.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -52,6 +57,7 @@ void main() {
 
   setUpAll(() {
     registerFallbackValue(DevicePlatform.DEVICE_PLATFORM_ANDROID);
+    registerFallbackValue(<String>[]);
   });
 
   setUp(() {
@@ -59,6 +65,7 @@ void main() {
     onboarding = MockOnboardingBloc();
     graphRepo = MockGraphRepository();
     when(() => graphRepo.followRequestsUnavailable).thenReturn(false);
+    when(() => graphRepo.cached(any())).thenReturn(null);
     badge = UnreadBadgeCubit();
     messaging = FakePushMessaging(supported: false);
     push = PushCubit(messaging: messaging, repository: repo);
@@ -85,6 +92,7 @@ void main() {
     Size size = const Size(400, 800),
     double textScale = 1,
     bool settle = true,
+    TextDirection textDirection = TextDirection.ltr,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -156,6 +164,8 @@ void main() {
             child: MaterialApp.router(
               theme: theme ?? appLightTheme,
               routerConfig: router,
+              builder: (context, child) =>
+                  Directionality(textDirection: textDirection, child: child!),
             ),
           ),
         ),
@@ -715,5 +725,379 @@ void main() {
     await tester.tap(find.textContaining('asked to join'));
     await tester.pumpAndSettle();
     expect(visited, ['/plans/$id']);
+  });
+
+  group('Plans tab (F15)', () {
+    List<pb.Notification> mixed() => [
+      notif('f', minutesAgo: 1),
+      notif(
+        'm',
+        minutesAgo: 2,
+        type: NotificationType.NOTIFICATION_TYPE_MENTION,
+        postId: '7',
+        displayName: 'Mia',
+        actorId: 'u5',
+      ),
+      for (final (i, type) in [
+        NotificationType.NOTIFICATION_TYPE_BEACON_REQUEST,
+        NotificationType.NOTIFICATION_TYPE_BEACON_ACCEPTED,
+        NotificationType.NOTIFICATION_TYPE_BEACON_CANCELLED,
+        NotificationType.NOTIFICATION_TYPE_BEACON_UPDATED,
+      ].indexed)
+        notif(
+          'b$i',
+          minutesAgo: 3 + i,
+          type: type,
+          displayName: 'Plan$i',
+          actorId: 'p$i',
+          beaconId: '123456789012345678$i',
+        ),
+    ];
+
+    testWidgets('beacons on: All, Plans, Mentions in the design order, equal '
+        'width; Plans filters the loaded rows with no extra RPC', (
+      tester,
+    ) async {
+      stubList(snapshotOfNotifs(mixed(), seenAt: kNotifBase));
+      await open(tester, features: const {'notifications', 'beacons'});
+
+      final bar = tester.getRect(find.byType(AppTabBar));
+      for (final (i, label) in ['All', 'Plans', 'Mentions'].indexed) {
+        expect(
+          tester.getCenter(find.text(label)).dx,
+          closeTo(bar.left + bar.width * (2 * i + 1) / 6, 1),
+          reason: label,
+        );
+      }
+      clearInteractions(repo);
+
+      await tester.tap(find.text('Plans'));
+      await tester.pumpAndSettle();
+      expect(find.text('Plan0 asked to join your plan'), findsOneWidget);
+      expect(find.text('Plan1 accepted you into their plan'), findsOneWidget);
+      expect(find.text('Plan2 cancelled a plan you joined'), findsOneWidget);
+      expect(find.text('Plan3 changed a plan you joined'), findsOneWidget);
+      expect(find.text('Alice followed you'), findsNothing);
+      expect(find.text('Mia mentioned you'), findsNothing);
+      verifyNoMoreInteractions(repo);
+
+      // A plan update opens the plan, as the other plan types do.
+      await tester.tap(find.text('Plan3 changed a plan you joined'));
+      await tester.pumpAndSettle();
+      expect(visited, ['/plans/1234567890123456783']);
+    });
+
+    testWidgets('beacons off: no Plans tab (All, Mentions only)', (
+      tester,
+    ) async {
+      stubList(snapshotOfNotifs(mixed(), seenAt: kNotifBase));
+      await open(tester);
+
+      expect(find.text('Plans'), findsNothing);
+      expect(find.text('All'), findsOneWidget);
+      expect(find.text('Mentions'), findsOneWidget);
+    });
+
+    testWidgets('Plans with none loaded: its own empty state, and a way to '
+        'look further back', (tester) async {
+      stubList(snapshotOfNotifs([notif('f')], older: 'p1', seenAt: kNotifBase));
+      await open(tester, features: const {'notifications', 'beacons'});
+
+      await tester.tap(find.text('Plans'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('No plan updates yet'), findsOneWidget);
+      expect(find.text('Look through older notifications'), findsOneWidget);
+      expect(find.text('No mentions yet'), findsNothing);
+    });
+
+    for (final width in const [320.0, 360.0, 599.0]) {
+      testWidgets('${width.toInt()}dp x2.0: three tabs, no overflow', (
+        tester,
+      ) async {
+        stubList(snapshotOfNotifs(mixed(), seenAt: kNotifBase));
+        await open(
+          tester,
+          features: const {'notifications', 'beacons'},
+          size: Size(width, 900),
+          textScale: 2,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('Plans'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.textContaining('asked to join'), findsOneWidget);
+      });
+    }
+  });
+
+  group('Follow back (F14)', () {
+    const features = {'notifications', 'graph'};
+
+    graph.Relationship rel(String id, graph.FollowState state) =>
+        graph.Relationship(userId: id, followState: state);
+
+    List<pb.Notification> page() => [
+      notif('f1', minutesAgo: 1, actorId: 'u2'),
+      notif(
+        'f2',
+        minutesAgo: 2,
+        actorId: 'u3',
+        handle: 'bob',
+        displayName: 'Bob',
+      ),
+      // Collapsed: no single account to follow back.
+      notif(
+        'f3',
+        minutesAgo: 3,
+        actorId: 'u4',
+        handle: 'cy',
+        displayName: 'Cy',
+        actorCount: 3,
+      ),
+      notif(
+        'l',
+        minutesAgo: 4,
+        type: NotificationType.NOTIFICATION_TYPE_LIKE,
+        postId: '9',
+        actorId: 'u5',
+        displayName: 'Lou',
+      ),
+    ];
+
+    void stubRelationships({Map<String, graph.FollowState> states = const {}}) {
+      when(() => graphRepo.relationshipsFor(any())).thenAnswer((call) async {
+        final ids = call.positionalArguments.first as List<String>;
+        return {
+          for (final id in ids)
+            id: rel(id, states[id] ?? graph.FollowState.FOLLOW_STATE_NONE),
+        };
+      });
+    }
+
+    testWidgets('one batched GetRelationships for the page; Follow back on '
+        'single-actor follow rows only', (tester) async {
+      stubRelationships(
+        states: {'u3': graph.FollowState.FOLLOW_STATE_FOLLOWING},
+      );
+      stubList(snapshotOfNotifs(page(), seenAt: kNotifBase));
+      final semantics = tester.ensureSemantics();
+      await open(tester, features: features);
+
+      expect(verify(() => graphRepo.relationshipsFor(captureAny())).captured, [
+        ['u2', 'u3'],
+      ]);
+      // Alice: Follow back; Bob (already followed): Following; Cy (collapsed)
+      // and Lou (a like): nothing.
+      expect(find.text('Follow back'), findsOneWidget);
+      expect(find.text('Following'), findsOneWidget);
+      expect(find.byType(FollowButton), findsNWidgets(2));
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('notification-f3')),
+          matching: find.byType(FollowButton),
+        ),
+        findsNothing,
+      );
+      // Its own node, not swallowed by the row's sentence.
+      expect(find.bySemanticsLabel('Follow back'), findsWidgets);
+      semantics.dispose();
+    });
+
+    testWidgets('graph off: no control and no GetRelationships', (
+      tester,
+    ) async {
+      stubRelationships();
+      stubList(snapshotOfNotifs(page(), seenAt: kNotifBase));
+      await open(tester);
+
+      expect(find.byType(FollowButton), findsNothing);
+      verifyNever(() => graphRepo.relationshipsFor(any()));
+    });
+
+    testWidgets('an older page costs one more call, for its new actors only', (
+      tester,
+    ) async {
+      stubRelationships();
+      final rows = [
+        for (var i = 0; i < 20; i++)
+          notif('n$i', minutesAgo: i + 1, actorId: 'a${i % 2}'),
+      ];
+      stubList(snapshotOfNotifs(rows, older: 'p1', seenAt: kNotifBase));
+      when(() => repo.loadOlder()).thenAnswer(
+        (_) async => snapshotOfNotifs([
+          ...rows,
+          notif('o1', minutesAgo: 60, actorId: 'a0'),
+          notif('o2', minutesAgo: 61, actorId: 'z9'),
+        ], seenAt: kNotifBase),
+      );
+      await open(tester, features: features);
+      expect(verify(() => graphRepo.relationshipsFor(captureAny())).captured, [
+        ['a0', 'a1'],
+      ]);
+
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -6000));
+      await tester.pumpAndSettle();
+
+      verify(() => repo.loadOlder()).called(1);
+      expect(verify(() => graphRepo.relationshipsFor(captureAny())).captured, [
+        ['z9'],
+      ]);
+    });
+
+    testWidgets('Follow back updates the row optimistically to Following', (
+      tester,
+    ) async {
+      stubRelationships();
+      final answer = Completer<graph.Relationship>();
+      when(
+        () => graphRepo.follow(
+          userId: any(named: 'userId'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer((_) => answer.future);
+      stubList(
+        snapshotOfNotifs([notif('f1', actorId: 'u2')], seenAt: kNotifBase),
+      );
+      await open(tester, features: features);
+
+      await tester.tap(find.text('Follow back'));
+      await tester.pump();
+      verify(
+        () => graphRepo.follow(
+          userId: 'u2',
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).called(1);
+      // Optimistic: no longer offered while the call is out.
+      expect(find.text('Follow back'), findsNothing);
+      answer.complete(rel('u2', graph.FollowState.FOLLOW_STATE_FOLLOWING));
+      await tester.pumpAndSettle();
+      expect(find.text('Following'), findsOneWidget);
+      // Never a second GetRelationships for the row.
+      verify(() => graphRepo.relationshipsFor(any())).called(1);
+    });
+
+    testWidgets('a refused follow rolls back with a message', (tester) async {
+      stubRelationships();
+      when(
+        () => graphRepo.follow(
+          userId: any(named: 'userId'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenThrow(const NetworkException('offline'));
+      stubList(
+        snapshotOfNotifs([notif('f1', actorId: 'u2')], seenAt: kNotifBase),
+      );
+      await open(tester, features: features);
+
+      await tester.tap(find.text('Follow back'));
+      await tester.pumpAndSettle();
+      expect(find.text('Follow back'), findsOneWidget);
+      expect(find.byType(SnackBar), findsOneWidget);
+    });
+
+    testWidgets('a failed GetRelationships draws no control and no banner', (
+      tester,
+    ) async {
+      when(() => graphRepo.relationshipsFor(any()))
+          .thenThrow(const NetworkException('offline'));
+      stubList(snapshotOfNotifs(page(), seenAt: kNotifBase));
+      await open(tester, features: features);
+
+      expect(find.byType(FollowButton), findsNothing);
+      expect(find.byKey(const ValueKey('follow-back-pending')), findsNothing);
+      expect(find.byType(AppNoticeBanner), findsNothing);
+      expect(find.text('Alice followed you'), findsOneWidget);
+    });
+
+    testWidgets('while the answer is out the row keeps the 48 dp line', (
+      tester,
+    ) async {
+      final answer = Completer<Map<String, graph.Relationship>>();
+      when(() => graphRepo.relationshipsFor(any()))
+          .thenAnswer((_) => answer.future);
+      stubList(
+        snapshotOfNotifs([notif('f1', actorId: 'u2')], seenAt: kNotifBase),
+      );
+      await open(tester, features: features);
+
+      final pending = find.byKey(const ValueKey('follow-back-pending'));
+      expect(pending, findsOneWidget);
+      expect(tester.getSize(pending).height, AppSpacing.minTapTarget);
+      final row = find.byKey(const ValueKey('notification-f1'));
+      final rowHeight = tester.getSize(row).height;
+
+      answer.complete({'u2': rel('u2', graph.FollowState.FOLLOW_STATE_NONE)});
+      await tester.pumpAndSettle();
+      expect(find.text('Follow back'), findsOneWidget);
+      expect(tester.getSize(row).height, rowHeight);
+    });
+
+    testWidgets('a blocked actor is not offered a follow', (tester) async {
+      when(() => graphRepo.relationshipsFor(any())).thenAnswer(
+        (_) async => {'u2': graph.Relationship(userId: 'u2', blocking: true)},
+      );
+      stubList(
+        snapshotOfNotifs([notif('f1', actorId: 'u2')], seenAt: kNotifBase),
+      );
+      await open(tester, features: features);
+
+      expect(find.byType(FollowButton), findsNothing);
+      expect(find.text('Unblock'), findsNothing);
+    });
+
+    for (final (width, dir) in [
+      (320.0, TextDirection.ltr),
+      (360.0, TextDirection.ltr),
+      (360.0, TextDirection.rtl),
+      (600.0, TextDirection.ltr),
+      (1200.0, TextDirection.rtl),
+    ]) {
+      testWidgets('${width.toInt()}dp x2.0 ${dir.name}: Follow back fits, '
+          '48 dp, never ellipsized', (tester) async {
+        stubRelationships();
+        stubList(
+          snapshotOfNotifs([
+            notif(
+              'f1',
+              actorId: 'u2',
+              displayName: 'A rather long display name that wraps',
+            ),
+          ], seenAt: kNotifBase),
+        );
+        await open(
+          tester,
+          features: features,
+          size: Size(width, 1000),
+          textScale: 2,
+          textDirection: dir,
+        );
+
+        expect(tester.takeException(), isNull);
+        final button = find.byType(FollowButton);
+        expect(button, findsOneWidget);
+        expect(
+          tester.getSize(button).height,
+          greaterThanOrEqualTo(AppSpacing.minTapTarget),
+        );
+        final label = tester.renderObject<RenderParagraph>(
+          find.descendant(of: button, matching: find.byType(RichText)),
+        );
+        expect(label.didExceedMaxLines, isFalse);
+        final tile = tester.getRect(
+          find.descendant(
+            of: find.byKey(const ValueKey('notification-f1')),
+            matching: find.byType(AppTileIcon),
+          ),
+        );
+        final rect = tester.getRect(button);
+        if (dir == TextDirection.rtl) {
+          expect(rect.right, lessThanOrEqualTo(tile.left));
+        } else {
+          expect(rect.left, greaterThanOrEqualTo(tile.right));
+        }
+      });
+    }
   });
 }
