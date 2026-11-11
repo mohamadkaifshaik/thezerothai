@@ -43,6 +43,16 @@ enum ContextSectionKind {
   /// `/profile/:handle`, `/u/:id`: the profile's latest images from its
   /// own Media tab feed (T8c). The Media tab keeps them at every width.
   profileMedia,
+
+  /// `/lists/:id`: a preview of the List's members with "Manage members" /
+  /// "See all members" (T8b). The header keeps the count at every width.
+  listMembers,
+
+  /// `/home/pinned`: a preview of the Home tabs as they will show (T8b).
+  homeTabsPreview,
+
+  /// `/u/:id/lists`: the card of the Lists' owner (T8b).
+  listsOwner,
 }
 
 /// One section of band B's context pane: a self-gating widget (it draws

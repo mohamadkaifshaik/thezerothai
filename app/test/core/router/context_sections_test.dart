@@ -12,10 +12,10 @@ void main() {
     // P with the global set (search pill, profile card, What's happening,
     // Who to follow, footer).
     '/home': ContextFamily.global,
-    AppRouter.pinnedPath: ContextFamily.global,
     AppRouter.bookmarksPath: ContextFamily.global,
+    // Lists and ListMembers: the global set (T8b; F10 keeps "Discover new
+    // Lists" out, F31's suggestions wait).
     AppRouter.listsPath: ContextFamily.global,
-    '/lists/l1': ContextFamily.global,
     '/lists/l1/members': ContextFamily.global,
     // CommunityMembers: members beside the global set (T8a; F36's "Search
     // members" waits).
@@ -24,7 +24,6 @@ void main() {
     AppRouter.plansMinePath: ContextFamily.global,
     '/plans/b1/edit': ContextFamily.global,
     '/post/p1': ContextFamily.global,
-    '/u/u1/lists': ContextFamily.global,
     // P with the family's own list.
     AppRouter.explorePath: ContextFamily.explore,
     AppRouter.notificationsPath: ContextFamily.notifications,
@@ -39,6 +38,10 @@ void main() {
     AppRouter.communityNewPath: ContextFamily.communityCreate,
     '/communities/c1': ContextFamily.community,
     '/communities/c1/moderation-log': ContextFamily.moderationLog,
+    // The Lists pages (T8b): sections lent by the page.
+    '/lists/l1': ContextFamily.listDetail,
+    AppRouter.pinnedPath: ContextFamily.managePinned,
+    '/u/u1/lists': ContextFamily.userLists,
     // No pane: list-detail families (T4-T6) and the F rows of section 4.1.
     AppRouter.settingsPath: ContextFamily.none,
     AppRouter.blockedAccountsPath: ContextFamily.none,
@@ -141,8 +144,8 @@ void main() {
       ('/explore', AppRouter.changeHandlePath): AppRouter.changeHandlePath,
       // A plan's detail over Home keeps T5's base-route rule.
       ('/home', '/plans/b1'): '/home',
-      // A person's Lists over their profile, and a post over the own
-      // profile: their own family (the global set).
+      // A person's Lists over their profile (T8b's owner card), and a post
+      // over the own profile (the global set): their own family.
       ('/profile/alice', '/u/u1/lists'): '/u/u1/lists',
       ('/profile/alice', '/post/p1'): '/post/p1',
       // Neither side is a communities or profile page: T3's base-route rule,
@@ -157,6 +160,52 @@ void main() {
       ('/home', null): '/home',
       // Not a prefix match: `/communitiesx` is not a communities page.
       ('/home', '/communitiesx'): '/home',
+    };
+    for (final MapEntry(key: (base, top), value: expected) in cases.entries) {
+      test('pane location: base $base, top $top -> $expected', () {
+        expect(contextPaneLocationFor(base, top), expected);
+      });
+    }
+  });
+
+  group('lists (T8b)', () {
+    test('a query or a trailing slash does not change the family', () {
+      expect(contextFamilyFor('/lists/'), ContextFamily.global);
+      expect(contextFamilyFor('/lists/7?x=1'), ContextFamily.listDetail);
+      expect(contextFamilyFor('/lists/7/'), ContextFamily.listDetail);
+      expect(contextFamilyFor('/lists/7/members/'), ContextFamily.global);
+      expect(contextFamilyFor('/home/pinned/'), ContextFamily.managePinned);
+      expect(contextFamilyFor('/u/u1/lists?x=1'), ContextFamily.userLists);
+    });
+
+    test('near misses keep their own family', () {
+      expect(contextFamilyFor('/home/pinnedx'), ContextFamily.global);
+      expect(contextFamilyFor('/u/u1/listsx'), ContextFamily.global);
+      expect(contextFamilyFor('/u/u1'), ContextFamily.profile);
+    });
+
+    // The Lists pages are pushed (a List from Lists, Manage pinned or a
+    // person's Lists; Members from a List; Manage pinned from Home's "+"; a
+    // person's Lists from their profile), so their pane follows the top page.
+    const cases = <(String, String?), String>{
+      ('/lists', '/lists/77'): '/lists/77',
+      ('/lists', '/lists/77/members'): '/lists/77/members',
+      ('/home', '/home/pinned'): '/home/pinned',
+      ('/home', '/lists/77'): '/lists/77',
+      ('/profile/olivia', '/u/o1/lists'): '/u/o1/lists',
+      ('/u/o1', '/u/o1/lists'): '/u/o1/lists',
+      ('/profile/olivia', '/lists/77'): '/lists/77',
+      // Something else pushed over a Lists page: that page's family.
+      ('/lists', '/profile/olivia'): '/profile/olivia',
+      ('/home/pinned', '/plans/mine'): '/plans/mine',
+      // No top page known: the base route.
+      ('/lists', null): '/lists',
+      // Not a Lists page: T3's base-route rule, unchanged.
+      ('/home', '/home'): '/home',
+      ('/home', '/listsx'): '/home',
+      // A profile over Home follows T8c's profile rule (the top page
+      // decides; this row read `/home` in T8b).
+      ('/home', '/u/o1'): '/u/o1',
     };
     for (final MapEntry(key: (base, top), value: expected) in cases.entries) {
       test('pane location: base $base, top $top -> $expected', () {
