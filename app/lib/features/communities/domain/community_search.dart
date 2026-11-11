@@ -21,9 +21,13 @@ enum MemberSearchInput {
   /// One character: too short to ask; the page shows its list.
   tooShort,
 
-  /// Something a handle can never start with (a space, a dot, more than 15
-  /// characters): no call, a hint.
+  /// Something a handle can never start with (a space, a dot, a symbol):
+  /// no call, a hint.
   invalid,
+
+  /// Handle characters, but more than 15 of them (a handle is at most 15):
+  /// no call, its own hint.
+  tooLong,
 
   /// A prefix the server accepts.
   ready,
@@ -43,9 +47,8 @@ String? memberSearchPrefix(String raw) =>
 MemberSearchInput memberSearchInputOf(String raw) {
   final text = _strip(raw);
   if (text.isEmpty) return MemberSearchInput.blank;
-  if (!_prefixChars.hasMatch(text) || text.length > 15) {
-    return MemberSearchInput.invalid;
-  }
+  if (!_prefixChars.hasMatch(text)) return MemberSearchInput.invalid;
+  if (text.length > 15) return MemberSearchInput.tooLong;
   if (text.length < 2) return MemberSearchInput.tooShort;
   return MemberSearchInput.ready;
 }

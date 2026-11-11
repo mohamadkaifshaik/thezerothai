@@ -1,6 +1,5 @@
-import 'dart:ui' show SemanticsRole;
-
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/communities/v1/communities.pb.dart' as pb;
@@ -182,6 +181,11 @@ class CommunityRow extends StatelessWidget {
   /// leave a 320 dp phone's name no room (as band B's pane does, T8a).
   static const double cardStackTextScale = 1.3;
 
+  /// At any text scale, a [card] row also puts its pill under the name when
+  /// the pill beside it would leave the name less than this (R10 review
+  /// item 14).
+  static const double cardMinNameWidth = 140;
+
   /// The [card] look: the text area is the row's one button (as the plain
   /// row), the [trailing] pill sits beside it on the card (under the name at
   /// large text), never inside it.
@@ -284,39 +288,218 @@ class CommunityRow extends StatelessWidget {
         padding: EdgeInsets.zero,
         child: Material(
           type: MaterialType.transparency,
-          child: stack
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    textArea,
-                    Padding(
-                      // Under the name: the inset, the tile and its gap.
-                      padding: const EdgeInsetsDirectional.only(
-                        start: inset + cardTileSize + AppSpacing.smd,
-                        end: AppSpacing.smd,
-                        bottom: AppSpacing.sm,
-                      ),
-                      child: Align(
-                        alignment: AlignmentDirectional.centerStart,
-                        child: trailing,
-                      ),
-                    ),
-                  ],
-                )
-              : Row(
-                  children: [
-                    Expanded(child: textArea),
-                    if (trailing != null)
-                      Padding(
-                        padding: const EdgeInsetsDirectional.only(
-                          end: AppSpacing.smd,
-                        ),
-                        child: trailing,
-                      ),
-                  ],
+          child: trailing == null
+              ? textArea
+              : _SideOrBelow(
+                  below: stack,
+                  // The text area's inset, tile, gap and end padding, plus
+                  // the name's least width.
+                  minMainWidth:
+                      inset +
+                      cardTileSize +
+                      AppSpacing.smd +
+                      AppSpacing.smd +
+                      cardMinNameWidth,
+                  endGap: AppSpacing.smd,
+                  // Under the name: the inset, the tile and its gap.
+                  belowStart: inset + cardTileSize + AppSpacing.smd,
+                  belowBottom: AppSpacing.sm,
+                  textDirection: Directionality.of(context),
+                  main: textArea,
+                  side: trailing,
                 ),
         ),
       ),
     );
   }
+}
+
+/// The card row's text area ([main]) with its pill ([side]): beside it at
+/// the end, vertically centred (a `Row`), or under the name ([belowStart]
+/// from the start) when [below] is set or when the pill beside it would
+/// leave [main] less than [minMainWidth]. The pill is measured first, so
+/// the choice follows its real width at the ambient text scale and font.
+class _SideOrBelow extends MultiChildRenderObjectWidget {
+  _SideOrBelow({
+    required this.below,
+    required this.minMainWidth,
+    required this.endGap,
+    required this.belowStart,
+    required this.belowBottom,
+    required this.textDirection,
+    required Widget main,
+    required Widget side,
+  }) : super(children: [main, side]);
+
+  final bool below;
+  final double minMainWidth;
+  final double endGap;
+  final double belowStart;
+  final double belowBottom;
+  final TextDirection textDirection;
+
+  @override
+  _RenderSideOrBelow createRenderObject(BuildContext context) =>
+      _RenderSideOrBelow()
+        ..below = below
+        ..minMainWidth = minMainWidth
+        ..endGap = endGap
+        ..belowStart = belowStart
+        ..belowBottom = belowBottom
+        ..textDirection = textDirection;
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderSideOrBelow renderObject,
+  ) {
+    renderObject
+      ..below = below
+      ..minMainWidth = minMainWidth
+      ..endGap = endGap
+      ..belowStart = belowStart
+      ..belowBottom = belowBottom
+      ..textDirection = textDirection;
+  }
+}
+
+class _SideOrBelowParentData extends ContainerBoxParentData<RenderBox> {}
+
+class _RenderSideOrBelow extends RenderBox
+    with
+        ContainerRenderObjectMixin<RenderBox, _SideOrBelowParentData>,
+        RenderBoxContainerDefaultsMixin<RenderBox, _SideOrBelowParentData> {
+  bool _below = false;
+  set below(bool v) {
+    if (v == _below) return;
+    _below = v;
+    markNeedsLayout();
+  }
+
+  double _minMainWidth = 0;
+  set minMainWidth(double v) {
+    if (v == _minMainWidth) return;
+    _minMainWidth = v;
+    markNeedsLayout();
+  }
+
+  double _endGap = 0;
+  set endGap(double v) {
+    if (v == _endGap) return;
+    _endGap = v;
+    markNeedsLayout();
+  }
+
+  double _belowStart = 0;
+  set belowStart(double v) {
+    if (v == _belowStart) return;
+    _belowStart = v;
+    markNeedsLayout();
+  }
+
+  double _belowBottom = 0;
+  set belowBottom(double v) {
+    if (v == _belowBottom) return;
+    _belowBottom = v;
+    markNeedsLayout();
+  }
+
+  TextDirection _textDirection = TextDirection.ltr;
+  set textDirection(TextDirection v) {
+    if (v == _textDirection) return;
+    _textDirection = v;
+    markNeedsLayout();
+  }
+
+  @override
+  void setupParentData(RenderBox child) {
+    if (child.parentData is! _SideOrBelowParentData) {
+      child.parentData = _SideOrBelowParentData();
+    }
+  }
+
+  RenderBox get _main => firstChild!;
+  RenderBox get _side => lastChild!;
+
+  /// Lays out (or, with [dry], measures) both children; returns the size
+  /// and, when laying out, places them.
+  Size _layout(
+    BoxConstraints constraints,
+    Size Function(RenderBox child, BoxConstraints c) size, {
+    required bool place,
+  }) {
+    final width = constraints.maxWidth;
+    final sideSize = size(
+      _side,
+      BoxConstraints(
+        maxWidth: (width - _belowStart - _endGap).clamp(0, double.infinity),
+      ),
+    );
+    final mainWidth = width - sideSize.width - _endGap;
+    final below = _below || mainWidth < _minMainWidth;
+    final ltr = _textDirection == TextDirection.ltr;
+    if (!below) {
+      final mainSize = size(
+        _main,
+        BoxConstraints(minWidth: mainWidth, maxWidth: mainWidth),
+      );
+      final height = mainSize.height > sideSize.height
+          ? mainSize.height
+          : sideSize.height;
+      if (place) {
+        _offset(
+          _main,
+          Offset(
+            ltr ? 0 : sideSize.width + _endGap,
+            (height - mainSize.height) / 2,
+          ),
+        );
+        _offset(
+          _side,
+          Offset(ltr ? mainWidth : _endGap, (height - sideSize.height) / 2),
+        );
+      }
+      return constraints.constrain(Size(width, height));
+    }
+    final mainSize = size(
+      _main,
+      BoxConstraints(minWidth: width, maxWidth: width),
+    );
+    if (place) {
+      _offset(_main, Offset.zero);
+      _offset(
+        _side,
+        Offset(
+          ltr ? _belowStart : width - _belowStart - sideSize.width,
+          mainSize.height,
+        ),
+      );
+    }
+    return constraints.constrain(
+      Size(width, mainSize.height + sideSize.height + _belowBottom),
+    );
+  }
+
+  void _offset(RenderBox child, Offset offset) =>
+      (child.parentData! as _SideOrBelowParentData).offset = offset;
+
+  @override
+  void performLayout() {
+    size = _layout(constraints, (child, c) {
+      child.layout(c, parentUsesSize: true);
+      return child.size;
+    }, place: true);
+  }
+
+  @override
+  Size computeDryLayout(covariant BoxConstraints constraints) =>
+      _layout(constraints, (child, c) => child.getDryLayout(c), place: false);
+
+  @override
+  void paint(PaintingContext context, Offset offset) =>
+      defaultPaint(context, offset);
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
+      defaultHitTestChildren(result, position: position);
 }

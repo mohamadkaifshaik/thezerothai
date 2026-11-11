@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/router/context_sections.dart' show contextGlobalSections;
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/context_pane.dart';
@@ -15,7 +16,6 @@ import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_status_pill.dart';
-import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../graph/data/graph_repository.dart';
 import '../../graph/presentation/bloc/user_list_cubit.dart';
@@ -26,27 +26,77 @@ import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/communities_repository.dart';
 import '../domain/communities_feature_flag.dart';
 import '../domain/community_role.dart';
+import '../domain/community_search.dart';
 import 'bloc/community_member_search_cubit.dart';
 import 'bloc/community_moderation_cubit.dart';
 import 'communities_error_messages.dart';
 import 'widgets/community_member_actions.dart';
 import 'widgets/community_row.dart';
 import 'widgets/community_search_field.dart';
+import 'widgets/community_tabs.dart';
 import 'widgets/community_unavailable_view.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// The members search found no one (F36: the search reads only the top 20
-/// handles of the whole platform, so it never says "not a member").
+/// handles of the whole platform, so it never says "not a member"). One
+/// title per tab (R10 review item 6).
 const kNoMembersFoundTitle = 'No members found for that handle.';
+const kNoModeratorsFoundTitle = 'No moderators found for that handle.';
+const kNoBannedFoundTitle = 'No banned people found for that handle.';
 const kNoMembersFoundHint = 'Try more of their handle.';
 
 /// The members search text can't start a handle (F36).
 const kMemberSearchInvalidHint =
     'Search by handle: letters, numbers and underscores.';
 
+/// The members search text is longer than any handle (F36, review item 4).
+const kMemberSearchTooLongHint =
+    'Search by handle: up to 15 letters, numbers or underscores.';
+
 /// The tabs of a moderator (F24): Members, Moderators, Banned. Everyone
 /// else sees Members only, with no tab bar.
 enum _Tab { members, moderators, banned }
+
+/// The polite count line over a members search's rows (review item 8).
+String _matchLine(_Tab tab, int n, String prefix) => switch (tab) {
+  _Tab.members =>
+    n == 1 ? '1 member matches @$prefix' : '$n members match @$prefix',
+  _Tab.moderators =>
+    n == 1 ? '1 moderator matches @$prefix' : '$n moderators match @$prefix',
+  _Tab.banned =>
+    n == 1
+        ? '1 banned person matches @$prefix'
+        : '$n banned people match @$prefix',
+};
+
+/// A muted count line, announced politely when it changes.
+class _MatchLine extends StatelessWidget {
+  const _MatchLine(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.sm,
+        AppSpacing.md,
+        AppSpacing.xs,
+      ),
+      child: Semantics(
+        liveRegion: true,
+        child: Text(
+          text,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 /// `/communities/:id/members`: the joined members, 1
 /// `ListCommunityMembers` per page, each with a Follow button; the owner and
@@ -178,8 +228,10 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
       context,
       AppRouter.communityMembersPath(widget.communityId),
       {
-        ContextSectionKind.memberSearch: (context) =>
-            _searchField(margin: const EdgeInsets.only(bottom: AppSpacing.md)),
+        ContextSectionKind.memberSearch: (context) => _searchField(
+          margin: const EdgeInsets.only(bottom: AppSpacing.md),
+          inPane: true,
+        ),
       },
     );
   }
@@ -324,30 +376,43 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
         other.loadFirstPage();
       }
     }
-    if (action == CommunityMemberAction.removeModerator) {
-      if (identical(list, _moderatorsCubit)) list?.removeUser(userId);
-      if (list == null && _search.scope == MemberSearchScope.moderators) {
-        _search.removeUser(userId);
-      }
+    if (action == CommunityMemberAction.removeModerator &&
+        identical(list, _moderatorsCubit)) {
+      list?.removeUser(userId);
     }
     _say(done);
   }
 
-  /// The search field, inline or lent to band B's pane; nothing once the
-  /// server said the search is off.
-  Widget _searchField({required EdgeInsetsGeometry margin}) =>
-      BlocBuilder<CommunityMemberSearchCubit, MemberSearchState>(
-        bloc: _search,
-        buildWhen: (a, b) => a.unavailable != b.unavailable,
-        builder: (context, state) => state.unavailable
-            ? const SizedBox.shrink()
-            : CommunitySearchField(
-                hint: kSearchMembersHint,
-                controller: _searchText,
-                onChanged: _search.textChanged,
-                margin: margin,
-              ),
+  /// The search field, inline or lent to band B's pane ([inPane]). Once the
+  /// server said the search is off: nothing inline, and the global set in
+  /// the pane rather than a blank pane (review item 13).
+  Widget _searchField({
+    required EdgeInsetsGeometry margin,
+    bool inPane = false,
+  }) => BlocBuilder<CommunityMemberSearchCubit, MemberSearchState>(
+    bloc: _search,
+    buildWhen: (a, b) => a.unavailable != b.unavailable,
+    builder: (context, state) {
+      if (state.unavailable) {
+        if (!inPane) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [for (final s in contextGlobalSections(context)) s.child],
+        );
+      }
+      return CommunitySearchField(
+        hint: kSearchMembersHint,
+        label: kSearchMembersLabel,
+        helperFor: (text) =>
+            memberSearchInputOf(text) == MemberSearchInput.tooShort
+            ? kMemberSearchTooShortHelper
+            : null,
+        controller: _searchText,
+        onChanged: _search.textChanged,
+        margin: margin,
       );
+    },
+  );
 
   Widget _row(
     BuildContext context,
@@ -393,10 +458,19 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
   Widget _centered(Widget child) =>
       Center(child: SingleChildScrollView(child: child));
 
-  /// The tab's own list (no search in the field).
-  Widget _list(BuildContext context, _Tab tab, String? viewerUserId) {
+  /// The tab's own list. With [prefix] (the Moderators tab while the field
+  /// holds a search) it shows only the loaded rows whose handle starts with
+  /// it, under their count line, with no call (review item 7).
+  Widget _list(
+    BuildContext context,
+    _Tab tab,
+    String? viewerUserId, {
+    String? prefix,
+  }) {
     final list = _listOf(tab);
-    return BlocBuilder<UserListCubit, UserListState>(
+    bool matches(graph.UserListItem item) =>
+        item.user.handle.toLowerCase().startsWith(prefix!);
+    final paged = BlocBuilder<UserListCubit, UserListState>(
       key: ValueKey('members-tab-${tab.name}'),
       bloc: list,
       buildWhen: (a, b) => a.error.runtimeType != b.error.runtimeType,
@@ -424,12 +498,17 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
         }
         return PagedUserList(
           cubit: list,
-          emptyMessage: switch (tab) {
-            _Tab.members => 'No members yet',
-            _Tab.moderators => 'No moderators yet',
-            _Tab.banned => 'No one is banned',
-          },
-          emptyIcon: Icons.groups_outlined,
+          itemFilter: prefix == null ? null : matches,
+          emptyMessage: prefix != null
+              ? kNoModeratorsFoundTitle
+              : switch (tab) {
+                  _Tab.members => 'No members yet',
+                  _Tab.moderators => 'No moderators yet',
+                  _Tab.banned => 'No one is banned',
+                },
+          emptyIcon: prefix == null
+              ? Icons.groups_outlined
+              : Icons.person_search_outlined,
           rowBuilder: (context, item) => _row(
             context,
             item,
@@ -440,6 +519,22 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
         );
       },
     );
+    if (prefix == null) return paged;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        BlocBuilder<UserListCubit, UserListState>(
+          bloc: list,
+          builder: (context, state) {
+            final n = state.items.where(matches).length;
+            return n == 0
+                ? const SizedBox.shrink()
+                : _MatchLine(_matchLine(tab, n, prefix));
+          },
+        ),
+        Expanded(child: paged),
+      ],
+    );
   }
 
   /// The search's answer in place of the tab's list.
@@ -449,17 +544,44 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
     _Tab tab,
     String? viewerUserId,
   ) {
+    Widget rows(List<pb.CommunityMember> results, String prefix) => Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _MatchLine(_matchLine(tab, results.length, prefix)),
+        Expanded(
+          child: ListView.builder(
+            key: ValueKey('members-search-${tab.name}'),
+            itemCount: results.length,
+            itemBuilder: (context, i) => _row(
+              context,
+              results[i].user,
+              tab: tab,
+              viewerUserId: viewerUserId,
+            ),
+          ),
+        ),
+      ],
+    );
     switch (state.status) {
+      case MemberSearchStatus.local:
+        return _list(context, tab, viewerUserId, prefix: state.prefix);
       case MemberSearchStatus.idle:
       case MemberSearchStatus.loading:
+        // The last answer stays while the next one loads (no flash).
+        if (state.results.isNotEmpty) {
+          return rows(state.results, state.resultsPrefix);
+        }
         return const SingleChildScrollView(
           child: UserListSkeleton(rows: 3, semanticsLabel: 'Searching members'),
         );
       case MemberSearchStatus.invalid:
+      case MemberSearchStatus.tooLong:
         return _centered(
-          const AppEmptyView(
+          AppEmptyView(
             icon: Icons.person_search_outlined,
-            title: kMemberSearchInvalidHint,
+            title: state.status == MemberSearchStatus.tooLong
+                ? kMemberSearchTooLongHint
+                : kMemberSearchInvalidHint,
           ),
         );
       case MemberSearchStatus.error:
@@ -480,23 +602,16 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
       case MemberSearchStatus.ready:
         if (state.results.isEmpty) {
           return _centered(
-            const AppEmptyView(
+            AppEmptyView(
               icon: Icons.person_search_outlined,
-              title: kNoMembersFoundTitle,
+              title: tab == _Tab.banned
+                  ? kNoBannedFoundTitle
+                  : kNoMembersFoundTitle,
               subtitle: kNoMembersFoundHint,
             ),
           );
         }
-        return ListView.builder(
-          key: ValueKey('members-search-${tab.name}'),
-          itemCount: state.results.length,
-          itemBuilder: (context, i) => _row(
-            context,
-            state.results[i].user,
-            tab: tab,
-            viewerUserId: viewerUserId,
-          ),
-        );
+        return rows(state.results, state.resultsPrefix);
     }
   }
 
@@ -525,29 +640,33 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
               AppBackHeader(
                 title: 'Members',
                 onBack: _back,
-                titleContent: _communityName.isEmpty
-                    ? null
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Members',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleLarge,
-                          ),
-                          Text(
-                            _communityName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              fontWeight: FontWeight.w600,
-                              color: context.appColors.secondaryOnRaised,
-                            ),
-                          ),
-                        ],
+                // The name's line is kept from the first frame (an empty,
+                // unspoken line until GetCommunity answers), so the page does
+                // not move down when it arrives (review item 12).
+                titleContent: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Members',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleLarge,
+                    ),
+                    ExcludeSemantics(
+                      excluding: _communityName.isEmpty,
+                      child: Text(
+                        _communityName.isEmpty ? ' ' : _communityName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: context.appColors.secondaryOnRaised,
+                        ),
                       ),
+                    ),
+                  ],
+                ),
               ),
               if (searchOn && !searchInPane)
                 Padding(
@@ -560,14 +679,9 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
                   child: _searchField(margin: EdgeInsets.zero),
                 ),
               if (moderates)
-                AppTabBar(
-                  tabs: const [
-                    AppTab(label: 'Members'),
-                    AppTab(label: 'Moderators'),
-                    AppTab(label: 'Banned'),
-                  ],
+                CommunityTabBar(
+                  labels: const ['Members', 'Moderators', 'Banned'],
                   selectedIndex: tab.index,
-                  equalWidth: true,
                   semanticLabel: 'Member lists',
                   onChanged: _selectTab,
                 ),

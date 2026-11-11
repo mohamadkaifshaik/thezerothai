@@ -136,6 +136,20 @@ class CommunityHeader extends StatelessWidget {
               ],
             ],
           ),
+          // The description, at most 2 lines (R10 review item 11; the About
+          // tab has it whole). An empty one draws nothing.
+          if (community.description.trim().isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.xs),
+              child: Text(
+                community.description.trim(),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
           Align(
             alignment: AlignmentDirectional.centerStart,
             child: Semantics(

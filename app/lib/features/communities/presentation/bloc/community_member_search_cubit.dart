@@ -6,7 +6,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import '../../domain/communities_feature_flag.dart';
-import '../../domain/community_role.dart';
 import '../../domain/community_search.dart';
 
 /// One `SearchCommunityMembers` (F36): the members of one community whose
@@ -18,33 +17,47 @@ typedef SearchCommunityMembers = Future<List<pb.CommunityMember>> Function({
 
 /// Which tab of the members page a search looks in.
 enum MemberSearchScope {
-  /// JOINED members.
+  /// JOINED members: `SearchCommunityMembers`.
   members,
 
-  /// The owner and the moderators: a JOINED search (the server takes no
-  /// MODERATORS filter for a search) keeping the rows whose role moderates.
+  /// The owner and the moderators: the page filters its own loaded
+  /// Moderators list by handle prefix, with no call (at most 11 rows, all
+  /// loaded; the server takes no MODERATORS filter for a search).
   moderators,
 
-  /// BANNED users (owner and moderators only).
+  /// BANNED users (owner and moderators only): `SearchCommunityMembers`.
   banned,
 }
 
-/// [idle] nothing to search (blank or one character): the page shows its
-/// list. [invalid] the text can't start a handle: a hint, no call.
-/// [loading], [ready] and [error] are one search's states.
-enum MemberSearchStatus { idle, invalid, loading, ready, error }
+/// - [idle]: nothing to search (blank or one character); the page shows its
+///   list.
+/// - [invalid] / [tooLong]: the text can't be a handle prefix; a hint, no
+///   call.
+/// - [local]: the Moderators tab filters its own list ([prefix]); no call.
+/// - [loading], [ready], [error]: one search's states. While a search loads
+///   the previous [MemberSearchState.results] stay (no skeleton flash).
+enum MemberSearchStatus { idle, invalid, tooLong, local, loading, ready, error }
 
 @immutable
 class MemberSearchState {
   const MemberSearchState({
     this.status = MemberSearchStatus.idle,
     this.results = const [],
+    this.resultsPrefix = '',
+    this.prefix = '',
     this.error,
     this.unavailable = false,
   });
 
   final MemberSearchStatus status;
   final List<pb.CommunityMember> results;
+
+  /// The prefix [results] answer (shown in the count line while the next
+  /// search loads).
+  final String resultsPrefix;
+
+  /// The prefix being searched (or filtered, [MemberSearchStatus.local]).
+  final String prefix;
   final AppException? error;
 
   /// The server answered that `community_member_search` is off (or does not
@@ -57,12 +70,16 @@ class MemberSearchState {
   MemberSearchState copyWith({
     MemberSearchStatus? status,
     List<pb.CommunityMember>? results,
+    String? resultsPrefix,
+    String? prefix,
     AppException? error,
     bool clearError = false,
     bool? unavailable,
   }) => MemberSearchState(
     status: status ?? this.status,
     results: results ?? this.results,
+    resultsPrefix: resultsPrefix ?? this.resultsPrefix,
+    prefix: prefix ?? this.prefix,
     error: clearError ? null : (error ?? this.error),
     unavailable: unavailable ?? this.unavailable,
   );
@@ -94,11 +111,12 @@ class CommunityMemberSearchCubit extends Cubit<MemberSearchState> {
     _restart(wait: true);
   }
 
-  /// The page switched tabs: the same text, searched in [scope] at once.
+  /// The page switched tabs: the same text, searched in [scope] at once (the
+  /// other tab's results are not kept).
   void setScope(MemberSearchScope scope) {
     if (scope == _scope) return;
     _scope = scope;
-    _restart(wait: false);
+    _restart(wait: false, keep: false);
   }
 
   /// Asks again (Retry, or after a moderation action moved someone).
@@ -122,37 +140,47 @@ class CommunityMemberSearchCubit extends Cubit<MemberSearchState> {
     emit(state.copyWith(results: results));
   }
 
-  void _restart({required bool wait}) {
+  void _restart({required bool wait, bool keep = true}) {
     _timer?.cancel();
     final generation = ++_generation;
     if (state.unavailable) return;
+    MemberSearchState cleared(MemberSearchStatus status) => MemberSearchState(
+      status: status,
+      prefix: memberSearchPrefix(_raw) ?? '',
+    );
     switch (memberSearchInputOf(_raw)) {
       case MemberSearchInput.blank:
       case MemberSearchInput.tooShort:
-        emit(
-          state.copyWith(
-            status: MemberSearchStatus.idle,
-            results: const [],
-            clearError: true,
-          ),
-        );
+        emit(cleared(MemberSearchStatus.idle));
       case MemberSearchInput.invalid:
-        emit(
-          state.copyWith(
-            status: MemberSearchStatus.invalid,
-            results: const [],
-            clearError: true,
-          ),
-        );
+        emit(cleared(MemberSearchStatus.invalid));
+      case MemberSearchInput.tooLong:
+        emit(cleared(MemberSearchStatus.tooLong));
       case MemberSearchInput.ready:
-        emit(
-          state.copyWith(
-            status: MemberSearchStatus.loading,
-            results: const [],
-            clearError: true,
-          ),
-        );
         final prefix = memberSearchPrefix(_raw)!;
+        if (_scope == MemberSearchScope.moderators) {
+          emit(cleared(MemberSearchStatus.local));
+          return;
+        }
+        // The last answer stays on screen while the next one loads, unless
+        // it was another tab's.
+        final stays =
+            keep &&
+            (state.status == MemberSearchStatus.ready ||
+                state.status == MemberSearchStatus.loading) &&
+            state.results.isNotEmpty;
+        emit(
+          stays
+              ? state.copyWith(
+                  status: MemberSearchStatus.loading,
+                  prefix: prefix,
+                  clearError: true,
+                )
+              : MemberSearchState(
+                  status: MemberSearchStatus.loading,
+                  prefix: prefix,
+                ),
+        );
         if (wait) {
           _timer = Timer(debounce, () => _run(generation, prefix));
         } else {
@@ -174,12 +202,8 @@ class CommunityMemberSearchCubit extends Cubit<MemberSearchState> {
       emit(
         state.copyWith(
           status: MemberSearchStatus.ready,
-          results: scope == MemberSearchScope.moderators
-              ? [
-                  for (final m in rows)
-                    if (m.memberRole.canModerate) m,
-                ]
-              : rows,
+          results: rows,
+          resultsPrefix: prefix,
         ),
       );
     } on FeatureDisabledException catch (error) {
@@ -193,10 +217,22 @@ class CommunityMemberSearchCubit extends Cubit<MemberSearchState> {
         );
         return;
       }
-      emit(state.copyWith(status: MemberSearchStatus.error, error: error));
+      emit(
+        MemberSearchState(
+          status: MemberSearchStatus.error,
+          prefix: prefix,
+          error: error,
+        ),
+      );
     } on AppException catch (error) {
       if (isClosed || generation != _generation) return;
-      emit(state.copyWith(status: MemberSearchStatus.error, error: error));
+      emit(
+        MemberSearchState(
+          status: MemberSearchStatus.error,
+          prefix: prefix,
+          error: error,
+        ),
+      );
     }
   }
 

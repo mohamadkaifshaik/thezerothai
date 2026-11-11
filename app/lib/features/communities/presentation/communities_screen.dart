@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
@@ -14,11 +13,7 @@ import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_icon_button.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_section_header.dart';
-import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
-import '../../search/domain/search_feature_flags.dart';
-import '../../search/domain/search_query.dart';
-import '../../search/domain/search_routes.dart';
 import '../data/communities_repository.dart';
 import '../domain/community_role.dart';
 import '../domain/community_search.dart';
@@ -28,29 +23,30 @@ import 'communities_error_messages.dart';
 import 'widgets/community_join_control.dart';
 import 'widgets/community_row.dart';
 import 'widgets/community_search_field.dart';
+import 'widgets/community_tabs.dart';
 import 'widgets/explore_communities_pane.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// The first tab, and the page's list in band B (F23).
 const kMyCommunitiesTitle = 'My communities';
 
-/// My communities is empty; Explore is the other tab (phones, band A,
-/// desktop).
+/// My communities is empty: one sentence in every layout (the Explore tab,
+/// or band B's Explore communities card; review item 10).
 const kEmptyMineTabs =
     "You haven't joined any Communities yet. Join one from Explore to see "
     'its posts.';
 
-/// My communities is empty; Explore communities is in the pane (band B).
-const kEmptyMineBesideExplore =
-    "You haven't joined any Communities yet. Join one from "
-    '$kExploreCommunitiesTitle to see its posts.';
-
 /// The filter matched nothing in a list that is whole (F37 v1).
-const kNoCommunitiesMatch = 'No Communities match';
+const kNoCommunitiesMatch = 'No Communities match.';
 
 /// The filter matched nothing in a list that may be cut short (50 rows, or
 /// a next page): it never claims that nothing exists (F37 v1).
-const kNoLoadedCommunitiesMatch = 'No loaded Communities match.';
+const kNoLoadedCommunitiesMatch = 'No matches among the Communities shown.';
+
+/// The polite count line over a filtered list (F37, review item 8).
+String communitiesMatchLine(int n, String query) => n == 1
+    ? '1 Community matches "${query.trim()}"'
+    : '$n Communities match "${query.trim()}"';
 
 /// `/communities`: "My communities" and "Explore" (the directory, top 50)
 /// with Join pills, a "Search communities" filter and a Create entry for
@@ -163,6 +159,8 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (query.trim().isNotEmpty)
+                    _CountLine(communitiesMatchLine(rows.length, query)),
                   for (final c in more ? rows.take(kExplorePaneRows) : rows)
                     _exploreRow(context, state, c, inPane: true),
                   if (more)
@@ -286,13 +284,12 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                                 ? const AppSectionHeader(
                                     title: kMyCommunitiesTitle,
                                   )
-                                : AppTabBar(
-                                    tabs: const [
-                                      AppTab(label: kMyCommunitiesTitle),
-                                      AppTab(label: 'Explore'),
+                                : CommunityTabBar(
+                                    labels: const [
+                                      kMyCommunitiesTitle,
+                                      'Explore',
                                     ],
                                     selectedIndex: tab.index,
-                                    equalWidth: true,
                                     semanticLabel: 'Community lists',
                                     onChanged: (i) =>
                                         setState(() => _tab = _Tab.values[i]),
@@ -302,11 +299,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                             child: SizedBox(height: AppSpacing.sm),
                           ),
                           if (tab == _Tab.mine)
-                            ..._mine(
-                              context,
-                              state,
-                              exploreInPane: exploreInPane,
-                            )
+                            ..._mine(context, state, tabs: !exploreInPane)
                           else
                             ..._directory(context, state),
                           const SliverToBoxAdapter(
@@ -327,46 +320,58 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   }
 
   /// The filter found nothing (F37 v1). Over a list that may be cut short
-  /// it says only that nothing loaded matches, and offers Search (with
-  /// `search` on).
-  Widget _noMatch(
-    BuildContext context, {
-    required bool mayBeCut,
-    required String query,
-  }) {
-    if (!mayBeCut) return const _SectionNote(kNoCommunitiesMatch);
-    final search = isFeatureEnabled(context, kFeatureSearch);
-    final parsed = SearchQuery.parse(query);
+  /// it says only that nothing shown matches. With the tabs showing and
+  /// matches in the other tab ([other]: that tab and its count), a 48 dp
+  /// "See N in ..." switches to it (review item 9).
+  Widget _noMatch({required bool mayBeCut, (_Tab, int)? other}) {
+    final note = _SectionNote(
+      mayBeCut ? kNoLoadedCommunitiesMatch : kNoCommunitiesMatch,
+    );
+    if (other == null || other.$2 == 0) return note;
+    final (tab, n) = other;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const _SectionNote(kNoLoadedCommunitiesMatch),
-        if (search)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-            child: TextButton(
-              style: TextButton.styleFrom(
-                minimumSize: const Size(
-                  AppSpacing.minTapTarget,
-                  AppSpacing.minTapTarget,
-                ),
+        note,
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+          child: TextButton(
+            style: TextButton.styleFrom(
+              minimumSize: const Size(
+                AppSpacing.minTapTarget,
+                AppSpacing.minTapTarget,
               ),
-              onPressed: () => this.context.push(
-                parsed.isValid
-                    ? searchResultsLocation(parsed.canonical)
-                    : AppRouter.explorePath,
-              ),
-              child: const Text('Try Search'),
+            ),
+            onPressed: () => setState(() => _tab = tab),
+            child: Text(
+              tab == _Tab.explore
+                  ? 'See $n in Explore'
+                  : 'See $n in $kMyCommunitiesTitle',
             ),
           ),
+        ),
       ],
     );
   }
 
+  /// The filtered count of the list not showing (for [_noMatch]); 0 while it
+  /// is not loaded.
+  int _otherCount(CommunitiesState state, _Tab other) {
+    final ready = other == _Tab.explore
+        ? state.directoryStatus == CommunitiesLoad.ready
+        : state.mineStatus == CommunitiesLoad.ready;
+    if (!ready) return 0;
+    return filterCommunities(
+      other == _Tab.explore ? state.directory : state.mine,
+      _query.text,
+    ).length;
+  }
+
+  /// [tabs]: the page shows the tabs (not band B).
   List<Widget> _mine(
     BuildContext context,
     CommunitiesState state, {
-    required bool exploreInPane,
+    required bool tabs,
   }) {
     switch (state.mineStatus) {
       case CommunitiesLoad.loading:
@@ -386,14 +391,8 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
         ];
       case CommunitiesLoad.ready:
         if (state.mine.isEmpty) {
-          // Band B: Explore communities is beside the list; elsewhere it is
-          // the other tab.
-          return [
-            SliverToBoxAdapter(
-              child: _SectionNote(
-                exploreInPane ? kEmptyMineBesideExplore : kEmptyMineTabs,
-              ),
-            ),
+          return const [
+            SliverToBoxAdapter(child: _SectionNote(kEmptyMineTabs)),
           ];
         }
         final rows = filterCommunities(state.mine, _query.text);
@@ -401,17 +400,22 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
           return [
             SliverToBoxAdapter(
               child: _noMatch(
-                context,
-                query: _query.text,
                 mayBeCut: communitiesMayBeCut(
                   count: state.mine.length,
                   hasMore: state.mineHasMore,
                 ),
+                other: tabs
+                    ? (_Tab.explore, _otherCount(state, _Tab.explore))
+                    : null,
               ),
             ),
           ];
         }
         return [
+          if (_query.text.trim().isNotEmpty)
+            SliverToBoxAdapter(
+              child: _CountLine(communitiesMatchLine(rows.length, _query.text)),
+            ),
           SliverList.builder(
             itemCount: rows.length,
             itemBuilder: (context, i) {
@@ -436,8 +440,9 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   Widget? _directoryStatus(
     BuildContext context,
     CommunitiesState state,
-    String query,
-  ) {
+    String query, {
+    bool tabs = false,
+  }) {
     switch (state.directoryStatus) {
       case CommunitiesLoad.loading:
         return const UserListSkeleton(
@@ -452,12 +457,11 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
         }
         if (filterCommunities(state.directory, query).isEmpty) {
           return _noMatch(
-            context,
-            query: query,
             mayBeCut: communitiesMayBeCut(
               count: state.directory.length,
               hasMore: state.directoryHasMore,
             ),
+            other: tabs ? (_Tab.mine, _otherCount(state, _Tab.mine)) : null,
           );
         }
         return null;
@@ -499,10 +503,14 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   }
 
   List<Widget> _directory(BuildContext context, CommunitiesState state) {
-    final status = _directoryStatus(context, state, _query.text);
+    final status = _directoryStatus(context, state, _query.text, tabs: true);
     if (status != null) return [SliverToBoxAdapter(child: status)];
     final rows = filterCommunities(state.directory, _query.text);
     return [
+      if (_query.text.trim().isNotEmpty)
+        SliverToBoxAdapter(
+          child: _CountLine(communitiesMatchLine(rows.length, _query.text)),
+        ),
       SliverList.builder(
         itemCount: rows.length,
         itemBuilder: (context, i) => _exploreRow(context, state, rows[i]),
@@ -529,6 +537,36 @@ class _SectionNote extends StatelessWidget {
         text,
         style: theme.textTheme.bodyLarge?.copyWith(
           color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+/// The polite count line over a filtered list (F37, review item 8): muted,
+/// announced when it changes.
+class _CountLine extends StatelessWidget {
+  const _CountLine(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.xs,
+        AppSpacing.md,
+        AppSpacing.sm,
+      ),
+      child: Semantics(
+        liveRegion: true,
+        child: Text(
+          text,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
       ),
     );

@@ -13,7 +13,7 @@ import '../../features/communities/presentation/widgets/community_about.dart'
 import '../../features/communities/presentation/widgets/community_preview.dart'
     show CommunityPreviewCard;
 import '../../features/communities/presentation/widgets/community_search_field.dart'
-    show CommunitySearchField, kSearchMembersHint;
+    show CommunitySearchField, kSearchMembersHint, kSearchMembersLabel;
 import '../../features/communities/presentation/widgets/explore_communities_pane.dart'
     show ExploreCommunitiesPanePlaceholder;
 import '../../features/communities/presentation/widgets/moderation_log_about.dart'
@@ -287,19 +287,7 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
 
   return [
     ...switch (family) {
-      ContextFamily.global => [
-        if (search)
-          const ContextSection(
-            ContextSectionKind.search,
-            Padding(
-              padding: EdgeInsets.only(bottom: AppSpacing.md),
-              child: AppSearchField(),
-            ),
-          ),
-        ?_profileSection(context),
-        if (trends) whatsHappening,
-        if (suggestions) whoToFollow('Who to follow'),
-      ],
+      ContextFamily.global => contextGlobalSections(context),
       ContextFamily.explore ||
       ContextFamily.people => [if (suggestions) whoToFollow('Who to follow')],
       ContextFamily.notifications ||
@@ -330,7 +318,10 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
       ContextFamily.communityMembers => [
         lent(
           ContextSectionKind.memberSearch,
-          const CommunitySearchField(hint: kSearchMembersHint),
+          const CommunitySearchField(
+            hint: kSearchMembersHint,
+            label: kSearchMembersLabel,
+          ),
         ),
       ],
       ContextFamily.listDetail => [
@@ -377,6 +368,37 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
         ],
       ),
     ),
+  ];
+}
+
+/// The global set, top to bottom: the search pill, the profile card, What's
+/// happening and Who to follow, each gated as everywhere else (no footer).
+/// [contextSectionsFor]'s global family; a page whose own lent section goes
+/// away may draw these in its slot instead of a blank pane (R10: the members
+/// page when the server turns member search off).
+List<ContextSection> contextGlobalSections(BuildContext context) {
+  final search = isFeatureEnabled(context, kFeatureSearch);
+  final trends = search && isFeatureEnabled(context, kFeatureTrends);
+  return [
+    if (search)
+      const ContextSection(
+        ContextSectionKind.search,
+        Padding(
+          padding: EdgeInsets.only(bottom: AppSpacing.md),
+          child: AppSearchField(),
+        ),
+      ),
+    ?_profileSection(context),
+    if (trends)
+      const ContextSection(ContextSectionKind.trends, WhatsHappeningCard()),
+    if (isFollowSuggestionsEnabled(context))
+      const ContextSection(
+        ContextSectionKind.whoToFollow,
+        WhoToFollowCard(
+          title: 'Who to follow',
+          margin: EdgeInsets.only(bottom: AppSpacing.md),
+        ),
+      ),
   ];
 }
 
