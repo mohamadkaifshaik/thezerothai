@@ -7,6 +7,7 @@ import '../../../core/storage/app_database.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../shared/format/scheduled_time.dart';
 import '../../../shared/widgets/primitives/app_section_header.dart';
 import '../../../shared/widgets/primitives/app_surface.dart';
@@ -100,7 +101,10 @@ class _DataExportScreenState extends State<DataExportScreen> {
         child: Align(
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 600),
+            // 680 on the tablet layout (the readable column), else 600.
+            constraints: BoxConstraints(
+              maxWidth: ShellGeometry.readableMaxWidth(context),
+            ),
             child: BlocBuilder<DataExportCubit, DataExportState>(
               bloc: _export,
               builder: (context, state) => ListView(

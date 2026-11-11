@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../shared/widgets/primitives/headline_message.dart';
 import '../../../shared/widgets/primitives/settings_group.dart';
@@ -49,7 +50,10 @@ class NotificationSettingsScreen extends StatelessWidget {
         child: Align(
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: AppBreakpoints.mobile),
+            // 680 on the tablet layout (the readable column), else 600.
+            constraints: BoxConstraints(
+              maxWidth: ShellGeometry.readableMaxWidth(context),
+            ),
             child: const NotificationSettingsBody(),
           ),
         ),

@@ -64,14 +64,33 @@ class PostContextLabel extends StatelessWidget {
       text,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: theme.textTheme.bodySmall?.copyWith(color: muted),
+      // dz.css `.post .note`: 13 sp, w600, muted.
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: muted,
+        fontWeight: FontWeight.w600,
+      ),
     );
     final label = Semantics(
       container: true,
       button: tappable,
       label: semanticsLabel ?? text,
       excludeSemantics: true,
-      child: tappable ? InkWell(onTap: onTap, child: labelText) : labelText,
+      // A tappable label (the community) is a real 48 dp target.
+      child: tappable
+          ? InkWell(
+              onTap: onTap,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minHeight: AppSpacing.minTapTarget,
+                ),
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  widthFactor: 1,
+                  child: labelText,
+                ),
+              ),
+            )
+          : labelText,
     );
     final content = Row(
       mainAxisSize: MainAxisSize.min,
@@ -83,7 +102,8 @@ class PostContextLabel extends StatelessWidget {
             child: Icon(icon, size: AppIconSize.sm, color: muted),
           ),
         ),
-        const SizedBox(width: AppSpacing.sm),
+        // The text starts where the post body does (the 12 dp avatar gap).
+        const SizedBox(width: AppSpacing.smd),
         Flexible(fit: FlexFit.loose, child: label),
       ],
     );

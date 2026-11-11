@@ -6,6 +6,13 @@
 /// authoritative. Never hardcode `'communities'` anywhere else.
 const kFeatureCommunities = 'communities';
 
+/// Name of the member search flag (`FEATURE_COMMUNITY_MEMBER_SEARCH`, F36):
+/// `SearchCommunityMembers` needs it after [kFeatureCommunities], and it is
+/// the `metadata["feature"]` of that RPC's FEATURE_DISABLED answer. The
+/// members page's search field shows only with both flags listed. Never
+/// hardcode `'community_member_search'` anywhere else.
+const kFeatureCommunityMemberSearch = 'community_member_search';
+
 /// `metadata["limit"]` of LIMIT_REACHED (read as `LimitReachedException.quota`):
 /// 2 owned communities per creator, lifetime.
 const kCommunitiesOwnedLimit = 'communities_owned';

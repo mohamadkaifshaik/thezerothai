@@ -56,7 +56,7 @@ void main() {
     }
 
     testWidgets('spread (open post): every action across the width, in order '
-        '(Share, then Bookmark last), larger glyphs', (tester) async {
+        '(Bookmark, then Share last), larger glyphs', (tester) async {
       await tester.pumpWidget(
         _host(
           PostActionBar(
@@ -73,19 +73,20 @@ void main() {
         ),
       );
 
+      // The designs' order (R1 restyle): Bookmark before Share.
       final icons = [
         Icons.chat_bubble_outline,
         Icons.repeat,
         Icons.favorite_border,
-        Icons.ios_share,
         Icons.bookmark_border,
+        Icons.ios_share,
       ];
       final xs = [for (final i in icons) tester.getCenter(find.byIcon(i)).dx];
       for (var i = 1; i < xs.length; i++) {
         expect(xs[i], greaterThan(xs[i - 1]));
       }
       // The bar spreads its buttons edge to edge: the first button's box
-      // starts at the left edge and the last one (Bookmark) ends at the right.
+      // starts at the left edge and the last one (Share) ends at the right.
       final bar = tester.getRect(find.byType(PostActionBar));
       Rect box(IconData icon) => tester.getRect(
         find.ancestor(
@@ -94,11 +95,11 @@ void main() {
         ),
       );
       expect(box(Icons.chat_bubble_outline).left, closeTo(bar.left, 0.5));
-      expect(box(Icons.bookmark_border).right, closeTo(bar.right, 0.5));
-      // Share is no longer the last button: Bookmark follows it.
+      expect(box(Icons.ios_share).right, closeTo(bar.right, 0.5));
+      // Bookmark comes before Share (R1 restyle; was after it).
       expect(
-        box(Icons.ios_share).right,
-        lessThanOrEqualTo(box(Icons.bookmark_border).left),
+        box(Icons.bookmark_border).right,
+        lessThanOrEqualTo(box(Icons.ios_share).left),
       );
       expect(
         tester.getSize(find.byIcon(Icons.repeat)).width,
@@ -154,8 +155,9 @@ void main() {
         expect(lefts[i], closeTo(bar.left + i * slot, 1));
       }
       final share = tester.getRect(find.byIcon(Icons.ios_share));
-      expect(bar.right - share.right, closeTo(slot - 16, 1));
-      expect(share.width, 16);
+      // 18 dp glyphs (dz.css `.acts`, R1 restyle; was 16).
+      expect(bar.right - share.right, closeTo(slot - AppIconSize.action, 1));
+      expect(share.width, AppIconSize.action);
     });
 
     testWidgets('Bookmark appears only with a callback; takes the slot after '
@@ -185,7 +187,7 @@ void main() {
         tester.getTopLeft(find.byIcon(Icons.favorite_border)).dx,
         closeTo(bar.left, 1),
       );
-      expect(icon.width, 16);
+      expect(icon.width, AppIconSize.action);
       final off = tester.getSemantics(find.bySemanticsLabel('Bookmark'));
       expect(off.rect.size.shortestSide, greaterThanOrEqualTo(48));
       await tester.tap(find.byIcon(Icons.bookmark_border));
@@ -209,7 +211,7 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('Share sits before Bookmark, each in its own slot after the '
+    testWidgets('Bookmark sits before Share, each in its own slot after the '
         'counted actions', (tester) async {
       await tester.pumpWidget(
         _host(
@@ -226,14 +228,15 @@ void main() {
       final bookmark = tester.getRect(find.byIcon(Icons.bookmark_border));
       final share = tester.getRect(find.byIcon(Icons.ios_share));
       final like = tester.getRect(find.byIcon(Icons.favorite_border));
-      expect(like.right, lessThan(share.left));
-      expect(share.right, lessThan(bookmark.left));
-      // Three equal slots (Like, Share, Bookmark), left-aligned in each.
+      // The designs' order (R1 restyle; was Share, then Bookmark).
+      expect(like.right, lessThan(bookmark.left));
+      expect(bookmark.right, lessThan(share.left));
+      // Three equal slots (Like, Bookmark, Share), left-aligned in each.
       final bar = tester.getRect(find.byType(PostActionBar));
       final slot = bar.width / 3;
       expect(like.left, closeTo(bar.left, 1));
-      expect(share.left, closeTo(bar.left + slot, 1));
-      expect(bookmark.left, closeTo(bar.left + 2 * slot, 1));
+      expect(bookmark.left, closeTo(bar.left + slot, 1));
+      expect(share.left, closeTo(bar.left + 2 * slot, 1));
     });
 
     testWidgets('liked and reposted use the like / repost colours and are '

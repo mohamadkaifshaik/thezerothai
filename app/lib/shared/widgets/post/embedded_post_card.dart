@@ -87,10 +87,12 @@ class EmbeddedPostCard extends StatelessWidget {
         ? ''
         : formatRelativeTimeSpoken(created, reference);
 
+    // A quoted post is a bordered box with the 20 dp `cardSmall` radius, like
+    // the media and plan cards beside it.
     final card = DecoratedBox(
       decoration: BoxDecoration(
         border: Border.all(color: theme.dividerColor),
-        borderRadius: BorderRadius.circular(AppRadius.lg),
+        borderRadius: BorderRadius.circular(AppRadius.cardSmall),
       ),
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.sm + AppSpacing.xs),
@@ -170,8 +172,6 @@ class EmbeddedPostCard extends StatelessWidget {
         if (embedded.media.isNotEmpty) 'with ${embedded.media.length} photos',
         if (embedded.hasPoll())
           PollEmbedSummary.summary(embedded.poll, reference),
-        if (embedded.hasPoll())
-          PollEmbedSummary.summary(embedded.poll, reference),
       ].join(', '),
       excludeSemantics: true,
       onTap: onTap,
@@ -179,7 +179,7 @@ class EmbeddedPostCard extends StatelessWidget {
           ? card
           : InkWell(
               onTap: onTap,
-              borderRadius: BorderRadius.circular(AppRadius.lg),
+              borderRadius: BorderRadius.circular(AppRadius.cardSmall),
               child: card,
             ),
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
+import 'app_main_column.dart';
 import 'app_pill_button.dart';
 
 /// Share of the header row one of its buttons (Cancel, the action) may take.
@@ -116,7 +117,8 @@ class AppFormHeader extends StatelessWidget {
             },
           ),
         ),
-        const Divider(height: 1),
+        // Spans the pane on the tablet layout (the column's bleed).
+        const AppFullBleed(child: Divider(height: 1)),
       ],
     );
   }

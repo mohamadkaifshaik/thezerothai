@@ -73,6 +73,7 @@ void main() {
     final style = tester.widget<PostRichText>(find.byType(PostRichText)).style!;
     expect(style.fontSize, 15);
     expect(style.height, closeTo(1.42, 0.001));
-    expect(AppIconSize.action, 16);
+    // dz.css `.acts` glyph (R1 restyle; was 16).
+    expect(AppIconSize.action, 18);
   });
 }

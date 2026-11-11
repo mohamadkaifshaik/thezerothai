@@ -15,6 +15,7 @@ import 'package:dzeroth/features/posts/presentation/reply_composer_screen.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -134,6 +135,39 @@ void main() {
       isNull,
     );
   });
+
+  for (final width in const [360.0, 600.0]) {
+    testWidgets(
+      'reply at $width: "Replying to" starts at the post body, the '
+      'viewer avatar sits in the avatar column, the parent knows the viewer',
+      (tester) async {
+        await open(
+          tester,
+          AppRouter.composeReplyPath(postId(1)),
+          size: Size(width, 800),
+        );
+
+        final gutter = postCardGutter(width);
+        expect(
+          tester.getTopLeft(find.text('Replying to @hu1')).dx,
+          closeTo(gutter + kPostBodyStart, 0.5),
+        );
+        final viewerAvatar = tester.getRect(find.byType(CircleAvatar).last);
+        expect(
+          viewerAvatar.center.dx,
+          closeTo(gutter + AppSpacing.minTapTarget / 2, 0.5),
+        );
+        final field = tester.getRect(find.byType(TextField));
+        expect(field.left, closeTo(gutter + kPostBodyStart, 0.5));
+        expect(field.right, closeTo(width - gutter, 0.5));
+        // Without the viewer, replying to your own plan post offered Join.
+        expect(
+          tester.widget<PostCard>(find.byType(PostCard)).viewerUserId,
+          'me',
+        );
+      },
+    );
+  }
 
   testWidgets('reply retains target and protects unsent text on Close', (
     tester,

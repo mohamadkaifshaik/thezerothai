@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../core/theme/app_theme.dart';
+import 'app_main_column.dart';
 
 /// One tab of an [AppTabBar]: a text label with an optional leading icon.
 @immutable
@@ -64,6 +65,10 @@ class AppTabBar extends StatelessWidget {
 
   /// Spoken name of the whole group.
   final String? semanticLabel;
+
+  /// The painter of the hairline's bleed (tablet readable column).
+  @visibleForTesting
+  static const hairlineKey = ValueKey('app-tab-bar-hairline');
 
   /// The height of the bar at the ambient text scale: one title line plus
   /// [AppSpacing.md] above and below, never under the 48dp target. A pinned
@@ -136,18 +141,28 @@ class AppTabBar extends StatelessWidget {
           const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _move(-1),
           const SingleActivator(LogicalKeyboardKey.arrowRight): () => _move(1),
         },
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(color: theme.colorScheme.outlineVariant),
-            ),
+        // Inside an `AppMainColumn` on the tablet layout the hairline goes
+        // on across the column's bleed, so it spans the pane; the tabs stay
+        // in the column. Elsewhere the painter draws nothing.
+        child: CustomPaint(
+          key: hairlineKey,
+          painter: _HairlineBleedPainter(
+            bleed: AppMainColumnBleed.of(context),
+            color: theme.colorScheme.outlineVariant,
           ),
-          // Always the full width of its parent (a Column may give it a
-          // loose width): the hairline spans the whole row.
-          child: SizedBox(
-            width: double.infinity,
-            height: heightFor(context),
-            child: row,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+              ),
+            ),
+            // Always the full width of its parent (a Column may give it a
+            // loose width): the hairline spans the whole row.
+            child: SizedBox(
+              width: double.infinity,
+              height: heightFor(context),
+              child: row,
+            ),
           ),
         ),
       ),
@@ -243,4 +258,31 @@ class _TabItem extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The two ends of the tab bar's 1dp bottom hairline that lie outside the
+/// bar, [bleed] wide on each side (the `AppMainColumn`'s bleed). Nothing
+/// when [bleed] is 0.
+class _HairlineBleedPainter extends CustomPainter {
+  const _HairlineBleedPainter({required this.bleed, required this.color});
+
+  final double bleed;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (bleed <= 0) return;
+    final paint = Paint()..color = color;
+    final top = size.height - 1;
+    canvas
+      ..drawRect(Rect.fromLTRB(-bleed, top, 0, size.height), paint)
+      ..drawRect(
+        Rect.fromLTRB(size.width, top, size.width + bleed, size.height),
+        paint,
+      );
+  }
+
+  @override
+  bool shouldRepaint(_HairlineBleedPainter oldDelegate) =>
+      bleed != oldDelegate.bleed || color != oldDelegate.color;
 }

@@ -58,6 +58,15 @@ void main() {
     ).thenAnswer((_) async => CommunitiesPage(communities: all));
   }
 
+  /// R10 (F23): Explore is the second tab on phones.
+  Future<void> showExplore(WidgetTester tester) async {
+    // R10 review item 3: the tab bar may scroll; bring the tab into view.
+    await tester.ensureVisible(find.text('Explore'));
+    await tester.pump();
+    await tester.tap(find.text('Explore'));
+    await tester.pumpAndSettle();
+  }
+
   Future<void> open(WidgetTester tester, {MatrixEnv? env}) => pumpThemed(
     tester,
     RepositoryProvider<CommunitiesRepository>.value(
@@ -93,13 +102,15 @@ void main() {
 
       expectNoOverflow(tester);
       expect(find.text('Communities'), findsOneWidget);
-      expect(find.text('My Communities'), findsOneWidget);
-      expect(find.text('Explore Communities'), findsOneWidget);
+      expect(find.text('My communities'), findsOneWidget);
+      expect(find.text('Explore'), findsOneWidget);
       expect(find.text('Owner'), findsOneWidget);
       expect(find.text('1 member'), findsOneWidget);
+      expect(find.bySemanticsLabel('Mine, 1 member, Owner'), findsOneWidget);
+      await showExplore(tester);
+      expectNoOverflow(tester);
       expect(find.text('Join'), findsOneWidget);
       expect(find.text('Banned'), findsOneWidget);
-      expect(find.bySemanticsLabel('Mine, 1 member, Owner'), findsOneWidget);
       expect(
         find.bySemanticsLabel(
           'Join A very long Community name that could fill the whole row',
@@ -135,14 +146,14 @@ void main() {
     stubMine([]);
     stubDirectory([]);
     await open(tester);
-    expect(find.byTooltip('Create a Community'), findsNothing);
+    expect(find.byTooltip('Create a community'), findsNothing);
   });
 
   testWidgets('can_create true: the Create entry shows', (tester) async {
     stubMine([], canCreate: true);
     stubDirectory([]);
     await open(tester);
-    expect(find.byTooltip('Create a Community'), findsOneWidget);
+    expect(find.byTooltip('Create a community'), findsOneWidget);
   });
 
   testWidgets('empty sections show a sentence each', (tester) async {
@@ -153,6 +164,7 @@ void main() {
       find.textContaining("haven't joined any Communities"),
       findsOneWidget,
     );
+    await showExplore(tester);
     expect(find.text('No Communities to explore yet.'), findsOneWidget);
   });
 
@@ -183,6 +195,11 @@ void main() {
     );
     await tester.pump();
     expect(find.bySemanticsLabel('Loading your Communities'), findsOneWidget);
+    // R10 review item 3: the tab bar may scroll; bring the tab into view.
+    await tester.ensureVisible(find.text('Explore'));
+    await tester.pump();
+    await tester.tap(find.text('Explore'));
+    await tester.pump();
     expect(
       find.bySemanticsLabel('Loading Communities to explore'),
       findsOneWidget,
@@ -210,6 +227,7 @@ void main() {
     await open(tester);
 
     expect(find.text('Mine'), findsOneWidget);
+    await showExplore(tester);
     expect(find.text('Found'), findsNothing);
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
@@ -229,6 +247,7 @@ void main() {
       ),
     ).thenAnswer((_) => answer.future);
     await open(tester);
+    await showExplore(tester);
 
     await tester.tap(find.text('Join'));
     await tester.pump();
@@ -254,6 +273,7 @@ void main() {
       (_) async => _community(2, role: pb.CommunityRole.COMMUNITY_ROLE_MEMBER),
     );
     await open(tester);
+    await showExplore(tester);
 
     await tester.tap(find.text('Join'));
     await tester.pumpAndSettle();
@@ -270,6 +290,7 @@ void main() {
       ),
     ).thenThrow(CommunityForbiddenException(CommunityForbiddenReason.banned));
     await open(tester);
+    await showExplore(tester);
 
     await tester.tap(find.text('Join'));
     await tester.pumpAndSettle();

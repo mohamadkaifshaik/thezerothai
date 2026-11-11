@@ -5,10 +5,11 @@ import 'package:go_router/go_router.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../shared/widgets/post/blocked_post_gate.dart';
 import '../../../shared/widgets/post/post_card.dart';
+import '../../../shared/widgets/post/post_list_skeleton.dart';
 import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../moderation/domain/reports_feature_flag.dart';
@@ -97,8 +98,19 @@ class _PostDetailViewState extends State<_PostDetailView> {
         final cubit = context.read<PostDetailCubit>();
         return _Frame(
           child: switch (state.status) {
-            PostDetailStatus.loading || PostDetailStatus.deleted =>
-              const Center(child: CircularProgressIndicator()),
+            // The opened post's shape, not a bare spinner. A deleted post is
+            // leaving: the same shape, announced as nothing.
+            PostDetailStatus.loading || PostDetailStatus.deleted => Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: ShellGeometry.readableMaxWidth(context),
+                ),
+                child: FocalPostSkeleton(
+                  announce: state.status == PostDetailStatus.loading,
+                ),
+              ),
+            ),
             PostDetailStatus.notFound => PostUnavailableView(
               onHome: () => context.go(AppRouter.homePath),
             ),
@@ -137,8 +149,9 @@ class _ReadyPost extends StatelessWidget {
     return SingleChildScrollView(
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            maxWidth: AppLayout.mainColumnMaxWidth,
+          // 680 on the tablet layout (the readable column), else 600.
+          constraints: BoxConstraints(
+            maxWidth: ShellGeometry.readableMaxWidth(context),
           ),
           child: BlockedPostGate(
             authorId: author.userId,
