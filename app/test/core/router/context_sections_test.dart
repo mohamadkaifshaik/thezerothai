@@ -122,9 +122,28 @@ void main() {
       // never the communities page's lent sections.
       ('/communities', '/plans/mine'): '/plans/mine',
       ('/communities/77', '/profile/alice'): '/profile/alice',
-      // Neither side is a communities page: T3's base-route rule, unchanged.
-      ('/explore', '/profile/alice'): '/explore',
+      // The profile pages are pushed too (T8c): a profile over Explore, Home
+      // or a post gets its own pane (this row read `/explore` before T8c).
+      ('/explore', '/profile/alice'): '/profile/alice',
+      ('/home', '/u/u1'): '/u/u1',
+      ('/post/p1', '/profile/alice'): '/profile/alice',
+      // Followers, Following and Edit profile over a profile: their own
+      // family (Who to follow; no pane), never the profile's media strip.
+      ('/profile/alice', '/profile/alice/followers'):
+          '/profile/alice/followers',
+      ('/u/u1', '/profile/alice/following'): '/profile/alice/following',
+      ('/profile/alice', AppRouter.editProfilePath): AppRouter.editProfilePath,
+      // A person's Lists over their profile, and a post over the own
+      // profile: their own family (the global set).
+      ('/profile/alice', '/u/u1/lists'): '/u/u1/lists',
+      ('/profile/alice', '/post/p1'): '/post/p1',
+      // Neither side is a communities or profile page: T3's base-route rule,
+      // unchanged.
+      ('/explore', '/post/p1'): '/explore',
       ('/home', '/post/p1'): '/home',
+      // Not a prefix match: `/profiles` and `/user` are not profile pages.
+      ('/home', '/profiles'): '/home',
+      ('/home', '/user/u1'): '/home',
       // No top page known (no router): the base route.
       ('/communities', null): '/communities',
       ('/home', null): '/home',
