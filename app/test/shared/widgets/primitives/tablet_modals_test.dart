@@ -23,8 +23,9 @@ import '../../../support/theme_harness.dart';
 /// `showAppDialog`, `showAppMaterialDialog`, `showAppSheet` and the snack
 /// bars on the tablet layout (tablet plan sections 4.2 and 5.4): centred on
 /// the content area beside the rail, the barrier over the whole window,
-/// no bottom sheets at 600-1199 dp; phones, desktop and either flag off
-/// exactly as before (ruling R-1).
+/// no bottom sheets at 600-1199 dp; phones and either flag off exactly as
+/// before (ruling R-1). The desktop layout (>= 1200 dp, D1) is in
+/// `desktop_modals_test.dart`.
 
 const _alertKey = Key('alert');
 const _confirmKey = Key('confirm');
@@ -493,7 +494,12 @@ void main() {
 
   group('sheets on the tablet layout', () {
     for (final width in kBoundaryWidths) {
-      final tablet = width >= 600 && width < 1200;
+      // D1: from 1200 dp the desktop layout maps the sheets too, on the
+      // desktop column (`desktop_modals_test.dart` covers it in full).
+      final tablet = width >= 600;
+      Rect area(WidgetTester tester) => width >= 1200
+          ? desktopColumnRect(tester, Size(width, 1194))
+          : tabletContentRect(Size(width, 1194));
       testWidgets('${width.toInt()} dp: a sheet is '
           '${tablet ? 'a dialog on the content area' : 'a bottom sheet'}', (
         tester,
@@ -502,14 +508,17 @@ void main() {
 
         await _tap(tester, _sheetDialogKey);
 
-        if (tablet) {
+        if (tablet && width >= 1200) {
+          // Desktop: centred on the column, min(560, W - 48) wide (it may
+          // be wider than the column less 48).
+          expect(find.byType(BottomSheet), findsNothing);
+          final box = openDialogRect(tester);
+          expect(box.center.dx, closeTo(area(tester).center.dx, 1));
+          expect(box.width, closeTo(AppSize.dialogMax, 0.5));
+        } else if (tablet) {
           expect(find.byType(BottomSheet), findsNothing);
           expect(find.byType(Dialog), findsOneWidget);
-          _expectCentredOn(
-            tester,
-            tabletContentRect(Size(width, 1194)),
-            maxWidth: AppSize.dialogMax,
-          );
+          _expectCentredOn(tester, area(tester), maxWidth: AppSize.dialogMax);
         } else {
           expect(find.byType(BottomSheet), findsOneWidget);
           expect(find.byType(Dialog), findsNothing);
@@ -535,7 +544,7 @@ void main() {
           expect(row.top, greaterThanOrEqualTo(anchor.bottom));
           expect(row.top, lessThan(anchor.bottom + 24));
           // Clamped to the window, never over the rail.
-          final content = tabletContentRect(Size(width, 1194));
+          final content = area(tester);
           expect(row.left, greaterThanOrEqualTo(content.left));
           expect(row.right, lessThanOrEqualTo(width));
         } else {
@@ -648,10 +657,20 @@ void main() {
       expect(snack.width, closeTo(AppSize.dialogMax, 0.5));
     });
 
-    for (final width in [599.0, 1200.0]) {
-      testWidgets('${width.toInt()} dp: unchanged (window-wide, 15 dp '
-          'margins)', (tester) async {
-        await pumpTabletModalHost(tester, trigger: _triggers, width: width);
+    // 1200 dp with both flags is the desktop layout (D1,
+    // `desktop_modals_test.dart`); with `ui_tablet` off it is unchanged.
+    for (final (width, flags) in [
+      (599.0, kTabletFlags),
+      (1200.0, {kFeatureUiShell}),
+    ]) {
+      testWidgets('${width.toInt()} dp with $flags: unchanged (window-wide, '
+          '15 dp margins)', (tester) async {
+        await pumpTabletModalHost(
+          tester,
+          trigger: _triggers,
+          width: width,
+          flags: flags,
+        );
 
         await _tap(tester, _snackKey);
 

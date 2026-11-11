@@ -1,3 +1,4 @@
+import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
@@ -23,7 +24,8 @@ import '../../../support/geometry.dart';
 ///   `min(600, C - 48)` x `min(H - 48, 640)`, centred on the content area,
 ///   with the barrier over the rail; it still opens the thread with
 ///   `pushReplacement` of the root route, full screen in band A and the
-///   split page in band B;
+///   split page in band B; on the desktop layout (D1) it is centred on the
+///   shell's feed column;
 /// - the thread's reading column (the messages and the composer under them)
 ///   is at most 680 and centred in its pane, its header's divider spanning
 ///   the pane.
@@ -35,11 +37,9 @@ void main() {
     TextDirection textDirection = TextDirection.ltr,
     double textScale = 1,
     String location = AppRouter.messagesPath,
+    Set<String> flags = kMessagesTabletFlags,
   }) async {
-    final rig = MessagingFlowRig(
-      server: tabletServer(),
-      flags: kMessagesTabletFlags,
-    );
+    final rig = MessagingFlowRig(server: tabletServer(), flags: flags);
     await rig.pump(
       tester,
       location: location,
@@ -61,6 +61,23 @@ void main() {
 
   Rect content(double width, double height, {bool rtl = false}) =>
       Rect.fromLTWH(rtl ? 0 : 80, 0, width - 80, height);
+
+  /// The desktop shell's feed column (D1) beside the rendered rail, with the
+  /// side column (the inbox has no master pane on desktop).
+  Rect desktopColumn(WidgetTester tester, double width, {bool rtl = false}) {
+    final rail = tester.getRect(find.byType(NavigationRail));
+    final rect = ShellGeometry.desktopColumnFor(
+      Size(width, 900),
+      EdgeInsets.zero,
+      master: false,
+      side: true,
+      railWidth: rail.width,
+      textDirection: rtl ? TextDirection.rtl : TextDirection.ltr,
+    );
+    // It starts where the rail ends.
+    expect(rtl ? rect.right : rect.left, rtl ? rail.left : rail.right);
+    return rect;
+  }
 
   group('the picker on the tablet layout', () {
     for (final width in [600.0, 839.0, 840.0, 1024.0, 1199.0]) {
@@ -189,11 +206,11 @@ void main() {
       await openPicker(rig, tester);
       await tester.enterText(find.byKey(kRecipientFieldKey), 'pe');
       await tester.pumpAndSettle();
-      for (final (width, centre) in [
-        (839.0, content(839, 900).center.dx),
-        // Desktop: today's card, centred on the window.
-        (1200.0, 600.0),
-        (1024.0, content(1024, 900).center.dx),
+      for (final (width, centre) in <(double, double Function())>[
+        (839.0, () => content(839, 900).center.dx),
+        // Desktop (D1): centred on the shell's feed column.
+        (1200.0, () => desktopColumn(tester, 1200).center.dx),
+        (1024.0, () => content(1024, 900).center.dx),
       ]) {
         await rig.resize(tester, width);
         expect(find.byType(RecipientPickerDialog), findsOneWidget);
@@ -207,7 +224,7 @@ void main() {
         );
         expect(
           openDialogRect(tester).center.dx,
-          moreOrLessEquals(centre),
+          moreOrLessEquals(centre()),
           reason: '$width',
         );
       }
@@ -229,6 +246,60 @@ void main() {
     });
   });
 
+  // D1: the desktop layout (both flags, >= 1200 dp) centres the picker on
+  // the shell's feed column, 600 wide; the barrier covers the rail.
+  group('the picker on the desktop layout', () {
+    for (final width in [1200.0, 1440.0, 1920.0]) {
+      testWidgets('${width.toInt()}: a 600 card centred on the column', (
+        tester,
+      ) async {
+        final rig = await open(tester, width: width);
+        await openPicker(rig, tester);
+        final dialog = openDialogRect(tester);
+        expect(dialog.width, 600);
+        expect(
+          dialog.center.dx,
+          moreOrLessEquals(desktopColumn(tester, width).center.dx),
+        );
+        expectNoOverflow(tester);
+        await done(tester);
+      });
+    }
+
+    testWidgets('1440, right to left: on the column left of the rail', (
+      tester,
+    ) async {
+      final rig = await open(
+        tester,
+        width: 1440,
+        textDirection: TextDirection.rtl,
+      );
+      await openPicker(rig, tester);
+      expect(
+        openDialogRect(tester).center.dx,
+        moreOrLessEquals(desktopColumn(tester, 1440, rtl: true).center.dx),
+      );
+      await done(tester);
+    });
+
+    testWidgets('1440: from the New message control, picking someone opens '
+        'the thread full screen', (tester) async {
+      final rig = await open(tester, width: 1440);
+      await openPicker(rig, tester);
+      await tester.tap(
+        find.descendant(
+          of: find.byType(RecipientPickerDialog),
+          matching: find.text('Sam Rivera'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(RecipientPickerDialog), findsNothing);
+      expect(rig.stack, [AppRouter.messagesPath, AppRouter.messageDraftPath]);
+      expect(find.byType(MessageComposer), findsOneWidget);
+      await done(tester);
+    });
+  });
+
   group('the picker on phones and desktop: today\'s', () {
     for (final width in [360.0, 599.0]) {
       testWidgets('${width.toInt()}: full screen', (tester) async {
@@ -238,11 +309,15 @@ void main() {
         await done(tester);
       });
     }
+    // Desktop with `ui_tablet` off: the 600 card on the window, as before.
     for (final width in [1200.0, 1440.0]) {
-      testWidgets('${width.toInt()}: a 600 card centred on the window', (
-        tester,
-      ) async {
-        final rig = await open(tester, width: width);
+      testWidgets('${width.toInt()} with ui_tablet off: a 600 card centred on '
+          'the window', (tester) async {
+        final rig = await open(
+          tester,
+          width: width,
+          flags: {...kMessagesTabletFlags}..remove(kFeatureUiTablet),
+        );
         await openPicker(rig, tester);
         final dialog = openDialogRect(tester);
         expect(dialog.width, 600);

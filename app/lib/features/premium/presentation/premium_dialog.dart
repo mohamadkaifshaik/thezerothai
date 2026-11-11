@@ -74,7 +74,8 @@ class PremiumDialog extends StatelessWidget {
     }
     return Dialog(
       insetPadding:
-          host?.dialogInsets(context) ?? const EdgeInsets.all(AppSpacing.lg),
+          host?.dialogInsets(context, maxWidth: AppLayout.mainColumnMaxWidth) ??
+          const EdgeInsets.all(AppSpacing.lg),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.lg),
         side: BorderSide(color: theme.colorScheme.outlineVariant),

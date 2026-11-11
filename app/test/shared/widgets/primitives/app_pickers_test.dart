@@ -10,8 +10,9 @@ import '../../../support/theme_harness.dart' show kBoundaryWidths;
 
 /// The date and time pickers on the tablet layout (T8d; T2 deferred them):
 /// the same Material dialogs, on the root navigator and centred on the
-/// content area at 600-1199 with both shell flags; today's
-/// `showDatePicker` / `showTimePicker` everywhere else.
+/// content area at 600-1199 with both shell flags, and on the desktop
+/// shell's feed column from 1200 (D1); today's `showDatePicker` /
+/// `showTimePicker` everywhere else.
 void main() {
   Widget trigger(String kind, ValueSetter<Object?> onResult) => Builder(
     builder: (context) => TextButton(
@@ -42,10 +43,15 @@ void main() {
 
   for (final kind in ['date', 'time']) {
     group('$kind picker', () {
-      for (final w in kBoundaryWidths) {
+      for (final w in [...kBoundaryWidths, 1440.0]) {
         final tablet = w >= 600 && w < 1200;
+        final desktop = w >= 1200;
         testWidgets('at ${w.toInt()}: centred on the '
-            '${tablet ? 'content area' : 'window'}', (tester) async {
+            '${tablet
+                ? 'content area'
+                : desktop
+                ? 'desktop column'
+                : 'window'}', (tester) async {
           await pumpTabletModalHost(
             tester,
             width: w,
@@ -56,11 +62,36 @@ void main() {
           await tester.pumpAndSettle();
           expect(find.byType(dialogType(kind)), findsOneWidget);
           expect(tester.takeException(), isNull);
-          final content = tabletContentRect(Size(w, 1000));
-          expect(
-            openDialogRect(tester).center.dx,
-            closeTo(tablet ? content.center.dx : w / 2, 1),
+          final centre = tablet
+              ? tabletContentRect(Size(w, 1000)).center.dx
+              : desktop
+              // D1: the shell's feed column (the harness has no side
+              // column).
+              ? desktopColumnRect(tester, Size(w, 1000)).center.dx
+              : w / 2;
+          expect(openDialogRect(tester).center.dx, closeTo(centre, 1));
+        });
+      }
+
+      // Desktop with either flag off: today's picker on the window.
+      for (final flags in [
+        {kFeatureUiShell},
+        {kFeatureUiTablet},
+      ]) {
+        testWidgets('at 1200 with only $flags: centred on the window', (
+          tester,
+        ) async {
+          await pumpTabletModalHost(
+            tester,
+            width: 1200,
+            height: 1000,
+            flags: flags,
+            trigger: (_) => trigger(kind, (_) {}),
           );
+          await tester.tap(find.text('open $kind'));
+          await tester.pumpAndSettle();
+          expect(find.byType(dialogType(kind)), findsOneWidget);
+          expect(openDialogRect(tester).center.dx, closeTo(600, 1));
         });
       }
 

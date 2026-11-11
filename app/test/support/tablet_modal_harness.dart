@@ -2,6 +2,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
+import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/core/widgets/tablet_modal.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -48,6 +49,8 @@ Future<void> pumpTabletModalHost(
   double textScale = 1,
   Widget Function(Widget app)? wrap,
   Widget Function(bool extended)? accountChipBuilder,
+  Widget? sideColumn,
+  Widget? masterPane,
 }) async {
   tabletHarnessSelections.clear();
   tester.view.devicePixelRatio = 1;
@@ -103,6 +106,8 @@ Future<void> pumpTabletModalHost(
           floatingBar: true,
           onCompose: () {},
           accountChipBuilder: accountChipBuilder,
+          sideColumn: sideColumn,
+          masterPane: masterPane,
           destinations: const [
             AppNavDestination(
               icon: Icons.home_outlined,
@@ -154,6 +159,25 @@ Rect tabletContentRect(
   final width = window.width - rail - trailing;
   return Rect.fromLTWH(ltr ? rail : trailing, 0, width, window.height);
 }
+
+/// The feed column of the harness shell at >= 1200 dp, from
+/// `ShellGeometry.desktopColumnFor` with the rail's rendered width. Tests
+/// also check it against the rendered body (`desktop_column_test.dart`).
+Rect desktopColumnRect(
+  WidgetTester tester,
+  Size window, {
+  EdgeInsets padding = EdgeInsets.zero,
+  TextDirection textDirection = TextDirection.ltr,
+  bool master = false,
+  bool side = false,
+}) => ShellGeometry.desktopColumnFor(
+  window,
+  padding,
+  master: master,
+  side: side,
+  railWidth: tester.getSize(find.byType(NavigationRail)).width,
+  textDirection: textDirection,
+);
 
 /// The visible box of the open dialog (its `Material`, inside the inset
 /// padding).

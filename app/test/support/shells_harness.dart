@@ -81,6 +81,9 @@ Future<ShellsApp> pumpShellsApp(
   bool signedIn = true,
   TextDirection textDirection = TextDirection.ltr,
   EdgeInsets padding = EdgeInsets.zero,
+  // Changes the text scale while the app is up (the value wins over
+  // [textScale]).
+  ValueNotifier<double>? textScaleNotifier,
 }) async {
   final auth = _MockAuthBloc();
   final onboarding = _MockOnboardingBloc();
@@ -135,10 +138,15 @@ Future<ShellsApp> pumpShellsApp(
         routerConfig: appRouter.router,
         builder: (context, child) => Directionality(
           textDirection: textDirection,
-          child: MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: TextScaler.linear(textScale)),
-            child: child!,
+          child: ValueListenableBuilder<double>(
+            valueListenable:
+                textScaleNotifier ?? ValueNotifier<double>(textScale),
+            child: child,
+            builder: (context, scale, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
           ),
         ),
       ),

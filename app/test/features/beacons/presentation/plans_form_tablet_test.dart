@@ -991,14 +991,20 @@ void main() {
   });
 
   group('date and time pickers (T2 deferred them here; plan section 5.4)', () {
-    for (final w in <double>[599, 600, 744, 1024, 1199, 1200]) {
+    for (final w in <double>[599, 600, 744, 1024, 1199, 1200, 1440]) {
       final tablet = _tabletWidth(w);
+      // D1: the desktop layout centres them on the shell's feed column.
+      final desktop = w >= 1200;
       for (final (tooltip, name) in [
         ('Pick a date', 'date'),
         ('Pick a time', 'time'),
       ]) {
         testWidgets('$name at ${w.toInt()}: centred on the '
-            '${tablet ? 'content area' : 'window'}', (tester) async {
+            '${tablet
+                ? 'content area'
+                : desktop
+                ? 'desktop column'
+                : 'window'}', (tester) async {
           final rig = PlansTabletRig();
           await rig.pump(
             tester,
@@ -1016,7 +1022,22 @@ void main() {
           final rect = openDialogRect(tester);
           expect(
             rect.center.dx,
-            closeTo(tablet ? _contentCentre(w) : w / 2, 1),
+            closeTo(
+              tablet
+                  ? _contentCentre(w)
+                  : desktop
+                  ? ShellGeometry.desktopColumnFor(
+                      Size(w, 1100),
+                      EdgeInsets.zero,
+                      master: false,
+                      side: true,
+                      railWidth: tester
+                          .getSize(find.byType(NavigationRail))
+                          .width,
+                    ).center.dx
+                  : w / 2,
+              1,
+            ),
           );
           if (tablet) {
             // Inside the content area, 24 dp off its edges at least.
@@ -1067,6 +1088,22 @@ void main() {
       );
       await _tapInForm(tester, find.byTooltip('Pick a date'));
       expect(openDialogRect(tester).center.dx, closeTo(417, 1));
+    });
+
+    testWidgets('ui_tablet off at 1200: the window centre, as today', (
+      tester,
+    ) async {
+      final rig = PlansTabletRig();
+      await rig.pump(
+        tester,
+        location: AppRouter.planNewPath,
+        width: 1200,
+        height: 1100,
+        flags: kPlansFlagModes['ui_shell only']!,
+        realForms: true,
+      );
+      await _tapInForm(tester, find.byTooltip('Pick a date'));
+      expect(openDialogRect(tester).center.dx, closeTo(600, 1));
     });
 
     testWidgets('a date picked in the content-area dialog reaches the form', (

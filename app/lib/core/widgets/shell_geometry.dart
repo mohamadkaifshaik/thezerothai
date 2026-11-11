@@ -157,6 +157,39 @@ class ShellGeometry extends InheritedWidget {
       .floorToDouble()
       .clamp(AppSize.listPaneMin, AppSize.listPaneMax);
 
+  /// The feed column of the desktop shell (`ResponsiveScaffold` at >= 1200
+  /// dp) in window coordinates, for a [window] with the safe-area [padding]
+  /// (a pure function: no `BuildContext`). It mirrors that layout: inside
+  /// the safe area, one centred row of the extended rail ([railWidth]), then
+  /// the [master] pane (350, Settings), the column (at most 600, taking what
+  /// is left) and, without a master pane, the [side] column (24 + 350).
+  /// [textDirection] decides which side is leading: the rail sits there.
+  /// The rect spans the safe area's height.
+  static Rect desktopColumnFor(
+    Size window,
+    EdgeInsets padding, {
+    required bool master,
+    required bool side,
+    double railWidth = AppSize.railExtended,
+    TextDirection textDirection = TextDirection.ltr,
+  }) {
+    final inner = math.max(0.0, window.width - padding.left - padding.right);
+    final before = railWidth + (master ? AppSize.sideColumn : 0.0);
+    final after = !master && side ? AppSpacing.lg + AppSize.sideColumn : 0.0;
+    final column = (inner - before - after).clamp(0.0, AppSize.contentMax);
+    // `MainAxisAlignment.center`: the free space is split on both ends.
+    final lead = math.max(0.0, (inner - before - column - after) / 2);
+    final left = textDirection == TextDirection.ltr
+        ? padding.left + lead + before
+        : window.width - padding.right - lead - before - column;
+    return Rect.fromLTWH(
+      left,
+      padding.top,
+      column,
+      math.max(0.0, window.height - padding.top - padding.bottom),
+    );
+  }
+
   static ShellGeometryData? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<ShellGeometry>()?.data;
 
