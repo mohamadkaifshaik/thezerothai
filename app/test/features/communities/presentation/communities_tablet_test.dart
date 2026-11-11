@@ -289,7 +289,7 @@ void main() {
             expect(findContextPane(), findsNothing);
           }
           // A member does not moderate: no log entry anywhere.
-          expect(find.text('View moderation log'), findsNothing);
+          expect(find.text('Moderation log'), findsNothing);
           // The Posts tab is open: the rules are not in the page.
           expect(inCommunitiesPage(find.text('Be kind')), findsNothing);
           expect(rig.server.count('get:'), 1);
@@ -322,12 +322,12 @@ void main() {
       pb.CommunityRole.COMMUNITY_ROLE_MODERATOR,
       pb.CommunityRole.COMMUNITY_ROLE_OWNER,
     ]) {
-      testWidgets('band B, ${role.name}: "View moderation log" in the pane '
+      testWidgets('band B, ${role.name}: "Moderation log" in the pane '
           'opens the log, whose pane is About this log', (tester) async {
         final rig = CommunitiesTabletRig();
         rig.server.viewerRole = role;
         await rig.pump(tester, location: _communityPath, width: 1024);
-        final link = inContextPane(find.text('View moderation log'));
+        final link = inContextPane(find.text('Moderation log'));
         expect(link, findsOneWidget);
         expect(tester.getSize(link.hitTestable()).height, greaterThan(0));
         expect(
@@ -356,7 +356,7 @@ void main() {
       await rig.pump(tester, location: _communityPath, width: 834);
       expect(findContextPane(), findsNothing);
       expect(find.text('Moderation log'), findsOneWidget);
-      expect(find.text('View moderation log'), findsNothing);
+      expect(inCommunitiesPage(find.text('Moderation log')), findsOneWidget);
     });
 
     testWidgets('pushed over Home (a post\'s community label): the pane is '
@@ -1003,7 +1003,7 @@ void main() {
           brightness: brightness,
         );
         expect(tester.takeException(), isNull);
-        final link = inContextPane(find.text('View moderation log'));
+        final link = inContextPane(find.text('Moderation log'));
         await tester.scrollUntilVisible(
           link,
           100,

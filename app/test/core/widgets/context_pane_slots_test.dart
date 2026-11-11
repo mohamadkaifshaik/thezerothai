@@ -158,6 +158,40 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('a placeholder fills the slot until a page lends, and comes '
+        'back when it leaves', (tester) async {
+      Widget app(List<Widget> pages) => MaterialApp(
+        home: Scaffold(
+          body: ContextPaneSlotsHost(
+            child: Column(
+              children: [
+                ...pages,
+                const ContextPaneSlot(
+                  kind: ContextSectionKind.communityAbout,
+                  location: '/communities/77',
+                  placeholder: Text('placeholder'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(app(const []));
+      expect(find.text('placeholder'), findsOneWidget);
+
+      await tester.pumpWidget(
+        app(const [_Lender(location: '/communities/77', label: 'A')]),
+      );
+      await tester.pump();
+      expect(find.text('lent A'), findsOneWidget);
+      expect(find.text('placeholder'), findsNothing);
+
+      await tester.pumpWidget(app(const []));
+      await tester.pump();
+      expect(find.text('placeholder'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('without a host a page lends nothing and the slot is empty', (
       tester,
     ) async {

@@ -7,14 +7,14 @@ import '../../../../core/widgets/context_pane.dart';
 const kModerationLogAboutTitle = 'About this log';
 
 /// The sentences of [ModerationLogAbout], from what the log already says
-/// (its empty state, its access rule and its Restore action).
+/// (its actions, edits included, its access rule and its Restore action).
 const kModerationLogAboutText =
-    'Removed posts, bans and role changes in this Community, newest first. '
-    'Only the owner and moderators can see this log. A removed post can be '
-    'restored from its entry.';
+    'Removed posts, bans, role changes and edits in this Community, newest '
+    'first. Only the owner and moderators can see this log. You can restore '
+    'a removed post from its entry.';
 
 /// "About this log" (tablet plan section 4.1, ModLog): a card in band B's
-/// context pane, and the same card as an inline banner above the log in
+/// context pane, and the same card as the first item of the loaded log in
 /// band A (the screen passes its own [margin]). Static: it reads no data.
 /// Phones and desktop do not show it (ruling R-1).
 class ModerationLogAbout extends StatelessWidget {

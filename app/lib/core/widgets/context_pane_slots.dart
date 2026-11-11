@@ -168,12 +168,13 @@ class ContextPaneLease {
 
 /// The content of one context-pane section that a page lends (see
 /// [ContextPaneSlots]): the latest builder of [kind] under [location], or
-/// nothing (0 height) until a page lends one.
+/// [placeholder] until a page lends one.
 class ContextPaneSlot extends StatefulWidget {
   const ContextPaneSlot({
     super.key,
     required this.kind,
     required this.location,
+    this.placeholder = const SizedBox.shrink(),
   });
 
   final ContextSectionKind kind;
@@ -181,6 +182,12 @@ class ContextPaneSlot extends StatefulWidget {
   /// The location of the page that lends the content: the shell navigator's
   /// top page.
   final String location;
+
+  /// Drawn while no page lends [kind] under [location] (a page being pushed
+  /// has not taken its lease yet): the section's own loading look, so the
+  /// pane does not show the footer alone and then jump. Nothing (0 height)
+  /// by default.
+  final Widget placeholder;
 
   @override
   State<ContextPaneSlot> createState() => _ContextPaneSlotState();
@@ -211,6 +218,6 @@ class _ContextPaneSlotState extends State<ContextPaneSlot> {
   @override
   Widget build(BuildContext context) {
     final builder = _slots?.builderFor(widget.location, widget.kind);
-    return builder == null ? const SizedBox.shrink() : builder(context);
+    return builder == null ? widget.placeholder : builder(context);
   }
 }

@@ -101,7 +101,10 @@ class _CommunityModerationLogScreenState
   Widget _centered(Widget child) =>
       Center(child: SingleChildScrollView(child: child));
 
-  Widget _body(ModerationLogState state) {
+  /// The log for [state]. [aboutInline] (tablet band A) puts "About this
+  /// log" first in the list once there are entries, so it scrolls with
+  /// them; the loading, empty, locked and not-found states go without it.
+  Widget _body(ModerationLogState state, {required bool aboutInline}) {
     final error = state.error;
     if (state.status == ModerationLogStatus.loading) {
       return const Center(child: CircularProgressIndicator());
@@ -146,13 +149,26 @@ class _CommunityModerationLogScreenState
     final now = widget.now ?? DateTime.now();
     final footer =
         state.status == ModerationLogStatus.loadingMore || state.loadMoreFailed;
+    final lead = aboutInline ? 1 : 0;
     return RefreshIndicator(
       onRefresh: _log.load,
       child: ListView.builder(
         controller: _scroll,
         physics: const AlwaysScrollableScrollPhysics(),
-        itemCount: state.entries.length + (footer ? 1 : 0),
-        itemBuilder: (context, i) {
+        itemCount: lead + state.entries.length + (footer ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index < lead) {
+            return const ModerationLogAbout(
+              key: ValueKey('moderation-log-about'),
+              margin: EdgeInsets.fromLTRB(
+                AppSpacing.md,
+                AppSpacing.sm,
+                AppSpacing.md,
+                AppSpacing.sm,
+              ),
+            );
+          }
+          final i = index - lead;
           if (i == state.entries.length) {
             if (state.loadMoreFailed) {
               return TextButton(
@@ -191,10 +207,9 @@ class _CommunityModerationLogScreenState
 
   @override
   Widget build(BuildContext context) {
-    // "About this log" (tablet plan section 4.1, ModLog): inline above the
-    // log in band A, in the context pane in band B. Only on the tablet
-    // layout: phones and desktop keep today's page (ruling R-1). The slot
-    // stays in the column either way, so the log keeps its state at 840.
+    // "About this log" (tablet plan section 4.1, ModLog): the first item of
+    // the loaded log in band A, in the context pane in band B. Only on the
+    // tablet layout: phones and desktop keep today's page (ruling R-1).
     final tablet = ShellGeometry.maybeOf(context)?.tablet ?? false;
     final aboutInline =
         tablet &&
@@ -205,23 +220,16 @@ class _CommunityModerationLogScreenState
           child: Column(
             children: [
               AppBackHeader(title: 'Moderation log', onBack: _back),
-              if (aboutInline)
-                const ModerationLogAbout(
-                  margin: EdgeInsets.fromLTRB(
-                    AppSpacing.md,
-                    AppSpacing.sm,
-                    AppSpacing.md,
-                    AppSpacing.sm,
-                  ),
-                )
-              else
-                const SizedBox.shrink(),
               Expanded(
                 child:
                     BlocBuilder<
                       CommunityModerationLogCubit,
                       ModerationLogState
-                    >(bloc: _log, builder: (context, state) => _body(state)),
+                    >(
+                      bloc: _log,
+                      builder: (context, state) =>
+                          _body(state, aboutInline: aboutInline),
+                    ),
               ),
             ],
           ),
