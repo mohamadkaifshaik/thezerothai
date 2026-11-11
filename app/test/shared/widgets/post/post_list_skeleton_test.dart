@@ -1,3 +1,4 @@
+import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_empty_view.dart';
 import 'package:dzeroth/shared/widgets/post/post_list_skeleton.dart';
 import 'package:flutter/material.dart';
@@ -8,7 +9,7 @@ import '../../../support/theme_harness.dart';
 /// The skeleton reserves the card's footprint (avatar, padding, media
 /// slots) and the empty state has an action slot.
 void main() {
-  forEachThemeAndWidth('skeleton rows reserve a 40dp avatar and media slots, '
+  forEachThemeAndWidth('skeleton rows reserve a 42dp avatar and media slots, '
       'without overflow', (tester, env) async {
     await pumpThemed(
       tester,
@@ -25,7 +26,11 @@ void main() {
           (w.decoration! as BoxDecoration).shape == BoxShape.circle,
     );
     expect(circles, findsNWidgets(5));
-    expect(tester.getSize(circles.first), const Size(40, 40));
+    // The card's 42 dp post avatar (R1 restyle; was 40).
+    expect(
+      tester.getSize(circles.first),
+      const Size.square(AppSize.avatarPost),
+    );
     // Rows 2 and 5 (index 1, 4) carry a 16:9 media slot.
     expect(find.byType(AspectRatio), findsNWidgets(2));
     final media = tester.getSize(find.byType(AspectRatio).first);
