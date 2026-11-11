@@ -218,11 +218,9 @@ void main() {
             inline ? findsOneWidget : findsNothing,
           );
           expect(findPlansPane(), findsNothing);
-          // The meeting point's privacy note: on the tablet layout only.
-          expect(
-            _inForm(find.text(kMeetingPointNote)),
-            tablet ? findsOneWidget : findsNothing,
-          );
+          // The meeting point's privacy note, at every width (ruling 3,
+          // owner 2026-11-11), as on the create form.
+          expect(_inForm(find.text(kMeetingPointNote)), findsOneWidget);
           if (pane) {
             expect(_paneKinds(tester), _formKinds);
             expect(_inPanePreview(find.text(_rigTitle)), findsOneWidget);
@@ -240,6 +238,38 @@ void main() {
           expect(find.byTooltip('Pick a time'), findsNothing);
           expect(find.byType(ChoiceChip), findsNothing);
           expect(rig.server.calls, ['get']);
+        });
+      }
+    }
+  });
+
+  // Ruling 3 (owner, 2026-11-11): the Edit form's Meeting point carries
+  // the privacy note at every width, phones and desktop included.
+  group('PlanEdit: the meeting point note on a phone and on desktop', () {
+    for (final (w, h) in const <(double, double)>[(360, 800), (1440, 900)]) {
+      for (final MapEntry(key: mode, value: flags) in kPlansFlagModes.entries) {
+        testWidgets('$mode at ${w.toInt()}: the note under the field', (
+          tester,
+        ) async {
+          final rig = PlansTabletRig();
+          await rig.pump(
+            tester,
+            location: _editPath,
+            width: w,
+            height: h,
+            flags: flags,
+            realForms: true,
+          );
+          expect(tester.takeException(), isNull);
+          final field = _inForm(
+            find.widgetWithText(TextField, 'Venue of $_rigTitle'),
+          );
+          expect(
+            find.descendant(of: field, matching: find.text(kMeetingPointNote)),
+            findsOneWidget,
+          );
+          expect(find.byType(PlanPreview), findsNothing);
+          expect(_previewAction, findsNothing);
         });
       }
     }
@@ -670,6 +700,89 @@ void main() {
       expect(_previewAction, findsNothing);
       expect(find.byKey(_tipsToggle), findsNothing);
     });
+  });
+
+  // UX review of T8d: the band A dialog must not outlive band A. Past 840
+  // the pane shows the preview (two copies otherwise, one behind the
+  // scrim); at 1200 and below 600 there is no preview at all.
+  group('band A Preview dialog across the band edges', () {
+    for (final (name, location) in [
+      ('create', AppRouter.planNewPath),
+      ('edit', AppRouter.planEditPath(kBeaconIdA)),
+    ]) {
+      testWidgets('$name: open at 834, then 1024 closes it and the pane '
+          'shows the preview', (tester) async {
+        final rig = PlansTabletRig();
+        await rig.pump(
+          tester,
+          location: location,
+          width: 834,
+          height: 1100,
+          realForms: true,
+        );
+        await tester.tap(_previewAction);
+        await tester.pumpAndSettle();
+        expect(find.byType(Dialog), findsOneWidget);
+
+        await rig.resize(tester, 1024);
+        expect(tester.takeException(), isNull);
+        expect(find.byType(Dialog), findsNothing);
+        expect(find.byType(PlanPreview), findsOneWidget);
+        expect(inContextPane(find.byType(PlanPreview)), findsOneWidget);
+        // The form is still there: only the dialog was popped.
+        expect(_formPage(), findsOneWidget);
+        expect(rig.uri.path, location);
+      });
+
+      for (final w in <double>[1200, 599]) {
+        testWidgets('$name: open at 834, then ${w.toInt()} closes it', (
+          tester,
+        ) async {
+          final rig = PlansTabletRig();
+          await rig.pump(
+            tester,
+            location: location,
+            width: 834,
+            height: 1100,
+            realForms: true,
+          );
+          await tester.tap(_previewAction);
+          await tester.pumpAndSettle();
+          expect(find.byType(Dialog), findsOneWidget);
+
+          await rig.resize(tester, w);
+          expect(tester.takeException(), isNull);
+          expect(find.byType(Dialog), findsNothing);
+          expect(find.byType(PlanPreview), findsNothing);
+          expect(_formPage(), findsOneWidget);
+          expect(rig.uri.path, location);
+        });
+      }
+
+      testWidgets('$name: a resize inside band A keeps it open', (
+        tester,
+      ) async {
+        final rig = PlansTabletRig();
+        await rig.pump(
+          tester,
+          location: location,
+          width: 834,
+          height: 1100,
+          realForms: true,
+        );
+        await tester.tap(_previewAction);
+        await tester.pumpAndSettle();
+        await rig.resize(tester, 700);
+        expect(find.byType(Dialog), findsOneWidget);
+        await tester.tap(find.text('Close'));
+        await tester.pumpAndSettle();
+        expect(find.byType(Dialog), findsNothing);
+        // Closed by hand, then across 840: nothing else is popped.
+        await rig.resize(tester, 1024);
+        expect(_formPage(), findsOneWidget);
+        expect(inContextPane(find.byType(PlanPreview)), findsOneWidget);
+      });
+    }
   });
 
   group('band A: Tips for a good plan, inline and collapsible', () {

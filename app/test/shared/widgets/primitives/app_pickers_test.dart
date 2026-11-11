@@ -94,6 +94,46 @@ void main() {
         }
       }
 
+      if (kind == 'time') {
+        // UX review of T8d: in keyboard entry the time picker has no inset
+        // of its own, so on a landscape phone with the keyboard up it must
+        // still stop at the status bar.
+        // (A taller keyboard, 120 dp at a 24 dp status bar, makes Flutter's
+        // own TimePickerDialog throw non-normalized constraints on the
+        // window path too, with the shell flags off: not this helper's.)
+        for (final (top, keyboard) in const <(double, double)>[
+          (24, 100),
+          (40, 80),
+        ]) {
+          testWidgets('844 x 390, status bar $top, keyboard $keyboard, '
+              'keyboard entry: the dialog stays below the status bar', (
+            tester,
+          ) async {
+            await pumpTabletModalHost(
+              tester,
+              width: 844,
+              height: 390,
+              padding: EdgeInsets.only(top: top),
+              trigger: (_) => trigger(kind, (_) {}),
+            );
+            await tester.tap(find.text('open $kind'));
+            await tester.pumpAndSettle();
+            await tester.tap(find.byIcon(Icons.keyboard_outlined));
+            await tester.pumpAndSettle();
+            // The keyboard comes up for the hour field.
+            tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
+            await tester.pumpAndSettle();
+            expect(tester.takeException(), isNull);
+            final rect = openDialogRect(tester);
+            expect(rect.top, greaterThanOrEqualTo(top));
+            expect(
+              rect.center.dx,
+              closeTo(tabletContentRect(const Size(844, 390)).center.dx, 1),
+            );
+          });
+        }
+      }
+
       for (final flags in [
         {kFeatureUiShell},
         {kFeatureUiTablet},
