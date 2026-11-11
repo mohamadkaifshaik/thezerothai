@@ -12,6 +12,7 @@ import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/features/auth/presentation/widgets/auth_gate.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/conversations_cubit.dart';
+import 'package:dzeroth/features/messages/presentation/bloc/message_composer_cubit.dart';
 import 'package:dzeroth/features/messages/presentation/conversations_screen.dart';
 import 'package:dzeroth/features/messages/presentation/draft_thread_screen.dart';
 import 'package:dzeroth/features/messages/presentation/messages_list_detail.dart';
@@ -468,8 +469,16 @@ void main() {
       expect(rig.path, AppRouter.messageDraftPath);
       expect(find.byType(DraftThreadScreen), findsOneWidget);
       await tester.enterText(find.byKey(MessageComposer.fieldKey), 'first');
+      MessageComposerCubit composer() => BlocProvider.of<MessageComposerCubit>(
+        tester.element(find.byType(MessageComposer)),
+      );
+      final before = composer();
+      final field = tester.state(find.byKey(MessageComposer.fieldKey));
       await rig.resize(tester, 840);
       expect(findMessagesPane(), findsOneWidget);
+      // Re-parented: the same composer cubit and the same field state.
+      expect(composer(), same(before));
+      expect(tester.state(find.byKey(MessageComposer.fieldKey)), same(field));
       expect(find.text('first'), findsOneWidget);
       await done(tester);
     });
