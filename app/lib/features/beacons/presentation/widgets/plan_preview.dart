@@ -73,7 +73,10 @@ class PlanPreviewCard extends StatelessWidget {
       child: b == null
           ? const Padding(
               padding: EdgeInsets.only(bottom: AppSpacing.sm),
-              child: UserListSkeleton(rows: 2, semanticsLabel: 'Loading plan'),
+              child: UserListSkeleton(
+                rows: 2,
+                semanticsLabel: 'Loading preview',
+              ),
             )
           : PlanPreview(beacon: b, showOrganiser: showOrganiser),
     );

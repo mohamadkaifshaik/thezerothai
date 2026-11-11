@@ -64,6 +64,36 @@ void main() {
         });
       }
 
+      // Phones in landscape are band B (rail density R3): the picker fits the
+      // short window, on the content area, as it does with the shell flags
+      // off on the window.
+      for (final frame in const [Size(844, 390), Size(932, 430)]) {
+        for (final tabletFlags in [true, false]) {
+          testWidgets('${frame.width.toInt()} x ${frame.height.toInt()}, '
+              '${tabletFlags ? 'tablet layout' : 'ui_tablet off'}: no '
+              'overflow, inside the window', (tester) async {
+            await pumpTabletModalHost(
+              tester,
+              width: frame.width,
+              height: frame.height,
+              flags: tabletFlags ? kTabletFlags : {kFeatureUiShell},
+              trigger: (_) => trigger(kind, (_) {}),
+            );
+            await tester.tap(find.text('open $kind'));
+            await tester.pumpAndSettle();
+            expect(tester.takeException(), isNull);
+            final rect = openDialogRect(tester);
+            expect(rect.top, greaterThanOrEqualTo(0));
+            expect(rect.bottom, lessThanOrEqualTo(frame.height));
+            final content = tabletContentRect(frame);
+            expect(
+              rect.center.dx,
+              closeTo(tabletFlags ? content.center.dx : frame.width / 2, 1),
+            );
+          });
+        }
+      }
+
       for (final flags in [
         {kFeatureUiShell},
         {kFeatureUiTablet},

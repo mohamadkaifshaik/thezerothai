@@ -288,7 +288,10 @@ void main() {
       await tester.pumpAndSettle();
       // Still loading: the card over its skeleton, no tips, no preview text.
       expect(inContextPane(find.text(kPlanPreviewTitle)), findsOneWidget);
-      expect(inContextPane(find.bySemanticsLabel('Loading plan')), findsOne);
+      expect(inContextPane(find.bySemanticsLabel('Loading preview')), findsOne);
+      // One label each: the page's skeleton and the pane's are told apart.
+      expect(find.bySemanticsLabel('Loading plan'), findsOneWidget);
+      expect(find.bySemanticsLabel('Loading preview'), findsOneWidget);
       expect(inContextPane(find.text(kPlanTipsTitle)), findsNothing);
       expect(find.byType(PlanPreview), findsNothing);
 
