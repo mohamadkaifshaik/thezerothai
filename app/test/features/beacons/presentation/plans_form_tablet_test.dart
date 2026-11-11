@@ -19,6 +19,7 @@ import 'package:dzeroth/features/moderation/domain/reports_feature_flag.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:dzeroth/shared/format/scheduled_time.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -470,6 +471,60 @@ void main() {
       expect(_inPanePreview(find.text('2 of 3 seats taken')), findsOneWidget);
       expect(_inPanePreview(find.text('Full')), findsNothing);
       expect(rig.server.calls, ['get']);
+    });
+  });
+
+  group('the organiser row (shared with the plan page)', () {
+    // Today's row on the plan page: the role label at its natural width at
+    // the end, the name beside the avatar, whenever the name keeps at least
+    // an avatar's width. (At 320 x2.0 the test font's square glyphs left the
+    // name 2 dp before; it now keeps 40, so that cell is not listed.)
+    for (final (w, scale) in const <(double, double)>[
+      (320, 1),
+      (360, 1),
+      (360, 2),
+      (599, 1),
+      (599, 2),
+    ]) {
+      testWidgets('plan page at ${w.toInt()} x$scale: the label whole, at '
+          'the end of the row', (tester) async {
+        final rig = PlansTabletRig();
+        await rig.pump(
+          tester,
+          location: AppRouter.planPath(kBeaconIdA),
+          width: w,
+          textScale: scale,
+        );
+        expect(tester.takeException(), isNull);
+        final label = find.text('Organiser');
+        expect(
+          tester.renderObject<RenderParagraph>(label).didExceedMaxLines,
+          isFalse,
+        );
+        final row = find.ancestor(of: label, matching: find.byType(Row)).first;
+        expect(tester.getRect(label).right, tester.getRect(row).right);
+      });
+    }
+
+    testWidgets('the 320 dp pane at 2.0: the label gives way, nothing '
+        'overflows', (tester) async {
+      final rig = PlansTabletRig();
+      await rig.pump(
+        tester,
+        location: AppRouter.planNewPath,
+        width: 840,
+        height: 1194,
+        textScale: 2,
+        realForms: true,
+      );
+      expect(tester.takeException(), isNull);
+      final label = _inPanePreview(find.text('Organiser'));
+      expect(label, findsOneWidget);
+      final row = find.ancestor(of: label, matching: find.byType(Row)).first;
+      expect(
+        tester.getRect(label).right,
+        lessThanOrEqualTo(tester.getRect(row).right),
+      );
     });
   });
 
