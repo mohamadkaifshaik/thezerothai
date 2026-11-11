@@ -14,6 +14,10 @@ import '../../features/communities/presentation/widgets/moderation_log_about.dar
 import '../../features/graph/presentation/graph_feature_flags.dart';
 import '../../features/graph/presentation/widgets/who_to_follow_card.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../features/posts/domain/posts_feature_flag.dart';
+import '../../features/profile/presentation/widgets/profile_media_strip.dart'
+    show ProfileMediaStripPlaceholder;
+import '../../features/timeline/domain/profile_tabs_feature_flag.dart';
 import '../../features/search/domain/search_feature_flags.dart';
 import '../../features/search/presentation/widgets/app_search_field.dart';
 import '../../features/search/presentation/widgets/whats_happening_card.dart';
@@ -54,7 +58,8 @@ enum ContextFamily {
   /// Follow requests, Followers and Following: Who to follow.
   people,
 
-  /// A profile: You might like (the media strip is T8).
+  /// A profile: its media strip, lent by the page (T8c), and You might
+  /// like.
   profile,
 
   /// `/communities` (T8a): "Explore Communities", lent by the page (its
@@ -81,6 +86,14 @@ bool _isCommunitiesLocation(String location) {
   return segments.isNotEmpty && segments.first == 'communities';
 }
 
+/// Whether [location] is one of the profile pages (`/profile/...` and
+/// `/u/...`: a profile, its Followers / Following, a person's Lists).
+bool _isProfileLocation(String location) {
+  final segments = Uri.parse(location).pathSegments;
+  return segments.isNotEmpty &&
+      (segments.first == 'profile' || segments.first == 'u');
+}
+
 /// The location whose family the context pane shows, from the shell's
 /// [base] route and the [top] page of the shell navigator (null when it is
 /// not known).
@@ -93,6 +106,11 @@ bool _isCommunitiesLocation(String location) {
 /// Everything else keeps T3's rule: the base route decides.
 String contextPaneLocationFor(String base, String? top) {
   if (top == null) return base;
+  // The profile pages are pushed too (post cards, Who to follow, search,
+  // notifications, a chat), and Followers, Following and Edit profile are
+  // pushed from a profile (T8c): a profile pushed over Home gets its own
+  // pane, and a page pushed over a profile gets its own family.
+  if (_isProfileLocation(top) || _isProfileLocation(base)) return top;
   return _isCommunitiesLocation(top) || _isCommunitiesLocation(base)
       ? top
       : base;
@@ -203,7 +221,17 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
       ContextFamily.people => [if (suggestions) whoToFollow('Who to follow')],
       ContextFamily.notifications ||
       ContextFamily.search => [if (trends) whatsHappening],
-      ContextFamily.profile => [if (suggestions) whoToFollow('You might like')],
+      // The media strip (T8c), lent by the profile page over its own Media
+      // tab feed: only with the feed's flags (`posts`, `profile_tabs`).
+      ContextFamily.profile => [
+        if (isFeatureEnabled(context, kFeaturePosts) &&
+            isFeatureEnabled(context, kFeatureProfileTabs))
+          lent(
+            ContextSectionKind.profileMedia,
+            const ProfileMediaStripPlaceholder(),
+          ),
+        if (suggestions) whoToFollow('You might like'),
+      ],
       // Lent by the page, over its own state (no call of the pane's own).
       ContextFamily.communities => [
         lent(

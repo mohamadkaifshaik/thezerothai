@@ -39,6 +39,10 @@ enum ContextSectionKind {
 
   /// `/communities/:id/moderation-log`: "About this log" (T8a).
   moderationLogAbout,
+
+  /// `/profile/:handle`, `/u/:id`: the profile's latest images from its
+  /// own Media tab feed (T8c). The Media tab keeps them at every width.
+  profileMedia,
 }
 
 /// One section of band B's context pane: a self-gating widget (it draws
