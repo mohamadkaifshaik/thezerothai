@@ -9,7 +9,9 @@ import 'package:dzeroth/features/posts/domain/composer_draft.dart';
 import 'package:dzeroth/features/settings/domain/settings_categories.dart';
 import 'package:dzeroth/features/settings/presentation/protect_posts_messages.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
+import 'package:dzeroth/features/settings/presentation/widgets/settings_choice_row.dart';
 import 'package:dzeroth/features/settings/presentation/widgets/unsent_posts_row.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_chip.dart';
 import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -66,6 +68,17 @@ const _categoryRows = <SettingsCategory, List<String>>{
   SettingsCategory.about: ['Community rules', 'Privacy Policy'],
 };
 
+/// The categories the rig's flags show: Notifications needs
+/// `notification_prefs` (its own tests: `settings_r4_test.dart`).
+final _rigCategories = [
+  for (final c in SettingsCategory.values)
+    if (c != SettingsCategory.notifications) c,
+];
+
+/// A semantics label that starts with [title] (a row may add a subtitle on
+/// the next line).
+RegExp _labelled(String title) => RegExp('^${RegExp.escape(title)}(\n|\$)');
+
 /// Each leaf: its row title, path and category.
 const _leaves = <(String, String, SettingsCategory)>[
   ('Edit profile', AppRouter.editProfilePath, SettingsCategory.account),
@@ -80,11 +93,18 @@ const _leaves = <(String, String, SettingsCategory)>[
 /// 1024.
 const _widths = [360.0, 599.0, 600.0, 839.0, 840.0, 1024.0, 1199.0, 1200.0];
 
+/// The row titles under [scope] in order: the plain rows and the rows with
+/// inline choices (Appearance, R4).
 List<String> _titles(WidgetTester tester, Finder scope) => [
-  for (final row in tester.widgetList<SettingsRow>(
-    find.descendant(of: scope, matching: find.byType(SettingsRow)),
+  for (final row in tester.widgetList(
+    find.descendant(
+      of: scope,
+      matching: find.byWidgetPredicate(
+        (w) => w is SettingsRow || w is SettingsChoiceRow,
+      ),
+    ),
   ))
-    row.title,
+    row is SettingsRow ? row.title : (row as SettingsChoiceRow).title,
 ];
 
 /// The onstage page of `/settings` (the pushed one in band A).
@@ -232,7 +252,7 @@ void main() {
   });
 
   group('band A (600-839): categories list, then push', () {
-    for (final category in SettingsCategory.values) {
+    for (final category in _rigCategories) {
       testWidgets('${category.label}: pushed page, back to the list', (
         tester,
       ) async {
@@ -292,7 +312,7 @@ void main() {
   });
 
   group('band B (840-1199): categories | detail', () {
-    for (final category in SettingsCategory.values) {
+    for (final category in _rigCategories) {
       testWidgets('${category.label}: the detail, the row selected', (
         tester,
       ) async {
@@ -308,7 +328,8 @@ void main() {
         expect(_selectedInPane(tester), category.label);
         expect(
           tester.getSemantics(
-            inCategoriesPane(find.bySemanticsLabel(category.label)),
+            // The row is "<label>", a new line, "<summary>" since R4.
+            inCategoriesPane(find.bySemanticsLabel(_labelled(category.label))),
           ),
           isSemantics(isButton: true, isSelected: true),
         );
@@ -474,32 +495,36 @@ void main() {
   });
 
   group('special rows', () {
-    for (final width in [600.0, 839.0, 840.0, 1199.0]) {
-      testWidgets('Appearance is a dialog at ${width.toInt()}', (tester) async {
+    // R4: the design puts the choices inline at every width, so there is
+    // no dialog or sheet any more.
+    for (final width in [599.0, 600.0, 839.0, 840.0, 1199.0]) {
+      testWidgets('Appearance is inline at ${width.toInt()}', (tester) async {
         final rig = SettingsTabletRig();
-        await rig.pump(tester, width: width, location: '/settings?c=display');
-
-        await _tapText(tester, inSettingsPage(find.text('Appearance')));
-        expect(find.byType(Dialog), findsOneWidget);
-        expect(find.byType(BottomSheet), findsNothing);
-
-        await _tapText(tester, find.text('Dark'));
-        expect(find.byType(Dialog), findsNothing);
-        expect(
-          inSettingsPage(find.widgetWithText(SettingsRow, 'Appearance')),
-          findsOneWidget,
+        await rig.pump(
+          tester,
+          width: width,
+          height: 1600,
+          location: '/settings?c=display',
         );
-        expect(inSettingsPage(find.text('Dark')), findsOneWidget);
+        final row = width < 600
+            ? find.byType(SettingsChoiceRow<ThemeMode>)
+            : inSettingsPage(find.byType(SettingsChoiceRow<ThemeMode>));
+        final dark = find.descendant(
+          of: row,
+          matching: find.widgetWithText(AppFilterPill, 'Dark'),
+        );
+
+        await _tapText(tester, dark);
+        expect(find.byType(Dialog), findsNothing);
+        expect(find.byType(BottomSheet), findsNothing);
+        expect(tester.widget<AppFilterPill>(dark).selected, isTrue);
+        // The current choice is the row's second line too.
+        expect(
+          find.descendant(of: row, matching: find.text('Dark')),
+          findsNWidgets(2),
+        );
       });
     }
-
-    testWidgets('Appearance stays a bottom sheet on phones', (tester) async {
-      final rig = SettingsTabletRig();
-      await rig.pump(tester, width: 599, height: 1600);
-
-      await _tapText(tester, find.text('Appearance'));
-      expect(find.byType(BottomSheet), findsOneWidget);
-    });
 
     testWidgets('About: external links, no navigation', (tester) async {
       final rig = SettingsTabletRig();

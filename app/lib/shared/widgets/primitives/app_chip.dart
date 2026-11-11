@@ -111,10 +111,15 @@ class AppFilterPill extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onPressed,
+    this.maxLines = 1,
   });
 
   final String label;
   final bool selected;
+
+  /// Lines of the label before it ellipsizes; null wraps it whole (a
+  /// Settings choice at large text, R4). One by default (the filter rows).
+  final int? maxLines;
 
   /// Null disables the pill.
   final VoidCallback? onPressed;
@@ -156,8 +161,8 @@ class AppFilterPill extends StatelessWidget {
           Flexible(
             child: Text(
               label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              maxLines: maxLines,
+              overflow: maxLines == null ? null : TextOverflow.ellipsis,
               style: theme.textTheme.labelMedium?.copyWith(
                 color: labelColor,
                 fontWeight: selected
