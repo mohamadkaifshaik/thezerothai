@@ -316,6 +316,13 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             ? PopupMenuButton<String>(
                                 tooltip: 'Community options',
                                 padding: EdgeInsets.zero,
+                                // As an icon button, so it keeps the button role.
+                                icon: CommunityBandAction.circle(
+                                  Icons.more_horiz,
+                                ),
+                                style: IconButton.styleFrom(
+                                  foregroundColor: AppPalette.pearl,
+                                ),
                                 onSelected: (_) => _report(),
                                 itemBuilder: (context) => const [
                                   PopupMenuItem(
@@ -326,9 +333,6 @@ class _CommunityScreenState extends State<CommunityScreen> {
                                     ),
                                   ),
                                 ],
-                                child: CommunityBandAction.circle(
-                                  Icons.more_horiz,
-                                ),
                               )
                             : null,
                       ),

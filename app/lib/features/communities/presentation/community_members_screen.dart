@@ -434,9 +434,10 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
     return UserListRow(
       key: ValueKey(userId),
       item: item,
-      // dz: a 44 dp avatar and 20 dp insets.
+      // dz: a 44 dp avatar, 12 dp above and below and 20 dp at the sides.
       avatarRadius: 22,
       inset: 20,
+      verticalInset: AppSpacing.smd,
       extraAction: badge == null && actions.isEmpty
           ? null
           : Row(

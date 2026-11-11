@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/app_main_column.dart';
@@ -42,7 +43,7 @@ class CommunityCoverBand extends StatelessWidget {
     // On the tablet layout the band spans the pane; its buttons keep to the
     // readable column.
     final inset = AppMainColumnBleed.of(context);
-    return SizedBox(
+    final band = SizedBox(
       height: kCommunityCoverBandHeight + top,
       child: DecoratedBox(
         decoration: const BoxDecoration(
@@ -92,6 +93,18 @@ class CommunityCoverBand extends StatelessWidget {
         ),
       ),
     );
+    // Under the status bar (the tablet pane keeps the inset) its icons turn
+    // light for as long as the band is on screen: the region follows the
+    // band when it scrolls away.
+    if (top == 0) return band;
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
+      ),
+      child: band,
+    );
   }
 }
 
@@ -132,6 +145,8 @@ class CommunityBandAction extends StatelessWidget {
   Widget build(BuildContext context) => IconButton(
     tooltip: tooltip,
     onPressed: onPressed,
+    // Pearl, so the hover, focus and press overlays show on the navy band.
+    style: IconButton.styleFrom(foregroundColor: AppPalette.pearl),
     padding: EdgeInsets.zero,
     constraints: const BoxConstraints.tightFor(
       width: AppSpacing.minTapTarget,

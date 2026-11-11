@@ -35,7 +35,12 @@ class UserListRow extends StatelessWidget {
     this.followSource = FollowSource.list,
     this.avatarRadius = 20,
     this.inset = AppSpacing.md,
+    this.verticalInset = AppSpacing.sm,
   });
+
+  /// The row's top and bottom padding; the community members page uses the
+  /// design's 12.
+  final double verticalInset;
 
   /// The avatar's radius (dp); the default 20 is the list standard. The
   /// community members page draws the design's 44 dp avatar (22).
@@ -124,8 +129,8 @@ class UserListRow extends StatelessWidget {
               padding: EdgeInsetsDirectional.only(
                 start: inset,
                 end: onDismiss == null ? inset : AppSpacing.xs,
-                top: AppSpacing.sm,
-                bottom: AppSpacing.sm,
+                top: verticalInset,
+                bottom: verticalInset,
               ),
               // The control keeps its natural width at the user's text
               // scale and the name column gives way first; only when the name
