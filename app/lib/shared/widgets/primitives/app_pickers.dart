@@ -57,8 +57,9 @@ Future<DateTime?> showAppDatePicker({
 /// the content area on it.
 ///
 /// `TimePickerDialog` sets its own inset padding (16 at the sides, 24 above
-/// and below in the dial), which no theme reaches, so the content-area
-/// margins are applied around it, less its own.
+/// and below in the dial, none above and below in keyboard entry), which no
+/// theme reaches, so the content-area margins are applied around it, less
+/// its own, and never less than the status bar at the top.
 Future<TimeOfDay?> showAppTimePicker({
   required BuildContext context,
   required TimeOfDay initialTime,
@@ -85,7 +86,12 @@ Future<TimeOfDay?> showAppTimePicker({
           return Padding(
             padding: EdgeInsets.fromLTRB(
               math.max(0, insets.left - _timePickerSide),
-              math.max(0, insets.top - _timePickerEnds),
+              // Never above the status bar: in keyboard entry the picker
+              // has no top inset of its own.
+              math.max(
+                MediaQuery.paddingOf(context).top,
+                insets.top - _timePickerEnds,
+              ),
               math.max(0, insets.right - _timePickerSide),
               math.max(0, insets.bottom - _timePickerEnds),
             ),
