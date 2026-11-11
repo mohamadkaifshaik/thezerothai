@@ -305,32 +305,19 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
         : (joining || community.role.isMember)
         ? CommunityJoinState.joined
         : CommunityJoinState.join;
-    final control = CommunityJoinControl(
-      state: joinState,
-      name: community.name,
-      compact: true,
-      busy: joining,
-      onJoin: () => _join(community),
-    );
     return CommunityRow(
       key: ValueKey('explore-$id'),
       community: community,
       onTap: () => this.context.push(AppRouter.communityPath(id)),
       // The pane is 320 dp: the Join pill goes under the name there.
       trailingBelow: inPane,
-      trailing: inPane
-          // The compact pill is 36 dp inside its 48 dp box, and only the
-          // pill takes a pointer. In the pane the whole box does; the pill
-          // stays the one spoken button. Inline rows keep today's control.
-          ? GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              excludeFromSemantics: true,
-              onTap: joinState == CommunityJoinState.join && !joining
-                  ? () => _join(community)
-                  : null,
-              child: control,
-            )
-          : control,
+      trailing: CommunityJoinControl(
+        state: joinState,
+        name: community.name,
+        compact: true,
+        busy: joining,
+        onJoin: () => _join(community),
+      ),
     );
   }
 
