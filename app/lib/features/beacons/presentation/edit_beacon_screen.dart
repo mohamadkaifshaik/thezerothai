@@ -4,7 +4,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/context_pane.dart';
+import '../../../core/widgets/context_pane_slots.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
+import '../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_form_header.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
@@ -15,14 +19,27 @@ import '../data/beacons_repository.dart';
 import '../domain/beacon_labels.dart';
 import '../domain/beacon_text_rules.dart';
 import '../domain/beacons_feature_flag.dart';
+import '../domain/plan_preview.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/edit_beacon_cubit.dart';
 import 'widgets/discard_plan_dialog.dart';
+import 'widgets/plan_preview.dart';
+import 'widgets/plan_tips.dart';
 
 /// `/plans/:id/edit` (R34): title, details, meeting point and open spots, the
 /// fields `UpdateBeacon` accepts. Start, duration, cost and audience are shown
 /// read-only. Save is enabled when something changed, the text rules pass and
 /// open spots cover the people already going.
+///
+/// On the tablet layout (T8d, tablet plan section 4.1 PlanEdit), once the
+/// plan is loaded, the form has a live preview (the plan page's own
+/// `PlanSummary` with the edits) and "Tips for a good plan": band B shows
+/// both in the context pane, lent by this page (a loading preview while the
+/// plan loads, nothing when it fails); band A has a Preview header action
+/// that opens the preview in a dialog and the tips inline at the top of the
+/// form, collapsed. Phones and desktop keep today's form (ruling R-1), but
+/// for the meeting point's privacy note, which shows at every width as on
+/// the create form (owner, 2026-11-11).
 class EditBeaconScreen extends StatefulWidget {
   const EditBeaconScreen({super.key, required this.beaconId});
 
@@ -44,6 +61,16 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
   bool _filled = false;
   bool _discarded = false;
 
+  /// The plan with the edits, for the preview; null until it is loaded.
+  final _draft = ValueNotifier<pb.Beacon?>(null);
+  final _paneLease = ContextPaneLease();
+
+  /// Band A's inline tips, open or closed; kept across resizes.
+  var _tipsOpen = false;
+
+  /// Band A's open Preview dialog, if any.
+  ModalRoute<void>? _previewRoute;
+
   @override
   void initState() {
     super.initState();
@@ -53,7 +80,36 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _paneLease.attach(context, AppRouter.planEditPath(widget.beaconId), {
+      // The loading look while the plan loads; nothing once it failed.
+      ContextSectionKind.planPreview: (context) =>
+          BlocBuilder<EditBeaconCubit, EditBeaconState>(
+            bloc: _cubit,
+            buildWhen: (a, b) => (a.error == null) != (b.error == null),
+            builder: (context, state) => state.error != null
+                ? const SizedBox.shrink()
+                : ValueListenableBuilder<pb.Beacon?>(
+                    valueListenable: _draft,
+                    builder: (context, draft, _) =>
+                        PlanPreviewCard(beacon: draft),
+                  ),
+          ),
+      // Only beside a loaded plan.
+      ContextSectionKind.planTips: (context) =>
+          ValueListenableBuilder<pb.Beacon?>(
+            valueListenable: _draft,
+            builder: (context, draft, _) =>
+                draft == null ? const SizedBox.shrink() : const PlanTipsCard(),
+          ),
+    });
+  }
+
+  @override
   void dispose() {
+    _paneLease.dispose();
+    _draft.dispose();
     _title.dispose();
     _details.dispose();
     _venue.dispose();
@@ -61,7 +117,26 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
     super.dispose();
   }
 
-  void _changed() => setState(() {});
+  void _changed() => _update(() {});
+
+  /// Every change to the form goes through here, so the preview follows it.
+  void _update(VoidCallback change) {
+    setState(change);
+    _syncDraft();
+  }
+
+  void _syncDraft() {
+    final b = _filled ? _cubit.state.view?.beacon : null;
+    _draft.value = b == null
+        ? null
+        : editedPlan(
+            b,
+            title: _title.text,
+            details: _details.text,
+            venue: _venue.text,
+            openSpots: _openSpots ?? b.openSpots,
+          );
+  }
 
   void _fill(pb.Beacon b) {
     if (_filled) return;
@@ -70,6 +145,55 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
     _details.text = b.details;
     _venue.text = b.venue;
     _openSpots = b.openSpots;
+  }
+
+  /// Band A's Preview (tablet plan section 4.1: "header action that opens a
+  /// Preview dialog"): a D 560 dialog on the content area that follows the
+  /// form.
+  void _openPreview() => showAppDialog<void>(
+    context: context,
+    maxWidth: AppSize.dialogMax,
+    builder: (dialogContext) {
+      _previewRoute = ModalRoute.of(dialogContext);
+      return AppDialog(
+        title: kPlanPreviewTitle,
+        body: ValueListenableBuilder<pb.Beacon?>(
+          valueListenable: _draft,
+          // The dialog pads its title and body already: the preview's lines
+          // start where the title does.
+          builder: (context, draft, _) => draft == null
+              ? const SizedBox.shrink()
+              : PlanPreview(beacon: draft, inset: 0),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      );
+    },
+  ).whenComplete(() => _previewRoute = null);
+
+  /// Band A's Preview dialog belongs to band A: past 840 the pane shows the
+  /// preview (it would show twice, once behind the scrim), and at 1200 or
+  /// under 600 there is no preview. When the header action goes away with
+  /// the dialog open, the dialog is popped after that frame.
+  void _closePreviewOffBandA(bool previewAction) {
+    final route = _previewRoute;
+    if (previewAction || route == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Once per dialog, however many builds asked.
+      if (!identical(_previewRoute, route) || !route.isActive) return;
+      _previewRoute = null;
+      final navigator = route.navigator;
+      if (navigator == null) return;
+      if (route.isCurrent) {
+        navigator.maybePop();
+      } else {
+        navigator.removeRoute(route);
+      }
+    });
   }
 
   void _back() {
@@ -128,6 +252,18 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // The tablet layout: band A gets the Preview header action and the
+    // inline tips once the plan is loaded; band B shows both in the context
+    // pane instead. Phones and desktop keep today's form (ruling R-1).
+    final tablet = ShellGeometry.maybeOf(context)?.tablet ?? false;
+    final previewInPane = ContextPaneScope.shows(
+      context,
+      ContextSectionKind.planPreview,
+    );
+    final tipsInPane = ContextPaneScope.shows(
+      context,
+      ContextSectionKind.planTips,
+    );
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
@@ -140,13 +276,16 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
               // The controllers are filled here, outside build (their listeners
               // call setState).
               if (state.view != null && !_filled) {
-                setState(() => _fill(state.view!.beacon));
+                _update(() => _fill(state.view!.beacon));
               }
               if (state.saved != null) _back();
             },
             builder: (context, state) {
               final b = _filled ? state.view?.beacon : null;
               final busy = state.busy;
+              final previewAction = tablet && !previewInPane && b != null;
+              final tipsInline = tablet && !tipsInPane && b != null;
+              _closePreviewOffBandA(previewAction);
               final minSpots = b == null
                   ? kBeaconMinSpots
                   : b.acceptedCount.clamp(kBeaconMinSpots, kBeaconMaxSpots);
@@ -169,6 +308,8 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                       onAction: b != null && !busy && _dirty(b) && _valid(b)
                           ? _save
                           : null,
+                      secondaryLabel: previewAction ? kPlanPreviewTitle : null,
+                      onSecondary: previewAction ? _openPreview : null,
                     ),
                     Expanded(
                       child: state.loading
@@ -192,6 +333,18 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
+                                  // Always one child here, so the fields keep
+                                  // their place when the tips move to the
+                                  // pane at 840.
+                                  if (tipsInline)
+                                    PlanTipsSection(
+                                      expanded: _tipsOpen,
+                                      onToggle: () => setState(
+                                        () => _tipsOpen = !_tipsOpen,
+                                      ),
+                                    )
+                                  else
+                                    const SizedBox.shrink(),
                                   TextField(
                                     controller: _title,
                                     enabled: !busy,
@@ -233,6 +386,10 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                                     textInputAction: TextInputAction.done,
                                     decoration: InputDecoration(
                                       labelText: 'Meeting point',
+                                      // The privacy note, as on the create
+                                      // form, at every width (ruling 3,
+                                      // owner 2026-11-11).
+                                      helperText: kMeetingPointNote,
                                       errorText: beaconFieldError(
                                         beaconVenueIssue(_venue.text),
                                         max: kBeaconVenueMaxLength,
@@ -262,7 +419,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                                             busy ||
                                                 (_openSpots ?? 0) <= minSpots
                                             ? null
-                                            : () => setState(
+                                            : () => _update(
                                                 () => _openSpots =
                                                     _openSpots! - 1,
                                               ),
@@ -285,7 +442,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                                                 (_openSpots ?? 0) >=
                                                     kBeaconMaxSpots
                                             ? null
-                                            : () => setState(
+                                            : () => _update(
                                                 () => _openSpots =
                                                     _openSpots! + 1,
                                               ),
