@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/context_pane.dart';
+import '../../../core/widgets/context_pane_slots.dart';
 import '../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
@@ -24,10 +26,12 @@ import '../data/lists_repository.dart';
 import '../domain/lists_feature_flag.dart';
 import 'bloc/list_detail_cubit.dart';
 import 'bloc/list_detail_state.dart';
+import 'bloc/list_members_preview_cubit.dart';
 import '../../../shared/widgets/primitives/app_menu_item_row.dart';
 import 'lists_error_messages.dart';
 import 'widgets/list_detail_header.dart';
 import 'widgets/list_editor_sheet.dart';
+import 'widgets/list_members_pane.dart';
 import 'widgets/list_unavailable_view.dart';
 
 /// `/lists/:id`: the List's header and its timeline.
@@ -42,6 +46,10 @@ import 'widgets/list_unavailable_view.dart';
 /// - NOT_FOUND from either RPC replaces the screen with "This List is
 ///   unavailable" (and Unpin when pinned); one text for every cause.
 /// - Edit is the owner's; Pin / Unpin is saved with one `SetHomeTabs`.
+/// - Band B of the tablet layout (T8b): the page lends the context pane a
+///   preview of the members ([ListMembersPane]). Only then is one
+///   `ListListMembers` of [kListMembersPreviewLimit] asked, and again when
+///   the member count changes; phones, band A and desktop ask nothing more.
 class ListDetailScreen extends StatefulWidget {
   const ListDetailScreen({super.key, required this.listId});
 
@@ -65,6 +73,12 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
     viewerUserId: context.read<OnboardingBloc>().state.profile?.userId,
   );
 
+  /// The members preview of band B's context pane, made on first use.
+  ListMembersPreviewCubit? _previewCubit;
+  ListMembersPreviewCubit get _preview => _previewCubit ??=
+      ListMembersPreviewCubit(listId: widget.listId, lists: _lists);
+  final _paneLease = ContextPaneLease();
+
   @override
   void initState() {
     super.initState();
@@ -74,11 +88,46 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _paneLease.attach(context, AppRouter.listPath(widget.listId), {
+      ContextSectionKind.listMembers: (context) =>
+          BlocBuilder<ListDetailCubit, ListDetailState>(
+            bloc: _detail,
+            builder: (context, detail) =>
+                BlocBuilder<ListMembersPreviewCubit, ListMembersPreviewState>(
+                  bloc: _preview,
+                  builder: (context, preview) => ListMembersPane(
+                    detail: detail,
+                    preview: preview,
+                    isOwner: _isOwner(detail),
+                    onSeeAll: _openMembers,
+                    onRetry: _preview.reload,
+                  ),
+                ),
+          ),
+    });
+    // The preview is asked for only while the pane beside the page shows it.
+    if (ContextPaneScope.shows(context, ContextSectionKind.listMembers)) {
+      _preview.loadOnce();
+    }
+  }
+
+  @override
   void dispose() {
+    _paneLease.dispose();
+    _previewCubit?.close();
     _timeline.close();
     _detail.close();
     super.dispose();
   }
+
+  bool _isOwner(ListDetailState state) {
+    final viewer = context.read<OnboardingBloc>().state.profile?.userId;
+    return viewer != null && state.header?.owner.userId == viewer;
+  }
+
+  void _openMembers() => context.push(AppRouter.listMembersPath(widget.listId));
 
   void _back() {
     if (context.canPop()) {
@@ -138,9 +187,23 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
         BlocProvider<TimelineCubit>.value(value: _timeline),
         BlocProvider<ListDetailCubit>.value(value: _detail),
       ],
-      child: BlocListener<TimelineCubit, TimelineState>(
-        listenWhen: (before, after) => after.unavailable && !before.unavailable,
-        listener: (context, _) => _detail.markUnavailable(),
+      child: MultiBlocListener(
+        listeners: [
+          BlocListener<TimelineCubit, TimelineState>(
+            listenWhen: (before, after) =>
+                after.unavailable && !before.unavailable,
+            listener: (context, _) => _detail.markUnavailable(),
+          ),
+          // A member added or removed (the members page, Add to Lists): the
+          // pane's preview asks again, once it was asked for at all.
+          BlocListener<ListDetailCubit, ListDetailState>(
+            listenWhen: (before, after) =>
+                before.header != null &&
+                after.header != null &&
+                before.header!.memberCount != after.header!.memberCount,
+            listener: (context, _) => _previewCubit?.reload(),
+          ),
+        ],
         child: Scaffold(
           body: SafeArea(
             child: BlocBuilder<ListDetailCubit, ListDetailState>(
@@ -217,9 +280,7 @@ class _ListDetailScreenState extends State<ListDetailScreen> {
                       child: ListDetailHeader(
                         state: state,
                         isOwner: isOwner,
-                        onMembers: () => context.push(
-                          AppRouter.listMembersPath(widget.listId),
-                        ),
+                        onMembers: _openMembers,
                         onOwner: () => context.push(
                           AppRouter.profilePath(header!.owner.handle),
                         ),

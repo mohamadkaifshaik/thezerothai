@@ -8,6 +8,9 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../core/widgets/context_pane.dart';
+import '../../../core/widgets/context_pane_slots.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_section_header.dart';
@@ -22,6 +25,7 @@ import 'bloc/home_tabs_state.dart';
 import 'bloc/lists_cubit.dart';
 import 'bloc/lists_state.dart';
 import 'lists_error_messages.dart';
+import 'widgets/home_tabs_preview.dart';
 import 'widgets/list_row.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
@@ -50,8 +54,26 @@ class _ManagePinnedScreenState extends State<ManagePinnedScreen> {
   );
   late final ListsCubit _own = ListsCubit(repository: _lists)..load();
 
+  /// Band B's context pane: the Home tabs preview over [_tabs] (T8b).
+  final _paneLease = ContextPaneLease();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _paneLease.attach(context, AppRouter.pinnedPath, {
+      ContextSectionKind.homeTabsPreview: (context) =>
+          BlocBuilder<HomeTabsCubit, HomeTabsState>(
+            bloc: _tabs,
+            builder: (context, tabs) => HomeTabsPreviewCard(
+              labels: [for (final t in tabs.tabs) tabs.labelOf(t)],
+            ),
+          ),
+    });
+  }
+
   @override
   void dispose() {
+    _paneLease.dispose();
     _tabs.close();
     _own.close();
     super.dispose();
@@ -116,8 +138,31 @@ class _ManagePinnedScreenState extends State<ManagePinnedScreen> {
     final muted = theme.textTheme.bodyMedium?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,
     );
+    // Band A of the tablet layout: the Home tabs preview at the top. Band B
+    // shows it in the context pane instead; phones and desktop keep today's
+    // page (ruling R-1). The sliver stays either way, so the list keeps its
+    // place when the window crosses 840.
+    final tablet = ShellGeometry.maybeOf(context)?.tablet ?? false;
+    final previewInline =
+        tablet &&
+        !ContextPaneScope.shows(context, ContextSectionKind.homeTabsPreview);
     return CustomScrollView(
       slivers: [
+        SliverToBoxAdapter(
+          child: previewInline
+              ? Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.md,
+                    AppSpacing.md,
+                    AppSpacing.md,
+                    0,
+                  ),
+                  child: HomeTabsPreviewCard(
+                    labels: [for (final t in tabs.tabs) tabs.labelOf(t)],
+                  ),
+                )
+              : const SizedBox.shrink(),
+        ),
         const SliverToBoxAdapter(
           child: AppSectionHeader(
             title: 'Pinned',
