@@ -15,6 +15,8 @@ import 'package:dzeroth/features/lists/presentation/widgets/home_tabs_preview.da
 import 'package:dzeroth/features/lists/presentation/widgets/list_members_pane.dart';
 import 'package:dzeroth/features/lists/presentation/widgets/lists_owner_card.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_section_header.dart';
+import 'package:dzeroth/shared/widgets/user/user_list_skeleton.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -689,7 +691,7 @@ void main() {
       expect(find.byType(ListsOwnerCard), findsNothing);
     });
 
-    testWidgets("it opens the owner's profile and is one 48 dp button", (
+    testWidgets("it goes back to the owner's profile and is one 48 dp button", (
       tester,
     ) async {
       final rig = ListsTabletRig();
@@ -702,7 +704,8 @@ void main() {
       );
       await tester.tap(card);
       await tester.pumpAndSettle();
-      expect(rig.uri.path, AppRouter.profileByIdPath(kRigOwnerId));
+      // Opened from the profile: back to it (UX review item 3).
+      expect(rig.uri.path, AppRouter.profilePath('olivia'));
     });
   });
 
@@ -1075,4 +1078,74 @@ void main() {
       expect(find.textContaining('Nearby'), findsNothing);
     });
   }
+
+  group('UX review (T8b)', () {
+    testWidgets('item 3: the owner card goes back to the profile it came '
+        'from, not a second copy of it', (tester) async {
+      final rig = ListsTabletRig();
+      await _openUserLists(tester, rig);
+      await tester.tap(inContextPane(find.byType(ListsOwnerCard)));
+      await tester.pumpAndSettle();
+      expect(rig.uri.path, AppRouter.profilePath('olivia'));
+      expect(rig.router.canPop(), isFalse);
+    });
+
+    testWidgets('item 3: opened cold (nothing to pop), the owner card goes '
+        'to the profile', (tester) async {
+      final rig = ListsTabletRig();
+      await rig.pump(tester, location: _userListsPath, width: 744);
+      await tester.tap(inListsPage(find.byType(ListsOwnerCard)));
+      await tester.pumpAndSettle();
+      expect(rig.uri.path, AppRouter.profileByIdPath(kRigOwnerId));
+    });
+
+    testWidgets('item 4: band A, the owner card and the Home tabs preview '
+        'leave the same gap above the first section', (tester) async {
+      double gapBelow(Type card) {
+        final box = tester.getRect(
+          find
+              .descendant(
+                of: inListsPage(find.byType(card)),
+                matching: find.byType(DecoratedBox),
+              )
+              .first,
+        );
+        final section = tester.getRect(
+          inListsPage(find.byType(AppSectionHeader)).first,
+        );
+        return section.top - box.bottom;
+      }
+
+      final owner = ListsTabletRig();
+      await _openUserLists(tester, owner, width: 744);
+      final ownerGap = gapBelow(ListsOwnerCard);
+
+      final pinned = ListsTabletRig()..server.pinRigList();
+      await _openPinned(tester, pinned, width: 744);
+      final previewGap = gapBelow(HomeTabsPreviewCard);
+
+      expect(ownerGap, previewGap);
+      expect(ownerGap, AppSpacing.md);
+    });
+
+    for (final (count, rows) in [(2, 2), (8, kListMembersPreviewLimit)]) {
+      testWidgets('item 5: $count members, loading: the skeleton has $rows '
+          'rows once the header is known', (tester) async {
+        final rig = ListsTabletRig();
+        rig.server.members = [
+          for (var i = 1; i <= count; i++) ('p$i', 'person$i', 'Person $i'),
+        ];
+        rig.server.holdMembers = Completer<void>();
+        await _openList(tester, rig, settle: false);
+        await tester.pump();
+        expect(inListsPage(find.text('$count members')), findsOneWidget);
+        final skeleton = tester.widget<UserListSkeleton>(
+          inContextPane(find.byType(UserListSkeleton)),
+        );
+        expect(skeleton.rows, rows);
+        rig.server.holdMembers!.complete();
+        await tester.pumpAndSettle();
+      });
+    }
+  });
 }
