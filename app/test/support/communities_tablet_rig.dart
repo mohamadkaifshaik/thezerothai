@@ -106,8 +106,9 @@ const kRigDirectory = <(String, String)>[
   ('79', 'Running'),
 ];
 
-/// The reference time of the log's relative times.
-final kRigNow = DateTime.utc(2026, 11, 11, 12);
+/// The reference time of the log's relative times: the clock at first use,
+/// passed to the log page as its `now` (no fixed date; the fixed-date guard).
+final kRigNow = DateTime.now().toUtc();
 
 /// A `CommunitiesRepository` with a call log: 1 directory, 1 "mine", one
 /// community (rules, owner, a moderator), its members and its log. Only the

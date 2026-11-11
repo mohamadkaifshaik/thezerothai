@@ -866,6 +866,45 @@ void main() {
     });
   });
 
+  group('communities off (the router sends these routes Home; should one '
+      'show anyway)', () {
+    final off = {...kCommunitiesTabletFlags}..remove('communities');
+
+    testWidgets('/communities at 1024: the global set, and Explore '
+        'Communities stays inline', (tester) async {
+      final rig = CommunitiesTabletRig();
+      await rig.pump(tester, width: 1024, flags: off);
+      expect(tester.takeException(), isNull);
+      expect(_paneKinds(tester), _global);
+      expect(find.text('Explore Communities'), findsOneWidget);
+      expect(
+        inCommunitiesPage(find.text('Explore Communities')),
+        findsOneWidget,
+      );
+    });
+
+    for (final (name, location) in [
+      ('Community', _communityPath),
+      ('ModLog', _logPath),
+      ('CreateCommunity', AppRouter.communityNewPath),
+    ]) {
+      testWidgets('$name at 1024: the global set, none of the lent or '
+          'static communities sections', (tester) async {
+        final rig = CommunitiesTabletRig();
+        rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
+        await rig.pump(tester, location: location, width: 1024, flags: off);
+        expect(tester.takeException(), isNull);
+        expect(_paneKinds(tester), _global);
+        expect(inContextPane(find.text('Be kind')), findsNothing);
+        expect(
+          inContextPane(find.text(kModerationLogAboutTitle)),
+          findsNothing,
+        );
+        expect(inContextPane(find.byType(CommunityPreview)), findsNothing);
+      });
+    }
+  });
+
   group('tablet matrix (plan section 5.5)', () {
     final screens = <String, String>{
       'Communities': AppRouter.communitiesPath,
