@@ -19,6 +19,7 @@ import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
+import 'package:dzeroth/features/messages/presentation/bloc/conversations_session.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
@@ -39,6 +40,7 @@ import 'package:dzeroth/gen/dzeroth/moderation/v1/moderation.pb.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as ts;
@@ -86,9 +88,24 @@ class FakeMessagingServer {
 
   /// Every procedure the client called, in order.
   final List<String> calls = [];
+
+  /// The folder of every `ListConversations`, in order.
+  final List<Folder> listFolders = [];
+
+  /// The conversation of every `ListMessages`, in order.
+  final List<String> listedThreads = [];
   final List<pb.SendMessageRequest> sends = [];
   final List<graph.BlockRequest> blocks = [];
   final List<moderation.ReportContentRequest> reports = [];
+
+  /// The person a first message to a user id opens a conversation with.
+  final Map<String, common.AuthorSnapshot> draftPeers = {
+    'u-sam': common.AuthorSnapshot(
+      userId: 'u-sam',
+      handle: 'sam',
+      displayName: 'Sam Rivera',
+    ),
+  };
 
   /// A procedure to fail with (once), e.g. to script an error.
   final Map<String, Object> failures = {};
@@ -110,6 +127,7 @@ class FakeMessagingServer {
     if (failure != null) throw failure;
     if (procedure == '/${MessagingService.name}/ListConversations') {
       final request = input as pb.ListConversationsRequest;
+      listFolders.add(request.folder);
       final rows =
           conversations.values.where((c) => c.folder == request.folder).toList()
             ..sort(
@@ -128,6 +146,7 @@ class FakeMessagingServer {
     }
     if (procedure == '/${MessagingService.name}/ListMessages') {
       final request = input as pb.ListMessagesRequest;
+      listedThreads.add(request.conversationId);
       await listMessagesGate?.future;
       return pb.ListMessagesResponse(
         messages: messages[request.conversationId] ?? const [],
@@ -138,7 +157,26 @@ class FakeMessagingServer {
     if (procedure == '/${MessagingService.name}/SendMessage') {
       final request = input as pb.SendMessageRequest;
       sends.add(request);
-      final id = request.conversationId;
+      var id = request.conversationId;
+      if (id.isEmpty && request.recipientUserId.isNotEmpty) {
+        // A first message from the draft thread: the server opens the 1:1
+        // conversation with that person (one per person).
+        final existing = conversations.values
+            .where((c) => c.peer.userId == request.recipientUserId)
+            .firstOrNull;
+        id = existing?.id ?? hexId(0xd00 + conversations.length);
+        conversations[id] ??= pb.Conversation(
+          id: id,
+          kind: ConversationKind.CONVERSATION_KIND_DIRECT,
+          peer:
+              draftPeers[request.recipientUserId] ??
+              common.AuthorSnapshot(userId: request.recipientUserId),
+          state: ConversationState.CONVERSATION_STATE_REQUEST,
+          folder: Folder.FOLDER_INBOX,
+          canReply: true,
+          updatedAt: ts.Timestamp.fromDateTime(DateTime.now().toUtc()),
+        );
+      }
       final message = pb.Message(
         id: hexId(_nextMessage++),
         conversationId: id,
@@ -262,6 +300,49 @@ class MessagingFlowRig {
   final UnreadBadgeCubit unreadBadge = UnreadBadgeCubit();
   late AppRouter appRouter;
 
+  /// The app-level inbox and Requests folders (`AppWidget` provides them),
+  /// present when [pump] ran with `hoisted: true`. Disposed with the tree.
+  ConversationsSession? session;
+
+  /// The matched location of every page on the root stack, bottom first
+  /// (a shell page counts once, as its top page).
+  List<String> get stack => [
+    for (final m
+        in appRouter.router.routerDelegate.currentConfiguration.matches)
+      m is ShellRouteMatch ? m.matches.last.matchedLocation : m.matchedLocation,
+  ];
+
+  /// How many `ShellRoute` pages are on the root stack.
+  int get shellPages => appRouter
+      .router
+      .routerDelegate
+      .currentConfiguration
+      .matches
+      .whereType<ShellRouteMatch>()
+      .length;
+
+  /// The `ListConversations` calls of [folder] made so far.
+  int listCalls([Folder? folder]) => folder == null
+      ? server.count('/${MessagingService.name}/ListConversations')
+      : server.listFolders.where((f) => f == folder).length;
+
+  /// The `ListMessages` calls for [conversationId] made so far.
+  int threadCalls(String conversationId) =>
+      server.listedThreads.where((id) => id == conversationId).length;
+
+  /// Resizes the window and settles.
+  Future<void> resize(
+    WidgetTester tester,
+    double width, [
+    double? height,
+  ]) async {
+    tester.view.physicalSize = Size(
+      width,
+      height ?? tester.view.physicalSize.height,
+    );
+    await tester.pumpAndSettle();
+  }
+
   final StreamController<AuthState> _authStates =
       StreamController<AuthState>.broadcast();
   late _MockAuthBloc _auth;
@@ -327,6 +408,10 @@ class MessagingFlowRig {
     Size size = const Size(390, 844),
     Brightness brightness = Brightness.light,
     double textScale = 1,
+    bool hoisted = false,
+    TextDirection textDirection = TextDirection.ltr,
+    List<RepositoryProvider<dynamic>> extraProviders = const [],
+    List<BlocProvider<dynamic>> extraBlocs = const [],
   }) async {
     final auth = _auth = _MockAuthBloc();
     final onboarding = _MockOnboardingBloc();
@@ -353,9 +438,21 @@ class MessagingFlowRig {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = size;
     addTearDown(tester.view.reset);
+    final hoistedSession = session = hoisted
+        ? ConversationsSession(
+            repository: messagingRepository,
+            onInboxSynced: (rows, {required hasMore}) =>
+                shell.badge.resync(rows, hasMore: hasMore),
+          )
+        : null;
     await tester.pumpWidget(
       MultiRepositoryProvider(
         providers: [
+          ...extraProviders,
+          if (hoistedSession != null)
+            RepositoryProvider<ConversationsSession>.value(
+              value: hoistedSession,
+            ),
           RepositoryProvider<MessagingRepository>.value(
             value: messagingRepository,
           ),
@@ -372,17 +469,24 @@ class MessagingFlowRig {
             BlocProvider<OnboardingBloc>.value(value: onboarding),
             BlocProvider<UnreadBadgeCubit>.value(value: unreadBadge),
             ...shell.providers,
+            ...extraBlocs,
             BlocProvider<ThemeModeCubit>(
               create: (_) => ThemeModeCubit(_NoThemeStore()),
             ),
           ],
-          child: MaterialApp.router(
-            theme: buildAppTheme(brightness: brightness),
-            routerConfig: appRouter.router,
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(textScale)),
-              child: child!,
+          child: _DisposeOnUnmount(
+            onDispose: () => hoistedSession?.dispose(),
+            child: MaterialApp.router(
+              theme: buildAppTheme(brightness: brightness),
+              routerConfig: appRouter.router,
+              builder: (context, child) => Directionality(
+                textDirection: textDirection,
+                child: MediaQuery(
+                  data: MediaQuery.of(context)
+                      .copyWith(textScaler: TextScaler.linear(textScale)),
+                  child: child!,
+                ),
+              ),
             ),
           ),
         ),
@@ -470,4 +574,27 @@ class MessagingFlowRig {
     ];
     return server;
   }
+}
+
+/// Runs [onDispose] when the tree is torn down (before the test's pending
+/// timer check, unlike `addTearDown`).
+class _DisposeOnUnmount extends StatefulWidget {
+  const _DisposeOnUnmount({required this.onDispose, required this.child});
+
+  final VoidCallback onDispose;
+  final Widget child;
+
+  @override
+  State<_DisposeOnUnmount> createState() => _DisposeOnUnmountState();
+}
+
+class _DisposeOnUnmountState extends State<_DisposeOnUnmount> {
+  @override
+  void dispose() {
+    widget.onDispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

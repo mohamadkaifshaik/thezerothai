@@ -17,7 +17,10 @@
 ///   repository), `TrendsCubit`, `LikesRepository`, `HomeTabsRepository`,
 ///   `ListsRepository`, `GraphRepository` caches, the app badges, the push
 ///   token and the snackbars; `PlansSession` (the hoisted `/plans` list and
-///   "Your plans" cubits of the tablet list–detail: closed and dropped).
+///   "Your plans" cubits of the tablet list–detail: closed and dropped);
+///   `ConversationsSession` (the hoisted inbox and Requests
+///   `ConversationsCubit`s and the split page's scroll memory: closed and
+///   dropped; also dropped when Messages access turns `hidden`).
 /// - Drift cache, wiped by `wipeSessionData` / `claimCacheFor` in
 ///   `wireAuthSession` (runs on sign-out and on a switch; writes in flight are
 ///   dropped by the shared `SessionEpoch`): `TimelineRepository` (also its

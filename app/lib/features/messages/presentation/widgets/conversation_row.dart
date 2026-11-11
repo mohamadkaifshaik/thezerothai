@@ -44,12 +44,16 @@ String conversationSnippet(pb.Conversation conversation) {
 ///   unread, muted"). The inbox wraps it in a `listItem` semantics node
 ///   inside its `list` (Flutter has no listbox role).
 /// - With no [onTap] the row is drawn but not a button.
+/// - [selected] marks the open conversation in a band B list pane (tablet
+///   layout): the selected-row background and `selected` in semantics. With
+///   the default false the tree is unchanged.
 class ConversationRow extends StatelessWidget {
   const ConversationRow({
     super.key,
     required this.conversation,
     required this.now,
     this.onTap,
+    this.selected = false,
   });
 
   final pb.Conversation conversation;
@@ -57,6 +61,9 @@ class ConversationRow extends StatelessWidget {
   /// The clock the relative time is drawn against (injected, never read here).
   final DateTime now;
   final VoidCallback? onTap;
+
+  /// The conversation open beside the list (band B).
+  final bool selected;
 
   /// Key of the accent dot of an unread row.
   static const unreadDotKey = ValueKey('conversation-unread-dot');
@@ -92,112 +99,116 @@ class ConversationRow extends StatelessWidget {
       color: colors.onSurfaceVariant,
     );
 
-    return Semantics(
-      button: onTap != null,
-      label: label,
-      excludeSemantics: true,
+    final row = InkWell(
       onTap: onTap,
-      child: InkWell(
-        onTap: onTap,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: AppSize.listRow),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
-              vertical: AppSpacing.smd,
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                AppAvatar(url: peer.avatarUrl, radius: AppSpacing.lg),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        children: [
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: AppSize.listRow),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.smd,
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AppAvatar(url: peer.avatarUrl, radius: AppSpacing.lg),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        if (peer.displayName.isNotEmpty) ...[
+                          const SizedBox(width: AppSpacing.xs),
                           Flexible(
                             child: Text(
-                              name,
+                              '@${peer.handle}',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w700,
+                              style: muted,
+                            ),
+                          ),
+                        ],
+                        if (shortTime.isNotEmpty) ...[
+                          const SizedBox(width: AppSpacing.xs),
+                          Text('·', style: muted),
+                          const SizedBox(width: AppSpacing.xs),
+                          Text(shortTime, maxLines: 1, style: muted),
+                        ],
+                      ],
+                    ),
+                    if (snippet.isNotEmpty || unread || silent)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              snippet,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: unread
+                                    ? colors.onSurface
+                                    : colors.onSurfaceVariant,
+                                fontWeight: unread
+                                    ? FontWeight.w700
+                                    : FontWeight.w400,
                               ),
                             ),
                           ),
-                          if (peer.displayName.isNotEmpty) ...[
-                            const SizedBox(width: AppSpacing.xs),
-                            Flexible(
-                              child: Text(
-                                '@${peer.handle}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: muted,
-                              ),
+                          if (silent) ...[
+                            const SizedBox(width: AppSpacing.sm),
+                            Icon(
+                              Icons.notifications_off_outlined,
+                              key: silentMarkerKey,
+                              size: AppIconSize.sm,
+                              color: colors.onSurfaceVariant,
                             ),
                           ],
-                          if (shortTime.isNotEmpty) ...[
-                            const SizedBox(width: AppSpacing.xs),
-                            Text('·', style: muted),
-                            const SizedBox(width: AppSpacing.xs),
-                            Text(shortTime, maxLines: 1, style: muted),
+                          if (unread) ...[
+                            const SizedBox(width: AppSpacing.sm),
+                            // Not by colour alone: the bold snippet and the
+                            // spoken "unread" say it too.
+                            Container(
+                              key: unreadDotKey,
+                              width: AppSpacing.sm,
+                              height: AppSpacing.sm,
+                              decoration: BoxDecoration(
+                                color: colors.primary,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
                           ],
                         ],
                       ),
-                      if (snippet.isNotEmpty || unread || silent)
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                snippet,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: unread
-                                      ? colors.onSurface
-                                      : colors.onSurfaceVariant,
-                                  fontWeight: unread
-                                      ? FontWeight.w700
-                                      : FontWeight.w400,
-                                ),
-                              ),
-                            ),
-                            if (silent) ...[
-                              const SizedBox(width: AppSpacing.sm),
-                              Icon(
-                                Icons.notifications_off_outlined,
-                                key: silentMarkerKey,
-                                size: AppIconSize.sm,
-                                color: colors.onSurfaceVariant,
-                              ),
-                            ],
-                            if (unread) ...[
-                              const SizedBox(width: AppSpacing.sm),
-                              // Not by colour alone: the bold snippet and the
-                              // spoken "unread" say it too.
-                              Container(
-                                key: unreadDotKey,
-                                width: AppSpacing.sm,
-                                height: AppSpacing.sm,
-                                decoration: BoxDecoration(
-                                  color: colors.primary,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                    ],
-                  ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
+    );
+    return Semantics(
+      button: onTap != null,
+      selected: selected ? true : null,
+      label: label,
+      excludeSemantics: true,
+      onTap: onTap,
+      child: selected
+          ? Material(color: context.appColors.selectedRow, child: row)
+          : row,
     );
   }
 

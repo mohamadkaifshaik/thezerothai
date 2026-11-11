@@ -20,8 +20,10 @@ import '../../notifications/presentation/bloc/push_cubit.dart';
 import '../data/messaging_repository.dart';
 import '../domain/messaging_feature_gate.dart';
 import 'bloc/conversations_cubit.dart';
+import 'bloc/conversations_session.dart';
 import 'bloc/messages_badge_cubit.dart';
 import 'messaging_error_messages.dart';
+import 'messages_list_detail.dart';
 import 'widgets/conversation_row.dart';
 import 'widgets/messaging_access_builder.dart';
 import 'widgets/not_encrypted_note.dart';
@@ -77,6 +79,33 @@ class ConversationsScreen extends StatelessWidget {
             ),
           );
         }
+        final newMessage = access == MessagingAccess.full ? onNewMessage : null;
+        Widget list(BuildContext context) => ConversationsList(
+          folder: folder,
+          onOpenConversation: onOpenConversation,
+          onNewMessage: newMessage,
+          canCompose: access == MessagingAccess.full,
+        );
+        // The app's hoisted folders (tablet plan section 5.2): the same
+        // cubit for this route, the band B list pane and the split page, so
+        // crossing 840dp sends nothing. Without one (a screen test) the
+        // screen owns its cubit, as before.
+        final session = context.read<ConversationsSession?>();
+        if (session != null) {
+          return ConversationsSessionScope(
+            session: session,
+            folder: folder,
+            // Every visit opens (cache, then one refresh), as a new screen
+            // cubit did.
+            open: true,
+            builder: (context) =>
+                // Band B with the list pane beside this page (`MainShell`
+                // decides): the detail placeholder instead of the list.
+                ConversationsMasterScope.shownOf(context)
+                ? ConversationsDetailPlaceholder(onNewMessage: newMessage)
+                : list(context),
+          );
+        }
         return BlocProvider<ConversationsCubit>(
           create: (context) => ConversationsCubit(
             repository: context.read<MessagingRepository>(),
@@ -90,24 +119,35 @@ class ConversationsScreen extends StatelessWidget {
                 .read<MessagesBadgeCubit>()
                 .resync(rows, hasMore: hasMore),
           )..load(),
-          child: _ConversationsView(
-            folder: folder,
-            onOpenConversation: onOpenConversation,
-            onNewMessage: access == MessagingAccess.full ? onNewMessage : null,
-            canCompose: access == MessagingAccess.full,
-          ),
+          child: Builder(builder: list),
         );
       },
     );
   }
 }
 
-class _ConversationsView extends StatefulWidget {
-  const _ConversationsView({
+/// The list of one folder over the [ConversationsCubit] above it: the
+/// `/messages` route's body, and the tablet list panes' (band B), which pass
+/// [selectedId] and their own navigation.
+///
+/// - [onOpenConversation] opens a row; null draws the rows without a tap.
+/// - [onOpenRequests] opens the Requests folder from the inbox's "Message
+///   requests (N)" row; default `push('/messages/requests')`.
+/// - [onBack] is the Requests folder's back; default pop, or `go('/messages')`
+///   with nothing to pop.
+/// - [storage] keeps the scroll offset across remounts (the split page's
+///   list pane, one bucket per folder).
+class ConversationsList extends StatefulWidget {
+  const ConversationsList({
+    super.key,
     required this.folder,
     required this.onOpenConversation,
     required this.onNewMessage,
     required this.canCompose,
+    this.selectedId,
+    this.onOpenRequests,
+    this.onBack,
+    this.storage,
   });
 
   final Folder folder;
@@ -117,11 +157,17 @@ class _ConversationsView extends StatefulWidget {
   /// False in read-only mode: no New message action.
   final bool canCompose;
 
+  /// The conversation open beside the list (band B), highlighted.
+  final String? selectedId;
+  final VoidCallback? onOpenRequests;
+  final VoidCallback? onBack;
+  final PageStorageBucket? storage;
+
   @override
-  State<_ConversationsView> createState() => _ConversationsViewState();
+  State<ConversationsList> createState() => _ConversationsViewState();
 }
 
-class _ConversationsViewState extends State<_ConversationsView>
+class _ConversationsViewState extends State<ConversationsList>
     with WidgetsBindingObserver {
   final ScrollController _controller = ScrollController();
   late DateTime _now = DateTime.now();
@@ -209,6 +255,11 @@ class _ConversationsViewState extends State<_ConversationsView>
   }
 
   void _back() {
+    final onBack = widget.onBack;
+    if (onBack != null) {
+      onBack();
+      return;
+    }
     if (context.canPop()) {
       context.pop();
     } else {
@@ -221,7 +272,7 @@ class _ConversationsViewState extends State<_ConversationsView>
     final cubit = context.read<ConversationsCubit>();
     // A foreground message push refreshes the list: an
     // FCM nudge, throttled, never a timer.
-    return BlocListener<PushCubit, PushState>(
+    final view = BlocListener<PushCubit, PushState>(
       listenWhen: (a, b) => b.messagePushes > a.messagePushes,
       listener: (context, push) =>
           _onMessagePush(push.lastMessageConversationId),
@@ -247,6 +298,11 @@ class _ConversationsViewState extends State<_ConversationsView>
                 return RefreshIndicator(
                   onRefresh: cubit.refresh,
                   child: CustomScrollView(
+                    key: widget.storage == null
+                        ? null
+                        : PageStorageKey<String>(
+                            'conversations-${widget.folder.value}',
+                          ),
                     controller: _controller,
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
@@ -295,8 +351,11 @@ class _ConversationsViewState extends State<_ConversationsView>
                           SliverToBoxAdapter(
                             child: _RequestsRow(
                               count: state.requestCount!,
-                              onTap: () =>
-                                  context.push(AppRouter.messageRequestsPath),
+                              onTap:
+                                  widget.onOpenRequests ??
+                                  () => context.push(
+                                    AppRouter.messageRequestsPath,
+                                  ),
                             ),
                           ),
                         ),
@@ -311,6 +370,8 @@ class _ConversationsViewState extends State<_ConversationsView>
         ),
       ),
     );
+    final storage = widget.storage;
+    return storage == null ? view : PageStorage(bucket: storage, child: view);
   }
 
   Widget _inset(double inset, Widget sliver) => SliverPadding(
@@ -384,6 +445,7 @@ class _ConversationsViewState extends State<_ConversationsView>
                 child: ConversationRow(
                   conversation: conversation,
                   now: _now,
+                  selected: conversation.id == widget.selectedId,
                   onTap: open == null ? null : () => open(conversation.id),
                 ),
               );
