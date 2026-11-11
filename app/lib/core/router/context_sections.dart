@@ -18,6 +18,13 @@ import '../../features/communities/presentation/widgets/moderation_log_about.dar
     show ModerationLogAboutPlaceholder;
 import '../../features/graph/presentation/graph_feature_flags.dart';
 import '../../features/graph/presentation/widgets/who_to_follow_card.dart';
+import '../../features/lists/domain/lists_feature_flag.dart';
+import '../../features/lists/presentation/widgets/home_tabs_preview.dart'
+    show HomeTabsPreviewPlaceholder;
+import '../../features/lists/presentation/widgets/list_members_pane.dart'
+    show ListMembersPanePlaceholder;
+import '../../features/lists/presentation/widgets/lists_owner_card.dart'
+    show ListsOwnerCardPlaceholder;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/search/domain/search_feature_flags.dart';
 import '../../features/search/presentation/widgets/app_search_field.dart';
@@ -78,6 +85,16 @@ enum ContextFamily {
   /// page once its log lists entries (the caller moderates).
   moderationLog,
 
+  /// `/lists/:id` (T8b): a preview of the List's members, lent by the page.
+  listDetail,
+
+  /// `/home/pinned` (T8b): the preview of the Home tabs, lent by the page.
+  managePinned,
+
+  /// `/u/:id/lists` (T8b): the owner card, lent by the page (from the Lists
+  /// it loaded).
+  userLists,
+
   /// `/plans/new` (T8d): the live preview of the form and "Tips for a good
   /// plan", lent by the page.
   planCreate,
@@ -85,6 +102,19 @@ enum ContextFamily {
   /// `/plans/:id/edit` (T8d): the live preview of the edit and the tips,
   /// lent by the page once its plan is loaded.
   planEdit,
+}
+
+/// Whether [location] is one of the Lists pages (T8b): `/lists` and
+/// everything under it, `/u/:id/lists` and `/home/pinned`.
+bool _isListsLocation(String location) {
+  final segments = [
+    for (final s in Uri.parse(location).pathSegments)
+      if (s.isNotEmpty) s,
+  ];
+  return switch (segments) {
+    ['lists', ...] || ['u', _, 'lists'] || ['home', 'pinned'] => true,
+    _ => false,
+  };
 }
 
 /// Whether [location] is the plan create or edit form (`/plans/new`,
@@ -113,6 +143,9 @@ bool _isCommunitiesLocation(String location) {
 /// a communities page the top page decides, as Plans' list pane does (T5):
 /// a community pushed over Home gets its own pane, and a page pushed over a
 /// community gets its own family, never the community's lent sections.
+/// The Lists pages are pushed too (T8b: a List from Lists, Manage pinned or
+/// a person's Lists; Members from a List; Manage pinned from Home's "+"; a
+/// person's Lists from their profile), so they follow the same rule.
 /// The plan forms are pushed too (over the Plans list, a plan, My plans), so
 /// when the top page is one of them it decides (T8d).
 /// Everything else keeps T3's rule: the base route decides.
@@ -120,6 +153,8 @@ String contextPaneLocationFor(String base, String? top) {
   if (top == null) return base;
   return _isCommunitiesLocation(top) ||
           _isCommunitiesLocation(base) ||
+          _isListsLocation(top) ||
+          _isListsLocation(base) ||
           _isPlanFormLocation(top)
       ? top
       : base;
@@ -155,6 +190,11 @@ ContextFamily contextFamilyFor(String location) {
     // CommunityMembers: the global set (F36's "Search members" waits).
     ['communities', _, 'members'] => ContextFamily.global,
     ['communities', _] => ContextFamily.community,
+    // Lists (T8b). `/lists` and `/lists/:id/members` keep the global set
+    // (F10 keeps "Discover new Lists" out; F31's suggestions wait).
+    ['lists', _] => ContextFamily.listDetail,
+    ['home', 'pinned'] => ContextFamily.managePinned,
+    ['u', _, 'lists'] => ContextFamily.userLists,
     _ => ContextFamily.global,
   };
 }
@@ -183,6 +223,16 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
     _ => false,
   };
   if (communitiesFamily && !isFeatureEnabled(context, kFeatureCommunities)) {
+    family = ContextFamily.global;
+  }
+  // Likewise the Lists pages need `lists` (T8b).
+  final listsFamily = switch (family) {
+    ContextFamily.listDetail ||
+    ContextFamily.managePinned ||
+    ContextFamily.userLists => true,
+    _ => false,
+  };
+  if (listsFamily && !isFeatureEnabled(context, kFeatureLists)) {
     family = ContextFamily.global;
   }
   // The plan forms need `beacons` (the router sends them to `/plans`
@@ -261,6 +311,21 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
           ContextSectionKind.moderationLogAbout,
           const ModerationLogAboutPlaceholder(),
         ),
+      ],
+      ContextFamily.listDetail => [
+        lent(
+          ContextSectionKind.listMembers,
+          const ListMembersPanePlaceholder(),
+        ),
+      ],
+      ContextFamily.managePinned => [
+        lent(
+          ContextSectionKind.homeTabsPreview,
+          const HomeTabsPreviewPlaceholder(),
+        ),
+      ],
+      ContextFamily.userLists => [
+        lent(ContextSectionKind.listsOwner, const ListsOwnerCardPlaceholder()),
       ],
       // Lent by the form (T8d): the preview follows the typing, and the
       // edit form shows nothing over its loading or failed plan.
