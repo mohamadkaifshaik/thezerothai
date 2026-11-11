@@ -32,8 +32,8 @@ export 'shell_geometry.dart' show ShellLayout;
 ///   From 840dp (band B), when the page has [contextSections], the content
 ///   splits into the primary pane and the [ContextPane] after a 1dp hairline
 ///   (`ShellGeometry.contextPaneWidthFor`); below 840 (band A) the body keeps
-///   the whole content. From 840dp a [masterPane] (list-detail: Settings)
-///   comes before the body instead, as the list pane of
+///   the whole content. From 840dp a [masterPane] (list-detail: Settings,
+///   Plans) comes before the body instead, as the list pane of
 ///   `ShellGeometry.listPaneWidthFor` and a 1dp hairline; the body is then
 ///   the detail, and no context pane is shown. [sideColumn] is not shown
 ///   there, and neither is [masterPane] below 840.
@@ -117,7 +117,8 @@ class ResponsiveScaffold extends StatefulWidget {
   /// Builds the account chip of the rail (`extended`: with the name block).
   final Widget Function(bool extended)? accountChipBuilder;
 
-  /// A list pane between the rail and the [body] (master-detail: Settings).
+  /// A list pane between the rail and the [body] (master-detail: Settings;
+  /// on the tablet layout Plans too).
   /// Shown at desktop widths, where it takes the place of the [sideColumn],
   /// and on the tablet layout from 840dp (band B), where it takes the place
   /// of the context pane. Ignored on phones, in band A and in the legacy
@@ -229,8 +230,8 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     final compose = widget.onCompose;
     final sections = widget.contextSections;
     final bandB = geometry.band == ShellBand.expanded;
-    // Band B list-detail (Settings): the list pane before the body, which is
-    // then the detail. A page never has both (plan section 3: "the context
+    // Band B list-detail (Settings, Plans): the list pane before the body,
+    // which is then the detail. A page never has both (plan section 3: "the context
     // pane is not shown with LD").
     final master = bandB ? widget.masterPane : null;
     // Band B with sections: the primary pane and the context pane.

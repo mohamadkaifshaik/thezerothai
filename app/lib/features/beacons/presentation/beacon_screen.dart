@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart';
 import '../../../shared/widgets/primitives/app_avatar.dart';
@@ -31,6 +32,8 @@ import 'beacon_icons.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/beacon_detail_cubit.dart';
 import 'bloc/beacon_detail_state.dart';
+import 'bloc/plans_session.dart';
+import 'plans_list_detail.dart';
 import 'widgets/beacon_status_pill.dart';
 import 'widgets/join_note_sheet.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
@@ -43,6 +46,12 @@ const kReportBeaconNotFound = "This plan isn't available to report any more.";
 /// People, Edit and Cancel plan. The menu offers Message organiser (messaging
 /// on, not the organiser) and Report plan (reports on, not the organiser).
 /// Every write reloads the view (R35).
+///
+/// The meeting point line carries its privacy note ([kMeetingPointNote]) at
+/// every width (tablet plan section 3, R-inline). In band B of the tablet
+/// layout the Plans list sits beside this page ([PlansMasterScope]): no back
+/// arrow, and each write (or a return from Edit or People) reloads the list
+/// there too, since nothing returns to it.
 class BeaconScreen extends StatefulWidget {
   const BeaconScreen({super.key, required this.beaconId});
 
@@ -53,10 +62,22 @@ class BeaconScreen extends StatefulWidget {
 }
 
 class _BeaconScreenState extends State<BeaconScreen> {
-  late final BeaconDetailCubit _cubit = BeaconDetailCubit(
+  late BeaconDetailCubit _cubit = _newCubit();
+
+  BeaconDetailCubit _newCubit() => BeaconDetailCubit(
     repository: context.read<BeaconsRepository>(),
     beaconId: widget.beaconId,
   )..load();
+
+  /// Another plan in the same page: band B's list pane replaces the detail
+  /// with `go`, which keeps this page and hands it the new id.
+  @override
+  void didUpdateWidget(BeaconScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.beaconId == widget.beaconId) return;
+    unawaited(_cubit.close());
+    _cubit = _newCubit();
+  }
 
   @override
   void dispose() {
@@ -103,6 +124,23 @@ class _BeaconScreenState extends State<BeaconScreen> {
     return confirmed == true && mounted;
   }
 
+  /// Band B: the list pane beside this page reloads what it shows (a
+  /// cancelled plan, a seat taken, "Your plans"). Elsewhere the list reloads
+  /// when it comes back into view, as before.
+  ///
+  /// Decided by the band, not by [PlansMasterScope]: on the way back from a
+  /// pushed Edit or People the shell has not put the pane back yet.
+  void _listChanged() {
+    if (!mounted) return;
+    final geometry = ShellGeometry.maybeOf(context);
+    if (geometry == null ||
+        !geometry.tablet ||
+        geometry.band != ShellBand.expanded) {
+      return;
+    }
+    context.read<PlansSession?>()?.refreshAfterWrite();
+  }
+
   Future<void> _cancel() async {
     if (!await _confirm(
       title: 'Cancel this plan?',
@@ -113,6 +151,7 @@ class _BeaconScreenState extends State<BeaconScreen> {
       return;
     }
     await _cubit.cancel();
+    _listChanged();
   }
 
   Future<void> _request() async {
@@ -122,6 +161,12 @@ class _BeaconScreenState extends State<BeaconScreen> {
     );
     if (note == null || !mounted) return;
     await _cubit.request(note);
+    _listChanged();
+  }
+
+  Future<void> _withdraw() async {
+    await _cubit.withdraw();
+    _listChanged();
   }
 
   Future<void> _leave() async {
@@ -134,12 +179,15 @@ class _BeaconScreenState extends State<BeaconScreen> {
       return;
     }
     await _cubit.leave();
+    _listChanged();
   }
 
   /// Opens [path] and reloads the view on return (an edit or a removal there).
   Future<void> _open(String path) async {
     await context.push(path);
-    if (mounted) await _cubit.load();
+    if (!mounted) return;
+    await _cubit.load();
+    _listChanged();
   }
 
   Future<void> _report(pb.Beacon b) async {
@@ -171,6 +219,11 @@ class _BeaconScreenState extends State<BeaconScreen> {
                 AppBackHeader(
                   title: 'Plan',
                   onBack: _back,
+                  // Band B: the list is beside it, so no back arrow (like
+                  // the Settings categories); the title keeps its place.
+                  leading: PlansMasterScope.shownOf(context)
+                      ? const SizedBox(width: AppSpacing.sm)
+                      : null,
                   actions: [?_menu(state)],
                 ),
                 Expanded(child: _body(context, state)),
@@ -256,7 +309,7 @@ class _BeaconScreenState extends State<BeaconScreen> {
               busy: state.busy,
               onCancel: _cancel,
               onRequest: _request,
-              onWithdraw: _cubit.withdraw,
+              onWithdraw: _withdraw,
               onLeave: _leave,
               onPeople: () => _open(AppRouter.planPeoplePath(widget.beaconId)),
               onEdit: () => _open(AppRouter.planEditPath(widget.beaconId)),
@@ -356,7 +409,11 @@ class _Details extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.md),
         _Line(icon: Icons.schedule_outlined, text: beaconWhenText(b)),
-        _Line(icon: Icons.place_outlined, text: b.venue),
+        _Line(
+          icon: Icons.place_outlined,
+          text: b.venue,
+          note: kMeetingPointNote,
+        ),
         _Line(icon: Icons.people_outline, text: beaconSeatsText(b)),
         _Line(
           icon: Icons.payments_outlined,
@@ -457,10 +514,13 @@ class _Details extends StatelessWidget {
 }
 
 class _Line extends StatelessWidget {
-  const _Line({required this.icon, required this.text});
+  const _Line({required this.icon, required this.text, this.note});
 
   final IconData icon;
   final String text;
+
+  /// A muted line under [text] (the meeting point's privacy note).
+  final String? note;
 
   @override
   Widget build(BuildContext context) {
@@ -473,7 +533,22 @@ class _Line extends StatelessWidget {
         children: [
           Icon(icon, size: AppIconSize.md, color: muted),
           const SizedBox(width: AppSpacing.sm),
-          Expanded(child: Text(text, style: theme.textTheme.bodyMedium)),
+          Expanded(
+            child: note == null
+                ? Text(text, style: theme.textTheme.bodyMedium)
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(text, style: theme.textTheme.bodyMedium),
+                      Text(
+                        note!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: muted,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
         ],
       ),
     );

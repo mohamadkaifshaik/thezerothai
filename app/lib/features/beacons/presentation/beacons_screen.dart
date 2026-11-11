@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +11,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_shell_scope.dart';
 import '../../../core/widgets/app_state_view.dart';
 import '../../../core/widgets/app_top_bar.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
@@ -19,7 +22,10 @@ import '../domain/beacons_feature_flag.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/beacons_cubit.dart';
 import 'bloc/beacons_state.dart';
+import 'bloc/plans_session.dart';
+import 'plans_list_detail.dart';
 import 'widgets/beacon_row.dart';
+import 'widgets/your_plans_section.dart';
 
 /// `/plans`: the selected audience's upcoming plans (R30). The audience chips
 /// show only when the caller has joined communities to choose from.
@@ -37,7 +43,7 @@ class BeaconsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return isFeatureEnabled(context, kFeatureBeacons)
-        ? const _PlansList()
+        ? const _PlansRoute()
         : const _PlansPaused();
   }
 }
@@ -50,12 +56,24 @@ const kPlansPausedBody =
 
 /// The page header, shared by the list and the paused state.
 class _PlansHeader extends StatelessWidget {
-  const _PlansHeader({this.actions = const []});
+  const _PlansHeader({this.actions = const [], this.split = false});
 
   final List<Widget> actions;
 
+  /// Band B's list pane: no back arrow (it sits beside the detail; the rail
+  /// has Home), the title where the rows' text starts.
+  final bool split;
+
   @override
   Widget build(BuildContext context) {
+    if (split) {
+      return AppBackHeader(
+        title: 'Plans',
+        onBack: () {},
+        leading: const SizedBox(width: AppSpacing.sm),
+        actions: actions,
+      );
+    }
     return AppBackHeader(
       title: 'Plans',
       onBack: () {
@@ -94,14 +112,16 @@ class _PlansPaused extends StatelessWidget {
 
 /// The paused page content: the header with no action, and the notice.
 class _PlansPausedColumn extends StatelessWidget {
-  const _PlansPausedColumn();
+  const _PlansPausedColumn({this.split = false});
+
+  final bool split;
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    return Column(
       children: [
-        _PlansHeader(),
-        Expanded(
+        _PlansHeader(split: split),
+        const Expanded(
           child: AppStateView(
             icon: Icons.event_outlined,
             title: kPlansPausedTitle,
@@ -113,97 +133,214 @@ class _PlansPausedColumn extends StatelessWidget {
   }
 }
 
-class _PlansList extends StatefulWidget {
-  const _PlansList();
+/// `/plans` with `beacons` on: the route's open of the list. It loads the
+/// list (and, on the tablet layout, "Your plans") once per open, over the
+/// app-level [PlansSession] (tablet plan section 5.2; a session of its own
+/// when none is provided, which is then closed with the page). In band B the
+/// shell shows the list beside this page ([PlansMasterScope]), so the page
+/// is the detail placeholder; everywhere else it is the list.
+class _PlansRoute extends StatefulWidget {
+  const _PlansRoute();
 
   @override
-  State<_PlansList> createState() => _PlansListState();
+  State<_PlansRoute> createState() => _PlansRouteState();
 }
 
-class _PlansListState extends State<_PlansList> {
-  late final BeaconsCubit _cubit;
+class _PlansRouteState extends State<_PlansRoute> {
+  PlansSession? _own;
+  late final PlansSession _session;
+  bool _opened = false;
 
   @override
   void initState() {
     super.initState();
-    final communities = context.read<CommunitiesRepository?>();
-    _cubit = BeaconsCubit(
-      repository: context.read<BeaconsRepository>(),
-      communities: communities,
-      communitiesEnabled: communities?.enabled ?? false,
-    )..load();
+    final hoisted = context.read<PlansSession?>();
+    _session =
+        hoisted ??
+        (_own = PlansSession(
+          repository: context.read<BeaconsRepository>(),
+          communities: context.read<CommunitiesRepository?>(),
+        ));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_opened) return;
+    _opened = true;
+    // One open, one load (a refresh never doubles one the list pane already
+    // started); the rows of an earlier visit stay on screen meanwhile.
+    unawaited(_session.list.refresh());
+    if (_onTabletLayout(context)) unawaited(_session.yourPlans.refresh());
   }
 
   @override
   void dispose() {
-    _cubit.close();
+    _own?.dispose();
     super.dispose();
   }
 
-  /// Opens [path] and reloads the list when it comes back: a plan created
-  /// there, or one cancelled there, is shown on return (one ListBeacons; the
-  /// chips are cached).
-  Future<void> _open(String path) async {
-    await context.push(path);
-    if (mounted) await _cubit.load();
+  Future<void> _newPlan() async {
+    await context.push(AppRouter.planNewPath);
+    if (mounted) _session.refreshAfterWrite();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (PlansMasterScope.shownOf(context)) {
+      return PlansDetailPlaceholder(onNewPlan: _newPlan);
+    }
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
-          child: BlocBuilder<BeaconsCubit, BeaconsState>(
-            bloc: _cubit,
-            builder: (context, state) {
-              // The server said the feature is off while the flag still
-              // lists it (a kill switch before the next `GetMe`, or that
-              // `GetMe` failing): the same paused page, with no action and
-              // no retry, so nothing more is sent from here.
-              // Whatever the status: a first load (error) and a Load more
-              // (ready, rows kept) end the same way.
-              if (state.error is FeatureDisabledException) {
-                return const _PlansPausedColumn();
-              }
-              return Column(
-                children: [
-                  _PlansHeader(
-                    actions: [
-                      IconButton(
-                        tooltip: 'My plans',
-                        icon: const Icon(Icons.event_available_outlined),
-                        onPressed: () => _open(AppRouter.plansMinePath),
-                      ),
-                      IconButton(
-                        tooltip: 'New plan',
-                        icon: const Icon(Icons.add_circle_outline),
-                        onPressed: () => _open(AppRouter.planNewPath),
-                      ),
-                    ],
-                  ),
-                  if (state.audiences.length > 1)
-                    _AudienceChips(state: state, onSelect: _cubit.select),
-                  Expanded(
-                    child: RefreshIndicator(
-                      onRefresh: _cubit.load,
-                      child: _body(context, state),
-                    ),
-                  ),
-                ],
-              );
-            },
+          child: PlansList(
+            session: _session,
+            yourPlans: _onTabletLayout(context),
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _body(BuildContext context, BeaconsState state) {
+/// Whether [context] is inside the tablet shell's panes (`ui_shell` +
+/// `ui_tablet`, 600-1199dp).
+bool _onTabletLayout(BuildContext context) =>
+    ShellGeometry.maybeOf(context)?.tablet ?? false;
+
+/// The Plans list: the header (My plans, New plan), the audience chips and
+/// the rows, over [session]'s hoisted list. Two placements: the `/plans`
+/// page (band A, phones, desktop) and band B's list pane ([split]).
+/// - [split]: no back arrow (the list sits beside the detail), a row
+///   replaces the detail (`go`), and [selectedId] is highlighted.
+/// - Otherwise a row is pushed and the list reloads on return, as before.
+/// - [yourPlans]: the "Your plans" section on top (tablet layout only).
+class PlansList extends StatelessWidget {
+  const PlansList({
+    super.key,
+    required this.session,
+    this.split = false,
+    this.selectedId,
+    this.yourPlans = false,
+  });
+
+  final PlansSession session;
+  final bool split;
+  final String? selectedId;
+  final bool yourPlans;
+
+  /// Opens [path] and reloads the list when it comes back: a plan created
+  /// there, or one cancelled there, is shown on return (one ListBeacons; the
+  /// chips are cached).
+  Future<void> _push(BuildContext context, String path) async {
+    await context.push(path);
+    if (split) {
+      // The list pane steps aside while a page is pushed over it, so this
+      // context is usually gone by now: the session reloads what it holds.
+      session.refreshAfterWrite();
+      return;
+    }
+    if (!context.mounted) return;
+    if (yourPlans) unawaited(session.yourPlans.refresh());
+    await session.list.load();
+  }
+
+  void _openPlan(BuildContext context, String beaconId) {
+    final path = AppRouter.planPath(beaconId);
+    if (split) {
+      context.go(path);
+    } else {
+      unawaited(_push(context, path));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: session.changes,
+      builder: (context, _) {
+        final cubit = session.list;
+        return BlocBuilder<BeaconsCubit, BeaconsState>(
+          bloc: cubit,
+          builder: (context, state) {
+            // The server said the feature is off while the flag still
+            // lists it (a kill switch before the next `GetMe`, or that
+            // `GetMe` failing): the same paused page, with no action and
+            // no retry, so nothing more is sent from here.
+            // Whatever the status: a first load (error) and a Load more
+            // (ready, rows kept) end the same way.
+            if (state.error is FeatureDisabledException) {
+              return _PlansPausedColumn(split: split);
+            }
+            return Column(
+              children: [
+                _PlansHeader(
+                  split: split,
+                  actions: [
+                    IconButton(
+                      tooltip: 'My plans',
+                      icon: const Icon(Icons.event_available_outlined),
+                      onPressed: () => _push(context, AppRouter.plansMinePath),
+                    ),
+                    IconButton(
+                      tooltip: 'New plan',
+                      icon: const Icon(Icons.add_circle_outline),
+                      onPressed: () => _push(context, AppRouter.planNewPath),
+                    ),
+                  ],
+                ),
+                if (state.audiences.length > 1)
+                  _AudienceChips(state: state, onSelect: cubit.select),
+                Expanded(
+                  child: RefreshIndicator(
+                    onRefresh: () {
+                      if (yourPlans) unawaited(session.yourPlans.refresh());
+                      return cubit.load();
+                    },
+                    child: _body(
+                      context,
+                      cubit,
+                      state,
+                      yourPlans
+                          ? YourPlansSection(
+                              session: session,
+                              selectedId: split ? selectedId : null,
+                              onOpenPlan: (id) => _openPlan(context, id),
+                              onSeeAll: () =>
+                                  _push(context, AppRouter.plansMinePath),
+                            )
+                          : null,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// The rows, or the loading, error and empty states. [top] ("Your
+  /// plans") scrolls with them; without it the tree is exactly today's.
+  Widget _body(
+    BuildContext context,
+    BeaconsCubit cubit,
+    BeaconsState state,
+    Widget? top,
+  ) {
     switch (state.status) {
       case BeaconsLoad.loading:
-        return const SingleChildScrollView(
-          physics: AlwaysScrollableScrollPhysics(),
-          child: UserListSkeleton(semanticsLabel: 'Loading plans'),
+        return SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: top == null
+              ? const UserListSkeleton(semanticsLabel: 'Loading plans')
+              : Column(
+                  children: [
+                    top,
+                    const UserListSkeleton(semanticsLabel: 'Loading plans'),
+                  ],
+                ),
         );
       case BeaconsLoad.error:
         return _scrollable(
@@ -211,10 +348,11 @@ class _PlansListState extends State<_PlansList> {
             icon: Icons.error_outline,
             title: beaconsErrorMessage(state.error!),
             action: TextButton(
-              onPressed: _cubit.load,
+              onPressed: cubit.load,
               child: const Text('Try again'),
             ),
           ),
+          top,
         );
       case BeaconsLoad.ready:
         if (state.views.isEmpty) {
@@ -224,33 +362,49 @@ class _PlansListState extends State<_PlansList> {
               title: 'No plans yet',
               subtitle: 'Create one and invite people along.',
             ),
+            top,
           );
         }
+        final offset = top == null ? 0 : 1;
         return ListView.builder(
           physics: const AlwaysScrollableScrollPhysics(),
-          itemCount: state.views.length + (state.hasMore ? 1 : 0),
-          itemBuilder: (context, i) {
+          itemCount: offset + state.views.length + (state.hasMore ? 1 : 0),
+          itemBuilder: (context, index) {
+            if (top != null && index == 0) return top;
+            final i = index - offset;
             if (i == state.views.length) {
-              return _LoadMore(state: state, onLoadMore: _cubit.loadMore);
+              return _LoadMore(state: state, onLoadMore: cubit.loadMore);
             }
             final view = state.views[i];
             return BeaconRow(
               view: view,
-              onTap: () => _open(AppRouter.planPath(view.beacon.beaconId)),
+              selected: split && view.beacon.beaconId == selectedId,
+              onTap: () => _openPlan(context, view.beacon.beaconId),
             );
           },
         );
     }
   }
 
-  /// A pull-to-refresh needs a scrollable even around a static view.
-  Widget _scrollable(Widget child) => LayoutBuilder(
+  /// A pull-to-refresh needs a scrollable even around a static view. With
+  /// [top], it sits above the view, which keeps the rest of the height.
+  Widget _scrollable(Widget child, Widget? top) => LayoutBuilder(
     builder: (context, constraints) => SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(minHeight: constraints.maxHeight),
-        child: Center(child: child),
-      ),
+      child: top == null
+          ? ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Center(child: child),
+            )
+          : Column(
+              children: [
+                top,
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
+                  child: Center(child: child),
+                ),
+              ],
+            ),
     ),
   );
 }

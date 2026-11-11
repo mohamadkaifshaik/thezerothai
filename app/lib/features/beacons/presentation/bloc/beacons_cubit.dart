@@ -30,24 +30,44 @@ class BeaconsCubit extends Cubit<BeaconsState> {
   final CommunitiesRepository? _communities;
   int _generation = 0;
 
+  /// First-page loads ([load], [select]) still running.
+  int _inFlight = 0;
+
   bool _stale(int generation) => isClosed || generation != _generation;
+
+  /// Whether a first page was ever asked for (tablet T5: the hoisted list
+  /// is shared by two placements, see [ensureLoaded]).
+  bool get started => _generation > 0;
+
+  /// [load] unless one was already started: the band B list pane, which
+  /// shows the list the route already opened.
+  Future<void> ensureLoaded() => started ? Future.value() : load();
+
+  /// [load] unless a first page is already on its way (the list pane and the
+  /// route open together in band B: one ListBeacons, not two).
+  Future<void> refresh() => _inFlight > 0 ? Future.value() : load();
 
   /// Loads the chips (once per [load]) and the selected audience's first page.
   Future<void> load() async {
     final generation = ++_generation;
-    emit(
-      state.copyWith(
-        status: state.views.isEmpty ? BeaconsLoad.loading : null,
-        clearError: true,
-      ),
-    );
-    final audiences = await _audiences();
-    if (_stale(generation)) return;
-    final selected = audiences.contains(state.selected)
-        ? state.selected
-        : const BeaconsAudience.public();
-    emit(state.copyWith(audiences: audiences, selected: selected));
-    await _loadFirstPage(generation);
+    _inFlight++;
+    try {
+      emit(
+        state.copyWith(
+          status: state.views.isEmpty ? BeaconsLoad.loading : null,
+          clearError: true,
+        ),
+      );
+      final audiences = await _audiences();
+      if (_stale(generation)) return;
+      final selected = audiences.contains(state.selected)
+          ? state.selected
+          : const BeaconsAudience.public();
+      emit(state.copyWith(audiences: audiences, selected: selected));
+      await _loadFirstPage(generation);
+    } finally {
+      _inFlight--;
+    }
   }
 
   /// Switches the audience and loads its first page.
@@ -56,17 +76,22 @@ class BeaconsCubit extends Cubit<BeaconsState> {
       return;
     }
     final generation = ++_generation;
-    emit(
-      state.copyWith(
-        selected: audience,
-        status: BeaconsLoad.loading,
-        views: const [],
-        nextPageToken: '',
-        loadingMore: false,
-        clearError: true,
-      ),
-    );
-    await _loadFirstPage(generation);
+    _inFlight++;
+    try {
+      emit(
+        state.copyWith(
+          selected: audience,
+          status: BeaconsLoad.loading,
+          views: const [],
+          nextPageToken: '',
+          loadingMore: false,
+          clearError: true,
+        ),
+      );
+      await _loadFirstPage(generation);
+    } finally {
+      _inFlight--;
+    }
   }
 
   /// Appends the next page; nothing when there is none or one is in flight.

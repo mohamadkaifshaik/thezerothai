@@ -30,6 +30,7 @@ import '../features/engagement/data/bookmarks_repository.dart';
 import '../features/engagement/data/engagement_repository.dart';
 import '../features/engagement/data/likes_repository.dart';
 import '../features/beacons/data/beacons_repository.dart';
+import '../features/beacons/presentation/bloc/plans_session.dart';
 import '../features/communities/data/communities_repository.dart';
 import '../features/lists/data/home_tabs_repository.dart';
 import '../features/lists/data/lists_repository.dart';
@@ -245,6 +246,17 @@ class _AppWidgetState extends State<AppWidget> {
   late final TrendsCubit? _trends = widget.searchRepository == null
       ? null
       : TrendsCubit(repository: widget.searchRepository!);
+  // The `/plans` list and its "Your plans" section, shared by the band A
+  // list and the band B list pane (tablet plan section 5.2). Its cubits are
+  // created on first read only (never at app start, never with `beacons`
+  // off); the account reset and the flag changes below drop or rebuild
+  // them. Null without a beacons repository (tests).
+  late final PlansSession? _plans = widget.beaconsRepository == null
+      ? null
+      : PlansSession(
+          repository: widget.beaconsRepository!,
+          communities: widget.communitiesRepository,
+        );
   // The "Turn on notifications" card's memory: one "Not now" per
   // account for Home and Notifications; keyed by the signed-in uid.
   // The store is also provided to the tree: Delete account forgets the
@@ -322,6 +334,7 @@ class _AppWidgetState extends State<AppWidget> {
       ..register('search', () => widget.searchRepository?.clearSession())
       ..register('home tabs', () => widget.homeTabsRepository?.clearSession())
       ..register('lists', () => widget.listsRepository?.clearSession())
+      ..register('plans', () => _plans?.reset())
       ..register('badges', () {
         widget.unreadBadgeCubit.seed(0);
         _messagesBadge.seed(0);
@@ -436,6 +449,9 @@ class _AppWidgetState extends State<AppWidget> {
     // It sends nothing when messaging is on for the caller or the cache is
     // empty.
     if (flagsChanged) _polls?.flagsChanged();
+    // `beacons` off drops the hoisted Plans list; `communities` changing
+    // rebuilds it (its audience chips are fixed at construction).
+    if (flagsChanged) _plans?.featuresChanged(state.enabledFeatures);
     final uid = state.profile?.userId;
     if (flagsChanged || uid != _probedUid) {
       _probedUid = uid;
@@ -482,6 +498,7 @@ class _AppWidgetState extends State<AppWidget> {
     _bookmarks.close();
     _suggestions.close();
     _trends?.close();
+    _plans?.dispose();
     _themeMode.close();
     _pushOptIn.close();
     _telemetryConsentCubit?.close();
@@ -541,6 +558,8 @@ class _AppWidgetState extends State<AppWidget> {
           RepositoryProvider.value(value: widget.communitiesRepository!),
         if (widget.beaconsRepository != null)
           RepositoryProvider.value(value: widget.beaconsRepository!),
+        if (_plans case final plans?)
+          RepositoryProvider<PlansSession>.value(value: plans),
       ],
       child: MultiBlocProvider(
         providers: [

@@ -354,7 +354,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                               textInputAction: TextInputAction.done,
                               decoration: InputDecoration(
                                 labelText: 'Meeting point',
-                                helperText: 'A named place, never coordinates.',
+                                helperText: kMeetingPointNote,
                                 errorText: beaconFieldError(
                                   beaconVenueIssue(_venue.text),
                                   max: kBeaconVenueMaxLength,
