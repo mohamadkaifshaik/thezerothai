@@ -12,6 +12,7 @@ import '../../../core/storage/app_database.dart';
 import '../../../core/telemetry/usage_reporter.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/scroll_constants.dart';
 import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
@@ -19,7 +20,6 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
-import '../../../shared/widgets/primitives/app_surface.dart';
 import '../../../shared/widgets/post/blocked_post_gate.dart';
 import '../../../shared/widgets/post/conversation_row.dart';
 import '../../../shared/widgets/primitives/character_counter.dart';
@@ -68,6 +68,16 @@ CommunitiesRepository? _communitiesRepositoryIfOn(BuildContext context) {
     return context.read<CommunitiesRepository>();
   } on ProviderNotFoundException {
     return null;
+  }
+}
+
+/// Back from a post page: the previous page, or Home when there is none (a
+/// deep link).
+void leavePostScreen(BuildContext context) {
+  if (context.canPop()) {
+    context.pop();
+  } else {
+    context.go(AppRouter.homePath);
   }
 }
 
@@ -121,14 +131,6 @@ class _ThreadView extends StatelessWidget {
 
   final WidgetBuilder fallbackBuilder;
 
-  void _leave(BuildContext context) {
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.go(AppRouter.homePath);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return MultiBlocListener(
@@ -147,7 +149,7 @@ class _ThreadView extends StatelessWidget {
           listenWhen: (before, after) =>
               after.status == ThreadStatus.deleted &&
               before.status != ThreadStatus.deleted,
-          listener: (context, state) => _leave(context),
+          listener: (context, state) => leavePostScreen(context),
         ),
         BlocListener<ThreadCubit, ThreadState>(
           listenWhen: (before, after) =>
@@ -210,8 +212,18 @@ class _ThreadView extends StatelessWidget {
           if (state.status == ThreadStatus.disabled) {
             return fallbackBuilder(context);
           }
+          // The header lists the posts of a self-thread; it follows the
+          // loaded chain, not only the status.
+          final chain = context.select(
+            (ThreadCubit c) => c.state.selfThreadLength,
+          );
           return Scaffold(
-            appBar: AppBar(title: const Text('Post')),
+            appBar: AppTopBar.of(
+              context,
+              title: 'Post',
+              subtitle: chain > 0 ? 'Thread · $chain posts' : null,
+              onBack: () => leavePostScreen(context),
+            ),
             body: SafeArea(
               child: Center(
                 child: ConstrainedBox(
@@ -277,26 +289,19 @@ class _ThreadBodyState extends State<_ThreadBody> {
       final focal = c.state.focal;
       return focal == null ? kReplyNotAllowedHint : replyNotAllowedHint(focal);
     });
-    // From the mobile breakpoint up the composer sits in the list right under
-    // the open post (X on desktop); narrower, it stays docked at the bottom.
-    final inline = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
-    _ReplyComposer composer() => _ReplyComposer(
+    // The reply entry is the row right under the open post at every width
+    // (the PostDetail designs); below the mobile breakpoint it is the compact
+    // one: a 36 dp avatar, a plain prompt and a compact Reply.
+    final compact = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
+    final composer = _ReplyComposer(
       focusNode: _replyFocus,
       blocked: replyBlocked,
       blockedHint: blockedHint,
-      inline: inline,
+      compact: compact,
     );
-    // One tree either way, so crossing the width keeps the list's scroll.
-    return Column(
-      children: [
-        Expanded(
-          child: _ThreadList(
-            onReply: canReply ? _replyFocus.requestFocus : null,
-            inlineComposer: canReply && inline ? composer() : null,
-          ),
-        ),
-        if (canReply && !inline) composer(),
-      ],
+    return _ThreadList(
+      onReply: canReply ? _replyFocus.requestFocus : null,
+      inlineComposer: canReply ? composer : null,
     );
   }
 }

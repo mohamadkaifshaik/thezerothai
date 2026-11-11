@@ -51,6 +51,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     this.showAccountAvatar = true,
     this.centerTitle = false,
     this.wordmark = false,
+    this.onBack,
   }) : _height = null;
 
   const AppTopBar._({
@@ -61,6 +62,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     this.showAccountAvatar = true,
     this.centerTitle = false,
     this.wordmark = false,
+    this.onBack,
     required double height,
   }) : _height = height;
 
@@ -77,6 +79,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     bool showAccountAvatar = true,
     bool centerTitle = false,
     bool wordmark = false,
+    VoidCallback? onBack,
   }) => AppTopBar._(
     key: key,
     title: title,
@@ -85,6 +88,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     showAccountAvatar: showAccountAvatar,
     centerTitle: centerTitle,
     wordmark: wordmark,
+    onBack: onBack,
     height: heightOf(
       context,
       title: title != null,
@@ -145,6 +149,12 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
   /// `ui_shell` off.
   final bool wordmark;
 
+  /// A pushed screen's header (the PostDetail and PostThread designs): a
+  /// leading Back button in place of the account avatar, and the title at
+  /// 19 sp / 800, start-aligned on every platform. Null keeps the main-screen
+  /// bar.
+  final VoidCallback? onBack;
+
   /// The row height measured by [AppTopBar.of]; null for the fixed bar.
   final double? _height;
 
@@ -193,6 +203,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
                 actions: actions,
                 showAccountAvatar: showAccountAvatar,
                 centerTitle: centerTitle,
+                onBack: onBack,
                 fitText: true,
               ),
             ),
@@ -218,6 +229,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
               showAccountAvatar: showAccountAvatar,
               centerTitle: centerTitle,
               wordmark: wordmark,
+              onBack: onBack,
               redesign: true,
             ),
           ),
@@ -338,7 +350,11 @@ class _BarRow extends StatelessWidget {
     this.fitText = false,
     this.wordmark = false,
     this.redesign = false,
+    this.onBack,
   });
+
+  /// See [AppTopBar.onBack].
+  final VoidCallback? onBack;
 
   final String? title;
   final String? subtitle;
@@ -360,7 +376,8 @@ class _BarRow extends StatelessWidget {
     final theme = Theme.of(context);
     final narrow = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
     final scope = AppShellScope.maybeOf(context);
-    final showAvatar = showAccountAvatar && narrow && scope != null;
+    final showAvatar =
+        onBack == null && showAccountAvatar && narrow && scope != null;
     final showWordmark = redesign && wordmark;
     final centered = centerTitle || showWordmark;
     Widget titleBlock(double? width) {
@@ -377,7 +394,12 @@ class _BarRow extends StatelessWidget {
                 title!,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleLarge,
+                style: onBack == null
+                    ? theme.textTheme.titleLarge
+                    : theme.textTheme.titleLarge?.copyWith(
+                        fontSize: 19,
+                        letterSpacing: -0.38,
+                      ),
               ),
             ),
           if (subtitle != null)
@@ -399,7 +421,18 @@ class _BarRow extends StatelessWidget {
       );
     }
 
-    final leading = showAvatar
+    final leading = onBack != null
+        // PostDetail/PostThread .dc.html: the 44 dp Back disc at x = 16
+        // (its 48 dp target starts at 14) and the title at x = 68.
+        ? Padding(
+            padding: const EdgeInsetsDirectional.only(start: 14, end: 6),
+            child: AppIconButton(
+              icon: Icons.chevron_left,
+              tooltip: 'Back',
+              onPressed: onBack,
+            ),
+          )
+        : showAvatar
         ? const Padding(
             padding: EdgeInsets.only(left: AppSpacing.sm),
             child: AppAvatarButton(),

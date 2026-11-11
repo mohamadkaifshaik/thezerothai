@@ -1,3 +1,4 @@
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
@@ -757,7 +758,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Block @peer2'));
     await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(FilledButton, 'Block'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Block'));
     await tester.pumpAndSettle();
     expect(rig.server.blocks.single.userId, 'u-peer2');
     expect(find.text(kThreadReadOnlyText), findsOneWidget);

@@ -8,6 +8,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_drawer.dart' show followRequestBadgeSpoken;
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
+import '../../../shared/widgets/post/post_card.dart' show postCardGutterOf;
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
@@ -154,6 +155,15 @@ class _FollowRequestsScreenState extends State<FollowRequestsScreen> {
                       rowBuilder: (context, item) => UserListRow(
                         key: ValueKey(item.user.userId),
                         item: item,
+                        // The FollowRequests design's rows: the post gutter
+                        // and 12 dp padding, a 46 dp avatar and a 12 dp gap,
+                        // a 13 sp handle, no dividers.
+                        avatarRadius: 23,
+                        avatarGap: AppSpacing.smd,
+                        horizontalInset: postCardGutterOf(context),
+                        verticalInset: AppSpacing.smd,
+                        showDivider: false,
+                        handleStyle: Theme.of(context).textTheme.bodySmall,
                         trailing: _AnswerButtons(
                           handle: item.user.handle,
                           onAccept: () => _respond(item, accept: true),

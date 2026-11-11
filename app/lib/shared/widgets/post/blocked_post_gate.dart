@@ -42,24 +42,35 @@ class _BlockedPostGateState extends State<BlockedPostGate> {
     // Unblocking forgets "Show post": a later re-block hides it again.
     if (!blocked) _revealed = false;
     if (!blocked || _revealed) return widget.child;
+    final theme = Theme.of(context);
+    // The same bordered box as the other placeholders (States-Unavailable).
     return Padding(
       padding: const EdgeInsets.all(AppSpacing.md),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              'You blocked @${widget.handle} ·',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: theme.colorScheme.outline),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+        ),
+        child: Padding(
+          padding: const EdgeInsetsDirectional.only(start: 14),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'You blocked @${widget.handle} ·',
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+              TextButton(
+                style: TextButton.styleFrom(
+                  minimumSize: const Size(0, AppSpacing.minTapTarget),
+                ),
+                onPressed: () => setState(() => _revealed = true),
+                child: const Text('Show post'),
+              ),
+            ],
           ),
-          TextButton(
-            style: TextButton.styleFrom(
-              minimumSize: const Size(0, AppSpacing.minTapTarget),
-            ),
-            onPressed: () => setState(() => _revealed = true),
-            child: const Text('Show post'),
-          ),
-        ],
+        ),
       ),
     );
   }

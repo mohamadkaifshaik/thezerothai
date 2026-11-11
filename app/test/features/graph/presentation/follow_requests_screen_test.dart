@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/shared/widgets/post/post_card.dart' show postCardGutter;
+import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/graph/presentation/follow_requests_screen.dart';
@@ -458,9 +460,81 @@ void main() {
       final accept = tester.getRect(
         find.widgetWithText(AppPillButton, 'Accept'),
       );
-      expect(avatar.left - name.right, greaterThanOrEqualTo(AppSpacing.md));
+      expect(avatar.left - name.right, greaterThanOrEqualTo(AppSpacing.smd));
       expect(accept.right, lessThan(name.left));
       expectNoOverflow(tester);
+    });
+  });
+
+  group('rows follow the FollowRequests design', () {
+    for (final width in const [360.0, 599.0, 600.0, 1024.0]) {
+      testWidgets('at ${width.toInt()}: the post gutter, 12 dp above and '
+          'below, a 46 dp avatar, a 12 dp gap, no dividers', (tester) async {
+        stubList([
+          page([request(1), request(2)]),
+        ]);
+        await open(
+          tester,
+          env: MatrixEnv(
+            brightness: Brightness.light,
+            size: Size(width, 900),
+            textScale: 1,
+          ),
+        );
+
+        final avatars = find.byType(AppAvatar);
+        final first = tester.getRect(avatars.at(0));
+        expect(first.size, const Size.square(46));
+        final column = tester.getRect(find.byType(UserListRow).first);
+        expect(first.left - column.left, postCardGutter(width));
+        // Centred on the 48 dp pills, so 12 dp plus the 1 dp the pills add.
+        expect(first.top - column.top, closeTo(12, 1.5));
+        expect(
+          tester.getRect(find.text('User 1')).left - first.right,
+          closeTo(12, 0.5),
+        );
+        // The two rows touch: no hairline between them.
+        expect(
+          tester.getRect(find.byType(UserListRow).at(1)).top,
+          closeTo(tester.getRect(find.byType(UserListRow).first).bottom, 0.5),
+        );
+        expect(
+          find.descendant(
+            of: find.byType(UserListRow),
+            matching: find.byType(Divider),
+          ),
+          findsNothing,
+        );
+        expectNoOverflow(tester);
+      });
+    }
+
+    testWidgets('RTL at 2.0: no overflow, the gutter mirrors', (tester) async {
+      stubList([
+        page([request(1)]),
+      ]);
+      await pumpThemed(
+        tester,
+        Directionality(
+          textDirection: TextDirection.rtl,
+          child: MultiRepositoryProvider(
+            providers: [
+              RepositoryProvider<GraphRepository>.value(value: graphRepo),
+            ],
+            child: BlocProvider<OnboardingBloc>.value(
+              value: onboarding,
+              child: const FollowRequestsScreen(),
+            ),
+          ),
+        ),
+        size: const Size(360, 800),
+        textScale: 2,
+        useScaffold: false,
+      );
+      expectNoOverflow(tester);
+      final row = tester.getRect(find.byType(UserListRow).first);
+      final avatar = tester.getRect(find.byType(AppAvatar));
+      expect(row.right - avatar.right, postCardGutter(360));
     });
   });
 }

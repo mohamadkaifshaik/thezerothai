@@ -1,5 +1,7 @@
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/notifications/presentation/widgets/notification_row.dart';
+import 'package:dzeroth/shared/widgets/post/post_card.dart' show postCardGutter;
+import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tile_icon.dart';
 import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +10,39 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../support/notifications_fixtures.dart';
 
 void main() {
+  for (final width in const [360.0, 599.0, 600.0, 1024.0, 1440.0]) {
+    testWidgets('at $width: the post gutter, 14 dp above, a 14 dp tile gap '
+        'and a 30 dp actor avatar (Notifications design)', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = Size(width, 800);
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topCenter,
+              child: NotificationRow(
+                notification: notif('n1', minutesAgo: 5, actorCount: 3),
+                unread: false,
+                now: kNotifBase,
+                onTap: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final row = tester.getRect(find.byType(NotificationRow));
+      final tile = tester.getRect(find.byType(AppTileIcon));
+      final avatar = tester.getRect(find.byType(AppAvatar));
+      expect(tile.left - row.left, postCardGutter(width));
+      expect(tile.top - row.top, 14);
+      expect(avatar.left - tile.right, 14);
+      expect(avatar.size, const Size.square(30));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   Widget wrap({required bool unread, double textScale = 1}) {
     return MaterialApp(
       home: MediaQuery(

@@ -265,7 +265,7 @@ void main() {
     for (final width in _widths) {
       final wide = width >= 600;
       testWidgets(
-        'at $width: ${wide ? '56 dp avatar, 21 sp' : '42 dp avatar, '
+        'at $width: ${wide ? '56 dp avatar, 21 sp' : '46 dp avatar, '
                   '17 sp'} text',
         (tester) async {
           await _pump(
@@ -281,7 +281,7 @@ void main() {
 
           expect(
             tester.getSize(find.byType(AppAvatar)).width,
-            wide ? AppSize.avatarLg : AppSize.avatarPost,
+            wide ? AppSize.avatarLg : AppFocalPost.phoneAvatar,
           );
           final text = tester.widget<PostRichText>(find.byType(PostRichText));
           expect(

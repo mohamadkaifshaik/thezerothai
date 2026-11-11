@@ -126,7 +126,8 @@ void main() {
 
     final bar = tester.widget<PostActionBar>(find.byType(PostActionBar));
     expect(bar.spread, isTrue);
-    expect(bar.iconSize, AppFocalPost.actionIcon);
+    // 18 dp below 600 (the mobile design), 20 dp from 600 up.
+    expect(bar.iconSize, AppFocalPost.actionIconPhone);
     // The last button (Share) ends at the card's right padding; its 48dp box
     // starts the icon at its left, so Share is no longer right-aligned.
     final shareBox = tester.getRect(

@@ -15,6 +15,7 @@ import '../../../timeline/domain/feed_key.dart';
 import '../../../timeline/presentation/bloc/timeline_cubit.dart';
 import '../../../timeline/presentation/timeline_feed_view.dart';
 import 'home_tab_bar.dart';
+import 'pinned_timelines_button.dart';
 
 /// One pinned List as a Home tab: its own `TimelineCubit`
 /// (`FeedKey.list`), created when the tab is first shown and closed with it,
@@ -79,7 +80,11 @@ class _HomeListTabState extends State<HomeListTab> {
               ListUnavailableView(onUnpin: _unpin, busy: saving),
         ),
         headerSlivers: [
-          AppTopBar.sliver(title: 'Home', wordmark: true),
+          AppTopBar.sliver(
+            title: 'Home',
+            wordmark: true,
+            actions: const [PinnedTimelinesButton()],
+          ),
           const SliverToBoxAdapter(child: HomeTabBar()),
         ],
       ),

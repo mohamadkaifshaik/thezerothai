@@ -4,6 +4,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/notifications/v1/notifications.pb.dart' as pb;
 import '../../../../gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import '../../../../shared/format/relative_time.dart';
+import '../../../../shared/widgets/post/post_card.dart' show postCardGutterOf;
 import '../../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../../shared/widgets/primitives/app_badge.dart';
 import '../../../../shared/widgets/primitives/app_tile_icon.dart';
@@ -85,6 +86,11 @@ const kNotificationTextLines = 3;
 /// The row is one semantics node (the sentence, the time, "unread") that
 /// opens [onTap]; [action] (the Follow back button) is its own node and its
 /// own focus stop inside it, so it is announced and pressed on its own.
+/// Row padding, the gap after the tile and the actor avatar (Notifications).
+const double _kRowVertical = 14;
+const double _kTileGap = 14;
+const double _kActorAvatar = 30;
+
 class NotificationRow extends StatelessWidget {
   const NotificationRow({
     super.key,
@@ -140,9 +146,10 @@ class NotificationRow extends StatelessWidget {
         child: InkWell(
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
-              vertical: AppSpacing.smd,
+            // The designs' rows: the post gutter, 14 dp above and below.
+            padding: EdgeInsets.symmetric(
+              horizontal: postCardGutterOf(context),
+              vertical: _kRowVertical,
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -151,7 +158,7 @@ class NotificationRow extends StatelessWidget {
                   icon: notificationIcon(notification.type),
                   size: AppIconSize.xl,
                 ),
-                const SizedBox(width: AppSpacing.smd),
+                const SizedBox(width: _kTileGap),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -159,7 +166,7 @@ class NotificationRow extends StatelessWidget {
                       ExcludeSemantics(
                         child: AppAvatar(
                           url: actor.avatarUrl,
-                          radius: AppSize.avatarSm / 2,
+                          radius: _kActorAvatar / 2,
                         ),
                       ),
                       const SizedBox(height: AppSpacing.sm),

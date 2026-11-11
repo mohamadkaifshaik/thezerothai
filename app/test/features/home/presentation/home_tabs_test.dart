@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:connectrpc/connect.dart' as connect;
+import 'package:dzeroth/features/home/presentation/widgets/pinned_timelines_button.dart';
 import 'package:dzeroth/core/feature_flags/service_feature_gate.dart';
 import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
@@ -244,10 +245,21 @@ void main() {
       // The pinned tabs are built labels in the (scrolling) bar.
       expect(find.text('Friends', skipOffstage: false), findsOneWidget);
       expect(find.text('Mutuals', skipOffstage: false), findsOneWidget);
+      // The round 44 dp disc in the top bar, inside a 48 dp hit area.
       final plus = find.byTooltip('Manage pinned timelines');
       expect(plus, findsOneWidget);
-      expect(tester.getSize(plus).width, greaterThanOrEqualTo(48));
-      expect(tester.getSize(plus).height, greaterThanOrEqualTo(48));
+      expect(tester.getSize(plus), const Size.square(44));
+      expect(
+        tester.getSize(find.byType(PinnedTimelinesButton)),
+        const Size.square(48),
+      );
+      expect(
+        find.descendant(
+          of: find.byType(AppTabBar),
+          matching: find.byType(PinnedTimelinesButton),
+        ),
+        findsNothing,
+      );
       expect(find.text('post 3'), findsOneWidget);
     }, textScales: kMatrixTextScalesLarge);
 
@@ -343,6 +355,8 @@ void main() {
     testWidgets('arrow keys move across the tabs', (tester) async {
       await openHome(tester);
 
+      // The bar's Pinned timelines button comes first in focus order.
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
@@ -351,6 +365,7 @@ void main() {
       expect(find.text('post 11'), findsOneWidget);
       // Each tab has its own bar (it scrolls with its feed), so focus starts
       // again with Tab in the newly shown one.
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
@@ -819,7 +834,10 @@ void main() {
         final plus = find.byTooltip('Manage pinned timelines');
         expect(plus, findsOneWidget);
         expect(tester.getRect(plus).right, lessThanOrEqualTo(env.size.width));
-        expect(tester.getSize(plus).width, greaterThanOrEqualTo(48));
+        expect(
+          tester.getSize(find.byType(PinnedTimelinesButton)).width,
+          greaterThanOrEqualTo(48),
+        );
 
         await tester.pumpWidget(const SizedBox());
         await openManage(
@@ -838,6 +856,9 @@ void main() {
         'bar does not hold focus (W5-14 documented regression); Tab brings '
         'it back', (tester) async {
       await openHome(tester);
+      // The bar's Pinned timelines button is first in focus order, then the
+      // tabs.
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
       expect(FocusManager.instance.primaryFocus, isNotNull);

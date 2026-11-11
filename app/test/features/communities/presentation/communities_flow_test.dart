@@ -405,7 +405,7 @@ void main() {
       expect(find.text('e4 is best'), findsOneWidget);
       await tester.tap(find.byTooltip('More options').first);
       await tester.pumpAndSettle();
-      expect(find.text('Remove from Community'), findsNothing);
+      expect(find.text('Remove from community'), findsNothing);
       await tester.tapAt(const Offset(5, 5)); // dismiss the menu
       await tester.pumpAndSettle();
 
@@ -418,7 +418,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('More options').first);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Remove from Community'));
+      await tester.tap(find.text('Remove from community'));
       await tester.pumpAndSettle();
       expect(find.text('Remove this post from Chess club?'), findsOneWidget);
       await tester.tap(find.text('Remove'));

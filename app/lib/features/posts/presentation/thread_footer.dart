@@ -87,16 +87,16 @@ class _Footer extends StatelessWidget {
   }
 }
 
-/// Composer that replies to the open post: docked under the thread on
-/// phones, or [inline] right under the open post on wider screens (X's post
-/// page, captured 2026-11-02). The same 280 code-point rules and counter as
-/// the main composer.
+/// Composer that replies to the open post: the row right under it in the
+/// thread list at every width (the PostDetail designs), [compact] below the
+/// mobile breakpoint. The same 280 code-point rules and counter as the main
+/// composer.
 class _ReplyComposer extends StatefulWidget {
   const _ReplyComposer({
     required this.focusNode,
     this.blocked = false,
     this.blockedHint = kReplyNotAllowedHint,
-    this.inline = false,
+    this.compact = false,
   });
 
   /// The viewer may not reply to the open post: the field and Reply are
@@ -108,9 +108,10 @@ class _ReplyComposer extends StatefulWidget {
   /// Focused by Reply on the open post.
   final FocusNode focusNode;
 
-  /// Part of the thread list: no docked surface, a larger prompt and a rule
-  /// below instead of above.
-  final bool inline;
+  /// The phone row (below 600 dp): a 36 dp avatar, the 15 sp prompt and the
+  /// compact Reply, at the design's 12 / 20 padding. Wider keeps the 48 dp
+  /// avatar column and the 20 sp prompt.
+  final bool compact;
 
   @override
   State<_ReplyComposer> createState() => _ReplyComposerState();
@@ -143,15 +144,16 @@ class _ReplyComposerState extends State<_ReplyComposer> {
       // field.
       listener: (context, state) => _controller.clear(),
       builder: (context, state) {
-        final inline = widget.inline;
+        final compact = widget.compact;
         final viewer = viewerAuthorSnapshot(
           context.read<OnboardingBloc>().state.profile,
         );
         final avatarUrl = viewer.avatarUrl;
-        // X's inline prompt is the 20dp title size at regular weight.
-        final textStyle = inline
-            ? theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w400)
-            : theme.textTheme.bodyLarge;
+        // Phones: the design's 15 sp / 500 prompt. Wider: X's inline prompt,
+        // the 20 dp title size at regular weight.
+        final textStyle = compact
+            ? theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w500)
+            : theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w400);
         final field = TextField(
           controller: _controller,
           focusNode: widget.focusNode,
@@ -179,45 +181,40 @@ class _ReplyComposerState extends State<_ReplyComposer> {
           ),
           onChanged: cubit.textChanged,
         );
-        final side = BorderSide(color: theme.dividerColor);
+        final gutter = postCardGutterOf(context);
         return DecoratedBox(
           decoration: BoxDecoration(
             color: theme.colorScheme.surface,
-            border: inline ? Border(bottom: side) : Border(top: side),
+            border: Border(bottom: BorderSide(color: theme.dividerColor)),
           ),
           child: Padding(
-            padding: inline
-                ? EdgeInsetsDirectional.fromSTEB(
-                    postCardGutterOf(context),
-                    AppSpacing.smd,
-                    postCardGutterOf(context),
-                    AppSpacing.smd,
-                  )
-                : const EdgeInsetsDirectional.fromSTEB(
-                    AppSpacing.md,
-                    AppSpacing.sm,
-                    AppSpacing.sm,
-                    AppSpacing.sm,
-                  ),
+            padding: EdgeInsetsDirectional.fromSTEB(
+              gutter,
+              AppSpacing.smd,
+              gutter,
+              AppSpacing.smd,
+            ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Row(
-                  crossAxisAlignment: inline
-                      ? CrossAxisAlignment.center
-                      : CrossAxisAlignment.end,
                   children: [
-                    // In line with the post avatars above it on wide screens
-                    // (the 48 dp column, the 12 dp gap). The gap is on the
-                    // end side, so it mirrors in RTL.
+                    // Wide: in line with the post avatars above it (the
+                    // 48 dp column, the 12 dp gap). Phones: the 36 dp avatar
+                    // and a 12 dp gap. The gap is on the end side, so it
+                    // mirrors in RTL.
                     Padding(
                       padding: EdgeInsetsDirectional.only(
-                        bottom: inline ? 0 : AppSpacing.xs,
-                        end: inline ? kPostAvatarGap : AppSpacing.sm,
+                        end: compact ? AppSpacing.smd : kPostAvatarGap,
                       ),
                       child: ExcludeSemantics(
-                        child: inline
-                            ? SizedBox(
+                        child: compact
+                            ? AppAvatar(
+                                url: avatarUrl,
+                                radius: 36 / 2,
+                                name: viewer.displayName,
+                              )
+                            : SizedBox(
                                 width: AppSpacing.minTapTarget,
                                 child: Center(
                                   child: AppAvatar.sized(
@@ -226,30 +223,16 @@ class _ReplyComposerState extends State<_ReplyComposer> {
                                     name: viewer.displayName,
                                   ),
                                 ),
-                              )
-                            : AppAvatar(
-                                url: avatarUrl,
-                                name: viewer.displayName,
                               ),
                       ),
                     ),
-                    Expanded(
-                      child: inline
-                          ? field
-                          : AppSurface(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: AppSpacing.md,
-                              ),
-                              child: field,
-                            ),
-                    ),
+                    Expanded(child: field),
                     const SizedBox(width: AppSpacing.sm),
                     // The designs' `.btn.primary.sm`: a 36 dp pill in the
                     // 48 dp target.
                     AppPillButton(
                       label: 'Reply',
-                      // Docked on phones: the full pill, as before.
-                      compact: inline,
+                      compact: true,
                       busy: state.isSubmitting,
                       busySemanticsLabel: 'Sending reply',
                       onPressed: state.canSubmit && !widget.blocked
