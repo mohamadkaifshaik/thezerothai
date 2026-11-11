@@ -46,6 +46,8 @@ import 'package:mocktail/mocktail.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as ts;
 
+import 'package:dzeroth/shared/widgets/primitives/app_text_field.dart';
+
 import 'fake_search_repository.dart';
 import 'search_field_rig.dart';
 import 'suggestions_fixtures.dart';
@@ -621,3 +623,10 @@ Future<void> tapCommunityTab(WidgetTester tester, String label) async {
   await tester.tap(tab);
   await tester.pumpAndSettle();
 }
+
+/// The text field of the create page's [AppTextField] labelled [label] (R10b:
+/// the label is drawn above the field, not inside it).
+Finder createFormField(String label) => find.descendant(
+  of: find.byWidgetPredicate((w) => w is AppTextField && w.label == label),
+  matching: find.byType(TextField),
+);

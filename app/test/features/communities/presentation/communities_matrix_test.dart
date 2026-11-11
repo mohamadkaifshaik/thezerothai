@@ -32,6 +32,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../support/communities_tablet_rig.dart' show createFormField;
 import '../../../support/geometry.dart';
 import '../../../support/posts_fixtures.dart';
 import '../../../support/theme_harness.dart';
@@ -559,6 +560,12 @@ void main() {
     setUp(() => communities = _MockCommunities());
 
     Future<void> open(WidgetTester tester, MatrixEnv env, {Object? error}) {
+      // The header's subtitle names the community (R10b: one GetCommunity).
+      when(() => communities.getCommunity(any())).thenAnswer(
+        (_) async => pb.GetCommunityResponse(
+          community: pb.Community(communityId: '77', name: 'Coffee club'),
+        ),
+      );
       when(
         () => communities.listModerationLog(
           communityId: any(named: 'communityId'),
@@ -656,10 +663,7 @@ void main() {
           textScale: env.textScale,
           useScaffold: false,
         );
-        await tester.enterText(
-          find.widgetWithText(TextField, 'Name'),
-          _names['rtl']!,
-        );
+        await tester.enterText(createFormField('Name'), _names['rtl']!);
         await tester.pump();
         await tester.tap(find.text('Create'));
         await tester.pumpAndSettle();

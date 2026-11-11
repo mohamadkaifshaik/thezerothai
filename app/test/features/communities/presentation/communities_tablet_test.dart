@@ -722,22 +722,13 @@ void main() {
     }
 
     Future<void> fill(WidgetTester tester) async {
-      await tester.enterText(
-        find.widgetWithText(TextField, 'Name'),
-        '  Go club ',
-      );
-      await tester.enterText(
-        find.widgetWithText(TextField, 'Description'),
-        'Weekly games',
-      );
+      await tester.enterText(createFormField('Name'), '  Go club ');
+      await tester.enterText(createFormField('Description'), 'Weekly games');
       await tester.tap(find.text('Add a rule'));
       await tester.pumpAndSettle();
+      await tester.enterText(createFormField('Rule 1 title'), 'No spam');
       await tester.enterText(
-        find.widgetWithText(TextField, 'Rule 1 title'),
-        'No spam',
-      );
-      await tester.enterText(
-        find.widgetWithText(TextField, 'Rule 1 details'),
+        createFormField('Rule 1 details'),
         'Links only when asked.',
       );
       await tester.pumpAndSettle();
@@ -844,7 +835,7 @@ void main() {
       final state = tester.state(find.byType(CreateCommunityScreen));
       final field = tester.state<EditableTextState>(
         find.descendant(
-          of: find.widgetWithText(TextField, 'Name'),
+          of: createFormField('Name'),
           matching: find.byType(EditableText),
         ),
       );
@@ -860,7 +851,7 @@ void main() {
         expect(
           tester.state<EditableTextState>(
             find.descendant(
-              of: find.widgetWithText(TextField, 'Name'),
+              of: createFormField('Name'),
               matching: find.byType(EditableText),
             ),
           ),
