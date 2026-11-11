@@ -104,8 +104,8 @@ void main() {
     textScale: 1,
   );
 
-  final accept = find.widgetWithText(FilledButton, 'Accept');
-  final decline = find.widgetWithText(OutlinedButton, 'Decline');
+  final accept = find.widgetWithText(AppPillButton, 'Accept');
+  final decline = find.widgetWithText(AppPillButton, 'Decline');
 
   group('the row controls never cover the name or the lock', () {
     forEachThemeAndWidth('long name, protected requester', (tester, env) async {
@@ -138,7 +138,7 @@ void main() {
       final text = find.text('No follow requests');
       expect(text, findsOneWidget);
       expectInsideHorizontally(tester, text, env.size.width);
-      expect(find.byType(FilledButton), findsNothing);
+      expect(find.widgetWithText(AppPillButton, 'Accept'), findsNothing);
     }, textScales: kMatrixTextScalesLarge);
 
     forEachThemeAndWidth('error: a 48dp Retry that reloads', (
@@ -191,7 +191,7 @@ void main() {
       expect(title, findsOneWidget);
       expectInsideHorizontally(tester, title, env.size.width);
       expect(find.text('Retry'), findsNothing);
-      expect(find.byType(FilledButton), findsNothing);
+      expect(find.widgetWithText(AppPillButton, 'Accept'), findsNothing);
     }, textScales: kMatrixTextScalesLarge);
   });
 
