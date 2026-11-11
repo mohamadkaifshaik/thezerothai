@@ -19,14 +19,18 @@ const kSeeAllMembersLabel = 'See all members';
 /// members section until the page has lent it: the Members card over a
 /// skeleton of the same rows, so the pane never opens on the footer alone.
 class ListMembersPanePlaceholder extends StatelessWidget {
-  const ListMembersPanePlaceholder({super.key});
+  const ListMembersPanePlaceholder({super.key, this.rows = 3});
+
+  /// Skeleton rows: 3 until the List's member count is known, then as many
+  /// as the preview will show (1 to [kListMembersPreviewLimit]).
+  final int rows;
 
   @override
-  Widget build(BuildContext context) => const ContextPaneCard(
+  Widget build(BuildContext context) => ContextPaneCard(
     title: kListMembersPaneTitle,
     child: Padding(
-      padding: EdgeInsets.only(bottom: AppSpacing.sm),
-      child: UserListSkeleton(rows: 3, semanticsLabel: 'Loading members'),
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: UserListSkeleton(rows: rows, semanticsLabel: 'Loading members'),
     ),
   );
 }
@@ -73,7 +77,11 @@ class ListMembersPane extends StatelessWidget {
     final waiting =
         preview.status == ListMembersPreviewStatus.idle ||
         preview.status == ListMembersPreviewStatus.loading;
-    if (waiting && users.isEmpty) return const ListMembersPanePlaceholder();
+    if (waiting && users.isEmpty) {
+      return ListMembersPanePlaceholder(
+        rows: header.memberCount.clamp(1, kListMembersPreviewLimit),
+      );
+    }
     final theme = Theme.of(context);
     final muted = theme.textTheme.bodyMedium?.copyWith(
       color: theme.colorScheme.onSurfaceVariant,

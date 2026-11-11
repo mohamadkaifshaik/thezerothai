@@ -89,7 +89,9 @@ class _UserListsScreenState extends State<UserListsScreen> {
     return owner.userId.isEmpty || owner.handle.isEmpty ? null : owner;
   }
 
-  void _openOwner() => context.push(AppRouter.profileByIdPath(widget.userId));
+  /// The owner card leads back to the profile: the one this page was
+  /// opened from when there is one ([_back] pops), else the owner's.
+  void _openOwner() => _back();
 
   void _back() {
     if (context.canPop()) {
@@ -196,11 +198,7 @@ class _UserListsScreenState extends State<UserListsScreen> {
                           AppSpacing.md,
                           0,
                         ),
-                        child: ListsOwnerCard(
-                          owner: owner,
-                          onTap: _openOwner,
-                          margin: EdgeInsets.zero,
-                        ),
+                        child: ListsOwnerCard(owner: owner, onTap: _openOwner),
                       )
                     : const SizedBox.shrink(),
               ),

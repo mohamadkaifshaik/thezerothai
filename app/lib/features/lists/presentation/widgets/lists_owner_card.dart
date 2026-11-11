@@ -88,10 +88,9 @@ class ListsOwnerCard extends StatelessWidget {
                         ],
                       ),
                     ),
+                    // `matchTextDirection`: drawn mirrored in RTL.
                     Icon(
-                      Directionality.of(context) == TextDirection.rtl
-                          ? Icons.chevron_left
-                          : Icons.chevron_right,
+                      Icons.chevron_right,
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ],

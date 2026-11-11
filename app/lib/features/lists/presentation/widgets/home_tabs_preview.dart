@@ -10,6 +10,15 @@ const kHomeTabsPreviewTitle = 'Preview';
 /// The line under the title.
 const kHomeTabsPreviewCaption = 'Your Home tabs, in this order.';
 
+/// The space around the preview's tab bar inside its card (the placeholder's
+/// empty bar uses the same, so nothing moves when the page lends the card).
+const kHomeTabsPreviewBarInset = EdgeInsets.fromLTRB(
+  AppSpacing.sm,
+  0,
+  AppSpacing.sm,
+  AppSpacing.sm,
+);
+
 /// [HomeTabsPreviewCard] until Manage pinned has lent it: the same card with
 /// an empty bar of the same height, so the pane never opens on the footer
 /// alone and nothing jumps when the tabs arrive.
@@ -23,7 +32,10 @@ class HomeTabsPreviewPlaceholder extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const _Caption(),
-        SizedBox(height: AppTabBar.heightFor(context)),
+        Padding(
+          padding: kHomeTabsPreviewBarInset,
+          child: SizedBox(height: AppTabBar.heightFor(context)),
+        ),
       ],
     ),
   );
@@ -61,19 +73,24 @@ class HomeTabsPreviewCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const _Caption(),
-          Semantics(
-            label: 'Home tabs preview: ${tabs.join(', ')}',
-            excludeSemantics: true,
-            child: ExcludeFocus(
-              child: IgnorePointer(
-                child: AppTabBar(
-                  selectedIndex: 0,
-                  onChanged: (_) {},
-                  tabs: [for (final t in tabs) AppTab(label: t)],
-                  // Home's "+" for Manage pinned, as a picture.
-                  fixedTrailing: SizedBox.square(
-                    dimension: AppSpacing.minTapTarget,
-                    child: Icon(Icons.add, color: muted),
+          // Inset from the card's border and rounded corners, so the bar's
+          // hairline and indicator stay inside the card.
+          Padding(
+            padding: kHomeTabsPreviewBarInset,
+            child: Semantics(
+              label: 'Home tabs preview: ${tabs.join(', ')}',
+              excludeSemantics: true,
+              child: ExcludeFocus(
+                child: IgnorePointer(
+                  child: AppTabBar(
+                    selectedIndex: 0,
+                    onChanged: (_) {},
+                    tabs: [for (final t in tabs) AppTab(label: t)],
+                    // Home's "+" for Manage pinned, as a picture.
+                    fixedTrailing: SizedBox.square(
+                      dimension: AppSpacing.minTapTarget,
+                      child: Icon(Icons.add, color: muted),
+                    ),
                   ),
                 ),
               ),
