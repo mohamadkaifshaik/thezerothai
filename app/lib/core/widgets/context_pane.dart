@@ -55,6 +55,10 @@ enum ContextSectionKind {
 
   /// `/plans/new`, `/plans/:id/edit`: "Tips for a good plan" (T8d).
   planTips,
+
+  /// `/communities/:id/members`: the "Search members" field (F36, R10),
+  /// lent by the page; its results are the page's list.
+  memberSearch,
 }
 
 /// One section of band B's context pane: a self-gating widget (it draws

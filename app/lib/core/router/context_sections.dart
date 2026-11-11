@@ -12,6 +12,8 @@ import '../../features/communities/presentation/widgets/community_about.dart'
     show CommunityAboutPanePlaceholder;
 import '../../features/communities/presentation/widgets/community_preview.dart'
     show CommunityPreviewCard;
+import '../../features/communities/presentation/widgets/community_search_field.dart'
+    show CommunitySearchField, kSearchMembersHint;
 import '../../features/communities/presentation/widgets/explore_communities_pane.dart'
     show ExploreCommunitiesPanePlaceholder;
 import '../../features/communities/presentation/widgets/moderation_log_about.dart'
@@ -69,8 +71,9 @@ enum ContextFamily {
   /// A profile: You might like (the media strip is T8).
   profile,
 
-  /// `/communities` (T8a): "Explore Communities", lent by the page (its
-  /// directory and Join). F37's scoped "Search Communities" waits.
+  /// `/communities` (T8a): "Search communities" over "Explore
+  /// communities", lent by the page (its filter, directory and Join; F37,
+  /// R10).
   communities,
 
   /// `/communities/new` (T8a): the live preview of the form, lent by the
@@ -84,6 +87,10 @@ enum ContextFamily {
   /// `/communities/:id/moderation-log` (T8a): "About this log", lent by the
   /// page once its log lists entries (the caller moderates).
   moderationLog,
+
+  /// `/communities/:id/members` (R10): "Search members", lent by the page,
+  /// with `community_member_search` on (F36); the global set without it.
+  communityMembers,
 
   /// `/lists/:id` (T8b): a preview of the List's members, lent by the page.
   listDetail,
@@ -187,8 +194,9 @@ ContextFamily contextFamilyFor(String location) {
     ['communities'] => ContextFamily.communities,
     ['communities', 'new'] => ContextFamily.communityCreate,
     ['communities', _, 'moderation-log'] => ContextFamily.moderationLog,
-    // CommunityMembers: the global set (F36's "Search members" waits).
-    ['communities', _, 'members'] => ContextFamily.global,
+    // CommunityMembers: "Search members" (F36), or the global set with its
+    // flag off (see [contextSectionsFor]).
+    ['communities', _, 'members'] => ContextFamily.communityMembers,
     ['communities', _] => ContextFamily.community,
     // Lists (T8b). `/lists` and `/lists/:id/members` keep the global set
     // (F10 keeps "Discover new Lists" out; F31's suggestions wait).
@@ -219,10 +227,17 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
     ContextFamily.communities ||
     ContextFamily.communityCreate ||
     ContextFamily.community ||
-    ContextFamily.moderationLog => true,
+    ContextFamily.moderationLog ||
+    ContextFamily.communityMembers => true,
     _ => false,
   };
   if (communitiesFamily && !isFeatureEnabled(context, kFeatureCommunities)) {
+    family = ContextFamily.global;
+  }
+  // The members page's search needs its own flag too (F36); without it the
+  // page keeps the global set (T8a ruling 11).
+  if (family == ContextFamily.communityMembers &&
+      !isFeatureEnabled(context, kFeatureCommunityMemberSearch)) {
     family = ContextFamily.global;
   }
   // Likewise the Lists pages need `lists` (T8b).
@@ -310,6 +325,12 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
         lent(
           ContextSectionKind.moderationLogAbout,
           const ModerationLogAboutPlaceholder(),
+        ),
+      ],
+      ContextFamily.communityMembers => [
+        lent(
+          ContextSectionKind.memberSearch,
+          const CommunitySearchField(hint: kSearchMembersHint),
         ),
       ],
       ContextFamily.listDetail => [

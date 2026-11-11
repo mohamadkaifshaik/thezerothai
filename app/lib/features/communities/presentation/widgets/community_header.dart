@@ -12,6 +12,11 @@ import '../bloc/community_detail_state.dart';
 import 'community_join_control.dart';
 import 'community_row.dart';
 
+/// A community's name as its page header draws it (the design's `h1`: 800,
+/// tight; R10), shared by the Create preview so the preview matches the page.
+TextStyle? communityNameStyle(ThemeData theme) => theme.textTheme.headlineSmall
+    ?.copyWith(fontWeight: FontWeight.w800, letterSpacing: -0.5, height: 1.1);
+
 /// The top of `/communities/:id`: name, "N members" (opens the members
 /// page), the Join / Joined / Banned control and Pin / Unpin from Home.
 /// Presentation only: the screen wires the callbacks.
@@ -122,12 +127,7 @@ class CommunityHeader extends StatelessWidget {
               Flexible(
                 child: Semantics(
                   header: true,
-                  child: Text(
-                    community.name,
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
+                  child: Text(community.name, style: communityNameStyle(theme)),
                 ),
               ),
               if (badge != null) ...[
@@ -145,6 +145,11 @@ class CommunityHeader extends StatelessWidget {
               onTap: onMembers,
               child: TextButton(
                 onPressed: onMembers,
+                style: TextButton.styleFrom(
+                  textStyle: theme.textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 child: Text(communityMemberCountLabel(community)),
               ),
             ),

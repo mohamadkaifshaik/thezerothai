@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/communities/v1/communities.pb.dart' as pb;
+import '../../../../shared/widgets/primitives/app_card.dart';
 import '../../../../shared/widgets/primitives/app_status_pill.dart';
 import '../../../../shared/widgets/primitives/app_tile_icon.dart';
 import '../../../lists/presentation/widgets/list_row.dart'
@@ -38,11 +39,21 @@ class CommunityRow extends StatelessWidget {
     this.role,
     this.selected,
     this.trailingBelow = false,
+    this.card = false,
   });
 
   final pb.Community community;
   final VoidCallback? onTap;
   final Widget? trailing;
+
+  /// The Communities page's look (dz.css `.card.row`, R10): the row on a
+  /// raised card with a 52 dp tile, the description (when there is one)
+  /// under the name, then "N members". Off: the plain row (band B's pane,
+  /// the composer's audience picker).
+  final bool card;
+
+  /// The tile of a [card] row (the design's 52 dp mark).
+  static const double cardTileSize = 52;
 
   /// Puts [trailing] under the name, aligned with it, instead of after the
   /// row: for a narrow column (band B's context pane, 320 dp), where the Join
@@ -62,8 +73,15 @@ class CommunityRow extends StatelessWidget {
     final muted = theme.colorScheme.onSurfaceVariant;
     final members = communityMemberCountLabel(community);
     final badge = communityRoleBadge(community.role);
-    final spoken = [community.name, members, ?badge].join(', ');
+    final description = card ? community.description.trim() : '';
+    final spoken = [
+      community.name,
+      if (description.isNotEmpty) description,
+      members,
+      ?badge,
+    ].join(', ');
     final trailing = this.trailing;
+    if (card) return _card(context, spoken, description, members, badge);
     if (trailingBelow && trailing != null) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -156,6 +174,149 @@ class CommunityRow extends StatelessWidget {
             child: trailing,
           ),
       ],
+    );
+  }
+
+  /// Above this text scale a [card] row puts its [trailing] pill under the
+  /// name: at 2.0 a "Joined" pill alone is about 200 dp wide, which would
+  /// leave a 320 dp phone's name no room (as band B's pane does, T8a).
+  static const double cardStackTextScale = 1.3;
+
+  /// The [card] look: the text area is the row's one button (as the plain
+  /// row), the [trailing] pill sits beside it on the card (under the name at
+  /// large text), never inside it.
+  Widget _card(
+    BuildContext context,
+    String spoken,
+    String description,
+    String members,
+    String? badge,
+  ) {
+    final theme = Theme.of(context);
+    final colors = context.appColors;
+    final radius = BorderRadius.circular(AppRadius.card);
+    final trailing = this.trailing;
+    final stack =
+        trailing != null &&
+        MediaQuery.textScalerOf(context).scale(1) > cardStackTextScale;
+    const inset = AppSpacing.smd + 2;
+    final textArea = Semantics(
+      button: onTap != null,
+      role: role,
+      selected: selected,
+      inMutuallyExclusiveGroup: selected == null ? null : true,
+      label: spoken,
+      excludeSemantics: true,
+      onTap: onTap,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: radius,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
+          child: Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(
+              inset,
+              inset,
+              AppSpacing.smd,
+              inset,
+            ),
+            child: Row(
+              children: [
+                const AppTileIcon(
+                  icon: Icons.groups_outlined,
+                  size: cardTileSize,
+                ),
+                const SizedBox(width: AppSpacing.smd),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        community.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      if (description.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          description,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colors.secondaryOnRaised,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 2),
+                      Wrap(
+                        spacing: AppSpacing.sm,
+                        runSpacing: AppSpacing.xs,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            members,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                          if (badge != null) AppStatusPill(label: badge),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm - AppSpacing.xs / 2,
+      ),
+      child: AppCard(
+        padding: EdgeInsets.zero,
+        child: Material(
+          type: MaterialType.transparency,
+          child: stack
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    textArea,
+                    Padding(
+                      // Under the name: the inset, the tile and its gap.
+                      padding: const EdgeInsetsDirectional.only(
+                        start: inset + cardTileSize + AppSpacing.smd,
+                        end: AppSpacing.smd,
+                        bottom: AppSpacing.sm,
+                      ),
+                      child: Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: trailing,
+                      ),
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: textArea),
+                    if (trailing != null)
+                      Padding(
+                        padding: const EdgeInsetsDirectional.only(
+                          end: AppSpacing.smd,
+                        ),
+                        child: trailing,
+                      ),
+                  ],
+                ),
+        ),
+      ),
     );
   }
 }

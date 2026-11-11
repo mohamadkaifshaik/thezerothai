@@ -3,9 +3,11 @@ import 'package:connectrpc/connect.dart' as connect;
 import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
+import '../../../core/network/connect_error_mapper.dart';
 import '../../../core/storage/session_epoch.dart';
 import '../../../gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import '../domain/communities_feature_flag.dart';
+import '../domain/community_search.dart';
 
 /// One page of [CommunitiesRepository.listCommunities].
 class CommunitiesPage {
@@ -304,6 +306,58 @@ class CommunitiesRepository {
       members: r.members.toList(),
       nextPageToken: r.nextPageToken,
     );
+  }
+
+  /// The members of [communityId] whose handle starts with [prefix] (F36,
+  /// `SearchCommunityMembers`): at most [limit] rows, handle order, no page.
+  /// [prefix] is checked by the caller (`memberSearchPrefix`). [filter]
+  /// BANNED needs a moderator (FORBIDDEN `not_moderator`).
+  ///
+  /// The member search has its own flag, so its refusal never turns off the
+  /// rest of communities: a FEATURE_DISABLED for
+  /// `community_member_search`, and UNIMPLEMENTED (a server without the
+  /// RPC), are thrown as [FeatureDisabledException] with that feature and
+  /// are not remembered by the communities gate.
+  Future<List<pb.CommunityMember>> searchMembers({
+    required String communityId,
+    required String prefix,
+    pb.CommunityMemberFilter filter =
+        pb.CommunityMemberFilter.COMMUNITY_MEMBER_FILTER_JOINED,
+    int limit = kCommunityMemberSearchLimit,
+  }) async {
+    final out = await _gate.run<_Out<pb.SearchCommunityMembersResponse>>(
+      () async {
+        try {
+          return _Out(
+            await _apiClient.communities.searchCommunityMembers(
+              pb.SearchCommunityMembersRequest(
+                communityId: communityId,
+                prefix: prefix,
+                filter: filter,
+                limit: limit,
+              ),
+            ),
+          );
+        } on connect.ConnectException catch (error) {
+          if (error.code == connect.Code.unimplemented) {
+            return _Out.notYet();
+          }
+          final mapped = mapConnectError(error);
+          if (mapped is FeatureDisabledException &&
+              mapped.feature == kFeatureCommunityMemberSearch) {
+            return _Out.notYet();
+          }
+          throw mapped;
+        }
+      },
+    );
+    if (out.notYet) {
+      throw const FeatureDisabledException(
+        "Member search isn't available.",
+        feature: kFeatureCommunityMemberSearch,
+      );
+    }
+    return out.value!.members.toList();
   }
 
   Future<void> hidePost({
