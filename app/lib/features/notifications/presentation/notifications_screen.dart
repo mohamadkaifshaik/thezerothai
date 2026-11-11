@@ -12,6 +12,7 @@ import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/scroll_constants.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
+import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../shared/widgets/post/post_list_skeleton.dart';
 import '../../../shared/widgets/post/timeline_gap_row.dart';
@@ -137,15 +138,21 @@ class _NotificationsViewState extends State<_NotificationsView>
                       _inset(
                         inset,
                         SliverToBoxAdapter(
-                          child: AppTabBar(
-                            equalWidth: true,
-                            semanticLabel: 'Notifications timelines',
-                            selectedIndex: _tab,
-                            onChanged: (index) => setState(() => _tab = index),
-                            tabs: const [
-                              AppTab(label: 'All'),
-                              AppTab(label: 'Mentions'),
-                            ],
+                          // The tabs sit in the reading column; on the
+                          // tablet layout their hairline spans the pane.
+                          child: AppMainColumnBleed(
+                            bleed: inset,
+                            child: AppTabBar(
+                              equalWidth: true,
+                              semanticLabel: 'Notifications timelines',
+                              selectedIndex: _tab,
+                              onChanged: (index) =>
+                                  setState(() => _tab = index),
+                              tabs: const [
+                                AppTab(label: 'All'),
+                                AppTab(label: 'Mentions'),
+                              ],
+                            ),
                           ),
                         ),
                       ),

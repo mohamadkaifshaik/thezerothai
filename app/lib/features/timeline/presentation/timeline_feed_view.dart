@@ -10,6 +10,7 @@ import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../shared/widgets/primitives/app_empty_view.dart';
+import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
 import '../../../shared/widgets/post/pending_posts_section.dart';
 import '../../../shared/widgets/post/post_list_skeleton.dart';
@@ -395,9 +396,12 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
     );
   }
 
+  /// [sliver] in the reading column. Its header dividers and tab bars
+  /// (Home's tabs, a list's or a community's header) span the pane: the
+  /// inset is their bleed (0 wherever the column fills the pane).
   Widget _inset(double inset, Widget sliver) => SliverPadding(
     padding: EdgeInsets.symmetric(horizontal: inset),
-    sliver: sliver,
+    sliver: AppMainColumnBleed(bleed: inset, child: sliver),
   );
 
   List<Widget> _body(

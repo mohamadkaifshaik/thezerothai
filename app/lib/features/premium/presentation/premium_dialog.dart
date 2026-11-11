@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/router/page_below.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/tablet_modal.dart';
 import '../../../shared/widgets/primitives/app_status_pill.dart';
 import '../../../shared/widgets/primitives/app_surface.dart';
 import '../domain/premium_plans.dart';
@@ -11,8 +13,15 @@ import '../domain/premium_plans.dart';
 /// only chrome; Escape, system Back and a tap on the barrier close it. No RPC.
 /// The body is the coming-soon hero and two static plan cards
 ///Nothing in it can be bought, reserved or followed.
+///
+/// On the tablet layout ([host], tablet plan section 4.1 "Premium") the card
+/// is `min(600, C - 48)` wide and centred on the content area beside the
+/// rail; the barrier still covers the whole window, rail included.
 class PremiumDialog extends StatelessWidget {
-  const PremiumDialog({super.key});
+  const PremiumDialog({super.key, this.host});
+
+  /// The tablet presentation (`dialogPageHost`); null: today's.
+  final TabletModalHost? host;
 
   static const title = 'Premium';
   static const titleKey = ValueKey('premium-dialog-title');
@@ -64,7 +73,8 @@ class PremiumDialog extends StatelessWidget {
       return Dialog.fullscreen(child: SafeArea(child: body));
     }
     return Dialog(
-      insetPadding: const EdgeInsets.all(AppSpacing.lg),
+      insetPadding:
+          host?.dialogInsets(context) ?? const EdgeInsets.all(AppSpacing.lg),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(AppRadius.lg),
         side: BorderSide(color: theme.colorScheme.outlineVariant),
@@ -92,7 +102,11 @@ class PremiumDialogPage extends Page<void> {
       settings: this,
       barrierDismissible: true,
       barrierLabel: 'Close',
-      builder: (context) => const PremiumDialog(),
+      // [DialogPageFrame] adds the safe area (but on the tablet layout).
+      useSafeArea: false,
+      builder: (context) => DialogPageFrame(
+        builder: (context, host) => PremiumDialog(host: host),
+      ),
     );
   }
 }

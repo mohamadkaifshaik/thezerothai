@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../data/graph_repository.dart';
 import '../../settings/presentation/settings_up.dart';
@@ -141,16 +142,32 @@ class _ManagedAccountsScreenState extends State<_ManagedAccountsScreen> {
         ),
         title: Text(_isBlocked ? 'Blocked accounts' : 'Muted accounts'),
       ),
-      body: PagedUserList(
-        cubit: _cubit,
-        emptyMessage: _isBlocked
-            ? "You haven't blocked anyone."
-            : "You haven't muted anyone.",
-        rowBuilder: (context, item) => UserListRow(
-          item: item,
-          trailing: TextButton(
-            onPressed: () => _removeAction(item),
-            child: Text(_isBlocked ? 'Unblock' : 'Unmute'),
+      // The readable column on the tablet layout (at most 680, centred; the
+      // bar above spans the pane). No cap anywhere else, as before.
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: ShellGeometry.readableMaxWidth(
+              context,
+              otherwise: double.infinity,
+            ),
+          ),
+          // Tight, as the body was: the list fills the column.
+          child: SizedBox.expand(
+            child: PagedUserList(
+              cubit: _cubit,
+              emptyMessage: _isBlocked
+                  ? "You haven't blocked anyone."
+                  : "You haven't muted anyone.",
+              rowBuilder: (context, item) => UserListRow(
+                item: item,
+                trailing: TextButton(
+                  onPressed: () => _removeAction(item),
+                  child: Text(_isBlocked ? 'Unblock' : 'Unmute'),
+                ),
+              ),
+            ),
           ),
         ),
       ),

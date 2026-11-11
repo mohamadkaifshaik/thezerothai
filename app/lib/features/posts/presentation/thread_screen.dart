@@ -13,6 +13,7 @@ import '../../../core/telemetry/usage_reporter.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/scroll_constants.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_avatar.dart';
@@ -214,8 +215,10 @@ class _ThreadView extends StatelessWidget {
             body: SafeArea(
               child: Center(
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: AppLayout.mainColumnMaxWidth,
+                  // 680 on the tablet layout (the readable column), else
+                  // 600.
+                  constraints: BoxConstraints(
+                    maxWidth: ShellGeometry.readableMaxWidth(context),
                   ),
                   child: switch (state.status) {
                     ThreadStatus.loading ||
