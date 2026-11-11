@@ -7,8 +7,11 @@ import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as beacons;
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
+import 'package:dzeroth/features/timeline/presentation/widgets/feed_post_row.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_card.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -17,6 +20,7 @@ import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
 
 import '../../../../support/beacons_fixtures.dart';
 import '../../../../support/beacons_rig.dart';
+import '../../../../support/contrast.dart';
 import '../../../../support/fake_beacons_server.dart';
 import '../../../../support/geometry.dart';
 import '../../../../support/posts_fixtures.dart';
@@ -82,6 +86,7 @@ void main() {
     double textScale = 1.0,
     TextDirection direction = TextDirection.ltr,
     BeaconsRepository? repository,
+    Brightness brightness = Brightness.light,
   }) async {
     final router = GoRouter(
       initialLocation: '/',
@@ -120,7 +125,7 @@ void main() {
         value: repository ?? server,
         child: withPlansFeatures(
           MaterialApp.router(
-            theme: buildAppTheme(brightness: Brightness.light),
+            theme: buildAppTheme(brightness: brightness),
             routerConfig: router,
           ),
           features,
@@ -343,6 +348,162 @@ void main() {
         isSemantics(isButton: true),
       );
       handle.dispose();
+    });
+  });
+
+  group(
+    'in a feed row (Feed, community, profile and lists draw FeedPostRow)',
+    () {
+      Future<void> pumpRow(
+        WidgetTester tester, {
+        Set<String> features = const {kFeaturePostBeaconEmbed, kFeatureBeacons},
+      }) async {
+        final router = GoRouter(
+          initialLocation: '/',
+          routes: [
+            GoRoute(
+              path: '/',
+              builder: (context, _) => Scaffold(
+                body: SingleChildScrollView(
+                  child: FeedPostRow(
+                    view: post(),
+                    viewerUserId: 'me',
+                    graphEnabled: false,
+                    reportsEnabled: false,
+                    engagementEnabled: false,
+                  ),
+                ),
+              ),
+            ),
+            GoRoute(
+              path: '/plans/:id',
+              builder: (context, state) => Scaffold(
+                body: Text('plan page ${state.pathParameters['id']}'),
+              ),
+            ),
+            GoRoute(
+              path: '/post/:id',
+              builder: (context, state) => Scaffold(
+                body: Text('post page ${state.pathParameters['id']}'),
+              ),
+            ),
+          ],
+        );
+        addTearDown(router.dispose);
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(360, 800);
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(
+          RepositoryProvider<BeaconsRepository>.value(
+            value: server,
+            child: withPlansFeatures(
+              MaterialApp.router(
+                theme: buildAppTheme(brightness: Brightness.light),
+                routerConfig: router,
+              ),
+              features,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      testWidgets('the strip opens the plan, not the post', (tester) async {
+        await pumpRow(tester);
+
+        await tester.tap(find.text('Sunrise walk'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('plan page $kBeaconIdA'), findsOneWidget);
+        expect(find.textContaining('post page'), findsNothing);
+      });
+
+      testWidgets('with beacons off the tap falls through to the post', (
+        tester,
+      ) async {
+        await pumpRow(tester, features: {kFeaturePostBeaconEmbed});
+
+        await tester.tap(find.text('Sunrise walk'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('post page ${postId(1)}'), findsOneWidget);
+        expect(find.textContaining('plan page'), findsNothing);
+      });
+
+      testWidgets('Join opens the note sheet, neither page', (tester) async {
+        await pumpRow(tester);
+
+        await tester.tap(find.text(kPlanAskToJoin));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Send request'), findsOneWidget);
+        expect(find.textContaining('plan page'), findsNothing);
+        expect(find.textContaining('post page'), findsNothing);
+      });
+    },
+  );
+
+  group('focus and theme', () {
+    testWidgets('keyboard focus on the strip shows on the navy fill', (
+      tester,
+    ) async {
+      await pump(tester, view: post());
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      // Tab until focus lands in the strip (the card's own controls come
+      // first).
+      for (var i = 0; i < 8; i++) {
+        final focused = FocusManager.instance.primaryFocus?.context;
+        if (focused?.findAncestorWidgetOfExactType<AppPlanStrip>() != null) {
+          break;
+        }
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+      }
+      final focused = FocusManager.instance.primaryFocus!.context!;
+      expect(focused.findAncestorWidgetOfExactType<AppPlanStrip>(), isNotNull);
+      final inkWell = tester.widget<InkWell>(
+        find
+            .descendant(
+              of: find.byType(AppPlanStrip),
+              matching: find.byType(InkWell),
+            )
+            .first,
+      );
+      // A pearl overlay: the theme's navy-family default would not show.
+      expect(inkWell.focusColor, AppPlanStrip.focusOverlay);
+      final over = Color.alphaBlend(AppPlanStrip.focusOverlay, AppPalette.navy);
+      expect(contrast(over, AppPalette.navy), greaterThanOrEqualTo(3));
+    });
+
+    testWidgets('dark theme: the strip has a hairline edge on the navy page', (
+      tester,
+    ) async {
+      await pump(tester, view: post(), brightness: Brightness.dark);
+
+      final edge = tester.widget<DecoratedBox>(
+        find.byKey(const ValueKey('app-plan-strip-edge')),
+      );
+      final decoration = edge.decoration as BoxDecoration;
+      expect(decoration.border, isNotNull);
+    });
+
+    testWidgets('UNSPECIFIED status draws no status and offers no Join', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        view: post(
+          beacon: preview(
+            status: beacons.BeaconStatus.BEACON_STATUS_UNSPECIFIED,
+          ),
+        ),
+      );
+
+      expect(find.byKey(const ValueKey('post-plan-status')), findsNothing);
+      expect(find.text('Unknown'), findsNothing);
+      expect(find.text(kPlanAskToJoin), findsNothing);
     });
   });
 }

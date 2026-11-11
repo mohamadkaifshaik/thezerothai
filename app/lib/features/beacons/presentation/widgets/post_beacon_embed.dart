@@ -179,7 +179,14 @@ class _PostBeaconEmbedState extends State<PostBeaconEmbed> {
     final when = _beacon.hasStartAt()
         ? formatScheduledTime(_beacon.startAt.toDateTime())
         : '';
-    final statusText = open ? null : statusLabel(status);
+    // An unknown status (UNSPECIFIED, or a value this build lacks) draws
+    // nothing and, like every status but OPEN, offers no Join.
+    final statusText =
+        open ||
+            status == beacons.BeaconStatus.BEACON_STATUS_UNSPECIFIED ||
+            !beacons.BeaconStatus.values.contains(status)
+        ? null
+        : statusLabel(status);
     final muted = AppPalette.mutedOnDark;
     final eyebrow = AppTextStyles.eyebrow(theme)
         .copyWith(color: AppPlanStrip.accent);
@@ -302,23 +309,35 @@ class _JoinButton extends StatelessWidget {
       constraints: const BoxConstraints(maxWidth: 140),
       child: TextButton(
         onPressed: busy ? null : onPressed,
-        style: TextButton.styleFrom(
-          foregroundColor: AppPlanStrip.accent,
-          disabledForegroundColor: AppPalette.mutedOnDark,
-          minimumSize: const Size(
-            AppSpacing.minTapTarget,
-            AppSpacing.minTapTarget,
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.smd),
-          textStyle: theme.textTheme.labelMedium?.copyWith(
-            fontWeight: FontWeight.w700,
-          ),
-          side: const BorderSide(
-            color: AppPlanStrip.accent,
-            width: AppSize.componentBorder,
-          ),
-          shape: const StadiumBorder(),
-        ),
+        style:
+            TextButton.styleFrom(
+              foregroundColor: AppPlanStrip.accent,
+              disabledForegroundColor: AppPalette.mutedOnDark,
+              minimumSize: const Size(
+                AppSpacing.minTapTarget,
+                AppSpacing.minTapTarget,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.smd),
+              textStyle: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+              side: const BorderSide(
+                color: AppPlanStrip.accent,
+                width: AppSize.componentBorder,
+              ),
+              shape: const StadiumBorder(),
+            ).copyWith(
+              // Pearl overlays: the default teal-on-navy focus would barely show.
+              overlayColor: WidgetStateProperty.resolveWith(
+                (states) => states.contains(WidgetState.focused)
+                    ? AppPlanStrip.focusOverlay
+                    : states.contains(WidgetState.pressed)
+                    ? AppPlanStrip.pressOverlay
+                    : states.contains(WidgetState.hovered)
+                    ? AppPlanStrip.hoverOverlay
+                    : null,
+              ),
+            ),
         child: busy
             ? const SizedBox.square(
                 dimension: AppIconSize.sm,

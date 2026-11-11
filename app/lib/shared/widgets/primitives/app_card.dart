@@ -83,6 +83,15 @@ class AppPlanStrip extends StatelessWidget {
   /// The accent colour for text on the strip (the `.eyebrow` and `.go`).
   static const Color accent = AppPalette.tealElectric;
 
+  /// The keyboard focus overlay: pearl, so focus shows on the navy fill in
+  /// both themes (the theme's default overlay is navy-family and vanishes on
+  /// it). Over navy it reads at 3:1 or more.
+  static final Color focusOverlay = AppPalette.pearl.withValues(alpha: 0.4);
+
+  /// Hover and press overlays, in the same pearl.
+  static final Color hoverOverlay = AppPalette.pearl.withValues(alpha: 0.08);
+  static final Color pressOverlay = AppPalette.pearl.withValues(alpha: 0.16);
+
   @override
   Widget build(BuildContext context) {
     final radius = BorderRadius.circular(AppRadius.cardSmall);
@@ -104,7 +113,7 @@ class AppPlanStrip extends StatelessWidget {
         ),
       ),
     );
-    return Material(
+    final strip = Material(
       color: AppPalette.navy,
       borderRadius: radius,
       clipBehavior: Clip.antiAlias,
@@ -112,6 +121,10 @@ class AppPlanStrip extends StatelessWidget {
           ? content
           : InkWell(
               onTap: onTap,
+              focusColor: focusOverlay,
+              hoverColor: hoverOverlay,
+              highlightColor: pressOverlay,
+              splashColor: pressOverlay,
               child: ConstrainedBox(
                 constraints: const BoxConstraints(
                   minHeight: AppSpacing.minTapTarget,
@@ -119,6 +132,18 @@ class AppPlanStrip extends StatelessWidget {
                 child: content,
               ),
             ),
+    );
+    // On the navy page of the dark theme the strip would have no edge: the
+    // dark hairline draws one (decorative, over the fill).
+    if (Theme.of(context).brightness != Brightness.dark) return strip;
+    return DecoratedBox(
+      key: const ValueKey('app-plan-strip-edge'),
+      position: DecorationPosition.foreground,
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        border: Border.all(color: AppPalette.hairlineDark),
+      ),
+      child: strip,
     );
   }
 }
