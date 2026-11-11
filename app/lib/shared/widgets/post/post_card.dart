@@ -13,6 +13,7 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../features/beacons/presentation/widgets/post_beacon_embed.dart';
 import '../../../features/communities/domain/communities_feature_flag.dart';
 import '../../../features/communities/presentation/communities_error_messages.dart';
 import '../../../features/engagement/domain/engagement_entry.dart';
@@ -490,6 +491,13 @@ class PostCard extends StatelessWidget {
           onOpenMention: (userId, handle) => _openProfile(context, userId),
           hashtagSearch: _searchOn(context),
           onHashtagTap: onHashtagTap ?? (tag) => _openHashtag(context, tag),
+        ),
+      // The plan this post shares (F5), under its text as in the designs.
+      // Only on the post itself: a REPOST or QUOTE row never carries one.
+      if (!isRepost && _post.hasBeacon() && postBeaconEmbedEnabled(context))
+        Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.sm),
+          child: PostBeaconEmbed(beacon: _post.beacon, authorIsViewer: _isOwn),
         ),
       if (isRepost ? embedded!.hasArticle() : _post.hasArticle())
         Padding(
