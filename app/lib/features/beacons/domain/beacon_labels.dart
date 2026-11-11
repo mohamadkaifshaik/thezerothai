@@ -33,6 +33,11 @@ String chatPreferenceLabel(pb.ChatPreference p) => switch (p) {
 String beaconWhenText(pb.Beacon b) =>
     '${formatScheduledTime(b.startAt.toDateTime())} · ${b.durationMinutes} min';
 
+/// The privacy note of a plan's meeting point (`venue`): the create form's
+/// helper and, under the venue line, the plan page at every width (tablet
+/// plan section 3, R-inline). The proto only takes a named place.
+const kMeetingPointNote = 'A named place, never coordinates.';
+
 /// `2 of 3 seats taken`.
 String beaconSeatsText(pb.Beacon b) =>
     '${b.acceptedCount} of ${b.openSpots} seats taken';

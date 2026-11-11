@@ -36,6 +36,14 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
   /// window or role: the test sets what the server would return).
   final List<pb.BeaconView> mine = [];
 
+  /// The `limit` of every ListMyBeacons, in order (the tablet "Your plans"
+  /// section asks for 2, My plans for 20).
+  final List<int> mineLimits = [];
+
+  /// Thrown by the next ListMyBeacons calls only, one per call (before
+  /// [refusals]).
+  final List<AppException> mineRefusals = [];
+
   /// ACCEPTED and REQUESTED rows per beacon id.
   final Map<String, List<pb.Participant>> going = {};
   final Map<String, List<pb.Participant>> requests = {};
@@ -115,6 +123,11 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
     int limit = 0,
     String pageToken = '',
   }) async {
+    mineLimits.add(limit);
+    if (mineRefusals.isNotEmpty) {
+      calls.add('mine');
+      throw mineRefusals.removeAt(0);
+    }
     _refuse('mine');
     return _page(mine, limit, pageToken);
   }

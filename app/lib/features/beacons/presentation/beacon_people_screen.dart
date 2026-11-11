@@ -15,6 +15,7 @@ import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../graph/data/graph_repository.dart';
 import '../data/beacons_repository.dart';
+import '../domain/beacon_labels.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/beacon_people_cubit.dart';
 import 'bloc/beacon_people_state.dart';
@@ -24,6 +25,12 @@ import '../../../shared/widgets/primitives/app_dialog.dart';
 /// `/plans/:id/people` (R38): who is going, and for the organiser the
 /// requests with their notes and the controls (Accept; Decline, Decline and
 /// block; Remove). One GetBeacon tells whether the viewer manages the plan.
+///
+/// The plan's summary sits under the header at every width (tablet plan
+/// section 3, R-inline; no pane in band B): its title and time, how many are
+/// going, the organiser's requests, the open spots, and who may see the
+/// list. A completed accept, decline or remove reads the plan again so the
+/// counts follow.
 class BeaconPeopleScreen extends StatefulWidget {
   const BeaconPeopleScreen({super.key, required this.beaconId});
 
@@ -83,6 +90,21 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
       setState(() => _error = error);
     }
   }
+
+  /// The counts after an action: one GetBeacon; a failure keeps the last
+  /// view (the lists themselves already reloaded).
+  Future<void> _refreshView() async {
+    try {
+      final view = await _repository.getBeacon(widget.beaconId);
+      if (mounted) setState(() => _view = view);
+    } on AppException {
+      return;
+    }
+  }
+
+  /// An accept, decline or remove that went through.
+  static bool _actionDone(BeaconPeopleState a, BeaconPeopleState b) =>
+      a.busyUserId != null && b.busyUserId == null && b.actionError == null;
 
   @override
   void dispose() {
@@ -188,6 +210,17 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
                     b.actionError != null && a.actionError != b.actionError,
                 listener: (_, state) => _say(state.actionError!),
               ),
+              BlocListener<BeaconPeopleCubit, BeaconPeopleState>(
+                bloc: _going,
+                listenWhen: _actionDone,
+                listener: (_, _) => _refreshView(),
+              ),
+              if (requests != null)
+                BlocListener<BeaconPeopleCubit, BeaconPeopleState>(
+                  bloc: requests,
+                  listenWhen: _actionDone,
+                  listener: (_, _) => _refreshView(),
+                ),
               if (requests != null)
                 BlocListener<BeaconPeopleCubit, BeaconPeopleState>(
                   bloc: requests,
@@ -202,6 +235,14 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
             child: Column(
               children: [
                 AppBackHeader(title: 'People', onBack: _back),
+                if (_view case final view?)
+                  _PeopleSummary(
+                    view: view,
+                    requests: manages ? requests : null,
+                    // Locked out of the list: the page body already says
+                    // who may see it.
+                    showNote: _mayList,
+                  ),
                 if (manages && requests != null)
                   AppTabBar(
                     tabs: const [
@@ -451,3 +492,89 @@ class _PendingBlockRow extends StatelessWidget {
     );
   }
 }
+
+/// The plan's facts under the People header (tablet plan section 4.1,
+/// PlanPeople: "summary (going / requests / open spots + 'Only people who
+/// are going…') inl header", at every width). Requests are the organiser's
+/// only, counted from the loaded Requests list ("20+" while more pages
+/// exist); there is no count on the wire.
+class _PeopleSummary extends StatelessWidget {
+  const _PeopleSummary({
+    required this.view,
+    required this.requests,
+    required this.showNote,
+  });
+
+  final pb.BeaconView view;
+  final BeaconPeopleCubit? requests;
+  final bool showNote;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    final b = view.beacon;
+    final open = (b.openSpots - b.acceptedCount).clamp(0, b.openSpots);
+    String counts(String? requested) => [
+      '${b.acceptedCount} going',
+      ?requested,
+      open == 1 ? '1 open spot' : '$open open spots',
+    ].join(' · ');
+    final requests = this.requests;
+    return Padding(
+      key: const ValueKey('plan-people-summary'),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.smd,
+        AppSpacing.md,
+        AppSpacing.sm,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            b.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleMedium,
+          ),
+          Text(
+            beaconWhenText(b),
+            style: theme.textTheme.bodySmall?.copyWith(color: muted),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          if (requests == null)
+            Text(counts(null), style: theme.textTheme.bodyMedium)
+          else
+            BlocBuilder<BeaconPeopleCubit, BeaconPeopleState>(
+              bloc: requests,
+              buildWhen: (a, c) =>
+                  a.status != c.status ||
+                  a.rows.length != c.rows.length ||
+                  a.hasMore != c.hasMore,
+              builder: (context, state) {
+                final requested = state.status != PeopleLoad.ready
+                    ? null
+                    : '${state.rows.length}${state.hasMore ? '+' : ''} '
+                          '${state.rows.length == 1 && !state.hasMore ? 'request' : 'requests'}';
+                return Text(
+                  counts(requested),
+                  style: theme.textTheme.bodyMedium,
+                );
+              },
+            ),
+          if (showNote) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(
+              kPeopleListNote,
+              style: theme.textTheme.bodySmall?.copyWith(color: muted),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Who may see the Going list (the design's PlanPeople note).
+const kPeopleListNote = 'Only people who are going can see the Going list.';

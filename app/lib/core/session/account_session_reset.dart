@@ -16,7 +16,8 @@
 ///   `BookmarksCubit` (+ repository overlay), `SuggestionsCubit` (+
 ///   repository), `TrendsCubit`, `LikesRepository`, `HomeTabsRepository`,
 ///   `ListsRepository`, `GraphRepository` caches, the app badges, the push
-///   token and the snackbars.
+///   token and the snackbars; `PlansSession` (the hoisted `/plans` list and
+///   "Your plans" cubits of the tablet list–detail: closed and dropped).
 /// - Drift cache, wiped by `wipeSessionData` / `claimCacheFor` in
 ///   `wireAuthSession` (runs on sign-out and on a switch; writes in flight are
 ///   dropped by the shared `SessionEpoch`): `TimelineRepository` (also its

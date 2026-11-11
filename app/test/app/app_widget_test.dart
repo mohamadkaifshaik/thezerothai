@@ -15,6 +15,8 @@ import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
+import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
+import 'package:dzeroth/features/beacons/presentation/bloc/plans_session.dart';
 import 'package:dzeroth/features/engagement/data/bookmarks_repository.dart';
 import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
 import 'package:dzeroth/features/engagement/data/likes_repository.dart';
@@ -49,6 +51,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../support/beacons_fixtures.dart';
+import '../support/fake_beacons_server.dart';
 import '../support/fake_push_messaging.dart';
 import '../support/fake_transport.dart';
 import '../support/poll_fixtures.dart';
@@ -163,6 +167,7 @@ void main() {
     HomeTabsRepository? homeTabsRepository,
     PostsRepository? postsRepository,
     SearchRepository? searchRepository,
+    BeaconsRepository? beaconsRepository,
   }) async {
     whenListen(authBloc, authStates.stream, initialState: auth);
     whenListen(
@@ -197,6 +202,7 @@ void main() {
         pollRepository: pollRepository,
         listsRepository: listsRepository,
         homeTabsRepository: homeTabsRepository,
+        beaconsRepository: beaconsRepository,
       ),
     );
     await tester.pump();
@@ -492,6 +498,126 @@ void main() {
         isNull,
         reason: "uid-2 must not be handed the name of uid-1's private list",
       );
+    });
+  });
+
+  // Tablet T5 (plan section 5.2): the `/plans` list is hoisted above the
+  // router, so it is per-account state like the others.
+  group('the hoisted Plans list belongs to the account (T5)', () {
+    const other = AppUser(
+      uid: 'uid-2',
+      email: 'b@example.com',
+      emailVerified: true,
+      isPasswordProvider: true,
+    );
+    late FakeBeaconsServer beacons;
+
+    setUp(() {
+      beacons = FakeBeaconsServer()
+        ..public.add(
+          beaconView(startAt: DateTime.now().add(const Duration(hours: 1))),
+        );
+    });
+
+    PlansSession session(WidgetTester tester) =>
+        tester.element(find.byType(MaterialApp)).read<PlansSession>();
+
+    Future<void> settle(WidgetTester tester) async {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    }
+
+    Future<PlansSession> startWithAList(WidgetTester tester) async {
+      await pump(
+        tester,
+        auth: const AuthState(status: AuthStatus.authenticated, user: user),
+        onboarding: ready(flags: {'beacons'}),
+        beaconsRepository: beacons,
+      );
+      final s = session(tester);
+      await tester.runAsync(() => s.list.ensureLoaded());
+      expect(s.list.state.views, hasLength(1));
+      return s;
+    }
+
+    testWidgets('provided, and nothing is created or sent at app start', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        auth: const AuthState(status: AuthStatus.authenticated, user: user),
+        onboarding: ready(flags: {'beacons'}),
+        beaconsRepository: beacons,
+      );
+      expect(session(tester).listIfCreated, isNull);
+      expect(session(tester).yourPlansIfCreated, isNull);
+      expect(beacons.calls, isEmpty);
+    });
+
+    testWidgets('without a beacons repository there is none', (tester) async {
+      await pump(tester, onboarding: ready());
+      expect(
+        tester.element(find.byType(MaterialApp)).read<PlansSession?>(),
+        isNull,
+      );
+    });
+
+    testWidgets('sign-out closes and drops it', (tester) async {
+      final s = await startWithAList(tester);
+      final list = s.list;
+
+      authStates.add(const AuthState(status: AuthStatus.unauthenticated));
+      await settle(tester);
+
+      expect(list.isClosed, isTrue);
+      expect(s.listIfCreated, isNull);
+    });
+
+    testWidgets('a direct switch to another account drops it too', (
+      tester,
+    ) async {
+      final s = await startWithAList(tester);
+      final list = s.list;
+
+      authStates.add(
+        const AuthState(status: AuthStatus.authenticated, user: other),
+      );
+      await settle(tester);
+
+      expect(
+        list.isClosed,
+        isTrue,
+        reason: "uid-2 must not be shown uid-1's plans",
+      );
+      expect(s.listIfCreated, isNull);
+    });
+
+    testWidgets('beacons turning off in a fresh GetMe drops it', (
+      tester,
+    ) async {
+      final s = await startWithAList(tester);
+      final list = s.list;
+
+      onboardingStates.add(ready());
+      await settle(tester);
+
+      expect(list.isClosed, isTrue);
+      expect(s.listIfCreated, isNull);
+    });
+
+    testWidgets('a fresh GetMe that keeps beacons (and communities) keeps it', (
+      tester,
+    ) async {
+      final s = await startWithAList(tester);
+      final list = s.list;
+
+      onboardingStates.add(ready(flags: {'beacons', 'notifications'}));
+      await settle(tester);
+
+      expect(s.list, same(list));
+      expect(list.isClosed, isFalse);
     });
   });
 

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
@@ -18,6 +19,10 @@ import 'bloc/my_beacons_state.dart';
 import 'widgets/beacon_row.dart';
 
 /// `/plans/mine` (R39): the caller's plans, Upcoming or Past, by role.
+///
+/// In band B of the tablet layout a row opens the plan with `go` (tablet
+/// plan section 4.1, MyPlans): `/plans/:id` there is the list–detail with
+/// the all-plans list beside it. Everywhere else it is pushed, as before.
 class MyBeaconsScreen extends StatefulWidget {
   const MyBeaconsScreen({super.key});
 
@@ -51,6 +56,13 @@ class _MyBeaconsScreenState extends State<MyBeaconsScreen> {
   }
 
   Future<void> _open(String id) async {
+    final geometry = ShellGeometry.maybeOf(context);
+    if (geometry != null &&
+        geometry.tablet &&
+        geometry.band == ShellBand.expanded) {
+      context.go(AppRouter.planPath(id));
+      return;
+    }
     await context.push(AppRouter.planPath(id));
     if (mounted) await _cubit.load();
   }

@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/beacons/domain/beacons_feature_flag.dart';
+import '../../features/beacons/domain/plans_list_detail.dart';
+import '../../features/beacons/presentation/bloc/plans_session.dart';
+import '../../features/beacons/presentation/plans_list_detail.dart';
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../../features/communities/domain/communities_feature_flag.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
@@ -355,6 +359,26 @@ class MainShell extends StatelessWidget {
         newShell && onSettings && width >= AppBreakpoints.tablet;
     final settingsListDetail =
         tabletLayout && onSettings && ShellBand.of(width) == ShellBand.expanded;
+    // Plans is list-detail in band B too (T5), on `/plans` and `/plans/:id`
+    // only, with `beacons` on and the app's hoisted list (`PlansSession`).
+    // The decision is published to the page ([PlansMasterScope]), which then
+    // draws the placeholder (`/plans`) or drops its back arrow (the plan).
+    final beaconsOn = isFeatureEnabled(context, kFeatureBeacons);
+    final plansBandB =
+        tabletLayout && ShellBand.of(width) == ShellBand.expanded;
+    // The top page of the shell's own navigator decides, not the shell's
+    // base route: My plans, New plan, a plan's People or Edit (or a profile)
+    // pushed over `/plans` or `/plans/:id` have no list pane beside them
+    // (plan section 3), and popping back to the plan brings it back. A root
+    // page over the shell (a dialog page, the composer) changes nothing.
+    final plansMatch = plansMasterMatch(
+      plansBandB ? _shellTopLocation(context) ?? location : location,
+    );
+    final plansListDetail =
+        plansBandB &&
+        beaconsOn &&
+        plansMatch != null &&
+        context.read<PlansSession?>() != null;
 
     void select(int index) {
       switch (tabs[index].tab) {
@@ -414,6 +438,8 @@ class MainShell extends StatelessWidget {
           ? SettingsCategoriesPane(
               selected: settingsCategoryForUri(uri ?? Uri.parse(location)),
             )
+          : plansListDetail
+          ? PlansListPane(selectedId: plansMatch.selectedId)
           : null,
       // Band B's context pane (tablet layout only; the scaffold shows it
       // from 840dp). Desktop keeps the side column below (ruling R-1).
@@ -491,9 +517,15 @@ class MainShell extends StatelessWidget {
                 child: MediaQuery.removePadding(
                   context: pane,
                   removeTop: inset > 0,
-                  child: masterDetail && location == AppRouter.settingsPath
-                      ? const SettingsDetailPlaceholder()
-                      : child,
+                  // Present at every width and in every mode, so the tree
+                  // around the shell navigator keeps its shape at 840.
+                  child: PlansMasterScope(
+                    shown: plansListDetail,
+                    selectedId: plansListDetail ? plansMatch.selectedId : null,
+                    child: masterDetail && location == AppRouter.settingsPath
+                        ? const SettingsDetailPlaceholder()
+                        : child,
+                  ),
                 ),
               ),
             ],
@@ -502,6 +534,24 @@ class MainShell extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The location of the top page inside the shell's navigator (a page pushed
+/// over a shell page included; a root page pushed over the shell excluded),
+/// or null without a router or a shell match.
+String? _shellTopLocation(BuildContext context) {
+  final router = GoRouter.maybeOf(context);
+  if (router == null) return null;
+  for (final match
+      in router.routerDelegate.currentConfiguration.matches.reversed) {
+    if (match is! ShellRouteMatch) continue;
+    var leaf = match.matches.last;
+    while (leaf is ShellRouteMatch) {
+      leaf = leaf.matches.last;
+    }
+    return leaf.matchedLocation;
+  }
+  return null;
 }
 
 /// The master pane of the desktop Settings: a title row over the list.
