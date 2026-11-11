@@ -353,49 +353,53 @@ class AccountDeletedScreen extends StatelessWidget {
         alignment: Alignment.topCenter,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: AppSize.contentMax),
-          child: ListView(
+          // Outside the shell (signed out): the guard's reviewed exemption.
+          child: SingleChildScrollView(
             padding: const EdgeInsets.all(AppSpacing.lg),
-            children: [
-              Text(
-                'Account status'.toUpperCase(),
-                style: AppTextStyles.eyebrow(theme)
-                    .copyWith(color: context.appColors.accentText),
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              Semantics(
-                header: true,
-                child: Text(
-                  'Your account is being deleted',
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: AppTypeTokens.weightDisplay,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Account status'.toUpperCase(),
+                  style: AppTextStyles.eyebrow(theme)
+                      .copyWith(color: context.appColors.accentText),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Semantics(
+                  header: true,
+                  child: Text(
+                    'Your account is being deleted',
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontWeight: AppTypeTokens.weightDisplay,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Text(
-                'You have been signed out. Deletion can take a little while '
-                'to finish. You do not need to do anything else.',
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  'You have been signed out. Deletion can take a little while '
+                  'to finish. You do not need to do anything else.',
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: AppPillButton(
-                  label: 'Done',
-                  onPressed: () {
-                    // Idempotent: makes sure the session is gone even if the
-                    // first sign-out has not landed yet.
-                    final auth = context.read<AuthBloc>();
-                    if (auth.state.isAuthenticated) {
-                      auth.add(const AuthSignOutRequested());
-                    }
-                    context.go(AppRouter.signInPath);
-                  },
+                const SizedBox(height: AppSpacing.lg),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: AppPillButton(
+                    label: 'Done',
+                    onPressed: () {
+                      // Idempotent: makes sure the session is gone even if the
+                      // first sign-out has not landed yet.
+                      final auth = context.read<AuthBloc>();
+                      if (auth.state.isAuthenticated) {
+                        auth.add(const AuthSignOutRequested());
+                      }
+                      context.go(AppRouter.signInPath);
+                    },
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
