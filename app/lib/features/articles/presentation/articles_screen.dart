@@ -1087,7 +1087,10 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
         child: SingleChildScrollView(
           child: Center(
             child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: AppSize.contentMax),
+              // 680 on the tablet layout (the readable column), else 600.
+              constraints: BoxConstraints(
+                maxWidth: ShellGeometry.readableMaxWidth(context),
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -1391,7 +1394,10 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
   Widget _reader() => SingleChildScrollView(
     child: Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: AppSize.contentMax),
+        // 680 on the tablet layout (the readable column), else 600.
+        constraints: BoxConstraints(
+          maxWidth: ShellGeometry.readableMaxWidth(context),
+        ),
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),
           child: Column(

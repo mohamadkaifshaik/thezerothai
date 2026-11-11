@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/widgets.dart';
 
 import '../theme/app_theme.dart';
+import 'tablet_layout.dart';
 
 /// The width band of the window (tablet plan section 1). Decided by the window
 /// width only, never by the device type.
@@ -159,13 +160,33 @@ class ShellGeometry extends InheritedWidget {
   static ShellGeometryData? maybeOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<ShellGeometry>()?.data;
 
+  /// The reading column of [context] follows the tablet layout's rule
+  /// (tablet plan sections 2.2 and 3): a pane of the tablet shell, or a
+  /// full-screen root page (a thread in band A, Drafts, Scheduled, the
+  /// article reader) while both tablet flags are on at 600-1199 dp. Phones,
+  /// desktop and the legacy layout: false. Registers [context]'s
+  /// dependencies (call it in a build).
+  static bool readableTabletAt(BuildContext context) {
+    final shell = maybeOf(context);
+    if (shell != null) return shell.tablet;
+    return tabletLayoutAt(context);
+  }
+
+  /// The widest a reading column may be in [context]:
+  /// [AppSize.readableMax] (680) on the tablet layout
+  /// ([readableTabletAt]), [otherwise] everywhere else (today's cap of the
+  /// caller, 600 by default, so phones and desktop do not change).
+  static double readableMaxWidth(
+    BuildContext context, {
+    double otherwise = AppSize.contentMax,
+  }) => readableTabletAt(context) ? AppSize.readableMax : otherwise;
+
   /// The side inset that centres a reading column in a pane [width] wide
   /// (tablet plan sections 3 and 5.4): on the tablet layout the column grows
   /// to [AppSize.readableMax]; everywhere else it stays
   /// [AppBreakpoints.mobile] wide, as before.
   static double readableInset(BuildContext context, double width) {
-    final tablet = maybeOf(context)?.tablet ?? false;
-    final column = tablet ? AppSize.readableMax : AppBreakpoints.mobile;
+    final column = readableMaxWidth(context, otherwise: AppBreakpoints.mobile);
     return math.max(0.0, (width - column) / 2);
   }
 
