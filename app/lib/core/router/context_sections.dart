@@ -3,7 +3,14 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/communities/domain/communities_feature_flag.dart';
-import '../../features/communities/presentation/widgets/moderation_log_about.dart';
+import '../../features/communities/presentation/widgets/community_about.dart'
+    show CommunityAboutPanePlaceholder;
+import '../../features/communities/presentation/widgets/community_preview.dart'
+    show CommunityPreviewCard;
+import '../../features/communities/presentation/widgets/explore_communities_pane.dart'
+    show ExploreCommunitiesPanePlaceholder;
+import '../../features/communities/presentation/widgets/moderation_log_about.dart'
+    show ModerationLogAboutPlaceholder;
 import '../../features/graph/presentation/graph_feature_flags.dart';
 import '../../features/graph/presentation/widgets/who_to_follow_card.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -62,7 +69,8 @@ enum ContextFamily {
   /// moderation log", lent by the page (its one `GetCommunity`).
   community,
 
-  /// `/communities/:id/moderation-log` (T8a): "About this log" (static).
+  /// `/communities/:id/moderation-log` (T8a): "About this log", lent by the
+  /// page once its log lists entries (the caller moderates).
   moderationLog,
 }
 
@@ -163,8 +171,18 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
     ContextSectionKind.trends,
     WhatsHappeningCard(),
   );
-  ContextSection lent(ContextSectionKind kind) =>
-      ContextSection(kind, ContextPaneSlot(kind: kind, location: location));
+  // Until the page has lent its section (a page being pushed takes its lease
+  // as it builds), the slot draws that section's loading look, never the
+  // footer alone.
+  ContextSection lent(ContextSectionKind kind, Widget placeholder) =>
+      ContextSection(
+        kind,
+        ContextPaneSlot(
+          kind: kind,
+          location: location,
+          placeholder: placeholder,
+        ),
+      );
 
   return [
     ...switch (family) {
@@ -188,16 +206,24 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
       ContextFamily.profile => [if (suggestions) whoToFollow('You might like')],
       // Lent by the page, over its own state (no call of the pane's own).
       ContextFamily.communities => [
-        lent(ContextSectionKind.exploreCommunities),
+        lent(
+          ContextSectionKind.exploreCommunities,
+          const ExploreCommunitiesPanePlaceholder(),
+        ),
       ],
       ContextFamily.communityCreate => [
-        lent(ContextSectionKind.communityPreview),
+        lent(ContextSectionKind.communityPreview, const CommunityPreviewCard()),
       ],
-      ContextFamily.community => [lent(ContextSectionKind.communityAbout)],
-      ContextFamily.moderationLog => const [
-        ContextSection(
+      ContextFamily.community => [
+        lent(
+          ContextSectionKind.communityAbout,
+          const CommunityAboutPanePlaceholder(),
+        ),
+      ],
+      ContextFamily.moderationLog => [
+        lent(
           ContextSectionKind.moderationLogAbout,
-          ModerationLogAbout(),
+          const ModerationLogAboutPlaceholder(),
         ),
       ],
       ContextFamily.none => const <ContextSection>[],

@@ -2,8 +2,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/primitives/app_section_header.dart';
+import '../../../../core/widgets/context_pane.dart';
+import '../../../lists/presentation/widgets/list_row.dart'
+    show listMemberCountLabel;
+import '../../domain/community_role.dart';
 import 'community_about.dart';
+import 'community_row.dart' show communityRoleBadge;
 
 /// A rule of a community being created, as typed (trimmed); either part may
 /// be empty.
@@ -49,15 +53,33 @@ class CommunityDraft {
 /// The placeholder of a draft with no name yet.
 const kCommunityPreviewUnnamed = 'Your Community';
 
+/// The title of the preview's card and dialog.
+const kCommunityPreviewTitle = 'Preview';
+
+/// The role and count a new community starts with: the server makes the
+/// creator its owner and only member (`CreateCommunity`).
+final kCommunityPreviewStanding =
+    '${communityRoleBadge(CommunityRole.owner)} · ${listMemberCountLabel(1)}';
+
 /// How a community being created will read (tablet plan section 4.1,
-/// CreateCommunity): the name, the description and the numbered rules, as
-/// the community's About shows them. Built from the form only: no count, no
-/// role and no call. Shown in band B's context pane and, in band A, in the
-/// header's Preview dialog.
+/// CreateCommunity): the name (bold, as the community's header), the
+/// creator's standing ("Owner · 1 member"), the description and the
+/// numbered rules under a "Rules" heading. Built from the form only: no
+/// call. Shown in band B's context pane ([CommunityPreviewCard]) and, in
+/// band A, in the header's Preview dialog.
 class CommunityPreview extends StatelessWidget {
-  const CommunityPreview({super.key, required this.draft});
+  const CommunityPreview({
+    super.key,
+    required this.draft,
+    this.inset = AppSpacing.md,
+  });
 
   final CommunityDraft draft;
+
+  /// The start and end padding of every line: the card's own (the pane), or
+  /// 0 where the container pads already (the dialog), so the preview lines
+  /// up with the title above it.
+  final double inset;
 
   @override
   Widget build(BuildContext context) {
@@ -72,32 +94,41 @@ class CommunityPreview extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(
-            AppSpacing.md,
-            AppSpacing.sm,
-            AppSpacing.md,
-            AppSpacing.sm,
-          ),
+          padding: EdgeInsets.fromLTRB(inset, AppSpacing.sm, inset, 0),
           child: Text(
             named ? draft.name : kCommunityPreviewUnnamed,
             style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
               color: named ? null : muted,
             ),
           ),
         ),
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            inset,
+            AppSpacing.xs,
+            inset,
+            AppSpacing.sm,
+          ),
+          child: Text(
+            kCommunityPreviewStanding,
+            style: theme.textTheme.bodyMedium?.copyWith(color: muted),
+          ),
+        ),
         if (draft.description.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.md,
-              0,
-              AppSpacing.md,
-              AppSpacing.sm,
-            ),
+            padding: EdgeInsets.fromLTRB(inset, 0, inset, AppSpacing.sm),
             child: Text(draft.description, style: theme.textTheme.bodyLarge),
           ),
-        const AppSectionHeader(title: 'Rules'),
+        Padding(
+          padding: EdgeInsets.fromLTRB(inset, AppSpacing.sm, inset, 0),
+          child: Semantics(
+            header: true,
+            child: Text('Rules', style: theme.textTheme.titleSmall),
+          ),
+        ),
         if (rules.isEmpty)
-          const CommunityNoRules()
+          CommunityNoRules(inset: inset)
         else
           for (var i = 0; i < rules.length; i++)
             CommunityRuleRow(
@@ -105,9 +136,25 @@ class CommunityPreview extends StatelessWidget {
               number: i + 1,
               title: rules[i].title,
               text: rules[i].text,
+              inset: inset,
             ),
         const SizedBox(height: AppSpacing.sm),
       ],
     );
   }
+}
+
+/// The "Preview" card of band B's context pane: [CommunityPreview] of
+/// [draft]. The create page lends it over its form; the pane draws it with
+/// an empty draft until the page has (the slot's placeholder).
+class CommunityPreviewCard extends StatelessWidget {
+  const CommunityPreviewCard({super.key, this.draft = const CommunityDraft()});
+
+  final CommunityDraft draft;
+
+  @override
+  Widget build(BuildContext context) => ContextPaneCard(
+    title: kCommunityPreviewTitle,
+    child: CommunityPreview(draft: draft),
+  );
 }

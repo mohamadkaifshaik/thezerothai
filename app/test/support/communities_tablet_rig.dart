@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
+import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
@@ -140,12 +143,27 @@ class FakeCommunitiesServer extends Mock implements CommunitiesRepository {
       ),
   ];
 
+  /// The community's description (GetCommunity).
+  String description = 'Openings, endgames and puzzles';
+
+  /// Non-null: GetCommunity waits for it (the page's loading state).
+  Completer<void>? holdGet;
+
+  /// Non-null: ListModerationLog waits for it (the log's loading state).
+  Completer<void>? holdLog;
+
+  /// Non-null: ListModerationLog fails with it (locked, not found).
+  AppException? logError;
+
+  /// Non-null: the log a moderator reads, instead of three bans.
+  List<pb.ModerationLogEntry>? logEntries;
+
   int count(String prefix) => calls.where((c) => c.startsWith(prefix)).length;
 
   pb.Community _community() => pb.Community(
     communityId: kRigCommunityId,
     name: 'Chess club',
-    description: 'Openings, endgames and puzzles',
+    description: description,
     memberCount: Int64(5),
     viewerRole: viewerRole,
   );
@@ -192,6 +210,7 @@ class FakeCommunitiesServer extends Mock implements CommunitiesRepository {
   @override
   Future<pb.GetCommunityResponse> getCommunity(String communityId) async {
     calls.add('get:$communityId');
+    await holdGet?.future;
     return pb.GetCommunityResponse(
       community: _community(),
       rules: rules,
@@ -268,6 +287,11 @@ class FakeCommunitiesServer extends Mock implements CommunitiesRepository {
     String pageToken = '',
   }) async {
     calls.add('log:$communityId');
+    await holdLog?.future;
+    final error = logError;
+    if (error != null) throw error;
+    final given = logEntries;
+    if (given != null) return ModerationLogPage(entries: given);
     if (viewerRole != pb.CommunityRole.COMMUNITY_ROLE_MODERATOR &&
         viewerRole != pb.CommunityRole.COMMUNITY_ROLE_OWNER) {
       return const ModerationLogPage(entries: []);
@@ -324,6 +348,7 @@ class CommunitiesTabletRig {
     double textScale = 1,
     Brightness brightness = Brightness.light,
     TextDirection textDirection = TextDirection.ltr,
+    bool settle = true,
   }) async {
     registerFallbackValue(const FeedKey.home());
     registerFallbackValue(HomeTabKind.community);
@@ -475,7 +500,14 @@ class CommunitiesTabletRig {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    // A held load spins forever: [settle] false pumps two frames instead
+    // (the first frame, then the one the pages' leases announce).
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await tester.pump();
+      await tester.pump();
+    }
   }
 
   /// Resizes the window and settles.

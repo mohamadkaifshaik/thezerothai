@@ -20,6 +20,7 @@ import 'bloc/communities_state.dart';
 import 'communities_error_messages.dart';
 import 'widgets/community_join_control.dart';
 import 'widgets/community_row.dart';
+import 'widgets/explore_communities_pane.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
 /// `/communities`: "My Communities" and "Explore Communities" (the
@@ -50,6 +51,11 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   /// (the same rows, Join and states; no call of its own; T8a).
   final _paneLease = ContextPaneLease();
 
+  /// Whether the pane's directory shows every row, after "Show more". The
+  /// pane is a sibling of this page, so its builder listens to this (the
+  /// page's `setState` does not rebuild the slot).
+  final _paneShowsAll = ValueNotifier(false);
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -62,16 +68,51 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
               child: Padding(
                 padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                 // The inline section's own states and rows, as boxes: the
-                // pane is one scroll view (at most 50 rows, the directory's
-                // one page).
+                // pane is one scroll view, so it shows the first
+                // [kExplorePaneRows] and "Show more" for the rest (at most
+                // 50, the directory's one page).
                 child:
                     _directoryStatus(state) ??
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (final c in state.directory)
-                          _exploreRow(context, state, c, inPane: true),
-                      ],
+                    ValueListenableBuilder<bool>(
+                      valueListenable: _paneShowsAll,
+                      builder: (context, showsAll, _) {
+                        final more =
+                            !showsAll &&
+                            state.directory.length > kExplorePaneRows;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (final c
+                                in more
+                                    ? state.directory.take(kExplorePaneRows)
+                                    : state.directory)
+                              _exploreRow(context, state, c, inPane: true),
+                            if (more)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.sm,
+                                ),
+                                child: Align(
+                                  alignment: AlignmentDirectional.centerStart,
+                                  child: TextButton(
+                                    style: TextButton.styleFrom(
+                                      minimumSize: const Size(
+                                        AppSpacing.minTapTarget,
+                                        AppSpacing.minTapTarget,
+                                      ),
+                                    ),
+                                    onPressed: () => _paneShowsAll.value = true,
+                                    child: const Text(
+                                      'Show more',
+                                      semanticsLabel:
+                                          'Show more Communities to explore',
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
                     ),
               ),
             ),
@@ -82,11 +123,12 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   @override
   void dispose() {
     _paneLease.dispose();
+    _paneShowsAll.dispose();
     _cubit.close();
     super.dispose();
   }
 
-  static const _exploreTitle = 'Explore Communities';
+  static const _exploreTitle = kExploreCommunitiesTitle;
 
   void _back() {
     if (context.canPop()) {
@@ -142,7 +184,11 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                           const SliverToBoxAdapter(
                             child: AppSectionHeader(title: 'My Communities'),
                           ),
-                          ..._mine(context, state),
+                          ..._mine(
+                            context,
+                            state,
+                            exploreInPane: exploreInPane,
+                          ),
                           SliverToBoxAdapter(
                             child: exploreInPane
                                 ? const SizedBox.shrink()
@@ -169,7 +215,11 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     );
   }
 
-  List<Widget> _mine(BuildContext context, CommunitiesState state) {
+  List<Widget> _mine(
+    BuildContext context,
+    CommunitiesState state, {
+    required bool exploreInPane,
+  }) {
     switch (state.mineStatus) {
       case CommunitiesLoad.loading:
         return const [
@@ -188,11 +238,15 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
         ];
       case CommunitiesLoad.ready:
         if (state.mine.isEmpty) {
-          return const [
+          // In band B Explore Communities is beside the list, not below it.
+          return [
             SliverToBoxAdapter(
               child: _SectionNote(
-                "You haven't joined any Communities yet. Join one below to "
-                'see its posts.',
+                exploreInPane
+                    ? "You haven't joined any Communities yet. Join one from "
+                          '$_exploreTitle to see its posts.'
+                    : "You haven't joined any Communities yet. Join one below "
+                          'to see its posts.',
               ),
             ),
           ];
@@ -251,19 +305,32 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
         : (joining || community.role.isMember)
         ? CommunityJoinState.joined
         : CommunityJoinState.join;
+    final control = CommunityJoinControl(
+      state: joinState,
+      name: community.name,
+      compact: true,
+      busy: joining,
+      onJoin: () => _join(community),
+    );
     return CommunityRow(
       key: ValueKey('explore-$id'),
       community: community,
       onTap: () => this.context.push(AppRouter.communityPath(id)),
       // The pane is 320 dp: the Join pill goes under the name there.
       trailingBelow: inPane,
-      trailing: CommunityJoinControl(
-        state: joinState,
-        name: community.name,
-        compact: true,
-        busy: joining,
-        onJoin: () => _join(community),
-      ),
+      trailing: inPane
+          // The compact pill is 36 dp inside its 48 dp box, and only the
+          // pill takes a pointer. In the pane the whole box does; the pill
+          // stays the one spoken button. Inline rows keep today's control.
+          ? GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              excludeFromSemantics: true,
+              onTap: joinState == CommunityJoinState.join && !joining
+                  ? () => _join(community)
+                  : null,
+              child: control,
+            )
+          : control,
     );
   }
 

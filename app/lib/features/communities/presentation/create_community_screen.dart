@@ -80,10 +80,7 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
       ContextSectionKind.communityPreview: (context) =>
           ValueListenableBuilder<CommunityDraft>(
             valueListenable: _draft,
-            builder: (context, draft, _) => ContextPaneCard(
-              title: _previewTitle,
-              child: CommunityPreview(draft: draft),
-            ),
+            builder: (context, draft, _) => CommunityPreviewCard(draft: draft),
           ),
     });
   }
@@ -101,7 +98,7 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
     super.dispose();
   }
 
-  static const _previewTitle = 'Preview';
+  static const _previewTitle = kCommunityPreviewTitle;
 
   void _changed() {
     _syncDraft();
@@ -130,7 +127,10 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
       title: _previewTitle,
       body: ValueListenableBuilder<CommunityDraft>(
         valueListenable: _draft,
-        builder: (context, draft, _) => CommunityPreview(draft: draft),
+        // The dialog pads its title and body already: the preview's lines
+        // start where the title does.
+        builder: (context, draft, _) =>
+            CommunityPreview(draft: draft, inset: 0),
       ),
       actions: [
         TextButton(
