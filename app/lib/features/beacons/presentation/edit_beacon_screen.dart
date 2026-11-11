@@ -37,8 +37,9 @@ import 'widgets/plan_tips.dart';
 /// both in the context pane, lent by this page (a loading preview while the
 /// plan loads, nothing when it fails); band A has a Preview header action
 /// that opens the preview in a dialog and the tips inline at the top of the
-/// form, collapsed. The meeting point carries its privacy note there.
-/// Phones and desktop keep today's form (ruling R-1).
+/// form, collapsed. Phones and desktop keep today's form (ruling R-1), but
+/// for the meeting point's privacy note, which shows at every width as on
+/// the create form (owner, 2026-11-11).
 class EditBeaconScreen extends StatefulWidget {
   const EditBeaconScreen({super.key, required this.beaconId});
 
@@ -66,6 +67,9 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
 
   /// Band A's inline tips, open or closed; kept across resizes.
   var _tipsOpen = false;
+
+  /// Band A's open Preview dialog, if any.
+  ModalRoute<void>? _previewRoute;
 
   @override
   void initState() {
@@ -149,24 +153,48 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
   void _openPreview() => showAppDialog<void>(
     context: context,
     maxWidth: AppSize.dialogMax,
-    builder: (dialogContext) => AppDialog(
-      title: kPlanPreviewTitle,
-      body: ValueListenableBuilder<pb.Beacon?>(
-        valueListenable: _draft,
-        // The dialog pads its title and body already: the preview's lines
-        // start where the title does.
-        builder: (context, draft, _) => draft == null
-            ? const SizedBox.shrink()
-            : PlanPreview(beacon: draft, inset: 0),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(dialogContext).pop(),
-          child: const Text('Close'),
+    builder: (dialogContext) {
+      _previewRoute = ModalRoute.of(dialogContext);
+      return AppDialog(
+        title: kPlanPreviewTitle,
+        body: ValueListenableBuilder<pb.Beacon?>(
+          valueListenable: _draft,
+          // The dialog pads its title and body already: the preview's lines
+          // start where the title does.
+          builder: (context, draft, _) => draft == null
+              ? const SizedBox.shrink()
+              : PlanPreview(beacon: draft, inset: 0),
         ),
-      ],
-    ),
-  );
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      );
+    },
+  ).whenComplete(() => _previewRoute = null);
+
+  /// Band A's Preview dialog belongs to band A: past 840 the pane shows the
+  /// preview (it would show twice, once behind the scrim), and at 1200 or
+  /// under 600 there is no preview. When the header action goes away with
+  /// the dialog open, the dialog is popped after that frame.
+  void _closePreviewOffBandA(bool previewAction) {
+    final route = _previewRoute;
+    if (previewAction || route == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Once per dialog, however many builds asked.
+      if (!identical(_previewRoute, route) || !route.isActive) return;
+      _previewRoute = null;
+      final navigator = route.navigator;
+      if (navigator == null) return;
+      if (route.isCurrent) {
+        navigator.maybePop();
+      } else {
+        navigator.removeRoute(route);
+      }
+    });
+  }
 
   void _back() {
     if (context.canPop()) {
@@ -257,6 +285,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
               final busy = state.busy;
               final previewAction = tablet && !previewInPane && b != null;
               final tipsInline = tablet && !tipsInPane && b != null;
+              _closePreviewOffBandA(previewAction);
               final minSpots = b == null
                   ? kBeaconMinSpots
                   : b.acceptedCount.clamp(kBeaconMinSpots, kBeaconMaxSpots);
@@ -358,10 +387,9 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                                     decoration: InputDecoration(
                                       labelText: 'Meeting point',
                                       // The privacy note, as on the create
-                                      // form; tablet only (ruling R-1).
-                                      helperText: tablet
-                                          ? kMeetingPointNote
-                                          : null,
+                                      // form, at every width (ruling 3,
+                                      // owner 2026-11-11).
+                                      helperText: kMeetingPointNote,
                                       errorText: beaconFieldError(
                                         beaconVenueIssue(_venue.text),
                                         max: kBeaconVenueMaxLength,
