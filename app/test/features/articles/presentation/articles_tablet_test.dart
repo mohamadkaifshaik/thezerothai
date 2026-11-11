@@ -514,7 +514,10 @@ void main() {
       expect(box.left, greaterThanOrEqualTo(0));
       expect(box.right, lessThanOrEqualTo(width));
 
-      // The open menu: every option whole.
+      // The open menu: every option whole. (The pane's settings scroll
+      // beyond a third of its height: bring the field into view first.)
+      await tester.ensureVisible(control);
+      await tester.pumpAndSettle();
       await tester.tap(control);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: 'the open menu');
