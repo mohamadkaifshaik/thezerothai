@@ -7,6 +7,7 @@ import '../../../../shared/widgets/primitives/app_form_header.dart';
 import '../../domain/schedule_rules.dart';
 import '../bloc/schedule_dialog_cubit.dart';
 import '../../../../shared/widgets/primitives/app_dialog.dart';
+import '../../../../shared/widgets/primitives/app_pickers.dart';
 
 /// The L-9 note (security review, founder-approved): shown only when
 /// photos are attached, because an uploaded image has a public URL before the
@@ -86,12 +87,15 @@ typedef SchedulePickTime = Future<TimeOfDay?> Function(
   required TimeOfDay initial,
 });
 
+/// The Material date picker: today's `showDatePicker` on phones and
+/// desktop; on the tablet layout centred where the Schedule dialog is (the
+/// content area beside the rail, or the window over a full-screen page).
 Future<DateTime?> _platformPickDate(
   BuildContext context, {
   required DateTime initial,
   required DateTime first,
   required DateTime last,
-}) => showDatePicker(
+}) => showAppDatePicker(
   context: context,
   initialDate: initial,
   firstDate: first,
@@ -99,10 +103,12 @@ Future<DateTime?> _platformPickDate(
   helpText: 'Date',
 );
 
+/// The Material time picker, placed as [_platformPickDate].
 Future<TimeOfDay?> _platformPickTime(
   BuildContext context, {
   required TimeOfDay initial,
-}) => showTimePicker(context: context, initialTime: initial, helpText: 'Time');
+}) =>
+    showAppTimePicker(context: context, initialTime: initial, helpText: 'Time');
 
 /// Opens the Schedule dialog: a full-screen route below
 /// [AppBreakpoints.mobile] wide, a centred dialog above. [initial] is the
