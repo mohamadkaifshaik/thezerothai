@@ -9,6 +9,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/telemetry/telemetry_device_forget.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/domain/auth_failure.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
@@ -193,7 +194,14 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
             ),
             body: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 600),
+                // 680 as a Settings leaf in the tablet shell (the readable
+                // column); 600 everywhere else, including
+                // `/onboarding/delete-account` (AU: no shell, plan 4.2).
+                constraints: BoxConstraints(
+                  maxWidth: (ShellGeometry.maybeOf(context)?.tablet ?? false)
+                      ? AppSize.readableMax
+                      : AppSize.contentMax,
+                ),
                 child: ListView(
                   // Plus the floating bar's inset (`ui_shell`); 0 under the
                   // docked bar.

@@ -365,7 +365,8 @@ void main() {
     expect(AppSize.drawerRow, 56);
     expect(AppSize.avatarMd, 40);
     expect(AppSize.avatarSm, 32);
-    expect(AppIconSize.action, 16);
+    // dz.css `.acts` glyph (R1 restyle; was 16).
+    expect(AppIconSize.action, 18);
     expect(AppBreakpoints.mobile, 600);
     expect(AppBreakpoints.tablet, 1200);
   });

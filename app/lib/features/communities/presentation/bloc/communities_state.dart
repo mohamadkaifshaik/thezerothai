@@ -22,6 +22,8 @@ class CommunitiesState {
     this.directoryError,
     this.joining = const {},
     this.banned = const {},
+    this.mineHasMore = false,
+    this.directoryHasMore = false,
   });
 
   final CommunitiesLoad mineStatus;
@@ -42,6 +44,12 @@ class CommunitiesState {
   /// A Join the server refused as banned: the row says so.
   final Set<String> banned;
 
+  /// The server said there is a next page of "mine" / the directory (never
+  /// at Stage 0). The page loads only the first, so a filter over it (F37)
+  /// cannot say nothing matches.
+  final bool mineHasMore;
+  final bool directoryHasMore;
+
   CommunitiesState copyWith({
     CommunitiesLoad? mineStatus,
     List<pb.Community>? mine,
@@ -54,6 +62,8 @@ class CommunitiesState {
     bool clearDirectoryError = false,
     Set<String>? joining,
     Set<String>? banned,
+    bool? mineHasMore,
+    bool? directoryHasMore,
   }) => CommunitiesState(
     mineStatus: mineStatus ?? this.mineStatus,
     mine: mine ?? this.mine,
@@ -66,5 +76,7 @@ class CommunitiesState {
         : (directoryError ?? this.directoryError),
     joining: joining ?? this.joining,
     banned: banned ?? this.banned,
+    mineHasMore: mineHasMore ?? this.mineHasMore,
+    directoryHasMore: directoryHasMore ?? this.directoryHasMore,
   );
 }

@@ -37,9 +37,10 @@ pb.PostView _view({bool repost = false}) => pb.PostView(
 );
 
 /// List rows lose the padding
-/// that doubled the whitespace already inside their 48dp tap boxes. X's
-/// one-line row is about 99dp; ours goes from 148 to 124 with every tap
-/// target still 48dp.
+/// that doubled the whitespace already inside their 48dp tap boxes. Since the
+/// R1 restyle the row follows the designs' `.post` (14 dp above the avatar
+/// circle, 14 dp below the 36 dp action row): 136 dp for one line, with every
+/// tap target still 48dp.
 void main() {
   Future<void> pumpRow(
     WidgetTester tester, {
@@ -65,33 +66,35 @@ void main() {
     size: const Size(400, 800),
   );
 
-  testWidgets('a one-line list row with actions is 124dp, targets 48dp', (
+  testWidgets('a one-line list row with actions is 136dp, targets 48dp', (
     tester,
   ) async {
     await pumpRow(tester, focal: false);
 
-    // 8 top + 48 author row + 20 text + 48 action row, no bottom padding.
-    expect(tester.getSize(find.byType(PostCard)).height, closeTo(124, 1));
+    // 11 top + 48 author row + 21 text + 48 action row + 8 bottom (R1: was
+    // 8 + 48 + 20 + 48 + 0 = 124).
+    expect(tester.getSize(find.byType(PostCard)).height, closeTo(136, 1));
     expect(
       tester.getSize(find.bySemanticsLabel('Like')).height,
       greaterThanOrEqualTo(AppSpacing.minTapTarget),
     );
-    // The avatar circle still starts 12dp down, as on X.
+    // The avatar circle starts 14dp down, as in the designs (R1: was 12).
     expect(
       tester.getTopLeft(find.byType(CircleAvatar)).dy -
           tester.getTopLeft(find.byType(PostCard)).dy,
-      closeTo(AppSpacing.smd, 0.5),
+      closeTo(14, 0.5),
     );
     expectNoOverflow(tester);
   });
 
-  testWidgets('without actions: 8dp on top, 4 + 12dp below the text', (
+  testWidgets('without actions: 11dp on top, 4 + 12dp below the text', (
     tester,
   ) async {
     await pumpRow(tester, focal: false, withActions: false);
 
-    // 8 + 48 author row + 20 text + 4 spacer + 12 bottom.
-    expect(tester.getSize(find.byType(PostCard)).height, closeTo(92, 1));
+    // 11 + 48 author row + 21 text + 4 spacer + 12 bottom (R1: was 8 top and
+    // 92 in all).
+    expect(tester.getSize(find.byType(PostCard)).height, closeTo(96, 1));
     expectNoOverflow(tester);
   });
 

@@ -548,6 +548,44 @@ void main() {
     textScales: kTabletTextScales,
     heights: {...kTabletHeights, 840: 1194},
   );
+
+  // T8e: the readable column. The tabs sit in the 680 column; their
+  // hairline spans the pane (band A above 760: the only widths where the
+  // column is narrower than the pane).
+  for (final width in [600.0, 834.0, 839.0, 1024.0]) {
+    testWidgets('${width.toInt()} dp: the tab bar in the column, its '
+        'hairline across the pane', (tester) async {
+      await open(tester, width: width);
+      final primary = tester.getRect(
+        find.byKey(const ValueKey('tablet-primary')),
+      );
+      final column = primary.width < 680 ? primary.width : 680.0;
+      final bar = tester.getRect(inScreen(find.byType(AppTabBar)));
+      expect(bar.width, moreOrLessEquals(column));
+      expect(bar.center.dx, moreOrLessEquals(primary.center.dx));
+      final bleed = (primary.width - column) / 2;
+      final hairline = tester.renderObject(
+        inScreen(find.byKey(AppTabBar.hairlineKey)),
+      );
+      if (bleed > 0) {
+        expect(
+          hairline,
+          paints
+            ..rect(rect: Rect.fromLTRB(-bleed, bar.height - 1, 0, bar.height))
+            ..rect(
+              rect: Rect.fromLTRB(
+                bar.width,
+                bar.height - 1,
+                bar.width + bleed,
+                bar.height,
+              ),
+            ),
+        );
+      } else {
+        expect(hairline, isNot(paints..rect()));
+      }
+    });
+  }
 }
 
 const _like = NotificationType.NOTIFICATION_TYPE_LIKE;

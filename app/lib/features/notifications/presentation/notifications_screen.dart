@@ -19,6 +19,7 @@ import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
+import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../shared/widgets/post/post_list_skeleton.dart';
 import '../../../shared/widgets/post/timeline_gap_row.dart';
@@ -305,19 +306,24 @@ class _NotificationsViewState extends State<_NotificationsView>
                       _inset(
                         inset,
                         SliverToBoxAdapter(
-                          child: AppTabBar(
-                            equalWidth: _tabsFitEqually(
-                              context,
-                              tabs,
-                              constraints.maxWidth - 2 * inset,
+                          // The tabs sit in the reading column; on the
+                          // tablet layout their hairline spans the pane.
+                          child: AppMainColumnBleed(
+                            bleed: inset,
+                            child: AppTabBar(
+                              equalWidth: _tabsFitEqually(
+                                context,
+                                tabs,
+                                constraints.maxWidth - 2 * inset,
+                              ),
+                              semanticLabel: 'Notifications timelines',
+                              selectedIndex: tabs.indexOf(tab),
+                              onChanged: (index) =>
+                                  setState(() => _tab = tabs[index]),
+                              tabs: [
+                                for (final t in tabs) AppTab(label: t.label),
+                              ],
                             ),
-                            semanticLabel: 'Notifications timelines',
-                            selectedIndex: tabs.indexOf(tab),
-                            onChanged: (index) =>
-                                setState(() => _tab = tabs[index]),
-                            tabs: [
-                              for (final t in tabs) AppTab(label: t.label),
-                            ],
                           ),
                         ),
                       ),

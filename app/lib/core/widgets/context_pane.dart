@@ -64,6 +64,10 @@ enum ContextSectionKind {
   /// requests" (F16, R8). The inline Follow requests row hides while it
   /// shows.
   followRequests,
+
+  /// `/communities/:id/members`: the "Search members" field (F36, R10),
+  /// lent by the page; its results are the page's list.
+  memberSearch,
 }
 
 /// One section of band B's context pane: a self-gating widget (it draws

@@ -51,6 +51,8 @@ void main() {
             'nothing', (tester) async {
           final rig = CommunitiesTabletRig();
           await rig.pump(tester, width: width, height: 1100);
+          // R10 (F23): inline, the directory is the Explore tab.
+          if (width != 1024) await showExploreTab(tester);
           await _boxInView(tester, _joinPill());
           final pill = _pillOf(tester, _joinPill());
           await tester.tapAt(
@@ -70,6 +72,8 @@ void main() {
           'inside it joins', (tester) async {
         final rig = CommunitiesTabletRig();
         await rig.pump(tester, width: width, height: 1100);
+        // R10 (F23): inline, the directory is the Explore tab.
+        if (width != 1024) await showExploreTab(tester);
         final box = await _boxInView(tester, _joinPill());
         final pill = _pillOf(tester, _joinPill());
         final row = tester.getRect(
@@ -80,10 +84,13 @@ void main() {
               )
               .first,
         );
-        final paneRow = width == 1024;
+        // Under the row: in the pane (1024), or a card row whose name would
+        // get under 140 dp beside the pill (R10 review item 14; 360 in the
+        // test font).
+        final paneRow = box.top >= row.bottom - 0.5;
         if (paneRow) {
-          // In the pane the pill sits under the row: its box starts where
-          // the row's ink ends (the 6 dp band was the row's dead space).
+          // The pill sits under the row: its box starts where the row's ink
+          // ends (the 6 dp band was the row's dead space).
           expect(row.bottom, box.top);
         } else {
           // Inline the pill follows the row's ink, which ends at the box.
@@ -203,6 +210,8 @@ void main() {
       final handle = tester.ensureSemantics();
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, width: width, height: 1100);
+      // R10 (F23): inline, the directory is the Explore tab.
+      if (width != 1024) await showExploreTab(tester);
       final box = await _boxInView(tester, _joinPill());
       expect(find.bySemanticsLabel('Join Book club'), findsOneWidget);
       final node = tester.getSemantics(find.bySemanticsLabel('Join Book club'));

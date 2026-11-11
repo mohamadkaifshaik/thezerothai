@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
+import 'app_main_column.dart';
 
 /// The header of a pushed list page (followers/following): a back button, the
 /// [title] (announced as a header, one line) and a divider underneath. Use it
@@ -69,7 +70,8 @@ class AppBackHeader extends StatelessWidget {
             ],
           ),
         ),
-        const Divider(height: 1),
+        // Spans the pane on the tablet layout (the column's bleed).
+        const AppFullBleed(child: Divider(height: 1)),
       ],
     );
   }

@@ -29,14 +29,19 @@ import '../../../support/context_pane_rig.dart'
 final _communityPath = AppRouter.communityPath(kRigCommunityId);
 final _logPath = AppRouter.communityModerationLogPath(kRigCommunityId);
 
+// R10 (F23): Explore is a tab outside band B, so "below" became "from
+// Explore"; band B names the pane's card, now sentence case.
 const _emptyMineOld =
-    "You haven't joined any Communities yet. Join one below to see its posts.";
+    "You haven't joined any Communities yet. Join one from Explore to see its "
+    'posts.';
 const _emptyMineBandB =
     "You haven't joined any Communities yet. Join one from Explore "
-    'Communities to see its posts.';
+    'communities to see its posts.';
 
-Finder _paneScrollable() =>
-    find.descendant(of: findContextPane(), matching: find.byType(Scrollable));
+/// The pane's own scroll view (R10: its search field has a Scrollable too).
+Finder _paneScrollable() => find
+    .descendant(of: findContextPane(), matching: find.byType(Scrollable))
+    .first;
 
 /// The pane's directory rows (their keys are `explore-<id>`).
 int _paneExploreRows(WidgetTester tester) => inContextPane(
@@ -99,33 +104,29 @@ void main() {
         final rig = CommunitiesTabletRig();
         rig.server.directory = _directoryOf(3);
         await rig.pump(tester, width: w);
-        final bandB = w >= 840 && w < 1200;
-        expect(
-          inCommunitiesPage(find.text(_emptyMineBandB)),
-          bandB ? findsOneWidget : findsNothing,
-        );
-        expect(
-          inCommunitiesPage(find.text(_emptyMineOld)),
-          bandB ? findsNothing : findsOneWidget,
-        );
+        // R10 review item 10: one sentence in every layout ("Explore" is
+        // the tab, or band B's Explore communities card).
+        expect(inCommunitiesPage(find.text(_emptyMineOld)), findsOneWidget);
+        expect(find.text(_emptyMineBandB), findsNothing);
       });
     }
   });
 
-  group('2. the description in the Community pane', () {
-    testWidgets('band B: a description card first, then Rules', (tester) async {
+  group('2. the description (R10 review item 11: in the header)', () {
+    testWidgets('band B: the description is in the page header, and the '
+        'pane starts with Rules (no description card)', (tester) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, location: _communityPath, width: 1024);
-      final about = inContextPane(find.text('About this Community'));
-      final description = inContextPane(
-        find.text('Openings, endgames and puzzles'),
-      );
-      expect(about, findsOneWidget);
-      expect(description, findsOneWidget);
+      expect(find.text('About this Community'), findsNothing);
       expect(
-        tester.getRect(description).bottom,
-        lessThan(tester.getRect(inContextPane(find.text('Rules'))).top),
+        inContextPane(find.text('Openings, endgames and puzzles')),
+        findsNothing,
       );
+      expect(
+        inCommunitiesPage(find.text('Openings, endgames and puzzles')),
+        findsOneWidget,
+      );
+      expect(inContextPane(find.text('Rules')), findsOneWidget);
     });
 
     testWidgets('band B: no description, no card', (tester) async {
@@ -165,7 +166,7 @@ void main() {
       await rig.pump(tester, location: AppRouter.homePath, width: 1024);
       unawaited(rig.router.push(AppRouter.communitiesPath));
       await tester.pump();
-      expect(inContextPane(find.text('Explore Communities')), findsOneWidget);
+      expect(inContextPane(find.text('Explore communities')), findsOneWidget);
       await tester.pumpAndSettle();
       expect(
         inContextPane(find.byKey(const ValueKey('explore-78'))),
@@ -225,7 +226,7 @@ void main() {
     }
 
     for (final (placeholder, title) in [
-      (const ExploreCommunitiesPanePlaceholder(), 'Explore Communities'),
+      (const ExploreCommunitiesPanePlaceholder(), 'Explore communities'),
       (const CommunityAboutPanePlaceholder(), 'Rules'),
       (const CommunityPreviewCard(), 'Preview'),
       (const ModerationLogAboutPlaceholder(), kModerationLogAboutTitle),
@@ -455,6 +456,18 @@ void main() {
       final rig = CommunitiesTabletRig();
       rig.server.directory = _directoryOf(12);
       await rig.pump(tester, width: 744, height: 1100);
+      // R10 (F23): the inline directory is the Explore tab.
+      await showExploreTab(tester);
+      await tester.scrollUntilVisible(
+        inCommunitiesPage(find.byKey(const ValueKey('explore-111'))),
+        100,
+        scrollable: find
+            .descendant(
+              of: findCommunitiesPage(),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
       expect(find.text('Show more'), findsNothing);
     });
   });
@@ -553,16 +566,9 @@ void main() {
         expect(link, findsOneWidget);
         // The header's button has the same label.
         expect(inCommunitiesPage(find.text('Moderation log')), findsOneWidget);
-        // First in the pane: above the description and the rules.
+        // First in the pane: above the rules (the description card is gone,
+        // R10 review item 11).
         final top = tester.getRect(link).top;
-        expect(
-          top,
-          lessThan(
-            tester
-                .getRect(inContextPane(find.text('About this Community')))
-                .top,
-          ),
-        );
         expect(
           top,
           lessThan(tester.getRect(inContextPane(find.text('Rules'))).top),

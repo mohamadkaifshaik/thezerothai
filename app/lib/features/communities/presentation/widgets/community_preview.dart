@@ -7,6 +7,7 @@ import '../../../lists/presentation/widgets/list_row.dart'
     show listMemberCountLabel;
 import '../../domain/community_role.dart';
 import 'community_about.dart';
+import 'community_header.dart' show communityNameStyle;
 import 'community_row.dart' show communityRoleBadge;
 
 /// A rule of a community being created, as typed (trimmed); either part may
@@ -97,10 +98,10 @@ class CommunityPreview extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(inset, AppSpacing.sm, inset, 0),
           child: Text(
             named ? draft.name : kCommunityPreviewUnnamed,
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w800,
-              color: named ? null : muted,
-            ),
+            // The page header's own name style (R10), so the preview
+            // matches the page it previews.
+            style: communityNameStyle(theme)
+                ?.copyWith(color: named ? null : muted),
           ),
         ),
         Padding(
