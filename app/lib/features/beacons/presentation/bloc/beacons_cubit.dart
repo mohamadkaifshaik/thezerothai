@@ -1,6 +1,7 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/network/app_exception.dart';
+import '../../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../communities/data/communities_repository.dart';
 import '../../data/beacons_repository.dart';
 import 'beacons_state.dart';
@@ -15,6 +16,8 @@ import 'beacons_state.dart';
 /// - **Pages.** `limit` 20, `from` unset (the server's now); [loadMore]
 ///   appends with the token; a chip switch starts a fresh page. A generation
 ///   counter drops a stale answer (a load that finished after a later select).
+/// - **Activity (F29).** [selectActivity] filters on the server; the
+///   audience chips and every load and Load more keep it. "All" sends none.
 class BeaconsCubit extends Cubit<BeaconsState> {
   BeaconsCubit({
     required BeaconsRepository repository,
@@ -94,6 +97,32 @@ class BeaconsCubit extends Cubit<BeaconsState> {
     }
   }
 
+  /// Switches the activity chip (F29; UNSPECIFIED is "All") and loads its
+  /// first page, in the selected audience. The same chip again sends
+  /// nothing once its page is shown.
+  Future<void> selectActivity(pb.BeaconActivity activity) async {
+    if (activity == state.activity && state.status == BeaconsLoad.ready) {
+      return;
+    }
+    final generation = ++_generation;
+    _inFlight++;
+    try {
+      emit(
+        state.copyWith(
+          activity: activity,
+          status: BeaconsLoad.loading,
+          views: const [],
+          nextPageToken: '',
+          loadingMore: false,
+          clearError: true,
+        ),
+      );
+      await _loadFirstPage(generation);
+    } finally {
+      _inFlight--;
+    }
+  }
+
   /// Appends the next page; nothing when there is none or one is in flight.
   Future<void> loadMore() async {
     if (!state.hasMore ||
@@ -108,11 +137,12 @@ class BeaconsCubit extends Cubit<BeaconsState> {
         communityId: state.selected.id,
         limit: _pageSize,
         pageToken: state.nextPageToken,
+        activity: state.activity,
       );
       if (_stale(generation)) return;
       emit(
         state.copyWith(
-          views: [...state.views, ...page.views],
+          views: [...state.views, ..._kept(page.views)],
           nextPageToken: page.nextPageToken,
           loadingMore: false,
         ),
@@ -138,17 +168,30 @@ class BeaconsCubit extends Cubit<BeaconsState> {
     }
   }
 
+  /// The rows of the selected activity. The server filters; one from before
+  /// F29 ignores the filter and answers every activity, and those rows are
+  /// dropped here (the page keeps its token, so Load more still shows).
+  List<pb.BeaconView> _kept(List<pb.BeaconView> views) {
+    final activity = state.activity;
+    if (!state.filtered) return views;
+    return [
+      for (final v in views)
+        if (v.beacon.activity == activity) v,
+    ];
+  }
+
   Future<void> _loadFirstPage(int generation) async {
     try {
       final page = await _repository.listBeacons(
         communityId: state.selected.id,
         limit: _pageSize,
+        activity: state.activity,
       );
       if (_stale(generation)) return;
       emit(
         state.copyWith(
           status: BeaconsLoad.ready,
-          views: page.views,
+          views: _kept(page.views),
           nextPageToken: page.nextPageToken,
           loadingMore: false,
           clearError: true,

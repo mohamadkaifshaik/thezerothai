@@ -111,6 +111,7 @@ class _YourPlansSectionState extends State<YourPlansSection> {
             for (final view in state.views.take(PlansSession.yourPlansLimit))
               BeaconRow(
                 view: view,
+                dense: true,
                 selected: view.beacon.beaconId == widget.selectedId,
                 onTap: () => widget.onOpenPlan(view.beacon.beaconId),
               ),

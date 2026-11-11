@@ -139,4 +139,150 @@ void main() {
     expect(captured[0], captured[2]);
     expect((captured[1] as pb.UpdateBeaconRequest).openSpots, 1);
   });
+
+  // F28: start, duration and cost (UpdateBeaconRequest 7-9). Unset means
+  // unchanged; a server from before F28 ignores them and answers the old
+  // values, which must not read as saved.
+  group('start, duration and cost (F28)', () {
+    final later = DateTime(now.year, now.month, now.day + 2, 18, 30);
+    const split = pb.BeaconCost.BEACON_COST_SPLIT_EVENLY;
+
+    pb.UpdateBeaconRequest? last;
+    setUp(() => last = null);
+
+    void answerWith(pb.BeaconView Function(pb.UpdateBeaconRequest r) view) {
+      when(
+        () => beacons.updateBeacon(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          request: any(named: 'request'),
+        ),
+      ).thenAnswer((inv) async {
+        last = inv.namedArguments[#request] as pb.UpdateBeaconRequest;
+        return view(last!);
+      });
+    }
+
+    /// The server applies what it got, as F28 does.
+    pb.BeaconView applied(pb.UpdateBeaconRequest r) {
+      final v = beaconView(
+        startAt: r.hasStartAt() ? r.startAt.toDateTime() : now,
+        title: 'Coffee',
+        details: 'Bring a book',
+        venue: 'Hall',
+        openSpots: 3,
+        accepted: 1,
+        canManage: true,
+      );
+      if (r.hasDurationMinutes()) v.beacon.durationMinutes = r.durationMinutes;
+      if (r.hasCost()) v.beacon.cost = r.cost;
+      return v;
+    }
+
+    Future<EditBeaconCubit> loaded() async {
+      final c = EditBeaconCubit(repository: beacons, beaconId: kBeaconIdA);
+      addTearDown(c.close);
+      await c.load();
+      return c;
+    }
+
+    test('sends only the schedule fields that changed', () async {
+      answerWith(applied);
+      final c = await loaded();
+
+      await c.save(
+        title: 'Coffee',
+        details: 'Bring a book',
+        venue: 'Hall',
+        openSpots: 3,
+        startAt: later,
+        durationMinutes: 60, // the stored value: not a change
+        cost: split,
+      );
+
+      expect(last!.hasStartAt(), isTrue);
+      expect(last!.startAt.toDateTime(), later.toUtc());
+      expect(last!.hasDurationMinutes(), isFalse);
+      expect(last!.hasCost(), isTrue);
+      expect(last!.cost, split);
+      expect(last!.hasTitle(), isFalse);
+      expect(c.state.saved, isNotNull);
+      expect(c.state.saveError, isNull);
+    });
+
+    test('the stored start, duration and cost again: no call', () async {
+      answerWith(applied);
+      final c = await loaded();
+
+      await c.save(
+        title: 'Coffee',
+        details: 'Bring a book',
+        venue: 'Hall',
+        openSpots: 3,
+        startAt: now,
+        durationMinutes: 60,
+        cost: pb.BeaconCost.BEACON_COST_FREE,
+      );
+
+      expect(last, isNull);
+      expect(c.state.saved, isNotNull);
+    });
+
+    test('a server that ignores them (before F28): the form stays with its '
+        'copy, nothing reads as saved', () async {
+      // Applies the title only, as an old server would.
+      answerWith(
+        (r) => beaconView(
+          startAt: now,
+          title: r.hasTitle() ? r.title : 'Coffee',
+          details: 'Bring a book',
+          venue: 'Hall',
+          openSpots: 3,
+          accepted: 1,
+          canManage: true,
+        ),
+      );
+      final c = await loaded();
+
+      await c.save(
+        title: 'Tea',
+        details: 'Bring a book',
+        venue: 'Hall',
+        openSpots: 3,
+        durationMinutes: 90,
+      );
+
+      expect(last!.durationMinutes, 90);
+      expect(c.state.saved, isNull);
+      expect(c.state.busy, isFalse);
+      expect(c.state.saveError, kPlanScheduleNotSaved);
+      // The view is the server's: the title went through, so a retry sends
+      // the duration alone.
+      expect(c.state.view?.beacon.title, 'Tea');
+      expect(c.state.view?.beacon.durationMinutes, 60);
+    });
+
+    test('a refusal after the start reads as "started"', () async {
+      when(
+        () => beacons.updateBeacon(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          request: any(named: 'request'),
+        ),
+      ).thenThrow(StateConflictException('started'));
+      final c = await loaded();
+
+      await c.save(
+        title: 'Coffee',
+        details: 'Bring a book',
+        venue: 'Hall',
+        openSpots: 3,
+        cost: split,
+      );
+
+      expect(
+        c.state.saveError,
+        "This plan has started, so its time and cost can't change.",
+      );
+      expect(c.state.saved, isNull);
+    });
+  });
 }

@@ -68,6 +68,8 @@ const Map<String, String> kScreenNames = {
   '/settings/muted': 'muted_accounts',
   '/settings/export': 'export_data',
   '/settings/delete-account': 'delete_account',
+  '/settings/notifications': 'notification_settings',
+  '/settings/messages': 'message_settings',
   '/creator-studio': 'creator_studio',
   '/advertise': 'advertise',
   '/calls': 'calls',

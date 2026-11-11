@@ -15,7 +15,6 @@ import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_menu_item_row.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
-import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../messages/domain/messaging_feature_flag.dart';
 import '../../messages/presentation/open_conversation.dart';
 import '../../messages/presentation/report_conversation.dart'
@@ -31,8 +30,13 @@ import 'bloc/beacon_detail_state.dart';
 import 'bloc/plans_session.dart';
 import 'plans_list_detail.dart';
 import 'widgets/join_note_sheet.dart';
+import 'widgets/plan_skeletons.dart';
 import 'widgets/plan_summary.dart';
+import '../../../shared/widgets/primitives/app_card.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
+import '../../../shared/widgets/primitives/app_status_pill.dart';
+import 'beacon_people_screen.dart' show kPeopleListNote;
 
 /// The NOT_FOUND text of the plan report sheet.
 const kReportBeaconNotFound = "This plan isn't available to report any more.";
@@ -273,7 +277,7 @@ class _BeaconScreenState extends State<BeaconScreen> {
   Widget _body(BuildContext context, BeaconDetailState state) {
     switch (state.status) {
       case BeaconDetailStatus.loading:
-        return const UserListSkeleton(rows: 2, semanticsLabel: 'Loading plan');
+        return const PlanDetailSkeleton();
       case BeaconDetailStatus.error:
         final error = state.error!;
         if (error is NotFoundException) {
@@ -316,6 +320,11 @@ class _BeaconScreenState extends State<BeaconScreen> {
   }
 }
 
+/// The plan page under the header (R12, the designs' PlanDetail and
+/// PlanDetail-Visitor): the hidden-by-moderation banner, [PlanSummary] (the
+/// hero, the organiser row with the organiser's Edit or the viewer's state,
+/// the details), the People card, then the viewer's one action as a
+/// full-width pill with its line of explanation.
 class _Details extends StatelessWidget {
   const _Details({
     required this.view,
@@ -337,14 +346,6 @@ class _Details extends StatelessWidget {
   final VoidCallback onPeople;
   final VoidCallback onEdit;
 
-  Widget _spinner(IconData icon, BeaconAction action) => busy == action
-      ? const SizedBox(
-          width: AppIconSize.sm,
-          height: AppIconSize.sm,
-          child: CircularProgressIndicator(strokeWidth: 2),
-        )
-      : Icon(icon);
-
   @override
   Widget build(BuildContext context) {
     final b = view.beacon;
@@ -361,6 +362,35 @@ class _Details extends StatelessWidget {
         "You're going",
       _ => null,
     };
+    final organiser = b.organiser.displayName.isEmpty
+        ? '@${b.organiser.handle}'
+        : b.organiser.displayName;
+    final mayList = v.canManage || v.canLeave;
+    Widget action({
+      required String label,
+      required AppButtonVariant variant,
+      required BeaconAction kind,
+      required VoidCallback onPressed,
+      required String busyLabel,
+      required String note,
+    }) => Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AppPillButton(
+            label: label,
+            variant: variant,
+            size: AppButtonSize.large,
+            busy: busy == kind,
+            busySemanticsLabel: busyLabel,
+            onPressed: idle ? onPressed : null,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _Footnote(note),
+        ],
+      ),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -370,61 +400,159 @@ class _Details extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.md),
         ],
-        PlanSummary(beacon: b, viewerPill: viewerPill),
-        if (v.canRequest) ...[
-          const SizedBox(height: AppSpacing.lg),
-          FilledButton.icon(
-            onPressed: idle ? onRequest : null,
-            icon: _spinner(Icons.person_add_alt_outlined, BeaconAction.request),
-            label: const Text('Ask to join'),
-          ),
-        ],
-        if (v.canWithdraw) ...[
-          const SizedBox(height: AppSpacing.lg),
-          OutlinedButton.icon(
-            onPressed: idle ? onWithdraw : null,
-            icon: _spinner(Icons.undo, BeaconAction.withdraw),
-            label: const Text('Withdraw request'),
-          ),
-        ],
-        if (v.canLeave) ...[
-          const SizedBox(height: AppSpacing.lg),
-          OutlinedButton.icon(
-            onPressed: idle ? onLeave : null,
-            icon: _spinner(Icons.logout, BeaconAction.leave),
-            label: const Text('Leave plan'),
-          ),
-        ],
-        if (v.canManage || v.canLeave) ...[
-          const SizedBox(height: AppSpacing.lg),
-          Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
-            children: [
-              OutlinedButton.icon(
-                onPressed: onPeople,
-                icon: const Icon(Icons.people_outline),
-                label: Text('People · ${b.acceptedCount}'),
-              ),
-              if (v.canManage && live)
-                OutlinedButton.icon(
+        PlanSummary(
+          beacon: b,
+          organiserTrailing: v.canManage && live
+              ? AppPillButton(
+                  label: 'Edit',
+                  variant: AppButtonVariant.outline,
+                  compact: true,
                   onPressed: onEdit,
-                  icon: const Icon(Icons.edit_outlined),
-                  label: const Text('Edit'),
-                ),
-              if (canCancel)
-                OutlinedButton.icon(
-                  onPressed: idle ? onCancel : null,
-                  icon: _spinner(
-                    Icons.event_busy_outlined,
-                    BeaconAction.cancel,
-                  ),
-                  label: const Text('Cancel plan'),
-                ),
-            ],
-          ),
+                )
+              : viewerPill == null
+              ? null
+              : AppStatusPill(label: viewerPill, tone: AppStatusTone.info),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        _PeopleCard(beacon: b, onTap: mayList ? onPeople : null),
+        if (!mayList) ...[
+          const SizedBox(height: AppSpacing.sm),
+          const _Footnote(kPeopleListNote, center: false),
         ],
+        if (v.canRequest)
+          action(
+            label: 'Ask to join',
+            variant: AppButtonVariant.primary,
+            kind: BeaconAction.request,
+            onPressed: onRequest,
+            busyLabel: 'Sending request',
+            note: '$organiser approves each request.',
+          ),
+        if (v.canWithdraw)
+          action(
+            label: 'Withdraw request',
+            variant: AppButtonVariant.outline,
+            kind: BeaconAction.withdraw,
+            onPressed: onWithdraw,
+            busyLabel: 'Withdrawing request',
+            note: '$organiser approves each request.',
+          ),
+        if (v.canLeave)
+          action(
+            label: 'Leave plan',
+            variant: AppButtonVariant.outline,
+            kind: BeaconAction.leave,
+            onPressed: onLeave,
+            busyLabel: 'Leaving plan',
+            note: 'Everyone going can see who else is going.',
+          ),
+        if (canCancel)
+          action(
+            label: 'Cancel plan',
+            variant: AppButtonVariant.outline,
+            kind: BeaconAction.cancel,
+            onPressed: onCancel,
+            busyLabel: 'Cancelling plan',
+            note:
+                'You approve each request. Cancel plan asks first; people '
+                'who joined get a notification.',
+          ),
+        const SizedBox(height: AppSpacing.lg),
       ],
+    );
+  }
+}
+
+/// A muted line of explanation under an action (or the People card).
+class _Footnote extends StatelessWidget {
+  const _Footnote(this.text, {this.center = true});
+
+  final String text;
+  final bool center;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Text(
+      text,
+      textAlign: center ? TextAlign.center : TextAlign.start,
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+    );
+  }
+}
+
+/// "People · N going" and the open spots, as a raised card (the designs'
+/// PlanDetail). With [onTap] (the organiser and the people going, who may
+/// see the list) it opens People and has a chevron; otherwise it only says
+/// the counts.
+class _PeopleCard extends StatelessWidget {
+  const _PeopleCard({required this.beacon, required this.onTap});
+
+  final pb.Beacon beacon;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final b = beacon;
+    final open = (b.openSpots - b.acceptedCount).clamp(0, b.openSpots);
+    final title = 'People · ${b.acceptedCount} going';
+    final spots = open == 1 ? '1 open spot left' : '$open open spots left';
+    final content = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Icon(
+              Icons.people_outline,
+              color: context.appColors.accentText,
+              size: AppIconSize.md,
+            ),
+            const SizedBox(width: AppSpacing.smd),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: theme.textTheme.titleSmall),
+                  Text(
+                    spots,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (onTap != null)
+              Icon(
+                Icons.chevron_right,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+          ],
+        ),
+      ),
+    );
+    return Semantics(
+      key: const ValueKey('plan-people-card'),
+      container: true,
+      button: onTap != null,
+      label: '$title, $spots',
+      onTap: onTap,
+      excludeSemantics: true,
+      child: AppCard(
+        padding: EdgeInsets.zero,
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            child: content,
+          ),
+        ),
+      ),
     );
   }
 }

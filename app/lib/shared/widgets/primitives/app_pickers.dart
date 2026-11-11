@@ -72,6 +72,9 @@ Future<TimeOfDay?> showAppTimePicker({
       context: context,
       initialTime: initialTime,
       helpText: helpText,
+      // The same dialog; only a keyboard that would leave it less than its
+      // keyboard-entry minimum is trimmed (see [TimePickerKeyboardRoom]).
+      builder: (context, child) => TimePickerKeyboardRoom(child: child!),
     );
   }
   return showDialog<TimeOfDay>(
@@ -95,9 +98,11 @@ Future<TimeOfDay?> showAppTimePicker({
               math.max(0, insets.right - _timePickerSide),
               math.max(0, insets.bottom - _timePickerEnds),
             ),
-            child: TimePickerDialog(
-              initialTime: initialTime,
-              helpText: helpText,
+            child: TimePickerKeyboardRoom(
+              child: TimePickerDialog(
+                initialTime: initialTime,
+                helpText: helpText,
+              ),
             ),
           );
         },
@@ -109,3 +114,58 @@ Future<TimeOfDay?> showAppTimePicker({
 /// `TimePickerDialog`'s own inset padding (dial mode).
 const double _timePickerSide = 16;
 const double _timePickerEnds = 24;
+
+/// The least height `TimePickerDialog` lays its keyboard-entry body out in
+/// (Flutter's `_kTimePickerInputMinimumHeight`).
+const double kTimePickerInputMinHeight = 216;
+
+/// Keeps a `TimePickerDialog` laid out in at least its keyboard-entry
+/// minimum height above the on-screen keyboard.
+///
+/// The dialog shrinks by the keyboard's height (`viewInsets`), and in
+/// keyboard entry it asks for at least [kTimePickerInputMinHeight] plus its
+/// own padding. On a landscape phone (844 x 390 with a 24 dp status bar) a
+/// keyboard of 120 dp or more left less than that, and Flutter threw
+/// "BoxConstraints has non-normalized height constraints". Here the
+/// keyboard's height, as the dialog sees it, is trimmed to what leaves that
+/// minimum: the dialog stays at its smallest size, the hour and minute
+/// fields at its top stay above the keyboard, and its Cancel / OK row may
+/// sit behind the keyboard until it is closed. When the room is there (any
+/// window but a short one) nothing changes.
+class TimePickerKeyboardRoom extends StatelessWidget {
+  const TimePickerKeyboardRoom({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final media = MediaQuery.of(context);
+        final keyboard = media.viewInsets.bottom;
+        final padding =
+            TimePickerTheme.of(context).padding
+                ?.resolve(Directionality.of(context)) ??
+            const EdgeInsets.all(24);
+        final room = constraints.hasBoundedHeight
+            ? math.max(
+                0.0,
+                constraints.maxHeight -
+                    kTimePickerInputMinHeight -
+                    padding.vertical,
+              )
+            : keyboard;
+        // Always the same tree: a new parent would rebuild the dialog and
+        // drop it from keyboard entry back to the dial.
+        return MediaQuery(
+          data: keyboard <= room
+              ? media
+              : media.copyWith(
+                  viewInsets: media.viewInsets.copyWith(bottom: room),
+                ),
+          child: child,
+        );
+      },
+    );
+  }
+}

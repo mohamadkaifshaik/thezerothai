@@ -55,6 +55,8 @@ class FakeIdentityRepository extends Fake implements IdentityRepository {
     String? website,
     String? pinnedPostId,
     bool? isPrivate,
+    bool? readReceipts,
+    identity.DmPolicy? dmPolicy,
   }) async {
     calls.add(
       UpdateProfileCall(

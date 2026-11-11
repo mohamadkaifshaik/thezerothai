@@ -46,21 +46,25 @@ pb.Beacon draftPlan({
 );
 
 /// [loaded] with the edit form's fields (the `UpdateBeacon` fields this
-/// client sends: title, details, meeting point, open spots), for its
-/// preview (tablet plan section 4.1, PlanEdit). A live plan's status follows
-/// the new seat count as the server's does; a cancelled or ended one keeps
-/// its own. [loaded] is not changed.
+/// client sends: title, details, meeting point, open spots, and with F28
+/// the start, duration and cost when given), for its preview (tablet plan
+/// section 4.1, PlanEdit). A live plan's status follows the new seat count
+/// as the server's does; a cancelled or ended one keeps its own. [loaded]
+/// is not changed.
 pb.Beacon editedPlan(
   pb.Beacon loaded, {
   required String title,
   required String details,
   required String venue,
   required int openSpots,
+  DateTime? startAt,
+  int? durationMinutes,
+  pb.BeaconCost? cost,
 }) {
   final live =
       loaded.status == pb.BeaconStatus.BEACON_STATUS_OPEN ||
       loaded.status == pb.BeaconStatus.BEACON_STATUS_FULL;
-  return loaded.deepCopy()
+  final b = loaded.deepCopy()
     ..title = normalizeListText(title)
     ..details = normalizeListText(details)
     ..venue = normalizeListText(venue)
@@ -68,4 +72,8 @@ pb.Beacon editedPlan(
     ..status = live
         ? beaconLiveStatus(loaded.acceptedCount, openSpots)
         : loaded.status;
+  if (startAt != null) b.startAt = ts.Timestamp.fromDateTime(startAt.toUtc());
+  if (durationMinutes != null) b.durationMinutes = durationMinutes;
+  if (cost != null) b.cost = cost;
+  return b;
 }

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
@@ -11,6 +12,7 @@ import 'package:dzeroth/features/beacons/domain/beacons_feature_flag.dart';
 import 'package:dzeroth/features/beacons/presentation/beacon_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/create_beacon_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/edit_beacon_screen.dart';
+import 'package:dzeroth/features/beacons/presentation/widgets/plan_form_fields.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/plan_preview.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/plan_summary.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/plan_tips.dart';
@@ -233,10 +235,16 @@ void main() {
             expect(findContextPane(), findsNothing);
             expect(find.byType(PlanPreview), findsNothing);
           }
-          // F28 stays out: start, duration and cost are not editable.
-          expect(find.byTooltip('Pick a date'), findsNothing);
-          expect(find.byTooltip('Pick a time'), findsNothing);
-          expect(find.byType(ChoiceChip), findsNothing);
+          // F28 (R12): a plan that has not started takes a new date, time,
+          // duration and cost, with the designs' helper under Date and Time.
+          expect(_inForm(find.byTooltip('Pick a date')), findsOneWidget);
+          expect(_inForm(find.byTooltip('Pick a time')), findsOneWidget);
+          expect(_inForm(find.text(kPlanEditNotifyHelper)), findsOneWidget);
+          expect(
+            _inForm(find.widgetWithText(ChoiceChip, '60 min')),
+            findsOneWidget,
+          );
+          expect(_inForm(find.widgetWithText(ChoiceChip, 'Free')), findsOne);
           expect(rig.server.calls, ['get']);
         });
       }
@@ -310,7 +318,7 @@ void main() {
         realForms: true,
       );
       final hold = rig.server.holdGet = Completer<void>();
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Edit'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Edit'));
       await tester.pump();
       expect(_paneKinds(tester), _formKinds);
       expect(inContextPane(find.text(kPlanPreviewTitle)), findsOneWidget);
@@ -505,6 +513,67 @@ void main() {
       expect(_inPanePreview(find.text('Full')), findsNothing);
       expect(rig.server.calls, ['get']);
     });
+
+    // F28: the edit form's date, time, duration and cost move the preview
+    // too, and its when line equals the form's own labels.
+    testWidgets('edit: the date, time, duration and cost follow', (
+      tester,
+    ) async {
+      final rig = PlansTabletRig();
+      _organise(rig);
+      rig.pickDate = (
+        context, {
+        required initial,
+        required first,
+        required last,
+      }) async => initial.add(const Duration(days: 2));
+      rig.pickTime = (context, {required initial}) async =>
+          const TimeOfDay(hour: 21, minute: 15);
+      await rig.pump(
+        tester,
+        location: _editPath,
+        height: 1100,
+        realForms: true,
+      );
+
+      await _tapInForm(tester, find.byTooltip('Pick a date'));
+      await _tapInForm(tester, find.byTooltip('Pick a time'));
+      String label(String tooltip) => tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byTooltip(tooltip),
+              matching: find.byType(Text),
+            ),
+          )
+          .data!;
+      expect(label('Pick a time'), contains('9:15'));
+      expect(
+        _inPanePreview(
+          find.text(
+            '${label('Pick a date')} at ${label('Pick a time')} · 60 min',
+          ),
+        ),
+        findsOneWidget,
+      );
+
+      await _tapInForm(
+        tester,
+        _inForm(find.widgetWithText(ChoiceChip, '120 min')),
+      );
+      expect(
+        _inPanePreview(find.textContaining(RegExp(r' · 120 min$'))),
+        findsOneWidget,
+      );
+      await _tapInForm(
+        tester,
+        _inForm(find.widgetWithText(ChoiceChip, 'Everyone pays their own')),
+      );
+      expect(
+        _inPanePreview(find.text('Cost: Everyone pays their own')),
+        findsOneWidget,
+      );
+      expect(rig.server.calls, ['get']);
+    });
   });
 
   group('the organiser row (shared with the plan page)', () {
@@ -519,8 +588,8 @@ void main() {
       (599, 1),
       (599, 2),
     ]) {
-      testWidgets('plan page at ${w.toInt()} x$scale: the label whole, at '
-          'the end of the row', (tester) async {
+      testWidgets('plan page at ${w.toInt()} x$scale: the label whole, '
+          'over the name (R12, the designs\' PlanDetail)', (tester) async {
         final rig = PlansTabletRig();
         await rig.pump(
           tester,
@@ -534,8 +603,12 @@ void main() {
           tester.renderObject<RenderParagraph>(label).didExceedMaxLines,
           isFalse,
         );
-        final row = find.ancestor(of: label, matching: find.byType(Row)).first;
-        expect(tester.getRect(label).right, tester.getRect(row).right);
+        final name = find.text('Orla');
+        expect(
+          tester.getRect(label).bottom,
+          lessThanOrEqualTo(tester.getRect(name).top),
+        );
+        expect(tester.getRect(label).left, tester.getRect(name).left);
       });
     }
 
@@ -1053,7 +1126,7 @@ void main() {
         );
         await _tapInForm(
           tester,
-          find.widgetWithText(OutlinedButton, 'Cancel plan'),
+          find.widgetWithText(AppPillButton, 'Cancel plan'),
         );
         expect(find.text('Cancel this plan?'), findsOneWidget);
         final rect = openDialogRect(tester);
