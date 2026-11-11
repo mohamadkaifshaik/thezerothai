@@ -5,6 +5,7 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -73,11 +74,30 @@ void main() {
 
           expect(tester.takeException(), isNull);
           expect(find.text('@user1'), findsOneWidget);
-          expect(find.widgetWithText(TextButton, action), findsNWidgets(2));
+          expect(find.widgetWithText(AppPillButton, action), findsNWidgets(2));
+          // R4 (ManagedAccounts.dc.html): the outline pill and the intro line.
+          expect(
+            tester
+                .widget<AppPillButton>(
+                  find.widgetWithText(AppPillButton, action).first,
+                )
+                .variant,
+            AppButtonVariant.outline,
+          );
+          expect(
+            find.text(
+              blocked
+                  ? "They can't see your plans or message you. They aren't "
+                        'told you blocked them.'
+                  : "You won't see their posts in your timelines. They aren't "
+                        'told you muted them.',
+            ),
+            findsOneWidget,
+          );
           // The row's action keeps a 48dp target.
           expect(
             tester
-                .getSize(find.widgetWithText(TextButton, action).first)
+                .getSize(find.widgetWithText(AppPillButton, action).first)
                 .height,
             greaterThanOrEqualTo(AppSpacing.minTapTarget),
           );

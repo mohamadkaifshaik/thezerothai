@@ -108,6 +108,37 @@ void main() {
       expect(loaded.openSpots, 5);
     });
 
+    // F28: the schedule fields the edit form now sends.
+    test('a new start, duration and cost when given; the loaded ones '
+        'otherwise', () {
+      final loaded = beaconView(startAt: start, durationMinutes: 60).beacon;
+      final later = start.add(const Duration(days: 1, minutes: 30));
+      final b = editedPlan(
+        loaded,
+        title: 'a',
+        details: '',
+        venue: 'v',
+        openSpots: 3,
+        startAt: later,
+        durationMinutes: 90,
+        cost: pb.BeaconCost.BEACON_COST_EVERYONE_PAYS_OWN,
+      );
+      expect(b.startAt.toDateTime(), later.toUtc());
+      expect(b.durationMinutes, 90);
+      expect(b.cost, pb.BeaconCost.BEACON_COST_EVERYONE_PAYS_OWN);
+      final same = editedPlan(
+        loaded,
+        title: 'a',
+        details: '',
+        venue: 'v',
+        openSpots: 3,
+      );
+      expect(same.startAt, loaded.startAt);
+      expect(same.durationMinutes, 60);
+      expect(same.cost, loaded.cost);
+      expect(loaded.durationMinutes, 60);
+    });
+
     test('a live plan follows the seats: FULL when every seat is taken, '
         'OPEN again with a seat free', () {
       final loaded = beaconView(

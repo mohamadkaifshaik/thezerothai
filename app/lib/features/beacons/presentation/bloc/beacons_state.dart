@@ -40,6 +40,7 @@ class BeaconsState {
     this.error,
     this.audiences = const [BeaconsAudience.public()],
     this.selected = const BeaconsAudience.public(),
+    this.activity = pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED,
   });
 
   final BeaconsLoad status;
@@ -57,6 +58,13 @@ class BeaconsState {
   final List<BeaconsAudience> audiences;
   final BeaconsAudience selected;
 
+  /// The activity chip (F29): UNSPECIFIED is "All".
+  final pb.BeaconActivity activity;
+
+  /// A chip other than "All" is selected.
+  bool get filtered =>
+      activity != pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED;
+
   BeaconsState copyWith({
     BeaconsLoad? status,
     List<pb.BeaconView>? views,
@@ -66,6 +74,7 @@ class BeaconsState {
     bool clearError = false,
     List<BeaconsAudience>? audiences,
     BeaconsAudience? selected,
+    pb.BeaconActivity? activity,
   }) => BeaconsState(
     status: status ?? this.status,
     views: views ?? this.views,
@@ -74,5 +83,6 @@ class BeaconsState {
     error: clearError ? null : (error ?? this.error),
     audiences: audiences ?? this.audiences,
     selected: selected ?? this.selected,
+    activity: activity ?? this.activity,
   );
 }

@@ -115,9 +115,63 @@ void main() {
           expect(rect.bottom, lessThanOrEqualTo(390));
         });
 
-        // (A taller keyboard, 120 dp at a 24 dp status bar, makes Flutter's
-        // own TimePickerDialog throw non-normalized constraints on the
-        // window path too, with the shell flags off: not this helper's.)
+        // A taller keyboard (120 dp or more under a 24 dp status bar) left
+        // Flutter's own TimePickerDialog less height than its keyboard-entry
+        // minimum, and it threw "BoxConstraints has non-normalized height
+        // constraints", on the window path too (R12, found by T8d). The
+        // helper keeps that minimum above the keyboard on both paths: the
+        // hour field stays above the keyboard and the dialog in the window.
+        for (final keyboard in const <double>[120, 200]) {
+          for (final tabletFlags in [false, true]) {
+            testWidgets('844 x 390, status bar 24, keyboard $keyboard, '
+                'keyboard entry, ${tabletFlags ? 'tablet layout' : 'flags '
+                          'off (showTimePicker)'}: no throw, the hour field '
+                'above the keyboard', (tester) async {
+              TimeOfDay? result;
+              await pumpTabletModalHost(
+                tester,
+                width: 844,
+                height: 390,
+                padding: const EdgeInsets.only(top: 24),
+                flags: tabletFlags ? kTabletFlags : const <String>{},
+                // Flags off: a full-screen page, since the harness's legacy
+                // chrome itself overflows a 166 dp body (a 200 dp keyboard);
+                // the picker call is the same plain showTimePicker.
+                inShell: tabletFlags,
+                trigger: (_) => trigger(kind, (r) => result = r as TimeOfDay?),
+              );
+              await tester.tap(find.text('open $kind'));
+              await tester.pumpAndSettle();
+              await tester.tap(find.byIcon(Icons.keyboard_outlined));
+              await tester.pumpAndSettle();
+              tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
+              await tester.pumpAndSettle();
+              expect(tester.takeException(), isNull);
+              final rect = openDialogRect(tester);
+              expect(rect.top, greaterThanOrEqualTo(24));
+              expect(rect.bottom, lessThanOrEqualTo(390));
+              final hour = find.descendant(
+                of: find.byType(TimePickerDialog),
+                matching: find.byType(TextField),
+              );
+              expect(hour, findsWidgets);
+              expect(
+                tester.getRect(hour.first).bottom,
+                lessThanOrEqualTo(390 - keyboard),
+              );
+              // Typing still works and the answer comes back once the
+              // keyboard is down.
+              await tester.enterText(hour.first, '7');
+              tester.view.viewInsets = FakeViewPadding.zero;
+              await tester.pumpAndSettle();
+              await tester.tap(find.text('OK'));
+              await tester.pumpAndSettle();
+              expect(tester.takeException(), isNull);
+              expect(result?.hour, 7);
+            });
+          }
+        }
+
         for (final (top, keyboard) in const <(double, double)>[
           (24, 100),
           (40, 80),

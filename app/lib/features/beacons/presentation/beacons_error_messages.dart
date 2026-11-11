@@ -20,6 +20,8 @@ String beaconsErrorMessage(AppException error) {
     StateConflictException(reason: 'not_participant') =>
       "You're not in this plan any more.",
     StateConflictException(reason: 'organiser') => 'You organise this plan.',
+    StateConflictException(reason: 'started') =>
+      "This plan has started, so its time and cost can't change.",
     StateConflictException() =>
       "This plan's state has changed. Refresh and try again.",
     CommunityForbiddenException(reason: CommunityForbiddenReason.notMember) =>
@@ -33,6 +35,9 @@ String beaconsErrorMessage(AppException error) {
           'one to ask again.',
     LimitReachedException(quota: kBeaconParticipantsLimit) =>
       'A plan can have up to $kBeaconMaxSpots open spots.',
+    LimitReachedException(quota: kBeaconEditRowsLimit) =>
+      'This plan has too many requests to change its time. Cancel it and '
+          'create a new one instead.',
     LimitReachedException() => "You've reached the limit for this action.",
     QuotaExceededException() =>
       "You've hit today's limit for this action. It resets tomorrow.",
@@ -46,6 +51,8 @@ String beaconsErrorMessage(AppException error) {
       'Details must be one line of plain text, up to 300 characters.',
     ValidationException(field: 'open_spots') =>
       "Open spots can't go below the people already going.",
+    ValidationException(field: 'start_at') =>
+      'Pick a time between 5 minutes and 30 days from now.',
     ValidationException() => 'Check the details of your plan, then try again.',
     EmailNotVerifiedException() =>
       'Please verify your email address to continue.',

@@ -13,11 +13,13 @@ import '../../../core/widgets/app_state_view.dart';
 import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/shell_geometry.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
+import '../../../shared/widgets/primitives/app_chip.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
-import '../../../shared/widgets/user/user_list_skeleton.dart';
+import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../communities/data/communities_repository.dart';
 import '../data/beacons_repository.dart';
+import '../domain/beacon_labels.dart';
 import '../domain/beacons_feature_flag.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/beacons_cubit.dart';
@@ -25,6 +27,8 @@ import 'bloc/beacons_state.dart';
 import 'bloc/plans_session.dart';
 import 'plans_list_detail.dart';
 import 'widgets/beacon_row.dart';
+import 'widgets/plan_skeletons.dart';
+import 'widgets/plans_activity_filter.dart';
 import 'widgets/your_plans_section.dart';
 
 /// `/plans`: the selected audience's upcoming plans (R30). The audience chips
@@ -47,6 +51,11 @@ class BeaconsScreen extends StatelessWidget {
         : const _PlansPaused();
   }
 }
+
+/// The empty state of an activity chip with no plans (F29): "No walk plans
+/// yet".
+String plansFilteredEmptyTitle(pb.BeaconActivity activity) =>
+    'No ${activityLabel(activity).toLowerCase()} plans yet';
 
 /// The paused copy (accepted, ADR-0034 section 4).
 const kPlansPausedTitle = 'Plans are paused';
@@ -301,15 +310,29 @@ class PlansList extends StatelessWidget {
                       context,
                       cubit,
                       state,
-                      yourPlans
-                          ? YourPlansSection(
-                              session: session,
-                              selectedId: split ? selectedId : null,
-                              onOpenPlan: (id) => _openPlan(context, id),
-                              onSeeAll: () =>
-                                  _push(context, AppRouter.plansMinePath),
-                            )
-                          : null,
+                      _top(context, split ? null : const PlansHeadline(), [
+                        // F29: after the headline, before the cards (the
+                        // designs' order), on every state but paused, so a
+                        // filter with no plans or a failed one is one tap
+                        // from another activity.
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: AppSpacing.xs,
+                          ),
+                          child: PlansActivityFilter(
+                            selected: state.activity,
+                            onSelected: cubit.selectActivity,
+                          ),
+                        ),
+                        if (yourPlans)
+                          YourPlansSection(
+                            session: session,
+                            selectedId: split ? selectedId : null,
+                            onOpenPlan: (id) => _openPlan(context, id),
+                            onSeeAll: () =>
+                                _push(context, AppRouter.plansMinePath),
+                          ),
+                      ]),
                     ),
                   ),
                 ),
@@ -321,8 +344,21 @@ class PlansList extends StatelessWidget {
     );
   }
 
-  /// The rows, or the loading, error and empty states. [top] ("Your
-  /// plans") scrolls with them; without it the tree is exactly today's.
+  /// What scrolls above the rows: the headline (the page), then "Your
+  /// plans" (the tablet layout).
+  Widget? _top(BuildContext context, Widget? headline, List<Widget> rest) {
+    final all = [?headline, ...rest];
+    if (all.isEmpty) return null;
+    if (all.length == 1) return all.single;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: all,
+    );
+  }
+
+  /// The rows, or the loading, error and empty states. [top] (the headline,
+  /// "Your plans") scrolls with them.
   Widget _body(
     BuildContext context,
     BeaconsCubit cubit,
@@ -334,13 +370,8 @@ class PlansList extends StatelessWidget {
         return SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           child: top == null
-              ? const UserListSkeleton(semanticsLabel: 'Loading plans')
-              : Column(
-                  children: [
-                    top,
-                    const UserListSkeleton(semanticsLabel: 'Loading plans'),
-                  ],
-                ),
+              ? const PlanCardListSkeleton()
+              : Column(children: [top, const PlanCardListSkeleton()]),
         );
       case BeaconsLoad.error:
         return _scrollable(
@@ -355,13 +386,27 @@ class PlansList extends StatelessWidget {
           top,
         );
       case BeaconsLoad.ready:
-        if (state.views.isEmpty) {
+        // A filtered page an older server left empty still has its token:
+        // Load more, not the empty state.
+        if (state.views.isEmpty && !state.hasMore) {
           return _scrollable(
-            const AppEmptyView(
-              icon: Icons.event_outlined,
-              title: 'No plans yet',
-              subtitle: 'Create one and invite people along.',
-            ),
+            state.filtered
+                ? AppEmptyView(
+                    icon: Icons.event_outlined,
+                    title: plansFilteredEmptyTitle(state.activity),
+                    subtitle: 'Try another activity, or create one.',
+                    action: TextButton(
+                      onPressed: () => cubit.selectActivity(
+                        pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED,
+                      ),
+                      child: const Text('See all plans'),
+                    ),
+                  )
+                : const AppEmptyView(
+                    icon: Icons.event_outlined,
+                    title: 'No plans yet',
+                    subtitle: 'Create one and invite people along.',
+                  ),
             top,
           );
         }
@@ -418,21 +463,63 @@ class _AudienceChips extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.md,
-        vertical: AppSpacing.sm,
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.xs,
+        AppSpacing.md,
+        0,
       ),
-      child: Wrap(
-        spacing: AppSpacing.sm,
-        runSpacing: AppSpacing.xs,
-        children: [
-          for (final a in state.audiences)
-            ChoiceChip(
-              label: Text(a.name),
-              selected: a == state.selected,
-              onSelected: (_) => onSelect(a),
-            ),
-        ],
+      child: Semantics(
+        container: true,
+        explicitChildNodes: true,
+        label: 'Who can see them',
+        child: Wrap(
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.xs,
+          children: [
+            for (final a in state.audiences)
+              AppFilterPill(
+                label: a.name,
+                selected: a == state.selected,
+                onPressed: () => onSelect(a),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The designs' headline over the Plans list: "What's your plan?", with
+/// "plan" in the accent colour. On the page only (not in band B's narrow
+/// list pane, whose header already says Plans); it scrolls with the rows.
+class PlansHeadline extends StatelessWidget {
+  const PlansHeadline({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final base = theme.textTheme.displaySmall;
+    return Padding(
+      key: const ValueKey('plans-headline'),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.sm,
+        AppSpacing.md,
+        AppSpacing.sm,
+      ),
+      child: Semantics(
+        header: true,
+        child: Text.rich(
+          TextSpan(
+            style: base,
+            children: [
+              const TextSpan(text: "What's your "),
+              TextSpan(text: 'plan', style: AppTextStyles.displayAccent(theme)),
+              const TextSpan(text: '?'),
+            ],
+          ),
+        ),
       ),
     );
   }

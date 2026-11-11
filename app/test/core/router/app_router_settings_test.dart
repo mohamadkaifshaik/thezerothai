@@ -11,6 +11,7 @@ import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:dzeroth/features/settings/data/own_privacy_store.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
@@ -105,6 +106,59 @@ void main() {
 
     setStates(signedIn, ready);
     expect(await resolve(tester, '/'), AppRouter.homePath);
+  });
+
+  group('R4 review UX 7: /settings/messages with both flags off', () {
+    for (final (label, flags, record, expected) in [
+      ('nothing set: back to Settings', <String>{}, null, '/settings'),
+      (
+        'read receipts on (undo rule): the page',
+        <String>{},
+        identity.Profile(userId: 'uid-1', readReceipts: true),
+        '/settings/messages',
+      ),
+      (
+        'People you follow (undo rule): the page',
+        <String>{},
+        identity.Profile(
+          userId: 'uid-1',
+          dmPolicy: identity.DmPolicy.DM_POLICY_FOLLOWING_ONLY,
+        ),
+        '/settings/messages',
+      ),
+      (
+        "another account's value does not count",
+        <String>{},
+        identity.Profile(userId: 'uid-2', readReceipts: true),
+        '/settings',
+      ),
+      ('dm_policy on: the page', {'dm_policy'}, null, '/settings/messages'),
+      (
+        'read_receipts on: the page',
+        {'read_receipts'},
+        null,
+        '/settings/messages',
+      ),
+    ]) {
+      testWidgets(label, (tester) async {
+        final store = OwnPrivacyStore();
+        if (record != null) store.record(record);
+        appRouter = AppRouter(
+          authBloc: auth,
+          onboardingBloc: onboarding,
+          ownPrivacy: store,
+        );
+        setStates(
+          signedIn,
+          OnboardingState(
+            status: OnboardingStatus.ready,
+            profile: identity.Profile(userId: 'uid-1', handle: 'me'),
+            enabledFeatures: {...flags},
+          ),
+        );
+        expect(await resolve(tester, '/settings/messages'), expected);
+      });
+    }
   });
 
   testWidgets('typed in a ready session: c is kept', (tester) async {

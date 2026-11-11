@@ -4,6 +4,7 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -85,7 +86,7 @@ void main() {
       expect(find.text('@one'), findsOneWidget);
       expect(find.text('@two'), findsOneWidget);
 
-      await tester.tap(find.widgetWithText(TextButton, 'Unblock').first);
+      await tester.tap(find.widgetWithText(AppPillButton, 'Unblock').first);
       await tester.pump();
 
       expect(find.text('@one'), findsNothing);
@@ -127,7 +128,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('@three'), findsOneWidget);
-      expect(find.widgetWithText(TextButton, 'Unmute'), findsOneWidget);
+      expect(find.widgetWithText(AppPillButton, 'Unmute'), findsOneWidget);
     });
   });
 }
