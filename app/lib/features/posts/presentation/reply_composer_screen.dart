@@ -8,6 +8,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/router/close_routes_above.dart';
 import '../../../core/storage/app_database.dart';
 import '../../../core/telemetry/usage_reporter.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../shared/widgets/post/conversation_row.dart';
 import '../../../shared/widgets/post/post_card.dart';
@@ -127,6 +128,10 @@ class _ReplyEditorState extends State<_ReplyEditor> {
   @override
   Widget build(BuildContext context) {
     final repliesOn = isFeatureEnabled(context, kPostsSubFeatureReplies);
+    final viewer = viewerAuthorSnapshot(
+      context.read<OnboardingBloc>().state.profile,
+    );
+    final gutter = postCardGutterOf(context);
     final blocked = !repliesOn || replyKnownNotAllowed(widget.parent);
     return BlocConsumer<ComposerCubit, ComposerState>(
       listener: (context, state) {
@@ -165,13 +170,18 @@ class _ReplyEditorState extends State<_ReplyEditor> {
                   connectAfter: true,
                   child: PostCard(
                     view: widget.parent,
+                    // Own posts are told apart (no "Ask to join" on the
+                    // viewer's own plan, the own-post menu).
+                    viewerUserId: viewer.userId,
                     graphActionsEnabled: false,
                   ),
                 ),
+                // In line with the post above: the body column for the text,
+                // the avatar column for the viewer, the card's gutters.
                 Padding(
-                  padding: const EdgeInsetsDirectional.only(
-                    start: 72,
-                    end: 16,
+                  padding: EdgeInsetsDirectional.only(
+                    start: gutter + kPostBodyStart,
+                    end: gutter,
                     bottom: 12,
                   ),
                   child: Text(
@@ -182,16 +192,21 @@ class _ReplyEditorState extends State<_ReplyEditor> {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  padding: EdgeInsets.symmetric(horizontal: gutter),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      AppAvatar(
-                        url: viewerAuthorSnapshot(
-                          context.read<OnboardingBloc>().state.profile,
-                        ).avatarUrl,
+                      SizedBox(
+                        width: AppSpacing.minTapTarget,
+                        child: Center(
+                          child: AppAvatar.sized(
+                            url: viewer.avatarUrl,
+                            size: AppAvatarSize.post,
+                            name: viewer.displayName,
+                          ),
+                        ),
                       ),
-                      const SizedBox(width: 16),
+                      const SizedBox(width: kPostAvatarGap),
                       Expanded(
                         child: TextField(
                           autofocus: !blocked,

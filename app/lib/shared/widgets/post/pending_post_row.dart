@@ -42,6 +42,8 @@ class PendingPostRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final snapshot = author ?? common.AuthorSnapshot();
     final created = createdAt;
+    // Under the post body, on the reading side in RTL as well.
+    final bodyStart = postCardGutterOf(context) + kPostBodyStart;
     final row = Opacity(
       opacity: 0.6,
       child: Column(
@@ -64,8 +66,8 @@ class PendingPostRow extends StatelessWidget {
           ),
           if (thumbnails.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(
-                left: AppSpacing.md,
+              padding: EdgeInsetsDirectional.only(
+                start: bodyStart,
                 bottom: AppSpacing.sm,
               ),
               child: Row(
@@ -99,8 +101,8 @@ class PendingPostRow extends StatelessWidget {
               ),
             ),
           Padding(
-            padding: const EdgeInsets.only(
-              left: AppSpacing.md,
+            padding: EdgeInsetsDirectional.only(
+              start: bodyStart,
               bottom: AppSpacing.sm,
             ),
             child: Text(

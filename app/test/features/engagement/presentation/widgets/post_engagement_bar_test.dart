@@ -263,9 +263,7 @@ void main() {
   testWidgets('a failed Like rolls back and shows one friendly snackbar', (
     tester,
   ) async {
-    stubLike(
-      () async => throw const QuotaExceededException('x'),
-    );
+    stubLike(() async => throw const QuotaExceededException('x'));
     await pump(tester, _view());
 
     await tester.tap(find.byIcon(Icons.favorite_border));
@@ -660,7 +658,11 @@ void main() {
           reason: 'slot $i',
         );
       }
-      expect(bar.right - tester.getRect(share).right, closeTo(slot - 16, 1));
+      // 18 dp glyphs (dz.css `.acts`, R1 restyle; was 16).
+      expect(
+        bar.right - tester.getRect(share).right,
+        closeTo(slot - AppIconSize.action, 1),
+      );
       handle.dispose();
     });
 

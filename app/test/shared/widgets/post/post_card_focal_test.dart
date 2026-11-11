@@ -108,8 +108,12 @@ void main() {
       closeTo(AppFocalPost.bodyLineHeight, 0.01),
     );
     expect(text.maxLines, isNull);
-    // Starts at the card's left padding, under the avatar, not beside it.
-    expect(tester.getTopLeft(find.byType(PostRichText)).dx, AppSpacing.md);
+    // Starts at the card's left padding, under the avatar, not beside it
+    // (the phone gutter is 20 dp since the R1 restyle; was 16).
+    expect(
+      tester.getTopLeft(find.byType(PostRichText)).dx,
+      postCardGutter(phone.size.width),
+    );
   });
 
   testWidgets('the action row is spread with larger glyphs', (tester) async {
@@ -131,7 +135,11 @@ void main() {
         matching: find.byType(InkResponse),
       ),
     );
-    expect(shareBox.right, closeTo(phone.size.width - AppSpacing.md, 1));
+    // The phone gutter is 20 dp since the R1 restyle (was 16).
+    expect(
+      shareBox.right,
+      closeTo(phone.size.width - postCardGutter(phone.size.width), 1),
+    );
     expect(
       tester.getTopLeft(find.byIcon(Icons.ios_share)).dx,
       closeTo(shareBox.left, 1),
