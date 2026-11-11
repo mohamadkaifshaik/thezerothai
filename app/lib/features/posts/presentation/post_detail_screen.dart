@@ -98,21 +98,19 @@ class _PostDetailViewState extends State<_PostDetailView> {
         final cubit = context.read<PostDetailCubit>();
         return _Frame(
           child: switch (state.status) {
-            PostDetailStatus.loading || PostDetailStatus.deleted =>
-              // A placeholder of the post's shape, not a bare spinner.
-              Align(
-                alignment: Alignment.topCenter,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: AppLayout.mainColumnMaxWidth,
-                  ),
-                  child: const PostListSkeleton(
-                    rows: 1,
-                    mediaEvery: 0,
-                    semanticsLabel: 'Loading post',
-                  ),
+            // The opened post's shape, not a bare spinner. A deleted post is
+            // leaving: the same shape, announced as nothing.
+            PostDetailStatus.loading || PostDetailStatus.deleted => Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  maxWidth: AppLayout.mainColumnMaxWidth,
+                ),
+                child: FocalPostSkeleton(
+                  announce: state.status == PostDetailStatus.loading,
                 ),
               ),
+            ),
             PostDetailStatus.notFound => PostUnavailableView(
               onHome: () => context.go(AppRouter.homePath),
             ),

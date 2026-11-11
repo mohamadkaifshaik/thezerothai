@@ -494,7 +494,13 @@ class PostCard extends StatelessWidget {
         ),
       // The plan this post shares (F5), under its text as in the designs.
       // Only on the post itself: a REPOST or QUOTE row never carries one.
-      if (!isRepost && _post.hasBeacon() && postBeaconEmbedEnabled(context))
+      // An unavailable preview draws nothing: search, bookmarks and likes
+      // send that form for every plan (they do not hydrate), so a box saying
+      // "unavailable" would often be false.
+      if (!isRepost &&
+          _post.hasBeacon() &&
+          !_post.beacon.unavailable &&
+          postBeaconEmbedEnabled(context))
         Padding(
           padding: const EdgeInsets.only(top: AppSpacing.sm),
           child: PostBeaconEmbed(beacon: _post.beacon, authorIsViewer: _isOwn),
@@ -665,7 +671,12 @@ class PostCard extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.fromLTRB(
         gutter,
-        dense && contextLabel == null ? kPostListTop : AppSpacing.smd,
+        dense && contextLabel == null
+            ? kPostListTop
+            // A tappable label's 48 dp target carries its own whitespace.
+            : contextLabel is PostContextLabel && contextLabel.onTap != null
+            ? AppSpacing.xs
+            : AppSpacing.smd,
         gutter,
         dense && bar != null ? AppSpacing.sm : AppSpacing.smd,
       ),
@@ -839,13 +850,14 @@ List<Widget> _nameWithBadges(
   required String displayName,
   required bool verified,
   required bool protected,
+  TextStyle? style,
 }) => [
   Flexible(
     child: Text(
       displayName,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: theme.textTheme.titleSmall,
+      style: style ?? theme.textTheme.titleSmall,
     ),
   ),
   if (verified) ...[
@@ -890,6 +902,8 @@ class _FocalAuthorLines extends StatelessWidget {
             displayName: displayName,
             verified: verified,
             protected: protected,
+            // The PostDetail designs' 16 sp name.
+            style: theme.textTheme.titleSmall?.copyWith(fontSize: 16),
           ),
         ),
         Text(

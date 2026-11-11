@@ -75,7 +75,22 @@ class PostContextLabel extends StatelessWidget {
       button: tappable,
       label: semanticsLabel ?? text,
       excludeSemantics: true,
-      child: tappable ? InkWell(onTap: onTap, child: labelText) : labelText,
+      // A tappable label (the community) is a real 48 dp target.
+      child: tappable
+          ? InkWell(
+              onTap: onTap,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minHeight: AppSpacing.minTapTarget,
+                ),
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  widthFactor: 1,
+                  child: labelText,
+                ),
+              ),
+            )
+          : labelText,
     );
     final content = Row(
       mainAxisSize: MainAxisSize.min,

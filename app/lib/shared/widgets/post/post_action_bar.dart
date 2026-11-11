@@ -41,8 +41,10 @@ const kPostActionsMaxWidth = 440.0;
 /// Reply / Repost / Like / Bookmark / Share (the order of every design):
 /// [iconSize] outline glyphs (18 dp, dz.css `.acts`) in 48dp tap boxes with
 /// compact 13 sp counts, across the row up to [kPostActionsMaxWidth] from the
-/// start edge. The first glyph lines up with the text above it. Each visible
-/// action gets an equal slot, its button at the slot's start. Bookmark is
+/// start edge. The first glyph lines up with the text above it. With all
+/// five actions the row is spread edge to edge (`justify-content:
+/// space-between`); with fewer (a flag off) each gets an equal slot, its
+/// button at the slot's start, so they stay together. Bookmark is
 /// filled and accent-coloured when bookmarked. The liked / reposted state
 /// uses the like / repost colours and is announced as `selected`. There are
 /// three counts only: view counts (F1) have no backend yet, so no fourth
@@ -160,8 +162,10 @@ class PostActionBar extends StatelessWidget {
     );
 
     final saved = bookmark(alignEnd: false);
+    // All five (the designs' row): spread edge to edge, `space-between`.
+    final allFive = counted.length == 3 && saved != null && shareShown;
     final Widget row;
-    if (spread) {
+    if (spread || allFive) {
       // Loose flex: each button gets a bounded width (its count can fade at
       // large text) and the space left over spreads them out.
       row = Row(
@@ -173,9 +177,8 @@ class PostActionBar extends StatelessWidget {
         ],
       );
     } else {
-      // Equal slots: with all five actions this is the design's spread row;
-      // with fewer (a flag off) they stay together at the start instead of
-      // drifting to the edges.
+      // Fewer than five (a flag off): equal slots, so they stay together at
+      // the start instead of drifting to the edges.
       row = Row(
         children: [
           for (final button in counted) _ActionSlot(child: button),

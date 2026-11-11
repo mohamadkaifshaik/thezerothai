@@ -72,7 +72,7 @@ class AppCard extends StatelessWidget {
 /// radius, 12 x 16 padding and pearl text. Only the container; the plan
 /// content stays in the beacons feature. Pearl on navy is 15+:1; the accent
 /// on it is the electric teal (9.61).
-class AppPlanStrip extends StatelessWidget {
+class AppPlanStrip extends StatefulWidget {
   const AppPlanStrip({super.key, required this.child, this.onTap});
 
   final Widget child;
@@ -83,14 +83,25 @@ class AppPlanStrip extends StatelessWidget {
   /// The accent colour for text on the strip (the `.eyebrow` and `.go`).
   static const Color accent = AppPalette.tealElectric;
 
-  /// The keyboard focus overlay: pearl, so focus shows on the navy fill in
-  /// both themes (the theme's default overlay is navy-family and vanishes on
-  /// it). Over navy it reads at 3:1 or more.
-  static final Color focusOverlay = AppPalette.pearl.withValues(alpha: 0.4);
+  /// The keyboard focus fill: a light pearl, so the muted and accent text on
+  /// the strip stay at AA over it. The focus itself is shown by the 2 dp
+  /// pearl [focusRingWidth] ring (15:1 on navy); the theme's default overlay
+  /// is navy-family and vanishes on the fill.
+  static final Color focusOverlay = AppPalette.pearl.withValues(alpha: 0.12);
+
+  /// The width of the pearl ring drawn while the strip has keyboard focus.
+  static const double focusRingWidth = 2;
 
   /// Hover and press overlays, in the same pearl.
   static final Color hoverOverlay = AppPalette.pearl.withValues(alpha: 0.08);
   static final Color pressOverlay = AppPalette.pearl.withValues(alpha: 0.16);
+
+  @override
+  State<AppPlanStrip> createState() => _AppPlanStripState();
+}
+
+class _AppPlanStripState extends State<AppPlanStrip> {
+  bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
@@ -108,11 +119,12 @@ class AppPlanStrip extends StatelessWidget {
             constraints: const BoxConstraints(
               minHeight: AppSpacing.minTapTarget - AppSpacing.md,
             ),
-            child: child,
+            child: widget.child,
           ),
         ),
       ),
     );
+    final onTap = widget.onTap;
     final strip = Material(
       color: AppPalette.navy,
       borderRadius: radius,
@@ -121,10 +133,11 @@ class AppPlanStrip extends StatelessWidget {
           ? content
           : InkWell(
               onTap: onTap,
-              focusColor: focusOverlay,
-              hoverColor: hoverOverlay,
-              highlightColor: pressOverlay,
-              splashColor: pressOverlay,
+              onFocusChange: (focused) => setState(() => _focused = focused),
+              focusColor: AppPlanStrip.focusOverlay,
+              hoverColor: AppPlanStrip.hoverOverlay,
+              highlightColor: AppPlanStrip.pressOverlay,
+              splashColor: AppPlanStrip.pressOverlay,
               child: ConstrainedBox(
                 constraints: const BoxConstraints(
                   minHeight: AppSpacing.minTapTarget,
@@ -133,16 +146,22 @@ class AppPlanStrip extends StatelessWidget {
               ),
             ),
     );
-    // On the navy page of the dark theme the strip would have no edge: the
-    // dark hairline draws one (decorative, over the fill).
-    if (Theme.of(context).brightness != Brightness.dark) return strip;
+    // Over the fill (decorative, never hit-testable): the focus ring while
+    // the strip has keyboard focus; else, on the navy page of the dark theme,
+    // the dark hairline, so the strip has an edge.
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final Border? border = _focused && onTap != null
+        ? Border.all(
+            color: AppPalette.pearl,
+            width: AppPlanStrip.focusRingWidth,
+          )
+        : dark
+        ? Border.all(color: AppPalette.hairlineDark)
+        : null;
     return DecoratedBox(
       key: const ValueKey('app-plan-strip-edge'),
       position: DecorationPosition.foreground,
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        border: Border.all(color: AppPalette.hairlineDark),
-      ),
+      decoration: BoxDecoration(borderRadius: radius, border: border),
       child: strip,
     );
   }

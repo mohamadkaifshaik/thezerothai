@@ -77,11 +77,13 @@ class _ReplyingTo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final gutter = postCardGutterOf(context);
     return Padding(
-      padding: const EdgeInsetsDirectional.fromSTEB(
-        AppSpacing.md + AppSpacing.minTapTarget + AppSpacing.sm,
+      // Where the post body starts (the card's gutter, avatar column and gap).
+      padding: EdgeInsetsDirectional.fromSTEB(
+        gutter + kPostBodyStart,
         AppSpacing.sm,
-        AppSpacing.md,
+        gutter,
         0,
       ),
       child: Text(

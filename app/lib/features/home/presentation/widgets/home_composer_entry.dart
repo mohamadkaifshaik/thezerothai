@@ -15,21 +15,37 @@ import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 /// (wide) and this row (narrow) are the entries. In line with the post cards
 /// below it: their gutter, a 42 dp avatar and the 12 dp gap.
 ///
+/// The pill is ink on the page's Material (an [Ink]), so the row's ripple
+/// and keyboard focus highlight paint over it; keyboard focus also draws the
+/// field's 2 dp teal focus border (`.search.on`).
+///
 /// Shown by [HomeScreen] under the same rule as the shell's "New post"
-/// button (`canComposeAt`). Rebuilds only when the viewer's avatar changes.
-class HomeComposerEntry extends StatelessWidget {
+/// button (`canComposeAt`). Rebuilds only when the viewer's avatar or name
+/// changes.
+class HomeComposerEntry extends StatefulWidget {
   const HomeComposerEntry({super.key});
 
   static const promptLabel = 'Write a post';
+
+  @override
+  State<HomeComposerEntry> createState() => _HomeComposerEntryState();
+}
+
+class _HomeComposerEntryState extends State<HomeComposerEntry> {
+  bool _focused = false;
 
   static void _openComposer(BuildContext context) =>
       context.push(AppRouter.composePath);
 
   @override
   Widget build(BuildContext context) {
+    const promptLabel = HomeComposerEntry.promptLabel;
     final theme = Theme.of(context);
     final avatarUrl = context.select(
       (OnboardingBloc bloc) => bloc.state.profile?.avatarThumbUrl ?? '',
+    );
+    final name = context.select(
+      (OnboardingBloc bloc) => bloc.state.profile?.displayName ?? '',
     );
     final gutter = postCardGutterOf(context);
     return DecoratedBox(
@@ -56,6 +72,8 @@ class HomeComposerEntry extends StatelessWidget {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(AppRadius.pill),
                   onTap: () => _openComposer(context),
+                  onFocusChange: (focused) =>
+                      setState(() => _focused = focused),
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(
                       minHeight: AppSpacing.minTapTarget,
@@ -68,6 +86,7 @@ class HomeComposerEntry extends StatelessWidget {
                             child: AppAvatar.sized(
                               url: avatarUrl,
                               size: AppAvatarSize.post,
+                              name: name,
                             ),
                           ),
                         ),
@@ -75,15 +94,22 @@ class HomeComposerEntry extends StatelessWidget {
                         Expanded(
                           // The look of a field (dz.css `.search`): white,
                           // the 3:1 outline, a pill; still only a button.
-                          child: DecoratedBox(
+                          // Ink, not a box: the InkWell's highlight paints
+                          // over it.
+                          child: Ink(
                             decoration: BoxDecoration(
                               color: theme.colorScheme.surfaceContainer,
                               borderRadius: BorderRadius.circular(
                                 AppRadius.pill,
                               ),
-                              border: Border.all(
-                                color: theme.colorScheme.outline,
-                              ),
+                              border: _focused
+                                  ? Border.all(
+                                      color: theme.colorScheme.primary,
+                                      width: 2,
+                                    )
+                                  : Border.all(
+                                      color: theme.colorScheme.outline,
+                                    ),
                             ),
                             child: ConstrainedBox(
                               constraints: const BoxConstraints(

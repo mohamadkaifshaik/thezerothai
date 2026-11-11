@@ -62,3 +62,78 @@ class PostListSkeleton extends StatelessWidget {
     );
   }
 }
+
+/// The placeholder of an opened post (PostDetail while it loads): the
+/// avatar beside two name bars, then the text across the full width under
+/// them, as the focal [PostCard] lays it out. The avatar is 56 dp from the
+/// tablet width up (42 dp on phones) and starts at the card's gutter.
+/// Announced as [semanticsLabel]; with [announce] false (a post that is
+/// leaving, deleted) it says nothing.
+class FocalPostSkeleton extends StatelessWidget {
+  const FocalPostSkeleton({
+    super.key,
+    this.semanticsLabel = 'Loading post',
+    this.announce = true,
+  });
+
+  final String semanticsLabel;
+  final bool announce;
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    final gutter = postCardGutter(width);
+    final avatar = width >= AppBreakpoints.mobile
+        ? AppSize.avatarLg
+        : AppSize.avatarPost;
+    final skeleton = AppSkeletonScope(
+      semanticsLabel: semanticsLabel,
+      child: Padding(
+        padding: EdgeInsetsDirectional.fromSTEB(
+          gutter,
+          AppSpacing.smd,
+          gutter,
+          AppSpacing.smd,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                AppSkeletonBlock(width: avatar, height: avatar, circle: true),
+                const SizedBox(width: kPostAvatarGap),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      FractionallySizedBox(
+                        widthFactor: 0.4,
+                        child: AppSkeletonBlock(height: AppSpacing.md),
+                      ),
+                      SizedBox(height: AppSpacing.sm),
+                      FractionallySizedBox(
+                        widthFactor: 0.3,
+                        child: AppSkeletonBlock(height: AppSpacing.md),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            for (final factor in const [1.0, 1.0, 0.6]) ...[
+              FractionallySizedBox(
+                alignment: AlignmentDirectional.centerStart,
+                widthFactor: factor,
+                child: const AppSkeletonBlock(height: AppSpacing.md + 2),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+            ],
+          ],
+        ),
+      ),
+    );
+    return announce ? skeleton : ExcludeSemantics(child: skeleton);
+  }
+}

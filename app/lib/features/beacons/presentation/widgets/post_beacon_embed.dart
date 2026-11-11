@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
 import '../../../../core/feature_flags/feature_flags.dart';
 import '../../../../core/router/app_router.dart';
@@ -10,7 +11,6 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as beacons;
 import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../../shared/format/scheduled_time.dart';
-import '../../../../shared/widgets/post/unavailable_post_box.dart';
 import '../../../../shared/widgets/primitives/app_card.dart';
 import '../../data/beacons_repository.dart';
 import '../../domain/beacon_labels.dart';
@@ -19,12 +19,8 @@ import '../beacon_icons.dart';
 import '../beacons_error_messages.dart';
 import '../bloc/beacon_detail_cubit.dart';
 import '../bloc/beacon_detail_state.dart';
+import '../bloc/plans_session.dart';
 import 'join_note_sheet.dart';
-
-/// The text of the placeholder a viewer sees for a plan they cannot see
-/// (`BeaconPreview.unavailable`): hidden, deleted, blocked, or a community
-/// plan of a community they are not in. One text for every cause.
-const kPlanUnavailable = 'Plan unavailable';
 
 /// The trailing label once the viewer has asked to join from this card.
 const kPlanRequested = 'Requested';
@@ -48,7 +44,7 @@ bool postBeaconEmbedEnabled(BuildContext context) {
 /// when the plan is not open, and "Ask to join".
 ///
 /// - The server decides the preview for this viewer: an `unavailable` one
-///   shows only [kPlanUnavailable], with nothing of the plan.
+///   draws nothing (the post's own card is not drawn either).
 /// - With `beacons` on, the strip opens the plan page and an OPEN plan
 ///   offers "Ask to join" to anyone but the post's author (only an organiser
 ///   can share their plan, so the author is the organiser). With `beacons`
@@ -76,17 +72,25 @@ class PostBeaconEmbed extends StatefulWidget {
 
 class _PostBeaconEmbedState extends State<PostBeaconEmbed> {
   bool _busy = false;
-  bool _requested = false;
 
   pb.BeaconPreview get _beacon => widget.beacon;
 
-  @override
-  void didUpdateWidget(PostBeaconEmbed oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.beacon.beaconId != widget.beacon.beaconId) {
-      _requested = false;
+  /// The account's session (null without one, as in some tests): it keeps
+  /// the plans asked for this session, so "Requested" survives the card
+  /// being scrolled away and rebuilt.
+  PlansSession? _session() {
+    try {
+      return context.read<PlansSession?>();
+    } on ProviderNotFoundException {
+      return null;
     }
   }
+
+  bool get _requested =>
+      _session()?.requestedFromPost(_beacon.beaconId) ?? _requestedHere;
+
+  /// Without a session: this card's own memory.
+  bool _requestedHere = false;
 
   bool _beaconsOn(BuildContext context) {
     try {
@@ -148,7 +152,8 @@ class _PostBeaconEmbedState extends State<PostBeaconEmbed> {
       final ok = await cubit.request(note);
       if (!mounted) return;
       if (ok) {
-        setState(() => _requested = true);
+        _session()?.markRequestedFromPost(_beacon.beaconId);
+        setState(() => _requestedHere = true);
       } else {
         _say(
           cubit.state.actionError ?? 'Something went wrong. Please try again.',
@@ -162,9 +167,10 @@ class _PostBeaconEmbedState extends State<PostBeaconEmbed> {
 
   @override
   Widget build(BuildContext context) {
-    if (_beacon.unavailable) {
-      return const UnavailablePostBox(message: kPlanUnavailable);
-    }
+    // Nothing for a plan the viewer cannot see, and nothing for the bare
+    // form the surfaces that do not hydrate plans send (search, bookmarks,
+    // likes): no false "unavailable", and nothing of the plan leaks.
+    if (_beacon.unavailable) return const SizedBox.shrink();
     final theme = Theme.of(context);
     final beaconsOn = _beaconsOn(context);
     final status = _beacon.status;
@@ -177,7 +183,7 @@ class _PostBeaconEmbedState extends State<PostBeaconEmbed> {
         _repository() != null;
     final activity = activityLabel(_beacon.activity);
     final when = _beacon.hasStartAt()
-        ? formatScheduledTime(_beacon.startAt.toDateTime())
+        ? planEmbedWhen(_beacon.startAt.toDateTime(), DateTime.now())
         : '';
     // An unknown status (UNSPECIFIED, or a value this build lacks) draws
     // nothing and, like every status but OPEN, offers no Join.
@@ -201,6 +207,7 @@ class _PostBeaconEmbedState extends State<PostBeaconEmbed> {
       if (_requested) kPlanRequested,
     ].join(', ');
     final summary = ExcludeSemantics(
+      key: const ValueKey('post-plan-summary'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -280,18 +287,83 @@ class _PostBeaconEmbedState extends State<PostBeaconEmbed> {
       label: label,
       child: AppPlanStrip(
         onTap: beaconsOn ? _openPlan : null,
-        child: Row(
-          children: [
-            Expanded(child: summary),
-            if (trailing != null) ...[
-              const SizedBox(width: AppSpacing.smd),
-              trailing,
-            ],
-          ],
-        ),
+        child: trailing == null
+            ? summary
+            : LayoutBuilder(
+                builder: (context, constraints) {
+                  // Beside the summary while it keeps at least
+                  // [kPlanSummaryMinWidth]; under it otherwise (a phone at
+                  // large text).
+                  final beside =
+                      constraints.maxWidth -
+                          _trailingWidth(context, theme) -
+                          AppSpacing.smd >=
+                      kPlanSummaryMinWidth;
+                  if (beside) {
+                    return Row(
+                      children: [
+                        Expanded(child: summary),
+                        const SizedBox(width: AppSpacing.smd),
+                        trailing,
+                      ],
+                    );
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      summary,
+                      const SizedBox(height: AppSpacing.sm),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: trailing,
+                      ),
+                    ],
+                  );
+                },
+              ),
       ),
     );
   }
+
+  /// The width the trailing Join (or "Requested") takes beside the summary,
+  /// at the current text scale.
+  double _trailingWidth(BuildContext context, ThemeData theme) {
+    final requested = _requested;
+    final painter = TextPainter(
+      text: TextSpan(
+        text: requested ? kPlanRequested : kPlanAskToJoin,
+        style: theme.textTheme.labelMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final width = painter.width;
+    painter.dispose();
+    if (requested) return width;
+    final button = width + 2 * AppSpacing.smd + 2 * AppSize.componentBorder;
+    return button < kPlanJoinMaxWidth ? button : kPlanJoinMaxWidth;
+  }
+}
+
+/// The least the plan summary keeps beside Join; narrower, Join goes under
+/// it.
+const kPlanSummaryMinWidth = 140.0;
+
+/// The widest Join grows before its label wraps.
+const kPlanJoinMaxWidth = 140.0;
+
+/// The plan's start on the card: `Sat, Nov 14 at 6:00 AM`, with the year
+/// only when it is not [now]'s year (the Plans pages keep the full date).
+String planEmbedWhen(DateTime start, DateTime now) {
+  final local = start.toLocal();
+  final date = local.year == now.toLocal().year
+      ? DateFormat.MMMEd().format(local)
+      : formatScheduledDate(local);
+  return '$date at ${formatScheduledClock(local)}';
 }
 
 /// "Ask to join" on the strip: the electric accent on navy, a 48 dp target,
@@ -306,7 +378,7 @@ class _JoinButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 140),
+      constraints: const BoxConstraints(maxWidth: kPlanJoinMaxWidth),
       child: TextButton(
         onPressed: busy ? null : onPressed,
         style:
@@ -337,12 +409,30 @@ class _JoinButton extends StatelessWidget {
                     ? AppPlanStrip.hoverOverlay
                     : null,
               ),
+              // Keyboard focus: a 2 dp pearl ring instead of the teal one.
+              side: WidgetStateProperty.resolveWith(
+                (states) => states.contains(WidgetState.focused)
+                    ? const BorderSide(
+                        color: AppPalette.pearl,
+                        width: AppPlanStrip.focusRingWidth,
+                      )
+                    : states.contains(WidgetState.disabled)
+                    ? const BorderSide(
+                        color: AppPalette.mutedOnDark,
+                        width: AppSize.componentBorder,
+                      )
+                    : const BorderSide(
+                        color: AppPlanStrip.accent,
+                        width: AppSize.componentBorder,
+                      ),
+              ),
             ),
         child: busy
             ? const SizedBox.square(
                 dimension: AppIconSize.sm,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
+                  color: AppPlanStrip.accent,
                   semanticsLabel: 'Sending request',
                 ),
               )

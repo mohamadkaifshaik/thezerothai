@@ -102,8 +102,19 @@ void main() {
     });
 
     await open(tester, settle: false);
-    // A post-shaped placeholder while it loads (R1 restyle; was a spinner).
-    expect(find.byType(PostListSkeleton), findsOneWidget);
+    // An opened-post-shaped placeholder while it loads (R1 restyle; was a
+    // spinner): the 56 dp avatar at this width, full-width text below it.
+    expect(find.byType(FocalPostSkeleton), findsOneWidget);
+    final circle = find.descendant(
+      of: find.byType(FocalPostSkeleton),
+      matching: find.byWidgetPredicate(
+        (w) =>
+            w is Container &&
+            w.decoration is BoxDecoration &&
+            (w.decoration! as BoxDecoration).shape == BoxShape.circle,
+      ),
+    );
+    expect(tester.getSize(circle).width, AppSize.avatarLg);
 
     done.complete();
     await tester.pumpAndSettle();

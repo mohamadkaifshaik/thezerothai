@@ -2,6 +2,7 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
 import 'package:dzeroth/features/beacons/domain/beacons_feature_flag.dart';
+import 'package:dzeroth/features/beacons/presentation/bloc/plans_session.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/post_beacon_embed.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as beacons;
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -9,6 +10,7 @@ import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import 'package:dzeroth/features/timeline/presentation/widgets/feed_post_row.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
+import 'package:dzeroth/shared/widgets/post/unavailable_post_box.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -87,7 +89,15 @@ void main() {
     TextDirection direction = TextDirection.ltr,
     BeaconsRepository? repository,
     Brightness brightness = Brightness.light,
+    bool longFeed = false,
+    PlansSession? session,
   }) async {
+    final card = PostCard(
+      view: view,
+      viewerUserId: 'me',
+      focal: focal,
+      graphActionsEnabled: false,
+    );
     final router = GoRouter(
       initialLocation: '/',
       routes: [
@@ -96,14 +106,16 @@ void main() {
           builder: (context, _) => Scaffold(
             body: Directionality(
               textDirection: direction,
-              child: SingleChildScrollView(
-                child: PostCard(
-                  view: view,
-                  viewerUserId: 'me',
-                  focal: focal,
-                  graphActionsEnabled: false,
-                ),
-              ),
+              child: longFeed
+                  // A feed: the card, then rows tall enough that scrolling to
+                  // the end disposes it.
+                  ? ListView.builder(
+                      itemCount: 30,
+                      itemBuilder: (context, i) => i == 0
+                          ? card
+                          : SizedBox(height: 300, child: Text('row $i')),
+                    )
+                  : SingleChildScrollView(child: card),
             ),
           ),
         ),
@@ -121,8 +133,15 @@ void main() {
     tester.platformDispatcher.textScaleFactorTestValue = textScale;
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
     await tester.pumpWidget(
-      RepositoryProvider<BeaconsRepository>.value(
-        value: repository ?? server,
+      MultiRepositoryProvider(
+        providers: [
+          RepositoryProvider<BeaconsRepository>.value(
+            value: repository ?? server,
+          ),
+          RepositoryProvider<PlansSession>.value(
+            value: session ?? PlansSession(repository: repository ?? server),
+          ),
+        ],
         child: withPlansFeatures(
           MaterialApp.router(
             theme: buildAppTheme(brightness: brightness),
@@ -175,13 +194,17 @@ void main() {
   });
 
   group('states', () {
-    testWidgets('unavailable: "Plan unavailable", nothing of the plan', (
+    testWidgets('unavailable: nothing at all (no box, no gap, no claim)', (
       tester,
     ) async {
+      // Search, bookmarks and likes send the bare unavailable form for every
+      // plan (no hydration there), so the card must not call it unavailable.
       await pump(tester, view: post(beacon: preview(unavailable: true)));
 
-      expect(find.text(kPlanUnavailable), findsOneWidget);
-      expect(find.text(kPlanAskToJoin), findsNothing);
+      expect(find.byType(PostBeaconEmbed), findsNothing);
+      expect(find.byType(AppPlanStrip), findsNothing);
+      expect(find.byType(UnavailablePostBox), findsNothing);
+      expect(find.textContaining('unavailable'), findsNothing);
       expect(find.textContaining('PLAN'), findsNothing);
     });
 
@@ -236,10 +259,47 @@ void main() {
       await tester.tap(find.text('Send request'));
       await tester.pumpAndSettle();
 
-      expect(server.calls, containsAllInOrder(['get', 'request']));
+      // The cubit reloads after every write (R35): get, request, get.
+      expect(server.calls, ['get', 'request', 'get']);
       expect(server.lastNote, 'See you there');
       expect(find.text(kPlanRequested), findsOneWidget);
       expect(find.text(kPlanAskToJoin), findsNothing);
+    });
+
+    testWidgets('"Requested" survives scrolling the card away and back', (
+      tester,
+    ) async {
+      final session = PlansSession(repository: server);
+      await pump(tester, view: post(), longFeed: true, session: session);
+
+      await tester.tap(find.text(kPlanAskToJoin));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Send request'));
+      await tester.pumpAndSettle();
+      expect(find.text(kPlanRequested), findsOneWidget);
+
+      await tester.drag(find.byType(ListView), const Offset(0, -4000));
+      await tester.pumpAndSettle();
+      expect(find.byType(PostBeaconEmbed), findsNothing, reason: 'disposed');
+      await tester.drag(find.byType(ListView), const Offset(0, 8000));
+      await tester.pumpAndSettle();
+
+      expect(find.text(kPlanRequested), findsOneWidget);
+      expect(find.text(kPlanAskToJoin), findsNothing);
+      expect(session.requestedFromPost(kBeaconIdA), isTrue);
+    });
+
+    testWidgets('a new session (another account) asks again', (tester) async {
+      final session = PlansSession(repository: server);
+      await pump(tester, view: post(), session: session);
+      await tester.tap(find.text(kPlanAskToJoin));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Send request'));
+      await tester.pumpAndSettle();
+      expect(session.requestedFromPost(kBeaconIdA), isTrue);
+
+      session.reset();
+      expect(session.requestedFromPost(kBeaconIdA), isFalse);
     });
 
     testWidgets('dismissing the sheet sends nothing', (tester) async {
@@ -325,12 +385,81 @@ void main() {
       });
     }
 
-    testWidgets('RTL: Join sits at the start-opposite edge', (tester) async {
-      await pump(tester, view: post(), direction: TextDirection.rtl);
+    for (final scale in const [1.0, 2.0]) {
+      testWidgets('at 360 x$scale the summary keeps at least 140 dp, else Join '
+          'goes under it', (tester) async {
+        await pump(tester, view: post(), textScale: scale);
+
+        expectNoOverflow(tester);
+        final summary = tester.getRect(
+          find.byKey(const ValueKey('post-plan-summary')),
+        );
+        final join = tester.getRect(
+          find.ancestor(
+            of: find.text(kPlanAskToJoin),
+            matching: find.byType(TextButton),
+          ),
+        );
+        expect(
+          summary.width >= 140 || join.top >= summary.bottom,
+          isTrue,
+          reason: 'summary $summary, join $join',
+        );
+        if (scale == 2.0) {
+          // Too narrow beside Join at 2.0: Join moves under the summary.
+          expect(join.top, greaterThanOrEqualTo(summary.bottom));
+        }
+      });
+    }
+
+    testWidgets('the time drops the year in the current year', (tester) async {
+      await pump(tester, view: post());
+
+      final when = tester
+          .widgetList<Text>(
+            find.descendant(
+              of: find.byKey(const ValueKey('post-plan-summary')),
+              matching: find.byType(Text),
+            ),
+          )
+          .map((t) => t.data ?? '')
+          .firstWhere((t) => t.contains(' at '));
+      final now = DateTime.now();
+      if (start.year == now.year) {
+        expect(when, isNot(contains('${start.year}')));
+      } else {
+        expect(when, contains('${start.year}'));
+      }
+    });
+
+    testWidgets('RTL, beside the summary (1200): Join sits at the end edge', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        view: post(),
+        direction: TextDirection.rtl,
+        width: 1200,
+      );
 
       final strip = tester.getRect(find.byType(PostBeaconEmbed));
       final join = tester.getRect(find.text(kPlanAskToJoin));
       expect(join.center.dx, lessThan(strip.center.dx));
+      expectNoOverflow(tester);
+    });
+
+    testWidgets('RTL, under the summary (360 x2.0): Join starts at the start '
+        'edge', (tester) async {
+      await pump(
+        tester,
+        view: post(),
+        direction: TextDirection.rtl,
+        textScale: 2.0,
+      );
+
+      final strip = tester.getRect(find.byType(PostBeaconEmbed));
+      final join = tester.getRect(find.text(kPlanAskToJoin));
+      expect(join.center.dx, greaterThan(strip.center.dx));
       expectNoOverflow(tester);
     });
 
@@ -444,25 +573,23 @@ void main() {
   );
 
   group('focus and theme', () {
-    testWidgets('keyboard focus on the strip shows on the navy fill', (
-      tester,
-    ) async {
+    testWidgets('keyboard focus on the strip: a light fill and a 2 dp pearl '
+        'ring, the text stays readable', (tester) async {
       await pump(tester, view: post());
 
-      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-      await tester.pump();
-      // Tab until focus lands in the strip (the card's own controls come
-      // first).
-      for (var i = 0; i < 8; i++) {
-        final focused = FocusManager.instance.primaryFocus?.context;
-        if (focused?.findAncestorWidgetOfExactType<AppPlanStrip>() != null) {
-          break;
-        }
+      for (var i = 0; i < 10; i++) {
         await tester.sendKeyEvent(LogicalKeyboardKey.tab);
         await tester.pump();
+        final focused = FocusManager.instance.primaryFocus?.context;
+        if (focused?.findAncestorWidgetOfExactType<AppPlanStrip>() != null &&
+            focused?.findAncestorWidgetOfExactType<TextButton>() == null) {
+          break;
+        }
       }
       final focused = FocusManager.instance.primaryFocus!.context!;
       expect(focused.findAncestorWidgetOfExactType<AppPlanStrip>(), isNotNull);
+      await tester.pumpAndSettle();
+
       final inkWell = tester.widget<InkWell>(
         find
             .descendant(
@@ -471,10 +598,23 @@ void main() {
             )
             .first,
       );
-      // A pearl overlay: the theme's navy-family default would not show.
       expect(inkWell.focusColor, AppPlanStrip.focusOverlay);
-      final over = Color.alphaBlend(AppPlanStrip.focusOverlay, AppPalette.navy);
-      expect(contrast(over, AppPalette.navy), greaterThanOrEqualTo(3));
+      expect(AppPlanStrip.focusOverlay.a, lessThanOrEqualTo(0.13));
+      // The fill under focus keeps the muted time and the eyebrow at AA.
+      final fill = Color.alphaBlend(AppPlanStrip.focusOverlay, AppPalette.navy);
+      expect(contrast(AppPalette.mutedOnDark, fill), greaterThanOrEqualTo(4.5));
+      expect(contrast(AppPlanStrip.accent, fill), greaterThanOrEqualTo(4.5));
+      // The ring.
+      final edge = tester.widget<DecoratedBox>(
+        find.byKey(const ValueKey('app-plan-strip-edge')),
+      );
+      final border = (edge.decoration as BoxDecoration).border! as Border;
+      expect(border.top.width, 2);
+      expect(border.top.color, AppPalette.pearl);
+      expect(
+        contrast(AppPalette.pearl, AppPalette.navy),
+        greaterThanOrEqualTo(3),
+      );
     });
 
     testWidgets('dark theme: the strip has a hairline edge on the navy page', (

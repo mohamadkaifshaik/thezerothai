@@ -6,6 +6,7 @@ import 'package:dzeroth/shared/widgets/post/embedded_post_card.dart';
 import 'package:dzeroth/shared/widgets/post/poll_card.dart';
 import 'package:dzeroth/shared/widgets/post/post_action_bar.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
+import 'package:dzeroth/shared/widgets/post/post_context_label.dart';
 import 'package:dzeroth/shared/widgets/post/post_list_skeleton.dart';
 import 'package:dzeroth/shared/widgets/post/post_media.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
@@ -175,9 +176,8 @@ void main() {
     });
 
     for (final width in const [360.0, 600.0, 1440.0]) {
-      testWidgets('at $width the five actions share at most 440 dp', (
-        tester,
-      ) async {
+      testWidgets('at $width all five actions spread edge to edge within '
+          '440 dp', (tester) async {
         await _pump(
           tester,
           PostCard(
@@ -192,7 +192,16 @@ void main() {
         final row = bar.width < kPostActionsMaxWidth
             ? bar.width
             : kPostActionsMaxWidth;
-        final slot = row / 5;
+        Rect box(IconData icon) => tester.getRect(
+          find.ancestor(
+            of: find.byIcon(icon),
+            matching: find.byType(InkResponse),
+          ),
+        );
+        // `.acts`: space-between. The first box starts the row, the last
+        // (Share) ends it, at most 440 dp from the start.
+        expect(box(Icons.chat_bubble_outline).left, closeTo(bar.left, 1));
+        expect(box(Icons.ios_share).right, closeTo(bar.left + row, 1));
         final icons = [
           Icons.chat_bubble_outline,
           Icons.repeat,
@@ -200,15 +209,13 @@ void main() {
           Icons.bookmark_border,
           Icons.ios_share,
         ];
-        for (var i = 0; i < icons.length; i++) {
-          expect(
-            tester.getTopLeft(find.byIcon(icons[i])).dx,
-            closeTo(bar.left + i * slot, 1),
-            reason: '${icons[i]}',
-          );
+        final gaps = [
+          for (var i = 1; i < icons.length; i++)
+            box(icons[i]).left - box(icons[i - 1]).right,
+        ];
+        for (final gap in gaps) {
+          expect(gap, greaterThanOrEqualTo(0));
         }
-        final share = tester.getRect(find.byIcon(Icons.ios_share));
-        expect(share.right - bar.left, lessThanOrEqualTo(kPostActionsMaxWidth));
       });
 
       testWidgets('at $width in RTL the row starts at the right', (
@@ -305,6 +312,43 @@ void main() {
     final text = tester.widget<PostRichText>(find.byType(PostRichText));
     expect(text.style?.fontSize, AppFocalPost.bodySizeWide);
   });
+
+  testWidgets('the opened post\'s name is 16 sp (the PostDetail designs)', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      PostCard(
+        view: _view(),
+        focal: true,
+        graphActionsEnabled: false,
+        actions: _actions(),
+      ),
+    );
+
+    final name = tester.widget<Text>(find.text('Alice Example'));
+    expect(name.style?.fontSize, 16);
+  });
+
+  for (final width in const [360.0, 1200.0]) {
+    testWidgets('at $width a tappable community label is a 48 dp target', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        PostContextLabel.community(name: 'Coffee club', onTap: () {}),
+        width: width,
+      );
+
+      final target = tester.getSize(
+        find.ancestor(
+          of: find.text('Coffee club'),
+          matching: find.byType(InkWell),
+        ),
+      );
+      expect(target.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+    });
+  }
 
   group('media and quote', () {
     testWidgets('the media frame has the 20 dp radius', (tester) async {

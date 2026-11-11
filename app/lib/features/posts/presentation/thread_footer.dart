@@ -144,9 +144,10 @@ class _ReplyComposerState extends State<_ReplyComposer> {
       listener: (context, state) => _controller.clear(),
       builder: (context, state) {
         final inline = widget.inline;
-        final avatarUrl = viewerAuthorSnapshot(
+        final viewer = viewerAuthorSnapshot(
           context.read<OnboardingBloc>().state.profile,
-        ).avatarUrl;
+        );
+        final avatarUrl = viewer.avatarUrl;
         // X's inline prompt is the 20dp title size at regular weight.
         final textStyle = inline
             ? theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w400)
@@ -222,10 +223,14 @@ class _ReplyComposerState extends State<_ReplyComposer> {
                                   child: AppAvatar.sized(
                                     url: avatarUrl,
                                     size: AppAvatarSize.post,
+                                    name: viewer.displayName,
                                   ),
                                 ),
                               )
-                            : AppAvatar(url: avatarUrl),
+                            : AppAvatar(
+                                url: avatarUrl,
+                                name: viewer.displayName,
+                              ),
                       ),
                     ),
                     Expanded(
@@ -243,7 +248,8 @@ class _ReplyComposerState extends State<_ReplyComposer> {
                     // 48 dp target.
                     AppPillButton(
                       label: 'Reply',
-                      compact: true,
+                      // Docked on phones: the full pill, as before.
+                      compact: inline,
                       busy: state.isSubmitting,
                       busySemanticsLabel: 'Sending reply',
                       onPressed: state.canSubmit && !widget.blocked
