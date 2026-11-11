@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
@@ -42,6 +44,9 @@ class PlanSummary extends StatelessWidget {
   /// filled in). Null: the text as it is.
   final String? titlePlaceholder;
   final String? venuePlaceholder;
+
+  /// The organiser's avatar (radius 20).
+  static const double _avatarSize = 40;
 
   @override
   Widget build(BuildContext context) {
@@ -108,13 +113,14 @@ class PlanSummary extends StatelessWidget {
         ),
         if (showOrganiser) ...[
           const SizedBox(height: AppSpacing.md),
-          // The role label keeps its natural width while it fits, and gives
-          // way (ellipsis) past 40 % of the row: large text in a narrow
-          // column, such as the 320 dp context pane at 2.0.
+          // The role label keeps its natural width (today's row) as long as
+          // the name keeps at least an avatar's width; past that, large text
+          // in a narrow column such as the 320 dp context pane at 2.0, it
+          // gives way (ellipsis) instead of overflowing the row.
           LayoutBuilder(
             builder: (context, constraints) => Row(
               children: [
-                AppAvatar(url: b.organiser.avatarUrl, radius: 20),
+                AppAvatar(url: b.organiser.avatarUrl, radius: _avatarSize / 2),
                 const SizedBox(width: AppSpacing.smd),
                 Expanded(
                   child: Column(
@@ -137,7 +143,10 @@ class PlanSummary extends StatelessWidget {
                 ),
                 ConstrainedBox(
                   constraints: BoxConstraints(
-                    maxWidth: constraints.maxWidth * 0.4,
+                    maxWidth: math.max(
+                      0,
+                      constraints.maxWidth - 2 * _avatarSize - AppSpacing.smd,
+                    ),
                   ),
                   child: Text(
                     'Organiser',
