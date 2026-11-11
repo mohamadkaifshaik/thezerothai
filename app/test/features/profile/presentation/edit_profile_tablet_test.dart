@@ -77,11 +77,15 @@ void main() {
           // Cancel and Save are there in every mode.
           expect(find.widgetWithText(TextButton, 'Cancel'), findsOneWidget);
           expect(find.text('Save'), findsOneWidget);
-          // Band B on the tablet layout: the Settings categories beside it
-          // (T4), never a context pane.
+          // Band B on the tablet layout (T4) and the desktop master-detail
+          // (`ui_shell`, >= 1200): the Settings categories beside it, never
+          // a context pane.
+          final desktop = flags.contains(kFeatureUiShell) && w >= 1200;
           expect(
             find.byType(SettingsCategoriesPane),
-            _tabletFlags(flags) && _bandB(w) ? findsOneWidget : findsNothing,
+            (_tabletFlags(flags) && _bandB(w)) || desktop
+                ? findsOneWidget
+                : findsNothing,
           );
           if (_tablet(w)) expect(findContextPane(), findsNothing);
         });
