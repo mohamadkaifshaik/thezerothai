@@ -421,6 +421,55 @@ void main() {
       expect(rig.feedRefreshes, 1);
     });
 
+    testWidgets('band B in RTL: the pane on the left, the page beside the '
+        'rail on the right', (tester) async {
+      final rig = CommunitiesTabletRig();
+      await rig.pump(
+        tester,
+        location: _communityPath,
+        width: 1024,
+        textDirection: TextDirection.rtl,
+      );
+      expect(tester.takeException(), isNull);
+      final pane = tester.getRect(findContextPane());
+      final page = tester.getRect(findCommunitiesPage());
+      final rail = tester.getRect(find.byKey(const ValueKey('tablet-rail')));
+      expect(pane.left, 0);
+      expect(page.left, pane.right + 1);
+      expect(rail.right, 1024);
+      expect(inContextPane(find.text('Be kind')), findsOneWidget);
+    });
+
+    for (final w in <double>[834, 1024]) {
+      testWidgets('at $w "Community options" stays an anchored menu (section '
+          '4.2)', (tester) async {
+        final rig = CommunitiesTabletRig();
+        await rig.pump(
+          tester,
+          location: _communityPath,
+          width: w,
+          flags: {...kCommunitiesTabletFlags, 'reports'},
+        );
+        final button = find.byTooltip('Community options');
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        final item = find.text('Report Community');
+        expect(item, findsOneWidget);
+        expect(find.byType(Dialog), findsNothing);
+        expect(find.byType(BottomSheet), findsNothing);
+        // Anchored at the button, inside the page (not the pane).
+        final itemRect = tester.getRect(item);
+        final page = tester.getRect(findCommunitiesPage());
+        expect(
+          (itemRect.center - tester.getCenter(button)).distance,
+          lessThan(300),
+        );
+        expect(itemRect.right, lessThanOrEqualTo(page.right));
+        await tester.tapAt(const Offset(200, 600));
+        await tester.pumpAndSettle();
+      });
+    }
+
     for (final w in <double>[700, 1024]) {
       testWidgets('at $w the Leave confirm is a D 280-400 on the content '
           'area', (tester) async {
@@ -443,25 +492,42 @@ void main() {
   });
 
   group('CommunityMembers (/communities/:id/members)', () {
-    for (final w in _widths) {
-      testWidgets('both flags at $w: members '
-          '${_bandB(w) ? 'beside the global set' : 'alone'}; no "Search '
-          'members", no Moderators tab', (tester) async {
-        final rig = CommunitiesTabletRig();
-        rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
-        await rig.pump(tester, location: _membersPath, width: w);
-        expect(tester.takeException(), isNull);
+    for (final MapEntry(key: mode, value: flags)
+        in kCommunitiesFlagModes.entries) {
+      for (final w in _widths) {
+        final pane = _tabletFlags(flags) && _bandB(w);
+        testWidgets('$mode at $w: members '
+            '${pane ? 'beside the global set' : 'alone'}; no "Search '
+            'members", no Moderators tab', (tester) async {
+          final rig = CommunitiesTabletRig();
+          rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
+          await rig.pump(
+            tester,
+            location: _membersPath,
+            width: w,
+            flags: flags,
+          );
+          expect(tester.takeException(), isNull);
 
-        expect(_paneKinds(tester), _bandB(w) ? _global : isEmpty);
-        expect(inCommunitiesPage(find.text('Member 1')), findsOneWidget);
-        // F36 and F24 stay hidden.
-        expect(find.textContaining('Search members'), findsNothing);
-        expect(_fieldNamed('Search members'), findsNothing);
-        final tabs = tester.widget<AppTabBar>(find.byType(AppTabBar));
-        expect([for (final t in tabs.tabs) t.label], ['Members', 'Banned']);
-        expect(rig.server.count('members:'), 1);
-      });
+          expect(_paneKinds(tester), pane ? _global : isEmpty);
+          expect(inCommunitiesPage(find.text('Member 1')), findsOneWidget);
+          // F36 and F24 stay hidden.
+          expect(find.textContaining('Search members'), findsNothing);
+          expect(_fieldNamed('Search members'), findsNothing);
+          final tabs = tester.widget<AppTabBar>(find.byType(AppTabBar));
+          expect([for (final t in tabs.tabs) t.label], ['Members', 'Banned']);
+          expect(rig.server.count('members:'), 1);
+        });
+      }
     }
+
+    testWidgets('a member (no moderation) gets no tab bar at all, in band B '
+        'too', (tester) async {
+      final rig = CommunitiesTabletRig();
+      await rig.pump(tester, location: _membersPath, width: 1024);
+      expect(find.byType(AppTabBar), findsNothing);
+      expect(_paneKinds(tester), _global);
+    });
 
     testWidgets('pushed from the community page\'s member count: the global '
         'set; back: the community\'s pane', (tester) async {
