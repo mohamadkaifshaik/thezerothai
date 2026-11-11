@@ -48,6 +48,7 @@ import '../features/media/data/media_repository.dart';
 import '../features/media/domain/image_processor.dart';
 import '../features/messages/data/messaging_repository.dart';
 import '../features/messages/domain/messaging_feature_flag.dart';
+import '../features/messages/presentation/bloc/conversations_session.dart';
 import '../features/search/data/recent_searches_store.dart';
 import '../features/search/data/search_repository.dart';
 import '../features/search/presentation/bloc/trends_cubit.dart';
@@ -257,6 +258,18 @@ class _AppWidgetState extends State<AppWidget> {
           repository: widget.beaconsRepository!,
           communities: widget.communitiesRepository,
         );
+  // The inbox and the Requests folder, shared by the `/messages` route, the
+  // band B list pane and the Messages split page (tablet plan sections 5.2
+  // and 5.3). Created on first read only, while Messages is available; the
+  // account reset and access turning `hidden` drop them.
+  late final ConversationsSession _conversations = ConversationsSession(
+    repository: widget.messagingRepository,
+    onUnexpectedError: reportUnexpectedError,
+    // A first Inbox page loaded: the Messages badge re-syncs from its rows
+    // (0 extra reads, D10).
+    onInboxSynced: (rows, {required hasMore}) =>
+        _messagesBadge.resync(rows, hasMore: hasMore),
+  );
   // The "Turn on notifications" card's memory: one "Not now" per
   // account for Home and Notifications; keyed by the signed-in uid.
   // The store is also provided to the tree: Delete account forgets the
@@ -335,6 +348,7 @@ class _AppWidgetState extends State<AppWidget> {
       ..register('home tabs', () => widget.homeTabsRepository?.clearSession())
       ..register('lists', () => widget.listsRepository?.clearSession())
       ..register('plans', () => _plans?.reset())
+      ..register('conversations', _conversations.reset)
       ..register('badges', () {
         widget.unreadBadgeCubit.seed(0);
         _messagesBadge.seed(0);
@@ -385,7 +399,14 @@ class _AppWidgetState extends State<AppWidget> {
     // own: the badge costs 0 extra reads.
     _onboardingSub = widget.onboardingBloc.stream.listen(_onOnboarding);
     _onOnboarding(widget.onboardingBloc.state);
+    // The probe answering, or messaging turning out to be globally off.
+    widget.messagingRepository.gate.addListener(_onMessagingAccess);
   }
+
+  /// Messages became unavailable (`hidden`): the hoisted folders go. A
+  /// read-only caller keeps them (the list still works).
+  void _onMessagingAccess() =>
+      _conversations.accessChanged(widget.messagingRepository.gate.access);
 
   /// The user whose expired drafts were last purged.
   String? _purgedDraftsUid;
@@ -452,6 +473,8 @@ class _AppWidgetState extends State<AppWidget> {
     // `beacons` off drops the hoisted Plans list; `communities` changing
     // rebuilds it (its audience chips are fixed at construction).
     if (flagsChanged) _plans?.featuresChanged(state.enabledFeatures);
+    // `messaging` off with no read-only answer drops the hoisted folders.
+    if (flagsChanged) _onMessagingAccess();
     final uid = state.profile?.userId;
     if (flagsChanged || uid != _probedUid) {
       _probedUid = uid;
@@ -499,6 +522,8 @@ class _AppWidgetState extends State<AppWidget> {
     _suggestions.close();
     _trends?.close();
     _plans?.dispose();
+    widget.messagingRepository.gate.removeListener(_onMessagingAccess);
+    _conversations.dispose();
     _themeMode.close();
     _pushOptIn.close();
     _telemetryConsentCubit?.close();
@@ -560,6 +585,7 @@ class _AppWidgetState extends State<AppWidget> {
           RepositoryProvider.value(value: widget.beaconsRepository!),
         if (_plans case final plans?)
           RepositoryProvider<PlansSession>.value(value: plans),
+        RepositoryProvider<ConversationsSession>.value(value: _conversations),
       ],
       child: MultiBlocProvider(
         providers: [

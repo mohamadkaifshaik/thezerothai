@@ -40,11 +40,13 @@ import '../../features/home/presentation/home_screen.dart';
 import '../../features/messages/domain/conversation_id.dart'
     show kConversationIdPattern;
 import '../../features/messages/domain/messaging_feature_flag.dart';
+import '../../features/messages/domain/messages_list_detail.dart';
 import '../../features/messages/domain/messaging_feature_gate.dart';
 import '../../features/messages/presentation/conversations_screen.dart';
 import '../../features/messages/presentation/draft_thread_screen.dart';
 import '../../features/messages/presentation/recipient_picker_screen.dart';
 import '../../features/messages/presentation/report_conversation.dart';
+import '../../features/messages/presentation/thread_route_page.dart';
 import '../../features/messages/presentation/thread_screen.dart';
 import '../../features/messages/presentation/widgets/message_composer.dart';
 import '../../features/messages/presentation/widgets/request_banner.dart';
@@ -468,7 +470,14 @@ class AppRouter {
             builder: (context, state) => AuthGate(
               child: ConversationsScreen(
                 folder: Folder.FOLDER_REQUESTS,
-                onOpenConversation: (id) => context.push(messagePath(id)),
+                // The thread's split page (840-1199dp) keeps the Requests
+                // list beside it; the extra changes nothing elsewhere.
+                onOpenConversation: (id) => context.push(
+                  messagePath(id),
+                  extra: Folder.FOLDER_REQUESTS,
+                ),
+                // The band B placeholder's action.
+                onNewMessage: () => context.push(messageNewPath),
               ),
             ),
           ),
@@ -698,35 +707,67 @@ class AppRouter {
         pageBuilder: (context, state) =>
             RecipientPickerPage(key: state.pageKey),
       ),
+      // The two thread routes stay root (tablet plan section 5.3): full
+      // screen below 840dp and on desktop, the split page (rail, list,
+      // thread) at 840-1199dp on the tablet layout. `ThreadRoutePage` keeps
+      // the `AuthGate` outermost and the thread's state across 840dp.
       GoRoute(
         path: messageDraftPath,
         // A reload or a typed URL has no person: back to the picker.
         redirect: (context, state) =>
             state.extra is common.AuthorSnapshot ? null : messageNewPath,
-        builder: (context, state) => AuthGate(
-          child: DraftThreadScreen(peer: state.extra! as common.AuthorSnapshot),
+        pageBuilder: (context, state) => _threadPage(
+          state,
+          ThreadRoutePage(
+            location: state.matchedLocation,
+            folder: Folder.FOLDER_INBOX,
+            thread: DraftThreadScreen(
+              peer: state.extra! as common.AuthorSnapshot,
+            ),
+          ),
         ),
       ),
       // One conversation, full-screen (no nav chrome under a composer).
       // After the ShellRoute on purpose, see `messagesPath`.
       GoRoute(
         path: '$messagesPath/:id',
-        builder: (context, state) => AuthGate(
-          child: ThreadScreen(
-            conversationId: state.pathParameters['id']!,
-            // The composer under the list (read-only threads and a
-            // caller without `messaging` get none).
-            composerBuilder: (context, conversation) => const MessageComposer(),
-            // The request banner (Accept / Delete / Block) in place of
-            // the composer, the sender's waiting note, and the info menu's
-            // Report of the peer's account (the bubbles report messages).
-            bannerBuilder: buildRequestBanner,
-            onReport: reportConversationPeer,
+        pageBuilder: (context, state) => _threadPage(
+          state,
+          ThreadRoutePage(
+            location: state.matchedLocation,
+            // Opened from the Requests folder: its list beside the thread.
+            folder: messagesSplitFolderOf(state.extra),
+            thread: ThreadScreen(
+              conversationId: state.pathParameters['id']!,
+              // The composer under the list (read-only threads and a
+              // caller without `messaging` get none).
+              composerBuilder: (context, conversation) =>
+                  const MessageComposer(),
+              // The request banner (Accept / Delete / Block) in place of
+              // the composer, the sender's waiting note, and the info menu's
+              // Report of the peer's account (the bubbles report messages).
+              bannerBuilder: buildRequestBanner,
+              onReport: reportConversationPeer,
+            ),
           ),
         ),
       ),
     ],
   );
+
+  /// The page of a thread route: [ThreadPage] at every width, with the
+  /// name, arguments and restoration id go_router gives its default pages.
+  static Page<void> _threadPage(GoRouterState state, Widget child) =>
+      ThreadPage<void>(
+        key: state.pageKey,
+        name: state.name ?? state.path,
+        arguments: <String, String>{
+          ...state.pathParameters,
+          ...state.uri.queryParameters,
+        },
+        restorationId: state.pageKey.value,
+        child: child,
+      );
 
   // The shared link a visitor cold-opened, kept in memory (never in a
   // visible URL) while the redirects send them through the splash, sign-in and

@@ -11,8 +11,11 @@ import '../../features/communities/domain/communities_feature_flag.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
 import '../../features/graph/presentation/graph_feature_flags.dart';
 import '../../features/graph/presentation/widgets/who_to_follow_card.dart';
+import '../../features/messages/domain/messages_list_detail.dart';
 import '../../features/messages/domain/messaging_feature_flag.dart';
+import '../../features/messages/presentation/bloc/conversations_session.dart';
 import '../../features/messages/presentation/bloc/messages_badge_cubit.dart';
+import '../../features/messages/presentation/messages_list_detail.dart';
 import '../../features/notifications/domain/notifications_feature_flag.dart';
 import '../../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -21,6 +24,7 @@ import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/search/domain/search_feature_flags.dart';
 import '../../features/search/presentation/widgets/app_search_field.dart';
 import '../../features/search/presentation/widgets/whats_happening_card.dart';
+import '../../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
 import 'shell_entries.dart';
 import '../../shared/widgets/primitives/app_side_column.dart';
 import '../feature_flags/feature_flags.dart';
@@ -58,11 +62,19 @@ class MainShell extends StatelessWidget {
     required this.location,
     required this.child,
     this.uri,
+    this.splitFolder,
   });
 
   /// The matched location (a path, no query).
   final String location;
   final Widget child;
+
+  /// Non-null when this shell is the Messages split page (tablet plan section
+  /// 5.3): built by `ThreadRoutePage` inside the root thread route at
+  /// 840-1199dp, not by the `ShellRoute`. [location] is then the thread's
+  /// (`/messages/<id>`, `/messages/new/draft`), [child] the thread, and the
+  /// list pane shows this folder with the open conversation selected.
+  final Folder? splitFolder;
 
   /// The whole location, query included (the `ShellRoute` passes
   /// `state.uri`); defaults to [location]. Settings' list pane reads its
@@ -222,9 +234,11 @@ class MainShell extends StatelessWidget {
     if (location.startsWith(AppRouter.explorePath)) return _Tab.explore;
     if (location.startsWith('/notifications')) return _Tab.notifications;
     // The inbox and its Requests folder (the shell's children). A conversation
-    // and the people picker are full-screen routes outside the shell.
+    // and the people picker are full-screen routes outside the shell; at
+    // 840-1199dp the thread routes draw a split page whose shell is given the
+    // thread's location (`/messages/<id>`, `/messages/new/draft`).
     if (location == AppRouter.messagesPath ||
-        location == AppRouter.messageRequestsPath) {
+        location.startsWith('${AppRouter.messagesPath}/')) {
       return _Tab.messages;
     }
     if (location == AppRouter.bookmarksPath) return _Tab.bookmarks;
@@ -371,14 +385,31 @@ class MainShell extends StatelessWidget {
     // pushed over `/plans` or `/plans/:id` have no list pane beside them
     // (plan section 3), and popping back to the plan brings it back. A root
     // page over the shell (a dialog page, the composer) changes nothing.
-    final plansMatch = plansMasterMatch(
-      plansBandB ? _shellTopLocation(context) ?? location : location,
-    );
+    // The split page is a root route: the shell navigator under it belongs
+    // to another page, so neither its top page nor Plans decide anything here.
+    final split = splitFolder != null;
+    final plansMatch = split
+        ? null
+        : plansMasterMatch(
+            plansBandB ? _shellTopLocation(context) ?? location : location,
+          );
     final plansListDetail =
         plansBandB &&
         beaconsOn &&
         plansMatch != null &&
         context.read<PlansSession?>() != null;
+    // Messages is list-detail in band B too (T6), with the app's hoisted
+    // folders (`ConversationsSession`): on the shell's `/messages` and
+    // `/messages/requests` (read from the shell navigator's top page, as
+    // Plans) beside the route's placeholder, and in the split page beside the
+    // thread.
+    final messagesBandB =
+        plansBandB && context.read<ConversationsSession?>() != null;
+    final messagesMaster = !messagesBandB
+        ? null
+        : split
+        ? splitFolder
+        : messagesShellMasterFolder(_shellTopLocation(context) ?? location);
 
     void select(int index) {
       switch (tabs[index].tab) {
@@ -440,6 +471,14 @@ class MainShell extends StatelessWidget {
             )
           : plansListDetail
           ? PlansListPane(selectedId: plansMatch.selectedId)
+          : messagesMaster != null
+          ? ConversationsListPane(
+              // The folder decides the list; a new folder is a new list.
+              key: ValueKey(messagesMaster),
+              folder: messagesMaster,
+              selectedId: split ? messagesThreadIdOf(location) : null,
+              split: split,
+            )
           : null,
       // Band B's context pane (tablet layout only; the scaffold shows it
       // from 840dp). Desktop keeps the side column below (ruling R-1).
@@ -522,9 +561,12 @@ class MainShell extends StatelessWidget {
                   child: PlansMasterScope(
                     shown: plansListDetail,
                     selectedId: plansListDetail ? plansMatch.selectedId : null,
-                    child: masterDetail && location == AppRouter.settingsPath
-                        ? const SettingsDetailPlaceholder()
-                        : child,
+                    child: ConversationsMasterScope(
+                      shown: messagesMaster != null && !split,
+                      child: masterDetail && location == AppRouter.settingsPath
+                          ? const SettingsDetailPlaceholder()
+                          : child,
+                    ),
                   ),
                 ),
               ),
