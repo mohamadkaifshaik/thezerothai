@@ -4,6 +4,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
+import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
@@ -379,6 +380,37 @@ void main() {
         expect(path, location);
         expect(find.byType(PlansListPane), findsNothing);
         expect(beacons.calls.where((c) => c == 'list:'), isEmpty);
+      });
+    }
+
+    // T8d: a cold or typed form link gets the form's context pane (the
+    // preview and the tips, then the footer) through the real router.
+    for (final location in ['/plans/new', '/plans/$kBeaconIdA/edit']) {
+      testWidgets('$location (cold): the preview and tips pane', (
+        tester,
+      ) async {
+        final (path, _) = await openAt(
+          tester,
+          tablet,
+          location,
+          size: const Size(1024, 900),
+          hoisted: true,
+        );
+        expect(path, location);
+        final pane = find.byType(ContextPane);
+        expect(pane, findsOneWidget);
+        expect(
+          [for (final s in tester.widget<ContextPane>(pane).sections) s.kind],
+          [
+            ContextSectionKind.planPreview,
+            ContextSectionKind.planTips,
+            ContextSectionKind.links,
+          ],
+        );
+        expect(
+          find.descendant(of: pane, matching: find.text('Preview')),
+          findsOneWidget,
+        );
       });
     }
 

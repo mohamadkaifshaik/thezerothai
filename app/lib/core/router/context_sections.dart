@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/beacons/domain/beacons_feature_flag.dart';
+import '../../features/beacons/presentation/widgets/plan_preview.dart'
+    show PlanPreviewCard;
+import '../../features/beacons/presentation/widgets/plan_tips.dart'
+    show PlanTipsCard;
 import '../../features/communities/domain/communities_feature_flag.dart';
 import '../../features/communities/presentation/widgets/community_about.dart'
     show CommunityAboutPanePlaceholder;
@@ -21,6 +26,10 @@ import '../../features/lists/presentation/widgets/list_members_pane.dart'
 import '../../features/lists/presentation/widgets/lists_owner_card.dart'
     show ListsOwnerCardPlaceholder;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../features/posts/domain/posts_feature_flag.dart';
+import '../../features/profile/presentation/widgets/profile_media_strip.dart'
+    show ProfileMediaStripPlaceholder;
+import '../../features/timeline/domain/profile_tabs_feature_flag.dart';
 import '../../features/search/domain/search_feature_flags.dart';
 import '../../features/search/presentation/widgets/app_search_field.dart';
 import '../../features/search/presentation/widgets/whats_happening_card.dart';
@@ -61,7 +70,8 @@ enum ContextFamily {
   /// Follow requests, Followers and Following: Who to follow.
   people,
 
-  /// A profile: You might like (the media strip is T8).
+  /// A profile: its media strip, lent by the page (T8c), and You might
+  /// like.
   profile,
 
   /// `/communities` (T8a): "Explore Communities", lent by the page (its
@@ -89,6 +99,14 @@ enum ContextFamily {
   /// `/u/:id/lists` (T8b): the owner card, lent by the page (from the Lists
   /// it loaded).
   userLists,
+
+  /// `/plans/new` (T8d): the live preview of the form and "Tips for a good
+  /// plan", lent by the page.
+  planCreate,
+
+  /// `/plans/:id/edit` (T8d): the live preview of the edit and the tips,
+  /// lent by the page once its plan is loaded.
+  planEdit,
 }
 
 /// Whether [location] is one of the Lists pages (T8b): `/lists` and
@@ -104,11 +122,36 @@ bool _isListsLocation(String location) {
   };
 }
 
+/// Whether [location] is the plan create or edit form (`/plans/new`,
+/// `/plans/:id/edit`; T8d).
+bool _isPlanFormLocation(String location) => switch ([
+  for (final s in Uri.parse(location).pathSegments)
+    if (s.isNotEmpty) s,
+]) {
+  ['plans', 'new'] || ['plans', _, 'edit'] => true,
+  _ => false,
+};
+
 /// Whether [location] is one of the communities pages (`/communities` and
 /// everything under it).
 bool _isCommunitiesLocation(String location) {
   final segments = Uri.parse(location).pathSegments;
   return segments.isNotEmpty && segments.first == 'communities';
+}
+
+/// Whether [location] is a Settings page (`/settings` and everything under
+/// it).
+bool _isSettingsLocation(String location) {
+  final segments = Uri.parse(location).pathSegments;
+  return segments.isNotEmpty && segments.first == 'settings';
+}
+
+/// Whether [location] is one of the profile pages (`/profile/...` and
+/// `/u/...`: a profile, its Followers / Following, a person's Lists).
+bool _isProfileLocation(String location) {
+  final segments = Uri.parse(location).pathSegments;
+  return segments.isNotEmpty &&
+      (segments.first == 'profile' || segments.first == 'u');
 }
 
 /// The location whose family the context pane shows, from the shell's
@@ -123,13 +166,27 @@ bool _isCommunitiesLocation(String location) {
 /// The Lists pages are pushed too (T8b: a List from Lists, Manage pinned or
 /// a person's Lists; Members from a List; Manage pinned from Home's "+"; a
 /// person's Lists from their profile), so they follow the same rule.
+/// The plan forms are pushed too (over the Plans list, a plan, My plans), so
+/// when the top page is one of them it decides (T8d).
 /// Everything else keeps T3's rule: the base route decides.
 String contextPaneLocationFor(String base, String? top) {
   if (top == null) return base;
+  // A Settings page pushed over another page (Edit profile from a profile
+  // that was itself pushed over Home; T8c) has no pane of its own, never the
+  // page underneath's.
+  if (_isSettingsLocation(top)) return top;
+  // The profile pages are pushed too (post cards, Who to follow, search,
+  // notifications, a chat), and Followers, Following and Edit profile are
+  // pushed from a profile (T8c): a profile pushed over Home gets its own
+  // pane, and a page pushed over a profile gets its own family. A person's
+  // Lists (`/u/:id/lists`) is both a profile and a Lists page: the top page
+  // decides by either rule.
+  if (_isProfileLocation(top) || _isProfileLocation(base)) return top;
   return _isCommunitiesLocation(top) ||
           _isCommunitiesLocation(base) ||
           _isListsLocation(top) ||
-          _isListsLocation(base)
+          _isListsLocation(base) ||
+          _isPlanFormLocation(top)
       ? top
       : base;
 }
@@ -147,7 +204,9 @@ ContextFamily contextFamilyFor(String location) {
     ['messages', ...] => ContextFamily.none,
     ['creator-studio'] || ['advertise'] || ['calls'] => ContextFamily.none,
     // `/plans/new` and `/plans/mine` are matched before `/plans/:id`.
-    ['plans', 'new'] || ['plans', 'mine'] => ContextFamily.global,
+    ['plans', 'new'] => ContextFamily.planCreate,
+    ['plans', 'mine'] => ContextFamily.global,
+    ['plans', _, 'edit'] => ContextFamily.planEdit,
     ['plans'] || ['plans', _] || ['plans', _, 'people'] => ContextFamily.none,
     ['explore'] => ContextFamily.explore,
     ['notifications'] => ContextFamily.notifications,
@@ -207,6 +266,13 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
   if (listsFamily && !isFeatureEnabled(context, kFeatureLists)) {
     family = ContextFamily.global;
   }
+  // The plan forms need `beacons` (the router sends them to `/plans`
+  // without it); should one show anyway, it gets the global set.
+  final planFormFamily =
+      family == ContextFamily.planCreate || family == ContextFamily.planEdit;
+  if (planFormFamily && !isFeatureEnabled(context, kFeatureBeacons)) {
+    family = ContextFamily.global;
+  }
   final search = isFeatureEnabled(context, kFeatureSearch);
   final trends = search && isFeatureEnabled(context, kFeatureTrends);
   final suggestions = isFollowSuggestionsEnabled(context);
@@ -254,7 +320,17 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
       ContextFamily.people => [if (suggestions) whoToFollow('Who to follow')],
       ContextFamily.notifications ||
       ContextFamily.search => [if (trends) whatsHappening],
-      ContextFamily.profile => [if (suggestions) whoToFollow('You might like')],
+      // The media strip (T8c), lent by the profile page over its own Media
+      // tab feed: only with the feed's flags (`posts`, `profile_tabs`).
+      ContextFamily.profile => [
+        if (isFeatureEnabled(context, kFeaturePosts) &&
+            isFeatureEnabled(context, kFeatureProfileTabs))
+          lent(
+            ContextSectionKind.profileMedia,
+            const ProfileMediaStripPlaceholder(),
+          ),
+        if (suggestions) whoToFollow('You might like'),
+      ],
       // Lent by the page, over its own state (no call of the pane's own).
       ContextFamily.communities => [
         lent(
@@ -291,6 +367,16 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
       ],
       ContextFamily.userLists => [
         lent(ContextSectionKind.listsOwner, const ListsOwnerCardPlaceholder()),
+      ],
+      // Lent by the form (T8d): the preview follows the typing, and the
+      // edit form shows nothing over its loading or failed plan.
+      ContextFamily.planCreate => [
+        lent(ContextSectionKind.planPreview, const PlanPreviewCard()),
+        lent(ContextSectionKind.planTips, const PlanTipsCard()),
+      ],
+      ContextFamily.planEdit => [
+        lent(ContextSectionKind.planPreview, const PlanPreviewCard()),
+        lent(ContextSectionKind.planTips, const SizedBox.shrink()),
       ],
       ContextFamily.none => const <ContextSection>[],
     },
