@@ -10,6 +10,7 @@ import '../../../core/feature_flags/ui_shell_feature_flag.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/telemetry/telemetry_consent_store.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/theme/text_size_cubit.dart';
 import '../../../core/theme/theme_mode_cubit.dart';
 import '../../../core/widgets/privacy_policy_link.dart';
 import '../../../core/widgets/shell_geometry.dart';
@@ -18,9 +19,12 @@ import '../../../shared/widgets/primitives/settings_group.dart';
 import '../../account/presentation/account_feature_flags.dart';
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/request_sign_out.dart';
+import '../../beacons/domain/beacons_feature_flag.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
 import '../../messages/domain/messaging_feature_gate.dart';
 import '../../messages/presentation/widgets/messaging_access_builder.dart';
+import '../../notifications/presentation/notification_settings_messages.dart';
+import '../../notifications/presentation/notification_settings_screen.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_event.dart';
@@ -29,11 +33,16 @@ import '../../posts/domain/posts_feature_flag.dart';
 import '../../posts/presentation/bloc/unsent_posts_cubit.dart';
 import '../../profile/domain/profile_edit_feature_flag.dart';
 import '../domain/private_accounts_feature_flag.dart';
+import '../domain/message_privacy.dart';
 import '../domain/settings_categories.dart';
+import 'bloc/message_privacy_cubit.dart';
 import 'bloc/protect_posts_cubit.dart';
+import 'message_settings_messages.dart';
 import 'settings_up.dart';
-import 'widgets/appearance_sheet.dart';
+import 'widgets/message_privacy_rows.dart';
 import 'widgets/protect_posts_row.dart';
+import 'widgets/scheduled_posts_row.dart';
+import 'widgets/settings_choice_row.dart';
 import 'widgets/telemetry_consent_row.dart';
 import 'widgets/unsent_posts_row.dart';
 
@@ -196,6 +205,16 @@ class _SettingsTabletPage extends StatelessWidget {
             body: _readable(_CategoriesList(rows: rows, open: open)),
           );
         }
+        final body = category == SettingsCategory.notifications
+            // The push switches load and save themselves (F6).
+            ? const NotificationSettingsBody()
+            : ListView(
+                padding: EdgeInsets.only(
+                  top: AppSpacing.md,
+                  bottom: AppSpacing.lg + MediaQuery.paddingOf(context).bottom,
+                ),
+                children: [SettingsGroup(rows: categoryRows)],
+              );
         return Scaffold(
           appBar: AppBar(
             // Band B: the categories are beside it, so no back arrow (even
@@ -207,15 +226,7 @@ class _SettingsTabletPage extends StatelessWidget {
                 : settingsUpButton(context, AppRouter.settingsPath),
             title: Text(category.label),
           ),
-          body: _readable(
-            ListView(
-              padding: EdgeInsets.only(
-                top: AppSpacing.md,
-                bottom: AppSpacing.lg + MediaQuery.paddingOf(context).bottom,
-              ),
-              children: [SettingsGroup(rows: categoryRows)],
-            ),
-          ),
+          body: _readable(body),
         );
       },
     );
@@ -249,6 +260,7 @@ class _CategoriesList extends StatelessWidget {
   static const _icons = {
     SettingsCategory.account: Icons.person_outline,
     SettingsCategory.privacy: Icons.shield_outlined,
+    SettingsCategory.notifications: Icons.notifications_none,
     SettingsCategory.display: Icons.brightness_6_outlined,
     SettingsCategory.about: Icons.info_outline,
   };
@@ -258,6 +270,7 @@ class _CategoriesList extends StatelessWidget {
     Widget categoryRow(SettingsCategory category) => SettingsRow(
       icon: _icons[category]!,
       title: category.label,
+      subtitle: rows.summary(category),
       selected: category == selected,
       onTap: () => open(settingsCategoryLocation(category)),
     );
@@ -320,15 +333,25 @@ class SettingsList extends StatelessWidget {
       open: open,
       selected: selected,
     );
-    final groups = <(String, List<Widget>)>[
+    final groups = <(String?, List<Widget>)>[
       ('Messaging', [?rows.messages]),
       ('Account', [?rows.email, ?rows.editProfile, ?rows.changeHandle]),
       ('Posts', [?rows.scheduled]),
-      ('Display', [rows.appearance]),
+      ('Display', [rows.appearance, ?rows.textSize]),
       (
         'Privacy & safety',
-        [?rows.protect, ...rows.telemetry, ?rows.blocked, ?rows.muted],
+        [
+          ?rows.protect,
+          ...rows.telemetry,
+          ?rows.blocked,
+          ?rows.muted,
+          ?rows.messageSettings,
+          ?rows.readReceipts,
+        ],
       ),
+      // A lone "Notifications" row needs no "Notifications" header above it
+      // (R4 review UX 11): its card stands alone.
+      (null, [?rows.notifications]),
       ('Your data', [?rows.export, ?rows.unsent]),
       ('About', [rows.communityRules, rows.privacyPolicy]),
       ('Session', [?rows.deleteAccount, rows.signOut]),
@@ -363,6 +386,12 @@ class _SettingsRowsScope extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The message-privacy cubit (no RPC on creation) is above every row, so
+    // the list, the categories and their summaries see the same values.
+    return MessagePrivacyScope(child: Builder(builder: _withDrafts));
+  }
+
+  Widget _withDrafts(BuildContext context) {
     final list = MessagingAccessBuilder(
       builder: (context, access) => _withProtect(context, access),
     );
@@ -425,16 +454,21 @@ class _SettingsRows {
     required this.changeHandle,
     required this.scheduled,
     required this.appearance,
+    required this.textSize,
     required this.protect,
     required this.telemetry,
     required this.blocked,
     required this.muted,
+    required this.messageSettings,
+    required this.readReceipts,
+    required this.notifications,
     required this.export,
     required this.unsent,
     required this.communityRules,
     required this.privacyPolicy,
     required this.deleteAccount,
     required this.signOut,
+    required this.plansOn,
   });
 
   final Widget? messages;
@@ -443,16 +477,23 @@ class _SettingsRows {
   final Widget? changeHandle;
   final Widget? scheduled;
   final Widget appearance;
+  final Widget? textSize;
   final Widget? protect;
   final List<Widget> telemetry;
   final Widget? blocked;
   final Widget? muted;
+  final Widget? messageSettings;
+  final Widget? readReceipts;
+  final Widget? notifications;
   final Widget? export;
   final Widget? unsent;
   final Widget communityRules;
   final Widget privacyPolicy;
   final Widget? deleteAccount;
   final Widget signOut;
+
+  /// `beacons` is on: the Notifications summary names Plans.
+  final bool plansOn;
 
   /// The rows of [category]'s page (tablet plan section 4.3), in order.
   List<Widget> of(SettingsCategory category) => switch (category) {
@@ -468,12 +509,51 @@ class _SettingsRows {
       ?protect,
       ?blocked,
       ?muted,
+      ?messageSettings,
+      ?readReceipts,
       ...telemetry,
       ?messages,
     ],
-    SettingsCategory.display => [appearance],
+    // Only decides whether the category shows: its page is the push
+    // switches themselves (`NotificationSettingsBody`).
+    SettingsCategory.notifications => [?notifications],
+    SettingsCategory.display => [appearance, ?textSize],
     SettingsCategory.about => [communityRules, privacyPolicy],
   };
+
+  /// The categories list's subtitle for [category]: what its page holds,
+  /// named only from the rows the caller sees (at most three).
+  String summary(SettingsCategory category) {
+    final parts = switch (category) {
+      SettingsCategory.account => [
+        if (editProfile != null) 'edit profile',
+        if (changeHandle != null) 'handle',
+        if (email != null) 'email',
+        if (export != null || unsent != null || deleteAccount != null)
+          'your data',
+      ],
+      SettingsCategory.privacy => [
+        if (blocked != null) 'blocked and muted accounts',
+        if (messageSettings != null || messages != null) 'messages',
+        if (protect != null) 'protect your posts',
+        if (readReceipts != null) 'read receipts',
+        if (telemetry.isNotEmpty) 'usage data',
+      ],
+      SettingsCategory.notifications => [
+        if (plansOn) 'plans',
+        'mentions',
+        'followers',
+      ],
+      SettingsCategory.display => [
+        'appearance',
+        if (textSize != null) 'text size',
+      ],
+      SettingsCategory.about => ['Privacy Policy', 'Community rules'],
+    };
+    final shown = parts.take(3).join(', ');
+    if (shown.isEmpty) return shown;
+    return shown[0].toUpperCase() + shown.substring(1);
+  }
 }
 
 /// Builds the rows the caller may see. [open] navigates to a leaf page;
@@ -491,6 +571,7 @@ _SettingsRows _rowsFor(
   final graphEnabled = isGraphEnabled(context);
   final profileEnabled = isFeatureEnabled(context, kFeatureProfileSnapshot);
   final lifecycleEnabled = isAccountLifecycleEnabled(context);
+  final plansOn = isFeatureEnabled(context, kFeatureBeacons);
   // 0 without the cubit (no repository, nobody signed in).
   final unsentPosts = context.select<UnsentPostsCubit?, int>(
     (cubit) => cubit?.state ?? 0,
@@ -504,6 +585,18 @@ _SettingsRows _rowsFor(
   final scheduledEnabled =
       isFeatureEnabled(context, kFeaturePosts) &&
       isFeatureEnabled(context, kFeatureScheduledPosts);
+  // F3 / F9: the server's values (none known yet: no rows), the flags and
+  // the undo rule decide (see `MessagePrivacyVisibility`).
+  final privacy = MessagePrivacyVisibility.of(
+    context,
+    messagingOn: messaging == MessagingAccess.full,
+  );
+  final whoCanMessage = context.select<MessagePrivacyCubit?, WhoCanMessage?>(
+    (cubit) => cubit?.state.confirmed?.whoCanMessage,
+  );
+  final textSize = context.select<TextSizeCubit?, AppTextSize?>(
+    (cubit) => cubit?.state,
+  );
 
   // The legacy chrome (no `ui_shell`) has no Messages tab, so Settings
   // carries the only entry. The new shell has the bar / rail destination.
@@ -559,23 +652,44 @@ _SettingsRows _rowsFor(
             onTap: () => open(AppRouter.changeHandlePath),
           )
         : null,
-    scheduled: scheduledEnabled
-        ? SettingsRow(
-            icon: Icons.schedule_send_outlined,
-            title: 'Scheduled posts',
-            // A full-screen page over the shell, also in master-detail and
-            // in the tablet list (never a detail page; the selection stays).
-            onTap: () => context.push(AppRouter.scheduledPostsPath),
-          )
-        : null,
-    appearance: SettingsRow(
+    // A full-screen page over the shell, also in master-detail and in the
+    // tablet list (never a detail page; the selection stays).
+    scheduled: scheduledEnabled ? const ScheduledPostsRow() : null,
+    // The choices inline (the design), no sheet: 0 RPCs, applied at once.
+    appearance: SettingsChoiceRow<ThemeMode>(
       icon: Icons.brightness_6_outlined,
       title: 'Appearance',
-      subtitle: themeModeLabel(
-        context.select((ThemeModeCubit cubit) => cubit.state),
-      ),
-      onTap: () => AppearanceSheet.show(context),
+      selected: context.select((ThemeModeCubit cubit) => cubit.state),
+      choices: [
+        for (final mode in const [
+          ThemeMode.system,
+          ThemeMode.light,
+          ThemeMode.dark,
+        ])
+          SettingsChoice(mode, themeModeLabel(mode)),
+      ],
+      onSelected: (mode) => context.read<ThemeModeCubit>().select(mode),
     ),
+    // F7: device level, no flag. Absent without the cubit (a test harness).
+    textSize: textSize == null
+        ? null
+        : SettingsChoiceRow<AppTextSize>(
+            icon: Icons.format_size,
+            title: 'Text size',
+            selected: textSize,
+            choices: [
+              for (final size in AppTextSize.values)
+                SettingsChoice(size, size.label),
+            ],
+            onSelected: (size) => context.read<TextSizeCubit>().select(size),
+            // The device text is already at the cap: the choice changes
+            // nothing visible, so say why (R4 review UX 10).
+            note:
+                AppTextSizeScope.systemScalerOf(context).scale(_capProbe) >=
+                    kAppTextScaleCap * _capProbe
+                ? 'Your device text size is already large.'
+                : null,
+          ),
     protect: showProtect ? const ProtectPostsRow() : null,
     // Only on Android, only while the kind's flag is on.
     telemetry: [
@@ -596,6 +710,27 @@ _SettingsRows _rowsFor(
             title: 'Muted accounts',
             selected: isSelected(AppRouter.mutedAccountsPath),
             onTap: () => open(AppRouter.mutedAccountsPath),
+          )
+        : null,
+    messageSettings: privacy.whoCanMessage
+        ? SettingsRow(
+            icon: Icons.forum_outlined,
+            title: kMessageSettingsTitle,
+            subtitle: whoCanMessage?.label,
+            selected: isSelected(AppRouter.messageSettingsPath),
+            onTap: () => open(AppRouter.messageSettingsPath),
+          )
+        : null,
+    readReceipts: privacy.readReceipts ? const ReadReceiptsRow() : null,
+    notifications: notificationPrefsEnabled(context)
+        ? SettingsRow(
+            icon: Icons.notifications_none,
+            title: kNotificationSettingsRowTitle,
+            subtitle: plansOn
+                ? 'Plans, mentions, followers'
+                : 'Mentions, followers',
+            selected: isSelected(AppRouter.notificationSettingsPath),
+            onTap: () => open(AppRouter.notificationSettingsPath),
           )
         : null,
     export: lifecycleEnabled
@@ -633,5 +768,9 @@ _SettingsRows _rowsFor(
       showChevron: false,
       onTap: () => unawaited(requestSignOut(context)),
     ),
+    plansOn: plansOn,
   );
 }
+
+/// The font size the Text size row checks the device scale at (body text).
+const double _capProbe = 14;

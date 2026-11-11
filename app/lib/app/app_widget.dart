@@ -17,6 +17,7 @@ import '../core/storage/app_database.dart';
 import '../core/telemetry/telemetry_consent_cubit.dart';
 import '../core/telemetry/telemetry_consent_store.dart';
 import '../core/theme/app_theme.dart';
+import '../core/theme/text_size_cubit.dart';
 import '../core/theme/theme_mode_cubit.dart';
 import '../core/telemetry/telemetry_device_forget.dart';
 import '../core/telemetry/usage_reporter.dart';
@@ -61,6 +62,7 @@ import '../features/notifications/presentation/bloc/push_cubit.dart';
 import '../features/notifications/presentation/bloc/push_opt_in_cubit.dart';
 import '../features/notifications/presentation/bloc/unread_badge_cubit.dart';
 import '../features/onboarding/data/identity_repository.dart';
+import '../features/settings/data/own_privacy_store.dart';
 import '../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../features/onboarding/presentation/bloc/onboarding_state.dart';
 import '../features/posts/data/drafts_repository.dart';
@@ -110,6 +112,7 @@ class AppWidget extends StatefulWidget {
     this.telemetryConsent,
     required this.unreadBadgeCubit,
     this.servicePausedCubit,
+    this.ownPrivacyStore,
     this.shareLinks,
     this.usage = const UsageReporter.none(),
     this.telemetryForget = const TelemetryDeviceForget.none(),
@@ -181,6 +184,11 @@ class AppWidget extends StatefulWidget {
   /// Drives the full-screen "service paused" state; bootstrap
   /// shares it with the API client. Null (tests) means never paused.
   final ServicePausedCubit? servicePausedCubit;
+
+  /// The caller's read receipts and DM policy as the server last answered
+  /// (F3, F9). Bootstrap creates it and feeds it every GetMe before the first
+  /// one can run; null (tests) makes one fed from `initState` on.
+  final OwnPrivacyStore? ownPrivacyStore;
 
   /// The share origin and native share sheet for the post Share action,
   /// from `AppConfig.shareOrigin`. Null (tests) means no Share action.
@@ -305,6 +313,15 @@ class _AppWidgetState extends State<AppWidget> {
   late final ThemeModeCubit _themeMode = ThemeModeCubit(
     DatabaseThemeModeStore(widget.database),
   );
+  // The in-app text size (F7, 100 / 115 / 130 % of the system scale),
+  // saved on the device like the appearance.
+  late final TextSizeCubit _textSize = TextSizeCubit(
+    DatabaseTextSizeStore(widget.database),
+  );
+  // The caller's read receipts and DM policy as the server last answered
+  // (F3, F9): fed by every GetMe, reset with the account session.
+  late final OwnPrivacyStore _ownPrivacy =
+      widget.ownPrivacyStore ?? OwnPrivacyStore();
   late final ImagePickerService _imagePicker =
       widget.imagePicker ?? PlatformImagePickerService();
   late final ImageProcessor _imageProcessor =
@@ -349,6 +366,7 @@ class _AppWidgetState extends State<AppWidget> {
       ..register('lists', () => widget.listsRepository?.clearSession())
       ..register('plans', () => _plans?.reset())
       ..register('conversations', _conversations.reset)
+      ..register('message privacy', _ownPrivacy.clear)
       ..register('badges', () {
         widget.unreadBadgeCubit.seed(0);
         _messagesBadge.seed(0);
@@ -370,6 +388,15 @@ class _AppWidgetState extends State<AppWidget> {
     _accountUid = widget.authBloc.state.user?.uid;
     _registerAccountState();
     unawaited(_themeMode.load());
+    unawaited(_textSize.load());
+    if (widget.ownPrivacyStore == null) {
+      feedOwnPrivacyStore(
+        _ownPrivacy,
+        identityRepository: widget.identityRepository,
+        database: widget.database,
+        isLive: () => mounted,
+      );
+    }
     _authSub = widget.authBloc.stream.listen((state) {
       unawaited(_pushOptIn.load(state.user?.uid));
       unawaited(_telemetryConsentCubit?.load(state.user?.uid));
@@ -525,6 +552,8 @@ class _AppWidgetState extends State<AppWidget> {
     widget.messagingRepository.gate.removeListener(_onMessagingAccess);
     _conversations.dispose();
     _themeMode.close();
+    _textSize.close();
+    if (widget.ownPrivacyStore == null) _ownPrivacy.dispose();
     _pushOptIn.close();
     _telemetryConsentCubit?.close();
     _messagesBadge.close();
@@ -537,6 +566,7 @@ class _AppWidgetState extends State<AppWidget> {
     authBloc: widget.authBloc,
     onboardingBloc: widget.onboardingBloc,
     messagingGate: widget.messagingRepository.gate,
+    ownPrivacy: _ownPrivacy,
   );
 
   @override
@@ -562,6 +592,7 @@ class _AppWidgetState extends State<AppWidget> {
         RepositoryProvider.value(value: widget.mediaRepository),
         RepositoryProvider<ImagePickerService>.value(value: _imagePicker),
         RepositoryProvider<RecentSearchesStore>.value(value: _recentSearches),
+        RepositoryProvider<OwnPrivacyStore>.value(value: _ownPrivacy),
         RepositoryProvider<ImageProcessor>.value(value: _imageProcessor),
         RepositoryProvider<GifSource>.value(value: _gifSource),
         RepositoryProvider<GifPreparer>.value(value: widget.gifPreparer),
@@ -604,6 +635,7 @@ class _AppWidgetState extends State<AppWidget> {
           BlocProvider.value(value: widget.unreadBadgeCubit),
           BlocProvider.value(value: _messagesBadge),
           BlocProvider.value(value: _themeMode),
+          BlocProvider.value(value: _textSize),
           BlocProvider.value(value: _servicePaused),
         ],
         child: ShareLinksScope(
@@ -639,10 +671,15 @@ class _AppWidgetState extends State<AppWidget> {
                       reporter: widget.usage,
                       child: TelemetryForgetScope(
                         forget: widget.telemetryForget,
-                        child: _PausedOverlay(
-                          // Same tree at every width and flag state.
-                          child: TabletRouteSnackBars(
-                            child: child ?? const SizedBox.shrink(),
+                        // The text size multiplies the system scale for
+                        // every route, dialog and overlay below; the same
+                        // tree at every size (F7).
+                        child: AppTextSizeScope(
+                          child: _PausedOverlay(
+                            // Same tree at every width and flag state.
+                            child: TabletRouteSnackBars(
+                              child: child ?? const SizedBox.shrink(),
+                            ),
                           ),
                         ),
                       ),

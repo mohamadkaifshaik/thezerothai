@@ -153,9 +153,24 @@ class _ChangeHandleViewState extends State<_ChangeHandleView> {
                       child: ListView(
                         padding: const EdgeInsets.all(AppSpacing.md),
                         children: [
+                          // ChangeHandle.dc.html: the accent eyebrow (only
+                          // "Current" is upper-cased; a handle keeps its
+                          // case) and the display headline.
                           Text(
-                            'Current handle: @${widget.currentHandle}',
-                            style: theme.textTheme.titleMedium,
+                            '${'Current'.toUpperCase()} · '
+                            '@${widget.currentHandle}',
+                            style: AppTextStyles.eyebrow(theme)
+                                .copyWith(color: context.appColors.accentText),
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          Semantics(
+                            header: true,
+                            child: Text(
+                              'Pick a new handle.',
+                              style: theme.textTheme.headlineMedium?.copyWith(
+                                fontWeight: AppTypeTokens.weightDisplay,
+                              ),
+                            ),
                           ),
                           const SizedBox(height: AppSpacing.sm),
                           Text(
@@ -195,6 +210,7 @@ class _ChangeHandleViewState extends State<_ChangeHandleView> {
                           const SizedBox(height: AppSpacing.lg),
                           AppPillButton(
                             label: 'Change handle',
+                            size: AppButtonSize.large,
                             busy: state.isSaving,
                             busySemanticsLabel: 'Saving',
                             onPressed: state.canSave

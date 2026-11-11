@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
 import 'app_section_header.dart';
+import 'app_skeleton.dart';
 import 'app_status_pill.dart';
 import 'app_surface.dart';
 import 'app_tile_icon.dart';
@@ -74,6 +75,8 @@ class SettingsRow extends StatelessWidget {
     this.toggled,
     this.value,
     this.valueLabel,
+    this.subtitleMaxLines = 2,
+    this.busy = false,
   }) : assert(
          value == null || onTap == null,
          'a value is for static rows; a tappable row uses trailing',
@@ -97,8 +100,19 @@ class SettingsRow extends StatelessWidget {
 
   /// Makes the row a switch: non-null shows a [Switch] in place of
   /// the chevron and announces on / off. [onTap] flips it (null = disabled,
-  /// e.g. while saving).
+  /// e.g. while saving; announced as disabled).
   final bool? toggled;
+
+  /// Lines of [subtitle] before it ellipsizes; null shows it whole (a key
+  /// explanation at large text, R4). Two by default.
+  final int? subtitleMaxLines;
+
+  /// A switch row whose change is being saved: an 18 dp progress indicator
+  /// takes the switch's place, announced as "Saving" (and disabled).
+  final bool busy;
+
+  /// The progress indicator's size while [busy].
+  static const double busySize = 18;
 
   /// Shown at the end of a static row (no [onTap]); ignored otherwise.
   final Widget? value;
@@ -138,8 +152,8 @@ class SettingsRow extends StatelessWidget {
         if (subtitle != null)
           Text(
             subtitle!,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+            maxLines: subtitleMaxLines,
+            overflow: subtitleMaxLines == null ? null : TextOverflow.ellipsis,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: colors.onSurfaceVariant,
             ),
@@ -191,6 +205,13 @@ class SettingsRow extends StatelessWidget {
                       child: staticValue,
                     ),
                   ),
+                ] else if (toggled != null && busy) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  const SizedBox(
+                    width: busySize,
+                    height: busySize,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
                 ] else if (toggled != null) ...[
                   const SizedBox(width: AppSpacing.sm),
                   Switch(
@@ -222,6 +243,9 @@ class SettingsRow extends StatelessWidget {
       return Semantics(
         container: true,
         toggled: toggled,
+        // A switch with no tap is disabled (saving), and says so.
+        enabled: toggled == null ? null : false,
+        value: busy ? 'Saving' : null,
         label: label,
         excludeSemantics: true,
         child: content,
@@ -239,6 +263,76 @@ class SettingsRow extends StatelessWidget {
       child: Material(
         color: selected ? context.appColors.selectedRow : Colors.transparent,
         child: InkWell(onTap: onTap, child: content),
+      ),
+    );
+  }
+}
+
+/// A [SettingsGroup] while its values load: the optional [title] header and
+/// [rows] rows of the same height, so nothing jumps when the rows arrive.
+/// Announced once as [semanticsLabel] (the Notification and Message settings
+/// pages, R4).
+class SettingsGroupPlaceholder extends StatelessWidget {
+  const SettingsGroupPlaceholder({
+    super.key,
+    this.title,
+    required this.rows,
+    required this.semanticsLabel,
+  });
+
+  final String? title;
+  final int rows;
+  final String semanticsLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = this.title;
+    return AppSkeletonScope(
+      semanticsLabel: semanticsLabel,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (title != null) AppSectionHeader(title: title),
+            AppSurface(
+              padding: EdgeInsets.zero,
+              margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+              child: Column(
+                children: [
+                  for (var i = 0; i < rows; i++) ...[
+                    if (i > 0) const Divider(height: 1),
+                    const SizedBox(
+                      height: AppSpacing.xxl + AppSpacing.sm,
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                        ),
+                        child: Row(
+                          children: [
+                            AppSkeletonBlock(
+                              width: AppSpacing.xl + AppSpacing.sm,
+                              height: AppSpacing.xl + AppSpacing.sm,
+                              radius: AppRadius.md,
+                            ),
+                            SizedBox(width: AppSpacing.md),
+                            Expanded(
+                              child: FractionallySizedBox(
+                                alignment: AlignmentDirectional.centerStart,
+                                widthFactor: 0.6,
+                                child: AppSkeletonBlock(height: AppSpacing.md),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

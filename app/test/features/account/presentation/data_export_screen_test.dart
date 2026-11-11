@@ -15,6 +15,8 @@ import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pbenum.dart'
     show ExportStatus;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:dzeroth/shared/format/scheduled_time.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:url_launcher_platform_interface/link.dart';
@@ -106,6 +108,7 @@ void main() {
     WidgetTester tester, {
     double width = 400,
     double textScale = 1,
+    bool use24Hour = false,
   }) async {
     tester.view.physicalSize = Size(width, 900);
     tester.view.devicePixelRatio = 1;
@@ -114,8 +117,10 @@ void main() {
       providers(
         MaterialApp(
           builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: TextScaler.linear(textScale)),
+            data: MediaQuery.of(context).copyWith(
+              textScaler: TextScaler.linear(textScale),
+              alwaysUse24HourFormat: use24Hour,
+            ),
             child: child!,
           ),
           home: const DataExportScreen(),
@@ -489,5 +494,132 @@ void main() {
       () =>
           accounts.requestExport(idempotencyKey: any(named: 'idempotencyKey')),
     ).called(1);
+  });
+
+  group('R4: the archive line (F27)', () {
+    testWidgets('READY shows "Available until" from expires_at, never the '
+        "link's 15 minutes", (tester) async {
+      final until = DateTime.now().toUtc().add(const Duration(days: 7));
+      when(() => accounts.getExport(exportId: 'exp-1')).thenAnswer(
+        (_) async => AccountExport(
+          exportId: 'exp-1',
+          status: ExportStatus.EXPORT_STATUS_READY,
+          downloadUrl: _downloadUrl,
+          downloadUrlExpiresAt: DateTime.now().add(const Duration(minutes: 15)),
+          expiresAt: until,
+        ),
+      );
+      await pump(tester);
+      await tapRequest(tester);
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pump();
+
+      expect(find.text('Your data, ready.'), findsOneWidget);
+      expect(find.text('Your data export'), findsOneWidget);
+      expect(
+        find.text('Ready · Available until ${formatScheduledTime(until)}'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('15 min'), findsNothing);
+      expect(find.text('Download'), findsOneWidget);
+    });
+
+    testWidgets('the time follows the device 24-hour setting', (tester) async {
+      final until = DateTime.now().toUtc().add(const Duration(days: 7));
+      when(() => accounts.getExport(exportId: 'exp-1')).thenAnswer(
+        (_) async => AccountExport(
+          exportId: 'exp-1',
+          status: ExportStatus.EXPORT_STATUS_READY,
+          downloadUrl: _downloadUrl,
+          expiresAt: until,
+        ),
+      );
+      await pump(tester, use24Hour: true);
+      await tapRequest(tester);
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pump();
+      expect(
+        find.text(
+          'Ready · Available until '
+          '${formatScheduledTime(until, use24Hour: true)}',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('READY without expires_at just says Ready', (tester) async {
+      when(() => accounts.getExport(exportId: 'exp-1')).thenAnswer(
+        (_) async =>
+            _export(ExportStatus.EXPORT_STATUS_READY, url: _downloadUrl),
+      );
+      await pump(tester);
+      await tapRequest(tester);
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pump();
+      expect(find.text('Ready'), findsOneWidget);
+      expect(find.textContaining('Available until'), findsNothing);
+    });
+
+    testWidgets('idle and waiting draw no archive line', (tester) async {
+      await pump(tester);
+      expect(find.text('Get a copy of your data.'), findsOneWidget);
+      expect(find.text('Your data export'), findsNothing);
+      await tapRequest(tester);
+      expect(find.text('Preparing your data.'), findsOneWidget);
+      expect(find.text('Your data export'), findsNothing);
+    });
+
+    for (final (width, scale) in [(360.0, 2.0), (600.0, 2.0), (1024.0, 1.0)]) {
+      testWidgets('READY at ${width.toInt()} x$scale: no overflow', (
+        tester,
+      ) async {
+        when(() => accounts.getExport(exportId: 'exp-1')).thenAnswer(
+          (_) async => AccountExport(
+            exportId: 'exp-1',
+            status: ExportStatus.EXPORT_STATUS_READY,
+            downloadUrl: _downloadUrl,
+            expiresAt: DateTime.now().toUtc().add(const Duration(days: 7)),
+          ),
+        );
+        await pump(tester, width: width, textScale: scale);
+        // Large text pushes the button below the fold.
+        await tester.scrollUntilVisible(find.text('Request export'), 200);
+        await tester.ensureVisible(find.text('Request export'));
+        await tester.pump();
+        await tapRequest(tester);
+        await tester.pump(const Duration(seconds: 10));
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        expect(find.textContaining('Available until'), findsOneWidget);
+      });
+    }
+  });
+
+  group('R4 design fidelity (DataExport.dc.html)', () {
+    testWidgets('idle: the request is the large gradient pill', (tester) async {
+      await pump(tester);
+      final pill = tester.widget<AppPillButton>(
+        find.widgetWithText(AppPillButton, 'Request export'),
+      );
+      expect(pill.variant, AppButtonVariant.primary);
+      expect(pill.size, AppButtonSize.large);
+      expect(find.text('YOUR ARCHIVE'), findsOneWidget);
+    });
+
+    testWidgets('ready: Download is the large gradient pill', (tester) async {
+      when(() => accounts.getExport(exportId: 'exp-1')).thenAnswer(
+        (_) async =>
+            _export(ExportStatus.EXPORT_STATUS_READY, url: _downloadUrl),
+      );
+      await pump(tester);
+      await tapRequest(tester);
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pump();
+      final pill = tester.widget<AppPillButton>(
+        find.widgetWithText(AppPillButton, 'Download'),
+      );
+      expect(pill.variant, AppButtonVariant.primary);
+      expect(pill.size, AppButtonSize.large);
+    });
   });
 }

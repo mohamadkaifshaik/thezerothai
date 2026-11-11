@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../auth/presentation/request_sign_out.dart';
 
 /// Full-screen state for the signed-in account being suspended (or pending
@@ -36,7 +37,9 @@ class AccountRestrictedView extends StatelessWidget {
                     const SizedBox(height: AppSpacing.md),
                     Text(
                       'This account is restricted',
-                      style: theme.textTheme.titleLarge,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontWeight: AppTypeTokens.weightDisplay,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: AppSpacing.sm),
@@ -48,12 +51,10 @@ class AccountRestrictedView extends StatelessWidget {
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: AppSpacing.lg),
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(0, AppSpacing.minTapTarget),
-                      ),
+                    // States-Account.dc.html: the gradient pill.
+                    AppPillButton(
+                      label: 'Sign out',
                       onPressed: () => unawaited(requestSignOut(context)),
-                      child: const Text('Sign out'),
                     ),
                   ],
                 ),
