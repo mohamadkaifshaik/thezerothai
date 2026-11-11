@@ -282,7 +282,9 @@ void main() {
     for (final (w, h) in [(600.0, 960.0), (840.0, 1194.0), (1024.0, 768.0)]) {
       for (final brightness in Brightness.values) {
         testWidgets('text scale 2.0 at $w x $h (${brightness.name}): the '
-            'header and the dialog fit', (tester) async {
+            'header and the dialog have no overflow and 48 dp targets', (
+          tester,
+        ) async {
           final rig = ProfileTabletRig();
           await rig.pump(
             tester,
@@ -346,6 +348,61 @@ void main() {
       await tester.pumpAndSettle();
       expect(rig.uri.path, AppRouter.profilePath(kRigOwnHandle));
       expect(findContextPane(), findsOneWidget);
+    });
+  });
+
+  group('Edit profile: state across resizes', () {
+    testWidgets('the same field and text across 839/840/1199/1200/599/600/'
+        '1024; Preview follows the tablet layout', (tester) async {
+      final rig = ProfileTabletRig();
+      await rig.pump(tester, width: 839, location: AppRouter.editProfilePath);
+      await tester.enterText(_field('Display name'), 'Alice B');
+      await tester.pumpAndSettle();
+      EditableTextState field() => tester.state<EditableTextState>(
+        find.descendant(
+          of: _field('Display name'),
+          matching: find.byType(EditableText),
+        ),
+      );
+      final before = field();
+      for (final w in <double>[840, 1199, 1200, 599, 600, 1024]) {
+        await rig.resize(tester, w);
+        expect(tester.takeException(), isNull, reason: '$w');
+        expect(field(), same(before), reason: '$w');
+        expect(field().textEditingValue.text, 'Alice B', reason: '$w');
+        expect(
+          _previewAction(),
+          _tablet(w) ? findsOneWidget : findsNothing,
+          reason: '$w',
+        );
+      }
+    });
+
+    testWidgets('an open preview stays open across 744/1024/1199 and follows '
+        'the form', (tester) async {
+      final rig = ProfileTabletRig();
+      await rig.pump(tester, width: 744, location: AppRouter.editProfilePath);
+      await tester.enterText(_field('Display name'), 'Alice B');
+      await tester.pumpAndSettle();
+      await _openPreview(tester);
+      for (final w in <double>[1024, 1199, 744]) {
+        await rig.resize(tester, w);
+        expect(tester.takeException(), isNull, reason: '$w');
+        expect(find.text(kEditProfilePreviewTitle), findsOneWidget);
+        final content = tabletContentRect(Size(w, 900));
+        expect(
+          openDialogRect(tester).center.dx,
+          closeTo(content.center.dx, 1),
+          reason: '$w',
+        );
+        expect(
+          tester
+              .widget<ProfileHeader>(_inPreview(find.byType(ProfileHeader)))
+              .profile
+              .displayName,
+          'Alice B',
+        );
+      }
     });
   });
 

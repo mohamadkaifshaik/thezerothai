@@ -501,6 +501,44 @@ void main() {
     }
   });
 
+  group('Profile: focus in the pane', () {
+    testWidgets('Tab walks the tiles in reading order, then See all, then You '
+        'might like', (tester) async {
+      final rig = ProfileTabletRig();
+      await rig.pump(tester);
+      FocusNode tileNode(String id) => Focus.of(
+        tester.element(
+          find
+              .descendant(
+                of: inContextPane(find.byKey(ValueKey('profile-media-$id'))),
+                matching: find.byType(Stack),
+              )
+              .first,
+        ),
+      );
+      final order = [
+        for (final n in [4, 3, 2, 1]) tileNode('m$n-0'),
+      ];
+      final seeAll = Focus.of(
+        tester.element(inContextPane(find.text('See all'))),
+      );
+      order.first.requestFocus();
+      await tester.pump();
+      for (final next in [...order.skip(1), seeAll]) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(FocusManager.instance.primaryFocus, next);
+      }
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      final focused = FocusManager.instance.primaryFocus!.context!;
+      expect(
+        focused.findAncestorWidgetOfExactType<WhoToFollowCard>(),
+        isNotNull,
+      );
+    });
+  });
+
   group('GraphList (Followers / Following)', () {
     for (final MapEntry(key: mode, value: flags) in kProfileFlagModes.entries) {
       for (final w in _widths) {
