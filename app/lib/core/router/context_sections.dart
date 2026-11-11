@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/beacons/domain/beacons_feature_flag.dart';
+import '../../features/beacons/presentation/widgets/plan_preview.dart'
+    show PlanPreviewCard;
+import '../../features/beacons/presentation/widgets/plan_tips.dart'
+    show PlanTipsCard;
 import '../../features/communities/domain/communities_feature_flag.dart';
 import '../../features/communities/presentation/widgets/community_about.dart'
     show CommunityAboutPanePlaceholder;
@@ -72,7 +77,25 @@ enum ContextFamily {
   /// `/communities/:id/moderation-log` (T8a): "About this log", lent by the
   /// page once its log lists entries (the caller moderates).
   moderationLog,
+
+  /// `/plans/new` (T8d): the live preview of the form and "Tips for a good
+  /// plan", lent by the page.
+  planCreate,
+
+  /// `/plans/:id/edit` (T8d): the live preview of the edit and the tips,
+  /// lent by the page once its plan is loaded.
+  planEdit,
 }
+
+/// Whether [location] is the plan create or edit form (`/plans/new`,
+/// `/plans/:id/edit`; T8d).
+bool _isPlanFormLocation(String location) => switch ([
+  for (final s in Uri.parse(location).pathSegments)
+    if (s.isNotEmpty) s,
+]) {
+  ['plans', 'new'] || ['plans', _, 'edit'] => true,
+  _ => false,
+};
 
 /// Whether [location] is one of the communities pages (`/communities` and
 /// everything under it).
@@ -90,10 +113,14 @@ bool _isCommunitiesLocation(String location) {
 /// a communities page the top page decides, as Plans' list pane does (T5):
 /// a community pushed over Home gets its own pane, and a page pushed over a
 /// community gets its own family, never the community's lent sections.
+/// The plan forms are pushed too (over the Plans list, a plan, My plans), so
+/// when the top page is one of them it decides (T8d).
 /// Everything else keeps T3's rule: the base route decides.
 String contextPaneLocationFor(String base, String? top) {
   if (top == null) return base;
-  return _isCommunitiesLocation(top) || _isCommunitiesLocation(base)
+  return _isCommunitiesLocation(top) ||
+          _isCommunitiesLocation(base) ||
+          _isPlanFormLocation(top)
       ? top
       : base;
 }
@@ -111,7 +138,9 @@ ContextFamily contextFamilyFor(String location) {
     ['messages', ...] => ContextFamily.none,
     ['creator-studio'] || ['advertise'] || ['calls'] => ContextFamily.none,
     // `/plans/new` and `/plans/mine` are matched before `/plans/:id`.
-    ['plans', 'new'] || ['plans', 'mine'] => ContextFamily.global,
+    ['plans', 'new'] => ContextFamily.planCreate,
+    ['plans', 'mine'] => ContextFamily.global,
+    ['plans', _, 'edit'] => ContextFamily.planEdit,
     ['plans'] || ['plans', _] || ['plans', _, 'people'] => ContextFamily.none,
     ['explore'] => ContextFamily.explore,
     ['notifications'] => ContextFamily.notifications,
@@ -154,6 +183,13 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
     _ => false,
   };
   if (communitiesFamily && !isFeatureEnabled(context, kFeatureCommunities)) {
+    family = ContextFamily.global;
+  }
+  // The plan forms need `beacons` (the router sends them to `/plans`
+  // without it); should one show anyway, it gets the global set.
+  final planFormFamily =
+      family == ContextFamily.planCreate || family == ContextFamily.planEdit;
+  if (planFormFamily && !isFeatureEnabled(context, kFeatureBeacons)) {
     family = ContextFamily.global;
   }
   final search = isFeatureEnabled(context, kFeatureSearch);
@@ -225,6 +261,16 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
           ContextSectionKind.moderationLogAbout,
           const ModerationLogAboutPlaceholder(),
         ),
+      ],
+      // Lent by the form (T8d): the preview follows the typing, and the
+      // edit form shows nothing over its loading or failed plan.
+      ContextFamily.planCreate => [
+        lent(ContextSectionKind.planPreview, const PlanPreviewCard()),
+        lent(ContextSectionKind.planTips, const PlanTipsCard()),
+      ],
+      ContextFamily.planEdit => [
+        lent(ContextSectionKind.planPreview, const PlanPreviewCard()),
+        lent(ContextSectionKind.planTips, const SizedBox.shrink()),
       ],
       ContextFamily.none => const <ContextSection>[],
     },

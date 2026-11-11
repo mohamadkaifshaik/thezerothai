@@ -7,20 +7,30 @@ import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/context_pane.dart';
+import '../../../core/widgets/context_pane_slots.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
+import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../shared/format/scheduled_time.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../shared/widgets/primitives/app_form_header.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
+import '../../../shared/widgets/primitives/app_pickers.dart';
 import '../../../shared/widgets/primitives/character_counter.dart';
 import '../../communities/data/communities_repository.dart';
 import '../../lists/domain/list_text_rules.dart' show normalizeListText;
+import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/beacons_repository.dart';
 import '../domain/beacon_labels.dart';
 import '../domain/beacon_text_rules.dart';
 import '../domain/beacons_feature_flag.dart';
+import '../domain/plan_preview.dart';
 import 'bloc/beacons_state.dart' show BeaconsAudience;
 import 'bloc/create_beacon_cubit.dart';
 import 'widgets/discard_plan_dialog.dart';
+import 'widgets/plan_preview.dart';
+import 'widgets/plan_tips.dart';
 
 /// Shows the date picker; null when dismissed. A seam so tests need not drive
 /// the platform dial.
@@ -42,7 +52,7 @@ Future<DateTime?> _platformPickDate(
   required DateTime initial,
   required DateTime first,
   required DateTime last,
-}) => showDatePicker(
+}) => showAppDatePicker(
   context: context,
   initialDate: initial,
   firstDate: first,
@@ -53,11 +63,20 @@ Future<DateTime?> _platformPickDate(
 Future<TimeOfDay?> _platformPickTime(
   BuildContext context, {
   required TimeOfDay initial,
-}) => showTimePicker(context: context, initialTime: initial, helpText: 'Time');
+}) =>
+    showAppTimePicker(context: context, initialTime: initial, helpText: 'Time');
 
 /// `/plans/new` (R31): the fields of section 3 with the server's rules checked
 /// before sending; one CreateBeacon per submit. [now], [pickDate] and
 /// [pickTime] are seams for tests.
+///
+/// On the tablet layout (T8d, tablet plan section 4.1 PlanCreate) the form
+/// has a live preview (the plan page's own `PlanSummary` of what it would
+/// create) and "Tips for a good plan": band B shows both in the context pane,
+/// lent by this page; band A has a Preview header action that opens the
+/// preview in a dialog, and the tips inline at the top of the form,
+/// collapsed. The date and time pickers are dialogs on the content area
+/// there. Phones and desktop keep today's form (ruling R-1).
 class CreateBeaconScreen extends StatefulWidget {
   const CreateBeaconScreen({
     super.key,
@@ -92,12 +111,20 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
   var _audiences = const [BeaconsAudience.public()];
   var _audience = const BeaconsAudience.public();
 
+  /// The plan as typed, for the preview (band B's pane, band A's dialog).
+  late final ValueNotifier<pb.Beacon> _draft;
+  final _paneLease = ContextPaneLease();
+
+  /// Band A's inline tips, open or closed; kept across resizes.
+  var _tipsOpen = false;
+
   DateTime _now() => (widget.now ?? DateTime.now)();
 
   @override
   void initState() {
     super.initState();
     _startAt = _initialStart = _defaultStart(_now());
+    _draft = ValueNotifier(_draftPlan());
     _title.addListener(_changed);
     _details.addListener(_changed);
     _venue.addListener(_changed);
@@ -105,7 +132,25 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _paneLease.attach(context, AppRouter.planNewPath, {
+      ContextSectionKind.planPreview: (context) =>
+          ValueListenableBuilder<pb.Beacon>(
+            valueListenable: _draft,
+            builder: (context, draft, _) => PlanPreviewCard(
+              beacon: draft,
+              showOrganiser: draft.hasOrganiser(),
+            ),
+          ),
+      ContextSectionKind.planTips: (context) => const PlanTipsCard(),
+    });
+  }
+
+  @override
   void dispose() {
+    _paneLease.dispose();
+    _draft.dispose();
     _title.dispose();
     _details.dispose();
     _venue.dispose();
@@ -138,7 +183,66 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
     }
   }
 
-  void _changed() => setState(() {});
+  void _changed() => _update(() {});
+
+  /// Every change to the form goes through here, so the preview follows it.
+  void _update(VoidCallback change) {
+    setState(change);
+    _draft.value = _draftPlan();
+  }
+
+  /// The plan the form would create, with the caller as its organiser when
+  /// the profile is loaded (nothing is fetched).
+  pb.Beacon _draftPlan() {
+    final profile = context.read<OnboardingBloc?>()?.state.profile;
+    final handle = profile?.handle ?? '';
+    return draftPlan(
+      activity: _activity,
+      title: _title.text,
+      details: _details.text,
+      venue: _venue.text,
+      startAt: _startAt,
+      durationMinutes: _durationMinutes,
+      openSpots: _openSpots,
+      cost: _cost,
+      chatPreference: _chat,
+      organiser: profile == null || handle.isEmpty
+          ? null
+          : common.AuthorSnapshot(
+              userId: profile.userId,
+              handle: handle,
+              displayName: profile.displayName,
+              avatarUrl: profile.avatarThumbUrl,
+            ),
+    );
+  }
+
+  /// Band A's Preview (tablet plan section 4.1: "header action that opens a
+  /// Preview dialog"): a D 560 dialog on the content area that follows the
+  /// form.
+  void _openPreview() => showAppDialog<void>(
+    context: context,
+    maxWidth: AppSize.dialogMax,
+    builder: (dialogContext) => AppDialog(
+      title: kPlanPreviewTitle,
+      body: ValueListenableBuilder<pb.Beacon>(
+        valueListenable: _draft,
+        // The dialog pads its title and body already: the preview's lines
+        // start where the title does.
+        builder: (context, draft, _) => PlanPreview(
+          beacon: draft,
+          showOrganiser: draft.hasOrganiser(),
+          inset: 0,
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
 
   void _cancel() {
     if (context.canPop()) {
@@ -200,7 +304,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
       last: now.add(kBeaconMaxLead),
     );
     if (picked == null || !mounted) return;
-    setState(() {
+    _update(() {
       _startAt = DateTime(
         picked.year,
         picked.month,
@@ -217,7 +321,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
       initial: TimeOfDay.fromDateTime(_startAt),
     );
     if (picked == null || !mounted) return;
-    setState(() {
+    _update(() {
       _startAt = DateTime(
         _startAt.year,
         _startAt.month,
@@ -261,6 +365,16 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Band A of the tablet layout: Preview in the header opens the dialog,
+    // and the tips sit inline at the top of the form. Band B shows both in
+    // the context pane instead; phones and desktop keep today's form
+    // (ruling R-1).
+    final tablet = ShellGeometry.maybeOf(context)?.tablet ?? false;
+    final previewAction =
+        tablet &&
+        !ContextPaneScope.shows(context, ContextSectionKind.planPreview);
+    final tipsInline =
+        tablet && !ContextPaneScope.shows(context, ContextSectionKind.planTips);
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
@@ -287,6 +401,8 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                       busySemanticsLabel: 'Creating plan',
                       onCancel: _requestExit,
                       onAction: _canCreate && !busy ? _create : null,
+                      secondaryLabel: previewAction ? kPlanPreviewTitle : null,
+                      onSecondary: previewAction ? _openPreview : null,
                     ),
                     Expanded(
                       child: SingleChildScrollView(
@@ -294,6 +410,16 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            // Always one child here, so the fields keep their
+                            // place when the tips move to the pane at 840.
+                            if (tipsInline)
+                              PlanTipsSection(
+                                expanded: _tipsOpen,
+                                onToggle: () =>
+                                    setState(() => _tipsOpen = !_tipsOpen),
+                              )
+                            else
+                              const SizedBox.shrink(),
                             _Section(
                               title: 'What',
                               child: _chips<pb.BeaconActivity>(
@@ -309,8 +435,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                 selected: _activity,
                                 label: activityLabel,
                                 enabled: !busy,
-                                onSelected: (a) =>
-                                    setState(() => _activity = a),
+                                onSelected: (a) => _update(() => _activity = a),
                               ),
                             ),
                             TextField(
@@ -424,7 +549,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                 label: (m) => '$m min',
                                 enabled: !busy,
                                 onSelected: (m) =>
-                                    setState(() => _durationMinutes = m),
+                                    _update(() => _durationMinutes = m),
                               ),
                             ),
                             _Section(
@@ -439,7 +564,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                     onPressed:
                                         busy || _openSpots <= kBeaconMinSpots
                                         ? null
-                                        : () => setState(() => _openSpots--),
+                                        : () => _update(() => _openSpots--),
                                   ),
                                   Semantics(
                                     label: '$_openSpots open spots',
@@ -455,7 +580,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                     onPressed:
                                         busy || _openSpots >= kBeaconMaxSpots
                                         ? null
-                                        : () => setState(() => _openSpots++),
+                                        : () => _update(() => _openSpots++),
                                   ),
                                 ],
                               ),
@@ -471,7 +596,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                 selected: _cost,
                                 label: costLabel,
                                 enabled: !busy,
-                                onSelected: (c) => setState(() => _cost = c),
+                                onSelected: (c) => _update(() => _cost = c),
                               ),
                             ),
                             _Section(
@@ -489,7 +614,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                 selected: _chat,
                                 label: chatPreferenceLabel,
                                 enabled: !busy,
-                                onSelected: (c) => setState(() => _chat = c),
+                                onSelected: (c) => _update(() => _chat = c),
                               ),
                             ),
                             _Section(
@@ -499,8 +624,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                 selected: _audience,
                                 label: (a) => a.name,
                                 enabled: !busy,
-                                onSelected: (a) =>
-                                    setState(() => _audience = a),
+                                onSelected: (a) => _update(() => _audience = a),
                               ),
                             ),
                             if (state.error != null) ...[
