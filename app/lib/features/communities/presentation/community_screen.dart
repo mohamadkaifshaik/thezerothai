@@ -6,6 +6,8 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../core/widgets/context_pane.dart';
+import '../../../core/widgets/context_pane_slots.dart';
 import '../../../shared/widgets/post/post_moderation_control.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_menu_item_row.dart';
@@ -119,13 +121,38 @@ class _CommunityScreenState extends State<CommunityScreen> {
     _timeline.load();
   }
 
+  /// Band B's context pane: the rules, moderators and "View moderation log"
+  /// card, over this page's [_detail] (no call of its own; T8a).
+  final _paneLease = ContextPaneLease();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _paneLease.attach(context, AppRouter.communityPath(widget.communityId), {
+      ContextSectionKind.communityAbout: (context) =>
+          BlocBuilder<CommunityDetailCubit, CommunityDetailState>(
+            bloc: _detail,
+            builder: (context, state) => CommunityAboutPane(
+              state: state,
+              onModerationLog: state.community?.role.canModerate == true
+                  ? _openModerationLog
+                  : null,
+            ),
+          ),
+    });
+  }
+
   @override
   void dispose() {
+    _paneLease.dispose();
     _moderation.close();
     _timeline.close();
     _detail.close();
     super.dispose();
   }
+
+  void _openModerationLog() =>
+      context.push(AppRouter.communityModerationLogPath(widget.communityId));
 
   /// The "Post" entry: the header's own rule plus the caller's flags.
   bool _canCompose(BuildContext context, CommunityDetailState state) {
@@ -308,11 +335,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
                             )
                           : null,
                       onModerationLog: state.community?.role.canModerate == true
-                          ? () => context.push(
-                              AppRouter.communityModerationLogPath(
-                                widget.communityId,
-                              ),
-                            )
+                          ? _openModerationLog
                           : null,
                       onMembers: () => context.push(
                         AppRouter.communityMembersPath(widget.communityId),

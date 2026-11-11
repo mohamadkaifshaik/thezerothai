@@ -6,6 +6,8 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../core/widgets/context_pane.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
@@ -14,6 +16,7 @@ import 'bloc/community_moderation_cubit.dart';
 import 'bloc/community_moderation_log_cubit.dart';
 import 'communities_error_messages.dart';
 import 'widgets/community_unavailable_view.dart';
+import 'widgets/moderation_log_about.dart';
 import 'widgets/moderation_log_row.dart';
 
 /// `/communities/:id/moderation-log`: what the moderators did, newest
@@ -188,12 +191,31 @@ class _CommunityModerationLogScreenState
 
   @override
   Widget build(BuildContext context) {
+    // "About this log" (tablet plan section 4.1, ModLog): inline above the
+    // log in band A, in the context pane in band B. Only on the tablet
+    // layout: phones and desktop keep today's page (ruling R-1). The slot
+    // stays in the column either way, so the log keeps its state at 840.
+    final tablet = ShellGeometry.maybeOf(context)?.tablet ?? false;
+    final aboutInline =
+        tablet &&
+        !ContextPaneScope.shows(context, ContextSectionKind.moderationLogAbout);
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
           child: Column(
             children: [
               AppBackHeader(title: 'Moderation log', onBack: _back),
+              if (aboutInline)
+                const ModerationLogAbout(
+                  margin: EdgeInsets.fromLTRB(
+                    AppSpacing.md,
+                    AppSpacing.sm,
+                    AppSpacing.md,
+                    AppSpacing.sm,
+                  ),
+                )
+              else
+                const SizedBox.shrink(),
               Expanded(
                 child:
                     BlocBuilder<

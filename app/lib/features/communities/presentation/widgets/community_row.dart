@@ -37,11 +37,17 @@ class CommunityRow extends StatelessWidget {
     this.trailing,
     this.role,
     this.selected,
+    this.trailingBelow = false,
   });
 
   final pb.Community community;
   final VoidCallback? onTap;
   final Widget? trailing;
+
+  /// Puts [trailing] under the name, aligned with it, instead of after the
+  /// row: for a narrow column (band B's context pane, 320 dp), where the Join
+  /// pill would leave the name no room. Off: today's row.
+  final bool trailingBelow;
 
   /// An ARIA role for the row on the web (null: a plain button).
   final SemanticsRole? role;
@@ -57,6 +63,32 @@ class CommunityRow extends StatelessWidget {
     final members = communityMemberCountLabel(community);
     final badge = communityRoleBadge(community.role);
     final spoken = [community.name, members, ?badge].join(', ');
+    final trailing = this.trailing;
+    if (trailingBelow && trailing != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          CommunityRow(
+            community: community,
+            onTap: onTap,
+            role: role,
+            selected: selected,
+          ),
+          Padding(
+            // Under the name: the row's padding, the tile and its gap.
+            padding: const EdgeInsetsDirectional.only(
+              start: AppSpacing.md + AppSpacing.xxl + AppSpacing.smd,
+              end: AppSpacing.md,
+              bottom: AppSpacing.smd,
+            ),
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: trailing,
+            ),
+          ),
+        ],
+      );
+    }
     return Row(
       children: [
         Expanded(

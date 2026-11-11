@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/communities/domain/communities_feature_flag.dart';
+import '../../features/communities/presentation/widgets/moderation_log_about.dart';
 import '../../features/graph/presentation/graph_feature_flags.dart';
 import '../../features/graph/presentation/widgets/who_to_follow_card.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -12,6 +14,7 @@ import '../../shared/widgets/primitives/app_side_column.dart';
 import '../feature_flags/feature_flags.dart';
 import '../theme/app_theme.dart';
 import '../widgets/context_pane.dart';
+import '../widgets/context_pane_slots.dart';
 import '../widgets/privacy_policy_link.dart';
 import 'app_router.dart';
 
@@ -46,6 +49,45 @@ enum ContextFamily {
 
   /// A profile: You might like (the media strip is T8).
   profile,
+
+  /// `/communities` (T8a): "Explore Communities", lent by the page (its
+  /// directory and Join). F37's scoped "Search Communities" waits.
+  communities,
+
+  /// `/communities/new` (T8a): the live preview of the form, lent by the
+  /// page.
+  communityCreate,
+
+  /// `/communities/:id` (T8a): the community's rules, moderators and "View
+  /// moderation log", lent by the page (its one `GetCommunity`).
+  community,
+
+  /// `/communities/:id/moderation-log` (T8a): "About this log" (static).
+  moderationLog,
+}
+
+/// Whether [location] is one of the communities pages (`/communities` and
+/// everything under it).
+bool _isCommunitiesLocation(String location) {
+  final segments = Uri.parse(location).pathSegments;
+  return segments.isNotEmpty && segments.first == 'communities';
+}
+
+/// The location whose family the context pane shows, from the shell's
+/// [base] route and the [top] page of the shell navigator (null when it is
+/// not known).
+///
+/// The communities pages are pushed (directory rows, Members, the log,
+/// Create, a post's community label from any feed), so when either side is
+/// a communities page the top page decides, as Plans' list pane does (T5):
+/// a community pushed over Home gets its own pane, and a page pushed over a
+/// community gets its own family, never the community's lent sections.
+/// Everything else keeps T3's rule: the base route decides.
+String contextPaneLocationFor(String base, String? top) {
+  if (top == null) return base;
+  return _isCommunitiesLocation(top) || _isCommunitiesLocation(base)
+      ? top
+      : base;
 }
 
 /// The family of the matched shell [location] (a path; a query is ignored).
@@ -69,6 +111,13 @@ ContextFamily contextFamilyFor(String location) {
     ['follow-requests'] => ContextFamily.people,
     ['profile', _, 'followers' || 'following'] => ContextFamily.people,
     ['profile', _] || ['u', _] => ContextFamily.profile,
+    // `/communities/new` is matched before `/communities/:id`.
+    ['communities'] => ContextFamily.communities,
+    ['communities', 'new'] => ContextFamily.communityCreate,
+    ['communities', _, 'moderation-log'] => ContextFamily.moderationLog,
+    // CommunityMembers: the global set (F36's "Search members" waits).
+    ['communities', _, 'members'] => ContextFamily.global,
+    ['communities', _] => ContextFamily.community,
     _ => ContextFamily.global,
   };
 }
@@ -85,8 +134,20 @@ ContextFamily contextFamilyFor(String location) {
 /// (`TrendsCubit`, `SuggestionsCubit`, the loaded profile): no new call.
 /// Every pane ends with the footer links.
 List<ContextSection> contextSectionsFor(String location, BuildContext context) {
-  final family = contextFamilyFor(location);
+  var family = contextFamilyFor(location);
   if (family == ContextFamily.none) return const [];
+  // The communities pages need `communities` (the router sends them Home
+  // without it); should one show anyway, it gets the global set.
+  final communitiesFamily = switch (family) {
+    ContextFamily.communities ||
+    ContextFamily.communityCreate ||
+    ContextFamily.community ||
+    ContextFamily.moderationLog => true,
+    _ => false,
+  };
+  if (communitiesFamily && !isFeatureEnabled(context, kFeatureCommunities)) {
+    family = ContextFamily.global;
+  }
   final search = isFeatureEnabled(context, kFeatureSearch);
   final trends = search && isFeatureEnabled(context, kFeatureTrends);
   final suggestions = isFollowSuggestionsEnabled(context);
@@ -102,6 +163,8 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
     ContextSectionKind.trends,
     WhatsHappeningCard(),
   );
+  ContextSection lent(ContextSectionKind kind) =>
+      ContextSection(kind, ContextPaneSlot(kind: kind, location: location));
 
   return [
     ...switch (family) {
@@ -123,6 +186,20 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
       ContextFamily.notifications ||
       ContextFamily.search => [if (trends) whatsHappening],
       ContextFamily.profile => [if (suggestions) whoToFollow('You might like')],
+      // Lent by the page, over its own state (no call of the pane's own).
+      ContextFamily.communities => [
+        lent(ContextSectionKind.exploreCommunities),
+      ],
+      ContextFamily.communityCreate => [
+        lent(ContextSectionKind.communityPreview),
+      ],
+      ContextFamily.community => [lent(ContextSectionKind.communityAbout)],
+      ContextFamily.moderationLog => const [
+        ContextSection(
+          ContextSectionKind.moderationLogAbout,
+          ModerationLogAbout(),
+        ),
+      ],
       ContextFamily.none => const <ContextSection>[],
     },
     ContextSection(

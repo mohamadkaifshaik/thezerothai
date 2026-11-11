@@ -35,6 +35,7 @@ import '../../features/settings/domain/settings_categories.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/app_more_menu.dart';
+import '../widgets/context_pane_slots.dart';
 import '../widgets/responsive_scaffold.dart';
 import '../widgets/privacy_policy_link.dart';
 import '../widgets/shell_geometry.dart';
@@ -410,6 +411,13 @@ class MainShell extends StatelessWidget {
         : split
         ? splitFolder
         : messagesShellMasterFolder(_shellTopLocation(context) ?? location);
+    // The context pane's route (T8a): the communities pages are pushed, so
+    // there the shell navigator's top page decides, as for Plans; elsewhere
+    // the base route, as before (`contextPaneLocationFor`). The split page's
+    // shell navigator belongs to another page, so it keeps its location.
+    final paneLocation = tabletLayout && !split
+        ? contextPaneLocationFor(location, _shellTopLocation(context))
+        : location;
 
     void select(int index) {
       switch (tabs[index].tab) {
@@ -443,136 +451,144 @@ class MainShell extends StatelessWidget {
       }
     }
 
-    return ResponsiveScaffold(
-      // The redesigned rail look (600dp and up) with the new shell only.
-      redesignedRail: newShell,
-      layout: tabletLayout ? ShellLayout.tablet : ShellLayout.legacy,
-      moreHasOwnRows: moreHasOwnRows,
-      // A short tablet rail folds Lists, Communities, History and Profile
-      // into More: they head its menu and open as from the rail.
-      onMoreFolded: (anchor, folded) => AppMoreMenu.show(
-        anchor,
-        entries: shellEntries,
-        folded: [
-          for (final i in folded)
-            AppMoreMenuFoldedRow(
-              icon: tabs[i].destination.icon,
-              label: tabs[i].destination.label,
-              selected: tabs[i].tab == selected,
-              onSelected: () => select(i),
-            ),
-        ],
-      ),
-      masterPane: masterDetail
-          ? _SettingsMaster(selectedPath: location)
-          : settingsListDetail
-          ? SettingsCategoriesPane(
-              selected: settingsCategoryForUri(uri ?? Uri.parse(location)),
-            )
-          : plansListDetail
-          ? PlansListPane(selectedId: plansMatch.selectedId)
-          : messagesMaster != null
-          ? ConversationsListPane(
-              // The folder decides the list; a new folder is a new list.
-              key: ValueKey(messagesMaster),
-              folder: messagesMaster,
-              selectedId: split ? messagesThreadIdOf(location) : null,
-              split: split,
-            )
-          : null,
-      // Band B's context pane (tablet layout only; the scaffold shows it
-      // from 840dp). Desktop keeps the side column below (ruling R-1).
-      contextSections: tabletLayout
-          ? contextSectionsFor(location, context)
-          : null,
-      selectedIndex: selectedIndex == null || selectedIndex < 0
-          ? null
-          : selectedIndex,
-      onCompose: canCompose ? openCompose : null,
-      showFab: showFab,
-      drawer: newShell ? const AppDrawer() : null,
-      floatingBar: newShell,
-      accountChipBuilder: newShell
-          ? (extended) => AppAccountChip(extended: extended)
-          : null,
-      sideColumn: AppSideColumn(
-        // The search pill: the new shell with `search` on, except on
-        // Explore, where the pill is in the centre header.
-        header: exploreEntry && !location.startsWith(AppRouter.explorePath)
-            ? const AppSearchField()
+    // The slots through which a page lends the context pane sections built
+    // over its own state (T8a). Present at every width and in every mode, so
+    // the tree around the shell navigator keeps its shape.
+    return ContextPaneSlotsHost(
+      child: ResponsiveScaffold(
+        // The redesigned rail look (600dp and up) with the new shell only.
+        redesignedRail: newShell,
+        layout: tabletLayout ? ShellLayout.tablet : ShellLayout.legacy,
+        moreHasOwnRows: moreHasOwnRows,
+        // A short tablet rail folds Lists, Communities, History and Profile
+        // into More: they head its menu and open as from the rail.
+        onMoreFolded: (anchor, folded) => AppMoreMenu.show(
+          anchor,
+          entries: shellEntries,
+          folded: [
+            for (final i in folded)
+              AppMoreMenuFoldedRow(
+                icon: tabs[i].destination.icon,
+                label: tabs[i].destination.label,
+                selected: tabs[i].tab == selected,
+                onSelected: () => select(i),
+              ),
+          ],
+        ),
+        masterPane: masterDetail
+            ? _SettingsMaster(selectedPath: location)
+            : settingsListDetail
+            ? SettingsCategoriesPane(
+                selected: settingsCategoryForUri(uri ?? Uri.parse(location)),
+              )
+            : plansListDetail
+            ? PlansListPane(selectedId: plansMatch.selectedId)
+            : messagesMaster != null
+            ? ConversationsListPane(
+                // The folder decides the list; a new folder is a new list.
+                key: ValueKey(messagesMaster),
+                folder: messagesMaster,
+                selectedId: split ? messagesThreadIdOf(location) : null,
+                split: split,
+              )
             : null,
-        // "You might like": the new shell, `graph` and
-        // `follow_suggestions` all on. The card draws nothing until the shared
-        // list has rows, so the column is unchanged otherwise.
-        sections: [
-          // "What's happening": the top 5 trends; draws nothing unless
-          // `search` + `trends` are on and the shared list has rows.
-          if (exploreEntry) const WhatsHappeningCard(),
-          if (newShell && isFollowSuggestionsEnabled(context))
-            const WhoToFollowCard(
-              title: 'You might like',
-              margin: EdgeInsets.only(bottom: AppSpacing.md),
-            ),
-        ],
-        // Only what is already loaded: no profile, no card (nothing is fetched).
-        profile: ownHandle == null || ownHandle.isEmpty
+        // Band B's context pane (tablet layout only; the scaffold shows it
+        // from 840dp). Desktop keeps the side column below (ruling R-1).
+        contextSections: tabletLayout
+            ? contextSectionsFor(paneLocation, context)
+            : null,
+        selectedIndex: selectedIndex == null || selectedIndex < 0
             ? null
-            : AppSideProfile(
-                displayName: ownProfile?.displayName ?? '',
-                handle: ownHandle,
-                avatarUrl: ownProfile?.avatarThumbUrl ?? '',
-                onTap: () => context.go(AppRouter.profilePath(ownHandle)),
+            : selectedIndex,
+        onCompose: canCompose ? openCompose : null,
+        showFab: showFab,
+        drawer: newShell ? const AppDrawer() : null,
+        floatingBar: newShell,
+        accountChipBuilder: newShell
+            ? (extended) => AppAccountChip(extended: extended)
+            : null,
+        sideColumn: AppSideColumn(
+          // The search pill: the new shell with `search` on, except on
+          // Explore, where the pill is in the centre header.
+          header: exploreEntry && !location.startsWith(AppRouter.explorePath)
+              ? const AppSearchField()
+              : null,
+          // "You might like": the new shell, `graph` and
+          // `follow_suggestions` all on. The card draws nothing until the shared
+          // list has rows, so the column is unchanged otherwise.
+          sections: [
+            // "What's happening": the top 5 trends; draws nothing unless
+            // `search` + `trends` are on and the shared list has rows.
+            if (exploreEntry) const WhatsHappeningCard(),
+            if (newShell && isFollowSuggestionsEnabled(context))
+              const WhoToFollowCard(
+                title: 'You might like',
+                margin: EdgeInsets.only(bottom: AppSpacing.md),
               ),
-        links: [
-          AppSideLink(
-            icon: Icons.settings_outlined,
-            label: 'Settings',
-            onTap: () => context.go(AppRouter.settingsPath),
-          ),
-          AppSideLink(
-            icon: Icons.privacy_tip_outlined,
-            label: 'Privacy Policy',
-            onTap: () => launchPrivacyPolicy(context),
-          ),
-        ],
-      ),
-      destinations: destinations,
-      onDestinationSelected: select,
-      // A failed GetMe behind a cached profile: a non-blocking Retry over
-      // every destination, never a hard stop (offline warm start).
-      // The tablet pane keeps the top inset (no outer SafeArea): while the
-      // banner shows it sits below the inset and the page under it does not
-      // pad by the inset again. Elsewhere the inset is already taken (0).
-      body: Builder(
-        builder: (pane) {
-          final inset = refreshFailed ? MediaQuery.paddingOf(pane).top : 0.0;
-          return Column(
-            children: [
-              Padding(
-                padding: EdgeInsets.only(top: inset),
-                child: const AccountRefreshBanner(),
-              ),
-              Expanded(
-                child: MediaQuery.removePadding(
-                  context: pane,
-                  removeTop: inset > 0,
-                  // Present at every width and in every mode, so the tree
-                  // around the shell navigator keeps its shape at 840.
-                  child: PlansMasterScope(
-                    shown: plansListDetail,
-                    selectedId: plansListDetail ? plansMatch.selectedId : null,
-                    child: ConversationsMasterScope(
-                      shown: messagesMaster != null && !split,
-                      child: masterDetail && location == AppRouter.settingsPath
-                          ? const SettingsDetailPlaceholder()
-                          : child,
+          ],
+          // Only what is already loaded: no profile, no card (nothing is fetched).
+          profile: ownHandle == null || ownHandle.isEmpty
+              ? null
+              : AppSideProfile(
+                  displayName: ownProfile?.displayName ?? '',
+                  handle: ownHandle,
+                  avatarUrl: ownProfile?.avatarThumbUrl ?? '',
+                  onTap: () => context.go(AppRouter.profilePath(ownHandle)),
+                ),
+          links: [
+            AppSideLink(
+              icon: Icons.settings_outlined,
+              label: 'Settings',
+              onTap: () => context.go(AppRouter.settingsPath),
+            ),
+            AppSideLink(
+              icon: Icons.privacy_tip_outlined,
+              label: 'Privacy Policy',
+              onTap: () => launchPrivacyPolicy(context),
+            ),
+          ],
+        ),
+        destinations: destinations,
+        onDestinationSelected: select,
+        // A failed GetMe behind a cached profile: a non-blocking Retry over
+        // every destination, never a hard stop (offline warm start).
+        // The tablet pane keeps the top inset (no outer SafeArea): while the
+        // banner shows it sits below the inset and the page under it does not
+        // pad by the inset again. Elsewhere the inset is already taken (0).
+        body: Builder(
+          builder: (pane) {
+            final inset = refreshFailed ? MediaQuery.paddingOf(pane).top : 0.0;
+            return Column(
+              children: [
+                Padding(
+                  padding: EdgeInsets.only(top: inset),
+                  child: const AccountRefreshBanner(),
+                ),
+                Expanded(
+                  child: MediaQuery.removePadding(
+                    context: pane,
+                    removeTop: inset > 0,
+                    // Present at every width and in every mode, so the tree
+                    // around the shell navigator keeps its shape at 840.
+                    child: PlansMasterScope(
+                      shown: plansListDetail,
+                      selectedId: plansListDetail
+                          ? plansMatch.selectedId
+                          : null,
+                      child: ConversationsMasterScope(
+                        shown: messagesMaster != null && !split,
+                        child:
+                            masterDetail && location == AppRouter.settingsPath
+                            ? const SettingsDetailPlaceholder()
+                            : child,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
-          );
-        },
+              ],
+            );
+          },
+        ),
       ),
     );
   }
