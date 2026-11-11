@@ -32,6 +32,7 @@ import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/search/presentation/bloc/trends_cubit.dart';
 import 'package:dzeroth/features/timeline/data/timeline_repository.dart';
 import 'package:dzeroth/features/timeline/domain/feed_key.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
@@ -118,8 +119,15 @@ final kRigNow = DateTime.now().toUtc();
 /// calls the pages make are answered.
 class FakeCommunitiesServer extends Mock implements CommunitiesRepository {
   /// Every call, in order: `mine`, `directory`, `get:<id>`, `join:<id>`,
-  /// `leave:<id>`, `members:<id>:<filter>`, `log:<id>`, `role:<id>:<user>`.
+  /// `leave:<id>`, `members:<id>:<filter>`, `log:<id>`, `role:<id>:<user>`,
+  /// `search:<id>:<prefix>:<filter>`.
   final calls = <String>[];
+
+  /// Non-null: SearchCommunityMembers fails with it (F36).
+  AppException? searchError;
+
+  /// Non-null: SearchCommunityMembers waits for it.
+  Completer<void>? holdSearch;
 
   /// The caller's role in [kRigCommunityId] (GetCommunity's `viewer_role`).
   pb.CommunityRole viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MEMBER;
@@ -252,6 +260,20 @@ class FakeCommunitiesServer extends Mock implements CommunitiesRepository {
     if (filter == pb.CommunityMemberFilter.COMMUNITY_MEMBER_FILTER_BANNED) {
       return const CommunityMembersPage(members: []);
     }
+    if (filter == pb.CommunityMemberFilter.COMMUNITY_MEMBER_FILTER_MODERATORS) {
+      return CommunityMembersPage(
+        members: [
+          pb.CommunityMember(
+            role: pb.CommunityRole.COMMUNITY_ROLE_OWNER,
+            user: person('o1', 'olivia', 'Olivia'),
+          ),
+          pb.CommunityMember(
+            role: pb.CommunityRole.COMMUNITY_ROLE_MODERATOR,
+            user: person('m1', 'mo', 'Mo'),
+          ),
+        ],
+      );
+    }
     return CommunityMembersPage(
       members: [
         pb.CommunityMember(
@@ -265,6 +287,44 @@ class FakeCommunitiesServer extends Mock implements CommunitiesRepository {
           ),
       ],
     );
+  }
+
+  /// The members whose handle starts with [prefix] (F36): of the owner,
+  /// `member1..3` and the moderator `mo`, by handle.
+  @override
+  Future<List<pb.CommunityMember>> searchMembers({
+    required String communityId,
+    required String prefix,
+    pb.CommunityMemberFilter filter =
+        pb.CommunityMemberFilter.COMMUNITY_MEMBER_FILTER_JOINED,
+    int limit = 20,
+  }) async {
+    calls.add('search:$communityId:$prefix:${filter.name}');
+    await holdSearch?.future;
+    final error = searchError;
+    if (error != null) throw error;
+    if (filter == pb.CommunityMemberFilter.COMMUNITY_MEMBER_FILTER_BANNED) {
+      return const [];
+    }
+    final all = [
+      pb.CommunityMember(
+        role: pb.CommunityRole.COMMUNITY_ROLE_MODERATOR,
+        user: person('m1', 'mo', 'Mo'),
+      ),
+      for (var i = 1; i <= 3; i++)
+        pb.CommunityMember(
+          role: pb.CommunityRole.COMMUNITY_ROLE_MEMBER,
+          user: person('p$i', 'member$i', 'Member $i'),
+        ),
+      pb.CommunityMember(
+        role: pb.CommunityRole.COMMUNITY_ROLE_OWNER,
+        user: person('o1', 'olivia', 'Olivia'),
+      ),
+    ];
+    return [
+      for (final m in all)
+        if (m.user.user.handle.startsWith(prefix)) m,
+    ]..sort((a, b) => a.user.user.handle.compareTo(b.user.user.handle));
   }
 
   @override
@@ -543,3 +603,12 @@ Finder findCommunitiesPage() => find.byWidgetPredicate(
 /// [finder] inside the route child.
 Finder inCommunitiesPage(Finder finder) =>
     find.descendant(of: findCommunitiesPage(), matching: finder);
+
+/// Selects the Communities page's "Explore" tab (R10, F23: phones, tablet
+/// band A and desktop; band B has no tabs) and settles.
+Future<void> showExploreTab(WidgetTester tester) async {
+  await tester.tap(
+    find.descendant(of: find.byType(AppTabBar), matching: find.text('Explore')),
+  );
+  await tester.pumpAndSettle();
+}

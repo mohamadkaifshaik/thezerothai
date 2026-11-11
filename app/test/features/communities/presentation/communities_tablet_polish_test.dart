@@ -29,14 +29,19 @@ import '../../../support/context_pane_rig.dart'
 final _communityPath = AppRouter.communityPath(kRigCommunityId);
 final _logPath = AppRouter.communityModerationLogPath(kRigCommunityId);
 
+// R10 (F23): Explore is a tab outside band B, so "below" became "from
+// Explore"; band B names the pane's card, now sentence case.
 const _emptyMineOld =
-    "You haven't joined any Communities yet. Join one below to see its posts.";
+    "You haven't joined any Communities yet. Join one from Explore to see its "
+    'posts.';
 const _emptyMineBandB =
     "You haven't joined any Communities yet. Join one from Explore "
-    'Communities to see its posts.';
+    'communities to see its posts.';
 
-Finder _paneScrollable() =>
-    find.descendant(of: findContextPane(), matching: find.byType(Scrollable));
+/// The pane's own scroll view (R10: its search field has a Scrollable too).
+Finder _paneScrollable() => find
+    .descendant(of: findContextPane(), matching: find.byType(Scrollable))
+    .first;
 
 /// The pane's directory rows (their keys are `explore-<id>`).
 int _paneExploreRows(WidgetTester tester) => inContextPane(
@@ -165,7 +170,7 @@ void main() {
       await rig.pump(tester, location: AppRouter.homePath, width: 1024);
       unawaited(rig.router.push(AppRouter.communitiesPath));
       await tester.pump();
-      expect(inContextPane(find.text('Explore Communities')), findsOneWidget);
+      expect(inContextPane(find.text('Explore communities')), findsOneWidget);
       await tester.pumpAndSettle();
       expect(
         inContextPane(find.byKey(const ValueKey('explore-78'))),
@@ -225,7 +230,7 @@ void main() {
     }
 
     for (final (placeholder, title) in [
-      (const ExploreCommunitiesPanePlaceholder(), 'Explore Communities'),
+      (const ExploreCommunitiesPanePlaceholder(), 'Explore communities'),
       (const CommunityAboutPanePlaceholder(), 'Rules'),
       (const CommunityPreviewCard(), 'Preview'),
       (const ModerationLogAboutPlaceholder(), kModerationLogAboutTitle),
@@ -455,6 +460,18 @@ void main() {
       final rig = CommunitiesTabletRig();
       rig.server.directory = _directoryOf(12);
       await rig.pump(tester, width: 744, height: 1100);
+      // R10 (F23): the inline directory is the Explore tab.
+      await showExploreTab(tester);
+      await tester.scrollUntilVisible(
+        inCommunitiesPage(find.byKey(const ValueKey('explore-111'))),
+        100,
+        scrollable: find
+            .descendant(
+              of: findCommunitiesPage(),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
       expect(find.text('Show more'), findsNothing);
     });
   });

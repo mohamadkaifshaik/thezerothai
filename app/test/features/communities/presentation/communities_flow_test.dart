@@ -356,7 +356,9 @@ void main() {
       expect(tester.takeException(), isNull);
 
       // 1. Communities: the directory lists it, I am not in it. Join.
-      expect(find.text('Explore Communities'), findsOneWidget);
+      // R10 (F23): the directory is the Explore tab.
+      await tester.tap(find.text('Explore'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Join'));
       await tester.pumpAndSettle();
       expect(joinedWith, [_id], reason: 'one JoinCommunity');

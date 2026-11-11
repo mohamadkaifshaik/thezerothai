@@ -17,9 +17,6 @@ void main() {
     // Lists" out, F31's suggestions wait).
     AppRouter.listsPath: ContextFamily.global,
     '/lists/l1/members': ContextFamily.global,
-    // CommunityMembers: members beside the global set (T8a; F36's "Search
-    // members" waits).
-    '/communities/c1/members': ContextFamily.global,
     AppRouter.plansMinePath: ContextFamily.global,
     '/post/p1': ContextFamily.global,
     // P with the family's own list.
@@ -106,7 +103,17 @@ void main() {
       );
       expect(
         contextFamilyFor('/communities/7/members?tab=1'),
-        ContextFamily.global,
+        ContextFamily.communityMembers,
+      );
+    });
+
+    // R10 (F36): CommunityMembers has its own family; [contextSectionsFor]
+    // gives it "Search members" with `community_member_search` on and the
+    // global set without it (T8a ruling 11).
+    test('/communities/c1/members -> communityMembers', () {
+      expect(
+        contextFamilyFor('/communities/c1/members'),
+        ContextFamily.communityMembers,
       );
     });
 

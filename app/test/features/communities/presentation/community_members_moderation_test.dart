@@ -1,6 +1,7 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/communities/data/communities_repository.dart';
+import 'package:dzeroth/features/communities/domain/communities_feature_flag.dart';
 import 'package:dzeroth/features/communities/domain/community_role.dart';
 import 'package:dzeroth/features/communities/presentation/community_members_screen.dart';
 import 'package:dzeroth/features/communities/presentation/widgets/community_member_actions.dart';
@@ -12,6 +13,7 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -79,9 +81,12 @@ void main() {
     );
   }
 
+  /// [moderators] answers the MODERATORS filter (F24, R10); null answers it
+  /// with [joined], as before.
   void stubLists({
     List<pb.CommunityMember> joined = const [],
     List<pb.CommunityMember> bannedList = const [],
+    List<pb.CommunityMember>? moderators,
   }) {
     when(
       () => communities.listMembers(
@@ -96,6 +101,12 @@ void main() {
         members:
             filter == pb.CommunityMemberFilter.COMMUNITY_MEMBER_FILTER_BANNED
             ? bannedList
+            : filter ==
+                      pb
+                          .CommunityMemberFilter
+                          .COMMUNITY_MEMBER_FILTER_MODERATORS &&
+                  moderators != null
+            ? moderators
             : joined,
       );
     });
@@ -367,4 +378,165 @@ void main() {
     expect(find.byTooltip('Moderate @member3'), findsOneWidget);
     expect(find.text('Banned'), findsOneWidget);
   }, textScales: kMatrixTextScalesLarge);
+
+  group('R10: the other tabs and the search follow an action', () {
+    /// The [filter] pages asked for since the last count (verify marks
+    /// what it counted); 0 when none.
+    int listed(pb.CommunityMemberFilter filter) {
+      try {
+        return verify(
+          () => communities.listMembers(
+            communityId: any(named: 'communityId'),
+            filter: filter,
+            pageSize: any(named: 'pageSize'),
+            pageToken: any(named: 'pageToken'),
+          ),
+        ).callCount;
+      } on TestFailure {
+        return 0;
+      }
+    }
+
+    const joinedFilter =
+        pb.CommunityMemberFilter.COMMUNITY_MEMBER_FILTER_JOINED;
+    const bannedFilter =
+        pb.CommunityMemberFilter.COMMUNITY_MEMBER_FILTER_BANNED;
+    const modsFilter =
+        pb.CommunityMemberFilter.COMMUNITY_MEMBER_FILTER_MODERATORS;
+
+    Finder tab(String label) =>
+        find.descendant(of: find.byType(AppTabBar), matching: find.text(label));
+
+    void searchOn() => whenListen(
+      onboarding,
+      const Stream<OnboardingState>.empty(),
+      initialState: OnboardingState(
+        status: OnboardingStatus.ready,
+        profile: identity.Profile(userId: 'viewer', handle: 'me'),
+        enabledFeatures: const {
+          'communities',
+          'graph',
+          kFeatureCommunityMemberSearch,
+        },
+      ),
+    );
+
+    for (final fails in [false, true]) {
+      testWidgets(
+        fails
+            ? 'a Ban from the search results that fails puts the row back'
+            : 'a Ban from the search results takes the row out and reloads '
+                  'Members',
+        (tester) async {
+          searchOn();
+          stubViewer(moderator);
+          stubLists(joined: [_member(3, plain), _member(4, plain)]);
+          when(
+            () => communities.searchMembers(
+              communityId: any(named: 'communityId'),
+              prefix: any(named: 'prefix'),
+              filter: any(named: 'filter'),
+              limit: any(named: 'limit'),
+            ),
+          ).thenAnswer((_) async => [_member(3, plain)]);
+          stubSetRole(
+            error: fails
+                ? CommunityForbiddenException(
+                    CommunityForbiddenReason.notModerator,
+                  )
+                : null,
+          );
+          await open(tester);
+          expect(listed(joinedFilter), 1);
+          await tester.enterText(find.byType(TextField), 'member3');
+          await tester.pump(const Duration(milliseconds: 300));
+          await tester.pumpAndSettle();
+          expect(find.text('Member 3'), findsOneWidget);
+          expect(find.text('Member 4'), findsNothing);
+
+          await tester.tap(find.byTooltip('Moderate @member3'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Ban from Community'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.widgetWithText(FilledButton, 'Ban'));
+          await tester.pumpAndSettle();
+          if (fails) {
+            expect(find.text('Member 3'), findsOneWidget);
+            expect(find.text('Only moderators can do that.'), findsOneWidget);
+            expect(listed(joinedFilter), 0);
+          } else {
+            expect(find.text('Member 3'), findsNothing);
+            expect(find.text('Banned @member3.'), findsOneWidget);
+            // Members (the tab under the search) reloads; Banned was never
+            // opened, so it is not asked for.
+            expect(listed(joinedFilter), 1);
+            expect(listed(bannedFilter), 0);
+          }
+        },
+      );
+    }
+
+    testWidgets('Remove as moderator on the Moderators tab drops the row', (
+      tester,
+    ) async {
+      stubViewer(owner);
+      stubLists(
+        joined: [_member(1, owner), _member(2, moderator)],
+        moderators: [_member(1, owner), _member(2, moderator)],
+      );
+      stubSetRole(role: plain);
+      await open(tester);
+      await tester.tap(tab('Moderators'));
+      await tester.pumpAndSettle();
+      expect(find.text('Member 2'), findsOneWidget);
+      await tester.tap(find.byTooltip('Moderate @member2'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove as moderator'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Remove'));
+      await tester.pumpAndSettle();
+      expect(find.text('Member 2'), findsNothing);
+      expect(find.text('Member 1'), findsOneWidget);
+      expect(find.text('@member2 is no longer a moderator.'), findsOneWidget);
+    });
+
+    for (final opened in [false, true]) {
+      testWidgets(
+        opened
+            ? 'Make moderator on Members reloads the Moderators tab it '
+                  'already loaded'
+            : 'Make moderator on Members asks nothing for a Moderators tab '
+                  'never opened',
+        (tester) async {
+          stubViewer(owner);
+          stubLists(
+            joined: [_member(3, plain)],
+            moderators: [_member(1, owner)],
+          );
+          stubSetRole(role: moderator);
+          await open(tester);
+          if (opened) {
+            await tester.tap(tab('Moderators'));
+            await tester.pumpAndSettle();
+            await tester.tap(tab('Members'));
+            await tester.pumpAndSettle();
+          }
+          expect(listed(modsFilter), opened ? 1 : 0);
+          // (Each count is of the calls since the last one: verify marks.)
+          expect(listed(joinedFilter), 1);
+          await tester.tap(find.byTooltip('Moderate @member3'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Make moderator'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.widgetWithText(FilledButton, 'Make moderator'));
+          await tester.pumpAndSettle();
+          expect(find.text('@member3 is now a moderator.'), findsOneWidget);
+          expect(listed(modsFilter), opened ? 1 : 0);
+          // Members itself is not reloaded: its badge takes the new role.
+          expect(listed(joinedFilter), 0);
+          expect(find.text('Moderator'), findsOneWidget);
+        },
+      );
+    }
+  });
 }
