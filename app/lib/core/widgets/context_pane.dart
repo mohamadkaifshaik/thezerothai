@@ -39,6 +39,22 @@ enum ContextSectionKind {
 
   /// `/communities/:id/moderation-log`: "About this log" (T8a).
   moderationLogAbout,
+
+  /// `/lists/:id`: a preview of the List's members with "Manage members" /
+  /// "See all members" (T8b). The header keeps the count at every width.
+  listMembers,
+
+  /// `/home/pinned`: a preview of the Home tabs as they will show (T8b).
+  homeTabsPreview,
+
+  /// `/u/:id/lists`: the card of the Lists' owner (T8b).
+  listsOwner,
+
+  /// `/plans/new`, `/plans/:id/edit`: the live preview of the form (T8d).
+  planPreview,
+
+  /// `/plans/new`, `/plans/:id/edit`: "Tips for a good plan" (T8d).
+  planTips,
 }
 
 /// One section of band B's context pane: a self-gating widget (it draws

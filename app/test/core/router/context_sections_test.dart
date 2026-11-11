@@ -12,19 +12,16 @@ void main() {
     // P with the global set (search pill, profile card, What's happening,
     // Who to follow, footer).
     '/home': ContextFamily.global,
-    AppRouter.pinnedPath: ContextFamily.global,
     AppRouter.bookmarksPath: ContextFamily.global,
+    // Lists and ListMembers: the global set (T8b; F10 keeps "Discover new
+    // Lists" out, F31's suggestions wait).
     AppRouter.listsPath: ContextFamily.global,
-    '/lists/l1': ContextFamily.global,
     '/lists/l1/members': ContextFamily.global,
     // CommunityMembers: members beside the global set (T8a; F36's "Search
     // members" waits).
     '/communities/c1/members': ContextFamily.global,
-    AppRouter.planNewPath: ContextFamily.global,
     AppRouter.plansMinePath: ContextFamily.global,
-    '/plans/b1/edit': ContextFamily.global,
     '/post/p1': ContextFamily.global,
-    '/u/u1/lists': ContextFamily.global,
     // P with the family's own list.
     AppRouter.explorePath: ContextFamily.explore,
     AppRouter.notificationsPath: ContextFamily.notifications,
@@ -39,6 +36,13 @@ void main() {
     AppRouter.communityNewPath: ContextFamily.communityCreate,
     '/communities/c1': ContextFamily.community,
     '/communities/c1/moderation-log': ContextFamily.moderationLog,
+    // The Lists pages (T8b): sections lent by the page.
+    '/lists/l1': ContextFamily.listDetail,
+    AppRouter.pinnedPath: ContextFamily.managePinned,
+    '/u/u1/lists': ContextFamily.userLists,
+    // The plan forms (T8d): the preview and the tips, lent by the page.
+    AppRouter.planNewPath: ContextFamily.planCreate,
+    '/plans/b1/edit': ContextFamily.planEdit,
     // No pane: list-detail families (T4-T6) and the F rows of section 4.1.
     AppRouter.settingsPath: ContextFamily.none,
     AppRouter.blockedAccountsPath: ContextFamily.none,
@@ -70,7 +74,7 @@ void main() {
   });
 
   test('"new" and "mine" are pages of their own, not a plan id', () {
-    expect(contextFamilyFor('/plans/new'), ContextFamily.global);
+    expect(contextFamilyFor('/plans/new'), ContextFamily.planCreate);
     expect(contextFamilyFor('/plans/mine'), ContextFamily.global);
     expect(contextFamilyFor('/plans/news'), ContextFamily.none);
   });
@@ -130,6 +134,80 @@ void main() {
       ('/home', null): '/home',
       // Not a prefix match: `/communitiesx` is not a communities page.
       ('/home', '/communitiesx'): '/home',
+    };
+    for (final MapEntry(key: (base, top), value: expected) in cases.entries) {
+      test('pane location: base $base, top $top -> $expected', () {
+        expect(contextPaneLocationFor(base, top), expected);
+      });
+    }
+  });
+
+  group('plan forms (T8d)', () {
+    test('"new" is the create form; "edit" under a plan id the edit form', () {
+      expect(contextFamilyFor('/plans/new/'), ContextFamily.planCreate);
+      expect(contextFamilyFor('/plans/new?x=1'), ContextFamily.planCreate);
+      expect(contextFamilyFor('/plans/7/edit/'), ContextFamily.planEdit);
+      expect(contextFamilyFor('/plans/7/edits'), ContextFamily.global);
+      expect(contextFamilyFor('/plans/new/edit'), ContextFamily.planEdit);
+    });
+
+    // The forms are pushed (the list header, the placeholder's New plan,
+    // My plans, a plan's Edit), so when one is the shell navigator's top
+    // page it decides; everything else keeps its rule.
+    const cases = <(String, String?), String>{
+      ('/plans', '/plans/new'): '/plans/new',
+      ('/plans/7', '/plans/7/edit'): '/plans/7/edit',
+      ('/plans/mine', '/plans/new'): '/plans/new',
+      ('/home', '/plans/new'): '/plans/new',
+      // A plan form as the base, with no top known: the base.
+      ('/plans/new', null): '/plans/new',
+      // Other Plans pages pushed over the list keep T5's base-route rule.
+      ('/plans', '/plans/mine'): '/plans',
+      ('/plans/7', '/plans/7/people'): '/plans/7',
+    };
+    for (final MapEntry(key: (base, top), value: expected) in cases.entries) {
+      test('pane location: base $base, top $top -> $expected', () {
+        expect(contextPaneLocationFor(base, top), expected);
+      });
+    }
+  });
+
+  group('lists (T8b)', () {
+    test('a query or a trailing slash does not change the family', () {
+      expect(contextFamilyFor('/lists/'), ContextFamily.global);
+      expect(contextFamilyFor('/lists/7?x=1'), ContextFamily.listDetail);
+      expect(contextFamilyFor('/lists/7/'), ContextFamily.listDetail);
+      expect(contextFamilyFor('/lists/7/members/'), ContextFamily.global);
+      expect(contextFamilyFor('/home/pinned/'), ContextFamily.managePinned);
+      expect(contextFamilyFor('/u/u1/lists?x=1'), ContextFamily.userLists);
+    });
+
+    test('near misses keep their own family', () {
+      expect(contextFamilyFor('/home/pinnedx'), ContextFamily.global);
+      expect(contextFamilyFor('/u/u1/listsx'), ContextFamily.global);
+      expect(contextFamilyFor('/u/u1'), ContextFamily.profile);
+    });
+
+    // The Lists pages are pushed (a List from Lists, Manage pinned or a
+    // person's Lists; Members from a List; Manage pinned from Home's "+"; a
+    // person's Lists from their profile), so their pane follows the top page.
+    const cases = <(String, String?), String>{
+      ('/lists', '/lists/77'): '/lists/77',
+      ('/lists', '/lists/77/members'): '/lists/77/members',
+      ('/home', '/home/pinned'): '/home/pinned',
+      ('/home', '/lists/77'): '/lists/77',
+      ('/profile/olivia', '/u/o1/lists'): '/u/o1/lists',
+      ('/u/o1', '/u/o1/lists'): '/u/o1/lists',
+      ('/profile/olivia', '/lists/77'): '/lists/77',
+      // Something else pushed over a Lists page: that page's family.
+      ('/lists', '/profile/olivia'): '/profile/olivia',
+      ('/home/pinned', '/plans/mine'): '/plans/mine',
+      // No top page known: the base route.
+      ('/lists', null): '/lists',
+      // Not a Lists page: T3's base-route rule, unchanged.
+      ('/home', '/home'): '/home',
+      ('/home', '/listsx'): '/home',
+      ('/home', '/u/o1'): '/home',
     };
     for (final MapEntry(key: (base, top), value: expected) in cases.entries) {
       test('pane location: base $base, top $top -> $expected', () {
