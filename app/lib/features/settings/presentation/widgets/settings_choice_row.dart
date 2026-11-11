@@ -97,6 +97,8 @@ class SettingsChoiceRow<T> extends StatelessWidget {
                   AppFilterPill(
                     label: choice.label,
                     selected: choice.value == selected,
+                    // A choice is never cut: at large text it wraps.
+                    maxLines: null,
                     onPressed: onSelected == null
                         ? null
                         : () => onSelected(choice.value),

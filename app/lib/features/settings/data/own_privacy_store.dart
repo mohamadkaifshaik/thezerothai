@@ -20,17 +20,28 @@ import '../domain/message_privacy.dart';
 /// `UpdateProfile` answers of the Settings switches. In memory only; reset
 /// with the account session (sign-out or a switch of account), and readers
 /// also compare [OwnPrivacy.userId] with the signed-in uid. Never logged.
-class OwnPrivacyStore extends ValueNotifier<OwnPrivacy?> {
-  OwnPrivacyStore() : super(null);
+///
+/// Not a `Listenable` itself (it is provided with a plain provider);
+/// [listenable] is how a reader follows it.
+class OwnPrivacyStore {
+  final ValueNotifier<OwnPrivacy?> _value = ValueNotifier(null);
+
+  /// The last server answer; null when this session has none.
+  OwnPrivacy? get value => _value.value;
+
+  /// Notifies on every change of [value].
+  ValueListenable<OwnPrivacy?> get listenable => _value;
 
   /// Records the server's [profile] of the caller.
   void record(identity.Profile profile) {
     if (profile.userId.isEmpty) return;
-    value = ownPrivacyOf(profile);
+    _value.value = ownPrivacyOf(profile);
   }
 
   /// Forgets everything (the account session ended).
-  void clear() => value = null;
+  void clear() => _value.value = null;
+
+  void dispose() => _value.dispose();
 }
 
 /// The message-privacy part of the caller's own [profile].

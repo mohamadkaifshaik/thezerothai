@@ -62,7 +62,7 @@ class MessagePrivacyCubit extends Cubit<MessagePrivacyState> {
        _onProfileUpdated = onProfileUpdated,
        _uuid = uuid ?? const Uuid(),
        super(MessagePrivacyState(confirmed: _mine(store.value, uid))) {
-    _store.addListener(_onStore);
+    _store.listenable.addListener(_onStore);
   }
 
   final IdentityRepository _identity;
@@ -157,7 +157,7 @@ class MessagePrivacyCubit extends Cubit<MessagePrivacyState> {
 
   @override
   Future<void> close() {
-    _store.removeListener(_onStore);
+    _store.listenable.removeListener(_onStore);
     return super.close();
   }
 }
