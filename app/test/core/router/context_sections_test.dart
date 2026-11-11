@@ -17,11 +17,9 @@ void main() {
     AppRouter.listsPath: ContextFamily.global,
     '/lists/l1': ContextFamily.global,
     '/lists/l1/members': ContextFamily.global,
-    AppRouter.communitiesPath: ContextFamily.global,
-    AppRouter.communityNewPath: ContextFamily.global,
-    '/communities/c1': ContextFamily.global,
+    // CommunityMembers: members beside the global set (T8a; F36's "Search
+    // members" waits).
     '/communities/c1/members': ContextFamily.global,
-    '/communities/c1/moderation-log': ContextFamily.global,
     AppRouter.planNewPath: ContextFamily.global,
     AppRouter.plansMinePath: ContextFamily.global,
     '/plans/b1/edit': ContextFamily.global,
@@ -36,6 +34,11 @@ void main() {
     '/profile/alice/following': ContextFamily.people,
     '/profile/alice': ContextFamily.profile,
     '/u/u1': ContextFamily.profile,
+    // The communities pages (T8a): sections lent by the page, or static.
+    AppRouter.communitiesPath: ContextFamily.communities,
+    AppRouter.communityNewPath: ContextFamily.communityCreate,
+    '/communities/c1': ContextFamily.community,
+    '/communities/c1/moderation-log': ContextFamily.moderationLog,
     // No pane: list-detail families (T4-T6) and the F rows of section 4.1.
     AppRouter.settingsPath: ContextFamily.none,
     AppRouter.blockedAccountsPath: ContextFamily.none,
@@ -75,5 +78,63 @@ void main() {
   test('an unknown shell path gets the global set (the plan default)', () {
     expect(contextFamilyFor('/'), ContextFamily.global);
     expect(contextFamilyFor('/something-new'), ContextFamily.global);
+  });
+
+  group('communities (T8a)', () {
+    test('"new" is the create form, not a community id', () {
+      expect(
+        contextFamilyFor('/communities/new'),
+        ContextFamily.communityCreate,
+      );
+      expect(
+        contextFamilyFor('/communities/new/'),
+        ContextFamily.communityCreate,
+      );
+      expect(contextFamilyFor('/communities/news'), ContextFamily.community);
+    });
+
+    test('a query or a trailing slash does not change the family', () {
+      expect(contextFamilyFor('/communities/'), ContextFamily.communities);
+      expect(contextFamilyFor('/communities/7?x=1'), ContextFamily.community);
+      expect(
+        contextFamilyFor('/communities/7/moderation-log/'),
+        ContextFamily.moderationLog,
+      );
+      expect(
+        contextFamilyFor('/communities/7/members?tab=1'),
+        ContextFamily.global,
+      );
+    });
+
+    // The communities pages are pushed (directory rows, Members, the log,
+    // Create, a post's community label from any feed), so their pane
+    // follows the shell navigator's top page, as Plans' list pane does (T5).
+    const cases = <(String, String?), String>{
+      // Pushed over Home, a feed or Explore: the community's own pane.
+      ('/home', '/communities/77'): '/communities/77',
+      ('/explore', '/communities/77/moderation-log'):
+          '/communities/77/moderation-log',
+      // Pushed over the directory, and further.
+      ('/communities', '/communities/77'): '/communities/77',
+      ('/communities', '/communities/new'): '/communities/new',
+      ('/communities', '/communities/77/members'): '/communities/77/members',
+      // Something else pushed over a communities page: that page's family,
+      // never the communities page's lent sections.
+      ('/communities', '/plans/mine'): '/plans/mine',
+      ('/communities/77', '/profile/alice'): '/profile/alice',
+      // Neither side is a communities page: T3's base-route rule, unchanged.
+      ('/explore', '/profile/alice'): '/explore',
+      ('/home', '/post/p1'): '/home',
+      // No top page known (no router): the base route.
+      ('/communities', null): '/communities',
+      ('/home', null): '/home',
+      // Not a prefix match: `/communitiesx` is not a communities page.
+      ('/home', '/communitiesx'): '/home',
+    };
+    for (final MapEntry(key: (base, top), value: expected) in cases.entries) {
+      test('pane location: base $base, top $top -> $expected', () {
+        expect(contextPaneLocationFor(base, top), expected);
+      });
+    }
   });
 }

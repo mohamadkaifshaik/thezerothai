@@ -6,6 +6,8 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../core/widgets/context_pane.dart';
+import '../../../core/widgets/context_pane_slots.dart';
 import '../../../gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
@@ -44,11 +46,47 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     repository: context.read<CommunitiesRepository>(),
   )..load();
 
+  /// Band B's context pane: "Explore Communities" over this page's [_cubit]
+  /// (the same rows, Join and states; no call of its own; T8a).
+  final _paneLease = ContextPaneLease();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _paneLease.attach(context, AppRouter.communitiesPath, {
+      ContextSectionKind.exploreCommunities: (context) =>
+          BlocBuilder<CommunitiesCubit, CommunitiesState>(
+            bloc: _cubit,
+            builder: (context, state) => ContextPaneCard(
+              title: _exploreTitle,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                // The inline section's own states and rows, as boxes: the
+                // pane is one scroll view (at most 50 rows, the directory's
+                // one page).
+                child:
+                    _directoryStatus(state) ??
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (final c in state.directory)
+                          _exploreRow(context, state, c, inPane: true),
+                      ],
+                    ),
+              ),
+            ),
+          ),
+    });
+  }
+
   @override
   void dispose() {
+    _paneLease.dispose();
     _cubit.close();
     super.dispose();
   }
+
+  static const _exploreTitle = 'Explore Communities';
 
   void _back() {
     if (context.canPop()) {
@@ -68,6 +106,13 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Band B's context pane shows "Explore Communities" (T8a): the inline
+    // copy steps aside, its slivers kept in place so My Communities keeps
+    // its scroll offset when the window crosses 840.
+    final exploreInPane = ContextPaneScope.shows(
+      context,
+      ContextSectionKind.exploreCommunities,
+    );
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
@@ -98,12 +143,15 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                             child: AppSectionHeader(title: 'My Communities'),
                           ),
                           ..._mine(context, state),
-                          const SliverToBoxAdapter(
-                            child: AppSectionHeader(
-                              title: 'Explore Communities',
-                            ),
+                          SliverToBoxAdapter(
+                            child: exploreInPane
+                                ? const SizedBox.shrink()
+                                : const AppSectionHeader(title: _exploreTitle),
                           ),
-                          ..._directory(context, state),
+                          if (exploreInPane)
+                            const SliverToBoxAdapter(child: SizedBox.shrink())
+                          else
+                            ..._directory(context, state),
                           const SliverToBoxAdapter(
                             child: SizedBox(height: AppSpacing.lg),
                           ),
@@ -167,64 +215,68 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     }
   }
 
-  List<Widget> _directory(BuildContext context, CommunitiesState state) {
+  /// "Explore Communities" while it has no rows: the skeleton, the error or
+  /// the empty note; null once there are rows. Inline and in the pane.
+  Widget? _directoryStatus(CommunitiesState state) {
     switch (state.directoryStatus) {
       case CommunitiesLoad.loading:
-        return const [
-          SliverToBoxAdapter(
-            child: UserListSkeleton(
-              rows: 3,
-              semanticsLabel: 'Loading Communities to explore',
-            ),
-          ),
-        ];
+        return const UserListSkeleton(
+          rows: 3,
+          semanticsLabel: 'Loading Communities to explore',
+        );
       case CommunitiesLoad.error:
-        return [
-          SliverToBoxAdapter(
-            child: _SectionError(
-              error: state.directoryError,
-              onRetry: _cubit.load,
-            ),
-          ),
-        ];
+        return _SectionError(error: state.directoryError, onRetry: _cubit.load);
       case CommunitiesLoad.ready:
         if (state.directory.isEmpty) {
-          return const [
-            SliverToBoxAdapter(
-              child: _SectionNote('No Communities to explore yet.'),
-            ),
-          ];
+          return const _SectionNote('No Communities to explore yet.');
         }
-        return [
-          SliverList.builder(
-            itemCount: state.directory.length,
-            itemBuilder: (context, i) {
-              final community = state.directory[i];
-              final id = community.communityId;
-              final joining = state.joining.contains(id);
-              final joinState = state.banned.contains(id)
-                  ? CommunityJoinState.banned
-                  : community.role == CommunityRole.banned
-                  ? CommunityJoinState.banned
-                  : (joining || community.role.isMember)
-                  ? CommunityJoinState.joined
-                  : CommunityJoinState.join;
-              return CommunityRow(
-                key: ValueKey('explore-$id'),
-                community: community,
-                onTap: () => context.push(AppRouter.communityPath(id)),
-                trailing: CommunityJoinControl(
-                  state: joinState,
-                  name: community.name,
-                  compact: true,
-                  busy: joining,
-                  onJoin: () => _join(community),
-                ),
-              );
-            },
-          ),
-        ];
+        return null;
     }
+  }
+
+  /// One directory row with its Join pill. Inline and in the pane
+  /// ([inPane]).
+  Widget _exploreRow(
+    BuildContext context,
+    CommunitiesState state,
+    pb.Community community, {
+    bool inPane = false,
+  }) {
+    final id = community.communityId;
+    final joining = state.joining.contains(id);
+    final joinState = state.banned.contains(id)
+        ? CommunityJoinState.banned
+        : community.role == CommunityRole.banned
+        ? CommunityJoinState.banned
+        : (joining || community.role.isMember)
+        ? CommunityJoinState.joined
+        : CommunityJoinState.join;
+    return CommunityRow(
+      key: ValueKey('explore-$id'),
+      community: community,
+      onTap: () => this.context.push(AppRouter.communityPath(id)),
+      // The pane is 320 dp: the Join pill goes under the name there.
+      trailingBelow: inPane,
+      trailing: CommunityJoinControl(
+        state: joinState,
+        name: community.name,
+        compact: true,
+        busy: joining,
+        onJoin: () => _join(community),
+      ),
+    );
+  }
+
+  List<Widget> _directory(BuildContext context, CommunitiesState state) {
+    final status = _directoryStatus(state);
+    if (status != null) return [SliverToBoxAdapter(child: status)];
+    return [
+      SliverList.builder(
+        itemCount: state.directory.length,
+        itemBuilder: (context, i) =>
+            _exploreRow(context, state, state.directory[i]),
+      ),
+    ];
   }
 }
 

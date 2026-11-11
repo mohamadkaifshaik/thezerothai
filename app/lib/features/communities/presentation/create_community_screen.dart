@@ -4,7 +4,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/context_pane.dart';
+import '../../../core/widgets/context_pane_slots.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/communities/v1/communities.pb.dart' as pb;
+import '../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../shared/widgets/primitives/app_form_header.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/character_counter.dart';
@@ -12,6 +16,7 @@ import '../data/communities_repository.dart';
 import '../domain/communities_feature_flag.dart';
 import '../domain/community_text_rules.dart';
 import 'bloc/create_community_cubit.dart';
+import 'widgets/community_preview.dart';
 
 /// `/communities/new`: name, description and a rules editor (up to
 /// [kMaxCommunityRules], each a title and a text), and Create.
@@ -56,6 +61,11 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
   final List<_RuleFields> _rules = [];
   var _nextRuleId = 0;
 
+  /// The form as typed, for the preview (band B's context pane, band A's
+  /// Preview dialog; T8a). Follows every field, rules added and removed.
+  final _draft = ValueNotifier(const CommunityDraft());
+  final _paneLease = ContextPaneLease();
+
   @override
   void initState() {
     super.initState();
@@ -64,7 +74,24 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _paneLease.attach(context, AppRouter.communityNewPath, {
+      ContextSectionKind.communityPreview: (context) =>
+          ValueListenableBuilder<CommunityDraft>(
+            valueListenable: _draft,
+            builder: (context, draft, _) => ContextPaneCard(
+              title: _previewTitle,
+              child: CommunityPreview(draft: draft),
+            ),
+          ),
+    });
+  }
+
+  @override
   void dispose() {
+    _paneLease.dispose();
+    _draft.dispose();
     _name.dispose();
     _description.dispose();
     for (final r in _rules) {
@@ -74,7 +101,45 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
     super.dispose();
   }
 
-  void _changed() => setState(() {});
+  static const _previewTitle = 'Preview';
+
+  void _changed() {
+    _syncDraft();
+    setState(() {});
+  }
+
+  void _syncDraft() => _draft.value = CommunityDraft(
+    name: _name.text.trim(),
+    description: _description.text.trim(),
+    rules: [
+      for (final r in _rules)
+        CommunityDraftRule(
+          title: r.title.text.trim(),
+          text: r.text.text.trim(),
+        ),
+    ],
+  );
+
+  /// Band A's Preview (tablet plan section 4.1: "header action that opens a
+  /// Preview dialog"): a D 560 dialog on the content area that follows the
+  /// form.
+  void _openPreview() => showAppDialog<void>(
+    context: context,
+    maxWidth: AppSize.dialogMax,
+    builder: (dialogContext) => AppDialog(
+      title: _previewTitle,
+      body: ValueListenableBuilder<CommunityDraft>(
+        valueListenable: _draft,
+        builder: (context, draft, _) => CommunityPreview(draft: draft),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
 
   void _cancel() {
     if (context.canPop()) {
@@ -95,6 +160,7 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
   void _removeRule(_RuleFields rule) {
     setState(() => _rules.remove(rule));
     rule.dispose();
+    _syncDraft();
   }
 
   bool get _canCreate {
@@ -122,6 +188,13 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Band A of the tablet layout: Preview in the header opens the dialog.
+    // Band B shows the preview in the context pane instead; phones and
+    // desktop keep today's header (ruling R-1).
+    final tablet = ShellGeometry.maybeOf(context)?.tablet ?? false;
+    final previewAction =
+        tablet &&
+        !ContextPaneScope.shows(context, ContextSectionKind.communityPreview);
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
@@ -142,6 +215,8 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
                     busySemanticsLabel: 'Creating Community',
                     onCancel: _cancel,
                     onAction: _canCreate && !busy ? _create : null,
+                    secondaryLabel: previewAction ? _previewTitle : null,
+                    onSecondary: previewAction ? _openPreview : null,
                   ),
                   Expanded(
                     child: SingleChildScrollView(

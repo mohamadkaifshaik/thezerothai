@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../shared/widgets/primitives/app_surface.dart';
 import '../theme/app_theme.dart';
 
 /// What a [ContextSection] shows. A page that also draws one of these
@@ -25,6 +26,19 @@ enum ContextSectionKind {
 
   /// The footer links (Privacy Policy, Community rules).
   links,
+
+  /// `/communities`: "Explore Communities", the page's own directory (T8a).
+  exploreCommunities,
+
+  /// `/communities/:id`: the community's rules, moderators and "View
+  /// moderation log" (T8a). The About tab keeps them at every width.
+  communityAbout,
+
+  /// `/communities/new`: the live preview of the form (T8a).
+  communityPreview,
+
+  /// `/communities/:id/moderation-log`: "About this log" (T8a).
+  moderationLogAbout,
 }
 
 /// One section of band B's context pane: a self-gating widget (it draws
@@ -66,6 +80,54 @@ class ContextPane extends StatelessWidget {
         children: [
           for (final section in sections)
             KeyedSubtree(key: ValueKey(section.kind), child: section.child),
+        ],
+      ),
+    );
+  }
+}
+
+/// One titled card of the context pane: an outlined `AppSurface` with a
+/// bold [title] (a heading) over [child], as the "What's happening" card.
+/// The card owns its bottom gap ([margin]).
+class ContextPaneCard extends StatelessWidget {
+  const ContextPaneCard({
+    super.key,
+    required this.title,
+    required this.child,
+    this.margin = const EdgeInsets.only(bottom: AppSpacing.md),
+  });
+
+  final String title;
+  final Widget child;
+  final EdgeInsetsGeometry margin;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AppSurface(
+      margin: margin,
+      padding: EdgeInsets.zero,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSpacing.md,
+              AppSpacing.md,
+              AppSpacing.xs,
+            ),
+            child: Semantics(
+              header: true,
+              child: Text(
+                title,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+          child,
         ],
       ),
     );
