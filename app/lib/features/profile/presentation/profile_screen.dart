@@ -9,6 +9,8 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../core/widgets/context_pane.dart';
+import '../../../core/widgets/context_pane_slots.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../core/router/compose_gate.dart';
@@ -43,6 +45,7 @@ import 'bloc/profile_cubit.dart';
 import 'bloc/profile_state.dart';
 import 'widgets/pinned_post_section.dart';
 import 'widgets/profile_header.dart';
+import 'widgets/profile_media_strip.dart';
 import '../../../shared/widgets/post/protected_posts_view.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/widgets/shell_geometry.dart';
@@ -76,13 +79,20 @@ class ProfileScreen extends StatelessWidget {
         graphEnabled: graphEnabledSnapshot(context),
         ownUserId: context.read<OnboardingBloc>().state.profile?.userId,
       )..load(),
-      child: const _ProfileView(),
+      child: _ProfileView(
+        location: handle != null
+            ? AppRouter.profilePath(handle!)
+            : AppRouter.profileByIdPath(userId!),
+      ),
     );
   }
 }
 
 class _ProfileView extends StatefulWidget {
-  const _ProfileView();
+  const _ProfileView({required this.location});
+
+  /// This page's route: the context pane's sections are lent under it.
+  final String location;
 
   @override
   State<_ProfileView> createState() => _ProfileViewState();
@@ -105,8 +115,34 @@ class _ProfileViewState extends State<_ProfileView> {
     _outer.addListener(_onScroll);
   }
 
+  /// Band B's media strip until the posts below take over (T8c): its
+  /// placeholder while the profile loads, nothing once it cannot show
+  /// (failed, not found). The posts lend the strip itself (a later lease of
+  /// the same location wins), over the page's own Media tab feed.
+  final _paneLease = ContextPaneLease();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final profile = context.read<ProfileCubit>();
+    _paneLease.attach(context, widget.location, {
+      ContextSectionKind.profileMedia: (context) =>
+          BlocBuilder<ProfileCubit, ProfileState>(
+            bloc: profile,
+            buildWhen: (a, b) => a.status != b.status,
+            builder: (context, state) => switch (state.status) {
+              ProfileStatus.loading ||
+              ProfileStatus.ready => const ProfileMediaStripPlaceholder(),
+              ProfileStatus.notFound ||
+              ProfileStatus.error => const SizedBox.shrink(),
+            },
+          ),
+    });
+  }
+
   @override
   void dispose() {
+    _paneLease.dispose();
     _outer
       ..removeListener(_onScroll)
       ..dispose();
@@ -244,6 +280,7 @@ class _ProfileViewState extends State<_ProfileView> {
                   state: state,
                   outer: _outer,
                   nameKey: _nameKey,
+                  location: widget.location,
                 ),
               };
             },
@@ -271,16 +308,23 @@ class _ReadyProfile extends StatelessWidget {
     required this.state,
     required this.outer,
     required this.nameKey,
+    required this.location,
   });
 
   final ProfileState state;
   final ScrollController outer;
   final Key nameKey;
+  final String location;
 
   @override
   Widget build(BuildContext context) {
     if (isFeatureEnabled(context, kFeaturePosts)) {
-      return _ProfilePosts(state: state, outer: outer, nameKey: nameKey);
+      return _ProfilePosts(
+        state: state,
+        outer: outer,
+        nameKey: nameKey,
+        location: location,
+      );
     }
     // Posts flag off: the Phase 0 body.
     return _ScrollColumn(
@@ -392,6 +436,9 @@ class _ScrollColumn extends StatelessWidget {
 /// the Pinned row filters.
 const _postsTabId = 'posts';
 
+/// The id of the Media tab, whose feed band B's media strip shows (T8c).
+const _mediaTabId = 'media';
+
 /// One tab of the profile: everything the scroll scaffold needs to show it.
 /// The tab list is data, so another tab is one more entry in
 /// [_profileTabSpecs], with no change to the scroll structure (added
@@ -467,7 +514,7 @@ List<_ProfileTabSpec> _profileTabSpecs({required bool showProfileTabs}) => [
       fillViewport: true,
     ),
     _ProfileTabSpec(
-      id: 'media',
+      id: _mediaTabId,
       label: 'Media',
       feedFor: (userId) => FeedKey.user(userId, tab: UserFeedTab.media),
       emptyTitle: ({required own, required handle}) => own
@@ -516,11 +563,15 @@ class _ProfilePosts extends StatefulWidget {
     required this.state,
     required this.outer,
     required this.nameKey,
+    required this.location,
   });
 
   final ProfileState state;
   final ScrollController outer;
   final Key nameKey;
+
+  /// The page's route, for the context pane's lease.
+  final String location;
 
   @override
   State<_ProfilePosts> createState() => _ProfilePostsState();
@@ -558,8 +609,116 @@ class _ProfilePostsState extends State<_ProfilePosts> {
     if (pin != oldWidget.state.profile?.pinnedPostId) _pinned?.pinChanged(pin);
   }
 
+  /// Band B's media strip (T8c), lent to the context pane over this
+  /// state's own Media tab feed: the pane sends no call of its own, and the
+  /// Media tab opened later (or before) reuses the same feed.
+  final _paneLease = ContextPaneLease();
+
+  /// Bumped when something the strip reads changes outside a cubit (the
+  /// blocked banner's Show posts, a refused `profile_tabs`): the page's own
+  /// `setState` does not rebuild the pane.
+  final _paneGate = ValueNotifier<int>(0);
+
+  /// The page's profile, read once for the pane (which builds outside this
+  /// page, possibly after it is gone).
+  late ProfileCubit _profileCubit;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _profileCubit = context.read<ProfileCubit>();
+    _paneLease.attach(context, widget.location, {
+      ContextSectionKind.profileMedia: _mediaStrip,
+    });
+  }
+
+  /// The strip, or nothing when it cannot show: Reposts and Media off or
+  /// refused, the posts hidden behind the blocked banner, or (another
+  /// person's profile) protected posts. Their Media feed is asked for only
+  /// once none of these holds.
+  Widget _mediaStrip(BuildContext _) => ValueListenableBuilder<int>(
+    valueListenable: _paneGate,
+    builder: (_, _, _) => BlocBuilder<ProfileCubit, ProfileState>(
+      bloc: _profileCubit,
+      builder: (paneContext, state) {
+        final profile = state.profile;
+        if (!mounted ||
+            profile == null ||
+            _profileTabsRefused ||
+            !isFeatureEnabled(paneContext, kFeatureProfileTabs)) {
+          return const SizedBox.shrink();
+        }
+        if ((state.relationship?.blocking ?? false) && !_showBlockedPosts) {
+          return const SizedBox.shrink();
+        }
+        final posts = _cubits[_postsTabId];
+        if (state.isOwnProfile || posts == null) return _strip(profile);
+        // Another person's posts may be protected from the viewer: the
+        // Posts feed says so first, and then there is nothing to ask.
+        return BlocBuilder<TimelineCubit, TimelineState>(
+          bloc: posts,
+          buildWhen: (a, b) =>
+              a.authorProtected != b.authorProtected ||
+              (a.status == TimelineStatus.loading) !=
+                  (b.status == TimelineStatus.loading),
+          builder: (paneContext, timeline) {
+            if (timeline.authorProtected) return const SizedBox.shrink();
+            if (timeline.status == TimelineStatus.loading) {
+              return const ProfileMediaStripPlaceholder();
+            }
+            return _strip(profile);
+          },
+        );
+      },
+    ),
+  );
+
+  Widget _strip(identity.Profile profile) {
+    final media = _cubitFor(
+      context,
+      _profileTabSpecs(showProfileTabs: true)
+          .firstWhere((spec) => spec.id == _mediaTabId),
+      userId: profile.userId,
+      viewerUserId: context.read<OnboardingBloc>().state.profile?.userId,
+    );
+    return BlocConsumer<TimelineCubit, TimelineState>(
+      bloc: media,
+      listenWhen: (_, after) => _refusedProfileTabs(after),
+      listener: (_, _) => _dropProfileTabs(),
+      builder: (paneContext, timeline) => ProfileMediaStrip(
+        state: timeline,
+        onOpen: (tile) => paneContext.push(
+          AppRouter.postPhotoPath(tile.postId, tile.index + 1),
+        ),
+        // Hidden while Media is the tab shown (it would do nothing there).
+        onSeeAll: _tabId == _mediaTabId ? null : () => _selectTab(_mediaTabId),
+      ),
+    );
+  }
+
+  /// Selects the tab [id] (from the tab bar, or See all in the pane); the
+  /// pane hears of it, since its See all follows the selection.
+  void _selectTab(String id) {
+    if (!mounted || id == _tabId) return;
+    setState(() => _tabId = id);
+    _paneGate.value++;
+  }
+
+  /// The server refused a `profile_tabs` tab: Reposts and Media go for the
+  /// rest of this screen, from the tabs and the pane.
+  void _dropProfileTabs() {
+    if (!mounted || _profileTabsRefused) return;
+    setState(() {
+      _profileTabsRefused = true;
+      _tabId = _postsTabId;
+    });
+    _paneGate.value++;
+  }
+
   @override
   void dispose() {
+    _paneLease.dispose();
+    _paneGate.dispose();
     for (final cubit in _cubits.values) {
       unawaited(cubit.close());
     }
@@ -667,9 +826,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
       selectedId: spec.id,
       outer: widget.outer,
       header: header,
-      onChanged: (id) {
-        if (id != _tabId) setState(() => _tabId = id);
-      },
+      onChanged: _selectTab,
       hasOpened: _cubits.containsKey,
       bodyBuilder: bodyBuilder,
       onRefresh: onRefresh,
@@ -686,7 +843,10 @@ class _ProfilePostsState extends State<_ProfilePosts> {
             SliverToBoxAdapter(
               child: _BlockedPostsBanner(
                 handle: profile.handle,
-                onShow: () => setState(() => _showBlockedPosts = true),
+                onShow: () {
+                  setState(() => _showBlockedPosts = true);
+                  _paneGate.value++;
+                },
               ),
             ),
             const ShellBottomInsetSliver(),
@@ -718,10 +878,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
         bloc: cubit,
         listenWhen: (before, after) =>
             spec.requiresProfileTabs && _refusedProfileTabs(after),
-        listener: (context, _) => setState(() {
-          _profileTabsRefused = true;
-          _tabId = _postsTabId;
-        }),
+        listener: (context, _) => _dropProfileTabs(),
         child: pager(
           onRefresh: cubit.refresh,
           bodyBuilder: (context, page) {
@@ -946,6 +1103,20 @@ class _ProfileTabPagerState extends State<_ProfileTabPager>
             : kThemeAnimationDuration,
       );
     });
+  }
+
+  /// A tab selected from outside the bar (band B's media strip, "See all";
+  /// T8c): the controller follows. A selection made in the bar already
+  /// matches, so this does nothing for it.
+  @override
+  void didUpdateWidget(_ProfileTabPager oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final index = widget.specs.indexWhere((tab) => tab.id == widget.selectedId);
+    if (index < 0 || index == _controller.index) return;
+    _controller.animateTo(
+      index,
+      duration: MediaQuery.disableAnimationsOf(context) ? Duration.zero : null,
+    );
   }
 
   @override
