@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -5,7 +7,9 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/tablet_layout.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import '../../../shared/widgets/primitives/app_side_sheet.dart';
 import '../../media/domain/processed_image.dart' show kGifContentType;
 import 'post_detail_screen.dart';
 import 'widgets/loaded_post.dart';
@@ -77,6 +81,21 @@ class _PhotoViewerState extends State<_PhotoViewer> {
     super.dispose();
   }
 
+  /// The details pane's width outside the tablet layout (and its cap on
+  /// it).
+  static const double _paneWidth = 380;
+
+  /// The viewer width the pane needs outside the tablet layout.
+  static const double _legacyPaneFrom = 1000;
+
+  /// Band A of the tablet layout: the post and its replies in a side sheet
+  /// (code SS) over the photo, instead of a page pushed over it.
+  void _showPostSheet(BuildContext context) => showAppSideSheet<void>(
+    context: context,
+    semanticLabel: 'Post',
+    builder: (_) => PostDetailScreen(postId: widget.view.post.postId),
+  );
+
   void _move(int offset) {
     final next = widget.index + offset;
     if (next < 1 || next > widget.view.post.media.length) return;
@@ -98,6 +117,14 @@ class _PhotoViewerState extends State<_PhotoViewer> {
     final item = media[widget.index - 1];
     // Opening a viewer must not silently start an animated GIF.
     final url = item.contentType == kGifContentType ? item.thumbUrl : item.url;
+    // The tablet layout (both flags, 600-1199dp; tablet plan section 4.1,
+    // PostPhoto row) decides on the window width: the details pane from
+    // 840dp (band B), `min(380, 0.4 * W)` wide; below it (band A) "Show
+    // post" opens the details in a side sheet. Elsewhere today's rule: the
+    // pane from 1000dp of the viewer's width, 380 wide, and "View post"
+    // pushes the post (phones, desktop: ruling R-1).
+    final tablet = tabletLayoutAt(context);
+    final window = MediaQuery.sizeOf(context).width;
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.escape): () =>
@@ -109,7 +136,13 @@ class _PhotoViewerState extends State<_PhotoViewer> {
         autofocus: true,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final wide = constraints.maxWidth >= 1000;
+            final wide = tablet
+                ? window >= AppBreakpoints.expanded
+                : constraints.maxWidth >= _legacyPaneFrom;
+            final paneWidth = tablet
+                ? math.min(_paneWidth, window * .4)
+                : _paneWidth;
+            final sheet = tablet && !wide;
             return Row(
               children: [
                 Expanded(
@@ -175,9 +208,13 @@ class _PhotoViewerState extends State<_PhotoViewer> {
                         child: IconButton.filledTonal(
                           tooltip: wide
                               ? (_showDetails ? 'Hide post' : 'Show post')
+                              : sheet
+                              ? 'Show post'
                               : 'View post',
                           onPressed: () => wide
                               ? setState(() => _showDetails = !_showDetails)
+                              : sheet
+                              ? _showPostSheet(context)
                               : context.push(
                                   AppRouter.postPath(widget.view.post.postId),
                                 ),
@@ -205,7 +242,7 @@ class _PhotoViewerState extends State<_PhotoViewer> {
                 ),
                 if (wide && _showDetails)
                   SizedBox(
-                    width: 380,
+                    width: paneWidth,
                     child: PostDetailScreen(postId: widget.view.post.postId),
                   ),
               ],

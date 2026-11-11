@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' show SemanticsRole;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/theme/app_theme.dart';
 
@@ -94,7 +95,17 @@ class _AppSideSheet extends StatelessWidget {
               explicitChildNodes: true,
               role: SemanticsRole.dialog,
               label: semanticLabel,
-              child: _FocusIntoSheet(child: child),
+              // Escape closes the sheet even when its content has a
+              // `Scaffold`: the Scaffold's drawer `DismissIntent` action
+              // would otherwise take the key first and, with no drawer
+              // open, do nothing (the photo viewer's post sheet).
+              child: CallbackShortcuts(
+                bindings: {
+                  const SingleActivator(LogicalKeyboardKey.escape): () =>
+                      Navigator.of(context).maybePop(),
+                },
+                child: _FocusIntoSheet(child: child),
+              ),
             ),
           ),
         ),
