@@ -54,8 +54,8 @@ class _FakeUrlLauncherPlatform extends UrlLauncherPlatform {
 
 /// The visible rows (title, and the email in parentheses) of every flag
 /// combination, captured from origin/main before the restyle (the old
-/// `ListTile` screen). The grouped screen must show exactly the same rows in
-/// the same order.
+/// `ListTile` screen). The phone list must show exactly the same rows; their
+/// order is the new group order ([_phoneOrder]), the set is unchanged.
 const _beforeRows = <(Set<String>, bool, List<String>)>[
   (
     <String>{},
@@ -253,6 +253,32 @@ const _beforeRows = <(Set<String>, bool, List<String>)>[
 
 const _email = 'maya.lindqvist@example.com';
 
+/// The phone list's row order now: Your account, Privacy & safety, App,
+/// Data, Session (the rows an origin/main combination shows, regrouped).
+const _phoneOrder = <String>[
+  'Edit profile',
+  'Change handle',
+  'Email ($_email)',
+  'Blocked accounts',
+  'Muted accounts',
+  'Download my data',
+  'Privacy Policy',
+  'Community rules',
+  'Delete account',
+  'Sign out',
+];
+
+/// [before] (an origin/main row list) in the phone list's new order.
+List<String> _regrouped(List<String> before) {
+  final out = [
+    for (final row in _phoneOrder)
+      if (before.contains(row)) row,
+  ];
+  // Regrouping must neither drop nor invent a row.
+  expect(out.length, before.length);
+  return out;
+}
+
 void main() {
   setUpAll(() {
     registerFallbackValue(const AuthSignOutRequested());
@@ -347,12 +373,12 @@ void main() {
         [row.title, if (row.subtitle != null) '(${row.subtitle})'].join(' '),
   ];
 
+  // The phone (< 600dp) draws raised groups with an uppercase label.
   const groupTitles = [
-    'Account',
-    'Display',
+    'Your account',
     'Privacy & safety',
-    'Your data',
-    'About',
+    'App',
+    'Data',
     'Session',
   ];
 
@@ -362,11 +388,11 @@ void main() {
       testWidgets(name, (tester) async {
         await open(tester, flags: flags, email: withEmail ? _email : null);
 
-        expect(rows(tester), expected);
+        expect(rows(tester), _regrouped(expected));
         // A group header shows only with at least one row in its card.
         final headers = [
           for (final t in groupTitles)
-            if (find.text(t).evaluate().isNotEmpty) t,
+            if (find.text(t.toUpperCase()).evaluate().isNotEmpty) t,
         ];
         expect(
           headers.length,
@@ -376,21 +402,21 @@ void main() {
     }
   });
 
-  testWidgets('everything gated off: only Display, About and Session show', (
+  testWidgets('everything gated off: only App, Data and Session show', (
     tester,
   ) async {
     await open(tester, email: null);
 
-    expect(find.text('Display'), findsOneWidget);
-    expect(find.text('About'), findsOneWidget);
-    expect(find.text('Session'), findsOneWidget);
-    for (final hidden in ['Account', 'Privacy & safety', 'Your data']) {
+    for (final shown in ['APP', 'DATA', 'SESSION']) {
+      expect(find.text(shown), findsOneWidget);
+    }
+    for (final hidden in ['YOUR ACCOUNT', 'PRIVACY & SAFETY']) {
       expect(find.text(hidden), findsNothing);
     }
     expect(find.byType(SettingsGroup), findsNWidgets(3));
   });
 
-  testWidgets('everything on: the six groups, in order, with their rows', (
+  testWidgets('everything on: the five groups, in order, with their rows', (
     tester,
   ) async {
     await open(
@@ -399,10 +425,11 @@ void main() {
     );
 
     final tops = [
-      for (final t in groupTitles) tester.getTopLeft(find.text(t)).dy,
+      for (final t in groupTitles)
+        tester.getTopLeft(find.text(t.toUpperCase())).dy,
     ];
     expect([...tops]..sort(), tops);
-    expect(find.byType(SettingsGroup), findsNWidgets(6));
+    expect(find.byType(SettingsGroup), findsNWidgets(5));
   });
 
   group('taps do what they did before', () {
@@ -505,7 +532,8 @@ void main() {
 
       for (final title in groupTitles) {
         expect(
-          tester.getSemantics(find.text(title)),
+          tester.getSemantics(find.text(title.toUpperCase())),
+          // The uppercase label is visual; the header reads the title.
           matchesSemantics(label: title, isHeader: true),
         );
       }

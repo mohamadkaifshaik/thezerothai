@@ -25,6 +25,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.da
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/onboarding/presentation/widgets/account_refresh_banner.dart';
+import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/shared/widgets/primitives/app_badge.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_menu_item_row.dart';
@@ -117,8 +118,9 @@ void main() {
             : null,
       ),
     );
-    Widget page(String path, String text) => MainShell(
+    Widget page(String path, String text, {Uri? uri}) => MainShell(
       location: path,
+      uri: uri,
       child: Scaffold(
         appBar: const AppTopBar(title: 'Page'),
         body: body ?? Center(child: Text(text)),
@@ -166,7 +168,8 @@ void main() {
         ),
         GoRoute(
           path: '/settings',
-          builder: (context, state) => page('/settings', 'settings body'),
+          builder: (context, state) =>
+              page('/settings', 'settings body', uri: state.uri),
         ),
         GoRoute(
           path: '/settings/blocked',
@@ -920,21 +923,47 @@ void main() {
   });
 
   group('Settings master-detail (W1-7)', () {
-    testWidgets('>= 1200dp: the list beside an empty detail pane', (
+    // The pane's category rows (the desktop master); the flags only gate
+    // which categories have rows.
+    Finder inMaster(Finder finder) => find.descendant(
+      of: find.byType(SettingsCategoriesPane),
+      matching: finder,
+    );
+
+    testWidgets('>= 1200dp: the categories beside the Your account page', (
       tester,
     ) async {
+      await pump(
+        tester,
+        width: 1400,
+        location: '/settings',
+        flags: {'posts', 'graph', 'profile_snapshot'},
+      );
+
+      expect(find.text('Select a setting'), findsNothing);
+      expect(inMaster(find.text('Search settings')), findsOneWidget);
+      expect(inMaster(find.text('Display')), findsOneWidget);
+      final list = tester.getRect(inMaster(find.text('Display')));
+      final detail = tester.getRect(find.text('PROFILE'));
+      expect(list.right, lessThan(detail.left));
+      expect(find.text('Edit profile'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('>= 1200dp: nothing in Your account, the placeholder beside '
+        'the master', (tester) async {
       await pump(tester, width: 1400, location: '/settings');
 
       expect(find.text('Select a setting'), findsOneWidget);
-      expect(find.text('Appearance'), findsOneWidget);
-      final list = tester.getRect(find.text('Appearance'));
+      expect(inMaster(find.text('Display')), findsOneWidget);
+      final list = tester.getRect(inMaster(find.text('Display')));
       final detail = tester.getRect(find.text('Select a setting'));
       expect(list.right, lessThan(detail.left));
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('a row opens its page in the detail pane, the list stays, '
-        'its row is selected', (tester) async {
+    testWidgets('a row opens its page in the detail pane, the master stays, '
+        'its category is selected', (tester) async {
       final handle = tester.ensureSemantics();
       await pump(
         tester,
@@ -943,20 +972,25 @@ void main() {
         flags: {'posts', 'graph'},
       );
 
+      await tester.tap(inMaster(find.text('Privacy & safety')));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Blocked accounts'));
       await tester.pumpAndSettle();
 
       expect(find.text('blocked body'), findsOneWidget);
-      expect(find.text('Appearance'), findsOneWidget);
+      expect(inMaster(find.text('Display')), findsOneWidget);
       expect(find.text('Select a setting'), findsNothing);
       expect(
-        tester.getSemantics(find.bySemanticsLabel('Blocked accounts')),
+        tester.getSemantics(
+          // "<label>", a new line, "<summary>".
+          inMaster(find.bySemanticsLabel(RegExp(r'^Privacy & safety(\n|$)'))),
+        ),
         isSemantics(isButton: true, isSelected: true),
       );
       handle.dispose();
     });
 
-    testWidgets('a deep link opens the page with the list beside it', (
+    testWidgets('a deep link opens the page with the master beside it', (
       tester,
     ) async {
       await pump(
@@ -967,7 +1001,7 @@ void main() {
       );
 
       expect(find.text('blocked body'), findsOneWidget);
-      expect(find.text('Appearance'), findsOneWidget);
+      expect(inMaster(find.text('Display')), findsOneWidget);
     });
 
     testWidgets('< 1200dp: no master pane, the page is the page', (

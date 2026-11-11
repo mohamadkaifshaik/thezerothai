@@ -13,6 +13,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.da
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
+import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -118,6 +119,7 @@ void main() {
       await open(tester, flags);
       expect(find.text('Messages'), findsNothing, reason: '$flags');
       expect(find.text('Messaging'), findsNothing, reason: '$flags');
+      expect(find.text('PRIVACY & SAFETY'), findsNothing, reason: '$flags');
     }
   });
 
@@ -151,12 +153,21 @@ void main() {
     expect(find.text('Messages'), findsNothing);
   });
 
-  testWidgets('shown in the legacy chrome, in its own group, and opens the '
-      'inbox', (tester) async {
+  testWidgets('shown in the legacy chrome, in the Privacy & safety group, and '
+      'opens the inbox', (tester) async {
     await open(tester, {kFeatureMessaging});
 
-    expect(find.text('Messaging'), findsOneWidget);
-    expect(find.text('Messages'), findsOneWidget);
+    // The row sits in the Privacy & safety group (a raised phone group).
+    expect(find.text('PRIVACY & SAFETY'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byWidgetPredicate(
+          (w) => w is SettingsGroup && w.title == 'Privacy & safety',
+        ),
+        matching: find.text('Messages'),
+      ),
+      findsOneWidget,
+    );
     expect(find.byIcon(Icons.mail_outline), findsOneWidget);
 
     await tester.tap(find.text('Messages'));
