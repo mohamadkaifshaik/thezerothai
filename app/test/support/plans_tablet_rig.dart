@@ -75,6 +75,9 @@ const kRigPlans = <(String, String)>[
   ('1234567890123456791', 'Study group'),
 ];
 
+/// A root route whose page is not opaque (a dialog page over the shell).
+const kRigOverlayPath = '/overlay';
+
 /// The caller's own plans (ListMyBeacons), in order.
 const kRigMine = <(String, String)>[
   ('2234567890123456781', 'My run'),
@@ -183,6 +186,19 @@ class PlansTabletRig {
     router = GoRouter(
       initialLocation: location,
       routes: [
+        // A root page over the shell that does not hide it (like the app's
+        // Premium dialog page, and the composer on tablets after T7).
+        GoRoute(
+          path: kRigOverlayPath,
+          pageBuilder: (context, state) => CustomTransitionPage<void>(
+            key: state.pageKey,
+            opaque: false,
+            barrierDismissible: true,
+            barrierColor: Colors.black54,
+            transitionsBuilder: (_, _, _, child) => child,
+            child: const Center(child: Material(child: Text('Overlay stub'))),
+          ),
+        ),
         ShellRoute(
           builder: (context, state, child) => MainShell(
             location: state.matchedLocation,
@@ -217,6 +233,11 @@ class PlansTabletRig {
               path: '/plans/:id/people',
               builder: (context, state) =>
                   BeaconPeopleScreen(beaconId: state.pathParameters['id']!),
+            ),
+            GoRoute(
+              path: '/u/:id',
+              builder: (context, state) =>
+                  Scaffold(appBar: AppBar(title: const Text('Profile stub'))),
             ),
             GoRoute(
               path: '/plans/:id/edit',

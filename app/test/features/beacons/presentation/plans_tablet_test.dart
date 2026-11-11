@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
@@ -299,6 +301,66 @@ void main() {
       expect(findPlansPane(), findsOneWidget);
       expect(_selected(tester, findPlansPane(), kRigPlans[0].$2), isTrue);
       expect(rig.count('list:'), 2);
+    });
+
+    // The pane follows the top page of the shell's navigator: a root page
+    // over the shell that leaves it visible (a dialog page) changes nothing.
+    for (final location in [
+      AppRouter.plansPath,
+      AppRouter.planPath(kBeaconIdB),
+    ]) {
+      testWidgets('$location: a non-opaque root page over it keeps the pane, '
+          'the page and the selection', (tester) async {
+        final rig = PlansTabletRig();
+        await rig.pump(tester, location: location);
+        final onPlan = location != AppRouter.plansPath;
+
+        unawaited(rig.router.push(kRigOverlayPath));
+        await tester.pumpAndSettle();
+        expect(find.text('Overlay stub'), findsOneWidget);
+        expect(findPlansPane(), findsOneWidget);
+        expect(find.text(kPickAPlan), onPlan ? findsNothing : findsOneWidget);
+        if (onPlan) {
+          expect(_selected(tester, findPlansPane(), kRigPlans[1].$2), isTrue);
+          expect(_back(find.byType(BeaconScreen)), findsNothing);
+        }
+
+        rig.router.pop();
+        await tester.pumpAndSettle();
+        expect(findPlansPane(), findsOneWidget);
+        expect(rig.count('list:'), 1);
+      });
+    }
+
+    testWidgets('a profile pushed from People has no pane either', (
+      tester,
+    ) async {
+      final rig = PlansTabletRig();
+      rig.server.public[0] = beaconView(
+        startAt: DateTime.now().add(const Duration(hours: 1)),
+        id: kBeaconIdA,
+        title: kRigPlans[0].$2,
+        accepted: 1,
+        canManage: true,
+      );
+      rig.server.going[kBeaconIdA] = [participant(userId: 'ann', name: 'Ann')];
+      await rig.pump(tester, location: AppRouter.planPath(kBeaconIdA));
+
+      await tester.ensureVisible(find.text('People · 1'));
+      await tester.tap(find.text('People · 1'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Ann'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Profile stub'), findsOneWidget);
+      expect(findPlansPane(), findsNothing);
+
+      rig.router.pop();
+      await tester.pumpAndSettle();
+      rig.router.pop();
+      await tester.pumpAndSettle();
+      expect(rig.uri.path, AppRouter.planPath(kBeaconIdA));
+      expect(findPlansPane(), findsOneWidget);
     });
 
     testWidgets('My plans opens a plan with go: the list pane comes back', (

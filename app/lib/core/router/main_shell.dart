@@ -366,14 +366,13 @@ class MainShell extends StatelessWidget {
     final beaconsOn = isFeatureEnabled(context, kFeatureBeacons);
     final plansBandB =
         tabletLayout && ShellBand.of(width) == ShellBand.expanded;
-    // The top page decides, not the shell's base route: My plans, New plan,
-    // a plan's People or Edit pushed over `/plans` or `/plans/:id` have no
-    // list pane beside them (plan section 3), and popping back to the plan
-    // brings it back.
+    // The top page of the shell's own navigator decides, not the shell's
+    // base route: My plans, New plan, a plan's People or Edit (or a profile)
+    // pushed over `/plans` or `/plans/:id` have no list pane beside them
+    // (plan section 3), and popping back to the plan brings it back. A root
+    // page over the shell (a dialog page, the composer) changes nothing.
     final plansMatch = plansMasterMatch(
-      plansBandB
-          ? GoRouter.maybeOf(context)?.state.matchedLocation ?? location
-          : location,
+      plansBandB ? _shellTopLocation(context) ?? location : location,
     );
     final plansListDetail =
         plansBandB &&
@@ -535,6 +534,24 @@ class MainShell extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The location of the top page inside the shell's navigator (a page pushed
+/// over a shell page included; a root page pushed over the shell excluded),
+/// or null without a router or a shell match.
+String? _shellTopLocation(BuildContext context) {
+  final router = GoRouter.maybeOf(context);
+  if (router == null) return null;
+  for (final match
+      in router.routerDelegate.currentConfiguration.matches.reversed) {
+    if (match is! ShellRouteMatch) continue;
+    var leaf = match.matches.last;
+    while (leaf is ShellRouteMatch) {
+      leaf = leaf.matches.last;
+    }
+    return leaf.matchedLocation;
+  }
+  return null;
 }
 
 /// The master pane of the desktop Settings: a title row over the list.
