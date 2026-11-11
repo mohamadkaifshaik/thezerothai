@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
@@ -43,6 +45,10 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
   /// Thrown by the next ListMyBeacons calls only, one per call (before
   /// [refusals]).
   final List<AppException> mineRefusals = [];
+
+  /// While set and not completed, GetBeacon waits for it (a plan still
+  /// loading).
+  Completer<void>? holdGet;
 
   /// ACCEPTED and REQUESTED rows per beacon id.
   final Map<String, List<pb.Participant>> going = {};
@@ -134,6 +140,7 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
 
   @override
   Future<pb.BeaconView> getBeacon(String beaconId) async {
+    if (holdGet case final hold?) await hold.future;
     _refuse('get');
     return _find(beaconId);
   }

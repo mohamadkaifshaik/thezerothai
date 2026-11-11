@@ -17,6 +17,8 @@ import 'package:dzeroth/features/beacons/presentation/beacon_people_screen.dart'
 import 'package:dzeroth/features/beacons/presentation/beacon_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/beacons_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/bloc/plans_session.dart';
+import 'package:dzeroth/features/beacons/presentation/create_beacon_screen.dart';
+import 'package:dzeroth/features/beacons/presentation/edit_beacon_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/my_beacons_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/plans_list_detail.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
@@ -89,7 +91,9 @@ const kRigMine = <(String, String)>[
 /// (`BeaconsScreen`, `BeaconScreen`, `BeaconPeopleScreen`, `MyBeaconsScreen`)
 /// over a [FakeBeaconsServer], with the app-level [PlansSession] provided
 /// (as `AppWidget` does) unless `hoisted: false`. `/plans/new` and
-/// `/plans/:id/edit` are stubs.
+/// `/plans/:id/edit` are stubs unless `realForms: true`, which mounts the
+/// real `CreateBeaconScreen` (with the [pickDate] / [pickTime] seams when
+/// set, the real pickers otherwise) and `EditBeaconScreen` (T8d).
 class PlansTabletRig {
   PlansTabletRig() {
     final now = DateTime.now();
@@ -122,6 +126,11 @@ class PlansTabletRig {
   /// The hoisted session, or null with `hoisted: false`.
   PlansSession? session;
 
+  /// The create form's picker seams with `realForms` (both, or neither:
+  /// the real pickers).
+  BeaconPickDate? pickDate;
+  BeaconPickTime? pickTime;
+
   /// Emits a new `enabled_features` set (a fresh `GetMe`).
   final flagChanges = StreamController<Set<String>>.broadcast();
 
@@ -141,16 +150,20 @@ class PlansTabletRig {
     double textScale = 1,
     Brightness brightness = Brightness.light,
     TextDirection textDirection = TextDirection.ltr,
+    bool realForms = false,
+    bool profile = true,
   }) async {
     addTearDown(flagChanges.close);
     OnboardingState ready(Set<String> set) => OnboardingState(
       status: OnboardingStatus.ready,
       enabledFeatures: set,
-      profile: identity.Profile(
-        userId: 'u-alice',
-        handle: 'alice',
-        displayName: 'Alice A',
-      ),
+      profile: profile
+          ? identity.Profile(
+              userId: 'u-alice',
+              handle: 'alice',
+              displayName: 'Alice A',
+            )
+          : null,
     );
     final onboarding = _MockOnboardingBloc();
     whenListen(
@@ -217,8 +230,16 @@ class PlansTabletRig {
             ),
             GoRoute(
               path: AppRouter.planNewPath,
-              builder: (context, state) =>
-                  Scaffold(appBar: AppBar(title: const Text('New plan stub'))),
+              builder: (context, state) => realForms
+                  ? (pickDate == null || pickTime == null
+                        ? const CreateBeaconScreen()
+                        : CreateBeaconScreen(
+                            pickDate: pickDate!,
+                            pickTime: pickTime!,
+                          ))
+                  : Scaffold(
+                      appBar: AppBar(title: const Text('New plan stub')),
+                    ),
             ),
             GoRoute(
               path: AppRouter.plansMinePath,
@@ -241,8 +262,9 @@ class PlansTabletRig {
             ),
             GoRoute(
               path: '/plans/:id/edit',
-              builder: (context, state) =>
-                  Scaffold(appBar: AppBar(title: const Text('Edit stub'))),
+              builder: (context, state) => realForms
+                  ? EditBeaconScreen(beaconId: state.pathParameters['id']!)
+                  : Scaffold(appBar: AppBar(title: const Text('Edit stub'))),
             ),
           ],
         ),

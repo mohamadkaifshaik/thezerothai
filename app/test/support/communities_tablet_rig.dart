@@ -336,6 +336,9 @@ class CommunitiesTabletRig {
   /// `refresh` calls of the community feed (the Posts tab's one open).
   int feedRefreshes = 0;
 
+  /// `pin` calls of the Home tabs (the header's Pin to Home).
+  int pinCalls = 0;
+
   /// The location of the top page (a pushed one too).
   Uri get uri => router.state.uri;
 
@@ -387,6 +390,8 @@ class CommunitiesTabletRig {
     when(() => tabs.isPinned(any(), any())).thenReturn(false);
     when(() => tabs.isFull).thenReturn(false);
     when(() => tabs.writeUnavailable).thenReturn(false);
+    when(() => tabs.pin(any(), any(), title: any(named: 'title')))
+        .thenAnswer((_) async => pinCalls++);
     when(() => posts.removedPosts).thenAnswer((_) => const Stream.empty());
     when(() => timeline.sinceRefresh(any())).thenReturn(null);
     when(() => timeline.sinceRefreshAttempt(any())).thenReturn(null);
