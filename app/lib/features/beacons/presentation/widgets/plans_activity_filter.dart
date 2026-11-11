@@ -29,7 +29,7 @@ String planActivityFilterLabel(pb.BeaconActivity a) =>
     ? 'All'
     : activityLabel(a);
 
-/// F29: the Plans list's activity chips (dz.css `.seg` of `.pill`s), one
+/// F29: the Plans list's activity chips (the designs' `.pill` chips), one
 /// row that scrolls sideways when it does not fit (a phone, large text),
 /// so a label is never cut. Each chip is an [AppFilterPill]: 48 dp target,
 /// a check and w700 when selected, announced as a selected button. The row

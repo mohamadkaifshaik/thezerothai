@@ -135,8 +135,11 @@ class BeaconRow extends StatelessWidget {
     final muted = theme.colorScheme.onSurfaceVariant;
     final b = view.beacon;
     final activity = activityLabel(b.activity);
-    final eyebrow = roleEyebrow && badge != null
-        ? '$badge · $activity'
+    // The designs' My plans eyebrows: "Organising · Coffee", "Going · Walk",
+    // "Requested · Sports" (the pill says "You're going"; the eyebrow, "Going").
+    final part = badge == "You're going" ? 'Going' : badge;
+    final eyebrow = roleEyebrow && part != null
+        ? '$part · $activity'
         : 'Plan · $activity';
     final radius = BorderRadius.circular(AppRadius.card);
     return Padding(

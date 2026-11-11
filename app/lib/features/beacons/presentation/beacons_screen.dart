@@ -16,7 +16,6 @@ import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_chip.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
-import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../communities/data/communities_repository.dart';
 import '../data/beacons_repository.dart';
@@ -28,6 +27,7 @@ import 'bloc/beacons_state.dart';
 import 'bloc/plans_session.dart';
 import 'plans_list_detail.dart';
 import 'widgets/beacon_row.dart';
+import 'widgets/plan_skeletons.dart';
 import 'widgets/plans_activity_filter.dart';
 import 'widgets/your_plans_section.dart';
 
@@ -300,15 +300,6 @@ class PlansList extends StatelessWidget {
                 ),
                 if (state.audiences.length > 1)
                   _AudienceChips(state: state, onSelect: cubit.select),
-                // F29: on every state but paused, so a filter with no plans
-                // or a failed one is one tap from another activity.
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-                  child: PlansActivityFilter(
-                    selected: state.activity,
-                    onSelected: cubit.selectActivity,
-                  ),
-                ),
                 Expanded(
                   child: RefreshIndicator(
                     onRefresh: () {
@@ -320,6 +311,19 @@ class PlansList extends StatelessWidget {
                       cubit,
                       state,
                       _top(context, split ? null : const PlansHeadline(), [
+                        // F29: after the headline, before the cards (the
+                        // designs' order), on every state but paused, so a
+                        // filter with no plans or a failed one is one tap
+                        // from another activity.
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: AppSpacing.xs,
+                          ),
+                          child: PlansActivityFilter(
+                            selected: state.activity,
+                            onSelected: cubit.selectActivity,
+                          ),
+                        ),
                         if (yourPlans)
                           YourPlansSection(
                             session: session,
@@ -366,13 +370,8 @@ class PlansList extends StatelessWidget {
         return SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           child: top == null
-              ? const UserListSkeleton(semanticsLabel: 'Loading plans')
-              : Column(
-                  children: [
-                    top,
-                    const UserListSkeleton(semanticsLabel: 'Loading plans'),
-                  ],
-                ),
+              ? const PlanCardListSkeleton()
+              : Column(children: [top, const PlanCardListSkeleton()]),
         );
       case BeaconsLoad.error:
         return _scrollable(

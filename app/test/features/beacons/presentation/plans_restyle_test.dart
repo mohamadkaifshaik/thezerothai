@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/beacons/domain/beacon_labels.dart';
 import 'package:dzeroth/features/beacons/presentation/beacon_people_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/beacon_row.dart';
+import 'package:dzeroth/features/beacons/presentation/widgets/plan_skeletons.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/plan_summary.dart';
+import 'package:dzeroth/features/beacons/presentation/widgets/plans_activity_filter.dart';
+import 'package:dzeroth/shared/widgets/user/user_list_skeleton.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
@@ -95,6 +100,89 @@ void main() {
         findsOneWidget,
       );
       handle.dispose();
+    });
+  });
+
+  group('Plans list: order and loading', () {
+    testWidgets('the page reads headline, then the activity pills, then the '
+        'cards', (tester) async {
+      final rig = PlansTabletRig();
+      await rig.pump(tester, width: 360, height: 1000);
+      final headline = tester.getTopLeft(_headline).dy;
+      final pills = tester.getTopLeft(find.byKey(kPlansActivityFilterKey)).dy;
+      final card = tester.getTopLeft(find.byType(BeaconRow).first).dy;
+      expect(headline, lessThan(pills));
+      expect(pills, lessThan(card));
+    });
+
+    testWidgets('the pills stay reachable with no plans and on an error', (
+      tester,
+    ) async {
+      final rig = PlansTabletRig();
+      rig.server.public.clear();
+      await rig.pump(tester, width: 360, height: 1000);
+      expect(find.byKey(kPlansActivityFilterKey), findsOneWidget);
+    });
+
+    testWidgets('loading: plan-card skeletons (24 dp radius), not avatar '
+        'rows', (tester) async {
+      final rig = PlansTabletRig();
+      final hold = rig.server.holdList = Completer<void>();
+      await rig.pump(tester, width: 360, height: 1000, settle: false);
+      expect(find.byType(PlanCardListSkeleton), findsOneWidget);
+      expect(find.byType(UserListSkeleton), findsNothing);
+      final card = tester.widget<DecoratedBox>(
+        find.byKey(kPlanCardSkeletonKey).first,
+      );
+      expect(
+        (card.decoration as BoxDecoration).borderRadius,
+        BorderRadius.circular(24),
+      );
+      expectNoOverflow(tester);
+      hold.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(PlanCardListSkeleton), findsNothing);
+    });
+
+    testWidgets('My plans loading: plan-card skeletons', (tester) async {
+      final rig = PlansTabletRig();
+      final hold = rig.server.holdList = Completer<void>();
+      await rig.pump(
+        tester,
+        location: AppRouter.plansMinePath,
+        width: 360,
+        height: 1000,
+        settle: false,
+      );
+      expect(find.byType(PlanCardListSkeleton), findsOneWidget);
+      expect(find.byType(UserListSkeleton), findsNothing);
+      hold.complete();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('PlanDetail loading: a hero-shaped skeleton', (tester) async {
+      final rig = PlansTabletRig();
+      final hold = rig.server.holdGet = Completer<void>();
+      await rig.pump(
+        tester,
+        location: AppRouter.planPath(kBeaconIdA),
+        width: 360,
+        height: 1000,
+        settle: false,
+      );
+      expect(find.byType(PlanDetailSkeleton), findsOneWidget);
+      expect(find.byType(UserListSkeleton), findsNothing);
+      final hero = tester.widget<DecoratedBox>(
+        find.byKey(kPlanHeroSkeletonKey),
+      );
+      expect(
+        (hero.decoration as BoxDecoration).borderRadius,
+        BorderRadius.circular(24),
+      );
+      expectNoOverflow(tester);
+      hold.complete();
+      await tester.pumpAndSettle();
+      expect(find.byType(PlanDetailSkeleton), findsNothing);
     });
   });
 
@@ -283,6 +371,18 @@ void main() {
       );
       expect(_inCard('My run', find.text('Organising')), findsNothing);
       expect(_inCard('My lunch', find.text('PLAN · COFFEE')), findsOneWidget);
+    });
+
+    testWidgets('a plan the caller is going to reads GOING · COFFEE, as the '
+        'design has it', (tester) async {
+      final rig = PlansTabletRig();
+      rig.server.mine.first.viewer = pb.ViewerState(
+        participantState: pb.ParticipantState.PARTICIPANT_STATE_ACCEPTED,
+        canLeave: true,
+      );
+      await rig.pump(tester, location: AppRouter.plansMinePath, width: 360);
+      expect(_inCard('My run', find.text('GOING · COFFEE')), findsOneWidget);
+      expect(find.textContaining("YOU'RE"), findsNothing);
     });
   });
 }

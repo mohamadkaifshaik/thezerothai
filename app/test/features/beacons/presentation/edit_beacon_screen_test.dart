@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/beacons/domain/beacons_feature_flag.dart';
 import 'package:dzeroth/features/beacons/domain/beacon_labels.dart';
+import 'package:dzeroth/features/beacons/presentation/beacons_error_messages.dart';
 import 'package:dzeroth/features/beacons/presentation/bloc/edit_beacon_cubit.dart';
 import 'package:dzeroth/features/beacons/presentation/edit_beacon_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/plan_form_fields.dart';
@@ -220,8 +221,9 @@ void main() {
   // that answer at once.
   group('date, time, duration and cost (F28)', () {
     final t = DateTime.now();
-    final now = DateTime(t.year, t.month, t.day + 1, 9);
+    var now = DateTime(t.year, t.month, t.day + 1, 9);
     late DateTime start;
+    final clockAtOpen = DateTime(t.year, t.month, t.day + 1, 9);
     DateTime? pickedDate;
     TimeOfDay? pickedTime;
 
@@ -272,6 +274,7 @@ void main() {
         );
 
     setUp(() {
+      now = clockAtOpen;
       pickedDate = null;
       pickedTime = null;
       plan(startAt: now.add(const Duration(hours: 2)));
@@ -333,6 +336,40 @@ void main() {
       expect(saveEnabled(tester), isTrue);
       pickedTime = TimeOfDay.fromDateTime(start);
       await tapField(tester, find.byTooltip('Pick a time'));
+      expect(saveEnabled(tester), isFalse);
+    });
+
+    testWidgets('the start passing while the form is open keeps the fields '
+        'and the unsaved time; the server says "started"', (tester) async {
+      await openSeamed(tester);
+      pickedTime = TimeOfDay(hour: start.hour + 1, minute: start.minute);
+      await tapField(tester, find.byTooltip('Pick a time'));
+      expect(saveEnabled(tester), isTrue);
+
+      // The stored start passes; any rebuild used to drop the fields.
+      now = start.add(const Duration(minutes: 1));
+      await tester.enterText(field('Title'), 'Tea');
+      await tester.pump();
+      expect(find.byTooltip('Pick a time'), findsOneWidget);
+      expect(find.byTooltip('Pick a date'), findsOneWidget);
+      expect(find.text(kPlanFixedNow), findsNothing);
+      expect(saveEnabled(tester), isTrue);
+
+      server.refusals.add(StateConflictException('started'));
+      await save(tester);
+      expect(find.text('Edit plan'), findsOneWidget);
+      expect(
+        find.text(beaconsErrorMessage(StateConflictException('started'))),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a stored length that is not a chip shows as the selected '
+        'one', (tester) async {
+      server.public.single.beacon.durationMinutes = 50;
+      await openSeamed(tester);
+      expect(chipSelected(tester, '50 min'), isTrue);
+      expect(chipSelected(tester, '60 min'), isFalse);
       expect(saveEnabled(tester), isFalse);
     });
 

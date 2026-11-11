@@ -80,6 +80,12 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
   int? _duration;
   pb.BeaconCost? _cost;
   bool _filled = false;
+
+  /// Whether the schedule fields are on the form, decided once when it fills
+  /// (a live plan that has not started). Not re-read per build: a start that
+  /// passes while the form is open must not remove the fields and drop an
+  /// unsaved time change; the server's `started` error explains instead.
+  bool _scheduleOpen = false;
   bool _discarded = false;
 
   /// The plan with the edits, for the preview; null until it is loaded.
@@ -168,6 +174,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
   void _fill(pb.Beacon b) {
     if (_filled) return;
     _filled = true;
+    _scheduleOpen = _live(b) && _now().isBefore(_storedStart(b));
     _title.text = b.title;
     _details.text = b.details;
     _venue.text = b.venue;
@@ -175,6 +182,15 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
     _start = _storedStart(b);
     _duration = b.durationMinutes;
     _cost = b.cost;
+  }
+
+  /// The duration chips. A stored length that is not one of them (another
+  /// client set it) is shown, selected, in its place rather than leaving
+  /// nothing selected.
+  List<int> _durationChoices() {
+    final d = _duration;
+    if (d == null || kBeaconDurations.contains(d)) return kBeaconDurations;
+    return ([...kBeaconDurations, d]..sort());
   }
 
   DateTime _now() => (widget.now ?? DateTime.now)();
@@ -187,8 +203,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
 
   /// F28: start, duration and cost change only on a live plan that has not
   /// started (the server refuses them after the stored start, "started").
-  bool _scheduleEditable(pb.Beacon b) =>
-      _live(b) && _now().isBefore(_storedStart(b));
+  bool _scheduleEditable(pb.Beacon b) => _scheduleOpen;
 
   /// Whether the form's start is another minute than the stored one (the
   /// pickers set minutes; a stored start's seconds are not a change).
@@ -514,7 +529,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                                     PlanFormSection(
                                       title: 'Duration',
                                       child: PlanChoiceChips<int>(
-                                        values: kBeaconDurations,
+                                        values: _durationChoices(),
                                         selected: _duration!,
                                         label: (m) => '$m min',
                                         enabled: !busy,

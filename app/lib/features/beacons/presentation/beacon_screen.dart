@@ -15,7 +15,6 @@ import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_menu_item_row.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
-import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../messages/domain/messaging_feature_flag.dart';
 import '../../messages/presentation/open_conversation.dart';
 import '../../messages/presentation/report_conversation.dart'
@@ -31,6 +30,7 @@ import 'bloc/beacon_detail_state.dart';
 import 'bloc/plans_session.dart';
 import 'plans_list_detail.dart';
 import 'widgets/join_note_sheet.dart';
+import 'widgets/plan_skeletons.dart';
 import 'widgets/plan_summary.dart';
 import '../../../shared/widgets/primitives/app_card.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
@@ -277,7 +277,7 @@ class _BeaconScreenState extends State<BeaconScreen> {
   Widget _body(BuildContext context, BeaconDetailState state) {
     switch (state.status) {
       case BeaconDetailStatus.loading:
-        return const UserListSkeleton(rows: 2, semanticsLabel: 'Loading plan');
+        return const PlanDetailSkeleton();
       case BeaconDetailStatus.error:
         final error = state.error!;
         if (error is NotFoundException) {

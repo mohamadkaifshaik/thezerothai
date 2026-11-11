@@ -11,13 +11,13 @@ import '../../../shared/widgets/primitives/app_chip.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
-import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../data/beacons_repository.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/beacons_state.dart' show BeaconsLoad;
 import 'bloc/my_beacons_cubit.dart';
 import 'bloc/my_beacons_state.dart';
 import 'widgets/beacon_row.dart';
+import 'widgets/plan_skeletons.dart';
 
 /// `/plans/mine` (R39): the caller's plans, Upcoming or Past, by role (R12:
 /// the designs' role pills and plan cards with the viewer's part in the
@@ -139,7 +139,7 @@ class _MyBeaconsScreenState extends State<MyBeaconsScreen> {
       case BeaconsLoad.loading:
         return const SingleChildScrollView(
           physics: AlwaysScrollableScrollPhysics(),
-          child: UserListSkeleton(semanticsLabel: 'Loading your plans'),
+          child: PlanCardListSkeleton(semanticsLabel: 'Loading your plans'),
         );
       case BeaconsLoad.error:
         return _scrollable(

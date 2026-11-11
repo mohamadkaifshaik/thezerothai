@@ -50,6 +50,10 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
   /// loading).
   Completer<void>? holdGet;
 
+  /// While set and not completed, ListBeacons and ListMyBeacons wait for it
+  /// (a list still loading).
+  Completer<void>? holdList;
+
   /// ACCEPTED and REQUESTED rows per beacon id.
   final Map<String, List<pb.Participant>> going = {};
   final Map<String, List<pb.Participant>> requests = {};
@@ -124,6 +128,7 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
     pb.BeaconActivity activity = pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED,
   }) async {
     listActivities.add(activity);
+    if (holdList case final hold?) await hold.future;
     _refuse('list:$communityId');
     final audience = communityId.isEmpty
         ? public
@@ -147,6 +152,7 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
     String pageToken = '',
   }) async {
     mineLimits.add(limit);
+    if (holdList case final hold?) await hold.future;
     if (mineRefusals.isNotEmpty) {
       calls.add('mine');
       throw mineRefusals.removeAt(0);

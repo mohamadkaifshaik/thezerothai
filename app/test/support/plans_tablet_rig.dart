@@ -152,6 +152,9 @@ class PlansTabletRig {
     TextDirection textDirection = TextDirection.ltr,
     bool realForms = false,
     bool profile = true,
+
+    /// False: pump a frame or two only, for a screen held loading.
+    bool settle = true,
   }) async {
     addTearDown(flagChanges.close);
     OnboardingState ready(Set<String> set) => OnboardingState(
@@ -317,7 +320,12 @@ class PlansTabletRig {
         ),
       ),
     );
-    await tester.pumpAndSettle();
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+    }
   }
 
   /// Resizes the window and settles.
