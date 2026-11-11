@@ -9,6 +9,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.d
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -62,6 +63,13 @@ void main() {
     await tester.pumpWidget(wrap());
 
     expect(find.byType(AccountRestrictedView), findsOneWidget);
+    // R4 (States-Account.dc.html): Sign out is the gradient pill.
+    expect(
+      tester
+          .widget<AppPillButton>(find.widgetWithText(AppPillButton, 'Sign out'))
+          .variant,
+      AppButtonVariant.primary,
+    );
     expect(find.text('protected child'), findsNothing);
 
     await tester.tap(find.text('Sign out'));
@@ -99,6 +107,13 @@ void main() {
     await tester.pump();
 
     expect(find.byType(AccountRestrictedView), findsOneWidget);
+    // R4 (States-Account.dc.html): Sign out is the gradient pill.
+    expect(
+      tester
+          .widget<AppPillButton>(find.widgetWithText(AppPillButton, 'Sign out'))
+          .variant,
+      AppButtonVariant.primary,
+    );
   });
 
   testWidgets('without an OnboardingBloc in scope the child shows (no throw)', (

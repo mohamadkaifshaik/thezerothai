@@ -9,6 +9,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/shell_geometry.dart';
 import '../../../shared/format/scheduled_time.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_section_header.dart';
 import '../../../shared/widgets/primitives/app_surface.dart';
 import '../../../shared/widgets/primitives/app_tile_icon.dart';
@@ -158,8 +159,28 @@ class _DataExportScreenState extends State<DataExportScreen> {
   void _request() =>
       _export.request(promptPassword: () => showPasswordPromptDialog(context));
 
-  Widget _requestButton(String label) =>
-      FilledButton(onPressed: _request, child: Text(label));
+  /// The design's full-width 56 dp gradient pill (DataExport.dc.html).
+  static Widget _action(
+    String label,
+    VoidCallback? onPressed, {
+    AppButtonVariant variant = AppButtonVariant.primary,
+    IconData? icon,
+    bool busy = false,
+    String? busySemanticsLabel,
+  }) => SizedBox(
+    width: double.infinity,
+    child: AppPillButton(
+      label: label,
+      onPressed: onPressed,
+      variant: variant,
+      size: AppButtonSize.large,
+      icon: icon,
+      busy: busy,
+      busySemanticsLabel: busySemanticsLabel,
+    ),
+  );
+
+  Widget _requestButton(String label) => _action(label, _request);
 
   Widget _body(BuildContext context, DataExportState state) {
     switch (state.phase) {
@@ -199,16 +220,12 @@ class _DataExportScreenState extends State<DataExportScreen> {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: AppSpacing.md),
-              FilledButton.icon(
-                onPressed: state.refreshing ? null : _download,
-                icon: state.refreshing
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.download_outlined),
-                label: const Text('Download'),
+              _action(
+                'Download',
+                _download,
+                icon: Icons.download_outlined,
+                busy: state.refreshing,
+                busySemanticsLabel: 'Getting a fresh link',
               ),
             ],
           ),
@@ -223,9 +240,10 @@ class _DataExportScreenState extends State<DataExportScreen> {
                 'back later; you can also reopen this page.',
               ),
               const SizedBox(height: AppSpacing.md),
-              OutlinedButton(
-                onPressed: _export.resume,
-                child: const Text('Check again'),
+              _action(
+                'Check again',
+                _export.resume,
+                variant: AppButtonVariant.text,
               ),
             ],
           ),
@@ -273,10 +291,7 @@ class _DataExportScreenState extends State<DataExportScreen> {
           const SizedBox(height: AppSpacing.md),
           // A known export only needs its link again, not a new request.
           _export.canResume
-              ? FilledButton(
-                  onPressed: _export.resume,
-                  child: const Text('Try again'),
-                )
+              ? _action('Try again', _export.resume)
               : _requestButton('Try again'),
         ],
       ),

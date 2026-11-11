@@ -35,6 +35,8 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.d
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_surface.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -237,9 +239,12 @@ void main() {
     return router;
   }
 
-  Finder button() => find.byType(FilledButton);
-  bool enabled(WidgetTester tester) =>
-      tester.widget<FilledButton>(button()).onPressed != null;
+  // R4: the action is the danger pill (DeleteAccount.dc.html).
+  Finder button() => find.widgetWithText(AppPillButton, 'Delete my account');
+  bool enabled(WidgetTester tester) {
+    final pill = tester.widget<AppPillButton>(button());
+    return pill.onPressed != null && !pill.busy;
+  }
 
   Future<void> typeHandle(WidgetTester tester, String text) async {
     await tester.enterText(find.byType(TextField), text);
@@ -809,7 +814,7 @@ void main() {
 
   group('under the shell bar (bottom inset)', () {
     Finder deleteButton() =>
-        find.widgetWithText(FilledButton, 'Delete my account');
+        find.widgetWithText(AppPillButton, 'Delete my account');
 
     /// The height at which the final action ends 40 dp above the bottom
     /// edge: inside the 90 dp of the floating bar, on a page that fits the
@@ -917,6 +922,50 @@ void main() {
         expect(listWidth(tester), width < 600 ? width : 600);
       });
     }
+  });
+
+  group('R4 design fidelity', () {
+    testWidgets('DeleteAccount.dc.html: eyebrow, headline, data card, danger '
+        'pill', (tester) async {
+      await pump(tester);
+      expect(find.text("THIS CAN'T BE UNDONE"), findsOneWidget);
+      expect(find.text('Delete your account?'), findsOneWidget);
+      expect(
+        find.ancestor(
+          of: find.text('Download my data first'),
+          matching: find.byType(AppSurface),
+        ),
+        findsOneWidget,
+      );
+      final pill = tester.widget<AppPillButton>(button());
+      expect(pill.variant, AppButtonVariant.danger);
+      expect(pill.size, AppButtonSize.large);
+    });
+
+    testWidgets(
+      'AccountDeleted.dc.html: header, eyebrow, headline, Done pill',
+      (tester) async {
+        await pump(tester);
+        await typeHandle(tester, 'kaif');
+        await tester.tap(button());
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: find.byType(AppBar),
+            matching: find.text('Account deleted'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('ACCOUNT STATUS'), findsOneWidget);
+        expect(find.text('Your account is being deleted'), findsOneWidget);
+        expect(
+          tester
+              .widget<AppPillButton>(find.widgetWithText(AppPillButton, 'Done'))
+              .variant,
+          AppButtonVariant.primary,
+        );
+      },
+    );
   });
 }
 

@@ -9,6 +9,9 @@ import '../../../core/router/app_router.dart';
 import '../../../core/telemetry/telemetry_device_forget.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
+import '../../../shared/widgets/primitives/app_surface.dart';
+import '../../../shared/widgets/primitives/settings_group.dart';
 import '../../../core/widgets/shell_geometry.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/domain/auth_failure.dart';
@@ -210,9 +213,22 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                         AppSpacing.md + MediaQuery.paddingOf(context).bottom,
                   ),
                   children: [
+                    // DeleteAccount.dc.html: the danger eyebrow over the
+                    // display headline.
                     Text(
-                      'Delete your account?',
-                      style: theme.textTheme.headlineSmall,
+                      "This can't be undone".toUpperCase(),
+                      style: AppTextStyles.eyebrow(theme)
+                          .copyWith(color: theme.colorScheme.error),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Semantics(
+                      header: true,
+                      child: Text(
+                        'Delete your account?',
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          fontWeight: AppTypeTokens.weightDisplay,
+                        ),
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.md),
                     const Text(
@@ -227,14 +243,20 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                     ),
                     const SizedBox(height: AppSpacing.md),
                     if (hasProfile) ...[
-                      Align(
-                        alignment: AlignmentDirectional.centerStart,
-                        child: TextButton.icon(
-                          onPressed: working
-                              ? null
-                              : () => context.push(AppRouter.exportDataPath),
-                          icon: const Icon(Icons.download_outlined),
-                          label: const Text('Download my data first'),
+                      // The design's card row (icon, title, chevron).
+                      AppSurface(
+                        padding: EdgeInsets.zero,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(
+                            AppRadius.cardSmall,
+                          ),
+                          child: SettingsRow(
+                            icon: Icons.download_outlined,
+                            title: 'Download my data first',
+                            onTap: working
+                                ? null
+                                : () => context.push(AppRouter.exportDataPath),
+                          ),
                         ),
                       ),
                       const SizedBox(height: AppSpacing.md),
@@ -248,16 +270,17 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                         labelText: !hasProfile
                             ? 'Type $deleteConfirmWord to confirm'
                             : 'Type your handle ($handle) to confirm',
-                        border: const OutlineInputBorder(),
                       ),
                       onChanged: (_) => setState(() {}),
                     ),
                     const SizedBox(height: AppSpacing.md),
-                    FilledButton(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: theme.colorScheme.error,
-                        foregroundColor: theme.colorScheme.onError,
-                      ),
+                    // The design's 56 dp danger pill.
+                    AppPillButton(
+                      label: 'Delete my account',
+                      variant: AppButtonVariant.danger,
+                      size: AppButtonSize.large,
+                      busy: working,
+                      busySemanticsLabel: 'Deleting account',
                       // Straight from the tap: the web re-auth popup must open
                       // inside the user gesture.
                       onPressed: enabled
@@ -265,15 +288,6 @@ class _DeleteAccountScreenState extends State<DeleteAccountScreen> {
                               promptPassword: _promptPassword,
                             )
                           : null,
-                      child: working
-                          ? const SizedBox.square(
-                              dimension: AppSpacing.lg - AppSpacing.xs,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                semanticsLabel: 'Deleting account',
-                              ),
-                            )
-                          : const Text('Delete my account'),
                     ),
                     const SizedBox(height: AppSpacing.md),
                     _StatusMessage(state: state),
@@ -321,50 +335,67 @@ class _StatusMessage extends StatelessWidget {
 }
 
 /// Final page after DeleteAccount was accepted. Reachable signed out.
+/// AccountDeleted.dc.html: the "Account deleted" header, the "Account
+/// status" eyebrow, the headline, the line and the Done pill, start aligned
+/// in the content column.
 class AccountDeletedScreen extends StatelessWidget {
   const AccountDeletedScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.check_circle_outline, size: AppSpacing.xxl),
-                  const SizedBox(height: AppSpacing.md),
-                  Text(
-                    'Your account is being deleted',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  const Text(
-                    'You have been signed out. Deletion can take a little while '
-                    'to finish. You do not need to do anything else.',
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: AppSpacing.lg),
-                  FilledButton(
-                    onPressed: () {
-                      // Idempotent: makes sure the session is gone even if the
-                      // first sign-out has not landed yet.
-                      final auth = context.read<AuthBloc>();
-                      if (auth.state.isAuthenticated) {
-                        auth.add(const AuthSignOutRequested());
-                      }
-                      context.go(AppRouter.signInPath);
-                    },
-                    child: const Text('Done'),
-                  ),
-                ],
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        title: const Text('Account deleted'),
+      ),
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: AppSize.contentMax),
+          child: ListView(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            children: [
+              Text(
+                'Account status'.toUpperCase(),
+                style: AppTextStyles.eyebrow(theme)
+                    .copyWith(color: context.appColors.accentText),
               ),
-            ),
+              const SizedBox(height: AppSpacing.sm),
+              Semantics(
+                header: true,
+                child: Text(
+                  'Your account is being deleted',
+                  style: theme.textTheme.headlineMedium?.copyWith(
+                    fontWeight: AppTypeTokens.weightDisplay,
+                  ),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'You have been signed out. Deletion can take a little while '
+                'to finish. You do not need to do anything else.',
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: AppPillButton(
+                  label: 'Done',
+                  onPressed: () {
+                    // Idempotent: makes sure the session is gone even if the
+                    // first sign-out has not landed yet.
+                    final auth = context.read<AuthBloc>();
+                    if (auth.state.isAuthenticated) {
+                      auth.add(const AuthSignOutRequested());
+                    }
+                    context.go(AppRouter.signInPath);
+                  },
+                ),
+              ),
+            ],
           ),
         ),
       ),

@@ -16,6 +16,7 @@ import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pbenum.dart'
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:dzeroth/shared/format/scheduled_time.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:url_launcher_platform_interface/link.dart';
@@ -592,5 +593,33 @@ void main() {
         expect(find.textContaining('Available until'), findsOneWidget);
       });
     }
+  });
+
+  group('R4 design fidelity (DataExport.dc.html)', () {
+    testWidgets('idle: the request is the large gradient pill', (tester) async {
+      await pump(tester);
+      final pill = tester.widget<AppPillButton>(
+        find.widgetWithText(AppPillButton, 'Request export'),
+      );
+      expect(pill.variant, AppButtonVariant.primary);
+      expect(pill.size, AppButtonSize.large);
+      expect(find.text('YOUR ARCHIVE'), findsOneWidget);
+    });
+
+    testWidgets('ready: Download is the large gradient pill', (tester) async {
+      when(() => accounts.getExport(exportId: 'exp-1')).thenAnswer(
+        (_) async =>
+            _export(ExportStatus.EXPORT_STATUS_READY, url: _downloadUrl),
+      );
+      await pump(tester);
+      await tapRequest(tester);
+      await tester.pump(const Duration(seconds: 10));
+      await tester.pump();
+      final pill = tester.widget<AppPillButton>(
+        find.widgetWithText(AppPillButton, 'Download'),
+      );
+      expect(pill.variant, AppButtonVariant.primary);
+      expect(pill.size, AppButtonSize.large);
+    });
   });
 }
