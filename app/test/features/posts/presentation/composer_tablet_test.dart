@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/composer_tablet_rig.dart';
+import '../../../support/posts_fixtures.dart';
 import '../../../support/theme_harness.dart';
 
 /// The composer and the reply composer on the tablet layout (tablet plan
@@ -241,6 +242,30 @@ void main() {
       expect(rect.top, greaterThanOrEqualTo(24 - 1));
       expect(tester.takeException(), isNull);
     });
+
+    for (final reply in [false, true]) {
+      testWidgets('the keyboard at text scale 2.0 (${reply ? 'reply' : 'post'})'
+          ': the field stays in view', (tester) async {
+        final rig = ComposerTabletRig();
+        await rig.pump(tester, textScale: 2);
+        await rig.push(
+          tester,
+          reply
+              ? AppRouter.composeReplyPath(rig.parent.post.postId)
+              : AppRouter.composePath,
+        );
+        tester.view.viewInsets = const FakeViewPadding(bottom: 380);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        final editor = reply ? findReplyComposer() : findComposer();
+        final dialog = tester.getRect(editor);
+        expect(dialog.bottom, lessThanOrEqualTo(768 - 380 - 24 + 1));
+        final field = tester.getRect(find.byType(EditableText).first);
+        // Some of the field is inside the dialog, above the keyboard.
+        expect(field.top, lessThan(dialog.bottom));
+        expect(field.bottom, greaterThan(dialog.top));
+      });
+    }
 
     testWidgets('RTL: centred on the content area beside a right-hand rail', (
       tester,
@@ -779,6 +804,16 @@ void main() {
         expect(find.text('A conversation worth continuing.'), findsWidgets);
       });
     }
+
+    testWidgets('a community compose link (?community=) over Home', (
+      tester,
+    ) async {
+      final rig = ComposerTabletRig();
+      await rig.pump(tester);
+      await rig.push(tester, AppRouter.composeCommunityPath(postId(9)));
+      expect(rig.uri.queryParameters['community'], postId(9));
+      expectRect(tester.getRect(findComposer()), expectedDialog(1024, 768));
+    });
 
     testWidgets('a pushed location (a notification tap) over Home', (
       tester,

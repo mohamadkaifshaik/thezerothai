@@ -638,6 +638,8 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     // The tablet layout (both flags, 600-1199dp) moves the library's
     // threshold and width (tablet plan section 4.1, Article row).
     final tablet = tabletLayoutAt(context);
+    final sides = tablet ? MediaQuery.paddingOf(context) : EdgeInsets.zero;
+    final rtl = Directionality.of(context) == TextDirection.rtl;
     return PopScope(
       canPop: !_dirty && !_saving,
       onPopInvokedWithResult: (didPop, _) async {
@@ -757,8 +759,13 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
               ),
             Expanded(
               child: LayoutBuilder(
-                builder: (context, constraints) =>
-                    _withLibrary(constraints, body, tablet: tablet),
+                builder: (context, constraints) => _withLibrary(
+                  constraints,
+                  body,
+                  tablet: tablet,
+                  sides: sides,
+                  rtl: rtl,
+                ),
               ),
             ),
           ],
@@ -767,23 +774,41 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     );
   }
 
+  /// [sides]: the window's safe-area insets on the tablet layout (zero
+  /// elsewhere). There the library sits at the leading edge and the page at
+  /// the trailing edge of the window, so each pads by its side's inset (a
+  /// landscape phone's notch), and the library is the list pane of
+  /// `C = W - insets` (tablet plan section 3).
   Widget _withLibrary(
     BoxConstraints constraints,
     Widget page, {
     required bool tablet,
+    required EdgeInsets sides,
+    required bool rtl,
   }) {
     final body = KeyedSubtree(key: _bodyKey, child: page);
     final wide = articleLibraryShownAt(constraints.maxWidth, tablet: tablet);
     final libraryWidth = articleLibraryWidth(
-      constraints.maxWidth,
+      constraints.maxWidth - sides.horizontal,
       tablet: tablet,
     );
+    final leadingInset = EdgeInsets.only(
+      left: rtl ? 0 : sides.left,
+      right: rtl ? sides.right : 0,
+    );
+    final trailingInset = EdgeInsets.only(
+      left: rtl ? sides.left : 0,
+      right: rtl ? 0 : sides.right,
+    );
+    Widget pad(EdgeInsets insets, Widget child) => insets == EdgeInsets.zero
+        ? child
+        : Padding(padding: insets, child: child);
     if (widget.articleId == null && wide && !_loading) {
       return Row(
         children: [
-          SizedBox(width: libraryWidth, child: body),
+          pad(leadingInset, SizedBox(width: libraryWidth, child: body)),
           const VerticalDivider(width: 1),
-          Expanded(child: _writingWelcome()),
+          Expanded(child: pad(trailingInset, _writingWelcome())),
         ],
       );
     }
@@ -810,40 +835,43 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     return showLibrary
         ? Row(
             children: [
-              SizedBox(
-                width: libraryWidth,
-                child: settings
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // At most a third of the pane (a landscape phone
-                          // at large text): the settings scroll, the
-                          // library keeps the rest.
-                          ConstrainedBox(
-                            constraints: BoxConstraints(
-                              maxHeight: constraints.maxHeight / 3,
-                            ),
-                            child: SingleChildScrollView(
-                              child: _PublishSettings(
-                                policy: _publishPolicy(record),
-                                locked:
-                                    record.publicationPending ||
-                                    _retryOptions != null,
-                                canChooseReplyAudience:
-                                    _repository.canChooseReplyAudience,
-                                onChanged: (value) =>
-                                    setState(() => _policyChoice = value),
+              pad(
+                leadingInset,
+                SizedBox(
+                  width: libraryWidth,
+                  child: settings
+                      ? Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // At most a third of the pane (a landscape phone
+                            // at large text): the settings scroll, the
+                            // library keeps the rest.
+                            ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxHeight: constraints.maxHeight / 3,
+                              ),
+                              child: SingleChildScrollView(
+                                child: _PublishSettings(
+                                  policy: _publishPolicy(record),
+                                  locked:
+                                      record.publicationPending ||
+                                      _retryOptions != null,
+                                  canChooseReplyAudience:
+                                      _repository.canChooseReplyAudience,
+                                  onChanged: (value) =>
+                                      setState(() => _policyChoice = value),
+                                ),
                               ),
                             ),
-                          ),
-                          const Divider(height: 1),
-                          Expanded(child: library),
-                        ],
-                      )
-                    : library,
+                            const Divider(height: 1),
+                            Expanded(child: library),
+                          ],
+                        )
+                      : library,
+                ),
               ),
               const VerticalDivider(width: 1),
-              Expanded(child: body),
+              Expanded(child: pad(trailingInset, body)),
             ],
           )
         : body;

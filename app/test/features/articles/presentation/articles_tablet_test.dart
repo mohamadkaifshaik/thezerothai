@@ -124,9 +124,17 @@ void main() {
     double height = 768,
     Set<String> flags = _tabletFlags,
     double textScale = 1,
+    EdgeInsets padding = EdgeInsets.zero,
+    TextDirection textDirection = TextDirection.ltr,
   }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = Size(width, height);
+    tester.view.padding = FakeViewPadding(
+      left: padding.left,
+      top: padding.top,
+      right: padding.right,
+      bottom: padding.bottom,
+    );
     addTearDown(tester.view.reset);
     final onboarding = _Onboarding();
     whenListen(
@@ -171,10 +179,13 @@ void main() {
           child: MaterialApp.router(
             routerConfig: router,
             theme: appLightTheme,
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(textScale)),
-              child: child!,
+            builder: (context, child) => Directionality(
+              textDirection: textDirection,
+              child: MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: TextScaler.linear(textScale)),
+                child: child!,
+              ),
             ),
           ),
         ),
@@ -275,6 +286,23 @@ void main() {
                 : AppSize.sideColumn,
           );
         }
+      });
+    }
+
+    for (final (name, control) in [
+      ('Write', find.widgetWithText(FilledButton, 'Write')),
+      ('Create article', find.byTooltip('Create article').first),
+    ]) {
+      testWidgets('$name opens a new article beside the library (band B)', (
+        tester,
+      ) async {
+        final repo = _Repo();
+        final router = await open(tester, repo, location: '/compose/articles');
+        await tester.tap(control);
+        await tester.pumpAndSettle();
+        expect(router.state.uri.path, _editPath);
+        expect(library(), findsOneWidget);
+        expect(paneSettings(), findsOneWidget);
       });
     }
 
@@ -477,5 +505,45 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(paneSettings(), findsOneWidget);
     });
+
+    // A landscape phone has a notch on one side (47 dp): the library at the
+    // leading edge and the page at the trailing edge stay clear of it.
+    for (final location in [_editPath, '/compose/articles']) {
+      for (final direction in TextDirection.values) {
+        testWidgets('932 x 430 with side insets, ${direction.name}: '
+            '$location', (tester) async {
+          await open(
+            tester,
+            _Repo(),
+            location: location,
+            width: 932,
+            height: 430,
+            padding: const EdgeInsets.only(left: 47, right: 47, bottom: 21),
+            textDirection: direction,
+          );
+          expect(tester.takeException(), isNull);
+          final row = tester.getRect(find.text('Harbour notes').first);
+          final ltr = direction == TextDirection.ltr;
+          // The library's row text clears the leading inset ...
+          ltr
+              ? expect(row.left, greaterThanOrEqualTo(47))
+              : expect(row.right, lessThanOrEqualTo(932 - 47));
+          // ... and the library is the plan's list pane of C = W - insets.
+          final divider = tester.getRect(find.byType(VerticalDivider));
+          final pane = ShellGeometry.listPaneWidthFor(932 - 94);
+          ltr
+              ? expect(divider.left, 47 + pane)
+              : expect(divider.right, 932 - 47 - pane);
+          // The page beside it clears the trailing inset.
+          final write = location == _editPath
+              ? find.byType(EditableText).first
+              : find.widgetWithText(FilledButton, 'Write');
+          final page = tester.getRect(write);
+          ltr
+              ? expect(page.right, lessThanOrEqualTo(932 - 47))
+              : expect(page.left, greaterThanOrEqualTo(47));
+        });
+      }
+    }
   });
 }
