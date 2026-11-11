@@ -654,7 +654,7 @@ void main() {
       final finder = find.bySemanticsLabel('Edit plan');
       expect(finder, findsOneWidget);
       final node = tester.getSemantics(finder);
-      expect(node, containsSemantics(isHeader: true, label: 'Edit plan'));
+      expect(node, isSemantics(isHeader: true, label: 'Edit plan'));
       var matrix = Matrix4.identity();
       for (SemanticsNode? n = node; n != null; n = n.parent) {
         if (n.transform != null) matrix = n.transform!.multiplied(matrix);
