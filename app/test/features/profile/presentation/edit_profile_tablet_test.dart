@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
@@ -5,6 +7,8 @@ import 'package:dzeroth/features/profile/presentation/edit_profile_screen.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/edit_profile_preview.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_cover_band.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
+import 'package:dzeroth/features/profile/presentation/widgets/profile_media_strip.dart';
+import 'package:dzeroth/features/search/presentation/widgets/app_search_field.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
 import 'package:flutter/material.dart';
@@ -32,6 +36,12 @@ bool _bandB(double w) =>
 Finder _previewAction() => find.descendant(
   of: find.byType(EditProfileScreen),
   matching: find.widgetWithText(TextButton, kEditProfilePreviewAction),
+);
+
+/// The form's own Preview row (text scale above 1.3).
+Finder _previewRow() => find.descendant(
+  of: find.byType(EditProfileScreen),
+  matching: find.widgetWithText(OutlinedButton, kEditProfilePreviewAction),
 );
 
 Finder _inPreview(Finder finder) =>
@@ -295,11 +305,15 @@ void main() {
             location: AppRouter.editProfilePath,
           );
           expect(tester.takeException(), isNull);
+          // Above 1.3 the action is the form's first row, not the header's.
+          expect(_previewAction(), findsNothing);
           expect(
-            tester.getSize(_previewAction()).height,
+            tester.getSize(_previewRow()).height,
             greaterThanOrEqualTo(48),
           );
-          await _openPreview(tester);
+          await tester.tap(_previewRow());
+          await tester.pumpAndSettle();
+          expect(find.text(kEditProfilePreviewTitle), findsOneWidget);
           expect(tester.takeException(), isNull);
           final dialog = openDialogRect(tester);
           expect(dialog.bottom, lessThanOrEqualTo(h));
@@ -309,6 +323,82 @@ void main() {
         });
       }
     }
+
+    for (final scale in <double>[1, 1.3, 1.5, 2, 3]) {
+      testWidgets('text scale $scale at 840: Preview '
+          '${scale > 1.3 ? 'the first row of the form' : 'is in the header'}', (
+        tester,
+      ) async {
+        final rig = ProfileTabletRig();
+        await rig.pump(
+          tester,
+          width: 840,
+          height: 1194,
+          textScale: scale,
+          location: AppRouter.editProfilePath,
+        );
+        expect(tester.takeException(), isNull);
+        if (scale <= 1.3) {
+          expect(_previewAction(), findsOneWidget);
+          expect(_previewRow(), findsNothing);
+          return;
+        }
+        expect(_previewAction(), findsNothing);
+        expect(_previewRow(), findsOneWidget);
+        // The first item of the form's list, full width, 48 dp or more.
+        final list = tester.widget<ListView>(
+          find.descendant(
+            of: find.byType(EditProfileScreen),
+            matching: find.byType(ListView),
+          ),
+        );
+        final first =
+            (list.childrenDelegate as SliverChildListDelegate).children.first;
+        expect(
+          find.descendant(
+            of: find.byWidget(first),
+            matching: find.byType(OutlinedButton),
+          ),
+          findsOneWidget,
+        );
+        final row = tester.getRect(_previewRow());
+        final banner = tester.getRect(
+          find.descendant(
+            of: find.byType(EditProfileScreen),
+            matching: find.byType(ProfileCoverBand),
+          ),
+        );
+        expect(row.width, banner.width);
+        expect(row.height, greaterThanOrEqualTo(48));
+        expect(row.bottom, lessThanOrEqualTo(banner.top));
+        expect(
+          find.descendant(
+            of: _previewRow(),
+            matching: find.byIcon(Icons.visibility_outlined),
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(_previewRow());
+        await tester.pumpAndSettle();
+        expect(find.text(kEditProfilePreviewTitle), findsOneWidget);
+      });
+    }
+
+    testWidgets('phones and desktop at 2.0: no Preview row either', (
+      tester,
+    ) async {
+      for (final w in <double>[400, 1300]) {
+        final rig = ProfileTabletRig();
+        await rig.pump(
+          tester,
+          width: w,
+          textScale: 2,
+          location: AppRouter.editProfilePath,
+        );
+        expect(_previewRow(), findsNothing, reason: '$w');
+        expect(_previewAction(), findsNothing, reason: '$w');
+      }
+    });
 
     testWidgets('RTL at 1024: the dialog is centred on the content area', (
       tester,
@@ -348,6 +438,27 @@ void main() {
       await tester.pumpAndSettle();
       expect(rig.uri.path, AppRouter.profilePath(kRigOwnHandle));
       expect(findContextPane(), findsOneWidget);
+    });
+
+    testWidgets('the own profile pushed over Home, then Edit profile: no '
+        'pane, not the Home one', (tester) async {
+      final rig = ProfileTabletRig();
+      await rig.pump(tester, width: 1024, location: AppRouter.homePath);
+      unawaited(rig.router.push(AppRouter.profileByIdPath(kRigOwnId)));
+      await tester.pumpAndSettle();
+      expect(findContextPane(), findsOneWidget);
+      expect(find.byType(ProfileMediaStrip), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Edit profile'));
+      await tester.pumpAndSettle();
+      expect(find.byType(EditProfileScreen), findsOneWidget);
+      expect(findContextPane(), findsNothing);
+      expect(find.byType(AppSearchField), findsNothing);
+      expect(find.text("What's happening"), findsNothing);
+
+      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ProfileMediaStrip), findsOneWidget);
     });
   });
 

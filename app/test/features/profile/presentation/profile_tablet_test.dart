@@ -333,10 +333,27 @@ void main() {
       await tester.pumpAndSettle();
       expect(_tabs(tester).$2, 'Media');
       expect(rig.count('feed:$kRigOwnId:media'), 1);
-      // The page's own tab bar still works afterwards.
+      // Media is shown: See all would do nothing, so it goes.
+      expect(inContextPane(find.text('See all')), findsNothing);
+      expect(_paneTiles(), findsNWidgets(4));
+      // The page's own tab bar still works afterwards, and See all is back.
       await tester.tap(inProfilePage(find.text('Posts')));
       await tester.pumpAndSettle();
       expect(_tabs(tester).$2, 'Posts');
+      expect(inContextPane(find.text('See all')), findsOneWidget);
+    });
+
+    testWidgets('Media selected in the tab bar: no See all in the pane', (
+      tester,
+    ) async {
+      final rig = ProfileTabletRig();
+      await rig.pump(tester);
+      await tester.tap(inProfilePage(find.text('Media')));
+      await tester.pumpAndSettle();
+      expect(inContextPane(find.text('See all')), findsNothing);
+      await tester.tap(inProfilePage(find.text('Articles')));
+      await tester.pumpAndSettle();
+      expect(inContextPane(find.text('See all')), findsOneWidget);
     });
 
     testWidgets('the Media tab opened first: the strip reuses its feed', (

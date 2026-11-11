@@ -135,6 +135,12 @@ void main() {
           '/profile/alice/followers',
       ('/u/u1', '/profile/alice/following'): '/profile/alice/following',
       ('/profile/alice', AppRouter.editProfilePath): AppRouter.editProfilePath,
+      // A Settings page pushed over anything decides its own (no) pane: the
+      // own profile pushed over Home, then Edit profile from it.
+      ('/home', AppRouter.editProfilePath): AppRouter.editProfilePath,
+      ('/explore', AppRouter.changeHandlePath): AppRouter.changeHandlePath,
+      // A plan's detail over Home keeps T5's base-route rule.
+      ('/home', '/plans/b1'): '/home',
       // A person's Lists over their profile, and a post over the own
       // profile: their own family (the global set).
       ('/profile/alice', '/u/u1/lists'): '/u/u1/lists',

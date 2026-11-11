@@ -7,6 +7,7 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/failing_image_cache.dart';
@@ -38,25 +39,43 @@ List<String> _ids(List<ProfileMediaTile> tiles) => [
   for (final t in tiles) '${t.postId}/${t.index}',
 ];
 
-Future<void> _pump(WidgetTester tester, TimelineState state) async {
+Future<void> _pump(
+  WidgetTester tester,
+  TimelineState state, {
+  bool seeAll = true,
+}) => _pumpChild(
+  tester,
+  ProfileMediaStrip(
+    state: state,
+    onOpen: (_) {},
+    onSeeAll: seeAll ? () {} : null,
+  ),
+);
+
+Future<void> _pumpChild(WidgetTester tester, Widget child) async {
   useFailingImageCache();
   await tester.pumpWidget(
     MaterialApp(
       theme: buildAppTheme(brightness: Brightness.light),
       home: Scaffold(
-        body: SizedBox(
-          width: 320,
-          child: ProfileMediaStrip(
-            state: state,
-            onOpen: (_) {},
-            onSeeAll: () {},
-          ),
+        body: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(width: 320, child: child),
         ),
       ),
     ),
   );
   await tester.pumpAndSettle();
 }
+
+/// Six images, one per post.
+final _six = TimelineState(
+  status: TimelineStatus.ready,
+  entries: [for (var i = 1; i <= 6; i++) _post('p$i')],
+);
+
+/// The tile of image 0 of post [id].
+Finder _tile(String id) => find.byKey(ValueKey('profile-media-$id-0'));
 
 void main() {
   group('profileMediaTiles', () {
@@ -140,6 +159,108 @@ void main() {
         }
       });
     }
+
+    testWidgets('the placeholder is exactly as tall as the strip (no jump)', (
+      tester,
+    ) async {
+      await _pump(tester, _six);
+      final strip = tester.getSize(find.byType(ProfileMediaStrip)).height;
+      await _pumpChild(tester, const ProfileMediaStripPlaceholder());
+      expect(
+        tester.getSize(find.byType(ProfileMediaStripPlaceholder)).height,
+        strip,
+      );
+    });
+
+    testWidgets('no See all when it would open the tab already shown', (
+      tester,
+    ) async {
+      await _pump(tester, _six, seeAll: false);
+      expect(find.text(kProfileMediaTitle), findsOneWidget);
+      expect(find.text('See all'), findsNothing);
+      expect(find.byKey(const ValueKey('profile-media-p1-0')), findsOneWidget);
+    });
+
+    testWidgets('tiles and placeholder tiles have the 12 dp radius', (
+      tester,
+    ) async {
+      await _pump(tester, _six);
+      final clip = tester.widget<ClipRRect>(
+        find.descendant(of: _tile('p1'), matching: find.byType(ClipRRect)),
+      );
+      expect(clip.borderRadius, BorderRadius.circular(AppRadius.md));
+      await _pumpChild(tester, const ProfileMediaStripPlaceholder());
+      final box = tester
+          .widgetList<DecoratedBox>(
+            find.descendant(
+              of: find.byType(ProfileMediaStripPlaceholder),
+              matching: find.byType(DecoratedBox),
+            ),
+          )
+          .map((b) => b.decoration)
+          .whereType<BoxDecoration>()
+          .where((d) => d.color != null && d.border == null)
+          .first;
+      expect(box.borderRadius, BorderRadius.circular(AppRadius.md));
+    });
+
+    testWidgets('a tile is one button, read once, not also an image', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await _pump(tester, _six);
+      final node = tester.getSemantics(_tile('p1'));
+      expect(node.label, 'Open image');
+      expect(node.flagsCollection.isButton, isTrue);
+      expect(node.flagsCollection.isImage, isFalse);
+      semantics.dispose();
+    });
+
+    testWidgets(
+      'keyboard focus on a tile paints its highlight over the image',
+      (tester) async {
+        FocusManager.instance.highlightStrategy =
+            FocusHighlightStrategy.alwaysTraditional;
+        addTearDown(
+          () => FocusManager.instance.highlightStrategy =
+              FocusHighlightStrategy.automatic,
+        );
+        await _pump(tester, _six);
+        final ink = find.descendant(
+          of: _tile('p1'),
+          matching: find.byType(InkWell),
+        );
+        // The ink sits above the image: inside the tile's Stack, after it.
+        final stack = tester.widget<Stack>(
+          find.descendant(of: _tile('p1'), matching: find.byType(Stack)),
+        );
+        expect(stack.children.first, isNot(isA<Positioned>()));
+        expect(stack.children.last, isA<Positioned>());
+        expect(
+          find.descendant(
+            of: find.descendant(of: _tile('p1'), matching: find.byType(Stack)),
+            matching: ink,
+          ),
+          findsOneWidget,
+        );
+        // Tab from nothing lands on the first tile.
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pumpAndSettle();
+        final element = tester.element(ink);
+        final focused = FocusManager.instance.primaryFocus!.context!;
+        expect(
+          find.descendant(
+            of: _tile('p1'),
+            matching: find.byWidget(focused.widget),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          Material.of(element),
+          paints..rect(color: Theme.of(element).focusColor),
+        );
+      },
+    );
 
     testWidgets('a GIF shows its still with the badge, and says GIF', (
       tester,
