@@ -10,14 +10,11 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart';
-import '../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_menu_item_row.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
-import '../../../shared/widgets/primitives/app_status_pill.dart';
-import '../../../shared/widgets/primitives/app_tile_icon.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../messages/domain/messaging_feature_flag.dart';
 import '../../messages/presentation/open_conversation.dart';
@@ -28,14 +25,13 @@ import '../../moderation/presentation/report_sheet.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/beacons_repository.dart';
 import '../domain/beacon_labels.dart';
-import 'beacon_icons.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/beacon_detail_cubit.dart';
 import 'bloc/beacon_detail_state.dart';
 import 'bloc/plans_session.dart';
 import 'plans_list_detail.dart';
-import 'widgets/beacon_status_pill.dart';
 import 'widgets/join_note_sheet.dart';
+import 'widgets/plan_summary.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
 
 /// The NOT_FOUND text of the plan report sheet.
@@ -351,8 +347,6 @@ class _Details extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
     final b = view.beacon;
     final v = view.viewer;
     final live =
@@ -376,85 +370,7 @@ class _Details extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.md),
         ],
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AppTileIcon(icon: activityIcon(b.activity)),
-            const SizedBox(width: AppSpacing.smd),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Semantics(
-                    header: true,
-                    child: Text(b.title, style: theme.textTheme.titleLarge),
-                  ),
-                  const SizedBox(height: AppSpacing.xs),
-                  Wrap(
-                    spacing: AppSpacing.sm,
-                    runSpacing: AppSpacing.xs,
-                    children: [
-                      BeaconStatusPill(status: b.status),
-                      if (viewerPill != null)
-                        AppStatusPill(
-                          label: viewerPill,
-                          tone: AppStatusTone.info,
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.md),
-        _Line(icon: Icons.schedule_outlined, text: beaconWhenText(b)),
-        _Line(
-          icon: Icons.place_outlined,
-          text: b.venue,
-          note: kMeetingPointNote,
-        ),
-        _Line(icon: Icons.people_outline, text: beaconSeatsText(b)),
-        _Line(
-          icon: Icons.payments_outlined,
-          text: 'Cost: ${costLabel(b.cost)}',
-        ),
-        _Line(
-          icon: Icons.chat_bubble_outline,
-          text: 'Chat: ${chatPreferenceLabel(b.chatPreference)}',
-        ),
-        const SizedBox(height: AppSpacing.md),
-        Row(
-          children: [
-            AppAvatar(url: b.organiser.avatarUrl, radius: 20),
-            const SizedBox(width: AppSpacing.smd),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    b.organiser.displayName.isEmpty
-                        ? b.organiser.handle
-                        : b.organiser.displayName,
-                    style: theme.textTheme.titleSmall,
-                  ),
-                  Text(
-                    '@${b.organiser.handle}',
-                    style: theme.textTheme.bodySmall?.copyWith(color: muted),
-                  ),
-                ],
-              ),
-            ),
-            Text(
-              'Organiser',
-              style: theme.textTheme.bodySmall?.copyWith(color: muted),
-            ),
-          ],
-        ),
-        if (b.details.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.md),
-          Text(b.details, style: theme.textTheme.bodyMedium),
-        ],
+        PlanSummary(beacon: b, viewerPill: viewerPill),
         if (v.canRequest) ...[
           const SizedBox(height: AppSpacing.lg),
           FilledButton.icon(
@@ -509,48 +425,6 @@ class _Details extends StatelessWidget {
           ),
         ],
       ],
-    );
-  }
-}
-
-class _Line extends StatelessWidget {
-  const _Line({required this.icon, required this.text, this.note});
-
-  final IconData icon;
-  final String text;
-
-  /// A muted line under [text] (the meeting point's privacy note).
-  final String? note;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: AppIconSize.md, color: muted),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: note == null
-                ? Text(text, style: theme.textTheme.bodyMedium)
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(text, style: theme.textTheme.bodyMedium),
-                      Text(
-                        note!,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: muted,
-                        ),
-                      ),
-                    ],
-                  ),
-          ),
-        ],
-      ),
     );
   }
 }
