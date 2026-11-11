@@ -33,7 +33,28 @@ class UserListRow extends StatelessWidget {
     this.showDivider = true,
     this.extraAction,
     this.followSource = FollowSource.list,
+    this.avatarRadius = 20,
+    this.horizontalInset = AppSpacing.md,
+    this.verticalInset = AppSpacing.sm,
+    this.handleStyle,
   });
+
+  /// Merged over the @handle line's style (the community members page draws
+  /// the design's 13 sp).
+  final TextStyle? handleStyle;
+
+  /// The row's top and bottom padding; the community members page uses the
+  /// design's 12.
+  final double verticalInset;
+
+  /// The avatar's radius (dp); the default 20 is the list standard. The
+  /// community members page draws the design's 44 dp avatar (22).
+  final double avatarRadius;
+
+  /// The row's start padding, and its end padding too unless [onDismiss]
+  /// shows the dismiss button (the end is then `AppSpacing.xs`); the
+  /// community members page uses the design's 20.
+  final double horizontalInset;
 
   /// Where the row is shown, for the `follow` usage event.
   final FollowSource followSource;
@@ -112,10 +133,10 @@ class UserListRow extends StatelessWidget {
             child: Padding(
               // Directional, so RTL mirrors the gaps (T8b review note).
               padding: EdgeInsetsDirectional.only(
-                start: AppSpacing.md,
-                end: onDismiss == null ? AppSpacing.md : AppSpacing.xs,
-                top: AppSpacing.sm,
-                bottom: AppSpacing.sm,
+                start: horizontalInset,
+                end: onDismiss == null ? horizontalInset : AppSpacing.xs,
+                top: verticalInset,
+                bottom: verticalInset,
               ),
               // The control keeps its natural width at the user's text
               // scale and the name column gives way first; only when the name
@@ -127,7 +148,7 @@ class UserListRow extends StatelessWidget {
                 lead: Padding(
                   padding: const EdgeInsetsDirectional.only(end: AppSpacing.md),
                   child: ExcludeSemantics(
-                    child: AppAvatar(url: user.avatarUrl),
+                    child: AppAvatar(url: user.avatarUrl, radius: avatarRadius),
                   ),
                 ),
                 body: Column(
@@ -166,9 +187,9 @@ class UserListRow extends StatelessWidget {
                       '@${user.handle}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant)
+                          .merge(handleStyle),
                     ),
                   ],
                 ),

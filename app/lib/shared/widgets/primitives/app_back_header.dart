@@ -39,35 +39,41 @@ class AppBackHeader extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.xs,
-            vertical: AppSpacing.sm,
-          ),
-          child: Row(
-            children: [
-              leading ??
-                  IconButton(
-                    tooltip: backTooltip,
-                    icon: const Icon(Icons.arrow_back),
-                    onPressed: onBack,
+        // The controls across the pane on the tablet layout (T8f, one header
+        // rule): Back at the pane's leading edge, the actions at its
+        // trailing edge. A pass-through everywhere else.
+        AppFullBleed(
+          interactive: true,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.xs,
+              vertical: AppSpacing.sm,
+            ),
+            child: Row(
+              children: [
+                leading ??
+                    IconButton(
+                      tooltip: backTooltip,
+                      icon: const Icon(Icons.arrow_back),
+                      onPressed: onBack,
+                    ),
+                const SizedBox(width: AppSpacing.xs),
+                Expanded(
+                  child: Semantics(
+                    header: true,
+                    child:
+                        titleContent ??
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleLarge,
+                        ),
                   ),
-              const SizedBox(width: AppSpacing.xs),
-              Expanded(
-                child: Semantics(
-                  header: true,
-                  child:
-                      titleContent ??
-                      Text(
-                        title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleLarge,
-                      ),
                 ),
-              ),
-              ...actions,
-            ],
+                ...actions,
+              ],
+            ),
           ),
         ),
         // Spans the pane on the tablet layout (the column's bleed).

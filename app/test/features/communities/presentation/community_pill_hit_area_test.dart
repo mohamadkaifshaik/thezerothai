@@ -172,15 +172,15 @@ void main() {
         final rig = await pumpHeader(tester, width);
         final joinBox = tester.getRect(headerJoin());
         final pinBox = tester.getRect(pin());
-        // One run, Join first, 8 dp apart: the boxes do not overlap.
-        expect(joinBox.top, pinBox.top);
-        expect(pinBox.left - joinBox.right, AppSpacing.sm);
+        // R10b: Join is on the people row (at its end) and Pin to Home on
+        // the row under it, so the boxes are stacked and do not overlap.
+        expect(pinBox.top, greaterThanOrEqualTo(joinBox.bottom));
         final join = _pillOf(tester, headerJoin());
         final pinPill = _pillOf(tester, pin());
 
-        // The gap between the boxes, at the height of the bands.
+        // The gap between the two rows, over Join.
         await tester.tapAt(
-          Offset((joinBox.right + pinBox.left) / 2, join.top - 5),
+          Offset(joinBox.center.dx, (joinBox.bottom + pinBox.top) / 2),
         );
         // Just above the boxes (the space under the members link).
         await tester.tapAt(Offset(join.center.dx, joinBox.top - 1));

@@ -58,6 +58,7 @@ class ResponsiveScaffold extends StatefulWidget {
     this.sideColumn,
     this.onCompose,
     this.showFab = true,
+    this.extendBodyUnderStatusBar = false,
     this.redesignedRail = false,
     this.drawer,
     this.accountChipBuilder,
@@ -105,6 +106,12 @@ class ResponsiveScaffold extends StatefulWidget {
   /// Whether the narrow layout shows the floating compose button (it is hidden
   /// where the screen has its own composer entry).
   final bool showFab;
+
+  /// The narrow layouts leave the top inset to the page: the body goes under
+  /// the status bar (no top `SafeArea`), and the page pads itself. Only for
+  /// a page that draws its own cover under the status bar (a community's
+  /// page); every other page keeps the inset taken here. Ignored from 600dp.
+  final bool extendBodyUnderStatusBar;
 
   /// Whether the rail (600dp and up) takes the redesigned style (`ui_shell`):
   /// the `selectedIndicator` pill behind the filled selected glyph, w800
@@ -368,6 +375,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
       key: _scaffoldKey,
       drawer: widget.drawer,
       body: SafeArea(
+        top: !widget.extendBodyUnderStatusBar,
         bottom: false,
         child: NotificationListener<ScrollNotification>(
           onNotification: _onScrollNotification,
@@ -423,6 +431,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
       drawer: widget.drawer,
       extendBody: true,
       body: SafeArea(
+        top: !widget.extendBodyUnderStatusBar,
         bottom: false,
         child: NotificationListener<ScrollNotification>(
           onNotification: _onScrollNotification,

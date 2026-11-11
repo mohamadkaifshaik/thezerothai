@@ -1488,6 +1488,11 @@ void main() {
               '/settings/blocked',
               '/profile/ada',
               '/post/1',
+              '/communities',
+              '/communities/77',
+              '/communities/77?x=1',
+              '/communities/77/members',
+              '/communities/new',
             ]) {
               results[path] = showComposeFabAt(context, path);
             }
@@ -1504,6 +1509,13 @@ void main() {
       '/settings/blocked': false,
       '/profile/ada': true,
       '/post/1': true,
+      '/communities': true,
+      // R10b: a community's page has its own Post entry (into the
+      // community); its sub-pages and the create page keep the shell's.
+      '/communities/77': false,
+      '/communities/77?x=1': false,
+      '/communities/77/members': true,
+      '/communities/new': true,
     });
   });
 

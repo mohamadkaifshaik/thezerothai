@@ -434,12 +434,21 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
     return UserListRow(
       key: ValueKey(userId),
       item: item,
+      // dz: a 44 dp avatar, 12 dp above and below and 20 dp at the sides.
+      avatarRadius: 22,
+      horizontalInset: 20,
+      verticalInset: AppSpacing.smd,
+      // dz: a 13 sp handle; no hairline under the rows on a phone (the tablet
+      // and desktop designs have one).
+      handleStyle: Theme.of(context).textTheme.bodySmall,
+      showDivider: MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile,
       extraAction: badge == null && actions.isEmpty
           ? null
           : Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (badge != null) AppStatusPill(label: badge),
+                if (badge != null)
+                  AppStatusPill(label: badge, tone: AppStatusTone.info),
                 BlocBuilder<CommunityModerationCubit, CommunityModerationState>(
                   bloc: _moderation,
                   buildWhen: (a, b) => a.isBusy(userId) != b.isBusy(userId),
@@ -659,7 +668,8 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
                         _communityName.isEmpty ? ' ' : _communityName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
+                        // dz: 12 w600, muted.
+                        style: theme.textTheme.labelSmall?.copyWith(
                           fontWeight: FontWeight.w600,
                           color: context.appColors.secondaryOnRaised,
                         ),

@@ -449,12 +449,13 @@ void main() {
         );
         expect(divider.left, moreOrLessEquals(80));
         expect(divider.right, moreOrLessEquals(width));
-        // The back button stays in the reading column.
-        final column = width - 80 < 680 ? width - 80 : 680.0;
-        expect(
-          tester.getRect(find.byTooltip('Back')).left,
-          greaterThanOrEqualTo(80 + (width - 80 - column) / 2),
-        );
+        // T8f, one header rule: Back leads the pane (outside the reading
+        // column at 761-839) and takes a real tap there.
+        final back = tester.getRect(find.byTooltip('Back'));
+        expect(back.left, moreOrLessEquals(80 + AppSpacing.xs));
+        await tester.tapAt(back.center);
+        await tester.pumpAndSettle();
+        expect(find.text('Message requests'), findsNothing);
         await done(tester);
       });
     }

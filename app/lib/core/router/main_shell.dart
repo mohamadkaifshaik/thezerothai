@@ -509,6 +509,9 @@ class MainShell extends StatelessWidget {
             : selectedIndex,
         onCompose: canCompose ? openCompose : null,
         showFab: showFab,
+        // A community's page draws its cover under the status bar on a phone
+        // (while the account banner is up, the banner needs the inset).
+        extendBodyUnderStatusBar: isCommunityPageAt(location) && !refreshFailed,
         drawer: newShell ? const AppDrawer() : null,
         floatingBar: newShell,
         accountChipBuilder: newShell
