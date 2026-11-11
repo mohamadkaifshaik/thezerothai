@@ -1356,3 +1356,37 @@ abstract final class AppTextStyles {
     return _display(size).copyWith(color: colors.accentText);
   }
 }
+
+/// Settings geometry per screen size (dp): the phone mock's raised cards
+/// (dzeroth-mobile Settings) and the tablet / desktop mocks' flat boxes and
+/// category list (dz.css `.box`, `.row`, `.sect`, `.search`). Colours come
+/// from the theme, gradients from [AppGradients], shadows from [AppShadows].
+abstract final class AppSettingsLayout {
+  // Phone page.
+  static const double pagePaddingH = 20;
+  static const double pagePaddingV = 16;
+  static const double groupGap = 18;
+  static const double labelGap = 8;
+  static const double labelInset = 4;
+  static const double raisedPadding = 4;
+  static const double raisedRowMinHeight = 64;
+  static const double raisedRowPaddingH = 14;
+  static const double raisedRowPaddingV = 6;
+  static const double raisedRowGap = 14;
+
+  // Tablet / desktop.
+  static const double flatRowPaddingH = 16;
+  static const double flatRowPaddingV = 12;
+  static const double flatRowGap = 12;
+  static const double flatLabelTop = 20;
+  static const double flatLabelBottom = 8;
+  static const double searchHeight = 46;
+  static const double searchPaddingH = 18;
+  static const double searchGap = 10;
+  static const double searchBottom = 10;
+  static const double categoryPaddingV = 14;
+  static const double selectedBarWidth = 3;
+
+  /// Row titles in both looks: 15 sp, the UI weight.
+  static const double titleSize = 15;
+}

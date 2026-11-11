@@ -6,6 +6,7 @@ import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
 import 'package:dzeroth/features/posts/domain/composer_draft.dart';
+import 'package:dzeroth/features/profile/presentation/change_handle_screen.dart';
 import 'package:dzeroth/features/settings/domain/settings_categories.dart';
 import 'package:dzeroth/features/settings/presentation/protect_posts_messages.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
@@ -22,9 +23,10 @@ import '../../../support/fake_drafts_repository.dart';
 import '../../../support/settings_tablet_rig.dart';
 import '../../../support/theme_harness.dart';
 
-/// Every row of the flat list with all the rig's flags on, in order: the
-/// legacy groups (phones, desktop, either flag off).
-const _flatRows = [
+/// Every row of the flat list with all the rig's flags on, as origin/main
+/// showed them (phones, either flag off): kept to prove the regrouped list
+/// below shows exactly the same rows.
+const _legacyFlatRows = [
   'Email',
   'Edit profile',
   'Change handle',
@@ -40,6 +42,33 @@ const _flatRows = [
   'Sign out',
 ];
 
+/// The same rows in the flat list's order now: Your account, Privacy &
+/// safety, App, Data, Session.
+const _flatRows = [
+  'Edit profile',
+  'Change handle',
+  'Email',
+  'Blocked accounts',
+  'Muted accounts',
+  kProtectPostsTitle,
+  'Appearance',
+  'Scheduled posts',
+  'Download my data',
+  'Privacy Policy',
+  'Community rules',
+  'Delete account',
+  'Sign out',
+];
+
+/// The flat list's group labels (uppercase), in order.
+const _flatLabels = [
+  'YOUR ACCOUNT',
+  'PRIVACY & SAFETY',
+  'APP',
+  'DATA',
+  'SESSION',
+];
+
 /// The tablet categories list (plan section 4.3 order), Sign out last.
 const _categoryList = [
   'Your account',
@@ -53,9 +82,9 @@ const _categoryList = [
 /// Each category's page, with all the rig's flags on.
 const _categoryRows = <SettingsCategory, List<String>>{
   SettingsCategory.account: [
-    'Email',
     'Edit profile',
     'Change handle',
+    'Email',
     'Download my data',
     'Delete account',
   ],
@@ -93,19 +122,8 @@ const _leaves = <(String, String, SettingsCategory)>[
 /// 1024.
 const _widths = [360.0, 599.0, 600.0, 839.0, 840.0, 1024.0, 1199.0, 1200.0];
 
-/// The row titles under [scope] in order: the plain rows and the rows with
-/// inline choices (Appearance, R4).
-List<String> _titles(WidgetTester tester, Finder scope) => [
-  for (final row in tester.widgetList(
-    find.descendant(
-      of: scope,
-      matching: find.byWidgetPredicate(
-        (w) => w is SettingsRow || w is SettingsChoiceRow,
-      ),
-    ),
-  ))
-    row is SettingsRow ? row.title : (row as SettingsChoiceRow).title,
-];
+List<String> _titles(WidgetTester tester, Finder scope) =>
+    settingsRowTitles(tester, scope);
 
 /// The onstage page of `/settings` (the pushed one in band A).
 Finder _page() => find.byType(SettingsScreen);
@@ -115,14 +133,8 @@ SettingsRow _paneRow(WidgetTester tester, String title) =>
       inCategoriesPane(find.widgetWithText(SettingsRow, title)),
     );
 
-String? _selectedInPane(WidgetTester tester) {
-  for (final row in tester.widgetList<SettingsRow>(
-    inCategoriesPane(find.byType(SettingsRow)),
-  )) {
-    if (row.selected) return row.title;
-  }
-  return null;
-}
+String? _selectedInPane(WidgetTester tester) =>
+    selectedInCategoriesPane(tester);
 
 /// System back (the Android button / browser back): pops the shell's top
 /// page, or the root page above the shell.
@@ -159,28 +171,40 @@ void main() {
           await rig.pump(tester, width: width, height: 1600, flags: flags);
 
           expect(tester.takeException(), isNull);
+          if (desktopSplit) {
+            // The desktop mock: the categories beside Your account's page.
+            expect(find.byType(SettingsList), findsNothing);
+            expect(_titles(tester, findCategoriesPane()), _categoryList);
+            expect(_selectedInPane(tester), 'Your account');
+            expect(
+              _titles(tester, find.byType(SettingsDesktopDetail)),
+              _categoryRows[SettingsCategory.account],
+            );
+            expect(find.text('Select a setting'), findsNothing);
+            return;
+          }
           if (!tablet) {
             // Today's Settings, row for row: the flat groups, no category.
             expect(findCategoriesPane(), findsNothing);
             expect(find.byType(SettingsList), findsOneWidget);
-            expect(_titles(tester, find.byType(SettingsList)), _flatRows);
-            expect(find.text('Your account'), findsNothing);
-            expect(find.text('Account'), findsOneWidget);
+            final shown = _titles(tester, find.byType(SettingsList));
+            expect(shown, _flatRows);
+            // Regrouped, not changed: the origin/main rows, as a set.
+            expect([...shown]..sort(), [..._legacyFlatRows]..sort());
+            expect([
+              for (final label in _flatLabels)
+                if (find.text(label).evaluate().isNotEmpty) label,
+            ], _flatLabels);
+            expect(find.text('Select a setting'), findsNothing);
+            // The legacy column: at most 600 dp.
             expect(
-              find.text('Select a setting'),
-              desktopSplit ? findsOneWidget : findsNothing,
+              tester.getSize(find.byType(SettingsList)).width,
+              lessThanOrEqualTo(AppBreakpoints.mobile),
             );
-            if (!desktopSplit) {
-              // The legacy column: at most 600 dp.
-              expect(
-                tester.getSize(find.byType(SettingsList)).width,
-                lessThanOrEqualTo(AppBreakpoints.mobile),
-              );
-            }
             return;
           }
           expect(find.byType(SettingsList), findsNothing);
-          expect(find.text('Account'), findsNothing);
+          expect(find.text('YOUR ACCOUNT'), findsNothing);
           if (width < AppBreakpoints.expanded) {
             // Band A: the categories list is the page.
             expect(findCategoriesPane(), findsNothing);
@@ -466,7 +490,7 @@ void main() {
       }
     });
 
-    testWidgets('desktop (>= 1200) ignores c: today\'s list and placeholder', (
+    testWidgets('desktop (>= 1200) follows c: the categories, that detail', (
       tester,
     ) async {
       final rig = SettingsTabletRig();
@@ -474,12 +498,34 @@ void main() {
         tester,
         width: 1200,
         height: 1600,
-        location: '/settings?c=account',
+        location: '/settings?c=privacy',
       );
 
-      expect(findCategoriesPane(), findsNothing);
-      expect(find.text('Select a setting'), findsOneWidget);
-      expect(_titles(tester, find.byType(SettingsList)), _flatRows);
+      expect(find.byType(SettingsList), findsNothing);
+      expect(find.text('Select a setting'), findsNothing);
+      expect(_titles(tester, findCategoriesPane()), _categoryList);
+      expect(_selectedInPane(tester), 'Privacy & safety');
+      expect(
+        _titles(tester, find.byType(SettingsDesktopDetail)),
+        _categoryRows[SettingsCategory.privacy],
+      );
+    });
+
+    testWidgets('desktop: an unknown c falls back to Your account', (
+      tester,
+    ) async {
+      final rig = SettingsTabletRig();
+      await rig.pump(
+        tester,
+        width: 1200,
+        height: 1600,
+        location: '/settings?c=nope',
+      );
+
+      expect(
+        _titles(tester, find.byType(SettingsDesktopDetail)),
+        _categoryRows[SettingsCategory.account],
+      );
     });
 
     testWidgets('a leaf typed in band A goes up to its category, then to the '
@@ -551,8 +597,10 @@ void main() {
               find.descendant(of: list, matching: find.byType(SettingsGroup)),
             )
             .toList();
-        expect(groups, hasLength(2));
-        expect(groups.last.rows, hasLength(1));
+        // The categories are flat rows (no card): Sign out is the only group.
+        expect(groups, hasLength(1));
+        expect(groups.single.style, SettingsGroupStyle.flat);
+        expect(groups.single.rows, hasLength(1));
 
         await _tapText(
           tester,
@@ -617,9 +665,9 @@ void main() {
         );
 
         expect(_titles(tester, _page()), [
-          'Email',
           'Edit profile',
           'Change handle',
+          'Email',
           'Download my data',
           kUnsentPostsRowTitle,
           'Delete account',
@@ -674,23 +722,25 @@ void main() {
       await rig.pump(tester, width: 839);
       await _tapText(tester, find.text('Your account'));
       await _tapText(tester, find.text('Change handle'));
-      await tester.enterText(find.byType(TextField), 'newname');
+      // The handle form only: the categories list has a search field too.
+      Finder inForm(Type type) => find.descendant(
+        of: find.byType(ChangeHandleScreen),
+        matching: find.byType(type),
+      );
+      await tester.enterText(inForm(TextField), 'newname');
       await tester.pump(const Duration(seconds: 1));
-      final navigator = Navigator.of(tester.element(find.byType(TextField)));
-      final field = tester.state(find.byType(EditableText));
+      final navigator = Navigator.of(tester.element(inForm(TextField)));
+      final field = tester.state(inForm(EditableText));
 
       await rig.resize(tester, 840);
       expect(_selectedInPane(tester), 'Your account');
-      expect(tester.state(find.byType(EditableText)), same(field));
-      expect(
-        Navigator.of(tester.element(find.byType(TextField))),
-        same(navigator),
-      );
+      expect(tester.state(inForm(EditableText)), same(field));
+      expect(Navigator.of(tester.element(inForm(TextField))), same(navigator));
       expect(find.text('newname'), findsOneWidget);
 
       await rig.resize(tester, 839);
       expect(findCategoriesPane(), findsNothing);
-      expect(tester.state(find.byType(EditableText)), same(field));
+      expect(tester.state(inForm(EditableText)), same(field));
       expect(find.text('newname'), findsOneWidget);
 
       // Still the pushed stack: back to the category, then the list.
@@ -745,12 +795,10 @@ void main() {
       expect(_selectedInPane(tester), 'Privacy & safety');
 
       await rig.resize(tester, 1200);
-      // Desktop: today's flat master with the open page's row selected.
-      expect(findCategoriesPane(), findsNothing);
-      final muted = tester.widget<SettingsRow>(
-        find.widgetWithText(SettingsRow, 'Muted accounts'),
-      );
-      expect(muted.selected, isTrue);
+      // Desktop: the same categories master, the leaf's category selected.
+      expect(findCategoriesPane(), findsOneWidget);
+      expect(find.byType(SettingsList), findsNothing);
+      expect(_selectedInPane(tester), 'Privacy & safety');
 
       await rig.resize(tester, 1199);
       expect(_selectedInPane(tester), 'Privacy & safety');

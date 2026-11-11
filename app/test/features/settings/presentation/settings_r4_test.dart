@@ -52,8 +52,9 @@ const _allWidths = [
   1440.0,
 ];
 
-/// Phone, desktop and the legacy layout: the flat list (no categories).
-bool _flat(double width) => width < 600 || width >= 1200;
+/// Phones: the flat list (no categories). From 600dp the rig's flags draw the
+/// categories (list or master) and a category page; desktop included.
+bool _flat(double width) => width < 600;
 
 const _prefsFlags = {kFeatureNotifications, kFeatureNotificationPrefs};
 const _privacyFlags = {
@@ -824,7 +825,7 @@ void main() {
     }
   });
 
-  group('desktop (>= 1200): the new leaves keep the master list', () {
+  group('desktop (>= 1200): the categories master with the new pages', () {
     for (final width in [1200.0, 1440.0]) {
       testWidgets('${width.toInt()}: Notifications and Message settings', (
         tester,
@@ -838,27 +839,68 @@ void main() {
           ownPrivacy: _store(),
           notifications: notifications,
         );
-        Finder inList(Finder f) =>
-            find.descendant(of: find.byType(SettingsList), matching: f);
+        Finder inMaster(Finder f) => inCategoriesPane(f);
         String? selected() => [
           for (final r in tester.widgetList<SettingsRow>(
-            inList(find.byType(SettingsRow)),
+            inMaster(find.byType(SettingsRow)),
           ))
             if (r.selected) r.title,
         ].singleOrNull;
+        Finder inDetail(Finder f) => find.descendant(
+          of: find.byType(SettingsDesktopDetail),
+          matching: f,
+        );
 
-        await _tap(tester, inList(_row('Notifications')));
-        expect(rig.uri.path, AppRouter.notificationSettingsPath);
-        expect(find.byType(SettingsList), findsOneWidget);
+        // The Notifications category: its page is the push switches.
+        await _tap(tester, inMaster(_row('Notifications')));
+        expect(rig.uri.toString(), '/settings?c=notifications');
+        expect(find.byType(SettingsList), findsNothing);
         expect(selected(), 'Notifications');
-        expect(find.text('Notification settings'), findsOneWidget);
+        expect(
+          [
+            for (final row in tester.widgetList<SettingsRow>(
+              inDetail(find.byType(SettingsRow)),
+            ))
+              row.title,
+          ],
+          // Messages shows with the messaging flag (_privacyFlags).
+          [
+            'Mentions and replies',
+            'Likes and reposts',
+            'Followers',
+            'Messages',
+          ],
+        );
 
-        await _tap(tester, inList(_row(kMessageSettingsTitle)));
+        // A leaf of Privacy & safety opens in the detail; its category stays.
+        await _tap(tester, inMaster(_row('Privacy & safety')));
+        await _tap(tester, inDetail(_row(kMessageSettingsTitle)));
         expect(rig.uri.path, AppRouter.messageSettingsPath);
-        expect(find.byType(SettingsList), findsOneWidget);
-        expect(selected(), kMessageSettingsTitle);
+        expect(findCategoriesPane(), findsOneWidget);
+        expect(selected(), 'Privacy & safety');
         expect(find.widgetWithText(AppFilterPill, 'Everyone'), findsOneWidget);
         expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('${width.toInt()}: the Notifications leaf selects its '
+          'category', (tester) async {
+        final rig = SettingsTabletRig();
+        await rig.pump(
+          tester,
+          width: width,
+          height: 1400,
+          location: AppRouter.notificationSettingsPath,
+          flags: {...kSettingsTabletFlags, ..._prefsFlags},
+          notifications: notifications,
+        );
+        final selected = [
+          for (final r in tester.widgetList<SettingsRow>(
+            inCategoriesPane(find.byType(SettingsRow)),
+          ))
+            if (r.selected) r.title,
+        ];
+        expect(selected, ['Notifications']);
+        expect(find.text('Notification settings'), findsOneWidget);
       });
     }
   });

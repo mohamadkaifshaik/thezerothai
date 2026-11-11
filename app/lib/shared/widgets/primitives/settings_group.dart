@@ -7,19 +7,145 @@ import 'app_status_pill.dart';
 import 'app_surface.dart';
 import 'app_tile_icon.dart';
 
+/// How a [SettingsGroup] is drawn.
+enum SettingsGroupStyle {
+  /// A title header over a bordered card (the shell pages).
+  plain,
+
+  /// The phone Settings mock: an uppercase label over a raised card (the
+  /// card gradient and shadow), no hairlines between rows. The caller gives
+  /// the page's side padding.
+  raised,
+
+  /// The tablet / desktop Settings mocks: an uppercase label over a flat
+  /// bordered box, hairlines between rows.
+  flat,
+}
+
 /// One Settings section: a [title] header above a card whose [rows] are
 /// separated by hairlines. Shared by the Settings screen and the shell pages
 /// (Creator Studio, Calls...). With no [title] the card stands alone (a
 /// Settings category page, whose bar already names it).
+///
+/// [style] picks the Settings mocks' looks; the [SettingsRow]s inside follow
+/// it (through [SettingsGroupScope]), rows built by other widgets included.
 class SettingsGroup extends StatelessWidget {
-  const SettingsGroup({super.key, this.title, required this.rows})
-    : assert(rows.length > 0, 'an empty group must not be built');
+  const SettingsGroup({
+    super.key,
+    this.title,
+    required this.rows,
+    this.style = SettingsGroupStyle.plain,
+  }) : assert(rows.length > 0, 'an empty group must not be built');
 
   final String? title;
   final List<Widget> rows;
+  final SettingsGroupStyle style;
 
   @override
   Widget build(BuildContext context) {
+    return switch (style) {
+      SettingsGroupStyle.plain => _plain(context),
+      SettingsGroupStyle.raised => _raised(context),
+      SettingsGroupStyle.flat => _flat(context),
+    };
+  }
+
+  /// The uppercase label: shown in capitals, spoken as written.
+  Widget _label(BuildContext context, String title) => Semantics(
+    header: true,
+    label: title,
+    excludeSemantics: true,
+    child: Text(
+      title.toUpperCase(),
+      style: AppTextStyles.eyebrow(Theme.of(context)),
+    ),
+  );
+
+  Widget _raised(BuildContext context) {
+    final title = this.title;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSettingsLayout.groupGap),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (title != null) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSettingsLayout.labelInset,
+              ),
+              child: _label(context, title),
+            ),
+            const SizedBox(height: AppSettingsLayout.labelGap),
+          ],
+          DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppRadius.card),
+              gradient: dark ? AppGradients.darkCard : AppGradients.card,
+              boxShadow: dark ? null : AppShadows.card,
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(AppSettingsLayout.raisedPadding),
+              // Clips the row ripples to the card's inner corners.
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(AppRadius.cardSmall),
+                child: SettingsGroupScope(
+                  style: style,
+                  child: Column(children: rows),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _flat(BuildContext context) {
+    final title = this.title;
+    final colors = Theme.of(context).colorScheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (title != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.md,
+              AppSettingsLayout.flatLabelTop,
+              AppSpacing.md,
+              AppSettingsLayout.flatLabelBottom,
+            ),
+            child: _label(context, title),
+          )
+        else
+          const SizedBox(height: AppSpacing.md),
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+          decoration: BoxDecoration(
+            color: colors.surfaceContainer,
+            border: Border.all(color: colors.outlineVariant),
+            borderRadius: BorderRadius.circular(AppRadius.cardSmall),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.cardSmall - 1),
+            child: SettingsGroupScope(
+              style: style,
+              child: Column(
+                children: [
+                  for (var i = 0; i < rows.length; i++) ...[
+                    if (i > 0) const Divider(height: 1),
+                    rows[i],
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _plain(BuildContext context) {
     final title = this.title;
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
@@ -47,6 +173,28 @@ class SettingsGroup extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The [SettingsGroupStyle] of the enclosing [SettingsGroup], for the rows
+/// inside it (a [SettingsRow], or a custom row such as a choice row).
+class SettingsGroupScope extends InheritedWidget {
+  const SettingsGroupScope({
+    super.key,
+    required this.style,
+    required super.child,
+  });
+
+  final SettingsGroupStyle style;
+
+  /// The style of the enclosing group; [SettingsGroupStyle.plain] outside a
+  /// raised or flat one.
+  static SettingsGroupStyle of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<SettingsGroupScope>()?.style ??
+      SettingsGroupStyle.plain;
+
+  @override
+  bool updateShouldNotify(SettingsGroupScope oldWidget) =>
+      style != oldWidget.style;
 }
 
 /// One row of a [SettingsGroup]: a leading icon in a small rounded tile, a
@@ -141,6 +289,10 @@ class SettingsRow extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final tint = destructive ? colors.error : colors.onSurface;
+    // The Settings mocks: bold 15 sp titles; the phone's taller, inset rows.
+    final style = SettingsGroupScope.of(context);
+    final mock = style != SettingsGroupStyle.plain;
+    final raised = style == SettingsGroupStyle.raised;
     final staticValue = onTap == null ? value : null;
     final stack =
         staticValue != null &&
@@ -148,7 +300,14 @@ class SettingsRow extends StatelessWidget {
     Widget textColumn(Widget? below) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(title, style: theme.textTheme.bodyLarge?.copyWith(color: tint)),
+        Text(
+          title,
+          style: theme.textTheme.bodyLarge?.copyWith(
+            color: tint,
+            fontSize: mock ? AppSettingsLayout.titleSize : null,
+            fontWeight: mock ? AppTypeTokens.weightUi : null,
+          ),
+        ),
         if (subtitle != null)
           Text(
             subtitle!,
@@ -166,14 +325,26 @@ class SettingsRow extends StatelessWidget {
       ],
     );
     final content = ConstrainedBox(
-      constraints: const BoxConstraints(
-        minHeight: AppSpacing.xxl + AppSpacing.sm,
+      constraints: BoxConstraints(
+        minHeight: raised
+            ? AppSettingsLayout.raisedRowMinHeight
+            : AppSpacing.xxl + AppSpacing.sm,
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: AppSpacing.sm,
-        ),
+        padding: switch (style) {
+          SettingsGroupStyle.raised => const EdgeInsets.symmetric(
+            horizontal: AppSettingsLayout.raisedRowPaddingH,
+            vertical: AppSettingsLayout.raisedRowPaddingV,
+          ),
+          SettingsGroupStyle.flat => const EdgeInsets.symmetric(
+            horizontal: AppSettingsLayout.flatRowPaddingH,
+            vertical: AppSettingsLayout.flatRowPaddingV,
+          ),
+          SettingsGroupStyle.plain => const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+        },
         child: LayoutBuilder(
           builder: (context, box) {
             final narrow = box.maxWidth < stackValueWidth;
@@ -185,7 +356,13 @@ class SettingsRow extends StatelessWidget {
                   size: AppSpacing.xl + AppSpacing.sm,
                   destructive: destructive,
                 ),
-                const SizedBox(width: AppSpacing.md),
+                SizedBox(
+                  width: switch (style) {
+                    SettingsGroupStyle.raised => AppSettingsLayout.raisedRowGap,
+                    SettingsGroupStyle.flat => AppSettingsLayout.flatRowGap,
+                    SettingsGroupStyle.plain => AppSpacing.md,
+                  },
+                ),
                 Expanded(
                   child: textColumn(
                     below

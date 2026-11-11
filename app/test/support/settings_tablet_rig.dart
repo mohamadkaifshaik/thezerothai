@@ -30,7 +30,9 @@ import 'package:dzeroth/features/settings/domain/settings_categories.dart';
 import 'package:dzeroth/features/settings/presentation/message_settings_screen.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
 import 'package:dzeroth/features/settings/presentation/settings_up.dart';
+import 'package:dzeroth/features/settings/presentation/widgets/settings_choice_row.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -372,3 +374,28 @@ Finder inCategoriesPane(Finder finder) =>
 /// detail), not in the list pane.
 Finder inSettingsPage(Finder finder) =>
     find.descendant(of: find.byType(SettingsScreen), matching: finder);
+
+/// The row titles under [scope], in order: the plain rows and the rows with
+/// inline choices (Appearance, Text size).
+List<String> settingsRowTitles(WidgetTester tester, Finder scope) => [
+  for (final row in tester.widgetList(
+    find.descendant(
+      of: scope,
+      matching: find.byWidgetPredicate(
+        (w) => w is SettingsRow || w is SettingsChoiceRow,
+      ),
+    ),
+  ))
+    row is SettingsRow ? row.title : (row as SettingsChoiceRow).title,
+];
+
+/// The title of the selected row of the categories pane (band B and the
+/// desktop master), or null.
+String? selectedInCategoriesPane(WidgetTester tester) {
+  for (final row in tester.widgetList<SettingsRow>(
+    inCategoriesPane(find.byType(SettingsRow)),
+  )) {
+    if (row.selected) return row.title;
+  }
+  return null;
+}

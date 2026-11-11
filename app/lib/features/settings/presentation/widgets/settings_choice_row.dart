@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/app_chip.dart';
 import '../../../../shared/widgets/primitives/app_tile_icon.dart';
+import '../../../../shared/widgets/primitives/settings_group.dart';
 
 /// One option of a [SettingsChoiceRow].
 class SettingsChoice<T> {
@@ -60,6 +61,130 @@ class SettingsChoiceRow<T> extends StatelessWidget {
       if (selected != null && choice.value == selected) current = choice.label;
     }
     final onSelected = this.onSelected;
+    // In the Settings mocks' groups: bold title, the group's row inset, and
+    // the pills at the end of the row when they fit (else below).
+    final style = SettingsGroupScope.of(context);
+    final mock = style != SettingsGroupStyle.plain;
+    final gap = switch (style) {
+      SettingsGroupStyle.raised => AppSettingsLayout.raisedRowGap,
+      SettingsGroupStyle.flat => AppSettingsLayout.flatRowGap,
+      SettingsGroupStyle.plain => AppSpacing.md,
+    };
+    Widget heading({required bool shrink}) => ExcludeSemantics(
+      child: Row(
+        mainAxisSize: shrink ? MainAxisSize.min : MainAxisSize.max,
+        children: [
+          AppTileIcon(icon: icon, size: AppSpacing.xl + AppSpacing.sm),
+          SizedBox(width: gap),
+          Flexible(
+            fit: shrink ? FlexFit.loose : FlexFit.tight,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: colors.onSurface,
+                    fontSize: mock ? AppSettingsLayout.titleSize : null,
+                    fontWeight: mock ? AppTypeTokens.weightUi : null,
+                  ),
+                ),
+                if (current != null)
+                  Text(
+                    current,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    final pills = Semantics(
+      container: true,
+      label: title,
+      explicitChildNodes: true,
+      child: Wrap(
+        spacing: AppSpacing.sm,
+        children: [
+          for (final choice in choices)
+            AppFilterPill(
+              label: choice.label,
+              selected: selected != null && choice.value == selected,
+              // A choice is never cut: at large text it wraps.
+              maxLines: null,
+              onPressed: onSelected == null
+                  ? null
+                  : () => onSelected(choice.value),
+            ),
+        ],
+      ),
+    );
+    final busyMark = Semantics(
+      label: title,
+      value: 'Saving',
+      child: const SizedBox(
+        width: busySize,
+        height: busySize,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      ),
+    );
+    final noteLine = note == null
+        ? null
+        : Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.xs),
+            child: Text(
+              note!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colors.onSurfaceVariant,
+              ),
+            ),
+          );
+    if (mock) {
+      return Padding(
+        padding: style == SettingsGroupStyle.raised
+            ? const EdgeInsets.symmetric(
+                horizontal: AppSettingsLayout.raisedRowPaddingH,
+                vertical: AppSettingsLayout.raisedRowPaddingV + AppSpacing.xs,
+              )
+            : const EdgeInsets.symmetric(
+                horizontal: AppSettingsLayout.flatRowPaddingH,
+                vertical: AppSettingsLayout.flatRowPaddingV,
+              ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            LayoutBuilder(
+              builder: (context, box) => Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                runSpacing: AppSpacing.xs,
+                spacing: AppSpacing.sm,
+                children: [
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: box.maxWidth),
+                    child: heading(shrink: true),
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(child: pills),
+                      if (busy) ...[
+                        const SizedBox(width: AppSpacing.sm),
+                        busyMark,
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            ?noteLine,
+          ],
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.md,

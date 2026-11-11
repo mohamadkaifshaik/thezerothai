@@ -483,7 +483,15 @@ class MainShell extends StatelessWidget {
           ],
         ),
         masterPane: masterDetail
-            ? _SettingsMaster(selectedPath: location)
+            // The desktop mock: the categories beside the open one (Your
+            // account when none is chosen) or its leaf page.
+            ? SettingsCategoriesPane(
+                selected:
+                    settingsCategoryForUri(uri ?? Uri.parse(location)) ??
+                    (location == AppRouter.settingsPath
+                        ? SettingsCategory.account
+                        : null),
+              )
             : settingsListDetail
             ? SettingsCategoriesPane(
                 selected: settingsCategoryForUri(uri ?? Uri.parse(location)),
@@ -598,7 +606,10 @@ class MainShell extends StatelessWidget {
                         shown: messagesMaster != null && !split,
                         child:
                             masterDetail && location == AppRouter.settingsPath
-                            ? const SettingsDetailPlaceholder()
+                            ? SettingsDesktopDetail(
+                                categoryId: (uri ?? Uri.parse(location))
+                                    .queryParameters[kSettingsCategoryParam],
+                              )
                             : child,
                       ),
                     ),
@@ -629,42 +640,6 @@ String? _shellTopLocation(BuildContext context) {
     return leaf.matchedLocation;
   }
   return null;
-}
-
-/// The master pane of the desktop Settings: a title row over the list.
-class _SettingsMaster extends StatelessWidget {
-  const _SettingsMaster({required this.selectedPath});
-
-  final String selectedPath;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Container(
-          height: AppSize.headerRow,
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: Theme.of(context).colorScheme.outlineVariant,
-              ),
-            ),
-          ),
-          child: Semantics(
-            header: true,
-            child: Text(
-              'Settings',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-          ),
-        ),
-        Expanded(child: SettingsList(selectedPath: selectedPath)),
-      ],
-    );
-  }
 }
 
 enum _Tab {
