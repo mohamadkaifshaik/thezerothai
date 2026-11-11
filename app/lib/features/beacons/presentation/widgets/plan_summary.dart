@@ -1,31 +1,29 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../../shared/widgets/primitives/app_avatar.dart';
-import '../../../../shared/widgets/primitives/app_status_pill.dart';
-import '../../../../shared/widgets/primitives/app_tile_icon.dart';
+import '../../../../shared/widgets/primitives/app_chip.dart';
 import '../../domain/beacon_labels.dart';
 import '../beacon_icons.dart';
-import 'beacon_status_pill.dart';
 
-/// What a plan says about itself, as the plan page (`/plans/:id`) draws it:
-/// the activity tile, the title (a heading) with the status and viewer
-/// pills, then the start, the meeting point with its privacy note
-/// ([kMeetingPointNote]), the seats, the cost and the chat preference, the
-/// organiser, and the details when there are any.
+/// What a plan says about itself, as the plan page (`/plans/:id`) draws it
+/// (R12, the designs' PlanDetail): a navy hero with the activity eyebrow and
+/// the status, the title, then the start, the meeting point with its privacy
+/// note ([kMeetingPointNote]), the seats, the cost and the chat preference in
+/// pearl beside electric-teal glyphs; under it the organiser row ("Organiser"
+/// over the name), and the details when there are any.
 ///
 /// One widget for the plan page and for the create and edit forms' preview
 /// (tablet plan section 4.1, PlanCreate / PlanEdit), so the preview has the
-/// page's hierarchy and weights by construction. The page's banner and
-/// buttons are its own.
+/// page's hierarchy and weights by construction. The page's banner, People
+/// card and buttons are its own; it puts its Edit button or the viewer's
+/// state ([organiserTrailing]) at the end of the organiser row.
 class PlanSummary extends StatelessWidget {
   const PlanSummary({
     super.key,
     required this.beacon,
-    this.viewerPill,
+    this.organiserTrailing,
     this.showOrganiser = true,
     this.titlePlaceholder,
     this.venuePlaceholder,
@@ -33,8 +31,9 @@ class PlanSummary extends StatelessWidget {
 
   final pb.Beacon beacon;
 
-  /// "Requested" / "You're going", beside the status pill.
-  final String? viewerPill;
+  /// At the end of the organiser row: the organiser's Edit, or the viewer's
+  /// "Requested" / "You're going" (the designs' PlanDetail-Visitor).
+  final Widget? organiserTrailing;
 
   /// Whether the organiser row is drawn (a preview without a loaded
   /// profile has no organiser to show).
@@ -45,132 +44,168 @@ class PlanSummary extends StatelessWidget {
   final String? titlePlaceholder;
   final String? venuePlaceholder;
 
-  /// The organiser's avatar (radius 20).
-  static const double _avatarSize = 40;
+  /// The width (at text scale 1) the trailing pill may take beside the name.
+  static const double _trailingRoom = 120;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
+    final colors = context.appColors;
     final b = beacon;
     final untitled = b.title.isEmpty && titlePlaceholder != null;
     final noVenue = b.venue.isEmpty && venuePlaceholder != null;
+    final open = b.status == pb.BeaconStatus.BEACON_STATUS_OPEN;
+    final title = theme.textTheme.displaySmall?.copyWith(
+      color: untitled ? AppPalette.mutedOnDark : AppPalette.pearl,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AppTileIcon(icon: activityIcon(b.activity)),
-            const SizedBox(width: AppSpacing.smd),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Semantics(
-                    header: true,
-                    child: Text(
-                      untitled ? titlePlaceholder! : b.title,
-                      style: untitled
-                          ? theme.textTheme.titleLarge?.copyWith(color: muted)
-                          : theme.textTheme.titleLarge,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.xs),
-                  Wrap(
-                    spacing: AppSpacing.sm,
-                    runSpacing: AppSpacing.xs,
-                    children: [
-                      BeaconStatusPill(status: b.status),
-                      if (viewerPill != null)
-                        AppStatusPill(
-                          label: viewerPill!,
-                          tone: AppStatusTone.info,
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.md),
-        PlanFactLine(icon: Icons.schedule_outlined, text: beaconWhenText(b)),
-        PlanFactLine(
-          icon: Icons.place_outlined,
-          text: noVenue ? venuePlaceholder! : b.venue,
-          placeholder: noVenue,
-          note: kMeetingPointNote,
-        ),
-        PlanFactLine(icon: Icons.people_outline, text: beaconSeatsText(b)),
-        PlanFactLine(
-          icon: Icons.payments_outlined,
-          text: 'Cost: ${costLabel(b.cost)}',
-        ),
-        PlanFactLine(
-          icon: Icons.chat_bubble_outline,
-          text: 'Chat: ${chatPreferenceLabel(b.chatPreference)}',
-        ),
-        if (showOrganiser) ...[
-          const SizedBox(height: AppSpacing.md),
-          // The role label keeps its natural width (today's row) as long as
-          // the name keeps at least an avatar's width; past that, large text
-          // in a narrow column such as the 320 dp context pane at 2.0, it
-          // gives way (ellipsis) instead of overflowing the row.
-          LayoutBuilder(
-            builder: (context, constraints) => Row(
+        DecoratedBox(
+          key: const ValueKey('plan-hero'),
+          decoration: BoxDecoration(
+            gradient: AppGradients.hero,
+            borderRadius: BorderRadius.circular(AppRadius.card),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                AppAvatar(url: b.organiser.avatarUrl, radius: _avatarSize / 2),
-                const SizedBox(width: AppSpacing.smd),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        b.organiser.displayName.isEmpty
-                            ? b.organiser.handle
-                            : b.organiser.displayName,
-                        style: theme.textTheme.titleSmall,
+                Row(
+                  children: [
+                    Icon(
+                      activityIcon(b.activity),
+                      size: AppIconSize.sm,
+                      color: AppPalette.tealElectric,
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        'Plan · ${activityLabel(b.activity)}'.toUpperCase(),
+                        style: AppTextStyles.eyebrow(theme)
+                            .copyWith(color: AppPalette.tealElectric),
                       ),
-                      Text(
-                        '@${b.organiser.handle}',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: muted,
-                        ),
-                      ),
+                    ),
+                    if (!open) ...[
+                      const SizedBox(width: AppSpacing.sm),
+                      AppChip(label: statusLabel(b.status), onDark: true),
                     ],
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.smd),
+                Semantics(
+                  header: true,
+                  child: Text(
+                    untitled ? titlePlaceholder! : b.title,
+                    style: title,
                   ),
                 ),
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: math.max(
-                      0,
-                      constraints.maxWidth - 2 * _avatarSize - AppSpacing.smd,
-                    ),
-                  ),
-                  child: Text(
-                    'Organiser',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(color: muted),
-                  ),
+                const SizedBox(height: AppSpacing.md),
+                PlanFactLine(
+                  icon: Icons.schedule_outlined,
+                  text: beaconWhenText(b),
+                ),
+                PlanFactLine(
+                  icon: Icons.place_outlined,
+                  text: noVenue ? venuePlaceholder! : b.venue,
+                  placeholder: noVenue,
+                  note: kMeetingPointNote,
+                ),
+                PlanFactLine(
+                  icon: Icons.people_outline,
+                  text: beaconSeatsText(b),
+                ),
+                PlanFactLine(
+                  icon: Icons.payments_outlined,
+                  text: 'Cost: ${costLabel(b.cost)}',
+                ),
+                PlanFactLine(
+                  icon: Icons.chat_bubble_outline,
+                  text: 'Chat: ${chatPreferenceLabel(b.chatPreference)}',
+                  last: true,
                 ),
               ],
             ),
           ),
+        ),
+        if (showOrganiser) ...[
+          const SizedBox(height: AppSpacing.md),
+          // The trailing Edit or viewer pill sits at the end of the row
+          // while the name keeps half of it; past that (large text, a narrow
+          // column) it goes under the name, whole.
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final trailing = organiserTrailing;
+              final under =
+                  trailing != null &&
+                  MediaQuery.textScalerOf(context).scale(1) * _trailingRoom >
+                      constraints.maxWidth / 2;
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AppAvatar(
+                    url: b.organiser.avatarUrl,
+                    name: b.organiser.displayName.isEmpty
+                        ? b.organiser.handle
+                        : b.organiser.displayName,
+                    radius: AppSize.avatarRow / 2,
+                  ),
+                  const SizedBox(width: AppSpacing.smd),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Organiser',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: muted,
+                          ),
+                        ),
+                        Text(
+                          b.organiser.displayName.isEmpty
+                              ? b.organiser.handle
+                              : b.organiser.displayName,
+                          style: theme.textTheme.titleSmall,
+                        ),
+                        Text(
+                          '@${b.organiser.handle}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: muted,
+                          ),
+                        ),
+                        if (under) ...[
+                          const SizedBox(height: AppSpacing.sm),
+                          trailing,
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (trailing != null && !under) ...[
+                    const SizedBox(width: AppSpacing.sm),
+                    trailing,
+                  ],
+                ],
+              );
+            },
+          ),
         ],
         if (b.details.isNotEmpty) ...[
-          const SizedBox(height: AppSpacing.md),
-          Text(b.details, style: theme.textTheme.bodyMedium),
+          const SizedBox(height: AppSpacing.smd),
+          Text(
+            b.details,
+            style: theme.textTheme.bodyLarge?.copyWith(color: colors.text2),
+          ),
         ],
       ],
     );
   }
 }
 
-/// One fact of a plan: a muted icon and its text, with an optional muted
-/// [note] under it (the meeting point's privacy note). [placeholder] draws
-/// the text muted (a stand-in for an empty field).
+/// One fact of a plan on the hero: an electric-teal glyph and its pearl text,
+/// with an optional muted [note] under it (the meeting point's privacy
+/// note). [placeholder] draws the text muted (a stand-in for an empty field).
 class PlanFactLine extends StatelessWidget {
   const PlanFactLine({
     super.key,
@@ -178,6 +213,7 @@ class PlanFactLine extends StatelessWidget {
     required this.text,
     this.note,
     this.placeholder = false,
+    this.last = false,
   });
 
   final IconData icon;
@@ -188,20 +224,22 @@ class PlanFactLine extends StatelessWidget {
 
   final bool placeholder;
 
+  /// No gap under the last line.
+  final bool last;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    final style = placeholder
-        ? theme.textTheme.bodyMedium?.copyWith(color: muted)
-        : theme.textTheme.bodyMedium;
+    final style = theme.textTheme.labelMedium?.copyWith(
+      color: placeholder ? AppPalette.mutedOnDark : AppPalette.pearl,
+    );
     return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: EdgeInsets.only(bottom: last ? 0 : AppSpacing.sm),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: AppIconSize.md, color: muted),
-          const SizedBox(width: AppSpacing.sm),
+          Icon(icon, size: AppIconSize.action, color: AppPalette.tealElectric),
+          const SizedBox(width: 10),
           Expanded(
             child: note == null
                 ? Text(text, style: style)
@@ -212,7 +250,7 @@ class PlanFactLine extends StatelessWidget {
                       Text(
                         note!,
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: muted,
+                          color: AppPalette.mutedOnDark,
                         ),
                       ),
                     ],

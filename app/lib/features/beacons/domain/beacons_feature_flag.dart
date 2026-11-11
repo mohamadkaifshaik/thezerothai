@@ -20,6 +20,10 @@ const kBeaconRequestsPendingLimit = 'beacon_requests_pending';
 /// open_spots above the server's cap (20).
 const kBeaconParticipantsLimit = 'beacon_participants';
 
+/// F28: a new start, duration or cost on a plan with more request and
+/// participant rows than one transaction can move (200).
+const kBeaconEditRowsLimit = 'beacon_edit_rows';
+
 /// The server's caps, for copy and for disabling an action with the reason
 /// before a wasted call. The server stays authoritative.
 const kMaxOpenBeacons = 5;

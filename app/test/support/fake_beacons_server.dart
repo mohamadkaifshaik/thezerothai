@@ -50,6 +50,10 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
   /// loading).
   Completer<void>? holdGet;
 
+  /// While set and not completed, ListBeacons and ListMyBeacons wait for it
+  /// (a list still loading).
+  Completer<void>? holdList;
+
   /// ACCEPTED and REQUESTED rows per beacon id.
   final Map<String, List<pb.Participant>> going = {};
   final Map<String, List<pb.Participant>> requests = {};
@@ -109,16 +113,34 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
     );
   }
 
+  /// The `activity` of every ListBeacons, in order (F29; UNSPECIFIED = All).
+  final List<pb.BeaconActivity> listActivities = [];
+
+  /// A server from before F29: it ignores `activity` and answers the whole
+  /// list.
+  bool ignoresActivity = false;
+
   @override
   Future<BeaconsPage> listBeacons({
     String communityId = '',
     int limit = 0,
     String pageToken = '',
+    pb.BeaconActivity activity = pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED,
   }) async {
+    listActivities.add(activity);
+    if (holdList case final hold?) await hold.future;
     _refuse('list:$communityId');
-    final source = communityId.isEmpty
+    final audience = communityId.isEmpty
         ? public
-        : (byCommunity[communityId] ?? const []);
+        : (byCommunity[communityId] ?? const <pb.BeaconView>[]);
+    final source =
+        ignoresActivity ||
+            activity == pb.BeaconActivity.BEACON_ACTIVITY_UNSPECIFIED
+        ? audience
+        : [
+            for (final v in audience)
+              if (v.beacon.activity == activity) v,
+          ];
     return _page(source, limit, pageToken);
   }
 
@@ -130,6 +152,7 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
     String pageToken = '',
   }) async {
     mineLimits.add(limit);
+    if (holdList case final hold?) await hold.future;
     if (mineRefusals.isNotEmpty) {
       calls.add('mine');
       throw mineRefusals.removeAt(0);
@@ -181,6 +204,10 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
     return view;
   }
 
+  /// A server from before F28: it ignores `start_at`, `duration_minutes` and
+  /// `cost` on UpdateBeacon, answers OK and returns the old values.
+  bool ignoresSchedule = false;
+
   @override
   Future<pb.BeaconView> updateBeacon({
     required String idempotencyKey,
@@ -194,6 +221,13 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
     if (request.hasTitle()) b.title = request.title;
     if (request.hasDetails()) b.details = request.details;
     if (request.hasVenue()) b.venue = request.venue;
+    if (!ignoresSchedule) {
+      if (request.hasStartAt()) b.startAt = request.startAt;
+      if (request.hasDurationMinutes()) {
+        b.durationMinutes = request.durationMinutes;
+      }
+      if (request.hasCost()) b.cost = request.cost;
+    }
     if (request.hasOpenSpots()) {
       if (request.openSpots < b.acceptedCount) {
         throw ValidationException(

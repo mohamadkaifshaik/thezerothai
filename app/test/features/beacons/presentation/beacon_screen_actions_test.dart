@@ -142,10 +142,10 @@ void main() {
       expect(find.text("You're going"), findsOneWidget);
       expect(find.text('Leave plan'), findsOneWidget);
       // Going participants may see who else is going (ListParticipants).
-      expect(find.text('People · 2'), findsOneWidget);
+      expect(find.text('People · 2 going'), findsOneWidget);
       expect(find.text('Edit'), findsNothing);
       expect(find.text('Cancel plan'), findsNothing);
-      await tester.tap(find.text('People · 2'));
+      await tester.tap(find.text('People · 2 going'));
       await tester.pumpAndSettle();
       expect(router.state.uri.path, '/plans/$kBeaconIdA/people');
     });
@@ -155,11 +155,11 @@ void main() {
     ) async {
       server.public.add(view(canManage: true));
       final router = await open(tester);
-      expect(find.text('People · 2'), findsOneWidget);
+      expect(find.text('People · 2 going'), findsOneWidget);
       expect(find.text('Edit'), findsOneWidget);
       expect(find.text('Cancel plan'), findsOneWidget);
       expect(find.text('Ask to join'), findsNothing);
-      await tester.tap(find.text('People · 2'));
+      await tester.tap(find.text('People · 2 going'));
       await tester.pumpAndSettle();
       expect(router.state.uri.path, '/plans/$kBeaconIdA/people');
       router.pop();
