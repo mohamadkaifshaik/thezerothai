@@ -1,6 +1,7 @@
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/core/widgets/app_nav_rail.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_dialog.dart';
@@ -151,5 +152,57 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(openDialogRect(tester).center.dx, closeTo(720, 0.5));
+  });
+
+  // Review fix 1: the host captured at 1024 knows nothing of the desktop
+  // panes. Widened past 1200 over Settings, the dialog follows the shell's
+  // live master pane and rail, not a default side column.
+  for (final (from, to) in [(1024.0, 1440.0), (834.0, 1280.0)]) {
+    testWidgets('a dialog opened at ${from.toInt()} on Settings and widened to '
+        '${to.toInt()} lands on the column beside the master pane', (
+      tester,
+    ) async {
+      await _pump(tester, width: from, location: AppRouter.settingsPath);
+      AppConfirmDialog.show(
+        tester.element(find.byType(AppNavRail)),
+        title: 'Leave?',
+        message: 'You can join again.',
+        confirmLabel: 'Leave',
+      );
+      await tester.pumpAndSettle();
+
+      tester.view.physicalSize = Size(to, 900);
+      await tester.pumpAndSettle();
+
+      final column = _renderedColumn(tester);
+      // The master pane is before the column: a side-column guess would put
+      // the dialog about 360 dp to its left.
+      expect(
+        column.left,
+        greaterThan(tester.getRect(find.byType(NavigationRail)).right + 300),
+      );
+      expect(openDialogRect(tester).center.dx, closeTo(column.center.dx, 0.5));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('a dialog opened at 1440 on Settings and narrowed to 1024 '
+      'follows the tablet content area', (tester) async {
+    await _pump(tester, width: 1440, location: AppRouter.settingsPath);
+    AppConfirmDialog.show(
+      _shell(tester),
+      title: 'Leave?',
+      message: 'You can join again.',
+      confirmLabel: 'Leave',
+    );
+    await tester.pumpAndSettle();
+
+    tester.view.physicalSize = const Size(1024, 900);
+    await tester.pumpAndSettle();
+
+    expect(
+      openDialogRect(tester).center.dx,
+      closeTo(80 + (1024 - 80) / 2, 0.5),
+    );
   });
 }

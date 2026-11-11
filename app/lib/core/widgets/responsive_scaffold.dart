@@ -507,18 +507,32 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
   double _railWidth = AppSize.railExtended;
   bool _railReported = false;
 
+  /// The panes last published to [DesktopShellSlots].
+  DesktopColumnSlots? _published;
+
   void _onRailWidth(double width) {
     if (width == _railWidth && _railReported) return;
     // Measured during layout: the modal scope and the snack bar theme take
-    // it in the next frame, and so do the dialog pages on the root
-    // navigator (`DesktopShellRail`).
+    // it in the next frame, and so do the modals and dialog pages on the
+    // root navigator (the next build publishes it, [_publish]).
     final changed = width != _railWidth;
     _railWidth = width;
     _railReported = true;
+    if (!changed) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      DesktopShellRail.report(context, width);
-      if (changed) setState(() {});
+      if (mounted) setState(() {});
+    });
+  }
+
+  /// Publishes the panes to the modals above the shell, after the frame (a
+  /// listener rebuilds in response, which a build must not trigger).
+  void _publish(DesktopColumnSlots slots) {
+    if (slots == _published) return;
+    _published = slots;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _published == slots) {
+        DesktopShellSlots.publish(context, slots);
+      }
     });
   }
 
@@ -597,15 +611,23 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
       side: side != null,
       railWidth: _railWidth,
     );
-    final media = MediaQuery.of(context);
+    _publish(slots);
     // A modal opened from anywhere in the shell (the rail's account menu
     // included) centres on the column, and so do the shell's snack bars.
+    //
+    // Note: these wrappers and the focus groups above exist only on this
+    // path, so a runtime flip of `ui_shell` or `ui_tablet` while on desktop
+    // reparents the rail, the panes and the page, and they lose their state
+    // (scroll offsets, focus). The flags are server-driven and change on a
+    // session refresh, not mid-use; the flags-off tree is deliberately left
+    // as it was (ruling R-1).
     return TabletModalScope(
       host: TabletModalHost(overShell: true, desktop: slots),
+      followShell: false,
       child: TabletSnackBarTheme(
         content: slots.columnFor(
-          media.size,
-          media.padding,
+          MediaQuery.sizeOf(context),
+          MediaQuery.paddingOf(context),
           textDirection: Directionality.of(context),
         ),
         child: scaffold,

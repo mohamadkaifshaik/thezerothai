@@ -56,26 +56,36 @@ class DesktopColumnSlots {
   int get hashCode => Object.hash(master, side, railWidth);
 }
 
-/// The laid-out width of the desktop shell's extended rail, kept per root
-/// navigator: the shell reports it after a layout that changed it, and a
-/// dialog that is a page of its own on that navigator (`/premium`,
-/// `/messages/new`), which cannot see the shell's [TabletModalScope], reads
-/// it to place the column under it. Weakly keyed: it goes with the
-/// navigator.
-abstract final class DesktopShellRail {
-  static final _widths = Expando<double>('desktop shell rail width');
+/// The live panes of the desktop shell, kept per root navigator: the shell
+/// publishes its [DesktopColumnSlots] (master or side, and the extended
+/// rail's laid-out width) after each layout that changed them. A modal that
+/// outlives the layout it was opened in (a window widened past 1200 dp, a
+/// text scale change that widens the rail) and a dialog that is a page of
+/// its own on that navigator (`/premium`, `/messages/new`), which cannot see
+/// the shell's [TabletModalScope], read the current value and listen to it,
+/// so they never place the column from a stale snapshot. Weakly keyed: it
+/// goes with the navigator.
+abstract final class DesktopShellSlots {
+  static final _notifiers = Expando<ValueNotifier<DesktopColumnSlots?>>(
+    'desktop shell slots',
+  );
 
-  /// Records [width] for the root navigator above [shellContext].
-  static void report(BuildContext shellContext, double width) {
-    final root = Navigator.maybeOf(shellContext, rootNavigator: true);
-    if (root != null) _widths[root] = width;
+  /// The notifier of the root navigator above [context], or null without
+  /// one. Safe in event handlers (no dependency is registered).
+  static ValueNotifier<DesktopColumnSlots?>? notifierOf(BuildContext context) {
+    final root = Navigator.maybeOf(context, rootNavigator: true);
+    if (root == null) return null;
+    return _notifiers[root] ??= ValueNotifier<DesktopColumnSlots?>(null);
   }
 
-  /// The width last reported under the root navigator of [context], or
-  /// [AppSize.railExtended] when no desktop shell has reported one.
-  static double widthFor(BuildContext context) {
-    final root = Navigator.maybeOf(context, rootNavigator: true);
-    return (root == null ? null : _widths[root]) ?? AppSize.railExtended;
+  /// The slots the desktop shell last published, or null when none has.
+  static DesktopColumnSlots? of(BuildContext context) =>
+      notifierOf(context)?.value;
+
+  /// Publishes [slots] for the root navigator above [shellContext].
+  static void publish(BuildContext shellContext, DesktopColumnSlots slots) {
+    final notifier = notifierOf(shellContext);
+    if (notifier != null) notifier.value = slots;
   }
 }
 
@@ -132,7 +142,8 @@ class TabletModalHost {
     }
     // The tablet and desktop shells carry a scope (a modal opened from the
     // rail is over the shell too), and so does a modal's route.
-    final modal = context.getInheritedWidgetOfExactType<TabletModalScope>();
+    final modal = context
+        .getInheritedWidgetOfExactType<_TabletModalHostScope>();
     if (modal != null) return modal.host;
     return _tabletFlagsOn(context)
         ? const TabletModalHost(overShell: false)
@@ -157,9 +168,13 @@ class TabletModalHost {
     final padding = MediaQuery.paddingOf(modalContext);
     final direction = Directionality.of(modalContext);
     if (ShellBand.of(size.width) == ShellBand.desktop) {
-      return overShell
-          ? desktop.columnFor(size, padding, textDirection: direction)
-          : Offset.zero & size;
+      if (!overShell) return Offset.zero & size;
+      // The shell's current panes, not the snapshot this host was made with
+      // (a modal opened at 600-1199 dp knows nothing of them). Registers the
+      // dependency on the enclosing scope, which rebuilds when they change.
+      modalContext.dependOnInheritedWidgetOfExactType<_TabletModalHostScope>();
+      final live = DesktopShellSlots.of(modalContext) ?? desktop;
+      return live.columnFor(size, padding, textDirection: direction);
     }
     return ShellGeometry.contentRectFor(
       size,
@@ -223,16 +238,82 @@ class TabletModalHost {
 /// modal opened from the rail, its account menu included, is over the shell)
 /// and into a tablet modal's route (so a dialog opened from inside it, the
 /// list editor's delete confirmation for instance, is centred the same
-/// way).
-class TabletModalScope extends InheritedWidget {
-  const TabletModalScope({super.key, required this.host, required super.child});
+/// way). A scope in a modal route also follows the desktop shell's live
+/// panes ([DesktopShellSlots]): it rebuilds the modal's placement when they
+/// change. The shell's own scope has no need to ([followShell] false).
+class TabletModalScope extends StatefulWidget {
+  const TabletModalScope({
+    super.key,
+    required this.host,
+    required this.child,
+    this.followShell = true,
+  });
+
+  final TabletModalHost host;
+  final Widget child;
+  final bool followShell;
+
+  @override
+  State<TabletModalScope> createState() => _TabletModalScopeState();
+}
+
+class _TabletModalScopeState extends State<TabletModalScope> {
+  ValueNotifier<DesktopColumnSlots?>? _slots;
+  int _revision = 0;
+
+  void _changed() {
+    if (mounted) setState(() => _revision++);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final next = widget.followShell
+        ? DesktopShellSlots.notifierOf(context)
+        : null;
+    if (next == _slots) return;
+    _slots?.removeListener(_changed);
+    next?.addListener(_changed);
+    _slots = next;
+  }
+
+  @override
+  void didUpdateWidget(TabletModalScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.followShell != widget.followShell) didChangeDependencies();
+  }
+
+  @override
+  void dispose() {
+    _slots?.removeListener(_changed);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => _TabletModalHostScope(
+    host: widget.host,
+    revision: _revision,
+    child: widget.child,
+  );
+}
+
+class _TabletModalHostScope extends InheritedWidget {
+  const _TabletModalHostScope({
+    required this.host,
+    required this.revision,
+    required super.child,
+  });
 
   final TabletModalHost host;
 
+  /// Bumped when the desktop shell's panes change, so dependents re-place.
+  final int revision;
+
   @override
-  bool updateShouldNotify(TabletModalScope oldWidget) =>
+  bool updateShouldNotify(_TabletModalHostScope oldWidget) =>
       host.overShell != oldWidget.host.overShell ||
-      host.desktop != oldWidget.host.desktop;
+      host.desktop != oldWidget.host.desktop ||
+      revision != oldWidget.revision;
 }
 
 /// Places the floating snack bars of the `Scaffold`s below it on the tablet

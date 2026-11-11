@@ -31,6 +31,7 @@ Future<ShellsApp> _open(
   EdgeInsets padding = EdgeInsets.zero,
   double textScale = 1,
   String location = AppRouter.creatorStudioPath,
+  ValueNotifier<double>? textScaleNotifier,
 }) async {
   final app = await pumpShellsApp(
     tester,
@@ -40,6 +41,7 @@ Future<ShellsApp> _open(
     textDirection: textDirection,
     padding: padding,
     textScale: textScale,
+    textScaleNotifier: textScaleNotifier,
   );
   app.router.router.push(AppRouter.premiumPath, extra: kShellPushExtra);
   await tester.pumpAndSettle();
@@ -224,6 +226,39 @@ void main() {
         moreOrLessEquals(column(tester, 1440).center.dx),
       );
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('text scale 1.0 -> 2.0 while it is open: the wider rail is '
+        'followed', (tester) async {
+      final scale = ValueNotifier<double>(1);
+      addTearDown(scale.dispose);
+      await _open(tester, width: 1440, textScaleNotifier: scale);
+      final before = tester.getRect(find.byType(NavigationRail)).width;
+
+      scale.value = 2;
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getRect(find.byType(NavigationRail)).width,
+        greaterThan(before),
+      );
+      expect(
+        openDialogRect(tester).center.dx,
+        moreOrLessEquals(column(tester, 1440).center.dx),
+      );
+    });
+
+    testWidgets('1440, over Settings, widened from 1024 while open: on the '
+        'column beside the master pane', (tester) async {
+      await _open(tester, width: 1024, location: AppRouter.settingsPath);
+
+      tester.view.physicalSize = const Size(1440, 900);
+      await tester.pumpAndSettle();
+
+      expect(
+        openDialogRect(tester).center.dx,
+        moreOrLessEquals(column(tester, 1440, master: true).center.dx),
+      );
     });
 
     testWidgets('the barrier covers the rail: a tap there closes it and '

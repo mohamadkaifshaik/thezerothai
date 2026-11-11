@@ -56,10 +56,11 @@ TabletModalHost? dialogPageHost(BuildContext context) {
   final below = key is LocalKey ? _pageBelow(context, key) : null;
   return TabletModalHost(
     overShell: below != null,
-    desktop: DesktopColumnSlots(
-      master: below != null && isSettingsLocation(below),
-      railWidth: DesktopShellRail.widthFor(context),
-    ),
+    // The shell under the page publishes its live panes; until it has (a
+    // first frame), the page under it says whether the master pane is shown.
+    desktop:
+        DesktopShellSlots.of(context) ??
+        DesktopColumnSlots(master: below != null && isSettingsLocation(below)),
   );
 }
 
@@ -69,11 +70,40 @@ TabletModalHost? dialogPageHost(BuildContext context) {
 /// it (both would count the status bar and a landscape notch twice). The
 /// same widgets in every case, so a resize only changes values. Its route
 /// sets `useSafeArea: false`.
-class DialogPageFrame extends StatelessWidget {
+class DialogPageFrame extends StatefulWidget {
   const DialogPageFrame({super.key, required this.builder});
 
   /// Builds the dialog with the host ([dialogPageHost]; null: today's).
   final Widget Function(BuildContext context, TabletModalHost? host) builder;
+
+  @override
+  State<DialogPageFrame> createState() => _DialogPageFrameState();
+}
+
+class _DialogPageFrameState extends State<DialogPageFrame> {
+  ValueNotifier<DesktopColumnSlots?>? _slots;
+
+  // The desktop shell under the page changed its panes (a text scale that
+  // widens the rail, Settings' master pane): the dialog is placed again.
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final next = DesktopShellSlots.notifierOf(context);
+    if (next == _slots) return;
+    _slots?.removeListener(_changed);
+    next?.addListener(_changed);
+    _slots = next;
+  }
+
+  @override
+  void dispose() {
+    _slots?.removeListener(_changed);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +114,7 @@ class DialogPageFrame extends StatelessWidget {
       top: safe,
       right: safe,
       bottom: safe,
-      child: Builder(builder: (context) => builder(context, host)),
+      child: Builder(builder: (context) => widget.builder(context, host)),
     );
   }
 }

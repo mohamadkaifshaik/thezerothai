@@ -1,6 +1,8 @@
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
+import 'package:dzeroth/core/share/native_share.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/tablet_modal.dart';
+import 'package:dzeroth/shared/widgets/post/post_share_menu.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_dialog.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_sheet.dart';
 import 'package:dzeroth/shared/widgets/primitives/sheet_option_row.dart';
@@ -28,6 +30,14 @@ const _sideKey = Key('side-column');
 const _masterKey = Key('master-pane');
 const _sideButtonKey = Key('side-button');
 const _masterButtonKey = Key('master-button');
+
+class _NoNativeShare implements NativeShare {
+  @override
+  bool get isAvailable => false;
+
+  @override
+  Future<void> shareUrl(String url, {Rect? anchor}) async {}
+}
 
 const _desktopWidths = [1200.0, 1280.0, 1366.0, 1440.0, 1920.0];
 const _height = 900.0;
@@ -644,6 +654,42 @@ void main() {
     }
   });
 
+  // The post share menu is not a sheet at desktop: from 600 dp it is an
+  // anchored `showMenu`, and its bottom sheet is only for phones.
+  group('the post share menu', () {
+    for (final width in [599.0, 1200.0, 1440.0]) {
+      testWidgets('${width.toInt()} dp: '
+          '${width < 600 ? 'a bottom sheet' : 'an anchored menu'}', (
+        tester,
+      ) async {
+        await pumpTabletModalHost(
+          tester,
+          width: width,
+          height: _height,
+          trigger: (context) => TextButton(
+            onPressed: () => showPostShareMenu(
+              context,
+              url: 'https://dzeroth.com/post/1',
+              nativeShare: _NoNativeShare(),
+              anchor: const Rect.fromLTWH(600, 100, 40, 40),
+            ),
+            child: const Text('share'),
+          ),
+        );
+
+        await tester.tap(find.text('share'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Copy link'), findsOneWidget);
+        expect(
+          find.byType(BottomSheet),
+          width < 600 ? findsOneWidget : findsNothing,
+        );
+        expect(find.byType(Dialog), findsNothing);
+      });
+    }
+  });
+
   group('snack bars on the desktop layout', () {
     for (final width in _desktopWidths) {
       for (final (side, master) in [(true, false), (false, true)]) {
@@ -780,6 +826,13 @@ void main() {
       tester,
     ) async {
       await _pump(tester, width: 1440);
+      final stops = await tabCycle(tester);
+      expect(firstPass(stops), ['rail', 'column', 'side']);
+    });
+
+    testWidgets('1440 dp, right to left, with the side column: rail, column, '
+        'side', (tester) async {
+      await _pump(tester, width: 1440, textDirection: TextDirection.rtl);
       final stops = await tabCycle(tester);
       expect(firstPass(stops), ['rail', 'column', 'side']);
     });
