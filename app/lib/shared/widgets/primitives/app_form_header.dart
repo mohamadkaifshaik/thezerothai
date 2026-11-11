@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_theme.dart';
@@ -18,6 +20,10 @@ const double _kHeaderButtonShareOfThree = 0.28;
 /// what is left: the title yields first, then the quiet buttons. Phones and
 /// desktop keep the shares above.
 const double _kTabletActionShare = 0.7;
+
+/// The width the title keeps on the tablet layout however large the text, so
+/// its semantics node (an empty box has none) and the header stay announced.
+const double _kTabletTitleMin = 16;
 
 /// The header of a full-screen form (compose, Edit profile, Change handle):
 /// Cancel, the [title] (announced as a header) and, with [actionLabel], the
@@ -98,14 +104,15 @@ class AppFormHeader extends StatelessWidget {
                       child: LayoutBuilder(
                         builder: (context, rest) {
                           // Phones and desktop: as before. On the tablet layout
-                          // the title always keeps a share of what is left
+                          // the title always keeps a sliver of what is left
                           // (a title with no width loses its semantics node),
-                          // so Cancel and the secondary button take at most
-                          // an equal part each.
+                          // so Cancel and the secondary button give up
+                          // [_kTabletTitleMin] of it between them.
                           final parts = secondaryLabel == null ? 1 : 2;
-                          final quiet = tablet
-                              ? rest.maxWidth / (parts + 1)
-                              : rest.maxWidth / parts;
+                          final left = tablet
+                              ? math.max(0.0, rest.maxWidth - _kTabletTitleMin)
+                              : rest.maxWidth;
+                          final quiet = left / parts;
                           final cap = BoxConstraints(
                             maxWidth: row * share < quiet ? row * share : quiet,
                           );
