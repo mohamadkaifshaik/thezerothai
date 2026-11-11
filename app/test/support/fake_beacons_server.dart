@@ -198,6 +198,10 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
     return view;
   }
 
+  /// A server from before F28: it ignores `start_at`, `duration_minutes` and
+  /// `cost` on UpdateBeacon, answers OK and returns the old values.
+  bool ignoresSchedule = false;
+
   @override
   Future<pb.BeaconView> updateBeacon({
     required String idempotencyKey,
@@ -211,6 +215,13 @@ class FakeBeaconsServer extends Fake implements BeaconsRepository {
     if (request.hasTitle()) b.title = request.title;
     if (request.hasDetails()) b.details = request.details;
     if (request.hasVenue()) b.venue = request.venue;
+    if (!ignoresSchedule) {
+      if (request.hasStartAt()) b.startAt = request.startAt;
+      if (request.hasDurationMinutes()) {
+        b.durationMinutes = request.durationMinutes;
+      }
+      if (request.hasCost()) b.cost = request.cost;
+    }
     if (request.hasOpenSpots()) {
       if (request.openSpots < b.acceptedCount) {
         throw ValidationException(

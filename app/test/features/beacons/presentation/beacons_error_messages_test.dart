@@ -29,6 +29,26 @@ void main() {
     );
   });
 
+  // F28: a time, duration or cost change after the start, and a plan with
+  // too many rows to move in one transaction.
+  test('edit time and cost: started, too many rows, a bad start', () {
+    expect(
+      beaconsErrorMessage(StateConflictException('started')),
+      "This plan has started, so its time and cost can't change.",
+    );
+    expect(
+      beaconsErrorMessage(
+        LimitReachedException('too many', quota: kBeaconEditRowsLimit),
+      ),
+      "This plan has too many requests to change its time. Cancel it and "
+      'create a new one instead.',
+    );
+    expect(
+      beaconsErrorMessage(ValidationException('bad', field: 'start_at')),
+      'Pick a time between 5 minutes and 30 days from now.',
+    );
+  });
+
   test('limits, forbidden and the fixed texts', () {
     expect(
       beaconsErrorMessage(

@@ -29,23 +29,27 @@ import '../domain/plan_preview.dart';
 import 'bloc/beacons_state.dart' show BeaconsAudience;
 import 'bloc/create_beacon_cubit.dart';
 import 'widgets/discard_plan_dialog.dart';
+import 'widgets/plan_form_fields.dart';
 import 'widgets/plan_preview.dart';
 import 'widgets/plan_tips.dart';
 
-/// Shows the date picker; null when dismissed. A seam so tests need not drive
-/// the platform dial.
-typedef BeaconPickDate = Future<DateTime?> Function(
+export 'widgets/plan_form_fields.dart' show BeaconPickDate, BeaconPickTime;
+
+/// The date picker the plan forms open by default (the [BeaconPickDate]
+/// seam): the Material one, on the content area on the tablet layout.
+Future<DateTime?> platformPickPlanDate(
   BuildContext context, {
   required DateTime initial,
   required DateTime first,
   required DateTime last,
-});
+}) => _platformPickDate(context, initial: initial, first: first, last: last);
 
-/// Shows the time picker; null when dismissed.
-typedef BeaconPickTime = Future<TimeOfDay?> Function(
+/// The time picker the plan forms open by default (the [BeaconPickTime]
+/// seam).
+Future<TimeOfDay?> platformPickPlanTime(
   BuildContext context, {
   required TimeOfDay initial,
-});
+}) => _platformPickTime(context, initial: initial);
 
 Future<DateTime?> _platformPickDate(
   BuildContext context, {

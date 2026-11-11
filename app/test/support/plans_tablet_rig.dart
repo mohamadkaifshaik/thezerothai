@@ -126,8 +126,8 @@ class PlansTabletRig {
   /// The hoisted session, or null with `hoisted: false`.
   PlansSession? session;
 
-  /// The create form's picker seams with `realForms` (both, or neither:
-  /// the real pickers).
+  /// The create and edit forms' picker seams with `realForms` (both, or
+  /// neither: the real pickers).
   BeaconPickDate? pickDate;
   BeaconPickTime? pickTime;
 
@@ -263,7 +263,15 @@ class PlansTabletRig {
             GoRoute(
               path: '/plans/:id/edit',
               builder: (context, state) => realForms
-                  ? EditBeaconScreen(beaconId: state.pathParameters['id']!)
+                  ? (pickDate == null || pickTime == null
+                        ? EditBeaconScreen(
+                            beaconId: state.pathParameters['id']!,
+                          )
+                        : EditBeaconScreen(
+                            beaconId: state.pathParameters['id']!,
+                            pickDate: pickDate!,
+                            pickTime: pickTime!,
+                          ))
                   : Scaffold(appBar: AppBar(title: const Text('Edit stub'))),
             ),
           ],
