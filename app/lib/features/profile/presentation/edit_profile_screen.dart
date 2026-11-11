@@ -7,6 +7,7 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../../shared/widgets/primitives/app_form_header.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
@@ -19,6 +20,7 @@ import '../../media/domain/media_feature_flag.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_event.dart';
+import '../../posts/domain/posts_feature_flag.dart';
 import '../../settings/presentation/settings_up.dart';
 import '../domain/profile_edit_feature_flag.dart';
 import '../domain/profile_extras_rules.dart';
@@ -26,6 +28,7 @@ import 'bloc/edit_profile_cubit.dart';
 import 'profile_edit_error_messages.dart';
 import 'widgets/avatar_editor.dart';
 import 'widgets/banner_editor.dart';
+import 'widgets/edit_profile_preview.dart';
 import 'widgets/profile_edit_unavailable.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
 
@@ -74,6 +77,7 @@ class EditProfileScreen extends StatelessWidget {
             : null,
       ),
       child: _EditProfileView(
+        saved: profile,
         avatarUrl: profile.avatarThumbUrl,
         // The 600 px thumb is plenty for the editor's band.
         bannerUrl: profile.bannerThumbUrl.isNotEmpty
@@ -85,8 +89,14 @@ class EditProfileScreen extends StatelessWidget {
 }
 
 class _EditProfileView extends StatefulWidget {
-  const _EditProfileView({required this.avatarUrl, required this.bannerUrl});
+  const _EditProfileView({
+    required this.saved,
+    required this.avatarUrl,
+    required this.bannerUrl,
+  });
 
+  /// The profile as saved: what the preview starts from.
+  final identity.Profile saved;
   final String avatarUrl;
   final String bannerUrl;
 
@@ -187,9 +197,26 @@ class _EditProfileViewState extends State<_EditProfileView> {
     context.read<EditProfileCubit>().errorShown();
   }
 
+  /// "How others see you" (tablet plan section 4.1, EditProfile: a header
+  /// action that opens a dialog, in both bands; T8c).
+  void _openPreview(BuildContext context) => showEditProfilePreview(
+    context,
+    cubit: context.read<EditProfileCubit>(),
+    saved: widget.saved,
+    showPostsCount: featureEnabledSnapshot(context, kFeaturePosts),
+  );
+
   @override
   Widget build(BuildContext context) {
     final cubit = context.read<EditProfileCubit>();
+    // The tablet layout (600-1199dp, both bands) adds the preview; phones and
+    // desktop keep today's header (ruling R-1). Up to 1.3x text it is the
+    // header's third button; above, three buttons would cut Save short, so
+    // it is the form's first row instead and Save keeps 40 % of the header.
+    final tablet = ShellGeometry.maybeOf(context)?.tablet ?? false;
+    final largeText = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+    final preview = tablet && !largeText;
+    final previewRow = tablet && largeText;
     return BlocConsumer<EditProfileCubit, EditProfileState>(
       listener: _onState,
       builder: (context, state) {
@@ -223,11 +250,30 @@ class _EditProfileViewState extends State<_EditProfileView> {
                       onCancel: () => _cancel(context),
                       actionLabel: 'Save',
                       onAction: cubit.canSave ? cubit.save : null,
+                      secondaryLabel: preview
+                          ? kEditProfilePreviewAction
+                          : null,
+                      onSecondary: preview ? () => _openPreview(context) : null,
                     ),
                     Expanded(
                       child: ListView(
                         padding: const EdgeInsets.all(AppSpacing.md),
                         children: [
+                          if (previewRow) ...[
+                            OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(
+                                  AppSpacing.minTapTarget,
+                                ),
+                              ),
+                              onPressed: state.isSaving
+                                  ? null
+                                  : () => _openPreview(context),
+                              icon: const Icon(Icons.visibility_outlined),
+                              label: const Text(kEditProfilePreviewAction),
+                            ),
+                            const SizedBox(height: AppSpacing.md),
+                          ],
                           if (showBanner) ...[
                             BannerEditor(
                               url: widget.bannerUrl,

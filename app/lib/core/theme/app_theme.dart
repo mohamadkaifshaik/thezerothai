@@ -39,16 +39,20 @@ abstract final class AppIconSize {
   static const double lg = 24;
   static const double xl = 40;
 
-  /// The post action row glyph (the 48dp tap target around it is kept).
-  static const double action = 16;
+  /// The post action row glyph (dz.css `.acts`, 18 px; the 48dp tap target
+  /// around it is kept).
+  static const double action = 18;
 }
 
-/// The opened post on its post page (x.com post detail, captured 2026-11-02):
-/// text 17dp on a 24dp line (measured); action glyphs a step above the list
-/// rows (estimated from the screenshot).
+/// The opened post on its post page: text 17dp on a 24dp line on phones (the
+/// mobile PostDetail design), 21dp at 1.4 from the tablet width up (the
+/// tablet and desktop PostDetail designs); action glyphs a step above the
+/// list rows.
 abstract final class AppFocalPost {
   static const double bodySize = 17;
   static const double bodyLineHeight = 24;
+  static const double bodySizeWide = 21;
+  static const double bodyLineHeightWide = 29.4;
   static const double actionIcon = 20;
 }
 

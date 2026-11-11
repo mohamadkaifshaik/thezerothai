@@ -5,6 +5,11 @@
 /// else.
 const kFeatureBeacons = 'beacons';
 
+/// Name of the plan-embeds-in-posts flag (`FEATURE_POST_BEACON_EMBED`, F5) in
+/// `GetMeResponse.enabled_features`: a post's plan card (`Post.beacon`) is
+/// drawn only while it is listed. Its Join needs [kFeatureBeacons] as well.
+const kFeaturePostBeaconEmbed = 'post_beacon_embed';
+
 /// `metadata["limit"]` of LIMIT_REACHED (read as `LimitReachedException.quota`):
 /// 5 OPEN/FULL plans per organiser.
 const kBeaconsOpenLimit = 'beacons_open';

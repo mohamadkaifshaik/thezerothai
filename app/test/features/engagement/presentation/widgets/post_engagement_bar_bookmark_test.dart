@@ -242,7 +242,8 @@ void main() {
     final bookmark = tester.getTopLeft(outline()).dx;
     expect(like, closeTo(row.left + 2 * slot, 1));
     expect(bookmark, closeTo(row.left + 3 * slot, 1));
-    expect(tester.getSize(outline()), const Size(16, 16));
+    // dz.css `.acts` glyph (R1 restyle; was 16).
+    expect(tester.getSize(outline()), const Size.square(AppIconSize.action));
   });
 
   testWidgets('semantics: "Bookmark", a 48dp button; "Bookmarked" is selected '

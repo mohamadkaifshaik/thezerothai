@@ -11,6 +11,7 @@ import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/presentation/post_detail_screen.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/shared/widgets/post/post_list_skeleton.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -101,7 +102,19 @@ void main() {
     });
 
     await open(tester, settle: false);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    // An opened-post-shaped placeholder while it loads (R1 restyle; was a
+    // spinner): the 56 dp avatar at this width, full-width text below it.
+    expect(find.byType(FocalPostSkeleton), findsOneWidget);
+    final circle = find.descendant(
+      of: find.byType(FocalPostSkeleton),
+      matching: find.byWidgetPredicate(
+        (w) =>
+            w is Container &&
+            w.decoration is BoxDecoration &&
+            (w.decoration! as BoxDecoration).shape == BoxShape.circle,
+      ),
+    );
+    expect(tester.getSize(circle).width, AppSize.avatarLg);
 
     done.complete();
     await tester.pumpAndSettle();

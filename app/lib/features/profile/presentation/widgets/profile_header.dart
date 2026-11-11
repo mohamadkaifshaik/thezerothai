@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/material.dart';
@@ -54,10 +55,23 @@ class ProfileHeader extends StatelessWidget {
     this.onOpenWebsite,
     this.onMessage,
     this.listsEnabled = false,
+    this.interactive = true,
+    this.avatarBytes,
+    this.bannerBytes,
   });
 
   final identity.Profile profile;
   final bool isOwnProfile;
+
+  /// False draws the header inert, for a preview ("How others see you" on
+  /// Edit profile): the counts and the website look the same but are not
+  /// links, so nothing in it can be tapped or activated.
+  final bool interactive;
+
+  /// An unsaved photo or banner (Edit profile's on-device preview), drawn
+  /// over the saved one. Null draws the saved images.
+  final Uint8List? avatarBytes;
+  final Uint8List? bannerBytes;
 
   /// Adds "Add or remove from Lists" and "View Lists" to the overflow menu of
   /// another user's profile. Only given when `lists` is on.
@@ -117,6 +131,9 @@ class ProfileHeader extends StatelessWidget {
         onOpenWebsite: onOpenWebsite,
         onMessage: isOwnProfile ? null : onMessage,
         listsEnabled: listsEnabled && !isOwnProfile,
+        interactive: interactive,
+        avatarBytes: avatarBytes,
+        bannerBytes: bannerBytes,
       );
     }
     return BlocProvider(
@@ -148,6 +165,9 @@ class ProfileHeader extends StatelessWidget {
           onOpenWebsite: onOpenWebsite,
           onMessage: onMessage,
           listsEnabled: listsEnabled,
+          interactive: interactive,
+          avatarBytes: avatarBytes,
+          bannerBytes: bannerBytes,
         ),
       ),
     );
@@ -166,9 +186,15 @@ class _ProfileHeaderBody extends StatelessWidget {
     this.onOpenWebsite,
     this.onMessage,
     this.listsEnabled = false,
+    this.interactive = true,
+    this.avatarBytes,
+    this.bannerBytes,
   });
 
   final bool listsEnabled;
+  final bool interactive;
+  final Uint8List? avatarBytes;
+  final Uint8List? bannerBytes;
   final VoidCallback? onMessage;
   final Key? nameKey;
   final identity.Profile profile;
@@ -233,6 +259,7 @@ class _ProfileHeaderBody extends StatelessWidget {
                   height: bannerHeight,
                   child: ProfileCoverBand(
                     url: _bannerUrlFor(profile, fullSize: !narrow),
+                    bytes: bannerBytes,
                   ),
                 ),
                 ConstrainedBox(
@@ -358,11 +385,14 @@ class _ProfileHeaderBody extends StatelessWidget {
                                   icon: Icons.link,
                                   text: website.host,
                                   semanticLabel: 'Website: ${website.host}',
-                                  onTap: () => _openWebsite(
-                                    context,
-                                    website.uri,
-                                    onOpenWebsite,
-                                  ),
+                                  onTap: interactive
+                                      ? () => _openWebsite(
+                                          context,
+                                          website.uri,
+                                          onOpenWebsite,
+                                        )
+                                      : null,
+                                  looksLikeLink: true,
                                 ),
                               if (joined != null)
                                 _MetaRow(
@@ -379,6 +409,7 @@ class _ProfileHeaderBody extends StatelessWidget {
                           _CountsRow(
                             profile: profile,
                             showPostsCount: showPostsCount,
+                            interactive: interactive,
                           ),
                       ],
                     ),
@@ -399,6 +430,7 @@ class _ProfileHeaderBody extends StatelessWidget {
                   child: AppAvatar(
                     url: profile.avatarUrl,
                     radius: diameter / 2,
+                    bytes: avatarBytes,
                   ),
                 ),
               ),
@@ -579,10 +611,17 @@ Future<void> _openWebsite(
 }
 
 class _CountsRow extends StatelessWidget {
-  const _CountsRow({required this.profile, required this.showPostsCount});
+  const _CountsRow({
+    required this.profile,
+    required this.showPostsCount,
+    this.interactive = true,
+  });
 
   final identity.Profile profile;
   final bool showPostsCount;
+
+  /// False: the counts read the same but open nothing (a preview).
+  final bool interactive;
 
   @override
   Widget build(BuildContext context) {
@@ -594,18 +633,22 @@ class _CountsRow extends StatelessWidget {
         _CountLink(
           count: profile.followingCount.toInt(),
           label: 'Following',
-          onTap: () => context.push(
-            AppRouter.followingPath(profile.handle),
-            extra: profile.userId,
-          ),
+          onTap: interactive
+              ? () => context.push(
+                  AppRouter.followingPath(profile.handle),
+                  extra: profile.userId,
+                )
+              : null,
         ),
         _CountLink(
           count: profile.followersCount.toInt(),
           label: 'Followers',
-          onTap: () => context.push(
-            AppRouter.followersPath(profile.handle),
-            extra: profile.userId,
-          ),
+          onTap: interactive
+              ? () => context.push(
+                  AppRouter.followersPath(profile.handle),
+                  extra: profile.userId,
+                )
+              : null,
         ),
       ],
     );
@@ -661,12 +704,14 @@ class _CountLink extends StatelessWidget {
 
   final int count;
   final String label;
-  final VoidCallback onTap;
+
+  /// Null: the same look, but not a button (a preview).
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      button: true,
+      button: onTap != null,
       label: '$count $label',
       onTap: onTap,
       excludeSemantics: true,
@@ -957,6 +1002,7 @@ class _MetaRow extends StatelessWidget {
     required this.text,
     this.semanticLabel,
     this.onTap,
+    this.looksLikeLink = false,
   });
 
   final IconData icon;
@@ -964,11 +1010,15 @@ class _MetaRow extends StatelessWidget {
   final String? semanticLabel;
   final VoidCallback? onTap;
 
+  /// Draws the link look (accent, one line, a 48dp row) without [onTap]: an
+  /// inert link in a preview, read as plain text.
+  final bool looksLikeLink;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
-    final link = onTap != null;
+    final link = onTap != null || looksLikeLink;
     final style = theme.textTheme.bodyMedium?.copyWith(
       color: link ? context.appColors.accentText : muted,
     );
@@ -999,25 +1049,34 @@ class _MetaRow extends StatelessWidget {
       ],
     );
     if (link) {
+      final box = ConstrainedBox(
+        constraints: const BoxConstraints(
+          minHeight: AppSpacing.minTapTarget,
+          minWidth: AppSpacing.minTapTarget,
+        ),
+        child: Align(
+          alignment: AlignmentDirectional.centerStart,
+          widthFactor: 1,
+          child: row,
+        ),
+      );
+      final tap = onTap;
+      if (tap == null) {
+        return Semantics(
+          label: semanticLabel ?? text,
+          excludeSemantics: true,
+          child: box,
+        );
+      }
       return Semantics(
         link: true,
         label: semanticLabel ?? text,
-        onTap: onTap,
+        onTap: tap,
         excludeSemantics: true,
         child: InkWell(
           borderRadius: BorderRadius.circular(AppRadius.sm),
-          onTap: onTap,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              minHeight: AppSpacing.minTapTarget,
-              minWidth: AppSpacing.minTapTarget,
-            ),
-            child: Align(
-              alignment: AlignmentDirectional.centerStart,
-              widthFactor: 1,
-              child: row,
-            ),
-          ),
+          onTap: tap,
+          child: box,
         ),
       );
     }

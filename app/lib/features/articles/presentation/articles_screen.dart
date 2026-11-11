@@ -1618,21 +1618,12 @@ class _PublishDialogState extends State<_PublishDialog> {
                 'Who can reply?',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
-              DropdownButtonFormField<ReplyAudience>(
-                initialValue: _policy,
-                decoration: const InputDecoration(
-                  labelText: 'Choose who can reply to this Article',
-                ),
-                items: [
-                  for (final audience in ReplyAudience.values)
-                    DropdownMenuItem(
-                      value: audience,
-                      child: Text(audience.optionLabel),
-                    ),
-                ],
+              _ReplyAudienceField(
+                value: _policy,
+                labelText: 'Choose who can reply to this Article',
                 onChanged: widget.locked
                     ? null
-                    : (value) => setState(() => _policy = value!),
+                    : (value) => setState(() => _policy = value),
               ),
               const SizedBox(height: AppSpacing.lg),
             ],
@@ -1730,23 +1721,59 @@ class _PublishSettings extends StatelessWidget {
             trailing: Icon(Icons.check_circle),
           ),
           if (showReplyAudience)
-            DropdownButtonFormField<ReplyAudience>(
+            _ReplyAudienceField(
               // A new value from outside (the dialog, a reload) rebuilds it.
               key: ValueKey('publish-settings-$policy-$locked'),
-              initialValue: policy,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Who can reply?'),
-              items: [
-                for (final audience in ReplyAudience.values)
-                  DropdownMenuItem(
-                    value: audience,
-                    child: Text(audience.optionLabel),
-                  ),
-              ],
-              onChanged: locked ? null : (value) => onChanged(value!),
+              value: policy,
+              labelText: 'Who can reply?',
+              onChanged: locked ? null : onChanged,
             ),
         ],
       ),
+    );
+  }
+}
+
+/// The "Who can reply?" field of the publish dialog and of the library
+/// pane's "Publish settings". It takes the width it is given: the chosen
+/// option shows on one line, ellipsized when it does not fit (a phone, a
+/// large text scale), and the open menu shows every option whole, wrapping
+/// if it must (no fixed item height). [onChanged] null: read-only.
+class _ReplyAudienceField extends StatelessWidget {
+  const _ReplyAudienceField({
+    super.key,
+    required this.value,
+    required this.labelText,
+    required this.onChanged,
+  });
+
+  final ReplyAudience value;
+  final String labelText;
+  final ValueChanged<ReplyAudience>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final onChanged = this.onChanged;
+    return DropdownButtonFormField<ReplyAudience>(
+      initialValue: value,
+      isExpanded: true,
+      decoration: InputDecoration(labelText: labelText),
+      selectedItemBuilder: (_) => [
+        for (final audience in ReplyAudience.values)
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(
+              audience.optionLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+      ],
+      items: [
+        for (final audience in ReplyAudience.values)
+          DropdownMenuItem(value: audience, child: Text(audience.optionLabel)),
+      ],
+      onChanged: onChanged == null ? null : (value) => onChanged(value!),
     );
   }
 }

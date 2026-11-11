@@ -46,6 +46,18 @@ class PlansSession {
   MyBeaconsCubit? _yourPlans;
   bool _disposed = false;
   final ValueNotifier<int> _revision = ValueNotifier(0);
+  final Set<String> _requested = {};
+
+  /// Whether this account asked to join plan [beaconId] from a post's plan
+  /// card during this session. The card reads it, so its "Requested"
+  /// survives the card being scrolled away and rebuilt (the post's
+  /// `BeaconPreview` carries no viewer state). Session memory only: the plan
+  /// page stays the server's answer. Cleared by [reset] (sign-out, another
+  /// account) and when `beacons` goes off.
+  bool requestedFromPost(String beaconId) => _requested.contains(beaconId);
+
+  /// A RequestToJoin for [beaconId] from a post's card succeeded.
+  void markRequestedFromPost(String beaconId) => _requested.add(beaconId);
 
   /// Ticks when a cubit was replaced or dropped: a placement listening to
   /// it reads [list] or [yourPlans] again.
@@ -82,6 +94,7 @@ class PlansSession {
   void featuresChanged(Set<String> features) {
     if (_disposed) return;
     if (!features.contains(kFeatureBeacons)) {
+      _requested.clear();
       if (_drop()) _notify();
       return;
     }
@@ -101,6 +114,7 @@ class PlansSession {
   /// fresh, empty cubits).
   void reset() {
     if (_disposed) return;
+    _requested.clear();
     if (_drop()) _notify();
   }
 

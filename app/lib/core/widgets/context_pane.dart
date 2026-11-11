@@ -40,6 +40,10 @@ enum ContextSectionKind {
   /// `/communities/:id/moderation-log`: "About this log" (T8a).
   moderationLogAbout,
 
+  /// `/profile/:handle`, `/u/:id`: the profile's latest images from its
+  /// own Media tab feed (T8c). The Media tab keeps them at every width.
+  profileMedia,
+
   /// `/lists/:id`: a preview of the List's members with "Manage members" /
   /// "See all members" (T8b). The header keeps the count at every width.
   listMembers,
