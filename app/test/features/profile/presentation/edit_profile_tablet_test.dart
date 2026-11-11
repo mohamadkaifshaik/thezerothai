@@ -358,6 +358,7 @@ void main() {
           find.descendant(
             of: find.byWidget(first),
             matching: find.byType(OutlinedButton),
+            matchRoot: true,
           ),
           findsOneWidget,
         );

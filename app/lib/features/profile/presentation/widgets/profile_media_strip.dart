@@ -74,7 +74,7 @@ class ProfileMediaStrip extends StatelessWidget {
     super.key,
     required this.state,
     required this.onOpen,
-    required this.onSeeAll,
+    this.onSeeAll,
   });
 
   final TimelineState state;
@@ -82,8 +82,9 @@ class ProfileMediaStrip extends StatelessWidget {
   /// Opens one image (the post's photo viewer).
   final void Function(ProfileMediaTile tile) onOpen;
 
-  /// Opens the Media tab.
-  final VoidCallback onSeeAll;
+  /// Opens the Media tab. Null while that tab is the one shown: See all
+  /// would do nothing visible, so it is left out.
+  final VoidCallback? onSeeAll;
 
   @override
   Widget build(BuildContext context) {
@@ -118,23 +119,26 @@ class ProfileMediaStrip extends StatelessWidget {
                 onOpen: () => onOpen(tiles[i]),
               ),
             ),
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: TextButton(
-                style: TextButton.styleFrom(
-                  minimumSize: const Size(
-                    AppSpacing.minTapTarget,
-                    AppSpacing.minTapTarget,
+            if (onSeeAll == null)
+              const SizedBox(height: AppSpacing.md - AppSpacing.xs)
+            else
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton(
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(
+                      AppSpacing.minTapTarget,
+                      AppSpacing.minTapTarget,
+                    ),
+                  ),
+                  onPressed: onSeeAll,
+                  child: Semantics(
+                    label: 'See all media',
+                    excludeSemantics: true,
+                    child: const Text('See all'),
                   ),
                 ),
-                onPressed: onSeeAll,
-                child: Semantics(
-                  label: 'See all media',
-                  excludeSemantics: true,
-                  child: const Text('See all'),
-                ),
               ),
-            ),
           ],
         ),
       ),
@@ -153,24 +157,32 @@ class ProfileMediaStripPlaceholder extends StatelessWidget {
     return ContextPaneCard(
       title: kProfileMediaTitle,
       child: Padding(
+        // The strip's own padding, and See all's 48 dp row kept empty, so
+        // the cards below do not move when the images arrive.
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.md,
           AppSpacing.xs,
           AppSpacing.md,
-          AppSpacing.md,
+          AppSpacing.xs,
         ),
         child: Semantics(
           label: 'Loading media',
           container: true,
           excludeSemantics: true,
-          child: _TileGrid(
-            count: kProfileMediaStripMax,
-            tile: (_) => DecoratedBox(
-              decoration: BoxDecoration(
-                color: colors.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(AppRadius.sm),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _TileGrid(
+                count: kProfileMediaStripMax,
+                tile: (_) => DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: colors.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(height: AppSpacing.minTapTarget),
+            ],
           ),
         ),
       ),
@@ -243,31 +255,37 @@ class _MediaTile extends StatelessWidget {
         );
       },
     );
+    // One node, read once: a button named for its image (no separate image
+    // flag, as `post_media.dart`).
     return Semantics(
       container: true,
       button: true,
-      image: true,
       label: ['Open image', if (alt.isNotEmpty) alt, if (gif) 'GIF'].join(', '),
       excludeSemantics: true,
       onTap: onOpen,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        child: Material(
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        child: ColoredBox(
           color: colors.surfaceContainerHigh,
-          child: InkWell(
-            onTap: onOpen,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                image,
-                if (gif)
-                  const PositionedDirectional(
-                    bottom: AppSpacing.xs,
-                    end: AppSpacing.xs,
-                    child: GifBadge(),
-                  ),
-              ],
-            ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              image,
+              if (gif)
+                const PositionedDirectional(
+                  bottom: AppSpacing.xs,
+                  end: AppSpacing.xs,
+                  child: GifBadge(),
+                ),
+              // The ink above the image, so the focus, hover and press
+              // highlights show over it.
+              Positioned.fill(
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: InkWell(onTap: onOpen),
+                ),
+              ),
+            ],
           ),
         ),
       ),

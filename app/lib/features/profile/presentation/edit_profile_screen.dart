@@ -209,9 +209,14 @@ class _EditProfileViewState extends State<_EditProfileView> {
   @override
   Widget build(BuildContext context) {
     final cubit = context.read<EditProfileCubit>();
-    // The tablet layout (600-1199dp, both bands) adds the preview to the
-    // header; phones and desktop keep today's header (ruling R-1).
-    final preview = ShellGeometry.maybeOf(context)?.tablet ?? false;
+    // The tablet layout (600-1199dp, both bands) adds the preview; phones and
+    // desktop keep today's header (ruling R-1). Up to 1.3x text it is the
+    // header's third button; above, three buttons would cut Save short, so
+    // it is the form's first row instead and Save keeps 40 % of the header.
+    final tablet = ShellGeometry.maybeOf(context)?.tablet ?? false;
+    final largeText = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+    final preview = tablet && !largeText;
+    final previewRow = tablet && largeText;
     return BlocConsumer<EditProfileCubit, EditProfileState>(
       listener: _onState,
       builder: (context, state) {
@@ -254,6 +259,21 @@ class _EditProfileViewState extends State<_EditProfileView> {
                       child: ListView(
                         padding: const EdgeInsets.all(AppSpacing.md),
                         children: [
+                          if (previewRow) ...[
+                            OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size.fromHeight(
+                                  AppSpacing.minTapTarget,
+                                ),
+                              ),
+                              onPressed: state.isSaving
+                                  ? null
+                                  : () => _openPreview(context),
+                              icon: const Icon(Icons.visibility_outlined),
+                              label: const Text(kEditProfilePreviewAction),
+                            ),
+                            const SizedBox(height: AppSpacing.md),
+                          ],
                           if (showBanner) ...[
                             BannerEditor(
                               url: widget.bannerUrl,

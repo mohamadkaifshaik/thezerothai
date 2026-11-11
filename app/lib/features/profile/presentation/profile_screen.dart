@@ -690,13 +690,18 @@ class _ProfilePostsState extends State<_ProfilePosts> {
         onOpen: (tile) => paneContext.push(
           AppRouter.postPhotoPath(tile.postId, tile.index + 1),
         ),
-        onSeeAll: () {
-          if (mounted && _tabId != _mediaTabId) {
-            setState(() => _tabId = _mediaTabId);
-          }
-        },
+        // Hidden while Media is the tab shown (it would do nothing there).
+        onSeeAll: _tabId == _mediaTabId ? null : () => _selectTab(_mediaTabId),
       ),
     );
+  }
+
+  /// Selects the tab [id] (from the tab bar, or See all in the pane); the
+  /// pane hears of it, since its See all follows the selection.
+  void _selectTab(String id) {
+    if (!mounted || id == _tabId) return;
+    setState(() => _tabId = id);
+    _paneGate.value++;
   }
 
   /// The server refused a `profile_tabs` tab: Reposts and Media go for the
@@ -821,9 +826,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
       selectedId: spec.id,
       outer: widget.outer,
       header: header,
-      onChanged: (id) {
-        if (id != _tabId) setState(() => _tabId = id);
-      },
+      onChanged: _selectTab,
       hasOpened: _cubits.containsKey,
       bodyBuilder: bodyBuilder,
       onRefresh: onRefresh,

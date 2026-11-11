@@ -527,8 +527,11 @@ void main() {
         tester.element(
           find
               .descendant(
-                of: inContextPane(find.byKey(ValueKey('profile-media-$id'))),
-                matching: find.byType(Stack),
+                of: find.descendant(
+                  of: inContextPane(find.byKey(ValueKey('profile-media-$id'))),
+                  matching: find.byType(InkWell),
+                ),
+                matching: find.byType(MouseRegion),
               )
               .first,
         ),

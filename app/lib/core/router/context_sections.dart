@@ -86,6 +86,13 @@ bool _isCommunitiesLocation(String location) {
   return segments.isNotEmpty && segments.first == 'communities';
 }
 
+/// Whether [location] is a Settings page (`/settings` and everything under
+/// it).
+bool _isSettingsLocation(String location) {
+  final segments = Uri.parse(location).pathSegments;
+  return segments.isNotEmpty && segments.first == 'settings';
+}
+
 /// Whether [location] is one of the profile pages (`/profile/...` and
 /// `/u/...`: a profile, its Followers / Following, a person's Lists).
 bool _isProfileLocation(String location) {
@@ -106,6 +113,10 @@ bool _isProfileLocation(String location) {
 /// Everything else keeps T3's rule: the base route decides.
 String contextPaneLocationFor(String base, String? top) {
   if (top == null) return base;
+  // A Settings page pushed over another page (Edit profile from a profile
+  // that was itself pushed over Home; T8c) has no pane of its own, never the
+  // page underneath's.
+  if (_isSettingsLocation(top)) return top;
   // The profile pages are pushed too (post cards, Who to follow, search,
   // notifications, a chat), and Followers, Following and Edit profile are
   // pushed from a profile (T8c): a profile pushed over Home gets its own
