@@ -183,6 +183,37 @@ void main() {
       });
     }
 
+    testWidgets('a resize keeps what was typed, and the dialog follows the '
+        'content area (1024 -> 839 -> 1200 -> 1024)', (tester) async {
+      final rig = await open(tester);
+      await openPicker(rig, tester);
+      await tester.enterText(find.byKey(kRecipientFieldKey), 'pe');
+      await tester.pumpAndSettle();
+      for (final (width, centre) in [
+        (839.0, content(839, 900).center.dx),
+        // Desktop: today's card, centred on the window.
+        (1200.0, 600.0),
+        (1024.0, content(1024, 900).center.dx),
+      ]) {
+        await rig.resize(tester, width);
+        expect(find.byType(RecipientPickerDialog), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byKey(kRecipientFieldKey),
+            matching: find.text('pe'),
+          ),
+          findsOneWidget,
+          reason: '$width',
+        );
+        expect(
+          openDialogRect(tester).center.dx,
+          moreOrLessEquals(centre),
+          reason: '$width',
+        );
+      }
+      await done(tester);
+    });
+
     testWidgets('over the split page (band B): centred beside the rail', (
       tester,
     ) async {

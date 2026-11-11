@@ -361,14 +361,33 @@ class _CommunityScreenState extends State<CommunityScreen> {
                 ];
                 if (_tab == 1) {
                   return AppMainColumn(
-                    child: RefreshIndicator(
-                      onRefresh: _detail.load,
-                      child: CustomScrollView(
-                        slivers: [
-                          ...headerSlivers,
-                          ...communityAboutSlivers(context, state),
-                          const ShellBottomInsetSliver(),
-                        ],
+                    // On the tablet layout the scroll view spans the pane
+                    // and its slivers keep to the column, as on the Posts
+                    // tab: the header's divider and the tab hairline reach
+                    // the pane's edges (a viewport clips to its own box).
+                    // With no bleed this is today's column.
+                    child: AppFullBleed(
+                      child: Builder(
+                        builder: (context) {
+                          final bleed = AppMainColumnBleed.of(context);
+                          Widget inset(Widget sliver) => SliverPadding(
+                            padding: EdgeInsets.symmetric(horizontal: bleed),
+                            sliver: sliver,
+                          );
+                          return RefreshIndicator(
+                            onRefresh: _detail.load,
+                            child: CustomScrollView(
+                              slivers: [
+                                for (final sliver in [
+                                  ...headerSlivers,
+                                  ...communityAboutSlivers(context, state),
+                                ])
+                                  inset(sliver),
+                                const ShellBottomInsetSliver(),
+                              ],
+                            ),
+                          );
+                        },
                       ),
                     ),
                   );
