@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/core/router/main_shell.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/home/presentation/widgets/home_composer_entry.dart';
 import 'package:dzeroth/features/posts/domain/composer_draft.dart';
@@ -561,6 +562,12 @@ void main() {
   });
 
   group('the scrim and the page underneath', () {
+    /// The secondary animation of the shell's page on the root navigator,
+    /// under the composer.
+    Animation<double> underneath(WidgetTester tester) => ModalRoute.of(
+      tester.element(find.byType(MainShell, skipOffstage: false)),
+    )!.secondaryAnimation!;
+
     testWidgets('the scrim covers the rail: a rail tap does nothing', (
       tester,
     ) async {
@@ -591,8 +598,14 @@ void main() {
       );
       expect(fade.opacity.value, inExclusiveRange(0, 1));
       expect(tester.getRect(find.text('home body')), home);
+      // No exit animation: the page under the composer is not driven by
+      // its route (the zoom paints a snapshot, so a rect cannot show it).
+      expect(underneath(tester).value, 0);
       await tester.pumpAndSettle();
       expect(tester.getRect(find.text('home body')), home);
+      // No exit animation: the page under the composer is not driven by
+      // its route (the zoom paints a snapshot, so a rect cannot show it).
+      expect(underneath(tester).value, 0);
     });
 
     testWidgets('390: the full-screen composer slides in over a still page', (
@@ -611,6 +624,9 @@ void main() {
       );
       // ... and the page underneath runs no exit animation (ruling 1).
       expect(tester.getRect(find.text('home body')), home);
+      // No exit animation: the page under the composer is not driven by
+      // its route (the zoom paints a snapshot, so a rect cannot show it).
+      expect(underneath(tester).value, 0);
       await tester.pumpAndSettle();
       expect(
         tester.getRect(findComposer()),
