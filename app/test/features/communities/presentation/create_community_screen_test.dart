@@ -64,7 +64,7 @@ void main() {
       await tester.pump();
 
       expectNoOverflow(tester);
-      expect(find.text('Create a Community'), findsOneWidget);
+      expect(find.text('Create a community'), findsOneWidget);
       expect(find.text('Rule 1'), findsOneWidget);
       expect(find.text('Rule 2'), findsOneWidget);
       expect(find.byTooltip('Remove rule 2'), findsOneWidget);

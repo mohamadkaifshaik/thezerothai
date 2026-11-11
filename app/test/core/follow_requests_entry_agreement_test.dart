@@ -194,9 +194,17 @@ void main() {
       );
       await tester.tap(find.byType(AppAccountChip));
       await tester.pumpAndSettle();
+      // The menu entry, outside the Notifications row (whose own title also
+      // reads "Follow requests" since R8).
       expect(
-        find.text('Follow requests'),
-        shown ? findsOneWidget : findsNothing,
+        find
+            .text('Follow requests')
+            .evaluate()
+            .where(
+              (e) =>
+                  e.findAncestorWidgetOfExactType<FollowRequestsRow>() == null,
+            ),
+        hasLength(shown ? 1 : 0),
         reason: 'account menu',
       );
       await tester.tapAt(const Offset(790, 890));
