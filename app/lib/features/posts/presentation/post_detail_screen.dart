@@ -9,6 +9,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../shared/widgets/post/blocked_post_gate.dart';
 import '../../../shared/widgets/post/post_card.dart';
+import '../../../shared/widgets/post/post_list_skeleton.dart';
 import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../moderation/domain/reports_feature_flag.dart';
@@ -98,7 +99,20 @@ class _PostDetailViewState extends State<_PostDetailView> {
         return _Frame(
           child: switch (state.status) {
             PostDetailStatus.loading || PostDetailStatus.deleted =>
-              const Center(child: CircularProgressIndicator()),
+              // A placeholder of the post's shape, not a bare spinner.
+              Align(
+                alignment: Alignment.topCenter,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: AppLayout.mainColumnMaxWidth,
+                  ),
+                  child: const PostListSkeleton(
+                    rows: 1,
+                    mediaEvery: 0,
+                    semanticsLabel: 'Loading post',
+                  ),
+                ),
+              ),
             PostDetailStatus.notFound => PostUnavailableView(
               onHome: () => context.go(AppRouter.homePath),
             ),

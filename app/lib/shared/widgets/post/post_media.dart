@@ -107,13 +107,14 @@ class PostMedia extends StatelessWidget {
       onOpen: onOpenImage == null ? null : () => onOpenImage!(index),
     );
 
+    // dz.css `.media`: the 20 dp `cardSmall` radius, with the hairline.
     Widget framed(Widget child) => DecoratedBox(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppRadius.lg),
+        borderRadius: BorderRadius.circular(AppRadius.cardSmall),
         border: Border.all(color: colors.outlineVariant),
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(AppRadius.lg),
+        borderRadius: BorderRadius.circular(AppRadius.cardSmall),
         child: AspectRatio(aspectRatio: aspect, child: child),
       ),
     );
@@ -272,12 +273,30 @@ class _MediaTile extends StatelessWidget {
       excludeSemantics: true,
       child: url.isEmpty ? placeholder : _networkImage(url, colors),
     );
+    final open = onOpen;
     return _withAltChip(
-      onOpen == null
+      open == null
           ? image
-          : InkWell(
-              onTap: onOpen,
-              child: Semantics(button: true, label: 'Open image', child: image),
+          // The ink (ripple, hover, keyboard focus) paints on the nearest
+          // Material below the InkWell: under the image it was hidden by the
+          // picture, so the InkWell sits on its own transparent Material over
+          // it. The button is its own node beside the image's (which keeps
+          // the alt text), and the ALT chip stays above both.
+          : Stack(
+              fit: StackFit.expand,
+              children: [
+                image,
+                Positioned.fill(
+                  child: Material(
+                    type: MaterialType.transparency,
+                    child: Semantics(
+                      button: true,
+                      label: 'Open image',
+                      child: InkWell(onTap: open),
+                    ),
+                  ),
+                ),
+              ],
             ),
       media.altText,
     );

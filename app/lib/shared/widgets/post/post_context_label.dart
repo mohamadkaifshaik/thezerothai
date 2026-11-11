@@ -64,7 +64,11 @@ class PostContextLabel extends StatelessWidget {
       text,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: theme.textTheme.bodySmall?.copyWith(color: muted),
+      // dz.css `.post .note`: 13 sp, w600, muted.
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: muted,
+        fontWeight: FontWeight.w600,
+      ),
     );
     final label = Semantics(
       container: true,
@@ -83,7 +87,8 @@ class PostContextLabel extends StatelessWidget {
             child: Icon(icon, size: AppIconSize.sm, color: muted),
           ),
         ),
-        const SizedBox(width: AppSpacing.sm),
+        // The text starts where the post body does (the 12 dp avatar gap).
+        const SizedBox(width: AppSpacing.smd),
         Flexible(fit: FlexFit.loose, child: label),
       ],
     );

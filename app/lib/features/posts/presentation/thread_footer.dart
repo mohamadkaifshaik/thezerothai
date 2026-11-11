@@ -144,6 +144,9 @@ class _ReplyComposerState extends State<_ReplyComposer> {
       listener: (context, state) => _controller.clear(),
       builder: (context, state) {
         final inline = widget.inline;
+        final avatarUrl = viewerAuthorSnapshot(
+          context.read<OnboardingBloc>().state.profile,
+        ).avatarUrl;
         // X's inline prompt is the 20dp title size at regular weight.
         final textStyle = inline
             ? theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w400)
@@ -183,10 +186,10 @@ class _ReplyComposerState extends State<_ReplyComposer> {
           ),
           child: Padding(
             padding: inline
-                ? const EdgeInsetsDirectional.fromSTEB(
-                    AppSpacing.md,
+                ? EdgeInsetsDirectional.fromSTEB(
+                    postCardGutterOf(context),
                     AppSpacing.smd,
-                    AppSpacing.md,
+                    postCardGutterOf(context),
                     AppSpacing.smd,
                   )
                 : const EdgeInsetsDirectional.fromSTEB(
@@ -203,17 +206,26 @@ class _ReplyComposerState extends State<_ReplyComposer> {
                       ? CrossAxisAlignment.center
                       : CrossAxisAlignment.end,
                   children: [
+                    // In line with the post avatars above it on wide screens
+                    // (the 48 dp column, the 12 dp gap). The gap is on the
+                    // end side, so it mirrors in RTL.
                     Padding(
-                      padding: EdgeInsets.only(
+                      padding: EdgeInsetsDirectional.only(
                         bottom: inline ? 0 : AppSpacing.xs,
-                        right: AppSpacing.sm,
+                        end: inline ? kPostAvatarGap : AppSpacing.sm,
                       ),
                       child: ExcludeSemantics(
-                        child: AppAvatar(
-                          url: viewerAuthorSnapshot(
-                            context.read<OnboardingBloc>().state.profile,
-                          ).avatarUrl,
-                        ),
+                        child: inline
+                            ? SizedBox(
+                                width: AppSpacing.minTapTarget,
+                                child: Center(
+                                  child: AppAvatar.sized(
+                                    url: avatarUrl,
+                                    size: AppAvatarSize.post,
+                                  ),
+                                ),
+                              )
+                            : AppAvatar(url: avatarUrl),
                       ),
                     ),
                     Expanded(
@@ -227,8 +239,11 @@ class _ReplyComposerState extends State<_ReplyComposer> {
                             ),
                     ),
                     const SizedBox(width: AppSpacing.sm),
+                    // The designs' `.btn.primary.sm`: a 36 dp pill in the
+                    // 48 dp target.
                     AppPillButton(
                       label: 'Reply',
+                      compact: true,
                       busy: state.isSubmitting,
                       busySemanticsLabel: 'Sending reply',
                       onPressed: state.canSubmit && !widget.blocked

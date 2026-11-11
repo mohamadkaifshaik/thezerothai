@@ -11,6 +11,7 @@ import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:dzeroth/features/posts/presentation/post_detail_screen.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
+import 'package:dzeroth/shared/widgets/post/post_list_skeleton.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -101,7 +102,8 @@ void main() {
     });
 
     await open(tester, settle: false);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    // A post-shaped placeholder while it loads (R1 restyle; was a spinner).
+    expect(find.byType(PostListSkeleton), findsOneWidget);
 
     done.complete();
     await tester.pumpAndSettle();
