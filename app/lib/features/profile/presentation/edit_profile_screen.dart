@@ -203,7 +203,7 @@ class _EditProfileViewState extends State<_EditProfileView> {
     context,
     cubit: context.read<EditProfileCubit>(),
     saved: widget.saved,
-    showPostsCount: isFeatureEnabled(context, kFeaturePosts),
+    showPostsCount: featureEnabledSnapshot(context, kFeaturePosts),
   );
 
   @override
