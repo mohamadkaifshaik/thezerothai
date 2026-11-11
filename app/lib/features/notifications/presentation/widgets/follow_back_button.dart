@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/telemetry/analytics_event.dart' show FollowSource;
 import '../../../../core/theme/app_theme.dart';
+import '../../../../shared/widgets/primitives/app_skeleton.dart';
 import '../../../../shared/widgets/user/follow_button.dart';
 import '../../../graph/data/graph_repository.dart';
 import '../../../graph/presentation/bloc/relationship_cubit.dart';
@@ -36,10 +37,7 @@ class FollowBackSlot extends StatelessWidget {
         if (answered == null) {
           return state.failed.contains(actorId)
               ? const SizedBox.shrink()
-              : const SizedBox(
-                  key: ValueKey('follow-back-pending'),
-                  height: AppSpacing.minTapTarget,
-                );
+              : const _PendingPill();
         }
         final graphRepository = context.read<GraphRepository>();
         final seed = graphRepository.cached(actorId) ?? answered;
@@ -63,4 +61,31 @@ class FollowBackSlot extends StatelessWidget {
       },
     );
   }
+}
+
+/// The button's line while its answer is out: a pill skeleton of the
+/// button's size (88 x 36) in the 48 dp line, so the row neither jumps nor
+/// shows a blank gap.
+class _PendingPill extends StatelessWidget {
+  const _PendingPill();
+
+  /// The shared button's minimum width.
+  static const double _width = 88;
+
+  @override
+  Widget build(BuildContext context) => const SizedBox(
+    key: ValueKey('follow-back-pending'),
+    height: AppSpacing.minTapTarget,
+    child: Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: AppSkeletonScope(
+        semanticsLabel: 'Loading Follow back',
+        child: AppSkeletonBlock(
+          width: _width,
+          height: AppSize.pillCompact,
+          radius: AppRadius.pill,
+        ),
+      ),
+    ),
+  );
 }

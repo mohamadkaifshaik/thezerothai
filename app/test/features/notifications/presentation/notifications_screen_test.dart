@@ -21,6 +21,7 @@ import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pb.dart'
     as pb;
 import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_notice_banner.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_skeleton.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_surface.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tile_icon.dart';
@@ -1025,6 +1026,17 @@ void main() {
       final pending = find.byKey(const ValueKey('follow-back-pending'));
       expect(pending, findsOneWidget);
       expect(tester.getSize(pending).height, AppSpacing.minTapTarget);
+      // UX review R8-4: not a blank line, a pill skeleton in it.
+      final pill = find.descendant(
+        of: pending,
+        matching: find.byType(AppSkeletonBlock),
+      );
+      expect(pill, findsOneWidget);
+      expect(tester.getSize(pill), const Size(88, 36));
+      expect(
+        find.descendant(of: pending, matching: find.byType(AppSkeletonScope)),
+        findsOneWidget,
+      );
       final row = find.byKey(const ValueKey('notification-f1'));
       final rowHeight = tester.getSize(row).height;
 
@@ -1099,5 +1111,75 @@ void main() {
         }
       });
     }
+  });
+
+  group('UX review fixes', () {
+    // R8-1: the three tabs never ellipsize; when the scaled labels do not
+    // fit their equal share the bar sizes them and scrolls.
+    for (final width in const [320.0, 360.0]) {
+      for (final scale in const [1.3, 2.0]) {
+        testWidgets('${width.toInt()}dp x$scale: no tab label ellipsizes', (
+          tester,
+        ) async {
+          stubList(snapshotOfNotifs([notif('a')], seenAt: kNotifBase));
+          await open(
+            tester,
+            features: const {'notifications', 'beacons'},
+            size: Size(width, 900),
+            textScale: scale,
+          );
+
+          for (final label in ['All', 'Plans', 'Mentions']) {
+            final finder = find.descendant(
+              of: find.byType(AppTabBar),
+              matching: find.text(label),
+            );
+            await tester.ensureVisible(finder);
+            await tester.pumpAndSettle();
+            final paragraph = tester.renderObject<RenderParagraph>(finder);
+            expect(paragraph.didExceedMaxLines, isFalse, reason: label);
+          }
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
+
+    testWidgets('where the labels fit, the tabs keep their equal shares', (
+      tester,
+    ) async {
+      stubList(snapshotOfNotifs([notif('a')], seenAt: kNotifBase));
+      await open(
+        tester,
+        features: const {'notifications', 'beacons'},
+        size: const Size(600, 900),
+        textScale: 1.3,
+      );
+      final bar = tester.getRect(find.byType(AppTabBar));
+      expect(
+        tester.getCenter(find.text('Mentions')).dx,
+        closeTo(bar.left + bar.width * 5 / 6, 1),
+      );
+    });
+
+    // R8-2: a failed batch is asked again by the next page only, never by a
+    // rebuild.
+    testWidgets('one failed GetRelationships and several rebuilds: one call', (
+      tester,
+    ) async {
+      when(() => graphRepo.relationshipsFor(any()))
+          .thenThrow(const NetworkException('offline'));
+      // One page only: the cache is fresh, so no refresh lands after it.
+      when(() => repo.sinceRefresh).thenReturn(const Duration(seconds: 1));
+      stubList(
+        snapshotOfNotifs([notif('f1', actorId: 'u2')], seenAt: kNotifBase),
+      );
+      await open(tester, features: const {'notifications', 'graph'});
+
+      for (final label in ['Mentions', 'All', 'Mentions', 'All']) {
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+      }
+      verify(() => graphRepo.relationshipsFor(any())).called(1);
+    });
   });
 }

@@ -102,4 +102,23 @@ void main() {
       FollowBackState(relationships: {'u1': _none('u1')}),
     ],
   );
+
+  blocTest<FollowBackCubit, FollowBackState>(
+    'retryFailed: false (a rebuild) never asks again for failed actors',
+    build: () => FollowBackCubit(graph: repo),
+    act: (cubit) async {
+      when(() => repo.relationshipsFor(any()))
+          .thenThrow(const NetworkException('offline'));
+      await cubit.resolve(_entries([notif('a', actorId: 'u1')]));
+      await cubit.resolve(
+        _entries([notif('a', actorId: 'u1')]),
+        retryFailed: false,
+      );
+      await cubit.resolve(
+        _entries([notif('a', actorId: 'u1')]),
+        retryFailed: false,
+      );
+    },
+    verify: (_) => verify(() => repo.relationshipsFor(any())).called(1),
+  );
 }

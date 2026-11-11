@@ -262,12 +262,13 @@ class _NotificationsViewState extends State<_NotificationsView>
     // pending requests (its rule); a later call does nothing.
     if (followRequestsCardBeside(context)) unawaited(_requests.loadOnce());
     // F14 turned on after a page landed (a GetMe refresh): ask for what is
-    // already loaded, so no reserved line waits forever. Deduplicated, so a
+    // already loaded, so no reserved line waits forever. Deduplicated, and
+    // never again for a failed actor (only a new page retries those), so a
     // later build costs nothing.
     if (followBack) {
       final loaded = cubit.state;
       if (!loaded.refreshing && loaded.entries.isNotEmpty) {
-        unawaited(_followBack.resolve(loaded.entries));
+        unawaited(_followBack.resolve(loaded.entries, retryFailed: false));
       }
     }
     return MultiBlocListener(
@@ -305,7 +306,11 @@ class _NotificationsViewState extends State<_NotificationsView>
                         inset,
                         SliverToBoxAdapter(
                           child: AppTabBar(
-                            equalWidth: true,
+                            equalWidth: _tabsFitEqually(
+                              context,
+                              tabs,
+                              constraints.maxWidth - 2 * inset,
+                            ),
                             semanticLabel: 'Notifications timelines',
                             selectedIndex: tabs.indexOf(tab),
                             onChanged: (index) =>
@@ -353,6 +358,32 @@ class _NotificationsViewState extends State<_NotificationsView>
         ),
       ),
     );
+  }
+
+  /// Whether every tab label, at the bold weight and the user's text scale,
+  /// fits its equal share of [width] (with 4 dp of air). Otherwise the tabs
+  /// size to their labels and the bar scrolls (three labels at 360 dp x2.0),
+  /// so no label is ever ellipsized.
+  static bool _tabsFitEqually(
+    BuildContext context,
+    List<NotificationsTab> tabs,
+    double width,
+  ) {
+    final style = Theme.of(context).textTheme.titleSmall
+        ?.copyWith(fontWeight: FontWeight.w700);
+    final share = width / tabs.length;
+    for (final tab in tabs) {
+      final painter = TextPainter(
+        text: TextSpan(text: tab.label, style: style),
+        textScaler: MediaQuery.textScalerOf(context),
+        textDirection: Directionality.of(context),
+        maxLines: 1,
+      )..layout();
+      final fits = painter.width + AppSpacing.xs <= share;
+      painter.dispose();
+      if (!fits) return false;
+    }
+    return true;
   }
 
   Widget _inset(double inset, Widget sliver) => SliverPadding(

@@ -14,7 +14,7 @@ import '../../../../core/widgets/context_pane_slots.dart';
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../../shared/widgets/primitives/app_badge.dart';
 import '../../../../shared/widgets/primitives/app_pill_button.dart';
-import '../../../../shared/widgets/user/user_list_skeleton.dart';
+import '../../../../shared/widgets/primitives/app_skeleton.dart';
 import '../../../graph/data/graph_repository.dart';
 import '../../../graph/domain/follow_requests_entry.dart';
 import '../../../graph/presentation/widgets/user_list_row.dart';
@@ -105,10 +105,7 @@ class FollowRequestsCardPlaceholder extends StatelessWidget {
     return _CardFrame(
       count: count,
       children: [
-        UserListSkeleton(
-          rows: math.min(count, kFollowRequestsPreviewLimit),
-          semanticsLabel: 'Loading follow requests',
-        ),
+        _SkeletonRows(rows: math.min(count, kFollowRequestsPreviewLimit)),
         const _SeeAll(),
       ],
     );
@@ -154,8 +151,14 @@ class FollowRequestsCard extends StatelessWidget {
       color: theme.colorScheme.onSurfaceVariant,
     );
     final failed = state.status == FollowRequestsPreviewStatus.failed;
+    // The list is known to be empty: the stale GetMe count is not repeated
+    // over "No follow requests".
+    final settledEmpty =
+        state.status == FollowRequestsPreviewStatus.ready &&
+        items.isEmpty &&
+        !state.hasMore;
     return _CardFrame(
-      count: count,
+      count: settledEmpty ? null : count,
       children: [
         for (final item in items)
           UserListRow(
@@ -216,22 +219,73 @@ class FollowRequestsCard extends StatelessWidget {
 class _CardFrame extends StatelessWidget {
   const _CardFrame({required this.count, required this.children});
 
-  final int count;
+  /// Null draws no badge (the list is known to be empty).
+  final int? count;
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => ContextPaneCard(
-    key: const ValueKey('follow-requests-card'),
-    title: kFollowRequestsTitle,
-    titleSemanticsLabel:
-        '$kFollowRequestsTitle, ${followRequestBadgeSpoken(count)}',
-    titleTrailing: AppTintBadge(
-      label: followRequestBadgeText(count),
-      excludeSemantics: true,
-    ),
+  Widget build(BuildContext context) {
+    final count = this.count;
+    return ContextPaneCard(
+      key: const ValueKey('follow-requests-card'),
+      title: kFollowRequestsTitle,
+      titleSemanticsLabel: count == null
+          ? null
+          : '$kFollowRequestsTitle, ${followRequestBadgeSpoken(count)}',
+      titleTrailing: count == null
+          ? null
+          : AppTintBadge(
+              label: followRequestBadgeText(count),
+              excludeSemantics: true,
+            ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: children,
+      ),
+    );
+  }
+}
+
+/// Skeleton rows shaped like the card's rows: avatar, name and handle, and
+/// the Accept pill in its 48 dp target, so the card keeps its height when
+/// the rows arrive.
+class _SkeletonRows extends StatelessWidget {
+  const _SkeletonRows({required this.rows});
+
+  final int rows;
+
+  @override
+  Widget build(BuildContext context) => AppSkeletonScope(
+    semanticsLabel: 'Loading follow requests',
     child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: children,
+      children: [
+        for (var i = 0; i < rows; i++) ...[
+          Row(
+            children: [
+              const Expanded(
+                child: AppSkeletonRow(
+                  avatarSize: AppSize.avatarMd,
+                  barWidths: [0.6, 0.4],
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsetsDirectional.only(end: AppSpacing.md),
+                child: SizedBox(
+                  height: AppSpacing.minTapTarget + 2 * AppSpacing.sm,
+                  child: Center(
+                    child: AppSkeletonBlock(
+                      width: AppSpacing.minButtonWidth,
+                      height: AppSize.pillCompact,
+                      radius: AppRadius.pill,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const Divider(height: 1),
+        ],
+      ],
     ),
   );
 }

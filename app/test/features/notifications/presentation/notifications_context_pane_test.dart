@@ -341,6 +341,9 @@ void main() {
 
     expect(inContextPane(find.text('No follow requests')), findsOneWidget);
     expect(inContextPane(find.text('See all requests')), findsOneWidget);
+    // UX review R8-5: a stale count is not repeated over "No follow
+    // requests".
+    expect(inContextPane(find.text('12')), findsNothing);
   });
 
   testWidgets('unavailable (FEATURE_DISABLED): no card, no banner', (
@@ -455,8 +458,56 @@ void main() {
         tester,
         find.bySemanticsLabel('Accept follow request from @user1'),
       );
+      // UX review R8-7: inside its column, whichever it is.
+      final column = width >= AppBreakpoints.tablet
+          ? find.byType(AppSideColumn)
+          : findContextPane();
+      final box = tester.getRect(column);
+      final cardRect = tester.getRect(card);
+      expect(cardRect.left, greaterThanOrEqualTo(box.left));
+      expect(cardRect.right, lessThanOrEqualTo(box.right));
+      if (width >= AppBreakpoints.tablet) {
+        expect(box.width, lessThanOrEqualTo(AppSize.sideColumn));
+      }
+      expect(
+        find.descendant(of: card, matching: find.text('See all requests')),
+        findsOneWidget,
+      );
     });
   }
+
+  // UX review R8-3: a page pushed over Notifications in band B drops the
+  // card (the shell's top page decides, as on desktop).
+  testWidgets('band B: a page pushed over Notifications drops the card', (
+    tester,
+  ) async {
+    final rig = await open(tester, width: 1024);
+    expect(inContextPane(card), findsOneWidget);
+
+    unawaited(rig.router.push('/bookmarks'));
+    await tester.pumpAndSettle();
+    expect(find.text('/bookmarks body'), findsOneWidget);
+    expect(card, findsNothing);
+    expect(inContextPane(find.text("What's happening")), findsOneWidget);
+
+    rig.router.pop();
+    await tester.pumpAndSettle();
+    expect(inContextPane(card), findsOneWidget);
+  });
+
+  // UX review R8-6: the placeholder rows carry a trailing pill, so the card
+  // does not change height when the rows arrive.
+  testWidgets('the loading card is as tall as the loaded one', (tester) async {
+    final later = Completer<GraphPage>();
+    answer = () => later.future;
+    await open(tester, width: 1024);
+    final loading = tester.getSize(inContextPane(card)).height;
+
+    later.complete(GraphPage(items: requesters(3), nextPageToken: ''));
+    await tester.pumpAndSettle();
+    expect(inContextPane(find.text('User 3')), findsOneWidget);
+    expect(tester.getSize(inContextPane(card)).height, closeTo(loading, 1));
+  });
 
   // The tablet matrix (plan section 5.5): 5 widths x 2 scales x 2 themes,
   // and 840.

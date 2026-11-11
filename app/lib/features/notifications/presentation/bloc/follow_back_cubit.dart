@@ -67,11 +67,19 @@ class FollowBackCubit extends Cubit<FollowBackState> {
   final Set<String> _asked = {};
 
   /// Asks for the actors of the follow rows in [entries] not asked yet.
-  Future<void> resolve(Iterable<NotificationEntry> entries) async {
+  ///
+  /// A page that lands asks again for actors whose last ask failed; a
+  /// rebuild ([retryFailed] false) never does, so a failure is not re-asked
+  /// on every frame.
+  Future<void> resolve(
+    Iterable<NotificationEntry> entries, {
+    bool retryFailed = true,
+  }) async {
     final ids = <String>{
       for (final e in entries)
         if (!e.isGap) ?followBackActorOf(e.value!),
     }.where((id) => !_asked.contains(id)).toList();
+    if (!retryFailed) ids.removeWhere(state.failed.contains);
     if (ids.isEmpty) return;
     _asked.addAll(ids);
     if (ids.any(state.failed.contains)) {

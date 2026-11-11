@@ -326,7 +326,12 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
       // the card's own rule, so the page's inline row steps aside exactly
       // while the pane holds the card.
       ContextFamily.notifications => [
-        if (followRequestsCardAllowed(context))
+        // Only while Notifications itself is the top page: a post or a
+        // search pushed over it keeps the family (base route) but not the
+        // page's card, as on desktop.
+        if ((_shellTopLocation(context) ?? location) ==
+                AppRouter.notificationsPath &&
+            followRequestsCardAllowed(context))
           const ContextSection(
             ContextSectionKind.followRequests,
             FollowRequestsCardSlot(),
@@ -434,4 +439,21 @@ ContextSection? _profileSection(BuildContext context) {
       ),
     ),
   );
+}
+
+/// The location of the top page inside the shell's navigator, or null
+/// without a router or a shell match (R8; the same rule as `MainShell`'s).
+String? _shellTopLocation(BuildContext context) {
+  final router = GoRouter.maybeOf(context);
+  if (router == null) return null;
+  for (final match
+      in router.routerDelegate.currentConfiguration.matches.reversed) {
+    if (match is! ShellRouteMatch) continue;
+    var leaf = match.matches.last;
+    while (leaf is ShellRouteMatch) {
+      leaf = leaf.matches.last;
+    }
+    return leaf.matchedLocation;
+  }
+  return null;
 }
