@@ -103,8 +103,8 @@ class _PostDetailViewState extends State<_PostDetailView> {
             PostDetailStatus.loading || PostDetailStatus.deleted => Align(
               alignment: Alignment.topCenter,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: AppLayout.mainColumnMaxWidth,
+                constraints: BoxConstraints(
+                  maxWidth: ShellGeometry.readableMaxWidth(context),
                 ),
                 child: FocalPostSkeleton(
                   announce: state.status == PostDetailStatus.loading,
