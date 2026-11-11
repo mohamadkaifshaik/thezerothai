@@ -9,7 +9,10 @@ import 'package:dzeroth/core/telemetry/telemetry_controller.dart';
 import 'package:dzeroth/core/telemetry/telemetry_device_forget.dart';
 import 'package:drift/native.dart';
 import 'package:dzeroth/app/session_wiring.dart';
+import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
@@ -168,6 +171,7 @@ void main() {
     String initial = AppRouter.deleteAccountPath,
     TelemetryDeviceForget? telemetry,
     bool? floatingBar,
+    Widget Function(Widget screen)? wrapScreen,
   }) async {
     if (size != null) {
       tester.view.physicalSize = size;
@@ -179,7 +183,9 @@ void main() {
       routes: [
         GoRoute(
           path: AppRouter.deleteAccountPath,
-          builder: (_, _) => floatingBar == null
+          builder: (_, _) => wrapScreen != null
+              ? wrapScreen(const DeleteAccountScreen())
+              : floatingBar == null
               ? const DeleteAccountScreen()
               : _inShell(const DeleteAccountScreen(), floating: floatingBar),
         ),
@@ -851,6 +857,66 @@ void main() {
         lessThanOrEqualTo(before.bottom),
       );
     });
+  });
+  // T8e and the UX review: the readable column. As a Settings leaf on the
+  // tablet layout (in the shell, `ShellGeometry` above it) the page is at
+  // most 680; at `/onboarding/delete-account` (AU, tablet plan section 4.2:
+  // no shell) it keeps 600, as it does on phones and desktop.
+  group('the readable column', () {
+    void tabletFlags() => whenListen(
+      onboardingBloc,
+      const Stream<OnboardingState>.empty(),
+      initialState: OnboardingState(
+        status: OnboardingStatus.ready,
+        profile: identity.Profile(userId: 'u1', handle: 'Kaif'),
+        enabledFeatures: const {kFeatureUiShell, kFeatureUiTablet},
+      ),
+    );
+    double listWidth(WidgetTester tester) => tester
+        .getSize(
+          find.descendant(
+            of: find.byType(DeleteAccountScreen),
+            matching: find.byType(ListView),
+          ),
+        )
+        .width;
+
+    testWidgets('a Settings leaf on the tablet layout (1024): 680', (
+      tester,
+    ) async {
+      tabletFlags();
+      const window = Size(1024, 900);
+      await pump(
+        tester,
+        size: window,
+        wrapScreen: (screen) => ShellGeometry(
+          data: ShellGeometry.contentRectFor(
+            window,
+            EdgeInsets.zero,
+            ShellLayout.tablet,
+          ),
+          child: screen,
+        ),
+      );
+      expect(listWidth(tester), AppSize.readableMax);
+    });
+
+    for (final width in [600.0, 839.0, 1024.0, 1199.0]) {
+      testWidgets('the AU route at ${width.toInt()} (both flags, no shell): '
+          '600', (tester) async {
+        tabletFlags();
+        await pump(tester, size: Size(width, 900));
+        expect(listWidth(tester), 600);
+      });
+    }
+
+    for (final width in [360.0, 1440.0]) {
+      testWidgets('${width.toInt()}: the width as before', (tester) async {
+        tabletFlags();
+        await pump(tester, size: Size(width, 900));
+        expect(listWidth(tester), width < 600 ? width : 600);
+      });
+    }
   });
 }
 

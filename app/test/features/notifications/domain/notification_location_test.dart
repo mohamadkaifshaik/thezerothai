@@ -172,6 +172,9 @@ void main() {
       kNotificationTypeBeaconRequest,
       kNotificationTypeBeaconAccepted,
       kNotificationTypeBeaconCancelled,
+      // R8: the plan update (F28's type) opens the plan too, never the
+      // organiser's profile.
+      kNotificationTypeBeaconUpdated,
     ]) {
       expect(
         notificationLocation(type: t, postId: '5', actorId: 'u9', beaconId: id),
@@ -202,6 +205,10 @@ void main() {
       PushMessage.fromData({'type': 'beacon_accepted', 'beaconId': id})
           .beaconId,
       id,
+    );
+    expect(
+      const PushMessage(type: 'beacon_updated', beaconId: id).location,
+      '/plans/$id',
     );
   });
 }

@@ -6,10 +6,12 @@ import 'package:uuid/uuid.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_drawer.dart' show followRequestBadgeSpoken;
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../onboarding/presentation/bloc/onboarding_event.dart';
 import '../data/graph_repository.dart';
@@ -126,7 +128,7 @@ class _FollowRequestsScreenState extends State<FollowRequestsScreen> {
         child: AppMainColumn(
           child: Column(
             children: [
-              AppBackHeader(title: 'Follow requests', onBack: _back),
+              _Header(onBack: _back),
               Expanded(
                 child: BlocBuilder<UserListCubit, UserListState>(
                   bloc: _cubit,
@@ -170,10 +172,57 @@ class _FollowRequestsScreenState extends State<FollowRequestsScreen> {
   }
 }
 
-/// Decline (outlined) and Accept (filled), each at least 88 x 48dp. The row
-/// measures this at its natural width and moves it under the name when the
-/// name column would get too narrow, so it never pushes the name out
-/// at a large text scale.
+/// The page header (dz.css `.bar` with `.sub`): "Follow requests" and,
+/// while there are any, "N pending" from `GetMe` under it (0 RPCs). Spoken
+/// as one heading.
+class _Header extends StatelessWidget {
+  const _Header({required this.onBack});
+
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final count = context.select(
+      (OnboardingBloc bloc) => bloc.state.pendingFollowRequestCount,
+    );
+    if (count <= 0) {
+      return AppBackHeader(title: _title, onBack: onBack);
+    }
+    final theme = Theme.of(context);
+    return AppBackHeader(
+      title: _title,
+      onBack: onBack,
+      titleContent: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleLarge,
+          ),
+          Text(
+            followRequestBadgeSpoken(count),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static const _title = 'Follow requests';
+}
+
+/// Decline (an outline pill) and Accept (the primary pill), dz.css
+/// `.btn.sm.outline` / `.btn.sm.primary`: compact 36 dp pills inside 48 dp
+/// targets. The row measures this at its natural width and moves it under
+/// the name when the name column would get too narrow, so it never pushes
+/// the name out at a large text scale; the labels wrap, never ellipsize.
 class _AnswerButtons extends StatelessWidget {
   const _AnswerButtons({
     required this.handle,
@@ -185,8 +234,6 @@ class _AnswerButtons extends StatelessWidget {
   final VoidCallback onAccept;
   final VoidCallback onDecline;
 
-  static const _minSize = Size(88, AppSpacing.minTapTarget);
-
   @override
   Widget build(BuildContext context) {
     // The row gives its actions an unbounded width, so the cap comes from the
@@ -197,7 +244,7 @@ class _AnswerButtons extends StatelessWidget {
       constraints: BoxConstraints(maxWidth: maxWidth),
       child: Wrap(
         spacing: AppSpacing.sm,
-        runSpacing: AppSpacing.sm,
+        runSpacing: AppSpacing.xs,
         alignment: WrapAlignment.end,
         children: [
           Semantics(
@@ -205,10 +252,11 @@ class _AnswerButtons extends StatelessWidget {
             label: 'Decline follow request from @$handle',
             excludeSemantics: true,
             onTap: onDecline,
-            child: OutlinedButton(
-              style: OutlinedButton.styleFrom(minimumSize: _minSize),
+            child: AppPillButton(
+              label: 'Decline',
+              variant: AppButtonVariant.outline,
+              compact: true,
               onPressed: onDecline,
-              child: const Text('Decline'),
             ),
           ),
           Semantics(
@@ -216,10 +264,10 @@ class _AnswerButtons extends StatelessWidget {
             label: 'Accept follow request from @$handle',
             excludeSemantics: true,
             onTap: onAccept,
-            child: FilledButton(
-              style: FilledButton.styleFrom(minimumSize: _minSize),
+            child: AppPillButton(
+              label: 'Accept',
+              compact: true,
               onPressed: onAccept,
-              child: const Text('Accept'),
             ),
           ),
         ],

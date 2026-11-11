@@ -110,9 +110,10 @@ class UserListRow extends StatelessWidget {
           child: InkWell(
             onTap: onProfileTap,
             child: Padding(
-              padding: EdgeInsets.only(
-                left: AppSpacing.md,
-                right: onDismiss == null ? AppSpacing.md : AppSpacing.xs,
+              // Directional, so RTL mirrors the gaps (T8b review note).
+              padding: EdgeInsetsDirectional.only(
+                start: AppSpacing.md,
+                end: onDismiss == null ? AppSpacing.md : AppSpacing.xs,
                 top: AppSpacing.sm,
                 bottom: AppSpacing.sm,
               ),
@@ -124,7 +125,7 @@ class UserListRow extends StatelessWidget {
                 gap: AppSpacing.sm,
                 minBodyWidth: _minNameColumnWidth,
                 lead: Padding(
-                  padding: const EdgeInsets.only(right: AppSpacing.md),
+                  padding: const EdgeInsetsDirectional.only(end: AppSpacing.md),
                   child: ExcludeSemantics(
                     child: AppAvatar(url: user.avatarUrl),
                   ),

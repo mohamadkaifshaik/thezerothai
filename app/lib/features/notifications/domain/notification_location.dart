@@ -16,17 +16,19 @@ const kNotificationTypeFollowAccepted = 'follow_accepted';
 /// no notification row, and its FCM data carries `conversationId` only.
 const kNotificationTypeMessage = 'message';
 
-/// Wire values of the three plan types (`NOTIFICATION_TYPE_BEACON_REQUEST`,
-/// `..._BEACON_ACCEPTED`, `..._BEACON_CANCELLED`). Each names a beacon
-/// (`beaconId` in the row and in the push data), never a post.
+/// Wire values of the four plan types (`NOTIFICATION_TYPE_BEACON_REQUEST`,
+/// `..._BEACON_ACCEPTED`, `..._BEACON_CANCELLED`, `..._BEACON_UPDATED`). Each
+/// names a beacon (`beaconId` in the row and in the push data), never a post.
 const kNotificationTypeBeaconRequest = 'beacon_request';
 const kNotificationTypeBeaconAccepted = 'beacon_accepted';
 const kNotificationTypeBeaconCancelled = 'beacon_cancelled';
+const kNotificationTypeBeaconUpdated = 'beacon_updated';
 
 bool isBeaconNotificationType(String type) =>
     type == kNotificationTypeBeaconRequest ||
     type == kNotificationTypeBeaconAccepted ||
-    type == kNotificationTypeBeaconCancelled;
+    type == kNotificationTypeBeaconCancelled ||
+    type == kNotificationTypeBeaconUpdated;
 
 /// The app location a notification (in-app row or tapped push) opens: the
 /// actor's profile for a follow or an accepted request, the Follow requests

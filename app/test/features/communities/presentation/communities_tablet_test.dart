@@ -72,18 +72,28 @@ void main() {
           expect(tester.takeException(), isNull);
 
           expect(
-            inCommunitiesPage(find.text('My Communities')),
+            inCommunitiesPage(find.text('My communities')),
             findsOneWidget,
           );
-          // One placement at a time.
-          expect(find.text('Explore Communities'), findsOneWidget);
+          // R10 (F37): "Search communities" in exactly one place, beside
+          // Explore communities in band B, above the tabs elsewhere.
+          expect(_fieldNamed('Search communities'), findsOneWidget);
+          expect(
+            (pane ? inContextPane : inCommunitiesPage)(
+              _fieldNamed('Search communities'),
+            ),
+            findsOneWidget,
+          );
           if (pane) {
+            // Band B: no tabs (F23); the pane is Explore communities.
+            expect(find.byType(AppTabBar), findsNothing);
+            expect(find.text('Explore communities'), findsOneWidget);
             expect(_paneKinds(tester), [
               ContextSectionKind.exploreCommunities,
               ContextSectionKind.links,
             ]);
             expect(
-              inContextPane(find.text('Explore Communities')),
+              inContextPane(find.text('Explore communities')),
               findsOneWidget,
             );
             for (final (id, _) in kRigDirectory) {
@@ -98,18 +108,23 @@ void main() {
             );
           } else {
             expect(findContextPane(), findsNothing);
+            // R10 (F23): Explore is the second tab of the page.
+            final tabs = tester.widget<AppTabBar>(find.byType(AppTabBar));
             expect(
-              inCommunitiesPage(find.text('Explore Communities')),
-              findsOneWidget,
+              [for (final t in tabs.tabs) t.label],
+              ['My communities', 'Explore'],
             );
+            expect(find.text('Explore communities'), findsNothing);
+            expect(
+              inCommunitiesPage(find.byKey(const ValueKey('explore-78'))),
+              findsNothing,
+            );
+            await showExploreTab(tester);
             expect(
               inCommunitiesPage(find.byKey(const ValueKey('explore-78'))),
               findsOneWidget,
             );
           }
-          // F37 "Search Communities" stays hidden in every placement.
-          expect(find.textContaining('Search Communities'), findsNothing);
-          expect(_fieldNamed('Search Communities'), findsNothing);
           // The pane is the page's own state: no call of its own.
           expect(rig.server.count('mine'), 1);
           expect(rig.server.count('directory'), 1);
@@ -149,6 +164,7 @@ void main() {
                     'name (inline, as today)'}', (tester) async {
         final rig = CommunitiesTabletRig();
         await rig.pump(tester, width: w);
+        if (!_bandB(w)) await showExploreTab(tester);
         final row = find.byKey(const ValueKey('explore-78'));
         final name = tester.getRect(
           find.descendant(of: row, matching: find.text('Book club')),
@@ -180,7 +196,7 @@ void main() {
         ContextSectionKind.links,
       ]);
       expect(inContextPane(find.text('Be kind')), findsOneWidget);
-      expect(find.text('Explore Communities'), findsNothing);
+      expect(find.text('Explore communities'), findsNothing);
 
       // Back: the directory's pane again, and the inline copy stays aside.
       rig.router.pop();
@@ -189,8 +205,8 @@ void main() {
         ContextSectionKind.exploreCommunities,
         ContextSectionKind.links,
       ]);
-      expect(find.text('Explore Communities'), findsOneWidget);
-      expect(inContextPane(find.text('Explore Communities')), findsOneWidget);
+      expect(find.text('Explore communities'), findsOneWidget);
+      expect(inContextPane(find.text('Explore communities')), findsOneWidget);
     });
 
     testWidgets('band B: the pane follows the page\'s states (loading, '
@@ -225,14 +241,21 @@ void main() {
           reason: '$w',
         );
         final row = find.byKey(const ValueKey('explore-78'));
+        // R10 (F23): outside band B, Explore is a tab (kept once chosen).
+        if (!_bandB(w) && row.evaluate().isEmpty) {
+          await showExploreTab(tester);
+        }
         await tester.scrollUntilVisible(
           row,
           100,
+          // The pane's own scroll view (R10: its search field has one too).
           scrollable: _bandB(w)
-              ? find.descendant(
-                  of: findContextPane(),
-                  matching: find.byType(Scrollable),
-                )
+              ? find
+                    .descendant(
+                      of: findContextPane(),
+                      matching: find.byType(Scrollable),
+                    )
+                    .first
               : find
                     .descendant(
                       of: findCommunitiesPage(),
@@ -498,7 +521,7 @@ void main() {
         final pane = _tabletFlags(flags) && _bandB(w);
         testWidgets('$mode at $w: members '
             '${pane ? 'beside the global set' : 'alone'}; no "Search '
-            'members", no Moderators tab', (tester) async {
+            'members" (its flag off), the Moderators tab', (tester) async {
           final rig = CommunitiesTabletRig();
           rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
           await rig.pump(
@@ -511,11 +534,15 @@ void main() {
 
           expect(_paneKinds(tester), pane ? _global : isEmpty);
           expect(inCommunitiesPage(find.text('Member 1')), findsOneWidget);
-          // F36 and F24 stay hidden.
+          // F36 stays hidden with `community_member_search` off (these
+          // modes); F24's Moderators tab shows to a moderator (R10).
           expect(find.textContaining('Search members'), findsNothing);
           expect(_fieldNamed('Search members'), findsNothing);
           final tabs = tester.widget<AppTabBar>(find.byType(AppTabBar));
-          expect([for (final t in tabs.tabs) t.label], ['Members', 'Banned']);
+          expect(
+            [for (final t in tabs.tabs) t.label],
+            ['Members', 'Moderators', 'Banned'],
+          );
           expect(rig.server.count('members:'), 1);
         });
       }
@@ -688,7 +715,7 @@ void main() {
             expect(find.byType(CommunityPreview), findsNothing);
           }
           // The form is the same everywhere.
-          expect(find.text('Create a Community'), findsOneWidget);
+          expect(find.text('Create a community'), findsOneWidget);
           expect(rig.server.calls, isEmpty);
         });
       }
@@ -876,9 +903,11 @@ void main() {
       await rig.pump(tester, width: 1024, flags: off);
       expect(tester.takeException(), isNull);
       expect(_paneKinds(tester), _global);
-      expect(find.text('Explore Communities'), findsOneWidget);
+      // R10 (F23): inline, Explore is the page's second tab.
+      expect(find.byType(AppTabBar), findsOneWidget);
+      await showExploreTab(tester);
       expect(
-        inCommunitiesPage(find.text('Explore Communities')),
+        inCommunitiesPage(find.byKey(const ValueKey('explore-78'))),
         findsOneWidget,
       );
     });
@@ -978,10 +1007,13 @@ void main() {
           await tester.scrollUntilVisible(
             row,
             100,
-            scrollable: find.descendant(
-              of: findContextPane(),
-              matching: find.byType(Scrollable),
-            ),
+            // The pane's own scroll view (R10: its search field has one too).
+            scrollable: find
+                .descendant(
+                  of: findContextPane(),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
           );
           expect(
             tester.getSize(row).height,

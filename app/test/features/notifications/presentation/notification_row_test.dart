@@ -1,5 +1,6 @@
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/notifications/presentation/widgets/notification_row.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_tile_icon.dart';
 import 'package:dzeroth/gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,10 +27,9 @@ void main() {
     );
   }
 
-  testWidgets('type icons use the like / repost colours, the rest the accent', (
-    tester,
-  ) async {
-    Future<Color?> iconColor(NotificationType type, IconData icon) async {
+  testWidgets('every type sits in the teal tile (dz.css .ico), the glyph '
+      'in the accent text colour', (tester) async {
+    Future<(Color?, double)> tile(NotificationType type, IconData icon) async {
       await tester.pumpWidget(
         MaterialApp(
           theme: appDarkTheme,
@@ -43,27 +43,132 @@ void main() {
           ),
         ),
       );
-      return tester.widget<Icon>(find.byIcon(icon)).color;
+      final glyph = find.descendant(
+        of: find.byType(AppTileIcon),
+        matching: find.byIcon(icon),
+      );
+      return (
+        tester.widget<Icon>(glyph).color,
+        tester.getSize(find.byType(AppTileIcon)).width,
+      );
     }
 
-    expect(
-      await iconColor(
-        NotificationType.NOTIFICATION_TYPE_LIKE,
-        Icons.favorite_border,
+    for (final (type, icon) in [
+      (NotificationType.NOTIFICATION_TYPE_LIKE, Icons.favorite_border),
+      (NotificationType.NOTIFICATION_TYPE_REPOST, Icons.repeat),
+      (NotificationType.NOTIFICATION_TYPE_MENTION, Icons.alternate_email),
+      (
+        NotificationType.NOTIFICATION_TYPE_FOLLOW,
+        Icons.person_add_alt_outlined,
       ),
-      AppColors.dark.like,
-    );
-    expect(
-      await iconColor(NotificationType.NOTIFICATION_TYPE_REPOST, Icons.repeat),
-      AppColors.dark.repost,
-    );
-    expect(
-      await iconColor(
-        NotificationType.NOTIFICATION_TYPE_MENTION,
-        Icons.alternate_email,
+      (
+        NotificationType.NOTIFICATION_TYPE_BEACON_UPDATED,
+        Icons.edit_calendar_outlined,
       ),
-      appDarkTheme.colorScheme.primary,
+    ]) {
+      final (color, size) = await tile(type, icon);
+      expect(color, AppColors.dark.accentText, reason: '$type');
+      expect(size, AppIconSize.xl, reason: '$type');
+    }
+  });
+
+  testWidgets('a plan update reads "changed a plan you joined"', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NotificationRow(
+            notification: notif(
+              'u',
+              type: NotificationType.NOTIFICATION_TYPE_BEACON_UPDATED,
+              beaconId: '1234567890123456789',
+            ),
+            unread: false,
+            now: kNotifBase,
+            onTap: () {},
+          ),
+        ),
+      ),
     );
+    expect(find.text('Alice changed a plan you joined'), findsOneWidget);
+    expect(
+      isPlanType(NotificationType.NOTIFICATION_TYPE_BEACON_UPDATED),
+      isTrue,
+    );
+    expect(
+      notificationTypeWire(NotificationType.NOTIFICATION_TYPE_BEACON_UPDATED),
+      'beacon_updated',
+    );
+  });
+
+  testWidgets('an action is its own semantics node and tap, inside the row', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    var rowTaps = 0;
+    var actionTaps = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: NotificationRow(
+            notification: notif('n', minutesAgo: 5),
+            unread: false,
+            now: kNotifBase,
+            onTap: () => rowTaps++,
+            action: FilledButton(
+              onPressed: () => actionTaps++,
+              child: const Text('Follow back'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      find.bySemanticsLabel(RegExp('Alice followed you, .* ago')),
+      findsOneWidget,
+    );
+    expect(find.bySemanticsLabel('Follow back'), findsOneWidget);
+    // The row's own node says the sentence and the time, nothing else.
+    expect(
+      tester.getSemantics(find.byType(NotificationRow)).label,
+      'Alice followed you, 5 minutes ago',
+    );
+    // The button sits between the sentence and the time (the design's order).
+    final sentence = tester.getRect(find.text('Alice followed you'));
+    final button = tester.getRect(find.byType(FilledButton));
+    final time = tester.getRect(find.text('5m'));
+    expect(button.top, greaterThanOrEqualTo(sentence.bottom));
+    expect(time.top, greaterThanOrEqualTo(button.bottom));
+
+    await tester.tap(find.byType(FilledButton));
+    expect((rowTaps, actionTaps), (0, 1));
+    await tester.tap(find.text('Alice followed you'));
+    expect((rowTaps, actionTaps), (1, 1));
+    handle.dispose();
+  });
+
+  testWidgets('RTL: the tile leads on the right', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: Scaffold(
+            body: NotificationRow(
+              notification: notif('n', minutesAgo: 5),
+              unread: true,
+              now: kNotifBase,
+              onTap: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+    final tile = tester.getRect(find.byType(AppTileIcon));
+    final text = tester.getRect(find.text('Alice followed you'));
+    expect(tile.left, greaterThan(text.right));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('a long name is clamped to $kNotificationTextLines lines', (

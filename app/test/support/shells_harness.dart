@@ -79,6 +79,8 @@ Future<ShellsApp> pumpShellsApp(
   Brightness brightness = Brightness.light,
   double textScale = 1.0,
   bool signedIn = true,
+  TextDirection textDirection = TextDirection.ltr,
+  EdgeInsets padding = EdgeInsets.zero,
 }) async {
   final auth = _MockAuthBloc();
   final onboarding = _MockOnboardingBloc();
@@ -108,6 +110,16 @@ Future<ShellsApp> pumpShellsApp(
   appRouter.router.go(location);
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
+  if (padding != EdgeInsets.zero) {
+    final fake = FakeViewPadding(
+      left: padding.left,
+      top: padding.top,
+      right: padding.right,
+      bottom: padding.bottom,
+    );
+    tester.view.padding = fake;
+    tester.view.viewPadding = fake;
+  }
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     MultiBlocProvider(
@@ -121,10 +133,13 @@ Future<ShellsApp> pumpShellsApp(
       child: MaterialApp.router(
         theme: buildAppTheme(brightness: brightness),
         routerConfig: appRouter.router,
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(context)
-              .copyWith(textScaler: TextScaler.linear(textScale)),
-          child: child!,
+        builder: (context, child) => Directionality(
+          textDirection: textDirection,
+          child: MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(textScale)),
+            child: child!,
+          ),
         ),
       ),
     ),

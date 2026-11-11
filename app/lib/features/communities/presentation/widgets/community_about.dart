@@ -154,9 +154,6 @@ class CommunityRuleRow extends StatelessWidget {
   }
 }
 
-/// The title of the description card of [CommunityAboutPane].
-const kCommunityAboutPaneTitle = 'About this Community';
-
 /// The label of the moderation log entry: the header's button and the
 /// pane's link say the same.
 const kCommunityModerationLogLabel = 'Moderation log';
@@ -183,8 +180,9 @@ class CommunityAboutPanePlaceholder extends StatelessWidget {
 /// Band B's context pane on a community page (tablet plan section 4.1,
 /// Community: "Posts | rules, moderators, View moderation log"): for the
 /// owner and moderators ([onModerationLog]) the "Moderation log" link first,
-/// then the description card (when there is one), the rules card and the
-/// moderators card. The page lends it over its own state
+/// then the rules card and the moderators card. The description is in the
+/// page header at every width (R10 review item 11), so the pane does not
+/// repeat it. The page lends it over its own state
 /// (`ContextPaneSlots`), so it adds no call. The About tab keeps the same
 /// description, rules and moderators at every width (R-inline): the pane
 /// only adds a second place.
@@ -212,7 +210,6 @@ class CommunityAboutPane extends StatelessWidget {
           ? const CommunityAboutPanePlaceholder()
           : const SizedBox.shrink();
     }
-    final theme = Theme.of(context);
     final people = communityModeratorsOf(state);
     final rules = state.rules;
     return Column(
@@ -228,22 +225,6 @@ class CommunityAboutPane extends StatelessWidget {
               onPressed: onModerationLog,
               icon: const Icon(Icons.shield_outlined, size: AppIconSize.md),
               label: const Text(kCommunityModerationLogLabel),
-            ),
-          ),
-        if (community.description.isNotEmpty)
-          ContextPaneCard(
-            title: kCommunityAboutPaneTitle,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.md,
-                AppSpacing.xs,
-                AppSpacing.md,
-                AppSpacing.md,
-              ),
-              child: Text(
-                community.description,
-                style: theme.textTheme.bodyMedium,
-              ),
             ),
           ),
         ContextPaneCard(
