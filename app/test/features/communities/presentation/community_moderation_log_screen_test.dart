@@ -193,7 +193,7 @@ void main() {
   testWidgets('NOT_FOUND: the unavailable view', (tester) async {
     stubLog([], error: const NotFoundException('gone'));
     await open(tester);
-    expect(find.text('This Community is unavailable'), findsOneWidget);
+    expect(find.text('This community is unavailable'), findsOneWidget);
   });
 
   testWidgets('a network failure offers Retry', (tester) async {

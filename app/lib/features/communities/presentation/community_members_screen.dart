@@ -436,8 +436,12 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
       item: item,
       // dz: a 44 dp avatar, 12 dp above and below and 20 dp at the sides.
       avatarRadius: 22,
-      inset: 20,
+      horizontalInset: 20,
       verticalInset: AppSpacing.smd,
+      // dz: a 13 sp handle; no hairline under the rows on a phone (the tablet
+      // and desktop designs have one).
+      handleStyle: Theme.of(context).textTheme.bodySmall,
+      showDivider: MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile,
       extraAction: badge == null && actions.isEmpty
           ? null
           : Row(

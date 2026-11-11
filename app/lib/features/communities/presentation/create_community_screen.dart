@@ -14,7 +14,6 @@ import '../../../shared/widgets/primitives/app_form_header.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_text_field.dart';
-import '../../../shared/widgets/primitives/character_counter.dart';
 import '../data/communities_repository.dart';
 import '../domain/communities_feature_flag.dart';
 import '../domain/community_text_rules.dart';
@@ -185,11 +184,8 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
     ],
   );
 
-  /// The design's "13 / 30": the used count against the limit.
-  Widget _counter(TextEditingController c, int max) => CharacterCounter(
-    remaining: max - communityTextLength(c.text),
-    limit: max,
-  );
+  Widget _counted(TextEditingController c, int max, Widget field) =>
+      communityCounted(c, max, field);
 
   @override
   Widget build(BuildContext context) {
@@ -234,34 +230,37 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          AppTextField(
-                            label: 'Name',
-                            kind: AppFieldKind.plain,
-                            controller: _name,
-                            enabled: !busy,
-                            textInputAction: TextInputAction.next,
-                            errorText: communityFieldError(
-                              communityNameIssue(_name.text),
-                              max: kCommunityNameMaxLength,
+                          _counted(
+                            _name,
+                            kCommunityNameMaxLength,
+                            AppTextField(
+                              label: 'Name',
+                              kind: AppFieldKind.plain,
+                              controller: _name,
+                              enabled: !busy,
+                              textInputAction: TextInputAction.next,
+                              errorText: communityFieldError(
+                                communityNameIssue(_name.text),
+                                max: kCommunityNameMaxLength,
+                              ),
                             ),
-                            counter: _counter(_name, kCommunityNameMaxLength),
                           ),
                           const SizedBox(height: AppSpacing.smd),
-                          AppTextField(
-                            label: 'Description',
-                            kind: AppFieldKind.plain,
-                            controller: _description,
-                            enabled: !busy,
-                            area: true,
-                            minLines: 3,
-                            maxLines: 6,
-                            errorText: communityFieldError(
-                              communityDescriptionIssue(_description.text),
-                              max: kCommunityDescriptionMaxLength,
-                            ),
-                            counter: _counter(
-                              _description,
-                              kCommunityDescriptionMaxLength,
+                          _counted(
+                            _description,
+                            kCommunityDescriptionMaxLength,
+                            AppTextField(
+                              label: 'Description',
+                              kind: AppFieldKind.plain,
+                              controller: _description,
+                              enabled: !busy,
+                              area: true,
+                              minLines: 3,
+                              maxLines: 6,
+                              errorText: communityFieldError(
+                                communityDescriptionIssue(_description.text),
+                                max: kCommunityDescriptionMaxLength,
+                              ),
                             ),
                           ),
                           const SizedBox(height: AppSpacing.smd),
@@ -290,7 +289,7 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
                               number: i + 1,
                               fields: _rules[i],
                               enabled: !busy,
-                              counter: _counter,
+                              counted: communityCounted,
                               onRemove: () => _removeRule(_rules[i]),
                             ),
                           const SizedBox(height: AppSpacing.smd),
@@ -330,6 +329,43 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
   }
 }
 
+/// A field with the design's "13 / 30" counter under it, at the start (the
+/// design's hint line), spoken "13 of 30 characters"; past the limit it turns
+/// to the error colour.
+Widget communityCounted(TextEditingController c, int max, Widget field) {
+  return ListenableBuilder(
+    listenable: c,
+    builder: (context, _) {
+      final theme = Theme.of(context);
+      final used = communityTextLength(c.text);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          field,
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.xs),
+            child: Semantics(
+              label: '$used of $max characters',
+              excludeSemantics: true,
+              child: Text(
+                '$used / $max',
+                // dz: 12 w500, muted.
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w500,
+                  color: used > max
+                      ? theme.colorScheme.error
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+}
+
 /// The form's side inset (dz `20px`).
 const double _kFormInset = 20;
 
@@ -342,14 +378,14 @@ class _RuleEditor extends StatelessWidget {
     required this.number,
     required this.fields,
     required this.enabled,
-    required this.counter,
+    required this.counted,
     required this.onRemove,
   });
 
   final int number;
   final _RuleFields fields;
   final bool enabled;
-  final Widget Function(TextEditingController, int) counter;
+  final Widget Function(TextEditingController, int, Widget) counted;
   final VoidCallback onRemove;
 
   @override
@@ -358,7 +394,7 @@ class _RuleEditor extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: AppSpacing.smd),
       child: AppCard(
-        padding: const EdgeInsets.fromLTRB(14, 6, 6, 14),
+        padding: const EdgeInsetsDirectional.fromSTEB(14, 6, 6, 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -386,35 +422,41 @@ class _RuleEditor extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 8),
-              child: AppTextField(
-                label: 'Rule $number title',
-                kind: AppFieldKind.plain,
-                controller: fields.title,
-                enabled: enabled,
-                textInputAction: TextInputAction.next,
-                errorText: communityFieldError(
-                  communityRuleTitleIssue(fields.title.text),
-                  max: kCommunityRuleTitleMaxLength,
+              child: counted(
+                fields.title,
+                kCommunityRuleTitleMaxLength,
+                AppTextField(
+                  label: 'Rule $number title',
+                  kind: AppFieldKind.plain,
+                  controller: fields.title,
+                  enabled: enabled,
+                  textInputAction: TextInputAction.next,
+                  errorText: communityFieldError(
+                    communityRuleTitleIssue(fields.title.text),
+                    max: kCommunityRuleTitleMaxLength,
+                  ),
                 ),
-                counter: counter(fields.title, kCommunityRuleTitleMaxLength),
               ),
             ),
             const SizedBox(height: AppSpacing.sm),
             Padding(
               padding: const EdgeInsetsDirectional.only(end: 8),
-              child: AppTextField(
-                label: 'Rule $number details',
-                kind: AppFieldKind.plain,
-                controller: fields.text,
-                enabled: enabled,
-                area: true,
-                minLines: 2,
-                maxLines: 5,
-                errorText: communityFieldError(
-                  communityRuleTextIssue(fields.text.text),
-                  max: kCommunityRuleTextMaxLength,
+              child: counted(
+                fields.text,
+                kCommunityRuleTextMaxLength,
+                AppTextField(
+                  label: 'Rule $number details',
+                  kind: AppFieldKind.plain,
+                  controller: fields.text,
+                  enabled: enabled,
+                  area: true,
+                  minLines: 2,
+                  maxLines: 5,
+                  errorText: communityFieldError(
+                    communityRuleTextIssue(fields.text.text),
+                    max: kCommunityRuleTextMaxLength,
+                  ),
                 ),
-                counter: counter(fields.text, kCommunityRuleTextMaxLength),
               ),
             ),
           ],

@@ -4,6 +4,16 @@ import '../../features/posts/domain/posts_feature_flag.dart';
 import '../feature_flags/feature_flags.dart';
 import 'app_router.dart';
 
+/// Whether [location] is one community's own page (`/communities/:id`, not
+/// `/communities/new` nor a sub-page). The page has its own "Post" entry
+/// that composes into the community, so the shell's floating "New post" is
+/// hidden there (R10b), and its cover band draws under the status bar
+/// (`ResponsiveScaffold.extendBodyUnderStatusBar`).
+bool isCommunityPageAt(String location) {
+  final path = Uri.tryParse(location)?.path ?? location;
+  return RegExp(r'^/communities/(?!new/?$)[^/]+/?$').hasMatch(path);
+}
+
 /// Whether a way to start a new post is offered at [location]: only with the
 /// posts flag on, and not on Settings or Messages. Messages has its own header
 /// action; Settings owns Edit profile and related controls. The one rule
@@ -25,5 +35,6 @@ bool canComposeAt(BuildContext context, String location) =>
 /// Wide layouts always show the rail's Post control instead of the button.
 bool showComposeFabAt(BuildContext context, String location) =>
     canComposeAt(context, location) &&
+    !isCommunityPageAt(location) &&
     !location.startsWith(AppRouter.notificationsPath) &&
     !location.startsWith(AppRouter.bookmarksPath);

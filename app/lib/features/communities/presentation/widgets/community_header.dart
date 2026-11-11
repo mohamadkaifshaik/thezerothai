@@ -126,6 +126,7 @@ class CommunityHeader extends StatelessWidget {
             writeUnavailable: state.pinWriteUnavailable,
           );
     final countLabel = communityMemberCountLabel(community);
+    final people = communityModeratorsOf(state);
     return Padding(
       padding: _kHeaderPadding,
       child: Column(
@@ -175,9 +176,7 @@ class CommunityHeader extends StatelessWidget {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    CommunityMemberAvatars(
-                      people: communityModeratorsOf(state),
-                    ),
+                    CommunityMemberAvatars(people: people),
                     Flexible(
                       child: Semantics(
                         button: true,
@@ -188,8 +187,10 @@ class CommunityHeader extends StatelessWidget {
                           onPressed: onMembers,
                           style: TextButton.styleFrom(
                             foregroundColor: colors.accentText,
-                            padding: const EdgeInsetsDirectional.only(
-                              start: AppSpacing.smd,
+                            // The gap after the avatars, only when there are
+                            // avatars.
+                            padding: EdgeInsetsDirectional.only(
+                              start: people.isEmpty ? 0 : AppSpacing.smd,
                             ),
                             minimumSize: const Size(
                               AppSpacing.minTapTarget,
@@ -274,44 +275,79 @@ const _kHeaderPadding = EdgeInsets.fromLTRB(
   AppSpacing.smd,
 );
 
-/// The header while `GetCommunity` is in flight: a name bar, two description
-/// bars and the people row's shape, so nothing moves when it answers.
+/// The header while `GetCommunity` is in flight: the loaded header's shape,
+/// block for block (name line, one description line, the 48 dp people row,
+/// the 48 dp row of Post / Moderation log / Pin buttons), so the tabs under
+/// it do not move when it answers. The description is drawn as one line (a
+/// longer one adds its second line when it arrives).
 class _HeaderPlaceholder extends StatelessWidget {
   const _HeaderPlaceholder();
 
-  @override
-  Widget build(BuildContext context) => AppSkeletonScope(
-    semanticsLabel: 'Loading Community',
-    child: Padding(
-      padding: _kHeaderPadding,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const AppSkeletonBlock(width: 200, height: 32),
-          const SizedBox(height: AppSpacing.sm),
-          const AppSkeletonBlock(height: 14),
-          const SizedBox(height: AppSpacing.sm),
-          const AppSkeletonBlock(width: 240, height: 14),
-          const SizedBox(height: AppSpacing.md),
-          Row(
-            children: [
-              const AppSkeletonBlock(
-                width: kCommunityHeaderAvatarSize,
-                height: kCommunityHeaderAvatarSize,
-                circle: true,
-              ),
-              const SizedBox(width: AppSpacing.smd),
-              const AppSkeletonBlock(width: 96, height: 14),
-              const Spacer(),
-              const AppSkeletonBlock(
-                width: 88,
-                height: 36,
-                radius: AppRadius.pill,
-              ),
-            ],
-          ),
-        ],
-      ),
+  /// A 48 dp slot holding a 36 dp pill, as the loaded buttons sit.
+  static Widget _slot(double width) => SizedBox(
+    height: AppSpacing.minTapTarget,
+    child: Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: AppSkeletonBlock(width: width, height: 36, radius: AppRadius.pill),
     ),
   );
+
+  @override
+  Widget build(BuildContext context) {
+    final body = Theme.of(context).textTheme.bodyMedium;
+    final name = Theme.of(context).textTheme.displaySmall;
+    // The loaded lines' heights at the ambient text scale.
+    final scaler = MediaQuery.textScalerOf(context);
+    final nameHeight = scaler.scale(32) * (name?.height ?? 1.02);
+    final lineHeight = scaler.scale(14) * (body?.height ?? 1.4);
+    return AppSkeletonScope(
+      semanticsLabel: 'Loading Community',
+      child: Padding(
+        padding: _kHeaderPadding,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AppSkeletonBlock(width: 200, height: nameHeight),
+            const SizedBox(height: AppSpacing.sm),
+            SizedBox(
+              height: lineHeight,
+              child: const Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: AppSkeletonBlock(width: 260, height: 12),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            SizedBox(
+              height: AppSpacing.minTapTarget,
+              child: Row(
+                children: [
+                  const AppSkeletonBlock(
+                    width: kCommunityHeaderAvatarSize,
+                    height: kCommunityHeaderAvatarSize,
+                    circle: true,
+                  ),
+                  const SizedBox(width: AppSpacing.smd),
+                  const AppSkeletonBlock(width: 96, height: 14),
+                  const Spacer(),
+                  const AppSkeletonBlock(
+                    width: 88,
+                    height: 36,
+                    radius: AppRadius.pill,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xs),
+            Row(
+              children: [
+                _slot(72),
+                const SizedBox(width: AppSpacing.sm),
+                _slot(120),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

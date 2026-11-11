@@ -1,7 +1,10 @@
 import 'dart:async';
 
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/communities/presentation/widgets/community_member_avatars.dart';
+import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
@@ -194,30 +197,119 @@ void main() {
       });
     }
 
-    // A phone with a 44 dp status bar. The shell's own SafeArea sits above a
-    // phone page (the band is 106 dp, below the status bar); the tablet pane
-    // keeps the inset, so there the band reaches the top edge and is 150 dp
-    // (the design's), with Back below the status bar either way.
-    for (final (w, top, height) in [
-      (360.0, 44.0, 106.0),
-      (840.0, 0.0, 150.0),
-    ]) {
-      testWidgets('$w with a 44 dp status bar: the band is $height dp from '
-          '$top and Back clears the status bar', (tester) async {
+    // A device with a 44 dp status bar. The community's page (and only it)
+    // draws its cover under the status bar: the band reaches the top edge and
+    // is 150 dp (the design's) on a phone and on the tablet pane, with Back
+    // below the status bar.
+    for (final w in <double>[360, 599, 840, 1024]) {
+      testWidgets('$w with a 44 dp status bar: the band is 150 dp from the '
+          'top edge and Back clears the status bar', (tester) async {
         addTearDown(tester.view.reset);
         tester.view.padding = const FakeViewPadding(top: 44);
         tester.view.viewPadding = const FakeViewPadding(top: 44);
         final rig = CommunitiesTabletRig();
         await rig.pump(tester, location: _community, width: w);
         final band = tester.getRect(find.byKey(_ringsKey));
-        expect(band.top, top);
-        expect(band.height, height);
+        expect(band.top, 0);
+        expect(band.height, 150);
         expect(
           tester.getRect(find.byTooltip('Back')).top,
           greaterThanOrEqualTo(44),
         );
       });
     }
+
+    testWidgets('another route is unaffected: the Communities list still '
+        'starts below the status bar', (tester) async {
+      addTearDown(tester.view.reset);
+      tester.view.padding = const FakeViewPadding(top: 44);
+      tester.view.viewPadding = const FakeViewPadding(top: 44);
+      final rig = CommunitiesTabletRig();
+      await rig.pump(tester, width: 360);
+      expect(tester.getRect(findCommunitiesPage()).top, 44);
+      // The members page too, one level under the community.
+      final members = CommunitiesTabletRig();
+      await members.pump(tester, location: _members, width: 360);
+      expect(tester.getRect(findCommunitiesPage()).top, 44);
+    });
+
+    testWidgets('posts do not pass under the status icons: a page-colour '
+        'strip as tall as the inset appears once the band has scrolled '
+        'away, and goes with it', (tester) async {
+      addTearDown(tester.view.reset);
+      tester.view.padding = const FakeViewPadding(top: 44);
+      tester.view.viewPadding = const FakeViewPadding(top: 44);
+      final rig = CommunitiesTabletRig();
+      await rig.pump(tester, location: _community, width: 360, height: 600);
+      await tapCommunityTab(tester, 'About');
+      const scrim = ValueKey('community-status-scrim');
+      expect(find.byKey(scrim), findsNothing);
+      await tester.drag(
+        find.byType(CustomScrollView).first,
+        const Offset(0, -400),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(scrim), findsOneWidget);
+      expect(tester.getSize(find.byKey(scrim)).height, 44);
+      expect(tester.getTopLeft(find.byKey(scrim)).dy, 0);
+      await tester.drag(
+        find.byType(CustomScrollView).first,
+        const Offset(0, 800),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(scrim), findsNothing);
+    });
+
+    testWidgets('while it loads, the tabs are where they will be: the '
+        'placeholder is the loaded header block for block', (tester) async {
+      final rig = CommunitiesTabletRig();
+      rig.server.holdGet = Completer<void>();
+      await rig.pump(tester, location: _community, width: 600, settle: false);
+      await tester.pump(const Duration(milliseconds: 100));
+      final tab = find.descendant(
+        of: find.byType(AppTabBar),
+        matching: find.text('Posts'),
+      );
+      final loading = tester.getTopLeft(tab).dy;
+      rig.server.holdGet!.complete();
+      await tester.pumpAndSettle();
+      expect(tester.getTopLeft(tab).dy, closeTo(loading, 1));
+    });
+
+    testWidgets('the shell offers no second New post on a community page', (
+      tester,
+    ) async {
+      final rig = CommunitiesTabletRig();
+      await rig.pump(tester, location: _community, width: 360);
+      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(
+        _inPage(find.widgetWithText(OutlinedButton, 'Post')),
+        findsOneWidget,
+      );
+      // Elsewhere the shell's button stays.
+      final list = CommunitiesTabletRig();
+      await list.pump(tester, width: 360);
+      expect(find.byType(FloatingActionButton), findsOneWidget);
+    });
+
+    testWidgets('the unavailable community is the design\'s: a 40 dp muted '
+        'icon, a 17 sp w800 title, the lower-case copy', (tester) async {
+      final rig = CommunitiesTabletRig();
+      rig.server.getError = const NotFoundException('gone');
+      await rig.pump(tester, location: _community, width: 360);
+      final title = _inPage(find.text('This community is unavailable'));
+      expect(title, findsOneWidget);
+      final style = _styleOf(tester, title);
+      expect(style.fontSize, 17);
+      expect(style.fontWeight, FontWeight.w800);
+      expect(
+        _inPage(find.text("You can't view this community right now.")),
+        findsOneWidget,
+      );
+      final icon = _inPage(find.byIcon(Icons.groups_outlined));
+      expect(tester.getSize(icon), const Size.square(40));
+      expect(find.text('This Community is unavailable'), findsNothing);
+    });
 
     testWidgets('Community options is one button, named, with the report '
         'item', (tester) async {
@@ -246,7 +338,7 @@ void main() {
         'are already there', (tester) async {
       final rig = CommunitiesTabletRig();
       rig.server.holdGet = Completer<void>();
-      await rig.pump(tester, location: _community, width: 360, settle: false);
+      await rig.pump(tester, location: _community, width: 600, settle: false);
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.byKey(_ringsKey), findsOneWidget);
       expect(find.byTooltip('Back'), findsOneWidget);
@@ -304,6 +396,28 @@ void main() {
         }
         final avatar = _inPage(find.byType(AppAvatar)).first;
         expect(tester.getSize(avatar), const Size.square(44));
+      });
+    }
+
+    for (final (w, divider) in [
+      (360.0, false),
+      (599.0, false),
+      (600.0, true),
+      (1024.0, true),
+    ]) {
+      testWidgets('$w: the handle is 13 sp; rows have '
+          '${divider ? 'a' : 'no'} hairline', (tester) async {
+        final rig = CommunitiesTabletRig();
+        await rig.pump(tester, location: _members, width: w);
+        final handle = _styleOf(tester, _inPage(find.text('@member1')));
+        expect(handle.fontSize, 13);
+        final dividers = _inPage(
+          find.descendant(
+            of: find.byType(UserListRow),
+            matching: find.byType(Divider),
+          ),
+        );
+        expect(dividers, divider ? findsWidgets : findsNothing);
       });
     }
 
@@ -413,6 +527,56 @@ void main() {
       expect(standing.fontWeight, FontWeight.w700);
     });
 
+    for (final dir in TextDirection.values) {
+      testWidgets('$dir: the rule card pads 14 / 6 / 6 / 14 from the start, '
+          'the eyebrow starts 14 dp in, the trash sits 6 dp from the end', (
+        tester,
+      ) async {
+        final rig = CommunitiesTabletRig();
+        await rig.pump(
+          tester,
+          location: AppRouter.communityNewPath,
+          width: 360,
+          textDirection: dir,
+        );
+        await tester.tap(_inPage(find.text('Add a rule')));
+        await tester.pumpAndSettle();
+        final card = tester.getRect(_inPage(find.byType(AppCard)));
+        final eyebrow = tester.getRect(_inPage(find.text('RULE 1')));
+        final trash = tester.getRect(_inPage(find.byTooltip('Remove rule 1')));
+        if (dir == TextDirection.ltr) {
+          expect(eyebrow.left - card.left, 14);
+          expect(card.right - trash.right, 6);
+        } else {
+          expect(card.right - eyebrow.right, 14);
+          expect(trash.left - card.left, 6);
+        }
+        expect(trash.top - card.top, 6);
+      });
+
+      testWidgets('$dir: the counter is at the start, under the field, '
+          'spoken "0 of 30 characters"', (tester) async {
+        final handle = tester.ensureSemantics();
+        final rig = CommunitiesTabletRig();
+        await rig.pump(
+          tester,
+          location: AppRouter.communityNewPath,
+          width: 360,
+          textDirection: dir,
+        );
+        final field = tester.getRect(createFormField('Name'));
+        final counter = tester.getRect(_inPage(find.text('0 / 30')));
+        expect(counter.top, greaterThanOrEqualTo(field.bottom));
+        if (dir == TextDirection.ltr) {
+          expect(counter.left, field.left);
+        } else {
+          expect(counter.right, field.right);
+        }
+        expect(find.bySemanticsLabel('0 of 30 characters'), findsOneWidget);
+        handle.dispose();
+      });
+    }
+
     testWidgets('RTL and 2.0 at 360 with a rule: nothing overflows', (
       tester,
     ) async {
@@ -432,8 +596,6 @@ void main() {
   });
 
   group('ModLog', () {
-    setUp(() {});
-
     Future<CommunitiesTabletRig> openLog(
       WidgetTester tester, {
       double width = 360,
@@ -493,6 +655,51 @@ void main() {
       );
       expect(rig.server.count('get:'), 1);
       expect(rig.server.count('log:'), 1);
+    });
+
+    testWidgets('the subtitle is one line, ellipsized', (tester) async {
+      await openLog(tester, textScale: 2);
+      final p = tester.renderObject<RenderParagraph>(
+        _inPage(find.textContaining('Moderators only')),
+      );
+      expect(p.maxLines, 1);
+    });
+
+    for (final (name, error) in <(String, AppException)>[
+      (
+        'FEATURE_DISABLED (the flag is off)',
+        const FeatureDisabledException('off', feature: 'communities'),
+      ),
+      ('a network failure', const NetworkException('offline')),
+    ]) {
+      testWidgets('GetCommunity fails with $name: the subtitle stays '
+          'reserved and empty, and the log still renders', (tester) async {
+        final rig = CommunitiesTabletRig();
+        rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
+        rig.server.getError = error;
+        await rig.pump(tester, location: _log, width: 360, height: 900);
+        expect(find.textContaining('Moderators only'), findsNothing);
+        expect(find.text('@mo banned @member1'), findsOneWidget);
+        // The line is held: the first row is as low as with a name.
+        final held = tester.getTopLeft(find.byKey(const ValueKey('log-1'))).dy;
+        final named = CommunitiesTabletRig();
+        named.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
+        await named.pump(tester, location: _log, width: 360, height: 900);
+        expect(tester.getTopLeft(find.byKey(const ValueKey('log-1'))).dy, held);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('a viewer who cannot read the log (FORBIDDEN not_moderator) '
+        'sees the sentence and no "Moderators only" over it', (tester) async {
+      final rig = CommunitiesTabletRig();
+      rig.server.logError = CommunityForbiddenException(
+        CommunityForbiddenReason.notModerator,
+      );
+      await rig.pump(tester, location: _log, width: 360);
+      expect(find.text('Only moderators can do that.'), findsOneWidget);
+      expect(find.textContaining('Moderators only'), findsNothing);
+      expect(rig.server.count('get:'), 1);
     });
 
     testWidgets('RTL and 2.0 at 360: nothing overflows', (tester) async {

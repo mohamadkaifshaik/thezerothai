@@ -34,9 +34,14 @@ class UserListRow extends StatelessWidget {
     this.extraAction,
     this.followSource = FollowSource.list,
     this.avatarRadius = 20,
-    this.inset = AppSpacing.md,
+    this.horizontalInset = AppSpacing.md,
     this.verticalInset = AppSpacing.sm,
+    this.handleStyle,
   });
+
+  /// Merged over the @handle line's style (the community members page draws
+  /// the design's 13 sp).
+  final TextStyle? handleStyle;
 
   /// The row's top and bottom padding; the community members page uses the
   /// design's 12.
@@ -46,9 +51,10 @@ class UserListRow extends StatelessWidget {
   /// community members page draws the design's 44 dp avatar (22).
   final double avatarRadius;
 
-  /// The row's start and end padding; the community members page uses the
-  /// design's 20.
-  final double inset;
+  /// The row's start padding, and its end padding too unless [onDismiss]
+  /// shows the dismiss button (the end is then `AppSpacing.xs`); the
+  /// community members page uses the design's 20.
+  final double horizontalInset;
 
   /// Where the row is shown, for the `follow` usage event.
   final FollowSource followSource;
@@ -127,8 +133,8 @@ class UserListRow extends StatelessWidget {
             child: Padding(
               // Directional, so RTL mirrors the gaps (T8b review note).
               padding: EdgeInsetsDirectional.only(
-                start: inset,
-                end: onDismiss == null ? inset : AppSpacing.xs,
+                start: horizontalInset,
+                end: onDismiss == null ? horizontalInset : AppSpacing.xs,
                 top: verticalInset,
                 bottom: verticalInset,
               ),
@@ -181,9 +187,9 @@ class UserListRow extends StatelessWidget {
                       '@${user.handle}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant)
+                          .merge(handleStyle),
                     ),
                   ],
                 ),

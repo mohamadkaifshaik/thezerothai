@@ -283,20 +283,34 @@ class _CommunityModerationLogScreenState
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
-                    ExcludeSemantics(
-                      excluding: _communityName.isEmpty,
-                      child: Text(
-                        _communityName.isEmpty
-                            ? ' '
-                            : '$_communityName · Moderators only',
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        // dz: 12 w600, muted.
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: context.appColors.secondaryOnRaised,
-                        ),
-                      ),
+                    // Not over a log the viewer cannot read (locked, gone, failed):
+                    // "Moderators only" would say it twice. The line is kept
+                    // either way.
+                    BlocBuilder<
+                      CommunityModerationLogCubit,
+                      ModerationLogState
+                    >(
+                      bloc: _log,
+                      buildWhen: (a, b) => a.status != b.status,
+                      builder: (context, log) {
+                        final show =
+                            _communityName.isNotEmpty &&
+                            log.status != ModerationLogStatus.error;
+                        return ExcludeSemantics(
+                          excluding: !show,
+                          child: Text(
+                            show ? '$_communityName · Moderators only' : ' ',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            // dz: 12 w600, muted.
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: context.appColors.secondaryOnRaised,
+                                ),
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),

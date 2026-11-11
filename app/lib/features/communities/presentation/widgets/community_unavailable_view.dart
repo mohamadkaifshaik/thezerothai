@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../shared/widgets/primitives/app_empty_view.dart';
+import '../../../../shared/widgets/primitives/app_pill_button.dart';
 
-/// "This Community is unavailable": the one calm state for a community
+/// "This community is unavailable": the one calm state for a community
 /// the server answers NOT_FOUND for. The server uses the same answer for a
 /// missing, suspended and hidden community, so the text never says which.
 /// [onUnpin] adds an "Unpin from Home" button (a pinned community the user can
 /// no longer open); [busy] disables it while the unpin is saved.
+///
+/// Drawn as States-Unavailable.dc.html `#un-community`: a 40 dp muted icon,
+/// a 17 sp w800 title, a 14 sp w500 muted sentence (line height 1.45) and an
+/// outline pill, centred, with 10 dp between them.
 class CommunityUnavailableView extends StatelessWidget {
   const CommunityUnavailableView({super.key, this.onUnpin, this.busy = false});
 
@@ -16,24 +20,52 @@ class CommunityUnavailableView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppEmptyView(
-      icon: Icons.groups_outlined,
-      title: 'This Community is unavailable',
-      subtitle: "You can't view this Community right now.",
-      action: onUnpin == null
-          ? null
-          : ConstrainedBox(
-              constraints: const BoxConstraints(
-                minHeight: AppSpacing.minTapTarget,
-              ),
-              child: OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size(88, AppSpacing.minTapTarget),
-                ),
-                onPressed: busy ? null : onUnpin,
-                child: const Text('Unpin from Home'),
-              ),
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.lg,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          ExcludeSemantics(
+            child: Icon(
+              Icons.groups_outlined,
+              size: AppIconSize.xl,
+              color: muted,
             ),
+          ),
+          const SizedBox(height: 10),
+          Semantics(
+            header: true,
+            child: Text(
+              'This community is unavailable',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleLarge?.copyWith(fontSize: 17),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            "You can't view this community right now.",
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: muted,
+              height: 1.45,
+            ),
+          ),
+          if (onUnpin != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            AppPillButton(
+              label: 'Unpin from Home',
+              variant: AppButtonVariant.outline,
+              onPressed: busy ? null : onUnpin,
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

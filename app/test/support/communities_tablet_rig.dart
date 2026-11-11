@@ -156,6 +156,9 @@ class FakeCommunitiesServer extends Mock implements CommunitiesRepository {
   /// The community's description (GetCommunity).
   String description = 'Openings, endgames and puzzles';
 
+  /// Non-null: GetCommunity fails with it (after its hold, if any).
+  AppException? getError;
+
   /// Non-null: GetCommunity waits for it (the page's loading state).
   Completer<void>? holdGet;
 
@@ -221,6 +224,8 @@ class FakeCommunitiesServer extends Mock implements CommunitiesRepository {
   Future<pb.GetCommunityResponse> getCommunity(String communityId) async {
     calls.add('get:$communityId');
     await holdGet?.future;
+    final error = getError;
+    if (error != null) throw error;
     return pb.GetCommunityResponse(
       community: _community(),
       rules: rules,

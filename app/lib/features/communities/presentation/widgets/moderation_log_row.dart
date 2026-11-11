@@ -95,6 +95,9 @@ IconData moderationLogIcon(ModerationLogAction action) => switch (action) {
   _ => Icons.shield_outlined,
 };
 
+/// The row's side padding (dz `14px 20px`).
+const kModerationLogInset = 20.0;
+
 /// The log entry tile's size (the design's 40 dp mark).
 const kModerationLogTileSize = 40.0;
 
@@ -136,7 +139,7 @@ class ModerationLogRow extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(
-          horizontal: 20, // dz: 14px 20px
+          horizontal: kModerationLogInset,
           vertical: AppSpacing.smd + 2,
         ),
         child: Row(

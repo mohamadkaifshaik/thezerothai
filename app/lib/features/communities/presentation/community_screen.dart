@@ -108,6 +108,56 @@ class _CommunityScreenState extends State<CommunityScreen> {
     );
   }
 
+  /// Whether the cover band has scrolled up past the status bar (see
+  /// [_withStatusScrim]).
+  final _bandGone = ValueNotifier<bool>(false);
+
+  /// Under the status bar the band is the page's top. Once it scrolls away,
+  /// the posts would pass under the status icons: a page-colour strip as tall
+  /// as the top inset (none without an inset) takes the place of the band
+  /// there. It is not a sliver of the scroll view (a pinned one would sit in
+  /// the flow under the band): a listener on the page's own vertical scroll
+  /// shows it.
+  Widget _withStatusScrim(BuildContext context, Widget page) {
+    final top = MediaQuery.paddingOf(context).top;
+    if (top <= 0) return page;
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: NotificationListener<ScrollNotification>(
+            onNotification: (n) {
+              if (n.depth == 0 &&
+                  n.metrics.axis == Axis.vertical &&
+                  (n is ScrollUpdateNotification ||
+                      n is ScrollEndNotification)) {
+                _bandGone.value = n.metrics.pixels > kCommunityCoverBandHeight;
+              }
+              return false;
+            },
+            child: page,
+          ),
+        ),
+        PositionedDirectional(
+          top: 0,
+          start: 0,
+          end: 0,
+          height: top,
+          child: ValueListenableBuilder<bool>(
+            valueListenable: _bandGone,
+            builder: (context, gone, _) => gone
+                ? IgnorePointer(
+                    child: ColoredBox(
+                      key: const ValueKey('community-status-scrim'),
+                      color: Theme.of(context).colorScheme.surface,
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ),
+      ],
+    );
+  }
+
   /// 0 = Posts, 1 = About (ephemeral UI state).
   int _tab = 0;
 
@@ -146,6 +196,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
   @override
   void dispose() {
     _paneLease.dispose();
+    _bandGone.dispose();
     _moderation.close();
     _timeline.close();
     _detail.close();
@@ -369,12 +420,16 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       selectedIndex: _tab,
                       equalWidth: true,
                       semanticLabel: 'Community sections',
-                      onChanged: (i) => setState(() => _tab = i),
+                      onChanged: (i) {
+                        _bandGone.value = false;
+                        setState(() => _tab = i);
+                      },
                     ),
                   ),
                 ];
+                final Widget page;
                 if (_tab == 1) {
-                  return AppMainColumn(
+                  page = AppMainColumn(
                     // On the tablet layout the scroll view spans the pane,
                     // as on the Posts tab (`TimelineFeedView`): a drag, a
                     // wheel or the scrollbar beside the column reach it,
@@ -408,20 +463,23 @@ class _CommunityScreenState extends State<CommunityScreen> {
                       },
                     ),
                   );
+                } else {
+                  page = TimelineFeedView(
+                    viewerUserId: viewerUserId,
+                    emptyTitle: 'No posts yet',
+                    emptySubtitle:
+                        'Posts in this Community will show up here. Counts and '
+                        'posts update when you refresh.',
+                    fillViewport: true,
+                    showPending: false,
+                    newPostsPillTop:
+                        MediaQuery.paddingOf(context).top + AppSpacing.sm + 4,
+                    unavailableView: const CommunityUnavailableView(),
+                    headerSlivers: headerSlivers,
+                    moderationControl: _moderationControl(state),
+                  );
                 }
-                return TimelineFeedView(
-                  viewerUserId: viewerUserId,
-                  emptyTitle: 'No posts yet',
-                  emptySubtitle:
-                      'Posts in this Community will show up here. Counts and '
-                      'posts update when you refresh.',
-                  fillViewport: true,
-                  showPending: false,
-                  newPostsPillTop: AppSize.headerRow + AppSpacing.sm,
-                  unavailableView: const CommunityUnavailableView(),
-                  headerSlivers: headerSlivers,
-                  moderationControl: _moderationControl(state),
-                );
+                return _withStatusScrim(context, page);
               },
             ),
           ),
