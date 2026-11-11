@@ -1044,4 +1044,35 @@ void main() {
       );
     }
   });
+
+  testWidgets('band B: the Follow buttons of the preview rows are real 48 dp '
+      'targets', (tester) async {
+    final rig = ListsTabletRig();
+    await _openList(tester, rig);
+    final follows = inContextPane(find.widgetWithText(FilledButton, 'Follow'));
+    expect(follows, findsNWidgets(kRigMembers.length));
+    for (final button in follows.evaluate()) {
+      final size = (button.renderObject! as RenderBox).size;
+      expect(size.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+      expect(size.width, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+    }
+  });
+
+  for (final w in <double>[744, 1024]) {
+    testWidgets('at $w with `location` on: still no "Nearby" tab in the '
+        'Home tabs preview', (tester) async {
+      final rig = ListsTabletRig()..server.pinRigList();
+      await _openPinned(
+        tester,
+        rig,
+        width: w,
+        flags: {...kListsTabletFlags, 'location'},
+      );
+      expect(
+        find.bySemanticsLabel('Home tabs preview: Following, Friends'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Nearby'), findsNothing);
+    });
+  }
 }
