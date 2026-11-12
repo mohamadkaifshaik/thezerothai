@@ -21,6 +21,7 @@ class AppBackHeader extends StatelessWidget {
     this.titleContent,
     this.actions = const [],
     this.leading,
+    this.subtitle,
   });
 
   final String title;
@@ -32,6 +33,11 @@ class AppBackHeader extends StatelessWidget {
   /// Replaces the back button (a root destination leads with the account
   /// avatar instead: there is nothing to go back to).
   final Widget? leading;
+
+  /// A muted line under the title (the tablet and desktop Creator Studio and
+  /// Calls bars); ignored with a [titleContent]. Not announced: the page
+  /// body says the same.
+  final String? subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -61,14 +67,7 @@ class AppBackHeader extends StatelessWidget {
                 Expanded(
                   child: Semantics(
                     header: true,
-                    child:
-                        titleContent ??
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleLarge,
-                        ),
+                    child: titleContent ?? _title(theme),
                   ),
                 ),
                 ...actions,
@@ -78,6 +77,34 @@ class AppBackHeader extends StatelessWidget {
         ),
         // Spans the pane on the tablet layout (the column's bleed).
         const AppFullBleed(child: Divider(height: 1)),
+      ],
+    );
+  }
+
+  Widget _title(ThemeData theme) {
+    final text = Text(
+      title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: theme.textTheme.titleLarge,
+    );
+    final subtitle = this.subtitle;
+    if (subtitle == null) return text;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        text,
+        ExcludeSemantics(
+          child: Text(
+            subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
       ],
     );
   }

@@ -5,8 +5,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
-import '../../../shared/widgets/primitives/app_empty_view.dart';
+import '../../../shared/widgets/primitives/app_coming_soon_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
 
 /// The address the "Email us" button writes to; `null` hides the whole
 /// contact affordance (plan W8, decision F4).
@@ -23,8 +24,9 @@ String? kAdvertisingContactEmail;
 const kAdvertisingMailSubject = 'Advertising%20enquiry';
 
 /// Advertise (`/advertise`, a shell of plan W8): says advertising is coming
-/// soon. No RPC, no repository, no form. The only action is the optional
-/// "Email us" button, off while [kAdvertisingContactEmail] is `null`.
+/// soon. No RPC, no repository, no form. The one button is "Email us" while
+/// [kAdvertisingContactEmail] is set and an off "Not available yet" while it
+/// is `null`.
 class AdvertiseScreen extends StatelessWidget {
   const AdvertiseScreen({super.key});
 
@@ -61,6 +63,7 @@ class AdvertiseScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final address = kAdvertisingContactEmail;
     final theme = Theme.of(context);
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
     return AppMainColumn(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -72,46 +75,44 @@ class AdvertiseScreen extends StatelessWidget {
                 : context.go(AppRouter.homePath),
           ),
           Expanded(
-            child: SingleChildScrollView(
+            child: Padding(
               // The floating bar's inset (`ui_shell`); 0 under the docked bar.
               padding: EdgeInsets.only(
                 bottom: MediaQuery.paddingOf(context).bottom,
               ),
-              child: Column(
-                children: [
-                  const AppEmptyView(
-                    icon: Icons.campaign_outlined,
-                    title: 'Advertising is coming soon',
-                    subtitle:
-                        "We don't sell ads or promoted posts yet, and there "
-                        'are no ads in your timeline.',
-                  ),
-                  if (address != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: AppSpacing.lg),
-                      child: Column(
+              child: AppComingSoonView(
+                icon: Icons.campaign_outlined,
+                eyebrow: 'Coming soon',
+                headline: 'Advertising is',
+                accent: 'coming',
+                body:
+                    "Reach people nearby with plans they'll actually want to "
+                    'join.',
+                action: address == null
+                    ? const AppPillButton(
+                        label: 'Not available yet',
+                        onPressed: null,
+                        size: AppButtonSize.large,
+                      )
+                    : Column(
+                        crossAxisAlignment: phone
+                            ? CrossAxisAlignment.center
+                            : CrossAxisAlignment.start,
                         children: [
                           Text(
                             'Want to talk about advertising?',
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
-                            textAlign: TextAlign.center,
                           ),
-                          TextButton(
-                            style: TextButton.styleFrom(
-                              minimumSize: const Size(
-                                AppSpacing.minTapTarget,
-                                AppSpacing.minTapTarget,
-                              ),
-                            ),
+                          const SizedBox(height: AppSpacing.sm),
+                          AppPillButton(
+                            label: 'Email us',
                             onPressed: () => _email(context, address),
-                            child: const Text('Email us'),
+                            size: AppButtonSize.large,
                           ),
                         ],
                       ),
-                    ),
-                ],
               ),
             ),
           ),
