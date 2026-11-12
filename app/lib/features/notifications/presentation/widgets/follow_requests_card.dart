@@ -9,7 +9,7 @@ import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_drawer.dart'
     show followRequestBadgeSpoken, followRequestBadgeText;
-import '../../../../core/widgets/context_pane.dart';
+import '../../../../core/widgets/context_pane.dart' show ContextPaneCard;
 import '../../../../core/widgets/context_pane_slots.dart';
 import '../../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../../shared/widgets/primitives/app_badge.dart';
@@ -36,8 +36,8 @@ const kSeeAllRequestsLabel = 'See all requests';
 ///
 /// The checks run in that order, so a caller without the flags or without
 /// pending requests never reaches the repository. Reads only what is loaded:
-/// 0 RPCs. The one rule of the tablet pane's section, the desktop side
-/// column's slot and the page's inline row, so the three cannot drift.
+/// 0 RPCs. The one rule of the desktop side column's card and the page's
+/// inline row, so the two cannot drift.
 bool followRequestsCardAllowed(BuildContext context) {
   if (!isFeatureEnabled(context, kFeatureNotifications)) return false;
   final features = context.select(
@@ -60,39 +60,19 @@ bool followRequestsCardAllowed(BuildContext context) {
 }
 
 /// Whether the follow-requests card shows beside the Notifications page at
-/// [context] (the page asks; then its inline row steps aside and it loads
-/// the card):
-/// - tablet band B: the context pane lists the card ([ContextPaneScope]);
-/// - desktop (1200 dp and up): `MainShell`'s side column holds its slot
-///   whenever [followRequestsCardAllowed] holds on `/notifications`.
+/// [context] (the page asks; then its inline row steps aside): on desktop
+/// (1200 dp and up) inside the shell, whenever [followRequestsCardAllowed]
+/// holds, because `MainShell`'s side column then draws the card.
 ///
-/// Never outside a shell (no [ContextPaneSlots]): nothing would draw it.
-bool followRequestsCardBeside(BuildContext context) {
-  if (ContextPaneSlots.maybeOf(context) == null) return false;
-  if (ContextPaneScope.shows(context, ContextSectionKind.followRequests)) {
-    return true;
-  }
-  return MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet &&
-      followRequestsCardAllowed(context);
-}
+/// Never outside a shell ([ContextPaneSlots] marks one): nothing would draw it.
+bool followRequestsCardBeside(BuildContext context) =>
+    ContextPaneSlots.maybeOf(context) != null &&
+    MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet &&
+    followRequestsCardAllowed(context);
 
-/// The card's slot in the tablet pane and the desktop side column: what the
-/// Notifications page lends, or [FollowRequestsCardPlaceholder] until it
-/// does.
-class FollowRequestsCardSlot extends StatelessWidget {
-  const FollowRequestsCardSlot({super.key});
-
-  @override
-  Widget build(BuildContext context) => const ContextPaneSlot(
-    kind: ContextSectionKind.followRequests,
-    location: AppRouter.notificationsPath,
-    placeholder: FollowRequestsCardPlaceholder(),
-  );
-}
-
-/// The card while its requests load, and the slot until the page has lent
-/// it: the same title, count, skeleton rows (as many as will show) and link,
-/// so the pane does not jump when the rows arrive.
+/// The card while its requests load: the same title, count, skeleton rows
+/// (as many as will show) and link, so the column does not jump when the
+/// rows arrive.
 class FollowRequestsCardPlaceholder extends StatelessWidget {
   const FollowRequestsCardPlaceholder({super.key});
 
@@ -117,9 +97,8 @@ class FollowRequestsCardPlaceholder extends StatelessWidget {
 /// `GetMe`, the first [kFollowRequestsPreviewLimit] requests, each with
 /// Accept, and "See all requests" to `/follow-requests`.
 ///
-/// Presentational: the Notifications page lends it over its own
-/// [FollowRequestsPreviewCubit] (`ContextPaneSlots`), so the pane makes no
-/// call of its own. Draws nothing without pending requests or when the
+/// Presentational over a [FollowRequestsPreviewCubit] state
+/// ([FollowRequestsSideCard] owns it). Draws nothing without pending requests or when the
 /// requests are unavailable; never a banner.
 class FollowRequestsCard extends StatelessWidget {
   const FollowRequestsCard({

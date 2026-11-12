@@ -1436,6 +1436,70 @@ abstract final class AppPickerLayout {
   static const double rowGap = 12;
 }
 
+/// Messages geometry (dzeroth-mobile Conversations, DraftThread and Chat; the
+/// tablet and desktop mocks' dz.css `.row`, `.bub`, `.search`). Phone gutters
+/// are 20 dp, tablet and desktop 16 dp. Colours come from the theme, gradients
+/// from [AppGradients].
+abstract final class AppMessagesLayout {
+  // Inbox rows.
+  static const double phoneGutter = 20;
+  static const double wideGutter = 16;
+  static const double avatar = 50;
+  static const double rowGap = 12;
+  static const double rowPaddingV = 12;
+
+  // The "Message requests" card: phone / tablet and desktop.
+  static const double requestsRadiusPhone = 20;
+  static const double requestsRadiusWide = 18;
+  static const double requestsInsetPhone = 20;
+  static const double requestsInsetWide = 12;
+  static const double requestsTopPhone = 10;
+  static const double requestsTopWide = 8;
+  static const double requestsPaddingH = 14;
+  static const double requestsPaddingV = 12;
+
+  /// The card's teal tint (the mock's 10 %).
+  static const double requestsTint = 0.10;
+
+  // The desktop side column's "Select a conversation" card.
+  static const double sideCardPaddingH = 28;
+  static const double sideCardPaddingV = 32;
+
+  // The thread header's avatar.
+  static const double headerAvatar = 42;
+
+  // Bubbles and the composer pill.
+  static const double bubbleRadius = 22;
+  static const double bubbleTail = 6;
+  static const double bubblePaddingH = 16;
+  static const double bubblePaddingV = 12;
+
+  /// The caller's bubble glows (0 8 18 teal 28 %); the peer's lifts (0 8 18
+  /// navy 12 %).
+  static const List<BoxShadow> mineShadow = [
+    BoxShadow(color: Color(0x4719D3BE), offset: Offset(0, 8), blurRadius: 18),
+  ];
+  static const List<BoxShadow> theirsShadow = [
+    BoxShadow(color: Color(0x1F0D1528), offset: Offset(0, 8), blurRadius: 18),
+  ];
+  static const double composerPhone = 52;
+  static const double composerWide = 50;
+  static const double composerGap = 10;
+
+  // The first-message hero: the rings behind the dot.
+  static const double heroOrbit = 120;
+  static const double heroOrbitInner = 22;
+  static const double heroDot = 14;
+  static const double heroRingOuterAlpha = 0.25;
+  static const double heroRingInnerAlpha = 0.45;
+  static const double heroRingInnerWidth = 1.5;
+  static const double heroDotHaloAlpha = 0.35;
+  static const double heroDotHalo = 4;
+  static const double heroDotGlowAlpha = 0.45;
+  static const double heroDotGlowBlur = 22;
+  static const double heroDotGlowSpread = 6;
+}
+
 /// Communities geometry per screen size (dp), from the dzeroth-mobile, tablet
 /// and desktop Communities, Community, CommunityMembers, ModLog and
 /// CreateCommunity mocks (dz.css `.card.row`, `.hero`, `.bar`). Colours come

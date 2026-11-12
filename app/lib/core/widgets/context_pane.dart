@@ -47,10 +47,6 @@ enum ContextSectionKind {
   /// `/plans/new`, `/plans/:id/edit`: "Tips for a good plan" (T8d).
   planTips,
 
-  /// `/notifications`: the first follow requests with Accept and "See all
-  /// requests" (F16, R8). The inline Follow requests row hides while it
-  /// shows.
-  followRequests,
 }
 
 /// One section of band B's context pane: a self-gating widget (it draws

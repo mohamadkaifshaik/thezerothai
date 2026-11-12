@@ -49,7 +49,7 @@ class ConversationsState {
   final bool loadingMore;
   final bool loadMoreFailed;
 
-  /// Pending message requests ("Message requests (N)"): the server sends it on
+  /// Pending message requests ("Message requests" card): the server sends it on
   /// an INBOX first page or since refresh; the repository persists the last
   /// one, so it is shown on a warm start and is null only before any was
   /// ever received.
