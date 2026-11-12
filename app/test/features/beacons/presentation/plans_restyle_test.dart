@@ -4,6 +4,8 @@ import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/beacons/domain/beacon_labels.dart';
 import 'package:dzeroth/features/beacons/presentation/beacon_people_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/beacon_row.dart';
+import 'package:dzeroth/features/beacons/presentation/widgets/plan_preview.dart'
+    show kPlanPreviewTitle;
 import 'package:dzeroth/features/beacons/presentation/widgets/plan_skeletons.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/plan_summary.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/plans_activity_filter.dart';
@@ -308,8 +310,18 @@ void main() {
         height: 1100,
         realForms: true,
       );
+      // No side column on the tablet layout: the preview is the header's
+      // Preview dialog.
+      await tester.tap(find.widgetWithText(TextButton, kPlanPreviewTitle));
+      await tester.pumpAndSettle();
       expect(
-        find.descendant(of: find.byType(PlanSummary), matching: _hero),
+        find.descendant(
+          of: find.descendant(
+            of: find.byType(Dialog),
+            matching: find.byType(PlanSummary),
+          ),
+          matching: _hero,
+        ),
         findsOneWidget,
       );
     });

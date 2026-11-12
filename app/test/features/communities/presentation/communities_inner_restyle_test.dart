@@ -18,7 +18,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/communities_tablet_rig.dart';
-import '../../../support/context_pane_rig.dart' show inContextPane;
 
 /// R10b: the four inner screens match the mobile designs
 /// (Community, CommunityMembers, CreateCommunity, ModLog). These pin the
@@ -199,7 +198,7 @@ void main() {
 
     // A device with a 44 dp status bar. The community's page (and only it)
     // draws its cover under the status bar: the band reaches the top edge and
-    // is 150 dp (the design's) on a phone and on the tablet pane, with Back
+    // is 150 dp (the design's) on a phone and on the tablet, with Back
     // below the status bar.
     for (final w in <double>[360, 599, 840, 1024]) {
       testWidgets('$w with a 44 dp status bar: the band is 150 dp from the '
@@ -514,14 +513,20 @@ void main() {
       await rig.pump(tester, location: AppRouter.communityNewPath, width: 1024);
       await tester.enterText(createFormField('Description'), 'Word ' * 80);
       await tester.pumpAndSettle();
-      final description = inContextPane(find.textContaining('Word Word'));
+      // No pane at any tablet width: the preview is the dialog behind the
+      // header action.
+      await tester.tap(find.widgetWithText(TextButton, 'Preview'));
+      await tester.pumpAndSettle();
+      Finder inDialog(Finder f) =>
+          find.descendant(of: find.byType(Dialog), matching: f);
+      final description = inDialog(find.textContaining('Word Word'));
       expect(tester.widget<Text>(description).maxLines, 2);
       final style = _styleOf(tester, description);
       expect(style.fontSize, 14);
       expect(style.fontWeight, FontWeight.w500);
       final standing = _styleOf(
         tester,
-        inContextPane(find.text('Owner · 1 member')),
+        inDialog(find.text('Owner · 1 member')),
       );
       expect(standing.fontSize, 14);
       expect(standing.fontWeight, FontWeight.w700);

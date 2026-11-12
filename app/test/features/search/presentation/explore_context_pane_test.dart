@@ -14,10 +14,9 @@ import '../../../support/context_pane_rig.dart';
 import '../../../support/geometry.dart';
 import '../../../support/theme_harness.dart';
 
-/// Tablet plan T3, Explore (section 4.1: A "F + inl Who to follow", B
-/// "P: trends | Who to follow"): one card, one placement. Inline in Explore
-/// at every width and flag mode, except in band B of the tablet layout,
-/// where it is in the context pane and nowhere else.
+/// Explore on the tablet layout, which has no side context pane: "Who to
+/// follow" is inline in Explore (after the trends) at every width and flag
+/// mode, in band B (840-1199 dp) exactly as in band A, and nowhere else.
 void main() {
   Widget page(String path) => path == '/explore'
       ? const ExploreScreen()
@@ -30,29 +29,11 @@ void main() {
   Finder inExplore(Finder f) =>
       find.descendant(of: find.byType(ExploreScreen), matching: f);
 
-  for (final width in [840.0, 1024.0, 1199.0]) {
-    testWidgets('band B (${width.toInt()} dp): trends in Explore, Who to '
-        'follow in the pane only', (tester) async {
-      final rig = ContextPaneRig();
-      await rig.pump(tester, location: '/explore', width: width, page: page);
-
-      expect(inExplore(find.byType(ExploreTrendsSection)), findsOneWidget);
-      expect(inExplore(find.byType(WhoToFollowCard)), findsNothing);
-      expect(find.byType(WhoToFollowCard), findsOneWidget);
-      expect(inContextPane(find.text('Who to follow')), findsOneWidget);
-      expect(inContextPane(find.byType(UserListRow)), findsNWidgets(3));
-      // No search pill and no What's happening beside Explore: the page has
-      // its own field and the full trends.
-      expect(inContextPane(find.text("What's happening")), findsNothing);
-      expect(rig.suggestionCalls, 1);
-      expect(rig.trendCalls, 1);
-      expectNoOverflow(tester);
-    });
-  }
-
-  for (final width in [600.0, 834.0]) {
-    testWidgets('band A (${width.toInt()} dp): Who to follow inline after '
-        'the trends', (tester) async {
+  // Band A (600, 834) and band B (840, 1024, 1199) draw the same thing.
+  for (final width in [600.0, 834.0, 840.0, 1024.0, 1199.0]) {
+    final band = width >= AppBreakpoints.expanded ? 'band B' : 'band A';
+    testWidgets('$band (${width.toInt()} dp): no pane, Who to follow inline '
+        'after the trends', (tester) async {
       final rig = ContextPaneRig();
       await rig.pump(
         tester,
@@ -63,7 +44,15 @@ void main() {
       );
 
       expect(findContextPane(), findsNothing);
+      expect(find.byKey(const ValueKey('tablet-context-pane')), findsNothing);
+      expect(
+        tester.widget<ContextPaneScope>(find.byType(ContextPaneScope)).shown,
+        isEmpty,
+      );
+      expect(inExplore(find.byType(ExploreTrendsSection)), findsOneWidget);
+      expect(find.byType(WhoToFollowCard), findsOneWidget);
       expect(inExplore(find.byType(WhoToFollowCard)), findsOneWidget);
+      expect(inExplore(find.byType(UserListRow)), findsNWidgets(3));
       expect(
         tester.getTopLeft(inExplore(find.text('Who to follow'))).dy,
         greaterThan(
@@ -71,6 +60,7 @@ void main() {
         ),
       );
       expect(rig.suggestionCalls, 1);
+      expectNoOverflow(tester);
     });
   }
 
@@ -126,9 +116,8 @@ void main() {
     );
   });
 
-  testWidgets('band B without follow suggestions: no card in either place', (
-    tester,
-  ) async {
+  testWidgets('band B without follow suggestions: no card, nothing asked, '
+      'no pane', (tester) async {
     final rig = ContextPaneRig();
     await rig.pump(
       tester,
@@ -139,38 +128,44 @@ void main() {
 
     expect(find.byType(WhoToFollowCard), findsNothing);
     expect(rig.suggestionCalls, 0);
-    expect(inContextPane(find.text('Privacy Policy')), findsOneWidget);
+    expect(findContextPane(), findsNothing);
   });
 
-  testWidgets('a resize across 840 moves the card between the pane and the '
-      'page, with the same rows', (tester) async {
+  testWidgets('a resize across 840 changes nothing: the card stays inline '
+      'with the same rows, no pane', (tester) async {
     final rig = ContextPaneRig();
     await rig.pump(
       tester,
       location: '/explore',
-      width: 1024,
+      width: 834,
       height: 2400,
       page: page,
     );
-    expect(inContextPane(find.byType(WhoToFollowCard)), findsOneWidget);
 
-    tester.view.physicalSize = const Size(834, 2400);
-    await tester.pumpAndSettle();
-    expect(findContextPane(), findsNothing);
-    expect(inExplore(find.byType(WhoToFollowCard)), findsOneWidget);
-
-    tester.view.physicalSize = const Size(1024, 2400);
-    await tester.pumpAndSettle();
-    expect(inExplore(find.byType(WhoToFollowCard)), findsNothing);
-    expect(inContextPane(find.byType(WhoToFollowCard)), findsOneWidget);
-    expect(inContextPane(find.byType(UserListRow)), findsNWidgets(3));
-    // Each mount asks the shared cubit (the real repository answers a warm
-    // call from memory, 0 RPCs); trends are one call per five minutes.
+    for (final width in [834.0, 840.0, 1024.0, 839.0]) {
+      tester.view.physicalSize = Size(width, 2400);
+      await tester.pumpAndSettle();
+      expect(findContextPane(), findsNothing, reason: '$width');
+      expect(
+        inExplore(find.byType(WhoToFollowCard)),
+        findsOneWidget,
+        reason: '$width',
+      );
+      expect(
+        inExplore(find.byType(UserListRow)),
+        findsNWidgets(3),
+        reason: '$width',
+      );
+      expectNoOverflow(tester);
+    }
+    // Trends are one call per five minutes.
     expect(rig.trendCalls, 1);
   });
 
+  // The tablet matrix (plan section 5.5): 5 widths x 2 scales x 2 themes,
+  // plus 840, the first band B width.
   forEachThemeAndWidth(
-    'band B: Explore and the pane fit at the narrowest primary',
+    'tablet matrix: Explore fills the content, the card inline, no pane',
     (tester, env) async {
       final rig = ContextPaneRig();
       await rig.pump(
@@ -184,56 +179,25 @@ void main() {
       );
 
       expectNoOverflow(tester);
-      final primary = tester.getRect(find.byType(ExploreScreen));
-      expect(primary.left, AppSize.railCompact);
-      expect(primary.width, env.size.width == 840 ? 439 : 623);
-      expect(inContextPane(find.byType(UserListRow)), findsNWidgets(3));
-    },
-    widths: const [840, 1024],
-    textScales: kTabletTextScales,
-    heights: {840: 1194, 1024: 768},
-  );
-
-  // The tablet matrix (plan section 5.5): 5 widths x 2 scales x 2 themes.
-  forEachThemeAndWidth(
-    'tablet matrix: Explore fits its pane, the card in one place',
-    (tester, env) async {
-      final rig = ContextPaneRig();
-      await rig.pump(
+      expectTabletPanes(
         tester,
-        location: '/explore',
-        width: env.size.width,
-        height: env.size.height,
-        brightness: env.brightness,
-        textScale: env.textScale,
-        page: page,
+        find.byType(ExploreScreen),
+        env.size.width,
+        hasPane: false,
       );
-
-      expectNoOverflow(tester);
-      expectTabletPanes(tester, find.byType(ExploreScreen), env.size.width);
-      final bandB = env.size.width >= AppBreakpoints.expanded;
-      if (!bandB) {
-        // Inline at the end of the page: build it (a lazy list).
-        await tester.scrollUntilVisible(
-          inExplore(find.byType(WhoToFollowCard)),
-          300,
-          scrollable: inExplore(find.byType(Scrollable)).first,
-        );
-        await tester.pumpAndSettle();
-        expectNoOverflow(tester);
-      }
-      expect(find.byType(WhoToFollowCard), findsOneWidget);
-      expect(
-        inContextPane(find.byType(WhoToFollowCard)),
-        bandB ? findsOneWidget : findsNothing,
-      );
-      expect(
+      // Inline at the end of the page: build it (a lazy list).
+      await tester.scrollUntilVisible(
         inExplore(find.byType(WhoToFollowCard)),
-        bandB ? findsNothing : findsOneWidget,
+        300,
+        scrollable: inExplore(find.byType(Scrollable)).first,
       );
+      await tester.pumpAndSettle();
+      expectNoOverflow(tester);
+      expect(find.byType(WhoToFollowCard), findsOneWidget);
+      expect(inExplore(find.byType(WhoToFollowCard)), findsOneWidget);
     },
-    widths: kTabletMatrixWidths,
+    widths: [...kTabletMatrixWidths, 840],
     textScales: kTabletTextScales,
-    heights: kTabletHeights,
+    heights: {...kTabletHeights, 840: 1194},
   );
 }

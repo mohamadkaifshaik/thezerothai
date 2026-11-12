@@ -418,13 +418,6 @@ class MainShell extends StatelessWidget {
         : split
         ? splitFolder
         : messagesShellMasterFolder(_shellTopLocation(context) ?? location);
-    // The context pane's route (T8a): the communities pages are pushed, so
-    // there the shell navigator's top page decides, as for Plans; elsewhere
-    // the base route, as before (`contextPaneLocationFor`). The split page's
-    // shell navigator belongs to another page, so it keeps its location.
-    final paneLocation = tabletLayout && !split
-        ? contextPaneLocationFor(location, _shellTopLocation(context))
-        : location;
 
     // The desktop side column's route: a profile pushed over another page
     // decides, as for the tablet pane.
@@ -518,11 +511,11 @@ class MainShell extends StatelessWidget {
                 split: split,
               )
             : null,
-        // Band B's context pane (tablet layout only; the scaffold shows it
-        // from 840dp). Desktop keeps the side column below (ruling R-1).
-        contextSections: tabletLayout
-            ? contextSectionsFor(paneLocation, context)
-            : null,
+        // No context pane on the tablet layout: none of the tablet designs
+        // has a side column (rail + the centred column, list-detail where a
+        // page has one), so every page keeps its inline sections as in band
+        // A. Desktop keeps its side column (ruling R-1).
+        contextSections: null,
         selectedIndex: selectedIndex == null || selectedIndex < 0
             ? null
             : selectedIndex,

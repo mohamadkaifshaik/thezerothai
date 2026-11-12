@@ -4,10 +4,10 @@ import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/profile/presentation/edit_profile_screen.dart';
+import 'package:dzeroth/features/profile/presentation/profile_screen.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/edit_profile_preview.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_cover_band.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
-import 'package:dzeroth/features/profile/presentation/widgets/profile_media_strip.dart';
 import 'package:dzeroth/features/search/presentation/widgets/app_search_field.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
@@ -439,7 +439,7 @@ void main() {
       await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
       await tester.pumpAndSettle();
       expect(rig.uri.path, AppRouter.profilePath(kRigOwnHandle));
-      expect(findContextPane(), findsOneWidget);
+      expect(findContextPane(), findsNothing);
     });
 
     testWidgets('the own profile pushed over Home, then Edit profile: no '
@@ -448,8 +448,8 @@ void main() {
       await rig.pump(tester, width: 1024, location: AppRouter.homePath);
       unawaited(rig.router.push(AppRouter.profileByIdPath(kRigOwnId)));
       await tester.pumpAndSettle();
-      expect(findContextPane(), findsOneWidget);
-      expect(find.byType(ProfileMediaStrip), findsOneWidget);
+      expect(find.byType(ProfileScreen), findsOneWidget);
+      expect(findContextPane(), findsNothing);
 
       await tester.tap(find.widgetWithText(FilledButton, 'Edit profile'));
       await tester.pumpAndSettle();
@@ -460,7 +460,8 @@ void main() {
 
       await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
       await tester.pumpAndSettle();
-      expect(find.byType(ProfileMediaStrip), findsOneWidget);
+      expect(find.byType(ProfileScreen), findsOneWidget);
+      expect(findContextPane(), findsNothing);
     });
   });
 
