@@ -6,7 +6,7 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/auth/presentation/sign_in_screen.dart';
 import 'package:dzeroth/features/auth/presentation/sign_up_screen.dart';
-import 'package:dzeroth/features/auth/presentation/widgets/auth_design.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -61,9 +61,6 @@ void main() {
     ) async {
       await tester.pumpWidget(wrap(authBloc));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Continue with Email'));
-      await tester.tap(find.text('Continue with Email'));
-      await tester.pumpAndSettle();
 
       await tester.enterText(
         find.byType(TextFormField).at(0),
@@ -71,10 +68,8 @@ void main() {
       );
       await tester.enterText(find.byType(TextFormField).at(1), 'password1');
       await tester.enterText(find.byType(TextFormField).at(2), 'password2');
-      await tester.ensureVisible(
-        find.widgetWithText(AuthActionButton, 'Create account'),
-      );
-      await tester.tap(find.widgetWithText(AuthActionButton, 'Create account'));
+      await tester.ensureVisible(find.widgetWithText(AppPillButton, 'Sign up'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Sign up'));
       await tester.pump();
 
       expect(find.text('Passwords do not match'), findsOneWidget);
@@ -98,9 +93,6 @@ void main() {
 
       await tester.pumpWidget(wrap(authBloc));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Continue with Email'));
-      await tester.tap(find.text('Continue with Email'));
-      await tester.pumpAndSettle();
 
       await tester.enterText(
         find.byType(TextFormField).at(0),
@@ -108,10 +100,8 @@ void main() {
       );
       await tester.enterText(find.byType(TextFormField).at(1), 'password1');
       await tester.enterText(find.byType(TextFormField).at(2), 'password1');
-      await tester.ensureVisible(
-        find.widgetWithText(AuthActionButton, 'Create account'),
-      );
-      await tester.tap(find.widgetWithText(AuthActionButton, 'Create account'));
+      await tester.ensureVisible(find.widgetWithText(AppPillButton, 'Sign up'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Sign up'));
       await tester.pumpAndSettle();
 
       verify(
@@ -125,7 +115,7 @@ void main() {
     testWidgets('navigates back to sign-in', (tester) async {
       await tester.pumpWidget(wrap(authBloc));
 
-      final signInLink = find.text('Log in ↗');
+      final signInLink = find.widgetWithText(TextButton, 'Log in');
       await tester.ensureVisible(signInLink);
       await tester.tap(signInLink);
       await tester.pumpAndSettle();
@@ -144,7 +134,8 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('Privacy Policy'), findsOneWidget);
+      // The consent line and the tablet footer (the default 800x600 view).
+      expect(find.text('Privacy Policy'), findsNWidgets(2));
     });
   });
 

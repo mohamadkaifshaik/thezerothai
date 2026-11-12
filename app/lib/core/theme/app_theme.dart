@@ -1390,3 +1390,95 @@ abstract final class AppSettingsLayout {
   /// Row titles in both looks: 15 sp, the UI weight.
   static const double titleSize = 15;
 }
+
+/// Splash, sign-in and sign-up geometry per screen size (dp), from the
+/// dzeroth-mobile, tablet and desktop Splash / SignIn / SignUp mocks. Colours
+/// come from the theme, gradients from [AppGradients].
+abstract final class AppAuthLayout {
+  // Teal rings: (diameter, alpha) from the inside out.
+  static const List<(double, double)> phoneRings = [
+    (112, .4),
+    (208, .24),
+    (320, .12),
+  ];
+  static const List<(double, double)> wideRings = [
+    (180, .4),
+    (300, .24),
+    (420, .12),
+    (600, .08),
+    (820, .05),
+  ];
+  static const List<(double, double)> splashPhoneRings = [
+    (140, .4),
+    (260, .24),
+    (400, .12),
+    (560, .06),
+  ];
+  static const List<(double, double)> splashWideRings = [
+    (220, .4),
+    (380, .24),
+    (560, .12),
+    (760, .08),
+    (980, .05),
+  ];
+
+  /// Phone ring centre, from the top-right corner.
+  static const Offset phoneRingsFromTopEnd = Offset(60, 120);
+
+  /// Tablet ring centre, from the top-right corner.
+  static const Offset tabletRingsFromTopEnd = Offset(210, 260);
+
+  // Phone page.
+  static const double phonePaddingH = 24;
+  static const double phonePaddingTop = 12;
+  static const double phonePaddingBottom = 24;
+  static const double phoneDisplaySize = 40;
+  static const double phoneFieldGap = 12;
+  static const double phoneHeaderTop = 12;
+  static const double phoneFieldsTop = 16;
+
+  // Tablet page (one centred column).
+  static const double tabletPaddingH = 64;
+  static const double tabletPaddingV = 48;
+  static const double tabletFormWidth = 540;
+
+  // Desktop split: hero 1.6 : form 1.
+  static const int desktopHeroFlex = 16;
+  static const int desktopFormFlex = 10;
+  static const double desktopHeroPaddingH = 72;
+  static const double desktopHeroPaddingV = 56;
+  static const double desktopFormPaddingH = 64;
+  static const double desktopFormWidth = 470;
+  static const double heroDisplayMax = 88;
+  static const double heroDisplayMin = 56;
+  static const double heroBodySize = 22;
+  static const double heroBodyWidth = 520;
+
+  /// Form headline on tablet and desktop.
+  static const double wideDisplaySize = 52;
+
+  // Shared form rhythm.
+  static const double eyebrowGap = 14;
+  static const double fieldsTop = 32;
+  static const double fieldGap = 16;
+  static const double fieldLabelGap = 6;
+  static const double actionsGap = 14;
+  static const double dividerGap = 22;
+  static const double socialGap = 10;
+  static const double socialHeight = 52;
+  static const double socialMarkSize = 18;
+
+  // Splash.
+  static const double splashLogoPhone = 104;
+  static const double splashLogoWide = 150;
+  static const double splashLogoRadiusPhone = 28;
+  static const double splashLogoRadiusWide = 40;
+  static const double splashLogoHalo = 10;
+  static const double splashWordmarkPhone = 18;
+  static const double splashWordmarkWide = 22;
+  static const double splashGap = 26;
+  static const double splashTaglineTop = 40;
+  static const double splashLoaderBottom = 64;
+  static const Size splashPill = Size(22, 8);
+  static const double splashPillGap = 10;
+}
