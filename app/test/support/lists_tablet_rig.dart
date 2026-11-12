@@ -221,8 +221,7 @@ class FakeListsServer {
       );
     }
     if (input is pb.GetListRequest) {
-      if (listGone)
-        throw connect.ConnectException(connect.Code.notFound, 'gone');
+      if (listGone) throw connect.ConnectException(connect.Code.notFound, 'gone');
       return pb.GetListResponse(list: header);
     }
     if (input is pb.ListListMembersRequest) {
