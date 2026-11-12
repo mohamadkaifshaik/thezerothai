@@ -224,10 +224,19 @@ abstract final class AppSize {
   /// section 4.1, Composer row).
   static const double composerDialogMaxHeight = 720;
 
+  /// The character ring of the reply composer (ReplyComposer mocks): 26 dp
+  /// on a phone, 24 dp in the dialog.
+  static const double counterRingPhone = 26;
+  static const double counterRing = 24;
+
   /// Width range of a confirm or alert dialog on the tablet layout ("D
   /// 280-400", tablet plan section 4.2).
   static const double alertDialogMin = 280;
   static const double alertDialogMax = 400;
+
+  /// Width of the scheduled post editor on tablet and desktop (the Schedule
+  /// dialog is 440; the editor carries a text field too).
+  static const double editScheduledDialog = 480;
 
   /// Width of a side sheet (the chat info sheet).
   static const double sideSheet = 360;
@@ -1243,6 +1252,13 @@ abstract final class AppTypeTokens {
   static const double bodyLineHeight = 1.42;
   static const double focalPostSize = 17;
   static const double focalPostLineHeight = 24;
+
+  /// The reply composer's text (ReplyComposer mocks): 19 sp full screen on a
+  /// phone, 20 sp in the tablet and desktop dialog, at 1.35 / 1.4.
+  static const double replyFieldSizePhone = 19;
+  static const double replyFieldLineHeightPhone = 1.35;
+  static const double replyFieldSizeDialog = 20;
+  static const double replyFieldLineHeightDialog = 1.4;
   static const FontWeight weightDisplay = FontWeight.w800;
   static const FontWeight weightUi = FontWeight.w700;
   static const FontWeight weightLabel = FontWeight.w600;
@@ -1520,4 +1536,29 @@ abstract final class AppAuthLayout {
   static const double splashLoaderBottom = 64;
   static const Size splashPill = Size(22, 8);
   static const double splashPillGap = 10;
+}
+
+/// Scheduled posts geometry per screen size (dp): the dzeroth-mobile,
+/// tablet and desktop Scheduled mocks' cards. The card itself is
+/// `AppCard` (the `card` gradient, radius and shadow).
+abstract final class AppScheduledLayout {
+  // Phone list: 16 x 20 padding, 14 between cards.
+  static const double phoneListPaddingH = 20;
+  static const double phoneListPaddingV = 16;
+  static const double phoneCardGap = 14;
+  static const double phoneTimeSize = 13;
+  static const double phoneTextSize = 15;
+  static const double phoneTextGap = 10;
+
+  // Tablet / desktop: 12 x 16 card margins, 18 x 20 padding.
+  static const double wideCardGap = 24;
+  static const double wideCardPaddingH = 20;
+  static const double wideCardPaddingV = 18;
+  static const double wideTimeSize = 14;
+  static const double wideTextSize = 16;
+  static const double wideTextGap = 10;
+  static const double wideActionsGap = 14;
+
+  /// The clock glyph sits on the time line's cap height.
+  static const double iconTop = 2;
 }

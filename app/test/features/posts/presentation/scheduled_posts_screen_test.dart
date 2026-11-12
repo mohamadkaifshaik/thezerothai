@@ -11,6 +11,8 @@ import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
 import 'package:dzeroth/shared/format/scheduled_time.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_notice_banner.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +20,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../support/scheduled_fixtures.dart';
+import '../../../support/scheduled_flags.dart';
 
 class _MockPostsRepository extends Mock implements PostsRepository {}
 
@@ -78,6 +81,7 @@ void main() {
     Brightness brightness = Brightness.light,
     double textScale = 1,
     bool settle = true,
+    Set<String> flags = kScheduledListOnly,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -102,13 +106,16 @@ void main() {
             value: (error, stack) {},
           ),
         ],
-        child: MaterialApp.router(
-          routerConfig: router,
-          theme: buildAppTheme(brightness: brightness),
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: TextScaler.linear(textScale)),
-            child: child!,
+        child: BlocProvider<OnboardingBloc>.value(
+          value: onboardingWithFlags(flags),
+          child: MaterialApp.router(
+            routerConfig: router,
+            theme: buildAppTheme(brightness: brightness),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!,
+            ),
           ),
         ),
       ),
@@ -624,7 +631,9 @@ void main() {
         tester.getTopLeft(find.text('Cancel')).dy,
         greaterThan(tester.getBottomLeft(find.textContaining('word word')).dy),
       );
-      final button = tester.getRect(find.widgetWithText(TextButton, 'Cancel'));
+      final button = tester.getRect(
+        find.widgetWithText(AppPillButton, 'Cancel'),
+      );
       expect(button.height, greaterThanOrEqualTo(48));
       expect(button.right, lessThanOrEqualTo(320));
     });

@@ -213,6 +213,50 @@ class PostsRepository {
     return response.scheduledPost;
   }
 
+  /// Publishes a PENDING scheduled post now (`PublishScheduledPostNow`).
+  /// Returns the item's state: PUBLISHED (with its post id) on success, and
+  /// PUBLISHED or CANCELLED as it already was when the sweep or another
+  /// device got there first. Idempotent by state; pass a fresh key per tap.
+  Future<pb.ScheduledPost> publishScheduledPostNow({
+    required String scheduledId,
+    required String idempotencyKey,
+  }) async {
+    final response = await _gate.run(
+      () => _apiClient.posts.publishScheduledPostNow(
+        pb.PublishScheduledPostNowRequest(
+          idempotencyKey: idempotencyKey,
+          scheduledId: scheduledId,
+        ),
+      ),
+    );
+    return response.scheduledPost;
+  }
+
+  /// Edits a PENDING scheduled post (`UpdateScheduledPost`): only the fields
+  /// given change ([text] by the CreatePost rules, [publishAt] as UTC,
+  /// truncated to the minute by the server). Returns the item after the
+  /// edit.
+  Future<pb.ScheduledPost> updateScheduledPost({
+    required String scheduledId,
+    required String idempotencyKey,
+    String? text,
+    DateTime? publishAt,
+  }) async {
+    final response = await _gate.run(
+      () => _apiClient.posts.updateScheduledPost(
+        pb.UpdateScheduledPostRequest(
+          idempotencyKey: idempotencyKey,
+          scheduledId: scheduledId,
+          text: text,
+          publishAt: publishAt == null
+              ? null
+              : Timestamp.fromDateTime(publishAt.toUtc()),
+        ),
+      ),
+    );
+    return response.scheduledPost;
+  }
+
   /// Sign-out or a switch of account: the next account must not inherit the
   /// previous one's hold.
   void clearSession() => _hold.clear();
