@@ -18,7 +18,9 @@ void main() {
     AppRouter.listsPath: ContextFamily.global,
     '/lists/l1/members': ContextFamily.global,
     AppRouter.plansMinePath: ContextFamily.global,
-    '/post/p1': ContextFamily.global,
+    // The tablet PostDetail and PostThread designs: no pane.
+    '/post/p1': ContextFamily.none,
+    '/post/p1/photo/0': ContextFamily.none,
     // P with the family's own list.
     AppRouter.explorePath: ContextFamily.explore,
     AppRouter.notificationsPath: ContextFamily.notifications,
@@ -156,10 +158,11 @@ void main() {
       // over the own profile (the global set): their own family.
       ('/profile/alice', '/u/u1/lists'): '/u/u1/lists',
       ('/profile/alice', '/post/p1'): '/post/p1',
-      // Neither side is a communities or profile page: T3's base-route rule,
-      // unchanged.
-      ('/explore', '/post/p1'): '/explore',
-      ('/home', '/post/p1'): '/home',
+      // A post pushed from a feed decides its own (no) pane.
+      ('/explore', '/post/p1'): '/post/p1',
+      ('/home', '/post/p1'): '/post/p1',
+      // A page pushed over a post: its own family.
+      ('/post/p1', '/plans/mine'): '/plans/mine',
       // Not a prefix match: `/profiles` and `/user` are not profile pages.
       ('/home', '/profiles'): '/home',
       ('/home', '/user/u1'): '/home',
