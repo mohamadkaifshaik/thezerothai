@@ -501,22 +501,23 @@ void main() {
       });
     });
 
-    testWidgets('a row shows rank, name and compact count; tap searches', (
-      tester,
-    ) async {
-      final search = FakeSearchRepository()
-        ..trendsResult = TrendsResult(
-          trends: [trend(1, tag: 'launch', posts: 1200)],
-          computedAt: DateTime.now(),
-        );
-      await pump(tester, flags: withTrends, search: search);
-      expect(find.text('1 · Trending'), findsOneWidget);
-      expect(find.text('#launch'), findsOneWidget);
-      expect(find.text('1.2K posts'), findsOneWidget);
-      await tester.tap(find.text('#launch'));
-      await tester.pumpAndSettle();
-      expect(find.text('search q=#launch'), findsOneWidget);
-    });
+    testWidgets(
+      'a row shows the 01 rank, name and compact count; tap searches',
+      (tester) async {
+        final search = FakeSearchRepository()
+          ..trendsResult = TrendsResult(
+            trends: [trend(1, tag: 'launch', posts: 1200)],
+            computedAt: DateTime.now(),
+          );
+        await pump(tester, flags: withTrends, search: search);
+        expect(find.text('01'), findsOneWidget);
+        expect(find.text('#launch'), findsOneWidget);
+        expect(find.text('1.2K posts'), findsOneWidget);
+        await tester.tap(find.text('#launch'));
+        await tester.pumpAndSettle();
+        expect(find.text('search q=#launch'), findsOneWidget);
+      },
+    );
 
     testWidgets('empty list: Nothing is trending yet', (tester) async {
       final search = FakeSearchRepository()

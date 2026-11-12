@@ -17,6 +17,17 @@ import '../../../support/geometry.dart';
 import '../../../support/suggestions_fixtures.dart' show suggestedUser;
 import '../../../support/theme_harness.dart';
 
+/// Accept or Decline: a pill with words from 600 dp, a round icon button
+/// (a check or a cross) on a phone.
+Finder answer(String label) => find.byWidgetPredicate(
+  (w) =>
+      (w is AppPillButton && w.label == label) ||
+      (w is IconButton &&
+          w.icon is Icon &&
+          (w.icon as Icon).icon ==
+              (label == 'Accept' ? Icons.check : Icons.close)),
+);
+
 class _MockGraph extends Mock implements GraphRepository {}
 
 class _MockOnboarding extends MockBloc<OnboardingEvent, OnboardingState>
@@ -104,8 +115,8 @@ void main() {
     textScale: 1,
   );
 
-  final accept = find.widgetWithText(AppPillButton, 'Accept');
-  final decline = find.widgetWithText(AppPillButton, 'Decline');
+  final accept = answer('Accept');
+  final decline = answer('Decline');
 
   group('the row controls never cover the name or the lock', () {
     forEachThemeAndWidth('long name, protected requester', (tester, env) async {
@@ -138,7 +149,7 @@ void main() {
       final text = find.text('No follow requests');
       expect(text, findsOneWidget);
       expectInsideHorizontally(tester, text, env.size.width);
-      expect(find.widgetWithText(AppPillButton, 'Accept'), findsNothing);
+      expect(answer('Accept'), findsNothing);
     }, textScales: kMatrixTextScalesLarge);
 
     forEachThemeAndWidth('error: a 48dp Retry that reloads', (
@@ -191,7 +202,7 @@ void main() {
       expect(title, findsOneWidget);
       expectInsideHorizontally(tester, title, env.size.width);
       expect(find.text('Retry'), findsNothing);
-      expect(find.widgetWithText(AppPillButton, 'Accept'), findsNothing);
+      expect(answer('Accept'), findsNothing);
     }, textScales: kMatrixTextScalesLarge);
   });
 

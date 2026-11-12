@@ -24,6 +24,17 @@ import '../../../support/geometry.dart';
 import '../../../support/suggestions_fixtures.dart' show suggestedUser;
 import '../../../support/theme_harness.dart';
 
+/// Accept or Decline: a pill with words from 600 dp, a round icon button
+/// (a check or a cross) on a phone.
+Finder answer(String label) => find.byWidgetPredicate(
+  (w) =>
+      (w is AppPillButton && w.label == label) ||
+      (w is IconButton &&
+          w.icon is Icon &&
+          (w.icon as Icon).icon ==
+              (label == 'Accept' ? Icons.check : Icons.close)),
+);
+
 class _MockGraph extends Mock implements GraphRepository {}
 
 class _MockOnboarding extends MockBloc<OnboardingEvent, OnboardingState>
@@ -128,13 +139,10 @@ void main() {
 
     expectNoOverflow(tester);
     expect(find.text('Follow requests'), findsOneWidget);
-    expect(find.widgetWithText(AppPillButton, 'Accept'), findsNWidgets(2));
-    expect(find.widgetWithText(AppPillButton, 'Decline'), findsNWidgets(2));
+    expect(answer('Accept'), findsNWidgets(2));
+    expect(answer('Decline'), findsNWidgets(2));
     expect(find.byType(ProtectedBadge), findsWidgets);
-    for (final finder in [
-      find.widgetWithText(AppPillButton, 'Accept'),
-      find.widgetWithText(AppPillButton, 'Decline'),
-    ]) {
+    for (final finder in [answer('Accept'), answer('Decline')]) {
       for (var i = 0; i < 2; i++) {
         expectMinTarget(tester, finder.at(i));
         expectInsideHorizontally(tester, finder.at(i), env.size.width);
@@ -272,7 +280,7 @@ void main() {
     ]);
     stubRespond(state: graph.FollowState.FOLLOW_STATE_FOLLOWING);
     await open(tester);
-    await tester.tap(find.widgetWithText(AppPillButton, 'Accept'));
+    await tester.tap(answer('Accept'));
     await tester.pumpAndSettle();
     expect(find.text('Accepted @user1.'), findsOneWidget);
     expect(find.text('Follow back'), findsNothing);
@@ -284,7 +292,7 @@ void main() {
     ]);
     stubRespond();
     await open(tester);
-    await tester.tap(find.widgetWithText(AppPillButton, 'Decline'));
+    await tester.tap(answer('Decline'));
     await tester.pumpAndSettle();
     expect(find.text('@user1'), findsNothing);
     expect(find.text('Declined @user1.'), findsOneWidget);
@@ -307,7 +315,7 @@ void main() {
     stubRespond(error: const NetworkException('offline'));
     await open(tester);
 
-    await tester.tap(find.widgetWithText(AppPillButton, 'Accept'));
+    await tester.tap(answer('Accept'));
     await tester.pumpAndSettle();
     expect(find.text('@user1'), findsOneWidget); // back
     expect(
@@ -320,7 +328,7 @@ void main() {
 
     // Retry the same answer: the same idempotency key (a replay is safe).
     stubRespond();
-    await tester.tap(find.widgetWithText(AppPillButton, 'Accept'));
+    await tester.tap(answer('Accept'));
     await tester.pumpAndSettle();
     final keys = verify(
       () => graphRepo.respondToFollowRequest(
@@ -344,7 +352,7 @@ void main() {
       error: const LimitReachedException('x', quota: 'requester_following'),
     );
     await open(tester);
-    await tester.tap(find.widgetWithText(AppPillButton, 'Accept'));
+    await tester.tap(answer('Accept'));
     await tester.pumpAndSettle();
     expect(find.textContaining('You can still decline'), findsOneWidget);
     expect(find.text('@user1'), findsOneWidget);
@@ -356,7 +364,7 @@ void main() {
     ]);
     stubRespond();
     await open(tester);
-    await tester.tap(find.widgetWithText(AppPillButton, 'Accept'));
+    await tester.tap(answer('Accept'));
     await tester.pumpAndSettle();
     expect(find.text('@user1'), findsNothing);
     verifyNever(
@@ -404,32 +412,37 @@ void main() {
       (600.0, 2.0),
       (1024.0, 1.0),
     ]) {
-      testWidgets('${width.toInt()}dp x$scale: the pills keep 48 dp and never '
-          'ellipsize', (tester) async {
-        pending(1000);
-        stubList([
-          page([request(1, name: 'A long display name for the row')]),
-        ]);
-        await open(
-          tester,
-          env: MatrixEnv(
-            brightness: Brightness.light,
-            size: Size(width, 900),
-            textScale: scale,
-          ),
-        );
-
-        expectNoOverflow(tester);
-        expect(find.text('1000 or more pending'), findsOneWidget);
-        for (final label in ['Accept', 'Decline']) {
-          final pill = find.widgetWithText(AppPillButton, label);
-          expectMinTarget(tester, pill);
-          final text = tester.renderObject<RenderParagraph>(
-            find.descendant(of: pill, matching: find.text(label)),
+      testWidgets(
+        '${width.toInt()}dp x$scale: the answers keep 48 dp and the pills never '
+        'ellipsize',
+        (tester) async {
+          pending(1000);
+          stubList([
+            page([request(1, name: 'A long display name for the row')]),
+          ]);
+          await open(
+            tester,
+            env: MatrixEnv(
+              brightness: Brightness.light,
+              size: Size(width, 900),
+              textScale: scale,
+            ),
           );
-          expect(text.didExceedMaxLines, isFalse);
-        }
-      });
+
+          expectNoOverflow(tester);
+          expect(find.text('1000 or more pending'), findsOneWidget);
+          for (final label in ['Accept', 'Decline']) {
+            final pill = answer(label);
+            expectMinTarget(tester, pill);
+            // A phone's answers are icons: nothing to ellipsize.
+            if (width < 600) continue;
+            final text = tester.renderObject<RenderParagraph>(
+              find.descendant(of: pill, matching: find.text(label)),
+            );
+            expect(text.didExceedMaxLines, isFalse);
+          }
+        },
+      );
     }
 
     testWidgets('RTL: the avatar leads on the right with its gap, the pills '
@@ -457,9 +470,7 @@ void main() {
 
       final avatar = tester.getRect(find.byType(AppAvatar));
       final name = tester.getRect(find.text('User 1'));
-      final accept = tester.getRect(
-        find.widgetWithText(AppPillButton, 'Accept'),
-      );
+      final accept = tester.getRect(answer('Accept'));
       expect(avatar.left - name.right, greaterThanOrEqualTo(AppSpacing.smd));
       expect(accept.right, lessThan(name.left));
       expectNoOverflow(tester);

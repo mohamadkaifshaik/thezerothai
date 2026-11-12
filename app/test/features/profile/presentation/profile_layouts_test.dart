@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/share/native_share.dart';
+import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/share/share_links.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/profile/presentation/profile_screen.dart';
+import 'package:dzeroth/features/profile/presentation/widgets/edit_profile_preview.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_media_strip.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
@@ -14,6 +18,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/app_fonts.dart';
 import '../../../support/contrast.dart';
 import '../../../support/geometry.dart';
 import '../../../support/profile_hero_finders.dart';
@@ -32,6 +37,20 @@ const _looks = <String, double>{
   'tablet': _tablet,
   'desktop': _desktop,
 };
+
+const _screenshots = bool.fromEnvironment('EXPLORE_PEOPLE_SCREENSHOTS');
+
+Future<void> _capture(WidgetTester tester, String name) async {
+  if (!_screenshots) return;
+  await tester.runAsync(() async {
+    final image = await captureImage(tester.element(find.byType(MaterialApp)));
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    final file = File('build/artifacts/explore-people/$name.png');
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(bytes!.buffer.asUint8List());
+    image.dispose();
+  });
+}
 
 /// The profile surfaces' flags plus the ones the other person's actions need.
 final _fullFlags = {...kProfileTabletFlags, 'messaging', 'lists', 'reports'};
@@ -782,5 +801,61 @@ void main() {
 
     expect(find.byKey(const ValueKey('profile-appbar-name')), findsOneWidget);
     expect(find.byType(ProfileScreen), findsOneWidget);
+  });
+
+  group('Edit profile', () {
+    for (final MapEntry(key: look, value: width) in _looks.entries) {
+      testWidgets('$look: Save and "How others see you" at every width', (
+        tester,
+      ) async {
+        final rig = ProfileTabletRig();
+        await rig.pump(
+          tester,
+          location: AppRouter.editProfilePath,
+          width: width,
+          flags: _fullFlags,
+        );
+        expect(find.text('Save'), findsOneWidget);
+        expect(find.text('Cancel'), findsOneWidget);
+        expect(find.text(kEditProfilePreviewAction), findsOneWidget);
+        await tester.tap(find.text(kEditProfilePreviewAction));
+        await tester.pumpAndSettle();
+        expect(find.byType(Dialog), findsOneWidget);
+      });
+    }
+
+    testWidgets('phone at text scale 2.0: nothing overflows', (tester) async {
+      final rig = ProfileTabletRig();
+      await rig.pump(
+        tester,
+        location: AppRouter.editProfilePath,
+        width: _phone,
+        flags: _fullFlags,
+        textScale: 2,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('Edit profile screenshots', () {
+    setUpAll(() async {
+      if (_screenshots) await loadAppFonts();
+    });
+    for (final brightness in Brightness.values) {
+      for (final MapEntry(key: look, value: width) in _looks.entries) {
+        testWidgets('edit-profile $look ${brightness.name}', (tester) async {
+          final rig = ProfileTabletRig();
+          await rig.pump(
+            tester,
+            location: AppRouter.editProfilePath,
+            width: width,
+            height: width < 600 ? 844 : 900,
+            flags: _fullFlags,
+            brightness: brightness,
+          );
+          await _capture(tester, 'edit-profile-$look-${brightness.name}');
+        }, skip: !_screenshots);
+      }
+    }
   });
 }

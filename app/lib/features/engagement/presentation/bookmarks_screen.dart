@@ -11,6 +11,7 @@ import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
+import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/bookmarks_repository.dart';
 import '../data/likes_repository.dart';
 import '../domain/likes_list_feature_flag.dart';
@@ -41,9 +42,9 @@ enum HistoryTab {
       value == 'likes' ? HistoryTab.likes : HistoryTab.bookmarks;
 }
 
-/// `/bookmarks`: the caller's History,
-/// titled "History". The Bookmarks tab is their saved posts, newest bookmark
-/// first; the Likes tab (only with the `likes_list` flag) is their most recent
+/// `/bookmarks`: the caller's saved posts and likes, titled "Bookmarks" over
+/// their @handle (the nav entries are still called History). The Bookmarks tab
+/// is their saved posts, newest bookmark first; the Likes tab (only with the `likes_list` flag) is their most recent
 /// likes. Both are live post cards (current counts and the engagement row,
 /// not snapshots). Reached from the drawer row and the rail destination (both
 /// need the `bookmarks` flag) and from the "View" action of the bookmark toast.
@@ -124,12 +125,20 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
         context.read<LikesRepository>().available;
     final current = likesOffered ? _selected : HistoryTab.bookmarks;
     _opened.add(current);
+    final handle = context.select(
+      (OnboardingBloc bloc) => bloc.state.profile?.handle ?? '',
+    );
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
           child: Column(
             children: [
-              AppBackHeader(title: 'History', onBack: _back),
+              AppBackHeader(
+                title: 'Bookmarks',
+                // The viewer's own @handle, from the session (0 RPCs).
+                subtitle: handle.isEmpty ? null : '@$handle',
+                onBack: _back,
+              ),
               if (likesOffered)
                 AppTabBar(
                   semanticLabel: 'History',

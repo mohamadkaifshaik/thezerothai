@@ -82,6 +82,8 @@ const kContextPaneRigPaths = <String>[
   '/follow-requests',
   '/bookmarks',
   '/settings',
+  '/settings/blocked',
+  '/settings/muted',
   '/messages',
   '/plans',
   '/plans/:id',
@@ -90,6 +92,7 @@ const kContextPaneRigPaths = <String>[
   '/creator-studio',
   '/profile/:handle',
   '/profile/:handle/followers',
+  '/profile/:handle/following',
   '/u/:userId',
 ];
 

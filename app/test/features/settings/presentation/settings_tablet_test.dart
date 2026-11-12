@@ -14,6 +14,7 @@ import 'package:dzeroth/features/settings/presentation/widgets/settings_choice_r
 import 'package:dzeroth/features/settings/presentation/widgets/unsent_posts_row.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_chip.dart';
 import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_back_header.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -150,9 +151,12 @@ Future<void> _tapText(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
-/// The app bar title of the page of `/settings` or of a leaf.
-Finder _barTitle(String title) =>
-    find.descendant(of: find.byType(AppBar), matching: find.text(title));
+/// The app bar (or Blocked / Muted's back header) title of the page of
+/// `/settings` or of a leaf.
+Finder _barTitle(String title) => find.descendant(
+  of: find.byWidgetPredicate((w) => w is AppBar || w is AppBackHeader),
+  matching: find.text(title),
+);
 
 void main() {
   setUpAll(() {
@@ -289,8 +293,8 @@ void main() {
         expect(_barTitle(category.label), findsOneWidget);
         expect(_titles(tester, _page()), _categoryRows[category]);
         // Pushed: the default back arrow pops to the list.
-        expect(find.byType(BackButton), findsOneWidget);
-        await _tapText(tester, find.byType(BackButton));
+        expect(find.byTooltip('Back'), findsOneWidget);
+        await _tapText(tester, find.byTooltip('Back'));
         expect(rig.uri.toString(), AppRouter.settingsPath);
         expect(_titles(tester, _page()), _categoryList);
       });
@@ -358,7 +362,7 @@ void main() {
           isSemantics(isButton: true, isSelected: true),
         );
         // The categories are beside it: no back arrow.
-        expect(inSettingsPage(find.byType(BackButton)), findsNothing);
+        expect(inSettingsPage(find.byTooltip('Back')), findsNothing);
         // The list stays as it was.
         expect(_titles(tester, findCategoriesPane()), _categoryList);
         handle.dispose();
@@ -383,7 +387,7 @@ void main() {
           // The form header's Cancel is its way up.
           await _tapText(tester, find.text('Cancel'));
         } else {
-          await _tapText(tester, find.byType(BackButton));
+          await _tapText(tester, find.byTooltip('Back'));
         }
         expect(rig.uri.toString(), settingsCategoryLocation(category));
         expect(_titles(tester, _page()), _categoryRows[category]);
@@ -432,7 +436,7 @@ void main() {
 
       expect(_barTitle('Privacy & safety'), findsOneWidget);
       expect(_titles(tester, _page()), _categoryRows[SettingsCategory.privacy]);
-      await _tapText(tester, find.byType(BackButton));
+      await _tapText(tester, find.byTooltip('Back'));
       expect(rig.uri.toString(), AppRouter.settingsPath);
       expect(_titles(tester, _page()), _categoryList);
     });
@@ -533,9 +537,9 @@ void main() {
       final rig = SettingsTabletRig();
       await rig.pump(tester, width: 700, location: AppRouter.mutedAccountsPath);
 
-      await _tapText(tester, find.byType(BackButton));
+      await _tapText(tester, find.byTooltip('Back'));
       expect(rig.uri.toString(), '/settings?c=privacy');
-      await _tapText(tester, find.byType(BackButton));
+      await _tapText(tester, find.byTooltip('Back'));
       expect(rig.uri.toString(), AppRouter.settingsPath);
     });
   });
@@ -760,12 +764,12 @@ void main() {
       await rig.resize(tester, 840);
       expect(_selectedInPane(tester), 'Privacy & safety');
       expect(_titles(tester, _page()), _categoryRows[SettingsCategory.privacy]);
-      expect(inSettingsPage(find.byType(BackButton)), findsNothing);
+      expect(inSettingsPage(find.byTooltip('Back')), findsNothing);
 
       await rig.resize(tester, 839);
       expect(findCategoriesPane(), findsNothing);
       expect(_barTitle('Privacy & safety'), findsOneWidget);
-      await _tapText(tester, find.byType(BackButton));
+      await _tapText(tester, find.byTooltip('Back'));
       expect(_titles(tester, _page()), _categoryList);
     });
 
@@ -778,7 +782,7 @@ void main() {
 
       await rig.resize(tester, 839);
       expect(_barTitle('Blocked accounts'), findsOneWidget);
-      await _tapText(tester, find.byType(BackButton));
+      await _tapText(tester, find.byTooltip('Back'));
       expect(rig.uri.toString(), '/settings?c=privacy');
       expect(_barTitle('Privacy & safety'), findsOneWidget);
     });
@@ -825,30 +829,32 @@ void main() {
         ('desktop, both flags', 1200, kSettingsTabletFlags, false),
       ];
       for (final (name, width, flags, tablet) in cases) {
-        testWidgets('$name: Blocked accounts '
-            '${tablet ? 'goes up to Privacy & safety' : 'has no up button'}', (
-          tester,
-        ) async {
-          final rig = SettingsTabletRig();
-          await rig.pump(
-            tester,
-            width: width,
-            flags: flags,
-            location: AppRouter.blockedAccountsPath,
-          );
+        testWidgets(
+          '$name: Blocked accounts '
+          '${tablet ? 'goes up to Privacy & safety' : 'goes up to Settings'}',
+          (tester) async {
+            final rig = SettingsTabletRig();
+            await rig.pump(
+              tester,
+              width: width,
+              flags: flags,
+              location: AppRouter.blockedAccountsPath,
+            );
 
-          final up = find.descendant(
-            of: find.byType(AppBar),
-            matching: find.byType(BackButton),
-          );
-          if (!tablet) {
-            expect(up, findsNothing);
-            return;
-          }
-          expect(up, findsOneWidget);
-          await _tapText(tester, up);
-          expect(rig.uri.toString(), '/settings?c=privacy');
-        });
+            // The back header always has Back: up to Privacy & safety on the
+            // tablet layout, to Settings elsewhere.
+            final up = find.descendant(
+              of: find.byType(AppBackHeader),
+              matching: find.byTooltip('Back'),
+            );
+            expect(up, findsOneWidget);
+            await _tapText(tester, up);
+            expect(
+              rig.uri.toString(),
+              tablet ? '/settings?c=privacy' : AppRouter.settingsPath,
+            );
+          },
+        );
 
         testWidgets('$name: Change handle Cancel goes to '
             '${tablet ? 'Your account' : '/settings'}', (tester) async {
