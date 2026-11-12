@@ -1,10 +1,9 @@
-import '../../../../core/theme/app_theme.dart' show AppAuthPalette;
+import '../../../../core/theme/app_theme.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../app/app_config.dart';
-import 'auth_design.dart';
 
 /// Google + Apple sign-in buttons. Apple is only shown on iOS, macOS and web
 /// per Apple's guidelines; on iOS it is additionally gated by
@@ -37,27 +36,77 @@ class SocialSignInButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+    // The mocks' two-up row; without Apple, Google spans the row alone.
+    return Row(
       children: [
-        AuthActionButton(
-          onPressed: isSubmitting ? null : onGoogleTap,
-          icon: const SizedBox(
-            width: 19,
-            height: 19,
-            child: CustomPaint(painter: _GoogleMark()),
+        Expanded(
+          child: _SocialPill(
+            label: 'Google',
+            semanticsLabel: 'Continue with Google',
+            onPressed: isSubmitting ? null : onGoogleTap,
+            mark: const CustomPaint(painter: _GoogleMark()),
           ),
-          label: 'Continue with Google',
         ),
         if (_showApple) ...[
-          const SizedBox(height: 12),
-          AuthActionButton(
-            onPressed: isSubmitting ? null : onAppleTap,
-            icon: const Icon(Icons.apple, size: 19),
-            label: 'Continue with Apple',
+          const SizedBox(width: AppAuthLayout.socialGap),
+          Expanded(
+            child: _SocialPill(
+              label: 'Apple',
+              semanticsLabel: 'Continue with Apple',
+              onPressed: isSubmitting ? null : onAppleTap,
+              mark: const Icon(Icons.apple, size: AppAuthLayout.socialMarkSize),
+            ),
           ),
         ],
       ],
+    );
+  }
+}
+
+/// The mocks' outline provider pill (`.btn.outline.on-dark`): a 1.5dp
+/// boundary, the provider mark and a short label.
+class _SocialPill extends StatelessWidget {
+  const _SocialPill({
+    required this.label,
+    required this.semanticsLabel,
+    required this.onPressed,
+    required this.mark,
+  });
+
+  final String label;
+  final String semanticsLabel;
+  final VoidCallback? onPressed;
+  final Widget mark;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Semantics(
+      button: true,
+      enabled: onPressed != null,
+      label: semanticsLabel,
+      onTap: onPressed,
+      excludeSemantics: true,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(AppAuthLayout.socialHeight),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+          foregroundColor: colors.onSurface,
+          side: BorderSide(color: colors.outline, width: 1.5),
+          shape: const StadiumBorder(),
+          textStyle: theme.textTheme.labelLarge,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            SizedBox.square(dimension: AppAuthLayout.socialMarkSize, child: mark),
+            const SizedBox(width: AppSpacing.smd),
+            Flexible(child: Text(label, textAlign: TextAlign.center)),
+          ],
+        ),
+      ),
     );
   }
 }
