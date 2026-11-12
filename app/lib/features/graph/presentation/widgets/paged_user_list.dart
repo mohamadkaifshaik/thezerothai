@@ -32,6 +32,7 @@ class PagedUserList extends StatefulWidget {
     this.protectedMessage,
     this.itemFilter,
     this.header,
+    this.followsViewer = false,
   });
 
   final UserListCubit cubit;
@@ -61,6 +62,10 @@ class PagedUserList extends StatefulWidget {
   /// picker's "Suggested"); never over the loading, error or empty states.
   /// Null (the default) draws nothing.
   final Widget? header;
+
+  /// Every default row's person follows the viewer (their own Followers):
+  /// the follow button reads "Follow back".
+  final bool followsViewer;
 
   @override
   State<PagedUserList> createState() => _PagedUserListState();
@@ -168,6 +173,7 @@ class _PagedUserListState extends State<PagedUserList> {
                     UserListRow(
                       key: ValueKey(item.user.userId),
                       item: item,
+                      followsViewer: widget.followsViewer,
                       onProfileTap: item.user.userId.isEmpty
                           ? null
                           : () => context.push(

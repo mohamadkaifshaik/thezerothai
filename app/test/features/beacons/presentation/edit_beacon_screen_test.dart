@@ -59,7 +59,7 @@ void main() {
     ],
   );
 
-  Finder field(String label) => find.widgetWithText(TextField, label);
+  Finder field(String label) => find.byKey(ValueKey('plan-field-$label'));
 
   bool chipSelected(WidgetTester tester, String label) => tester
       .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, label))
@@ -78,9 +78,11 @@ void main() {
 
     expectNoOverflow(tester);
     expect(find.text('Edit plan'), findsOneWidget);
-    expect(find.widgetWithText(TextField, 'Coffee'), findsOneWidget);
-    expect(find.widgetWithText(TextField, 'Bring a book'), findsOneWidget);
-    expect(find.widgetWithText(TextField, 'Hall'), findsOneWidget);
+    String text(String label) =>
+        tester.widget<TextField>(field(label)).controller!.text;
+    expect(text('Title'), 'Coffee');
+    expect(text('Details'), 'Bring a book');
+    expect(text('Meeting point'), 'Hall');
     expect(find.text('3'), findsOneWidget);
     // F28: the date, time, duration and cost are fields now, with the
     // designs' helper; activity, chat and audience stay as they were set.

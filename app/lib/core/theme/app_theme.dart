@@ -1436,6 +1436,27 @@ abstract final class AppPickerLayout {
   static const double rowGap = 12;
 }
 
+/// Plans geometry (dzeroth-mobile, tablet and desktop Home, PlanDetail,
+/// PlanPeople, PlanCreate, PlanEdit and MyPlans). Colours come from the
+/// theme, shadows from [AppShadows].
+abstract final class AppPlansLayout {
+  // The plan page's hero: full width, rounded under, with the back and menu
+  // circles in it.
+  static const double heroRadius = 34;
+  static const double heroButton = 44;
+  static const double heroGutter = 24;
+
+  // The list cards: the phone's 20 dp page gutter, the wide layouts' 16 dp.
+  static const double phoneGutter = 20;
+  static const double wideGutter = 16;
+
+  // The compact rows of My plans (the tile, then eyebrow, title and time).
+  static const double tileSize = 52;
+
+  // A form lays Cost beside Open spots from this content width.
+  static const double formPairMin = 480;
+}
+
 /// Lists geometry per screen size (dp): the phone mocks' 20 dp page gutter
 /// and raised cards, and the tablet / desktop mocks' 16 dp flat `.row`s, hero
 /// and section labels (dz.css). Colours come from the theme, gradients from
@@ -1597,6 +1618,22 @@ abstract final class AppArticlesLayout {
   static const double wideTitle = 44;
   static const double toolbarPadding = 4;
   static const double toolbarGap = 2;
+}
+
+/// Geometry of Explore, Bookmarks, Follow requests, Followers / Following,
+/// Blocked / Muted and Edit profile (dzeroth-mobile, tablet and desktop mocks;
+/// the tablet and desktop main columns are the same).
+abstract final class AppExplorePeopleLayout {
+  /// Follow requests on a phone: round 40 dp answers inside 48 dp targets.
+  static const double answerButton = 40;
+  static const double answerBorder = 1.5;
+
+  /// Explore's ranked trend rows: the rank column's least width, its gap to
+  /// the text, and the row's side padding on a phone and from 600 dp.
+  static const double trendRankWidth = 24;
+  static const double trendRankGap = 14;
+  static const double trendPaddingPhone = 20;
+  static const double trendPaddingWide = 16;
 }
 
 /// Settings geometry per screen size (dp): the phone mock's raised cards

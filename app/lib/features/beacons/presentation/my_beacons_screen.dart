@@ -20,7 +20,7 @@ import 'widgets/beacon_row.dart';
 import 'widgets/plan_skeletons.dart';
 
 /// `/plans/mine` (R39): the caller's plans, Upcoming or Past, by role (R12:
-/// the designs' role pills and plan cards with the viewer's part in the
+/// the designs' role pills and compact rows with the viewer's part in the
 /// eyebrow, "ORGANISING · COFFEE").
 ///
 /// In band B of the tablet layout a row opens the plan with `go` (tablet
@@ -72,32 +72,35 @@ class _MyBeaconsScreenState extends State<MyBeaconsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // The wide layouts put the role pills under the title and the tabs under
+    // them (the tablet and desktop MyPlans); the phone keeps the tabs first.
+    final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
           child: BlocBuilder<MyBeaconsCubit, MyBeaconsState>(
             bloc: _cubit,
-            builder: (context, state) => Column(
-              children: [
-                AppBackHeader(title: 'My plans', onBack: _back),
-                AppTabBar(
-                  tabs: const [
-                    AppTab(label: 'Upcoming'),
-                    AppTab(label: 'Past'),
-                  ],
-                  selectedIndex:
-                      state.window == pb.MyBeaconsWindow.MY_BEACONS_WINDOW_PAST
-                      ? 1
-                      : 0,
-                  equalWidth: true,
-                  semanticLabel: 'When',
-                  onChanged: (i) => _cubit.select(
-                    window: i == 1
-                        ? pb.MyBeaconsWindow.MY_BEACONS_WINDOW_PAST
-                        : pb.MyBeaconsWindow.MY_BEACONS_WINDOW_UPCOMING,
-                  ),
+            builder: (context, state) {
+              final tabs = AppTabBar(
+                tabs: const [
+                  AppTab(label: 'Upcoming'),
+                  AppTab(label: 'Past'),
+                ],
+                selectedIndex:
+                    state.window == pb.MyBeaconsWindow.MY_BEACONS_WINDOW_PAST
+                    ? 1
+                    : 0,
+                equalWidth: true,
+                semanticLabel: 'When',
+                onChanged: (i) => _cubit.select(
+                  window: i == 1
+                      ? pb.MyBeaconsWindow.MY_BEACONS_WINDOW_PAST
+                      : pb.MyBeaconsWindow.MY_BEACONS_WINDOW_UPCOMING,
                 ),
-                Padding(
+              );
+              final roles = Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.md,
                     vertical: AppSpacing.sm,
@@ -120,14 +123,22 @@ class _MyBeaconsScreenState extends State<MyBeaconsScreen> {
                     ),
                   ),
                 ),
-                Expanded(
-                  child: RefreshIndicator(
-                    onRefresh: _cubit.load,
-                    child: _body(state),
+              );
+              return Column(
+                children: [
+                  AppBackHeader(title: 'My plans', onBack: _back),
+                  if (wide) roles,
+                  tabs,
+                  if (!wide) roles,
+                  Expanded(
+                    child: RefreshIndicator(
+                      onRefresh: _cubit.load,
+                      child: _body(state),
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -186,7 +197,7 @@ class _MyBeaconsScreenState extends State<MyBeaconsScreen> {
             final view = state.views[i];
             return BeaconRow(
               view: view,
-              roleEyebrow: true,
+              compact: true,
               onTap: () => _open(view.beacon.beaconId),
             );
           },

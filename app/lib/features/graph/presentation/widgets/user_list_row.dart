@@ -38,7 +38,13 @@ class UserListRow extends StatelessWidget {
     this.verticalInset = AppSpacing.sm,
     this.handleStyle,
     this.avatarGap = AppSpacing.md,
+    this.followsViewer = false,
   });
+
+  /// The person follows the viewer, so the not-following button reads
+  /// "Follow back" (the viewer's own Followers list). Ignored with a
+  /// [trailing].
+  final bool followsViewer;
 
   /// The space between the avatar and the name column; the Follow requests
   /// rows draw the design's 12.
@@ -120,12 +126,20 @@ class UserListRow extends StatelessWidget {
             ),
           ),
           child: onFollowed == null
-              ? FollowButton(onGone: onGone, source: followSource)
+              ? FollowButton(
+                  onGone: onGone,
+                  source: followSource,
+                  followedBy: followsViewer,
+                )
               : BlocListener<RelationshipCubit, RelationshipState>(
                   listenWhen: (before, after) =>
                       after.isConfirmedFollow && !before.isConfirmedFollow,
                   listener: (context, state) => onFollowed(),
-                  child: FollowButton(onGone: onGone, source: followSource),
+                  child: FollowButton(
+                    onGone: onGone,
+                    source: followSource,
+                    followedBy: followsViewer,
+                  ),
                 ),
         );
     return Column(

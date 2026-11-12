@@ -205,130 +205,171 @@ class _BeaconScreenState extends State<BeaconScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SafeArea(
-        child: AppMainColumn(
-          child: BlocConsumer<BeaconDetailCubit, BeaconDetailState>(
-            bloc: _cubit,
-            listenWhen: (a, b) =>
-                b.actionError != null && a.actionError != b.actionError,
-            listener: (context, state) => ScaffoldMessenger.of(context)
-              ..hideCurrentSnackBar()
-              ..showSnackBar(SnackBar(content: Text(state.actionError!))),
-            builder: (context, state) => Column(
-              children: [
-                AppBackHeader(
-                  title: 'Plan',
-                  onBack: _back,
-                  // Band B: the list is beside it, so no back arrow (like
-                  // the Settings categories); the title keeps its place.
-                  leading: PlansMasterScope.shownOf(context)
-                      ? const SizedBox(width: AppSpacing.sm)
-                      : null,
-                  actions: [?_menu(state)],
-                ),
-                Expanded(child: _body(context, state)),
-              ],
-            ),
+      body: BlocConsumer<BeaconDetailCubit, BeaconDetailState>(
+        bloc: _cubit,
+        listenWhen: (a, b) =>
+            b.actionError != null && a.actionError != b.actionError,
+        listener: (context, state) => ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(state.actionError!))),
+        builder: (context, state) => SafeArea(
+          child: AppMainColumn(
+            // The ready page opens with its own hero (Back and the menu in
+            // it); the loading and failed pages keep the plain header. The
+            // column centres its child, so the page takes all of its height.
+            child: state.status == BeaconDetailStatus.ready
+                ? SizedBox.expand(child: _ready(context, state))
+                : Column(
+                    children: [
+                      AppBackHeader(
+                        title: 'Plan',
+                        onBack: _back,
+                        // Band B: the list is beside it, so no back arrow.
+                        leading: PlansMasterScope.shownOf(context)
+                            ? const SizedBox(width: AppSpacing.sm)
+                            : null,
+                      ),
+                      Expanded(child: _unready(state)),
+                    ],
+                  ),
           ),
         ),
       ),
     );
   }
 
+  /// The plan's menu: Report plan (reports on, not the organiser's own plan).
   Widget? _menu(BeaconDetailState state) {
     final view = state.view;
-    if (view == null || view.viewer.canManage) return null;
-    final message = _flag(kFeatureMessaging);
-    final report = _flag(kFeatureReports);
-    if (!message && !report) return null;
-    return PopupMenuButton<String>(
-      tooltip: 'Plan options',
-      icon: const Icon(Icons.more_horiz),
-      style: IconButton.styleFrom(
-        minimumSize: const Size.square(AppSpacing.minTapTarget),
-      ),
-      onSelected: (value) => switch (value) {
-        'message' => unawaited(
-          openConversationWith(context, view.beacon.organiser),
+    if (view == null || view.viewer.canManage || !_flag(kFeatureReports)) {
+      return null;
+    }
+    return _HeroButton(
+      child: PopupMenuButton<String>(
+        tooltip: 'Plan options',
+        icon: const Icon(Icons.more_horiz, color: AppPalette.pearl),
+        style: IconButton.styleFrom(
+          minimumSize: const Size.square(AppPlansLayout.heroButton),
         ),
-        _ => unawaited(_report(view.beacon)),
-      },
-      itemBuilder: (context) => [
-        if (message)
-          const PopupMenuItem(
-            value: 'message',
-            child: AppMenuItemRow(
-              icon: Icons.mail_outline,
-              label: 'Message organiser',
-            ),
-          ),
-        if (report)
-          const PopupMenuItem(
+        onSelected: (_) => unawaited(_report(view.beacon)),
+        itemBuilder: (context) => const [
+          PopupMenuItem(
             value: 'report',
             child: AppMenuItemRow(
               icon: Icons.flag_outlined,
               label: 'Report plan',
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// Back and the menu over the hero (the designs' PlanDetail).
+  Widget _heroBar(BeaconDetailState state) {
+    final menu = _menu(state);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        // Band B: the list is beside it, so no back arrow.
+        if (PlansMasterScope.shownOf(context))
+          const SizedBox.shrink()
+        else
+          _HeroButton(
+            child: IconButton(
+              tooltip: 'Back',
+              icon: const Icon(Icons.arrow_back, color: AppPalette.pearl),
+              style: IconButton.styleFrom(
+                minimumSize: const Size.square(AppPlansLayout.heroButton),
+              ),
+              onPressed: _back,
+            ),
+          ),
+        ?menu,
       ],
     );
   }
 
-  Widget _body(BuildContext context, BeaconDetailState state) {
-    switch (state.status) {
-      case BeaconDetailStatus.loading:
-        return const PlanDetailSkeleton();
-      case BeaconDetailStatus.error:
-        final error = state.error!;
-        if (error is NotFoundException) {
-          return const Center(
-            child: AppEmptyView(
-              icon: Icons.event_busy_outlined,
-              title: 'This plan is unavailable.',
-            ),
-          );
-        }
-        return Center(
-          child: AppEmptyView(
-            icon: Icons.error_outline,
-            title: beaconsErrorMessage(error),
-            action: TextButton(
-              onPressed: _cubit.load,
-              child: const Text('Try again'),
-            ),
-          ),
-        );
-      case BeaconDetailStatus.ready:
-        return RefreshIndicator(
-          onRefresh: _cubit.load,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(AppSpacing.md),
-            child: _Details(
-              view: state.view!,
-              busy: state.busy,
-              onCancel: _cancel,
-              onRequest: _request,
-              onWithdraw: _withdraw,
-              onLeave: _leave,
-              onPeople: () => _open(AppRouter.planPeoplePath(widget.beaconId)),
-              onEdit: () => _open(AppRouter.planEditPath(widget.beaconId)),
-            ),
-          ),
-        );
+  /// The loading and failed pages (the header is drawn around them).
+  Widget _unready(BeaconDetailState state) {
+    if (state.status == BeaconDetailStatus.loading) {
+      return const PlanDetailSkeleton();
     }
+    final error = state.error!;
+    if (error is NotFoundException) {
+      return const Center(
+        child: AppEmptyView(
+          icon: Icons.event_busy_outlined,
+          title: 'This plan is unavailable.',
+        ),
+      );
+    }
+    return Center(
+      child: AppEmptyView(
+        icon: Icons.error_outline,
+        title: beaconsErrorMessage(error),
+        action: TextButton(
+          onPressed: _cubit.load,
+          child: const Text('Try again'),
+        ),
+      ),
+    );
+  }
+
+  Widget _ready(BuildContext context, BeaconDetailState state) {
+    return RefreshIndicator(
+      onRefresh: _cubit.load,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: _Details(
+          view: state.view!,
+          busy: state.busy,
+          heroBar: _heroBar(state),
+          canMessage: _flag(kFeatureMessaging),
+          onMessage: () =>
+              openConversationWith(context, state.view!.beacon.organiser),
+          onCancel: _cancel,
+          onRequest: _request,
+          onWithdraw: _withdraw,
+          onLeave: _leave,
+          onPeople: () => _open(AppRouter.planPeoplePath(widget.beaconId)),
+          onEdit: () => _open(AppRouter.planEditPath(widget.beaconId)),
+        ),
+      ),
+    );
   }
 }
 
-/// The plan page under the header (R12, the designs' PlanDetail and
-/// PlanDetail-Visitor): the hidden-by-moderation banner, [PlanSummary] (the
-/// hero, the organiser row with the organiser's Edit or the viewer's state,
-/// the details), the People card, then the viewer's one action as a
-/// full-width pill with its line of explanation.
+/// A 44 dp translucent circle on the hero (the designs' round buttons on the
+/// navy): [child] is its icon button.
+class _HeroButton extends StatelessWidget {
+  const _HeroButton({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      color: AppPalette.pearl.withValues(alpha: 0.08),
+      border: Border.all(color: AppPalette.pearl.withValues(alpha: 0.14)),
+    ),
+    child: child,
+  );
+}
+
+/// The plan page (R12, the designs' PlanDetail and PlanDetail-Visitor):
+/// [PlanSummary] (the hero with Back and the menu, the organiser row with the
+/// organiser's Edit or the viewer's state and Message organiser, the
+/// details), the hidden-by-moderation banner, the People card, then the
+/// viewer's one action as a full-width pill with its line of explanation.
 class _Details extends StatelessWidget {
   const _Details({
     required this.view,
     required this.busy,
+    required this.heroBar,
+    required this.canMessage,
+    required this.onMessage,
     required this.onCancel,
     required this.onRequest,
     required this.onWithdraw,
@@ -339,6 +380,12 @@ class _Details extends StatelessWidget {
 
   final pb.BeaconView view;
   final BeaconAction? busy;
+  final Widget heroBar;
+
+  /// Messaging is on for the caller: Message organiser (not on their own
+  /// plan).
+  final bool canMessage;
+  final VoidCallback onMessage;
   final VoidCallback onCancel;
   final VoidCallback onRequest;
   final VoidCallback onWithdraw;
@@ -391,73 +438,102 @@ class _Details extends StatelessWidget {
         ],
       ),
     );
+    final message = canMessage && !v.canManage;
+    final trailing = [
+      if (v.canManage && live)
+        AppPillButton(
+          label: 'Edit',
+          variant: AppButtonVariant.outline,
+          compact: true,
+          onPressed: onEdit,
+        ),
+      if (viewerPill != null)
+        AppStatusPill(label: viewerPill, tone: AppStatusTone.info),
+      if (message)
+        AppPillButton(
+          label: 'Message organiser',
+          variant: AppButtonVariant.outline,
+          compact: true,
+          onPressed: onMessage,
+        ),
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (b.hidden) ...[
-          const AppNoticeBanner(
-            message: 'Hidden by moderation: only you can see this plan.',
-          ),
-          const SizedBox(height: AppSpacing.md),
-        ],
         PlanSummary(
           beacon: b,
-          organiserTrailing: v.canManage && live
-              ? AppPillButton(
-                  label: 'Edit',
-                  variant: AppButtonVariant.outline,
-                  compact: true,
-                  onPressed: onEdit,
-                )
-              : viewerPill == null
+          heroBar: heroBar,
+          organiserTrailing: trailing.isEmpty
               ? null
-              : AppStatusPill(label: viewerPill, tone: AppStatusTone.info),
+              : Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.xs,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: trailing,
+                ),
         ),
-        const SizedBox(height: AppSpacing.md),
-        _PeopleCard(beacon: b, onTap: mayList ? onPeople : null),
-        if (!mayList) ...[
-          const SizedBox(height: AppSpacing.sm),
-          const _Footnote(kPeopleListNote, center: false),
-        ],
-        if (v.canRequest)
-          action(
-            label: 'Ask to join',
-            variant: AppButtonVariant.primary,
-            kind: BeaconAction.request,
-            onPressed: onRequest,
-            busyLabel: 'Sending request',
-            note: '$organiser approves each request.',
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppPlansLayout.heroGutter,
+            AppSpacing.md,
+            AppPlansLayout.heroGutter,
+            AppSpacing.lg,
           ),
-        if (v.canWithdraw)
-          action(
-            label: 'Withdraw request',
-            variant: AppButtonVariant.outline,
-            kind: BeaconAction.withdraw,
-            onPressed: onWithdraw,
-            busyLabel: 'Withdrawing request',
-            note: '$organiser approves each request.',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (b.hidden) ...[
+                const AppNoticeBanner(
+                  message: 'Hidden by moderation: only you can see this plan.',
+                ),
+                const SizedBox(height: AppSpacing.md),
+              ],
+              _PeopleCard(beacon: b, onTap: mayList ? onPeople : null),
+              if (!mayList) ...[
+                const SizedBox(height: AppSpacing.sm),
+                const _Footnote(kPeopleListNote, center: false),
+              ],
+              if (v.canRequest)
+                action(
+                  label: 'Ask to join',
+                  variant: AppButtonVariant.primary,
+                  kind: BeaconAction.request,
+                  onPressed: onRequest,
+                  busyLabel: 'Sending request',
+                  note: '$organiser approves each request.',
+                ),
+              if (v.canWithdraw)
+                action(
+                  label: 'Withdraw request',
+                  variant: AppButtonVariant.outline,
+                  kind: BeaconAction.withdraw,
+                  onPressed: onWithdraw,
+                  busyLabel: 'Withdrawing request',
+                  note: '$organiser approves each request.',
+                ),
+              if (v.canLeave)
+                action(
+                  label: 'Leave plan',
+                  variant: AppButtonVariant.outline,
+                  kind: BeaconAction.leave,
+                  onPressed: onLeave,
+                  busyLabel: 'Leaving plan',
+                  note: 'Everyone going can see who else is going.',
+                ),
+              if (canCancel)
+                action(
+                  label: 'Cancel plan',
+                  variant: AppButtonVariant.outline,
+                  kind: BeaconAction.cancel,
+                  onPressed: onCancel,
+                  busyLabel: 'Cancelling plan',
+                  note:
+                      'You approve each request. Cancel plan asks first; '
+                      'people who joined get a notification.',
+                ),
+            ],
           ),
-        if (v.canLeave)
-          action(
-            label: 'Leave plan',
-            variant: AppButtonVariant.outline,
-            kind: BeaconAction.leave,
-            onPressed: onLeave,
-            busyLabel: 'Leaving plan',
-            note: 'Everyone going can see who else is going.',
-          ),
-        if (canCancel)
-          action(
-            label: 'Cancel plan',
-            variant: AppButtonVariant.outline,
-            kind: BeaconAction.cancel,
-            onPressed: onCancel,
-            busyLabel: 'Cancelling plan',
-            note:
-                'You approve each request. Cancel plan asks first; people '
-                'who joined get a notification.',
-          ),
-        const SizedBox(height: AppSpacing.lg),
+        ),
       ],
     );
   }
