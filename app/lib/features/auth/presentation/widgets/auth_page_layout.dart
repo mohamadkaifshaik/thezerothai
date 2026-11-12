@@ -288,7 +288,9 @@ class AuthPageLayout extends StatelessWidget {
           Expanded(
             flex: AppAuthLayout.desktopHeroFlex,
             child: _DesktopHero(
-              copy: copy,
+              eyebrow: copy.eyebrow,
+              headline: copy.heroHeadline,
+              accent: copy.heroAccent,
               width:
                   width *
                   AppAuthLayout.desktopHeroFlex /
@@ -340,6 +342,222 @@ class AuthPageLayout extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The auth pages' frame for a page that is not sign-in or sign-up (Create
+/// profile, Account deleted), from the same mocks: a phone page with the
+/// [actions] pinned to the bottom, a centred tablet column between the
+/// wordmark and the footer, and the desktop hero + form split. The words of
+/// the form header and of the hero are the caller's.
+class AuthFrame extends StatelessWidget {
+  const AuthFrame({
+    super.key,
+    required this.eyebrow,
+    required this.headline,
+    required this.accent,
+    required this.heroEyebrow,
+    required this.heroHeadline,
+    required this.heroAccent,
+    required this.children,
+    required this.actions,
+    this.phoneAction,
+    this.wideFooter,
+  });
+
+  final String eyebrow;
+  final String headline;
+  final String accent;
+  final String heroEyebrow;
+  final String heroHeadline;
+  final String heroAccent;
+
+  /// Between the headline and the actions.
+  final List<Widget> children;
+
+  /// The buttons, full width.
+  final Widget actions;
+
+  /// At the top end of the phone page (Sign out).
+  final Widget? phoneAction;
+
+  /// Under [actions] on tablet and desktop (Sign out).
+  final Widget? wideFooter;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) =>
+        switch (AuthLook.of(constraints.maxWidth)) {
+          AuthLook.phone => _phone(context),
+          AuthLook.tablet => _tablet(context),
+          AuthLook.desktop => _desktop(context, constraints.maxWidth),
+        },
+  );
+
+  Widget _header(double size, {double fieldsTop = AppAuthLayout.fieldsTop}) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _Eyebrow(eyebrow),
+          const SizedBox(height: AppAuthLayout.eyebrowGap),
+          _Headline(lead: headline, accent: accent, size: size),
+          SizedBox(height: fieldsTop),
+        ],
+      );
+
+  Widget _body() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      for (final (i, child) in children.indexed) ...[
+        if (i > 0) const SizedBox(height: AppAuthLayout.phoneFieldGap),
+        child,
+      ],
+    ],
+  );
+
+  Widget _wide() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _header(AppAuthLayout.wideDisplaySize),
+      _body(),
+      const SizedBox(height: AppSpacing.lg),
+      actions,
+      ?wideFooter,
+    ],
+  );
+
+  Widget _phone(BuildContext context) => _Backdrop(
+    rings: AppAuthLayout.phoneRings,
+    ringsCentre: (size) => Offset(
+      size.width - AppAuthLayout.phoneRingsFromTopEnd.dx,
+      AppAuthLayout.phoneRingsFromTopEnd.dy,
+    ),
+    child: _FillScroll(
+      builder: (minHeight) => ConstrainedBox(
+        constraints: BoxConstraints(minHeight: minHeight),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppAuthLayout.phonePaddingH,
+            AppAuthLayout.phonePaddingTop,
+            AppAuthLayout.phonePaddingH,
+            AppAuthLayout.phonePaddingBottom,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(child: _Wordmark()),
+                      ?phoneAction,
+                    ],
+                  ),
+                  const SizedBox(height: AppAuthLayout.phoneHeaderTop),
+                  _header(
+                    AppAuthLayout.phoneDisplaySize,
+                    fieldsTop: AppAuthLayout.phoneFieldsTop,
+                  ),
+                  _body(),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.lg),
+                child: actions,
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+
+  Widget _tablet(BuildContext context) => _Backdrop(
+    rings: AppAuthLayout.wideRings,
+    ringsCentre: (size) => Offset(
+      size.width - AppAuthLayout.tabletRingsFromTopEnd.dx,
+      AppAuthLayout.tabletRingsFromTopEnd.dy,
+    ),
+    child: _FillScroll(
+      builder: (minHeight) => ConstrainedBox(
+        constraints: BoxConstraints(minHeight: minHeight),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppAuthLayout.tabletPaddingH,
+            vertical: AppAuthLayout.tabletPaddingV,
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(children: [Expanded(child: _Wordmark())]),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: AppAuthLayout.tabletFormWidth,
+                  ),
+                  child: _wide(),
+                ),
+              ),
+              const _Footer(),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+
+  Widget _desktop(BuildContext context, double width) => Scaffold(
+    body: Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          flex: AppAuthLayout.desktopHeroFlex,
+          child: _DesktopHero(
+            eyebrow: heroEyebrow,
+            headline: heroHeadline,
+            accent: heroAccent,
+            width:
+                width *
+                AppAuthLayout.desktopHeroFlex /
+                (AppAuthLayout.desktopHeroFlex + AppAuthLayout.desktopFormFlex),
+          ),
+        ),
+        Expanded(
+          flex: AppAuthLayout.desktopFormFlex,
+          child: ColoredBox(
+            color: Theme.of(context).colorScheme.surface,
+            child: SafeArea(
+              child: _FillScroll(
+                builder: (minHeight) => ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: minHeight),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppAuthLayout.desktopFormPaddingH,
+                      vertical: AppAuthLayout.desktopHeroPaddingV,
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            maxWidth: AppAuthLayout.desktopFormWidth,
+                          ),
+                          child: _wide(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 /// The phone and tablet page: the hero wash on dark (the mocks), the plain
@@ -400,9 +618,16 @@ class _FillScroll extends StatelessWidget {
 /// The desktop brand panel: always the dark hero (desktop SignIn / SignUp
 /// `section.hero`), whatever the appearance.
 class _DesktopHero extends StatelessWidget {
-  const _DesktopHero({required this.copy, required this.width});
+  const _DesktopHero({
+    required this.eyebrow,
+    required this.headline,
+    required this.accent,
+    required this.width,
+  });
 
-  final AuthCopy copy;
+  final String eyebrow;
+  final String headline;
+  final String accent;
   final double width;
 
   @override
@@ -452,13 +677,13 @@ class _DesktopHero extends StatelessWidget {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  _Eyebrow(copy.eyebrow),
+                                  _Eyebrow(eyebrow),
                                   const SizedBox(height: AppSpacing.md),
                                   // The form panel carries the page heading;
                                   // this one is decoration for readers.
                                   _Headline(
-                                    lead: copy.heroHeadline,
-                                    accent: copy.heroAccent,
+                                    lead: headline,
+                                    accent: accent,
                                     size: size,
                                     header: false,
                                   ),

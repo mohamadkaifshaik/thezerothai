@@ -195,7 +195,7 @@ void main() {
     );
 
     expect(path, AppRouter.accountDeletedPath);
-    expect(find.text('Your account is being deleted'), findsOneWidget);
+    expect(find.text('A fresh start.'), findsOneWidget);
   });
 
   testWidgets('/settings/export also redirects with the flag off', (

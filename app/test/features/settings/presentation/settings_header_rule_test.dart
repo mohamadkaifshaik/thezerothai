@@ -1,18 +1,15 @@
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
-import 'package:dzeroth/shared/widgets/primitives/app_form_header.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/geometry.dart';
 import '../../../support/settings_tablet_rig.dart';
 
-/// T8f, one header rule, on the Settings leaves: an `AppBar` leaf (Blocked,
-/// Muted) and an `AppFormHeader` leaf (Change handle) put Back or Cancel at
-/// the same x, the detail's (or band A's pane's) leading edge. Before, the
-/// form leaf's Cancel sat in the 680 column: 4 dp further in where the
-/// column filled the pane, and 23 dp at 1199.
+/// T8f, one header rule, on the Settings leaves: the `AppBar` leaves
+/// (Blocked, Muted, Change handle) put Back at the same x, the detail's (or
+/// band A's pane's) leading edge.
 void main() {
   Future<void> open(
     WidgetTester tester,
@@ -50,27 +47,19 @@ void main() {
   Rect backOf(WidgetTester tester) =>
       tester.getRect(find.byType(BackButton).last);
 
-  Rect cancelOf(WidgetTester tester) => tester.getRect(
-    find.descendant(
-      of: find.byType(AppFormHeader),
-      matching: find.widgetWithText(TextButton, 'Cancel'),
-    ),
-  );
-
   // The rig's real leaves (Edit profile, Download my data and Delete account
-  // are stubs there; Edit profile uses the same AppFormHeader as Change
-  // handle, and the other two the same AppBar as Blocked).
+  // are stubs there; the last two use the same AppBar as these).
   const barLeaves = [
     AppRouter.blockedAccountsPath,
     AppRouter.mutedAccountsPath,
+    AppRouter.changeHandlePath,
   ];
-  const formLeaves = [AppRouter.changeHandlePath];
 
   for (final width in [600.0, 839.0, 840.0, 1024.0, 1199.0]) {
     for (final rtl in [false, true]) {
       final label = '${width.toInt()}${rtl ? ' RTL' : ''}';
-      testWidgets('$label: Back (AppBar) and Cancel (AppFormHeader) at the '
-          'same x, the pane\'s leading edge', (tester) async {
+      testWidgets('$label: Back at the same x on every AppBar leaf, the '
+          "pane's leading edge", (tester) async {
         final dir = rtl ? TextDirection.rtl : TextDirection.ltr;
         final area = pane(width, rtl: rtl);
         double lead(Rect r) => rtl ? area.right - r.right : r.left - area.left;
@@ -79,26 +68,6 @@ void main() {
         for (final leaf in barLeaves) {
           await open(tester, leaf, width: width, textDirection: dir);
           leads[leaf] = lead(backOf(tester));
-          await done(tester);
-        }
-        for (final leaf in formLeaves) {
-          await open(tester, leaf, width: width, textDirection: dir);
-          leads[leaf] = lead(cancelOf(tester));
-          // The title follows Cancel.
-          final title = tester.getRect(
-            find.descendant(
-              of: find.byType(AppFormHeader),
-              matching: find.byWidgetPredicate(
-                (w) => w is Semantics && (w.properties.header ?? false),
-              ),
-            ),
-          );
-          final cancel = cancelOf(tester);
-          if (rtl) {
-            expect(title.right, lessThanOrEqualTo(cancel.left));
-          } else {
-            expect(title.left, greaterThanOrEqualTo(cancel.right));
-          }
           await done(tester);
         }
         final reference = leads[barLeaves.first]!;
@@ -114,7 +83,7 @@ void main() {
     }
   }
 
-  testWidgets('text scale 2.0 at 840: Cancel still at the AppBar leaf\'s x, '
+  testWidgets('text scale 2.0 at 840: Back still at the AppBar leaf x, '
       'nothing overflows', (tester) async {
     final area = pane(840);
     await open(tester, AppRouter.blockedAccountsPath, width: 840, textScale: 2);
@@ -122,22 +91,7 @@ void main() {
     await done(tester);
     await open(tester, AppRouter.changeHandlePath, width: 840, textScale: 2);
     expectNoOverflow(tester);
-    expect(cancelOf(tester).left - area.left, moreOrLessEquals(back));
-    expect(cancelOf(tester).right, lessThanOrEqualTo(area.right));
+    expect(backOf(tester).left - area.left, moreOrLessEquals(back));
     await done(tester);
   });
-
-  for (final width in [360.0, 1440.0]) {
-    testWidgets('${width.toInt()}: Change handle\'s Cancel where it was', (
-      tester,
-    ) async {
-      await open(tester, AppRouter.changeHandlePath, width: width);
-      final header = tester.getRect(find.byType(AppFormHeader));
-      expect(
-        cancelOf(tester).left,
-        moreOrLessEquals(header.left + AppSpacing.sm),
-      );
-      await done(tester);
-    });
-  }
 }

@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../theme/app_theme.dart';
 import '../../features/account/domain/account_feature_flag.dart';
+import '../../features/account/presentation/account_deleted_screen.dart';
 import '../../features/account/presentation/data_export_screen.dart';
 import '../../features/account/presentation/delete_account_screen.dart';
 import '../../features/articles/presentation/articles_screen.dart';
