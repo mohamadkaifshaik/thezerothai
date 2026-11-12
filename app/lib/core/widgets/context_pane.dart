@@ -31,11 +31,6 @@ enum ContextSectionKind {
   /// own Media tab feed (T8c). The Media tab keeps them at every width.
   profileMedia,
 
-  /// `/plans/new`, `/plans/:id/edit`: the live preview of the form (T8d).
-  planPreview,
-
-  /// `/plans/new`, `/plans/:id/edit`: "Tips for a good plan" (T8d).
-  planTips,
 
 }
 

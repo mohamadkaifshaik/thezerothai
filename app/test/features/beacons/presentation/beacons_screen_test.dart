@@ -87,9 +87,9 @@ void main() {
     expect(find.text('Plans'), findsOneWidget);
     expect(_inRow('Coffee'), findsOneWidget);
     expect(find.text('Run'), findsOneWidget);
-    expect(find.text(beaconWhenText(view.beacon)), findsOneWidget);
-    expect(find.text('Hall'), findsNWidgets(2));
-    expect(find.text('1 of 3 seats taken'), findsOneWidget);
+    expect(find.text('${beaconWhenText(view.beacon)} · Hall'), findsOneWidget);
+    expect(find.textContaining('· Hall'), findsNWidgets(2));
+    expect(find.text('1 going'), findsOneWidget);
     expect(find.text('Full'), findsOneWidget);
     expect(find.text('Open'), findsNothing);
     expect(find.byType(BeaconRow), findsNWidgets(2));
