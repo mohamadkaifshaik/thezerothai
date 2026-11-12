@@ -3,13 +3,11 @@
 package media
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -386,159 +384,25 @@ func TestIntegration_ListByOwnerPagesWithALimit(t *testing.T) {
 	}
 }
 
-// TestIntegration_BannerAndResolver asserts the BANNER rows against the real repo: CreateUpload and FinalizeUpload
-// with 2 Vision units, and ResolveBanner with one answer for every unusable id.
-func TestIntegration_BannerAndResolver(t *testing.T) {
-	e := newIntEnv(t, envOpts{})
-	ctx := context.Background()
-	full, thumb := bannerFull("BF"), bannerThumb("BT")
-
-	cctx := context.Background()
-	tgs, err := e.svc.CreateUpload(cctx, uidA, CreateUploadInput{
-		IdempotencyKey: key1, Purpose: PurposeBanner, Items: []UploadItem{bannerItem(full, thumb)},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	tg := tgs[0]
-
-	// PENDING does not resolve.
-	if _, err := e.lib.ResolveBanner(ctx, uidA, tg.MediaID); !IsNotReady(err) {
-		t.Fatalf("a PENDING banner must not resolve: %v", err)
-	}
-
-	e.put(uidA, tg, full, thumb, "image/webp")
-	fctx := context.Background()
-	res, err := e.svc.FinalizeUpload(fctx, uidA, []FinalizeItem{{MediaID: tg.MediaID, Blurhash: "LEHV6n"}})
-	if err != nil || res[0].Status != StatusReady {
-		t.Fatalf("finalize = %+v, %v", res, err)
-	}
-	if used, err := readVisionUnits(ctx, e.client, monthKey(testNow)); err != nil || used != BannerVisionUnits {
-		t.Fatalf("vision units = %d, %v, want %d", used, err, BannerVisionUnits)
-	}
-
-	wantFull, wantThumb := docNames(t, e.real, tg.MediaID, "webp")
-	rctx := context.Background()
-	ref, err := e.lib.ResolveBanner(rctx, uidA, tg.MediaID)
-	if err != nil || ref.ID != tg.MediaID || ref.URL != "https://cdn.test/media/"+wantFull ||
-		ref.ThumbURL != "https://cdn.test/media/"+wantThumb || ref.Width != 1500 || ref.Height != 500 {
-		t.Fatalf("ref = %+v, %v", ref, err)
-	}
-
-	// READY_UNSCREENED resolves too.
-	if _, err := e.client.Collection(mediaCollection).Doc(tg.MediaID).Update(ctx, []firestore.Update{{Path: "status", Value: string(StatusReadyUnscreened)}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := e.lib.ResolveBanner(ctx, uidA, tg.MediaID); err != nil {
-		t.Fatalf("a READY_UNSCREENED banner must resolve: %v", err)
-	}
-
-	// One answer for every unusable id.
-	avatar := e.upload(t, uidA, PurposeAvatar, "av")
-	if _, err := e.svc.FinalizeUpload(ctx, uidA, []FinalizeItem{{MediaID: avatar.MediaID}}); err != nil {
-		t.Fatal(err)
-	}
-	post := e.upload(t, uidA, PurposePost, "po")
-	if _, err := e.svc.FinalizeUpload(ctx, uidA, []FinalizeItem{{MediaID: post.MediaID}}); err != nil {
-		t.Fatal(err)
-	}
-	rejected := e.bannerUpload(t, uidA, "rj")
-	e.mod.by[uploadObject(uidA, rejected.MediaID, "webp")] = SafeSearch{Racy: LikelihoodLikely}
-	if res, err := e.svc.FinalizeUpload(ctx, uidA, []FinalizeItem{{MediaID: rejected.MediaID}}); err != nil || res[0].Status != StatusRejected {
-		t.Fatalf("racy banner = %+v, %v", res, err)
-	}
-	for name, tc := range map[string]struct{ uid, id string }{
-		"someone else's":    {uidB, tg.MediaID},
-		"an avatar":         {uidA, avatar.MediaID},
-		"a post image":      {uidA, post.MediaID},
-		"a rejected banner": {uidA, rejected.MediaID},
-		"unknown":           {uidA, "0000000000000009999"},
-		"a path":            {uidA, "../users/x"},
-		"empty":             {uidA, ""},
-	} {
-		if _, err := e.lib.ResolveBanner(ctx, tc.uid, tc.id); !IsNotReady(err) {
-			t.Errorf("%s: err = %v, want ErrNotReady", name, err)
-		}
-	}
-	// The two resolvers are not interchangeable.
-	if _, err := e.lib.ResolveAvatar(ctx, uidA, tg.MediaID); !IsNotReady(err) {
-		t.Fatalf("a banner must not resolve as an avatar: %v", err)
-	}
-	if _, err := e.lib.ResolveBanner(ctx, uidA, avatar.MediaID); !IsNotReady(err) {
-		t.Fatalf("an avatar must not resolve as a banner: %v", err)
-	}
-}
-
-// TestIntegration_BannerErasureAndExport proves a replaced banner and the current one are both listed in the
-// export and erased with the account (rule 10; replaced banners are kept until then).
-func TestIntegration_BannerErasureAndExport(t *testing.T) {
-	e := newIntEnv(t, envOpts{})
-	ctx := context.Background()
-	var ids []string
-	for _, tag := range []string{"old", "new"} {
-		tg := e.bannerUpload(t, uidA, tag)
-		if res, err := e.svc.FinalizeUpload(ctx, uidA, []FinalizeItem{{MediaID: tg.MediaID}}); err != nil || res[0].Status != StatusReady {
-			t.Fatalf("finalize = %+v, %v", res, err)
-		}
-		ids = append(ids, tg.MediaID)
-	}
-	bob := e.bannerUpload(t, uidB, "bob")
-	if _, err := e.svc.FinalizeUpload(ctx, uidB, []FinalizeItem{{MediaID: bob.MediaID}}); err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range append(ids, bob.MediaID) {
-		f, th := docNames(t, e.real, id, "webp")
-		e.obj.public[f], e.obj.public[th] = "image/webp", "image/webp"
-	}
-
-	p := NewPurger(e.real, e.obj, "https://cdn.test/media")
-	var buf bytes.Buffer
-	ectx := context.Background()
-	if err := p.WriteSection(ectx, uidA, &buf); err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range ids {
-		if !strings.Contains(buf.String(), id) {
-			t.Fatalf("export misses banner %s: %s", id, buf.String())
-		}
-	}
-	if strings.Count(buf.String(), `"purpose":"BANNER"`) != 2 || strings.Contains(buf.String(), bob.MediaID) {
-		t.Fatalf("export = %s", buf.String())
-	}
-
-	pctx := context.Background()
-	cp, done, err := p.PurgeUser(pctx, uidA, Checkpoint{})
-	if err != nil || !done || cp.Deleted != 2 {
-		t.Fatalf("purge = %+v done=%v err=%v", cp, done, err)
-	}
-	docs, err := e.real.GetMany(ctx, append(ids, bob.MediaID))
-	if err != nil || len(docs) != 1 || docs[bob.MediaID] == nil {
-		t.Fatalf("docs left = %v, %v: only Bob's banner may remain", docs, err)
-	}
-	if len(e.obj.public) != 2 {
-		t.Fatalf("public objects left = %v: only Bob's two may remain", e.obj.public)
-	}
-}
-
-// TestIntegration_ConcurrentBannerFinalizeScreensOnce is M-3 (c) against the real repo: 10 concurrent
-// finalizes of one BANNER, spread over three instances (separate services, single-flight groups and Vision caches)
-// that all hold the same PENDING snapshot before any of them claims it, spend exactly the banner's 2 Vision units
+// TestIntegration_ConcurrentTwoUnitFinalizeScreensOnce is M-3 (c) against the real repo: 10 concurrent
+// finalizes of one photo screened full and thumb, spread over three instances (separate services, single-flight groups
+// and Vision caches) that all hold the same PENDING snapshot before any of them claims it, spend exactly its 2 Vision units
 // and produce one READY document. The losers' answers are READY (they loaded after the winner finished, or share its
 // flight) or the retryable MEDIA_NOT_READY. The control run (claim turned into a no-op) screens once per instance,
 // so the scenario really races.
-func TestIntegration_ConcurrentBannerFinalizeScreensOnce(t *testing.T) {
+func TestIntegration_ConcurrentTwoUnitFinalizeScreensOnce(t *testing.T) {
 	ctx := context.Background()
-	e := newIntEnv(t, envOpts{})
-	tg := e.bannerUpload(t, uidA, "m3")
+	e := newIntEnv(t, envOpts{screenThumb: true})
+	tg := e.upload(t, uidA, PurposePost, "m3")
 
 	out, st := raceFinalize(t, e.env, e.real, uidA, tg.MediaID, 3, 10, true)
 	checkRaceOutcomes(t, out)
 
-	if got := len(e.mod.calls); got != BannerVisionUnits {
-		t.Errorf("SafeSearch calls = %d (%v), want exactly %d", got, e.mod.calls, BannerVisionUnits)
+	if got := len(e.mod.calls); got != twoUnits {
+		t.Errorf("SafeSearch calls = %d (%v), want exactly %d", got, e.mod.calls, twoUnits)
 	}
-	if used, err := readVisionUnits(ctx, e.client, monthKey(testNow)); err != nil || used != BannerVisionUnits {
-		t.Errorf("vision counter = %d, %v, want exactly %d", used, err, BannerVisionUnits)
+	if used, err := readVisionUnits(ctx, e.client, monthKey(testNow)); err != nil || used != twoUnits {
+		t.Errorf("vision counter = %d, %v, want exactly %d", used, err, twoUnits)
 	}
 	if st.attempts.Load() < 3 {
 		t.Errorf("claim attempts = %d, want at least one per instance", st.attempts.Load())
@@ -552,11 +416,11 @@ func TestIntegration_ConcurrentBannerFinalizeScreensOnce(t *testing.T) {
 	}
 
 	// Control: the same race with the claim disabled screens the image once per instance.
-	c := newIntEnv(t, envOpts{})
-	ct := c.bannerUpload(t, uidA, "m3c")
+	c := newIntEnv(t, envOpts{screenThumb: true})
+	ct := c.upload(t, uidA, PurposePost, "m3c")
 	_, _ = raceFinalize(t, c.env, c.real, uidA, ct.MediaID, 3, 10, false)
-	if got := len(c.mod.calls); got <= BannerVisionUnits {
-		t.Errorf("control: SafeSearch calls = %d, want more than %d without the claim", got, BannerVisionUnits)
+	if got := len(c.mod.calls); got <= twoUnits {
+		t.Errorf("control: SafeSearch calls = %d, want more than %d without the claim", got, twoUnits)
 	}
 }
 

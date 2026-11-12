@@ -112,7 +112,6 @@ type Evidence struct {
 	Location    string
 	Website     string
 	AvatarURL   string
-	BannerURL   string
 	// LIST reports only: the list's name and description as the reporter saw them. AuthorHandle holds the owner's
 	// handle and PostCreatedAt the list's creation time. No member id is copied. Empty for every other report.
 	ListName        string

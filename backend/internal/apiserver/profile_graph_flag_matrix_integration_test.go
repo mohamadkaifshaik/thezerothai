@@ -168,32 +168,18 @@ func w320GatedCalls() []w320GatedCall {
 		}
 	}
 	return []w320GatedCall{
-		{name: "UpdateProfile banner_media_id (unknown id)", flag: "profile_extras", rpc: rpcUpdateProfile,
-			call: upd(&identityv1.UpdateProfileRequest{BannerMediaId: w320Str("0000000000000000042")}),
-			pass: func(t *testing.T, what string, err error) {
-				w320Reason(t, what, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY, "")
-			}},
 		{name: "UpdateProfile location (two lines)", flag: "profile_extras", rpc: rpcUpdateProfile,
 			call: upd(&identityv1.UpdateProfileRequest{Location: w320Str("one\ntwo")}), pass: wantValidation("location")},
 		{name: "UpdateProfile website (javascript:)", flag: "profile_extras", rpc: rpcUpdateProfile,
 			call: upd(&identityv1.UpdateProfileRequest{Website: w320Str("javascript:alert(1)")}), pass: wantValidation("website")},
 		{name: "UpdateProfile pinned_post_id (malformed)", flag: "profile_extras", rpc: rpcUpdateProfile,
 			call: upd(&identityv1.UpdateProfileRequest{PinnedPostId: w320Str("nope")}), pass: wantValidation("pinned_post_id")},
-		{name: `UpdateProfile banner_media_id ""`, flag: "profile_extras", rpc: rpcUpdateProfile, clear: true,
-			call: upd(&identityv1.UpdateProfileRequest{BannerMediaId: w320Str("")}), pass: wantOK},
 		{name: `UpdateProfile location ""`, flag: "profile_extras", rpc: rpcUpdateProfile, clear: true,
 			call: upd(&identityv1.UpdateProfileRequest{Location: w320Str("")}), pass: wantOK},
 		{name: `UpdateProfile website ""`, flag: "profile_extras", rpc: rpcUpdateProfile, clear: true,
 			call: upd(&identityv1.UpdateProfileRequest{Website: w320Str("")}), pass: wantOK},
 		{name: `UpdateProfile pinned_post_id ""`, flag: "profile_extras", rpc: rpcUpdateProfile, clear: true,
 			call: upd(&identityv1.UpdateProfileRequest{PinnedPostId: w320Str("")}), pass: wantOK},
-		{name: "CreateUpload(BANNER) with no items", flag: "profile_extras", rpc: w320RPCCreateUpload,
-			call: func(e *w320Chain, u bmUser, _ string) error {
-				_, err := e.media.CreateUpload(context.Background(), authed(u.token, &mediav1.CreateUploadRequest{
-					IdempotencyKey: contractKey("w320-up"), Purpose: mediav1.MediaPurpose_MEDIA_PURPOSE_BANNER,
-				}))
-				return err
-			}, pass: wantValidation("")},
 		{name: "GetUserTimeline MEDIA", flag: "profile_tabs", rpc: rpcGetUserTimeline, call: tab(tabMediaPB), pass: wantOK},
 		{name: "GetUserTimeline REPOSTS", flag: "profile_tabs", rpc: rpcGetUserTimeline, call: tab(tabRepostsPB), pass: wantOK},
 		{name: "ListLikedPosts", flag: "likes_list", rpc: rpcListLikedPosts,
@@ -302,7 +288,7 @@ func TestW320_UngatedSiblingsStayOpenInEveryMode(t *testing.T) {
 
 // TestW320_CompanionFlagPrecedence: where an RPC needs a second flag, the FIRST guard in the code is the one that answers
 // when both are off, and the answer names it (or, for the whole-service flags, carries no feature metadata). Read from
-// the handlers: CreateUpload checks media, then (BANNER only) profile_extras; ListLikedPosts checks posts, then
+// the handlers: CreateUpload checks media only (no purpose needs profile_extras since the banner was removed); ListLikedPosts checks posts, then
 // likes_list (engagement is NOT needed); GetUserTimeline checks posts, then profile_tabs; ListSuggestedUsers checks
 // graph, then follow_suggestions.
 func TestW320_CompanionFlagPrecedence(t *testing.T) {
@@ -311,14 +297,16 @@ func TestW320_CompanionFlagPrecedence(t *testing.T) {
 	off := func(name string) flags.Spec { return flags.Spec{Name: name, Mode: flags.Off} }
 	on := func(name string) flags.Spec { return flags.Spec{Name: name, Mode: flags.On} }
 
-	t.Run("CreateUpload(BANNER): media off wins over profile_extras off, and over profile_extras on", func(t *testing.T) {
+	t.Run("CreateUpload with the removed purpose 3 (BANNER) is VALIDATION purpose whatever profile_extras says", func(t *testing.T) {
 		for _, extras := range []flags.Spec{off("profile_extras"), on("profile_extras")} {
-			r := newW320Chain(t, func(c *config.Config) { c.FeatureMedia = off("media"); c.FeatureProfileExtras = extras })
+			r := newW320Chain(t, func(c *config.Config) { w320AllW3On(c); c.FeatureProfileExtras = extras })
 			r.w320Warm(t, u)
 			_, err := r.media.CreateUpload(context.Background(), authed(u.token, &mediav1.CreateUploadRequest{
-				IdempotencyKey: contractKey("w320-up"), Purpose: mediav1.MediaPurpose_MEDIA_PURPOSE_BANNER,
+				IdempotencyKey: contractKey("w320-up"), Purpose: mediav1.MediaPurpose(3),
 			}))
-			w320Disabled(t, "media off, profile_extras "+string(extras.Mode), err, "") // whole-service answer
+			if d := wireError(t, err, connect.CodeInvalidArgument); d.GetReason() != commonv1.ErrorReason_ERROR_REASON_VALIDATION || d.GetMetadata()["field"] != "purpose" {
+				t.Errorf("profile_extras %s: reason=%v metadata=%v, want VALIDATION field=purpose", extras.Mode, d.GetReason(), d.GetMetadata())
+			}
 		}
 	})
 	t.Run("CreateUpload(POST) is not gated by profile_extras", func(t *testing.T) {
@@ -445,13 +433,13 @@ func TestW320_M1KillSwitchWebsiteAndClears(t *testing.T) {
 			o, _ := seed()
 			r := newW320Chain(t, func(c *config.Config) { w320AllW3On(c); c.FeatureProfileExtras = tc.spec })
 			got, err := r.w320Update(o, &identityv1.UpdateProfileRequest{
-				BannerMediaId: w320Str(""), Location: w320Str(""), Website: w320Str(""), PinnedPostId: w320Str(""),
+				Location: w320Str(""), Website: w320Str(""), PinnedPostId: w320Str(""),
 			})
 			if err != nil {
-				t.Errorf("%s: clearing all four with \"\": %v, want it accepted", tc.name, err)
+				t.Errorf("%s: clearing all three with \"\": %v, want it accepted", tc.name, err)
 				continue
 			}
-			if got.GetLocation() != "" || got.GetWebsite() != "" || got.GetPinnedPostId() != "" || got.GetBannerUrl() != "" {
+			if got.GetLocation() != "" || got.GetWebsite() != "" || got.GetPinnedPostId() != "" {
 				t.Errorf("%s: response after the clear = %v, want every field empty", tc.name, got)
 			}
 			for _, f := range []string{"location", "website", "pinnedPostId"} {
@@ -470,7 +458,6 @@ func TestW320_M1KillSwitchWebsiteAndClears(t *testing.T) {
 			"location":       {Location: w320Str("   ")},
 			"website":        {Website: w320Str(" ")},
 			"pinned_post_id": {PinnedPostId: w320Str("  ")},
-			"banner":         {BannerMediaId: w320Str(" ")},
 			"tab":            {Location: w320Str("\t")},
 		} {
 			_, err := r.w320Update(o, req)

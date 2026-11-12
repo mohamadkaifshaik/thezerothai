@@ -52,11 +52,9 @@ type Profile struct {
 	UpdatedAt            time.Time
 	// Profile extras: all absent = none. Never part of the author snapshot. PinnedPostID is omitted from the
 	// RPC responses while profile_extras is globally off.
-	BannerURL      string
-	BannerThumbURL string
-	Location       string
-	Website        string
-	PinnedPostID   string
+	Location     string
+	Website      string
+	PinnedPostID string
 	// ReadReceipts is the owner's "Read receipts" setting (F3), stored default false. Messaging reads it through the 60 s
 	// profile cache. Shown only to the owner and omitted (false) while FEATURE_READ_RECEIPTS is globally off.
 	ReadReceipts bool
@@ -130,19 +128,17 @@ type UpdateProfileParams struct {
 	// item (WithAvatarResolver). Without a resolver, or with FEATURE_MEDIA off for the caller, a non-empty
 	// value is rejected with ERROR_REASON_MEDIA_NOT_READY.
 	AvatarMediaID *string
-	// Setting any of the four (a non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS on
+	// Setting any of the three (a non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS on
 	// for the caller (FEATURE_DISABLED feature=profile_extras, no read; a request that mixes a clear with a set is refused
 	// whole). The exact value "" is a clear and is accepted from any authenticated caller whatever the flag, globally off
 	// included. nil = unchanged.
 	//
-	// BannerMediaID: "" removes the banner; non-empty must be a READY, caller-owned BANNER media item (WithBannerResolver).
 	// Location: <= 30 code points after NFC and trim, single line. Website: http(s) URL, <= 100 characters, no userinfo.
 	// PinnedPostID: "" unpins; non-empty must be the caller's own visible POST, QUOTE or REPLY (WithPinChecker).
-	BannerMediaID *string
-	Location      *string
-	Website       *string
-	PinnedPostID  *string
-	IsPrivate     *bool
+	Location     *string
+	Website      *string
+	PinnedPostID *string
+	IsPrivate    *bool
 	// ReadReceipts (F3): nil = unchanged. true needs FEATURE_READ_RECEIPTS on for the caller (FEATURE_DISABLED
 	// feature=read_receipts, before any read); false never does.
 	ReadReceipts *bool
@@ -315,9 +311,8 @@ type AvatarResolver interface {
 	ResolveAvatar(ctx context.Context, uid, mediaID string) (AvatarRef, error)
 }
 
-// ProfileExtrasFlag is the wire name of FEATURE_PROFILE_EXTRAS: it gates SETTING the banner, location,
-// website and pinned post through UpdateProfile (and CreateUpload(BANNER), together with media); a clear (the exact
-// value "") is never gated (Amendment 1 A2). Rendering of data already stored stays ungated, except the pin and the
+// ProfileExtrasFlag is the wire name of FEATURE_PROFILE_EXTRAS: it gates SETTING the location, website and pinned
+// post through UpdateProfile; a clear (the exact value "") is never gated (Amendment 1 A2). Rendering of data already stored stays ungated, except the pin and the
 // website, which are omitted while the flag is globally off (D3, Amendment 1 A1).
 const ProfileExtrasFlag = "profile_extras"
 
@@ -328,25 +323,6 @@ const ProfileExtrasFlag = "profile_extras"
 type ExtrasFlags interface {
 	Enabled(uid, name string) bool
 	GloballyOff(name string) bool
-}
-
-// BannerRef is a published banner: the full 1500 x 500 image and the 600 x 200 thumbnail (Profile.BannerURL and
-// BannerThumbURL).
-type BannerRef struct {
-	URL      string
-	ThumbURL string
-}
-
-// ErrBannerNotReady is returned by a BannerResolver for a media id that is missing, not the caller's, not a BANNER,
-// not READY (or READY_UNSCREENED), or when FEATURE_MEDIA is off for the caller: one answer for every cause, no oracle
-// The service maps it to ERROR_REASON_MEDIA_NOT_READY, like an avatar.
-var ErrBannerNotReady = errors.New("identity: banner media not ready")
-
-// BannerResolver is the consumer-side seam to the media module, mirroring AvatarResolver. It uses
-// media.Reader.ResolveBanner and apiserver adapts it (including the FEATURE_MEDIA check); it reads the media
-// doc. A nil resolver (WithBannerResolver not called) keeps every non-empty banner_media_id rejected as not ready.
-type BannerResolver interface {
-	ResolveBanner(ctx context.Context, uid, mediaID string) (BannerRef, error)
 }
 
 // PinChecker is the consumer-side seam to the posts module (the BlockChecker pattern, so identity never imports posts).

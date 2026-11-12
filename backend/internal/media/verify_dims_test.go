@@ -175,10 +175,8 @@ func TestB14_FinalizeChecksRealDimensions(t *testing.T) {
 		// The official client declares exactly what it encoded.
 		{"client post JPEG", upload{PurposePost, ContentTypeJPEG, 160, 120, fixture("client-post-160x120.jpg"), fixture("client-thumb-40x30.jpg")}, true},
 		{"client small post whose thumb is the photo itself", upload{PurposePost, ContentTypeJPEG, 40, 30, fixture("client-thumb-40x30.jpg"), fixture("client-thumb-40x30.jpg")}, true},
-		{"client banner JPEG", upload{PurposeBanner, ContentTypeJPEG, 150, 50, fixture("client-banner-150x50.jpg"), fixture("client-banner-thumb-60x20.jpg")}, true},
 		{"client avatar JPEG", upload{PurposeAvatar, ContentTypeJPEG, 40, 30, fixture("client-thumb-40x30.jpg"), fixture("client-thumb-40x30.jpg")}, true},
 		{"WebP post", upload{PurposePost, ContentTypeWebP, 1200, 800, fixed(webpSized("F", 1200, 800)), fixed(riff(chunk("VP8L", vp8lHeader(400, 267))))}, true},
-		{"WebP banner", upload{PurposeBanner, ContentTypeWebP, 1500, 500, fixed(webpSized("F", 1500, 500)), fixed(webpSized("T", 600, 200))}, true},
 
 		// Declared and real size disagree.
 		{"JPEG declared larger than it is", upload{PurposePost, ContentTypeJPEG, 1200, 800, fixture("client-post-160x120.jpg"), fixture("client-thumb-40x30.jpg")}, false},
@@ -188,11 +186,10 @@ func TestB14_FinalizeChecksRealDimensions(t *testing.T) {
 		{"magic bytes only, no size", upload{PurposePost, ContentTypeJPEG, 1200, 800, fixed([]byte{0xFF, 0xD8, 0xFF, 0xE0, 'x'}), fixed(jpegBytes("T"))}, false},
 		{"JPEG whose SOF is past the 64 KiB read", upload{PurposePost, ContentTypeJPEG, 20, 10, func(t *testing.T) []byte { return withAPP(stdJPEG(t, 20, 10), 65000, 65000) }, fixed(jpegSized("T", 20, 10))}, false},
 
-		// The thumbnail: no declared size, but never larger than the full image and, for a banner, 3:1.
+		// The thumbnail: no declared size, but never larger than the full image.
 		{"thumbnail larger than the full image", upload{PurposePost, ContentTypeJPEG, 160, 120, fixture("client-post-160x120.jpg"), fixed(jpegSized("T", 1200, 800))}, false},
 		{"thumbnail beyond MaxDimension", upload{PurposePost, ContentTypeWebP, 1200, 800, fixed(webpSized("F", 1200, 800)), fixed(webpSized("T", 5000, 10))}, false},
-		{"banner thumbnail that is not 3:1", upload{PurposeBanner, ContentTypeJPEG, 150, 50, fixture("client-banner-150x50.jpg"), fixture("client-thumb-40x30.jpg")}, false},
-		{"banner thumbnail that is unreadable", upload{PurposeBanner, ContentTypeWebP, 1500, 500, fixed(webpSized("F", 1500, 500)), fixed(riff(chunk("VP8 ", []byte("pixels!!"))))}, false},
+		{"thumbnail that is unreadable", upload{PurposePost, ContentTypeWebP, 1500, 500, fixed(webpSized("F", 1500, 500)), fixed(riff(chunk("VP8 ", []byte("pixels!!"))))}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

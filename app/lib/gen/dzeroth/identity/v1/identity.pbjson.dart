@@ -92,8 +92,6 @@ const Profile$json = {
       '6': '.google.protobuf.Timestamp',
       '10': 'createdAt'
     },
-    {'1': 'banner_url', '3': 13, '4': 1, '5': 9, '10': 'bannerUrl'},
-    {'1': 'banner_thumb_url', '3': 14, '4': 1, '5': 9, '10': 'bannerThumbUrl'},
     {'1': 'location', '3': 15, '4': 1, '5': 9, '10': 'location'},
     {'1': 'website', '3': 16, '4': 1, '5': 9, '10': 'website'},
     {'1': 'pinned_post_id', '3': 17, '4': 1, '5': 9, '10': 'pinnedPostId'},
@@ -114,6 +112,11 @@ const Profile$json = {
       '10': 'dmPolicy'
     },
   ],
+  '9': [
+    {'1': 13, '2': 14},
+    {'1': 14, '2': 15},
+  ],
+  '10': ['banner_url', 'banner_thumb_url'],
 };
 
 /// Descriptor for `Profile`. Decode as a `google.protobuf.DescriptorProto`.
@@ -125,13 +128,12 @@ final $typed_data.Uint8List profileDescriptor = $convert.base64Decode(
     'aWZpZWQYCCABKAhSCHZlcmlmaWVkEicKD2ZvbGxvd2Vyc19jb3VudBgJIAEoA1IOZm9sbG93ZX'
     'JzQ291bnQSJwoPZm9sbG93aW5nX2NvdW50GAogASgDUg5mb2xsb3dpbmdDb3VudBIfCgtwb3N0'
     'c19jb3VudBgLIAEoA1IKcG9zdHNDb3VudBI5CgpjcmVhdGVkX2F0GAwgASgLMhouZ29vZ2xlLn'
-    'Byb3RvYnVmLlRpbWVzdGFtcFIJY3JlYXRlZEF0Eh0KCmJhbm5lcl91cmwYDSABKAlSCWJhbm5l'
-    'clVybBIoChBiYW5uZXJfdGh1bWJfdXJsGA4gASgJUg5iYW5uZXJUaHVtYlVybBIaCghsb2NhdG'
-    'lvbhgPIAEoCVIIbG9jYXRpb24SGAoHd2Vic2l0ZRgQIAEoCVIHd2Vic2l0ZRIkCg5waW5uZWRf'
-    'cG9zdF9pZBgRIAEoCVIMcGlubmVkUG9zdElkEjMKFXN1YnNjcmlwdGlvbl92ZXJpZmllZBgSIA'
-    'EoCFIUc3Vic2NyaXB0aW9uVmVyaWZpZWQSIwoNcmVhZF9yZWNlaXB0cxgUIAEoCFIMcmVhZFJl'
-    'Y2VpcHRzEjoKCWRtX3BvbGljeRgTIAEoDjIdLmR6ZXJvdGguaWRlbnRpdHkudjEuRG1Qb2xpY3'
-    'lSCGRtUG9saWN5');
+    'Byb3RvYnVmLlRpbWVzdGFtcFIJY3JlYXRlZEF0EhoKCGxvY2F0aW9uGA8gASgJUghsb2NhdGlv'
+    'bhIYCgd3ZWJzaXRlGBAgASgJUgd3ZWJzaXRlEiQKDnBpbm5lZF9wb3N0X2lkGBEgASgJUgxwaW'
+    '5uZWRQb3N0SWQSMwoVc3Vic2NyaXB0aW9uX3ZlcmlmaWVkGBIgASgIUhRzdWJzY3JpcHRpb25W'
+    'ZXJpZmllZBIjCg1yZWFkX3JlY2VpcHRzGBQgASgIUgxyZWFkUmVjZWlwdHMSOgoJZG1fcG9saW'
+    'N5GBMgASgOMh0uZHplcm90aC5pZGVudGl0eS52MS5EbVBvbGljeVIIZG1Qb2xpY3lKBAgNEA5K'
+    'BAgOEA9SCmJhbm5lcl91cmxSEGJhbm5lcl90aHVtYl91cmw=');
 
 @$core.Deprecated('Use createProfileRequestDescriptor instead')
 const CreateProfileRequest$json = {
@@ -344,20 +346,11 @@ const UpdateProfileRequest$json = {
       '17': true
     },
     {
-      '1': 'banner_media_id',
-      '3': 6,
-      '4': 1,
-      '5': 9,
-      '9': 4,
-      '10': 'bannerMediaId',
-      '17': true
-    },
-    {
       '1': 'location',
       '3': 7,
       '4': 1,
       '5': 9,
-      '9': 5,
+      '9': 4,
       '10': 'location',
       '17': true
     },
@@ -366,7 +359,7 @@ const UpdateProfileRequest$json = {
       '3': 8,
       '4': 1,
       '5': 9,
-      '9': 6,
+      '9': 5,
       '10': 'website',
       '17': true
     },
@@ -375,7 +368,7 @@ const UpdateProfileRequest$json = {
       '3': 9,
       '4': 1,
       '5': 9,
-      '9': 7,
+      '9': 6,
       '10': 'pinnedPostId',
       '17': true
     },
@@ -384,7 +377,7 @@ const UpdateProfileRequest$json = {
       '3': 11,
       '4': 1,
       '5': 8,
-      '9': 8,
+      '9': 7,
       '10': 'readReceipts',
       '17': true
     },
@@ -394,7 +387,7 @@ const UpdateProfileRequest$json = {
       '4': 1,
       '5': 14,
       '6': '.dzeroth.identity.v1.DmPolicy',
-      '9': 9,
+      '9': 8,
       '10': 'dmPolicy',
       '17': true
     },
@@ -404,13 +397,16 @@ const UpdateProfileRequest$json = {
     {'1': '_bio'},
     {'1': '_avatar_media_id'},
     {'1': '_is_private'},
-    {'1': '_banner_media_id'},
     {'1': '_location'},
     {'1': '_website'},
     {'1': '_pinned_post_id'},
     {'1': '_read_receipts'},
     {'1': '_dm_policy'},
   ],
+  '9': [
+    {'1': 6, '2': 7},
+  ],
+  '10': ['banner_media_id'],
 };
 
 /// Descriptor for `UpdateProfileRequest`. Decode as a `google.protobuf.DescriptorProto`.
@@ -418,15 +414,14 @@ final $typed_data.Uint8List updateProfileRequestDescriptor = $convert.base64Deco
     'ChRVcGRhdGVQcm9maWxlUmVxdWVzdBInCg9pZGVtcG90ZW5jeV9rZXkYASABKAlSDmlkZW1wb3'
     'RlbmN5S2V5EiYKDGRpc3BsYXlfbmFtZRgCIAEoCUgAUgtkaXNwbGF5TmFtZYgBARIVCgNiaW8Y'
     'AyABKAlIAVIDYmlviAEBEisKD2F2YXRhcl9tZWRpYV9pZBgEIAEoCUgCUg1hdmF0YXJNZWRpYU'
-    'lkiAEBEiIKCmlzX3ByaXZhdGUYBSABKAhIA1IJaXNQcml2YXRliAEBEisKD2Jhbm5lcl9tZWRp'
-    'YV9pZBgGIAEoCUgEUg1iYW5uZXJNZWRpYUlkiAEBEh8KCGxvY2F0aW9uGAcgASgJSAVSCGxvY2'
-    'F0aW9uiAEBEh0KB3dlYnNpdGUYCCABKAlIBlIHd2Vic2l0ZYgBARIpCg5waW5uZWRfcG9zdF9p'
-    'ZBgJIAEoCUgHUgxwaW5uZWRQb3N0SWSIAQESKAoNcmVhZF9yZWNlaXB0cxgLIAEoCEgIUgxyZW'
-    'FkUmVjZWlwdHOIAQESPwoJZG1fcG9saWN5GAogASgOMh0uZHplcm90aC5pZGVudGl0eS52MS5E'
-    'bVBvbGljeUgJUghkbVBvbGljeYgBAUIPCg1fZGlzcGxheV9uYW1lQgYKBF9iaW9CEgoQX2F2YX'
-    'Rhcl9tZWRpYV9pZEINCgtfaXNfcHJpdmF0ZUISChBfYmFubmVyX21lZGlhX2lkQgsKCV9sb2Nh'
-    'dGlvbkIKCghfd2Vic2l0ZUIRCg9fcGlubmVkX3Bvc3RfaWRCEAoOX3JlYWRfcmVjZWlwdHNCDA'
-    'oKX2RtX3BvbGljeQ==');
+    'lkiAEBEiIKCmlzX3ByaXZhdGUYBSABKAhIA1IJaXNQcml2YXRliAEBEh8KCGxvY2F0aW9uGAcg'
+    'ASgJSARSCGxvY2F0aW9uiAEBEh0KB3dlYnNpdGUYCCABKAlIBVIHd2Vic2l0ZYgBARIpCg5waW'
+    '5uZWRfcG9zdF9pZBgJIAEoCUgGUgxwaW5uZWRQb3N0SWSIAQESKAoNcmVhZF9yZWNlaXB0cxgL'
+    'IAEoCEgHUgxyZWFkUmVjZWlwdHOIAQESPwoJZG1fcG9saWN5GAogASgOMh0uZHplcm90aC5pZG'
+    'VudGl0eS52MS5EbVBvbGljeUgIUghkbVBvbGljeYgBAUIPCg1fZGlzcGxheV9uYW1lQgYKBF9i'
+    'aW9CEgoQX2F2YXRhcl9tZWRpYV9pZEINCgtfaXNfcHJpdmF0ZUILCglfbG9jYXRpb25CCgoIX3'
+    'dlYnNpdGVCEQoPX3Bpbm5lZF9wb3N0X2lkQhAKDl9yZWFkX3JlY2VpcHRzQgwKCl9kbV9wb2xp'
+    'Y3lKBAgGEAdSD2Jhbm5lcl9tZWRpYV9pZA==');
 
 @$core.Deprecated('Use updateProfileResponseDescriptor instead')
 const UpdateProfileResponse$json = {

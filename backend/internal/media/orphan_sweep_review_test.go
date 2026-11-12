@@ -32,8 +32,8 @@ func TestOrphanSweep_ClaimedDocIsFinishedNeverRestored(t *testing.T) {
 		}, func(e *orphanEnv, id string) {
 			e.profiles.urls[uidA] = []string{"https://cdn.test/media/" + e.doc(id).PublicPath}
 		}},
-		{"banner whose retire switch was turned off after the claim", config.ProfileMediaRetireBanner, func(e *orphanEnv) string {
-			return e.seed(uidA, PurposeBanner, sweepNow.Add(-time.Minute))
+		{"avatar whose retire switch was turned off after the claim", config.ProfileMediaRetireAll, func(e *orphanEnv) string {
+			return e.seed(uidA, PurposeAvatar, sweepNow.Add(-time.Minute))
 		}, func(e *orphanEnv, _ string) {
 			e.sweeper.d.RetireMode = config.ProfileMediaRetireOff
 		}},
@@ -124,7 +124,7 @@ func TestOrphanSweep_HolderErrorPostponesThatOwner(t *testing.T) {
 	}{
 		{"draft holders fail", PurposePost, false, func(e *orphanEnv) { e.drafts.err = errors.New("unavailable") }},
 		{"draft holders fail on a marked image", PurposePost, true, func(e *orphanEnv) { e.drafts.err = errors.New("unavailable") }},
-		{"profile read fails", PurposeBanner, false, func(e *orphanEnv) { e.profiles.err = errors.New("unavailable") }},
+		{"profile read fails", PurposeAvatar, false, func(e *orphanEnv) { e.profiles.err = errors.New("unavailable") }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

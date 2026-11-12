@@ -24,7 +24,6 @@ import (
 func seedExtras(t *testing.T, client *firestore.Client, uid string) {
 	t.Helper()
 	_, err := client.Collection("users").Doc(uid).Update(context.Background(), []firestore.Update{
-		{Path: "bannerUrl", Value: "https://m/m/9.webp"}, {Path: "bannerThumbUrl", Value: "https://m/m/9_t.webp"},
 		{Path: "location", Value: "Pune"}, {Path: "website", Value: "https://phish.example"}, {Path: "pinnedPostId", Value: itPin},
 		{Path: "avatarUrl", Value: "https://m/m/7.webp"}, {Path: "avatarThumbUrl", Value: "https://m/m/7_t.webp"},
 		{Path: "bio", Value: "buy now"},
@@ -66,16 +65,16 @@ func TestUpdateProfile_Integration_ClearOutsideTheCohortCostsOneReadOneWrite(t *
 			// The clear works whatever the flag says.
 			ctx = context.Background()
 			got, err := svc.UpdateProfile(ctx, itUID, identity.UpdateProfileParams{
-				IdempotencyKey: validKeyForIntegration, BannerMediaID: &empty, Location: &empty, Website: &empty, PinnedPostID: &empty,
+				IdempotencyKey: validKeyForIntegration, Location: &empty, Website: &empty, PinnedPostID: &empty,
 			})
 			if err != nil {
 				t.Fatalf("clear: %v", err)
 			}
-			if got.BannerURL != "" || got.Location != "" || got.Website != "" || got.PinnedPostID != "" {
+			if got.Location != "" || got.Website != "" || got.PinnedPostID != "" {
 				t.Errorf("response after the clear: %+v", got)
 			}
 			after := userData(t, client, itUID)
-			for _, field := range []string{"bannerUrl", "bannerThumbUrl", "location", "website", "pinnedPostId"} {
+			for _, field := range []string{"location", "website", "pinnedPostId"} {
 				if v, has := after[field]; has && v != "" {
 					t.Errorf("users/%s.%s = %v after the clear", itUID, field, v)
 				}
@@ -89,7 +88,7 @@ func TestUpdateProfile_Integration_ClearOutsideTheCohortCostsOneReadOneWrite(t *
 			// updatedAt stays where the first clear put it.
 			ctx = context.Background()
 			if _, err := svc.UpdateProfile(ctx, itUID, identity.UpdateProfileParams{
-				IdempotencyKey: validKeyForIntegration, BannerMediaID: &empty, Location: &empty, Website: &empty, PinnedPostID: &empty,
+				IdempotencyKey: validKeyForIntegration, Location: &empty, Website: &empty, PinnedPostID: &empty,
 			}); err != nil {
 				t.Fatalf("repeat clear: %v", err)
 			}
@@ -108,7 +107,7 @@ func TestClearProfileFields_Integration(t *testing.T) {
 		seedExtras(t, client, itUID)
 		return client, repo
 	}
-	all := []identity.ProfileField{identity.ProfileFieldWebsite, identity.ProfileFieldLocation, identity.ProfileFieldBanner, identity.ProfileFieldAvatar, identity.ProfileFieldBio}
+	all := []identity.ProfileField{identity.ProfileFieldWebsite, identity.ProfileFieldLocation, identity.ProfileFieldAvatar, identity.ProfileFieldBio}
 
 	t.Run("dry run reads once, writes nothing and reports the stored values", func(t *testing.T) {
 		client, repo := newRepo(t)
@@ -117,14 +116,14 @@ func TestClearProfileFields_Integration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if res.Written || len(res.Cleared) != 5 || len(res.Skipped) != 0 {
+		if res.Written || len(res.Cleared) != 4 || len(res.Skipped) != 0 {
 			t.Fatalf("result = %+v", res)
 		}
 		if res.Cleared[0].Field != identity.ProfileFieldWebsite || res.Cleared[0].Values[0] != "https://phish.example" {
 			t.Errorf("the dry run must report the stored website: %+v", res.Cleared[0])
 		}
-		if res.Cleared[2].Field != identity.ProfileFieldBanner || len(res.Cleared[2].Values) != 2 || res.Cleared[2].Values[1] != "https://m/m/9_t.webp" {
-			t.Errorf("banner values = %+v, want the full URL then the thumbnail URL", res.Cleared[2])
+		if res.Cleared[2].Field != identity.ProfileFieldAvatar || len(res.Cleared[2].Values) != 2 || res.Cleared[2].Values[1] != "https://m/m/7_t.webp" {
+			t.Errorf("avatar values = %+v, want the full URL then the thumbnail URL", res.Cleared[2])
 		}
 		after := userData(t, client, itUID)
 		for k, v := range before {
@@ -141,11 +140,11 @@ func TestClearProfileFields_Integration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !res.Written || len(res.Cleared) != 5 {
+		if !res.Written || len(res.Cleared) != 4 {
 			t.Fatalf("result = %+v", res)
 		}
 		after := userData(t, client, itUID)
-		for _, f := range []string{"website", "location", "bannerUrl", "bannerThumbUrl", "avatarUrl", "avatarThumbUrl", "bio"} {
+		for _, f := range []string{"website", "location", "avatarUrl", "avatarThumbUrl", "bio"} {
 			if v, has := after[f]; !has || v != "" {
 				t.Errorf("users/%s.%s = %v (present %v), want the empty string (a field-level Update, not a delete)", itUID, f, v, has)
 			}
@@ -164,7 +163,7 @@ func TestClearProfileFields_Integration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if res.Written || len(res.Cleared) != 0 || len(res.Skipped) != 5 {
+		if res.Written || len(res.Cleared) != 0 || len(res.Skipped) != 4 {
 			t.Fatalf("rerun result = %+v, want everything skipped and nothing written", res)
 		}
 		if got, _ := userData(t, client, itUID)["updatedAt"].(time.Time); !got.Equal(now) {
@@ -189,7 +188,7 @@ func TestClearProfileFields_Integration(t *testing.T) {
 		if after["avatarThumbUrl"] != "" || after["location"] != "" {
 			t.Errorf("not cleared: %v", after)
 		}
-		if after["website"] != "https://phish.example" || after["bannerUrl"] != "https://m/m/9.webp" || after["bio"] != "buy now" {
+		if after["website"] != "https://phish.example" || after["bio"] != "buy now" {
 			t.Errorf("a field that was not named changed: %v", after)
 		}
 	})

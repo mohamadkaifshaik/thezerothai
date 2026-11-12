@@ -438,7 +438,7 @@ func TestW618_RequestHashGolden(t *testing.T) {
 // TestW618_PercentModeIsPerUserAndTheSameForMediaAndPosts: a mid percentage splits users deterministically, and the media
 // server's decision for each uid equals the registry's decision for the flag name posts uses.
 func TestW618_PercentModeIsPerUserAndTheSameForMediaAndPosts(t *testing.T) {
-	reg := flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}, flags.Spec{Name: ProfileExtrasFlagName, Mode: flags.On},
+	reg := flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On},
 		flags.Spec{Name: GifFlagName, Mode: flags.Percent, Percent: 50})
 	var on, off int
 	e := newEnv(t, envOpts{})
@@ -478,7 +478,7 @@ func TestW618_PercentModeIsPerUserAndTheSameForMediaAndPosts(t *testing.T) {
 // all (the fake repo records nothing, nothing is signed), for a GIF item mixed with a photo too.
 func TestW618_CreateUploadFlagOffIsRefusedBeforeAnyRead(t *testing.T) {
 	e := newEnv(t, envOpts{})
-	s := NewServer(e.svc, flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}, flags.Spec{Name: ProfileExtrasFlagName, Mode: flags.On},
+	s := NewServer(e.svc, flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On},
 		flags.Spec{Name: GifFlagName, Mode: flags.Off}))
 	g, p := gifBytes("F"), jpegBytes("T")
 	gi := &mediav1.UploadItem{ContentType: ContentTypeGIF, ThumbContentType: ContentTypeJPEG, FullSizeBytes: int64(len(g)), ThumbSizeBytes: int64(len(p)), Width: 400, Height: 300, FullMd5: md5b64(g), ThumbMd5: md5b64(p)}
@@ -497,7 +497,7 @@ func TestW618_CreateUploadFlagOffIsRefusedBeforeAnyRead(t *testing.T) {
 func TestW618_FinalizeIgnoresTheGifFlag(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	tg := e.createGIF(t, uidA, "a", ContentTypeJPEG)
-	s := NewServer(e.svc, flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}, flags.Spec{Name: ProfileExtrasFlagName, Mode: flags.On},
+	s := NewServer(e.svc, flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On},
 		flags.Spec{Name: GifFlagName, Mode: flags.Off}))
 	resp, err := s.FinalizeUpload(authedCtx(uidA), connect.NewRequest(&mediav1.FinalizeUploadRequest{IdempotencyKey: "finalize-key-000000001", Items: []*mediav1.FinalizeItem{{MediaId: tg.MediaID}}}))
 	if err != nil {

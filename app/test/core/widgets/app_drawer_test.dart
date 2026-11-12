@@ -7,6 +7,7 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
+import 'package:dzeroth/features/graph/domain/graph_list_extra.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -47,6 +48,11 @@ final _alice = identity.Profile(
   followingCount: Int64(341),
   followersCount: Int64(12),
 );
+
+/// What the counts hand the lists: the person's uid and display name.
+final _aliceExtra = isA<GraphListExtra>()
+    .having((e) => e.userId, 'userId', 'u-alice')
+    .having((e) => e.displayName, 'displayName', 'Alice A');
 
 void main() {
   late _MockOnboardingBloc onboarding;
@@ -634,11 +640,7 @@ void main() {
           expect(size.width, greaterThanOrEqualTo(48), reason: label);
           expect(
             tester.getSemantics(find.bySemanticsLabel(label)),
-            matchesSemantics(
-              label: label,
-              isButton: true,
-              hasTapAction: true,
-            ),
+            matchesSemantics(label: label, isButton: true, hasTapAction: true),
           );
         }
         handle.dispose();
@@ -656,11 +658,7 @@ void main() {
         await openDrawer(tester);
 
         for (final label in ['Profile', 'Articles', 'Lists', 'Communities']) {
-          expect(
-            find.bySemanticsLabel(label),
-            findsOneWidget,
-            reason: label,
-          );
+          expect(find.bySemanticsLabel(label), findsOneWidget, reason: label);
           final row = find.ancestor(
             of: find.text(label),
             matching: find.byType(InkWell),
@@ -743,15 +741,14 @@ void main() {
       expect(find.byType(AppDrawer), findsNothing);
     });
 
-    testWidgets('the counts open the lists of the profile with its user id', (
-      tester,
-    ) async {
+    testWidgets('the counts open the lists of the profile with its user id and '
+        'name', (tester) async {
       await pump(tester, profile: _alice);
       await openDrawer(tester);
       await tester.tap(find.text('341 Following', findRichText: true));
       await tester.pumpAndSettle();
       expect(find.text('following list'), findsOneWidget);
-      expect(lastExtra, 'u-alice');
+      expect(lastExtra, _aliceExtra);
 
       router.pop();
       await tester.pumpAndSettle();
@@ -759,7 +756,7 @@ void main() {
       await tester.tap(find.text('12 Followers', findRichText: true));
       await tester.pumpAndSettle();
       expect(find.text('followers list'), findsOneWidget);
-      expect(lastExtra, 'u-alice');
+      expect(lastExtra, _aliceExtra);
     });
 
     testWidgets('without a profile there is no account block and no Profile '

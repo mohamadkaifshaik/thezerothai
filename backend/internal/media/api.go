@@ -37,13 +37,7 @@ type Purpose string
 const (
 	PurposePost   Purpose = "POST"
 	PurposeAvatar Purpose = "AVATAR"
-	// PurposeBanner is the profile cover image: exactly one image, full 1500 x 500 and thumb 600 x 200.
-	PurposeBanner Purpose = "BANNER"
 )
-
-// ProfileExtrasFlagName is the wire name of FEATURE_PROFILE_EXTRAS. CreateUpload(BANNER) needs it on
-// for the caller on top of FlagName. Defined here because media must not import identity.
-const ProfileExtrasFlagName = "profile_extras"
 
 // Content types (adds the GIF). The content-type table lives in this package: posts sees only
 // MediaClaim.
@@ -62,20 +56,9 @@ const GifFlagName = "gif"
 const (
 	// MaxPerPost is the most images one post carries (and one CreateUpload reserves).
 	MaxPerPost = 4
-	// MaxFullBytes and MaxThumbBytes are the signed x-goog-content-length-range upper bounds (POST and AVATAR;
-	// BANNER has its own, stricter caps below, see capsFor).
+	// MaxFullBytes and MaxThumbBytes are the signed x-goog-content-length-range upper bounds (POST and AVATAR).
 	MaxFullBytes  = 2 << 20
 	MaxThumbBytes = 256 << 10
-	// BannerMaxFullBytes and BannerMaxThumbBytes are the BANNER caps: a 1500 x 500 WebP q75 is about
-	// 60-150 KB, a 600 x 200 thumb about 20 KB.
-	BannerMaxFullBytes  = 1 << 20
-	BannerMaxThumbBytes = 128 << 10
-	// BannerMaxWidth and BannerMaxHeight bound the declared banner size; the declared shape must be 3:1 within
-	// 2% (see validateBannerShape).
-	BannerMaxWidth  = 1500
-	BannerMaxHeight = 500
-	// BannerVisionUnits is what one banner costs: SafeSearch on the full image and the thumbnail.
-	BannerVisionUnits = 2
 	// MaxDimension bounds the declared width/height (the client resizes to <= 1600 px; this is a sanity bound).
 	MaxDimension = 4096
 	// MaxPixels bounds width x height of a verified image (FinalizeUpload reads the real size, B14). It is the square of
@@ -217,8 +200,6 @@ type Result struct {
 type Service interface {
 	// CreateUpload reserves len(items) media ids and signs their PUT URLs. It writes the idempotency record and
 	// one media doc per item; a replay writes nothing. It makes no GCS call.
-	// A BANNER is exactly one item with its own byte caps (1 MiB / 128 KiB) and a 3:1 declared shape, and the Server
-	// additionally needs profile_extras on for the caller (checked before any read when off).
 	// A GIF is POST only, exactly one item, full <= 2 MiB, declared edges <= GIF_MAX_EDGE, with a still
 	// thumbnail named by UploadItem.ThumbContentType (JPEG or WebP); the Server needs gif on for the caller (checked before any read when
 	// off). It writes the same records and makes no GCS call here; the client makes the two PUTs.
@@ -226,7 +207,7 @@ type Service interface {
 	// FinalizeUpload verifies, screens and publishes the uploaded objects. Idempotent per item. It reads the
 	// media docs and the Vision counter (cached 60 s), and writes per item one screening claim and one resolve, or a
 	// claim and a release after a failed attempt, plus the Vision counter.
-	// Vision units: 1 per image, 2 with VISION_SCREEN_THUMB and always 2 for a BANNER, spent by one call per image at a
+	// Vision units: 1 per image, 2 with VISION_SCREEN_THUMB, spent by one call per image at a
 	// time (M-3): calls on one instance share a single flight and all get its result; across instances a
 	// screeningUntil claim (30 s) on the PENDING document makes the loser answer the retryable MEDIA_NOT_READY after one
 	// read, before any Vision call.
@@ -253,8 +234,4 @@ type Reader interface {
 	// ResolveAvatar returns the READY (or READY_UNSCREENED) AVATAR media id owned by uid. ErrNotReady otherwise,
 	// a retired image included.
 	ResolveAvatar(ctx context.Context, uid, mediaID string) (Ref, error)
-	// ResolveBanner returns the READY (or READY_UNSCREENED) BANNER media id owned by uid (Ref.URL is the 1500 px image, Ref.ThumbURL the 600 px one).
-	// ErrNotReady for every other case: missing, someone else's,
-	// another purpose, PENDING, REJECTED or retired.
-	ResolveBanner(ctx context.Context, uid, mediaID string) (Ref, error)
 }

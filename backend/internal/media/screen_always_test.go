@@ -28,7 +28,6 @@ func TestFinalize_HugeUsageCounterStillScreensAndPublishesReady(t *testing.T) {
 	}{
 		{"post photo", func(t *testing.T, e *env) UploadTarget { return e.upload(t, uidA, PurposePost, "a") }, 1, false},
 		{"avatar", func(t *testing.T, e *env) UploadTarget { return e.upload(t, uidA, PurposeAvatar, "a") }, 1, false},
-		{"banner", func(t *testing.T, e *env) UploadTarget { return e.bannerUpload(t, uidA, "a") }, BannerVisionUnits, false},
 		{"gif", func(t *testing.T, e *env) UploadTarget { return e.createGIF(t, uidA, "a", ContentTypeJPEG) }, 2, true},
 	}
 	for _, tt := range tests {
@@ -159,7 +158,7 @@ func TestFinalize_CounterWriteFailureStillPublishesAScreenedImage(t *testing.T) 
 	}
 }
 
-// A blocking verdict is final whatever the counter says: avatars and banners use the stricter Racy rule, and a GIF is rejected on
+// A blocking verdict is final whatever the counter says: avatars use the stricter Racy rule, and a GIF is rejected on
 // either its contact sheet or its thumbnail.
 func TestFinalize_BlockedImagesAreStillRejectedWithAHugeCounter(t *testing.T) {
 	racy := SafeSearch{Racy: LikelihoodLikely}
@@ -171,11 +170,6 @@ func TestFinalize_BlockedImagesAreStillRejectedWithAHugeCounter(t *testing.T) {
 		{"avatar racy", func(t *testing.T, e *env) UploadTarget {
 			tg := e.upload(t, uidA, PurposeAvatar, "a")
 			e.mod.by[uploadObject(uidA, tg.MediaID, "jpg")] = racy
-			return tg
-		}},
-		{"banner racy", func(t *testing.T, e *env) UploadTarget {
-			tg := e.bannerUpload(t, uidA, "a")
-			e.mod.by[uploadObject(uidA, tg.MediaID, "webp")] = racy
 			return tg
 		}},
 		{"post adult", func(t *testing.T, e *env) UploadTarget {

@@ -6,7 +6,6 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/profile/presentation/edit_profile_screen.dart';
 import 'package:dzeroth/features/profile/presentation/profile_screen.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/edit_profile_preview.dart';
-import 'package:dzeroth/features/profile/presentation/widgets/profile_cover_band.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
 import 'package:dzeroth/features/search/presentation/widgets/app_search_field.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
@@ -28,16 +27,15 @@ bool _tabletFlags(Set<String> flags) =>
 bool _bandB(double w) =>
     w >= AppBreakpoints.expanded && w < AppBreakpoints.tablet;
 
-/// The header's Preview action.
+/// The header's "How others see you" action.
 Finder _previewAction() => find.descendant(
   of: find.byType(EditProfileScreen),
-  matching: find.widgetWithText(TextButton, kEditProfilePreviewAction),
+  matching: find.byTooltip(kEditProfilePreviewTitle),
 );
 
-/// The form's own Preview row (text scale above 1.3).
-Finder _previewRow() => find.descendant(
+Finder _close() => find.descendant(
   of: find.byType(EditProfileScreen),
-  matching: find.widgetWithText(OutlinedButton, kEditProfilePreviewAction),
+  matching: find.byTooltip('Close'),
 );
 
 Finder _inPreview(Finder finder) =>
@@ -49,9 +47,7 @@ Future<void> _openPreview(WidgetTester tester) async {
   expect(find.text(kEditProfilePreviewTitle), findsOneWidget);
 }
 
-Finder _field(String label) => find.byWidgetPredicate(
-  (w) => w is TextField && w.decoration?.labelText == label,
-);
+Finder _field(String label) => find.byKey(ValueKey('field-$label'));
 
 void main() {
   group('Edit profile: the header action, flag modes x widths', () {
@@ -68,8 +64,8 @@ void main() {
           expect(tester.takeException(), isNull);
           expect(find.byType(EditProfileScreen), findsOneWidget);
           expect(_previewAction(), findsOneWidget);
-          // Cancel and Save are there in every mode.
-          expect(find.widgetWithText(TextButton, 'Cancel'), findsOneWidget);
+          // Close and Save are there in every mode.
+          expect(_close(), findsOneWidget);
           expect(find.text('Save'), findsOneWidget);
           // Band B on the tablet layout (T4) and the desktop master-detail
           // (`ui_shell`, >= 1200): the Settings categories beside it, never
@@ -161,29 +157,8 @@ void main() {
       );
     });
 
-    testWidgets('a removed banner is gone from the preview', (tester) async {
-      final rig = ProfileTabletRig();
-      await rig.pump(tester, width: 1024, location: AppRouter.editProfilePath);
-      await _openPreview(tester);
-      expect(
-        tester
-            .widget<ProfileCoverBand>(_inPreview(find.byType(ProfileCoverBand)))
-            .url,
-        isNotEmpty,
-      );
-      await tester.tap(find.widgetWithText(TextButton, 'Close'));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.bySemanticsLabel('Remove banner photo'));
-      await tester.pumpAndSettle();
-      await _openPreview(tester);
-      // The hero draws a band only while there is a banner.
-      expect(_inPreview(find.byType(ProfileCoverBand)), findsNothing);
-      expect(find.text(kEditProfilePreviewUnsaved), findsOneWidget);
-    });
-
-    testWidgets('the real header: the navy hero with the name w800, the banner '
-        'filling it and the phone-size avatar', (tester) async {
+    testWidgets('the real header: the navy hero with the name w800 and '
+        'the phone-size avatar', (tester) async {
       final rig = ProfileTabletRig();
       await rig.pump(tester, width: 1024, location: AppRouter.editProfilePath);
       await _openPreview(tester);
@@ -202,17 +177,13 @@ void main() {
       expect(style.fontSize, AppProfileLayout.phoneNameSize);
       expect(style.fontFamily, theme.textTheme.titleLarge!.fontFamily);
 
-      final band = tester.getRect(_inPreview(find.byType(ProfileCoverBand)));
-      final frame = tester.getRect(find.byType(EditProfilePreview));
-      expect(band.width, frame.width);
-      expect(band.top, frame.top);
-
       final avatar = tester.getRect(_inPreview(find.byType(AppAvatar)));
       // Narrower than 600: the hero's 76 dp avatar.
       expect(avatar.width, AppProfileLayout.phoneAvatar);
-      // It sits inside the hero the banner fills.
-      expect(avatar.top, greaterThan(band.top));
-      expect(avatar.bottom, lessThan(band.bottom));
+      // It sits inside the preview's frame.
+      final frame = tester.getRect(find.byType(EditProfilePreview));
+      expect(avatar.top, greaterThan(frame.top));
+      expect(avatar.bottom, lessThan(frame.bottom));
     });
 
     testWidgets('inert: the counts and the website open nothing and are not '
@@ -244,26 +215,31 @@ void main() {
     });
 
     testWidgets('Escape closes it and focus returns to Preview; the header '
-        'reads Cancel, Preview, Save', (tester) async {
+        'reads Close, Preview, Save', (tester) async {
       final rig = ProfileTabletRig();
       await rig.pump(tester, width: 1024, location: AppRouter.editProfilePath);
       await tester.enterText(_field('Display name'), 'Alice B');
       await tester.pumpAndSettle();
 
-      FocusNode nodeOf(String text) => Focus.of(
-        tester.element(
-          find.descendant(
-            of: find.byType(EditProfileScreen),
-            matching: find.text(text),
-          ),
+      FocusNode nodeOf(Finder inside) => Focus.of(tester.element(inside.first));
+      final close = nodeOf(
+        find.descendant(of: _close(), matching: find.byIcon(Icons.close)),
+      );
+      final preview = nodeOf(
+        find.descendant(
+          of: _previewAction(),
+          matching: find.byIcon(Icons.visibility_outlined),
         ),
       );
-      final cancel = nodeOf('Cancel');
-      final preview = nodeOf(kEditProfilePreviewAction);
-      final save = nodeOf('Save');
-      cancel.requestFocus();
+      final save = nodeOf(
+        find.descendant(
+          of: find.byType(EditProfileScreen),
+          matching: find.text('Save'),
+        ),
+      );
+      close.requestFocus();
       await tester.pump();
-      expect(FocusManager.instance.primaryFocus, cancel);
+      expect(FocusManager.instance.primaryFocus, close);
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
       expect(FocusManager.instance.primaryFocus, preview);
@@ -299,13 +275,11 @@ void main() {
             location: AppRouter.editProfilePath,
           );
           expect(tester.takeException(), isNull);
-          // Above 1.3 the action is the form's first row, not the header's.
-          expect(_previewAction(), findsNothing);
           expect(
-            tester.getSize(_previewRow()).height,
+            tester.getSize(_previewAction()).height,
             greaterThanOrEqualTo(48),
           );
-          await tester.tap(_previewRow());
+          await tester.tap(_previewAction());
           await tester.pumpAndSettle();
           expect(find.text(kEditProfilePreviewTitle), findsOneWidget);
           expect(tester.takeException(), isNull);
@@ -317,83 +291,6 @@ void main() {
         });
       }
     }
-
-    for (final scale in <double>[1, 1.3, 1.5, 2, 3]) {
-      testWidgets('text scale $scale at 840: Preview '
-          '${scale > 1.3 ? 'the first row of the form' : 'is in the header'}', (
-        tester,
-      ) async {
-        final rig = ProfileTabletRig();
-        await rig.pump(
-          tester,
-          width: 840,
-          height: 1194,
-          textScale: scale,
-          location: AppRouter.editProfilePath,
-        );
-        expect(tester.takeException(), isNull);
-        if (scale <= 1.3) {
-          expect(_previewAction(), findsOneWidget);
-          expect(_previewRow(), findsNothing);
-          return;
-        }
-        expect(_previewAction(), findsNothing);
-        expect(_previewRow(), findsOneWidget);
-        // The first item of the form's list, full width, 48 dp or more.
-        final list = tester.widget<ListView>(
-          find.descendant(
-            of: find.byType(EditProfileScreen),
-            matching: find.byType(ListView),
-          ),
-        );
-        final first =
-            (list.childrenDelegate as SliverChildListDelegate).children.first;
-        expect(
-          find.descendant(
-            of: find.byWidget(first),
-            matching: find.byType(OutlinedButton),
-            matchRoot: true,
-          ),
-          findsOneWidget,
-        );
-        final row = tester.getRect(_previewRow());
-        final banner = tester.getRect(
-          find.descendant(
-            of: find.byType(EditProfileScreen),
-            matching: find.byType(ProfileCoverBand),
-          ),
-        );
-        expect(row.width, banner.width);
-        expect(row.height, greaterThanOrEqualTo(48));
-        expect(row.bottom, lessThanOrEqualTo(banner.top));
-        expect(
-          find.descendant(
-            of: _previewRow(),
-            matching: find.byIcon(Icons.visibility_outlined),
-          ),
-          findsOneWidget,
-        );
-        await tester.tap(_previewRow());
-        await tester.pumpAndSettle();
-        expect(find.text(kEditProfilePreviewTitle), findsOneWidget);
-      });
-    }
-
-    testWidgets('at 2.0 Preview is the first row of the form at every width', (
-      tester,
-    ) async {
-      for (final w in <double>[400, 1024, 1300]) {
-        final rig = ProfileTabletRig();
-        await rig.pump(
-          tester,
-          width: w,
-          textScale: 2,
-          location: AppRouter.editProfilePath,
-        );
-        expect(_previewRow(), findsOneWidget, reason: '$w');
-        expect(_previewAction(), findsNothing, reason: '$w');
-      }
-    });
 
     testWidgets('RTL at 1024: the dialog is centred on the content area', (
       tester,
@@ -428,7 +325,7 @@ void main() {
       expect(find.byType(EditProfileScreen), findsOneWidget);
       expect(find.byType(SettingsCategoriesPane), findsNothing);
       expect(_previewAction(), findsOneWidget);
-      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.tap(_close());
       await tester.pumpAndSettle();
       expect(rig.uri.path, AppRouter.profilePath(kRigOwnHandle));
     });
@@ -447,7 +344,7 @@ void main() {
       expect(find.byType(AppSearchField), findsNothing);
       expect(find.text("What's happening"), findsNothing);
 
-      await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+      await tester.tap(_close());
       await tester.pumpAndSettle();
       expect(find.byType(ProfileScreen), findsOneWidget);
     });
@@ -512,7 +409,7 @@ void main() {
         await rig.pump(tester, width: w, location: AppRouter.editProfilePath);
         await tester.enterText(_field('Display name'), 'Alice B');
         await tester.pumpAndSettle();
-        await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+        await tester.tap(_close());
         await tester.pumpAndSettle();
         expect(find.text('Discard changes?'), findsOneWidget);
         final dialog = openDialogRect(tester);

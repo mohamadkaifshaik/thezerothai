@@ -206,7 +206,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, err
 	}
-	// The pinned-post check is posts' (bound once posts exists, below); the banner resolver is media's; the
+	// The pinned-post check is posts' (bound once posts exists, below); the
 	// profile_extras flag gates setting the new fields and omits the pin from responses while globally off.
 	pinChecker := &latePinChecker{}
 	// Messaging counts the unread conversations (identity never imports messaging); its repo is built here
@@ -223,8 +223,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		// Warn-only sign-in identity audit in GetMe (AUTH_IDENTITY_AUDIT, default off).
 		identity.WithAuthIdentityAudit(cfg.AuthIdentityAudit, log),
 		identity.WithAvatarResolver(avatarResolver{lib: mediaMod.library, flags: featureFlags}),
-		identity.WithBannerResolver(bannerResolver{lib: mediaMod.library, flags: featureFlags}),
-		// A replaced or removed avatar or banner goes to media's retire step (PROFILE_MEDIA_RETIRE).
+		// A replaced or removed avatar goes to media's retire step (PROFILE_MEDIA_RETIRE).
 		identity.WithMediaRetirer(profileMediaRetirer{jobs: mediaMod.jobs}, log),
 		identity.WithPinChecker(pinChecker),
 		identity.WithMessageBadge(messaging.NewUnreadBadge(messagingRepo), log), // GetMe.unread_conversation_count
@@ -566,8 +565,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err := lifecycle.RegisterJobHandler(media.JobKindPostDelete, postDeleteJob); err != nil {
 		return nil, nil, fmt.Errorf("post_delete job handler: %w", err)
 	}
-	// profile_media_retired: the media step that schedules a replaced or removed avatar or
-	// banner for deletion. Registered whatever PROFILE_MEDIA_RETIRE says: with the switch off the handler acks without
+	// profile_media_retired: the media step that schedules a replaced or removed avatar
+	// for deletion. Registered whatever PROFILE_MEDIA_RETIRE says: with the switch off the handler acks without
 	// action, so a message published by a revision that had it on is never left in a retry loop.
 	if err := lifecycle.RegisterJobHandler(media.JobKindProfileMediaRetired, mediaMod.jobs.RetireHandler()); err != nil {
 		return nil, nil, fmt.Errorf("profile_media_retired job handler: %w", err)

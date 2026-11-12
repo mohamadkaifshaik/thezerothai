@@ -108,7 +108,7 @@ void main() {
     double textScale = 1,
     bool keepSize = false,
   }) async {
-    // The 3:1 banner and the taller header need a taller screen to
+    // The 3:1 band and the taller header need a taller screen to
     // build the first posts of the lazy list.
     if (!keepSize) {
       tester.view.physicalSize = const Size(800, 1600);
@@ -339,7 +339,7 @@ void main() {
     expect(find.text('You blocked @kaif ·'), findsNothing);
   });
 
-  testWidgets('muted author: no banner, posts stay visible', (tester) async {
+  testWidgets('muted author: posts stay visible', (tester) async {
     arrange(profileUserId: 'target-uid', features: const {'posts', 'graph'});
     when(() => graphRepository.profileRelationshipFor('target-uid')).thenAnswer(
       (_) async => ProfileRelationship(

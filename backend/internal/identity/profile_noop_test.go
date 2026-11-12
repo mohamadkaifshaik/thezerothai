@@ -20,7 +20,7 @@ func TestUpdateProfile_NoOpWritesNothing(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		again      UpdateProfileParams // the second call; the first call (seed) stores bio, location, website, banner, pin
+		again      UpdateProfileParams // the second call; the first call (seed) stores bio, location, website, pin
 		wantWrites int                 // writes the second call made
 	}{
 		{"empty request", UpdateProfileParams{}, 0},
@@ -29,20 +29,18 @@ func TestUpdateProfile_NoOpWritesNothing(t *testing.T) {
 		{"same display name", UpdateProfileParams{DisplayName: strp("Alice A.")}, 0},
 		{"same location", UpdateProfileParams{Location: strp("Pune")}, 0},
 		{"same website", UpdateProfileParams{Website: strp("https://example.com")}, 0},
-		{"same banner", UpdateProfileParams{BannerMediaID: strp("0000000000000000202")}, 0},
 		{"same pin", UpdateProfileParams{PinnedPostID: strp(pinID)}, 0},
 		{"clearing an avatar that is not set", UpdateProfileParams{AvatarMediaID: strp("")}, 0},
 		{"is_private=false on a public account", UpdateProfileParams{IsPrivate: boolp(false)}, 0},
 		{"every field again, all identical", UpdateProfileParams{
 			DisplayName: strp("Alice A."), Bio: strp("hello"), Location: strp("Pune"), Website: strp("https://example.com"),
-			BannerMediaID: strp("0000000000000000202"), PinnedPostID: strp(pinID), IsPrivate: boolp(false), AvatarMediaID: strp(""),
+			PinnedPostID: strp(pinID), IsPrivate: boolp(false), AvatarMediaID: strp(""),
 		}, 0},
 		{"new bio", UpdateProfileParams{Bio: strp("changed")}, 1},
 		{"new display name", UpdateProfileParams{DisplayName: strp("Alice B.")}, 1},
 		{"new location", UpdateProfileParams{Location: strp("Delhi")}, 1},
 		{"location cleared", UpdateProfileParams{Location: strp("")}, 1},
 		{"website cleared", UpdateProfileParams{Website: strp("")}, 1},
-		{"banner removed", UpdateProfileParams{BannerMediaID: strp("")}, 1},
 		{"pin changed", UpdateProfileParams{PinnedPostID: strp(otherPinID)}, 1},
 		{"one new field among identical ones", UpdateProfileParams{Bio: strp("hello"), Location: strp("Pune"), Website: strp("https://example.org")}, 1},
 	}
@@ -53,7 +51,7 @@ func TestUpdateProfile_NoOpWritesNothing(t *testing.T) {
 			e.svc.now = func() time.Time { return clock }
 			seed := UpdateProfileParams{
 				Bio: strp("hello"), Location: strp("Pune"), Website: strp("https://example.com"),
-				BannerMediaID: strp("0000000000000000202"), PinnedPostID: strp(pinID),
+				PinnedPostID: strp(pinID),
 			}
 			if _, err := e.update(context.Background(), seed); err != nil {
 				t.Fatalf("seed: %v", err)

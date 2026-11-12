@@ -207,14 +207,14 @@ func w320Str(s string) *string { return &s }
 // -----------------------------------------------------------------------------------------------------------------
 
 const (
-	// w320ClearsNeedProfileExtras is M-1(b) (Amendment 1 A2). false (after #354): the exact value "" for banner,
+	// w320ClearsNeedProfileExtras is M-1(b) (Amendment 1 A2). false (after #354): the exact value "" for
 	// location, website or pin is accepted from any authenticated caller whatever the flag, globally off included; only SETTING a value (whitespace-only included) stays gated, and a request that mixes a clear with a set is
 	// refused whole. (Before the fix: every one of these was FEATURE_DISABLED outside the cohort.)
 	w320ClearsNeedProfileExtras = false
 
 	// w320WebsiteShownWhileExtrasGloballyOff is M-1(a) (Amendment 1 A1). false (after #354): with profile_extras
 	// globally off (mode off only) present() blanks the website together with the pin in every Profile identity returns,
-	// so the kill switch also kills the link; the banner and the location keep rendering. (Before the fix only the
+	// so the kill switch also kills the link; the location keeps rendering. (Before the fix only the
 	// pin was blanked.)
 	w320WebsiteShownWhileExtrasGloballyOff = false
 )

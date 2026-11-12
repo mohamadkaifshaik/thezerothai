@@ -154,7 +154,8 @@ func TestMediaOrphanSweepCommand(t *testing.T) {
 			if code != tt.wantCode || tt.sw.calls != tt.wantCalls || !strings.Contains(out, tt.want) {
 				t.Fatalf("code %d calls %d out %s err %s", code, tt.sw.calls, out, errOut)
 			}
-			if f.built != 1 || f.retire != config.ProfileMediaRetireBanner || f.dryRuns[0] != slices.Contains(tt.args, "--dry-run") {
+			// The legacy value banner (the banner was removed) is accepted and read as off.
+			if f.built != 1 || f.retire != config.ProfileMediaRetireOff || f.dryRuns[0] != slices.Contains(tt.args, "--dry-run") {
 				t.Fatalf("built %d retire %q dryRuns %v", f.built, f.retire, f.dryRuns)
 			}
 		})

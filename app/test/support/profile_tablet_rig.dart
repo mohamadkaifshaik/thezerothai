@@ -13,6 +13,7 @@ import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
+import 'package:dzeroth/features/graph/domain/graph_list_extra.dart';
 import 'package:dzeroth/features/graph/presentation/bloc/suggestions_cubit.dart';
 import 'package:dzeroth/features/graph/presentation/graph_list_screen.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/messages_badge_cubit.dart';
@@ -138,15 +139,16 @@ pb.PostView rigMediaPost(int n, String author, {int images = 1}) => pb.PostView(
   ),
 );
 
-/// A populated profile (banner, bio, location, website, counts).
+GraphListExtra? _graphExtra(GoRouterState state) =>
+    state.extra is GraphListExtra ? state.extra as GraphListExtra : null;
+
+/// A populated profile (bio, location, website, counts).
 identity.Profile rigProfile(String uid, String handle, String name) =>
     identity.Profile(
       userId: uid,
       handle: handle,
       displayName: name,
       bio: 'Bio of $name.',
-      bannerUrl: 'https://m.test/$handle-banner-full.webp',
-      bannerThumbUrl: 'https://m.test/$handle-banner-thumb.webp',
       avatarUrl: 'https://m.test/$handle-avatar.webp',
       avatarThumbUrl: 'https://m.test/$handle-avatar-thumb.webp',
       location: 'Mumbai, India',
@@ -444,14 +446,16 @@ class ProfileTabletRig {
               path: '/profile/:handle/followers',
               builder: (context, state) => GraphListScreen(
                 handle: state.pathParameters['handle']!,
-                userId: state.extra as String?,
+                userId: _graphExtra(state)?.userId,
+                displayName: _graphExtra(state)?.displayName,
               ),
             ),
             GoRoute(
               path: '/profile/:handle/following',
               builder: (context, state) => GraphListScreen(
                 handle: state.pathParameters['handle']!,
-                userId: state.extra as String?,
+                userId: _graphExtra(state)?.userId,
+                displayName: _graphExtra(state)?.displayName,
                 initialTab: GraphListTab.following,
               ),
             ),

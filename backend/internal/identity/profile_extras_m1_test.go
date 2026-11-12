@@ -19,28 +19,24 @@ import (
 // test.
 
 const (
-	seedBanner      = "https://m/old_b.webp"
-	seedBannerThumb = "https://m/old_b_t.webp"
-	seedLocation    = "Pune"
-	seedWebsite     = "https://old.example"
+	seedLocation = "Pune"
+	seedWebsite  = "https://old.example"
 )
 
 // matrixEnv is a service whose stored profile already holds every extra (seeded directly in the repo, because a caller
 // outside the cohort could not have set them through the API).
 type matrixEnv struct {
-	repo    *fakeRepo
-	svc     *service
-	banners *fakeBanners
-	pins    *fakePins
-	uid     string
+	repo *fakeRepo
+	svc  *service
+	pins *fakePins
+	uid  string
 }
 
 func newMatrixEnv(t *testing.T, reg ExtrasFlags, uid string) *matrixEnv {
 	t.Helper()
 	repo := newFakeRepo()
-	banners := &fakeBanners{ref: BannerRef{URL: "https://m/b.webp", ThumbURL: "https://m/b_t.webp"}}
 	pins := &fakePins{can: true}
-	opts := []Option{WithBannerResolver(banners), WithPinChecker(pins)}
+	opts := []Option{WithPinChecker(pins)}
 	if reg != nil { // a nil *flags.Registry would not be a nil interface, so wire nothing instead
 		opts = append(opts, WithExtrasFlags(reg))
 	}
@@ -49,11 +45,11 @@ func newMatrixEnv(t *testing.T, reg ExtrasFlags, uid string) *matrixEnv {
 		t.Fatal(err)
 	}
 	p := repo.profiles[uid]
-	p.BannerURL, p.BannerThumbURL, p.Location, p.Website, p.PinnedPostID = seedBanner, seedBannerThumb, seedLocation, seedWebsite, pinID
+	p.Location, p.Website, p.PinnedPostID = seedLocation, seedWebsite, pinID
 	repo.profiles[uid] = p
 	svc.Forget(uid) // CreateProfile cached the unseeded profile
 	repo.getProfileCalls, repo.updateCalls = 0, 0
-	return &matrixEnv{repo: repo, svc: svc, banners: banners, pins: pins, uid: uid}
+	return &matrixEnv{repo: repo, svc: svc, pins: pins, uid: uid}
 }
 
 // percentUIDs returns one uid inside and one outside a 50% cohort (the registry is the source of truth).
@@ -107,29 +103,25 @@ func TestUpdateProfile_Extras_GateMatrix(t *testing.T) {
 		{"set location", UpdateProfileParams{Location: strp("Delhi")}, true, func(p *Profile) { p.Location = "Delhi" }},
 		{"set website", UpdateProfileParams{Website: strp("https://new.example")}, true, func(p *Profile) { p.Website = "https://new.example" }},
 		{"set pin", UpdateProfileParams{PinnedPostID: strp(otherPinID)}, true, func(p *Profile) { p.PinnedPostID = otherPinID }},
-		{"set banner", UpdateProfileParams{BannerMediaID: strp("0000000000000000202")}, true, func(p *Profile) {
-			p.BannerURL, p.BannerThumbURL = "https://m/b.webp", "https://m/b_t.webp"
-		}},
-		{"clear banner", UpdateProfileParams{BannerMediaID: &empty}, false, func(p *Profile) { p.BannerURL, p.BannerThumbURL = "", "" }},
 		{"clear location", UpdateProfileParams{Location: &empty}, false, func(p *Profile) { p.Location = "" }},
 		{"clear website", UpdateProfileParams{Website: &empty}, false, func(p *Profile) { p.Website = "" }},
 		{"clear pin", UpdateProfileParams{PinnedPostID: &empty}, false, func(p *Profile) { p.PinnedPostID = "" }},
-		{"clear all four", UpdateProfileParams{BannerMediaID: &empty, Location: &empty, Website: &empty, PinnedPostID: &empty}, false, func(p *Profile) {
-			p.BannerURL, p.BannerThumbURL, p.Location, p.Website, p.PinnedPostID = "", "", "", "", ""
+		{"clear all three", UpdateProfileParams{Location: &empty, Website: &empty, PinnedPostID: &empty}, false, func(p *Profile) {
+			p.Location, p.Website, p.PinnedPostID = "", "", ""
 		}},
-		{"clear all four next to a bio edit", UpdateProfileParams{Bio: strp("new bio"), BannerMediaID: &empty, Location: &empty, Website: &empty, PinnedPostID: &empty}, false, func(p *Profile) {
-			p.BannerURL, p.BannerThumbURL, p.Location, p.Website, p.PinnedPostID = "", "", "", "", ""
+		{"clear all three next to a bio edit", UpdateProfileParams{Bio: strp("new bio"), Location: &empty, Website: &empty, PinnedPostID: &empty}, false, func(p *Profile) {
+			p.Location, p.Website, p.PinnedPostID = "", "", ""
 		}},
 		{"whitespace-only location is a set", UpdateProfileParams{Location: strp("   ")}, true, func(p *Profile) { p.Location = "" }},
 		{"whitespace-only website is a set", UpdateProfileParams{Website: strp(" \t ")}, true, func(p *Profile) { p.Website = "" }},
 		{"mixed: clear website, set location", UpdateProfileParams{Website: &empty, Location: strp("Delhi")}, true, func(p *Profile) {
 			p.Website, p.Location = "", "Delhi"
 		}},
-		{"mixed: set banner, clear pin", UpdateProfileParams{BannerMediaID: strp("0000000000000000202"), PinnedPostID: &empty}, true, func(p *Profile) {
-			p.BannerURL, p.BannerThumbURL, p.PinnedPostID = "https://m/b.webp", "https://m/b_t.webp", ""
+		{"mixed: set location, clear pin", UpdateProfileParams{Location: strp("Delhi"), PinnedPostID: &empty}, true, func(p *Profile) {
+			p.Location, p.PinnedPostID = "Delhi", ""
 		}},
-		{"mixed: clear banner, location and website, set pin", UpdateProfileParams{BannerMediaID: &empty, Location: &empty, Website: &empty, PinnedPostID: strp(otherPinID)}, true, func(p *Profile) {
-			p.BannerURL, p.BannerThumbURL, p.Location, p.Website, p.PinnedPostID = "", "", "", "", otherPinID
+		{"mixed: clear location and website, set pin", UpdateProfileParams{Location: &empty, Website: &empty, PinnedPostID: strp(otherPinID)}, true, func(p *Profile) {
+			p.Location, p.Website, p.PinnedPostID = "", "", otherPinID
 		}},
 	}
 	for _, m := range modes {
@@ -143,11 +135,11 @@ func TestUpdateProfile_Extras_GateMatrix(t *testing.T) {
 				seed := e.repo.profiles[m.uid]
 				if !m.inCohort && v.sets {
 					_ = wantAPIErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "feature", "profile_extras")
-					if e.repo.updateCalls != 0 || e.repo.getProfileCalls != 0 || len(e.banners.calls) != 0 || len(e.pins.calls) != 0 {
-						t.Fatalf("a refused request must cost nothing: updates=%d reads=%d banner calls=%v pin calls=%v",
-							e.repo.updateCalls, e.repo.getProfileCalls, e.banners.calls, e.pins.calls)
+					if e.repo.updateCalls != 0 || e.repo.getProfileCalls != 0 || len(e.pins.calls) != 0 {
+						t.Fatalf("a refused request must cost nothing: updates=%d reads=%d pin calls=%v",
+							e.repo.updateCalls, e.repo.getProfileCalls, e.pins.calls)
 					}
-					if seed.Location != seedLocation || seed.Website != seedWebsite || seed.PinnedPostID != pinID || seed.BannerURL != seedBanner || seed.Bio != "" {
+					if seed.Location != seedLocation || seed.Website != seedWebsite || seed.PinnedPostID != pinID || seed.Bio != "" {
 						t.Fatalf("a refused request changed the profile: %+v", seed)
 					}
 					return
@@ -158,9 +150,9 @@ func TestUpdateProfile_Extras_GateMatrix(t *testing.T) {
 				if e.repo.updateCalls != 1 {
 					t.Fatalf("updateCalls = %d, want exactly 1 write", e.repo.updateCalls)
 				}
-				want := Profile{BannerURL: seedBanner, BannerThumbURL: seedBannerThumb, Location: seedLocation, Website: seedWebsite, PinnedPostID: pinID}
+				want := Profile{Location: seedLocation, Website: seedWebsite, PinnedPostID: pinID}
 				v.expect(&want)
-				gotStored := Profile{BannerURL: seed.BannerURL, BannerThumbURL: seed.BannerThumbURL, Location: seed.Location, Website: seed.Website, PinnedPostID: seed.PinnedPostID}
+				gotStored := Profile{Location: seed.Location, Website: seed.Website, PinnedPostID: seed.PinnedPostID}
 				if !reflect.DeepEqual(gotStored, want) {
 					t.Fatalf("stored extras = %+v, want %+v", gotStored, want)
 				}
@@ -170,16 +162,16 @@ func TestUpdateProfile_Extras_GateMatrix(t *testing.T) {
 				if m.globally {
 					wantWebsite, wantPin = "", ""
 				}
-				if got.Website != wantWebsite || got.PinnedPostID != wantPin || got.Location != want.Location || got.BannerURL != want.BannerURL {
-					t.Fatalf("response = banner %q location %q website %q pin %q, want banner %q location %q website %q pin %q",
-						got.BannerURL, got.Location, got.Website, got.PinnedPostID, want.BannerURL, want.Location, wantWebsite, wantPin)
+				if got.Website != wantWebsite || got.PinnedPostID != wantPin || got.Location != want.Location {
+					t.Fatalf("response = location %q website %q pin %q, want location %q website %q pin %q",
+						got.Location, got.Website, got.PinnedPostID, want.Location, wantWebsite, wantPin)
 				}
 				if v.p.Bio != nil && seed.Bio != "new bio" {
 					t.Fatalf("the bio edit next to the clears was dropped: %q", seed.Bio)
 				}
 				// A clear resolves and checks nothing, whatever the flag.
-				if !v.sets && (len(e.banners.calls) != 0 || len(e.pins.calls) != 0) {
-					t.Fatalf("a clear consulted a resolver: banner calls=%v pin calls=%v", e.banners.calls, e.pins.calls)
+				if !v.sets && len(e.pins.calls) != 0 {
+					t.Fatalf("a clear consulted the pin checker: %v", e.pins.calls)
 				}
 			})
 		}
@@ -273,8 +265,9 @@ func TestParseProfileFields(t *testing.T) {
 		wantErr string
 	}{
 		{"one", "website", []ProfileField{ProfileFieldWebsite}, ""},
-		{"all five, in the order given", "bio,avatar,banner,location,website",
-			[]ProfileField{ProfileFieldBio, ProfileFieldAvatar, ProfileFieldBanner, ProfileFieldLocation, ProfileFieldWebsite}, ""},
+		{"all four, in the order given", "bio,avatar,location,website",
+			[]ProfileField{ProfileFieldBio, ProfileFieldAvatar, ProfileFieldLocation, ProfileFieldWebsite}, ""},
+		{"the removed banner is unknown", "banner", nil, `unknown field "banner"`},
 		{"empty", "", nil, "--fields is required"},
 		{"empty item", "website,", nil, "unknown field"},
 		{"leading empty item", ",website", nil, "unknown field"},

@@ -39,8 +39,6 @@ class Profile extends $pb.GeneratedMessage {
     $fixnum.Int64? followingCount,
     $fixnum.Int64? postsCount,
     $0.Timestamp? createdAt,
-    $core.String? bannerUrl,
-    $core.String? bannerThumbUrl,
     $core.String? location,
     $core.String? website,
     $core.String? pinnedPostId,
@@ -61,8 +59,6 @@ class Profile extends $pb.GeneratedMessage {
     if (followingCount != null) result.followingCount = followingCount;
     if (postsCount != null) result.postsCount = postsCount;
     if (createdAt != null) result.createdAt = createdAt;
-    if (bannerUrl != null) result.bannerUrl = bannerUrl;
-    if (bannerThumbUrl != null) result.bannerThumbUrl = bannerThumbUrl;
     if (location != null) result.location = location;
     if (website != null) result.website = website;
     if (pinnedPostId != null) result.pinnedPostId = pinnedPostId;
@@ -100,8 +96,6 @@ class Profile extends $pb.GeneratedMessage {
     ..aInt64(11, _omitFieldNames ? '' : 'postsCount')
     ..aOM<$0.Timestamp>(12, _omitFieldNames ? '' : 'createdAt',
         subBuilder: $0.Timestamp.$_createMessage)
-    ..aOS(13, _omitFieldNames ? '' : 'bannerUrl')
-    ..aOS(14, _omitFieldNames ? '' : 'bannerThumbUrl')
     ..aOS(15, _omitFieldNames ? '' : 'location')
     ..aOS(16, _omitFieldNames ? '' : 'website')
     ..aOS(17, _omitFieldNames ? '' : 'pinnedPostId')
@@ -250,36 +244,13 @@ class Profile extends $pb.GeneratedMessage {
   @$pb.TagNumber(12)
   $0.Timestamp ensureCreatedAt() => $_ensure(11);
 
-  /// Profile extras. Data set while FEATURE_PROFILE_EXTRAS was on keeps rendering after a ramp-down; only
-  /// pinned_post_id and website are withheld while the flag is globally off (D3, D9, Amendment 1 A1), in every Profile
-  /// including the owner's own. Nothing stored is erased, and the banner and location are not withheld.
-  /// 1500 x 500 banner (cover image, 3:1); empty if none. A new banner has a new URL (immutable object).
-  @$pb.TagNumber(13)
-  $core.String get bannerUrl => $_getSZ(12);
-  @$pb.TagNumber(13)
-  set bannerUrl($core.String value) => $_setString(12, value);
-  @$pb.TagNumber(13)
-  $core.bool hasBannerUrl() => $_has(12);
-  @$pb.TagNumber(13)
-  void clearBannerUrl() => $_clearField(13);
-
-  /// 600 x 200 banner for small layouts; empty if none.
-  @$pb.TagNumber(14)
-  $core.String get bannerThumbUrl => $_getSZ(13);
-  @$pb.TagNumber(14)
-  set bannerThumbUrl($core.String value) => $_setString(13, value);
-  @$pb.TagNumber(14)
-  $core.bool hasBannerThumbUrl() => $_has(13);
-  @$pb.TagNumber(14)
-  void clearBannerThumbUrl() => $_clearField(14);
-
   /// Free-text location, <= 30 code points, single line; empty if none.
   @$pb.TagNumber(15)
-  $core.String get location => $_getSZ(14);
+  $core.String get location => $_getSZ(12);
   @$pb.TagNumber(15)
-  set location($core.String value) => $_setString(14, value);
+  set location($core.String value) => $_setString(12, value);
   @$pb.TagNumber(15)
-  $core.bool hasLocation() => $_has(14);
+  $core.bool hasLocation() => $_has(12);
   @$pb.TagNumber(15)
   void clearLocation() => $_clearField(15);
 
@@ -288,11 +259,11 @@ class Profile extends $pb.GeneratedMessage {
   /// Always empty while FEATURE_PROFILE_EXTRAS is globally off (Amendment 1 A1), the owner's view included, so an owner
   /// cannot offer Remove for it then; the stored value returns when the flag is back on.
   @$pb.TagNumber(16)
-  $core.String get website => $_getSZ(15);
+  $core.String get website => $_getSZ(13);
   @$pb.TagNumber(16)
-  set website($core.String value) => $_setString(15, value);
+  set website($core.String value) => $_setString(13, value);
   @$pb.TagNumber(16)
-  $core.bool hasWebsite() => $_has(15);
+  $core.bool hasWebsite() => $_has(13);
   @$pb.TagNumber(16)
   void clearWebsite() => $_clearField(16);
 
@@ -302,22 +273,22 @@ class Profile extends $pb.GeneratedMessage {
   /// Also empty for a caller who may not see a protected account's posts: neither the account nor a
   /// follower of it.
   @$pb.TagNumber(17)
-  $core.String get pinnedPostId => $_getSZ(16);
+  $core.String get pinnedPostId => $_getSZ(14);
   @$pb.TagNumber(17)
-  set pinnedPostId($core.String value) => $_setString(16, value);
+  set pinnedPostId($core.String value) => $_setString(14, value);
   @$pb.TagNumber(17)
-  $core.bool hasPinnedPostId() => $_has(16);
+  $core.bool hasPinnedPostId() => $_has(14);
   @$pb.TagNumber(17)
   void clearPinnedPostId() => $_clearField(17);
 
   /// Paid subscription verification entitlement. Set only by trusted subscription administration after confirming
   /// an active paid subscription; unrelated to verified identity or email status.
   @$pb.TagNumber(18)
-  $core.bool get subscriptionVerified => $_getBF(17);
+  $core.bool get subscriptionVerified => $_getBF(15);
   @$pb.TagNumber(18)
-  set subscriptionVerified($core.bool value) => $_setBool(17, value);
+  set subscriptionVerified($core.bool value) => $_setBool(15, value);
   @$pb.TagNumber(18)
-  $core.bool hasSubscriptionVerified() => $_has(17);
+  $core.bool hasSubscriptionVerified() => $_has(15);
   @$pb.TagNumber(18)
   void clearSubscriptionVerified() => $_clearField(18);
 
@@ -326,11 +297,11 @@ class Profile extends $pb.GeneratedMessage {
   /// value returns when the flag is back on. Clients grey out a recipient whose policy is FOLLOWING_ONLY unless that
   /// account follows the caller (the server decides: SendMessage answers CANNOT_MESSAGE).
   @$pb.TagNumber(19)
-  DmPolicy get dmPolicy => $_getN(18);
+  DmPolicy get dmPolicy => $_getN(16);
   @$pb.TagNumber(19)
   set dmPolicy(DmPolicy value) => $_setField(19, value);
   @$pb.TagNumber(19)
-  $core.bool hasDmPolicy() => $_has(18);
+  $core.bool hasDmPolicy() => $_has(16);
   @$pb.TagNumber(19)
   void clearDmPolicy() => $_clearField(19);
 
@@ -339,11 +310,11 @@ class Profile extends $pb.GeneratedMessage {
   /// neither sends receipts (MarkConversationRead stores no read time for the peer) nor sees any (Conversation.peer_read_at
   /// is never set). The stored value returns when the flag is back on.
   @$pb.TagNumber(20)
-  $core.bool get readReceipts => $_getBF(19);
+  $core.bool get readReceipts => $_getBF(17);
   @$pb.TagNumber(20)
-  set readReceipts($core.bool value) => $_setBool(19, value);
+  set readReceipts($core.bool value) => $_setBool(17, value);
   @$pb.TagNumber(20)
-  $core.bool hasReadReceipts() => $_has(19);
+  $core.bool hasReadReceipts() => $_has(17);
   @$pb.TagNumber(20)
   void clearReadReceipts() => $_clearField(20);
 }
@@ -988,7 +959,6 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
     $core.String? bio,
     $core.String? avatarMediaId,
     $core.bool? isPrivate,
-    $core.String? bannerMediaId,
     $core.String? location,
     $core.String? website,
     $core.String? pinnedPostId,
@@ -1001,7 +971,6 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
     if (bio != null) result.bio = bio;
     if (avatarMediaId != null) result.avatarMediaId = avatarMediaId;
     if (isPrivate != null) result.isPrivate = isPrivate;
-    if (bannerMediaId != null) result.bannerMediaId = bannerMediaId;
     if (location != null) result.location = location;
     if (website != null) result.website = website;
     if (pinnedPostId != null) result.pinnedPostId = pinnedPostId;
@@ -1029,7 +998,6 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
     ..aOS(3, _omitFieldNames ? '' : 'bio')
     ..aOS(4, _omitFieldNames ? '' : 'avatarMediaId')
     ..aOB(5, _omitFieldNames ? '' : 'isPrivate')
-    ..aOS(6, _omitFieldNames ? '' : 'bannerMediaId')
     ..aOS(7, _omitFieldNames ? '' : 'location')
     ..aOS(8, _omitFieldNames ? '' : 'website')
     ..aOS(9, _omitFieldNames ? '' : 'pinnedPostId')
@@ -1111,30 +1079,16 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(5)
   void clearIsPrivate() => $_clearField(5);
 
-  /// Profile extras: setting any of the four fields below needs FEATURE_PROFILE_EXTRAS on for the caller; the
+  /// Profile extras: setting any of the three fields below needs FEATURE_PROFILE_EXTRAS on for the caller; the
   /// exact value "" (a clear) never does (see UpdateProfile).
-  /// A READY or READY_UNSCREENED media id with purpose BANNER owned by the caller; "" removes the banner.
-  /// Anything else (unknown, PENDING, REJECTED, another purpose, another owner) => FAILED_PRECONDITION +
-  /// MEDIA_NOT_READY, one answer for every cause, a banner that was replaced or removed earlier (retired) included. A
-  /// replaced or removed banner's objects are deleted 24-48 h later when PROFILE_MEDIA_RETIRE covers banners,
-  /// otherwise kept until account deletion.
-  @$pb.TagNumber(6)
-  $core.String get bannerMediaId => $_getSZ(5);
-  @$pb.TagNumber(6)
-  set bannerMediaId($core.String value) => $_setString(5, value);
-  @$pb.TagNumber(6)
-  $core.bool hasBannerMediaId() => $_has(5);
-  @$pb.TagNumber(6)
-  void clearBannerMediaId() => $_clearField(6);
-
   /// <= 30 code points after NFC and trim, single line; no control or bidi formatting characters (the bio rules);
   /// else INVALID_ARGUMENT + VALIDATION, metadata["field"] = "location". "" clears it.
   @$pb.TagNumber(7)
-  $core.String get location => $_getSZ(6);
+  $core.String get location => $_getSZ(5);
   @$pb.TagNumber(7)
-  set location($core.String value) => $_setString(6, value);
+  set location($core.String value) => $_setString(5, value);
   @$pb.TagNumber(7)
-  $core.bool hasLocation() => $_has(6);
+  $core.bool hasLocation() => $_has(5);
   @$pb.TagNumber(7)
   void clearLocation() => $_clearField(7);
 
@@ -1142,11 +1096,11 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
   /// control, whitespace or bidi characters; else INVALID_ARGUMENT + VALIDATION, metadata["field"] = "website".
   /// Stored as typed with the scheme lower-cased. "" clears it.
   @$pb.TagNumber(8)
-  $core.String get website => $_getSZ(7);
+  $core.String get website => $_getSZ(6);
   @$pb.TagNumber(8)
-  set website($core.String value) => $_setString(7, value);
+  set website($core.String value) => $_setString(6, value);
   @$pb.TagNumber(8)
-  $core.bool hasWebsite() => $_has(7);
+  $core.bool hasWebsite() => $_has(6);
   @$pb.TagNumber(8)
   void clearWebsite() => $_clearField(8);
 
@@ -1154,11 +1108,11 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
   /// case (missing, deleted, hidden, another user's post, a REPOST) is the same INVALID_ARGUMENT + VALIDATION,
   /// metadata["field"] = "pinned_post_id", so the call is no existence oracle. One pin; a new value replaces it.
   @$pb.TagNumber(9)
-  $core.String get pinnedPostId => $_getSZ(8);
+  $core.String get pinnedPostId => $_getSZ(7);
   @$pb.TagNumber(9)
-  set pinnedPostId($core.String value) => $_setString(8, value);
+  set pinnedPostId($core.String value) => $_setString(7, value);
   @$pb.TagNumber(9)
-  $core.bool hasPinnedPostId() => $_has(8);
+  $core.bool hasPinnedPostId() => $_has(7);
   @$pb.TagNumber(9)
   void clearPinnedPostId() => $_clearField(9);
 
@@ -1167,11 +1121,11 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
   /// undo rule). UNSPECIFIED is rejected: INVALID_ARGUMENT + VALIDATION, metadata["field"] = "dm_policy". The change
   /// reaches SendMessage on other instances within the profile cache TTL (60 s). Existing accepted conversations keep working.
   @$pb.TagNumber(10)
-  DmPolicy get dmPolicy => $_getN(9);
+  DmPolicy get dmPolicy => $_getN(8);
   @$pb.TagNumber(10)
   set dmPolicy(DmPolicy value) => $_setField(10, value);
   @$pb.TagNumber(10)
-  $core.bool hasDmPolicy() => $_has(9);
+  $core.bool hasDmPolicy() => $_has(8);
   @$pb.TagNumber(10)
   void clearDmPolicy() => $_clearField(10);
 
@@ -1181,11 +1135,11 @@ class UpdateProfileRequest extends $pb.GeneratedMessage {
   /// the caller's receipts from the peer and the peer's from the caller at once on the serving instance, and within the
   /// profile cache TTL (60 s) on another one.
   @$pb.TagNumber(11)
-  $core.bool get readReceipts => $_getBF(10);
+  $core.bool get readReceipts => $_getBF(9);
   @$pb.TagNumber(11)
-  set readReceipts($core.bool value) => $_setBool(10, value);
+  set readReceipts($core.bool value) => $_setBool(9, value);
   @$pb.TagNumber(11)
-  $core.bool hasReadReceipts() => $_has(10);
+  $core.bool hasReadReceipts() => $_has(9);
   @$pb.TagNumber(11)
   void clearReadReceipts() => $_clearField(11);
 }
@@ -1905,24 +1859,24 @@ class IdentityServiceApi {
   /// that accepts every pending follow request (in pages of 100),
   /// so the request path does none of that work; a failed publish is logged at ERROR. A toggle enqueues no
   /// author-snapshot job.
-  /// Profile extras: setting banner_media_id, location, website or pinned_post_id
+  /// Profile extras: setting location, website or pinned_post_id
   /// (any non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS (wire name "profile_extras") on for the
   /// caller; otherwise FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "profile_extras", writing nothing, checked
   /// before validation. A request from outside the cohort that mixes a clear with a set is refused whole. The exact
-  /// string "" is a clear (banner removed, location or website emptied, pin removed) and is accepted from any
+  /// string "" is a clear (location or website emptied, pin removed) and is accepted from any
   /// authenticated caller whatever the flag, globally off included, and is handled like a bio edit. While the flag
   /// is globally off the response omits website and pinned_post_id (Profile). DEGRADED_MODE=readonly still refuses the
-  /// write. The display_name, bio and avatar path is unchanged. A banner, location, website or pin change does not enqueue the author-snapshot job
+  /// write. The display_name, bio and avatar path is unchanged. A location, website or pin change does not enqueue the author-snapshot job
   /// (none of them is in AuthorSnapshot). Field rules are on the request fields.
   /// A request that changes nothing writes nothing. Per-uid daily call cap
   /// PROFILE_UPDATES_PER_DAY, 100 calls/uid/IST day per instance (300 with 3) => RATE_LIMITED,
   /// metadata["limit"] = "profile_update_daily", retry_after = time to IST midnight, before any lookup.
-  /// Replaced and removed images: a commit that replaced or removed the avatar or the banner
+  /// Replaced and removed images: a commit that replaced or removed the avatar
   /// hands the old image to a best-effort retire step after the commit (the old URLs come from the document the
-  /// transaction read, and at most 2 Pub/Sub publishes go out, one per image); a failed hand-over is logged at ERROR and the image stays until account deletion.
+  /// transaction read, and at most 1 Pub/Sub publish goes out); a failed hand-over is logged at ERROR and the image stays until account deletion.
   /// The async job (kind profile_media_retired on the jobs topic) runs once per
   /// image, and deletes the old public objects 24-48 h later through a bucket lifecycle rule, only while
-  /// PROFILE_MEDIA_RETIRE allows it (off by default; banner, or all for avatars too). A retired image can never be set
+  /// PROFILE_MEDIA_RETIRE allows it (off by default; all for avatars). A retired image can never be set
   /// again: it answers MEDIA_NOT_READY like any unusable id.
   $async.Future<UpdateProfileResponse> updateProfile(
           $pb.ClientContext? ctx, UpdateProfileRequest request) =>

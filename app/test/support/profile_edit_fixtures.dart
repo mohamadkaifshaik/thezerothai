@@ -10,7 +10,6 @@ class UpdateProfileCall {
     this.displayName,
     this.bio,
     this.avatarMediaId,
-    this.bannerMediaId,
     this.location,
     this.website,
     this.pinnedPostId,
@@ -20,17 +19,13 @@ class UpdateProfileCall {
   final String? displayName;
   final String? bio;
   final String? avatarMediaId;
-  final String? bannerMediaId;
   final String? location;
   final String? website;
   final String? pinnedPostId;
 
   /// Any of the `profile_extras` fields was sent (even an empty one).
   bool get hasExtras =>
-      bannerMediaId != null ||
-      location != null ||
-      website != null ||
-      pinnedPostId != null;
+      location != null || website != null || pinnedPostId != null;
 }
 
 /// An `IdentityRepository` that records every `updateProfile` call exactly and
@@ -50,7 +45,6 @@ class FakeIdentityRepository extends Fake implements IdentityRepository {
     String? displayName,
     String? bio,
     String? avatarMediaId,
-    String? bannerMediaId,
     String? location,
     String? website,
     String? pinnedPostId,
@@ -64,7 +58,6 @@ class FakeIdentityRepository extends Fake implements IdentityRepository {
         displayName: displayName,
         bio: bio,
         avatarMediaId: avatarMediaId,
-        bannerMediaId: bannerMediaId,
         location: location,
         website: website,
         pinnedPostId: pinnedPostId,
@@ -78,12 +71,6 @@ class FakeIdentityRepository extends Fake implements IdentityRepository {
     if (displayName != null) next.displayName = displayName;
     if (bio != null) next.bio = bio;
     if (avatarMediaId != null) next.avatarThumbUrl = 'https://cdn.example/a';
-    if (bannerMediaId != null) {
-      next.bannerUrl = bannerMediaId.isEmpty ? '' : 'https://cdn.example/b';
-      next.bannerThumbUrl = bannerMediaId.isEmpty
-          ? ''
-          : 'https://cdn.example/b_t';
-    }
     if (location != null) next.location = location;
     if (website != null) next.website = website;
     if (isPrivate != null) next.isPrivate = isPrivate;
@@ -92,17 +79,12 @@ class FakeIdentityRepository extends Fake implements IdentityRepository {
 }
 
 /// The signed-in user's profile for Edit profile tests.
-identity.Profile editableProfile({
-  String location = '',
-  String website = '',
-  bool banner = false,
-}) => identity.Profile(
-  userId: 'me',
-  handle: 'kaif',
-  displayName: 'Kaif',
-  bio: 'hello',
-  location: location,
-  website: website,
-  bannerUrl: banner ? 'https://cdn.example/old.jpg' : '',
-  bannerThumbUrl: banner ? 'https://cdn.example/old_t.jpg' : '',
-);
+identity.Profile editableProfile({String location = '', String website = ''}) =>
+    identity.Profile(
+      userId: 'me',
+      handle: 'kaif',
+      displayName: 'Kaif',
+      bio: 'hello',
+      location: location,
+      website: website,
+    );

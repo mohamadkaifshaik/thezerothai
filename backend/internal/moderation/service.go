@@ -218,7 +218,7 @@ func (s *service) Report(ctx context.Context, uid string, in ReportInput) (res R
 		// already loaded (0 extra reads, the same single report write) and is the PRESENTED profile, so while
 		// profile_extras is globally off it holds no website. No field here holds a uid (media URLs are m/{mediaId}).
 		rep.Evidence = &Evidence{AuthorHandle: prof.Handle, DisplayName: prof.DisplayName, Bio: prof.Bio,
-			Location: prof.Location, Website: prof.Website, AvatarURL: prof.AvatarURL, BannerURL: prof.BannerURL}
+			Location: prof.Location, Website: prof.Website, AvatarURL: prof.AvatarURL}
 	case TargetMessage:
 		m, err := s.reportedMessage(ctx, uid, in.TargetID)
 		if err != nil {

@@ -63,7 +63,6 @@ void main() {
     expect(sent.hasDisplayName(), isFalse);
     expect(sent.hasBio(), isFalse);
     expect(sent.hasAvatarMediaId(), isFalse);
-    expect(sent.hasBannerMediaId(), isFalse);
     expect(sent.hasLocation(), isFalse);
     expect(sent.hasWebsite(), isFalse);
     expect(sent.hasIsPrivate(), isFalse);

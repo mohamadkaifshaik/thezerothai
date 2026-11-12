@@ -35,6 +35,7 @@ import '../../features/lists/presentation/lists_screen.dart';
 import '../../features/lists/presentation/user_lists_screen.dart';
 import '../../features/graph/domain/follow_requests_entry.dart';
 import '../../features/graph/domain/graph_feature_flag.dart';
+import '../../features/graph/domain/graph_list_extra.dart';
 import '../../features/graph/presentation/follow_requests_screen.dart';
 import '../../features/graph/presentation/graph_list_screen.dart';
 import '../../features/graph/presentation/managed_accounts_screen.dart';
@@ -620,25 +621,35 @@ class AppRouter {
           ),
           GoRoute(
             path: '/profile/:handle/followers',
-            builder: (context, state) => AuthGate(
-              child: GraphListScreen(
-                handle: state.pathParameters['handle']!,
-                userId: state.extra as String?,
-                initialTab: GraphListTab.followers,
-                viewerUserId: _onboardingBloc.state.profile?.userId,
-              ),
-            ),
+            builder: (context, state) {
+              final extra = state.extra;
+              final known = extra is GraphListExtra ? extra : null;
+              return AuthGate(
+                child: GraphListScreen(
+                  handle: state.pathParameters['handle']!,
+                  userId: known?.userId,
+                  displayName: known?.displayName,
+                  initialTab: GraphListTab.followers,
+                  viewerUserId: _onboardingBloc.state.profile?.userId,
+                ),
+              );
+            },
           ),
           GoRoute(
             path: '/profile/:handle/following',
-            builder: (context, state) => AuthGate(
-              child: GraphListScreen(
-                handle: state.pathParameters['handle']!,
-                userId: state.extra as String?,
-                initialTab: GraphListTab.following,
-                viewerUserId: _onboardingBloc.state.profile?.userId,
-              ),
-            ),
+            builder: (context, state) {
+              final extra = state.extra;
+              final known = extra is GraphListExtra ? extra : null;
+              return AuthGate(
+                child: GraphListScreen(
+                  handle: state.pathParameters['handle']!,
+                  userId: known?.userId,
+                  displayName: known?.displayName,
+                  initialTab: GraphListTab.following,
+                  viewerUserId: _onboardingBloc.state.profile?.userId,
+                ),
+              );
+            },
           ),
           GoRoute(
             path: settingsPath,

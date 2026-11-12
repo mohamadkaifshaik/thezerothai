@@ -185,7 +185,6 @@
     "userId": "<uid:A>"
   },
   "profile": {
-    "bannerUrl": "https://media.example/m/0000000000000000601.webp",
     "bio": "",
     "createdAt": "<time>",
     "displayName": "Apiserver Test",

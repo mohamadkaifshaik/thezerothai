@@ -48,7 +48,8 @@ void main() {
       tester.getRect(find.byTooltip('Back').last);
 
   // The rig's real leaves (Edit profile, Download my data and Delete account
-  // are stubs there; the last two use the same AppBar as these).
+  // are stubs there; Change handle uses the same AppBar as these, and Edit
+  // profile's own header is pinned in profile_edit_layout_test).
   const barLeaves = [
     AppRouter.blockedAccountsPath,
     AppRouter.mutedAccountsPath,

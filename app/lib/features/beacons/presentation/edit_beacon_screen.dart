@@ -8,6 +8,7 @@ import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_form_header.dart';
+import '../../../shared/widgets/primitives/app_labeled_field.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../lists/domain/list_text_rules.dart' show normalizeListText;
@@ -409,7 +410,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                                         () => _tipsOpen = !_tipsOpen,
                                       ),
                                     ),
-                                  PlanTextField(
+                                  AppLabeledField(
                                     label: 'Title',
                                     controller: _title,
                                     enabled: !busy,
@@ -423,7 +424,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                                       max: kBeaconTitleMaxLength,
                                     ),
                                   ),
-                                  PlanTextField(
+                                  AppLabeledField(
                                     label: 'Details',
                                     controller: _details,
                                     enabled: !busy,
@@ -459,7 +460,7 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                                       ),
                                     ),
                                   ],
-                                  PlanTextField(
+                                  AppLabeledField(
                                     label: 'Meeting point',
                                     controller: _venue,
                                     enabled: !busy,

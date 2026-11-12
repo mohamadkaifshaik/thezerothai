@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:dzeroth/features/media/domain/image_preflight.dart';
 import 'package:dzeroth/features/media/domain/image_processor.dart';
 import 'package:dzeroth/features/media/domain/image_size_plan.dart';
-import 'package:dzeroth/features/media/domain/processed_image.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
@@ -27,44 +26,20 @@ void main() {
         height: 200,
       ));
     });
-    test('banner is the largest centered 3:1 band', () {
-      expect(cropFor(ImagePurpose.banner, 3000, 2000), (
-        x: 0,
-        y: 500,
-        width: 3000,
-        height: 1000,
-      ));
-      expect(cropFor(ImagePurpose.banner, 4000, 600), (
-        x: 1100,
-        y: 0,
-        width: 1800,
-        height: 600,
-      ));
-    });
-    test('a banner thinner than 16 px is unusable', () {
-      expect(
-        () => cropFor(ImagePurpose.banner, 40, 10),
-        throwsA(isA<UnsupportedImageException>()),
-      );
-    });
   });
 
   group('fitWithin', () {
-    final cases = <String, (int, int, int, bool, int, int)>{
-      'landscape down': (4000, 3000, 1600, false, 1600, 1200),
-      'portrait down': (3000, 4000, 1600, false, 1200, 1600),
-      'square down': (2000, 2000, 400, false, 400, 400),
-      'never upscales': (800, 600, 1600, false, 800, 600),
-      'thin strip keeps 1 px': (5000, 1, 1600, false, 1600, 1),
-      'banner exact 3:1': (3000, 1000, 1500, true, 1500, 500),
-      'rounding 1001 x 777': (1001, 777, 400, false, 400, 310),
+    final cases = <String, (int, int, int, int, int)>{
+      'landscape down': (4000, 3000, 1600, 1600, 1200),
+      'portrait down': (3000, 4000, 1600, 1200, 1600),
+      'square down': (2000, 2000, 400, 400, 400),
+      'never upscales': (800, 600, 1600, 800, 600),
+      'thin strip keeps 1 px': (5000, 1, 1600, 1600, 1),
+      'rounding 1001 x 777': (1001, 777, 400, 400, 310),
     };
     cases.forEach((name, c) {
       test(name, () {
-        expect(fitWithin(c.$1, c.$2, c.$3, threeToOne: c.$4), (
-          width: c.$5,
-          height: c.$6,
-        ));
+        expect(fitWithin(c.$1, c.$2, c.$3), (width: c.$4, height: c.$5));
       });
     });
   });
@@ -76,20 +51,6 @@ void main() {
     expect(attempts[4], (width: 1600, height: 1200, quality: 40));
     expect(attempts[5], (width: 1200, height: 900, quality: 80));
     expect(attempts.last.quality, 40);
-  });
-
-  test('a banner ladder stays exactly 3:1', () {
-    for (final a in encodeAttempts(
-      3000,
-      1000,
-      1500,
-      quality: 80,
-      threeToOne: true,
-    )) {
-      expect(a.width % 3, 0);
-      expect(a.height, a.width ~/ 3);
-      expect(a.width, lessThanOrEqualTo(1500));
-    }
   });
 
   test('blurhashSize: longest side 32, at least 1 px', () {
@@ -105,31 +66,17 @@ void main() {
       'post portrait odd': (1001, 1777, ImagePurpose.post),
       'post small': (300, 200, ImagePurpose.post),
       'avatar': (900, 500, ImagePurpose.avatar),
-      'banner': (3000, 2000, ImagePurpose.banner),
     };
     cases.forEach((name, c) {
       test(name, () {
         final out = processImageSync(_jpg(c.$1, c.$2), c.$3);
         final spec = PurposeSpec.of(c.$3);
         final crop = cropFor(c.$3, c.$1, c.$2);
-        final planned = fitWithin(
-          crop.width,
-          crop.height,
-          spec.fullEdge,
-          threeToOne: spec.threeToOne,
-        );
+        final planned = fitWithin(crop.width, crop.height, spec.fullEdge);
         expect((width: out.width, height: out.height), planned);
         expect(jpegDims(out.fullBytes), planned);
         final thumb = jpegDims(out.thumbBytes)!;
-        expect(
-          thumb,
-          fitWithin(
-            planned.width,
-            planned.height,
-            spec.thumbEdge,
-            threeToOne: spec.threeToOne,
-          ),
-        );
+        expect(thumb, fitWithin(planned.width, planned.height, spec.thumbEdge));
       });
     });
   });

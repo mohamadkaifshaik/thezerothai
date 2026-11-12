@@ -11,7 +11,7 @@ package apiserver
 // nothing, and the request-log contract (pin_check carries the outcome only; profile_fields_changed carries names, never
 // values).
 //
-// Already covered and not repeated: TestProfileExtras_Chain (bad banners and pins, all-fields write, kill switch,
+// Already covered and not repeated: TestProfileExtras_Chain (bad pins, all-fields write, kill switch,
 // re-pin then delete the older post, forged job for a live pin, redelivery), TestProfileExtras_FlagGateAndKillSwitch.
 // The tests below are the empty cells.
 
@@ -34,7 +34,6 @@ import (
 	engagementv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
-	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -494,25 +493,23 @@ func TestW320_PostDeleteJobClearsThePin(t *testing.T) {
 }
 
 // TestW320_ExtrasRequestLogNeverCarriesValues: profile_fields_changed lists field NAMES only, pin_check carries the outcome
-// only; no log line of the process contains the location text, the website or the banner URL that was written.
+// only; no log line of the process contains the location text or the website that was written.
 func TestW320_ExtrasRequestLogNeverCarriesValues(t *testing.T) {
 	e, w := newW320Life(t, nil)
 	a := w.user(t)
-	banner := e.seedMedia(t, a.uid, media.PurposeBanner)
 	pid := w.post(t, a, "pin me")
 	const (
 		loc  = "Zzyzx w320 Road"
 		site = "https://w320-unique-host.example/secret-path"
 	)
-	got, err := w.w320Update(a, &identityv1.UpdateProfileRequest{BannerMediaId: &banner, Location: w320Str(loc), Website: w320Str(site), PinnedPostId: &pid})
-	if err != nil {
+	if _, err := w.w320Update(a, &identityv1.UpdateProfileRequest{Location: w320Str(loc), Website: w320Str(site), PinnedPostId: &pid}); err != nil {
 		t.Fatal(err)
 	}
 	line := lastRequestLine(t, e, rpcUpdateProfile)
-	if line["profile_fields_changed"] != "banner,location,website,pinned_post" || line["pin_check"] != "ok" {
+	if line["profile_fields_changed"] != "location,website,pinned_post" || line["pin_check"] != "ok" {
 		t.Errorf("log fields: %v / %v", line["profile_fields_changed"], line["pin_check"])
 	}
-	for _, secret := range []string{loc, "w320-unique-host", "secret-path", got.GetBannerUrl()} {
+	for _, secret := range []string{loc, "w320-unique-host", "secret-path"} {
 		if secret != "" && e.logContains(secret) {
 			t.Errorf("the process log contains the value %q", secret)
 		}
