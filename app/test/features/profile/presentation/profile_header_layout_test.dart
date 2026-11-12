@@ -248,7 +248,7 @@ void main() {
 
       // Identity first (name, handle, bio, counts), then the actions: the
       // overflow menu and the Follow button (moved them below the
-      // banner). The count links used to be
+      // band). The count links used to be
       // announced twice ("54 Following | 54 Following"); now once.
       expect(semanticLabels(tester), [
         'Alice Archer',
@@ -312,12 +312,12 @@ void main() {
     });
   });
 
-  group('banner and avatar (W1-3)', () {
+  group('band and avatar (W1-3)', () {
     for (final brightness in Brightness.values) {
       for (final (width, diameter) in const [(390.0, 88.0), (1000.0, 133.0)]) {
         testWidgets(
           '${brightness.name} at ${width.toInt()}: $diameter dp avatar centred '
-          'on the bottom edge of a 3:1 banner',
+          'on the bottom edge of a 3:1 band',
           (tester) async {
             await open(
               tester,
@@ -331,7 +331,7 @@ void main() {
             final avatar = tester.getRect(find.byType(AppAvatar));
             expect(avatar.width, diameter);
             expect(avatar.height, diameter);
-            // The ring is 4dp, so the avatar's centre is the banner's edge.
+            // The ring is 4dp, so the avatar's centre is the band's edge.
             expect(avatar.center.dy - header.dy, closeTo(width / 3, 0.5));
             expect(avatar.left - header.dx, 16 + 4);
           },
@@ -348,7 +348,7 @@ void main() {
       expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
       final ink = find.descendant(of: button, matching: find.byType(Material));
       expect(tester.getSize(ink.first).height, 36);
-      // Right-aligned with the 16dp page padding, below the banner.
+      // Right-aligned with the 16dp page padding, below the band.
       final header = tester.getRect(find.byType(ProfileHeader));
       expect(tester.getRect(ink.first).right, header.right - 16);
       expect(

@@ -137,7 +137,6 @@ class _ProfileHero extends StatelessWidget {
     required this.onMessage,
     required this.onOpenWebsite,
     required this.avatarBytes,
-    required this.bannerBytes,
     required this.website,
     required this.joined,
     required this.topInset,
@@ -165,7 +164,6 @@ class _ProfileHero extends StatelessWidget {
   final VoidCallback? onMessage;
   final void Function(Uri uri)? onOpenWebsite;
   final Uint8List? avatarBytes;
-  final Uint8List? bannerBytes;
   final ProfileWebsite? website;
   final String? joined;
 
@@ -186,10 +184,6 @@ class _ProfileHero extends StatelessWidget {
     final large =
         MediaQuery.textScalerOf(context).scale(1) >
         AppProfileLayout.largeTextScale;
-    final hasBanner =
-        bannerBytes != null ||
-        profile.bannerUrl.isNotEmpty ||
-        profile.bannerThumbUrl.isNotEmpty;
     final location = profile.location.trim();
     final canShare = interactive && ShareLinksScope.maybeOf(context) != null;
     final look = _HeroButtonLook(m.iconButton);
@@ -455,25 +449,6 @@ class _ProfileHero extends StatelessWidget {
           type: MaterialType.transparency,
           child: Stack(
             children: [
-              // A saved banner (or the unsaved one of a preview) shows through
-              // the hero under a navy wash, so the text stays legible.
-              if (hasBanner) ...[
-                Positioned.fill(
-                  child: ProfileCoverBand(
-                    url: profile.bannerUrl,
-                    thumbUrl: profile.bannerThumbUrl,
-                    bytes: bannerBytes,
-                    placeholder: Colors.transparent,
-                  ),
-                ),
-                const Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: AppGradients.profileBannerScrim,
-                    ),
-                  ),
-                ),
-              ],
               Positioned.fill(
                 child: AppRings(
                   rings: m.rings,
@@ -698,7 +673,10 @@ class _HeroStats extends StatelessWidget {
         onTap: interactive
             ? () => context.push(
                 AppRouter.followersPath(profile.handle),
-                extra: profile.userId,
+                extra: GraphListExtra(
+                  userId: profile.userId,
+                  displayName: profile.displayName,
+                ),
               )
             : null,
       ),
@@ -711,7 +689,10 @@ class _HeroStats extends StatelessWidget {
         onTap: interactive
             ? () => context.push(
                 AppRouter.followingPath(profile.handle),
-                extra: profile.userId,
+                extra: GraphListExtra(
+                  userId: profile.userId,
+                  displayName: profile.displayName,
+                ),
               )
             : null,
       ),

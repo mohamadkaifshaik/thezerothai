@@ -9,6 +9,7 @@ import '../../features/auth/presentation/request_sign_out.dart';
 import '../../features/engagement/domain/bookmarks_feature_flag.dart';
 import '../../features/graph/data/graph_repository.dart';
 import '../../features/graph/domain/follow_requests_entry.dart';
+import '../../features/graph/domain/graph_list_extra.dart';
 import '../../features/communities/domain/communities_feature_flag.dart';
 import '../../features/lists/domain/lists_feature_flag.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -204,7 +205,7 @@ class _AccountHeader extends StatelessWidget {
                 onTap: () => _open(
                   context,
                   AppRouter.followingPath(profile.handle),
-                  profile.userId,
+                  profile,
                 ),
               ),
               _CountLink(
@@ -213,7 +214,7 @@ class _AccountHeader extends StatelessWidget {
                 onTap: () => _open(
                   context,
                   AppRouter.followersPath(profile.handle),
-                  profile.userId,
+                  profile,
                 ),
               ),
             ],
@@ -223,9 +224,12 @@ class _AccountHeader extends StatelessWidget {
     );
   }
 
-  static void _open(BuildContext context, String path, String userId) {
+  static void _open(BuildContext context, String path, identity.Profile who) {
     Navigator.of(context).pop();
-    context.push(path, extra: userId);
+    context.push(
+      path,
+      extra: GraphListExtra(userId: who.userId, displayName: who.displayName),
+    );
   }
 }
 

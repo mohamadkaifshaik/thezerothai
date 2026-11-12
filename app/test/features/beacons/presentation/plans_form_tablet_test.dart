@@ -50,7 +50,7 @@ Finder _inDialogPreview(Finder f) => find.descendant(
 );
 
 final _previewAction = find.widgetWithText(TextButton, kPlanPreviewTitle);
-Finder _field(String label) => find.byKey(ValueKey('plan-field-$label'));
+Finder _field(String label) => find.byKey(ValueKey('field-$label'));
 const _tipsToggle = ValueKey('plan-tips-toggle');
 
 final String _editPath = AppRouter.planEditPath(kBeaconIdA);

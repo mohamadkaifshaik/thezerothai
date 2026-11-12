@@ -3,13 +3,13 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// A cache manager whose every download fails, for widget tests of images that
-/// may be missing (a removed or replaced avatar or banner).
+/// may be missing (a removed or replaced avatar).
 /// By default it fails the way the media bucket does for a missing
 /// object: `HttpExceptionWithStatus` 404 (a listing is 401 or 403, and an
 /// object GET never is). A widget test cannot load a real network image (every
 /// request answers 400 and the default manager needs platform plugins), and
-/// `AppAvatar` and `ProfileCoverBand` build `CachedNetworkImageProvider`s that
-/// take this manager, so no production seam is needed.
+/// `AppAvatar` builds a `CachedNetworkImageProvider` that
+/// takes this manager, so no production seam is needed.
 ///
 /// [requested] lists every URL asked for, in order, so a test can tell a
 /// retry from a rebuild.

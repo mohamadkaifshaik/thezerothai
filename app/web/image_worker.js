@@ -8,7 +8,7 @@
 
 const PROTOCOL = 1;
 
-// Largest output side Dart ever asks for (posts 1600, banners 1500); anything else is malformed.
+// Largest output side Dart ever asks for (posts 1600); anything else is malformed.
 const MAX_OUTPUT_EDGE = 4096;
 
 let bitmap = null;

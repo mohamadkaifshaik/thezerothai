@@ -14,7 +14,7 @@ const kPrivateAccountsRefusalBackoff = Duration(minutes: 10);
 
 /// Builds an `UpdateProfile` request where **field presence is the signal**: a null argument leaves the field out (unchanged), a
 /// non-null one sets it, and `""` is a real value that clears
-/// `banner_media_id`, `location`, `website` or `pinned_post_id`. Every
+/// `location`, `website` or `pinned_post_id`. Every
 /// `UpdateProfile` caller goes through this one place, so the pin menu
 /// shapes its request exactly like Edit profile.
 identity.UpdateProfileRequest buildUpdateProfileRequest({
@@ -22,7 +22,6 @@ identity.UpdateProfileRequest buildUpdateProfileRequest({
   String? displayName,
   String? bio,
   String? avatarMediaId,
-  String? bannerMediaId,
   String? location,
   String? website,
   String? pinnedPostId,
@@ -34,7 +33,6 @@ identity.UpdateProfileRequest buildUpdateProfileRequest({
   if (avatarMediaId != null) request.avatarMediaId = avatarMediaId;
   if (displayName != null) request.displayName = displayName;
   if (bio != null) request.bio = bio;
-  if (bannerMediaId != null) request.bannerMediaId = bannerMediaId;
   if (location != null) request.location = location;
   if (website != null) request.website = website;
   if (pinnedPostId != null) request.pinnedPostId = pinnedPostId;
@@ -168,7 +166,7 @@ class IdentityRepository {
   /// [isPrivate] is the privacy switch; callers send it alone, through
   /// [setProtected].
   ///
-  /// [bannerMediaId], [location], [website] and [pinnedPostId] are the
+  /// [location], [website] and [pinnedPostId] are the
   /// `profile_extras` fields: the server refuses a **set** of any
   /// of them (a non-empty value, whitespace-only included), and a clear next
   /// to a set, with FEATURE_DISABLED unless `profile_extras` is on for the
@@ -186,7 +184,6 @@ class IdentityRepository {
     String? displayName,
     String? bio,
     String? avatarMediaId,
-    String? bannerMediaId,
     String? location,
     String? website,
     String? pinnedPostId,
@@ -201,7 +198,6 @@ class IdentityRepository {
         displayName: displayName,
         bio: bio,
         avatarMediaId: avatarMediaId,
-        bannerMediaId: bannerMediaId,
         location: location,
         website: website,
         pinnedPostId: pinnedPostId,

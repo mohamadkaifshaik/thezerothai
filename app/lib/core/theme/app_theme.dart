@@ -1097,16 +1097,6 @@ abstract final class AppGradients {
     stops: [0, 0.55, 1],
   );
 
-  /// The navy wash over a profile banner behind the hero text. Dense enough
-  /// for AA over the lightest banner (white): the muted handle needs navy at
-  /// 0.83 or more behind it, the teal chip 0.74 (see profile_layouts_test).
-  static const LinearGradient profileBannerScrim = LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-    colors: [Color(0xB80D1528), Color(0xDB0D1528), Color(0xEB0D1528)],
-    stops: [0, .22, 1],
-  );
-
   /// The dark splash wash (dzeroth-mobile Splash.html): radial-gradient(90%
   /// 60% at 50% 45%, navy2, navy 55%, navyDeep).
   static const RadialGradient splash = RadialGradient(
@@ -1629,6 +1619,19 @@ abstract final class AppExplorePeopleLayout {
   static const double trendRankGap = 14;
   static const double trendPaddingPhone = 20;
   static const double trendPaddingWide = 16;
+
+  /// Edit profile: the flat band behind the avatar (a phone's inset card, a
+  /// wide layout's full-width strip), how far the avatar hangs over its
+  /// bottom edge, the surface-coloured ring round it, and the form's side
+  /// padding on a phone and from 600 dp.
+  static const double editBandPhone = 120;
+  static const double editBandWide = 150;
+  static const double editAvatarOverlap = 48;
+  static const double editAvatarRing = 4;
+  static const double editAvatarInsetPhone = 18;
+  static const double editAvatarGap = 14;
+  static const double editPaddingPhone = 20;
+  static const double editPaddingWide = 16;
 }
 
 /// Settings geometry per screen size (dp): the phone mock's raised cards

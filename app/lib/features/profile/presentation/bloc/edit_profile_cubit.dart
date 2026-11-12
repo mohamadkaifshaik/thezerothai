@@ -17,9 +17,6 @@ import '../../domain/profile_extras_rules.dart';
 
 enum EditProfileStatus { editing, saving, saved }
 
-/// The two pictures Edit profile can change.
-enum ProfilePicture { avatar, banner }
-
 @immutable
 class EditProfileState {
   const EditProfileState({
@@ -36,14 +33,9 @@ class EditProfileState {
     this.avatarFailed = false,
     this.pickFailed = false,
     this.avatarDropped = false,
-    this.bannerPreview,
-    this.isPreparingBanner = false,
-    this.bannerRemoved = false,
     this.locationRemoved = false,
     this.websiteRemoved = false,
     this.removalRefused = false,
-    this.bannerFailed = false,
-    this.bannerDropped = false,
     this.extrasDisabled = false,
     this.locationRejected = false,
     this.websiteRejected = false,
@@ -56,13 +48,13 @@ class EditProfileState {
   final String location;
   final String website;
 
-  /// The banner, location and website can be SET (`profile_extras` is on for
+  /// The location and website can be SET (`profile_extras` is on for
   /// the caller). It only ever turns off: the server answered FEATURE_DISABLED
   /// `profile_extras`, and from then on none of them can be set. They can
   /// still be REMOVED (an exact `""`, which the server accepts from any caller
   /// whatever the flag), so without this flag Edit
   /// profile shows each saved one read-only with Remove
-  /// ([locationRemoved], [websiteRemoved], [bannerRemoved]).
+  /// ([locationRemoved], [websiteRemoved]).
   final bool extrasEnabled;
 
   final EditProfileStatus status;
@@ -92,15 +84,6 @@ class EditProfileState {
   /// UpdateProfile), so the user must choose it again.
   final bool avatarDropped;
 
-  /// Thumbnail of the newly chosen banner (not saved yet), or null.
-  final Uint8List? bannerPreview;
-
-  /// The chosen banner is being cropped and resized on the device.
-  final bool isPreparingBanner;
-
-  /// The saved banner is to be removed on Save (`banner_media_id: ""`).
-  final bool bannerRemoved;
-
   /// The saved location / website is to be removed on Save (`""`). Only set
   /// while [extrasEnabled] is false: with the flag on the field is typed in
   /// and emptying it is the removal.
@@ -111,13 +94,6 @@ class EditProfileState {
   /// only cleared extras (an older server revision): from
   /// then on none of them can be removed here and Remove is hidden.
   final bool removalRefused;
-
-  /// [error] came from the banner (pick/upload), so the UI words it for it.
-  final bool bannerFailed;
-
-  /// [error] means the uploaded banner was discarded (MEDIA_NOT_READY on
-  /// UpdateProfile); it must be chosen again.
-  final bool bannerDropped;
 
   /// [error] means the extras were switched off for this account mid-edit.
   final bool extrasDisabled;
@@ -160,15 +136,9 @@ class EditProfileState {
     bool? avatarFailed,
     bool? pickFailed,
     bool? avatarDropped,
-    Uint8List? bannerPreview,
-    bool clearBannerPreview = false,
-    bool? isPreparingBanner,
-    bool? bannerRemoved,
     bool? locationRemoved,
     bool? websiteRemoved,
     bool? removalRefused,
-    bool? bannerFailed,
-    bool? bannerDropped,
     bool? extrasDisabled,
     bool? locationRejected,
     bool? websiteRejected,
@@ -188,16 +158,9 @@ class EditProfileState {
     avatarFailed: clearError ? false : (avatarFailed ?? this.avatarFailed),
     pickFailed: clearError ? false : (pickFailed ?? this.pickFailed),
     avatarDropped: clearError ? false : (avatarDropped ?? this.avatarDropped),
-    bannerPreview: clearBannerPreview
-        ? null
-        : (bannerPreview ?? this.bannerPreview),
-    isPreparingBanner: isPreparingBanner ?? this.isPreparingBanner,
-    bannerRemoved: bannerRemoved ?? this.bannerRemoved,
     locationRemoved: locationRemoved ?? this.locationRemoved,
     websiteRemoved: websiteRemoved ?? this.websiteRemoved,
     removalRefused: removalRefused ?? this.removalRefused,
-    bannerFailed: clearError ? false : (bannerFailed ?? this.bannerFailed),
-    bannerDropped: clearError ? false : (bannerDropped ?? this.bannerDropped),
     extrasDisabled: clearError
         ? false
         : (extrasDisabled ?? this.extrasDisabled),
@@ -207,21 +170,21 @@ class EditProfileState {
 }
 
 /// Drives Edit profile: display name and bio, the avatar when
-/// `FEATURE_MEDIA` is on, and with `profile_extras` also the banner,
-/// location and website.
+/// `FEATURE_MEDIA` is on, and with `profile_extras` also the location and
+/// website.
 ///
 /// - Sends just the fields that changed (field presence is the signal: absent
 ///   leaves a field alone, `""` clears it), with one idempotency key per
 ///   distinct edit, reused by a retry of the same edit so a dropped response
 ///   cannot apply twice.
-/// - Each picture is an [ImageUploadSlot]: resized on the device when picked,
+/// - The avatar is an [ImageUploadSlot]: resized on the device when picked,
 ///   uploaded on Save, its media id remembered so a retry never uploads again.
 /// - **An extra is never SET unless `extrasEnabled`**: the server refuses a
-///   set (a non-empty banner id, location or website) when `profile_extras`
+///   set (a non-empty location or website) when `profile_extras`
 ///   is off for the caller, which would fail every name or bio save too. A
 ///   **clear** (an exact `""`) is accepted whatever the flag,
 /// so without the flag the screen offers Remove
-///   for each saved one ([removeBanner], [removeLocation], [removeWebsite])
+///   for each saved one ([removeLocation], [removeWebsite])
 ///   and the only extras a request can then carry are `""`. A server
 ///   FEATURE_DISABLED `profile_extras` switches the setting off for good here
 ///   (the removals asked for are dropped with it; if the request only cleared,
@@ -253,21 +216,14 @@ class EditProfileCubit extends Cubit<EditProfileState> {
          ),
        ) {
     if (picker != null && processor != null && uploader != null) {
-      // One uploader, one slot per picture, one upload() call per slot (AVATAR
-      // and BANNER take exactly one item, so they are never batched).
+      // One upload() call with one item (AVATAR takes exactly one, so it is
+      // never batched).
       _avatar = ImageUploadSlot(
         uploader: uploader,
         processor: processor,
         uploadPurpose: media.MediaPurpose.MEDIA_PURPOSE_AVATAR,
         imagePurpose: ImagePurpose.avatar,
         jobId: 'avatar',
-      );
-      _banner = ImageUploadSlot(
-        uploader: uploader,
-        processor: processor,
-        uploadPurpose: media.MediaPurpose.MEDIA_PURPOSE_BANNER,
-        imagePurpose: ImagePurpose.banner,
-        jobId: 'banner',
       );
     }
   }
@@ -281,22 +237,11 @@ class EditProfileCubit extends Cubit<EditProfileState> {
 
   /// Null when media is off (nothing to pick or upload).
   ImageUploadSlot? _avatar;
-  ImageUploadSlot? _banner;
-
-  ImageUploadSlot? _slot(ProfilePicture which) =>
-      which == ProfilePicture.avatar ? _avatar : _banner;
 
   /// The avatar can be changed (media is on and the pieces are wired).
   bool get canChangeAvatar => _avatar != null;
 
-  /// The banner can be changed: `profile_extras` and media are both on.
-  bool get canChangeBanner => state.extrasEnabled && _banner != null;
-
   bool get isAvatarChanged => _avatar?.hasImage ?? false;
-
-  /// The profile has a saved banner (so there is something to remove).
-  bool get hasSavedBanner =>
-      _initial.bannerUrl.isNotEmpty || _initial.bannerThumbUrl.isNotEmpty;
 
   /// The profile has a saved location / website (so there is something to
   /// remove). The server omits the website while `profile_extras` is globally
@@ -319,19 +264,12 @@ class EditProfileCubit extends Cubit<EditProfileState> {
       ? normalizeProfileWebsite(state.website) != _initial.website
       : state.websiteRemoved && hasSavedWebsite;
 
-  /// A new banner is chosen (only with the flag on), or the saved one is to
-  /// be removed (whatever the flags).
-  bool get isBannerChanged =>
-      (state.extrasEnabled && (_banner?.hasImage ?? false)) ||
-      (state.bannerRemoved && hasSavedBanner);
-
   bool get hasChanges =>
       isNameChanged ||
       isBioChanged ||
       isAvatarChanged ||
       isLocationChanged ||
-      isWebsiteChanged ||
-      isBannerChanged;
+      isWebsiteChanged;
 
   bool get _valid =>
       state.displayNameProblem == null &&
@@ -347,131 +285,62 @@ class EditProfileCubit extends Cubit<EditProfileState> {
       !state.isSaving &&
       state.status != EditProfileStatus.saved &&
       !state.isPreparingAvatar &&
-      !state.isPreparingBanner &&
       _valid &&
       hasChanges;
 
   /// Opens the picker and prepares the chosen photo for upload (resize,
   /// compress and strip metadata on the device). Nothing is sent until
   /// [save].
-  Future<void> pickAvatar() => _pick(ProfilePicture.avatar);
-
-  /// Opens the picker and prepares the chosen image as a banner (centered
-  /// 3:1 crop, full 1500 x 500 and thumb 600 x 200, on the device). Nothing
-  /// is sent until [save]. Needs [canChangeBanner].
-  Future<void> pickBanner() => _pick(ProfilePicture.banner);
-
-  bool _isPreparing(ProfilePicture which) => which == ProfilePicture.avatar
-      ? state.isPreparingAvatar
-      : state.isPreparingBanner;
-
-  Future<void> _pick(ProfilePicture which) async {
-    final slot = _slot(which);
+  Future<void> pickAvatar() async {
+    final slot = _avatar;
     final picker = _picker;
     if (slot == null ||
         picker == null ||
         state.isSaving ||
-        _isPreparing(which) ||
-        (which == ProfilePicture.banner && !state.extrasEnabled)) {
+        state.isPreparingAvatar) {
       return;
     }
     final Uint8List? bytes;
     try {
-      bytes = which == ProfilePicture.avatar
-          ? await picker.pickAvatar()
-          : (await picker.pickImages(limit: 1)).firstOrNull;
+      bytes = await picker.pickAvatar();
     } catch (_) {
       // Permission denied / picker failure: keep what we had, and say so.
       if (!isClosed) {
         emit(
-          _flagged(
-            which,
-            const UnknownApiException('The photo picker failed.'),
+          state.copyWith(
+            avatarFailed: true,
             pickFailed: true,
+            error: const UnknownApiException('The photo picker failed.'),
           ),
         );
       }
       return;
     }
     if (bytes == null || isClosed) return;
-    emit(_preparing(which).copyWith(clearError: true));
+    emit(state.copyWith(isPreparingAvatar: true, clearError: true));
     try {
       final image = await slot.choose(bytes);
       if (isClosed) return;
       emit(
-        which == ProfilePicture.avatar
-            ? state.copyWith(
-                avatarPreview: image.thumbBytes,
-                isPreparingAvatar: false,
-                status: EditProfileStatus.editing,
-              )
-            : state.copyWith(
-                bannerPreview: image.thumbBytes,
-                isPreparingBanner: false,
-                bannerRemoved: false,
-                status: EditProfileStatus.editing,
-              ),
+        state.copyWith(
+          avatarPreview: image.thumbBytes,
+          isPreparingAvatar: false,
+          status: EditProfileStatus.editing,
+        ),
       );
     } catch (_) {
       if (isClosed) return;
       emit(
-        _flagged(
-          which,
-          ValidationException(
-            which == ProfilePicture.avatar
-                ? "That file can't be used as a photo. Choose a different "
-                      'image.'
-                : "That file can't be used as a banner. Choose a different "
-                      'image.',
+        state.copyWith(
+          isPreparingAvatar: false,
+          avatarFailed: true,
+          error: const ValidationException(
+            "That file can't be used as a photo. Choose a different image.",
             field: 'media',
           ),
-          preparing: false,
         ),
       );
     }
-  }
-
-  /// [state] with the picture [which] marked as being prepared.
-  EditProfileState _preparing(ProfilePicture which) =>
-      which == ProfilePicture.avatar
-      ? state.copyWith(isPreparingAvatar: true)
-      : state.copyWith(isPreparingBanner: true);
-
-  /// [state] with [error] attributed to the picture [which].
-  EditProfileState _flagged(
-    ProfilePicture which,
-    AppException error, {
-    bool pickFailed = false,
-    bool? preparing,
-  }) => which == ProfilePicture.avatar
-      ? state.copyWith(
-          isPreparingAvatar: preparing,
-          avatarFailed: true,
-          pickFailed: pickFailed,
-          error: error,
-        )
-      : state.copyWith(
-          isPreparingBanner: preparing,
-          bannerFailed: true,
-          pickFailed: pickFailed,
-          error: error,
-        );
-
-  /// Drops the chosen banner and, when the profile has one, removes it on
-  /// Save (`banner_media_id: ""`). The result is always "no banner". Needs
-  /// neither `profile_extras` nor media: a removal is a clear,
-  /// and without media there is no slot to discard.
-  void removeBanner() {
-    if (state.isSaving || state.removalRefused) return;
-    _banner?.discard();
-    emit(
-      state.copyWith(
-        clearBannerPreview: true,
-        bannerRemoved: hasSavedBanner,
-        status: EditProfileStatus.editing,
-        clearError: true,
-      ),
-    );
   }
 
   /// Removes the saved location on Save (`location: ""`). Only without
@@ -561,8 +430,8 @@ class EditProfileCubit extends Cubit<EditProfileState> {
     final bio = isBioChanged ? _bio : null;
     // A typed value is read only while the extras are on. Without them the
     // only change the getters report is a removal, and a removal is "": an
-    // account outside the cohort never has a non-empty banner id, location or
-    // website in a request (the server refuses a set, and a clear next to a
+    // account outside the cohort never has a non-empty location or website in
+    // a request (the server refuses a set, and a clear next to a
     // set, whole).
     final extras = state.extrasEnabled;
     final location = isLocationChanged
@@ -576,46 +445,28 @@ class EditProfileCubit extends Cubit<EditProfileState> {
     // for it; null once both are uploaded (a failure is then UpdateProfile's).
     ImageUploadSlot? uploading;
     String? avatarId;
-    String? bannerId;
     try {
       final avatarSlot = _avatar;
       uploading = avatarSlot != null && avatarSlot.needsUpload
           ? avatarSlot
           : null;
       avatarId = await avatarSlot?.ensureUploaded();
-      final bannerSlot = extras ? _banner : null;
-      uploading = bannerSlot != null && bannerSlot.needsUpload
-          ? bannerSlot
-          : null;
-      bannerId = await bannerSlot?.ensureUploaded();
       uploading = null;
       if (isClosed) return;
-      // "" removes the saved banner; only a saved one is worth a request.
-      final bannerArg =
-          bannerId ?? (state.bannerRemoved && hasSavedBanner ? '' : null);
       assert(
-        extras ||
-            [bannerArg, location, website].every((v) => v == null || v.isEmpty),
+        extras || [location, website].every((v) => v == null || v.isEmpty),
         'without profile_extras a request may only clear an extra',
       );
-      // The key covers every field sent, the media ids included: a different
-      // photo or banner is a different request body (the server answers
+      // The key covers every field sent, the media id included: a different
+      // photo is a different request body (the server answers
       // IDEMPOTENCY_KEY_REUSED), and JSON tells an absent field from "".
-      final intent = jsonEncode([
-        name,
-        bio,
-        avatarId,
-        bannerArg,
-        location,
-        website,
-      ]);
+      final intent = jsonEncode([name, bio, avatarId, location, website]);
       final key = _keys.putIfAbsent(intent, _uuid.v4);
       final profile = await _repository.updateProfile(
         idempotencyKey: key,
         displayName: name,
         bio: bio,
         avatarMediaId: avatarId,
-        bannerMediaId: bannerArg,
         location: location,
         website: website,
       );
@@ -631,14 +482,13 @@ class EditProfileCubit extends Cubit<EditProfileState> {
       }
       final extrasOff =
           e is FeatureDisabledException && e.feature == kFeatureProfileExtras;
-      // Only an UpdateProfile refusal means the uploaded pictures are gone; a
-      // MEDIA_NOT_READY from the upload step just means "try again". The
-      // answer does not say which picture, so every one that was sent goes.
-      final dropped = e is MediaNotReadyException && failedUpload == null;
-      final avatarDropped = dropped && avatarId != null;
-      final bannerDropped = dropped && bannerId != null;
+      // Only an UpdateProfile refusal means the uploaded photo is gone; a
+      // MEDIA_NOT_READY from the upload step just means "try again".
+      final avatarDropped =
+          e is MediaNotReadyException &&
+          failedUpload == null &&
+          avatarId != null;
       if (avatarDropped) _avatar?.discard();
-      if (bannerDropped || extrasOff) _banner?.discard();
       if (isClosed) return;
       // Switched off: forget every pending extra (a removal asked for with
       // the flag already off included: only an older server
@@ -648,7 +498,6 @@ class EditProfileCubit extends Cubit<EditProfileState> {
               extrasEnabled: false,
               location: _initial.location,
               website: _initial.website,
-              bannerRemoved: false,
               locationRemoved: false,
               websiteRemoved: false,
               // A request that only cleared was refused: Remove goes.
@@ -664,11 +513,7 @@ class EditProfileCubit extends Cubit<EditProfileState> {
           avatarFailed:
               (failedUpload != null && identical(failedUpload, _avatar)) ||
               avatarDropped,
-          bannerFailed:
-              (failedUpload != null && identical(failedUpload, _banner)) ||
-              bannerDropped,
           avatarDropped: avatarDropped,
-          bannerDropped: bannerDropped,
           extrasDisabled: extrasOff,
           locationRejected:
               e is ValidationException &&
@@ -679,7 +524,6 @@ class EditProfileCubit extends Cubit<EditProfileState> {
               e.field == 'website' &&
               website != null,
           clearAvatarPreview: !(_avatar?.hasImage ?? false),
-          clearBannerPreview: !(_banner?.hasImage ?? false),
         ),
       );
     } catch (error, stack) {

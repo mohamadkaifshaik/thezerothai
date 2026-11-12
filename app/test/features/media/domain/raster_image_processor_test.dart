@@ -69,7 +69,7 @@ void main() {
       expect(codec.closed, 1);
     });
 
-    test('avatar and banner crop and size like processImageSync', () async {
+    test('avatar crops and sizes like processImageSync', () async {
       final avatar = FakeRasterCodec(decoded: (width: 900, height: 500));
       final a = await RasterImageProcessor(avatar)
           .process(input, ImagePurpose.avatar);
@@ -81,12 +81,6 @@ void main() {
         height: 500,
       ));
       expect(jpegDims(a.thumbBytes), (width: 96, height: 96));
-
-      final banner = FakeRasterCodec(decoded: (width: 3000, height: 2000));
-      final b = await RasterImageProcessor(banner)
-          .process(input, ImagePurpose.banner);
-      expect((b.width, b.height), (1500, 500));
-      expect(jpegDims(b.thumbBytes), (width: 600, height: 200));
     });
 
     test('a JPEG whose SOF differs from the asked size is never declared '
