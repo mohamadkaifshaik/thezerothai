@@ -57,7 +57,7 @@ void main() {
 
     await tester.enterText(find.byType(TextField), 'not kept');
     await tester.pump();
-    await tester.tap(find.text('Cancel'));
+    await tester.tap(find.byTooltip('Close'));
     await tester.pumpAndSettle();
 
     expect(find.text('Save post?'), findsNothing);

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/router/app_router.dart';
 import '../domain/auth_failure.dart';
 import 'bloc/auth_bloc.dart';
 import 'bloc/auth_event.dart';
@@ -28,7 +29,7 @@ class _AuthScreenState extends State<AuthScreen> {
   bool get signUp => widget.signUp;
 
   void _switchMode(BuildContext context) =>
-      context.go(signUp ? '/sign-in' : '/sign-up');
+      context.go(signUp ? AppRouter.signInPath : AppRouter.signUpPath);
 
   @override
   Widget build(BuildContext context) => BlocConsumer<AuthBloc, AuthState>(
@@ -48,6 +49,9 @@ class _AuthScreenState extends State<AuthScreen> {
         copy: copy,
         signUp: signUp,
         onSwitchMode: state.isSubmitting ? null : () => _switchMode(context),
+        onBack: state.isSubmitting
+            ? null
+            : () => context.go(AppRouter.welcomePath),
         form: ({required fieldIcons, required dense, required builder}) =>
             EmailPasswordForm(
               key: _formKey,

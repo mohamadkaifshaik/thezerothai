@@ -567,13 +567,12 @@ void main() {
                   textScale: scale,
                 );
 
-                // The Calls page also has a "Calls" group title.
                 expect(
                   find.descendant(
                     of: find.byType(AppMainColumn),
                     matching: find.text(entry.key),
                   ),
-                  entry.key == 'Calls' ? findsNWidgets(2) : findsOneWidget,
+                  findsOneWidget,
                 );
                 expect(
                   find.textContaining(

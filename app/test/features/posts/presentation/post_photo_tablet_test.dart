@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
@@ -22,7 +24,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../support/app_fonts.dart';
 import '../../../support/posts_fixtures.dart';
+
+const _screenshots = bool.fromEnvironment('POSTS_SCREENSHOTS');
 
 class _Posts extends Mock implements PostsRepository {}
 
@@ -114,6 +119,65 @@ void main() {
 
   /// The details pane beside the photo (not a side sheet).
   Finder pane() => find.byType(PostDetailScreen);
+
+  // The PostPhoto mocks: round tinted controls, a "1 / 2" pill at the top,
+  // and under the photo (when the post pane is not beside it) who posted it
+  // and what they said.
+  group('the three looks', () {
+    for (final (name, width, height) in const [
+      ('phone', 390.0, 844.0),
+      ('tablet', 1024.0, 768.0),
+      ('desktop', 1440.0, 900.0),
+    ]) {
+      testWidgets('$name: the counter, and the caption only without the pane', (
+        tester,
+      ) async {
+        await open(tester, width: width, height: height);
+        expect(find.text('1 / 2'), findsOneWidget);
+        expect(find.byTooltip('Close image'), findsOneWidget);
+        expect(find.byTooltip('Next image'), findsOneWidget);
+        final caption = find.textContaining('Two photos of the harbour.');
+        // With the pane the post itself is beside the photo, once.
+        expect(caption, findsOneWidget);
+        expect(
+          find.descendant(of: pane(), matching: caption),
+          width >= 840 ? findsOneWidget : findsNothing,
+        );
+      });
+    }
+
+    testWidgets('phone at text scale 2.0: nothing overflows', (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 2;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await open(tester, width: 390, height: 844);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('screenshots', () {
+    setUpAll(() async {
+      if (_screenshots) await loadAppFonts();
+    });
+    for (final (name, width, height) in const [
+      ('phone', 390.0, 844.0),
+      ('tablet', 1024.0, 768.0),
+      ('desktop', 1440.0, 900.0),
+    ]) {
+      testWidgets(name, (tester) async {
+        await open(tester, width: width, height: height);
+        await tester.runAsync(() async {
+          final image = await captureImage(
+            tester.element(find.byType(MaterialApp)),
+          );
+          final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+          final file = File('build/artifacts/posts/photo-$name.png');
+          await file.parent.create(recursive: true);
+          await file.writeAsBytes(bytes!.buffer.asUint8List());
+          image.dispose();
+        });
+      }, skip: !_screenshots);
+    }
+  });
 
   group('by width and flag mode', () {
     for (final MapEntry(key: mode, value: flags) in _modes.entries) {

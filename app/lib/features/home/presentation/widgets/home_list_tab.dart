@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../core/widgets/app_top_bar.dart';
 import '../../../lists/domain/home_tab_entry.dart';
 import '../../../lists/presentation/bloc/home_tabs_cubit.dart';
 import '../../../lists/presentation/bloc/home_tabs_state.dart';
@@ -15,7 +14,7 @@ import '../../../timeline/domain/feed_key.dart';
 import '../../../timeline/presentation/bloc/timeline_cubit.dart';
 import '../../../timeline/presentation/timeline_feed_view.dart';
 import 'home_tab_bar.dart';
-import 'pinned_timelines_button.dart';
+import 'home_top_bar.dart';
 
 /// One pinned List as a Home tab: its own `TimelineCubit`
 /// (`FeedKey.list`), created when the tab is first shown and closed with it,
@@ -80,11 +79,7 @@ class _HomeListTabState extends State<HomeListTab> {
               ListUnavailableView(onUnpin: _unpin, busy: saving),
         ),
         headerSlivers: [
-          AppTopBar.sliver(
-            title: 'Home',
-            wordmark: true,
-            actions: const [PinnedTimelinesButton()],
-          ),
+          HomeTopBar.sliver(context, phoneTitle: 'Home', pinned: true),
           const SliverToBoxAdapter(child: HomeTabBar()),
         ],
       ),

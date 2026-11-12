@@ -144,14 +144,17 @@ void main() {
   testWidgets('shows the Quote title, hint and the quoted post', (
     tester,
   ) async {
+    final handle = tester.ensureSemantics();
     features({'engagement', 'quotes'});
     await open(tester, quote: quoted, withPreview: preview);
 
-    expect(find.text('Quote'), findsOneWidget);
+    // The designs draw no title: it is the screen reader's heading.
+    expect(find.bySemanticsLabel('Quote'), findsOneWidget);
     expect(find.text('Add a comment'), findsOneWidget);
     expect(find.text('Original Author'), findsOneWidget);
     expect(find.text('the quoted words'), findsOneWidget);
     expect(find.text('280'), findsOneWidget);
+    handle.dispose();
   });
 
   testWidgets('without a preview (page reload) it still quotes', (
@@ -275,14 +278,14 @@ void main() {
     features({'engagement'});
     await open(tester);
 
-    expect(find.text('New post'), findsOneWidget);
+    expect(find.byTooltip('Close'), findsOneWidget);
   });
 
   testWidgets('a plain /compose is unchanged', (tester) async {
     features({'engagement', 'quotes'});
     await open(tester);
 
-    expect(find.text('New post'), findsOneWidget);
+    expect(find.byTooltip('Close'), findsOneWidget);
     expect(find.text("What's happening?"), findsOneWidget);
     expect(find.text('Quoting a post'), findsNothing);
   });

@@ -246,12 +246,7 @@ String _shellRouteSource() {
 /// why that kind of box scroll view in that shell screen file never sits
 /// under the bar. Keyed by kind so the file's other scroll views stay
 /// checked.
-const Map<String, String> _boxExempt = {
-  'features/account/presentation/delete_account_screen.dart '
-          'SingleChildScrollView':
-      'the password dialog, a modal route above the shell (no bar under '
-      'it); the page ListView is checked and adds the inset',
-};
+const Map<String, String> _boxExempt = {};
 
 void main() {
   test('every CustomScrollView of a shell screen ends with '

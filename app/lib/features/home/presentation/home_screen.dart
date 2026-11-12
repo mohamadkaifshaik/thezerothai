@@ -6,8 +6,6 @@ import '../../../core/feature_flags/ui_shell_feature_flag.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/router/compose_gate.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/app_top_bar.dart';
-import '../../../core/widgets/context_pane.dart';
 import '../../../core/widgets/telemetry_consent_card.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../graph/presentation/widgets/who_to_follow_card.dart';
@@ -27,7 +25,7 @@ import '../../timeline/presentation/bloc/timeline_cubit.dart';
 import '../../timeline/presentation/timeline_feed_view.dart';
 import 'widgets/home_composer_entry.dart';
 import 'widgets/home_tabs_view.dart';
-import 'widgets/pinned_timelines_button.dart';
+import 'widgets/home_top_bar.dart';
 
 /// The Home timeline (section 7): the cached feed renders at
 /// once, then one throttled refresh with `since_token`; pull-to-refresh,
@@ -112,6 +110,9 @@ class _FollowingFeed extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final sideColumnHasIt =
+        MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet &&
+        isFeatureEnabled(context, kFeatureUiShell);
     return BlocProvider<TimelineCubit>(
       create: (context) => TimelineCubit(
         feed: const FeedKey.home(),
@@ -144,20 +145,16 @@ class _FollowingFeed extends StatelessWidget {
           // Under the two header rows (top bar + tab bar).
           newPostsPillTop: AppSize.headerRow * 2 + AppSpacing.sm,
           headerSlivers: [
-            // 53dp top bar: the avatar button (narrow layouts, opens the
-            // drawer) and the title, over the theme's bottom hairline.
-            // With `ui_shell` on it shows the DZEROTH wordmark, still named
-            // "Posts" for assistive technology.
-            AppTopBar.sliver(
-              title: 'Posts',
-              centerTitle: true,
-              wordmark: true,
+            HomeTopBar.sliver(
+              context,
+              phoneTitle: 'Posts',
               // Pinned timelines exist only with the tabs (lists + ui_shell).
-              actions: showPinnedControl
-                  ? const [PinnedTimelinesButton()]
-                  : null,
+              pinned: showPinnedControl,
             ),
             SliverToBoxAdapter(child: tabBar),
+            // The entry row first, as in the designs; the cards follow it.
+            if (canCompose)
+              const SliverToBoxAdapter(child: HomeComposerEntry()),
             // One opt-in card above the feed; hidden unless the
             // notifications flag is on and push can be offered.
             const SliverToBoxAdapter(
@@ -166,25 +163,17 @@ class _FollowingFeed extends StatelessWidget {
             // The telemetry consent card: same slot, push first; draws
             // nothing unless a telemetry flag is on, on Android, unasked.
             const SliverToBoxAdapter(child: TelemetryConsentCard()),
-            // "Who to follow": once, under the opt-in card; draws
-            // nothing unless `follow_suggestions` + `graph` are on and the
-            // shared list has rows. Beside a tablet context pane that shows
-            // it (band B) it lives there instead: one card, one placement.
-            // The sliver stays either way, so the slivers after it keep
-            // their place (and their state) when the window crosses 840.
+            // "Who to follow": draws nothing unless `follow_suggestions` +
+            // `graph` are on and the shared list has rows. The desktop side
+            // column carries it ("You might like"), so it is not repeated
+            // there (new shell). The sliver stays so the ones after it keep their place.
             SliverToBoxAdapter(
-              child:
-                  ContextPaneScope.shows(
-                    context,
-                    ContextSectionKind.whoToFollow,
-                  )
+              child: sideColumnHasIt
                   ? const SizedBox.shrink()
                   : const WhoToFollowCard(
                       margin: EdgeInsets.all(AppSpacing.md),
                     ),
             ),
-            if (canCompose)
-              const SliverToBoxAdapter(child: HomeComposerEntry()),
           ],
           emptyTitle: 'Your timeline is empty',
           emptySubtitle:
