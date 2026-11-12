@@ -6,7 +6,6 @@ import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_error_view.dart'
     show rateLimitedMessage;
-import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/features/communities/domain/communities_feature_flag.dart';
 import 'package:dzeroth/features/communities/presentation/communities_screen.dart';
 import 'package:dzeroth/features/communities/presentation/community_members_screen.dart';
@@ -26,17 +25,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/communities_tablet_rig.dart';
-import '../../../support/context_pane_rig.dart'
-    show findContextPane, inContextPane;
+import '../../../support/context_pane_rig.dart' show findContextPane;
 
 /// R10: the communities restyle, F23 tabs, F37 "Search communities", F24's
 /// Moderators tab, F36 "Search members" and the Joined pill's 48 dp target,
 /// at the widths where the layout differs.
 
 const _widths = <double>[360, 599, 600, 839, 840, 1024, 1199, 1200, 1440];
-
-bool _bandB(double w) =>
-    w >= AppBreakpoints.expanded && w < AppBreakpoints.tablet;
 
 /// With `community_member_search` (F36) on as well.
 final _searchFlags = {
@@ -51,12 +46,6 @@ final _communityPath = AppRouter.communityPath(kRigCommunityId);
 Finder _field(String text) => find.byWidgetPredicate(
   (w) => w is TextField && w.decoration?.hintText == text,
 );
-
-List<ContextSectionKind> _paneKinds(WidgetTester tester) {
-  final pane = findContextPane();
-  if (pane.evaluate().isEmpty) return const [];
-  return [for (final s in tester.widget<ContextPane>(pane).sections) s.kind];
-}
 
 /// Types [text] in the field named [hint] and lets the 300 ms debounce
 /// and the answer through.
@@ -78,64 +67,41 @@ List<pb.Community> _directoryOf(int n) => [
 
 void main() {
   group('Communities: F23 tabs and F37 filter, per width', () {
+    // The tablet layout has no side pane: bands A and B draw the same page.
     for (final w in _widths) {
-      testWidgets(
-        '$w: ${_bandB(w) ? 'no tabs, My communities | the pane\'s '
-                  'filter over Explore communities' : 'the filter, then My '
-                  'communities / Explore tabs'}',
-        (tester) async {
-          final rig = CommunitiesTabletRig();
-          await rig.pump(tester, width: w);
-          expect(tester.takeException(), isNull);
-          expect(_field(kSearchCommunitiesHint), findsOneWidget);
-          if (_bandB(w)) {
-            expect(find.byType(AppTabBar), findsNothing);
-            expect(
-              inCommunitiesPage(find.text(kMyCommunitiesTitle)),
-              findsOneWidget,
-            );
-            expect(
-              inContextPane(_field(kSearchCommunitiesHint)),
-              findsOneWidget,
-            );
-            // The field sits above the Explore communities card.
-            expect(
-              tester.getRect(inContextPane(_field(kSearchCommunitiesHint))).top,
-              lessThan(
-                tester
-                    .getRect(inContextPane(find.text('Explore communities')))
-                    .top,
-              ),
-            );
-          } else {
-            expect(findContextPane(), findsNothing);
-            final field = inCommunitiesPage(_field(kSearchCommunitiesHint));
-            expect(field, findsOneWidget);
-            expect(
-              tester.getRect(field).bottom,
-              lessThanOrEqualTo(tester.getRect(find.byType(AppTabBar)).top),
-            );
-            // My communities first; Explore shows the directory.
-            expect(
-              inCommunitiesPage(find.byKey(ValueKey('mine-$kRigCommunityId'))),
-              findsOneWidget,
-            );
-            expect(find.byKey(const ValueKey('explore-78')), findsNothing);
-            await showExploreTab(tester);
-            expect(
-              inCommunitiesPage(find.byKey(const ValueKey('explore-78'))),
-              findsOneWidget,
-            );
-            expect(find.byKey(ValueKey('mine-$kRigCommunityId')), findsNothing);
-          }
-          // Both lists load on open, once, whichever tab shows.
-          expect(rig.server.count('mine'), 1);
-          expect(rig.server.count('directory'), 1);
-        },
-      );
+      testWidgets('$w: the filter, then My communities / Explore tabs', (
+        tester,
+      ) async {
+        final rig = CommunitiesTabletRig();
+        await rig.pump(tester, width: w);
+        expect(tester.takeException(), isNull);
+        expect(_field(kSearchCommunitiesHint), findsOneWidget);
+        expect(findContextPane(), findsNothing);
+        final field = inCommunitiesPage(_field(kSearchCommunitiesHint));
+        expect(field, findsOneWidget);
+        expect(
+          tester.getRect(field).bottom,
+          lessThanOrEqualTo(tester.getRect(find.byType(AppTabBar)).top),
+        );
+        // My communities first; Explore shows the directory.
+        expect(
+          inCommunitiesPage(find.byKey(ValueKey('mine-$kRigCommunityId'))),
+          findsOneWidget,
+        );
+        expect(find.byKey(const ValueKey('explore-78')), findsNothing);
+        await showExploreTab(tester);
+        expect(
+          inCommunitiesPage(find.byKey(const ValueKey('explore-78'))),
+          findsOneWidget,
+        );
+        expect(find.byKey(ValueKey('mine-$kRigCommunityId')), findsNothing);
+        // Both lists load on open, once, whichever tab shows.
+        expect(rig.server.count('mine'), 1);
+        expect(rig.server.count('directory'), 1);
+      });
     }
 
-    for (final w in <double>[360, 744, 1200]) {
+    for (final w in <double>[360, 744, 840, 1024, 1200]) {
       testWidgets('$w: the filter narrows both tabs by name, with no call', (
         tester,
       ) async {
@@ -162,21 +128,26 @@ void main() {
       });
     }
 
-    testWidgets('band B (1024): the pane\'s filter narrows the pane and the '
-        'page; the text follows the field to band A and back', (tester) async {
+    testWidgets('band B (1024): the filter narrows both tabs of the page; '
+        'the text follows the field to band A and back', (tester) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, width: 1024);
+      expect(findContextPane(), findsNothing);
       await tester.enterText(
-        inContextPane(_field(kSearchCommunitiesHint)),
+        inCommunitiesPage(_field(kSearchCommunitiesHint)),
         'run',
       );
       await tester.pumpAndSettle();
-      expect(inContextPane(find.byKey(const ValueKey('explore-79'))), findsOne);
+      expect(inCommunitiesPage(find.text(kNoCommunitiesMatch)), findsOneWidget);
+      await showExploreTab(tester);
       expect(
-        inContextPane(find.byKey(const ValueKey('explore-78'))),
+        inCommunitiesPage(find.byKey(const ValueKey('explore-79'))),
+        findsOne,
+      );
+      expect(
+        inCommunitiesPage(find.byKey(const ValueKey('explore-78'))),
         findsNothing,
       );
-      expect(inCommunitiesPage(find.text(kNoCommunitiesMatch)), findsOneWidget);
 
       await rig.resize(tester, 744);
       final inline = inCommunitiesPage(_field(kSearchCommunitiesHint));
@@ -184,25 +155,14 @@ void main() {
       await rig.resize(tester, 1024);
       expect(
         tester
-            .widget<TextField>(inContextPane(_field(kSearchCommunitiesHint)))
+            .widget<TextField>(
+              inCommunitiesPage(_field(kSearchCommunitiesHint)),
+            )
             .controller!
             .text,
         'run',
       );
       expect(rig.server.count('directory'), 1);
-    });
-
-    testWidgets('band B: the pane placeholder has the field\'s box, so the '
-        'lent section does not jump', (tester) async {
-      final rig = CommunitiesTabletRig();
-      await rig.pump(tester, location: AppRouter.homePath, width: 1024);
-      unawaited(rig.router.push(AppRouter.communitiesPath));
-      await tester.pump();
-      final field = inContextPane(_field(kSearchCommunitiesHint));
-      expect(field, findsOneWidget);
-      final top = tester.getRect(field).top;
-      await tester.pumpAndSettle();
-      expect(tester.getRect(field).top, top);
     });
 
     group('no match over a list that may be cut short (F37 v1)', () {
@@ -241,23 +201,28 @@ void main() {
         expect(find.text('Try Search'), findsNothing);
       });
 
-      testWidgets('band B: the same rule in the pane', (tester) async {
+      testWidgets('band B: the same rule, inline in the Explore tab', (
+        tester,
+      ) async {
         final rig = CommunitiesTabletRig();
         rig.server.directory = _directoryOf(50);
         await rig.pump(tester, width: 1024);
+        expect(findContextPane(), findsNothing);
+        await showExploreTab(tester);
         await tester.enterText(
-          inContextPane(_field(kSearchCommunitiesHint)),
+          inCommunitiesPage(_field(kSearchCommunitiesHint)),
           'zzz',
         );
         await tester.pumpAndSettle();
-        expect(inContextPane(find.text(kNoLoadedCommunitiesMatch)), findsOne);
+        expect(
+          inCommunitiesPage(find.text(kNoLoadedCommunitiesMatch)),
+          findsOne,
+        );
         expect(find.text('Try Search'), findsNothing);
       });
     });
 
-    testWidgets('empty My communities names the Explore tab outside band B', (
-      tester,
-    ) async {
+    testWidgets('empty My communities names the Explore tab', (tester) async {
       final rig = CommunitiesTabletRig();
       rig.server.directory = _directoryOf(2);
       await rig.pump(tester, width: 360);
@@ -295,22 +260,16 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('band B: the pane rows stay plain rows (no card in a card)', (
+    testWidgets('band B: the Explore rows are cards, as in band A', (
       tester,
     ) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, width: 1024);
+      expect(findContextPane(), findsNothing);
+      await showExploreTab(tester);
       expect(
         find.descendant(
-          of: inContextPane(find.byKey(const ValueKey('explore-78'))),
-          matching: find.byType(AppCard),
-        ),
-        findsNothing,
-      );
-      // My communities, in the page, is cards.
-      expect(
-        find.descendant(
-          of: find.byKey(ValueKey('mine-$kRigCommunityId')),
+          of: inCommunitiesPage(find.byKey(const ValueKey('explore-78'))),
           matching: find.byType(AppCard),
         ),
         findsOneWidget,
@@ -383,10 +342,8 @@ void main() {
             brightness: brightness,
           );
           expect(tester.takeException(), isNull);
-          if (!_bandB(w)) {
-            await showExploreTab(tester);
-            expect(tester.takeException(), isNull);
-          }
+          await showExploreTab(tester);
+          expect(tester.takeException(), isNull);
           for (final pill in find.byType(AppPillButton).evaluate()) {
             final text = find.descendant(
               of: find.byWidget(pill.widget),
@@ -548,57 +505,45 @@ void main() {
   group('CommunityMembers: F36 Search members', () {
     for (final w in _widths) {
       for (final on in [true, false]) {
-        testWidgets('$w, community_member_search ${on ? 'on' : 'off'}: '
-            '${!on
-                ? 'no field, no search call'
-                : _bandB(w)
-                ? 'the field in the pane'
-                : 'the field above the tabs'}', (tester) async {
-          final rig = CommunitiesTabletRig();
-          rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
-          await rig.pump(
-            tester,
-            location: _membersPath,
-            width: w,
-            flags: on ? _searchFlags : kCommunitiesTabletFlags,
-          );
-          expect(tester.takeException(), isNull);
-          if (!on) {
-            expect(_field(kSearchMembersHint), findsNothing);
-            expect(rig.server.count('search:'), 0);
-            return;
-          }
-          expect(_field(kSearchMembersHint), findsOneWidget);
-          if (_bandB(w)) {
-            expect(_paneKinds(tester), [
-              ContextSectionKind.memberSearch,
-              ContextSectionKind.links,
-            ]);
-            expect(inContextPane(_field(kSearchMembersHint)), findsOneWidget);
-          } else {
+        testWidgets(
+          '$w, community_member_search ${on ? 'on' : 'off'}: '
+          '${!on ? 'no field, no search call' : 'the field above the tabs, no pane'}',
+          (tester) async {
+            final rig = CommunitiesTabletRig();
+            rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
+            await rig.pump(
+              tester,
+              location: _membersPath,
+              width: w,
+              flags: on ? _searchFlags : kCommunitiesTabletFlags,
+            );
+            expect(tester.takeException(), isNull);
+            if (!on) {
+              expect(_field(kSearchMembersHint), findsNothing);
+              expect(rig.server.count('search:'), 0);
+              return;
+            }
+            expect(_field(kSearchMembersHint), findsOneWidget);
             expect(findContextPane(), findsNothing);
             final field = inCommunitiesPage(_field(kSearchMembersHint));
             expect(
               tester.getRect(field).bottom,
               lessThanOrEqualTo(tester.getRect(find.byType(AppTabBar)).top),
             );
-          }
-          // Typing searches the Members tab by handle; results replace it.
-          final input = _bandB(w)
-              ? inContextPane(_field(kSearchMembersHint))
-              : _field(kSearchMembersHint);
-          await tester.enterText(input, '@Mem');
-          await tester.pump(const Duration(milliseconds: 299));
-          expect(rig.server.count('search:'), 0);
-          await tester.pump(const Duration(milliseconds: 1));
-          await tester.pumpAndSettle();
-          expect(rig.server.calls.where((c) => c.startsWith('search:')), [
-            'search:$kRigCommunityId:mem:COMMUNITY_MEMBER_FILTER_JOINED',
-          ]);
-          expect(inCommunitiesPage(find.text('Member 1')), findsOneWidget);
-          expect(inCommunitiesPage(find.text('Olivia')), findsNothing);
-          expect(tester.takeException(), isNull);
-        });
+            // Typing searches the Members tab by handle; results replace it.
+            await tester.enterText(_field(kSearchMembersHint), '@Mem');
+            await tester.pump(const Duration(milliseconds: 299));
+            expect(rig.server.count('search:'), 0);
+            await tester.pump(const Duration(milliseconds: 1));
+            await tester.pumpAndSettle();
+            expect(rig.server.calls.where((c) => c.startsWith('search:')), [
+              'search:$kRigCommunityId:mem:COMMUNITY_MEMBER_FILTER_JOINED',
+            ]);
+            expect(inCommunitiesPage(find.text('Member 1')), findsOneWidget);
+            expect(inCommunitiesPage(find.text('Olivia')), findsNothing);
+            expect(tester.takeException(), isNull);
+          },
+        );
       }
     }
 
@@ -734,8 +679,8 @@ void main() {
       expect(rig.server.count('search:'), 2);
     });
 
-    testWidgets('band B: the text follows the field from the pane to band A '
-        'and the results stay, with no new call', (tester) async {
+    testWidgets('band B: the text follows the field from 1024 to band A and '
+        'the results stay, with no new call', (tester) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(
         tester,
@@ -743,7 +688,11 @@ void main() {
         width: 1024,
         flags: _searchFlags,
       );
-      await tester.enterText(inContextPane(_field(kSearchMembersHint)), 'mem');
+      expect(findContextPane(), findsNothing);
+      await tester.enterText(
+        inCommunitiesPage(_field(kSearchMembersHint)),
+        'mem',
+      );
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
       expect(inCommunitiesPage(find.text('Member 2')), findsOneWidget);
@@ -793,12 +742,7 @@ void main() {
           flags: _searchFlags,
         );
         expect(tester.takeException(), isNull);
-        await tester.enterText(
-          _bandB(w)
-              ? inContextPane(_field(kSearchMembersHint))
-              : _field(kSearchMembersHint),
-          'zz',
-        );
+        await tester.enterText(_field(kSearchMembersHint), 'zz');
         await tester.pump(const Duration(milliseconds: 300));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
@@ -835,7 +779,7 @@ void main() {
 
   group('R10 follow-ups', () {
     testWidgets('the Create preview draws the name in the page header\'s '
-        'own style (band B pane and band A dialog)', (tester) async {
+        'own style (the dialog, at band B and band A)', (tester) async {
       final rig = CommunitiesTabletRig();
       rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MEMBER;
       await rig.pump(tester, location: _communityPath, width: 1024);
@@ -860,10 +804,8 @@ void main() {
           location: AppRouter.communityNewPath,
           width: w,
         );
-        if (w == 744) {
-          await tester.tap(find.text('Preview'));
-          await tester.pumpAndSettle();
-        }
+        await tester.tap(find.text('Preview'));
+        await tester.pumpAndSettle();
         final name = tester.widget<Text>(
           find.descendant(
             of: find.byType(CommunityPreview),

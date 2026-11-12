@@ -1,6 +1,4 @@
-import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_top_bar.dart';
-import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/who_to_follow_card.dart';
 import 'package:dzeroth/features/home/presentation/home_screen.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';
@@ -26,9 +24,9 @@ import '../../../support/timeline_fixtures.dart';
 class _MockNotificationsRepository extends Mock
     implements NotificationsRepository {}
 
-/// Tablet plan T3, Home (section 4.1 Feed: A "F", B "P" with search, What's
-/// happening and Who to follow in the pane): the real Home inside the real
-/// shell. In band B its "Who to follow" lives in the pane only.
+/// Home on the tablet layout, which has no side context pane: the real Home
+/// inside the real shell draws its own inline "Who to follow" in band B
+/// (840-1199 dp) exactly as in band A, and no pane beside it.
 void main() {
   const feed = FeedKey.home();
   late MockTimelineRepository timeline;
@@ -105,15 +103,15 @@ void main() {
   Finder inHome(Finder f) =>
       find.descendant(of: find.byType(HomeScreen), matching: f);
 
-  testWidgets('band B (1024): the feed in the primary, Who to follow in the '
-      'pane only', (tester) async {
+  testWidgets('band B (1024): the feed fills the content, Who to follow '
+      'inline, no pane', (tester) async {
     await open(tester);
 
     expect(find.text('post 20'), findsOneWidget);
-    expect(inHome(find.byType(WhoToFollowCard)), findsNothing);
-    expect(inContextPane(find.text('Who to follow')), findsOneWidget);
-    expect(inContextPane(find.byType(UserListRow)), findsNWidgets(3));
-    expectTabletPanes(tester, find.byType(HomeScreen), 1024);
+    expect(findContextPane(), findsNothing);
+    expect(find.byKey(const ValueKey('tablet-context-pane')), findsNothing);
+    expect(inHome(find.text('Who to follow')), findsOneWidget);
+    expectTabletPanes(tester, find.byType(HomeScreen), 1024, hasPane: false);
   });
 
   testWidgets('band A (834): Who to follow inline, no pane', (tester) async {
@@ -124,7 +122,7 @@ void main() {
   });
 
   testWidgets('a resize across 840 keeps the feed and its scroll position; '
-      'the card moves between the page and the pane', (tester) async {
+      'the card stays inline, with no pane', (tester) async {
     await open(tester, width: 1024, height: 768);
     final scrollable = inHome(find.byType(Scrollable)).first;
     final state = tester.state<ScrollableState>(scrollable);
@@ -134,23 +132,13 @@ void main() {
     for (final width in [839.0, 840.0, 1024.0]) {
       tester.view.physicalSize = Size(width, 768);
       await tester.pumpAndSettle();
-      final bandB = width >= AppBreakpoints.expanded;
       expect(
         tester.state<ScrollableState>(inHome(find.byType(Scrollable)).first),
         same(state),
         reason: '$width',
       );
       expect(state.position.pixels, 40, reason: '$width');
-      expect(
-        inHome(find.byType(WhoToFollowCard)),
-        bandB ? findsNothing : findsOneWidget,
-        reason: '$width',
-      );
-      expect(
-        inContextPane(find.byType(WhoToFollowCard)),
-        bandB ? findsOneWidget : findsNothing,
-        reason: '$width',
-      );
+      expect(findContextPane(), findsNothing, reason: '$width');
       expectNoOverflow(tester);
     }
   });
@@ -158,7 +146,7 @@ void main() {
   // The tablet matrix (plan section 5.5): 5 widths x 2 scales x 2 themes,
   // and 840.
   forEachThemeAndWidth(
-    'tablet matrix: Home fits its pane, the card in one place',
+    'tablet matrix: Home fills the content, the card inline, no pane',
     (tester, env) async {
       await open(
         tester,
@@ -169,35 +157,33 @@ void main() {
       );
 
       expectNoOverflow(tester);
-      expectTabletPanes(tester, find.byType(HomeScreen), env.size.width);
-      final bandB = env.size.width >= AppBreakpoints.expanded;
-      if (!bandB) {
-        await tester.scrollUntilVisible(
-          inHome(find.byType(WhoToFollowCard)),
-          200,
-          scrollable: inHome(find.byType(Scrollable)).first,
-        );
-        await tester.pumpAndSettle();
-        expectNoOverflow(tester);
-      }
-      expect(find.byType(WhoToFollowCard), findsOneWidget);
-      expect(
-        inContextPane(find.byType(WhoToFollowCard)),
-        bandB ? findsOneWidget : findsNothing,
+      expectTabletPanes(
+        tester,
+        find.byType(HomeScreen),
+        env.size.width,
+        hasPane: false,
       );
+      await tester.scrollUntilVisible(
+        inHome(find.byType(WhoToFollowCard)),
+        200,
+        scrollable: inHome(find.byType(Scrollable)).first,
+      );
+      await tester.pumpAndSettle();
+      expectNoOverflow(tester);
+      expect(find.byType(WhoToFollowCard), findsOneWidget);
+      expect(inHome(find.byType(WhoToFollowCard)), findsOneWidget);
     },
-    // Plus 840, the narrowest band B primary (439 dp).
+    // Plus 840, the first band B width.
     widths: [...kTabletMatrixWidths, 840],
     textScales: kTabletTextScales,
     heights: {...kTabletHeights, 840: 1194},
   );
 
   // T8e: the readable column. Home's tabs sit in the 680 column; their
-  // hairline spans the pane (band A above 760, the only widths where the
-  // column is narrower than the pane).
+  // hairline spans the page (wherever the page is wider than the column).
   for (final width in [600.0, 834.0, 839.0, 1024.0]) {
     testWidgets('${width.toInt()} dp: the tab bar in the column, its '
-        'hairline across the pane', (tester) async {
+        'hairline across the page', (tester) async {
       await open(tester, width: width, height: 1194);
       final primary = tester.getRect(
         find.byKey(const ValueKey('tablet-primary')),
