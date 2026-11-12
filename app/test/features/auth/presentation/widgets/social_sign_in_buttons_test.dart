@@ -63,4 +63,31 @@ void main() {
     expect(find.bySemanticsLabel('Continue with Apple'), findsNothing);
     debugDefaultTargetPlatformOverride = null;
   });
+
+  testWidgets('screen readers can activate the provider pills', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    var google = 0;
+    var apple = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SocialSignInButtons(
+            isSubmitting: false,
+            onGoogleTap: () => google++,
+            onAppleTap: () => apple++,
+          ),
+        ),
+      ),
+    );
+    for (final label in ['Continue with Google', 'Continue with Apple']) {
+      expect(
+        tester.getSemantics(find.bySemanticsLabel(label)),
+        containsSemantics(isButton: true, hasTapAction: true, isEnabled: true),
+      );
+    }
+    tester.semantics.tap(find.semantics.byLabel('Continue with Google'));
+    tester.semantics.tap(find.semantics.byLabel('Continue with Apple'));
+    expect((google, apple), (1, 1));
+    debugDefaultTargetPlatformOverride = null;
+  });
 }

@@ -86,6 +86,7 @@ class _SocialPill extends StatelessWidget {
       button: true,
       enabled: onPressed != null,
       label: semanticsLabel,
+      onTap: onPressed,
       excludeSemantics: true,
       child: OutlinedButton(
         onPressed: onPressed,
