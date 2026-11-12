@@ -7,19 +7,28 @@ import 'package:dzeroth/core/share/native_share.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/share/share_links.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/profile/presentation/profile_screen.dart';
+import 'package:dzeroth/features/profile/presentation/widgets/avatar_editor.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/edit_profile_preview.dart';
+import 'package:dzeroth/features/profile/presentation/widgets/profile_cover_band.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_media_strip.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/shared/widgets/primitives/sheet_option_row.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 
 import '../../../support/app_fonts.dart';
+import '../../../support/edit_profile_harness.dart';
+import '../../../support/failing_image_cache.dart';
 import '../../../support/geometry.dart';
+import '../../../support/media_fixtures.dart';
+import '../../../support/profile_edit_fixtures.dart';
 import '../../../support/profile_hero_finders.dart';
 import '../../../support/profile_tablet_rig.dart';
 
@@ -84,6 +93,11 @@ class _FakeShare implements NativeShare {
 
 void main() {
   late List<String> clipboard;
+
+  setUpAll(() {
+    registerMediaFallbacks();
+    registerFallbackValue(const OnboardingRefreshRequested());
+  });
 
   setUp(() {
     clipboard = [];
@@ -785,7 +799,7 @@ void main() {
 
   group('Edit profile', () {
     for (final MapEntry(key: look, value: width) in _looks.entries) {
-      testWidgets('$look: Save and "How others see you" at every width', (
+      testWidgets('$look: Close, Save and "How others see you" in the shell', (
         tester,
       ) async {
         final rig = ProfileTabletRig();
@@ -796,23 +810,127 @@ void main() {
           flags: _fullFlags,
         );
         expect(find.text('Save'), findsOneWidget);
-        expect(find.text('Cancel'), findsOneWidget);
-        expect(find.text(kEditProfilePreviewAction), findsOneWidget);
-        await tester.tap(find.text(kEditProfilePreviewAction));
+        expect(find.byTooltip('Close'), findsOneWidget);
+        await tester.tap(find.byTooltip(kEditProfilePreviewTitle));
         await tester.pumpAndSettle();
         expect(find.byType(Dialog), findsOneWidget);
       });
     }
 
+    for (final MapEntry(key: look, value: width) in _looks.entries) {
+      testWidgets('$look: the avatar hangs over the flat band; Change photo '
+          'only from 600', (tester) async {
+        final rig = EditProfileRig(profile: editableProfile());
+        await openEditProfile(
+          tester,
+          rig,
+          flags: extrasFlags,
+          size: Size(width, 900),
+        );
+        final band = tester.getRect(find.byType(ProfileCoverBand));
+        final avatar = tester.getRect(find.byType(AvatarEditor));
+        expect(
+          band.height,
+          width < 600
+              ? AppExplorePeopleLayout.editBandPhone
+              : AppExplorePeopleLayout.editBandWide,
+        );
+        // Half the avatar over the band's bottom edge, the rest below it.
+        expect(avatar.top, lessThan(band.bottom));
+        expect(avatar.bottom, greaterThan(band.bottom));
+        // A phone insets the band; wider layouts run it across the column.
+        final column = tester.getRect(find.byType(ListView));
+        expect(
+          band.left - column.left,
+          width < 600 ? AppExplorePeopleLayout.editPaddingPhone : 0,
+        );
+        expect(
+          find.widgetWithText(OutlinedButton, 'Change photo'),
+          width < 600 ? findsNothing : findsOneWidget,
+        );
+      });
+    }
+
+    testWidgets('Save sends the edit at every width', (tester) async {
+      for (final width in _looks.values) {
+        final rig = EditProfileRig(profile: editableProfile());
+        await openEditProfile(tester, rig, size: Size(width, 900));
+        await tester.enterText(
+          find.byKey(const ValueKey('field-Display name')),
+          'Kaif S',
+        );
+        await tester.pump();
+        await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
+        await tester.pumpAndSettle();
+        expect(rig.repo.calls.single.displayName, 'Kaif S', reason: '$width');
+      }
+    });
+
+    testWidgets('the photo can be changed at every width', (tester) async {
+      for (final width in _looks.values) {
+        final rig = EditProfileRig(profile: editableProfile());
+        await openEditProfile(
+          tester,
+          rig,
+          flags: extrasFlags,
+          size: Size(width, 900),
+        );
+        await tester.tap(find.byType(AvatarEditor));
+        await tester.pumpAndSettle();
+        expect(rig.picker.calls, 1, reason: '$width');
+        if (width >= 600) {
+          await tester.tap(find.widgetWithText(OutlinedButton, 'Change photo'));
+          await tester.pumpAndSettle();
+          expect(rig.picker.calls, 2, reason: '$width');
+        }
+      }
+    });
+
+    testWidgets('Close asks before discarding an edit at every width', (
+      tester,
+    ) async {
+      for (final width in _looks.values) {
+        final rig = EditProfileRig(profile: editableProfile());
+        await openEditProfile(tester, rig, size: Size(width, 900));
+        await tester.enterText(
+          find.byKey(const ValueKey('field-Display name')),
+          'Kaif S',
+        );
+        await tester.pump();
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pumpAndSettle();
+        expect(find.text('Discard changes?'), findsOneWidget, reason: '$width');
+        await tester.tap(find.text('Discard'));
+        await tester.pumpAndSettle();
+        expect(find.text('settings'), findsOneWidget, reason: '$width');
+      }
+    });
+
+    testWidgets('"How others see you" opens at every width', (tester) async {
+      for (final width in _looks.values) {
+        final rig = EditProfileRig(profile: editableProfile());
+        await openEditProfile(tester, rig, size: Size(width, 900));
+        await tester.tap(find.byTooltip(kEditProfilePreviewTitle));
+        await tester.pumpAndSettle();
+        expect(find.byType(Dialog), findsOneWidget, reason: '$width');
+        await tester.tap(find.widgetWithText(TextButton, 'Close'));
+        await tester.pumpAndSettle();
+      }
+    });
+
     testWidgets('phone at text scale 2.0: nothing overflows', (tester) async {
-      final rig = ProfileTabletRig();
-      await rig.pump(
+      final rig = EditProfileRig(
+        profile: editableProfile(location: 'Pune', website: 'https://a.co'),
+      );
+      await openEditProfile(
         tester,
-        location: AppRouter.editProfilePath,
-        width: _phone,
-        flags: _fullFlags,
+        rig,
+        flags: extrasFlags,
+        size: const Size(_phone, 844),
         textScale: 2,
       );
+      expect(tester.takeException(), isNull);
+      await reveal(tester, find.byKey(const ValueKey('field-Website')));
       expect(tester.takeException(), isNull);
     });
   });
@@ -824,6 +942,7 @@ void main() {
     for (final brightness in Brightness.values) {
       for (final MapEntry(key: look, value: width) in _looks.entries) {
         testWidgets('edit-profile $look ${brightness.name}', (tester) async {
+          useFailingImageCache();
           final rig = ProfileTabletRig();
           await rig.pump(
             tester,

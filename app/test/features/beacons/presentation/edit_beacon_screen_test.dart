@@ -59,7 +59,7 @@ void main() {
     ],
   );
 
-  Finder field(String label) => find.byKey(ValueKey('plan-field-$label'));
+  Finder field(String label) => find.byKey(ValueKey('field-$label'));
 
   bool chipSelected(WidgetTester tester, String label) => tester
       .widget<ChoiceChip>(find.widgetWithText(ChoiceChip, label))

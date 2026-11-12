@@ -1607,6 +1607,19 @@ abstract final class AppExplorePeopleLayout {
   static const double trendRankGap = 14;
   static const double trendPaddingPhone = 20;
   static const double trendPaddingWide = 16;
+
+  /// Edit profile: the flat band behind the avatar (a phone's inset card, a
+  /// wide layout's full-width strip), how far the avatar hangs over its
+  /// bottom edge, the surface-coloured ring round it, and the form's side
+  /// padding on a phone and from 600 dp.
+  static const double editBandPhone = 120;
+  static const double editBandWide = 150;
+  static const double editAvatarOverlap = 48;
+  static const double editAvatarRing = 4;
+  static const double editAvatarInsetPhone = 18;
+  static const double editAvatarGap = 14;
+  static const double editPaddingPhone = 20;
+  static const double editPaddingWide = 16;
 }
 
 /// Settings geometry per screen size (dp): the phone mock's raised cards

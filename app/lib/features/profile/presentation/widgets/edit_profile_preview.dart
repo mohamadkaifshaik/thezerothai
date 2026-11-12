@@ -10,9 +10,6 @@ import '../../domain/profile_extras_rules.dart';
 import '../bloc/edit_profile_cubit.dart';
 import 'profile_header.dart';
 
-/// The header action's label on Edit profile (tablet layout).
-const kEditProfilePreviewAction = 'Preview';
-
 /// The preview dialog's title (tablet plan section 4.1, EditProfile: *hdr→D*
 /// "How others see you").
 const kEditProfilePreviewTitle = 'How others see you';

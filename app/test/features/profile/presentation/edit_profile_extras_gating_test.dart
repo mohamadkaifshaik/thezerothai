@@ -40,7 +40,7 @@ void main() {
         expect(find.text('Display name'), findsOneWidget);
 
         await tester.enterText(
-          find.widgetWithText(TextField, 'Display name'),
+          find.byKey(const ValueKey('field-Display name')),
           'Kaif S',
         );
         await tester.pump();
@@ -110,7 +110,7 @@ void main() {
       await openEditProfile(tester, rig, flags: noMedia);
 
       await tester.enterText(
-        find.widgetWithText(TextField, 'Location'),
+        find.byKey(const ValueKey('field-Location')),
         'Pune',
       );
       await tester.pump();

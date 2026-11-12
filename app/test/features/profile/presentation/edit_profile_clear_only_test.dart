@@ -29,7 +29,7 @@ void main() {
 
   final saved = editableProfile(location: 'Pune', website: 'https://a.example');
 
-  Finder field(String label) => find.widgetWithText(TextField, label);
+  Finder field(String label) => find.byKey(ValueKey('field-$label'));
   Finder save() => find.widgetWithText(AppPillButton, 'Save');
   Finder removeLocation() => find.byTooltip('Remove location');
   Finder removeWebsite() => find.byTooltip('Remove website');
@@ -201,7 +201,7 @@ void main() {
       expect(call.hasExtras, isFalse);
     });
 
-    testWidgets('a pending removal is a change: Cancel asks before '
+    testWidgets('a pending removal is a change: Close asks before '
         'discarding it', (tester) async {
       final rig = EditProfileRig(profile: saved);
       await openEditProfile(tester, rig, flags: withMedia);
@@ -209,7 +209,7 @@ void main() {
       await tester.tap(removeLocation());
       await tester.pump();
 
-      await tester.tap(find.text('Cancel'));
+      await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
 
       expect(find.text('Discard changes?'), findsOneWidget);

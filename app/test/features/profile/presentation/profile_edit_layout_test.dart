@@ -116,6 +116,13 @@ void main() {
   AppPillButton gradient(WidgetTester tester) =>
       tester.widget(find.byType(AppPillButton));
 
+  IconButton close(WidgetTester tester) => tester.widget(
+    find.ancestor(
+      of: find.byTooltip('Close'),
+      matching: find.byType(IconButton),
+    ),
+  );
+
   TextButton cancel(WidgetTester tester) =>
       tester.widget(find.widgetWithText(TextButton, 'Cancel'));
 
@@ -159,7 +166,7 @@ void main() {
               );
               expect(tester.takeException(), isNull);
               expect(find.text('Edit profile'), findsOneWidget);
-              expect(find.text('Cancel'), findsOneWidget);
+              expect(find.byTooltip('Close'), findsOneWidget);
               expect(find.text('Save'), findsOneWidget);
               expect(find.text('Display name'), findsOneWidget);
               expect(find.text('Bio'), findsOneWidget);
@@ -175,7 +182,7 @@ void main() {
       await open(tester, '/settings/profile', size: const Size(1440, 900));
       const gutter = (1440 - AppLayout.mainColumnMaxWidth) / 2;
       expect(
-        tester.getTopLeft(find.text('Cancel')).dx,
+        tester.getTopLeft(find.byTooltip('Close')).dx,
         greaterThanOrEqualTo(gutter),
       );
       expect(
@@ -188,17 +195,17 @@ void main() {
       );
     });
 
-    testWidgets('data, unchanged: Save is disabled, Cancel leaves at once', (
+    testWidgets('data, unchanged: Save is disabled, Close leaves at once', (
       tester,
     ) async {
       await open(tester, '/settings/profile');
       expect(gradient(tester).onPressed, isNull);
-      await tester.tap(find.text('Cancel'));
+      await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
       expect(find.text('settings'), findsOneWidget);
     });
 
-    testWidgets('a changed name enables Save; Cancel then asks to discard', (
+    testWidgets('a changed name enables Save; Close then asks to discard', (
       tester,
     ) async {
       await open(tester, '/settings/profile');
@@ -206,7 +213,7 @@ void main() {
       await tester.pump();
       expect(gradient(tester).onPressed, isNotNull);
 
-      await tester.tap(find.text('Cancel'));
+      await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
       expect(find.text('Discard changes?'), findsOneWidget);
       await tester.tap(find.text('Keep editing'));
@@ -236,7 +243,7 @@ void main() {
       expect(gradient(tester).onPressed, isNull);
     });
 
-    testWidgets('saving: Save busy and announced, Cancel and fields off', (
+    testWidgets('saving: Save busy and announced, Close and fields off', (
       tester,
     ) async {
       final handle = tester.ensureSemantics();
@@ -250,7 +257,7 @@ void main() {
 
       expect(gradient(tester).busy, isTrue);
       expect(gradient(tester).onPressed, isNull);
-      expect(cancel(tester).onPressed, isNull);
+      expect(close(tester).onPressed, isNull);
       expect(
         tester
             .widgetList<TextField>(find.byType(TextField))
@@ -277,7 +284,7 @@ void main() {
       expect(find.byType(SnackBar), findsOneWidget);
       expect(gradient(tester).onPressed, isNotNull);
       expect(gradient(tester).busy, isFalse);
-      expect(cancel(tester).onPressed, isNotNull);
+      expect(close(tester).onPressed, isNotNull);
       expect(find.text('Kaif S'), findsOneWidget);
     });
 
@@ -290,13 +297,13 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('semantics: Cancel and Save are buttons, the title a header, '
+    testWidgets('semantics: Close and Save are buttons, the title a header, '
         'the avatar a labelled image', (tester) async {
       final handle = tester.ensureSemantics();
       await open(tester, '/settings/profile');
       expect(
-        tester.getSemantics(find.widgetWithText(TextButton, 'Cancel')),
-        isSemantics(label: 'Cancel', isButton: true, isEnabled: true),
+        tester.getSemantics(find.byTooltip('Close')),
+        isSemantics(tooltip: 'Close', isButton: true, isEnabled: true),
       );
       expect(
         tester.getSemantics(find.byType(AppPillButton)),

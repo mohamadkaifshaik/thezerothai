@@ -20,6 +20,7 @@ class AppBackHeader extends StatelessWidget {
     required this.title,
     required this.onBack,
     this.backTooltip = 'Back',
+    this.backIcon = Icons.arrow_back,
     this.titleContent,
     this.subtitle,
     this.actions = const [],
@@ -27,8 +28,14 @@ class AppBackHeader extends StatelessWidget {
   });
 
   final String title;
-  final VoidCallback onBack;
+
+  /// Null leaves the button disabled (a form mid-save).
+  final VoidCallback? onBack;
   final String backTooltip;
+
+  /// The leading button's glyph: a form that closes instead of going back
+  /// uses [Icons.close].
+  final IconData backIcon;
   final Widget? titleContent;
   final String? subtitle;
   final List<Widget> actions;
@@ -59,7 +66,7 @@ class AppBackHeader extends StatelessWidget {
                 leading ??
                     IconButton(
                       tooltip: backTooltip,
-                      icon: const Icon(Icons.arrow_back),
+                      icon: Icon(backIcon),
                       onPressed: onBack,
                     ),
                 const SizedBox(width: AppSpacing.xs),

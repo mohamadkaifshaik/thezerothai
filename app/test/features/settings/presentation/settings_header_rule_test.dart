@@ -58,8 +58,8 @@ void main() {
   );
 
   // The rig's real leaves (Edit profile, Download my data and Delete account
-  // are stubs there; Edit profile uses the same AppFormHeader as Change
-  // handle, and the other two the same AppBar as Blocked).
+  // are stubs there; the other two use the same AppBar as Blocked, and Edit
+  // profile's own header is pinned in profile_edit_layout_test).
   const barLeaves = [
     AppRouter.blockedAccountsPath,
     AppRouter.mutedAccountsPath,

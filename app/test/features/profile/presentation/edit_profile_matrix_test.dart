@@ -29,7 +29,7 @@ void main() {
     registerFallbackValue(const OnboardingRefreshRequested());
   });
 
-  Finder field(String label) => find.widgetWithText(TextField, label);
+  Finder field(String label) => find.byKey(ValueKey('field-$label'));
   Finder save() => find.widgetWithText(AppPillButton, 'Save');
 
   Finder removeButton(String noun) => find.ancestor(
