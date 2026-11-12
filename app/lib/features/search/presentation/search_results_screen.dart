@@ -19,7 +19,11 @@ import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../engagement/presentation/widgets/history_post_list.dart';
+import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
+import '../../../shared/widgets/user/follow_button.dart';
 import '../../graph/domain/graph_feature_flag.dart';
+import '../../graph/data/graph_repository.dart';
+import '../../graph/presentation/bloc/relationship_cubit.dart';
 import '../../graph/presentation/widgets/user_list_row.dart';
 import '../data/search_repository.dart';
 import '../domain/search_query.dart';
@@ -44,6 +48,9 @@ const kSearchUnavailableBody = 'Please check back later.';
 
 /// The note under the Top rows: a way to the newest posts.
 const kSeeLatestLabel = 'See latest';
+
+/// Rows of Top's people preview (the mocks show two or three).
+const kSearchPeoplePreviewRows = 3;
 
 /// `/search?q=<query>&tab=top|latest|people|media`: the
 /// results of one query in four tabs. Display only: every tab owns a
@@ -87,6 +94,15 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
   /// Tabs the user has looked at: only those exist (and have asked anything).
   final Set<SearchResultsTab> _opened = {};
 
+  /// One SearchPeople for the query, shared by the People tab and Top's
+  /// people preview: created the first time either needs it, so neither
+  /// asks twice.
+  SearchResultsCubit? _people;
+
+  /// One follow state per account, shared by the preview row and the People
+  /// tab row of the same account (a follow in one shows in the other).
+  final Map<String, RelationshipCubit> _follows = {};
+
   @override
   void didUpdateWidget(SearchResultsScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -95,9 +111,51 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
       _query = SearchQuery.parse(widget.query);
       _opened.clear();
       _selected = widget.initialTab;
+      _closeShared();
     } else if (oldWidget.initialTab != widget.initialTab) {
       _selected = widget.initialTab;
     }
+  }
+
+  @override
+  void dispose() {
+    _closeShared();
+    super.dispose();
+  }
+
+  void _closeShared() {
+    unawaited(_people?.close());
+    _people = null;
+    for (final cubit in _follows.values) {
+      unawaited(cubit.close());
+    }
+    _follows.clear();
+  }
+
+  SearchResultsCubit _peopleCubit() => _people ??= SearchResultsCubit(
+    repository: context.read<SearchRepository>(),
+    tab: SearchResultsTab.people,
+    query: _query,
+    onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+  )..load();
+
+  /// The Follow control of [item]'s rows, over the shared follow state.
+  Widget _follow(graph.UserListItem item) {
+    final userId = item.user.userId;
+    final cubit = _follows[userId] ??= RelationshipCubit(
+      graphRepository: context.read<GraphRepository>(),
+      userId: userId,
+      initial: graph.Relationship(
+        userId: userId,
+        followState: item.relationship.followState,
+        blocking: item.relationship.blocking,
+        muting: item.relationship.muting,
+      ),
+    );
+    return BlocProvider.value(
+      value: cubit,
+      child: const FollowButton(source: FollowSource.search),
+    );
   }
 
   /// Back to where the user came from; with no history (a deep link) Home.
@@ -114,6 +172,14 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
   @override
   Widget build(BuildContext context) {
     _opened.add(_selected);
+    // Top previews people only for a query People can search (never a
+    // #tag): no SearchPeople is spent otherwise.
+    final previewPeople =
+        _opened.contains(SearchResultsTab.top) && _query.canSearchPeople;
+    final people = previewPeople || _opened.contains(SearchResultsTab.people)
+        ? _peopleCubit()
+        : null;
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
@@ -127,6 +193,9 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                 titleContent: AppSearchField(
                   key: ValueKey(widget.query),
                   initialText: widget.query,
+                  // The phone mock's raised pill; tablet and desktop keep
+                  // the flat one (`.search`).
+                  raised: phone,
                   onSubmitted: (context, canonical) =>
                       context.pushReplacement(searchResultsLocation(canonical)),
                 ),
@@ -152,7 +221,12 @@ class _SearchResultsScreenState extends State<SearchResultsScreen> {
                           child: _ResultsTab(
                             tab: tab,
                             query: _query,
+                            people: people,
+                            previewPeople: previewPeople,
+                            follow: _follow,
                             onSeeLatest: () => _select(SearchResultsTab.latest),
+                            onViewAllPeople: () =>
+                                _select(SearchResultsTab.people),
                           ),
                         ),
                   ],
@@ -188,15 +262,33 @@ class _ResultsTab extends StatelessWidget {
   const _ResultsTab({
     required this.tab,
     required this.query,
+    required this.people,
+    required this.previewPeople,
+    required this.follow,
     required this.onSeeLatest,
+    required this.onViewAllPeople,
   });
 
   final SearchResultsTab tab;
   final SearchQuery query;
+
+  /// The shared people results; set whenever People or Top's preview is
+  /// shown.
+  final SearchResultsCubit? people;
+  final bool previewPeople;
+  final Widget Function(graph.UserListItem item) follow;
   final VoidCallback onSeeLatest;
+  final VoidCallback onViewAllPeople;
 
   @override
   Widget build(BuildContext context) {
+    final people = this.people;
+    if (tab == SearchResultsTab.people && people != null) {
+      return BlocProvider<SearchResultsCubit>.value(
+        value: people,
+        child: _PeopleBody(follow: follow),
+      );
+    }
     return BlocProvider<SearchResultsCubit>(
       create: (context) => SearchResultsCubit(
         repository: context.read<SearchRepository>(),
@@ -204,9 +296,91 @@ class _ResultsTab extends StatelessWidget {
         query: query,
         onUnexpectedError: context.read<UnexpectedErrorReporter>(),
       )..load(),
-      child: tab == SearchResultsTab.people
-          ? const _PeopleBody()
-          : _PostsBody(tab: tab, query: query, onSeeLatest: onSeeLatest),
+      child: _PostsBody(
+        tab: tab,
+        query: query,
+        onSeeLatest: onSeeLatest,
+        header: tab == SearchResultsTab.top && previewPeople && people != null
+            ? _PeoplePreview(
+                people: people,
+                follow: follow,
+                onViewAll: onViewAllPeople,
+              )
+            : null,
+      ),
+    );
+  }
+}
+
+/// Top's "People" section (SearchResults mocks): the first
+/// [kSearchPeoplePreviewRows] of the shared people results and "View all",
+/// which opens People. Nothing while they load, when there are none or when
+/// the call failed: the posts are never held up, and People shows the state.
+class _PeoplePreview extends StatelessWidget {
+  const _PeoplePreview({
+    required this.people,
+    required this.follow,
+    required this.onViewAll,
+  });
+
+  final SearchResultsCubit people;
+  final Widget Function(graph.UserListItem item) follow;
+  final VoidCallback onViewAll;
+
+  @override
+  Widget build(BuildContext context) {
+    final graphOn = isFeatureEnabled(context, kFeatureGraph);
+    final theme = Theme.of(context);
+    return BlocBuilder<SearchResultsCubit, SearchResultsState>(
+      bloc: people,
+      builder: (context, state) {
+        if (state.status != SearchResultsStatus.ready || state.people.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsetsDirectional.fromSTEB(
+                AppSpacing.md,
+                AppSpacing.smd,
+                AppSpacing.xs,
+                0,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Semantics(
+                      header: true,
+                      child: Text('People', style: theme.textTheme.titleLarge),
+                    ),
+                  ),
+                  Semantics(
+                    label: 'View all people',
+                    button: true,
+                    excludeSemantics: true,
+                    onTap: onViewAll,
+                    child: TextButton(
+                      onPressed: onViewAll,
+                      child: const Text('View all'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            for (final item in state.people.take(kSearchPeoplePreviewRows))
+              UserListRow(
+                key: ValueKey('search-preview-${item.user.userId}'),
+                item: item,
+                followSource: FollowSource.search,
+                showDivider: false,
+                trailing: graphOn ? follow(item) : const SizedBox.shrink(),
+              ),
+            const SizedBox(height: AppSpacing.sm),
+            const Divider(height: 1),
+          ],
+        );
+      },
     );
   }
 }
@@ -279,11 +453,15 @@ class _PostsBody extends StatelessWidget {
     required this.tab,
     required this.query,
     required this.onSeeLatest,
+    this.header,
   });
 
   final SearchResultsTab tab;
   final SearchQuery query;
   final VoidCallback onSeeLatest;
+
+  /// Top's people preview, above the posts (and above their empty state).
+  final Widget? header;
 
   @override
   Widget build(BuildContext context) {
@@ -297,6 +475,8 @@ class _PostsBody extends StatelessWidget {
             error is RateLimitedException) {
           return _RateLimitedView(error: error, onRetry: cubit.load);
         }
+        // Pull to refresh asks for the posts only: the preview keeps its
+        // rows (People's own refresh asks SearchPeople again).
         final emptyTitle = 'No results for "${query.canonical}"';
         final isTop = tab == SearchResultsTab.top;
         return HistoryPostList(
@@ -316,6 +496,7 @@ class _PostsBody extends StatelessWidget {
           noticeMessage: _noticeMessage,
           empty: _noteView(state.note, emptyTitle: emptyTitle),
           unavailable: _unavailable,
+          header: header,
           endNote: isTop && state.posts.isNotEmpty
               ? _SeeLatest(onPressed: onSeeLatest)
               : null,
@@ -350,7 +531,9 @@ class _SeeLatest extends StatelessWidget {
 }
 
 class _PeopleBody extends StatefulWidget {
-  const _PeopleBody();
+  const _PeopleBody({required this.follow});
+
+  final Widget Function(graph.UserListItem item) follow;
 
   @override
   State<_PeopleBody> createState() => _PeopleBodyState();
@@ -434,8 +617,9 @@ class _PeopleBodyState extends State<_PeopleBody> {
             key: ValueKey('search-person-${item.user.userId}'),
             item: item,
             followSource: FollowSource.search,
-            // Without the graph flag there is no Follow control to offer.
-            trailing: graphOn ? null : const SizedBox.shrink(),
+            // The follow state the preview shares; without the graph flag
+            // there is no Follow control to offer.
+            trailing: graphOn ? widget.follow(item) : const SizedBox.shrink(),
           );
         },
       ),

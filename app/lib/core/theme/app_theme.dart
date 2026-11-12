@@ -1193,6 +1193,12 @@ abstract final class AppShadows {
   static const List<BoxShadow> navBar = [
     BoxShadow(color: Color(0x590D1528), offset: Offset(0, 14), blurRadius: 30),
   ];
+
+  /// The raised search pill of the phone results header (dzeroth-mobile
+  /// SearchResults: 0 6px 16px rgba(13,21,40,.06)).
+  static const List<BoxShadow> searchRaised = [
+    BoxShadow(color: Color(0x0F0D1528), offset: Offset(0, 6), blurRadius: 16),
+  ];
 }
 
 /// Redesign motion tokens.
