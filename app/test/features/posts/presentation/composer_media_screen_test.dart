@@ -245,7 +245,7 @@ void main() {
     expect(find.text('home page'), findsOneWidget);
   });
 
-  testWidgets('Cancel is disabled and back is blocked while sending', (
+  testWidgets('Close is disabled and back is blocked while sending', (
     tester,
   ) async {
     final gate = Completer<void>();
@@ -257,13 +257,16 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    final cancel = tester.widget<TextButton>(
-      find.widgetWithText(TextButton, 'Cancel'),
+    final cancel = tester.widget<IconButton>(
+      find.ancestor(
+        of: find.byTooltip('Close'),
+        matching: find.byType(IconButton),
+      ),
     );
     expect(cancel.onPressed, isNull);
     await tester.binding.handlePopRoute();
     await tester.pump();
-    expect(find.text('New post'), findsOneWidget);
+    expect(find.byTooltip('Close'), findsOneWidget);
 
     gate.complete();
     await tester.pumpAndSettle();
@@ -276,15 +279,15 @@ void main() {
     await open(tester);
     await addPhotos(tester, ['a']);
 
-    await tester.tap(find.text('Cancel'));
+    await tester.tap(find.byTooltip('Close'));
     await tester.pumpAndSettle();
     expect(find.text('Discard this post?'), findsOneWidget);
 
     await tester.tap(find.text('Keep editing'));
     await tester.pumpAndSettle();
-    expect(find.text('New post'), findsOneWidget);
+    expect(find.byTooltip('Close'), findsOneWidget);
 
-    await tester.tap(find.text('Cancel'));
+    await tester.tap(find.byTooltip('Close'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Discard'));
     await tester.pumpAndSettle();

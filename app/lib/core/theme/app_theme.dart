@@ -1436,6 +1436,23 @@ abstract final class AppPickerLayout {
   static const double rowGap = 12;
 }
 
+/// Sizes of the post screens' redesign (PostPhoto, Composer, Drafts).
+abstract final class AppPostsLayout {
+  /// The photo viewer's round controls (close, previous, next, view post).
+  static const double photoButton = 44;
+
+  /// The pearl wash behind them, over the black stage.
+  static const double photoButtonTint = 0.12;
+
+  /// A page dot and the selected page's elongated dot (phone viewer).
+  static const double photoDot = 6;
+  static const double photoDotSelected = 18;
+
+  /// The draft icon square of a Drafts row on the wide layouts, and its tint.
+  static const double draftIcon = 40;
+  static const double draftIconTint = 0.12;
+}
+
 /// Settings geometry per screen size (dp): the phone mock's raised cards
 /// (dzeroth-mobile Settings) and the tablet / desktop mocks' flat boxes and
 /// category list (dz.css `.box`, `.row`, `.sect`, `.search`). Colours come

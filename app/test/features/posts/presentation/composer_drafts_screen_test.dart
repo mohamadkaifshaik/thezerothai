@@ -208,7 +208,7 @@ void main() {
   }
 
   Future<void> cancel(WidgetTester tester) async {
-    await tester.tap(find.text('Cancel'));
+    await tester.tap(find.byTooltip('Close'));
     await tester.pumpAndSettle();
   }
 
@@ -250,7 +250,7 @@ void main() {
       expect(draftsButton(), findsOneWidget);
       // Cancel at the start, Drafts then Post at the end.
       final xs = [
-        tester.getCenter(find.text('Cancel')).dx,
+        tester.getCenter(find.byTooltip('Close')).dx,
         tester.getCenter(find.text('Drafts')).dx,
         tester.getCenter(find.widgetWithText(AppPillButton, 'Post')).dx,
       ];
@@ -310,7 +310,7 @@ void main() {
       await cancel(tester);
       await tester.tap(find.text('Keep editing'));
       await tester.pumpAndSettle();
-      expect(find.text('New post'), findsOneWidget);
+      expect(find.byTooltip('Close'), findsOneWidget);
       expect(fieldText(tester), 'still here');
     });
 
@@ -320,7 +320,7 @@ void main() {
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(find.text('Save post?'), findsOneWidget);
-      expect(find.text('New post'), findsOneWidget);
+      expect(find.byTooltip('Close'), findsOneWidget);
     });
 
     testWidgets('an empty composer leaves without a question', (tester) async {
@@ -484,7 +484,7 @@ void main() {
       await tester.tap(find.textContaining('drafts list'));
       await tester.pumpAndSettle();
       expect(fieldText(tester), 'the other draft');
-      expect(find.text('New post'), findsOneWidget, reason: 'one composer');
+      expect(find.byTooltip('Close'), findsOneWidget, reason: 'one composer');
       // Both survive; the next edit goes to the chosen one.
       expect(drafts.rows, hasLength(2));
       await type(tester, 'the other draft, longer');
@@ -507,7 +507,7 @@ void main() {
       expect(tester.takeException(), isNull);
       for (final finder in [
         draftsButton(),
-        find.widgetWithText(TextButton, 'Cancel'),
+        find.byTooltip('Close'),
       ]) {
         expect(
           tester.getSize(finder).height,
