@@ -5,7 +5,6 @@ import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
-import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/features/beacons/domain/beacon_labels.dart';
 import 'package:dzeroth/features/beacons/domain/beacons_feature_flag.dart';
@@ -27,7 +26,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/beacons_fixtures.dart';
 import '../../../support/context_pane_rig.dart'
-    show expectTabletPanes, findContextPane, inContextPane;
+    show expectTabletPanes, findContextPane;
 import '../../../support/plans_tablet_rig.dart';
 import '../../../support/tablet_modal_harness.dart' show openDialogRect;
 import '../../../support/theme_harness.dart';
@@ -40,35 +39,12 @@ bool _tabletFlags(Set<String> flags) =>
 bool _tabletWidth(double w) =>
     w >= AppBreakpoints.mobile && w < AppBreakpoints.tablet;
 
-bool _bandA(double w) =>
-    w >= AppBreakpoints.mobile && w < AppBreakpoints.expanded;
-
-bool _bandB(double w) =>
-    w >= AppBreakpoints.expanded && w < AppBreakpoints.tablet;
-
-/// The kinds of the context pane's sections, top to bottom (empty: no pane).
-List<ContextSectionKind> _paneKinds(WidgetTester tester) {
-  final pane = findContextPane();
-  if (pane.evaluate().isEmpty) return const [];
-  return [for (final s in tester.widget<ContextPane>(pane).sections) s.kind];
-}
-
-const _formKinds = [
-  ContextSectionKind.planPreview,
-  ContextSectionKind.planTips,
-  ContextSectionKind.links,
-];
-
 /// The create or edit form (the route child).
 Finder _formPage() => find.byWidgetPredicate(
   (w) => w is CreateBeaconScreen || w is EditBeaconScreen,
 );
 
 Finder _inForm(Finder f) => find.descendant(of: _formPage(), matching: f);
-
-/// [f] inside the preview in the pane.
-Finder _inPanePreview(Finder f) =>
-    find.descendant(of: inContextPane(find.byType(PlanPreview)), matching: f);
 
 /// [f] inside the preview in the open dialog.
 Finder _inDialogPreview(Finder f) => find.descendant(
@@ -124,19 +100,27 @@ void _organise(PlansTabletRig rig, {int accepted = 0}) {
 double _contentCentre(double width) =>
     AppSize.railCompact + (width - AppSize.railCompact) / 2;
 
+/// Opens the Preview dialog from the header action, runs [check] inside it,
+/// and closes it again (the form is behind a scrim while it is open).
+Future<void> _peek(WidgetTester tester, Future<void> Function() check) async {
+  await tester.tap(_previewAction);
+  await tester.pumpAndSettle();
+  expect(find.byType(Dialog), findsOneWidget);
+  await check();
+  await tester.tap(find.text('Close'));
+  await tester.pumpAndSettle();
+  expect(find.byType(Dialog), findsNothing);
+}
+
 void main() {
   group('PlanCreate (/plans/new): flag modes x widths', () {
     for (final MapEntry(key: mode, value: flags) in kPlansFlagModes.entries) {
       for (final w in _widths) {
         final tablet = _tabletFlags(flags) && _tabletWidth(w);
-        final inline = tablet && _bandA(w);
-        final pane = tablet && _bandB(w);
         testWidgets('$mode at ${w.toInt()}: '
-            '${inline
-                ? 'Preview action and inline tips'
-                : pane
-                ? 'preview and tips in the pane'
-                : 'today\'s form'}', (tester) async {
+            '${tablet ? 'Preview action and inline tips' : 'today\'s form'}', (
+          tester,
+        ) async {
           final rig = PlansTabletRig();
           await rig.pump(
             tester,
@@ -149,35 +133,19 @@ void main() {
           expect(tester.takeException(), isNull);
 
           expect(find.text('New plan'), findsOneWidget);
-          expect(_previewAction, inline ? findsOneWidget : findsNothing);
+          expect(_previewAction, tablet ? findsOneWidget : findsNothing);
           expect(
             find.byKey(_tipsToggle),
-            inline ? findsOneWidget : findsNothing,
+            tablet ? findsOneWidget : findsNothing,
           );
-          // No list pane beside the form (plan section 3, "Not on").
+          // No list pane beside the form (plan section 3, "Not on"), and no
+          // side column on the tablet layout: the preview is the dialog.
           expect(findPlansPane(), findsNothing);
-          if (pane) {
-            expect(_paneKinds(tester), _formKinds);
-            expect(inContextPane(find.text(kPlanPreviewTitle)), findsOneWidget);
-            expect(
-              _inPanePreview(find.text(kPlanPreviewUntitled)),
-              findsOneWidget,
-            );
-            expect(
-              _inPanePreview(find.text(kMeetingPointNote)),
-              findsOneWidget,
-            );
-            expect(inContextPane(find.text(kPlanTipsTitle)), findsOneWidget);
-            for (final tip in kPlanTips) {
-              expect(inContextPane(find.text(tip)), findsOneWidget);
-            }
-          } else {
-            expect(findContextPane(), findsNothing);
-            expect(find.byType(PlanPreview), findsNothing);
-            expect(find.text(kPlanTipsTitle), inline ? findsOne : findsNothing);
-          }
+          expect(findContextPane(), findsNothing);
+          expect(find.byType(PlanPreview), findsNothing);
+          expect(find.text(kPlanTipsTitle), tablet ? findsOne : findsNothing);
           // Tips are collapsed inline: no tip text until opened.
-          if (!pane) expect(find.text(kPlanTips.first), findsNothing);
+          expect(find.text(kPlanTips.first), findsNothing);
           // The form's own note on the meeting point is unchanged.
           expect(_inForm(find.text(kMeetingPointNote)), findsOneWidget);
           expect(rig.server.calls, isEmpty);
@@ -190,14 +158,10 @@ void main() {
     for (final MapEntry(key: mode, value: flags) in kPlansFlagModes.entries) {
       for (final w in _widths) {
         final tablet = _tabletFlags(flags) && _tabletWidth(w);
-        final inline = tablet && _bandA(w);
-        final pane = tablet && _bandB(w);
         testWidgets('$mode at ${w.toInt()}: '
-            '${inline
-                ? 'Preview action and inline tips'
-                : pane
-                ? 'preview and tips in the pane'
-                : 'today\'s form'}', (tester) async {
+            '${tablet ? 'Preview action and inline tips' : 'today\'s form'}', (
+          tester,
+        ) async {
           final rig = PlansTabletRig();
           await rig.pump(
             tester,
@@ -214,27 +178,17 @@ void main() {
             _inForm(find.widgetWithText(TextField, _rigTitle)),
             findsOneWidget,
           );
-          expect(_previewAction, inline ? findsOneWidget : findsNothing);
+          expect(_previewAction, tablet ? findsOneWidget : findsNothing);
           expect(
             find.byKey(_tipsToggle),
-            inline ? findsOneWidget : findsNothing,
+            tablet ? findsOneWidget : findsNothing,
           );
           expect(findPlansPane(), findsNothing);
+          expect(findContextPane(), findsNothing);
+          expect(find.byType(PlanPreview), findsNothing);
           // The meeting point's privacy note, at every width (ruling 3,
           // owner 2026-11-11), as on the create form.
           expect(_inForm(find.text(kMeetingPointNote)), findsOneWidget);
-          if (pane) {
-            expect(_paneKinds(tester), _formKinds);
-            expect(_inPanePreview(find.text(_rigTitle)), findsOneWidget);
-            expect(
-              _inPanePreview(find.text(kMeetingPointNote)),
-              findsOneWidget,
-            );
-            expect(inContextPane(find.text(kPlanTipsTitle)), findsOneWidget);
-          } else {
-            expect(findContextPane(), findsNothing);
-            expect(find.byType(PlanPreview), findsNothing);
-          }
           // F28 (R12): a plan that has not started takes a new date, time,
           // duration and cost, with the designs' helper under Date and Time.
           expect(_inForm(find.byTooltip('Pick a date')), findsOneWidget);
@@ -283,24 +237,23 @@ void main() {
     }
   });
 
-  group('band B: the pane follows the pushed form', () {
-    testWidgets('New plan from the Plans list: the preview and tips replace '
-        'the list pane; back restores it', (tester) async {
+  group('band B: a pushed form has no context pane', () {
+    testWidgets('New plan from the Plans list: the form replaces the list '
+        'pane, with the Preview action and inline tips; back restores it', (
+      tester,
+    ) async {
       final rig = PlansTabletRig();
       await rig.pump(tester, realForms: true);
       expect(findPlansPane(), findsOneWidget);
       expect(findContextPane(), findsNothing);
 
       await tester.tap(find.widgetWithText(FilledButton, 'New plan'));
-      // One frame: the pane is there with its cards, never blank.
-      await tester.pump();
-      expect(_paneKinds(tester), _formKinds);
-      expect(inContextPane(find.text(kPlanPreviewTitle)), findsOneWidget);
-      expect(inContextPane(find.text(kPlanTipsTitle)), findsOneWidget);
       await tester.pumpAndSettle();
       expect(findPlansPane(), findsNothing);
-      expect(_inPanePreview(find.text(kPlanPreviewUntitled)), findsOneWidget);
-      expectTabletPanes(tester, _formPage(), 1024);
+      expect(findContextPane(), findsNothing);
+      expect(_previewAction, findsOneWidget);
+      expect(find.byKey(_tipsToggle), findsOneWidget);
+      expectTabletPanes(tester, _formPage(), 1024, hasPane: false);
 
       rig.router.pop();
       await tester.pumpAndSettle();
@@ -308,8 +261,8 @@ void main() {
       expect(findContextPane(), findsNothing);
     });
 
-    testWidgets('Edit from a plan: the loading preview after one frame, then '
-        'the plan; no tips while it loads', (tester) async {
+    testWidgets('Edit from a plan: no Preview action and no tips while it '
+        'loads, both once it has', (tester) async {
       final rig = PlansTabletRig();
       _organise(rig);
       await rig.pump(
@@ -319,24 +272,17 @@ void main() {
       );
       final hold = rig.server.holdGet = Completer<void>();
       await tester.tap(find.widgetWithText(AppPillButton, 'Edit'));
-      await tester.pump();
-      expect(_paneKinds(tester), _formKinds);
-      expect(inContextPane(find.text(kPlanPreviewTitle)), findsOneWidget);
-      expect(inContextPane(find.text(kPlanTipsTitle)), findsNothing);
       await tester.pumpAndSettle();
-      // Still loading: the card over its skeleton, no tips, no preview text.
-      expect(inContextPane(find.text(kPlanPreviewTitle)), findsOneWidget);
-      expect(inContextPane(find.bySemanticsLabel('Loading preview')), findsOne);
-      // One label each: the page's skeleton and the pane's are told apart.
+      expect(findContextPane(), findsNothing);
       expect(find.bySemanticsLabel('Loading plan'), findsOneWidget);
-      expect(find.bySemanticsLabel('Loading preview'), findsOneWidget);
-      expect(inContextPane(find.text(kPlanTipsTitle)), findsNothing);
-      expect(find.byType(PlanPreview), findsNothing);
+      expect(_previewAction, findsNothing);
+      expect(find.byKey(_tipsToggle), findsNothing);
 
       hold.complete();
       await tester.pumpAndSettle();
-      expect(_inPanePreview(find.text(_rigTitle)), findsOneWidget);
-      expect(inContextPane(find.text(kPlanTipsTitle)), findsOneWidget);
+      expect(findContextPane(), findsNothing);
+      expect(_previewAction, findsOneWidget);
+      expect(find.byKey(_tipsToggle), findsOneWidget);
 
       rig.router.pop();
       await tester.pumpAndSettle();
@@ -344,21 +290,20 @@ void main() {
       expect(findContextPane(), findsNothing);
     });
 
-    testWidgets('a failed load: no preview and no tips over the error', (
-      tester,
-    ) async {
+    testWidgets('a failed load: no preview and no tips over the error, both '
+        'after Try again', (tester) async {
       final rig = PlansTabletRig();
       rig.server.refusals.add(const NetworkException('down'));
       await rig.pump(tester, location: _editPath, realForms: true);
       expect(find.text('Try again'), findsOneWidget);
-      expect(_paneKinds(tester), _formKinds);
-      expect(inContextPane(find.text(kPlanPreviewTitle)), findsNothing);
-      expect(inContextPane(find.text(kPlanTipsTitle)), findsNothing);
+      expect(findContextPane(), findsNothing);
+      expect(_previewAction, findsNothing);
+      expect(find.byKey(_tipsToggle), findsNothing);
 
       await tester.tap(find.text('Try again'));
       await tester.pumpAndSettle();
-      expect(_inPanePreview(find.text(_rigTitle)), findsOneWidget);
-      expect(inContextPane(find.text(kPlanTipsTitle)), findsOneWidget);
+      expect(_previewAction, findsOneWidget);
+      expect(find.byKey(_tipsToggle), findsOneWidget);
     });
 
     testWidgets('a plan that does not exist: nothing over not-found', (
@@ -370,12 +315,13 @@ void main() {
         location: AppRouter.planEditPath('1999999999999999999'),
         realForms: true,
       );
-      expect(inContextPane(find.text(kPlanPreviewTitle)), findsNothing);
-      expect(inContextPane(find.text(kPlanTipsTitle)), findsNothing);
+      expect(findContextPane(), findsNothing);
+      expect(_previewAction, findsNothing);
+      expect(find.byKey(_tipsToggle), findsNothing);
     });
   });
 
-  group('band B: the live preview follows every field', () {
+  group('the live preview (the dialog) follows every field', () {
     testWidgets('create: title, details, meeting point, what, when, '
         'duration, spots, cost and chat', (tester) async {
       final rig = PlansTabletRig();
@@ -394,30 +340,36 @@ void main() {
         realForms: true,
       );
 
-      expect(_inPanePreview(find.text(kPlanPreviewUntitled)), findsOneWidget);
-      expect(_inPanePreview(find.text(kPlanPreviewNoVenue)), findsOneWidget);
-      expect(_inPanePreview(find.text('0 of 3 seats taken')), findsOneWidget);
-      expect(_inPanePreview(find.text('Alice A')), findsOneWidget);
-      expect(_inPanePreview(find.text('Organiser')), findsOneWidget);
-      // No details yet: nothing drawn for them.
-      expect(_inPanePreview(find.text('Bring snacks')), findsNothing);
+      await _peek(tester, () async {
+        expect(_inDialogPreview(find.text(kPlanPreviewUntitled)), findsOne);
+        expect(_inDialogPreview(find.text(kPlanPreviewNoVenue)), findsOne);
+        expect(_inDialogPreview(find.text('0 of 3 seats taken')), findsOne);
+        expect(_inDialogPreview(find.text('Alice A')), findsOneWidget);
+        expect(_inDialogPreview(find.text('Organiser')), findsOneWidget);
+        // No details yet: nothing drawn for them.
+        expect(_inDialogPreview(find.text('Bring snacks')), findsNothing);
+      });
 
       await _fillCreate(tester);
-      expect(_inPanePreview(find.text('Board games')), findsOneWidget);
-      expect(_inPanePreview(find.text(kPlanPreviewUntitled)), findsNothing);
-      expect(_inPanePreview(find.text('Bring snacks')), findsOneWidget);
-      expect(_inPanePreview(find.text('Library hall')), findsOneWidget);
-      expect(_inPanePreview(find.text(kPlanPreviewNoVenue)), findsNothing);
-      expect(_inPanePreview(find.text(kMeetingPointNote)), findsOneWidget);
+      await _peek(tester, () async {
+        expect(_inDialogPreview(find.text('Board games')), findsOneWidget);
+        expect(_inDialogPreview(find.text(kPlanPreviewUntitled)), findsNothing);
+        expect(_inDialogPreview(find.text('Bring snacks')), findsOneWidget);
+        expect(_inDialogPreview(find.text('Library hall')), findsOneWidget);
+        expect(_inDialogPreview(find.text(kPlanPreviewNoVenue)), findsNothing);
+        expect(_inDialogPreview(find.text(kMeetingPointNote)), findsOne);
+      });
 
       await _tapInForm(
         tester,
         _inForm(find.widgetWithText(ChoiceChip, 'Walk')),
       );
-      expect(
-        _inPanePreview(find.byIcon(Icons.directions_walk)),
-        findsOneWidget,
-      );
+      await _peek(tester, () async {
+        expect(
+          _inDialogPreview(find.byIcon(Icons.directions_walk)),
+          findsOneWidget,
+        );
+      });
 
       await _tapInForm(tester, find.byTooltip('Pick a date'));
       await _tapInForm(tester, find.byTooltip('Pick a time'));
@@ -430,38 +382,49 @@ void main() {
           )
           .data!;
       expect(label('Pick a time'), contains('9:30'));
-      expect(
-        _inPanePreview(
-          find.text(
-            '${label('Pick a date')} at ${label('Pick a time')} · 60 min',
+      await _peek(tester, () async {
+        expect(
+          _inDialogPreview(
+            find.text(
+              '${label('Pick a date')} at ${label('Pick a time')} · 60 min',
+            ),
           ),
-        ),
-        findsOneWidget,
-      );
+          findsOneWidget,
+        );
+      });
 
       await _tapInForm(
         tester,
         _inForm(find.widgetWithText(ChoiceChip, '90 min')),
       );
-      expect(
-        _inPanePreview(find.textContaining(RegExp(r' · 90 min$'))),
-        findsOneWidget,
-      );
+      await _peek(tester, () async {
+        expect(
+          _inDialogPreview(find.textContaining(RegExp(r' · 90 min$'))),
+          findsOneWidget,
+        );
+      });
 
       await _tapInForm(tester, find.byTooltip('More spots'));
-      expect(_inPanePreview(find.text('0 of 4 seats taken')), findsOneWidget);
+      await _peek(tester, () async {
+        expect(_inDialogPreview(find.text('0 of 4 seats taken')), findsOne);
+      });
 
       await _tapInForm(
         tester,
         _inForm(find.widgetWithText(ChoiceChip, 'Split evenly')),
       );
-      expect(_inPanePreview(find.text('Cost: Split evenly')), findsOneWidget);
+      await _peek(tester, () async {
+        expect(_inDialogPreview(find.text('Cost: Split evenly')), findsOne);
+      });
 
       await _tapInForm(
         tester,
         _inForm(find.widgetWithText(ChoiceChip, 'Open to chat')),
       );
-      expect(_inPanePreview(find.text('Chat: Open to chat')), findsOneWidget);
+      await _peek(tester, () async {
+        expect(_inDialogPreview(find.text('Chat: Open to chat')), findsOne);
+      });
+      expect(findContextPane(), findsNothing);
       expect(rig.server.calls, isEmpty);
     });
 
@@ -475,8 +438,10 @@ void main() {
         realForms: true,
         profile: false,
       );
-      expect(_inPanePreview(find.text('Organiser')), findsNothing);
-      expect(_inPanePreview(find.text(kPlanPreviewUntitled)), findsOneWidget);
+      await _peek(tester, () async {
+        expect(_inDialogPreview(find.text('Organiser')), findsNothing);
+        expect(_inDialogPreview(find.text(kPlanPreviewUntitled)), findsOne);
+      });
     });
 
     testWidgets('edit: the text, the seats and the status follow, as the '
@@ -489,9 +454,11 @@ void main() {
         height: 1100,
         realForms: true,
       );
-      expect(_inPanePreview(find.text('2 of 3 seats taken')), findsOneWidget);
-      expect(_inPanePreview(find.text('Full')), findsNothing);
-      expect(_inPanePreview(find.text('Orla')), findsOneWidget);
+      await _peek(tester, () async {
+        expect(_inDialogPreview(find.text('2 of 3 seats taken')), findsOne);
+        expect(_inDialogPreview(find.text('Full')), findsNothing);
+        expect(_inDialogPreview(find.text('Orla')), findsOneWidget);
+      });
 
       await tester.enterText(
         _inForm(find.widgetWithText(TextField, _rigTitle)),
@@ -502,15 +469,21 @@ void main() {
         'Library',
       );
       await tester.pumpAndSettle();
-      expect(_inPanePreview(find.text('Tea at four')), findsOneWidget);
-      expect(_inPanePreview(find.text('Library')), findsOneWidget);
+      await _peek(tester, () async {
+        expect(_inDialogPreview(find.text('Tea at four')), findsOneWidget);
+        expect(_inDialogPreview(find.text('Library')), findsOneWidget);
+      });
 
       await _tapInForm(tester, find.byTooltip('Fewer spots'));
-      expect(_inPanePreview(find.text('2 of 2 seats taken')), findsOneWidget);
-      expect(_inPanePreview(find.text('Full')), findsOneWidget);
+      await _peek(tester, () async {
+        expect(_inDialogPreview(find.text('2 of 2 seats taken')), findsOne);
+        expect(_inDialogPreview(find.text('Full')), findsOneWidget);
+      });
       await _tapInForm(tester, find.byTooltip('More spots'));
-      expect(_inPanePreview(find.text('2 of 3 seats taken')), findsOneWidget);
-      expect(_inPanePreview(find.text('Full')), findsNothing);
+      await _peek(tester, () async {
+        expect(_inDialogPreview(find.text('2 of 3 seats taken')), findsOne);
+        expect(_inDialogPreview(find.text('Full')), findsNothing);
+      });
       expect(rig.server.calls, ['get']);
     });
 
@@ -547,31 +520,37 @@ void main() {
           )
           .data!;
       expect(label('Pick a time'), contains('9:15'));
-      expect(
-        _inPanePreview(
-          find.text(
-            '${label('Pick a date')} at ${label('Pick a time')} · 60 min',
+      await _peek(tester, () async {
+        expect(
+          _inDialogPreview(
+            find.text(
+              '${label('Pick a date')} at ${label('Pick a time')} · 60 min',
+            ),
           ),
-        ),
-        findsOneWidget,
-      );
+          findsOneWidget,
+        );
+      });
 
       await _tapInForm(
         tester,
         _inForm(find.widgetWithText(ChoiceChip, '120 min')),
       );
-      expect(
-        _inPanePreview(find.textContaining(RegExp(r' · 120 min$'))),
-        findsOneWidget,
-      );
+      await _peek(tester, () async {
+        expect(
+          _inDialogPreview(find.textContaining(RegExp(r' · 120 min$'))),
+          findsOneWidget,
+        );
+      });
       await _tapInForm(
         tester,
         _inForm(find.widgetWithText(ChoiceChip, 'Everyone pays their own')),
       );
-      expect(
-        _inPanePreview(find.text('Cost: Everyone pays their own')),
-        findsOneWidget,
-      );
+      await _peek(tester, () async {
+        expect(
+          _inDialogPreview(find.text('Cost: Everyone pays their own')),
+          findsOneWidget,
+        );
+      });
       expect(rig.server.calls, ['get']);
     });
   });
@@ -612,8 +591,8 @@ void main() {
       });
     }
 
-    testWidgets('the 320 dp pane at 2.0: the label gives way, nothing '
-        'overflows', (tester) async {
+    testWidgets('the Preview dialog at 2.0: the organiser label gives way, '
+        'nothing overflows', (tester) async {
       final rig = PlansTabletRig();
       await rig.pump(
         tester,
@@ -624,13 +603,16 @@ void main() {
         realForms: true,
       );
       expect(tester.takeException(), isNull);
-      final label = _inPanePreview(find.text('Organiser'));
-      expect(label, findsOneWidget);
-      final row = find.ancestor(of: label, matching: find.byType(Row)).first;
-      expect(
-        tester.getRect(label).right,
-        lessThanOrEqualTo(tester.getRect(row).right),
-      );
+      await _peek(tester, () async {
+        expect(tester.takeException(), isNull);
+        final label = _inDialogPreview(find.text('Organiser'));
+        expect(label, findsOneWidget);
+        final row = find.ancestor(of: label, matching: find.byType(Row)).first;
+        expect(
+          tester.getRect(label).right,
+          lessThanOrEqualTo(tester.getRect(row).right),
+        );
+      });
     });
   });
 
@@ -647,16 +629,25 @@ void main() {
       await _fillCreate(tester);
 
       TextStyle style(Finder f) => tester.widget<Text>(f).style!;
-      final previewTitle = style(_inPanePreview(find.text('Board games')));
-      final previewVenue = style(_inPanePreview(find.text('Library hall')));
-      final previewNote = style(_inPanePreview(find.text(kMeetingPointNote)));
-      final previewTop = tester.getTopLeft(
-        _inPanePreview(find.text(kMeetingPointNote)),
-      );
-      final previewVenueBottom = tester.getBottomLeft(
-        _inPanePreview(find.text('Library hall')),
-      );
-      expect(previewTop.dy, previewVenueBottom.dy, reason: 'note under venue');
+      late final TextStyle previewTitle;
+      late final TextStyle previewVenue;
+      late final TextStyle previewNote;
+      await _peek(tester, () async {
+        previewTitle = style(_inDialogPreview(find.text('Board games')));
+        previewVenue = style(_inDialogPreview(find.text('Library hall')));
+        previewNote = style(_inDialogPreview(find.text(kMeetingPointNote)));
+        final previewTop = tester.getTopLeft(
+          _inDialogPreview(find.text(kMeetingPointNote)),
+        );
+        final previewVenueBottom = tester.getBottomLeft(
+          _inDialogPreview(find.text('Library hall')),
+        );
+        expect(
+          previewTop.dy,
+          previewVenueBottom.dy,
+          reason: 'note under venue',
+        );
+      });
 
       await tester.tap(find.text('Create'));
       await tester.pumpAndSettle();
@@ -671,8 +662,8 @@ void main() {
     });
   });
 
-  group('band A: the Preview dialog', () {
-    for (final w in <double>[600, 744, 839]) {
+  group('the Preview dialog (both tablet bands)', () {
+    for (final w in <double>[600, 744, 839, 840, 1024, 1199]) {
       testWidgets('create at ${w.toInt()}: a D 560 on the content area with '
           'the form as typed', (tester) async {
         final rig = PlansTabletRig();
@@ -688,6 +679,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(Dialog), findsOneWidget);
+        expect(findContextPane(), findsNothing);
         expect(_inDialogPreview(find.text('Board games')), findsOneWidget);
         expect(_inDialogPreview(find.text('Library hall')), findsOneWidget);
         expect(_inDialogPreview(find.text(kMeetingPointNote)), findsOneWidget);
@@ -725,66 +717,67 @@ void main() {
       });
     }
 
-    testWidgets('edit at 744: the dialog shows the plan with the edits', (
-      tester,
-    ) async {
-      final rig = PlansTabletRig();
-      await rig.pump(
-        tester,
-        location: _editPath,
-        width: 744,
-        height: 1100,
-        realForms: true,
-      );
-      await tester.enterText(
-        _inForm(find.widgetWithText(TextField, _rigTitle)),
-        'Tea at four',
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(_previewAction);
-      await tester.pumpAndSettle();
-      expect(_inDialogPreview(find.text('Tea at four')), findsOneWidget);
-      expect(_inDialogPreview(find.text(kMeetingPointNote)), findsOneWidget);
-      expect(openDialogRect(tester).center.dx, closeTo(_contentCentre(744), 1));
-      expect(rig.server.calls, ['get']);
-    });
+    for (final w in <double>[744, 1024]) {
+      testWidgets('edit at ${w.toInt()}: the dialog shows the plan with the '
+          'edits', (tester) async {
+        final rig = PlansTabletRig();
+        await rig.pump(
+          tester,
+          location: _editPath,
+          width: w,
+          height: 1100,
+          realForms: true,
+        );
+        await tester.enterText(
+          _inForm(find.widgetWithText(TextField, _rigTitle)),
+          'Tea at four',
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(_previewAction);
+        await tester.pumpAndSettle();
+        expect(_inDialogPreview(find.text('Tea at four')), findsOneWidget);
+        expect(_inDialogPreview(find.text(kMeetingPointNote)), findsOne);
+        expect(openDialogRect(tester).center.dx, closeTo(_contentCentre(w), 1));
+        expect(rig.server.calls, ['get']);
+      });
 
-    testWidgets('edit at 744 while loading and after a failure: no Preview '
-        'action and no tips', (tester) async {
-      final rig = PlansTabletRig();
-      final hold = rig.server.holdGet = Completer<void>();
-      await rig.pump(tester, location: _editPath, width: 744, realForms: true);
-      expect(_previewAction, findsNothing);
-      expect(find.byKey(_tipsToggle), findsNothing);
-      hold.complete();
-      await tester.pumpAndSettle();
-      expect(_previewAction, findsOneWidget);
-      expect(find.byKey(_tipsToggle), findsOneWidget);
+      testWidgets('edit at ${w.toInt()} while loading and after a failure: '
+          'no Preview action and no tips', (tester) async {
+        final rig = PlansTabletRig();
+        final hold = rig.server.holdGet = Completer<void>();
+        await rig.pump(tester, location: _editPath, width: w, realForms: true);
+        expect(_previewAction, findsNothing);
+        expect(find.byKey(_tipsToggle), findsNothing);
+        hold.complete();
+        await tester.pumpAndSettle();
+        expect(_previewAction, findsOneWidget);
+        expect(find.byKey(_tipsToggle), findsOneWidget);
 
-      final failed = PlansTabletRig();
-      failed.server.refusals.add(const NetworkException('down'));
-      await failed.pump(
-        tester,
-        location: _editPath,
-        width: 744,
-        realForms: true,
-      );
-      expect(find.text('Try again'), findsOneWidget);
-      expect(_previewAction, findsNothing);
-      expect(find.byKey(_tipsToggle), findsNothing);
-    });
+        final failed = PlansTabletRig();
+        failed.server.refusals.add(const NetworkException('down'));
+        await failed.pump(
+          tester,
+          location: _editPath,
+          width: w,
+          realForms: true,
+        );
+        expect(find.text('Try again'), findsOneWidget);
+        expect(_previewAction, findsNothing);
+        expect(find.byKey(_tipsToggle), findsNothing);
+      });
+    }
   });
 
-  // UX review of T8d: the band A dialog must not outlive band A. Past 840
-  // the pane shows the preview (two copies otherwise, one behind the
-  // scrim); at 1200 and below 600 there is no preview at all.
-  group('band A Preview dialog across the band edges', () {
+  // UX review of T8d: the Preview dialog must not outlive the tablet layout.
+  // Across 840 it stays (the same layout, no pane to take over); at 1200 and
+  // below 600 there is no preview at all.
+  group('the Preview dialog across the layout edges', () {
     for (final (name, location) in [
       ('create', AppRouter.planNewPath),
       ('edit', AppRouter.planEditPath(kBeaconIdA)),
     ]) {
-      testWidgets('$name: open at 834, then 1024 closes it and the pane '
-          'shows the preview', (tester) async {
+      testWidgets('$name: open at 834, then 1024 keeps it open, with no '
+          'pane', (tester) async {
         final rig = PlansTabletRig();
         await rig.pump(
           tester,
@@ -799,10 +792,9 @@ void main() {
 
         await rig.resize(tester, 1024);
         expect(tester.takeException(), isNull);
-        expect(find.byType(Dialog), findsNothing);
+        expect(find.byType(Dialog), findsOneWidget);
         expect(find.byType(PlanPreview), findsOneWidget);
-        expect(inContextPane(find.byType(PlanPreview)), findsOneWidget);
-        // The form is still there: only the dialog was popped.
+        expect(findContextPane(), findsNothing);
         expect(_formPage(), findsOneWidget);
         expect(rig.uri.path, location);
       });
@@ -832,7 +824,7 @@ void main() {
         });
       }
 
-      testWidgets('$name: a resize inside band A keeps it open', (
+      testWidgets('$name: a resize inside the tablet layout keeps it open', (
         tester,
       ) async {
         final rig = PlansTabletRig();
@@ -850,64 +842,74 @@ void main() {
         await tester.tap(find.text('Close'));
         await tester.pumpAndSettle();
         expect(find.byType(Dialog), findsNothing);
-        // Closed by hand, then across 840: nothing else is popped.
+        // Closed by hand, then across 840: nothing else is popped, and the
+        // preview is still behind the action (no pane takes it).
         await rig.resize(tester, 1024);
         expect(_formPage(), findsOneWidget);
-        expect(inContextPane(find.byType(PlanPreview)), findsOneWidget);
+        expect(find.byType(PlanPreview), findsNothing);
+        expect(_previewAction, findsOneWidget);
       });
     }
   });
 
-  group('band A: Tips for a good plan, inline and collapsible', () {
+  group('Tips for a good plan, inline and collapsible', () {
     for (final location in [AppRouter.planNewPath, _editPath]) {
-      testWidgets('$location at 744: collapsed, a real 48 dp toggle with its '
-          'expanded state, at the top of the form', (tester) async {
-        final semantics = tester.ensureSemantics();
-        final rig = PlansTabletRig();
-        await rig.pump(tester, location: location, width: 744, realForms: true);
-        final toggle = find.byKey(_tipsToggle);
-        expect(tester.getSize(toggle).height, greaterThanOrEqualTo(48));
-        expect(
-          tester.getSemantics(toggle),
-          isSemantics(
-            isButton: true,
-            hasExpandedState: true,
-            isExpanded: false,
-          ),
-        );
-        expect(find.text(kPlanTips.first), findsNothing);
-        // Above the first field.
-        final firstField = location == AppRouter.planNewPath
-            ? _inForm(find.text('What'))
-            : _inForm(find.byType(TextField)).first;
-        expect(
-          tester.getBottomLeft(toggle).dy,
-          lessThan(tester.getTopLeft(firstField).dy),
-        );
+      for (final w in <double>[744, 1024]) {
+        testWidgets('$location at ${w.toInt()}: collapsed, a real 48 dp '
+            'toggle with its expanded state, at the top of the form', (
+          tester,
+        ) async {
+          final semantics = tester.ensureSemantics();
+          final rig = PlansTabletRig();
+          await rig.pump(tester, location: location, width: w, realForms: true);
+          final toggle = find.byKey(_tipsToggle);
+          expect(tester.getSize(toggle).height, greaterThanOrEqualTo(48));
+          expect(
+            tester.getSemantics(toggle),
+            isSemantics(
+              isButton: true,
+              hasExpandedState: true,
+              isExpanded: false,
+            ),
+          );
+          expect(find.text(kPlanTips.first), findsNothing);
+          // Above the first field.
+          final firstField = location == AppRouter.planNewPath
+              ? _inForm(find.text('What'))
+              : _inForm(find.byType(TextField)).first;
+          expect(
+            tester.getBottomLeft(toggle).dy,
+            lessThan(tester.getTopLeft(firstField).dy),
+          );
 
-        // The hit area is the row, not only its label: tap near its corner.
-        final rect = tester.getRect(toggle);
-        await tester.tapAt(rect.topLeft + const Offset(3, 3));
-        await tester.pumpAndSettle();
-        expect(
-          tester.getSemantics(toggle),
-          isSemantics(isButton: true, hasExpandedState: true, isExpanded: true),
-        );
-        for (final tip in kPlanTips) {
-          expect(_inForm(find.text(tip)), findsOneWidget);
-        }
-        await tester.tap(toggle);
-        await tester.pumpAndSettle();
-        expect(find.text(kPlanTips.first), findsNothing);
-        semantics.dispose();
-      });
+          // The hit area is the row, not only its label: tap near its corner.
+          final rect = tester.getRect(toggle);
+          await tester.tapAt(rect.topLeft + const Offset(3, 3));
+          await tester.pumpAndSettle();
+          expect(
+            tester.getSemantics(toggle),
+            isSemantics(
+              isButton: true,
+              hasExpandedState: true,
+              isExpanded: true,
+            ),
+          );
+          for (final tip in kPlanTips) {
+            expect(_inForm(find.text(tip)), findsOneWidget);
+          }
+          await tester.tap(toggle);
+          await tester.pumpAndSettle();
+          expect(find.text(kPlanTips.first), findsNothing);
+          semantics.dispose();
+        });
+      }
     }
   });
 
   group('state across resizes', () {
     testWidgets('create: 839 -> 840 -> 1024 -> 1199 -> 1200 -> 599 -> 600 -> '
-        '839 keeps the form, the text and the open tips; the preview moves '
-        'between the pane and the dialog', (tester) async {
+        '839 keeps the form, the text and the open tips; the Preview action '
+        'follows the tablet layout', (tester) async {
       final rig = PlansTabletRig();
       await rig.pump(
         tester,
@@ -938,23 +940,19 @@ void main() {
         );
         expect(field(), same(title), reason: '$w');
         expect(title.textEditingValue.text, '  Board games ');
-        expect(
-          _inPanePreview(find.text('Board games')),
-          _bandB(w) ? findsOneWidget : findsNothing,
-          reason: '$w',
-        );
+        expect(findContextPane(), findsNothing, reason: '$w');
         expect(
           _previewAction,
-          _bandA(w) ? findsOneWidget : findsNothing,
+          _tabletWidth(w) ? findsOneWidget : findsNothing,
           reason: '$w',
         );
         expect(
           find.byKey(_tipsToggle),
-          _bandA(w) ? findsOneWidget : findsNothing,
+          _tabletWidth(w) ? findsOneWidget : findsNothing,
           reason: '$w',
         );
       }
-      // Back in band A, the tips are still open.
+      // Back in the tablet layout, the tips are still open.
       expect(_inForm(find.text(kPlanTips.first)), findsOneWidget);
       await tester.tap(_previewAction);
       await tester.pumpAndSettle();
@@ -980,12 +978,16 @@ void main() {
           _inForm(find.widgetWithText(TextField, 'Tea at four')),
           findsOneWidget,
         );
+        expect(findContextPane(), findsNothing, reason: '$w');
         expect(
-          _inPanePreview(find.text('Tea at four')),
-          _bandB(w) ? findsOneWidget : findsNothing,
+          _previewAction,
+          _tabletWidth(w) ? findsOneWidget : findsNothing,
           reason: '$w',
         );
       }
+      await tester.tap(_previewAction);
+      await tester.pumpAndSettle();
+      expect(_inDialogPreview(find.text('Tea at four')), findsOneWidget);
       expect(rig.server.calls, ['get']);
     });
   });
@@ -1142,10 +1144,13 @@ void main() {
             .data,
         formatScheduledDate(next),
       );
-      expect(
-        _inPanePreview(find.textContaining(formatScheduledDate(next))),
-        findsOneWidget,
-      );
+
+      await _peek(tester, () async {
+        expect(
+          _inDialogPreview(find.textContaining(formatScheduledDate(next))),
+          findsOneWidget,
+        );
+      });
     });
   });
 
@@ -1246,30 +1251,21 @@ void main() {
       'show anyway)', () {
     final off = {...kPlansTabletFlags}..remove(kFeatureBeacons);
     for (final location in [AppRouter.planNewPath, _editPath]) {
-      testWidgets('$location at 1024: the global set, no preview or tips', (
+      testWidgets('$location at 1024: no context pane and no preview', (
         tester,
       ) async {
         final rig = PlansTabletRig();
         await rig.pump(tester, location: location, flags: off, realForms: true);
         expect(tester.takeException(), isNull);
-        expect(
-          _paneKinds(tester),
-          isNot(contains(ContextSectionKind.planPreview)),
-        );
-        expect(
-          _paneKinds(tester),
-          isNot(contains(ContextSectionKind.planTips)),
-        );
-        expect(_paneKinds(tester).last, ContextSectionKind.links);
-        expect(inContextPane(find.byType(PlanPreview)), findsNothing);
-        expect(inContextPane(find.text(kPlanTipsTitle)), findsNothing);
+        expect(findContextPane(), findsNothing);
+        expect(find.byType(PlanPreview), findsNothing);
       });
     }
   });
 
   group('RTL and focus', () {
-    testWidgets('band B in RTL: the pane on the left, then the form, then '
-        'the rail', (tester) async {
+    testWidgets('band B in RTL: no pane, the form beside the rail on the '
+        'right, the tips marks at the start', (tester) async {
       final rig = PlansTabletRig();
       await rig.pump(
         tester,
@@ -1278,15 +1274,16 @@ void main() {
         realForms: true,
       );
       expect(tester.takeException(), isNull);
-      final pane = tester.getRect(findContextPane());
+      expect(findContextPane(), findsNothing);
       final page = tester.getRect(_formPage());
       final rail = tester.getRect(find.byKey(const ValueKey('tablet-rail')));
-      expect(pane.left, 0);
-      expect(page.left, greaterThan(pane.right));
       expect(rail.right, 1024);
-      expect(_inPanePreview(find.text(kPlanPreviewUntitled)), findsOneWidget);
+      expect(page.right, rail.left);
+      expect(page.left, 0);
       // The tips' check marks sit at the start (right) of each line.
-      final tip = inContextPane(find.text(kPlanTips.first));
+      await tester.tap(find.byKey(_tipsToggle));
+      await tester.pumpAndSettle();
+      final tip = _inForm(find.text(kPlanTips.first));
       final mark = find.descendant(
         of: find.ancestor(of: tip, matching: find.byType(Row)).first,
         matching: find.byIcon(Icons.check_circle_outline),
@@ -1294,60 +1291,35 @@ void main() {
       expect(tester.getRect(mark).left, greaterThan(tester.getRect(tip).right));
     });
 
-    testWidgets('band A: Cancel, Preview, then the tips toggle', (
-      tester,
-    ) async {
-      final rig = PlansTabletRig();
-      await rig.pump(
+    for (final w in <double>[744, 1024]) {
+      testWidgets('at ${w.toInt()}: Cancel, Preview, then the tips toggle', (
         tester,
-        location: AppRouter.planNewPath,
-        width: 744,
-        realForms: true,
-      );
-      bool focused(Finder f) => Focus.of(tester.element(f)).hasPrimaryFocus;
-      final cancel = _inForm(find.text('Cancel'));
-      Focus.of(tester.element(cancel)).requestFocus();
-      await tester.pump();
-      expect(focused(cancel), isTrue);
-      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-      await tester.pump();
-      expect(focused(find.text(kPlanPreviewTitle)), isTrue, reason: 'Preview');
-      // Create is disabled until the form is valid, so it takes no focus.
-      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-      await tester.pump();
-      expect(focused(find.text(kPlanTipsTitle)), isTrue, reason: 'tips');
-    });
-
-    testWidgets('band B: the form, then the pane', (tester) async {
-      final rig = PlansTabletRig();
-      await rig.pump(
-        tester,
-        location: AppRouter.planNewPath,
-        height: 2000,
-        realForms: true,
-      );
-      bool focused(Finder f) => Focus.of(tester.element(f)).hasPrimaryFocus;
-      final lastChip = _inForm(find.widgetWithText(ChoiceChip, 'Public'));
-      final privacy = inContextPane(find.text('Privacy Policy'));
-      Focus.of(
-        tester.element(
-          find.descendant(of: lastChip, matching: find.text('Public')),
-        ),
-      ).requestFocus();
-      await tester.pump();
-      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-      await tester.pump();
-      expect(focused(privacy), isTrue, reason: 'then the context pane');
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
-      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
-      await tester.pump();
-      expect(
-        focused(find.descendant(of: lastChip, matching: find.text('Public'))),
-        isTrue,
-        reason: 'Shift+Tab back into the form',
-      );
-    });
+      ) async {
+        final rig = PlansTabletRig();
+        await rig.pump(
+          tester,
+          location: AppRouter.planNewPath,
+          width: w,
+          realForms: true,
+        );
+        bool focused(Finder f) => Focus.of(tester.element(f)).hasPrimaryFocus;
+        final cancel = _inForm(find.text('Cancel'));
+        Focus.of(tester.element(cancel)).requestFocus();
+        await tester.pump();
+        expect(focused(cancel), isTrue);
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(
+          focused(find.text(kPlanPreviewTitle)),
+          isTrue,
+          reason: 'Preview',
+        );
+        // Create is disabled until the form is valid, so it takes no focus.
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(focused(find.text(kPlanTipsTitle)), isTrue, reason: 'tips');
+      });
+    }
   });
 
   group('tablet matrix (plan section 5.5)', () {
@@ -1356,7 +1328,7 @@ void main() {
       ('PlanEdit', AppRouter.planEditPath(kBeaconIdA)),
     ]) {
       forEachThemeAndWidth(
-        '$name: no overflow, the rail pinned at 0, the panes of section 3',
+        '$name: no overflow, the rail pinned at 0, no side column',
         (tester, env) async {
           final rig = PlansTabletRig();
           await rig.pump(
@@ -1373,19 +1345,14 @@ void main() {
             tester.getRect(find.byKey(const ValueKey('tablet-rail'))).left,
             0,
           );
-          expectTabletPanes(tester, _formPage(), env.size.width);
-          if (_bandB(env.size.width)) {
-            expect(_paneKinds(tester), _formKinds);
-            final paneRect = tester.getRect(findContextPane());
-            for (final kind in _paneKinds(tester)) {
-              final section = tester.getRect(find.byKey(ValueKey(kind)).first);
-              expect(section.left, greaterThanOrEqualTo(paneRect.left));
-              expect(section.right, lessThanOrEqualTo(paneRect.right));
-            }
-          } else {
-            expect(_previewAction, findsOneWidget);
-            expect(find.byKey(_tipsToggle), findsOneWidget);
-          }
+          expectTabletPanes(
+            tester,
+            _formPage(),
+            env.size.width,
+            hasPane: false,
+          );
+          expect(_previewAction, findsOneWidget);
+          expect(find.byKey(_tipsToggle), findsOneWidget);
           expect(
             ShellGeometry.maybeOf(tester.element(_formPage()))?.tablet,
             isTrue,
@@ -1395,45 +1362,6 @@ void main() {
         textScales: kTabletTextScales,
         heights: kTabletHeights,
       );
-    }
-  });
-
-  group('text scale 2.0 in the 320 dp pane (840 x 1194)', () {
-    for (final brightness in Brightness.values) {
-      for (final (name, location) in [
-        ('PlanCreate', AppRouter.planNewPath),
-        ('PlanEdit', AppRouter.planEditPath(kBeaconIdA)),
-      ]) {
-        testWidgets('$name, ${brightness.name}: the preview and the tips fit', (
-          tester,
-        ) async {
-          final rig = PlansTabletRig();
-          await rig.pump(
-            tester,
-            location: location,
-            width: 840,
-            height: 1194,
-            textScale: 2,
-            brightness: brightness,
-            realForms: true,
-          );
-          expect(tester.takeException(), isNull);
-          expect(tester.getSize(findContextPane()).width, 320);
-          final last = inContextPane(find.text(kPlanTips.last));
-          await tester.scrollUntilVisible(
-            last,
-            100,
-            scrollable: find.descendant(
-              of: findContextPane(),
-              matching: find.byType(Scrollable),
-            ),
-          );
-          expect(tester.takeException(), isNull);
-          final pane = tester.getRect(findContextPane());
-          expect(tester.getRect(last).right, lessThanOrEqualTo(pane.right));
-          expect(_inPanePreview(find.text(kMeetingPointNote)), findsOneWidget);
-        });
-      }
     }
   });
 }
