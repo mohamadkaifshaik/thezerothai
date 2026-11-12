@@ -4,8 +4,6 @@ import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/features/graph/presentation/managed_accounts_screen.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/paged_user_list.dart';
 import 'package:dzeroth/features/profile/presentation/change_handle_screen.dart';
-import 'package:dzeroth/shared/widgets/primitives/app_form_header.dart';
-import 'package:dzeroth/shared/widgets/primitives/app_main_column.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_back_header.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -56,17 +54,17 @@ void main() {
   double capped(double width) =>
       width < AppSize.readableMax ? width : AppSize.readableMax;
 
-  group('Change handle (a form leaf in AppMainColumn)', () {
+  group('Change handle (an AppFormPage leaf)', () {
     Rect column(WidgetTester tester) => tester.getRect(
       find.descendant(
         of: find.byType(ChangeHandleScreen),
-        matching: find.byType(AppMainColumnBleed),
+        matching: find.byType(SingleChildScrollView),
       ),
     );
-    Rect divider(WidgetTester tester) => tester.getRect(
+    Rect bar(WidgetTester tester) => tester.getRect(
       find.descendant(
-        of: find.byType(AppFormHeader),
-        matching: find.byType(Divider),
+        of: find.byType(ChangeHandleScreen),
+        matching: find.byType(AppBar),
       ),
     );
 
@@ -79,7 +77,7 @@ void main() {
       (1199.0, true),
     ]) {
       testWidgets('${width.toInt()}${rtl ? ' RTL' : ''}: the column in the '
-          '${width >= 840 ? 'detail' : 'pane'}, the header across it', (
+          '${width >= 840 ? 'detail' : 'pane'}, the bar across it', (
         tester,
       ) async {
         await open(
@@ -92,8 +90,8 @@ void main() {
         final col = column(tester);
         expect(col.width, moreOrLessEquals(capped(area.width)));
         expect(col.center.dx, moreOrLessEquals(area.center.dx));
-        expect(divider(tester).left, moreOrLessEquals(area.left));
-        expect(divider(tester).right, moreOrLessEquals(area.right));
+        expect(bar(tester).left, moreOrLessEquals(area.left));
+        expect(bar(tester).right, moreOrLessEquals(area.right));
         expectNoOverflow(tester);
         await done(tester);
       });
@@ -107,11 +105,9 @@ void main() {
     });
 
     for (final width in [360.0, 1440.0]) {
-      testWidgets('${width.toInt()}: today\'s column', (tester) async {
+      testWidgets("${width.toInt()}: today's column", (tester) async {
         await open(tester, AppRouter.changeHandlePath, width: width);
-        final col = column(tester);
-        expect(col.width, lessThanOrEqualTo(AppLayout.mainColumnMaxWidth));
-        expect(divider(tester).width, col.width);
+        expect(column(tester).width, lessThanOrEqualTo(AppSize.contentMax));
         await done(tester);
       });
     }

@@ -218,7 +218,7 @@ void main() {
     await rig.signOut(tester);
 
     expect(rig.messagingRepository.gate.access, MessagingAccess.hidden);
-    expect(rig.path, AppRouter.signInPath);
+    expect(rig.path, AppRouter.welcomePath);
     await tester.pumpWidget(const SizedBox());
   });
 
