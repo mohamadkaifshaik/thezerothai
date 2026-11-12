@@ -9,7 +9,11 @@ import '../../../core/theme/app_theme.dart';
 /// in a `Wrap` or a `Text.rich` `WidgetSpan` so it moves under the name at a
 /// large text scale instead of overlapping it.
 class ProtectedBadge extends StatelessWidget {
-  const ProtectedBadge({super.key});
+  const ProtectedBadge({super.key, this.color});
+
+  /// The glyph's colour; null is the secondary text colour. A header on a
+  /// dark band passes its own.
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
@@ -19,7 +23,7 @@ class ProtectedBadge extends StatelessWidget {
         child: Icon(
           Icons.lock_outline,
           size: AppIconSize.sm,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          color: color ?? Theme.of(context).colorScheme.onSurfaceVariant,
         ),
       ),
     );

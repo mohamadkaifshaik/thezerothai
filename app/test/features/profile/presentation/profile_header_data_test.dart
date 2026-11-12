@@ -3,6 +3,7 @@ import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/moderation/data/moderation_repository.dart';
+import 'package:dzeroth/features/profile/presentation/widgets/profile_cover_band.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
@@ -143,17 +144,24 @@ void main() {
       expect(image.height, closeTo(130, 0.01));
     });
 
-    testWidgets('below 600 dp it loads the thumb, at 600 dp and above the '
-        'full image', (tester) async {
+    testWidgets('the thumb while its 600 px cover the band, else the full '
+        'image', (tester) async {
       final profile = profileOf(banner: full, bannerThumb: thumb);
-      for (final entry in {
-        360.0: thumb,
-        599.0: thumb,
-        600.0: full,
-        1000.0: full,
-      }.entries) {
-        await open(tester, profile: profile, size: Size(entry.key, 844));
-        expect(bannerUrl(tester), entry.value, reason: '${entry.key} dp');
+      for (final (width, ratio, url) in [
+        (360.0, 1.0, thumb),
+        (600.0, 1.0, thumb),
+        (601.0, 1.0, full),
+        (1000.0, 1.0, full),
+        // A 3x phone needs 1170 px: the thumb would be stretched.
+        (390.0, 3.0, full),
+      ]) {
+        await open(
+          tester,
+          profile: profile,
+          size: Size(width, 844),
+          pixelRatio: ratio,
+        );
+        expect(bannerUrl(tester), url, reason: '$width dp at ${ratio}x');
       }
     });
 
@@ -196,6 +204,35 @@ void main() {
             .memCacheWidth,
         1500,
       );
+    });
+
+    testWidgets('a band taller than 3:1 (the hero) decodes for the cover, '
+        'not its width', (tester) async {
+      // 390 x 260 at 2x: the cover scales the 3:1 image to 780 x 260 dp,
+      // 1560 px wide, so the full image at its 1500 px, not 780 px of thumb.
+      tester.view.physicalSize = const Size(780, 1688);
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Align(
+            alignment: Alignment.topLeft,
+            child: SizedBox(
+              width: 390,
+              height: 260,
+              child: ProfileCoverBand(url: full, thumbUrl: thumb),
+            ),
+          ),
+        ),
+      );
+      final image = tester.widget<CachedNetworkImage>(
+        find.byType(CachedNetworkImage),
+      );
+      expect(image.imageUrl, full);
+      expect(image.memCacheWidth, 1500);
+      expect(ProfileCoverBand.decodeWidthFor(390, 130, 2), 780);
+      expect(ProfileCoverBand.decodeWidthFor(390, 260, 2), 1560);
+      expect(ProfileCoverBand.decodeWidthFor(390, double.infinity, 2), 780);
     });
 
     testWidgets('is decoration: hidden from assistive technology', (

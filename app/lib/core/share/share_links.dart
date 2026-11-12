@@ -27,6 +27,11 @@ class ShareLinks {
 
   /// The shareable link of [postId] (see [postShareUrl]).
   String postUrl(String postId) => postShareUrl(postId, origin: origin);
+
+  /// The shareable link of the profile @[handle]: [origin] plus the in-app
+  /// profile route, nothing else (no id, query or token).
+  String profileUrl(String handle) =>
+      '$origin${AppRouter.profilePath(handle)}';
 }
 
 /// Hands [ShareLinks] to the post action row. A tree without a scope offers

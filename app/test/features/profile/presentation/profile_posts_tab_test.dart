@@ -23,6 +23,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../support/profile_hero_finders.dart';
 import '../../../support/posts_fixtures.dart';
 import '../../../support/timeline_fixtures.dart';
 
@@ -168,10 +169,10 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.text('Posts'),
+      find.descendant(of: find.byType(AppTabBar), matching: find.text('Posts')),
       findsOneWidget,
-    ); // the tab; the count is "2 Posts"
-    expect(find.text('2 Posts'), findsOneWidget);
+    ); // the tab; the hero's stat is "2" over "Posts"
+    expect(heroStatText('posts', 2), findsOneWidget);
     expect(find.text('post 2'), findsOneWidget);
     expect(find.text('post 1'), findsOneWidget);
     // Someone else's profile never shows the viewer's pending posts.
@@ -300,7 +301,7 @@ void main() {
     ).thenAnswer((_) async {});
 
     await open(tester);
-    expect(find.text('2 Posts'), findsOneWidget);
+    expect(heroStatText('posts', 2), findsOneWidget);
 
     await tester.tap(find.byTooltip('More options').first);
     await tester.pumpAndSettle();
@@ -311,7 +312,7 @@ void main() {
 
     expect(find.text('post 2'), findsNothing);
     expect(find.text('post 1'), findsOneWidget);
-    expect(find.text('1 Post'), findsOneWidget);
+    expect(heroStatText('posts', 1), findsOneWidget);
   });
 
   testWidgets('blocked by the viewer: banner first, posts only after "Show '
@@ -375,7 +376,7 @@ void main() {
     await open(tester);
 
     expect(find.text("This profile's posts are coming soon."), findsOneWidget);
-    expect(find.text('2 Posts'), findsNothing);
+    expect(heroStat('posts'), findsNothing);
     verifyNever(() => timeline.cached(any()));
     verifyNever(() => timeline.refresh(any()));
   });

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show OrdinalSortKey;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart' show NumberFormat;
 
 import '../../../../core/router/app_router.dart';
 import '../../../../core/telemetry/analytics_event.dart';
@@ -29,8 +30,19 @@ import '../../../lists/data/lists_repository.dart';
 import '../../../lists/presentation/widgets/add_to_lists_sheet.dart';
 import '../../../moderation/presentation/report_sheet.dart';
 import '../../../../shared/widgets/user/protected_badge.dart';
+import '../../../../core/share/share_links.dart';
+import '../../../../shared/widgets/post/post_share_menu.dart';
+import '../../../../shared/widgets/primitives/app_chip.dart';
+import '../../../../shared/widgets/primitives/app_rings.dart';
 import 'block_confirmation_dialog.dart';
 import 'profile_cover_band.dart';
+
+part 'profile_hero.dart';
+
+/// How [ProfileHeader] draws itself. [classic] is the banner, the avatar
+/// ring and the plain counts (the Edit profile preview keeps it); [hero] is
+/// the navy hero of the Profile mocks (the screen opts in).
+enum ProfileHeaderStyle { classic, hero }
 
 /// The profile header: avatar, display name, `@handle`, bio, follower/
 /// following counts, and (for other users, when the graph flag is on) a
@@ -58,10 +70,22 @@ class ProfileHeader extends StatelessWidget {
     this.interactive = true,
     this.avatarBytes,
     this.bannerBytes,
+    this.style = ProfileHeaderStyle.classic,
+    this.topInset = 0,
+    this.onBack,
   });
 
+  /// The hero starts at the top of the screen, behind the app bar: the
+  /// status-bar inset it draws under. Only the hero style reads it.
+  final double topInset;
+
+  /// Back, shown first in the hero's top row (a pushed profile). Null: none.
+  final VoidCallback? onBack;
   final identity.Profile profile;
   final bool isOwnProfile;
+
+  /// The look; the data, actions and gates are the same in both.
+  final ProfileHeaderStyle style;
 
   /// False draws the header inert, for a preview ("How others see you" on
   /// Edit profile): the counts and the website look the same but are not
@@ -134,6 +158,10 @@ class ProfileHeader extends StatelessWidget {
         interactive: interactive,
         avatarBytes: avatarBytes,
         bannerBytes: bannerBytes,
+        style: style,
+        isOwnProfile: isOwnProfile,
+        topInset: topInset,
+        onBack: onBack,
       );
     }
     return BlocProvider(
@@ -168,6 +196,10 @@ class ProfileHeader extends StatelessWidget {
           interactive: interactive,
           avatarBytes: avatarBytes,
           bannerBytes: bannerBytes,
+          style: style,
+          isOwnProfile: isOwnProfile,
+          topInset: topInset,
+          onBack: onBack,
         ),
       ),
     );
@@ -189,8 +221,16 @@ class _ProfileHeaderBody extends StatelessWidget {
     this.interactive = true,
     this.avatarBytes,
     this.bannerBytes,
+    this.style = ProfileHeaderStyle.classic,
+    this.isOwnProfile = false,
+    this.topInset = 0,
+    this.onBack,
   });
 
+  final double topInset;
+  final VoidCallback? onBack;
+  final bool isOwnProfile;
+  final ProfileHeaderStyle style;
   final bool listsEnabled;
   final bool interactive;
   final Uint8List? avatarBytes;
@@ -225,6 +265,31 @@ class _ProfileHeaderBody extends StatelessWidget {
     );
     final showFollowsYou = showActions && followedBy && !isBlocking;
 
+    if (style == ProfileHeaderStyle.hero) {
+      return _ProfileHero(
+        profile: profile,
+        isBlocking: isBlocking,
+        showActions: showActions,
+        showFollowsYou: showFollowsYou,
+        showPostsCount: showPostsCount,
+        canReport: canReport,
+        listsEnabled: listsEnabled,
+        followedBy: followedBy,
+        interactive: interactive,
+        isOwnProfile: isOwnProfile,
+        topInset: topInset,
+        onBack: onBack,
+        nameKey: nameKey,
+        onEditProfile: onEditProfile,
+        onMessage: onMessage,
+        onOpenWebsite: onOpenWebsite,
+        avatarBytes: avatarBytes,
+        bannerBytes: bannerBytes,
+        website: website,
+        joined: joined,
+      );
+    }
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
@@ -258,7 +323,8 @@ class _ProfileHeaderBody extends StatelessWidget {
                 SizedBox(
                   height: bannerHeight,
                   child: ProfileCoverBand(
-                    url: _bannerUrlFor(profile, fullSize: !narrow),
+                    url: profile.bannerUrl,
+                    thumbUrl: profile.bannerThumbUrl,
                     bytes: bannerBytes,
                   ),
                 ),
@@ -510,16 +576,6 @@ class _ProfileHeaderBody extends StatelessWidget {
   }
 }
 
-/// The banner URL for the header: the 600 px thumb below 600 dp, the 1500 px
-/// full image at 600 dp and above, whichever exists when only one
-/// does. Empty = no banner. Both sizes are 3:1, so neither changes the layout.
-String _bannerUrlFor(identity.Profile profile, {required bool fullSize}) {
-  final full = profile.bannerUrl;
-  final thumb = profile.bannerThumbUrl;
-  final wanted = fullSize ? full : thumb;
-  return wanted.isNotEmpty ? wanted : (fullSize ? thumb : full);
-}
-
 /// The round "Message" (envelope) button of another user's profile:
 /// a 36dp outlined circle in a 48dp target, left of Follow. Labelled for
 /// screen readers ("Message @handle").
@@ -566,14 +622,19 @@ class MessageButton extends StatelessWidget {
 /// "Follows you", beside the handle: a small muted label on a raised surface
 /// (X's own treatment). It is read as it is written, after the handle.
 class _FollowsYouChip extends StatelessWidget {
-  const _FollowsYouChip();
+  const _FollowsYouChip({this.onDark = false});
+
+  /// On the navy hero: a pearl-tinted chip with pearl text.
+  final bool onDark;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHigh,
+        color: onDark
+            ? AppProfileLayout.onDarkFill
+            : theme.colorScheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(AppRadius.sm),
       ),
       child: Padding(
@@ -584,7 +645,9 @@ class _FollowsYouChip extends StatelessWidget {
         child: Text(
           'Follows you',
           style: theme.textTheme.labelMedium?.copyWith(
-            color: context.appColors.secondaryOnRaised,
+            color: onDark
+                ? AppPalette.pearl
+                : context.appColors.secondaryOnRaised,
           ),
         ),
       ),
@@ -749,30 +812,52 @@ class _CountLink extends StatelessWidget {
 /// ("hides counts links"). The overflow menu (Mute/Unmute,
 /// Block/Unblock) stays available up in the header row regardless.
 class _BlockedBanner extends StatelessWidget {
-  const _BlockedBanner({required this.handle});
+  const _BlockedBanner({required this.handle, this.onDark = false});
 
   final String handle;
+
+  /// On the navy hero: a pearl-tinted box with pearl text, teal action.
+  final bool onDark;
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<RelationshipCubit, RelationshipState>(
       builder: (context, state) {
-        return AppSurface(
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'You blocked @$handle',
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
+        final row = Row(
+          children: [
+            Expanded(
+              child: Text(
+                'You blocked @$handle',
+                style: Theme.of(context).textTheme.bodyLarge
+                    ?.copyWith(color: onDark ? AppPalette.pearl : null),
               ),
-              TextButton(
-                onPressed: state.isUpdating
-                    ? null
-                    : () => context.read<RelationshipCubit>().unblock(),
-                child: const Text('Unblock'),
-              ),
-            ],
+            ),
+            TextButton(
+              style: onDark
+                  ? TextButton.styleFrom(
+                      foregroundColor: AppPalette.tealElectric,
+                    )
+                  : null,
+              onPressed: state.isUpdating
+                  ? null
+                  : () => context.read<RelationshipCubit>().unblock(),
+              child: const Text('Unblock'),
+            ),
+          ],
+        );
+        if (!onDark) return AppSurface(child: row);
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            color: AppPalette.fieldFillDark,
+            borderRadius: BorderRadius.circular(AppProfileLayout.statsRadius),
+            border: Border.all(color: AppPalette.hairlineDark),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.xs,
+            ),
+            child: row,
           ),
         );
       },
@@ -861,7 +946,11 @@ class _ReportOnlyMenu extends StatelessWidget {
     required this.profile,
     required this.canReport,
     required this.listsEnabled,
+    this.hero,
   });
+
+  /// The navy hero's round icon-button look; null is the plain icon.
+  final _HeroButtonLook? hero;
 
   final identity.Profile profile;
   final bool canReport;
@@ -875,9 +964,10 @@ class _ReportOnlyMenu extends StatelessWidget {
       child: PopupMenuButton<String>(
         icon: Icon(
           Icons.more_horiz,
-          size: AppIconSize.lg,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
+          size: hero == null ? AppIconSize.lg : AppIconSize.md,
+          color: hero?.color ?? Theme.of(context).colorScheme.onSurfaceVariant,
         ),
+        style: hero?.iconStyle,
         padding: const EdgeInsets.all(AppSpacing.md - AppSpacing.xs),
         onSelected: (value) {
           if (listsEnabled && _handleListsValue(context, value, profile)) {
@@ -907,7 +997,11 @@ class _OverflowMenu extends StatelessWidget {
     required this.profile,
     required this.canReport,
     required this.listsEnabled,
+    this.hero,
   });
+
+  /// The navy hero's round icon-button look; null is the plain icon.
+  final _HeroButtonLook? hero;
 
   final identity.Profile profile;
   final bool canReport;
@@ -925,9 +1019,11 @@ class _OverflowMenu extends StatelessWidget {
           child: PopupMenuButton<String>(
             icon: Icon(
               Icons.more_horiz,
-              size: AppIconSize.lg,
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              size: hero == null ? AppIconSize.lg : AppIconSize.md,
+              color:
+                  hero?.color ?? Theme.of(context).colorScheme.onSurfaceVariant,
             ),
+            style: hero?.iconStyle,
             padding: const EdgeInsets.all(AppSpacing.md - AppSpacing.xs),
             onSelected: (value) async {
               if (listsEnabled && _handleListsValue(context, value, profile)) {
@@ -1003,8 +1099,11 @@ class _MetaRow extends StatelessWidget {
     this.semanticLabel,
     this.onTap,
     this.looksLikeLink = false,
+    this.onDark = false,
   });
 
+  /// On the navy hero: muted-on-dark text, teal links.
+  final bool onDark;
   final IconData icon;
   final String text;
   final String? semanticLabel;
@@ -1017,10 +1116,14 @@ class _MetaRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
+    final muted = onDark
+        ? AppPalette.mutedOnDark
+        : theme.colorScheme.onSurfaceVariant;
     final link = onTap != null || looksLikeLink;
     final style = theme.textTheme.bodyMedium?.copyWith(
-      color: link ? context.appColors.accentText : muted,
+      color: link
+          ? (onDark ? AppPalette.tealElectric : context.appColors.accentText)
+          : muted,
     );
     // The icon is centred on the first text line, however far the text wraps.
     final line = MediaQuery.textScalerOf(context)
@@ -1076,6 +1179,11 @@ class _MetaRow extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(AppRadius.sm),
           onTap: tap,
+          // Over the navy hero the ink is pearl, not the theme's.
+          focusColor: onDark ? AppProfileLayout.onDarkInk : null,
+          hoverColor: onDark ? AppProfileLayout.onDarkInk : null,
+          splashColor: onDark ? AppProfileLayout.onDarkInk : null,
+          highlightColor: onDark ? AppProfileLayout.onDarkInk : null,
           child: box,
         ),
       );

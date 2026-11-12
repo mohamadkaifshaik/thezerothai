@@ -27,6 +27,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as pb;
 
+import '../../../support/profile_hero_finders.dart';
 import '../../../support/timeline_fixtures.dart';
 
 class _MockIdentityRepository extends Mock implements IdentityRepository {}
@@ -195,11 +196,20 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// Number of visible semantics nodes whose spoken label contains [label].
+  /// A tab's label (the hero's stat pill has its own "Posts").
+  Finder tabText(String label) =>
+      find.descendant(of: find.byType(AppTabBar), matching: find.text(label));
+
+  /// Number of visible, not hidden semantics nodes whose spoken label contains
+  /// [label] (the hero's name stays partly on screen behind the bar, hidden).
   int spoken(WidgetTester tester, String label) {
     var count = 0;
     void visit(SemanticsNode node) {
-      if (!node.isInvisible && node.label.contains(label)) count++;
+      if (!node.isInvisible &&
+          !node.flagsCollection.isHidden &&
+          node.label.contains(label)) {
+        count++;
+      }
       node.visitChildren((child) {
         visit(child);
         return true;
@@ -283,7 +293,7 @@ void main() {
       expect(articlesOffset, greaterThan(100));
       expect(articlesOffset, isNot(closeTo(postsOffset, 1)));
 
-      await tester.tap(find.text('Posts'));
+      await tester.tap(tabText('Posts'));
       await tester.pumpAndSettle();
       expect(innerPosition(tester).pixels, closeTo(postsOffset, 0.5));
 
@@ -403,7 +413,7 @@ void main() {
       await open(tester);
 
       expect(
-        tester.getSemantics(find.text('Posts').first),
+        tester.getSemantics(tabText('Posts')),
         matchesSemantics(
           label: 'Posts',
           isButton: true,
@@ -416,7 +426,7 @@ void main() {
       await tester.tap(find.text('Articles'));
       await tester.pumpAndSettle();
       expect(
-        tester.getSemantics(find.text('Articles').first),
+        tester.getSemantics(tabText('Articles')),
         matchesSemantics(
           label: 'Articles',
           isButton: true,
@@ -537,7 +547,7 @@ void main() {
       );
       expect(
         tester.getRect(joined).bottom,
-        lessThanOrEqualTo(tester.getRect(find.text('30 Posts')).top),
+        lessThanOrEqualTo(tester.getRect(heroStat('posts')).top),
       );
     });
 

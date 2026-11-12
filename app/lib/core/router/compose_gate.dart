@@ -14,6 +14,14 @@ bool isCommunityPageAt(String location) {
   return RegExp(r'^/communities/(?!new/?$)[^/]+/?$').hasMatch(path);
 }
 
+/// Whether [location] is one profile page (`/profile/:handle`, `/u/:id`, not
+/// Followers, Following or Lists). Its navy hero draws under the status bar
+/// (`ResponsiveScaffold.extendBodyUnderStatusBar`).
+bool isProfilePageAt(String location) {
+  final path = Uri.tryParse(location)?.path ?? location;
+  return RegExp(r'^/(profile|u)/[^/]+/?$').hasMatch(path);
+}
+
 /// Whether a way to start a new post is offered at [location]: only with the
 /// posts flag on, and not on Settings or Messages. Messages has its own header
 /// action; Settings owns Edit profile and related controls. The one rule

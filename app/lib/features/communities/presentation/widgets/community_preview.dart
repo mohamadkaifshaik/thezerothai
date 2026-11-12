@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../core/widgets/context_pane.dart';
 import '../../../lists/presentation/widgets/list_row.dart'
     show listMemberCountLabel;
 import '../../domain/community_role.dart';
@@ -54,7 +53,7 @@ class CommunityDraft {
 /// The placeholder of a draft with no name yet.
 const kCommunityPreviewUnnamed = 'Your Community';
 
-/// The title of the preview's card and dialog.
+/// The title of the preview dialog.
 const kCommunityPreviewTitle = 'Preview';
 
 /// The role and count a new community starts with: the server makes the
@@ -66,8 +65,7 @@ final kCommunityPreviewStanding =
 /// CreateCommunity): the name (bold, as the community's header), the
 /// creator's standing ("Owner · 1 member"), the description and the
 /// numbered rules under a "Rules" heading. Built from the form only: no
-/// call. Shown in band B's context pane ([CommunityPreviewCard]) and, in
-/// band A, in the header's Preview dialog.
+/// call. Shown in the header's Preview dialog.
 class CommunityPreview extends StatelessWidget {
   const CommunityPreview({
     super.key,
@@ -77,9 +75,8 @@ class CommunityPreview extends StatelessWidget {
 
   final CommunityDraft draft;
 
-  /// The start and end padding of every line: the card's own (the pane), or
-  /// 0 where the container pads already (the dialog), so the preview lines
-  /// up with the title above it.
+  /// The start and end padding of every line: 0 where the container pads
+  /// already (the dialog), so the preview lines up with the title above it.
   final double inset;
 
   @override
@@ -156,19 +153,4 @@ class CommunityPreview extends StatelessWidget {
       ],
     );
   }
-}
-
-/// The "Preview" card of band B's context pane: [CommunityPreview] of
-/// [draft]. The create page lends it over its form; the pane draws it with
-/// an empty draft until the page has (the slot's placeholder).
-class CommunityPreviewCard extends StatelessWidget {
-  const CommunityPreviewCard({super.key, this.draft = const CommunityDraft()});
-
-  final CommunityDraft draft;
-
-  @override
-  Widget build(BuildContext context) => ContextPaneCard(
-    title: kCommunityPreviewTitle,
-    child: CommunityPreview(draft: draft),
-  );
 }

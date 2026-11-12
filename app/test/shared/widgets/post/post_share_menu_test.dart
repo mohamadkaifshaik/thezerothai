@@ -110,6 +110,35 @@ void main() {
       handle.dispose();
     });
 
+    testWidgets('a given title replaces "Share post" (Share profile)', (
+      tester,
+    ) async {
+      await pumpThemed(
+        tester,
+        Align(
+          alignment: Alignment.topRight,
+          child: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showPostShareMenu(
+                context,
+                url: _url,
+                nativeShare: _FakeNativeShare(),
+                anchor: targetRectOf(context),
+                title: 'Share profile',
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+        size: const Size(400, 800),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Share profile'), findsOneWidget);
+      expect(find.text('Share post'), findsNothing);
+    });
+
     testWidgets('Copy link writes the exact URL and says so', (tester) async {
       final share = _FakeNativeShare();
       await open(tester, share);
