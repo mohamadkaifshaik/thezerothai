@@ -30,11 +30,6 @@ void main() {
     '/profile/alice/following': ContextFamily.people,
     '/profile/alice': ContextFamily.profile,
     '/u/u1': ContextFamily.profile,
-    // The communities pages (T8a): sections lent by the page, or static.
-    AppRouter.communitiesPath: ContextFamily.communities,
-    AppRouter.communityNewPath: ContextFamily.communityCreate,
-    '/communities/c1': ContextFamily.community,
-    '/communities/c1/moderation-log': ContextFamily.moderationLog,
     // The plan forms (T8d): the preview and the tips, lent by the page.
     AppRouter.planNewPath: ContextFamily.planCreate,
     '/plans/b1/edit': ContextFamily.planEdit,
@@ -79,57 +74,10 @@ void main() {
     expect(contextFamilyFor('/something-new'), ContextFamily.global);
   });
 
-  group('communities (T8a)', () {
-    test('"new" is the create form, not a community id', () {
-      expect(
-        contextFamilyFor('/communities/new'),
-        ContextFamily.communityCreate,
-      );
-      expect(
-        contextFamilyFor('/communities/new/'),
-        ContextFamily.communityCreate,
-      );
-      expect(contextFamilyFor('/communities/news'), ContextFamily.community);
-    });
-
-    test('a query or a trailing slash does not change the family', () {
-      expect(contextFamilyFor('/communities/'), ContextFamily.communities);
-      expect(contextFamilyFor('/communities/7?x=1'), ContextFamily.community);
-      expect(
-        contextFamilyFor('/communities/7/moderation-log/'),
-        ContextFamily.moderationLog,
-      );
-      expect(
-        contextFamilyFor('/communities/7/members?tab=1'),
-        ContextFamily.communityMembers,
-      );
-    });
-
-    // R10 (F36): CommunityMembers has its own family; [contextSectionsFor]
-    // gives it "Search members" with `community_member_search` on and the
-    // global set without it (T8a ruling 11).
-    test('/communities/c1/members -> communityMembers', () {
-      expect(
-        contextFamilyFor('/communities/c1/members'),
-        ContextFamily.communityMembers,
-      );
-    });
-
-    // The communities pages are pushed (directory rows, Members, the log,
-    // Create, a post's community label from any feed), so their pane
-    // follows the shell navigator's top page, as Plans' list pane does (T5).
+  group('pane location', () {
     const cases = <(String, String?), String>{
-      // Pushed over Home, a feed or Explore: the community's own pane.
-      ('/home', '/communities/77'): '/communities/77',
-      ('/explore', '/communities/77/moderation-log'):
-          '/communities/77/moderation-log',
-      // Pushed over the directory, and further.
-      ('/communities', '/communities/77'): '/communities/77',
-      ('/communities', '/communities/new'): '/communities/new',
-      ('/communities', '/communities/77/members'): '/communities/77/members',
-      // Something else pushed over a communities page: that page's family,
-      // never the communities page's lent sections.
-      ('/communities', '/plans/mine'): '/plans/mine',
+      // The communities pages have no pane of their own.
+      ('/communities', '/plans/mine'): '/communities',
       ('/communities/77', '/profile/alice'): '/profile/alice',
       // The profile pages are pushed too (T8c): a profile over Explore, Home
       // or a post gets its own pane (this row read `/explore` before T8c).
@@ -165,8 +113,8 @@ void main() {
       // No top page known (no router): the base route.
       ('/communities', null): '/communities',
       ('/home', null): '/home',
-      // Not a prefix match: `/communitiesx` is not a communities page.
-      ('/home', '/communitiesx'): '/home',
+      // The communities pages have no pane of their own: the base route.
+      ('/home', '/communities/77'): '/home',
     };
     for (final MapEntry(key: (base, top), value: expected) in cases.entries) {
       test('pane location: base $base, top $top -> $expected', () {

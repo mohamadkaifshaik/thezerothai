@@ -252,9 +252,9 @@ void main() {
       tester,
     ) async {
       await openScreen(tester, features: const {'graph', 'messaging'});
-      expect(find.byType(MessageButton), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, 'Message'), findsOneWidget);
 
-      await tester.tap(find.byType(MessageButton));
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Message'));
       await tester.pumpAndSettle();
 
       expect(find.text('draft target-uid'), findsOneWidget);
@@ -265,7 +265,7 @@ void main() {
       messaging.cachedByPeer['target-uid'] = threadConv(id: kThreadId);
       await openScreen(tester, features: const {'graph', 'messaging'});
 
-      await tester.tap(find.byType(MessageButton));
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Message'));
       await tester.pumpAndSettle();
 
       expect(find.text('thread $kThreadId'), findsOneWidget);
@@ -273,7 +273,7 @@ void main() {
 
     testWidgets('messaging off: no button', (tester) async {
       await openScreen(tester, features: const {'graph'});
-      expect(find.byType(MessageButton), findsNothing);
+      expect(find.widgetWithText(OutlinedButton, 'Message'), findsNothing);
       expect(find.text('Follow'), findsOneWidget);
     });
 
@@ -283,7 +283,7 @@ void main() {
         features: const {'graph', 'messaging'},
         blocking: true,
       );
-      expect(find.byType(MessageButton), findsNothing);
+      expect(find.widgetWithText(OutlinedButton, 'Message'), findsNothing);
     });
   });
 }

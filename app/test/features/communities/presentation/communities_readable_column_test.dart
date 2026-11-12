@@ -2,6 +2,7 @@ import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/communities/presentation/community_members_screen.dart';
 import 'package:dzeroth/features/communities/presentation/widgets/community_cover_band.dart';
+import 'package:dzeroth/features/communities/presentation/widgets/community_hero.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_back_header.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_main_column.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
@@ -89,9 +90,13 @@ void main() {
         width: width,
       );
       final tablet = width >= 600 && width < 1200;
-      // R10b: the cover band is the page's top edge now (it was the bar's
-      // divider); it must span the pane the same way on both tabs.
-      Rect divider() => tester.getRect(find.byType(CommunityCoverBand));
+      // R10b: the cover band (the bar, from 600 dp) is the page's top edge
+      // now (it was the bar's divider); it must span the same way on both
+      // tabs.
+      final top = width >= 600
+          ? find.byType(CommunityTopBar)
+          : find.byType(CommunityCoverBand);
+      Rect divider() => tester.getRect(top);
       final posts = divider();
       final postsBar = tester.getRect(find.byType(AppTabBar));
       await tester.tap(
@@ -117,8 +122,6 @@ void main() {
         );
         expect(viewport.left, moreOrLessEquals(primary.left));
         expect(viewport.right, moreOrLessEquals(primary.right));
-        expect(posts.left, moreOrLessEquals(primary.left));
-        expect(posts.right, moreOrLessEquals(primary.right));
         expect(
           postsBar.width,
           moreOrLessEquals(
@@ -149,7 +152,7 @@ void main() {
       tester,
       location: AppRouter.communityPath(kRigCommunityId),
       width: 839,
-      height: 420,
+      height: 560,
       textScale: 1.5,
     );
     await tester.tap(

@@ -100,9 +100,10 @@ Future<void> showEditProfilePreview(
 );
 
 /// The profile header as another person sees it, framed like a page: the
-/// same [ProfileHeader] the profile draws (3:1 banner, the ringed avatar
-/// hanging over it, the name, handle, bio, meta row and counts), with no
-/// controls (no Edit profile, Follow or menu) and nothing to tap.
+/// same [ProfileHeader] the profile draws (the navy hero: avatar, name,
+/// handle, location, bio, meta row and stats, over the banner), with no
+/// controls (no Edit profile, Follow or menu) and nothing to tap. The hero
+/// takes its phone or wide look from the width the preview is given.
 class EditProfilePreview extends StatelessWidget {
   const EditProfilePreview({
     super.key,
@@ -143,6 +144,7 @@ class EditProfilePreview extends StatelessWidget {
             graphEnabled: false,
             showPostsCount: showPostsCount,
             interactive: false,
+            style: ProfileHeaderStyle.hero,
             avatarBytes: avatarBytes,
             bannerBytes: bannerBytes,
           ),

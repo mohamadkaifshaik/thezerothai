@@ -7,17 +7,6 @@ import '../../features/beacons/presentation/widgets/plan_preview.dart'
     show PlanPreviewCard;
 import '../../features/beacons/presentation/widgets/plan_tips.dart'
     show PlanTipsCard;
-import '../../features/communities/domain/communities_feature_flag.dart';
-import '../../features/communities/presentation/widgets/community_about.dart'
-    show CommunityAboutPanePlaceholder;
-import '../../features/communities/presentation/widgets/community_preview.dart'
-    show CommunityPreviewCard;
-import '../../features/communities/presentation/widgets/community_search_field.dart'
-    show CommunitySearchField, kSearchMembersHint, kSearchMembersLabel;
-import '../../features/communities/presentation/widgets/explore_communities_pane.dart'
-    show ExploreCommunitiesPanePlaceholder;
-import '../../features/communities/presentation/widgets/moderation_log_about.dart'
-    show ModerationLogAboutPlaceholder;
 import '../../features/graph/presentation/graph_feature_flags.dart';
 import '../../features/graph/presentation/widgets/who_to_follow_card.dart';
 import '../../features/notifications/presentation/widgets/follow_requests_card.dart'
@@ -72,27 +61,6 @@ enum ContextFamily {
   /// like.
   profile,
 
-  /// `/communities` (T8a): "Search communities" over "Explore
-  /// communities", lent by the page (its filter, directory and Join; F37,
-  /// R10).
-  communities,
-
-  /// `/communities/new` (T8a): the live preview of the form, lent by the
-  /// page.
-  communityCreate,
-
-  /// `/communities/:id` (T8a): the community's rules, moderators and "View
-  /// moderation log", lent by the page (its one `GetCommunity`).
-  community,
-
-  /// `/communities/:id/moderation-log` (T8a): "About this log", lent by the
-  /// page once its log lists entries (the caller moderates).
-  moderationLog,
-
-  /// `/communities/:id/members` (R10): "Search members", lent by the page,
-  /// with `community_member_search` on (F36); the global set without it.
-  communityMembers,
-
   /// `/plans/new` (T8d): the live preview of the form and "Tips for a good
   /// plan", lent by the page.
   planCreate,
@@ -125,13 +93,6 @@ bool _isPlanFormLocation(String location) => switch ([
   _ => false,
 };
 
-/// Whether [location] is one of the communities pages (`/communities` and
-/// everything under it).
-bool _isCommunitiesLocation(String location) {
-  final segments = Uri.parse(location).pathSegments;
-  return segments.isNotEmpty && segments.first == 'communities';
-}
-
 /// Whether [location] is a post page (`/post/:id` and its photo viewer).
 bool _isPostLocation(String location) {
   final segments = Uri.parse(location).pathSegments;
@@ -157,11 +118,6 @@ bool _isProfileLocation(String location) {
 /// [base] route and the [top] page of the shell navigator (null when it is
 /// not known).
 ///
-/// The communities pages are pushed (directory rows, Members, the log,
-/// Create, a post's community label from any feed), so when either side is
-/// a communities page the top page decides, as Plans' list pane does (T5):
-/// a community pushed over Home gets its own pane, and a page pushed over a
-/// community gets its own family, never the community's lent sections.
 /// The Lists pages are pushed too (T8b: a List from Lists, Manage pinned or
 /// a person's Lists; Members from a List; Manage pinned from Home's "+"; a
 /// person's Lists from their profile), so they follow the same rule.
@@ -184,9 +140,7 @@ String contextPaneLocationFor(String base, String? top) {
   // A post is pushed from every feed: a post over Home has no pane, and a
   // page pushed over a post gets its own family.
   if (_isPostLocation(top) || _isPostLocation(base)) return top;
-  return _isCommunitiesLocation(top) ||
-          _isCommunitiesLocation(base) ||
-          _isListsLocation(top) ||
+  return _isListsLocation(top) ||
           _isListsLocation(base) ||
           _isPlanFormLocation(top)
       ? top
@@ -219,14 +173,6 @@ ContextFamily contextFamilyFor(String location) {
     ['follow-requests'] => ContextFamily.people,
     ['profile', _, 'followers' || 'following'] => ContextFamily.people,
     ['profile', _] || ['u', _] => ContextFamily.profile,
-    // `/communities/new` is matched before `/communities/:id`.
-    ['communities'] => ContextFamily.communities,
-    ['communities', 'new'] => ContextFamily.communityCreate,
-    ['communities', _, 'moderation-log'] => ContextFamily.moderationLog,
-    // CommunityMembers: "Search members" (F36), or the global set with its
-    // flag off (see [contextSectionsFor]).
-    ['communities', _, 'members'] => ContextFamily.communityMembers,
-    ['communities', _] => ContextFamily.community,
     _ => ContextFamily.global,
   };
 }
@@ -245,25 +191,6 @@ ContextFamily contextFamilyFor(String location) {
 List<ContextSection> contextSectionsFor(String location, BuildContext context) {
   var family = contextFamilyFor(location);
   if (family == ContextFamily.none) return const [];
-  // The communities pages need `communities` (the router sends them Home
-  // without it); should one show anyway, it gets the global set.
-  final communitiesFamily = switch (family) {
-    ContextFamily.communities ||
-    ContextFamily.communityCreate ||
-    ContextFamily.community ||
-    ContextFamily.moderationLog ||
-    ContextFamily.communityMembers => true,
-    _ => false,
-  };
-  if (communitiesFamily && !isFeatureEnabled(context, kFeatureCommunities)) {
-    family = ContextFamily.global;
-  }
-  // The members page's search needs its own flag too (F36); without it the
-  // page keeps the global set (T8a ruling 11).
-  if (family == ContextFamily.communityMembers &&
-      !isFeatureEnabled(context, kFeatureCommunityMemberSearch)) {
-    family = ContextFamily.global;
-  }
   // The plan forms need `beacons` (the router sends them to `/plans`
   // without it); should one show anyway, it gets the global set.
   final planFormFamily =
@@ -334,36 +261,6 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
         if (suggestions) whoToFollow('You might like'),
       ],
       // Lent by the page, over its own state (no call of the pane's own).
-      ContextFamily.communities => [
-        lent(
-          ContextSectionKind.exploreCommunities,
-          const ExploreCommunitiesPanePlaceholder(),
-        ),
-      ],
-      ContextFamily.communityCreate => [
-        lent(ContextSectionKind.communityPreview, const CommunityPreviewCard()),
-      ],
-      ContextFamily.community => [
-        lent(
-          ContextSectionKind.communityAbout,
-          const CommunityAboutPanePlaceholder(),
-        ),
-      ],
-      ContextFamily.moderationLog => [
-        lent(
-          ContextSectionKind.moderationLogAbout,
-          const ModerationLogAboutPlaceholder(),
-        ),
-      ],
-      ContextFamily.communityMembers => [
-        lent(
-          ContextSectionKind.memberSearch,
-          const CommunitySearchField(
-            hint: kSearchMembersHint,
-            label: kSearchMembersLabel,
-          ),
-        ),
-      ],
       // Lent by the form (T8d): the preview follows the typing, and the
       // edit form shows nothing over its loading or failed plan.
       ContextFamily.planCreate => [

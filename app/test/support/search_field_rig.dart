@@ -13,7 +13,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-class MockSearchOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
+class MockSearchOnboardingBloc
+    extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
 /// An in-memory [RecentSearchesStore] (newest first, same rules as the
@@ -86,9 +87,8 @@ Future<MockSearchOnboardingBloc> pumpWithSearch(
         child: MaterialApp(
           theme: buildAppTheme(brightness: brightness),
           builder: (context, app) => MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(textScaler: TextScaler.linear(textScale)),
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(textScale)),
             child: app!,
           ),
           home: Scaffold(

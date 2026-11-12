@@ -184,17 +184,13 @@ void main() {
       await tester.tap(find.bySemanticsLabel('Remove banner photo'));
       await tester.pumpAndSettle();
       await _openPreview(tester);
-      expect(
-        tester
-            .widget<ProfileCoverBand>(_inPreview(find.byType(ProfileCoverBand)))
-            .url,
-        isEmpty,
-      );
+      // The hero draws a band only while there is a banner.
+      expect(_inPreview(find.byType(ProfileCoverBand)), findsNothing);
       expect(find.text(kEditProfilePreviewUnsaved), findsOneWidget);
     });
 
-    testWidgets('the real header: name w800 titleLarge, a 3:1 banner, the '
-        'ringed avatar over its edge', (tester) async {
+    testWidgets('the real header: the navy hero with the name w800, the banner '
+        'filling it and the phone-size avatar', (tester) async {
       final rig = ProfileTabletRig();
       await rig.pump(tester, width: 1024, location: AppRouter.editProfilePath);
       await _openPreview(tester);
@@ -209,20 +205,21 @@ void main() {
       );
       final style = name.text.style!;
       expect(style.fontWeight, FontWeight.w800);
-      expect(style.fontSize, theme.textTheme.titleLarge!.fontSize);
+      // The preview is narrower than 600: the hero's phone look.
+      expect(style.fontSize, AppProfileLayout.phoneNameSize);
+      expect(style.fontFamily, theme.textTheme.titleLarge!.fontFamily);
 
       final band = tester.getRect(_inPreview(find.byType(ProfileCoverBand)));
       final frame = tester.getRect(find.byType(EditProfilePreview));
       expect(band.width, frame.width);
-      expect(band.width / band.height, closeTo(3, 0.01));
       expect(band.top, frame.top);
 
       final avatar = tester.getRect(_inPreview(find.byType(AppAvatar)));
-      // Narrower than 600: the 88 dp avatar, as the header draws there.
-      expect(avatar.width, AppSize.avatarProfileNarrow);
-      // It hangs over the banner's bottom edge (half of the ringed avatar).
-      expect(avatar.top, lessThan(band.bottom));
-      expect(avatar.bottom, greaterThan(band.bottom));
+      // Narrower than 600: the hero's 76 dp avatar.
+      expect(avatar.width, AppProfileLayout.phoneAvatar);
+      // It sits inside the hero the banner fills.
+      expect(avatar.top, greaterThan(band.top));
+      expect(avatar.bottom, lessThan(band.bottom));
     });
 
     testWidgets('inert: the counts and the website open nothing and are not '
@@ -433,7 +430,7 @@ void main() {
     ) async {
       final rig = ProfileTabletRig();
       await rig.pump(tester, width: 1024);
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Edit profile'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Edit profile'));
       await tester.pumpAndSettle();
       expect(find.byType(EditProfileScreen), findsOneWidget);
       expect(findContextPane(), findsNothing);
@@ -454,7 +451,7 @@ void main() {
       expect(find.byType(ProfileScreen), findsOneWidget);
       expect(findContextPane(), findsNothing);
 
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Edit profile'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Edit profile'));
       await tester.pumpAndSettle();
       expect(find.byType(EditProfileScreen), findsOneWidget);
       expect(findContextPane(), findsNothing);
