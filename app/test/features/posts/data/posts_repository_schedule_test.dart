@@ -1,4 +1,3 @@
-
 import 'package:connectrpc/connect.dart' as connect;
 import 'package:drift/native.dart';
 import 'package:dzeroth/core/network/api_client.dart';
@@ -20,6 +19,8 @@ import '../../../support/scheduled_fixtures.dart';
 const _schedule = '/dzeroth.posts.v1.PostService/SchedulePost';
 const _list = '/dzeroth.posts.v1.PostService/ListScheduledPosts';
 const _cancel = '/dzeroth.posts.v1.PostService/CancelScheduledPost';
+const _postNow = '/dzeroth.posts.v1.PostService/PublishScheduledPostNow';
+const _update = '/dzeroth.posts.v1.PostService/UpdateScheduledPost';
 
 /// SchedulePost, ListScheduledPosts and CancelScheduledPost through the real
 /// `PostServiceClient` and a fake transport.
@@ -353,6 +354,68 @@ void main() {
         ),
         throwsA(isA<NotFoundException>()),
       );
+    });
+  });
+
+  group('publishScheduledPostNow', () {
+    test('sends the id and the key and returns the item', () async {
+      answer = (_) => pb.PublishScheduledPostNowResponse(
+        scheduledPost: scheduledPost(
+          3,
+          status: ScheduledPostStatus.SCHEDULED_POST_STATUS_PUBLISHED,
+        ),
+      );
+
+      final item = await repo.publishScheduledPostNow(
+        scheduledId: scheduledId(3),
+        idempotencyKey: 'post-now-key-0123456789',
+      );
+
+      expect(transport.calledProcedures, [_postNow]);
+      final sent = requests.single as pb.PublishScheduledPostNowRequest;
+      expect(sent.scheduledId, scheduledId(3));
+      expect(sent.idempotencyKey, 'post-now-key-0123456789');
+      expect(item.status, ScheduledPostStatus.SCHEDULED_POST_STATUS_PUBLISHED);
+    });
+  });
+
+  group('updateScheduledPost', () {
+    test('sends only the fields given', () async {
+      answer = (_) => pb.UpdateScheduledPostResponse(
+        scheduledPost: scheduledPost(3, text: 'new words'),
+      );
+
+      final item = await repo.updateScheduledPost(
+        scheduledId: scheduledId(3),
+        idempotencyKey: 'edit-key-0123456789',
+        text: 'new words',
+      );
+
+      expect(transport.calledProcedures, [_update]);
+      final sent = requests.single as pb.UpdateScheduledPostRequest;
+      expect(sent.scheduledId, scheduledId(3));
+      expect(sent.idempotencyKey, 'edit-key-0123456789');
+      expect(sent.hasText(), isTrue);
+      expect(sent.text, 'new words');
+      expect(sent.hasPublishAt(), isFalse);
+      expect(sent.hasReplyPolicy(), isFalse);
+      expect(item.text, 'new words');
+    });
+
+    test('a new time goes out as UTC, the text untouched', () async {
+      answer = (_) =>
+          pb.UpdateScheduledPostResponse(scheduledPost: scheduledPost(3));
+      final local = DateTime(2026, 11, 15, 7);
+
+      await repo.updateScheduledPost(
+        scheduledId: scheduledId(3),
+        idempotencyKey: 'edit-key-0123456789',
+        publishAt: local,
+      );
+
+      final sent = requests.single as pb.UpdateScheduledPostRequest;
+      expect(sent.hasText(), isFalse);
+      expect(sent.publishAt.toDateTime(), local.toUtc());
     });
   });
 }

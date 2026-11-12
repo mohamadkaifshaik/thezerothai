@@ -766,4 +766,182 @@ void main() {
       expect(cubit.state.items, isEmpty);
     });
   });
+
+  group('postNow', () {
+    void stubPostNow(Future<pb.ScheduledPost> Function(String id) answer) {
+      when(
+        () => repo.publishScheduledPostNow(
+          scheduledId: any(named: 'scheduledId'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+        ),
+      ).thenAnswer((invocation) {
+        keys.add(invocation.namedArguments[#idempotencyKey] as String);
+        return answer(invocation.namedArguments[#scheduledId] as String);
+      });
+    }
+
+    Future<ScheduledPostsCubit> loaded() async {
+      stubList((_) => page([scheduledPost(1), scheduledPost(2)]));
+      final cubit = make();
+      await cubit.load();
+      return cubit;
+    }
+
+    test('the row leaves at once; PUBLISHED is done', () async {
+      final cubit = await loaded();
+      final gate = Completer<pb.ScheduledPost>();
+      stubPostNow((_) => gate.future);
+      final call = cubit.postNow(scheduledPost(1));
+      expect(cubit.state.items.map((i) => i.scheduledId), [scheduledId(2)]);
+      gate.complete(
+        scheduledPost(
+          1,
+          status: ScheduledPostStatus.SCHEDULED_POST_STATUS_PUBLISHED,
+        ),
+      );
+      expect((await call).outcome, ScheduledRemovalOutcome.done);
+      expect(cubit.state.items.map((i) => i.scheduledId), [scheduledId(2)]);
+      expect(keys, hasLength(1));
+    });
+
+    test(
+      'cancelled meanwhile or gone: nothing posted, the row stays out',
+      () async {
+        final cubit = await loaded();
+        stubPostNow(
+          (_) async => scheduledPost(
+            1,
+            status: ScheduledPostStatus.SCHEDULED_POST_STATUS_CANCELLED,
+          ),
+        );
+        expect(
+          (await cubit.postNow(scheduledPost(1))).outcome,
+          ScheduledRemovalOutcome.noLongerScheduled,
+        );
+        stubPostNow((_) async => throw const NotFoundException('gone'));
+        expect(
+          (await cubit.postNow(scheduledPost(2))).outcome,
+          ScheduledRemovalOutcome.noLongerScheduled,
+        );
+        expect(cubit.state.items, isEmpty);
+      },
+    );
+
+    test('a failure puts the row back where it was', () async {
+      final cubit = await loaded();
+      stubPostNow((_) async => throw const NetworkException('offline'));
+      final result = await cubit.postNow(scheduledPost(1));
+      expect(result.outcome, ScheduledRemovalOutcome.failed);
+      expect(result.error, isA<NetworkException>());
+      expect(cubit.state.items.map((i) => i.scheduledId), [
+        scheduledId(1),
+        scheduledId(2),
+      ]);
+    });
+
+    test('a second tap shares the first call', () async {
+      final cubit = await loaded();
+      final gate = Completer<pb.ScheduledPost>();
+      stubPostNow((_) => gate.future);
+      final first = cubit.postNow(scheduledPost(1));
+      final second = cubit.postNow(scheduledPost(1));
+      gate.complete(
+        scheduledPost(
+          1,
+          status: ScheduledPostStatus.SCHEDULED_POST_STATUS_PUBLISHED,
+        ),
+      );
+      expect(identical(await first, await second), isTrue);
+      expect(keys, hasLength(1));
+    });
+  });
+
+  group('edit', () {
+    void stubUpdate(Future<pb.ScheduledPost> Function(Invocation call) answer) {
+      when(
+        () => repo.updateScheduledPost(
+          scheduledId: any(named: 'scheduledId'),
+          idempotencyKey: any(named: 'idempotencyKey'),
+          text: any(named: 'text'),
+          publishAt: any(named: 'publishAt'),
+        ),
+      ).thenAnswer(answer);
+    }
+
+    Future<ScheduledPostsCubit> loaded() async {
+      stubList(
+        (_) => page([
+          scheduledPost(1, text: 'one'),
+          scheduledPost(2, text: 'two'),
+          scheduledPost(3, text: 'three'),
+        ]),
+      );
+      final cubit = make();
+      await cubit.load();
+      return cubit;
+    }
+
+    test('sends only what changed and shows the new text', () async {
+      final cubit = await loaded();
+      stubUpdate((_) async => scheduledPost(2, text: 'two, edited'));
+      final result = await cubit.edit(
+        scheduledPost(2, text: 'two'),
+        text: 'two, edited',
+      );
+      expect(result.outcome, ScheduledEditOutcome.saved);
+      verify(
+        () => repo.updateScheduledPost(
+          scheduledId: scheduledId(2),
+          idempotencyKey: any(named: 'idempotencyKey'),
+          text: 'two, edited',
+        ),
+      ).called(1);
+      expect(cubit.state.items.map((i) => i.text), [
+        'one',
+        'two, edited',
+        'three',
+      ]);
+    });
+
+    test('a new time moves the row to its place', () async {
+      final cubit = await loaded();
+      final later = scheduledBase().add(const Duration(hours: 10));
+      stubUpdate((_) async => scheduledPost(1, text: 'one', publishAt: later));
+      await cubit.edit(scheduledPost(1, text: 'one'), publishAt: later);
+      expect(cubit.state.items.map((i) => i.text), ['two', 'three', 'one']);
+    });
+
+    test('already sent: tooLate and the row goes', () async {
+      final cubit = await loaded();
+      stubUpdate(
+        (_) async => scheduledPost(
+          1,
+          status: ScheduledPostStatus.SCHEDULED_POST_STATUS_PUBLISHED,
+        ),
+      );
+      final result = await cubit.edit(scheduledPost(1), text: 'x');
+      expect(result.outcome, ScheduledEditOutcome.tooLate);
+      expect(cubit.state.items.map((i) => i.text), ['two', 'three']);
+    });
+
+    test('gone: noLongerScheduled and the row goes', () async {
+      final cubit = await loaded();
+      stubUpdate((_) async => throw const NotFoundException('gone'));
+      final result = await cubit.edit(scheduledPost(3), text: 'x');
+      expect(result.outcome, ScheduledEditOutcome.noLongerScheduled);
+      expect(cubit.state.items.map((i) => i.text), ['one', 'two']);
+    });
+
+    test('a failure changes nothing', () async {
+      final cubit = await loaded();
+      stubUpdate(
+        (_) async =>
+            throw const ValidationException('bad', field: 'publish_at'),
+      );
+      final result = await cubit.edit(scheduledPost(1), text: 'x');
+      expect(result.outcome, ScheduledEditOutcome.failed);
+      expect(result.error, isA<ValidationException>());
+      expect(cubit.state.items.map((i) => i.text), ['one', 'two', 'three']);
+    });
+  });
 }
