@@ -149,6 +149,12 @@ bool _isCommunitiesLocation(String location) {
   return segments.isNotEmpty && segments.first == 'communities';
 }
 
+/// Whether [location] is a post page (`/post/:id` and its photo viewer).
+bool _isPostLocation(String location) {
+  final segments = Uri.parse(location).pathSegments;
+  return segments.isNotEmpty && segments.first == 'post';
+}
+
 /// Whether [location] is a Settings page (`/settings` and everything under
 /// it).
 bool _isSettingsLocation(String location) {
@@ -192,6 +198,9 @@ String contextPaneLocationFor(String base, String? top) {
   // Lists (`/u/:id/lists`) is both a profile and a Lists page: the top page
   // decides by either rule.
   if (_isProfileLocation(top) || _isProfileLocation(base)) return top;
+  // A post is pushed from every feed: a post over Home has no pane, and a
+  // page pushed over a post gets its own family.
+  if (_isPostLocation(top) || _isPostLocation(base)) return top;
   return _isCommunitiesLocation(top) ||
           _isCommunitiesLocation(base) ||
           _isListsLocation(top) ||
@@ -213,6 +222,9 @@ ContextFamily contextFamilyFor(String location) {
     ['settings', ...] => ContextFamily.none,
     ['messages', ...] => ContextFamily.none,
     ['creator-studio'] || ['advertise'] || ['calls'] => ContextFamily.none,
+    // A post and its thread: the tablet PostDetail and PostThread designs
+    // give the conversation the whole content width.
+    ['post', ...] => ContextFamily.none,
     // `/plans/new` and `/plans/mine` are matched before `/plans/:id`.
     ['plans', 'new'] => ContextFamily.planCreate,
     ['plans', 'mine'] => ContextFamily.global,
