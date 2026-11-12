@@ -496,7 +496,7 @@ variable "community_creators" {
 }
 
 variable "feature_profile_extras" {
-  description = "FEATURE_PROFILE_EXTRAS rollout mode for profile_extras (ADR-0024 D9; gates UpdateProfile banner, location, website and pin fields and CreateUpload(BANNER), which also needs media): off | allowlist | percent | on. Default off; ramp deliberately."
+  description = "FEATURE_PROFILE_EXTRAS rollout mode for profile_extras (ADR-0024 D9; gates the UpdateProfile location, website and pin fields): off | allowlist | percent | on. Default off; ramp deliberately."
   type        = string
   default     = "off"
 
@@ -652,13 +652,13 @@ variable "suggested_user_ids" {
 }
 
 variable "profile_media_retire" {
-  description = "PROFILE_MEDIA_RETIRE (ADR-0024 Amendment 1 A4): which replaced or removed profile images the API deletes 24-48 h later. off = nothing (default) | banner | all (banners and avatars). Per-project retention, not a cohort flag. Set banner only after the media bucket's customTime lifecycle rule (modules/media-buckets) is applied in this project (a tagged object without the rule outlives its TTL'd media document and escapes the account eraser); set all only after the app release that shows a placeholder for an avatar that no longer loads."
+  description = "PROFILE_MEDIA_RETIRE (ADR-0024 Amendment 1 A4): which replaced or removed profile images the API deletes 24-48 h later. off = nothing (default) | all (avatars). The legacy value banner is still accepted and means off (the profile banner was removed; it never covered avatars). Per-project retention, not a cohort flag. Set all only after the media bucket's customTime lifecycle rule (modules/media-buckets) is applied in this project (a tagged object without the rule outlives its TTL'd media document and escapes the account eraser) and after the app release that shows a placeholder for an avatar that no longer loads."
   type        = string
   default     = "off"
 
   validation {
     condition     = contains(["off", "banner", "all"], var.profile_media_retire)
-    error_message = "profile_media_retire must be one of: off, banner, all (backend/pkg/platform/config/modes.go)."
+    error_message = "profile_media_retire must be one of: off, all, or the legacy banner (= off) (backend/pkg/platform/config/modes.go)."
   }
 }
 
