@@ -45,7 +45,10 @@ void main() {
           ),
         )
         .dy,
-    band: tester.getSize(find.byType(ProfileCoverBand)),
+    // The hero draws a band only while the profile has a banner.
+    band: find.byType(ProfileCoverBand).evaluate().isEmpty
+        ? Size.zero
+        : tester.getSize(find.byType(ProfileCoverBand)),
   );
 
   group('the screen, banner URL present', () {
@@ -75,9 +78,8 @@ void main() {
 
           expect(settled, first, reason: 'after settling');
           expect(late, first, reason: 'two seconds later');
-          // 3:1 of the header's own width, reserved from the first frame.
-          expect(first.band.width / first.band.height, closeTo(3, 0.02));
-          expect(first.band.width, first.header.width);
+          // The band fills the navy hero from the first frame.
+          expect(first.band, first.header);
 
           // The same screen without a banner: not one dp apart.
           await tester.pumpWidget(const SizedBox.shrink());
@@ -90,7 +92,10 @@ void main() {
           );
           await rig.open(tester, size: size, textScale: scale);
           expect(find.byType(CachedNetworkImage), findsNothing);
-          expect(layoutOf(tester), first, reason: 'no banner at all');
+          // Header and name do not move; there is no band to measure.
+          final bare = layoutOf(tester);
+          expect(bare.header, first.header, reason: 'no banner at all');
+          expect(bare.name, first.name, reason: 'no banner at all');
         });
       }
     }
@@ -153,7 +158,7 @@ void main() {
     () {
       for (final brightness in Brightness.values) {
         testWidgets('${brightness.name}: errorWidget and placeholder are the '
-            'same flat surfaceContainerHigh band', (tester) async {
+            'same clear band over the navy hero', (tester) async {
           rig.arrange(profile: w3Profile(W3ProfileRig.target));
           await rig.open(
             tester,
@@ -165,7 +170,8 @@ void main() {
             find.byType(CachedNetworkImage),
           );
           final context = tester.element(find.byType(CachedNetworkImage));
-          final surface = Theme.of(context).colorScheme.surfaceContainerHigh;
+          // The hero is navy in both modes: the placeholder shows it through.
+          const surface = Colors.transparent;
           final placeholder = image.placeholder!(context, image.imageUrl);
           expect(placeholder, isA<ColoredBox>());
           expect((placeholder as ColoredBox).color, surface);

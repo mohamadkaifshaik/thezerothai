@@ -32,6 +32,15 @@ import 'cancel_follow_request_dialog.dart';
 ///   the row rather than say "This account doesn't exist anymore.".
 const _minSize = Size(88, AppSpacing.minTapTarget);
 
+/// Paints a [FollowButton] for a caller with its own look.
+typedef FollowButtonBuilder =
+    Widget Function(
+      BuildContext context, {
+      required bool filled,
+      required VoidCallback? onPressed,
+      required Widget child,
+    });
+
 class FollowButton extends StatelessWidget {
   /// [followedBy]: the other user follows the viewer, so the not-following
   /// state reads "Follow back" (only the profile header knows this; list rows
@@ -41,7 +50,14 @@ class FollowButton extends StatelessWidget {
     this.followedBy = false,
     this.onGone,
     this.source = FollowSource.other,
+    this.buttonBuilder,
   });
+
+  /// Draws the button itself, for a screen with its own look (the profile
+  /// hero's pills). The label, the filled / outlined role, the action and
+  /// the busy-state child stay this widget's; only the paint is the caller's.
+  /// Null draws the standard buttons.
+  final FollowButtonBuilder? buttonBuilder;
 
   final bool followedBy;
 
@@ -126,6 +142,19 @@ class FollowButton extends StatelessWidget {
         // (`Size.fromHeight`), which is an infinite width inside a Row (the
         // profile header puts this button in one). Keep the 48dp height and
         // use a finite minimum width.
+        final custom = buttonBuilder;
+        if (custom != null) {
+          return Semantics(
+            button: true,
+            label: label,
+            child: custom(
+              context,
+              filled: filled,
+              onPressed: onPressed,
+              child: child,
+            ),
+          );
+        }
         return Semantics(
           button: true,
           label: label,

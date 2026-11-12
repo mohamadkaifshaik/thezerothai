@@ -40,27 +40,39 @@ void main() {
   group('Profile: flag modes x widths', () {
     for (final MapEntry(key: mode, value: flags) in kProfileFlagModes.entries) {
       for (final w in _widths) {
-        testWidgets('$mode at $w: tabs in the page, no pane, no Media strip', (
-          tester,
-        ) async {
-          final rig = ProfileTabletRig();
-          await rig.pump(tester, width: w, flags: flags);
-          expect(tester.takeException(), isNull);
+        // Desktop with the new shell: the side column carries the Media grid
+        // (the desktop Profile mock), lent by the page. Tablet has no pane.
+        final sideMedia =
+            flags.contains(kFeatureUiShell) && w >= AppBreakpoints.tablet;
+        testWidgets(
+          '$mode at $w: tabs in the page, no pane, '
+          '${sideMedia ? 'Media strip in the side column' : 'no Media strip'}',
+          (tester) async {
+            final rig = ProfileTabletRig();
+            await rig.pump(tester, width: w, flags: flags);
+            expect(tester.takeException(), isNull);
 
-          // The Media tab is the media (F).
-          expect(_tabs(tester).$1, _allTabs);
-          expect(findContextPane(), findsNothing);
-          expect(find.byType(ProfileMediaStrip), findsNothing);
-          expect(find.byType(ProfileMediaStripPlaceholder), findsNothing);
-          // Nobody opened Media: no call for it.
-          expect(rig.count('feed:$kRigOwnId:media'), 0);
-          expect(rig.count('feed:$kRigOwnId:posts'), 1);
-          expect(rig.count('profile:'), 1);
-          expect(
-            find.byType(AppSideColumn),
-            w >= AppBreakpoints.tablet ? findsOneWidget : findsNothing,
-          );
-        });
+            // The Media tab is the media (F).
+            expect(_tabs(tester).$1, _allTabs);
+            expect(findContextPane(), findsNothing);
+            if (sideMedia) {
+              expect(find.byType(ProfileMediaStrip), findsOneWidget);
+              // One Media feed call: the page's own Media tab feed.
+              expect(rig.count('feed:$kRigOwnId:media'), 1);
+            } else {
+              expect(find.byType(ProfileMediaStrip), findsNothing);
+              expect(find.byType(ProfileMediaStripPlaceholder), findsNothing);
+              // Nobody opened Media: no call for it.
+              expect(rig.count('feed:$kRigOwnId:media'), 0);
+            }
+            expect(rig.count('feed:$kRigOwnId:posts'), 1);
+            expect(rig.count('profile:'), 1);
+            expect(
+              find.byType(AppSideColumn),
+              w >= AppBreakpoints.tablet ? findsOneWidget : findsNothing,
+            );
+          },
+        );
       }
     }
   });
@@ -118,7 +130,12 @@ void main() {
         expect(tester.takeException(), isNull, reason: '$w');
         expect(_tabs(tester).$2, 'Reposts', reason: '$w');
         expect(findContextPane(), findsNothing, reason: '$w');
-        expect(find.byType(ProfileMediaStrip), findsNothing, reason: '$w');
+        // Desktop's side column carries the Media grid; tablet has no pane.
+        expect(
+          find.byType(ProfileMediaStrip),
+          w >= AppBreakpoints.tablet ? findsOneWidget : findsNothing,
+          reason: '$w',
+        );
       }
       expect(
         tester.state<NestedScrollViewState>(find.byType(NestedScrollView)),
@@ -127,7 +144,8 @@ void main() {
       expect(rig.count('profile:'), 1);
       expect(rig.count('feed:$kRigOwnId:posts'), 1);
       expect(rig.count('feed:$kRigOwnId:reposts'), 1);
-      expect(rig.count('feed:$kRigOwnId:media'), 0);
+      // One Media call, the first time the desktop side column showed it.
+      expect(rig.count('feed:$kRigOwnId:media'), 1);
     });
   });
 

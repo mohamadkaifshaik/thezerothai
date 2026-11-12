@@ -250,16 +250,23 @@ void main() {
   });
 
   testWidgets(
-    'profile app bar stays transparent with no elevation after scrolling',
+    'profile app bar is clear over the hero, fills with the surface once the '
+    'name is under it, and never has elevation',
     (tester) async {
       arrange();
       await open(tester);
+      var bar = tester.widget<AppBar>(find.byType(AppBar));
+      expect(bar.backgroundColor!.a, 0);
+      expect(bar.elevation, 0);
+
       await scrollUp(tester, 1200);
-      final bar = tester.widget<AppBar>(find.byType(AppBar));
-      expect(bar.backgroundColor, Colors.transparent);
+      bar = tester.widget<AppBar>(find.byType(AppBar));
+      expect(
+        bar.backgroundColor,
+        Theme.of(tester.element(find.byType(AppBar))).colorScheme.surface,
+      );
       expect(bar.elevation, 0);
       expect(bar.scrolledUnderElevation, 0);
-      expect(bar.forceMaterialTransparency, isTrue);
     },
   );
 

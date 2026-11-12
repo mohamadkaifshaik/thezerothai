@@ -79,10 +79,8 @@ class EditProfileScreen extends StatelessWidget {
       child: _EditProfileView(
         saved: profile,
         avatarUrl: profile.avatarThumbUrl,
-        // The 600 px thumb is plenty for the editor's band.
-        bannerUrl: profile.bannerThumbUrl.isNotEmpty
-            ? profile.bannerThumbUrl
-            : profile.bannerUrl,
+        bannerUrl: profile.bannerUrl,
+        bannerThumbUrl: profile.bannerThumbUrl,
       ),
     );
   }
@@ -93,12 +91,14 @@ class _EditProfileView extends StatefulWidget {
     required this.saved,
     required this.avatarUrl,
     required this.bannerUrl,
+    required this.bannerThumbUrl,
   });
 
   /// The profile as saved: what the preview starts from.
   final identity.Profile saved;
   final String avatarUrl;
   final String bannerUrl;
+  final String bannerThumbUrl;
 
   @override
   State<_EditProfileView> createState() => _EditProfileViewState();
@@ -226,7 +226,9 @@ class _EditProfileViewState extends State<_EditProfileView> {
         // removal is a clear, which needs neither flag.
         final showBanner =
             cubit.canChangeBanner ||
-            (!state.bannerRemoved && widget.bannerUrl.isNotEmpty);
+            (!state.bannerRemoved &&
+                (widget.bannerUrl.isNotEmpty ||
+                    widget.bannerThumbUrl.isNotEmpty));
         return PopScope(
           canPop: !cubit.hasChanges || state.status == EditProfileStatus.saved,
           onPopInvokedWithResult: (didPop, _) async {
@@ -277,6 +279,7 @@ class _EditProfileViewState extends State<_EditProfileView> {
                           if (showBanner) ...[
                             BannerEditor(
                               url: widget.bannerUrl,
+                              thumbUrl: widget.bannerThumbUrl,
                               previewBytes: state.bannerPreview,
                               removed: state.bannerRemoved,
                               busy: state.isPreparingBanner || state.isSaving,
