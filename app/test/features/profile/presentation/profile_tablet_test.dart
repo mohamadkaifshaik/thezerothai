@@ -14,8 +14,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../../support/context_pane_rig.dart'
-    show expectTabletPanes, findContextPane;
+import '../../../support/context_pane_rig.dart' show expectTabletPanes;
 import '../../../support/profile_tablet_rig.dart';
 import '../../../support/theme_harness.dart';
 
@@ -54,7 +53,6 @@ void main() {
 
             // The Media tab is the media (F).
             expect(_tabs(tester).$1, _allTabs);
-            expect(findContextPane(), findsNothing);
             if (sideMedia) {
               expect(find.byType(ProfileMediaStrip), findsOneWidget);
               // One Media feed call: the page's own Media tab feed.
@@ -82,19 +80,16 @@ void main() {
         'the same after pop', (tester) async {
       final rig = ProfileTabletRig();
       await rig.pump(tester, location: AppRouter.homePath);
-      expect(findContextPane(), findsNothing);
 
       unawaited(rig.router.push(AppRouter.profileByIdPath(kRigOtherId)));
       await tester.pumpAndSettle();
       expect(find.byType(ProfileScreen), findsOneWidget);
-      expect(findContextPane(), findsNothing);
       expect(find.byType(ProfileMediaStrip), findsNothing);
       expect(find.byType(ProfileMediaStripPlaceholder), findsNothing);
       expect(rig.count('feed:$kRigOtherId:media'), 0);
 
       rig.router.pop();
       await tester.pumpAndSettle();
-      expect(findContextPane(), findsNothing);
       expect(find.byType(ProfileMediaStrip), findsNothing);
     });
 
@@ -109,7 +104,6 @@ void main() {
         await tester.pumpAndSettle();
         expect(_tabs(tester).$2, 'Media');
         expect(rig.count('feed:$kRigOwnId:media'), 1);
-        expect(findContextPane(), findsNothing);
         expect(find.byType(ProfileMediaStrip), findsNothing);
       });
     }
@@ -129,7 +123,6 @@ void main() {
         await rig.resize(tester, w);
         expect(tester.takeException(), isNull, reason: '$w');
         expect(_tabs(tester).$2, 'Reposts', reason: '$w');
-        expect(findContextPane(), findsNothing, reason: '$w');
         // Desktop's side column carries the Media grid; tablet has no pane.
         expect(
           find.byType(ProfileMediaStrip),
@@ -164,12 +157,7 @@ void main() {
         );
         expect(tester.takeException(), isNull);
         // No side column on the tablet layout: the page takes the content.
-        expectTabletPanes(
-          tester,
-          find.byType(ProfileScreen),
-          width,
-          hasPane: false,
-        );
+        expectTabletPanes(tester, find.byType(ProfileScreen), width);
       },
       widths: kTabletMatrixWidths,
       textScales: kTabletTextScales,
@@ -220,17 +208,11 @@ void main() {
           expect(tester.takeException(), isNull);
           expect(find.byType(GraphListScreen), findsOneWidget);
           expect(rig.count('followers:$kRigOwnId'), 1);
-          expect(findContextPane(), findsNothing);
           expect(find.byType(ProfileMediaStrip), findsNothing);
           if (_tabletFlags(flags) && w >= 600 && w < 1200) {
             // The tablet pushed page carries no Who to follow of its own.
             expect(find.byType(WhoToFollowCard), findsNothing);
-            expectTabletPanes(
-              tester,
-              find.byType(GraphListScreen),
-              w,
-              hasPane: false,
-            );
+            expectTabletPanes(tester, find.byType(GraphListScreen), w);
           }
         });
       }
@@ -246,7 +228,6 @@ void main() {
       rig.router.pop();
       await tester.pumpAndSettle();
       expect(find.byType(ProfileScreen), findsOneWidget);
-      expect(findContextPane(), findsNothing);
       expect(rig.count('feed:$kRigOwnId:media'), 0);
     });
 
@@ -257,7 +238,6 @@ void main() {
         tester,
         location: AppRouter.followersPath(kRigOtherHandle),
       );
-      expect(findContextPane(), findsNothing);
       expect(find.byType(AppSearchField), findsNothing);
       expect(find.byType(WhoToFollowCard), findsNothing);
     });

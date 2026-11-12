@@ -160,7 +160,6 @@ void main() {
         'no card, no ListFollowRequests', (tester) async {
       await open(tester, width: width);
 
-      expect(findContextPane(), findsNothing);
       expect(inScreen(inlineRow), findsOneWidget);
       expect(
         tester.getRect(inScreen(inlineRow)).top,
@@ -178,7 +177,6 @@ void main() {
         'the inline row hides; one call', (tester) async {
       await open(tester, width: width, height: 1000);
 
-      expect(findContextPane(), findsNothing);
       expect(inSide(card), findsOneWidget);
       expect(inScreen(inlineRow), findsNothing);
       expect(inSide(find.text('Accept')), findsNWidgets(3));
@@ -394,7 +392,6 @@ void main() {
         'in band B (the undo rule)', (tester) async {
       await open(tester, width: 1024, flags: kContextPaneFlags);
 
-      expect(findContextPane(), findsNothing);
       expect(inScreen(inlineRow), findsOneWidget);
       expect(card, findsNothing);
       expect(listCalls, 0);
@@ -418,7 +415,6 @@ void main() {
           ..remove(kFeatureUiTablet),
       );
 
-      expect(findContextPane(), findsNothing);
       expect(inScreen(inlineRow), findsOneWidget);
       expect(card, findsNothing);
       expect(listCalls, 0);
@@ -438,7 +434,6 @@ void main() {
       'overflow', (tester) async {
     await open(tester, width: 1024, textDirection: TextDirection.rtl);
 
-    expect(findContextPane(), findsNothing);
     expect(inScreen(inlineRow), findsOneWidget);
     expect(card, findsNothing);
     expectNoOverflow(tester);
@@ -452,7 +447,6 @@ void main() {
       await open(tester, width: width, height: height, textScale: 2);
 
       expectNoOverflow(tester);
-      expect(findContextPane(), findsNothing);
       expect(inScreen(inlineRow), findsOneWidget);
       expectMinTarget(tester, inScreen(inlineRow));
     });
@@ -517,7 +511,6 @@ void main() {
         tester,
         find.byType(NotificationsScreen),
         env.size.width,
-        hasPane: false,
       );
       expect(card, findsNothing);
       final row = inScreen(inlineRow);

@@ -1,19 +1,13 @@
-import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/core/widgets/context_pane_slots.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// A page that lends the pane a section while it is mounted.
+/// A page that lends the column a section while it is mounted.
 class _Lender extends StatefulWidget {
-  const _Lender({
-    required this.location,
-    required this.label,
-    this.kind = ContextSectionKind.profileMedia,
-  });
+  const _Lender({required this.location, required this.label});
 
   final String location;
   final String label;
-  final ContextSectionKind kind;
 
   @override
   State<_Lender> createState() => _LenderState();
@@ -25,9 +19,11 @@ class _LenderState extends State<_Lender> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _lease.attach(context, widget.location, {
-      widget.kind: (context) => Text('lent ${widget.label}'),
-    });
+    _lease.attach(
+      context,
+      widget.location,
+      (context) => Text('lent ${widget.label}'),
+    );
   }
 
   @override
@@ -43,13 +39,12 @@ class _LenderState extends State<_Lender> {
 Widget _app({
   required List<Widget> pages,
   String slotLocation = '/communities/77',
-  ContextSectionKind kind = ContextSectionKind.profileMedia,
   bool host = true,
 }) {
   final body = Column(
     children: [
       ...pages,
-      ContextPaneSlot(kind: kind, location: slotLocation),
+      ContextPaneSlot(location: slotLocation),
     ],
   );
   return MaterialApp(
@@ -58,8 +53,8 @@ Widget _app({
 }
 
 void main() {
-  group('ContextPaneSlots (page to pane, T8a)', () {
-    testWidgets('a mounted page fills the slot of its location and kind', (
+  group('ContextPaneSlots (page to side column)', () {
+    testWidgets('a mounted page fills the slot of its location', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -71,7 +66,7 @@ void main() {
       expect(find.text('lent A'), findsOneWidget);
     });
 
-    testWidgets('another location or kind leaves the slot empty (0 height)', (
+    testWidgets('another location leaves the slot empty (0 height)', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -85,20 +80,12 @@ void main() {
 
       await tester.pumpWidget(
         _app(
-          pages: const [
-            _Lender(location: '/communities/77', label: 'B'),
-            _Lender(
-              location: '/communities/77',
-              label: 'C',
-              kind: ContextSectionKind.trends,
-            ),
-          ],
-          kind: ContextSectionKind.trends,
+          pages: const [_Lender(location: '/communities/77', label: 'B')],
+          slotLocation: '/communities/79',
         ),
       );
       await tester.pump();
       expect(find.text('lent B'), findsNothing);
-      expect(find.text('lent C'), findsOneWidget);
     });
 
     testWidgets('a query or a trailing slash does not change the location', (
@@ -167,7 +154,6 @@ void main() {
               children: [
                 ...pages,
                 const ContextPaneSlot(
-                  kind: ContextSectionKind.profileMedia,
                   location: '/communities/77',
                   placeholder: Text('placeholder'),
                 ),
@@ -207,33 +193,21 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    test('lookups read the latest lease of a location and kind', () {
+    test('lookups read the latest lease of a location', () {
       final slots = ContextPaneSlots();
       addTearDown(slots.dispose);
       final a = Object();
       final b = Object();
       Widget one(BuildContext _) => const Text('1');
       Widget two(BuildContext _) => const Text('2');
-      slots.put(a, '/communities', {ContextSectionKind.trends: one});
-      slots.put(b, '/communities', {ContextSectionKind.trends: two});
-      expect(
-        slots.builderFor('/communities', ContextSectionKind.trends),
-        same(two),
-      );
+      slots.put(a, '/communities', one);
+      slots.put(b, '/communities', two);
+      expect(slots.builderFor('/communities'), same(two));
       slots.remove(b);
-      expect(
-        slots.builderFor('/communities', ContextSectionKind.trends),
-        same(one),
-      );
-      expect(
-        slots.builderFor('/communities', ContextSectionKind.profileMedia),
-        isNull,
-      );
+      expect(slots.builderFor('/communities'), same(one));
+      expect(slots.builderFor('/other'), isNull);
       slots.remove(a);
-      expect(
-        slots.builderFor('/communities', ContextSectionKind.trends),
-        isNull,
-      );
+      expect(slots.builderFor('/communities'), isNull);
     });
   });
 }

@@ -11,7 +11,6 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
-import '../../../core/widgets/context_pane.dart';
 import '../../../core/widgets/context_pane_slots.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
@@ -118,7 +117,7 @@ class _ProfileViewState extends State<_ProfileView> {
     _outer.addListener(_onScroll);
   }
 
-  /// Band B's media strip until the posts below take over (T8c): its
+  /// The desktop media strip until the posts below take over (T8c): its
   /// placeholder while the profile loads, nothing once it cannot show
   /// (failed, not found). The posts lend the strip itself (a later lease of
   /// the same location wins), over the page's own Media tab feed.
@@ -128,19 +127,20 @@ class _ProfileViewState extends State<_ProfileView> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final profile = context.read<ProfileCubit>();
-    _paneLease.attach(context, widget.location, {
-      ContextSectionKind.profileMedia: (context) =>
-          BlocBuilder<ProfileCubit, ProfileState>(
-            bloc: profile,
-            buildWhen: (a, b) => a.status != b.status,
-            builder: (context, state) => switch (state.status) {
-              ProfileStatus.loading ||
-              ProfileStatus.ready => const ProfileMediaStripPlaceholder(),
-              ProfileStatus.notFound ||
-              ProfileStatus.error => const SizedBox.shrink(),
-            },
-          ),
-    });
+    _paneLease.attach(
+      context,
+      widget.location,
+      (context) => BlocBuilder<ProfileCubit, ProfileState>(
+        bloc: profile,
+        buildWhen: (a, b) => a.status != b.status,
+        builder: (context, state) => switch (state.status) {
+          ProfileStatus.loading ||
+          ProfileStatus.ready => const ProfileMediaStripPlaceholder(),
+          ProfileStatus.notFound ||
+          ProfileStatus.error => const SizedBox.shrink(),
+        },
+      ),
+    );
   }
 
   @override
@@ -700,7 +700,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
     if (pin != oldWidget.state.profile?.pinnedPostId) _pinned?.pinChanged(pin);
   }
 
-  /// Band B's media strip (T8c), lent to the context pane over this
+  /// The desktop media strip, lent to the side column over this
   /// state's own Media tab feed: the pane sends no call of its own, and the
   /// Media tab opened later (or before) reuses the same feed.
   final _paneLease = ContextPaneLease();
@@ -718,9 +718,7 @@ class _ProfilePostsState extends State<_ProfilePosts> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _profileCubit = context.read<ProfileCubit>();
-    _paneLease.attach(context, widget.location, {
-      ContextSectionKind.profileMedia: _mediaStrip,
-    });
+    _paneLease.attach(context, widget.location, _mediaStrip);
   }
 
   /// The strip, or nothing when it cannot show: Reposts and Media off or

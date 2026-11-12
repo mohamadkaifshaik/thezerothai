@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:dzeroth/core/router/app_router.dart';
-import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:flutter/material.dart';
@@ -167,7 +166,6 @@ void main() {
         final rig = ThreadShellRig();
         await rig.pump(tester, open: postId(1), size: size);
         // Desktop keeps its own side column (ruling R-1); phones have none.
-        expect(find.byType(ContextPane), findsNothing);
       });
 
       testWidgets('text scale 2.0: nothing overflows', (tester) async {
