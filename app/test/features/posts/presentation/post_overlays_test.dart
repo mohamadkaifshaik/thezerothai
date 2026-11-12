@@ -15,6 +15,7 @@ import 'package:dzeroth/features/posts/presentation/reply_composer_screen.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -203,7 +204,7 @@ void main() {
     await open(tester, AppRouter.composeReplyPath(postId(1)));
     await tester.enterText(find.byType(TextField), 'A reply');
     await tester.pump();
-    await tester.tap(find.widgetWithText(FilledButton, 'Reply'));
+    await tester.tap(find.widgetWithText(AppPillButton, 'Reply'));
     await tester.pumpAndSettle();
     expect(find.text('Timeline'), findsOneWidget);
     verify(
@@ -222,7 +223,7 @@ void main() {
     expect(tester.widget<TextField>(find.byType(TextField)).enabled, false);
     expect(
       tester
-          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Reply'))
+          .widget<AppPillButton>(find.widgetWithText(AppPillButton, 'Reply'))
           .onPressed,
       isNull,
     );
