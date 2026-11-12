@@ -54,7 +54,7 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 # file; they live only in the gitignored terraform.tfvars.
 # - The cohort is the same 3 testers as feature_bookmarks_allowlist / feature_engagement_allowlist / feature_media_allowlist
 #   (Terraform does not check the subset rule, so keep them equal by hand): likes_list ramps WITH bookmarks and engagement,
-#   profile_extras (banner) needs media, follow_suggestions needs graph (on in dev).
+#   follow_suggestions needs graph (on in dev).
 # - Dev ceilings (scripts/promotion/flag-ceiling.json): allowlist, at most 3 uids, percent 0. Do not exceed them.
 # - profile_tabs never leaves `off` before the two posts indexes are READY and `opsctl backfill-has-media` has run in dev.
 # - suggested_user_ids is the curated "who to follow" fallback (at most 20 uids, not a secret). Empty (the default): a user who

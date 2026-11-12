@@ -76,24 +76,24 @@ service IdentityService {
   // that accepts every pending follow request (in pages of 100),
   // so the request path does none of that work; a failed publish is logged at ERROR. A toggle enqueues no
   // author-snapshot job.
-  // Profile extras: setting banner_media_id, location, website or pinned_post_id
+  // Profile extras: setting location, website or pinned_post_id
   // (any non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS (wire name "profile_extras") on for the
   // caller; otherwise FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "profile_extras", writing nothing, checked
   // before validation. A request from outside the cohort that mixes a clear with a set is refused whole. The exact
-  // string "" is a clear (banner removed, location or website emptied, pin removed) and is accepted from any
+  // string "" is a clear (location or website emptied, pin removed) and is accepted from any
   // authenticated caller whatever the flag, globally off included, and is handled like a bio edit. While the flag
   // is globally off the response omits website and pinned_post_id (Profile). DEGRADED_MODE=readonly still refuses the
-  // write. The display_name, bio and avatar path is unchanged. A banner, location, website or pin change does not enqueue the author-snapshot job
+  // write. The display_name, bio and avatar path is unchanged. A location, website or pin change does not enqueue the author-snapshot job
   // (none of them is in AuthorSnapshot). Field rules are on the request fields.
   // A request that changes nothing writes nothing. Per-uid daily call cap
   // PROFILE_UPDATES_PER_DAY, 100 calls/uid/IST day per instance (300 with 3) => RATE_LIMITED,
   // metadata["limit"] = "profile_update_daily", retry_after = time to IST midnight, before any lookup.
-  // Replaced and removed images: a commit that replaced or removed the avatar or the banner
+  // Replaced and removed images: a commit that replaced or removed the avatar
   // hands the old image to a best-effort retire step after the commit (the old URLs come from the document the
-  // transaction read, and at most 2 Pub/Sub publishes go out, one per image); a failed hand-over is logged at ERROR and the image stays until account deletion.
+  // transaction read, and at most 1 Pub/Sub publish goes out); a failed hand-over is logged at ERROR and the image stays until account deletion.
   // The async job (kind profile_media_retired on the jobs topic) runs once per
   // image, and deletes the old public objects 24-48 h later through a bucket lifecycle rule, only while
-  // PROFILE_MEDIA_RETIRE allows it (off by default; banner, or all for avatars too). A retired image can never be set
+  // PROFILE_MEDIA_RETIRE allows it (off by default; all for avatars). A retired image can never be set
   // again: it answers MEDIA_NOT_READY like any unusable id.
   rpc UpdateProfile(UpdateProfileRequest) returns (UpdateProfileResponse);
 
@@ -174,11 +174,10 @@ message Profile {
   google.protobuf.Timestamp created_at = 12;
   // Profile extras. Data set while FEATURE_PROFILE_EXTRAS was on keeps rendering after a ramp-down; only
   // pinned_post_id and website are withheld while the flag is globally off (D3, D9, Amendment 1 A1), in every Profile
-  // including the owner's own. Nothing stored is erased, and the banner and location are not withheld.
-  // 1500 x 500 banner (cover image, 3:1); empty if none. A new banner has a new URL (immutable object).
-  string banner_url = 13;
-  // 600 x 200 banner for small layouts; empty if none.
-  string banner_thumb_url = 14;
+  // including the owner's own. Nothing stored is erased, and the location is not withheld.
+  // 13 and 14 were the profile banner (cover image), removed; never reuse them.
+  reserved 13, 14;
+  reserved "banner_url", "banner_thumb_url";
   // Free-text location, <= 30 code points, single line; empty if none.
   string location = 15;
   // An absolute http(s) URL, <= 100 characters, as typed except the lower-cased scheme; empty if none.
@@ -290,14 +289,12 @@ message UpdateProfileRequest {
   // true protects the account (needs FEATURE_PRIVATE_ACCOUNTS on for the caller); false unprotects it, from any
   // caller. Cap: see UpdateProfile.
   optional bool is_private = 5;
-  // Profile extras: setting any of the four fields below needs FEATURE_PROFILE_EXTRAS on for the caller; the
+  // 6 was the profile banner's media id, removed; never reuse it. A client that still sends it is ignored (unknown
+  // field).
+  reserved 6;
+  reserved "banner_media_id";
+  // Profile extras: setting any of the three fields below needs FEATURE_PROFILE_EXTRAS on for the caller; the
   // exact value "" (a clear) never does (see UpdateProfile).
-  // A READY or READY_UNSCREENED media id with purpose BANNER owned by the caller; "" removes the banner.
-  // Anything else (unknown, PENDING, REJECTED, another purpose, another owner) => FAILED_PRECONDITION +
-  // MEDIA_NOT_READY, one answer for every cause, a banner that was replaced or removed earlier (retired) included. A
-  // replaced or removed banner's objects are deleted 24-48 h later when PROFILE_MEDIA_RETIRE covers banners,
-  // otherwise kept until account deletion.
-  optional string banner_media_id = 6;
   // <= 30 code points after NFC and trim, single line; no control or bidi formatting characters (the bio rules);
   // else INVALID_ARGUMENT + VALIDATION, metadata["field"] = "location". "" clears it.
   optional string location = 7;

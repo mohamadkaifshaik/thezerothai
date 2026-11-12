@@ -208,9 +208,8 @@ type Config struct {
 	// off, and SendMessage applies a recipient's FOLLOWING_ONLY only when it is on for that recipient. Needs `messaging` for
 	// any effect. FEATURE_DM_POLICY[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureDMPolicy flags.Spec
-	// FeatureProfileExtras is the flag (wire name `profile_extras`) gating the UpdateProfile banner, location,
-	// website and pin fields and CreateUpload(BANNER) (which also needs `media`). FEATURE_PROFILE_EXTRAS[_ALLOWLIST|_PERCENT],
-	// default off in every environment.
+	// FeatureProfileExtras is the flag (wire name `profile_extras`) gating the UpdateProfile location, website and
+	// pin fields. FEATURE_PROFILE_EXTRAS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureProfileExtras flags.Spec
 	// FeatureProfileTabs is the flag (wire name `profile_tabs`) gating GetUserTimeline tab MEDIA and REPOSTS
 	// (Posts and Replies stay ungated). FEATURE_PROFILE_TABS[_ALLOWLIST|_PERCENT], default off in every environment.

@@ -29,18 +29,16 @@ type service struct {
 	blockChecker         BlockChecker
 	features             FeatureFlags
 	avatars              AvatarResolver
-	// banners, pins and extras are the profile-extras seams. All nil by default: no resolver means a
-	// non-empty banner_media_id is MEDIA_NOT_READY, no checker means a non-empty pinned_post_id is VALIDATION, and no
-	// flags means profile_extras is off for every caller and globally off.
-	banners BannerResolver
-	pins    PinChecker
-	extras  ExtrasFlags
+	// pins and extras are the profile-extras seams. Both nil by default: no checker means a non-empty pinned_post_id is
+	// VALIDATION, and no flags means profile_extras is off for every caller and globally off.
+	pins   PinChecker
+	extras ExtrasFlags
 	// signup is the M2 Auth-user check at the CreateProfile boundary; nil (tests) skips it. apiserver.Build always
 	// wires it, so production never runs without it.
 	signup *authAdmin
 	// snap is the profile-snapshot-refresh trigger (profile_snapshot.go); nil = never publishes.
 	snap *profileSnapshots
-	// retire hands a replaced or removed avatar or banner to the media module after the commit (media_retire.go
+	// retire hands a replaced or removed avatar to the media module after the commit (media_retire.go
 	// A4); nil = never, the pre-A4 behaviour.
 	retire *mediaRetire
 	// privacy is the is_private toggle (privacy.go); nil = the behaviour (protect refused as coming soon).
@@ -102,11 +100,6 @@ func WithNotificationBadge(b NotificationBadge, log *slog.Logger) Option {
 // WithAvatarResolver wires UpdateProfile.avatar_media_id. Nil keeps non-empty values rejected.
 func WithAvatarResolver(r AvatarResolver) Option {
 	return func(s *service) { s.avatars = r }
-}
-
-// WithBannerResolver wires UpdateProfile.banner_media_id. Nil keeps non-empty values rejected as not ready.
-func WithBannerResolver(r BannerResolver) Option {
-	return func(s *service) { s.banners = r }
 }
 
 // WithPinChecker wires UpdateProfile.pinned_post_id. Nil keeps non-empty values rejected with VALIDATION.
@@ -441,7 +434,7 @@ func (s *service) GetProfile(ctx context.Context, callerUID string, target Profi
 // empty one or 0, is a rollout, not the switch; no flags wired counts as off) it omits pinned_post_id (so clients stop
 // the GetPost call) and website (the one field that sends a viewer somewhere else, the phishing surface). It covers
 // every Profile identity returns, the owner's own view included, without a read. Everything else is returned as stored;
-// rendering of banner and location stays ungated (D9). The cache, the stored document and the export keep the stored
+// rendering of the location stays ungated (D9). The cache, the stored document and the export keep the stored
 // values, so a flag that comes back shows both again without a write.
 func (s *service) present(p Profile) Profile {
 	if s.extras == nil || s.extras.GloballyOff(ProfileExtrasFlag) {
@@ -512,11 +505,11 @@ func setsExtra(p *string) bool { return p != nil && *p != "" }
 
 // UpdateProfile runs the users/{uid} transaction (L-4: it writes nothing when the request changes nothing,
 // because UpdatedAt moves only on a real change and the repo then skips the write). Before the transaction it
-// resolves a non-empty avatar_media_id and banner_media_id against the media doc and a non-empty pinned_post_id
-// against the post (cache-first). A media id that is not a READY, caller-owned AVATAR or
-// BANNER is ERROR_REASON_MEDIA_NOT_READY; any pinned_post_id the caller may not pin is VALIDATION
+// resolves a non-empty avatar_media_id against the media doc and a non-empty pinned_post_id
+// against the post (cache-first). A media id that is not a READY, caller-owned AVATAR
+// is ERROR_REASON_MEDIA_NOT_READY; any pinned_post_id the caller may not pin is VALIDATION
 // field=pinned_post_id (one answer for every cause, so the call is no existence oracle).
-// Setting banner_media_id, location, website or pinned_post_id (any non-empty value, whitespace-only included) needs
+// Setting location, website or pinned_post_id (any non-empty value, whitespace-only included) needs
 // profile_extras on for the caller: otherwise FEATURE_DISABLED feature=profile_extras, checked before any validation or
 // read, so nothing is written (D9), and a request that mixes a clear with a set is refused whole. The exact string "" (a clear) is
 // accepted from any authenticated caller whatever the flag, globally off included
@@ -534,9 +527,9 @@ func setsExtra(p *string) bool { return p != nil && *p != "" }
 // call). The cached profile is written from the committed data (SetProfile), so no Directory.Forget is needed. A toggle bumps
 // no snapshotVersion and enqueues no snapshot job. is_private=true is gated by private_accounts; is_private=false never is.
 //
-// A4: a commit that replaced or removed the avatar or the banner hands the old image to the media
+// A4: a commit that replaced or removed the avatar hands the old image to the media
 // module's retire step (WithMediaRetirer, after the commit, best effort): no extra Firestore read, since the old URLs are
-// in the document the transaction read, and at most 2 Pub/Sub publishes (one per image, each under a 2 s deadline). The
+// in the document the transaction read, and at most 1 Pub/Sub publish (under a 2 s deadline). The
 // step deletes the old objects after a grace of at least 24 h, only while PROFILE_MEDIA_RETIRE allows it; a failed hand-over
 // is logged at ERROR and the image stays until the account is deleted. A request that changes nothing hands over
 // nothing.
@@ -568,7 +561,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	// caller outside the cohort learns nothing about the fields and costs nothing. Only a SET is gated: the exact
 	// string "" is a clear and always passes. The test is on the raw value, before normalisation, so "   " (which
 	// would normalise to a clear) is still a set here.
-	if setsExtra(params.BannerMediaID) || setsExtra(params.Location) || setsExtra(params.Website) || setsExtra(params.PinnedPostID) {
+	if setsExtra(params.Location) || setsExtra(params.Website) || setsExtra(params.PinnedPostID) {
 		if err := s.extrasDisabled(ctx, uid); err != nil {
 			return Profile{}, err
 		}
@@ -610,22 +603,6 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 		}
 		avatar = &ref
 	}
-	var banner *BannerRef
-	if params.BannerMediaID != nil && *params.BannerMediaID != "" {
-		notReady := apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY, "banner is not ready; upload it again")
-		if s.banners == nil {
-			// No resolver wired (apiserver always wires one): every non-empty banner_media_id gets this one answer.
-			return Profile{}, notReady
-		}
-		ref, err := s.banners.ResolveBanner(ctx, uid, *params.BannerMediaID)
-		switch {
-		case errors.Is(err, ErrBannerNotReady):
-			return Profile{}, notReady
-		case err != nil:
-			return Profile{}, logger.RedactErr(fmt.Errorf("identity: resolve banner: %w", err), uid)
-		}
-		banner = &ref
-	}
 	if params.PinnedPostID != nil && *params.PinnedPostID != "" {
 		if s.pins == nil {
 			// No checker wired (apiserver always wires one): pinning is unavailable and answers like any other post the
@@ -653,7 +630,7 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 	now := s.now().UTC()
 	snapshotChanged := false
 	var changed []string
-	var retired []retiredImage // the old avatar and banner this commit replaced or removed (A4); 0 extra reads
+	var retired []retiredImage // the old avatar this commit replaced or removed (A4); 0 extra reads
 	mutate := func(p *Profile) {
 		changed, snapshotChanged, retired = changed[:0], false, retired[:0] // the transaction may run more than once
 		// L-4: a request that changes nothing must leave the profile (UpdatedAt included) as it was, so the repo
@@ -688,15 +665,6 @@ func (s *service) UpdateProfile(ctx context.Context, uid string, params UpdatePr
 			p.AvatarThumbURL = ""
 		}
 		// The extras are plain field writes. None of them touches snapshotVersion (not in AuthorSnapshot).
-		if banner != nil {
-			note("banner", banner.URL != p.BannerURL || banner.ThumbURL != p.BannerThumbURL)
-			p.BannerURL, p.BannerThumbURL = banner.URL, banner.ThumbURL
-		}
-		if params.BannerMediaID != nil && *params.BannerMediaID == "" {
-			note("banner", p.BannerURL != "" || p.BannerThumbURL != "")
-			p.BannerURL = ""
-			p.BannerThumbURL = ""
-		}
 		if params.Location != nil {
 			note("location", location != p.Location)
 			p.Location = location

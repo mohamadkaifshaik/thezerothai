@@ -348,7 +348,7 @@ locals {
     { name = "RATE_LIMIT_PROFILE_RELATIONSHIP_PER_MIN", value = "60" },
     # L-4: UpdateProfile daily call cap (limit_name profile_update_daily). Must match the config.go default; config.Load rejects a value <= 0.
     { name = "PROFILE_UPDATES_PER_DAY", value = "100" },
-    # Delete replaced or removed profile images 24-48 h after the change. Per-project retention, default off: raise it to banner only after the media bucket's customTime lifecycle rule is applied here, to all only after the avatar placeholder app release. Must match config.Load's accepted values.
+    # Delete replaced or removed profile images 24-48 h after the change. Per-project retention, default off: raise it to all only after the media bucket's customTime lifecycle rule is applied here and after the avatar placeholder app release (the legacy value banner means off). Must match config.Load's accepted values.
     { name = "PROFILE_MEDIA_RETIRE", value = var.profile_media_retire },
     # Kill switch of the media orphan sweep (last step of daily-maintenance): off = nothing (default) | mark = phase 1 and
     # restores only, never a claim or delete | delete = both phases. Must match config.Load's accepted values.

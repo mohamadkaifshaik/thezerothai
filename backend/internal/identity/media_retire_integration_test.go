@@ -17,18 +17,14 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// On the real repo: UpdateProfile hands over a replaced or removed avatar or banner for retirement, and ProfileImageURLs is the
+// On the real repo: UpdateProfile hands over a replaced or removed avatar for retirement, and ProfileImageURLs is the
 // fresh users/{uid} read the media step checks.
 
 // pickyImages resolves like media.Library would but returns whatever URL the test last set.
-type pickyImages struct{ avatar, banner string }
+type pickyImages struct{ avatar string }
 
 func (p *pickyImages) ResolveAvatar(ctx context.Context, _, _ string) (identity.AvatarRef, error) {
 	return identity.AvatarRef{URL: p.avatar, ThumbURL: p.avatar + "_t"}, nil
-}
-
-func (p *pickyImages) ResolveBanner(ctx context.Context, _, _ string) (identity.BannerRef, error) {
-	return identity.BannerRef{URL: p.banner, ThumbURL: p.banner + "_t"}, nil
 }
 
 type recordedRetire struct {
@@ -50,7 +46,7 @@ func TestUpdateProfile_Integration_RetireHandOver(t *testing.T) {
 	imgs, rec := &pickyImages{}, &recordingRetirer{}
 	reg := flags.NewRegistry(flags.Spec{Name: identity.ProfileExtrasFlag, Mode: flags.On})
 	svc := identity.New(repo, identity.NewCache(time.Minute), 7*24*time.Hour,
-		identity.WithAvatarResolver(imgs), identity.WithBannerResolver(imgs), identity.WithExtrasFlags(reg),
+		identity.WithAvatarResolver(imgs), identity.WithExtrasFlags(reg),
 		identity.WithMediaRetirer(rec, slog.New(slog.NewJSONHandler(io.Discard, nil))))
 	setup := context.Background()
 	if _, err := svc.CreateProfile(setup, itUID, validKeyForIntegration, "Alice", "Alice A."); err != nil {
@@ -66,23 +62,22 @@ func TestUpdateProfile_Integration_RetireHandOver(t *testing.T) {
 		}
 	}
 
-	// First set of both images: nothing to retire.
-	imgs.avatar, imgs.banner = "https://m/a1.webp", "https://m/b1.webp"
-	save("first set", identity.UpdateProfileParams{AvatarMediaID: str("a1"), BannerMediaID: str("b1")})
+	// First set: nothing to retire.
+	imgs.avatar = "https://m/a1.webp"
+	save("first set", identity.UpdateProfileParams{AvatarMediaID: str("a1")})
 	if len(rec.calls) != 0 {
 		t.Fatalf("a first-time set handed over %+v", rec.calls)
 	}
 
-	// Replace the avatar, remove the banner; both old images are handed over.
+	// Replace the avatar; the old image is handed over.
 	imgs.avatar = "https://m/a2.webp"
 	before := time.Now()
-	save("replace avatar, remove banner", identity.UpdateProfileParams{AvatarMediaID: str("a2"), BannerMediaID: str("")})
+	save("replace avatar", identity.UpdateProfileParams{AvatarMediaID: str("a2")})
 	want := []recordedRetire{
 		{image: identity.ProfileImageAvatar, url: "https://m/a1.webp", thumbURL: "https://m/a1.webp_t"},
-		{image: identity.ProfileImageBanner, url: "https://m/b1.webp", thumbURL: "https://m/b1.webp_t"},
 	}
-	if len(rec.calls) != 2 {
-		t.Fatalf("hand-overs = %+v, want 2", rec.calls)
+	if len(rec.calls) != 1 {
+		t.Fatalf("hand-overs = %+v, want 1", rec.calls)
 	}
 	for i, w := range want {
 		g := rec.calls[i]
@@ -91,14 +86,14 @@ func TestUpdateProfile_Integration_RetireHandOver(t *testing.T) {
 		}
 	}
 	stored := userData(t, client, itUID)
-	if banner, _ := stored["bannerUrl"].(string); stored["avatarUrl"] != "https://m/a2.webp" || banner != "" {
-		t.Errorf("stored images = %v / %v (a removed banner is an absent or empty field)", stored["avatarUrl"], stored["bannerUrl"])
+	if stored["avatarUrl"] != "https://m/a2.webp" {
+		t.Errorf("stored avatar = %v", stored["avatarUrl"])
 	}
 
 	// The same request again changes nothing: the document is not rewritten and nothing is handed over.
 	rec.calls = nil
 	savedDoc := userData(t, client, itUID)
-	save("identical save", identity.UpdateProfileParams{AvatarMediaID: str("a2"), BannerMediaID: str("")})
+	save("identical save", identity.UpdateProfileParams{AvatarMediaID: str("a2")})
 	if len(rec.calls) != 0 {
 		t.Errorf("a no-op save handed over %+v", rec.calls)
 	}
@@ -139,12 +134,13 @@ func TestProfileImageURLs_Integration(t *testing.T) {
 	}
 	if _, err := client.Collection("users").Doc(itUID).Update(context.Background(), []firestore.Update{
 		{Path: "avatarUrl", Value: "https://m/a.webp"}, {Path: "avatarThumbUrl", Value: "https://m/a_t.webp"},
+		// A legacy banner (the removed feature) on the document is not a profile image any more and still decodes.
 		{Path: "bannerUrl", Value: "https://m/b.webp"}, {Path: "bannerThumbUrl", Value: ""},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if urls, found := read(itUID); !found || !reflect.DeepEqual(urls, []string{"https://m/a.webp", "https://m/a_t.webp", "https://m/b.webp"}) {
-		t.Errorf("urls = %v, found %v; want the three non-empty ones in avatar, thumb, banner order", urls, found)
+	if urls, found := read(itUID); !found || !reflect.DeepEqual(urls, []string{"https://m/a.webp", "https://m/a_t.webp"}) {
+		t.Errorf("urls = %v, found %v; want the avatar and its thumbnail only", urls, found)
 	}
 	if urls, found := read("uid-nobody"); found || len(urls) != 0 {
 		t.Errorf("a missing user = %v, found %v; want none, not found, no error", urls, found)

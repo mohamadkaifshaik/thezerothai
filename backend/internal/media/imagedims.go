@@ -49,8 +49,7 @@ func imageDims(contentType string, head []byte) (w, h int, ok bool) {
 //   - every image is within MaxDimension on each side and MaxPixels in total;
 //   - the full image is exactly the declared width x height (the official client declares what it encoded);
 //   - a thumbnail has no declared size, so it is held to no larger than the declared full image on either side (the client
-//     never upscales: a small photo's thumbnail is the photo's own size);
-//   - a BANNER's full image and thumbnail are both 3:1 within 2% and at most 1500 x 500.
+//     never upscales: a small photo's thumbnail is the photo's own size).
 func geometryOK(d *Doc, full bool, w, h int) bool {
 	switch {
 	case w <= 0 || h <= 0 || w > MaxDimension || h > MaxDimension || int64(w)*int64(h) > MaxPixels:
@@ -58,8 +57,6 @@ func geometryOK(d *Doc, full bool, w, h int) bool {
 	case full && (w != d.Width || h != d.Height):
 		return false
 	case !full && (w > d.Width || h > d.Height):
-		return false
-	case d.Purpose == string(PurposeBanner) && !bannerShapeOK(w, h):
 		return false
 	}
 	return true

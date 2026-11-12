@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// Security H-2: an animated WebP is refused for photos, avatars, banners and GIF thumbnails, with no Vision unit.
+// Security H-2: an animated WebP is refused for photos, avatars and GIF thumbnails, with no Vision unit.
 
 func chunk(id string, payload []byte) []byte {
 	b := append([]byte(id), 0, 0, 0, 0)
@@ -69,10 +69,7 @@ func animatedWebP() []byte {
 
 // purposeDims is the full-image size createWebP declares for a purpose (verify checks the real size, B14).
 func purposeDims(p Purpose) (w, h int) {
-	switch p {
-	case PurposeBanner:
-		return 1500, 500
-	case PurposeAvatar:
+	if p == PurposeAvatar {
 		return 400, 400
 	}
 	return 1200, 800
@@ -102,7 +99,7 @@ func (e *env) createWebP(t *testing.T, purpose Purpose, tag string, full, thumb 
 }
 
 func TestW626_FinalizeRefusesAnimatedWebP(t *testing.T) {
-	for _, purpose := range []Purpose{PurposePost, PurposeAvatar, PurposeBanner} {
+	for _, purpose := range []Purpose{PurposePost, PurposeAvatar} {
 		for _, side := range []string{"full", "thumb"} {
 			t.Run(string(purpose)+"/"+side, func(t *testing.T) {
 				e := newEnv(t, envOpts{screenThumb: true})
@@ -152,7 +149,7 @@ func TestW626_FinalizeRefusesAnimatedGIFThumbnail(t *testing.T) {
 
 func TestW626_StillWebPStillPasses(t *testing.T) {
 	for _, kind := range []string{"lossy", "lossless"} {
-		for _, purpose := range []Purpose{PurposePost, PurposeAvatar, PurposeBanner} {
+		for _, purpose := range []Purpose{PurposePost, PurposeAvatar} {
 			t.Run(kind+"/"+string(purpose), func(t *testing.T) {
 				e := newEnv(t, envOpts{})
 				tg := e.createWebP(t, purpose, "s", stillWebP(kind, purpose), stillWebP(kind, purpose))

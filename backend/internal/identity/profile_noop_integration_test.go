@@ -15,9 +15,9 @@ import (
 // users document every time). The first save and any later real change still write.
 func TestUpdateProfile_Integration_NoOpSaveWritesNothing(t *testing.T) {
 	client, svc, _ := newExtrasService(t, flags.On)
-	bio, loc, site, banner, pin := "hello", "Pune", "https://example.com", itBannerID, itPin
+	bio, loc, site, pin := "hello", "Pune", "https://example.com", itPin
 	full := identity.UpdateProfileParams{
-		IdempotencyKey: validKeyForIntegration, Bio: &bio, Location: &loc, Website: &site, BannerMediaID: &banner, PinnedPostID: &pin,
+		IdempotencyKey: validKeyForIntegration, Bio: &bio, Location: &loc, Website: &site, PinnedPostID: &pin,
 	}
 
 	save := func(name string, p identity.UpdateProfileParams) map[string]any {
@@ -54,7 +54,7 @@ func TestUpdateProfile_Integration_NoOpSaveWritesNothing(t *testing.T) {
 	if reflect.DeepEqual(first["updatedAt"], after["updatedAt"]) {
 		t.Errorf("a real change did not move updatedAt (%v)", after["updatedAt"])
 	}
-	for _, field := range []string{"pinnedPostId", "bannerUrl", "location", "website"} {
+	for _, field := range []string{"pinnedPostId", "location", "website"} {
 		if after[field] != first[field] {
 			t.Errorf("a bio edit changed %s: %v -> %v", field, first[field], after[field])
 		}

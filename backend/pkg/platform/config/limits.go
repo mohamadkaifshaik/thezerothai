@@ -148,8 +148,8 @@ type RateLimitConfig struct {
 	// document on every call even when nothing changed, so a save loop could rewrite it thousands of times a day
 	// per account.
 	//
-	// Default 100. A real user changes their profile a handful of times a day (name, bio, avatar, banner, location,
-	// website, pin, plus retries), so 100 is generous. The cap is per instance, so with 3 instances an account
+	// Default 100. A real user changes their profile a handful of times a day (name, bio, avatar, location, website,
+	// pin, plus retries), so 100 is generous. The cap is per instance, so with 3 instances an account
 	// can make at most 300 calls a day, each writing at most once (not at all when nothing changes).
 	ProfileUpdatesPerDay int64
 

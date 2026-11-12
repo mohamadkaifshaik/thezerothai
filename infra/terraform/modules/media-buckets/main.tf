@@ -57,7 +57,7 @@ resource "google_storage_bucket" "media" {
     max_age_seconds = 3600
   }
 
-  // Delete a replaced or removed avatar or banner after the grace. The API's retire step sets
+  // Delete a replaced or removed avatar after the grace. The API's retire step sets
   // customTime on the two public objects of a retired image (nothing else in the app sets it, pinned by
   // backend/internal/media/retire_invariant_test.go) and this rule deletes them once daysSinceCustomTime reaches 1,
   // so an object goes 24-48 h after the change (lifecycle acts within about a day of the condition). Objects without a
@@ -82,7 +82,7 @@ resource "google_storage_bucket" "media" {
 
 // Public read is object GET only: roles/storage.legacyObjectReader holds just storage.objects.get. Do not use
 // roles/storage.objectViewer here. It also grants storage.objects.list, so anyone could enumerate every object in the
-// bucket (replaced banners and avatars, taken-down post images). Security review M-2.
+// bucket (replaced avatars, taken-down post images). Security review M-2.
 // create_before_destroy: `role` is ForceNew, so the plan shows a replace. Creating the new binding first means a refused
 // grant leaves the old one in place instead of a bucket with no public read at all.
 // A request for a missing object still returns 404 NoSuchKey (checked in dev on 2026-10-27), so clients can keep

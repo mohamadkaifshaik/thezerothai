@@ -2,7 +2,7 @@
 
 package apiserver
 
-// over the real Build chain (Firestore, Auth, Pub/Sub emulators): UpdateProfile with a banner, location, website
+// over the real Build chain (Firestore, Auth, Pub/Sub emulators): UpdateProfile with a location, website
 // and pinned post, the profile_extras gate, the pin kill switch (Profile.pinned_post_id omitted while the flag is
 // globally off), and the post_delete job's identity step that clears the pin of a deleted post.
 //
@@ -21,7 +21,6 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
-	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
@@ -58,10 +57,6 @@ func TestProfileExtras_Chain(t *testing.T) {
 	ctx := context.Background()
 	e := newLifecycleEnvCfg(t, nil, profileExtrasOn)
 	a, b := e.newUser(t), e.newUser(t)
-	banner := e.seedMedia(t, a.uid, media.PurposeBanner)
-	theirBanner := e.seedMedia(t, b.uid, media.PurposeBanner)
-	avatar := e.seedMedia(t, a.uid, media.PurposeAvatar)
-	postImage := e.seedMedia(t, a.uid, media.PurposePost)
 	p1 := e.createRootPost(t, a, "pinext-post-key-000001", "my first post")
 	p2 := e.createRootPost(t, a, "pinext-post-key-000002", "my second post")
 	theirPost := e.createRootPost(t, b, "pinext-post-key-000003", "b's post")
@@ -74,14 +69,6 @@ func TestProfileExtras_Chain(t *testing.T) {
 		return resp.Msg.GetProfile(), nil
 	}
 	str := func(s string) *string { return &s }
-
-	// --- a banner that is not the caller's own READY BANNER: one answer, nothing written ---
-	for name, id := range map[string]string{"someone else's banner": theirBanner, "an avatar": avatar, "a post image": postImage, "unknown": "0000000000000000042", "malformed": "nope"} {
-		_, err := update(&identityv1.UpdateProfileRequest{IdempotencyKey: "pinext-bad-banner-0001", BannerMediaId: str(id)})
-		if d := wireError(t, err, connect.CodeFailedPrecondition); d.GetReason() != commonv1.ErrorReason_ERROR_REASON_MEDIA_NOT_READY {
-			t.Errorf("%s: reason = %v, want MEDIA_NOT_READY", name, d.GetReason())
-		}
-	}
 
 	// --- a pin the caller may not set: the same VALIDATION answer for every cause ---
 	var rejectMessages []string
@@ -111,29 +98,28 @@ func TestProfileExtras_Chain(t *testing.T) {
 	if d := wireError(t, err, connect.CodeInvalidArgument); d.GetMetadata()["field"] != "website" {
 		t.Errorf("website metadata = %v", d.GetMetadata())
 	}
-	if got := e.profileOfUser(t, b, a.uid); got.GetLocation() != "" || got.GetBannerUrl() != "" || got.GetPinnedPostId() != "" || got.GetWebsite() != "" {
+	if got := e.profileOfUser(t, b, a.uid); got.GetLocation() != "" || got.GetPinnedPostId() != "" || got.GetWebsite() != "" {
 		t.Fatalf("a rejected request changed the profile: %v", got)
 	}
 
 	// --- everything at once ---
 	got, err := update(&identityv1.UpdateProfileRequest{
-		IdempotencyKey: "pinext-all-fields-0001", BannerMediaId: &banner, Location: str("Pune"), Website: str("HTTPS://example.com/me"), PinnedPostId: &p1,
+		IdempotencyKey: "pinext-all-fields-0001", Location: str("Pune"), Website: str("HTTPS://example.com/me"), PinnedPostId: &p1,
 	})
 	if err != nil {
 		t.Fatalf("UpdateProfile: %v", err)
 	}
-	if got.GetBannerUrl() == "" || got.GetBannerThumbUrl() == "" || got.GetBannerUrl() == got.GetBannerThumbUrl() ||
-		got.GetLocation() != "Pune" || got.GetWebsite() != "https://example.com/me" || got.GetPinnedPostId() != p1 {
+	if got.GetLocation() != "Pune" || got.GetWebsite() != "https://example.com/me" || got.GetPinnedPostId() != p1 {
 		t.Fatalf("profile = %v", got)
 	}
 	line := lastRequestLine(t, e, rpcUpdateProfile)
-	if line["profile_fields_changed"] != "banner,location,website,pinned_post" || line["pin_check"] != "ok" {
+	if line["profile_fields_changed"] != "location,website,pinned_post" || line["pin_check"] != "ok" {
 		t.Errorf("profile_fields_changed=%v pin_check=%v", line["profile_fields_changed"], line["pin_check"])
 	}
 
 	// Another viewer sees the extras (rendering is ungated) and the pin; the author snapshot did not move.
 	seen := e.profileOfUser(t, b, a.uid)
-	if seen.GetBannerUrl() != got.GetBannerUrl() || seen.GetLocation() != "Pune" || seen.GetWebsite() != "https://example.com/me" || seen.GetPinnedPostId() != p1 {
+	if seen.GetLocation() != "Pune" || seen.GetWebsite() != "https://example.com/me" || seen.GetPinnedPostId() != p1 {
 		t.Fatalf("viewer's profile = %v", seen)
 	}
 	if fsDocField(t, e, "users/"+a.uid, "snapshotVersion") != int64(0) {
@@ -185,16 +171,16 @@ func TestProfileExtras_Chain(t *testing.T) {
 	if code := e.deliver(t, msgs[0]); code != http.StatusNoContent {
 		t.Fatalf("redelivery = %d", code)
 	}
-	if got := e.profileOfUser(t, b, a.uid); got.GetPinnedPostId() != "" || got.GetLocation() != "Pune" || got.GetBannerUrl() == "" {
+	if got := e.profileOfUser(t, b, a.uid); got.GetPinnedPostId() != "" || got.GetLocation() != "Pune" {
 		t.Fatalf("profile after the pinned post was deleted = %v: the pin clears, nothing else", got)
 	}
 	if v := fsDocField(t, e, "users/"+a.uid, "pinnedPostId"); v != "" && v != nil {
 		t.Errorf("stored pinnedPostId = %v", v)
 	}
 
-	// --- "" removes the banner and clears the fields, and costs no resolve ---
-	got, err = update(&identityv1.UpdateProfileRequest{IdempotencyKey: "pinext-clear-000001", BannerMediaId: str(""), Location: str(""), Website: str("")})
-	if err != nil || got.GetBannerUrl() != "" || got.GetBannerThumbUrl() != "" || got.GetLocation() != "" || got.GetWebsite() != "" {
+	// --- "" clears the fields ---
+	got, err = update(&identityv1.UpdateProfileRequest{IdempotencyKey: "pinext-clear-000001", Location: str(""), Website: str("")})
+	if err != nil || got.GetLocation() != "" || got.GetWebsite() != "" {
 		t.Fatalf("clear = %v, %v", got, err)
 	}
 }
@@ -236,17 +222,18 @@ func TestProfileExtras_FlagGateAndKillSwitch(t *testing.T) {
 	// A clear is accepted from outside the cohort (A2): the extras a caller once set in the cohort can always be removed.
 	if _, err := e.fs.Doc("users/"+b.uid).Update(ctx, []firestore.Update{
 		{Path: "location", Value: "Pune"}, {Path: "website", Value: "https://example.com"}, {Path: "pinnedPostId", Value: "0000000000000000301"},
+		// A legacy banner (the removed feature): the whole-document rewrite of the clear drops it.
 		{Path: "bannerUrl", Value: "https://m/b.webp"}, {Path: "bannerThumbUrl", Value: "https://m/b_t.webp"},
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
 	cleared, err := e.identity.UpdateProfile(ctx, authed(b.token, &identityv1.UpdateProfileRequest{
-		IdempotencyKey: "pinext-gate-000000006", BannerMediaId: &empty, Location: &empty, Website: &empty, PinnedPostId: &empty,
+		IdempotencyKey: "pinext-gate-000000006", Location: &empty, Website: &empty, PinnedPostId: &empty,
 	}))
 	if err != nil {
 		t.Fatalf("a clear outside the cohort: %v", err)
 	}
-	if p := cleared.Msg.GetProfile(); p.GetBannerUrl() != "" || p.GetLocation() != "" || p.GetWebsite() != "" || p.GetPinnedPostId() != "" {
+	if p := cleared.Msg.GetProfile(); p.GetLocation() != "" || p.GetWebsite() != "" || p.GetPinnedPostId() != "" {
 		t.Errorf("response after the clear = %v", p)
 	}
 	for _, f := range []string{"location", "website", "pinnedPostId", "bannerUrl", "bannerThumbUrl"} {
@@ -272,7 +259,7 @@ func TestProfileExtras_FlagGateAndKillSwitch(t *testing.T) {
 }
 
 // TestProfileExtras_KillSwitchOmitsThePinAndWebsite: with profile_extras globally off (mode off) the stored pin and website
-// are not returned by any RPC, the owner's own view included, while banner and location still are (clients
+// are not returned by any RPC, the owner's own view included, while the location still is (clients
 // stop the GetPost call; Amendment 1 A1: the link stops rendering). A clear still works
 // (Amendment 1 A2).
 func TestProfileExtras_KillSwitchOmitsThePinAndWebsite(t *testing.T) {
@@ -284,6 +271,7 @@ func TestProfileExtras_KillSwitchOmitsThePinAndWebsite(t *testing.T) {
 	pid := e.createRootPost(t, a, "pinext-kill-post-0001", "pinned while the flag was on")
 	if _, err := e.fs.Doc("users/"+a.uid).Update(context.Background(), []firestore.Update{
 		{Path: "pinnedPostId", Value: pid}, {Path: "location", Value: "Pune"}, {Path: "website", Value: "https://example.com"},
+		// A legacy banner (the removed feature) still on the document: it decodes and is never returned.
 		{Path: "bannerUrl", Value: "https://m/b.webp"}, {Path: "bannerThumbUrl", Value: "https://m/b_t.webp"},
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -293,8 +281,8 @@ func TestProfileExtras_KillSwitchOmitsThePinAndWebsite(t *testing.T) {
 		if p.GetPinnedPostId() != "" || p.GetWebsite() != "" {
 			t.Errorf("%s: pinned_post_id = %q, website = %q while profile_extras is globally off", rpc, p.GetPinnedPostId(), p.GetWebsite())
 		}
-		if p.GetLocation() != "Pune" || p.GetBannerUrl() != "https://m/b.webp" || p.GetBannerThumbUrl() != "https://m/b_t.webp" {
-			t.Errorf("%s: banner and location must stay visible: %v", rpc, p)
+		if p.GetLocation() != "Pune" {
+			t.Errorf("%s: the location must stay visible: %v", rpc, p)
 		}
 	}
 	check("GetProfile (viewer)", e.profileOfUser(t, b, a.uid))
@@ -318,12 +306,12 @@ func TestProfileExtras_KillSwitchOmitsThePinAndWebsite(t *testing.T) {
 	// The owner cannot see their website or pin now, but the clear still works (A2): the stored values go, and the response still shows neither.
 	empty := ""
 	cleared, err := e.identity.UpdateProfile(context.Background(), authed(a.token, &identityv1.UpdateProfileRequest{
-		IdempotencyKey: "pinext-kill-000000002", Website: &empty, Location: &empty, PinnedPostId: &empty, BannerMediaId: &empty,
+		IdempotencyKey: "pinext-kill-000000002", Website: &empty, Location: &empty, PinnedPostId: &empty,
 	}))
 	if err != nil {
 		t.Fatalf("a clear while profile_extras is globally off: %v", err)
 	}
-	if p := cleared.Msg.GetProfile(); p.GetWebsite() != "" || p.GetPinnedPostId() != "" || p.GetLocation() != "" || p.GetBannerUrl() != "" {
+	if p := cleared.Msg.GetProfile(); p.GetWebsite() != "" || p.GetPinnedPostId() != "" || p.GetLocation() != "" {
 		t.Errorf("response after the clear = %v", p)
 	}
 	for _, f := range []string{"website", "location", "pinnedPostId", "bannerUrl", "bannerThumbUrl"} {

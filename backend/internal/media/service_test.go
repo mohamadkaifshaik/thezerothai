@@ -30,6 +30,8 @@ type env struct {
 	obj  *fakeObjects
 	mod  *fakeModerator
 	sign *fakeSigner
+	// screenThumb is the envOpts value, so sibling instances (finalize_claim_test.go) screen the same way.
+	screenThumb bool
 }
 
 type envOpts struct {
@@ -56,7 +58,7 @@ func newEnv(t *testing.T, o envOpts) *env {
 	if o.accountAge == 0 {
 		o.accountAge = 30 * 24 * time.Hour
 	}
-	e := &env{repo: newFakeRepo(), obj: newFakeObjects(), mod: &fakeModerator{by: map[string]SafeSearch{}}, sign: &fakeSigner{}}
+	e := &env{repo: newFakeRepo(), obj: newFakeObjects(), mod: &fakeModerator{by: map[string]SafeSearch{}}, sign: &fakeSigner{}, screenThumb: o.screenThumb}
 	var objs Objects = e.obj
 	if o.objects != nil {
 		objs = o.objects(e.obj)
@@ -490,9 +492,7 @@ func TestBlockedBySafeSearch(t *testing.T) {
 		{"racy post passes", SafeSearch{Racy: LikelihoodVeryLikely}, PurposePost, false},
 		{"racy avatar blocks", SafeSearch{Racy: LikelihoodLikely}, PurposeAvatar, true},
 		{"possible racy avatar passes", SafeSearch{Racy: LikelihoodPossible}, PurposeAvatar, false},
-		{"racy banner blocks", SafeSearch{Racy: LikelihoodLikely}, PurposeBanner, true},
-		{"possible racy banner passes", SafeSearch{Racy: LikelihoodPossible}, PurposeBanner, false},
-		{"likely adult banner blocks", SafeSearch{Adult: LikelihoodLikely}, PurposeBanner, true},
+		{"racy legacy banner purpose is the post rule", SafeSearch{Racy: LikelihoodLikely}, Purpose("BANNER"), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

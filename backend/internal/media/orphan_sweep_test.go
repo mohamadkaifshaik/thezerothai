@@ -233,25 +233,18 @@ func TestOrphanSweep_Verdicts(t *testing.T) {
 				t.Fatalf("res=%+v doc=%+v", res, e.doc(id))
 			}
 		}},
-		{"a banner not shown is kept (leaves the queue) while PROFILE_MEDIA_RETIRE is off", config.ProfileMediaRetireOff, func(e *orphanEnv) string {
-			return e.seed(uidA, PurposeBanner, due)
+		{"a legacy banner (removed purpose) is kept even under all: opsctl purge-banners erases it", config.ProfileMediaRetireAll, func(e *orphanEnv) string {
+			return e.seed(uidA, Purpose("BANNER"), due)
 		}, func(t *testing.T, e *orphanEnv, id string, res OrphanSweepResult) {
-			if res.Kept != 1 || e.doc(id).OrphanedAt != nil || e.doc(id).OrphanCheckAt != nil || e.publicCount(id) != 2 {
-				t.Fatalf("res=%+v doc=%+v", res, e.doc(id))
+			if res.Kept != 1 || e.doc(id).OrphanedAt != nil || e.doc(id).OrphanCheckAt != nil || e.publicCount(id) != 2 || e.profiles.reads != 0 {
+				t.Fatalf("res=%+v doc=%+v reads=%d", res, e.doc(id), e.profiles.reads)
 			}
 		}},
-		{"an avatar not shown is kept under banner-only retire", config.ProfileMediaRetireBanner, func(e *orphanEnv) string {
+		{"an avatar not shown is kept (leaves the queue) while PROFILE_MEDIA_RETIRE is off", config.ProfileMediaRetireOff, func(e *orphanEnv) string {
 			return e.seed(uidA, PurposeAvatar, due)
 		}, func(t *testing.T, e *orphanEnv, id string, res OrphanSweepResult) {
 			if res.Kept != 1 || e.doc(id).OrphanedAt != nil || e.doc(id).OrphanCheckAt != nil {
 				t.Fatalf("res=%+v doc=%+v", res, e.doc(id))
-			}
-		}},
-		{"a banner not shown is marked under banner retire", config.ProfileMediaRetireBanner, func(e *orphanEnv) string {
-			return e.seed(uidA, PurposeBanner, due)
-		}, func(t *testing.T, e *orphanEnv, id string, res OrphanSweepResult) {
-			if res.Marked != 1 || !timeIs(e.doc(id).OrphanedAt, sweepNow) || len(e.drafts.calls) != 0 {
-				t.Fatalf("res=%+v doc=%+v drafts=%v", res, e.doc(id), e.drafts.calls)
 			}
 		}},
 		{"an unknown purpose is kept", config.ProfileMediaRetireAll, func(e *orphanEnv) string {
@@ -285,8 +278,8 @@ func TestOrphanSweep_Verdicts(t *testing.T) {
 				t.Fatalf("res=%+v doc=%+v", res, e.doc(id))
 			}
 		}},
-		{"a marked banner whose retire switch was turned off before phase 2 is restored and leaves the queue", config.ProfileMediaRetireOff, func(e *orphanEnv) string {
-			id := e.seed(uidA, PurposeBanner, due)
+		{"a marked avatar whose retire switch was turned off before phase 2 is restored and leaves the queue", config.ProfileMediaRetireOff, func(e *orphanEnv) string {
+			id := e.seed(uidA, PurposeAvatar, due)
 			m := sweepNow.Add(-OrphanGrace - time.Minute)
 			e.doc(id).OrphanedAt = &m
 			return id
@@ -404,7 +397,7 @@ func TestOrphanSweep_HolderErrorNeverMarksThatOwner(t *testing.T) {
 	}
 
 	e2 := newOrphanEnv(t, config.ProfileMediaRetireAll)
-	id := e2.seed(uidA, PurposeBanner, sweepNow.Add(-time.Minute))
+	id := e2.seed(uidA, PurposeAvatar, sweepNow.Add(-time.Minute))
 	e2.profiles.err = errors.New("users read failed")
 	if res, err := e2.sweeper.Sweep(context.Background(), sweepNow, 10); err == nil || res.Failed != 1 || e2.doc(id).OrphanedAt != nil {
 		t.Fatalf("profile read failure: res=%+v err=%v", res, err)
@@ -487,7 +480,7 @@ func TestFinalize_SetsOrphanCheckAtOnReadyOnly(t *testing.T) {
 	}
 }
 
-// TestOrphanedDocsAreRefused: the mark (and the claim) makes the article cover preview refuse the image (the avatar and banner resolvers
+// TestOrphanedDocsAreRefused: the mark (and the claim) makes the article cover preview refuse the image (the avatar resolver
 // and LoadForPost are covered over the real repo in the integration test).
 func TestOrphanedDocsAreRefused(t *testing.T) {
 	m := sweepNow

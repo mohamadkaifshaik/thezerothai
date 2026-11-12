@@ -1,6 +1,6 @@
 // media_retire.go is the identity side of the profile_media_retired job: when an UpdateProfile
-// commit replaces or removes the avatar or the banner, the old image's public objects are scheduled for deletion after a
-// grace. identity only says "this image was replaced"; the media module (behind MediaRetirer, the BannerResolver
+// commit replaces or removes the avatar, the old image's public objects are scheduled for deletion after a
+// grace. identity only says "this image was replaced"; the media module (behind MediaRetirer, the AvatarResolver
 // pattern) owns the object names, the switch PROFILE_MEDIA_RETIRE and the job.
 package identity
 
@@ -14,12 +14,12 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
 
-// ProfileImage names which of a profile's two images a MediaRetirer call is about. The values are the media purposes.
+// ProfileImage names which profile image a MediaRetirer call is about. The values are the media purposes; the avatar
+// is the only one (the banner was removed).
 type ProfileImage string
 
 const (
 	ProfileImageAvatar ProfileImage = "AVATAR"
-	ProfileImageBanner ProfileImage = "BANNER"
 )
 
 // MediaRetirer is the consumer-side seam to the media module (apiserver adapts media.Jobs). RetireProfileImage
@@ -39,7 +39,7 @@ type retiredImage struct {
 	thumbURL string
 }
 
-// retiredImages returns the avatar and banner that differ between the profile as read (before) and as it will be written
+// retiredImages returns the avatar when it differs between the profile as read (before) and as it will be written
 // (after), when the profile held one before: a replace or a removal. A first-time set (nothing before) and an unchanged
 // image return nothing. Pure: no reads.
 func retiredImages(before, after Profile) []retiredImage {
@@ -50,7 +50,6 @@ func retiredImages(before, after Profile) []retiredImage {
 		}
 	}
 	add(ProfileImageAvatar, before.AvatarURL, before.AvatarThumbURL, after.AvatarURL, after.AvatarThumbURL)
-	add(ProfileImageBanner, before.BannerURL, before.BannerThumbURL, after.BannerURL, after.BannerThumbURL)
 	return out
 }
 

@@ -22,7 +22,7 @@ import (
 
 func accountEvidence(website string) *Evidence {
 	return &Evidence{AuthorHandle: "Mallory", DisplayName: "Mal", Bio: "click here", Location: "Pune", Website: website,
-		AvatarURL: "https://m/m/1.webp", BannerURL: "https://m/m/2.webp"}
+		AvatarURL: "https://m/m/1.webp"}
 }
 
 func TestRepo_AccountEvidenceRoundTripAndPostReportsKeepTheirShape(t *testing.T) {
@@ -126,6 +126,7 @@ func TestReportContent_AccountEvidenceIsThePresentedProfile(t *testing.T) {
 			}
 			if _, err := client.Collection("users").Doc("uid-mal").Update(context.Background(), []firestore.Update{
 				{Path: "website", Value: "https://phish.example/login"}, {Path: "location", Value: "Pune"}, {Path: "bio", Value: "click here"},
+				// A legacy banner (the removed feature) still on the document decodes and is not copied into the evidence.
 				{Path: "bannerUrl", Value: "https://m/m/2.webp"}, {Path: "bannerThumbUrl", Value: "https://m/m/2_t.webp"},
 			}); err != nil {
 				t.Fatal(err)
@@ -144,8 +145,15 @@ func TestReportContent_AccountEvidenceIsThePresentedProfile(t *testing.T) {
 				t.Fatalf("stored = %+v err=%v", stored, err)
 			}
 			e := stored.Evidence
-			if e.AuthorHandle != "mallory" || e.Bio != "click here" || e.Location != "Pune" || e.BannerURL != "https://m/m/2.webp" || e.Website != tt.wantWebsite {
+			if e.AuthorHandle != "mallory" || e.Bio != "click here" || e.Location != "Pune" || e.Website != tt.wantWebsite {
 				t.Errorf("evidence = %+v, want website %q", e, tt.wantWebsite)
+			}
+			raw, err := client.Collection("reports").Doc(res.ReportID).Get(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ev, _ := raw.Data()["evidence"].(map[string]any); ev["bannerUrl"] != nil {
+				t.Errorf("the evidence copied the legacy banner: %v", ev)
 			}
 			if stored.TargetOwnerID != "uid-mal" {
 				t.Errorf("target owner = %q", stored.TargetOwnerID)

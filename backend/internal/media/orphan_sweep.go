@@ -1,6 +1,6 @@
 // orphan_sweep.go deletes published images that nothing ever attached: an upload that reached READY in an abandoned
 // composer (or one finished by a request already in flight when the session switched) and was never posted, scheduled,
-// put on an article draft or set as an avatar or banner. PENDING and REJECTED documents already expire through expireAt;
+// put on an article draft or set as an avatar. PENDING and REJECTED documents already expire through expireAt;
 // without this sweep a READY one would keep its document and its public objects forever.
 //
 // Kill switch. MEDIA_ORPHAN_SWEEP (config.MediaOrphanSweep, default off) is enforced here, not only by the caller: off
@@ -18,7 +18,9 @@
 // Holders that do not write the media document are checked from fresh reads at sweep time, grouped by owner:
 //
 //	POST            a PENDING scheduled post's draft, an unpublished article draft's cover   DraftHolds
-//	AVATAR, BANNER  the image users/{uid} shows now                                          ProfileImages
+//	AVATAR          the image users/{uid} shows now                                          ProfileImages
+//	other           a purpose the sweep does not know (the removed BANNER): kept, never deleted here; `opsctl
+//	                purge-banners` erases a legacy banner
 //
 // A POST image a draft holds is "held": checked again OrphanAfter later. A profile image the profile shows is attached:
 // the field is removed and the profile_media_retired step owns it from then on. A profile image the profile does not show
@@ -36,7 +38,7 @@
 // Two phases, so that an attach can never lose to a delete:
 //
 //	phase 1 (mark)    held by nothing: orphanedAt = now, orphanCheckAt = now + OrphanGrace, LastUpdateTime precondition.
-//	                  From this write on LoadForPost (inside the attaching transaction), the avatar and banner resolvers
+//	                  From this write on LoadForPost (inside the attaching transaction), the avatar resolver
 //	                  and the article cover preview refuse the document. An attach that committed first moved the
 //	                  UpdateTime, so the mark fails (ErrConflict) and the attach wins; a mark that committed first makes
 //	                  the attaching transaction read it and refuse (the two serialize on the document).
@@ -312,7 +314,7 @@ const (
 // candidate reports whether a document can still be an orphan at all.
 func candidate(d *Doc) bool { return d.Published() && d.PostID == "" && d.RetiredAt == nil }
 
-func isProfilePurpose(p string) bool { return p == string(PurposeAvatar) || p == string(PurposeBanner) }
+func isProfilePurpose(p string) bool { return p == string(PurposeAvatar) }
 
 // holderReads is what one owner's holders said; an error means that holder could not be read.
 type holderReads struct {

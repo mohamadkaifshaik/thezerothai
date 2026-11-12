@@ -57,14 +57,13 @@ func TestIntegration_OrphanSweepClaimedDocIsFinished(t *testing.T) {
 	}
 }
 
-// TestIntegration_OrphanSweepClaimedProfileImagesAreRefused: the avatar and banner resolvers refuse a claimed document,
+// TestIntegration_OrphanSweepClaimedProfileImagesAreRefused: the avatar resolver refuses a claimed document,
 // and SetOrphanState can never remove the claim.
 func TestIntegration_OrphanSweepClaimedProfileImagesAreRefused(t *testing.T) {
 	e := newOrphanIntEnv(t, config.ProfileMediaRetireAll)
 	avatar := e.seed(t, uidA, PurposeAvatar, sweepNow.Add(-time.Minute))
-	banner := e.seed(t, uidA, PurposeBanner, sweepNow.Add(-time.Minute))
 	ctx := context.Background()
-	for _, id := range []string{avatar.ID, banner.ID} {
+	for _, id := range []string{avatar.ID} {
 		cur := e.get(t, id)
 		if _, err := e.repo.ClaimOrphan(ctx, id, cur.UpdateTime, sweepNow.Add(OrphanGrace), sweepNow); err != nil {
 			t.Fatal(err)
@@ -72,9 +71,6 @@ func TestIntegration_OrphanSweepClaimedProfileImagesAreRefused(t *testing.T) {
 	}
 	if _, err := e.lib.ResolveAvatar(ctx, uidA, avatar.ID); !IsNotReady(err) {
 		t.Fatalf("avatar = %v, want ErrNotReady", err)
-	}
-	if _, err := e.lib.ResolveBanner(ctx, uidA, banner.ID); !IsNotReady(err) {
-		t.Fatalf("banner = %v, want ErrNotReady", err)
 	}
 	cur := e.get(t, avatar.ID)
 	if _, err := e.repo.SetOrphanState(ctx, avatar.ID, cur.UpdateTime, OrphanState{}); err != nil {

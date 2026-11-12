@@ -9,3 +9,12 @@ lint:
 breaking:
   use:
     - FILE
+    # A removed field or enum value passes only when both its number and its name are reserved (proto.md: mark removed
+    # fields reserved). FILE alone fails any deletion, reserved or not; these four keep the wire and JSON guarantees.
+    - FIELD_NO_DELETE_UNLESS_NUMBER_RESERVED
+    - FIELD_NO_DELETE_UNLESS_NAME_RESERVED
+    - ENUM_VALUE_NO_DELETE_UNLESS_NUMBER_RESERVED
+    - ENUM_VALUE_NO_DELETE_UNLESS_NAME_RESERVED
+  except:
+    - FIELD_NO_DELETE
+    - ENUM_VALUE_NO_DELETE

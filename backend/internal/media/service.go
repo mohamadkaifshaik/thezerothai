@@ -25,7 +25,7 @@ import (
 // object path or URL.
 const (
 	fieldOp                = "media_op"
-	fieldPurpose           = "purpose" // POST, AVATAR or BANNER (enum only)
+	fieldPurpose           = "purpose" // POST or AVATAR (enum only)
 	fieldOutcome           = "outcome"
 	fieldImages            = "media_images"
 	fieldContentType       = "content_type" // image/jpeg, image/webp or image/gif (validated or from the stored document)
@@ -222,11 +222,8 @@ func idemKeyIssue(key string) error {
 	return nil
 }
 
-// capsFor returns the signed-URL and verification byte caps of a purpose (for BANNER).
-func capsFor(p Purpose) (full, thumb int64) {
-	if p == PurposeBanner {
-		return BannerMaxFullBytes, BannerMaxThumbBytes
-	}
+// capsFor returns the signed-URL and verification byte caps of a purpose (the same for POST and AVATAR).
+func capsFor(Purpose) (full, thumb int64) {
 	return MaxFullBytes, MaxThumbBytes
 }
 
@@ -236,7 +233,7 @@ func (s *service) validateUploadItem(i int, p Purpose, it UploadItem) error {
 	switch it.ContentType {
 	case ContentTypeWebP, ContentTypeJPEG:
 	case ContentTypeGIF:
-		if p != PurposePost { // AVATAR and BANNER refuse
+		if p != PurposePost { // AVATAR refuses
 			return apierr.Validation(field("content_type"), "a GIF can only be used in a post")
 		}
 	default:
@@ -258,9 +255,6 @@ func (s *service) validateUploadItem(i int, p Purpose, it UploadItem) error {
 		return apierr.Validation(field("full_md5"), "full_md5 must be the base64 MD5 of the file")
 	case !md5b64Pattern.MatchString(it.ThumbMD5):
 		return apierr.Validation(field("thumb_md5"), "thumb_md5 must be the base64 MD5 of the file")
-	}
-	if p == PurposeBanner {
-		return validateBannerShape(field("width"), it.Width, it.Height)
 	}
 	return nil
 }
@@ -297,20 +291,6 @@ func byteSize(n int64) string {
 	return fmt.Sprintf("%d KiB", n>>10)
 }
 
-// validateBannerShape checks the declared banner size: width <= 1500, height <= 500 and 3:1 within 2%
-// (294*h <= 100*w <= 306*h, integer arithmetic, bounds inclusive). The server checks the declaration, not pixels.
-func validateBannerShape(field string, w, h int) error {
-	if !bannerShapeOK(w, h) {
-		return apierr.Validation(field, "a banner must be 3:1, at most 1500 x 500")
-	}
-	return nil
-}
-
-// bannerShapeOK is the banner geometry rule shared by the declaration check and verify's pixel check.
-func bannerShapeOK(w, h int) bool {
-	return w <= BannerMaxWidth && h <= BannerMaxHeight && 100*w >= 294*h && 100*w <= 306*h
-}
-
 // requestHash is the canonical body hash for IDEMPOTENCY_KEY_REUSED (fixed field order).
 func requestHash(purpose Purpose, items []UploadItem) string {
 	var sb strings.Builder
@@ -335,8 +315,8 @@ func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadI
 	if err := idemKeyIssue(in.IdempotencyKey); err != nil {
 		return nil, err
 	}
-	if in.Purpose != PurposePost && in.Purpose != PurposeAvatar && in.Purpose != PurposeBanner {
-		return nil, apierr.Validation("purpose", "purpose must be POST, AVATAR or BANNER")
+	if in.Purpose != PurposePost && in.Purpose != PurposeAvatar {
+		return nil, apierr.Validation("purpose", "purpose must be POST or AVATAR")
 	}
 	logger.SetRequestField(ctx, fieldPurpose, string(in.Purpose))
 	n := len(in.Items)
@@ -347,8 +327,6 @@ func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadI
 		return nil, apierr.Validation("items", "at most 4 images per upload")
 	case in.Purpose == PurposeAvatar && n != 1:
 		return nil, apierr.Validation("items", "an avatar is exactly one image")
-	case in.Purpose == PurposeBanner && n != 1:
-		return nil, apierr.Validation("items", "a banner is exactly one image")
 	}
 	if hasGIF(in.Items) && n != 1 { // One GIF per upload, never mixed with other items
 		return nil, apierr.Validation("items", "a GIF is uploaded on its own")
