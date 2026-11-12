@@ -107,7 +107,11 @@ type backends struct {
 	// built per run from the explicit --profile-retire and --dry-run).
 	mediaBackfill   mediaOrphanBackfiller
 	newMediaSweeper mediaSweeperFactory
-	close           func()
+	// bannerMedia and bannerProfiles serve purge-banners: media's legacy-banner purge (documents and objects) and
+	// identity's clear of the legacy banner fields on users/{uid}.
+	bannerMedia    legacyBannerMedia
+	bannerProfiles legacyBannerProfiles
+	close          func()
 }
 
 type opener func(ctx context.Context, project string) (*backends, error)
@@ -203,6 +207,8 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		usersExist:      newUsersExist(client),
 		mediaBackfill:   mediaRepo,
 		newMediaSweeper: newMediaSweeper,
+		bannerMedia:     media.NewLegacyBannerPurger(mediaRepo, buckets),
+		bannerProfiles:  identityRepo,
 		close:           func() { _ = client.Close() },
 	}, nil
 }
@@ -223,6 +229,9 @@ const usage = `usage:
   opsctl media-orphan-sweep --project P --profile-retire off|all [--dry-run]   (drains the daily orphan sweep's
                           backlog in delete mode whatever MEDIA_ORPHAN_SWEEP says; --profile-retire has no default and the
                           shell's PROFILE_MEDIA_RETIRE is not read; --dry-run computes one page and writes nothing)
+  opsctl purge-banners --project P [--apply]   (one-off per project, after the revision without banners serves all
+                          traffic: erases every legacy profile banner, i.e. media documents of purpose BANNER with their
+                          objects, then bannerUrl/bannerThumbUrl on users docs; a dry run unless --apply; idempotent)
 ` + modUsage + trendsUsage + listsUsage + beaconUsage + communityUsage + communityHiddenUsage
 
 // run returns the process exit code: 0 ok, 1 runtime failure, 2 usage error.
@@ -236,10 +245,11 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.SetOutput(errOut)
 	project := fs.String("project", "", "GCP project id (required)")
 	uid := fs.String("uid", "", "user id (required)")
-	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, backfill-media-orphans, media-orphan-sweep, suspend-user, unsuspend-user, clear-profile-fields, messages takedown, lists hide|restore, beacon hide|restore, community suspend|restore|archive: print counts|restore: print counts or the plan, write nothing (other commands reject it)")
+	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, backfill-media-orphans, media-orphan-sweep, suspend-user, unsuspend-user, clear-profile-fields, messages takedown, lists hide|restore, beacon hide|restore, community suspend|restore|archive, purge-banners (its default; --apply writes): print counts or the plan, write nothing (other commands reject it)")
 	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
 	after := fs.String("after", "", "backfill-has-media, backfill-media-orphans: resume after this post or media id (the checkpoint a capped run printed)")
+	apply := fs.Bool("apply", false, "purge-banners: write (without it purge-banners is a dry run)")
 	profileRetire := fs.String("profile-retire", "", "media-orphan-sweep (required, no default): off|all, which unshown profile images the sweep may delete (the legacy banner is read as off)")
 	var ma modArgs
 	fs.StringVar(&ma.id, "id", "", "reports show|resolve: report id")
@@ -256,7 +266,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	switch cmd {
 	case "purge-graph", "export-graph", "purge-posts", "export-posts", "check-t26",
 		"reports", "takedown-post", "restore-post", "suspend-user", "unsuspend-user", "backfill-has-media", "clear-profile-fields",
-		"messages", "trends", "polls", "lists", "beacon", "community", "backfill-media-orphans", "media-orphan-sweep":
+		"messages", "trends", "polls", "lists", "beacon", "community", "backfill-media-orphans", "media-orphan-sweep", "purge-banners":
 	default:
 		fmt.Fprintf(errOut, "unknown command %q\n%s", cmd, usage)
 		return 2
@@ -327,8 +337,17 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	}
 	// --dry-run is honoured only where there is a dry-run path; accepting it elsewhere would WRITE after the
 	// moderator asked for a preview.
-	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "media-orphan-sweep" && cmd != "suspend-user" && cmd != "unsuspend-user" && cmd != "clear-profile-fields" && cmd != "messages" && cmd != "lists" && cmd != "beacon" && cmd != "community" {
+	if *dryRun && cmd != "purge-graph" && cmd != "purge-posts" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "media-orphan-sweep" && cmd != "suspend-user" && cmd != "unsuspend-user" && cmd != "clear-profile-fields" && cmd != "messages" && cmd != "lists" && cmd != "beacon" && cmd != "community" && cmd != "purge-banners" {
 		fmt.Fprintf(errOut, "--dry-run is not supported by %s\n%s", cmd, usage)
+		return 2
+	}
+	// --apply is purge-banners' write switch (it is a dry run without it); --dry-run next to it is a contradiction.
+	if *apply && cmd != "purge-banners" {
+		fmt.Fprintf(errOut, "--apply is not supported by %s\n%s", cmd, usage)
+		return 2
+	}
+	if *apply && *dryRun {
+		fmt.Fprintf(errOut, "--apply and --dry-run contradict each other\n%s", usage)
 		return 2
 	}
 	// --after resumes a capped backfill; on any other command it would be silently ignored.
@@ -426,7 +445,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	}
 	// check-t26 scans every Auth user, backfill-has-media every post; the report and post moderation commands address a
 	// report or post id.
-	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "media-orphan-sweep" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post" && cmd != "messages" && cmd != "trends" && cmd != "lists" && cmd != "beacon" && cmd != "community"
+	needUID := cmd != "check-t26" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "media-orphan-sweep" && cmd != "purge-banners" && cmd != "reports" && cmd != "takedown-post" && cmd != "restore-post" && cmd != "messages" && cmd != "trends" && cmd != "lists" && cmd != "beacon" && cmd != "community"
 	if needUID && *uid == "" {
 		fmt.Fprintf(errOut, "--uid is required\n%s", usage)
 		return 2
@@ -460,6 +479,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		err = backfillMediaOrphans(ctx, b, *after, *dryRun, out, now)
 	case "media-orphan-sweep":
 		err = mediaOrphanSweep(ctx, b, sweepRetire, *dryRun, out, now)
+	case "purge-banners":
+		err = purgeBanners(ctx, b, *project, *apply, out)
 	case "purge-graph":
 		err = purge(ctx, b, *uid, *dryRun, *skipGate, out, now)
 	case "purge-posts":
