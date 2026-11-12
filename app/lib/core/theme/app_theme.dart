@@ -1620,6 +1620,22 @@ abstract final class AppCommunitiesLayout {
   static const double heroRingAlpha = 0.14;
 }
 
+/// Geometry of Explore, Bookmarks, Follow requests, Followers / Following,
+/// Blocked / Muted and Edit profile (dzeroth-mobile, tablet and desktop mocks;
+/// the tablet and desktop main columns are the same).
+abstract final class AppExplorePeopleLayout {
+  /// Follow requests on a phone: round 40 dp answers inside 48 dp targets.
+  static const double answerButton = 40;
+  static const double answerBorder = 1.5;
+
+  /// Explore's ranked trend rows: the rank column's least width, its gap to
+  /// the text, and the row's side padding on a phone and from 600 dp.
+  static const double trendRankWidth = 24;
+  static const double trendRankGap = 14;
+  static const double trendPaddingPhone = 20;
+  static const double trendPaddingWide = 16;
+}
+
 /// Settings geometry per screen size (dp): the phone mock's raised cards
 /// (dzeroth-mobile Settings) and the tablet / desktop mocks' flat boxes and
 /// category list (dz.css `.box`, `.row`, `.sect`, `.search`). Colours come

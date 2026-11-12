@@ -2,6 +2,7 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/graph/presentation/bloc/suggestions_cubit.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
+import 'package:dzeroth/features/graph/presentation/widgets/who_to_follow_card.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -123,7 +124,15 @@ void main() {
     expect(repo.followedIds, ['u1']);
   });
 
-  for (final size in const [Size(360, 800), Size(600, 900), Size(1200, 900)]) {
+  testWidgets('desktop width: not inline, the side column carries it', (
+    tester,
+  ) async {
+    await open(tester, size: const Size(1200, 900));
+    expect(find.byType(WhoToFollowCard), findsNothing);
+    expect(repo.calls, 0);
+  });
+
+  for (final size in const [Size(360, 800), Size(600, 900), Size(1199, 900)]) {
     for (final b in Brightness.values) {
       testWidgets('${size.width.toInt()}dp ${b.name} x2.0: no overflow', (
         tester,

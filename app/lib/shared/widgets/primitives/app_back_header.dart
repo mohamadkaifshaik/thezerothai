@@ -10,10 +10,10 @@ import 'app_main_column.dart';
 ///
 /// [titleContent] replaces the one-line title text with richer content (the
 /// conversation header's avatar, name and handle); [title] is then only the
-/// accessible name of the header. [actions] sit at the end (an overflow
-/// menu); both default to nothing, so existing callers are unchanged.
-/// [subtitle] adds a muted line under the title (the plan a People page is
-/// about).
+/// accessible name of the header. [subtitle] puts one muted line under the
+/// title (the viewer's @handle, "3 pending", the plan a People page is
+/// about). [actions] sit at the end (an overflow menu); all default to
+/// nothing, so existing callers are unchanged.
 class AppBackHeader extends StatelessWidget {
   const AppBackHeader({
     super.key,
@@ -40,6 +40,7 @@ class AppBackHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final subtitle = this.subtitle;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -68,26 +69,17 @@ class AppBackHeader extends StatelessWidget {
                     child:
                         titleContent ??
                         (subtitle == null
-                            ? Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.titleLarge,
-                              )
+                            ? _titleText(theme)
                             : Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
+                                  _titleText(theme),
                                   Text(
-                                    title,
+                                    subtitle,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.titleLarge,
-                                  ),
-                                  Text(
-                                    subtitle!,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.bodySmall?.copyWith(
+                                    style: theme.textTheme.bodyMedium?.copyWith(
                                       color: theme.colorScheme.onSurfaceVariant,
                                     ),
                                   ),
@@ -105,4 +97,11 @@ class AppBackHeader extends StatelessWidget {
       ],
     );
   }
+
+  Text _titleText(ThemeData theme) => Text(
+    title,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    style: theme.textTheme.titleLarge,
+  );
 }

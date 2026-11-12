@@ -118,6 +118,7 @@ class _ExploreTrendsSectionState extends State<ExploreTrendsSection> {
   Widget _row(BuildContext context, Trend trend) => TrendRow(
     key: ValueKey(trend.tag),
     trend: trend,
+    ranked: true,
     onTap: () => context.push(searchResultsLocation('#${trend.tag}')),
   );
 }

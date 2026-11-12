@@ -195,42 +195,18 @@ class _Header extends StatelessWidget {
     final count = context.select(
       (OnboardingBloc bloc) => bloc.state.pendingFollowRequestCount,
     );
-    if (count <= 0) {
-      return AppBackHeader(title: _title, onBack: onBack);
-    }
-    final theme = Theme.of(context);
     return AppBackHeader(
-      title: _title,
+      title: 'Follow requests',
+      subtitle: count > 0 ? followRequestBadgeSpoken(count) : null,
       onBack: onBack,
-      titleContent: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            _title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleLarge,
-          ),
-          Text(
-            followRequestBadgeSpoken(count),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
     );
   }
-
-  static const _title = 'Follow requests';
 }
 
-/// Decline (an outline pill) and Accept (the primary pill), dz.css
+/// Decline and Accept. From 600 dp they are pills with words (dz.css
 /// `.btn.sm.outline` / `.btn.sm.primary`: compact 36 dp pills inside 48 dp
-/// targets. The row measures this at its natural width and moves it under
+/// targets); on a phone, round 40 dp icon buttons (the dzeroth-mobile mock),
+/// with the same spoken labels. The row measures this at its natural width and moves it under
 /// the name when the name column would get too narrow, so it never pushes
 /// the name out at a large text scale; the labels wrap, never ellipsize.
 class _AnswerButtons extends StatelessWidget {
@@ -249,7 +225,28 @@ class _AnswerButtons extends StatelessWidget {
     // The row gives its actions an unbounded width, so the cap comes from the
     // screen: at a large text scale the two buttons stack instead of running
     // off the row.
-    final maxWidth = MediaQuery.sizeOf(context).width - 2 * AppSpacing.md;
+    final width = MediaQuery.sizeOf(context).width;
+    if (width < AppBreakpoints.mobile) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _RoundAnswer(
+            label: 'Decline follow request from @$handle',
+            icon: Icons.close,
+            accept: false,
+            onPressed: onDecline,
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          _RoundAnswer(
+            label: 'Accept follow request from @$handle',
+            icon: Icons.check,
+            accept: true,
+            onPressed: onAccept,
+          ),
+        ],
+      );
+    }
+    final maxWidth = width - 2 * AppSpacing.md;
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: maxWidth),
       child: Wrap(
@@ -282,6 +279,66 @@ class _AnswerButtons extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// One phone answer: an outlined circle (Decline) or the teal gradient circle
+/// with its glow (Accept), [AppExplorePeopleLayout.answerButton] across in a
+/// 48 dp target. The [label] is what a screen reader says, as for the pills.
+class _RoundAnswer extends StatelessWidget {
+  const _RoundAnswer({
+    required this.label,
+    required this.icon,
+    required this.accept,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool accept;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    const size = Size.square(AppExplorePeopleLayout.answerButton);
+    final button = IconButton(
+      icon: Icon(icon),
+      onPressed: onPressed,
+      style: IconButton.styleFrom(
+        fixedSize: size,
+        minimumSize: size,
+        padding: EdgeInsets.zero,
+        tapTargetSize: MaterialTapTargetSize.padded,
+        shape: CircleBorder(
+          side: accept
+              ? BorderSide.none
+              : BorderSide(
+                  color: colors.uiBorder,
+                  width: AppExplorePeopleLayout.answerBorder,
+                ),
+        ),
+        foregroundColor: accept
+            ? colors.primaryFillLabel
+            : Theme.of(context).colorScheme.onSurface,
+      ),
+    );
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      onTap: onPressed,
+      child: accept
+          ? DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: colors.primaryFillGradient,
+                boxShadow: AppShadows.primaryGlow,
+              ),
+              child: button,
+            )
+          : button,
     );
   }
 }

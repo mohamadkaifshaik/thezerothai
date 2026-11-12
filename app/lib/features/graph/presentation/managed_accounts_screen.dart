@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
+import '../../../shared/widgets/primitives/app_back_header.dart';
+import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
+import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../data/graph_repository.dart';
 import '../../settings/presentation/settings_up.dart';
 import 'bloc/user_list_cubit.dart';
@@ -129,60 +132,72 @@ class _ManagedAccountsScreenState extends State<_ManagedAccountsScreen> {
     }
   }
 
+  /// Back to where the user came from; with nothing to pop (a deep link) up
+  /// to Settings (its category on the tablet layout).
+  void _back() {
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(
+        settingsLeafExitLocation(
+          context,
+          _isBlocked
+              ? AppRouter.blockedAccountsPath
+              : AppRouter.mutedAccountsPath,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        // The tablet layout with nothing to pop: up to Privacy & safety.
-        leading: settingsUpButton(
-          context,
-          settingsUpLocation(
-            _isBlocked
-                ? AppRouter.blockedAccountsPath
-                : AppRouter.mutedAccountsPath,
-          ),
-        ),
-        title: Text(_isBlocked ? 'Blocked accounts' : 'Muted accounts'),
-      ),
-      // The readable column on the tablet layout (at most 680, centred; the
-      // bar above spans the pane). No cap anywhere else, as before.
-      body: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: ShellGeometry.readableMaxWidth(
-              context,
-              otherwise: double.infinity,
-            ),
-          ),
-          // Tight, as the body was: the list fills the column, under the
-          // design's one-line explanation (ManagedAccounts.dc.html).
-          child: SizedBox.expand(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _Intro(blocked: _isBlocked),
-                Expanded(
-                  child: PagedUserList(
-                    cubit: _cubit,
-                    emptyMessage: _isBlocked
-                        ? "You haven't blocked anyone."
-                        : "You haven't muted anyone.",
-                    rowBuilder: (context, item) => UserListRow(
-                      item: item,
-                      // ManagedAccounts.dc.html: the 36 dp outline pill in a 48 dp
-                      // target.
-                      trailing: AppPillButton(
-                        label: _isBlocked ? 'Unblock' : 'Unmute',
-                        variant: AppButtonVariant.outline,
-                        compact: true,
-                        onPressed: () => _removeAction(item),
-                      ),
+      body: SafeArea(
+        child: AppMainColumn(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              AppBackHeader(
+                title: _isBlocked ? 'Blocked accounts' : 'Muted accounts',
+                onBack: _back,
+              ),
+              // The two lists are two routes: a tab replaces this page with
+              // the other, so Back still leaves for where this one was opened.
+              AppTabBar(
+                semanticLabel: 'Managed accounts',
+                equalWidth: true,
+                selectedIndex: _isBlocked ? 0 : 1,
+                onChanged: (index) => context.replace(
+                  index == 0
+                      ? AppRouter.blockedAccountsPath
+                      : AppRouter.mutedAccountsPath,
+                ),
+                tabs: const [
+                  AppTab(label: 'Blocked'),
+                  AppTab(label: 'Muted'),
+                ],
+              ),
+              _Intro(blocked: _isBlocked),
+              Expanded(
+                child: PagedUserList(
+                  cubit: _cubit,
+                  emptyMessage: _isBlocked
+                      ? "You haven't blocked anyone."
+                      : "You haven't muted anyone.",
+                  rowBuilder: (context, item) => UserListRow(
+                    item: item,
+                    // ManagedAccounts.dc.html: the 36 dp outline pill in a 48 dp
+                    // target.
+                    trailing: AppPillButton(
+                      label: _isBlocked ? 'Unblock' : 'Unmute',
+                      variant: AppButtonVariant.outline,
+                      compact: true,
+                      onPressed: () => _removeAction(item),
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
