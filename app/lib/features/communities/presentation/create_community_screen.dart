@@ -4,9 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/context_pane.dart';
-import '../../../core/widgets/context_pane_slots.dart';
-import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../shared/widgets/primitives/app_card.dart';
@@ -63,10 +60,9 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
   final List<_RuleFields> _rules = [];
   var _nextRuleId = 0;
 
-  /// The form as typed, for the preview (band B's context pane, band A's
-  /// Preview dialog; T8a). Follows every field, rules added and removed.
+  /// The form as typed, for the Preview dialog. Follows every field, rules
+  /// added and removed.
   final _draft = ValueNotifier(const CommunityDraft());
-  final _paneLease = ContextPaneLease();
 
   @override
   void initState() {
@@ -76,20 +72,7 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _paneLease.attach(context, AppRouter.communityNewPath, {
-      ContextSectionKind.communityPreview: (context) =>
-          ValueListenableBuilder<CommunityDraft>(
-            valueListenable: _draft,
-            builder: (context, draft, _) => CommunityPreviewCard(draft: draft),
-          ),
-    });
-  }
-
-  @override
   void dispose() {
-    _paneLease.dispose();
     _draft.dispose();
     _name.dispose();
     _description.dispose();
@@ -119,9 +102,8 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
     ],
   );
 
-  /// Band A's Preview (tablet plan section 4.1: "header action that opens a
-  /// Preview dialog"): a D 560 dialog on the content area that follows the
-  /// form.
+  /// The Preview header action (tablet and desktop; the desktop mock's side
+  /// card): a D 560 dialog on the content area that follows the form.
   void _openPreview() => showAppDialog<void>(
     context: context,
     maxWidth: AppSize.dialogMax,
@@ -184,19 +166,22 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
     ],
   );
 
+  Widget _addRuleButton(bool busy, {bool compact = false}) => AppPillButton(
+    label: _rules.length >= kMaxCommunityRules
+        ? 'Most rules added ($kMaxCommunityRules)'
+        : 'Add a rule',
+    variant: AppButtonVariant.outline,
+    compact: compact,
+    onPressed: busy || _rules.length >= kMaxCommunityRules ? null : _addRule,
+  );
+
   Widget _counted(TextEditingController c, int max, Widget field) =>
       communityCounted(c, max, field);
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Band A of the tablet layout: Preview in the header opens the dialog.
-    // Band B shows the preview in the context pane instead; phones and
-    // desktop keep today's header (ruling R-1).
-    final tablet = ShellGeometry.maybeOf(context)?.tablet ?? false;
-    final previewAction =
-        tablet &&
-        !ContextPaneScope.shows(context, ContextSectionKind.communityPreview);
+    final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
@@ -217,8 +202,8 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
                     busySemanticsLabel: 'Creating community',
                     onCancel: _cancel,
                     onAction: _canCreate && !busy ? _create : null,
-                    secondaryLabel: previewAction ? _previewTitle : null,
-                    onSecondary: previewAction ? _openPreview : null,
+                    secondaryLabel: wide ? _previewTitle : null,
+                    onSecondary: wide ? _openPreview : null,
                   ),
                   Expanded(
                     child: SingleChildScrollView(
@@ -293,16 +278,14 @@ class _CreateCommunityScreenState extends State<CreateCommunityScreen> {
                               onRemove: () => _removeRule(_rules[i]),
                             ),
                           const SizedBox(height: AppSpacing.smd),
-                          AppPillButton(
-                            label: _rules.length >= kMaxCommunityRules
-                                ? 'Most rules added ($kMaxCommunityRules)'
-                                : 'Add a rule',
-                            variant: AppButtonVariant.outline,
-                            onPressed:
-                                busy || _rules.length >= kMaxCommunityRules
-                                ? null
-                                : _addRule,
-                          ),
+                          // The tablet and desktop mocks size it to its label,
+                          // at the start (`.btn.outline.sm`).
+                          wide
+                              ? Align(
+                                  alignment: AlignmentDirectional.centerStart,
+                                  child: _addRuleButton(busy, compact: true),
+                                )
+                              : _addRuleButton(busy),
                           if (state.error != null) ...[
                             const SizedBox(height: AppSpacing.md),
                             Semantics(

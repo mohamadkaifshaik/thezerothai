@@ -197,6 +197,19 @@ void main() {
     expect(card, findsNothing);
   });
 
+  testWidgets('desktop: coming back from a page pushed over Notifications '
+      'does not ask again', (tester) async {
+    final rig = await open(tester, width: 1440, height: 1000);
+    expect(listCalls, 1);
+
+    unawaited(rig.router.push('/u/u1'));
+    await tester.pumpAndSettle();
+    rig.router.pop();
+    await tester.pumpAndSettle();
+    expect(inSide(card), findsOneWidget);
+    expect(listCalls, 1);
+  });
+
   // The card's own behaviour, where it lives: the desktop side column.
   Future<void> openDesktop(
     WidgetTester tester, {

@@ -14,7 +14,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/communities_tablet_rig.dart';
-import '../../../support/context_pane_rig.dart' show findContextPane;
 
 /// The R10 UX review's items (Must-fix 1-3, Should-fix 4-11, Nice-to-have
 /// 12-14), each written before its fix.
@@ -330,7 +329,6 @@ void main() {
         expect(widget.maxLines, 2);
         expect(widget.overflow, TextOverflow.ellipsis);
         expect(find.text('About this Community'), findsNothing);
-        expect(findContextPane(), findsNothing);
         expect(find.text('Openings, endgames and puzzles'), findsOneWidget);
       });
     }
@@ -394,12 +392,10 @@ void main() {
         width: 1024,
         flags: _searchFlags,
       );
-      expect(findContextPane(), findsNothing);
       await tester.enterText(inCommunitiesPage(_field(_membersHint)), 'mem');
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
       expect(_field(_membersHint), findsNothing);
-      expect(findContextPane(), findsNothing);
       expect(inCommunitiesPage(find.text('Member 1')), findsOneWidget);
     });
 

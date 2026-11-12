@@ -5,11 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
-import '../../../core/router/context_sections.dart' show contextGlobalSections;
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
-import '../../../core/widgets/context_pane.dart';
-import '../../../core/widgets/context_pane_slots.dart';
 import '../../../gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../shared/widgets/primitives/app_back_header.dart';
@@ -98,6 +95,34 @@ class _MatchLine extends StatelessWidget {
   }
 }
 
+/// The members page's link to the moderation log (owner and moderators):
+/// dz `.more`, a teal 15 w600 line.
+class _ModerationLogLink extends StatelessWidget {
+  const _ModerationLogLink({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: TextButton(
+        onPressed: onPressed,
+        style: TextButton.styleFrom(
+          foregroundColor: context.appColors.accentText,
+          minimumSize: const Size(0, AppSpacing.minTapTarget),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+          textStyle: theme.textTheme.bodyLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        child: const Text('View moderation log'),
+      ),
+    );
+  }
+}
+
 /// `/communities/:id/members`: the joined members, 1
 /// `ListCommunityMembers` per page, each with a Follow button; the owner and
 /// moderators carry a role badge. NOT_FOUND shows the same "This Community is
@@ -116,8 +141,7 @@ class _MatchLine extends StatelessWidget {
 /// the role the server returned. The other loaded pages are refreshed after.
 ///
 /// **Search (F36).** With `communities` and `community_member_search` on, a
-/// "Search members" field (above the tabs; in band B's context pane)
-/// searches the active tab by handle prefix ([CommunityMemberSearchCubit]):
+/// "Search members" field (above the tabs) searches the active tab by handle prefix ([CommunityMemberSearchCubit]):
 /// 300 ms after typing, from 2 characters, at most 20 rows, which replace the
 /// tab's list while the field holds a search. A FEATURE_DISABLED for the
 /// search (or a server without it) hides the field for this page.
@@ -156,10 +180,8 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
     },
   );
 
-  /// The search field's text: one controller for the inline field and band
-  /// B's (the page lends the pane its field).
+  /// The search field's text.
   final _searchText = TextEditingController();
-  final _paneLease = ContextPaneLease();
 
   /// Role of each member seen so far (the badge), by user id.
   final Map<String, CommunityRole> _roles = {};
@@ -221,21 +243,6 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
     _loadViewerRole();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _paneLease.attach(
-      context,
-      AppRouter.communityMembersPath(widget.communityId),
-      {
-        ContextSectionKind.memberSearch: (context) => _searchField(
-          margin: const EdgeInsets.only(bottom: AppSpacing.md),
-          inPane: true,
-        ),
-      },
-    );
-  }
-
   Future<void> _loadViewerRole() async {
     try {
       final r = await _communities.getCommunity(widget.communityId);
@@ -251,7 +258,6 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
 
   @override
   void dispose() {
-    _paneLease.dispose();
     _searchText.dispose();
     _search.close();
     _joined.close();
@@ -383,36 +389,25 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
     _say(done);
   }
 
-  /// The search field, inline or lent to band B's pane ([inPane]). Once the
-  /// server said the search is off: nothing inline, and the global set in
-  /// the pane rather than a blank pane (review item 13).
-  Widget _searchField({
-    required EdgeInsetsGeometry margin,
-    bool inPane = false,
-  }) => BlocBuilder<CommunityMemberSearchCubit, MemberSearchState>(
-    bloc: _search,
-    buildWhen: (a, b) => a.unavailable != b.unavailable,
-    builder: (context, state) {
-      if (state.unavailable) {
-        if (!inPane) return const SizedBox.shrink();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [for (final s in contextGlobalSections(context)) s.child],
-        );
-      }
-      return CommunitySearchField(
-        hint: kSearchMembersHint,
-        label: kSearchMembersLabel,
-        helperFor: (text) =>
-            memberSearchInputOf(text) == MemberSearchInput.tooShort
-            ? kMemberSearchTooShortHelper
-            : null,
-        controller: _searchText,
-        onChanged: _search.textChanged,
-        margin: margin,
+  /// The search field. Once the server said the search is off, nothing.
+  Widget _searchField() =>
+      BlocBuilder<CommunityMemberSearchCubit, MemberSearchState>(
+        bloc: _search,
+        buildWhen: (a, b) => a.unavailable != b.unavailable,
+        builder: (context, state) => state.unavailable
+            ? const SizedBox.shrink()
+            : CommunitySearchField(
+                hint: kSearchMembersHint,
+                label: kSearchMembersLabel,
+                helperFor: (text) =>
+                    memberSearchInputOf(text) == MemberSearchInput.tooShort
+                    ? kMemberSearchTooShortHelper
+                    : null,
+                controller: _searchText,
+                onChanged: _search.textChanged,
+                margin: EdgeInsets.zero,
+              ),
       );
-    },
-  );
 
   Widget _row(
     BuildContext context,
@@ -634,12 +629,6 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
     final searchOn =
         isFeatureEnabled(context, kFeatureCommunities) &&
         isFeatureEnabled(context, kFeatureCommunityMemberSearch);
-    // Band B's context pane holds the field (F36); everywhere else it sits
-    // above the tabs.
-    final searchInPane = ContextPaneScope.shows(
-      context,
-      ContextSectionKind.memberSearch,
-    );
     final theme = Theme.of(context);
     return Scaffold(
       body: SafeArea(
@@ -678,7 +667,7 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
                   ],
                 ),
               ),
-              if (searchOn && !searchInPane)
+              if (searchOn)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.md,
@@ -686,7 +675,7 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
                     AppSpacing.md,
                     AppSpacing.xs,
                   ),
-                  child: _searchField(margin: EdgeInsets.zero),
+                  child: _searchField(),
                 ),
               if (moderates)
                 CommunityTabBar(
@@ -704,6 +693,14 @@ class _CommunityMembersScreenState extends State<CommunityMembersScreen> {
                           : _list(context, tab, viewerUserId),
                     ),
               ),
+              if (moderates)
+                // The mocks end the list on "View moderation log"; it stays
+                // in view under it, whatever is loaded.
+                _ModerationLogLink(
+                  onPressed: () => context.push(
+                    AppRouter.communityModerationLogPath(widget.communityId),
+                  ),
+                ),
             ],
           ),
         ),

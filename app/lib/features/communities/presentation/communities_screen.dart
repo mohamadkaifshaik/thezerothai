@@ -6,13 +6,10 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
-import '../../../core/widgets/context_pane.dart';
-import '../../../core/widgets/context_pane_slots.dart';
 import '../../../gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_icon_button.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
-import '../../../shared/widgets/primitives/app_section_header.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../data/communities_repository.dart';
 import '../domain/community_role.dart';
@@ -24,14 +21,13 @@ import 'widgets/community_join_control.dart';
 import 'widgets/community_row.dart';
 import 'widgets/community_search_field.dart';
 import 'widgets/community_tabs.dart';
-import 'widgets/explore_communities_pane.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
-/// The first tab, and the page's list in band B (F23).
+/// The first tab (F23).
 const kMyCommunitiesTitle = 'My communities';
 
-/// My communities is empty: one sentence in every layout (the Explore tab,
-/// or band B's Explore communities card; review item 10).
+/// My communities is empty: one sentence in every layout (the Explore tab;
+/// review item 10).
 const kEmptyMineTabs =
     "You haven't joined any Communities yet. Join one from Explore to see "
     'its posts.';
@@ -55,10 +51,9 @@ String communitiesMatchLine(int n, String query) => n == 1
 /// - 1 `ListMyCommunities` + 1 `ListCommunities` per open ([CommunitiesCubit]);
 ///   each list loads, fails and retries on its own. Both load on open,
 ///   whichever tab shows.
-/// - Phones, tablet band A and desktop: the filter, then the "My
-///   communities" / "Explore" tabs (F23). Band B: no tabs; the page is My
-///   communities and the context pane has the filter over Explore
-///   communities (T8a).
+/// - The filter, then the "My communities" / "Explore" tabs (F23), at every
+///   width. Tablet and desktop lead with the title alone (a rail destination
+///   has no Back).
 /// - The filter (F37 v1) narrows both loaded lists by name and description,
 ///   with no call. Over a list that may be cut short (50 rows, or a next
 ///   page) it never says that nothing exists.
@@ -76,7 +71,7 @@ class CommunitiesScreen extends StatefulWidget {
   State<CommunitiesScreen> createState() => _CommunitiesScreenState();
 }
 
-/// The tabs of phones, band A and desktop (F23).
+/// The tabs (F23).
 enum _Tab { mine, explore }
 
 class _CommunitiesScreenState extends State<CommunitiesScreen> {
@@ -84,18 +79,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     repository: context.read<CommunitiesRepository>(),
   )..load();
 
-  /// Band B's context pane: the filter over "Explore communities", over this
-  /// page's [_cubit] (the same rows, Join and states; no call of its own;
-  /// T8a).
-  final _paneLease = ContextPaneLease();
-
-  /// Whether the pane's directory shows every row, after "Show more". The
-  /// pane is a sibling of this page, so its builder listens to this (the
-  /// page's `setState` does not rebuild the slot).
-  final _paneShowsAll = ValueNotifier(false);
-
-  /// The filter's text (F37), shared by the inline field and the pane's:
-  /// the pane's builder listens to it, and the page rebuilds on it.
+  /// The filter's text (F37); the page rebuilds on it.
   final _query = TextEditingController();
   String _shownQuery = '';
 
@@ -113,89 +97,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _paneLease.attach(context, AppRouter.communitiesPath, {
-      ContextSectionKind.exploreCommunities: (context) => Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          CommunitySearchField(
-            hint: kSearchCommunitiesHint,
-            controller: _query,
-          ),
-          BlocBuilder<CommunitiesCubit, CommunitiesState>(
-            bloc: _cubit,
-            builder: (context, state) =>
-                ValueListenableBuilder<TextEditingValue>(
-                  valueListenable: _query,
-                  builder: (context, query, _) =>
-                      _explorePaneCard(context, state, query.text),
-                ),
-          ),
-        ],
-      ),
-    });
-  }
-
-  /// Band B's "Explore communities" card: the inline list's own states and
-  /// rows, as boxes. The pane is one scroll view, so it shows the first
-  /// [kExplorePaneRows] matches and "Show more" for the rest (at most 50,
-  /// the directory's one page).
-  Widget _explorePaneCard(
-    BuildContext context,
-    CommunitiesState state,
-    String query,
-  ) => ContextPaneCard(
-    title: kExploreCommunitiesTitle,
-    child: Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-      child:
-          _directoryStatus(context, state, query) ??
-          ValueListenableBuilder<bool>(
-            valueListenable: _paneShowsAll,
-            builder: (context, showsAll, _) {
-              final rows = filterCommunities(state.directory, query);
-              final more = !showsAll && rows.length > kExplorePaneRows;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (query.trim().isNotEmpty)
-                    _CountLine(communitiesMatchLine(rows.length, query)),
-                  for (final c in more ? rows.take(kExplorePaneRows) : rows)
-                    _exploreRow(context, state, c, inPane: true),
-                  if (more)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.sm,
-                      ),
-                      child: Align(
-                        alignment: AlignmentDirectional.centerStart,
-                        child: TextButton(
-                          style: TextButton.styleFrom(
-                            minimumSize: const Size(
-                              AppSpacing.minTapTarget,
-                              AppSpacing.minTapTarget,
-                            ),
-                          ),
-                          onPressed: () => _paneShowsAll.value = true,
-                          child: const Text(
-                            'Show more',
-                            semanticsLabel: 'Show more Communities to explore',
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-    ),
-  );
-
-  @override
   void dispose() {
-    _paneLease.dispose();
-    _paneShowsAll.dispose();
     _query
       ..removeListener(_onQuery)
       ..dispose();
@@ -221,15 +123,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Band B's context pane shows the filter and "Explore communities"
-    // (T8a): the inline field and the tabs step aside, their slivers kept
-    // in place so My communities keeps its scroll offset when the window
-    // crosses 840.
-    final exploreInPane = ContextPaneScope.shows(
-      context,
-      ContextSectionKind.exploreCommunities,
-    );
-    final tab = exploreInPane ? _Tab.mine : _tab;
+    final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
@@ -241,6 +135,8 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                   AppBackHeader(
                     title: 'Communities',
                     onBack: _back,
+                    // Tablet and desktop: the rail is the way out.
+                    leading: wide ? const SizedBox(width: AppSpacing.sm) : null,
                     actions: [
                       if (state.canCreate)
                         Padding(
@@ -263,45 +159,36 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                       child: CustomScrollView(
                         slivers: [
                           SliverToBoxAdapter(
-                            child: exploreInPane
-                                ? const SizedBox.shrink()
-                                : Padding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      AppSpacing.md,
-                                      AppSpacing.smd,
-                                      AppSpacing.md,
-                                      AppSpacing.xs,
-                                    ),
-                                    child: CommunitySearchField(
-                                      hint: kSearchCommunitiesHint,
-                                      controller: _query,
-                                      margin: EdgeInsets.zero,
-                                    ),
-                                  ),
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                AppSpacing.md,
+                                AppSpacing.smd,
+                                AppSpacing.md,
+                                AppSpacing.xs,
+                              ),
+                              child: CommunitySearchField(
+                                hint: kSearchCommunitiesHint,
+                                controller: _query,
+                                margin: EdgeInsets.zero,
+                              ),
+                            ),
                           ),
                           SliverToBoxAdapter(
-                            child: exploreInPane
-                                ? const AppSectionHeader(
-                                    title: kMyCommunitiesTitle,
-                                  )
-                                : CommunityTabBar(
-                                    labels: const [
-                                      kMyCommunitiesTitle,
-                                      'Explore',
-                                    ],
-                                    selectedIndex: tab.index,
-                                    semanticLabel: 'Community lists',
-                                    onChanged: (i) =>
-                                        setState(() => _tab = _Tab.values[i]),
-                                  ),
+                            child: CommunityTabBar(
+                              labels: const [kMyCommunitiesTitle, 'Explore'],
+                              selectedIndex: _tab.index,
+                              semanticLabel: 'Community lists',
+                              onChanged: (i) =>
+                                  setState(() => _tab = _Tab.values[i]),
+                            ),
                           ),
                           const SliverToBoxAdapter(
                             child: SizedBox(height: AppSpacing.sm),
                           ),
-                          if (tab == _Tab.mine)
-                            ..._mine(context, state, tabs: !exploreInPane)
+                          if (_tab == _Tab.mine)
+                            ..._mine(context, state, wide: wide)
                           else
-                            ..._directory(context, state),
+                            ..._directory(context, state, wide: wide),
                           const SliverToBoxAdapter(
                             child: SizedBox(height: AppSpacing.lg),
                           ),
@@ -320,14 +207,14 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   }
 
   /// The filter found nothing (F37 v1). Over a list that may be cut short
-  /// it says only that nothing shown matches. With the tabs showing and
-  /// matches in the other tab ([other]: that tab and its count), a 48 dp
-  /// "See N in ..." switches to it (review item 9).
-  Widget _noMatch({required bool mayBeCut, (_Tab, int)? other}) {
+  /// it says only that nothing shown matches. With matches in the other tab
+  /// ([other]: that tab and its count), a 48 dp "See N in ..." switches to
+  /// it (review item 9).
+  Widget _noMatch({required bool mayBeCut, required (_Tab, int) other}) {
     final note = _SectionNote(
       mayBeCut ? kNoLoadedCommunitiesMatch : kNoCommunitiesMatch,
     );
-    if (other == null || other.$2 == 0) return note;
+    if (other.$2 == 0) return note;
     final (tab, n) = other;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -367,11 +254,10 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     ).length;
   }
 
-  /// [tabs]: the page shows the tabs (not band B).
   List<Widget> _mine(
     BuildContext context,
     CommunitiesState state, {
-    required bool tabs,
+    required bool wide,
   }) {
     switch (state.mineStatus) {
       case CommunitiesLoad.loading:
@@ -404,9 +290,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                   count: state.mine.length,
                   hasMore: state.mineHasMore,
                 ),
-                other: tabs
-                    ? (_Tab.explore, _otherCount(state, _Tab.explore))
-                    : null,
+                other: (_Tab.explore, _otherCount(state, _Tab.explore)),
               ),
             ),
           ];
@@ -424,8 +308,17 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                 key: ValueKey('mine-${community.communityId}'),
                 community: community,
                 card: true,
+                wide: wide,
                 onTap: () => this.context.push(
                   AppRouter.communityPath(community.communityId),
+                ),
+                // Every row here is one the viewer joined: the design's
+                // outlined "Joined" (inert; Leave is on the community's
+                // page).
+                trailing: CommunityJoinControl(
+                  state: CommunityJoinState.joined,
+                  name: community.name,
+                  compact: true,
                 ),
               );
             },
@@ -435,14 +328,8 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   }
 
   /// "Explore" while it has no row to show: the skeleton, the error, the
-  /// empty note or the filter's no-match; null once there are rows. Inline
-  /// and in the pane.
-  Widget? _directoryStatus(
-    BuildContext context,
-    CommunitiesState state,
-    String query, {
-    bool tabs = false,
-  }) {
+  /// empty note or the filter's no-match; null once there are rows.
+  Widget? _directoryStatus(BuildContext context, CommunitiesState state) {
     switch (state.directoryStatus) {
       case CommunitiesLoad.loading:
         return const UserListSkeleton(
@@ -455,26 +342,25 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
         if (state.directory.isEmpty) {
           return const _SectionNote('No Communities to explore yet.');
         }
-        if (filterCommunities(state.directory, query).isEmpty) {
+        if (filterCommunities(state.directory, _query.text).isEmpty) {
           return _noMatch(
             mayBeCut: communitiesMayBeCut(
               count: state.directory.length,
               hasMore: state.directoryHasMore,
             ),
-            other: tabs ? (_Tab.mine, _otherCount(state, _Tab.mine)) : null,
+            other: (_Tab.mine, _otherCount(state, _Tab.mine)),
           );
         }
         return null;
     }
   }
 
-  /// One directory row with its Join pill: a card inline, a plain row in
-  /// the pane ([inPane]).
+  /// One directory row with its Join pill.
   Widget _exploreRow(
     BuildContext context,
     CommunitiesState state,
     pb.Community community, {
-    bool inPane = false,
+    required bool wide,
   }) {
     final id = community.communityId;
     final joining = state.joining.contains(id);
@@ -488,10 +374,9 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     return CommunityRow(
       key: ValueKey('explore-$id'),
       community: community,
-      card: !inPane,
+      card: true,
+      wide: wide,
       onTap: () => this.context.push(AppRouter.communityPath(id)),
-      // The pane is 320 dp: the Join pill goes under the name there.
-      trailingBelow: inPane,
       trailing: CommunityJoinControl(
         state: joinState,
         name: community.name,
@@ -502,8 +387,12 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     );
   }
 
-  List<Widget> _directory(BuildContext context, CommunitiesState state) {
-    final status = _directoryStatus(context, state, _query.text, tabs: true);
+  List<Widget> _directory(
+    BuildContext context,
+    CommunitiesState state, {
+    required bool wide,
+  }) {
+    final status = _directoryStatus(context, state);
     if (status != null) return [SliverToBoxAdapter(child: status)];
     final rows = filterCommunities(state.directory, _query.text);
     return [
@@ -513,7 +402,8 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
         ),
       SliverList.builder(
         itemCount: rows.length,
-        itemBuilder: (context, i) => _exploreRow(context, state, rows[i]),
+        itemBuilder: (context, i) =>
+            _exploreRow(context, state, rows[i], wide: wide),
       ),
     ];
   }

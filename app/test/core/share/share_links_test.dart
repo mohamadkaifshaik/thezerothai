@@ -41,6 +41,16 @@ void main() {
       expect(uri.hasFragment, isFalse);
     });
 
+    test('ShareLinks.profileUrl is the origin plus the profile route only', () {
+      const links = ShareLinks(origin: 'https://dzeroth.com');
+      final url = links.profileUrl('alice');
+      expect(url, 'https://dzeroth.com/profile/alice');
+      final uri = Uri.parse(url);
+      expect(uri.hasQuery, isFalse);
+      expect(uri.hasFragment, isFalse);
+      expect(uri.userInfo, isEmpty);
+    });
+
     test('ShareLinks.postUrl uses its origin', () {
       const links = ShareLinks(origin: 'https://dzeroth.com');
       expect(links.postUrl(_id), 'https://dzeroth.com/post/$_id');

@@ -24,7 +24,7 @@ String? communityRoleBadge(CommunityRole role) => switch (role) {
 
 /// One community in a list: the default tile, a bold name, a muted
 /// "N members", a role badge for the owner and moderators, and an optional
-/// [trailing] control (the Join pill of the directory). A custom row (no
+/// [trailing] control (the Join / Joined pill of the lists). A custom row (no
 /// `ListTile`); the whole text area is the tap target (>= 48dp) and speaks
 /// name, members and role as one label. The audience picker reuses it
 /// without [trailing], with [role] `menuItem` and [selected] for the chosen
@@ -37,8 +37,8 @@ class CommunityRow extends StatelessWidget {
     this.trailing,
     this.role,
     this.selected,
-    this.trailingBelow = false,
     this.card = false,
+    this.wide = false,
   });
 
   final pb.Community community;
@@ -46,18 +46,15 @@ class CommunityRow extends StatelessWidget {
   final Widget? trailing;
 
   /// The Communities page's look (dz.css `.card.row`, R10): the row on a
-  /// raised card with a 52 dp tile, the description (when there is one)
-  /// under the name, then "N members". Off: the plain row (band B's pane,
-  /// the composer's audience picker).
+  /// raised card with a tile, the description (when there is one) under the
+  /// name, then "N members". Off: the plain row (the composer's audience
+  /// picker).
   final bool card;
 
-  /// The tile of a [card] row (the design's 52 dp mark).
-  static const double cardTileSize = 52;
-
-  /// Puts [trailing] under the name, aligned with it, instead of after the
-  /// row: for a narrow column (band B's context pane, 320 dp), where the Join
-  /// pill would leave the name no room. Off: today's row.
-  final bool trailingBelow;
+  /// The tablet and desktop size of a [card] row: the 64 dp tile, the 17 sp
+  /// name and the 16 / 18 padding of their mocks (the phone's are 52 dp,
+  /// the title style and 14 dp).
+  final bool wide;
 
   /// An ARIA role for the row on the web (null: a plain button).
   final SemanticsRole? role;
@@ -81,31 +78,6 @@ class CommunityRow extends StatelessWidget {
     ].join(', ');
     final trailing = this.trailing;
     if (card) return _card(context, spoken, description, members, badge);
-    if (trailingBelow && trailing != null) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          CommunityRow(
-            community: community,
-            onTap: onTap,
-            role: role,
-            selected: selected,
-          ),
-          Padding(
-            // Under the name: the row's padding, the tile and its gap.
-            padding: const EdgeInsetsDirectional.only(
-              start: AppSpacing.md + AppSpacing.xxl + AppSpacing.smd,
-              end: AppSpacing.md,
-              bottom: AppSpacing.smd,
-            ),
-            child: Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: trailing,
-            ),
-          ),
-        ],
-      );
-    }
     return Row(
       children: [
         Expanded(
@@ -203,7 +175,15 @@ class CommunityRow extends StatelessWidget {
     final stack =
         trailing != null &&
         MediaQuery.textScalerOf(context).scale(1) > cardStackTextScale;
-    const inset = AppSpacing.smd + 2;
+    final tileSize = wide
+        ? AppCommunitiesLayout.cardTileWide
+        : AppCommunitiesLayout.cardTilePhone;
+    final insetV = wide
+        ? AppCommunitiesLayout.cardPaddingVWide
+        : AppCommunitiesLayout.cardPaddingPhone;
+    final insetH = wide
+        ? AppCommunitiesLayout.cardPaddingHWide
+        : AppCommunitiesLayout.cardPaddingPhone;
     final textArea = Semantics(
       button: onTap != null,
       role: role,
@@ -218,18 +198,15 @@ class CommunityRow extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
           child: Padding(
-            padding: const EdgeInsetsDirectional.fromSTEB(
-              inset,
-              inset,
+            padding: EdgeInsetsDirectional.fromSTEB(
+              insetH,
+              insetV,
               AppSpacing.smd,
-              inset,
+              insetV,
             ),
             child: Row(
               children: [
-                const AppTileIcon(
-                  icon: Icons.groups_outlined,
-                  size: cardTileSize,
-                ),
+                AppTileIcon(icon: Icons.groups_outlined, size: tileSize),
                 const SizedBox(width: AppSpacing.smd),
                 Expanded(
                   child: Column(
@@ -241,6 +218,9 @@ class CommunityRow extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w700,
+                          fontSize: wide
+                              ? AppCommunitiesLayout.cardNameWide
+                              : null,
                         ),
                       ),
                       if (description.isNotEmpty) ...[
@@ -295,14 +275,14 @@ class CommunityRow extends StatelessWidget {
                   // The text area's inset, tile, gap and end padding, plus
                   // the name's least width.
                   minMainWidth:
-                      inset +
-                      cardTileSize +
+                      insetH +
+                      tileSize +
                       AppSpacing.smd +
                       AppSpacing.smd +
                       cardMinNameWidth,
                   endGap: AppSpacing.smd,
                   // Under the name: the inset, the tile and its gap.
-                  belowStart: inset + cardTileSize + AppSpacing.smd,
+                  belowStart: insetH + tileSize + AppSpacing.smd,
                   belowBottom: AppSpacing.sm,
                   textDirection: Directionality.of(context),
                   main: textArea,
