@@ -20,13 +20,6 @@ import '../../features/communities/presentation/widgets/moderation_log_about.dar
     show ModerationLogAboutPlaceholder;
 import '../../features/graph/presentation/graph_feature_flags.dart';
 import '../../features/graph/presentation/widgets/who_to_follow_card.dart';
-import '../../features/lists/domain/lists_feature_flag.dart';
-import '../../features/lists/presentation/widgets/home_tabs_preview.dart'
-    show HomeTabsPreviewPlaceholder;
-import '../../features/lists/presentation/widgets/list_members_pane.dart'
-    show ListMembersPanePlaceholder;
-import '../../features/lists/presentation/widgets/lists_owner_card.dart'
-    show ListsOwnerCardPlaceholder;
 import '../../features/notifications/presentation/widgets/follow_requests_card.dart'
     show FollowRequestsCardSlot, followRequestsCardAllowed;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -99,16 +92,6 @@ enum ContextFamily {
   /// `/communities/:id/members` (R10): "Search members", lent by the page,
   /// with `community_member_search` on (F36); the global set without it.
   communityMembers,
-
-  /// `/lists/:id` (T8b): a preview of the List's members, lent by the page.
-  listDetail,
-
-  /// `/home/pinned` (T8b): the preview of the Home tabs, lent by the page.
-  managePinned,
-
-  /// `/u/:id/lists` (T8b): the owner card, lent by the page (from the Lists
-  /// it loaded).
-  userLists,
 
   /// `/plans/new` (T8d): the live preview of the form and "Tips for a good
   /// plan", lent by the page.
@@ -244,11 +227,6 @@ ContextFamily contextFamilyFor(String location) {
     // flag off (see [contextSectionsFor]).
     ['communities', _, 'members'] => ContextFamily.communityMembers,
     ['communities', _] => ContextFamily.community,
-    // Lists (T8b). `/lists` and `/lists/:id/members` keep the global set
-    // (F10 keeps "Discover new Lists" out; F31's suggestions wait).
-    ['lists', _] => ContextFamily.listDetail,
-    ['home', 'pinned'] => ContextFamily.managePinned,
-    ['u', _, 'lists'] => ContextFamily.userLists,
     _ => ContextFamily.global,
   };
 }
@@ -284,16 +262,6 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
   // page keeps the global set (T8a ruling 11).
   if (family == ContextFamily.communityMembers &&
       !isFeatureEnabled(context, kFeatureCommunityMemberSearch)) {
-    family = ContextFamily.global;
-  }
-  // Likewise the Lists pages need `lists` (T8b).
-  final listsFamily = switch (family) {
-    ContextFamily.listDetail ||
-    ContextFamily.managePinned ||
-    ContextFamily.userLists => true,
-    _ => false,
-  };
-  if (listsFamily && !isFeatureEnabled(context, kFeatureLists)) {
     family = ContextFamily.global;
   }
   // The plan forms need `beacons` (the router sends them to `/plans`
@@ -395,21 +363,6 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
             label: kSearchMembersLabel,
           ),
         ),
-      ],
-      ContextFamily.listDetail => [
-        lent(
-          ContextSectionKind.listMembers,
-          const ListMembersPanePlaceholder(),
-        ),
-      ],
-      ContextFamily.managePinned => [
-        lent(
-          ContextSectionKind.homeTabsPreview,
-          const HomeTabsPreviewPlaceholder(),
-        ),
-      ],
-      ContextFamily.userLists => [
-        lent(ContextSectionKind.listsOwner, const ListsOwnerCardPlaceholder()),
       ],
       // Lent by the form (T8d): the preview follows the typing, and the
       // edit form shows nothing over its loading or failed plan.

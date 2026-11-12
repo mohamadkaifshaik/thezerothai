@@ -35,10 +35,6 @@ void main() {
     AppRouter.communityNewPath: ContextFamily.communityCreate,
     '/communities/c1': ContextFamily.community,
     '/communities/c1/moderation-log': ContextFamily.moderationLog,
-    // The Lists pages (T8b): sections lent by the page.
-    '/lists/l1': ContextFamily.listDetail,
-    AppRouter.pinnedPath: ContextFamily.managePinned,
-    '/u/u1/lists': ContextFamily.userLists,
     // The plan forms (T8d): the preview and the tips, lent by the page.
     AppRouter.planNewPath: ContextFamily.planCreate,
     '/plans/b1/edit': ContextFamily.planEdit,
@@ -212,11 +208,10 @@ void main() {
   group('lists (T8b)', () {
     test('a query or a trailing slash does not change the family', () {
       expect(contextFamilyFor('/lists/'), ContextFamily.global);
-      expect(contextFamilyFor('/lists/7?x=1'), ContextFamily.listDetail);
-      expect(contextFamilyFor('/lists/7/'), ContextFamily.listDetail);
+      expect(contextFamilyFor('/lists/7?x=1'), ContextFamily.global);
       expect(contextFamilyFor('/lists/7/members/'), ContextFamily.global);
-      expect(contextFamilyFor('/home/pinned/'), ContextFamily.managePinned);
-      expect(contextFamilyFor('/u/u1/lists?x=1'), ContextFamily.userLists);
+      expect(contextFamilyFor('/home/pinned/'), ContextFamily.global);
+      expect(contextFamilyFor('/u/u1/lists?x=1'), ContextFamily.global);
     });
 
     test('near misses keep their own family', () {

@@ -1,4 +1,5 @@
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/features/lists/data/home_tabs_repository.dart';
 import 'package:dzeroth/features/lists/data/lists_repository.dart';
 import 'package:dzeroth/features/lists/presentation/lists_screen.dart';
 import 'package:dzeroth/gen/dzeroth/lists/v1/lists.pb.dart' as pb;
@@ -8,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../support/geometry.dart';
+import '../../../support/lists_pinned_stub.dart';
 import '../../../support/theme_harness.dart';
 
 class _MockLists extends Mock implements ListsRepository {}
@@ -51,8 +53,11 @@ void main() {
 
   Future<void> open(WidgetTester tester, {MatrixEnv? env}) => pumpThemed(
     tester,
-    RepositoryProvider<ListsRepository>.value(
-      value: repo,
+    MultiRepositoryProvider(
+      providers: [
+        RepositoryProvider<ListsRepository>.value(value: repo),
+        RepositoryProvider<HomeTabsRepository>.value(value: noPinnedTabs()),
+      ],
       child: const ListsScreen(),
     ),
     brightness: env?.brightness ?? Brightness.light,
@@ -78,7 +83,12 @@ void main() {
       expectNoOverflow(tester);
       expect(find.text('Lists'), findsOneWidget);
       expect(find.text('Your Lists'), findsOneWidget);
-      expect(find.byIcon(Icons.lock_outline), findsOneWidget);
+      // The phone mock says "Private" in words; the wide mocks add the lock.
+      expect(find.text('Private · 3 members'), findsOneWidget);
+      expect(
+        find.byIcon(Icons.lock_outline),
+        env.size.width < 600 ? findsNothing : findsOneWidget,
+      );
       expect(find.bySemanticsLabel('Mine, 3 members, private'), findsOneWidget);
       expect(find.byTooltip('Create a new List'), findsOneWidget);
       expect(find.byTooltip('Edit Mine'), findsOneWidget);

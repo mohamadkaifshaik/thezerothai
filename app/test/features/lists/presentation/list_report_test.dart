@@ -185,7 +185,7 @@ void main() {
     when(() => lists.header('77')).thenReturn(_header(ownerId: 'viewer'));
     await open(tester);
     expect(menu(), findsNothing);
-    expect(find.text('Edit'), findsOneWidget);
+    expect(find.text('Edit List'), findsOneWidget);
   });
 
   testWidgets('reports flag off: no entry', (tester) async {

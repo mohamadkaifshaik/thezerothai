@@ -42,3 +42,16 @@ class ListUnavailableView extends StatelessWidget {
 final ButtonStyle kListOutlinedButtonStyle = OutlinedButton.styleFrom(
   minimumSize: const Size(88, AppSpacing.minTapTarget),
 );
+
+/// The outlined pill on the navy List hero (dz.css `.btn.outline.on-dark`):
+/// a pearl label over a 1.5 dp pearl outline, whatever the theme.
+final ButtonStyle kListOnDarkOutlinedButtonStyle = OutlinedButton.styleFrom(
+  foregroundColor: AppPalette.pearl,
+  disabledForegroundColor: AppPalette.mutedOnDark,
+  minimumSize: const Size(88, AppListsLayout.heroButtonHeight),
+  shape: const StadiumBorder(),
+  side: BorderSide(
+    color: AppPalette.pearl.withValues(alpha: AppListsLayout.heroOutlineAlpha),
+    width: 1.5,
+  ),
+);
