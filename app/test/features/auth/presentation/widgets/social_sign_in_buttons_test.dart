@@ -82,7 +82,7 @@ void main() {
     for (final label in ['Continue with Google', 'Continue with Apple']) {
       expect(
         tester.getSemantics(find.bySemanticsLabel(label)),
-        containsSemantics(isButton: true, hasTapAction: true, isEnabled: true),
+        isSemantics(isButton: true, hasTapAction: true, isEnabled: true),
       );
     }
     tester.semantics.tap(find.semantics.byLabel('Continue with Google'));
