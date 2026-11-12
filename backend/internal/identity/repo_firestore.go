@@ -59,7 +59,7 @@ type userDoc struct {
 	// Profile extras: absent = none, never backfilled, index-exempt, not in the author snapshot.
 	// omitempty keeps a whole-doc rewrite (ChangeHandle) from adding empty fields to a doc that has none. The removed
 	// banner's bannerUrl and bannerThumbUrl are not decoded (a legacy document still decodes); a whole-doc rewrite drops
-	// them, and `opsctl purge-banners` (repo_legacy_banner.go) removes the rest.
+	// them ().
 	Location     string `firestore:"location,omitempty"`
 	Website      string `firestore:"website,omitempty"`
 	PinnedPostID string `firestore:"pinnedPostId,omitempty"`

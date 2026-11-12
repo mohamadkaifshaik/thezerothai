@@ -292,7 +292,7 @@ func TestIntegration_RetiredImageIsRefusedByTheResolvers(t *testing.T) {
 
 // TestIntegration_EraserCoversRetiredImagesInsideTheGrace: an account deleted between the retire and the document's TTL
 // loses the objects and the documents at once, and the export lists the retired documents until then. A legacy BANNER
-// document (the removed purpose, before `opsctl purge-banners` ran) is exported and erased the same way.
+// document (the removed purpose) is exported and erased the same way.
 func TestIntegration_EraserCoversRetiredImagesInsideTheGrace(t *testing.T) {
 	e := newRetireIntEnv(t, config.ProfileMediaRetireAll)
 	ctx := context.Background()

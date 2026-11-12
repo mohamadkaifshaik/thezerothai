@@ -162,7 +162,7 @@ func TestClearProfileFields_Integration_RetiresClearedImages(t *testing.T) {
 		t.Errorf("tagged objects = %q, want the avatar's two objects only", got)
 	}
 	if s, _ := client.Collection("users").Doc(uid).Get(ctx); s.Data()["bannerUrl"] != base+bannerID+".webp" {
-		t.Error("clear-profile-fields touched the legacy banner fields (purge-banners owns them)")
+		t.Error("clear-profile-fields touched the legacy banner fields (they are legacy data, not profile fields)")
 	}
 
 	// An invalid switch is refused before anything is written, and says which variable.

@@ -20,8 +20,8 @@ const (
 	idAvatar2Old = "0000000000000000702"
 	idAvatarNew  = "0000000000000000703"
 	idAvatar2New = "0000000000000000704"
-	// idLegacyBanner is a document of the removed BANNER purpose (legacyBannerPurpose), as one may still exist until
-	// `opsctl purge-banners` has run.
+	// idLegacyBanner is a document of the removed BANNER purpose (legacyBannerPurpose), kept as a defensive case
+	// ().
 	idLegacyBanner = "0000000000000000705"
 	retireBase     = "https://cdn.test/media"
 	retireBucket   = "https://storage.googleapis.com/proj-media"
@@ -256,7 +256,7 @@ func TestRetire_Matrix(t *testing.T) {
 			want: "disabled",
 		},
 		{
-			name: "a legacy BANNER message in flight is dropped before any read (purge-banners erases the image)",
+			name: "a legacy BANNER message in flight is dropped before any read",
 			mode: config.ProfileMediaRetireAll,
 			setup: func(e *retireEnv) {
 				seedProfileImage(e.repo, e.obj, idLegacyBanner, uidA, legacyBannerPurpose, "webp")
@@ -724,7 +724,7 @@ func TestProfileImageReplaced_Publish(t *testing.T) {
 
 // TestPurgeUser_CoversRetiredImagesInsideTheGrace: retired AVATARs still own their objects until the document's TTL, so
 // an account deleted during the grace loses the objects and the documents at once; the export still lists them, with the
-// retirement time. A legacy BANNER document (the removed purpose, before `opsctl purge-banners` ran) is exported and
+// retirement time. A legacy BANNER document (the removed purpose) is exported and
 // erased the same way: the eraser never looks at the purpose.
 func TestPurgeUser_CoversRetiredImagesInsideTheGrace(t *testing.T) {
 	r, o := newFakeRepo(), newFakeObjects()

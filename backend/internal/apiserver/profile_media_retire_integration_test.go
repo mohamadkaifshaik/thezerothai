@@ -174,7 +174,7 @@ func TestProfileMediaRetire_Chain(t *testing.T) {
 	forged("the current avatar", "still_current", map[string]any{"uid": a.uid, "purpose": "AVATAR", "oldUrl": e.profileImageURL(av3)})
 	forged("another user's image under my uid", "refused", map[string]any{"uid": a.uid, "purpose": "AVATAR", "oldUrl": e.profileImageURL(theirs)})
 	forged("the wrong purpose (a legacy banner named as an avatar)", "refused", map[string]any{"uid": a.uid, "purpose": "AVATAR", "oldUrl": e.profileImageURL(legacy)})
-	// A BANNER message still in flight from a revision that had banners is acked and dropped: purge-banners erases it.
+	// A BANNER message still in flight from a revision that had banners is acked and dropped.
 	forged("a legacy BANNER message", "dropped:invalid_message", map[string]any{"uid": a.uid, "purpose": "BANNER", "oldUrl": e.profileImageURL(legacy)})
 	forged("an url media does not own", "unparseable", map[string]any{"uid": a.uid, "purpose": "AVATAR", "oldUrl": "https://elsewhere.example/avatar.png"})
 	forged("an unknown image", "duplicate", map[string]any{"uid": a.uid, "purpose": "AVATAR", "oldUrl": e.profileImageURL("4999999999999999999")})
