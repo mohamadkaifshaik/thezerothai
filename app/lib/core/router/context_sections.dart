@@ -162,6 +162,7 @@ ContextFamily contextFamilyFor(String location) {
 List<ContextSection> contextSectionsFor(String location, BuildContext context) {
   final family = contextFamilyFor(location);
   if (family == ContextFamily.none) return const [];
+  final search = isFeatureEnabled(context, kFeatureSearch);
   final trends = search && isFeatureEnabled(context, kFeatureTrends);
   final suggestions = isFollowSuggestionsEnabled(context);
 
