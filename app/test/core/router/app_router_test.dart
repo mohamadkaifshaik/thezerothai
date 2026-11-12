@@ -103,7 +103,7 @@ void main() {
     return appRouter.router.routeInformationProvider.value.uri.path;
   }
 
-  testWidgets('/u/:userId redirects a signed-out visitor to sign-in', (
+  testWidgets('/u/:userId redirects a signed-out visitor to welcome', (
     tester,
   ) async {
     final path = await openUserRoute(
@@ -112,7 +112,7 @@ void main() {
       onboarding: const OnboardingState(),
     );
 
-    expect(path, AppRouter.signInPath);
+    expect(path, AppRouter.welcomePath);
   });
 
   testWidgets('/u/:userId redirects a user without a profile to onboarding', (
@@ -172,7 +172,7 @@ void main() {
   });
 
   testWidgets('signed-out users go from /settings/delete-account and /home to '
-      'sign-in', (tester) async {
+      'welcome', (tester) async {
     for (final target in const [AppRouter.deleteAccountPath, '/home']) {
       final path = await openUserRoute(
         tester,
@@ -180,7 +180,7 @@ void main() {
         onboarding: const OnboardingState(),
         path: target,
       );
-      expect(path, AppRouter.signInPath, reason: target);
+      expect(path, AppRouter.welcomePath, reason: target);
     }
   });
 
@@ -294,7 +294,7 @@ void main() {
     expect(find.byType(ChangeHandleScreen), findsOneWidget);
   });
 
-  testWidgets('/post/:id redirects a signed-out visitor to sign-in', (
+  testWidgets('/post/:id redirects a signed-out visitor to welcome', (
     tester,
   ) async {
     final path = await openUserRoute(
@@ -304,6 +304,6 @@ void main() {
       path: AppRouter.postPath('123'),
     );
 
-    expect(path, AppRouter.signInPath);
+    expect(path, AppRouter.welcomePath);
   });
 }

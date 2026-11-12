@@ -15,12 +15,17 @@ class SocialSignInButtons extends StatelessWidget {
     required this.isSubmitting,
     required this.onGoogleTap,
     required this.onAppleTap,
+    this.stacked = false,
     this.appleOnIosEnabled = AppConfig.appleSignInIosEnabled,
   });
 
   final bool isSubmitting;
   final VoidCallback onGoogleTap;
   final VoidCallback onAppleTap;
+
+  /// The welcome page's full-width "Continue with ..." pills, one under the
+  /// other, instead of the forms' two-up row.
+  final bool stacked;
 
   /// Defaults to [AppConfig.appleSignInIosEnabled]; overridable in tests.
   final bool appleOnIosEnabled;
@@ -36,27 +41,39 @@ class SocialSignInButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final google = _SocialPill(
+      label: stacked ? 'Continue with Google' : 'Google',
+      semanticsLabel: 'Continue with Google',
+      onPressed: isSubmitting ? null : onGoogleTap,
+      mark: const CustomPaint(painter: _GoogleMark()),
+    );
+    final apple = _showApple
+        ? _SocialPill(
+            label: stacked ? 'Continue with Apple' : 'Apple',
+            semanticsLabel: 'Continue with Apple',
+            onPressed: isSubmitting ? null : onAppleTap,
+            mark: const Icon(Icons.apple, size: AppAuthLayout.socialMarkSize),
+          )
+        : null;
+    if (stacked) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          google,
+          if (apple != null) ...[
+            const SizedBox(height: AppWelcomeLayout.providerGap),
+            apple,
+          ],
+        ],
+      );
+    }
     // The mocks' two-up row; without Apple, Google spans the row alone.
     return Row(
       children: [
-        Expanded(
-          child: _SocialPill(
-            label: 'Google',
-            semanticsLabel: 'Continue with Google',
-            onPressed: isSubmitting ? null : onGoogleTap,
-            mark: const CustomPaint(painter: _GoogleMark()),
-          ),
-        ),
-        if (_showApple) ...[
+        Expanded(child: google),
+        if (apple != null) ...[
           const SizedBox(width: AppAuthLayout.socialGap),
-          Expanded(
-            child: _SocialPill(
-              label: 'Apple',
-              semanticsLabel: 'Continue with Apple',
-              onPressed: isSubmitting ? null : onAppleTap,
-              mark: const Icon(Icons.apple, size: AppAuthLayout.socialMarkSize),
-            ),
-          ),
+          Expanded(child: apple),
         ],
       ],
     );
@@ -101,7 +118,10 @@ class _SocialPill extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            SizedBox.square(dimension: AppAuthLayout.socialMarkSize, child: mark),
+            SizedBox.square(
+              dimension: AppAuthLayout.socialMarkSize,
+              child: mark,
+            ),
             const SizedBox(width: AppSpacing.smd),
             Flexible(child: Text(label, textAlign: TextAlign.center)),
           ],

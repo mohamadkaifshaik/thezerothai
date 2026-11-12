@@ -1384,6 +1384,24 @@ abstract final class AppAccountLayout {
   static const double actionsTop = 22;
 }
 
+/// Welcome (Main) geometry per screen size (dp), from the dzeroth-mobile,
+/// tablet and desktop Main mocks: the brand mark and its spacing.
+abstract final class AppWelcomeLayout {
+  static const double markPhone = 96;
+  static const double markWide = 130;
+  static const double markRadiusPhone = 26;
+  static const double markRadiusWide = 34;
+
+  /// Gap from the wordmark to the mark on the phone page.
+  static const double phoneMarkTop = 72;
+
+  /// Gap from the mark to the eyebrow on tablet and in the desktop hero.
+  static const double wideMarkGap = 30;
+
+  /// Gap between stacked provider pills.
+  static const double providerGap = 12;
+}
+
 /// Settings geometry per screen size (dp): the phone mock's raised cards
 /// (dzeroth-mobile Settings) and the tablet / desktop mocks' flat boxes and
 /// category list (dz.css `.box`, `.row`, `.sect`, `.search`). Colours come

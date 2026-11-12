@@ -100,6 +100,7 @@ class AuthPageLayout extends StatelessWidget {
     required this.form,
     required this.social,
     required this.onSwitchMode,
+    required this.onBack,
   });
 
   final AuthCopy copy;
@@ -111,6 +112,10 @@ class AuthPageLayout extends StatelessWidget {
 
   /// Null while a request is in flight.
   final VoidCallback? onSwitchMode;
+
+  /// "All sign-in options": back to Welcome. Null while a request is in
+  /// flight.
+  final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -131,12 +136,16 @@ class AuthPageLayout extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
       if (divider)
-        const _OrDivider()
+        const AuthOrDivider()
       else
         const SizedBox(height: AppAuthLayout.actionsGap),
       social,
       const SizedBox(height: AppSpacing.sm),
-      _SwitchLine(copy: copy, onPressed: onSwitchMode),
+      AuthSwitchLine(
+        prompt: copy.switchPrompt,
+        action: copy.switchAction,
+        onPressed: onSwitchMode,
+      ),
       if (signUp)
         const PrivacyPolicyLink(
           leadingText:
@@ -151,9 +160,11 @@ class AuthPageLayout extends StatelessWidget {
     BuildContext context,
     double size, {
     double fieldsTop = AppAuthLayout.fieldsTop,
+    bool backLink = true,
   }) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
+      if (backLink) _BackLink(onPressed: onBack),
       _Eyebrow(copy.eyebrow),
       const SizedBox(height: AppAuthLayout.eyebrowGap),
       _Headline(lead: copy.headline, accent: copy.accent, size: size),
@@ -189,11 +200,21 @@ class AuthPageLayout extends StatelessWidget {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Row(
+                    Row(
                       children: [
-                        Expanded(child: _Wordmark()),
-                        AuthAppearanceControl(),
-                        _HelpButton(),
+                        // The phone mocks' "All sign-in options" link, as an
+                        // icon so the wordmark and controls keep the row.
+                        IconButton(
+                          tooltip: _backLabel,
+                          onPressed: onBack,
+                          icon: const Icon(
+                            Icons.arrow_back,
+                            size: AppIconSize.md,
+                          ),
+                        ),
+                        const Expanded(child: _Wordmark()),
+                        const AuthAppearanceControl(),
+                        const _HelpButton(),
                       ],
                     ),
                     const SizedBox(height: AppAuthLayout.phoneHeaderTop),
@@ -201,6 +222,7 @@ class AuthPageLayout extends StatelessWidget {
                       context,
                       AppAuthLayout.phoneDisplaySize,
                       fieldsTop: AppAuthLayout.phoneFieldsTop,
+                      backLink: false,
                     ),
                     fields,
                   ],
@@ -360,6 +382,8 @@ class AuthFrame extends StatelessWidget {
     required this.heroAccent,
     required this.children,
     required this.actions,
+    this.headlineTail = '.',
+    this.mark,
     this.phoneAction,
     this.wideFooter,
   });
@@ -376,6 +400,14 @@ class AuthFrame extends StatelessWidget {
 
   /// The buttons, full width.
   final Widget actions;
+
+  /// What follows the accent word of the headline.
+  final String headlineTail;
+
+  /// The brand mark of the welcome page: centred under the wordmark on the
+  /// phone (the text and actions then sit at the bottom, with the mark above
+  /// the free space), above the eyebrow on tablet and in the desktop hero.
+  final Widget? mark;
 
   /// At the top end of the phone page (Sign out).
   final Widget? phoneAction;
@@ -399,7 +431,12 @@ class AuthFrame extends StatelessWidget {
         children: [
           _Eyebrow(eyebrow),
           const SizedBox(height: AppAuthLayout.eyebrowGap),
-          _Headline(lead: headline, accent: accent, size: size),
+          _Headline(
+            lead: headline,
+            accent: accent,
+            size: size,
+            tail: headlineTail,
+          ),
           SizedBox(height: fieldsTop),
         ],
       );
@@ -414,14 +451,29 @@ class AuthFrame extends StatelessWidget {
     ],
   );
 
-  Widget _wide() => Column(
+  Widget _wide({bool withMark = false}) => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
+      if (withMark && mark != null) ...[
+        Align(alignment: AlignmentDirectional.centerStart, child: mark),
+        const SizedBox(height: AppWelcomeLayout.wideMarkGap),
+      ],
       _header(AppAuthLayout.wideDisplaySize),
       _body(),
       const SizedBox(height: AppSpacing.lg),
       actions,
       ?wideFooter,
+    ],
+  );
+
+  Widget _phoneText() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      _header(
+        AppAuthLayout.phoneDisplaySize,
+        fieldsTop: AppAuthLayout.phoneFieldsTop,
+      ),
+      _body(),
     ],
   );
 
@@ -454,17 +506,27 @@ class AuthFrame extends StatelessWidget {
                       ?phoneAction,
                     ],
                   ),
-                  const SizedBox(height: AppAuthLayout.phoneHeaderTop),
-                  _header(
-                    AppAuthLayout.phoneDisplaySize,
-                    fieldsTop: AppAuthLayout.phoneFieldsTop,
-                  ),
-                  _body(),
+                  if (mark != null) ...[
+                    const SizedBox(height: AppWelcomeLayout.phoneMarkTop),
+                    Center(child: mark),
+                  ] else ...[
+                    const SizedBox(height: AppAuthLayout.phoneHeaderTop),
+                    _phoneText(),
+                  ],
                 ],
               ),
               Padding(
                 padding: const EdgeInsets.only(top: AppSpacing.lg),
-                child: actions,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (mark != null) ...[
+                      _phoneText(),
+                      const SizedBox(height: AppSpacing.md),
+                    ],
+                    actions,
+                  ],
+                ),
               ),
             ],
           ),
@@ -497,7 +559,7 @@ class AuthFrame extends StatelessWidget {
                   constraints: const BoxConstraints(
                     maxWidth: AppAuthLayout.tabletFormWidth,
                   ),
-                  child: _wide(),
+                  child: _wide(withMark: true),
                 ),
               ),
               const _Footer(),
@@ -518,6 +580,7 @@ class AuthFrame extends StatelessWidget {
             eyebrow: heroEyebrow,
             headline: heroHeadline,
             accent: heroAccent,
+            mark: mark,
             width:
                 width *
                 AppAuthLayout.desktopHeroFlex /
@@ -623,12 +686,14 @@ class _DesktopHero extends StatelessWidget {
     required this.headline,
     required this.accent,
     required this.width,
+    this.mark,
   });
 
   final String eyebrow;
   final String headline;
   final String accent;
   final double width;
+  final Widget? mark;
 
   @override
   Widget build(BuildContext context) {
@@ -677,6 +742,12 @@ class _DesktopHero extends StatelessWidget {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
+                                  if (mark != null) ...[
+                                    mark!,
+                                    const SizedBox(
+                                      height: AppWelcomeLayout.wideMarkGap,
+                                    ),
+                                  ],
                                   _Eyebrow(eyebrow),
                                   const SizedBox(height: AppSpacing.md),
                                   // The form panel carries the page heading;
@@ -752,12 +823,14 @@ class _Headline extends StatelessWidget {
     required this.accent,
     required this.size,
     this.header = true,
+    this.tail = '.',
   });
 
   final String lead;
   final String accent;
   final double size;
   final bool header;
+  final String tail;
 
   @override
   Widget build(BuildContext context) {
@@ -777,7 +850,7 @@ class _Headline extends StatelessWidget {
               text: accent,
               style: TextStyle(color: context.appColors.accentText),
             ),
-            const TextSpan(text: '.'),
+            TextSpan(text: tail),
           ],
         ),
         style: base,
@@ -786,37 +859,55 @@ class _Headline extends StatelessWidget {
   }
 }
 
-class _OrDivider extends StatelessWidget {
-  const _OrDivider();
+/// A rule with a word in the middle ("or", "or keep it classic").
+class AuthOrDivider extends StatelessWidget {
+  const AuthOrDivider({super.key, this.label = 'or'});
+
+  final String label;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AppAuthLayout.dividerGap),
-      child: Row(
-        children: [
-          const Expanded(child: Divider(height: 1)),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.smd),
-            child: Text(
-              'or',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+      // The label wraps at large text instead of overflowing; the rules keep
+      // what is left.
+      child: LayoutBuilder(
+        builder: (context, constraints) => Row(
+          children: [
+            const Expanded(child: Divider(height: 1)),
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: constraints.maxWidth * .7),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.smd),
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ),
             ),
-          ),
-          const Expanded(child: Divider(height: 1)),
-        ],
+            const Expanded(child: Divider(height: 1)),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _SwitchLine extends StatelessWidget {
-  const _SwitchLine({required this.copy, required this.onPressed});
+/// "New here? Sign up": a muted question and an accent action.
+class AuthSwitchLine extends StatelessWidget {
+  const AuthSwitchLine({
+    super.key,
+    required this.prompt,
+    required this.action,
+    required this.onPressed,
+  });
 
-  final AuthCopy copy;
+  final String prompt;
+  final String action;
   final VoidCallback? onPressed;
 
   @override
@@ -827,7 +918,7 @@ class _SwitchLine extends StatelessWidget {
       crossAxisAlignment: WrapCrossAlignment.center,
       children: [
         Text(
-          copy.switchPrompt,
+          prompt,
           style: theme.textTheme.bodyMedium?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),
@@ -837,11 +928,34 @@ class _SwitchLine extends StatelessWidget {
           style: TextButton.styleFrom(
             foregroundColor: context.appColors.accentText,
           ),
-          child: Text(copy.switchAction),
+          child: Text(action),
         ),
       ],
     );
   }
+}
+
+const _backLabel = 'All sign-in options';
+
+/// "← All sign-in options" above the eyebrow (the SignIn and SignUp mocks).
+class _BackLink extends StatelessWidget {
+  const _BackLink({required this.onPressed});
+
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: AlignmentDirectional.centerStart,
+    child: TextButton.icon(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        foregroundColor: context.appColors.accentText,
+        padding: const EdgeInsetsDirectional.only(end: AppSpacing.sm),
+      ),
+      icon: const Icon(Icons.arrow_back, size: AppIconSize.md),
+      label: const Text(_backLabel),
+    ),
+  );
 }
 
 /// "© year DZEROTH · Privacy Policy · Help" (tablet and desktop mocks).

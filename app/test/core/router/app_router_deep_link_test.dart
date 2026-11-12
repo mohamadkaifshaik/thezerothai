@@ -269,20 +269,29 @@ void main() {
         expect(await resolve(tester, target), '/');
 
         setStates(signedOut, idle);
-        expect(await resolve(tester, '/'), AppRouter.signInPath);
+        expect(await resolve(tester, '/'), AppRouter.welcomePath);
 
         setStates(signedIn, ready);
         expect(await resolve(tester, AppRouter.signInPath), target);
       });
 
-      testWidgets('signed out: sign-in (and sign-up) lead to the target', (
-        tester,
-      ) async {
+      testWidgets('signed out: welcome, sign-in (and sign-up) lead to the '
+          'target', (tester) async {
         setStates(signedOut, idle);
-        expect(await resolve(tester, target), AppRouter.signInPath);
+        expect(await resolve(tester, target), AppRouter.welcomePath);
+        // Welcome and sign-in are hops: the target waits through both.
+        expect(
+          await resolve(tester, AppRouter.welcomePath),
+          AppRouter.welcomePath,
+        );
+        expect(
+          await resolve(tester, AppRouter.signInPath),
+          AppRouter.signInPath,
+        );
 
         setStates(signedIn, ready);
         expect(await resolve(tester, AppRouter.signUpPath), target);
+        expect(await resolve(tester, AppRouter.welcomePath), target);
       });
 
       testWidgets('signed in without a profile: onboarding, then the target '
@@ -298,7 +307,7 @@ void main() {
         tester,
       ) async {
         setStates(signedOut, idle);
-        expect(await resolve(tester, target), AppRouter.signInPath);
+        expect(await resolve(tester, target), AppRouter.welcomePath);
 
         // Signed in, GetMe says profile required: sign-in hops to the target,
         // which hops to onboarding and must keep stashing the target.
@@ -319,7 +328,7 @@ void main() {
 
         // After a sign-in with an unverified address.
         setStates(signedOut, idle);
-        expect(await resolve(tester, target), AppRouter.signInPath);
+        expect(await resolve(tester, target), AppRouter.welcomePath);
         setStates(unverified, idle);
         expect(await resolve(tester, AppRouter.signInPath), target);
       });
@@ -366,7 +375,7 @@ void main() {
       tester,
     ) async {
       setStates(signedOut, idle);
-      expect(await resolve(tester, link), AppRouter.signInPath);
+      expect(await resolve(tester, link), AppRouter.welcomePath);
 
       setStates(signedIn, readyMessaging);
       expect(await resolve(tester, AppRouter.signInPath), link);
@@ -376,7 +385,7 @@ void main() {
       tester,
     ) async {
       setStates(signedOut, idle);
-      expect(await resolve(tester, link), AppRouter.signInPath);
+      expect(await resolve(tester, link), AppRouter.welcomePath);
 
       setStates(signedIn, noProfile);
       expect(
@@ -427,7 +436,7 @@ void main() {
         // A fresh router per link: landing once would hide a stash later.
         appRouter = AppRouter(authBloc: auth, onboardingBloc: onboarding);
         setStates(signedOut, idle);
-        expect(await resolve(tester, bad), AppRouter.signInPath, reason: bad);
+        expect(await resolve(tester, bad), AppRouter.welcomePath, reason: bad);
 
         setStates(signedIn, readyMessaging);
         expect(
@@ -457,15 +466,16 @@ void main() {
       tester,
     ) async {
       setStates(signedOut, idle);
-      expect(await resolve(tester, targets.first), AppRouter.signInPath);
+      expect(await resolve(tester, targets.first), AppRouter.welcomePath);
       // The visitor went elsewhere signed out: that is where they were sent.
       expect(
         await resolve(tester, AppRouter.settingsPath),
-        AppRouter.signInPath,
+        AppRouter.welcomePath,
       );
 
       setStates(signedIn, ready);
       expect(await resolve(tester, AppRouter.signInPath), AppRouter.homePath);
+      expect(await resolve(tester, AppRouter.welcomePath), AppRouter.homePath);
     });
 
     testWidgets('//evil and absolute URLs never become the landing page', (
@@ -501,7 +511,7 @@ void main() {
 
       // Sign-out while on the post, then (maybe another account) sign-in.
       setStates(signedOut, idle);
-      expect(await resolve(tester, targets.first), AppRouter.signInPath);
+      expect(await resolve(tester, targets.first), AppRouter.welcomePath);
       setStates(signedIn, ready);
       expect(await resolve(tester, AppRouter.signInPath), AppRouter.homePath);
     });
@@ -594,7 +604,7 @@ void main() {
       emit(signedOut, idle);
       await tester.pump();
       await tester.pump();
-      expect(path(), AppRouter.signInPath);
+      expect(path(), AppRouter.welcomePath);
       emit(signedIn, noProfile);
       await tester.pump();
       await tester.pump();
