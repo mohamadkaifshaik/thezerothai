@@ -117,7 +117,7 @@ void main() {
 
   testWidgets('starts empty: Post disabled, counter 280', (tester) async {
     await open(tester);
-    expect(find.text('New post'), findsOneWidget);
+    expect(find.byTooltip('Close'), findsOneWidget);
     expect(postButton(tester).onPressed, isNull);
     expect(find.text('280'), findsOneWidget);
   });
@@ -225,14 +225,14 @@ void main() {
 
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
-    expect(find.text('New post'), findsOneWidget);
+    expect(find.byTooltip('Close'), findsOneWidget);
   });
 
   testWidgets('works in dark mode with 48dp targets', (tester) async {
     await open(tester, theme: appDarkTheme);
     final size = tester.getSize(find.widgetWithText(AppPillButton, 'Post'));
     expect(size.height, greaterThanOrEqualTo(48));
-    final cancel = tester.getSize(find.widgetWithText(TextButton, 'Cancel'));
+    final cancel = tester.getSize(find.byTooltip('Close'));
     expect(cancel.height, greaterThanOrEqualTo(48));
     expect(cancel.width, greaterThanOrEqualTo(48));
   });

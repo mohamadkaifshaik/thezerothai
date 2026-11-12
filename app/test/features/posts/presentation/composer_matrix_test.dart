@@ -139,7 +139,7 @@ void main() {
 
   group('Save post? with attachments', () {
     Future<void> leave(WidgetTester tester) async {
-      await tester.tap(find.text('Cancel'));
+      await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
     }
 
@@ -238,7 +238,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'look at this');
       await tester.pump();
-      await tester.tap(find.text('Cancel'));
+      await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
       expect(find.text(kDraftsGifNote), findsOneWidget);
       expect(tester.takeException(), isNull);
