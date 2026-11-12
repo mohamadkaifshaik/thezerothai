@@ -170,14 +170,14 @@ void main() {
       await tester.pumpAndSettle();
       unawaited(rig.router.push('/compose'));
       await tester.pumpAndSettle();
-      expect(find.text('New post'), findsOneWidget);
+      expect(find.byTooltip('Close'), findsOneWidget);
       return rig;
     }
 
     void expectBackOnThePostPage() {
       expect(find.text('post detail page'), findsOneWidget);
       expect(find.text('home page'), findsNothing, reason: 'popped once only');
-      expect(find.text('New post'), findsNothing);
+      expect(find.byTooltip('Close'), findsNothing);
     }
 
     testWidgets('the session ends during a claim: one pop', (tester) async {
@@ -216,7 +216,7 @@ void main() {
       await openOverAPage(tester, drafts: FakeDraftsRepository());
       await tester.enterText(find.byType(TextField), 'from the old account');
       await tester.pump();
-      await tester.tap(find.text('Cancel'));
+      await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
       expect(find.text('Save post?'), findsOneWidget);
 
@@ -264,7 +264,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('post detail page'), findsOneWidget);
-      expect(find.text('New post'), findsNothing);
+      expect(find.byTooltip('Close'), findsNothing);
       expect(find.text('home page'), findsNothing, reason: 'no go(home)');
     });
 

@@ -534,7 +534,8 @@ void main() {
 
       await tester.drag(
         find.byIcon(Icons.drag_handle).first,
-        const Offset(0, 120),
+        // Past the next card: the phone rows are raised cards, taller than rows.
+        const Offset(0, 200),
       );
       await tester.pumpAndSettle();
 
@@ -730,7 +731,7 @@ void main() {
 
       await tester.drag(
         find.byIcon(Icons.drag_handle).first,
-        const Offset(0, 120),
+        const Offset(0, 200),
       );
       await tester.pumpAndSettle();
 

@@ -2,7 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../bloc/message_composer_cubit.dart';
-import 'message_bubble.dart' show kBubbleMaxWidthFraction;
+import 'message_bubble.dart'
+    show
+        kBubbleMaxWidthFraction,
+        messageBubbleDecoration,
+        messageBubbleForeground,
+        messageBubbleShape;
 
 /// The status line under a bubble that is on its way.
 const kOutgoingSendingText = 'Sending…';
@@ -40,23 +45,30 @@ class OutgoingBubble extends StatelessWidget {
     final colors = theme.colorScheme;
     final failed = message.status == OutgoingStatus.failed;
     final status = failed ? kOutgoingNotSentText : kOutgoingSendingText;
-    const radius = Radius.circular(AppRadius.lg);
+    final shape = messageBubbleShape(own: true, lastOfGroup: true);
+    final decoration = messageBubbleDecoration(
+      context,
+      own: true,
+      tombstone: false,
+      shape: shape,
+    );
     final bubble = Opacity(
       opacity: failed ? 1 : 0.6,
       child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: colors.primary,
-          borderRadius: const BorderRadiusDirectional.all(radius),
-          border: failed ? Border.all(color: colors.error) : null,
-        ),
+        decoration: failed
+            ? decoration.copyWith(border: Border.all(color: colors.error))
+            : decoration,
         child: Padding(
           padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.smd,
-            vertical: AppSpacing.sm,
+            horizontal: AppMessagesLayout.bubblePaddingH,
+            vertical: AppMessagesLayout.bubblePaddingV,
           ),
           child: Text(
             message.text,
-            style: theme.textTheme.bodyLarge?.copyWith(color: colors.onPrimary),
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: messageBubbleForeground(context, own: true),
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ),
@@ -105,7 +117,9 @@ class OutgoingBubble extends StatelessWidget {
               onTap: failed ? () => onRetry(message.localId) : null,
               child: failed
                   ? InkWell(
-                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                      borderRadius: BorderRadius.circular(
+                        AppMessagesLayout.bubbleRadius,
+                      ),
                       onTap: () => onRetry(message.localId),
                       child: column,
                     )

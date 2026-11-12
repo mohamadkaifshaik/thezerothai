@@ -66,7 +66,7 @@ void main() {
     ],
   );
 
-  Finder field(String label) => find.widgetWithText(TextField, label);
+  Finder field(String label) => find.byKey(ValueKey('plan-field-$label'));
 
   /// The form is longer than a phone: scroll a control into view, then tap.
   Future<void> tapVisible(WidgetTester tester, Finder finder) async {

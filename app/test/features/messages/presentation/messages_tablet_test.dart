@@ -275,7 +275,7 @@ void main() {
     testWidgets('the Requests folder: its list pane, its rows keep it in the '
         'split page, and back closes the folder', (tester) async {
       final rig = await open(tester);
-      await tester.tap(inMessagesPane(find.text('Message requests (2)')));
+      await tester.tap(inMessagesPane(find.text('Message requests')));
       await tester.pumpAndSettle();
       expect(rig.stack.last, AppRouter.messageRequestsPath);
       expect(inMessagesPane(find.text('Message requests')), findsOneWidget);
@@ -312,7 +312,7 @@ void main() {
       final rig = await open(tester);
       await tester.tap(inMessagesPane(conversationRow(inboxId(0))));
       await tester.pumpAndSettle();
-      await tester.tap(inMessagesPane(find.text('Message requests (2)')));
+      await tester.tap(inMessagesPane(find.text('Message requests')));
       await tester.pumpAndSettle();
       expect(rig.stack, [AppRouter.messageRequestsPath]);
       expect(rig.shellPages, 1);

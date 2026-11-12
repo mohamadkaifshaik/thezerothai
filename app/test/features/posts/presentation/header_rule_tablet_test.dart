@@ -43,7 +43,7 @@ const _tablet = {kFeatureUiShell, kFeatureUiTablet};
 /// T8f, one header rule, on the full-screen root pages where the old
 /// placement floated furthest from the edge (172-260 dp at 1024-1199):
 /// Drafts, Scheduled and the cold-start composer. On the tablet layout Back
-/// or Cancel leads the window and the actions end it, while the content
+/// or Close leads the column and the actions end it, while the content
 /// stays in the 680 column. Phones, desktop and either flag off keep the
 /// controls at the column's edges, as before.
 void main() {
@@ -270,7 +270,7 @@ void main() {
     Rect cancel(WidgetTester tester) => tester.getRect(
       find.descendant(
         of: findComposer(),
-        matching: find.widgetWithText(TextButton, 'Cancel'),
+        matching: find.byTooltip('Close'),
       ),
     );
     Rect post(WidgetTester tester) => tester.getRect(
@@ -279,8 +279,8 @@ void main() {
 
     for (final width in tabletWidths) {
       for (final rtl in [false, true]) {
-        testWidgets('${width.toInt()}${rtl ? ' RTL' : ''}: Cancel leads the '
-            'window, Post ends it', (tester) async {
+        testWidgets('${width.toInt()}${rtl ? ' RTL' : ''}: Close leads the '
+            'column, Post ends it', (tester) async {
           final rig = ComposerTabletRig();
           await rig.pump(
             tester,
@@ -290,24 +290,30 @@ void main() {
             textDirection: rtl ? TextDirection.rtl : TextDirection.ltr,
           );
           expect(dialogAround(findComposer()), findsNothing);
-          if (rtl) {
-            expect(
-              cancel(tester).right,
-              moreOrLessEquals(width - AppSpacing.xs),
-            );
-            expect(post(tester).left, moreOrLessEquals(AppSpacing.xs));
-          } else {
-            expect(cancel(tester).left, moreOrLessEquals(AppSpacing.xs));
-            expect(post(tester).right, moreOrLessEquals(width - AppSpacing.xs));
-          }
-          // The editor stays in the column.
-          final editor = tester.getRect(find.byType(EditableText).first);
+          // The header runs the width of the reading column, as the editor
+          // does: Close at its start, Post at its end.
           final column = width < AppSize.readableMax
               ? width
               : AppSize.readableMax;
-          expect(editor.left, greaterThanOrEqualTo((width - column) / 2));
-          expect(editor.right, lessThanOrEqualTo((width + column) / 2));
-          // Cancel's real hit area at the window's edge closes the composer.
+          final start = (width - column) / 2;
+          final end = (width + column) / 2;
+          if (rtl) {
+            expect(
+              cancel(tester).right,
+              moreOrLessEquals(end - AppSpacing.sm),
+            );
+            expect(post(tester).left, moreOrLessEquals(start + AppSpacing.md));
+          } else {
+            expect(
+              cancel(tester).left,
+              moreOrLessEquals(start + AppSpacing.sm),
+            );
+            expect(post(tester).right, moreOrLessEquals(end - AppSpacing.md));
+          }
+          final editor = tester.getRect(find.byType(EditableText).first);
+          expect(editor.left, greaterThanOrEqualTo(start));
+          expect(editor.right, lessThanOrEqualTo(end));
+          // Close's real hit area closes the composer.
           await tester.tapAt(cancel(tester).center);
           await tester.pumpAndSettle();
           expect(findComposer(), findsNothing);
@@ -339,7 +345,7 @@ void main() {
       });
     }
 
-    testWidgets('390: Cancel and Post where they were', (tester) async {
+    testWidgets('390: Close and Post at the header edges', (tester) async {
       final rig = ComposerTabletRig();
       await rig.pump(
         tester,
@@ -348,7 +354,7 @@ void main() {
         location: AppRouter.composePath,
       );
       expect(cancel(tester).left, moreOrLessEquals(AppSpacing.sm));
-      expect(post(tester).right, moreOrLessEquals(390 - AppSpacing.sm));
+      expect(post(tester).right, moreOrLessEquals(390 - AppSpacing.md));
     });
   });
 }

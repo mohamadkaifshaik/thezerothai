@@ -361,8 +361,11 @@ void main() {
                   find.text('Trending today'),
                   t ? findsOneWidget : findsNothing,
                 );
+                // At desktop width the side column's "You might like" is the
+                // card; Explore does not repeat it inline.
+                expect(find.text('Who to follow'), findsNothing);
                 expect(
-                  find.text('Who to follow'),
+                  find.text('You might like'),
                   f ? findsOneWidget : findsNothing,
                 );
                 expect(find.byType(AppSearchField), findsOneWidget);

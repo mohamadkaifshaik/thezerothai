@@ -61,9 +61,7 @@ void main() {
   group('Edit profile: the header action, flag modes x widths', () {
     for (final MapEntry(key: mode, value: flags) in kProfileFlagModes.entries) {
       for (final w in _widths) {
-        final shown = _tabletFlags(flags) && _tablet(w);
-        testWidgets('$mode at $w: Preview ${shown ? 'in' : 'not in'} the '
-            'header', (tester) async {
+        testWidgets('$mode at $w: Preview in the header', (tester) async {
           final rig = ProfileTabletRig();
           await rig.pump(
             tester,
@@ -73,7 +71,7 @@ void main() {
           );
           expect(tester.takeException(), isNull);
           expect(find.byType(EditProfileScreen), findsOneWidget);
-          expect(_previewAction(), shown ? findsOneWidget : findsNothing);
+          expect(_previewAction(), findsOneWidget);
           // Cancel and Save are there in every mode.
           expect(find.widgetWithText(TextButton, 'Cancel'), findsOneWidget);
           expect(find.text('Save'), findsOneWidget);
@@ -386,10 +384,10 @@ void main() {
       });
     }
 
-    testWidgets('phones and desktop at 2.0: no Preview row either', (
+    testWidgets('at 2.0 Preview is the first row of the form at every width', (
       tester,
     ) async {
-      for (final w in <double>[400, 1300]) {
+      for (final w in <double>[400, 1024, 1300]) {
         final rig = ProfileTabletRig();
         await rig.pump(
           tester,
@@ -397,7 +395,7 @@ void main() {
           textScale: 2,
           location: AppRouter.editProfilePath,
         );
-        expect(_previewRow(), findsNothing, reason: '$w');
+        expect(_previewRow(), findsOneWidget, reason: '$w');
         expect(_previewAction(), findsNothing, reason: '$w');
       }
     });
@@ -467,7 +465,7 @@ void main() {
 
   group('Edit profile: state across resizes', () {
     testWidgets('the same field and text across 839/840/1199/1200/599/600/'
-        '1024; Preview follows the tablet layout', (tester) async {
+        '1024; Preview stays in the header', (tester) async {
       final rig = ProfileTabletRig();
       await rig.pump(tester, width: 839, location: AppRouter.editProfilePath);
       await tester.enterText(_field('Display name'), 'Alice B');
@@ -484,11 +482,7 @@ void main() {
         expect(tester.takeException(), isNull, reason: '$w');
         expect(field(), same(before), reason: '$w');
         expect(field().textEditingValue.text, 'Alice B', reason: '$w');
-        expect(
-          _previewAction(),
-          _tablet(w) ? findsOneWidget : findsNothing,
-          reason: '$w',
-        );
+        expect(_previewAction(), findsOneWidget, reason: '$w');
       }
     });
 

@@ -1,12 +1,10 @@
 import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
-import 'package:connectrpc/connect.dart' as connect;
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/feature_flags/service_feature_gate.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/network/api_client.dart';
-import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
 import 'package:dzeroth/core/storage/session_epoch.dart';
@@ -68,7 +66,7 @@ class _MemoryThemeStore implements ThemeModeStore {
   Future<void> write(String value) async {}
 }
 
-/// The Lists pages' flags, the context pane's global-set flags and the
+/// The Lists pages' flags, the shell side column's global-set flags and the
 /// tablet shell's two.
 const kListsTabletFlags = <String>{
   'lists',
@@ -80,24 +78,6 @@ const kListsTabletFlags = <String>{
   'reports',
   kFeatureUiShell,
   kFeatureUiTablet,
-};
-
-/// The flag modes the tablet shell distinguishes (tablet plan section 2.3),
-/// each with the Lists pages' own flags on.
-final kListsFlagModes = <String, Set<String>>{
-  'neither': {
-    for (final f in kListsTabletFlags)
-      if (f != kFeatureUiShell && f != kFeatureUiTablet) f,
-  },
-  'ui_shell only': {
-    for (final f in kListsTabletFlags)
-      if (f != kFeatureUiTablet) f,
-  },
-  'ui_tablet only': {
-    for (final f in kListsTabletFlags)
-      if (f != kFeatureUiShell) f,
-  },
-  'ui_shell + ui_tablet': kListsTabletFlags,
 };
 
 /// The signed-in viewer.
@@ -149,21 +129,6 @@ class FakeListsServer {
   /// The members of [kRigListId] ([kRigMembers] by default).
   List<(String, String, String)> members = List.of(kRigMembers);
 
-  /// Non-null: ListListMembers waits for it.
-  Completer<void>? holdMembers;
-
-  /// Non-null: ListListMembers fails with it (once per value).
-  connect.Code? membersError;
-
-  /// Non-null: ListUserLists waits for it.
-  Completer<void>? holdUserLists;
-
-  /// Non-null: GetList and the list timeline answer NOT_FOUND.
-  bool listGone = false;
-
-  /// The other person's public Lists (empty: "No public Lists").
-  bool ownerHasLists = true;
-
   int count(String rpc) => calls.where((c) => c == rpc).length;
 
   common.AuthorSnapshot get _owner => viewerOwnsList
@@ -198,7 +163,6 @@ class FakeListsServer {
   Future<Object> _handle(String procedure, Object input) async {
     calls.add(procedure.split('/').last);
     if (input is pb.ListUserListsRequest) {
-      await holdUserLists?.future;
       if (input.ownerId.isEmpty) {
         final me = common.AuthorSnapshot(
           userId: kRigViewerId,
@@ -215,22 +179,13 @@ class FakeListsServer {
         displayName: 'Olivia Owner',
       );
       return pb.ListUserListsResponse(
-        lists: ownerHasLists
-            ? [_other('79', 'Chess', olivia), _other('80', 'Runners', olivia)]
-            : [],
+        lists: [_other('79', 'Chess', olivia), _other('80', 'Runners', olivia)],
       );
     }
     if (input is pb.GetListRequest) {
-      if (listGone) throw connect.ConnectException(connect.Code.notFound, 'gone');
       return pb.GetListResponse(list: header);
     }
     if (input is pb.ListListMembersRequest) {
-      await holdMembers?.future;
-      final error = membersError;
-      if (error != null) {
-        membersError = null;
-        throw connect.ConnectException(error, 'fake');
-      }
       final size = input.pageSize <= 0 ? members.length : input.pageSize;
       return pb.ListListMembersResponse(
         users: [
@@ -259,7 +214,7 @@ class FakeListsServer {
 /// The real `MainShell` in a real `ShellRoute` around the real Lists pages
 /// (`ListsScreen`, `ListDetailScreen`, `ListMembersScreen`,
 /// `ManagePinnedScreen`, `UserListsScreen`) over a [FakeListsServer], with
-/// the shared cubits of the context pane's global set over fakes. `/home`,
+/// the shared cubits of the shell side column over fakes. `/home`,
 /// `/profile/:handle` and `/u/:userId` are stubs, so a test can push a Lists
 /// page over another page as the app does.
 class ListsTabletRig {
@@ -290,11 +245,9 @@ class ListsTabletRig {
     Object? pushExtra,
     double width = 1024,
     double height = 900,
-    Set<String> flags = kListsTabletFlags,
     double textScale = 1,
     Brightness brightness = Brightness.light,
     TextDirection textDirection = TextDirection.ltr,
-    bool settle = true,
   }) async {
     final onboarding = _MockOnboardingBloc();
     whenListen(
@@ -302,7 +255,7 @@ class ListsTabletRig {
       const Stream<OnboardingState>.empty(),
       initialState: OnboardingState(
         status: OnboardingStatus.ready,
-        enabledFeatures: flags,
+        enabledFeatures: kListsTabletFlags,
         profile: identity.Profile(
           userId: kRigViewerId,
           handle: 'alice',
@@ -336,9 +289,6 @@ class ListsTabletRig {
       final feed = invocation.positionalArguments.first as FeedKey;
       if (feed == FeedKey.list(kRigListId)) {
         // The list timeline brings the header, as the real repository does.
-        if (server.listGone) {
-          throw const NotFoundException('gone');
-        }
         server.lists.noteListInfo(server.header);
       }
       return snapshotOf([]);
@@ -446,37 +396,14 @@ class ListsTabletRig {
         ),
       ),
     );
-    await _settle(tester, settle);
+    await tester.pumpAndSettle();
     for (final path in push) {
       unawaited(router.push(path, extra: pushExtra));
-      await _settle(tester, settle);
-    }
-  }
-
-  /// [settle] false pumps two frames instead (the first frame, then the one
-  /// the pages' leases announce): a held call spins forever.
-  Future<void> _settle(WidgetTester tester, bool settle) async {
-    if (settle) {
       await tester.pumpAndSettle();
-    } else {
-      await tester.pump();
-      await tester.pump();
     }
-  }
-
-  /// Resizes the window and settles.
-  Future<void> resize(
-    WidgetTester tester,
-    double width, [
-    double? height,
-  ]) async {
-    tester.view.physicalSize = Size(
-      width,
-      height ?? tester.view.physicalSize.height,
-    );
-    await tester.pumpAndSettle();
   }
 }
+
 
 /// The route child (the primary pane on the tablet layout, the whole body
 /// elsewhere): the top Lists page.

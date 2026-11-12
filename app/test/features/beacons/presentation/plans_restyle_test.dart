@@ -61,10 +61,7 @@ void main() {
           _inCard('Coffee at noon', find.text('Organising')),
           findsOneWidget,
         );
-        expect(
-          _inCard('Coffee at noon', find.text('1 of 3 seats taken')),
-          findsOneWidget,
-        );
+        expect(_inCard('Coffee at noon', find.text('1 going')), findsOneWidget);
         // Not the caller's: no part to say.
         expect(_inCard('Evening walk', find.text('Organising')), findsNothing);
         final pane = findPlansPane().evaluate().isNotEmpty;
@@ -345,7 +342,7 @@ void main() {
         location: AppRouter.planPeoplePath(kBeaconIdA),
         width: 360,
       );
-      await tester.tap(find.text('Requests'));
+      await tester.tap(find.textContaining('Requests'));
       await tester.pumpAndSettle();
       final decline = find.widgetWithText(AppPillButton, 'Decline');
       final accept = find.widgetWithText(AppPillButton, 'Accept');

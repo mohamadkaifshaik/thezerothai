@@ -185,7 +185,9 @@ class _ReplyComposerState extends State<_ReplyComposer> {
         return DecoratedBox(
           decoration: BoxDecoration(
             color: theme.colorScheme.surface,
-            border: Border(bottom: BorderSide(color: theme.dividerColor)),
+            border: Border(
+              bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+            ),
           ),
           child: Padding(
             padding: EdgeInsetsDirectional.fromSTEB(

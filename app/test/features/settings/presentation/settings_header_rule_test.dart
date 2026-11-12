@@ -45,7 +45,7 @@ void main() {
   }
 
   Rect backOf(WidgetTester tester) =>
-      tester.getRect(find.byType(BackButton).last);
+      tester.getRect(find.byTooltip('Back').last);
 
   // The rig's real leaves (Edit profile, Download my data and Delete account
   // are stubs there; the last two use the same AppBar as these).
@@ -58,28 +58,32 @@ void main() {
   for (final width in [600.0, 839.0, 840.0, 1024.0, 1199.0]) {
     for (final rtl in [false, true]) {
       final label = '${width.toInt()}${rtl ? ' RTL' : ''}';
-      testWidgets('$label: Back at the same x on every AppBar leaf, the '
-          "pane's leading edge", (tester) async {
-        final dir = rtl ? TextDirection.rtl : TextDirection.ltr;
-        final area = pane(width, rtl: rtl);
-        double lead(Rect r) => rtl ? area.right - r.right : r.left - area.left;
+      testWidgets(
+        '$label: Back (AppBar or back header) at the same x on every leaf, the '
+        "pane's leading edge",
+        (tester) async {
+          final dir = rtl ? TextDirection.rtl : TextDirection.ltr;
+          final area = pane(width, rtl: rtl);
+          double lead(Rect r) =>
+              rtl ? area.right - r.right : r.left - area.left;
 
-        final leads = <String, double>{};
-        for (final leaf in barLeaves) {
-          await open(tester, leaf, width: width, textDirection: dir);
-          leads[leaf] = lead(backOf(tester));
-          await done(tester);
-        }
-        final reference = leads[barLeaves.first]!;
-        for (final entry in leads.entries) {
-          expect(
-            entry.value,
-            moreOrLessEquals(reference),
-            reason: '${entry.key} leads at ${entry.value}, not $reference',
-          );
-        }
-        expect(reference, moreOrLessEquals(AppSpacing.xs));
-      });
+          final leads = <String, double>{};
+          for (final leaf in barLeaves) {
+            await open(tester, leaf, width: width, textDirection: dir);
+            leads[leaf] = lead(backOf(tester));
+            await done(tester);
+          }
+          final reference = leads[barLeaves.first]!;
+          for (final entry in leads.entries) {
+            expect(
+              entry.value,
+              moreOrLessEquals(reference),
+              reason: '${entry.key} leads at ${entry.value}, not $reference',
+            );
+          }
+          expect(reference, moreOrLessEquals(AppSpacing.xs));
+        },
+      );
     }
   }
 

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../features/lists/domain/lists_feature_flag.dart'
     show kMaxPinnedHomeTabs;
 import '../../../features/lists/presentation/widgets/list_unavailable_view.dart'
-    show kListOutlinedButtonStyle;
+    show kListOnDarkOutlinedButtonStyle, kListOutlinedButtonStyle;
 import 'app_pill_button.dart';
 
 /// The "Pin to Home" / "Unpin from Home" button of a List or Community page.
@@ -18,6 +18,7 @@ class PinToHomeButton extends StatelessWidget {
     required this.writeUnavailable,
     required this.busy,
     required this.onToggle,
+    this.onDark = false,
   });
 
   final bool pinned;
@@ -28,11 +29,16 @@ class PinToHomeButton extends StatelessWidget {
   final bool busy;
   final VoidCallback onToggle;
 
+  /// Draws Unpin for a navy surface (the List hero) instead of the page.
+  final bool onDark;
+
   @override
   Widget build(BuildContext context) {
     if (pinned) {
       return OutlinedButton(
-        style: kListOutlinedButtonStyle,
+        style: onDark
+            ? kListOnDarkOutlinedButtonStyle
+            : kListOutlinedButtonStyle,
         onPressed: busy ? null : onToggle,
         child: const Text('Unpin from Home'),
       );

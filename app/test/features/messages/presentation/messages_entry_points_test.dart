@@ -21,6 +21,8 @@ import 'package:dzeroth/features/posts/presentation/composer_screen.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.connect.spec.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_back_header.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -83,7 +85,7 @@ void main() {
     expect(splitPage(), findsOneWidget);
     expect(inMessagesPane(conversationRow(id)), findsOneWidget);
     expect(
-      inMessagesPane(find.text('Message requests')),
+      inMessagesPane(find.widgetWithText(AppBackHeader, 'Message requests')),
       requests ? findsOneWidget : findsNothing,
     );
   }
@@ -210,7 +212,10 @@ void main() {
     ) async {
       await open(tester, location: AppRouter.messagePath(kRequestId));
       expect(find.byType(ThreadScreen), findsOneWidget);
-      expect(inMessagesPane(find.text('Message requests')), findsNothing);
+      expect(
+        inMessagesPane(find.widgetWithText(AppBackHeader, 'Message requests')),
+        findsNothing,
+      );
       expect(inMessagesPane(conversationRow(inboxId(0))), findsOneWidget);
       await done(tester);
     });
@@ -373,9 +378,7 @@ void main() {
       expect(find.byType(BeaconScreen), findsOneWidget);
       expect(find.byType(PlansListPane), findsOneWidget);
 
-      await tester.tap(find.byTooltip('Plan options'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Message organiser'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Message organiser'));
       await tester.pumpAndSettle();
 
       expect(rig.stack, [

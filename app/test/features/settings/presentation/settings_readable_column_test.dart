@@ -112,13 +112,13 @@ void main() {
     }
   });
 
-  group('Blocked accounts (an AppBar leaf with a list)', () {
+  group('Blocked accounts (a back-header leaf with a list)', () {
     Rect list(WidgetTester tester) =>
         tester.getRect(find.byType(PagedUserList));
 
     for (final width in [839.0, 1024.0, 1199.0]) {
-      testWidgets('${width.toInt()}: the list at most 680, centred; the bar '
-          'across the pane', (tester) async {
+      testWidgets('${width.toInt()}: the list and the header at most 680, '
+          'centred', (tester) async {
         await open(tester, AppRouter.blockedAccountsPath, width: width);
         final area = pane(width);
         expect(list(tester).width, moreOrLessEquals(capped(area.width)));
@@ -126,11 +126,11 @@ void main() {
         final bar = tester.getRect(
           find.descendant(
             of: find.byType(BlockedAccountsScreen),
-            matching: find.byType(AppBar),
+            matching: find.byType(AppBackHeader),
           ),
         );
-        expect(bar.left, moreOrLessEquals(area.left));
-        expect(bar.right, moreOrLessEquals(area.right));
+        expect(bar.left, moreOrLessEquals(list(tester).left));
+        expect(bar.right, moreOrLessEquals(list(tester).right));
         await done(tester);
       });
     }
