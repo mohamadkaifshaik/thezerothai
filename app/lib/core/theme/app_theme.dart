@@ -229,6 +229,10 @@ abstract final class AppSize {
   static const double alertDialogMin = 280;
   static const double alertDialogMax = 400;
 
+  /// Width of the scheduled post editor on tablet and desktop (the Schedule
+  /// dialog is 440; the editor carries a text field too).
+  static const double editScheduledDialog = 480;
+
   /// Width of a side sheet (the chat info sheet).
   static const double sideSheet = 360;
 }
@@ -1496,4 +1500,29 @@ abstract final class AppAuthLayout {
   static const double splashLoaderBottom = 64;
   static const Size splashPill = Size(22, 8);
   static const double splashPillGap = 10;
+}
+
+/// Scheduled posts geometry per screen size (dp): the dzeroth-mobile,
+/// tablet and desktop Scheduled mocks' cards. The card itself is
+/// `AppCard` (the `card` gradient, radius and shadow).
+abstract final class AppScheduledLayout {
+  // Phone list: 16 x 20 padding, 14 between cards.
+  static const double phoneListPaddingH = 20;
+  static const double phoneListPaddingV = 16;
+  static const double phoneCardGap = 14;
+  static const double phoneTimeSize = 13;
+  static const double phoneTextSize = 15;
+  static const double phoneTextGap = 10;
+
+  // Tablet / desktop: 12 x 16 card margins, 18 x 20 padding.
+  static const double wideCardGap = 24;
+  static const double wideCardPaddingH = 20;
+  static const double wideCardPaddingV = 18;
+  static const double wideTimeSize = 14;
+  static const double wideTextSize = 16;
+  static const double wideTextGap = 10;
+  static const double wideActionsGap = 14;
+
+  /// The clock glyph sits on the time line's cap height.
+  static const double iconTop = 2;
 }

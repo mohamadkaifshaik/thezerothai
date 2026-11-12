@@ -110,6 +110,11 @@ Future<TimeOfDay?> _platformPickTime(
 }) =>
     showAppTimePicker(context: context, initialTime: initial, helpText: 'Time');
 
+/// The platform pickers, for other screens that open the Schedule dialog
+/// with their own seams (the scheduled post editor).
+const SchedulePickDate defaultSchedulePickDate = _platformPickDate;
+const SchedulePickTime defaultSchedulePickTime = _platformPickTime;
+
 /// Opens the Schedule dialog: a full-screen route below
 /// [AppBreakpoints.mobile] wide, a centred dialog above. [initial] is the
 /// schedule already set (offering "Remove schedule"); [hasMedia] adds the L-9
