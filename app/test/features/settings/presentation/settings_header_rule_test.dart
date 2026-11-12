@@ -48,7 +48,7 @@ void main() {
   }
 
   Rect backOf(WidgetTester tester) =>
-      tester.getRect(find.byType(BackButton).last);
+      tester.getRect(find.byTooltip('Back').last);
 
   Rect cancelOf(WidgetTester tester) => tester.getRect(
     find.descendant(
@@ -69,48 +69,52 @@ void main() {
   for (final width in [600.0, 839.0, 840.0, 1024.0, 1199.0]) {
     for (final rtl in [false, true]) {
       final label = '${width.toInt()}${rtl ? ' RTL' : ''}';
-      testWidgets('$label: Back (AppBar) and Cancel (AppFormHeader) at the '
-          'same x, the pane\'s leading edge', (tester) async {
-        final dir = rtl ? TextDirection.rtl : TextDirection.ltr;
-        final area = pane(width, rtl: rtl);
-        double lead(Rect r) => rtl ? area.right - r.right : r.left - area.left;
+      testWidgets(
+        '$label: Back (AppBar or back header) and Cancel (AppFormHeader) at the '
+        'same x, the pane\'s leading edge',
+        (tester) async {
+          final dir = rtl ? TextDirection.rtl : TextDirection.ltr;
+          final area = pane(width, rtl: rtl);
+          double lead(Rect r) =>
+              rtl ? area.right - r.right : r.left - area.left;
 
-        final leads = <String, double>{};
-        for (final leaf in barLeaves) {
-          await open(tester, leaf, width: width, textDirection: dir);
-          leads[leaf] = lead(backOf(tester));
-          await done(tester);
-        }
-        for (final leaf in formLeaves) {
-          await open(tester, leaf, width: width, textDirection: dir);
-          leads[leaf] = lead(cancelOf(tester));
-          // The title follows Cancel.
-          final title = tester.getRect(
-            find.descendant(
-              of: find.byType(AppFormHeader),
-              matching: find.byWidgetPredicate(
-                (w) => w is Semantics && (w.properties.header ?? false),
-              ),
-            ),
-          );
-          final cancel = cancelOf(tester);
-          if (rtl) {
-            expect(title.right, lessThanOrEqualTo(cancel.left));
-          } else {
-            expect(title.left, greaterThanOrEqualTo(cancel.right));
+          final leads = <String, double>{};
+          for (final leaf in barLeaves) {
+            await open(tester, leaf, width: width, textDirection: dir);
+            leads[leaf] = lead(backOf(tester));
+            await done(tester);
           }
-          await done(tester);
-        }
-        final reference = leads[barLeaves.first]!;
-        for (final entry in leads.entries) {
-          expect(
-            entry.value,
-            moreOrLessEquals(reference),
-            reason: '${entry.key} leads at ${entry.value}, not $reference',
-          );
-        }
-        expect(reference, moreOrLessEquals(AppSpacing.xs));
-      });
+          for (final leaf in formLeaves) {
+            await open(tester, leaf, width: width, textDirection: dir);
+            leads[leaf] = lead(cancelOf(tester));
+            // The title follows Cancel.
+            final title = tester.getRect(
+              find.descendant(
+                of: find.byType(AppFormHeader),
+                matching: find.byWidgetPredicate(
+                  (w) => w is Semantics && (w.properties.header ?? false),
+                ),
+              ),
+            );
+            final cancel = cancelOf(tester);
+            if (rtl) {
+              expect(title.right, lessThanOrEqualTo(cancel.left));
+            } else {
+              expect(title.left, greaterThanOrEqualTo(cancel.right));
+            }
+            await done(tester);
+          }
+          final reference = leads[barLeaves.first]!;
+          for (final entry in leads.entries) {
+            expect(
+              entry.value,
+              moreOrLessEquals(reference),
+              reason: '${entry.key} leads at ${entry.value}, not $reference',
+            );
+          }
+          expect(reference, moreOrLessEquals(AppSpacing.xs));
+        },
+      );
     }
   }
 

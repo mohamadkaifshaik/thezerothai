@@ -211,7 +211,7 @@ void main() {
   }
 
   group('flag off', () {
-    testWidgets('Bookmarks only: "History", no tab bar, no Likes call', (
+    testWidgets('Bookmarks only: titled Bookmarks, no tab bar, no Likes call', (
       tester,
     ) async {
       bookmarks.pages[''] = () => bookmarksPage([2, 1]);
@@ -220,7 +220,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byType(AppBackHeader),
-          matching: find.text('History'),
+          matching: find.text('Bookmarks'),
         ),
         findsOneWidget,
       );
@@ -818,7 +818,7 @@ void main() {
         expect(rows(), findsWidgets);
         expect(tab('Bookmarks'), findsOneWidget);
         expect(tab('Likes'), findsOneWidget);
-        expect(find.text('History'), findsWidgets);
+        expect(find.text('Bookmarks'), findsWidgets);
         final header = tester.getSize(find.byType(AppBackHeader)).width;
         expect(header, lessThanOrEqualTo(AppLayout.mainColumnMaxWidth));
         // A target of at least 48dp: the tab row is the 53dp header row.
@@ -984,7 +984,7 @@ void main() {
     );
 
     forEachThemeAndWidth(
-      'flag off: History with Bookmarks only, no tab row',
+      'flag off: Bookmarks only, no tab row',
       (tester, env) async {
         bookmarks.pages[''] = () => bookmarksPage([2, 1]);
         await open(
@@ -998,7 +998,7 @@ void main() {
 
         expect(tester.takeException(), isNull);
         expect(tabBar(), findsNothing);
-        expect(find.text('History'), findsWidgets);
+        expect(find.text('Bookmarks'), findsWidgets);
         expect(rows(), findsWidgets);
         expect(server.listCalls, 0);
       },

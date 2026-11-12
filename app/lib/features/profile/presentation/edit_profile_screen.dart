@@ -7,7 +7,6 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../../shared/widgets/primitives/app_form_header.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
@@ -197,8 +196,7 @@ class _EditProfileViewState extends State<_EditProfileView> {
     context.read<EditProfileCubit>().errorShown();
   }
 
-  /// "How others see you" (tablet plan section 4.1, EditProfile: a header
-  /// action that opens a dialog, in both bands; T8c).
+  /// "How others see you": a header action that opens a dialog.
   void _openPreview(BuildContext context) => showEditProfilePreview(
     context,
     cubit: context.read<EditProfileCubit>(),
@@ -209,14 +207,13 @@ class _EditProfileViewState extends State<_EditProfileView> {
   @override
   Widget build(BuildContext context) {
     final cubit = context.read<EditProfileCubit>();
-    // The tablet layout (600-1199dp, both bands) adds the preview; phones and
-    // desktop keep today's header (ruling R-1). Up to 1.3x text it is the
-    // header's third button; above, three buttons would cut Save short, so
-    // it is the form's first row instead and Save keeps 40 % of the header.
-    final tablet = ShellGeometry.maybeOf(context)?.tablet ?? false;
+    // "How others see you" is offered at every width (the desktop mock's side
+    // box is a dialog here, as on the tablet). Up to 1.3x text it is the
+    // header's third button; above, three buttons would cut Save short, so it
+    // is the form's first row instead and Save keeps 40 % of the header.
     final largeText = MediaQuery.textScalerOf(context).scale(1) > 1.3;
-    final preview = tablet && !largeText;
-    final previewRow = tablet && largeText;
+    final preview = !largeText;
+    final previewRow = largeText;
     return BlocConsumer<EditProfileCubit, EditProfileState>(
       listener: _onState,
       builder: (context, state) {
