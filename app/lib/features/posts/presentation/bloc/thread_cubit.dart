@@ -115,18 +115,39 @@ class ThreadState {
         ids.add(r.post.postId);
       }
     }
-    var tail = f.post.postId;
+    for (final next in _continuation(f)) {
+      if (!ids.add(next.post.postId)) break;
+    }
+    return ids.length >= 2 ? ids.length : 0;
+  }
+
+  /// The loaded replies that continue the open post's self-thread, in order:
+  /// the author's first reply to the open post, their first reply to that,
+  /// and so on. Empty when [selfThreadLength] is 0. The thread screen draws
+  /// them as one chain under the open post (PostThread mock).
+  List<pb.PostView> get selfThreadTail {
+    final f = focal;
+    if (f == null || selfThreadLength == 0) return const [];
+    return _continuation(f);
+  }
+
+  List<pb.PostView> _continuation(pb.PostView f) {
+    final author = f.post.author.userId;
     final byParent = <String, pb.PostView>{};
     for (final reply in visibleReplies) {
       if (reply.post.author.userId == author) {
         byParent.putIfAbsent(reply.post.replyToPostId, () => reply);
       }
     }
+    final chain = <pb.PostView>[];
+    final seen = <String>{f.post.postId};
+    var tail = f.post.postId;
     for (var next = byParent[tail]; next != null; next = byParent[tail]) {
-      if (!ids.add(next.post.postId)) break;
+      if (!seen.add(next.post.postId)) break;
+      chain.add(next);
       tail = next.post.postId;
     }
-    return ids.length >= 2 ? ids.length : 0;
+    return chain;
   }
 
   /// Replies to render (hidden authors removed).

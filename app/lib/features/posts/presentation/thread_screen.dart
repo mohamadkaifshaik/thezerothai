@@ -356,9 +356,28 @@ class _ThreadList extends StatelessWidget {
                 },
               )
             : null;
-        final replies = state.visibleReplies;
+        // A self-thread (PostThread mock): the open post and the author's
+        // replies that continue it are one chain of equal cards joined by
+        // the rail; the reply entry and everyone else's replies follow it.
+        final selfThread = state.selfThreadLength > 0;
+        final tail = state.selfThreadTail;
+        final tailIds = {for (final v in tail) v.post.postId};
+        final replies = tail.isEmpty
+            ? state.visibleReplies
+            : [
+                for (final r in state.visibleReplies)
+                  if (!tailIds.contains(r.post.postId)) r,
+              ];
         void onRelationship(graph.Relationship r) =>
             cubit.setAuthorHidden(r.userId, hidden: r.blocking || r.muting);
+        Future<void> replyTo(pb.PostView view) async {
+          final created = await context.push<pb.PostView>(
+            AppRouter.composeReplyPath(view.post.postId),
+          );
+          if (created != null && !cubit.isClosed) {
+            cubit.replyPosted(created);
+          }
+        }
 
         // Root above parent. A first-level reply has the same post as parent
         // and root: it is shown once.
@@ -444,30 +463,58 @@ class _ThreadList extends StatelessWidget {
                         authorId: focal.post.author.userId,
                         handle: focal.post.author.handle,
                         graphEnabled: graphEnabled,
-                        child: ConversationRow(
-                          connectBefore:
-                              isReply &&
-                              (state.parent ??
-                                          (sameContext ? state.root : null))
-                                      ?.post
-                                      .postId ==
-                                  focal.post.replyToPostId,
-                          child: PostCard(
-                            view: focal,
-                            focal: true,
-                            viewerUserId: viewerUserId,
-                            graphActionsEnabled: graphEnabled,
-                            reportsEnabled: reportsEnabled,
-                            engagementEnabled: engagementEnabled,
-                            // Reply focuses the composer; with replies closed
-                            // there is no composer and no Reply.
-                            showReply: onReply != null,
-                            onReply: onReply,
-                            onDelete: cubit.deletePost,
-                            onRelationshipChanged: onRelationship,
+                        child: _OpenPostHighlight(
+                          // In a self-thread the open post is one of the
+                          // chain's cards, told apart by a light tint.
+                          on: selfThread,
+                          child: ConversationRow(
+                            connectBefore:
+                                isReply &&
+                                (state.parent ??
+                                            (sameContext ? state.root : null))
+                                        ?.post
+                                        .postId ==
+                                    focal.post.replyToPostId,
+                            connectAfter: tail.isNotEmpty,
+                            child: PostCard(
+                              view: focal,
+                              focal: !selfThread,
+                              viewerUserId: viewerUserId,
+                              graphActionsEnabled: graphEnabled,
+                              reportsEnabled: reportsEnabled,
+                              engagementEnabled: engagementEnabled,
+                              // Reply focuses the composer; with replies
+                              // closed there is no composer and no Reply.
+                              showReply: onReply != null,
+                              onReply: onReply,
+                              onDelete: cubit.deletePost,
+                              onRelationshipChanged: onRelationship,
+                            ),
                           ),
                         ),
                       ),
+                      for (final (i, view) in tail.indexed)
+                        InkWell(
+                          key: ValueKey('chain-${view.post.postId}'),
+                          onTap: () => context.push(
+                            AppRouter.postPath(view.post.postId),
+                          ),
+                          child: ConversationRow(
+                            connectBefore: true,
+                            connectAfter: i + 1 < tail.length,
+                            child: PostCard(
+                              view: view,
+                              viewerUserId: viewerUserId,
+                              graphActionsEnabled: graphEnabled,
+                              reportsEnabled: reportsEnabled,
+                              engagementEnabled: engagementEnabled,
+                              moderationControl: replyModeration,
+                              onDelete: cubit.deletePost,
+                              onRelationshipChanged: onRelationship,
+                              onReply: () => replyTo(view),
+                            ),
+                          ),
+                        ),
                       if (inlineComposer case final composer?)
                         composer
                       else
@@ -518,14 +565,7 @@ class _ThreadList extends StatelessWidget {
                               moderationControl: replyModeration,
                               onDelete: cubit.deletePost,
                               onRelationshipChanged: onRelationship,
-                              onReply: () async {
-                                final created = await context.push<pb.PostView>(
-                                  AppRouter.composeReplyPath(view.post.postId),
-                                );
-                                if (created != null && !cubit.isClosed) {
-                                  cubit.replyPosted(created);
-                                }
-                              },
+                              onReply: () => replyTo(view),
                             ),
                           ),
                         ),
@@ -535,7 +575,11 @@ class _ThreadList extends StatelessWidget {
                   },
                 ),
                 SliverToBoxAdapter(
-                  child: _Footer(state: state, empty: replies.isEmpty),
+                  child: _Footer(
+                    state: state,
+                    // The chain's own replies are the conversation so far.
+                    empty: replies.isEmpty && tail.isEmpty,
+                  ),
                 ),
                 const ShellBottomInsetSliver(),
               ],

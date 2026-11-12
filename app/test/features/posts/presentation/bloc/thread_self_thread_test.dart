@@ -107,4 +107,54 @@ void main() {
     );
     expect(state.selfThreadLength, 0);
   });
+
+  group('selfThreadTail: the replies the chain continues with', () {
+    String ids(ThreadState s) =>
+        s.selfThreadTail.map((v) => v.post.postId).join(',');
+
+    test("the author's chain in order; others and side replies left out", () {
+      final state = ThreadState(
+        focal: _post('a', 'u1'),
+        replies: [
+          _post('b', 'u1', replyTo: 'a'),
+          _post('x', 'u2', replyTo: 'b'),
+          _post('c', 'u1', replyTo: 'b'),
+          _post('y', 'u1', replyTo: 'a'),
+          _post('d', 'u1', replyTo: 'c'),
+        ],
+      );
+      expect(state.selfThreadLength, 4);
+      expect(ids(state), 'b,c,d');
+    });
+
+    test('not a self-thread: empty', () {
+      final state = ThreadState(
+        focal: _post('a', 'u1'),
+        replies: [_post('b', 'u2', replyTo: 'a')],
+      );
+      expect(state.selfThreadTail, isEmpty);
+    });
+
+    test('a hidden reply ends the chain there', () {
+      final state = ThreadState(
+        focal: _post('a', 'u1'),
+        replies: [
+          _post('b', 'u1', replyTo: 'a'),
+          _post('c', 'u1', replyTo: 'b'),
+        ],
+        hiddenReplies: const {'b'},
+      );
+      expect(state.selfThreadTail, isEmpty);
+    });
+
+    test('the last post of the chain open: no tail, still a thread', () {
+      final state = ThreadState(
+        focal: _post('c', 'u1', replyTo: 'b'),
+        parent: _post('b', 'u1', replyTo: 'a'),
+        root: _post('a', 'u1'),
+      );
+      expect(state.selfThreadLength, 3);
+      expect(state.selfThreadTail, isEmpty);
+    });
+  });
 }
