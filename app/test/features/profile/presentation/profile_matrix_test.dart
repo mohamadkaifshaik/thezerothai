@@ -11,6 +11,7 @@ import 'package:dzeroth/features/timeline/presentation/timeline_feed_view.dart';
 import 'package:dzeroth/shared/format/joined_date.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
+import 'package:dzeroth/features/profile/presentation/widgets/profile_cover_band.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -105,8 +106,18 @@ void main() {
         expect(find.text(text), findsOneWidget, reason: text);
         expectInsideHorizontally(tester, find.text(text), env.size.width);
       }
-      // The thumb below 600 dp, the full image from 600 dp.
-      expect(bannerUrl(tester), env.size.width < 600 ? thumb : full);
+      // The thumb only while its 600 px cover the hero's band (taller than
+      // 3:1, so the cover scales the image by height), else the full image.
+      final cover = band(tester);
+      final needed = ProfileCoverBand.decodeWidthFor(
+        cover.width,
+        cover.height,
+        tester.view.devicePixelRatio,
+      );
+      expect(
+        bannerUrl(tester),
+        needed <= ProfileCoverBand.thumbPx ? thumb : full,
+      );
       // The banner fills the navy hero behind its text, whatever the text
       // scale, and is no wider than the screen.
       final image = band(tester);
