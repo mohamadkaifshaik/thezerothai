@@ -15,8 +15,6 @@ package media
 import (
 	"context"
 	"fmt"
-
-	"cloud.google.com/go/firestore"
 )
 
 // LegacyBannerPurpose is the stored purpose of the removed profile banner (MEDIA_PURPOSE_BANNER = 3, now reserved).
@@ -50,23 +48,7 @@ func NewLegacyBannerPurger(repo *FirestoreRepo, objects Objects) *LegacyBannerPu
 
 // ListLegacyBanners returns up to limit media documents of purpose BANNER after the document id after, in id order.
 func (r *FirestoreRepo) ListLegacyBanners(ctx context.Context, after string, limit int) ([]*Doc, error) {
-	q := r.client.Collection(mediaCollection).Where("purpose", "==", LegacyBannerPurpose).OrderBy(firestore.DocumentID, firestore.Asc)
-	if after != "" {
-		q = q.StartAfter(r.ref(after))
-	}
-	snaps, err := q.Limit(limit).Documents(ctx).GetAll()
-	if err != nil {
-		return nil, fmt.Errorf("media: list legacy banners: %w", err)
-	}
-	out := make([]*Doc, 0, len(snaps))
-	for _, s := range snaps {
-		d, err := decode(s)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, d)
-	}
-	return out, nil
+	return r.listWhere(ctx, "purpose", LegacyBannerPurpose, after, limit, "list legacy banners")
 }
 
 // PurgeLegacyBanners handles one page of up to limit legacy banner documents after the id after. It deletes every object

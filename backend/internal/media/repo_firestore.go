@@ -387,13 +387,18 @@ func (r *FirestoreRepo) AddVisionUnits(ctx context.Context, month string, n int6
 
 // ListByOwner implements Repo.
 func (r *FirestoreRepo) ListByOwner(ctx context.Context, uid, after string, limit int) ([]*Doc, error) {
-	q := r.client.Collection(mediaCollection).Where("ownerId", "==", uid).OrderBy(firestore.DocumentID, firestore.Asc)
+	return r.listWhere(ctx, "ownerId", uid, after, limit, "list by owner")
+}
+
+// listWhere returns up to limit media documents whose field equals value, after the document id after, in id order.
+func (r *FirestoreRepo) listWhere(ctx context.Context, field, value, after string, limit int, what string) ([]*Doc, error) {
+	q := r.client.Collection(mediaCollection).Where(field, "==", value).OrderBy(firestore.DocumentID, firestore.Asc)
 	if after != "" {
 		q = q.StartAfter(r.ref(after))
 	}
 	snaps, err := q.Limit(limit).Documents(ctx).GetAll()
 	if err != nil {
-		return nil, fmt.Errorf("media: list by owner: %w", err)
+		return nil, fmt.Errorf("media: %s: %w", what, err)
 	}
 	out := make([]*Doc, 0, len(snaps))
 	for _, s := range snaps {
