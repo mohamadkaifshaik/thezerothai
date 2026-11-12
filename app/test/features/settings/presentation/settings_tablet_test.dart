@@ -1,7 +1,6 @@
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
-import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
@@ -224,7 +223,6 @@ void main() {
               findsOne,
             );
             expect(_selectedInPane(tester), isNull);
-            expect(find.byType(ContextPane), findsNothing);
           }
         });
       }
@@ -255,7 +253,6 @@ void main() {
         expect(page.left, AppSize.railCompact + list + 1);
         expect(page.width, detail);
         expect(AppSize.railCompact + list + 1 + detail, width);
-        expect(find.byType(ContextPane), findsNothing);
         // The reading column of the detail: at most 680, centred.
         final column = tester.getRect(
           find.descendant(of: _page(), matching: find.byType(ListView)),

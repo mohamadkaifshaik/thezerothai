@@ -42,14 +42,12 @@ import '../../features/settings/domain/settings_categories.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/app_more_menu.dart';
-import '../widgets/context_pane.dart' show ContextSectionKind;
 import '../widgets/context_pane_slots.dart';
 import '../widgets/responsive_scaffold.dart';
 import '../widgets/privacy_policy_link.dart';
 import '../widgets/shell_geometry.dart';
 import 'app_router.dart';
 import 'compose_gate.dart';
-import 'context_sections.dart';
 import 'page_below.dart';
 
 /// The navigation chrome around the authenticated top-level destinations.
@@ -421,12 +419,9 @@ class MainShell extends StatelessWidget {
         ? splitFolder
         : messagesShellMasterFolder(_shellTopLocation(context) ?? location);
 
-    // The desktop side column's route: a profile pushed over another page
-    // decides, as for the tablet pane.
-    final sidePaneLocation = contextPaneLocationFor(
-      location,
-      _shellTopLocation(context),
-    );
+    // The desktop side column's route: the shell navigator's top page (a
+    // profile pushed over Home decides), else the matched location.
+    final sidePaneLocation = _shellTopLocation(context) ?? location;
 
     void select(int index) {
       switch (tabs[index].tab) {
@@ -513,11 +508,6 @@ class MainShell extends StatelessWidget {
                 split: split,
               )
             : null,
-        // No context pane on the tablet layout: none of the tablet designs
-        // has a side column (rail + the centred column, list-detail where a
-        // page has one), so every page keeps its inline sections as in band
-        // A. Desktop keeps its side column (ruling R-1).
-        contextSections: null,
         selectedIndex: selectedIndex == null || selectedIndex < 0
             ? null
             : selectedIndex,
@@ -575,14 +565,13 @@ class MainShell extends StatelessWidget {
             if (exploreEntry) const WhatsHappeningCard(),
             // The profile's latest images (the desktop Profile mock's Media
             // grid): the page lends the strip over its own Media tab feed,
-            // as band B's pane does. Only on a profile, with `posts` and
+            // through a slot. Only on a profile, with `posts` and
             // `profile_tabs` on.
             if (newShell &&
                 isFeatureEnabled(context, kFeaturePosts) &&
                 isFeatureEnabled(context, kFeatureProfileTabs) &&
-                contextFamilyFor(sidePaneLocation) == ContextFamily.profile)
+                _isProfileHomeLocation(sidePaneLocation))
               ContextPaneSlot(
-                kind: ContextSectionKind.profileMedia,
                 location: sidePaneLocation,
                 placeholder: const ProfileMediaStripPlaceholder(),
               ),
@@ -679,6 +668,20 @@ String? _shellTopLocation(BuildContext context) {
     return leaf.matchedLocation;
   }
   return null;
+}
+
+/// Whether [location] is a profile page itself (`/profile/:handle` or
+/// `/u/:id`, not its Followers / Following): where the desktop side column
+/// shows the profile's media strip.
+bool _isProfileHomeLocation(String location) {
+  final segments = [
+    for (final s in Uri.parse(location).pathSegments)
+      if (s.isNotEmpty) s,
+  ];
+  return switch (segments) {
+    ['profile', _] || ['u', _] => true,
+    _ => false,
+  };
 }
 
 enum _Tab {

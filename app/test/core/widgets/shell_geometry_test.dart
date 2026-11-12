@@ -27,32 +27,6 @@ void main() {
     });
   });
 
-  group('ShellGeometry.contextPaneWidthFor (band B, code P, T3)', () {
-    // Plan section 3: pane = clamp(C - 1 - 680, 320, 440), primary = the
-    // rest after the 1 dp hairline. W -> C is W - 80 with no insets.
-    final table = <double, (double, double)>{
-      840: (439, 320),
-      1024: (623, 320),
-      1133: (680, 372),
-      1180: (680, 419),
-      1194: (680, 433),
-      1199: (680, 438),
-    };
-    for (final MapEntry(key: w, value: (primary, pane)) in table.entries) {
-      test('${w.toInt()} dp: primary ${primary.toInt()} / pane '
-          '${pane.toInt()}', () {
-        final c = w - AppSize.railCompact;
-        expect(ShellGeometry.contextPaneWidthFor(c), pane);
-        expect(c - 1 - ShellGeometry.contextPaneWidthFor(c), primary);
-      });
-    }
-
-    test('clamped to 320..440 at the extremes', () {
-      expect(ShellGeometry.contextPaneWidthFor(0), AppSize.contextPaneMin);
-      expect(ShellGeometry.contextPaneWidthFor(5000), AppSize.contextPaneMax);
-    });
-  });
-
   group('ShellGeometry.listPaneWidthFor (band B, code LD, T4)', () {
     // Plan section 3: list = clamp(0.4 * C, 320, 400) in whole dp, detail =
     // the rest after the 1 dp hairline (840: 320 / 439; 1024: 377 / 566;

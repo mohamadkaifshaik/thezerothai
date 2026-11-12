@@ -4,7 +4,6 @@ import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
-import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
@@ -397,7 +396,6 @@ void main() {
           hoisted: true,
         );
         expect(path, location);
-        expect(find.byType(ContextPane), findsNothing);
         expect(find.text('Preview'), findsOneWidget);
       });
     }

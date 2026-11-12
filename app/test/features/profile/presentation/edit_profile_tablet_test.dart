@@ -15,7 +15,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../../support/context_pane_rig.dart' show findContextPane;
 import '../../../support/profile_tablet_rig.dart';
 import '../../../support/tablet_modal_harness.dart'
     show openDialogRect, tabletContentRect;
@@ -24,9 +23,6 @@ const _widths = <double>[360, 599, 600, 839, 840, 1024, 1199, 1200];
 
 bool _tabletFlags(Set<String> flags) =>
     flags.contains(kFeatureUiShell) && flags.contains(kFeatureUiTablet);
-
-bool _tablet(double w) =>
-    w >= AppBreakpoints.mobile && w < AppBreakpoints.tablet;
 
 bool _bandB(double w) =>
     w >= AppBreakpoints.expanded && w < AppBreakpoints.tablet;
@@ -81,7 +77,6 @@ void main() {
                 ? findsOneWidget
                 : findsNothing,
           );
-          if (_tablet(w)) expect(findContextPane(), findsNothing);
         });
       }
     }
@@ -328,13 +323,11 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Edit profile'));
       await tester.pumpAndSettle();
       expect(find.byType(EditProfileScreen), findsOneWidget);
-      expect(findContextPane(), findsNothing);
       expect(find.byType(SettingsCategoriesPane), findsNothing);
       expect(_previewAction(), findsOneWidget);
       await tester.tap(_close());
       await tester.pumpAndSettle();
       expect(rig.uri.path, AppRouter.profilePath(kRigOwnHandle));
-      expect(findContextPane(), findsNothing);
     });
 
     testWidgets('the own profile pushed over Home, then Edit profile: no '
@@ -344,19 +337,16 @@ void main() {
       unawaited(rig.router.push(AppRouter.profileByIdPath(kRigOwnId)));
       await tester.pumpAndSettle();
       expect(find.byType(ProfileScreen), findsOneWidget);
-      expect(findContextPane(), findsNothing);
 
       await tester.tap(find.widgetWithText(FilledButton, 'Edit profile'));
       await tester.pumpAndSettle();
       expect(find.byType(EditProfileScreen), findsOneWidget);
-      expect(findContextPane(), findsNothing);
       expect(find.byType(AppSearchField), findsNothing);
       expect(find.text("What's happening"), findsNothing);
 
       await tester.tap(_close());
       await tester.pumpAndSettle();
       expect(find.byType(ProfileScreen), findsOneWidget);
-      expect(findContextPane(), findsNothing);
     });
   });
 

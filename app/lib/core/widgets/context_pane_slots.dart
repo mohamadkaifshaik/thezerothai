@@ -1,40 +1,32 @@
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
-import 'context_pane.dart';
-
-/// Page to pane, for the context-pane sections built over a page's own state
-/// (tablet plan section 5.1, "one widget, two placements"; T8a).
+/// Page to side column: how the desktop Profile's media strip is built over
+/// the page's own state (#836).
 ///
-/// Band B's context pane is a sibling of the shell navigator, so it cannot
-/// read a page's cubits or form controllers through the tree, and building
-/// its own copies would send the page's calls a second time. A page lends the
-/// pane a builder instead: while it is mounted it puts `kind -> builder`
-/// under its own location ([ContextPaneLease]), and the [ContextPaneSlot] of
-/// that kind and location draws the latest one. The builders close over the
-/// page's own state, so the pane shows the page's data, with no call of its
-/// own, and both stay in step (a Join in the pane is the page's Join).
+/// The side column is a sibling of the shell navigator, so it cannot read a
+/// page's cubits through the tree, and building its own copy would send the
+/// page's calls a second time. A page lends the column a builder instead:
+/// while it is mounted it puts a builder under its own location
+/// ([ContextPaneLease]), and the [ContextPaneSlot] of that location draws the
+/// latest one. The builder closes over the page's own state, so the column
+/// shows the page's data with no call of its own.
 ///
-/// Whether the pane exists, and which kinds it shows, stays a pure function
-/// of the route (`contextSectionsFor`); only a slot's content comes from the
-/// page, so the primary pane's width never waits on it.
+/// Whether the slot exists stays a pure function of the route (`MainShell`);
+/// only its content comes from the page.
 class ContextPaneSlots extends ChangeNotifier {
   final _leases = <_Lease>[];
   bool _notifyScheduled = false;
   bool _disposed = false;
 
-  /// Puts [builders] under [location] for [owner], replacing what [owner]
+  /// Puts [builder] under [location] for [owner], replacing what [owner]
   /// lent before. The latest lease of a location wins: a page pushed over
-  /// another page of the same location shows its own sections, and the
-  /// lower page's come back when it is removed.
-  void put(
-    Object owner,
-    String location,
-    Map<ContextSectionKind, WidgetBuilder> builders,
-  ) {
+  /// another page of the same location shows its own builder, and the
+  /// lower page's comes back when it is removed.
+  void put(Object owner, String location, WidgetBuilder builder) {
     _leases
       ..removeWhere((l) => identical(l.owner, owner))
-      ..add(_Lease(owner, _normalized(location), Map.of(builders)));
+      ..add(_Lease(owner, _normalized(location), builder));
     _changed();
   }
 
@@ -45,13 +37,11 @@ class ContextPaneSlots extends ChangeNotifier {
     if (_leases.length != before) _changed();
   }
 
-  /// The builder of [kind] lent under [location], or null.
-  WidgetBuilder? builderFor(String location, ContextSectionKind kind) {
+  /// The builder lent under [location] (the latest lease), or null.
+  WidgetBuilder? builderFor(String location) {
     final path = _normalized(location);
     for (final lease in _leases.reversed) {
-      if (lease.location != path) continue;
-      final builder = lease.builders[kind];
-      if (builder != null) return builder;
+      if (lease.location == path) return lease.builder;
     }
     return null;
   }
@@ -97,15 +87,15 @@ class ContextPaneSlots extends ChangeNotifier {
 
 @immutable
 class _Lease {
-  const _Lease(this.owner, this.location, this.builders);
+  const _Lease(this.owner, this.location, this.builder);
 
   final Object owner;
   final String location;
-  final Map<ContextSectionKind, WidgetBuilder> builders;
+  final WidgetBuilder builder;
 }
 
 /// Owns the [ContextPaneSlots] of one shell, above both the shell navigator
-/// (the pages) and the context pane (the slots). `MainShell` puts it around
+/// (the pages) and the side column (the slots). `MainShell` puts it around
 /// its scaffold at every width, so the tree keeps its shape.
 class ContextPaneSlotsHost extends StatefulWidget {
   const ContextPaneSlotsHost({super.key, required this.child});
@@ -147,17 +137,13 @@ class ContextPaneLease {
   ContextPaneSlots? _slots;
   bool _attached = false;
 
-  /// Lends [builders] under [location]; only the first call counts. The
-  /// builders should read the page's state when they build (a `BlocBuilder`
+  /// Lends [builder] under [location]; only the first call counts. The
+  /// builder should read the page's state when it builds (a `BlocBuilder`
   /// over the page's cubit, a listenable of its form), not capture it.
-  void attach(
-    BuildContext context,
-    String location,
-    Map<ContextSectionKind, WidgetBuilder> builders,
-  ) {
+  void attach(BuildContext context, String location, WidgetBuilder builder) {
     if (_attached) return;
     _attached = true;
-    _slots = ContextPaneSlots.maybeOf(context)?..put(this, location, builders);
+    _slots = ContextPaneSlots.maybeOf(context)?..put(this, location, builder);
   }
 
   void dispose() {
@@ -166,26 +152,23 @@ class ContextPaneLease {
   }
 }
 
-/// The content of one context-pane section that a page lends (see
-/// [ContextPaneSlots]): the latest builder of [kind] under [location], or
+/// The content of one side-column section that a page lends (see
+/// [ContextPaneSlots]): the latest builder under [location], or
 /// [placeholder] until a page lends one.
 class ContextPaneSlot extends StatefulWidget {
   const ContextPaneSlot({
     super.key,
-    required this.kind,
     required this.location,
     this.placeholder = const SizedBox.shrink(),
   });
-
-  final ContextSectionKind kind;
 
   /// The location of the page that lends the content: the shell navigator's
   /// top page.
   final String location;
 
-  /// Drawn while no page lends [kind] under [location] (a page being pushed
+  /// Drawn while no page lends a builder under [location] (a page being pushed
   /// has not taken its lease yet): the section's own loading look, so the
-  /// pane does not show the footer alone and then jump. Nothing (0 height)
+  /// column does not show the footer alone and then jump. Nothing (0 height)
   /// by default.
   final Widget placeholder;
 
@@ -217,7 +200,7 @@ class _ContextPaneSlotState extends State<ContextPaneSlot> {
 
   @override
   Widget build(BuildContext context) {
-    final builder = _slots?.builderFor(widget.location, widget.kind);
+    final builder = _slots?.builderFor(widget.location);
     return builder == null ? widget.placeholder : builder(context);
   }
 }

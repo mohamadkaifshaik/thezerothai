@@ -208,10 +208,6 @@ abstract final class AppSize {
   /// tablet pane; the pane and its header span the full width.
   static const double readableMax = 680;
 
-  /// Band B context pane: `clamp(C - 1 - readableMax, min, max)`.
-  static const double contextPaneMin = 320;
-  static const double contextPaneMax = 440;
-
   /// Band B list pane of a list-detail screen: `clamp(0.4 * C, min, max)`.
   static const double listPaneMin = 320;
   static const double listPaneMax = 400;

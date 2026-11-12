@@ -5,7 +5,6 @@ import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
-import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/features/beacons/domain/beacon_labels.dart';
 import 'package:dzeroth/features/beacons/domain/beacons_feature_flag.dart';
@@ -88,7 +87,6 @@ void main() {
           expect(rig.count('list:'), 1);
           expect(rig.server.mineLimits, yours ? [2] : isEmpty);
           // No context pane beside a list-detail page.
-          expect(find.byType(ContextPane), findsNothing);
           expectNoOverflow(tester);
         });
       }
@@ -672,7 +670,6 @@ void main() {
         );
         expect(find.text(kPeopleListNote), findsOneWidget);
         expect(findPlansPane(), findsNothing);
-        expect(find.byType(ContextPane), findsNothing);
         expectNoOverflow(tester);
       });
     }

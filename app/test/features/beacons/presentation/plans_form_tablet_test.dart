@@ -24,8 +24,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/beacons_fixtures.dart';
-import '../../../support/context_pane_rig.dart'
-    show expectTabletPanes, findContextPane;
+import '../../../support/context_pane_rig.dart' show expectTabletPanes;
 import '../../../support/plans_tablet_rig.dart';
 import '../../../support/tablet_modal_harness.dart' show openDialogRect;
 import '../../../support/theme_harness.dart';
@@ -156,20 +155,17 @@ void main() {
       final rig = PlansTabletRig();
       await rig.pump(tester, realForms: true);
       expect(findPlansPane(), findsOneWidget);
-      expect(findContextPane(), findsNothing);
 
       await tester.tap(find.widgetWithText(FilledButton, 'New plan'));
       await tester.pumpAndSettle();
       expect(findPlansPane(), findsNothing);
-      expect(findContextPane(), findsNothing);
       expect(_previewAction, findsOneWidget);
       expect(find.byKey(_tipsToggle), findsOneWidget);
-      expectTabletPanes(tester, _formPage(), 1024, hasPane: false);
+      expectTabletPanes(tester, _formPage(), 1024);
 
       rig.router.pop();
       await tester.pumpAndSettle();
       expect(findPlansPane(), findsOneWidget);
-      expect(findContextPane(), findsNothing);
     });
 
     testWidgets('Edit from a plan: no Preview action and no tips while it '
@@ -184,21 +180,18 @@ void main() {
       final hold = rig.server.holdGet = Completer<void>();
       await tester.tap(find.widgetWithText(AppPillButton, 'Edit'));
       await tester.pumpAndSettle();
-      expect(findContextPane(), findsNothing);
       expect(find.bySemanticsLabel('Loading plan'), findsOneWidget);
       expect(_previewAction, findsNothing);
       expect(find.byKey(_tipsToggle), findsNothing);
 
       hold.complete();
       await tester.pumpAndSettle();
-      expect(findContextPane(), findsNothing);
       expect(_previewAction, findsOneWidget);
       expect(find.byKey(_tipsToggle), findsOneWidget);
 
       rig.router.pop();
       await tester.pumpAndSettle();
       expect(findPlansPane(), findsOneWidget);
-      expect(findContextPane(), findsNothing);
     });
 
     testWidgets('a failed load: no preview and no tips over the error, both '
@@ -207,7 +200,6 @@ void main() {
       rig.server.refusals.add(const NetworkException('down'));
       await rig.pump(tester, location: _editPath, realForms: true);
       expect(find.text('Try again'), findsOneWidget);
-      expect(findContextPane(), findsNothing);
       expect(_previewAction, findsNothing);
       expect(find.byKey(_tipsToggle), findsNothing);
 
@@ -226,7 +218,6 @@ void main() {
         location: AppRouter.planEditPath('1999999999999999999'),
         realForms: true,
       );
-      expect(findContextPane(), findsNothing);
       expect(_previewAction, findsNothing);
       expect(find.byKey(_tipsToggle), findsNothing);
     });
@@ -335,7 +326,6 @@ void main() {
       await _peek(tester, () async {
         expect(_inDialogPreview(find.text('Chat: Open to chat')), findsOne);
       });
-      expect(findContextPane(), findsNothing);
       expect(rig.server.calls, isEmpty);
     });
 
@@ -584,7 +574,6 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(Dialog), findsOneWidget);
-        expect(findContextPane(), findsNothing);
         expect(_inDialogPreview(find.text('Board games')), findsOneWidget);
         expect(_inDialogPreview(find.text('Library hall')), findsOneWidget);
         expect(_inDialogPreview(find.text(kMeetingPointNote)), findsOneWidget);
@@ -992,7 +981,6 @@ void main() {
         final rig = PlansTabletRig();
         await rig.pump(tester, location: location, flags: off, realForms: true);
         expect(tester.takeException(), isNull);
-        expect(findContextPane(), findsNothing);
         expect(find.byType(PlanPreview), findsNothing);
       });
     }
@@ -1009,7 +997,6 @@ void main() {
         realForms: true,
       );
       expect(tester.takeException(), isNull);
-      expect(findContextPane(), findsNothing);
       final page = tester.getRect(_formPage());
       final rail = tester.getRect(find.byKey(const ValueKey('tablet-rail')));
       expect(rail.right, 1024);
@@ -1080,12 +1067,7 @@ void main() {
             tester.getRect(find.byKey(const ValueKey('tablet-rail'))).left,
             0,
           );
-          expectTabletPanes(
-            tester,
-            _formPage(),
-            env.size.width,
-            hasPane: false,
-          );
+          expectTabletPanes(tester, _formPage(), env.size.width);
           expect(_previewAction, findsOneWidget);
           expect(find.byKey(_tipsToggle), findsOneWidget);
           expect(

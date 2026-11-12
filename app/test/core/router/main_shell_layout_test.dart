@@ -9,7 +9,6 @@ import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/app_drawer.dart';
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
 import 'package:dzeroth/core/widgets/app_top_bar.dart';
-import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
@@ -2179,7 +2178,6 @@ void main() {
           expect(rail.left, 0);
           expect(header.left, rail.right);
           // No context pane in either band: the page keeps the content.
-          expect(find.byType(ContextPane), findsNothing);
           expect(rail.width + header.width, env.size.width);
           expectMinTarget(tester, inRail(find.byTooltip('New post')));
           expectMinTarget(tester, find.byType(AppAccountChip));

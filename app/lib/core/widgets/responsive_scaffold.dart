@@ -7,7 +7,6 @@ import '../theme/app_theme.dart';
 import 'app_bottom_bar.dart';
 import 'app_nav_rail.dart';
 import 'app_shell_scope.dart';
-import 'context_pane.dart';
 import 'shell_geometry.dart';
 import 'tablet_modal.dart';
 
@@ -30,13 +29,11 @@ export 'shell_geometry.dart' show ShellLayout;
 ///   inset (a strip in the page colour fills it) and gets the top and bottom
 ///   ones (its header pads by the top inset, its scrollables by the bottom
 ///   one). The pane is exactly the content of its [ShellGeometry].
-///   From 840dp (band B), when the page has [contextSections], the content
-///   splits into the primary pane and the [ContextPane] after a 1dp hairline
-///   (`ShellGeometry.contextPaneWidthFor`); below 840 (band A) the body keeps
-///   the whole content. From 840dp a [masterPane] (list-detail: Settings,
+///   The body keeps the whole content (no side column on the tablet
+///   layout). From 840dp a [masterPane] (list-detail: Settings,
 ///   Plans) comes before the body instead, as the list pane of
 ///   `ShellGeometry.listPaneWidthFor` and a 1dp hairline; the body is then
-///   the detail, and no context pane is shown. [sideColumn] is not shown
+///   the detail. [sideColumn] is not shown
 ///   there, and neither is [masterPane] below 840.
 /// - `>= 1200dp` (desktop/web): an extended `NavigationRail` with the "Post"
 ///   pill on top and the account chip at the bottom, the 600dp content column
@@ -68,14 +65,7 @@ class ResponsiveScaffold extends StatefulWidget {
     this.layout = ShellLayout.legacy,
     this.moreHasOwnRows = true,
     this.onMoreFolded,
-    this.contextSections,
   });
-
-  /// Tablet layout, band B (840-1199dp) only: the sections of the context
-  /// pane beside the [body] (tablet plan section 3, code P). Null or empty:
-  /// no pane, the body keeps the whole content width. Ignored in band A, on
-  /// phones, on desktop (which keeps [sideColumn]) and in the legacy layout.
-  final List<ContextSection>? contextSections;
 
   /// The composition at 600-1199dp. [ShellLayout.tablet] only with
   /// `ui_shell` and `ui_tablet` both on; phones ignore it. On desktop the
@@ -239,17 +229,10 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     double trailing,
   ) {
     final compose = widget.onCompose;
-    final sections = widget.contextSections;
     final bandB = geometry.band == ShellBand.expanded;
     // Band B list-detail (Settings, Plans): the list pane before the body,
-    // which is then the detail. A page never has both (plan section 3: "the context
-    // pane is not shown with LD").
+    // which is then the detail.
     final master = bandB ? widget.masterPane : null;
-    // Band B with sections: the primary pane and the context pane.
-    final pane =
-        master == null && bandB && sections != null && sections.isNotEmpty
-        ? sections
-        : null;
     final colors = context.appColors;
     return Scaffold(
       body: Row(
@@ -309,43 +292,10 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
               removeRight: true,
               child: ShellGeometry(
                 data: geometry,
-                // The pages learn which sections the pane shows, so an
-                // inline copy (Explore's "Who to follow") steps aside.
-                child: ContextPaneScope(
-                  shown: {
-                    if (pane != null)
-                      for (final section in pane) section.kind,
-                  },
-                  child: FocusTraversalGroup(child: widget.body),
-                ),
+                child: FocusTraversalGroup(child: widget.body),
               ),
             ),
           ),
-          // Focus order: the rail, the primary pane, then the context pane.
-          if (pane != null)
-            SizedBox(
-              key: const ValueKey('tablet-context-pane'),
-              width:
-                  ShellGeometry.contextPaneWidthFor(geometry.content.width) + 1,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  border: BorderDirectional(
-                    start: BorderSide(color: colors.hairline),
-                  ),
-                ),
-                child: Padding(
-                  padding: const EdgeInsetsDirectional.only(start: 1),
-                  child: MediaQuery.removePadding(
-                    context: context,
-                    removeLeft: true,
-                    removeRight: true,
-                    child: FocusTraversalGroup(
-                      child: ContextPane(sections: pane),
-                    ),
-                  ),
-                ),
-              ),
-            ),
           // The trailing inset (a landscape notch), in the page colour.
           SizedBox(
             width: trailing,

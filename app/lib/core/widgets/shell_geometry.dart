@@ -137,18 +137,6 @@ class ShellGeometry extends InheritedWidget {
     );
   }
 
-  /// The width of band B's context pane (tablet plan section 3, code P) for a
-  /// content area [contentWidth] (C) wide: `clamp(C - 1 - 680, 320, 440)`.
-  /// The primary pane takes the rest after the 1 dp hairline between the two,
-  /// so it reaches [AppSize.readableMax] from C = 1001 and never goes below
-  /// 439 (at 840 dp). [ShellGeometryData.content] stays the whole C: dialogs
-  /// and snack bars centre on both panes together.
-  static double contextPaneWidthFor(double contentWidth) =>
-      (contentWidth - 1 - AppSize.readableMax).clamp(
-        AppSize.contextPaneMin,
-        AppSize.contextPaneMax,
-      );
-
   /// The width of band B's list pane (tablet plan section 3, code LD) for a
   /// content area [contentWidth] (C) wide: `clamp(0.4 * C, 320, 400)`, in
   /// whole dp. The detail takes the rest after the 1 dp hairline between the

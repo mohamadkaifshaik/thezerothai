@@ -9,7 +9,6 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
-import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/features/auth/presentation/widgets/auth_gate.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/conversations_cubit.dart';
@@ -86,7 +85,6 @@ void main() {
           // One open: one INBOX refresh (no second for the pane).
           expect(rig.listCalls(Folder.FOLDER_INBOX), 1);
           expect(rig.listCalls(Folder.FOLDER_REQUESTS), 0);
-          expect(find.byType(ContextPane), findsNothing);
           expect(tester.takeException(), isNull);
           await done(tester);
         });

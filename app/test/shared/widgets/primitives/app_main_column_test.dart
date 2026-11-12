@@ -1,7 +1,6 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
-import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -36,9 +35,6 @@ const _bodyKey = ValueKey('readable-body');
 enum _Pane {
   /// The primary pane, alone (band A), or band B with no pane beside it.
   primary,
-
-  /// Band B: the primary beside a context pane (code P).
-  context,
 
   /// Band B: the detail beside a list pane (code LD).
   detail,
@@ -180,14 +176,6 @@ Future<void> _pump(
               label: 'Explore',
             ),
           ],
-          contextSections: pane == _Pane.context
-              ? const [
-                  ContextSection(
-                    ContextSectionKind.search,
-                    SizedBox(height: 1),
-                  ),
-                ]
-              : null,
           masterPane: pane == _Pane.detail
               ? const ColoredBox(color: Colors.transparent)
               : null,
@@ -219,11 +207,10 @@ Rect _paneRect(
   final c = width - AppSize.railCompact;
   final bandB = width >= AppBreakpoints.expanded;
   final double paneWidth = switch (pane) {
-    _Pane.context when bandB => c - 1 - ShellGeometry.contextPaneWidthFor(c),
     _Pane.detail when bandB => c - 1 - ShellGeometry.listPaneWidthFor(c),
     _ => c,
   };
-  // The rail (and in LD the list) lead; the context pane trails.
+  // The rail (and in LD the list) lead.
   final double leading = pane == _Pane.detail && bandB
       ? AppSize.railCompact + ShellGeometry.listPaneWidthFor(c) + 1
       : AppSize.railCompact;
@@ -269,9 +256,6 @@ void main() {
       (840, _Pane.primary),
       (1024, _Pane.primary),
       (1199, _Pane.primary),
-      (840, _Pane.context),
-      (1024, _Pane.context),
-      (1199, _Pane.context),
       (840, _Pane.detail),
       (1024, _Pane.detail),
       (1199, _Pane.detail),
@@ -324,9 +308,9 @@ void main() {
     testWidgets('a narrower pane is unaffected: the column is the pane', (
       tester,
     ) async {
-      // 840 with a context pane: the primary is 439.
-      await _pump(tester, width: 840, pane: _Pane.context);
-      final paneRect = _paneRect(840, pane: _Pane.context);
+      // 840 beside the list pane: the detail is 439.
+      await _pump(tester, width: 840, pane: _Pane.detail);
+      final paneRect = _paneRect(840, pane: _Pane.detail);
       expect(paneRect.width, 439);
       expect(_body(tester).left, paneRect.left);
       expect(_body(tester).width, 439);
@@ -385,7 +369,7 @@ void main() {
         await _pump(
           tester,
           width: width,
-          pane: width >= 840 ? _Pane.context : _Pane.primary,
+          pane: width >= 840 ? _Pane.detail : _Pane.primary,
           textScale: 2,
         );
         expect(tester.takeException(), isNull);
@@ -416,7 +400,6 @@ void main() {
       (840, _Pane.primary),
       (1024, _Pane.primary),
       (1199, _Pane.primary),
-      (1024, _Pane.context),
       (840, _Pane.detail),
       (1024, _Pane.detail),
       (1199, _Pane.detail),
@@ -560,7 +543,7 @@ void main() {
       (600, _Pane.primary),
       (600, _Pane.root),
       (839, _Pane.primary),
-      (840, _Pane.context),
+      (840, _Pane.detail),
       (1024, _Pane.detail),
     ]) {
       for (final rtl in [false, true]) {
@@ -644,7 +627,7 @@ void main() {
       await _pump(
         tester,
         width: 840,
-        pane: _Pane.context,
+        pane: _Pane.detail,
         textScale: 2,
         form: true,
         title: 'Edit plan',

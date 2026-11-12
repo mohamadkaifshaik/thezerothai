@@ -3,7 +3,6 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
 import 'package:dzeroth/core/widgets/app_top_bar.dart';
-import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/features/settings/presentation/settings_screen.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
@@ -14,28 +13,21 @@ import '../../support/context_pane_rig.dart';
 import '../../support/geometry.dart';
 import '../../support/theme_harness.dart';
 
-/// The tablet layout has no side context pane: none of the tablet designs
-/// has one. Band B (840-1199 dp) draws exactly what band A (600-839 dp)
-/// draws, in the real `MainShell`: the rail and the page across the whole
-/// content, no `tablet-context-pane`, and an empty set published through
-/// `ContextPaneScope`, so every page keeps its inline sections (their own
-/// tests, e.g. `explore_context_pane_test.dart`). List-detail pages keep
-/// their list pane in band B; desktop (>= 1200 dp) keeps its side column.
+/// The tablet layout has no side column: none of the tablet designs has one.
+/// Band B (840-1199 dp) draws exactly what band A (600-839 dp) draws, in the
+/// real `MainShell`: the rail and the page across the whole content, so every
+/// page keeps its inline sections. List-detail pages keep their list pane in
+/// band B; desktop (>= 1200 dp) keeps its side column.
 void main() {
   /// The page's header (the stub page's top bar spans the page).
   Rect primaryRect(WidgetTester tester) =>
       tester.getRect(find.byType(AppTopBar));
 
-  /// Nothing of the pane is drawn, fetched or published.
+  /// Nothing of a side pane is drawn or fetched.
   void expectNoPane(WidgetTester tester, ContextPaneRig rig) {
-    expect(findContextPane(), findsNothing);
     expect(find.byKey(const ValueKey('tablet-context-pane')), findsNothing);
     expect(rig.trendCalls, 0);
     expect(rig.suggestionCalls, 0);
-    expect(
-      tester.widget<ContextPaneScope>(find.byType(ContextPaneScope)).shown,
-      isEmpty,
-    );
   }
 
   group('geometry: rail | page, no pane in band B', () {
@@ -116,8 +108,6 @@ void main() {
         final rig = ContextPaneRig();
         await rig.pump(tester, width: width, height: 900);
 
-        expect(findContextPane(), findsNothing);
-        expect(find.byType(ContextPaneScope), findsNothing);
         expect(find.byType(AppSideColumn), findsOneWidget);
         Finder inColumn(Finder f) =>
             find.descendant(of: find.byType(AppSideColumn), matching: f);
@@ -168,21 +158,8 @@ void main() {
             flags: {...base, ...modeFlags},
           );
 
-          expect(findContextPane(), findsNothing);
-          // Off the tablet layout the tree around the page is today's: no
-          // scope, the legacy NavigationRail, the centred 600 dp column.
-          expect(
-            find.byType(ContextPaneScope),
-            tablet && tabletBand ? findsOneWidget : findsNothing,
-          );
-          if (tablet && tabletBand) {
-            expect(
-              tester
-                  .widget<ContextPaneScope>(find.byType(ContextPaneScope))
-                  .shown,
-              isEmpty,
-            );
-          }
+          // Off the tablet layout the tree around the page is today's: the
+          // legacy NavigationRail, the centred 600 dp column.
           if (width < AppBreakpoints.mobile) {
             // Phones: the bar, no rail of either kind, nothing fetched.
             expect(find.byType(AppBottomBar), findsOneWidget);
@@ -254,7 +231,6 @@ void main() {
       final rig = ContextPaneRig();
       await rig.pump(tester, location: '/settings');
 
-      expect(findContextPane(), findsNothing);
       expect(find.byType(SettingsCategoriesPane), findsOneWidget);
       final list = ShellGeometry.listPaneWidthFor(1024 - 80);
       expect(primaryRect(tester).width, 1024 - 80 - list - 1);
@@ -276,7 +252,6 @@ void main() {
 
       rig.router.go('/settings');
       await tester.pumpAndSettle();
-      expect(findContextPane(), findsNothing);
       expect(find.byType(SettingsCategoriesPane), findsOneWidget);
       expect(rig.trendCalls, 0);
       expect(rig.suggestionCalls, 0);

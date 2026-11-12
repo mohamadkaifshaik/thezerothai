@@ -3,7 +3,6 @@ import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
-import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
@@ -188,7 +187,6 @@ void main() {
           );
           // Band B draws no context pane either: the page keeps its state
           // across the band change.
-          expect(find.byType(ContextPane), findsNothing, reason: reason);
           expect(
             tester.state(find.byType(EditableText)),
             same(fieldState),
