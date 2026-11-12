@@ -1528,6 +1528,42 @@ abstract final class AppCommunitiesLayout {
   static const double heroRingAlpha = 0.14;
 }
 
+/// Creator Studio, Advertise and Calls geometry per screen size (dp), from
+/// the dzeroth-mobile, tablet and desktop mocks (dz.css `.empty`, `.card`,
+/// `.display`). Colours come from the theme, gradients from [AppGradients].
+abstract final class AppStudioLayout {
+  // Creator Studio stat cards (phone 16 dp, tablet / desktop 18 x 20 dp).
+  static const double pagePaddingPhone = 20;
+  static const double pagePaddingWide = 16;
+  static const double statGap = 12;
+  static const double statPaddingPhone = 16;
+  static const double statPaddingVWide = 18;
+  static const double statPaddingHWide = 20;
+  static const double statValuePhone = 28;
+  static const double statValueWide = 32;
+
+  // The coming-soon page: the phone centres it over teal rings, the tablet
+  // and desktop start it at the leading edge.
+  static const double comingPaddingPhone = 32;
+  static const double comingPaddingVWide = 56;
+  static const double comingPaddingHWide = 40;
+  static const double tilePhone = 84;
+  static const double tileRadiusPhone = 28;
+  static const double tileGlowBlur = 34;
+  static const double tileIconPhone = 40;
+  static const double tileWide = 64;
+  static const double tileRadiusWide = 22;
+  static const double tileIconWide = 30;
+  static const double eyebrowTopWide = 28;
+  static const double eyebrowBottomWide = 10;
+  static const double headlinePhone = 36;
+  static const double headlineWide = 40;
+  static const double bodyMaxWidth = 420;
+  static const double actionWidthPhone = 240;
+  static const double actionGap = 12;
+  static const double phoneGap = 18;
+}
+
 /// Article editor geometry (dzeroth-mobile, tablet and desktop Article
 /// mocks): the dashed cover drop, the display title and the toolbar pill.
 /// Colours come from the theme, shadows from [AppShadows].

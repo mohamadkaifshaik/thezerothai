@@ -1,5 +1,6 @@
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/router/shell_entries.dart';
+import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/advertise/presentation/advertise_screen.dart';
 import 'package:dzeroth/features/calls/presentation/calls_screen.dart';
 import 'package:dzeroth/features/creator_studio/presentation/creator_studio_screen.dart';
@@ -73,7 +74,17 @@ void main() {
       );
       final r = _read(tester, find.byType(CreatorStudioScreen));
 
-      expect(r.headers, containsAll(['Creator Studio', 'Insights', 'Programs']));
+      expect(
+        r.headers,
+        // From 600 dp the back header's subtitle is part of its label.
+        containsAll([
+          size.width >= AppBreakpoints.mobile
+              ? 'Creator Studio Your account'
+              : 'Creator Studio',
+          'Insights',
+          'Programs',
+        ]),
+      );
       expect(r.buttons, ['Back']);
       expect(r.tappable, ['Back']);
       // Each "coming soon" row is spoken once, with its pill folded in.
@@ -88,7 +99,9 @@ void main() {
       expect(find.bySemanticsLabel('Coming soon'), findsNothing);
     });
 
-    shellsTest('Advertise, $dp: header, only Back', (tester) async {
+    shellsTest('Advertise, $dp: header, Back and the off button', (
+      tester,
+    ) async {
       await pumpShellsApp(
         tester,
         location: AppRouter.advertisePath,
@@ -97,7 +110,7 @@ void main() {
       final r = _read(tester, find.byType(AdvertiseScreen));
 
       expect(r.headers, contains('Advertise'));
-      expect(r.buttons, ['Back']);
+      expect(r.buttons, ['Back', 'Not available yet']);
       expect(r.tappable, ['Back']);
     });
 
@@ -118,20 +131,18 @@ void main() {
       expect(r.tappable, unorderedEquals(['Back', 'Email us']));
     });
 
-    shellsTest('Calls, $dp: header, rows once, only Back', (tester) async {
+    shellsTest('Calls, $dp: header, Back and the off button', (tester) async {
       await pumpShellsApp(tester, location: AppRouter.callsPath, size: size);
       final r = _read(tester, find.byType(CallsScreen));
 
-      expect(r.headers, containsAll(['Calls']));
-      expect(r.buttons, ['Back']);
+      expect(
+        r.headers,
+        containsAll([
+          size.width >= AppBreakpoints.mobile ? 'Calls Voice · Video' : 'Calls',
+        ]),
+      );
+      expect(r.buttons, ['Back', 'Not available yet']);
       expect(r.tappable, ['Back']);
-      for (final row in [
-        'Voice calls, Coming soon',
-        'Video calls, Coming soon',
-      ]) {
-        expect(find.bySemanticsLabel(row), findsOneWidget, reason: row);
-      }
-      expect(find.bySemanticsLabel('Coming soon'), findsNothing);
     });
 
     shellsTest('Premium pop-up, $dp: title header, cards once, only Close', (
