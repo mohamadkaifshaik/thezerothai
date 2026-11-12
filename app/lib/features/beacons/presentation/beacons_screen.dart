@@ -562,15 +562,16 @@ class PlansHeadline extends StatelessWidget {
         AppSpacing.md,
         AppSpacing.sm,
       ),
+      // The actions sit at the end of the headline's line when both fit,
+      // and drop under it (large text, a narrow column) rather than squeeze.
       child: actions == null
           ? headline
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(flex: 3, child: headline),
-                const SizedBox(width: AppSpacing.md),
-                Flexible(flex: 2, child: actions!),
-              ],
+          : Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.end,
+              spacing: AppSpacing.md,
+              runSpacing: AppSpacing.sm,
+              children: [headline, actions!],
             ),
     );
   }
