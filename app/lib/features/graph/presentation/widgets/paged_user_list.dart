@@ -31,6 +31,7 @@ class PagedUserList extends StatefulWidget {
     this.rowBuilder,
     this.protectedMessage,
     this.itemFilter,
+    this.header,
   });
 
   final UserListCubit cubit;
@@ -55,6 +56,11 @@ class PagedUserList extends StatefulWidget {
   /// parent that changes it rebuilds the list. When it hides every loaded
   /// row, [emptyMessage] is the answer.
   final bool Function(graph.UserListItem item)? itemFilter;
+
+  /// Scrolls above the first row while there are rows (the new-message
+  /// picker's "Suggested"); never over the loading, error or empty states.
+  /// Null (the default) draws nothing.
+  final Widget? header;
 
   @override
   State<PagedUserList> createState() => _PagedUserListState();
@@ -135,12 +141,16 @@ class _PagedUserListState extends State<PagedUserList> {
             );
           }
           final showLoadingFooter = state.status == UserListStatus.loadingMore;
+          final header = widget.header;
+          final lead = header == null ? 0 : 1;
           return RefreshIndicator(
             onRefresh: widget.cubit.loadFirstPage,
             child: ListView.builder(
               controller: _scrollController,
-              itemCount: items.length + (showLoadingFooter ? 1 : 0),
-              itemBuilder: (context, index) {
+              itemCount: lead + items.length + (showLoadingFooter ? 1 : 0),
+              itemBuilder: (context, at) {
+                if (header != null && at == 0) return header;
+                final index = at - lead;
                 if (index >= items.length) {
                   return const Padding(
                     padding: EdgeInsets.all(AppSpacing.md),

@@ -224,6 +224,11 @@ abstract final class AppSize {
   /// section 4.1, Composer row).
   static const double composerDialogMaxHeight = 720;
 
+  /// The character ring of the reply composer (ReplyComposer mocks): 26 dp
+  /// on a phone, 24 dp in the dialog.
+  static const double counterRingPhone = 26;
+  static const double counterRing = 24;
+
   /// Width range of a confirm or alert dialog on the tablet layout ("D
   /// 280-400", tablet plan section 4.2).
   static const double alertDialogMin = 280;
@@ -1247,6 +1252,13 @@ abstract final class AppTypeTokens {
   static const double bodyLineHeight = 1.42;
   static const double focalPostSize = 17;
   static const double focalPostLineHeight = 24;
+
+  /// The reply composer's text (ReplyComposer mocks): 19 sp full screen on a
+  /// phone, 20 sp in the tablet and desktop dialog, at 1.35 / 1.4.
+  static const double replyFieldSizePhone = 19;
+  static const double replyFieldLineHeightPhone = 1.35;
+  static const double replyFieldSizeDialog = 20;
+  static const double replyFieldLineHeightDialog = 1.4;
   static const FontWeight weightDisplay = FontWeight.w800;
   static const FontWeight weightUi = FontWeight.w700;
   static const FontWeight weightLabel = FontWeight.w600;
@@ -1374,6 +1386,30 @@ abstract final class AppTextStyles {
             : AppColors.light);
     return _display(size).copyWith(color: colors.accentText);
   }
+}
+
+/// New-message picker geometry (dzeroth-mobile RecipientPicker; the tablet
+/// and desktop mocks' dz.css `.search`, `.sect`, `.row`). Colours come from
+/// the theme, shadows from [AppShadows].
+abstract final class AppPickerLayout {
+  // Phone: the raised pill and the 20 dp page gutter.
+  static const double phoneGutter = 20;
+  static const double phoneSearchTop = 12;
+  static const double phoneSearchBottom = 4;
+  static const double phoneSectionTop = 14;
+  static const double phoneSectionBottom = 2;
+  static const double phoneHandleSize = 13;
+
+  // Tablet / desktop: the flat pill and the 16 dp `.row` gutter.
+  static const double dialogGutter = 16;
+  static const double dialogSectionTop = 20;
+  static const double dialogSectionBottom = 8;
+  static const double dialogHandleSize = 14;
+
+  // Both.
+  static const double searchHeight = 48;
+  static const double rowPaddingV = 12;
+  static const double rowGap = 12;
 }
 
 /// Settings geometry per screen size (dp): the phone mock's raised cards

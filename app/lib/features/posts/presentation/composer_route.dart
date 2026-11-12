@@ -208,12 +208,20 @@ class _ComposerRouteFrameState extends State<ComposerRouteFrame> {
 
   @override
   Widget build(BuildContext context) {
-    final editor = KeyedSubtree(key: _editorKey, child: widget.editor);
     final presentation = composerPresentationFor(
       width: MediaQuery.sizeOf(context).width,
       tabletLayout: tabletFlagsOn(context),
       hasPageBelow: !(ModalRoute.of(context)?.isFirst ?? true),
       reply: widget.reply,
+    );
+    // The scope sits inside the keyed subtree, so it moves with the editor
+    // and a switch only notifies it.
+    final editor = KeyedSubtree(
+      key: _editorKey,
+      child: ComposerPresentationScope(
+        presentation: presentation,
+        child: widget.editor,
+      ),
     );
     switch (presentation) {
       case ComposerPresentation.fullScreen:
@@ -240,6 +248,32 @@ class _ComposerRouteFrameState extends State<ComposerRouteFrame> {
         );
     }
   }
+}
+
+/// The [ComposerPresentation] the editor of a [ComposerRouteFrame] is drawn
+/// in, so the editor can choose its look (the reply composer: the phone
+/// header full screen, the dialog footer in either dialog) without
+/// repeating the width, flag and cold-start rule.
+class ComposerPresentationScope extends InheritedWidget {
+  const ComposerPresentationScope({
+    super.key,
+    required this.presentation,
+    required super.child,
+  });
+
+  final ComposerPresentation presentation;
+
+  /// The presentation above [context]; full screen outside a frame (a test
+  /// that mounts the editor alone).
+  static ComposerPresentation of(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<ComposerPresentationScope>()
+          ?.presentation ??
+      ComposerPresentation.fullScreen;
+
+  @override
+  bool updateShouldNotify(ComposerPresentationScope oldWidget) =>
+      oldWidget.presentation != presentation;
 }
 
 /// Whether the page right under the route with [pageKey] draws the tablet
