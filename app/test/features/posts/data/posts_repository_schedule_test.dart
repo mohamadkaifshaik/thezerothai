@@ -405,7 +405,7 @@ void main() {
     test('a new time goes out as UTC, the text untouched', () async {
       answer = (_) =>
           pb.UpdateScheduledPostResponse(scheduledPost: scheduledPost(3));
-      final local = DateTime(2026, 11, 15, 7);
+      final local = at.add(const Duration(hours: 3));
 
       await repo.updateScheduledPost(
         scheduledId: scheduledId(3),
