@@ -59,7 +59,8 @@ void main() {
     await open(tester, env: env);
 
     expectNoOverflow(tester);
-    expect(find.text("@kaif's Lists"), findsOneWidget);
+    expect(find.text('Lists'), findsOneWidget);
+    expect(find.text('@kaif'), findsOneWidget);
     expect(find.bySemanticsLabel('Mine, 3 members'), findsOneWidget);
     // Someone else's lists: no Create, no Edit.
     expect(find.byTooltip('Create a new List'), findsNothing);

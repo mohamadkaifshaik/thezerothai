@@ -49,6 +49,7 @@ void main() {
   setUp(() {
     lists = _MockLists();
     onboarding = _MockOnboarding();
+    when(() => lists.headerChanges).thenAnswer((_) => const Stream.empty());
     when(() => lists.header('77')).thenAnswer(
       (_) => pb.ListInfo(
         listId: '77',

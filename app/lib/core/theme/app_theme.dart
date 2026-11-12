@@ -1436,6 +1436,64 @@ abstract final class AppPickerLayout {
   static const double rowGap = 12;
 }
 
+/// Lists geometry per screen size (dp): the phone mocks' 20 dp page gutter
+/// and raised cards, and the tablet / desktop mocks' 16 dp flat `.row`s, hero
+/// and section labels (dz.css). Colours come from the theme, gradients from
+/// [AppGradients], shadows from [AppShadows].
+abstract final class AppListsLayout {
+  // Rows (Lists, a person's Lists, Manage pinned's "Add from your Lists").
+  static const double phoneGutter = 20;
+  static const double wideGutter = 16;
+  static const double tileSize = 52;
+  static const double tileRadius = 16;
+  static const double phoneRowGap = 14;
+  static const double wideRowGap = 12;
+  static const double phoneRowPaddingV = 12;
+  static const double wideRowPaddingV = 14;
+
+  // Section titles: the phone's display h2 and the wide `.sect` label.
+  static const double phoneSectionTop = 14;
+  static const double phoneSectionTitle = 20;
+  static const double wideSectionTop = 16;
+  static const double wideSectionTitle = 19;
+  static const double sectionBottom = 2;
+  static const double sectLabelBottom = 8;
+
+  // The page header's title and subtitle.
+  static const double phoneTitle = 19;
+  static const double wideTitle = 20;
+  static const double phoneSubtitle = 12;
+  static const double wideSubtitle = 13;
+
+  // The List page's hero.
+  static const double heroGutter = 24;
+  static const double heroWideTop = 22;
+  static const double heroWideBottom = 26;
+  static const double heroWideRadius = 28;
+  static const double heroPhoneBottom = 22;
+  static const double heroPhoneTitle = 34;
+  static const double heroWideTitle = 48;
+  static const double heroPhoneBody = 14;
+  static const double heroWideBody = 16;
+  static const double heroPhoneStat = 14;
+  static const double heroWideStat = 20;
+  static const double heroButtonHeight = 40;
+  static const double heroButtonGap = 10;
+  static const double heroRingSize = 360;
+  // The ring's centre: 120 dp past the right edge, 30 dp below the top.
+  static const double heroRingOffsetX = 60;
+  static const double heroRingOffsetY = 30;
+  static const double heroRingAlpha = 0.14;
+  static const double heroOutlineAlpha = 0.28;
+  static const double heroIconFillAlpha = 0.08;
+  static const double heroIconBorderAlpha = 0.14;
+
+  // Manage pinned: the phone's raised row cards.
+  static const double raisedPadding = 12;
+  static const double raisedGap = 10;
+  static const double pinnedTile = 40;
+}
+
 /// Messages geometry (dzeroth-mobile Conversations, DraftThread and Chat; the
 /// tablet and desktop mocks' dz.css `.row`, `.bub`, `.search`). Phone gutters
 /// are 20 dp, tablet and desktop 16 dp. Colours come from the theme, gradients
