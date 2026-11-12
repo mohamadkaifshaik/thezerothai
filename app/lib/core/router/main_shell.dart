@@ -527,8 +527,12 @@ class MainShell extends StatelessWidget {
             : null,
         sideColumn: AppSideColumn(
           // The search pill: the new shell with `search` on, except on
-          // Explore, where the pill is in the centre header.
-          header: exploreEntry && !location.startsWith(AppRouter.explorePath)
+          // Explore and the search results, where the pill is in the centre
+          // header (desktop SearchResults has none in the side column).
+          header:
+              exploreEntry &&
+                  !location.startsWith(AppRouter.explorePath) &&
+                  location != AppRouter.searchRoute
               ? const AppSearchField()
               : null,
           // "You might like": the new shell, `graph` and
