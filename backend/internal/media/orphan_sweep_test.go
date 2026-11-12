@@ -233,7 +233,7 @@ func TestOrphanSweep_Verdicts(t *testing.T) {
 				t.Fatalf("res=%+v doc=%+v", res, e.doc(id))
 			}
 		}},
-		{"a legacy banner (removed purpose) is kept even under all: opsctl purge-banners erases it", config.ProfileMediaRetireAll, func(e *orphanEnv) string {
+		{"a legacy banner (removed purpose) is kept even under all", config.ProfileMediaRetireAll, func(e *orphanEnv) string {
 			return e.seed(uidA, Purpose("BANNER"), due)
 		}, func(t *testing.T, e *orphanEnv, id string, res OrphanSweepResult) {
 			if res.Kept != 1 || e.doc(id).OrphanedAt != nil || e.doc(id).OrphanCheckAt != nil || e.publicCount(id) != 2 || e.profiles.reads != 0 {

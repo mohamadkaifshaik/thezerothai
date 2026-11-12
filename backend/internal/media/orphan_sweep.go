@@ -19,8 +19,8 @@
 //
 //	POST            a PENDING scheduled post's draft, an unpublished article draft's cover   DraftHolds
 //	AVATAR          the image users/{uid} shows now                                          ProfileImages
-//	other           a purpose the sweep does not know (the removed BANNER): kept, never deleted here; `opsctl
-//	                purge-banners` erases a legacy banner
+//	other           a purpose the sweep does not know (the removed BANNER): kept, never deleted here (the
+//	                2026-11-12 banner purge erased every legacy banner)
 //
 // A POST image a draft holds is "held": checked again OrphanAfter later. A profile image the profile shows is attached:
 // the field is removed and the profile_media_retired step owns it from then on. A profile image the profile does not show

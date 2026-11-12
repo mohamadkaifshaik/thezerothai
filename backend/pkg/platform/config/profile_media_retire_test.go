@@ -60,7 +60,7 @@ func TestProfileMediaRetire_Allows(t *testing.T) {
 	}{
 		{ProfileMediaRetireOff, "AVATAR", false},
 		{ProfileMediaRetireAll, "AVATAR", true},
-		{ProfileMediaRetireAll, "BANNER", false}, // legacy banners are erased by opsctl purge-banners, never retired
+		{ProfileMediaRetireAll, "BANNER", false}, // legacy banners are never retired
 		{ProfileMediaRetireAll, "POST", false},
 		{ProfileMediaRetireAll, "", false},
 		{ProfileMediaRetireAll, "avatar", false},
