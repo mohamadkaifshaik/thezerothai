@@ -1141,3 +1141,171 @@ variable "feature_analytics_percent" {
     error_message = "feature_analytics_percent must be an integer 0-100."
   }
 }
+
+variable "feature_community_member_search" {
+  description = "FEATURE_COMMUNITY_MEMBER_SEARCH rollout mode for CommunityService SearchCommunityMembers (F36), checked after FEATURE_COMMUNITIES; never ramp ahead of it: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_community_member_search)
+    error_message = "feature_community_member_search must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_community_member_search_allowlist" {
+  description = "FEATURE_COMMUNITY_MEMBER_SEARCH_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_community_member_search_percent" {
+  description = "FEATURE_COMMUNITY_MEMBER_SEARCH_PERCENT: 0-100, only meaningful when feature_community_member_search = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_community_member_search_percent >= 0 && var.feature_community_member_search_percent <= 100 && floor(var.feature_community_member_search_percent) == var.feature_community_member_search_percent
+    error_message = "feature_community_member_search_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_post_beacon_embed" {
+  description = "FEATURE_POST_BEACON_EMBED rollout mode for sharing a plan on a root post (CreatePostRequest.beacon_id; Post.beacon stripped while globally off); needs FEATURE_BEACONS on for the caller: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_post_beacon_embed)
+    error_message = "feature_post_beacon_embed must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_post_beacon_embed_allowlist" {
+  description = "FEATURE_POST_BEACON_EMBED_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_post_beacon_embed_percent" {
+  description = "FEATURE_POST_BEACON_EMBED_PERCENT: 0-100, only meaningful when feature_post_beacon_embed = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_post_beacon_embed_percent >= 0 && var.feature_post_beacon_embed_percent <= 100 && floor(var.feature_post_beacon_embed_percent) == var.feature_post_beacon_embed_percent
+    error_message = "feature_post_beacon_embed_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_chat_shared_plans" {
+  description = "FEATURE_CHAT_SHARED_PLANS rollout mode for BeaconService.ListSharedBeacons, the 'plans you share' strip of a chat; needs FEATURE_BEACONS not globally off: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_chat_shared_plans)
+    error_message = "feature_chat_shared_plans must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_chat_shared_plans_allowlist" {
+  description = "FEATURE_CHAT_SHARED_PLANS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_chat_shared_plans_percent" {
+  description = "FEATURE_CHAT_SHARED_PLANS_PERCENT: 0-100, only meaningful when feature_chat_shared_plans = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_chat_shared_plans_percent >= 0 && var.feature_chat_shared_plans_percent <= 100 && floor(var.feature_chat_shared_plans_percent) == var.feature_chat_shared_plans_percent
+    error_message = "feature_chat_shared_plans_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_read_receipts" {
+  description = "FEATURE_READ_RECEIPTS rollout mode for read receipts (F3): UpdateProfile.read_receipts=true, the MarkConversationRead receipt and ListMessages peer_read_at; needs messaging for any effect: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_read_receipts)
+    error_message = "feature_read_receipts must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_read_receipts_allowlist" {
+  description = "FEATURE_READ_RECEIPTS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_read_receipts_percent" {
+  description = "FEATURE_READ_RECEIPTS_PERCENT: 0-100, only meaningful when feature_read_receipts = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_read_receipts_percent >= 0 && var.feature_read_receipts_percent <= 100 && floor(var.feature_read_receipts_percent) == var.feature_read_receipts_percent
+    error_message = "feature_read_receipts_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_dm_policy" {
+  description = "FEATURE_DM_POLICY rollout mode for the 'Who can message me' setting (F9): UpdateProfile.dm_policy=FOLLOWING_ONLY and SendMessage applying it; needs messaging for any effect: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_dm_policy)
+    error_message = "feature_dm_policy must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_dm_policy_allowlist" {
+  description = "FEATURE_DM_POLICY_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_dm_policy_percent" {
+  description = "FEATURE_DM_POLICY_PERCENT: 0-100, only meaningful when feature_dm_policy = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_dm_policy_percent >= 0 && var.feature_dm_policy_percent <= 100 && floor(var.feature_dm_policy_percent) == var.feature_dm_policy_percent
+    error_message = "feature_dm_policy_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_notification_prefs" {
+  description = "FEATURE_NOTIFICATION_PREFS rollout mode for GetNotificationPrefs/UpdateNotificationPrefs; needs notifications for any effect: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_notification_prefs)
+    error_message = "feature_notification_prefs must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_notification_prefs_allowlist" {
+  description = "FEATURE_NOTIFICATION_PREFS_ALLOWLIST: comma-separated Firebase uids (not a secret). Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_notification_prefs_percent" {
+  description = "FEATURE_NOTIFICATION_PREFS_PERCENT: 0-100, only meaningful when feature_notification_prefs = percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_notification_prefs_percent >= 0 && var.feature_notification_prefs_percent <= 100 && floor(var.feature_notification_prefs_percent) == var.feature_notification_prefs_percent
+    error_message = "feature_notification_prefs_percent must be an integer 0-100."
+  }
+}
