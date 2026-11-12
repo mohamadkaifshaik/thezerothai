@@ -274,7 +274,7 @@ void main() {
     // 3. The List page: header, Pin.
     router.go('/lists/L1');
     await tester.pumpAndSettle();
-    expect(find.text('Reading.', findRichText: true), findsOneWidget);
+    expect(find.text('Reading', findRichText: true), findsOneWidget);
     expect(find.text('1 Member', findRichText: true), findsOneWidget);
     expect(find.text('post 11'), findsOneWidget);
     expect(

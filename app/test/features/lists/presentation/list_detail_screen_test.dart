@@ -134,7 +134,7 @@ void main() {
       await open(tester, env: env);
 
       expectNoOverflow(tester);
-      expect(find.text('Friends.', findRichText: true), findsOneWidget);
+      expect(find.text('Friends', findRichText: true), findsOneWidget);
       expect(find.text('LIST · PUBLIC'), findsOneWidget);
       expect(find.text('People I like to read'), findsOneWidget);
       expect(find.text('Olivia'), findsOneWidget);

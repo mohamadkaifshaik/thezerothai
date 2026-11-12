@@ -328,9 +328,9 @@ class ListDetailHeader extends StatelessWidget {
   }
 }
 
-/// The name as the mocks' display title: its last word in electric teal and a
-/// closing full stop ("Coffee club." with "club" teal), unless the name
-/// already ends in punctuation.
+/// The name as the mocks' display title, its last word in electric teal
+/// ("Coffee club" with "club" teal). No full stop is added: the name is
+/// the owner's text, as on the plan hero.
 class _Title extends StatelessWidget {
   const _Title({required this.name, required this.phone});
 
@@ -342,16 +342,13 @@ class _Title extends StatelessWidget {
     final style = ListDetailHeader._titleStyle(Theme.of(context), phone);
     final trimmed = name.trim();
     final cut = trimmed.lastIndexOf(' ') + 1;
-    final stop = RegExp(r'[\p{L}\p{N}]$', unicode: true).hasMatch(trimmed)
-        ? '.'
-        : '';
     return Text.rich(
       TextSpan(
         style: style,
         children: [
           TextSpan(text: trimmed.substring(0, cut)),
           TextSpan(
-            text: '${trimmed.substring(cut)}$stop',
+            text: trimmed.substring(cut),
             style: const TextStyle(color: AppPalette.tealElectric),
           ),
         ],

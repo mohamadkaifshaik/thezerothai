@@ -145,7 +145,7 @@ void main() {
         await _open(tester, _Screen.detail, size);
         expect(find.byKey(const ValueKey('list-hero')), findsOneWidget);
         expect(find.text('LIST · PUBLIC'), findsOneWidget);
-        expect(find.text('Friends.', findRichText: true), findsOneWidget);
+        expect(find.text('Friends', findRichText: true), findsOneWidget);
         expect(find.text('3 Members', findRichText: true), findsOneWidget);
         // A phone holds Back in the hero; the wide mocks have a top bar.
         expect(
