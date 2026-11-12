@@ -1,5 +1,6 @@
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/features/lists/data/home_tabs_repository.dart';
 import 'package:dzeroth/features/lists/data/lists_repository.dart';
 import 'package:dzeroth/features/lists/presentation/bloc/list_detail_state.dart';
 import 'package:dzeroth/features/lists/presentation/lists_screen.dart';
@@ -14,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../support/geometry.dart';
+import '../../../support/lists_pinned_stub.dart';
 import '../../../support/theme_harness.dart';
 
 class _MockLists extends Mock implements ListsRepository {}
@@ -65,8 +67,11 @@ void main() {
 
   Future<void> openLists(WidgetTester tester, MatrixEnv env) => pumpThemed(
     tester,
-    RepositoryProvider<ListsRepository>.value(
-      value: repo,
+    MultiRepositoryProvider(
+      providers: [
+        RepositoryProvider<ListsRepository>.value(value: repo),
+        RepositoryProvider<HomeTabsRepository>.value(value: noPinnedTabs()),
+      ],
       child: const ListsScreen(),
     ),
     brightness: env.brightness,

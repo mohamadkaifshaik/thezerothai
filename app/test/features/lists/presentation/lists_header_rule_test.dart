@@ -38,9 +38,8 @@ void main() {
     for (final rtl in [false, true]) {
       final label = '${width.toInt()}${rtl ? ' RTL' : ''}';
 
-      testWidgets('$label: Lists, Back and Create at the pane edges', (
-        tester,
-      ) async {
+      testWidgets('$label: Lists, Create at the pane edge and no Back (a rail '
+          'destination)', (tester) async {
         final rig = ListsTabletRig();
         await rig.pump(
           tester,
@@ -50,19 +49,20 @@ void main() {
           textDirection: rtl ? TextDirection.rtl : TextDirection.ltr,
         );
         final pane = paneOf(tester, ListsScreen);
-        final back = controlOf(tester, ListsScreen, 'Back');
         final create = controlOf(tester, ListsScreen, 'Create a new List');
+        expect(
+          find.descendant(
+            of: headerOf(ListsScreen),
+            matching: find.byTooltip('Back'),
+          ),
+          findsNothing,
+        );
         if (rtl) {
-          expect(back.right, moreOrLessEquals(pane.right - AppSpacing.xs));
           expect(create.left, moreOrLessEquals(pane.left + AppSpacing.xs));
         } else {
-          expect(back.left, moreOrLessEquals(pane.left + AppSpacing.xs));
           expect(create.right, moreOrLessEquals(pane.right - AppSpacing.xs));
         }
         expectNoOverflow(tester);
-        await tester.tapAt(back.center);
-        await tester.pumpAndSettle();
-        expect(find.byType(ListsScreen), findsNothing);
         await done(tester);
       });
 
@@ -103,19 +103,14 @@ void main() {
     }
   }
 
-  for (final width in [360.0, 1440.0]) {
-    testWidgets('${width.toInt()}: a List\'s Back where it was (the column\'s '
-        'edge)', (tester) async {
-      final rig = ListsTabletRig();
-      await rig.pump(
-        tester,
-        push: [AppRouter.listPath(kRigListId)],
-        width: width,
-      );
-      final header = tester.getRect(headerOf(ListDetailScreen));
-      final back = controlOf(tester, ListDetailScreen, 'Back');
-      expect(back.left, moreOrLessEquals(header.left + AppSpacing.xs));
-      await done(tester);
-    });
-  }
+  testWidgets("1440: a List's Back where it was (the column's edge)", (
+    tester,
+  ) async {
+    final rig = ListsTabletRig();
+    await rig.pump(tester, push: [AppRouter.listPath(kRigListId)], width: 1440);
+    final header = tester.getRect(headerOf(ListDetailScreen));
+    final back = controlOf(tester, ListDetailScreen, 'Back');
+    expect(back.left, moreOrLessEquals(header.left + AppSpacing.xs));
+    await done(tester);
+  });
 }

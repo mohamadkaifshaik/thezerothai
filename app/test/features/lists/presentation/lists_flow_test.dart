@@ -256,7 +256,7 @@ void main() {
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
     expect(find.textContaining('Reading'), findsOneWidget);
-    expect(find.byIcon(Icons.lock_outline), findsOneWidget);
+    expect(find.textContaining('Private · 0 members'), findsOneWidget);
     expect(calls.where((c) => c == 'CreateList'), hasLength(1));
 
     // 2. From the person's profile: Add to Lists, tap the row, Done.
@@ -274,8 +274,8 @@ void main() {
     // 3. The List page: header, Pin.
     router.go('/lists/L1');
     await tester.pumpAndSettle();
-    expect(find.text('Reading'), findsWidgets);
-    expect(find.textContaining('1 member'), findsWidgets);
+    expect(find.text('Reading', findRichText: true), findsOneWidget);
+    expect(find.text('1 Member', findRichText: true), findsOneWidget);
     expect(find.text('post 11'), findsOneWidget);
     expect(
       calls.where((c) => c == 'GetList'),
@@ -289,7 +289,7 @@ void main() {
     expect(find.text('Unpin from Home'), findsOneWidget);
 
     // 4. Members page.
-    await tester.tap(find.textContaining('1 member').first);
+    await tester.tap(find.text('1 Member', findRichText: true));
     await tester.pumpAndSettle();
     expect(find.text('Members'), findsOneWidget);
     expect(find.text('Kaif'), findsOneWidget);

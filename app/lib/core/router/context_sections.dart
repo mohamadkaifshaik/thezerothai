@@ -4,13 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../features/graph/presentation/graph_feature_flags.dart';
 import '../../features/graph/presentation/widgets/who_to_follow_card.dart';
-import '../../features/lists/domain/lists_feature_flag.dart';
-import '../../features/lists/presentation/widgets/home_tabs_preview.dart'
-    show HomeTabsPreviewPlaceholder;
-import '../../features/lists/presentation/widgets/list_members_pane.dart'
-    show ListMembersPanePlaceholder;
-import '../../features/lists/presentation/widgets/lists_owner_card.dart'
-    show ListsOwnerCardPlaceholder;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/profile/presentation/widgets/profile_media_strip.dart'
@@ -60,15 +53,6 @@ enum ContextFamily {
   /// like.
   profile,
 
-  /// `/lists/:id` (T8b): a preview of the List's members, lent by the page.
-  listDetail,
-
-  /// `/home/pinned` (T8b): the preview of the Home tabs, lent by the page.
-  managePinned,
-
-  /// `/u/:id/lists` (T8b): the owner card, lent by the page (from the Lists
-  /// it loaded).
-  userLists,
 }
 
 /// Whether [location] is one of the Lists pages (T8b): `/lists` and
@@ -160,11 +144,6 @@ ContextFamily contextFamilyFor(String location) {
     ['follow-requests'] => ContextFamily.people,
     ['profile', _, 'followers' || 'following'] => ContextFamily.people,
     ['profile', _] || ['u', _] => ContextFamily.profile,
-    // Lists (T8b). `/lists` and `/lists/:id/members` keep the global set
-    // (F10 keeps "Discover new Lists" out; F31's suggestions wait).
-    ['lists', _] => ContextFamily.listDetail,
-    ['home', 'pinned'] => ContextFamily.managePinned,
-    ['u', _, 'lists'] => ContextFamily.userLists,
     _ => ContextFamily.global,
   };
 }
@@ -181,19 +160,8 @@ ContextFamily contextFamilyFor(String location) {
 /// (`TrendsCubit`, `SuggestionsCubit`, the loaded profile): no new call.
 /// Every pane ends with the footer links.
 List<ContextSection> contextSectionsFor(String location, BuildContext context) {
-  var family = contextFamilyFor(location);
+  final family = contextFamilyFor(location);
   if (family == ContextFamily.none) return const [];
-  // The Lists pages need `lists` (T8b).
-  final listsFamily = switch (family) {
-    ContextFamily.listDetail ||
-    ContextFamily.managePinned ||
-    ContextFamily.userLists => true,
-    _ => false,
-  };
-  if (listsFamily && !isFeatureEnabled(context, kFeatureLists)) {
-    family = ContextFamily.global;
-  }
-  final search = isFeatureEnabled(context, kFeatureSearch);
   final trends = search && isFeatureEnabled(context, kFeatureTrends);
   final suggestions = isFollowSuggestionsEnabled(context);
 
@@ -238,22 +206,6 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
             const ProfileMediaStripPlaceholder(),
           ),
         if (suggestions) whoToFollow('You might like'),
-      ],
-      // Lent by the page, over its own state (no call of the pane's own).
-      ContextFamily.listDetail => [
-        lent(
-          ContextSectionKind.listMembers,
-          const ListMembersPanePlaceholder(),
-        ),
-      ],
-      ContextFamily.managePinned => [
-        lent(
-          ContextSectionKind.homeTabsPreview,
-          const HomeTabsPreviewPlaceholder(),
-        ),
-      ],
-      ContextFamily.userLists => [
-        lent(ContextSectionKind.listsOwner, const ListsOwnerCardPlaceholder()),
       ],
       ContextFamily.none => const <ContextSection>[],
     },

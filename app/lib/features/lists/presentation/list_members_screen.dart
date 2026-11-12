@@ -5,10 +5,13 @@ import 'package:uuid/uuid.dart';
 
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
+import '../../../gen/dzeroth/lists/v1/lists.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
+import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../graph/data/graph_repository.dart';
 import '../../graph/presentation/bloc/user_list_cubit.dart';
 import '../../graph/presentation/bloc/user_list_state.dart';
@@ -17,6 +20,7 @@ import '../../graph/presentation/widgets/user_list_row.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/lists_repository.dart';
 import 'lists_error_messages.dart';
+import 'widgets/lists_page_chrome.dart';
 import 'widgets/list_unavailable_view.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
 
@@ -29,6 +33,9 @@ import '../../../shared/widgets/primitives/app_dialog.dart';
 /// - Remove asks to confirm, then the row leaves at once and returns with a
 ///   message if the call fails; one idempotency key per member, reused on a
 ///   retry.
+/// - The header names the List (from the header the detail screen holds) and
+///   one "Members · N" tab shows the count; the mocks' "Suggested" tab is not
+///   built (no RPC suggests members).
 /// - NOT_FOUND shows the same "This List is unavailable" as the detail;
 ///   FEATURE_DISABLED / UNIMPLEMENTED shows "not available yet".
 class ListMembersScreen extends StatefulWidget {
@@ -129,12 +136,39 @@ class _ListMembersScreenState extends State<ListMembersScreen> {
     final isOwner =
         viewerUserId != null &&
         _lists.header(widget.listId)?.owner.userId == viewerUserId;
+    final phone = isListsPhone(context);
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
           child: Column(
             children: [
-              AppBackHeader(title: 'Members', onBack: _back),
+              AppBackHeader(
+                title: 'Members',
+                titleContent: ListsHeaderTitle(
+                  title: 'Members',
+                  subtitle: _lists.header(widget.listId)?.name,
+                ),
+                onBack: _back,
+              ),
+              StreamBuilder<pb.ListInfo>(
+                initialData: _lists.header(widget.listId),
+                stream: _lists.headerChanges.where(
+                  (h) => h.listId == widget.listId,
+                ),
+                builder: (context, header) {
+                  final list = header.data;
+                  return list == null
+                      ? const SizedBox.shrink()
+                      : AppTabBar(
+                          equalWidth: true,
+                          selectedIndex: 0,
+                          onChanged: (_) {},
+                          tabs: [
+                            AppTab(label: 'Members · ${list.memberCount}'),
+                          ],
+                        );
+                },
+              ),
               Expanded(
                 child: BlocBuilder<UserListCubit, UserListState>(
                   bloc: _cubit,
@@ -166,6 +200,16 @@ class _ListMembersScreenState extends State<ListMembersScreen> {
                       rowBuilder: (context, item) => UserListRow(
                         key: ValueKey(item.user.userId),
                         item: item,
+                        // dz: a 44 dp avatar, 12 dp above and below, a 13 sp
+                        // handle and a 20 dp gutter on a phone (16 wide).
+                        avatarRadius: 22,
+                        avatarGap: AppSpacing.smd,
+                        verticalInset: AppSpacing.smd,
+                        horizontalInset: phone
+                            ? AppListsLayout.phoneGutter
+                            : AppListsLayout.wideGutter,
+                        handleStyle: Theme.of(context).textTheme.bodySmall,
+                        showDivider: !phone,
                         extraAction: isOwner && item.user.userId != viewerUserId
                             ? _RemoveButton(
                                 handle: item.user.handle,

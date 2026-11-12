@@ -134,12 +134,13 @@ void main() {
       await open(tester, env: env);
 
       expectNoOverflow(tester);
-      expect(find.text('Friends'), findsWidgets);
+      expect(find.text('Friends', findRichText: true), findsOneWidget);
+      expect(find.text('LIST · PUBLIC'), findsOneWidget);
       expect(find.text('People I like to read'), findsOneWidget);
       expect(find.text('Olivia'), findsOneWidget);
-      expect(find.text('3 members'), findsOneWidget);
+      expect(find.text('3 Members', findRichText: true), findsOneWidget);
       expect(find.text('Pin to Home'), findsOneWidget);
-      expect(find.text('Edit'), findsNothing);
+      expect(find.text('Edit List'), findsNothing);
       expect(find.text('No posts yet'), findsOneWidget);
       expect(find.bySemanticsLabel('List by Olivia, @olivia'), findsOneWidget);
       semantics.dispose();
@@ -148,15 +149,15 @@ void main() {
   );
 
   forEachThemeAndWidth(
-    'owner sees Edit; a private List shows the lock',
+    'owner sees Edit List; a private List says so',
     (tester, env) async {
       when(() => lists.header('77'))
           .thenReturn(_header(ownerId: 'viewer', isPrivate: true));
       await open(tester, env: env);
 
       expectNoOverflow(tester);
-      expect(find.text('Edit'), findsOneWidget);
-      expect(find.byIcon(Icons.lock_outline), findsOneWidget);
+      expect(find.text('Edit List'), findsOneWidget);
+      expect(find.text('LIST · PRIVATE'), findsOneWidget);
     },
     widths: const [360, 1200],
     textScales: kMatrixTextScalesLarge,
@@ -178,7 +179,7 @@ void main() {
     await tester.pumpAndSettle();
 
     verify(() => lists.getList('77')).called(1);
-    expect(find.text('3 members'), findsOneWidget);
+    expect(find.text('3 Members', findRichText: true), findsOneWidget);
   });
 
   testWidgets('no header and GetList fails: a Retry, never silent', (
@@ -239,7 +240,7 @@ void main() {
       expect(find.text('This List is unavailable'), findsOneWidget);
       expect(find.text('Unpin from Home'), findsOneWidget);
       expect(find.text('Pin to Home'), findsNothing);
-      expect(find.text('Edit'), findsNothing);
+      expect(find.text('Edit List'), findsNothing);
       semantics.dispose();
     },
     textScales: kMatrixTextScalesLarge,
@@ -264,7 +265,7 @@ void main() {
     );
     await open(tester);
 
-    expect(find.text('3 members'), findsOneWidget);
+    expect(find.text('3 Members', findRichText: true), findsOneWidget);
     expect(find.text("This timeline isn't available yet"), findsOneWidget);
     expect(find.text('This List is unavailable'), findsNothing);
   });

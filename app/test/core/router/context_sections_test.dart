@@ -30,10 +30,6 @@ void main() {
     '/profile/alice/following': ContextFamily.people,
     '/profile/alice': ContextFamily.profile,
     '/u/u1': ContextFamily.profile,
-    // The Lists pages (T8b): sections lent by the page.
-    '/lists/l1': ContextFamily.listDetail,
-    AppRouter.pinnedPath: ContextFamily.managePinned,
-    '/u/u1/lists': ContextFamily.userLists,
     // No pane: list-detail families (T4-T6) and the F rows of section 4.1.
     AppRouter.settingsPath: ContextFamily.none,
     AppRouter.blockedAccountsPath: ContextFamily.none,
@@ -152,11 +148,10 @@ void main() {
   group('lists (T8b)', () {
     test('a query or a trailing slash does not change the family', () {
       expect(contextFamilyFor('/lists/'), ContextFamily.global);
-      expect(contextFamilyFor('/lists/7?x=1'), ContextFamily.listDetail);
-      expect(contextFamilyFor('/lists/7/'), ContextFamily.listDetail);
+      expect(contextFamilyFor('/lists/7?x=1'), ContextFamily.global);
       expect(contextFamilyFor('/lists/7/members/'), ContextFamily.global);
-      expect(contextFamilyFor('/home/pinned/'), ContextFamily.managePinned);
-      expect(contextFamilyFor('/u/u1/lists?x=1'), ContextFamily.userLists);
+      expect(contextFamilyFor('/home/pinned/'), ContextFamily.global);
+      expect(contextFamilyFor('/u/u1/lists?x=1'), ContextFamily.global);
     });
 
     test('near misses keep their own family', () {

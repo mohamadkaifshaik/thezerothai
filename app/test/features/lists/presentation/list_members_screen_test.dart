@@ -46,6 +46,7 @@ void main() {
     lists = _MockLists();
     graphRepo = _MockGraph();
     onboarding = _MockOnboarding();
+    when(() => lists.headerChanges).thenAnswer((_) => const Stream.empty());
     when(() => lists.header('77')).thenAnswer(
       (_) => pb.ListInfo(
         listId: '77',

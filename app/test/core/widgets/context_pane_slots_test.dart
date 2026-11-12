@@ -90,10 +90,10 @@ void main() {
             _Lender(
               location: '/communities/77',
               label: 'C',
-              kind: ContextSectionKind.listMembers,
+              kind: ContextSectionKind.trends,
             ),
           ],
-          kind: ContextSectionKind.listMembers,
+          kind: ContextSectionKind.trends,
         ),
       );
       await tester.pump();
@@ -214,19 +214,15 @@ void main() {
       final b = Object();
       Widget one(BuildContext _) => const Text('1');
       Widget two(BuildContext _) => const Text('2');
-      slots.put(a, '/communities', {
-        ContextSectionKind.listMembers: one,
-      });
-      slots.put(b, '/communities', {
-        ContextSectionKind.listMembers: two,
-      });
+      slots.put(a, '/communities', {ContextSectionKind.trends: one});
+      slots.put(b, '/communities', {ContextSectionKind.trends: two});
       expect(
-        slots.builderFor('/communities', ContextSectionKind.listMembers),
+        slots.builderFor('/communities', ContextSectionKind.trends),
         same(two),
       );
       slots.remove(b);
       expect(
-        slots.builderFor('/communities', ContextSectionKind.listMembers),
+        slots.builderFor('/communities', ContextSectionKind.trends),
         same(one),
       );
       expect(
@@ -235,7 +231,7 @@ void main() {
       );
       slots.remove(a);
       expect(
-        slots.builderFor('/communities', ContextSectionKind.listMembers),
+        slots.builderFor('/communities', ContextSectionKind.trends),
         isNull,
       );
     });
