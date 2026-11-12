@@ -45,6 +45,7 @@ import '../widgets/app_more_menu.dart';
 import '../widgets/context_pane_slots.dart';
 import '../widgets/responsive_scaffold.dart';
 import '../widgets/privacy_policy_link.dart';
+import '../widgets/shell_fab.dart';
 import '../widgets/shell_geometry.dart';
 import 'app_router.dart';
 import 'compose_gate.dart';
@@ -143,9 +144,6 @@ class MainShell extends StatelessWidget {
               icon: Icons.notifications_none,
               selectedIcon: Icons.notifications,
               label: 'Notifications',
-              // The short visible label of the floating phone bar (D3); the
-              // rail and the semantics keep the full one.
-              barLabel: 'Alerts',
             ),
           )
         : null;
@@ -270,7 +268,39 @@ class MainShell extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      // The pages under the shell offer their floating button here.
+      ShellFabHost(child: Builder(builder: _build));
+
+  /// The phone's floating button at [location]: Home's New post, else the
+  /// action the page offers (Plans, Messages, Lists, Communities, a
+  /// community), else none (Profile, Explore, Notifications...).
+  ShellFabAction? _fabAt(
+    BuildContext context, {
+    required bool canCompose,
+    required VoidCallback openCompose,
+  }) {
+    if (location == AppRouter.homePath) {
+      return canCompose
+          ? ShellFabAction(
+              tooltip: 'New post',
+              icon: Icons.edit_outlined,
+              onPressed: openCompose,
+            )
+          : null;
+    }
+    final registry = ShellFabScope.watch(context);
+    final offered = registry?.actionAt(location);
+    if (registry == null || offered == null) return null;
+    // Read when pressed: the page may have published a fresh callback.
+    return ShellFabAction(
+      tooltip: offered.tooltip,
+      icon: offered.icon,
+      onPressed: () => registry.actionAt(location)?.onPressed(),
+    );
+  }
+
+  Widget _build(BuildContext context) {
     final ownProfile = context.select(
       (OnboardingBloc bloc) => bloc.state.profile,
     );
@@ -281,7 +311,6 @@ class MainShell extends StatelessWidget {
     );
     final canCompose = canComposeAt(context, location);
     final newShell = isFeatureEnabled(context, kFeatureUiShell);
-    final showFab = newShell ? showComposeFabAt(context, location) : canCompose;
 
     final notificationsEnabled = isFeatureEnabled(
       context,
@@ -349,7 +378,6 @@ class MainShell extends StatelessWidget {
             icon: t.destination.icon,
             selectedIcon: t.destination.selectedIcon,
             label: t.destination.label,
-            barLabel: t.destination.barLabel,
             badgeLabel: unreadBadgeLabel(unread),
             badgeSemanticLabel: '${unreadBadgeLabel(unread)} unread',
           )
@@ -358,7 +386,6 @@ class MainShell extends StatelessWidget {
             icon: t.destination.icon,
             selectedIcon: t.destination.selectedIcon,
             label: t.destination.label,
-            barLabel: t.destination.barLabel,
             badgeCount: unreadMessages,
             badgeLabel: unreadBadgeLabel(unreadMessages),
             badgeSemanticLabel: unreadMessages == 1
@@ -512,7 +539,7 @@ class MainShell extends StatelessWidget {
             ? null
             : selectedIndex,
         onCompose: canCompose ? openCompose : null,
-        showFab: showFab,
+        fab: _fabAt(context, canCompose: canCompose, openCompose: openCompose),
         // A community's page draws its cover, and a profile its hero, under the
         // status bar on a phone
         // (while the account banner is up, the banner needs the inset).

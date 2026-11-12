@@ -331,7 +331,8 @@ void main() {
   });
 
   for (final width in const [360.0, 1200.0]) {
-    testWidgets('at $width a tappable community label is a 48 dp target', (
+    testWidgets('at $width a tappable community label is a compact 24 dp '
+        'target', (
       tester,
     ) async {
       await _pump(
@@ -346,7 +347,7 @@ void main() {
           matching: find.byType(InkWell),
         ),
       );
-      expect(target.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+      expect(target.height, kPostContextLabelTapHeight);
     });
   }
 

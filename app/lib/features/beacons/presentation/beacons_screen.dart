@@ -33,6 +33,7 @@ import 'widgets/beacon_row.dart';
 import 'widgets/plan_skeletons.dart';
 import 'widgets/plans_activity_filter.dart';
 import 'widgets/your_plans_section.dart';
+import '../../../core/widgets/shell_fab.dart';
 
 /// `/plans`: the selected audience's upcoming plans (R30). The audience chips
 /// show only when the caller has joined communities to choose from.
@@ -296,85 +297,96 @@ class PlansList extends StatelessWidget {
             if (state.error is FeatureDisabledException) {
               return _PlansPausedColumn(split: split);
             }
-            return Column(
-              children: [
-                _PlansHeader(
-                  split: split,
-                  actions: pills
-                      ? const []
-                      : [
-                          IconButton(
-                            tooltip: 'My plans',
-                            icon: const Icon(Icons.event_available_outlined),
-                            onPressed: () =>
-                                _push(context, AppRouter.plansMinePath),
-                          ),
-                          IconButton(
-                            tooltip: 'New plan',
-                            icon: const Icon(Icons.add_circle_outline),
-                            onPressed: () =>
-                                _push(context, AppRouter.planNewPath),
-                          ),
-                        ],
-                ),
-                if (state.audiences.length > 1)
-                  _AudienceChips(state: state, onSelect: cubit.select),
-                Expanded(
-                  child: RefreshIndicator(
-                    onRefresh: () {
-                      if (yourPlans) unawaited(session.yourPlans.refresh());
-                      return cubit.load();
-                    },
-                    child: _body(
-                      context,
-                      cubit,
-                      state,
-                      _top(
-                        context,
-                        split
-                            ? null
-                            : PlansHeadline(
-                                actions: pills
-                                    ? _HeadlineActions(
-                                        onMyPlans: () => _push(
-                                          context,
-                                          AppRouter.plansMinePath,
-                                        ),
-                                        onNewPlan: () => _push(
-                                          context,
-                                          AppRouter.planNewPath,
-                                        ),
-                                      )
-                                    : null,
-                              ),
-                        [
-                          // F29: after the headline, before the cards (the
-                          // designs' order), on every state but paused, so a
-                          // filter with no plans or a failed one is one tap
-                          // from another activity.
-                          Padding(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: AppSpacing.xs,
-                            ),
-                            child: PlansActivityFilter(
-                              selected: state.activity,
-                              onSelected: cubit.selectActivity,
-                            ),
-                          ),
-                          if (yourPlans)
-                            YourPlansSection(
-                              session: session,
-                              selectedId: split ? selectedId : null,
-                              onOpenPlan: (id) => _openPlan(context, id),
-                              onSeeAll: () =>
+            // The phone's floating button starts a new plan (not while
+            // the feature is paused).
+            return ShellFab(
+              action: ShellFabAction(
+                tooltip: 'New plan',
+                icon: Icons.add,
+                onPressed: () => _push(context, AppRouter.planNewPath),
+              ),
+              child: Column(
+                children: [
+                  _PlansHeader(
+                    split: split,
+                    actions: pills
+                        ? const []
+                        : [
+                            IconButton(
+                              tooltip: 'My plans',
+                              icon: const Icon(Icons.event_available_outlined),
+                              onPressed: () =>
                                   _push(context, AppRouter.plansMinePath),
                             ),
-                        ],
+                            // A phone: the floating button starts one.
+                            if (!shellFabCovers(context))
+                              IconButton(
+                                tooltip: 'New plan',
+                                icon: const Icon(Icons.add_circle_outline),
+                                onPressed: () =>
+                                    _push(context, AppRouter.planNewPath),
+                              ),
+                          ],
+                  ),
+                  if (state.audiences.length > 1)
+                    _AudienceChips(state: state, onSelect: cubit.select),
+                  Expanded(
+                    child: RefreshIndicator(
+                      onRefresh: () {
+                        if (yourPlans) unawaited(session.yourPlans.refresh());
+                        return cubit.load();
+                      },
+                      child: _body(
+                        context,
+                        cubit,
+                        state,
+                        _top(
+                          context,
+                          split
+                              ? null
+                              : PlansHeadline(
+                                  actions: pills
+                                      ? _HeadlineActions(
+                                          onMyPlans: () => _push(
+                                            context,
+                                            AppRouter.plansMinePath,
+                                          ),
+                                          onNewPlan: () => _push(
+                                            context,
+                                            AppRouter.planNewPath,
+                                          ),
+                                        )
+                                      : null,
+                                ),
+                          [
+                            // F29: after the headline, before the cards (the
+                            // designs' order), on every state but paused, so a
+                            // filter with no plans or a failed one is one tap
+                            // from another activity.
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                vertical: AppSpacing.xs,
+                              ),
+                              child: PlansActivityFilter(
+                                selected: state.activity,
+                                onSelected: cubit.selectActivity,
+                              ),
+                            ),
+                            if (yourPlans)
+                              YourPlansSection(
+                                session: session,
+                                selectedId: split ? selectedId : null,
+                                onOpenPlan: (id) => _openPlan(context, id),
+                                onSeeAll: () =>
+                                    _push(context, AppRouter.plansMinePath),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             );
           },
         );

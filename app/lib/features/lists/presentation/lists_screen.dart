@@ -21,6 +21,7 @@ import 'widgets/list_editor_sheet.dart';
 import 'widgets/list_row.dart';
 import 'widgets/lists_page_chrome.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
+import '../../../core/widgets/shell_fab.dart';
 
 /// `/lists`: the Lists the viewer pinned to Home ("Pinned", with a Manage
 /// link to Manage pinned), then "Your Lists" with a Create button, one row
@@ -95,36 +96,48 @@ class _ListsScreenState extends State<ListsScreen> {
               // Every one of the viewer's own Lists carries the viewer as its
               // owner, so the handle needs no profile of its own.
               final handle = state.lists.firstOrNull?.owner.handle;
-              return Column(
-                children: [
-                  AppBackHeader(
-                    title: 'Lists',
-                    titleContent: ListsHeaderTitle(
+              return ShellFab(
+                // The phone's floating button creates a List.
+                action: canCreate
+                    ? ShellFabAction(
+                        tooltip: 'Create a new List',
+                        icon: Icons.playlist_add,
+                        onPressed: _openEditor,
+                      )
+                    : null,
+                child: Column(
+                  children: [
+                    AppBackHeader(
                       title: 'Lists',
-                      subtitle: phone || handle == null || handle.isEmpty
+                      titleContent: ListsHeaderTitle(
+                        title: 'Lists',
+                        subtitle: phone || handle == null || handle.isEmpty
+                            ? null
+                            : '@$handle',
+                      ),
+                      onBack: _back,
+                      // A rail destination on the wide layouts: nothing to go
+                      // back to (the mocks have no Back there).
+                      leading: phone
                           ? null
-                          : '@$handle',
+                          : const SizedBox(width: AppSpacing.sm),
+                      actions: [
+                        // A phone: the floating button creates instead.
+                        if (state.status == ListsStatus.ready &&
+                            !shellFabCovers(context))
+                          ListsRaisedIconButton(
+                            tooltip: atCap
+                                ? 'You have $kMaxListsPerUser Lists, the most '
+                                      'allowed. Delete one to create another.'
+                                : 'Create a new List',
+                            icon: Icons.playlist_add,
+                            onPressed: canCreate ? () => _openEditor() : null,
+                          ),
+                      ],
                     ),
-                    onBack: _back,
-                    // A rail destination on the wide layouts: nothing to go
-                    // back to (the mocks have no Back there).
-                    leading: phone
-                        ? null
-                        : const SizedBox(width: AppSpacing.sm),
-                    actions: [
-                      if (state.status == ListsStatus.ready)
-                        ListsRaisedIconButton(
-                          tooltip: atCap
-                              ? 'You have $kMaxListsPerUser Lists, the most '
-                                    'allowed. Delete one to create another.'
-                              : 'Create a new List',
-                          icon: Icons.playlist_add,
-                          onPressed: canCreate ? () => _openEditor() : null,
-                        ),
-                    ],
-                  ),
-                  Expanded(child: _body(context, state)),
-                ],
+                    Expanded(child: _body(context, state)),
+                  ],
+                ),
               );
             },
           ),

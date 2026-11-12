@@ -20,7 +20,6 @@ class AppNavDestination {
     this.badgeLabel = '',
     this.badgeSemanticLabel,
     this.badgeCount,
-    this.barLabel,
     this.group = AppNavGroup.primary,
     this.tooltip,
     this.onActivate,
@@ -51,12 +50,6 @@ class AppNavDestination {
   final String label;
 
   String get tooltipText => tooltip ?? label;
-
-  /// The short visible label of the floating phone bar ("Alerts" for
-  /// Notifications); defaults to [label]. Semantics always speak [label].
-  final String? barLabel;
-
-  String get barLabelText => barLabel ?? label;
 
   /// The number behind [badgeLabel]. The floating phone bar draws a count
   /// badge when it is set and the unread dot when it is null (activity).

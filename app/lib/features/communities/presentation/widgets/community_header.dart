@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/shell_fab.dart';
+import '../../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../../shared/widgets/primitives/pin_to_home.dart';
 import '../../../../shared/widgets/primitives/app_status_pill.dart';
 import '../../../../shared/widgets/primitives/app_skeleton.dart';
-import '../../../lists/presentation/widgets/list_unavailable_view.dart'
-    show kListOutlinedButtonStyle;
 import '../../../../gen/dzeroth/communities/v1/communities.pbenum.dart'
     show CommunityStatus;
 import '../../domain/community_role.dart';
@@ -242,29 +242,38 @@ class CommunityHeader extends StatelessWidget {
         );
       },
     );
+    // On a phone inside the shell the floating button posts here, so the
+    // header leaves Post out (and the row fits on one line).
+    final compose = shellFabCovers(context) ? null : onCompose;
     final actions = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (onCompose != null || onModerationLog != null || !banned) ...[
-          const SizedBox(height: AppSpacing.xs),
+        if (compose != null || onModerationLog != null || !banned) ...[
+          // Clear air under the members / Joined row, and between wrapped
+          // rows, so the pills do not stack on each other.
+          const SizedBox(height: AppSpacing.smd),
+          // One family of 36 dp pills (in 48 dp tap boxes): Post filled,
+          // the rest outlined, so the row reads as one set of controls.
           Wrap(
-            spacing: AppSpacing.sm,
-            runSpacing: AppSpacing.sm,
+            spacing: AppSpacing.smd,
+            runSpacing: AppSpacing.smd,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              if (onCompose != null)
-                OutlinedButton.icon(
-                  style: kListOutlinedButtonStyle,
-                  onPressed: onCompose,
-                  icon: const Icon(Icons.edit_outlined, size: AppIconSize.md),
-                  label: const Text('Post'),
+              if (compose != null)
+                AppPillButton(
+                  label: 'Post',
+                  icon: Icons.edit_outlined,
+                  compact: true,
+                  variant: AppButtonVariant.navy,
+                  onPressed: compose,
                 ),
               if (onModerationLog != null)
-                OutlinedButton.icon(
-                  style: kListOutlinedButtonStyle,
+                AppPillButton(
+                  label: 'Moderation log',
+                  icon: Icons.shield_outlined,
+                  compact: true,
+                  variant: AppButtonVariant.outline,
                   onPressed: onModerationLog,
-                  icon: const Icon(Icons.shield_outlined, size: AppIconSize.md),
-                  label: const Text('Moderation log'),
                 ),
               if (!banned)
                 PinToHomeButton(
@@ -410,7 +419,8 @@ class _HeaderPlaceholder extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
                     AppCommunitiesLayout.heroPaddingH,
-                    AppSpacing.smd + AppSpacing.xs,
+                    // The loaded header's padding plus the gap above its pills.
+                    AppSpacing.smd + AppSpacing.smd,
                     AppCommunitiesLayout.heroPaddingH,
                     AppSpacing.smd,
                   ),
@@ -424,7 +434,7 @@ class _HeaderPlaceholder extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   identity,
-                  const SizedBox(height: AppSpacing.xs),
+                  const SizedBox(height: AppSpacing.smd),
                   actions,
                 ],
               ),

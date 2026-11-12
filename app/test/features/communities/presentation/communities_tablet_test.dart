@@ -11,6 +11,7 @@ import 'package:dzeroth/features/communities/presentation/widgets/moderation_log
 import 'package:dzeroth/gen/dzeroth/communities/v1/communities.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -267,7 +268,7 @@ void main() {
         expect(
           tester
               .getSize(
-                find.ancestor(of: link, matching: find.byType(OutlinedButton)),
+                find.ancestor(of: link, matching: find.byType(AppPillButton)),
               )
               .height,
           greaterThanOrEqualTo(AppSpacing.minTapTarget),

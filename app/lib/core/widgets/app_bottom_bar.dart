@@ -121,10 +121,8 @@ class _Cell extends StatelessWidget {
 ///
 /// Cells are equal width and at least 48dp. The selected one shows its filled
 /// glyph in `navBarSelected` on a 12 % teal disc (shape, not colour alone).
-/// A 12sp label sits under each icon while the text scale is at most
-/// [maxLabelTextScale] and every label fits its cell; otherwise the bar is
-/// icon-only and each cell carries a tooltip. Either way a cell is announced
-/// with the full label of its destination, as selected or not, and its badge
+/// The bar is icon-only: each cell carries a tooltip and is announced with
+/// the full label of its destination, as selected or not, and its badge
 /// ("Messages, 3 unread conversations").
 ///
 /// Only the pill takes pointer events: the transparent area around it lets
@@ -141,9 +139,6 @@ class AppFloatingBottomBar extends StatelessWidget {
   final int? selectedIndex;
   final ValueChanged<int> onSelected;
 
-  /// Above this text scale the bar is icon-only (decision D3).
-  static const double maxLabelTextScale = 1.3;
-
   /// Opacity of the teal disc behind the selected glyph.
   static const double selectedDiscOpacity = 0.12;
 
@@ -154,29 +149,6 @@ class AppFloatingBottomBar extends StatelessWidget {
   /// area: the pill and its bottom margin.
   static const double reservedHeight =
       AppSize.floatingNavHeight + AppSize.floatingNavBottom;
-
-  static TextStyle? _labelStyle(BuildContext context) =>
-      Theme.of(context).textTheme.labelSmall;
-
-  bool _labelsFit(BuildContext context, double cellWidth) {
-    final scaler = MediaQuery.textScalerOf(context);
-    if (scaler.scale(1) > maxLabelTextScale) return false;
-    // The selected label is the widest a cell can get (heavier weight).
-    final style = _labelStyle(context)
-        ?.copyWith(fontWeight: AppTypeTokens.weightUi);
-    for (final destination in destinations) {
-      final painter = TextPainter(
-        text: TextSpan(text: destination.barLabelText, style: style),
-        textDirection: Directionality.of(context),
-        textScaler: scaler,
-        maxLines: 1,
-      )..layout();
-      final width = painter.width;
-      painter.dispose();
-      if (width > cellWidth) return false;
-    }
-    return true;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -199,26 +171,17 @@ class AppFloatingBottomBar extends StatelessWidget {
               height: AppSize.floatingNavHeight,
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: pillPadding),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final count = destinations.length;
-                    final showLabels =
-                        count > 0 &&
-                        _labelsFit(context, constraints.maxWidth / count);
-                    return Row(
-                      children: [
-                        for (var i = 0; i < count; i++)
-                          Expanded(
-                            child: _FloatingCell(
-                              destination: destinations[i],
-                              selected: i == selectedIndex,
-                              showLabel: showLabels,
-                              onTap: () => onSelected(i),
-                            ),
-                          ),
-                      ],
-                    );
-                  },
+                child: Row(
+                  children: [
+                    for (var i = 0; i < destinations.length; i++)
+                      Expanded(
+                        child: _FloatingCell(
+                          destination: destinations[i],
+                          selected: i == selectedIndex,
+                          onTap: () => onSelected(i),
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -233,18 +196,12 @@ class _FloatingCell extends StatelessWidget {
   const _FloatingCell({
     required this.destination,
     required this.selected,
-    required this.showLabel,
     required this.onTap,
   });
 
   final AppNavDestination destination;
   final bool selected;
-  final bool showLabel;
   final VoidCallback onTap;
-
-  /// Height of the selected shape when a label sits under it (a 48dp-wide
-  /// stadium); icon-only, it is the full 48dp disc.
-  static const double _labelledDiscHeight = 32;
 
   @override
   Widget build(BuildContext context) {
@@ -257,7 +214,7 @@ class _FloatingCell extends StatelessWidget {
     );
     final disc = Container(
       width: AppSpacing.minTapTarget,
-      height: showLabel ? _labelledDiscHeight : AppSpacing.minTapTarget,
+      height: AppSpacing.minTapTarget,
       alignment: Alignment.center,
       decoration: ShapeDecoration(
         shape: const StadiumBorder(),
@@ -281,25 +238,7 @@ class _FloatingCell extends StatelessWidget {
               ],
             ),
     );
-    final Widget content = showLabel
-        ? Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              disc,
-              const SizedBox(height: AppSpacing.xs / 2),
-              Text(
-                destination.barLabelText,
-                maxLines: 1,
-                softWrap: false,
-                overflow: TextOverflow.clip,
-                style: AppFloatingBottomBar._labelStyle(context)?.copyWith(
-                  color: color,
-                  fontWeight: selected ? AppTypeTokens.weightUi : null,
-                ),
-              ),
-            ],
-          )
-        : Center(child: disc);
+    final Widget content = Center(child: disc);
     final overlay = colors.navBarSelected;
     final cell = InkResponse(
       onTap: onTap,
@@ -325,13 +264,11 @@ class _FloatingCell extends StatelessWidget {
       label: badge == null ? destination.label : '${destination.label}, $badge',
       onTap: onTap,
       excludeSemantics: true,
-      child: showLabel
-          ? cell
-          : Tooltip(
-              message: destination.tooltipText,
-              excludeFromSemantics: true,
-              child: cell,
-            ),
+      child: Tooltip(
+        message: destination.tooltipText,
+        excludeFromSemantics: true,
+        child: cell,
+      ),
     );
   }
 }

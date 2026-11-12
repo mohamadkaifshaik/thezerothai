@@ -277,20 +277,17 @@ void main() {
       });
     }
 
-    testWidgets('the shell offers no second New post on a community page', (
-      tester,
-    ) async {
+    testWidgets("on a phone the shell's floating button posts into the "
+        'community, and the header has no second Post', (tester) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, location: _community, width: 360);
-      expect(find.byType(FloatingActionButton), findsNothing);
-      expect(
-        _inPage(find.widgetWithText(OutlinedButton, 'Post')),
-        findsOneWidget,
-      );
-      // Elsewhere the shell's button stays.
+      expect(find.byType(FloatingActionButton), findsOneWidget);
+      expect(find.byTooltip('Post in Chess club'), findsOneWidget);
+      expect(_inPage(find.text('Post')), findsNothing);
+      // The directory's button creates a community instead.
       final list = CommunitiesTabletRig();
       await list.pump(tester, width: 360);
-      expect(find.byType(FloatingActionButton), findsOneWidget);
+      expect(find.byTooltip('Create a community'), findsOneWidget);
     });
 
     testWidgets('the unavailable community is the design\'s: a 40 dp muted '

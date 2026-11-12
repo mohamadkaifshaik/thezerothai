@@ -35,6 +35,7 @@ import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as posts_pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:fixnum/fixnum.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -371,7 +372,7 @@ void main() {
       await tester.tap(find.text('Chess club').first);
       await tester.pumpAndSettle();
       expect(find.byType(CommunityScreen), findsOneWidget);
-      final post = find.widgetWithText(OutlinedButton, 'Post');
+      final post = find.widgetWithText(AppPillButton, 'Post');
       expect(post, findsOneWidget);
       expect(find.text('Join'), findsNothing);
 

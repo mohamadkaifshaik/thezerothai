@@ -984,7 +984,7 @@ abstract final class AppPalette {
   static const Color navy = Color(0xFF0D1528);
   static const Color navy2 = Color(0xFF1B2A44);
   static const Color navyDeep = Color(0xFF08101F);
-  static const Color pearl = Color(0xFFF6F4EF);
+  static const Color pearl = Color(0xFFFAFAFA);
   static const Color white = Color(0xFFFFFFFF);
   static const Color teal = Color(0xFF12B8A6);
 
@@ -1008,7 +1008,7 @@ abstract final class AppPalette {
 
   /// Decorative only; never for input, chip or button borders.
   static const Color hairlineLight = Color(0x140D1528);
-  static const Color hairlineDark = Color(0x1AF6F4EF);
+  static const Color hairlineDark = Color(0x1AFAFAFA);
   static const Color scrim = Color(0x7A08101F);
 
   /// The dark theme's modal scrim: black at 64 %. The light scrim (navy-deep
@@ -1049,8 +1049,8 @@ abstract final class AppPalette {
   static const Color avatarInkOnTint = navy;
   static const Color avatarInkOnNavy = pearl;
 
-  /// Text field fill on dark: dz.css `rgba(246,244,239,.06)` (pearl at 6 %).
-  static const Color fieldFillDark = Color(0x0FF6F4EF);
+  /// Text field fill on dark: dz.css `rgba(250,250,250,.06)` (pearl at 6 %).
+  static const Color fieldFillDark = Color(0x0FFAFAFA);
 }
 
 /// Redesign gradients. Declared only here.
@@ -1837,12 +1837,12 @@ abstract final class AppProfileLayout {
   static const double largeTextScale = 1.3;
 
   // On-dark tokens (pearl and teal over the navy hero).
-  static const Color onDarkFill = Color(0x14F6F4EF);
-  static const Color onDarkBorder = Color(0x24F6F4EF);
+  static const Color onDarkFill = Color(0x14FAFAFA);
+  static const Color onDarkBorder = Color(0x24FAFAFA);
 
   /// Focus, hover and pressed ink over the navy hero.
-  static const Color onDarkInk = Color(0x1FF6F4EF);
-  static const Color onDarkOutline = Color(0x47F6F4EF);
+  static const Color onDarkInk = Color(0x1FFAFAFA);
+  static const Color onDarkOutline = Color(0x47FAFAFA);
 }
 
 /// Scheduled posts geometry per screen size (dp): the dzeroth-mobile,
