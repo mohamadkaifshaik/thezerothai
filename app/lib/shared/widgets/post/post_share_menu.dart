@@ -33,6 +33,7 @@ Future<void> showPostShareMenu(
   required String url,
   required NativeShare nativeShare,
   required Rect anchor,
+  String title = 'Share post',
 }) async {
   // Everything the context is needed for is read before the first await: the
   // card under it may be gone by the time the user picks a row.
@@ -40,8 +41,13 @@ Future<void> showPostShareMenu(
   final canShareVia = nativeShare.isAvailable;
   final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
   final choice = wide
-      ? await _showAnchoredMenu(context, anchor, canShareVia: canShareVia)
-      : await _showSheet(context, canShareVia: canShareVia);
+      ? await _showAnchoredMenu(
+          context,
+          anchor,
+          canShareVia: canShareVia,
+          title: title,
+        )
+      : await _showSheet(context, canShareVia: canShareVia, title: title);
   if (choice == null) return;
   switch (choice) {
     case PostShareChoice.copyLink:
@@ -68,6 +74,7 @@ void _toast(ScaffoldMessengerState messenger, String text) => messenger
 Future<PostShareChoice?> _showSheet(
   BuildContext context, {
   required bool canShareVia,
+  required String title,
 }) {
   return showModalBottomSheet<PostShareChoice>(
     context: context,
@@ -87,7 +94,7 @@ Future<PostShareChoice?> _showSheet(
             child: Semantics(
               header: true,
               child: Text(
-                'Share post',
+                title,
                 style: Theme.of(context).textTheme.titleLarge,
               ),
             ),
@@ -114,12 +121,13 @@ Future<PostShareChoice?> _showAnchoredMenu(
   BuildContext context,
   Rect anchor, {
   required bool canShareVia,
+  required String title,
 }) {
   final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
   return showMenu<PostShareChoice>(
     context: context,
     position: RelativeRect.fromRect(anchor, Offset.zero & overlay.size),
-    semanticLabel: 'Share post',
+    semanticLabel: title,
     items: [
       const PopupMenuItem(
         value: PostShareChoice.copyLink,

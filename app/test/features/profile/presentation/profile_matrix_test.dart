@@ -7,6 +7,7 @@ import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
+import 'package:dzeroth/features/timeline/presentation/timeline_feed_view.dart';
 import 'package:dzeroth/shared/format/joined_date.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
@@ -55,7 +56,7 @@ void main() {
       t.label,
   ];
 
-  /// The size of the banner image (the header's 3:1 band).
+  /// The size of the banner image (it fills the hero).
   Size band(WidgetTester tester) =>
       tester.getSize(find.byType(CachedNetworkImage).first);
 
@@ -106,9 +107,20 @@ void main() {
       }
       // The thumb below 600 dp, the full image from 600 dp.
       expect(bannerUrl(tester), env.size.width < 600 ? thumb : full);
-      // The band is 3:1 whatever the text scale, and as wide as the header.
+      // The banner fills the navy hero behind its text, whatever the text
+      // scale, and is no wider than the screen.
       final image = band(tester);
-      expect(image.width / image.height, closeTo(3, 0.02));
+      expect(
+        image,
+        tester.getSize(
+          find
+              .ancestor(
+                of: find.byType(CachedNetworkImage).first,
+                matching: find.byType(ClipRRect),
+              )
+              .first,
+        ),
+      );
       expect(image.width, lessThanOrEqualTo(env.size.width + 0.5));
       // Targets: Follow back, the website link, the profile menu.
       expectMinTarget(
@@ -475,26 +487,23 @@ void main() {
       await openCell(tester, env);
 
       expect(tester.takeException(), isNull);
-      expect(
-        find.widgetWithText(OutlinedButton, 'Edit profile'),
-        findsOneWidget,
-      );
+      expect(find.widgetWithText(FilledButton, 'Edit profile'), findsOneWidget);
       expect(find.text('Follows you'), findsNothing);
       expect(find.widgetWithText(FilledButton, 'Follow'), findsNothing);
       expectMinTarget(
         tester,
-        find.widgetWithText(OutlinedButton, 'Edit profile'),
+        find.widgetWithText(FilledButton, 'Edit profile'),
         reason: 'Edit profile',
       );
       expectInsideHorizontally(
         tester,
-        find.widgetWithText(OutlinedButton, 'Edit profile'),
+        find.widgetWithText(FilledButton, 'Edit profile'),
         env.size.width,
       );
       if (!isD1Cell(env)) {
         expect(
           tester
-              .getRect(find.widgetWithText(OutlinedButton, 'Edit profile'))
+              .getRect(find.widgetWithText(FilledButton, 'Edit profile'))
               .overlaps(tester.getRect(headerName())),
           isFalse,
           reason: 'Edit profile over the display name',
@@ -542,7 +551,20 @@ void main() {
         ),
         reason: 'Retry',
       );
-      // Not lost: the post is still listed below, under the Pinned label.
+      // Not lost: the post is still listed below, under the Pinned label
+      // (at a large text scale the notice pushes it below the fold).
+      if (find.text('post 2').evaluate().isEmpty) {
+        await tester.scrollUntilVisible(
+          find.text('post 2'),
+          100,
+          scrollable: find
+              .descendant(
+                of: find.byType(TimelineFeedView),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+      }
       expect(find.text('post 2'), findsOneWidget);
     }, textScales: kMatrixTextScalesLarge);
 
@@ -652,7 +674,7 @@ void main() {
             );
             final action = tester.getRect(
               own
-                  ? find.widgetWithText(OutlinedButton, 'Edit profile')
+                  ? find.widgetWithText(FilledButton, 'Edit profile')
                   : find.widgetWithText(FilledButton, 'Follow back'),
             );
             expect(

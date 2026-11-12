@@ -72,43 +72,50 @@ void main() {
     for (final MapEntry(key: mode, value: flags) in kProfileFlagModes.entries) {
       for (final w in _widths) {
         final pane = _tabletFlags(flags) && _bandB(w);
-        testWidgets(
-          '$mode at $w: tabs in the page; '
-          '${pane ? 'Media strip + You might like in the pane' : 'no pane'}',
-          (tester) async {
-            final rig = ProfileTabletRig();
-            await rig.pump(tester, width: w, flags: flags);
-            expect(tester.takeException(), isNull);
+        // Desktop with the new shell: the side column carries the Media grid
+        // (the desktop Profile mock), lent by the page like band B's pane.
+        final sideMedia =
+            flags.contains(kFeatureUiShell) && w >= AppBreakpoints.tablet;
+        testWidgets('$mode at $w: tabs in the page; '
+            '${pane
+                ? 'Media strip + You might like in the pane'
+                : sideMedia
+                ? 'Media strip in the side column'
+                : 'no pane'}', (tester) async {
+          final rig = ProfileTabletRig();
+          await rig.pump(tester, width: w, flags: flags);
+          expect(tester.takeException(), isNull);
 
-            // Band A, phones and desktop: the Media tab is the media (F).
-            expect(_tabs(tester).$1, _allTabs);
-            if (pane) {
-              expect(_paneKinds(tester), _profilePane);
-              expect(
-                inContextPane(find.text(kProfileMediaTitle)),
-                findsOneWidget,
-              );
-              expect(_paneTiles(), findsNWidgets(4));
-              expect(
-                inContextPane(find.text('You might like')),
-                findsOneWidget,
-              );
-              // One Media feed call: the page's own Media tab feed.
-              expect(rig.count('feed:$kRigOwnId:media'), 1);
-            } else {
-              expect(findContextPane(), findsNothing);
-              expect(find.byType(ProfileMediaStrip), findsNothing);
-              // Nobody opened Media: no call for it.
-              expect(rig.count('feed:$kRigOwnId:media'), 0);
-            }
-            expect(rig.count('feed:$kRigOwnId:posts'), 1);
-            expect(rig.count('profile:'), 1);
+          // Band A, phones and desktop: the Media tab is the media (F).
+          expect(_tabs(tester).$1, _allTabs);
+          if (pane) {
+            expect(_paneKinds(tester), _profilePane);
             expect(
-              find.byType(AppSideColumn),
-              w >= AppBreakpoints.tablet ? findsOneWidget : findsNothing,
+              inContextPane(find.text(kProfileMediaTitle)),
+              findsOneWidget,
             );
-          },
-        );
+            expect(_paneTiles(), findsNWidgets(4));
+            expect(inContextPane(find.text('You might like')), findsOneWidget);
+            // One Media feed call: the page's own Media tab feed.
+            expect(rig.count('feed:$kRigOwnId:media'), 1);
+          } else if (sideMedia) {
+            expect(findContextPane(), findsNothing);
+            expect(find.byType(ProfileMediaStrip), findsOneWidget);
+            // One Media feed call: the page's own Media tab feed.
+            expect(rig.count('feed:$kRigOwnId:media'), 1);
+          } else {
+            expect(findContextPane(), findsNothing);
+            expect(find.byType(ProfileMediaStrip), findsNothing);
+            // Nobody opened Media: no call for it.
+            expect(rig.count('feed:$kRigOwnId:media'), 0);
+          }
+          expect(rig.count('feed:$kRigOwnId:posts'), 1);
+          expect(rig.count('profile:'), 1);
+          expect(
+            find.byType(AppSideColumn),
+            w >= AppBreakpoints.tablet ? findsOneWidget : findsNothing,
+          );
+        });
       }
     }
   });
@@ -337,7 +344,14 @@ void main() {
       expect(inContextPane(find.text('See all')), findsNothing);
       expect(_paneTiles(), findsNWidgets(4));
       // The page's own tab bar still works afterwards, and See all is back.
-      await tester.tap(inProfilePage(find.text('Posts')));
+      await tester.tap(
+        inProfilePage(
+          find.descendant(
+            of: find.byType(AppTabBar),
+            matching: find.text('Posts'),
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
       expect(_tabs(tester).$2, 'Posts');
       expect(inContextPane(find.text('See all')), findsOneWidget);
@@ -386,7 +400,10 @@ void main() {
         expect(_tabs(tester).$2, 'Reposts', reason: '$w');
         expect(
           find.byType(ProfileMediaStrip),
-          _bandB(w) ? findsOneWidget : findsNothing,
+          // Band B's pane, or the desktop side column (ui_shell is on).
+          _bandB(w) || w >= AppBreakpoints.tablet
+              ? findsOneWidget
+              : findsNothing,
           reason: '$w',
         );
       }

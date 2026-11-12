@@ -433,7 +433,7 @@ void main() {
     ) async {
       final rig = ProfileTabletRig();
       await rig.pump(tester, width: 1024);
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Edit profile'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Edit profile'));
       await tester.pumpAndSettle();
       expect(find.byType(EditProfileScreen), findsOneWidget);
       expect(findContextPane(), findsNothing);
@@ -454,7 +454,7 @@ void main() {
       expect(findContextPane(), findsOneWidget);
       expect(find.byType(ProfileMediaStrip), findsOneWidget);
 
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Edit profile'));
+      await tester.tap(find.widgetWithText(FilledButton, 'Edit profile'));
       await tester.pumpAndSettle();
       expect(find.byType(EditProfileScreen), findsOneWidget);
       expect(findContextPane(), findsNothing);

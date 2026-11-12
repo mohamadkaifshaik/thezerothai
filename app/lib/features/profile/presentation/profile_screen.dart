@@ -332,7 +332,6 @@ class _ReadyProfile extends StatelessWidget {
       controller: outer,
       children: [
         _header(context, state, showPostsCount: false, nameKey: nameKey),
-        const Divider(height: 1),
         Padding(
           padding: const EdgeInsets.all(AppSpacing.lg),
           child: Text(
@@ -368,6 +367,8 @@ ProfileHeader _header(
     followedBy: state.followedBy,
     showPostsCount: showPostsCount,
     nameKey: nameKey,
+    // The navy hero of the Profile mocks, at every width.
+    style: ProfileHeaderStyle.hero,
     reportsEnabled: isFeatureEnabled(context, kFeatureReports),
     // The Lists rows of the overflow menu.
     listsEnabled: isFeatureEnabled(context, kFeatureLists),
@@ -1215,8 +1216,8 @@ class _ProfileScrollScaffold extends StatelessWidget {
           controller: outer,
           physics: const AlwaysScrollableScrollPhysics(),
           headerSliverBuilder: (context, innerBoxIsScrolled) => [
+            // The hero's rounded bottom is its own edge: no hairline under it.
             centred(SliverToBoxAdapter(child: header)),
-            centred(const SliverToBoxAdapter(child: Divider(height: 1))),
             if (tabBar != null)
               SliverOverlapAbsorber(
                 handle: NestedScrollView.sliverOverlapAbsorberHandleFor(
