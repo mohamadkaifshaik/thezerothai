@@ -4,6 +4,8 @@ import 'dart:ui' as ui;
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/features/posts/presentation/composer_route.dart';
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
+import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/shared/widgets/post/conversation_row.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/shared/widgets/primitives/character_counter.dart';
@@ -275,6 +277,59 @@ void main() {
       expect(tester.widget<AppPillButton>(_reply).onPressed, isNotNull);
     }
     expect(rig.getPostCalls, 1, reason: 'one editor across the switches');
+  });
+
+  testWidgets('phone at text scale 2.0: the header grows, nothing clips', (
+    tester,
+  ) async {
+    final rig = ComposerTabletRig();
+    _stubCreate(rig);
+    await rig.pump(tester, width: 390, height: 844, textScale: 2);
+    await rig.push(tester, AppRouter.composeReplyPath(rig.parent.post.postId));
+    expect(tester.takeException(), isNull);
+    expect(
+      tester.getRect(_reply).bottom,
+      lessThanOrEqualTo(tester.getRect(find.byType(PostCard)).top),
+    );
+  });
+
+  testWidgets('the rail runs past "Replying to"', (tester) async {
+    await _open(
+      tester,
+      width: 390,
+      height: 844,
+      flags: kComposerTabletFlags,
+      cold: false,
+    );
+    final rail = find.descendant(
+      of: find.byType(ConversationRow),
+      matching: find.byType(ColoredBox),
+    );
+    expect(
+      tester.getRect(rail.last).bottom,
+      greaterThan(tester.getRect(find.text('Replying to @bob')).bottom),
+    );
+  });
+
+  testWidgets('the legacy dialog adds no window inset to its footer', (
+    tester,
+  ) async {
+    final rig = ComposerTabletRig();
+    await rig.pump(
+      tester,
+      width: 900,
+      height: 768,
+      flags: kComposerFlagModes['neither']!,
+      padding: const EdgeInsets.only(top: 24, bottom: 34),
+    );
+    await rig.push(tester, AppRouter.composeReplyPath(rig.parent.post.postId));
+    expect(_presentation(tester), ComposerPresentation.legacyDialog);
+    final dialog = tester.getRect(findReplyComposer());
+    // The footer: 8 + 48 + 8 above the dialog's bottom edge, no more.
+    expect(
+      dialog.bottom - tester.getCenter(_reply).dy,
+      closeTo(AppSpacing.sm + AppSpacing.minTapTarget / 2, 1),
+    );
   });
 
   group('screenshots', () {

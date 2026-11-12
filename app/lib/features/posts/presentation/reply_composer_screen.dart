@@ -190,7 +190,13 @@ class _ReplyEditorState extends State<_ReplyEditor> {
             namesRoute: phone,
             explicitChildNodes: true,
             child: Scaffold(
+              // The dialogs sit inside the safe area already (the legacy one
+              // keeps the window's padding): only full screen insets.
               body: SafeArea(
+                left: phone,
+                top: phone,
+                right: phone,
+                bottom: phone,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -205,28 +211,35 @@ class _ReplyEditorState extends State<_ReplyEditor> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // The rail runs past "Replying to", toward the
+                            // viewer's avatar (the mocks).
                             ConversationRow(
                               connectAfter: true,
-                              child: PostCard(
-                                view: widget.parent,
-                                // Own posts are told apart (no "Ask to join"
-                                // on the viewer's own plan, the own-post
-                                // menu).
-                                viewerUserId: viewer.userId,
-                                graphActionsEnabled: false,
-                              ),
-                            ),
-                            // In line with the post above: the body column
-                            // for the text, the avatar column for the
-                            // viewer, the card's gutters.
-                            Padding(
-                              padding: EdgeInsetsDirectional.only(
-                                start: gutter + kPostBodyStart,
-                                end: gutter,
-                                bottom: AppSpacing.md,
-                              ),
-                              child: _ReplyingTo(
-                                handle: widget.parent.post.author.handle,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  PostCard(
+                                    view: widget.parent,
+                                    // Own posts are told apart (no "Ask to
+                                    // join" on the viewer's own plan, the
+                                    // own-post menu).
+                                    viewerUserId: viewer.userId,
+                                    graphActionsEnabled: false,
+                                  ),
+                                  // In line with the post above: the body
+                                  // column for the text, the avatar column
+                                  // for the viewer, the card's gutters.
+                                  Padding(
+                                    padding: EdgeInsetsDirectional.only(
+                                      start: gutter + kPostBodyStart,
+                                      end: gutter,
+                                      bottom: AppSpacing.md,
+                                    ),
+                                    child: _ReplyingTo(
+                                      handle: widget.parent.post.author.handle,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                             Padding(
@@ -343,8 +356,9 @@ class _ReplyHeader extends StatelessWidget {
       AppSpacing.md,
       0,
     ),
-    child: SizedBox(
-      height: AppSize.headerRow,
+    // Grows with the pill at large text instead of clipping it.
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: AppSize.headerRow),
       child: Row(
         children: [
           IconButton(
