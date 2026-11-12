@@ -117,39 +117,56 @@ void main() {
   });
 
   group('look', () {
-    testWidgets('own is primary, onPrimary text; the peer\'s is raised', (
+    testWidgets(
+      'own is on the brand gradient with navy text; the peer is on the light bubble',
+      (tester) async {
+        await pumpThemed(
+          tester,
+          Column(
+            children: [
+              bubble(msg(1, fromSelf: true, text: 'mine')),
+              bubble(msg(2, text: 'theirs')),
+            ],
+          ),
+        );
+
+        BoxDecoration look(int n) =>
+            tester
+                    .widget<DecoratedBox>(
+                      find.byKey(ValueKey('bubble-${hexId(n)}')),
+                    )
+                    .decoration
+                as BoxDecoration;
+        expect(look(1).gradient, AppGradients.primaryButton);
+        expect(look(2).gradient, AppGradients.lightBubble);
+        final mine = tester.widget<Text>(
+          find.descendant(
+            of: find.byKey(ValueKey('bubble-${hexId(1)}')),
+            matching: find.byType(Text),
+          ),
+        );
+        expect(mine.textSpan!.style?.color, AppPalette.navy);
+      },
+    );
+
+    testWidgets('seen: the time line reads Seen with the read time', (
       tester,
     ) async {
+      final today = DateTime.now();
       await pumpThemed(
         tester,
-        Column(
-          children: [
-            bubble(msg(1, fromSelf: true, text: 'mine')),
-            bubble(msg(2, text: 'theirs')),
-          ],
+        MessageBubble(
+          message: msg(1, fromSelf: true, text: 'mine'),
+          peerName: 'Sam Rivera',
+          now: kMsgBase,
+          firstOfGroup: true,
+          lastOfGroup: false,
+          onOpenLink: (_) {},
+          seenAt: DateTime(today.year, today.month, today.day, 20, 2),
         ),
       );
-      final colors = Theme.of(tester.element(find.text('mine'))).colorScheme;
 
-      Color fill(int n) =>
-          (tester
-                      .widget<DecoratedBox>(
-                        find.byKey(ValueKey('bubble-${hexId(n)}')),
-                      )
-                      .decoration
-                  as BoxDecoration)
-              .color!;
-      expect(fill(1), AppPalette.tealText);
-      expect(fill(1), colors.primary);
-      expect(fill(2), colors.surfaceContainerHigh);
-      final mine = tester.widget<Text>(
-        find.descendant(
-          of: find.byKey(ValueKey('bubble-${hexId(1)}')),
-          matching: find.byType(Text),
-        ),
-      );
-      expect(mine.textSpan!.style?.color, colors.onPrimary);
-      expect(colors.onPrimary, AppPalette.white);
+      expect(find.textContaining('Seen 8:02'), findsOneWidget);
     });
 
     testWidgets('tombstones are italic and muted', (tester) async {

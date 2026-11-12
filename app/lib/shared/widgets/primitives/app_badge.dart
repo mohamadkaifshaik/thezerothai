@@ -60,18 +60,22 @@ class AppTintBadge extends StatelessWidget {
         horizontal: AppSpacing.sm,
         vertical: AppSpacing.xs / 2,
       ),
-      alignment: Alignment.center,
       decoration: BoxDecoration(
         color: fill,
         borderRadius: BorderRadius.circular(AppRadius.pill),
       ),
-      child: Text(
-        label,
-        maxLines: maxLines,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: labelColor,
-          fontWeight: AppTypeTokens.weightUi,
+      // Centred but as wide as the label: a plain `alignment` would fill a
+      // Wrap's loose width.
+      child: Center(
+        widthFactor: 1,
+        child: Text(
+          label,
+          maxLines: maxLines,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: labelColor,
+            fontWeight: AppTypeTokens.weightUi,
+          ),
         ),
       ),
     );

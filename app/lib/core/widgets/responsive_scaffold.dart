@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import '../../shared/widgets/primitives/app_gradient_fab.dart';
 import '../../shared/widgets/primitives/app_pill_button.dart';
 import '../theme/app_theme.dart';
 import 'app_bottom_bar.dart';
@@ -456,7 +457,11 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
         ),
       ),
       floatingActionButton: widget.onCompose != null && widget.showFab
-          ? _ComposeFab(onPressed: widget.onCompose!)
+          ? AppGradientFab(
+              tooltip: _composeTooltip,
+              icon: Icons.edit_outlined,
+              onPressed: widget.onCompose,
+            )
           : null,
       bottomNavigationBar: keyboardOpen
           ? null
@@ -729,44 +734,6 @@ class _RenderWidthProbe extends RenderProxyBox {
   void performLayout() {
     super.performLayout();
     onWidth?.call(size.width);
-  }
-}
-
-/// The compose button of the redesigned phone chrome: a 58dp circle with the
-/// primary gradient and its glow, above the floating bar.
-class _ComposeFab extends StatelessWidget {
-  const _ComposeFab({required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = context.appColors;
-    return DecoratedBox(
-      decoration: ShapeDecoration(
-        shape: const CircleBorder(),
-        gradient: colors.primaryFillGradient,
-        shadows: AppShadows.primaryGlow,
-      ),
-      child: Theme(
-        data: theme.copyWith(
-          floatingActionButtonTheme: theme.floatingActionButtonTheme.copyWith(
-            backgroundColor: Colors.transparent,
-            foregroundColor: colors.primaryFillLabel,
-            sizeConstraints: const BoxConstraints.tightFor(
-              width: AppSize.fabRedesign,
-              height: AppSize.fabRedesign,
-            ),
-          ),
-        ),
-        child: FloatingActionButton(
-          tooltip: _ResponsiveScaffoldState._composeTooltip,
-          onPressed: onPressed,
-          child: const Icon(Icons.edit_outlined),
-        ),
-      ),
-    );
   }
 }
 

@@ -27,8 +27,6 @@ import '../../features/lists/presentation/widgets/list_members_pane.dart'
     show ListMembersPanePlaceholder;
 import '../../features/lists/presentation/widgets/lists_owner_card.dart'
     show ListsOwnerCardPlaceholder;
-import '../../features/notifications/presentation/widgets/follow_requests_card.dart'
-    show FollowRequestsCardSlot, followRequestsCardAllowed;
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/profile/presentation/widgets/profile_media_strip.dart'
@@ -336,23 +334,7 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
       ContextFamily.global => contextGlobalSections(context),
       ContextFamily.explore ||
       ContextFamily.people => [if (suggestions) whoToFollow('Who to follow')],
-      // F16 (R8): the follow-requests card, lent by the page over its own
-      // `ListFollowRequests(3)`, above What's happening. Listed only under
-      // the card's own rule, so the page's inline row steps aside exactly
-      // while the pane holds the card.
-      ContextFamily.notifications => [
-        // Only while Notifications itself is the top page: a post or a
-        // search pushed over it keeps the family (base route) but not the
-        // page's card, as on desktop.
-        if ((_shellTopLocation(context) ?? location) ==
-                AppRouter.notificationsPath &&
-            followRequestsCardAllowed(context))
-          const ContextSection(
-            ContextSectionKind.followRequests,
-            FollowRequestsCardSlot(),
-          ),
-        if (trends) whatsHappening,
-      ],
+      ContextFamily.notifications => [if (trends) whatsHappening],
       ContextFamily.search => [if (trends) whatsHappening],
       // The media strip (T8c), lent by the profile page over its own Media
       // tab feed: only with the feed's flags (`posts`, `profile_tabs`).
@@ -494,21 +476,4 @@ ContextSection? _profileSection(BuildContext context) {
       ),
     ),
   );
-}
-
-/// The location of the top page inside the shell's navigator, or null
-/// without a router or a shell match (R8; the same rule as `MainShell`'s).
-String? _shellTopLocation(BuildContext context) {
-  final router = GoRouter.maybeOf(context);
-  if (router == null) return null;
-  for (final match
-      in router.routerDelegate.currentConfiguration.matches.reversed) {
-    if (match is! ShellRouteMatch) continue;
-    var leaf = match.matches.last;
-    while (leaf is ShellRouteMatch) {
-      leaf = leaf.matches.last;
-    }
-    return leaf.matchedLocation;
-  }
-  return null;
 }

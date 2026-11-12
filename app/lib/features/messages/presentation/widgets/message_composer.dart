@@ -8,7 +8,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/network/app_exception.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/primitives/app_notice_banner.dart';
-import '../../../../shared/widgets/primitives/app_surface.dart';
 import '../../../../shared/widgets/primitives/character_counter.dart';
 import '../../../posts/domain/post_text_rules.dart' show PostDraftProblem;
 import '../../../posts/presentation/composer_screen.dart'
@@ -145,11 +144,12 @@ class _MessageComposerState extends State<MessageComposer> {
             draft.problem == PostDraftProblem.forbiddenCharacter ||
             draft.problem == PostDraftProblem.tooManyLines;
         final error = state.error;
+        final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
+        final height = wide
+            ? AppMessagesLayout.composerWide
+            : AppMessagesLayout.composerPhone;
         return DecoratedBox(
-          decoration: BoxDecoration(
-            color: colors.surface,
-            border: Border(top: BorderSide(color: colors.outlineVariant)),
-          ),
+          decoration: BoxDecoration(color: colors.surface),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -183,18 +183,16 @@ class _MessageComposerState extends State<MessageComposer> {
               Padding(
                 padding: const EdgeInsetsDirectional.fromSTEB(
                   AppSpacing.md,
-                  AppSpacing.sm,
-                  AppSpacing.sm,
-                  AppSpacing.sm,
+                  AppMessagesLayout.composerGap,
+                  AppSpacing.md,
+                  AppMessagesLayout.composerGap,
                 ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Expanded(
-                      child: AppSurface(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                        ),
+                      child: _Pill(
+                        minHeight: height,
                         child: Focus(
                           onKeyEvent: _onKey,
                           skipTraversal: true,
@@ -230,16 +228,10 @@ class _MessageComposerState extends State<MessageComposer> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: AppSpacing.xs),
-                    IconButton.filled(
-                      key: MessageComposer.sendKey,
-                      tooltip: 'Send message',
+                    const SizedBox(width: AppMessagesLayout.composerGap),
+                    _SendButton(
+                      size: height,
                       onPressed: state.canSend ? _submit : null,
-                      constraints: const BoxConstraints(
-                        minWidth: AppSpacing.minTapTarget,
-                        minHeight: AppSpacing.minTapTarget,
-                      ),
-                      icon: const Icon(Icons.send, size: AppIconSize.md),
                     ),
                   ],
                 ),
@@ -266,6 +258,71 @@ class _MessageComposerState extends State<MessageComposer> {
           ),
         );
       },
+    );
+  }
+}
+
+/// The field's white pill (dzeroth-mobile Chat): a hairline border, no
+/// shadow, at least [minHeight] tall; a longer message grows it.
+class _Pill extends StatelessWidget {
+  const _Pill({required this.minHeight, required this.child});
+
+  final double minHeight;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final fill = theme.brightness == Brightness.dark
+        ? theme.colorScheme.surfaceContainerHigh
+        : AppPalette.white;
+    return Container(
+      constraints: BoxConstraints(minHeight: minHeight),
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+      alignment: AlignmentDirectional.centerStart,
+      decoration: BoxDecoration(
+        color: fill,
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(minHeight / 2),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// Send: the brand-gradient circle with its glow while there is something to
+/// send, the disabled filled button otherwise.
+class _SendButton extends StatelessWidget {
+  const _SendButton({required this.size, required this.onPressed});
+
+  final double size;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final enabled = onPressed != null;
+    final button = IconButton.filled(
+      key: MessageComposer.sendKey,
+      tooltip: 'Send message',
+      onPressed: onPressed,
+      style: enabled
+          ? IconButton.styleFrom(
+              backgroundColor: Colors.transparent,
+              foregroundColor: colors.primaryFillLabel,
+            )
+          : null,
+      constraints: BoxConstraints.tightFor(width: size, height: size),
+      icon: const Icon(Icons.send, size: AppIconSize.md),
+    );
+    if (!enabled) return button;
+    return DecoratedBox(
+      decoration: ShapeDecoration(
+        shape: const CircleBorder(),
+        gradient: colors.primaryFillGradient,
+        shadows: AppShadows.primaryGlow,
+      ),
+      child: button,
     );
   }
 }

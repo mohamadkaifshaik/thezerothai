@@ -60,11 +60,6 @@ enum ContextSectionKind {
   /// `/plans/new`, `/plans/:id/edit`: "Tips for a good plan" (T8d).
   planTips,
 
-  /// `/notifications`: the first follow requests with Accept and "See all
-  /// requests" (F16, R8). The inline Follow requests row hides while it
-  /// shows.
-  followRequests,
-
   /// `/communities/:id/members`: the "Search members" field (F36, R10),
   /// lent by the page; its results are the page's list.
   memberSearch,

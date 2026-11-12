@@ -95,7 +95,7 @@ typedef ThreadBannerBuilder = Widget? Function(
 /// `/messages/:id`: one conversation.
 ///
 /// - A reversed message list (newest at the bottom): own bubbles on the
-///   accent, the peer's on the raised surface, grouped by sender with the time
+///   brand gradient, the peer's on the light bubble, grouped by sender with the time
 ///   under the last of a group and a separator per day. Cache first, one
 ///   refresh on open, older pages on scroll up.
 /// - [ThreadPoller] runs while the app is in the foreground and this route is
@@ -742,6 +742,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
         ? '@${peer?.handle ?? ''}'
         : peer.displayName;
     final use24Hour = MediaQuery.alwaysUse24HourFormatOf(context);
+    final seenId = _seenMessageId(state, conversation);
     final keys = [
       for (final m in outgoing) 'outgoing-${m.localId}',
       for (final i in items) i.key,
@@ -806,6 +807,9 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                           firstOfGroup: item.firstOfGroup,
                           lastOfGroup: item.lastOfGroup,
                           use24Hour: use24Hour,
+                          seenAt: item.message.id == seenId
+                              ? conversation!.peerReadAt.toDateTime()
+                              : null,
                           linksEnabled: messageLinksEnabled(
                             conversation,
                             item.message,
@@ -855,6 +859,21 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
           ),
       ],
     );
+  }
+
+  /// The caller's newest message the peer has read ("Seen"), or null: the
+  /// server sets `peer_read_at` only with read receipts on for both sides.
+  String? _seenMessageId(ThreadState state, pb.Conversation? conversation) {
+    if (conversation == null || !conversation.hasPeerReadAt()) return null;
+    final readAt = conversation.peerReadAt.toDateTime();
+    for (final m in state.messages) {
+      if (m.fromSelf &&
+          m.hasCreatedAt() &&
+          !m.createdAt.toDateTime().isAfter(readAt)) {
+        return m.id;
+      }
+    }
+    return null;
   }
 
   Widget _olderFooter(ThreadCubit cubit, ThreadState state) {
@@ -998,8 +1017,12 @@ class ThreadPeerHeader extends StatelessWidget {
       constraints: const BoxConstraints(minHeight: AppSpacing.minTapTarget),
       child: Row(
         children: [
-          AppAvatar(url: peer.avatarUrl, radius: AppSpacing.md),
-          const SizedBox(width: AppSpacing.sm),
+          AppAvatar(
+            url: peer.avatarUrl,
+            radius: AppMessagesLayout.headerAvatar / 2,
+            name: name,
+          ),
+          const SizedBox(width: AppSpacing.smd),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1009,9 +1032,7 @@ class ThreadPeerHeader extends StatelessWidget {
                   name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: theme.textTheme.titleMedium,
                 ),
                 if (hasName && peer.handle.isNotEmpty)
                   Text(
