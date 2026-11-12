@@ -226,6 +226,9 @@ class _ComposerRouteFrameState extends State<ComposerRouteFrame> {
     switch (presentation) {
       case ComposerPresentation.fullScreen:
         return editor;
+      case ComposerPresentation.legacyDialog
+          when MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet:
+        return _DesktopReplyDialog(editor: editor);
       case ComposerPresentation.legacyDialog:
         return LayoutBuilder(
           builder: (context, constraints) => Dialog(
@@ -359,6 +362,48 @@ class _TabletComposerDialog extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The reply dialog on desktop (>= 1200 dp; the desktop ReplyComposer mock):
+/// 600 dp wide, hung [AppSize.desktopModalTop] under the top of the window
+/// and at most [AppSize.replyDialogDesktopHeight] tall (the body scrolls
+/// past that). Escape closes it the way Close does, asking first when
+/// something was typed. Under 1200 dp off the tablet layout the reply keeps
+/// the centred 600 x 85 % dialog.
+class _DesktopReplyDialog extends StatelessWidget {
+  const _DesktopReplyDialog({required this.editor});
+
+  final Widget editor;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    const inset = EdgeInsets.fromLTRB(
+      AppSpacing.lg,
+      AppSize.desktopModalTop,
+      AppSpacing.lg,
+      AppSpacing.lg,
+    );
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): () =>
+            Navigator.of(context).maybePop(),
+      },
+      child: Dialog(
+        alignment: Alignment.topCenter,
+        insetPadding: inset,
+        clipBehavior: Clip.antiAlias,
+        child: SizedBox(
+          width: AppSize.composerDialogMax,
+          height: math.min(
+            AppSize.replyDialogDesktopHeight,
+            size.height - inset.vertical,
+          ),
+          child: editor,
         ),
       ),
     );

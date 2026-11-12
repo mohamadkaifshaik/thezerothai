@@ -224,6 +224,12 @@ abstract final class AppSize {
   /// section 4.1, Composer row).
   static const double composerDialogMaxHeight = 720;
 
+  /// The desktop reply dialog (desktop ReplyComposer mock, dz.css `.scrim`
+  /// and `.modal`): hung 64 dp under the top of the window, at most this
+  /// tall (the mock's card: the bar, the post, four lines and the footer).
+  static const double desktopModalTop = 64;
+  static const double replyDialogDesktopHeight = 440;
+
   /// The character ring of the reply composer (ReplyComposer mocks): 26 dp
   /// on a phone, 24 dp in the dialog.
   static const double counterRingPhone = 26;
@@ -356,7 +362,7 @@ class AppColors extends ThemeExtension<AppColors> {
     disabledPillFill: AppPalette.darkContainerHighest,
     disabledPillLabel: AppPalette.mutedOnDark,
     selectedRow: AppPalette.darkContainerHigh,
-    scrim: AppPalette.scrim,
+    scrim: AppPalette.scrimDark,
     primaryFillGradient: AppGradients.primaryButton,
     primaryFillLabel: AppPalette.navy,
     dangerFill: AppPalette.danger,
@@ -1100,6 +1106,11 @@ abstract final class AppPalette {
   static const Color hairlineLight = Color(0x140D1528);
   static const Color hairlineDark = Color(0x1AF6F4EF);
   static const Color scrim = Color(0x7A08101F);
+
+  /// The dark theme's modal scrim: black at 64 %. The light scrim (navy-deep
+  /// at 48 %) barely darkens the navy page, so a dialog or sheet on dark
+  /// read as part of the page.
+  static const Color scrimDark = Color(0xA3000000);
 
   // Dark container ladder (D4).
   static const Color darkContainerLowest = navyDeep;
