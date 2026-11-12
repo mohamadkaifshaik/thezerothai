@@ -23,6 +23,9 @@ import '../../features/notifications/presentation/widgets/follow_requests_card.d
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../features/onboarding/presentation/widgets/account_refresh_banner.dart';
 import '../../features/posts/domain/posts_feature_flag.dart';
+import '../../features/profile/presentation/widgets/profile_media_strip.dart'
+    show ProfileMediaStripPlaceholder;
+import '../../features/timeline/domain/profile_tabs_feature_flag.dart';
 import '../../features/search/domain/search_feature_flags.dart';
 import '../../features/search/presentation/widgets/app_search_field.dart';
 import '../../features/search/presentation/widgets/whats_happening_card.dart';
@@ -37,12 +40,14 @@ import '../../features/settings/domain/settings_categories.dart';
 import '../../features/settings/presentation/settings_screen.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/app_more_menu.dart';
+import '../widgets/context_pane.dart' show ContextSectionKind;
 import '../widgets/context_pane_slots.dart';
 import '../widgets/responsive_scaffold.dart';
 import '../widgets/privacy_policy_link.dart';
 import '../widgets/shell_geometry.dart';
 import 'app_router.dart';
 import 'compose_gate.dart';
+import 'context_sections.dart';
 import 'page_below.dart';
 
 /// The navigation chrome around the authenticated top-level destinations.
@@ -414,6 +419,13 @@ class MainShell extends StatelessWidget {
         ? splitFolder
         : messagesShellMasterFolder(_shellTopLocation(context) ?? location);
 
+    // The desktop side column's route: a profile pushed over another page
+    // decides, as for the tablet pane.
+    final sidePaneLocation = contextPaneLocationFor(
+      location,
+      _shellTopLocation(context),
+    );
+
     void select(int index) {
       switch (tabs[index].tab) {
         case _Tab.home:
@@ -509,9 +521,13 @@ class MainShell extends StatelessWidget {
             : selectedIndex,
         onCompose: canCompose ? openCompose : null,
         showFab: showFab,
-        // A community's page draws its cover under the status bar on a phone
+        // A community's page draws its cover, and a profile its hero, under the
+        // status bar on a phone
         // (while the account banner is up, the banner needs the inset).
-        extendBodyUnderStatusBar: isCommunityPageAt(location) && !refreshFailed,
+        extendBodyUnderStatusBar:
+            (isCommunityPageAt(location) ||
+                isProfilePageAt(_shellTopLocation(context) ?? location)) &&
+            !refreshFailed,
         drawer: newShell ? const AppDrawer() : null,
         floatingBar: newShell,
         accountChipBuilder: newShell
@@ -543,6 +559,19 @@ class MainShell extends StatelessWidget {
             // "What's happening": the top 5 trends; draws nothing unless
             // `search` + `trends` are on and the shared list has rows.
             if (exploreEntry) const WhatsHappeningCard(),
+            // The profile's latest images (the desktop Profile mock's Media
+            // grid): the page lends the strip over its own Media tab feed,
+            // as band B's pane does. Only on a profile, with `posts` and
+            // `profile_tabs` on.
+            if (newShell &&
+                isFeatureEnabled(context, kFeaturePosts) &&
+                isFeatureEnabled(context, kFeatureProfileTabs) &&
+                contextFamilyFor(sidePaneLocation) == ContextFamily.profile)
+              ContextPaneSlot(
+                kind: ContextSectionKind.profileMedia,
+                location: sidePaneLocation,
+                placeholder: const ProfileMediaStripPlaceholder(),
+              ),
             if (newShell && isFollowSuggestionsEnabled(context))
               const WhoToFollowCard(
                 title: 'You might like',

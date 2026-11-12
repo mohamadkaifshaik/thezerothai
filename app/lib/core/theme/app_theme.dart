@@ -1189,6 +1189,16 @@ abstract final class AppGradients {
     stops: [0, 0.55, 1],
   );
 
+  /// The navy wash over a profile banner behind the hero text. Dense enough
+  /// for AA over the lightest banner (white): the muted handle needs navy at
+  /// 0.83 or more behind it, the teal chip 0.74 (see profile_layouts_test).
+  static const LinearGradient profileBannerScrim = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [Color(0xB80D1528), Color(0xDB0D1528), Color(0xEB0D1528)],
+    stops: [0, .22, 1],
+  );
+
   /// The dark splash wash (dzeroth-mobile Splash.html): radial-gradient(90%
   /// 60% at 50% 45%, navy2, navy 55%, navyDeep).
   static const RadialGradient splash = RadialGradient(
@@ -1208,8 +1218,11 @@ abstract final class AppShadows {
     BoxShadow(color: Color(0x380D1528), offset: Offset(0, 11), blurRadius: 25),
   ];
   static const List<BoxShadow> primaryGlow = [
-    BoxShadow(color: Color(0x5919D3BE), offset: Offset(0, 10), blurRadius: 26),
+    BoxShadow(color: primaryGlowColor, offset: Offset(0, 10), blurRadius: 26),
   ];
+
+  /// The teal of [primaryGlow] (the profile hero's avatar and pill glows).
+  static const Color primaryGlowColor = Color(0x5919D3BE);
   static const List<BoxShadow> navBar = [
     BoxShadow(color: Color(0x590D1528), offset: Offset(0, 14), blurRadius: 30),
   ];
@@ -1547,6 +1560,95 @@ abstract final class AppAuthLayout {
   static const double splashLoaderBottom = 64;
   static const Size splashPill = Size(22, 8);
   static const double splashPillGap = 10;
+}
+
+/// Profile hero geometry per screen size (dp), from the dzeroth-mobile
+/// Profile mock (phone) and the tablet / desktop Profile mocks (they share one
+/// hero, so one "wide" set serves both). The hero is navy in both brightness
+/// modes, so its on-dark colours are tokens here; the rest comes from the
+/// theme, [AppGradients] and [AppShadows].
+abstract final class AppProfileLayout {
+  /// Bottom corners of the hero.
+  static const double heroRadius = 32;
+
+  // Phone (< 600).
+  static const double phonePaddingH = 20;
+  static const double phonePaddingTop = 8;
+  static const double phonePaddingBottom = 18;
+  static const double phoneGap = 14;
+  static const double phoneChipGap = 8;
+  static const double phoneAvatar = 76;
+  static const double phoneAvatarGap = 16;
+  static const double phoneNameSize = 28;
+  static const double phoneHandleSize = 14;
+  static const double phoneBioSize = 14;
+  static const double phoneStatValueSize = 20;
+  static const double phoneStatLabelSize = 12;
+  static const double phoneStatsPaddingV = 10;
+  static const double phoneButtonHeight = 42;
+  static const double phoneButtonGap = 10;
+  static const double phoneIconButton = 44;
+
+  // Tablet and desktop (>= 600).
+  static const double widePaddingH = 24;
+  static const double widePaddingTop = 20;
+  static const double widePaddingBottom = 26;
+  static const double wideGap = 16;
+  static const double wideChipGap = 10;
+  static const double wideAvatar = 120;
+  static const double wideAvatarRing = 4;
+  static const double wideAvatarGap = 22;
+  static const double wideNameSize = 48;
+  static const double wideHandleSize = 16;
+  static const double wideBioSize = 17;
+  static const double wideStatValueSize = 24;
+  static const double wideStatLabelSize = 14;
+  static const double wideStatsPaddingV = 14;
+  static const double wideButtonHeight = 44;
+  static const double wideButtonGap = 12;
+  static const double wideIconButton = 40;
+
+  /// Corner of the stats pill.
+  static const double statsRadius = 20;
+
+  /// A disabled action pill.
+  static const double disabledOpacity = .5;
+
+  /// Phone avatar: navy ring, teal ring, teal glow.
+  static const double phoneAvatarInnerRing = 3;
+  static const double phoneAvatarOuterRing = 5;
+  static const double phoneAvatarGlowBlur = 24;
+
+  // Teal rings behind the hero (diameter, alpha), centred this far from the
+  // top-end corner.
+  static const List<(double, double)> phoneRings = [
+    (98, .4),
+    (182, .24),
+    (280, .12),
+  ];
+  static const Offset phoneRingsFromTopEnd = Offset(50, 60);
+  static const List<(double, double)> wideRings = [(280, .14), (480, .14)];
+  static const Offset wideRingsFromTopEnd = Offset(80, 40);
+
+  /// The glow under the filled action pill (elevation, in dp).
+  static const double pillGlowElevation = 8;
+  static const Color pillGlow = AppShadows.primaryGlowColor;
+  static const Color avatarGlow = AppShadows.primaryGlowColor;
+
+  /// Letter spacing of the stat numbers (em).
+  static const double statValueTracking = -0.02;
+
+  /// Above this text scale the stats are rows and the avatar sits above the
+  /// name.
+  static const double largeTextScale = 1.3;
+
+  // On-dark tokens (pearl and teal over the navy hero).
+  static const Color onDarkFill = Color(0x14F6F4EF);
+  static const Color onDarkBorder = Color(0x24F6F4EF);
+
+  /// Focus, hover and pressed ink over the navy hero.
+  static const Color onDarkInk = Color(0x1FF6F4EF);
+  static const Color onDarkOutline = Color(0x47F6F4EF);
 }
 
 /// Scheduled posts geometry per screen size (dp): the dzeroth-mobile,

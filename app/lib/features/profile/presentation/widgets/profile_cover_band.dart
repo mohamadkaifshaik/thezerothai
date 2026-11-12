@@ -17,10 +17,19 @@ import 'package:flutter/material.dart';
 ///
 /// Used by `ProfileHeader` and the Edit profile `BannerEditor`.
 class ProfileCoverBand extends StatelessWidget {
-  const ProfileCoverBand({super.key, this.url = '', this.bytes});
+  const ProfileCoverBand({
+    super.key,
+    this.url = '',
+    this.bytes,
+    this.placeholder,
+  });
 
   final String url;
   final Uint8List? bytes;
+
+  /// The colour behind a banner that is still loading or failed; null is the
+  /// flat theme surface. The profile hero (navy) passes transparent.
+  final Color? placeholder;
 
   /// The widest source image (the 1500 px full banner): nothing is decoded
   /// larger.
@@ -29,7 +38,7 @@ class ProfileCoverBand extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final flat = ColoredBox(
-      color: Theme.of(context).colorScheme.surfaceContainerHigh,
+      color: placeholder ?? Theme.of(context).colorScheme.surfaceContainerHigh,
     );
     final local = bytes;
     if (url.isEmpty && local == null) return ExcludeSemantics(child: flat);

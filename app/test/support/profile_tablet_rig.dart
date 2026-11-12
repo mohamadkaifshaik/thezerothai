@@ -6,6 +6,7 @@ import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
+import 'package:dzeroth/core/share/share_links.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
@@ -216,11 +217,23 @@ class ProfileTabletRig {
   /// The viewer blocks the other person.
   bool blocking = false;
 
+  /// The other person follows the viewer.
+  bool followedBy = false;
+
   /// The location of the top page (a pushed one too).
   Uri get uri => router.state.uri;
 
-  identity.Profile get ownProfile =>
-      rigProfile(kRigOwnId, kRigOwnHandle, 'Alice A');
+  /// The own profile's display name and follower count, when a test wants
+  /// extremes (a long name, seven digits).
+  String ownName = 'Alice A';
+  int? ownFollowers;
+
+  identity.Profile get ownProfile {
+    final profile = rigProfile(kRigOwnId, kRigOwnHandle, ownName);
+    final followers = ownFollowers;
+    if (followers != null) profile.followersCount = Int64(followers);
+    return profile;
+  }
 
   identity.Profile get otherProfile =>
       rigProfile(kRigOtherId, kRigOtherHandle, 'Kaif Shaik');
@@ -255,7 +268,7 @@ class ProfileTabletRig {
           final uid = invocation.positionalArguments.first as String;
           return ProfileRelationship(
             relationship: graph.Relationship(userId: uid, blocking: blocking),
-            followedBy: false,
+            followedBy: followedBy,
           );
         });
     for (final (name, list) in [
@@ -359,6 +372,7 @@ class ProfileTabletRig {
     Brightness brightness = Brightness.light,
     TextDirection textDirection = TextDirection.ltr,
     bool settle = true,
+    ShareLinks? shareLinks,
   }) async {
     images = useFailingImageCache();
     _arrange();
@@ -488,15 +502,18 @@ class ProfileTabletRig {
               create: (_) => ThemeModeCubit(_MemoryThemeStore()),
             ),
           ],
-          child: MaterialApp.router(
-            theme: buildAppTheme(brightness: brightness),
-            routerConfig: router,
-            builder: (context, child) => Directionality(
-              textDirection: textDirection,
-              child: MediaQuery(
-                data: MediaQuery.of(context)
-                    .copyWith(textScaler: TextScaler.linear(textScale)),
-                child: child!,
+          child: ShareLinksScope(
+            links: shareLinks,
+            child: MaterialApp.router(
+              theme: buildAppTheme(brightness: brightness),
+              routerConfig: router,
+              builder: (context, child) => Directionality(
+                textDirection: textDirection,
+                child: MediaQuery(
+                  data: MediaQuery.of(context)
+                      .copyWith(textScaler: TextScaler.linear(textScale)),
+                  child: child!,
+                ),
               ),
             ),
           ),
