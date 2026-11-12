@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_cover_band.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
@@ -9,17 +8,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/failing_image_cache.dart';
 
-/// The profile's banner and
-/// avatar when their object is gone from the media bucket (a removed or
-/// replaced image is deleted 24-48 h later, `PROFILE_MEDIA_RETIRE`). Both
-/// show the flat placeholder, at the same size as before, and the header does
-/// not move by a dp. The download fails the way the bucket answers for a
+/// The profile's avatar when its object is gone from the media bucket (a
+/// removed or replaced image is deleted 24-48 h later,
+/// `PROFILE_MEDIA_RETIRE`). It shows the placeholder, at the same size as
+/// before, and the header does not move by a dp. The download fails the way the bucket answers for a
 /// missing object, an HTTP 404 (`useFailingImageCache`).
 void main() {
   const widths = <double>[360, 600, 1200];
   const scales = <double>[1.0, 2.0];
 
-  /// The fixture's URLs: thumbs below 600 dp, full images from 600 dp.
+  /// The fixture's URLs.
   identity.Profile profile({bool images = true}) => identity.Profile(
     userId: 'u',
     handle: 'kaif',
@@ -27,8 +25,6 @@ void main() {
     bio: 'Builds things.',
     location: 'Mumbai, India',
     website: 'https://example.com',
-    bannerUrl: images ? 'https://m.test/m/banner.webp' : '',
-    bannerThumbUrl: images ? 'https://m.test/m/banner_t.webp' : '',
     avatarUrl: images ? 'https://m.test/m/avatar.webp' : '',
     avatarThumbUrl: images ? 'https://m.test/m/avatar_t.webp' : '',
   );
@@ -80,12 +76,12 @@ void main() {
     addTearDown(tester.view.reset);
   }
 
-  group('the header with both images missing (HTTP 404)', () {
+  group('the header with the avatar missing (HTTP 404)', () {
     for (final brightness in Brightness.values) {
       for (final width in widths) {
         for (final scale in scales) {
           testWidgets('${brightness.name} ${width.toInt()}dp x$scale: first '
-              'frame, settled and with no images at all are the same', (
+              'frame, settled and with no avatar at all are the same', (
             tester,
           ) async {
             await size(tester, width);
@@ -94,18 +90,15 @@ void main() {
             await tester.pumpWidget(
               screen(profile(), scale: scale, brightness: brightness),
             );
-            // The frame the header is first built: both images asked for.
-            expect(find.byType(CachedNetworkImage), findsOneWidget);
             final first = layoutOf(tester);
 
             await tester.pumpAndSettle();
             expect(tester.takeException(), isNull);
-            // Both requests failed with 404, once each.
-            expect(cache.requested.toSet(), hasLength(2));
-            expect(cache.requested, hasLength(2));
+            // The request failed with 404, once.
+            expect(cache.requested, hasLength(1));
             final settled = layoutOf(tester);
 
-            // The same header with no banner and no avatar at all.
+            // The same header with no avatar at all.
             await tester.pumpWidget(const SizedBox.shrink());
             await tester.pumpWidget(
               screen(
@@ -118,7 +111,7 @@ void main() {
             final none = layoutOf(tester);
 
             expect(settled, first, reason: 'after the 404');
-            expect(none, first, reason: 'with no images');
+            expect(none, first, reason: 'with no avatar');
             // 3:1 of the header's own width, reserved from the first frame.
             expect(first.band.width / first.band.height, closeTo(3, 0.02));
           });
@@ -166,67 +159,6 @@ void main() {
           matching: find.byIcon(Icons.person_outline),
         ),
         findsOneWidget,
-      );
-    });
-  });
-
-  group('ProfileCoverBand alone', () {
-    Widget band({String url = 'https://m.test/m/b.webp'}) => MaterialApp(
-      theme: buildAppTheme(brightness: Brightness.dark),
-      home: Scaffold(
-        body: Center(
-          child: SizedBox(
-            width: 300,
-            height: 100,
-            child: ProfileCoverBand(url: url),
-          ),
-        ),
-      ),
-    );
-
-    for (final status in [404, 403, 500]) {
-      testWidgets('HTTP $status shows the flat surface, 300 x 100 as before', (
-        tester,
-      ) async {
-        final cache = useFailingImageCache(
-          manager: FailingImageCacheManager(statusCode: status),
-        );
-        await tester.pumpWidget(band());
-        final loading = tester.getSize(find.byType(ProfileCoverBand));
-
-        await tester.pumpAndSettle();
-
-        expect(cache.requested, isNotEmpty);
-        expect(tester.takeException(), isNull);
-        expect(tester.getSize(find.byType(ProfileCoverBand)), loading);
-        expect(loading, const Size(300, 100));
-        final context = tester.element(find.byType(ProfileCoverBand));
-        final surface = Theme.of(context).colorScheme.surfaceContainerHigh;
-        expect(
-          find.descendant(
-            of: find.byType(ProfileCoverBand),
-            matching: find.byWidgetPredicate(
-              (w) => w is ColoredBox && w.color == surface,
-            ),
-          ),
-          findsOneWidget,
-        );
-      });
-    }
-
-    testWidgets('a failure with no status (the web loader) is the same', (
-      tester,
-    ) async {
-      useFailingImageCache(
-        manager: FailingImageCacheManager(error: Exception('image error')),
-      );
-      await tester.pumpWidget(band());
-      await tester.pumpAndSettle();
-
-      expect(tester.takeException(), isNull);
-      expect(
-        tester.getSize(find.byType(ProfileCoverBand)),
-        const Size(300, 100),
       );
     });
   });

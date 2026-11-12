@@ -18,7 +18,7 @@ class _MockModerationRepository extends Mock implements ModerationRepository {}
 
 /// defect D-1: at 360 dp and
 /// text scale 2.0 the header's action button ("Follow back" or "Edit profile")
-/// grew taller than the 48 dp strip under the banner that held it, wrapped to
+/// grew taller than the 48 dp strip under the band that held it, wrapped to
 /// two lines and was painted over the display name and the profile menu.
 ///
 /// The strip now grows with the actions (laid out in the same pass as the rest,

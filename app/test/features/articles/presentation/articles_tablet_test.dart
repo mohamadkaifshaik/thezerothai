@@ -12,6 +12,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.d
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/posts/domain/reply_audience.dart';
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -217,7 +218,7 @@ void main() {
       find.descendant(of: dialog(), matching: finder);
 
   Future<void> openPublish(WidgetTester tester) async {
-    await tester.tap(find.widgetWithText(FilledButton, 'Publish').first);
+    await tester.tap(find.widgetWithText(AppPillButton, 'Publish'));
     await tester.pumpAndSettle();
     expect(find.text('Publish Article'), findsOneWidget);
   }
@@ -539,17 +540,6 @@ void main() {
       expect(tester.takeException(), isNull, reason: 'the closed menu');
     }
 
-    // The editor page behind the dialog overflows on its own in these cells
-    // (pre-existing, not the reply control, reported separately): on phones
-    // the AppBar's actions (articles_screen.dart:649), the "Draft" status
-    // row (:1067) and the cover placeholder (:1118); beside the library at
-    // 840 x2.0, the cover placeholder. The page is not under test here; the
-    // reply control, the dialog and the menu are.
-    bool appBarOverflows(double width, double scale) =>
-        width == 320 || (width <= 390 && scale == 2.0);
-    bool pageOverflows(double width, double scale, {required bool inPane}) =>
-        appBarOverflows(width, scale) || (inPane && scale == 2.0);
-
     for (final MapEntry(key: mode, value: flags) in {
       'neither': const <String>{},
       'ui_shell + ui_tablet': _tabletFlags,
@@ -569,28 +559,13 @@ void main() {
                 textScale: scale,
                 textDirection: direction,
               );
-              final page = tester.takeException();
-              if (!pageOverflows(width, scale, inPane: inPane)) {
-                expect(page, isNull, reason: 'the editor');
-              }
+              expect(tester.takeException(), isNull, reason: 'the editor');
               if (inPane) {
                 // The only reply control before the dialog opens.
                 expect(paneSettings(), findsOneWidget);
                 await expectFieldFits(tester, field, width);
               }
-              if (appBarOverflows(width, scale)) {
-                // The overflowing AppBar can push Publish out of reach; the
-                // page is not under test here, so press it directly.
-                tester
-                    .widget<FilledButton>(
-                      find.widgetWithText(FilledButton, 'Publish').first,
-                    )
-                    .onPressed!();
-                await tester.pumpAndSettle();
-                expect(find.text('Publish Article'), findsOneWidget);
-              } else {
-                await openPublish(tester);
-              }
+              await openPublish(tester);
               expect(tester.takeException(), isNull, reason: 'the dialog');
               if (inPane) {
                 expect(inDialog(field), findsNothing);

@@ -75,33 +75,12 @@ String changeHandleErrorMessage(AppException error) {
   };
 }
 
-/// Friendly text for a failed banner change (upload or UpdateProfile with
-/// `banner_media_id`). A server `profile_extras` answer is the one that is not
-/// about the picture itself.
-String bannerErrorMessage(AppException error) {
-  return switch (error) {
-    FeatureDisabledException(feature: kFeatureProfileExtras) =>
-      kProfileExtrasUnavailableMessage,
-    _ => profileImageErrorMessage(error, noun: 'banner'),
-  };
-}
-
-/// The profile extras (banner, location, website) were switched off for this
+/// The profile extras (location, website) were switched off for this
 /// account while editing. The fields are hidden and the name and bio, which
 /// are not affected, can still be saved.
 const kProfileExtrasUnavailableMessage =
-    "Banner, location and website aren't available right now. Your name and "
-    'bio can still be saved.';
-
-/// The uploaded banner was discarded server-side (MEDIA_NOT_READY on
-/// UpdateProfile, whatever the cause); it must be chosen again.
-const kBannerGoneMessage =
-    'That banner is no longer available. Choose it again.';
-
-/// MEDIA_NOT_READY with a new photo and a new banner in the same save: the
-/// answer does not say which one, so both are dropped.
-const kImagesGoneMessage =
-    'Those photos are no longer available. Choose them again.';
+    "Location and website aren't available right now. Your name and bio can "
+    'still be saved.';
 
 /// Wording of the server: the name "must ... contain a visible
 /// character", and a location has no invisible characters.
@@ -145,17 +124,14 @@ String? websiteFieldError(WebsiteIssue? issue) => switch (issue) {
 };
 
 /// The snackbar text for the failed save in [state]: the picker, the extras
-/// being switched off, a dropped picture, a failed picture upload, or the
+/// being switched off, a dropped photo, a failed photo upload, or the
 /// UpdateProfile answer itself. Null when there is no error.
 String? editProfileErrorMessage(EditProfileState state) {
   final error = state.error;
   if (error == null) return null;
   if (state.pickFailed) return kPickFailedMessage;
   if (state.extrasDisabled) return kProfileExtrasUnavailableMessage;
-  if (state.avatarDropped && state.bannerDropped) return kImagesGoneMessage;
   if (state.avatarDropped) return kAvatarGoneMessage;
-  if (state.bannerDropped) return kBannerGoneMessage;
-  if (state.bannerFailed) return bannerErrorMessage(error);
   if (state.avatarFailed) return avatarErrorMessage(error);
   return updateProfileErrorMessage(error);
 }

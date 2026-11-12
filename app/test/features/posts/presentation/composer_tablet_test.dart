@@ -230,7 +230,7 @@ void main() {
       );
       await rig.push(tester, AppRouter.composePath);
       final dialog = tester.getRect(findComposer());
-      final header = tester.getRect(find.text('New post'));
+      final header = tester.getRect(find.byTooltip('Close'));
       // The header row sits at the top of the dialog, not 24 dp below it.
       expect(header.top - dialog.top, lessThan(24));
     });
@@ -889,7 +889,7 @@ void main() {
       final rig = ComposerTabletRig();
       await rig.pump(tester);
       await rig.push(tester, AppRouter.composePath);
-      await tester.tap(find.text('Cancel'));
+      await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
       expect(findComposer(), findsNothing);
       expect(rig.uri.path, AppRouter.homePath);
@@ -918,7 +918,7 @@ void main() {
               tester.getRect(findComposer()),
               expectedDialog(width, height),
             );
-            await tester.tap(find.text('Cancel'));
+            await tester.tap(find.byTooltip('Close'));
             await tester.pumpAndSettle();
             await rig.push(
               tester,

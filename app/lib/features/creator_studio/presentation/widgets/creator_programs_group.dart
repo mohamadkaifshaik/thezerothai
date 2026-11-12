@@ -7,7 +7,9 @@ import '../../../../shared/widgets/primitives/settings_group.dart';
 /// soon" pill. Nothing to sign up for, so no button and no promise.
 /// Monetisation replaces this widget and nothing else on the page.
 class CreatorProgramsGroup extends StatelessWidget {
-  const CreatorProgramsGroup({super.key});
+  const CreatorProgramsGroup({super.key, required this.style});
+
+  final SettingsGroupStyle style;
 
   static const title = 'Programs';
   static const comingSoon = 'Coming soon';
@@ -22,6 +24,7 @@ class CreatorProgramsGroup extends StatelessWidget {
   Widget build(BuildContext context) {
     return SettingsGroup(
       title: title,
+      style: style,
       rows: [
         for (final (icon, label) in _rows)
           SettingsRow(

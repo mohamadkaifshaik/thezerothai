@@ -23,7 +23,6 @@ void main() {
     expect(sent.hasDisplayName(), isTrue);
     expect(sent.hasBio(), isFalse);
     expect(sent.hasAvatarMediaId(), isFalse);
-    expect(sent.hasBannerMediaId(), isFalse);
     expect(sent.hasLocation(), isFalse);
     expect(sent.hasWebsite(), isFalse);
     expect(sent.hasPinnedPostId(), isFalse);
@@ -33,15 +32,12 @@ void main() {
     final sent = overTheWire(
       buildUpdateProfileRequest(
         idempotencyKey: key,
-        bannerMediaId: '',
         location: '',
         website: '',
         pinnedPostId: '',
       ),
     );
 
-    expect(sent.hasBannerMediaId(), isTrue);
-    expect(sent.bannerMediaId, '');
     expect(sent.hasLocation(), isTrue);
     expect(sent.location, '');
     expect(sent.hasWebsite(), isTrue);
@@ -58,7 +54,6 @@ void main() {
       buildUpdateProfileRequest(
         idempotencyKey: key,
         avatarMediaId: 'a1',
-        bannerMediaId: 'b1',
         location: 'Mumbai',
         website: 'https://example.com',
         pinnedPostId: '123',
@@ -66,7 +61,6 @@ void main() {
     );
 
     expect(sent.avatarMediaId, 'a1');
-    expect(sent.bannerMediaId, 'b1');
     expect(sent.location, 'Mumbai');
     expect(sent.website, 'https://example.com');
     expect(sent.pinnedPostId, '123');

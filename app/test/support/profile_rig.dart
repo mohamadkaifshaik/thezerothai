@@ -60,16 +60,13 @@ const w3Own = {
   'profile_snapshot',
 };
 
-/// A fully populated profile of [uid]: banner (both sizes), location,
-/// website, a bio, counts and a join date relative to the real clock (never a
+/// A fully populated profile of [uid]: location, website, a bio, counts and a join date relative to the real clock (never a
 /// fixed date, see `test/guards/fixed_date_guard_test.dart`).
 identity.Profile w3Profile(
   String uid, {
   String handle = 'kaif',
   String displayName = 'Kaif Shaik',
   String bio = 'Builds things on the free tier.',
-  String banner = 'https://m.test/banner-full.webp',
-  String bannerThumb = 'https://m.test/banner-thumb.webp',
   String location = 'Mumbai, India',
   String website = 'https://example.com/me',
   String pin = '',
@@ -79,8 +76,6 @@ identity.Profile w3Profile(
   handle: handle,
   displayName: displayName,
   bio: bio,
-  bannerUrl: banner,
-  bannerThumbUrl: bannerThumb,
   location: location,
   website: website,
   pinnedPostId: pin,

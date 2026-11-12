@@ -97,7 +97,7 @@ Future<PlansTabletRig> _open(
 final _planPath = AppRouter.planPath(kBeaconIdA);
 final _previewAction = find.widgetWithText(TextButton, kPlanPreviewTitle);
 final _tipsToggle = find.byKey(const ValueKey('plan-tips-toggle'));
-Finder _field(String label) => find.byKey(ValueKey('plan-field-$label'));
+Finder _field(String label) => find.byKey(ValueKey('field-$label'));
 Finder get _pillMyPlans => find.widgetWithText(AppPillButton, 'My plans');
 Finder get _pillNewPlan => find.widgetWithText(AppPillButton, 'New plan');
 

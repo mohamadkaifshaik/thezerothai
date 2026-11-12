@@ -39,11 +39,7 @@ void main() {
       () async {
         final c = cubit(
           extras: false,
-          initial: editableProfile(
-            location: 'Pune',
-            website: 'https://a.co',
-            banner: true,
-          ),
+          initial: editableProfile(location: 'Pune', website: 'https://a.co'),
         );
 
         c.displayNameChanged('Kaif S');
@@ -55,20 +51,14 @@ void main() {
       },
     );
 
-    test('the extras cannot be edited or picked', () async {
-      final c = cubit(
-        extras: false,
-        media: true,
-        initial: editableProfile(banner: true),
-      );
+    test('the extras cannot be edited', () {
+      final c = cubit(extras: false, initial: editableProfile());
 
       c.locationChanged('Pune');
       c.websiteChanged('https://a.co');
-      await c.pickBanner();
 
       expect(c.state.location, '');
       expect(c.state.website, '');
-      expect(c.canChangeBanner, isFalse);
       expect(c.hasChanges, isFalse);
       expect(c.canSave, isFalse);
     });
@@ -77,17 +67,16 @@ void main() {
   // Without `profile_extras` the only
   // change an extra can take is a removal, an exact "" (the server accepts a
   // clear from any caller, and refuses a clear next to a set), so a request
-  // can never carry a non-empty banner id, location or website.
+  // can never carry a non-empty location or website.
   group('flag off: removing saved extras', () {
     final saved = editableProfile(
       location: 'Pune',
       website: 'https://a.example',
-      banner: true,
     );
 
     /// Every extras argument of [call] is absent or exactly "".
     void expectClearsOnly(UpdateProfileCall call) {
-      for (final value in [call.bannerMediaId, call.location, call.website]) {
+      for (final value in [call.location, call.website]) {
         expect(value == null || value.isEmpty, isTrue, reason: '$value');
       }
       expect(call.pinnedPostId, isNull);
@@ -105,7 +94,6 @@ void main() {
       final call = repo.calls.single;
       expect(call.location, '');
       expect(call.website, isNull);
-      expect(call.bannerMediaId, isNull);
       expect(call.displayName, isNull);
       expectClearsOnly(call);
       expect(c.state.status, EditProfileStatus.saved);
@@ -122,55 +110,32 @@ void main() {
       final call = repo.calls.single;
       expect(call.website, '');
       expect(call.location, isNull);
-      expect(call.bannerMediaId, isNull);
       expectClearsOnly(call);
     });
 
     test(
-      'Remove banner needs no media: it sends banner_media_id: ""',
+      'both go in one request, next to a name change, as clears only',
       () async {
-        // No picker, processor or uploader: the media flag is off.
-        final c = cubit(extras: false, media: false, initial: saved);
-        expect(c.canChangeBanner, isFalse);
+        final c = cubit(extras: false, media: true, initial: saved);
 
-        c.removeBanner();
-        expect(c.state.bannerRemoved, isTrue);
-        expect(c.canSave, isTrue);
+        c.displayNameChanged('Kaif S');
+        c.removeLocation();
+        c.removeWebsite();
         await c.save();
 
         final call = repo.calls.single;
-        expect(call.bannerMediaId, '');
-        expect(call.location, isNull);
-        expect(call.website, isNull);
+        expect(call.displayName, 'Kaif S');
+        expect(call.location, '');
+        expect(call.website, '');
         expectClearsOnly(call);
-        expect(c.state.saved!.bannerUrl, '');
       },
     );
-
-    test('all three go in one request, next to a name change, as clears '
-        'only', () async {
-      final c = cubit(extras: false, media: true, initial: saved);
-
-      c.displayNameChanged('Kaif S');
-      c.removeBanner();
-      c.removeLocation();
-      c.removeWebsite();
-      await c.save();
-
-      final call = repo.calls.single;
-      expect(call.displayName, 'Kaif S');
-      expect(call.bannerMediaId, '');
-      expect(call.location, '');
-      expect(call.website, '');
-      expectClearsOnly(call);
-    });
 
     test('nothing saved, nothing to remove: no change, no request', () async {
       final c = cubit(extras: false, initial: editableProfile());
 
       expect(c.hasSavedLocation, isFalse);
       expect(c.hasSavedWebsite, isFalse);
-      expect(c.hasSavedBanner, isFalse);
       c.removeLocation();
       c.removeWebsite();
       expect(c.state.locationRemoved, isFalse);
@@ -212,7 +177,6 @@ void main() {
       final c = cubit(extras: false, initial: saved);
       c.displayNameChanged('Kaif S');
       c.removeLocation();
-      c.removeBanner();
       repo.failures.add(
         const FeatureDisabledException('off', feature: kFeatureProfileExtras),
       );
@@ -220,16 +184,13 @@ void main() {
       await c.save();
 
       expect(c.state.locationRemoved, isFalse);
-      expect(c.state.bannerRemoved, isFalse);
       expect(c.state.removalRefused, isTrue);
       expect(c.state.displayName, 'Kaif S');
       // Remove is gone for good: asking again changes nothing.
       c.removeLocation();
       c.removeWebsite();
-      c.removeBanner();
       expect(c.state.locationRemoved, isFalse);
       expect(c.state.websiteRemoved, isFalse);
-      expect(c.state.bannerRemoved, isFalse);
       await c.save();
       expect(repo.calls.last.displayName, 'Kaif S');
       expect(repo.calls.last.hasExtras, isFalse);
@@ -248,7 +209,6 @@ void main() {
       final call = repo.calls.single;
       expect(call.location, 'Mumbai');
       expect(call.website, isNull);
-      expect(call.bannerMediaId, isNull);
       expect(call.displayName, isNull);
       expect(call.bio, isNull);
     });
@@ -295,7 +255,6 @@ void main() {
       expect(call.bio, 'new bio');
       expect(call.location, 'Pune');
       expect(call.website, 'https://example.com/a');
-      expect(call.bannerMediaId, isNull);
     });
 
     test(

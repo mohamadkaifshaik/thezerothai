@@ -13,7 +13,6 @@ import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dar
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:bloc_test/bloc_test.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -549,15 +548,13 @@ void main() {
       expect(find.byType(AppErrorView), findsNothing);
     });
 
-    testWidgets('banner, location and website show with the graph flag off '
+    testWidgets('location and website show with the graph flag off '
         '(ungated: the server decides what a profile carries)', (tester) async {
       arrangeViewer(features: const {});
       when(() => identityRepository.getProfile(handle: 'kaif')).thenAnswer(
         (_) async => identity.Profile(
           userId: 'target-uid',
           handle: 'kaif',
-          bannerUrl: 'https://m.test/banner.webp',
-          bannerThumbUrl: 'https://m.test/banner-thumb.webp',
           location: 'Pune',
           website: 'https://kaif.dev/about',
         ),
@@ -566,7 +563,6 @@ void main() {
       await tester.pumpWidget(wrap());
       await tester.pumpAndSettle();
 
-      expect(find.byType(CachedNetworkImage), findsOneWidget);
       expect(find.text('Pune'), findsOneWidget);
       expect(find.text('kaif.dev'), findsOneWidget);
       expect(find.text('Follows you'), findsNothing);

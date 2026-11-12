@@ -23,6 +23,7 @@ import '../../../../shared/widgets/primitives/app_surface.dart';
 import '../../../../shared/widgets/user/follow_button.dart';
 import '../../../../shared/widgets/post/post_card.dart' show launchPostLink;
 import '../../../graph/data/graph_repository.dart';
+import '../../../graph/domain/graph_list_extra.dart';
 import '../../../graph/presentation/bloc/relationship_cubit.dart';
 import '../../../graph/presentation/bloc/relationship_state.dart';
 import '../../../graph/presentation/graph_error_messages.dart';
@@ -39,7 +40,7 @@ import 'profile_cover_band.dart';
 
 part 'profile_hero.dart';
 
-/// How [ProfileHeader] draws itself. [classic] is the banner, the avatar
+/// How [ProfileHeader] draws itself. [classic] is the flat band, the avatar
 /// ring and the plain counts (the Edit profile preview keeps it); [hero] is
 /// the navy hero of the Profile mocks (the screen opts in).
 enum ProfileHeaderStyle { classic, hero }
@@ -69,7 +70,6 @@ class ProfileHeader extends StatelessWidget {
     this.listsEnabled = false,
     this.interactive = true,
     this.avatarBytes,
-    this.bannerBytes,
     this.style = ProfileHeaderStyle.classic,
     this.topInset = 0,
     this.onBack,
@@ -92,10 +92,9 @@ class ProfileHeader extends StatelessWidget {
   /// links, so nothing in it can be tapped or activated.
   final bool interactive;
 
-  /// An unsaved photo or banner (Edit profile's on-device preview), drawn
-  /// over the saved one. Null draws the saved images.
+  /// An unsaved photo (Edit profile's on-device preview), drawn over the
+  /// saved one. Null draws the saved image.
   final Uint8List? avatarBytes;
-  final Uint8List? bannerBytes;
 
   /// Adds "Add or remove from Lists" and "View Lists" to the overflow menu of
   /// another user's profile. Only given when `lists` is on.
@@ -157,7 +156,6 @@ class ProfileHeader extends StatelessWidget {
         listsEnabled: listsEnabled && !isOwnProfile,
         interactive: interactive,
         avatarBytes: avatarBytes,
-        bannerBytes: bannerBytes,
         style: style,
         isOwnProfile: isOwnProfile,
         topInset: topInset,
@@ -195,7 +193,6 @@ class ProfileHeader extends StatelessWidget {
           listsEnabled: listsEnabled,
           interactive: interactive,
           avatarBytes: avatarBytes,
-          bannerBytes: bannerBytes,
           style: style,
           isOwnProfile: isOwnProfile,
           topInset: topInset,
@@ -220,7 +217,6 @@ class _ProfileHeaderBody extends StatelessWidget {
     this.listsEnabled = false,
     this.interactive = true,
     this.avatarBytes,
-    this.bannerBytes,
     this.style = ProfileHeaderStyle.classic,
     this.isOwnProfile = false,
     this.topInset = 0,
@@ -234,7 +230,6 @@ class _ProfileHeaderBody extends StatelessWidget {
   final bool listsEnabled;
   final bool interactive;
   final Uint8List? avatarBytes;
-  final Uint8List? bannerBytes;
   final VoidCallback? onMessage;
   final Key? nameKey;
   final identity.Profile profile;
@@ -284,7 +279,6 @@ class _ProfileHeaderBody extends StatelessWidget {
         onMessage: onMessage,
         onOpenWebsite: onOpenWebsite,
         avatarBytes: avatarBytes,
-        bannerBytes: bannerBytes,
         website: website,
         joined: joined,
       );
@@ -293,19 +287,19 @@ class _ProfileHeaderBody extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        // X's profile: a 3:1 banner, the avatar (133dp, 88dp on phones) in a
-        // surface-coloured ring hanging half over the banner's bottom edge,
-        // the actions on the right of the strip below the banner.
+        // X's profile: a 3:1 band, the avatar (133dp, 88dp on phones) in a
+        // surface-coloured ring hanging half over the band's bottom edge,
+        // the actions on the right of the strip below the band.
         final narrow = width < AppBreakpoints.mobile;
         final diameter = narrow
             ? AppSize.avatarProfileNarrow
             : AppSize.avatarProfileWide;
         final outer = diameter + 2 * AppSpacing.xs;
         final overlap = outer / 2;
-        final bannerHeight = width / 3;
-        // The strip between the banner and the name holds the avatar's lower
+        final bandHeight = width / 3;
+        // The strip between the band and the name holds the avatar's lower
         // half and the actions (36dp pill in a 48dp target, 12dp below the
-        // banner). It is at least tall enough for both, and it grows with the
+        // band). It is at least tall enough for both, and it grows with the
         // actions: at a large text scale a button wraps to two or three lines,
         // and a fixed 60dp strip let it paint over the name (D-1). The
         // actions are laid out in the strip, in the same pass as everything
@@ -320,14 +314,7 @@ class _ProfileHeaderBody extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SizedBox(
-                  height: bannerHeight,
-                  child: ProfileCoverBand(
-                    url: profile.bannerUrl,
-                    thumbUrl: profile.bannerThumbUrl,
-                    bytes: bannerBytes,
-                  ),
-                ),
+                SizedBox(height: bandHeight, child: const ProfileCoverBand()),
                 ConstrainedBox(
                   constraints: BoxConstraints(minHeight: minStrip),
                   child: Padding(
@@ -338,7 +325,7 @@ class _ProfileHeaderBody extends StatelessWidget {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Under the avatar (it hangs over the banner's edge).
+                        // Under the avatar (it hangs over the band's edge).
                         SizedBox(width: AppSpacing.md + outer + AppSpacing.sm),
                         Expanded(
                           child: Align(
@@ -485,7 +472,7 @@ class _ProfileHeaderBody extends StatelessWidget {
             ),
             PositionedDirectional(
               start: AppSpacing.md,
-              top: bannerHeight - overlap,
+              top: bandHeight - overlap,
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
@@ -507,7 +494,7 @@ class _ProfileHeaderBody extends StatelessWidget {
     );
   }
 
-  /// The controls on the right of the strip below the banner, or null.
+  /// The controls on the right of the strip below the band, or null.
   Widget? _actions(BuildContext context, {required bool isBlocking}) {
     if (showActions && !isBlocking) {
       return Row(
@@ -699,7 +686,10 @@ class _CountsRow extends StatelessWidget {
           onTap: interactive
               ? () => context.push(
                   AppRouter.followingPath(profile.handle),
-                  extra: profile.userId,
+                  extra: GraphListExtra(
+                    userId: profile.userId,
+                    displayName: profile.displayName,
+                  ),
                 )
               : null,
         ),
@@ -709,7 +699,10 @@ class _CountsRow extends StatelessWidget {
           onTap: interactive
               ? () => context.push(
                   AppRouter.followersPath(profile.handle),
-                  extra: profile.userId,
+                  extra: GraphListExtra(
+                    userId: profile.userId,
+                    displayName: profile.displayName,
+                  ),
                 )
               : null,
         ),

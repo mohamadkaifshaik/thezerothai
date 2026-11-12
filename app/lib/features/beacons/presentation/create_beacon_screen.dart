@@ -11,6 +11,7 @@ import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../shared/widgets/primitives/app_form_header.dart';
+import '../../../shared/widgets/primitives/app_labeled_field.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_pickers.dart';
 import '../../communities/data/communities_repository.dart';
@@ -396,7 +397,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                 onSelected: (a) => _update(() => _activity = a),
                               ),
                             ),
-                            PlanTextField(
+                            AppLabeledField(
                               label: 'Title',
                               controller: _title,
                               enabled: !busy,
@@ -407,7 +408,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                 max: kBeaconTitleMaxLength,
                               ),
                             ),
-                            PlanTextField(
+                            AppLabeledField(
                               label: 'Details',
                               controller: _details,
                               enabled: !busy,
@@ -442,7 +443,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                     _update(() => _durationMinutes = m),
                               ),
                             ),
-                            PlanTextField(
+                            AppLabeledField(
                               label: 'Meeting point',
                               controller: _venue,
                               enabled: !busy,

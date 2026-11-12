@@ -134,8 +134,8 @@ void main() {
       textScale: env.textScale,
     );
     expect(tester.takeException(), isNull);
-    expect(find.text('Your account'), findsNothing);
-    expect(find.text(CreatorInsightsGroup.title), findsOneWidget);
+    expect(find.text('Followers'), findsNothing);
+    expect(find.text(CreatorInsightsGroup.title.toUpperCase()), findsOneWidget);
   }, textScales: kMatrixTextScalesLarge);
 
   testWidgets('text scale 2.0 at 360 dp, explicit, no overflow', (
@@ -150,15 +150,20 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  shellsTest('profile present: the account rows read the profile', (
+  shellsTest('profile present: the account cards read the profile', (
     tester,
   ) async {
+    final handle = tester.ensureSemantics();
     await _pump(tester, profile: _profile(), size: const Size(600, 1600));
-    expect(find.text('Your account'), findsOneWidget);
-    expect(_rowLabel(tester, 'Followers'), 'Followers, 12');
-    expect(_rowLabel(tester, 'Following'), 'Following, 3');
-    expect(_rowLabel(tester, 'Posts'), 'Posts, 40');
-    expect(_rowLabel(tester, 'Joined'), 'Joined, October $_joinedYear');
+    for (final label in [
+      'Followers, 12',
+      'Following, 3',
+      'Posts, 40',
+      'Joined, October $_joinedYear',
+    ]) {
+      expect(find.bySemanticsLabel(label), findsOneWidget, reason: label);
+    }
+    handle.dispose();
   });
 
   shellsTest('profile without created_at: the Joined row is left out', (
@@ -170,16 +175,15 @@ void main() {
     expect(find.text('Joined'), findsNothing);
   });
 
-  shellsTest('profile absent: no account group, the rest renders, no zeros', (
+  shellsTest('profile absent: no account cards, the rest renders, no zeros', (
     tester,
   ) async {
     await _pump(tester, size: const Size(600, 1600));
-    expect(find.text('Your account'), findsNothing);
     expect(find.text('Followers'), findsNothing);
     expect(find.text('0'), findsNothing);
     expect(find.text(CreatorStudioScreen.intro), findsOneWidget);
-    expect(find.text(CreatorInsightsGroup.title), findsOneWidget);
-    expect(find.text(CreatorProgramsGroup.title), findsOneWidget);
+    expect(find.text(CreatorInsightsGroup.title.toUpperCase()), findsOneWidget);
+    expect(find.text(CreatorProgramsGroup.title.toUpperCase()), findsOneWidget);
     expect(find.text(CreatorStudioScreen.footnote), findsOneWidget);
   });
 

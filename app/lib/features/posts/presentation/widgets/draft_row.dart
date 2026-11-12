@@ -4,9 +4,10 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/format/relative_time.dart';
 import '../../domain/composer_draft.dart';
 
-/// One unsent post in the Drafts list: the text (up to 3 lines), then
-/// a muted line with a Poll badge when it has one and how long ago it was last
-/// edited. No avatar. In Edit mode ([editing]) a checkbox sits at the start and
+/// One unsent post in the Drafts list: a muted line with a Poll badge when it
+/// has one and how long ago it was last edited, then the text (up to 3
+/// lines). The tablet and desktop layouts add a draft icon before it and a
+/// chevron after it. No avatar. In Edit mode ([editing]) a checkbox sits at the start and
 /// a tap selects instead of opening.
 ///
 /// The row is ONE node for a screen reader ("`<text>`. Poll. Edited 5 minutes
@@ -37,6 +38,7 @@ class DraftRow extends StatelessWidget {
     final text = draft.text.trim();
     final shown = text.isEmpty ? 'No text' : text;
     final time = formatRelativeTime(draft.updatedAt, now);
+    final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     final spoken = [
       shown,
       if (_hasPoll) 'Poll',
@@ -75,21 +77,16 @@ class DraftRow extends StatelessWidget {
                   ),
                   const SizedBox(width: AppSpacing.xs),
                 ],
+                if (wide && !editing) ...[
+                  _DraftIcon(color: colors.primary),
+                  const SizedBox(width: AppSpacing.smd),
+                ],
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        shown,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          color: text.isEmpty
-                              ? colors.onSurfaceVariant
-                              : colors.onSurface,
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.xs),
+                      // The edit time first, then the words (the Drafts
+                      // designs).
                       Row(
                         children: [
                           if (_hasPoll) ...[
@@ -129,9 +126,31 @@ class DraftRow extends StatelessWidget {
                           ),
                         ],
                       ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        shown,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontWeight: AppTypeTokens.weightBody,
+                          color: text.isEmpty
+                              ? colors.onSurfaceVariant
+                              : colors.onSurface,
+                        ),
+                      ),
                     ],
                   ),
                 ),
+                if (wide && !editing) ...[
+                  const SizedBox(width: AppSpacing.sm),
+                  Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.xs),
+                    child: Icon(
+                      Icons.chevron_right,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -139,4 +158,23 @@ class DraftRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The tinted square that pictures a draft on the wide layouts.
+class _DraftIcon extends StatelessWidget {
+  const _DraftIcon({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: AppPostsLayout.draftIconTint),
+      borderRadius: BorderRadius.circular(AppRadius.md),
+    ),
+    child: SizedBox.square(
+      dimension: AppPostsLayout.draftIcon,
+      child: Icon(Icons.edit_note_outlined, color: color),
+    ),
+  );
 }

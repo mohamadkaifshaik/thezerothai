@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../../shared/format/scheduled_time.dart';
-import '../../../../shared/widgets/primitives/character_counter.dart';
 
 /// Shows the date picker; null when dismissed. A seam so tests need not drive
 /// the platform dial.
@@ -72,74 +71,6 @@ class PlanFormSection extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           child,
-        ],
-      ),
-    );
-  }
-}
-
-/// A text field of a plan form (the designs' `.field`): its label above a
-/// filled field, the counter under it at the end, then the [error] or the
-/// [helper]. The field is keyed `plan-field-<label>`.
-class PlanTextField extends StatelessWidget {
-  const PlanTextField({
-    super.key,
-    required this.label,
-    required this.controller,
-    required this.remaining,
-    required this.enabled,
-    this.error,
-    this.helper,
-    this.minLines,
-    this.maxLines = 1,
-    this.textInputAction,
-  });
-
-  final String label;
-  final TextEditingController controller;
-
-  /// Characters left under the field's limit.
-  final int remaining;
-  final bool enabled;
-  final String? error;
-  final String? helper;
-  final int? minLines;
-  final int maxLines;
-  final TextInputAction? textInputAction;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(top: AppSpacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          ExcludeSemantics(
-            child: Text(
-              label,
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: context.appColors.text2,
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Semantics(
-            label: label,
-            child: TextField(
-              key: ValueKey('plan-field-$label'),
-              controller: controller,
-              enabled: enabled,
-              minLines: minLines,
-              maxLines: maxLines,
-              textInputAction: textInputAction,
-              decoration: InputDecoration(
-                errorText: error,
-                helperText: helper,
-                counter: CharacterCounter(remaining: remaining),
-              ),
-            ),
-          ),
         ],
       ),
     );

@@ -1,4 +1,5 @@
 import 'package:dzeroth/features/advertise/presentation/advertise_screen.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:url_launcher_platform_interface/link.dart';
@@ -76,11 +77,11 @@ void main() {
             textScale: env.textScale,
           );
           expectNoOverflow(tester);
-          expect(find.text('Advertising is coming soon'), findsOneWidget);
+          expect(find.text('COMING SOON'), findsOneWidget);
+          expect(find.textContaining('coming'), findsOneWidget);
           expect(
             find.text(
-              "We don't sell ads or promoted posts yet, and there are no ads "
-              'in your timeline.',
+              "Reach people nearby with plans they'll actually want to join.",
             ),
             findsOneWidget,
           );
@@ -89,34 +90,40 @@ void main() {
             find.text('Email us'),
             address == null ? findsNothing : findsOneWidget,
           );
+          expect(
+            find.text('Not available yet'),
+            address == null ? findsOneWidget : findsNothing,
+          );
         },
         textScales: kMatrixTextScalesLarge,
       );
     }
   });
 
-  testWidgets('null address: Back is the only button, no contact line', (
+  testWidgets('null address: the only button is off, no contact line', (
     tester,
   ) async {
     useAddress(null);
-    await pump(tester);
+    final launcher = await pump(tester);
     expect(find.byType(IconButton), findsOneWidget);
     expect(find.byType(TextButton), findsNothing);
-    expect(find.byType(ElevatedButton), findsNothing);
-    expect(find.byType(FilledButton), findsNothing);
-    expect(find.byType(OutlinedButton), findsNothing);
     expect(find.text('Want to talk about advertising?'), findsNothing);
     expect(find.byType(TextField), findsNothing);
+    final button = tester.widget<AppPillButton>(find.byType(AppPillButton));
+    expect(button.onPressed, isNull);
+    await tester.tap(find.text('Not available yet'));
+    await tester.pumpAndSettle();
+    expect(launcher.launched, isEmpty);
   });
 
   testWidgets(
-    'address set: one 48dp Email us button opens exactly the mailto',
+    'address set: one large Email us button opens exactly the mailto',
     (tester) async {
       useAddress(_address);
       final launcher = await pump(tester);
       expect(find.text('Want to talk about advertising?'), findsOneWidget);
-      expect(find.byType(TextButton), findsOneWidget);
-      expectMinTarget(tester, find.byType(TextButton));
+      expect(find.byType(AppPillButton), findsOneWidget);
+      expectMinTarget(tester, find.byType(AppPillButton));
       expect(find.byType(TextField), findsNothing);
 
       await tester.tap(find.text('Email us'));

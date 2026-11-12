@@ -939,98 +939,6 @@ ThemeData buildAppTheme({required Brightness brightness}) {
 ThemeData get appLightTheme => buildAppTheme(brightness: Brightness.light);
 ThemeData get appDarkTheme => buildAppTheme(brightness: Brightness.dark);
 
-/// Authentication's navy/pearl surfaces, scoped to the existing auth routes.
-/// The app-level ThemeMode and typography remain the source of truth.
-abstract final class AppAuthStyle {
-  static const navy = Color(0xFF0B1120);
-  static const mint = Color(0xFFA9E8D1);
-  static const onNavy = Color(0xFFF8FAFC);
-  static const panelSurface = Color(0xFF202C40);
-  static const panelBorder = Color(0xFF536174);
-  static const maxPageWidth = 1440.0;
-  static const formWidth = 440.0;
-  static const heroHeadlineSize = 56.0;
-  static const splashMarkSize = 96.0;
-
-  static ThemeData theme(ThemeData base) {
-    final dark = base.brightness == Brightness.dark;
-    final scheme = base.colorScheme.copyWith(
-      primary: dark ? mint : navy,
-      onPrimary: dark ? navy : Colors.white,
-      surface: dark ? navy : const Color(0xFFF7F8FA),
-      surfaceContainer: dark ? const Color(0xFF141E30) : Colors.white,
-      onSurface: dark ? onNavy : const Color(0xFF111827),
-      onSurfaceVariant: dark
-          ? const Color(0xFFB2BDCE)
-          : const Color(0xFF536174),
-      outline: dark ? const Color(0xFF334155) : const Color(0xFFD4DAE3),
-    );
-    final shape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(AppRadius.lg),
-    );
-    final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(AppRadius.lg),
-      borderSide: BorderSide(color: scheme.outline),
-    );
-    final colors =
-        (base.extension<AppColors>() ??
-                (dark ? AppColors.dark : AppColors.light))
-            .copyWith(
-              strongPillFill: scheme.primary,
-              strongPillLabel: scheme.onPrimary,
-              accentText: scheme.primary,
-            );
-    return base.copyWith(
-      colorScheme: scheme,
-      extensions: [
-        ...base.extensions.values.where((e) => e is! AppColors),
-        colors,
-      ],
-      textTheme: base.textTheme.apply(
-        bodyColor: scheme.onSurface,
-        displayColor: scheme.onSurface,
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          minimumSize: const Size.fromHeight(AppSpacing.minTapTarget),
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: AppSpacing.smd,
-          ),
-          backgroundColor: scheme.surfaceContainer,
-          foregroundColor: scheme.onSurface,
-          side: BorderSide(color: scheme.outline),
-          shape: shape,
-        ),
-      ),
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          minimumSize: const Size(
-            AppSpacing.minTapTarget,
-            AppSpacing.minTapTarget,
-          ),
-          foregroundColor: scheme.primary,
-        ),
-      ),
-      dividerTheme: DividerThemeData(color: scheme.outline),
-      inputDecorationTheme: base.inputDecorationTheme.copyWith(
-        fillColor: scheme.surfaceContainer,
-        floatingLabelBehavior: FloatingLabelBehavior.always,
-        contentPadding: const EdgeInsets.all(AppSpacing.md),
-        labelStyle: TextStyle(
-          color: scheme.onSurface,
-          fontWeight: FontWeight.w600,
-        ),
-        border: border,
-        enabledBorder: border,
-        focusedBorder: border.copyWith(
-          borderSide: BorderSide(color: scheme.primary, width: 2),
-        ),
-      ),
-    );
-  }
-}
-
 /// Approved authentication palette; scoped widgets retain the app-wide color policy.
 abstract final class AppAuthPalette {
   static const navy = Color(0xFF101829);
@@ -1187,16 +1095,6 @@ abstract final class AppGradients {
     radius: 1.2,
     colors: [AppPalette.navy2, AppPalette.navy, AppPalette.navyDeep],
     stops: [0, 0.55, 1],
-  );
-
-  /// The navy wash over a profile banner behind the hero text. Dense enough
-  /// for AA over the lightest banner (white): the muted handle needs navy at
-  /// 0.83 or more behind it, the teal chip 0.74 (see profile_layouts_test).
-  static const LinearGradient profileBannerScrim = LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-    colors: [Color(0xB80D1528), Color(0xDB0D1528), Color(0xEB0D1528)],
-    stops: [0, .22, 1],
   );
 
   /// The dark splash wash (dzeroth-mobile Splash.html): radial-gradient(90%
@@ -1436,6 +1334,23 @@ abstract final class AppPickerLayout {
   static const double rowGap = 12;
 }
 
+/// Sizes of the post screens' redesign (PostPhoto, Composer, Drafts).
+abstract final class AppPostsLayout {
+  /// The photo viewer's round controls (close, previous, next, view post).
+  static const double photoButton = 44;
+
+  /// The pearl wash behind them, over the black stage.
+  static const double photoButtonTint = 0.12;
+
+  /// A page dot and the selected page's elongated dot (phone viewer).
+  static const double photoDot = 6;
+  static const double photoDotSelected = 18;
+
+  /// The draft icon square of a Drafts row on the wide layouts, and its tint.
+  static const double draftIcon = 40;
+  static const double draftIconTint = 0.12;
+}
+
 /// Plans geometry (dzeroth-mobile, tablet and desktop Home, PlanDetail,
 /// PlanPeople, PlanCreate, PlanEdit and MyPlans). Colours come from the
 /// theme, shadows from [AppShadows].
@@ -1603,6 +1518,93 @@ abstract final class AppCommunitiesLayout {
   static const double heroRingAlpha = 0.14;
 }
 
+/// Creator Studio, Advertise and Calls geometry per screen size (dp), from
+/// the dzeroth-mobile, tablet and desktop mocks (dz.css `.empty`, `.card`,
+/// `.display`). Colours come from the theme, gradients from [AppGradients].
+abstract final class AppStudioLayout {
+  // Creator Studio stat cards (phone 16 dp, tablet / desktop 18 x 20 dp).
+  static const double pagePaddingPhone = 20;
+  static const double pagePaddingWide = 16;
+  static const double statGap = 12;
+  static const double statPaddingPhone = 16;
+  static const double statPaddingVWide = 18;
+  static const double statPaddingHWide = 20;
+  static const double statValuePhone = 28;
+  static const double statValueWide = 32;
+
+  // The coming-soon page: the phone centres it over teal rings, the tablet
+  // and desktop start it at the leading edge.
+  static const double comingPaddingPhone = 32;
+  static const double comingPaddingVWide = 56;
+  static const double comingPaddingHWide = 40;
+  static const double tilePhone = 84;
+  static const double tileRadiusPhone = 28;
+  static const double tileGlowBlur = 34;
+  static const double tileIconPhone = 40;
+  static const double tileWide = 64;
+  static const double tileRadiusWide = 22;
+  static const double tileIconWide = 30;
+  static const double eyebrowTopWide = 28;
+  static const double eyebrowBottomWide = 10;
+  static const double headlinePhone = 36;
+  static const double headlineWide = 40;
+  static const double bodyMaxWidth = 420;
+  static const double actionWidthPhone = 240;
+  static const double actionGap = 12;
+  static const double phoneGap = 18;
+}
+
+/// Article editor geometry (dzeroth-mobile, tablet and desktop Article
+/// mocks): the dashed cover drop, the display title and the toolbar pill.
+/// Colours come from the theme, shadows from [AppShadows].
+abstract final class AppArticlesLayout {
+  static const double gutter = 20;
+  static const double phoneCoverHeight = 170;
+  static const double wideCoverHeight = 220;
+  static const double coverBorder = 1.5;
+  static const double coverDash = 7;
+  static const double coverDashGap = 5;
+  static const double coverFillAlpha = 0.06;
+  static const double phoneTitle = 34;
+  static const double wideTitle = 44;
+  static const double toolbarPadding = 4;
+  static const double toolbarGap = 2;
+}
+
+/// Account pages (Change handle, Download my data, Delete account) and the
+/// Premium and Reset password dialogs: the mocks' padded page with a display
+/// headline and its actions, pinned to the bottom on the phone and inline
+/// from 600 dp. Sizes are dp; headline sizes are [AppTypeTokens.displaySizes].
+abstract final class AppAccountLayout {
+  static const double pagePaddingH = 24;
+  static const double pagePaddingTop = 20;
+  static const double pagePaddingBottom = 32;
+  static const double phoneHeadline = 36;
+  static const double wideHeadline = 48;
+  static const double dialogHeadline = 32;
+  static const double sectionGap = 16;
+  static const double actionsGap = 10;
+  static const double actionsTop = 22;
+}
+
+/// Welcome (Main) geometry per screen size (dp), from the dzeroth-mobile,
+/// tablet and desktop Main mocks: the brand mark and its spacing.
+abstract final class AppWelcomeLayout {
+  static const double markPhone = 96;
+  static const double markWide = 130;
+  static const double markRadiusPhone = 26;
+  static const double markRadiusWide = 34;
+
+  /// Gap from the wordmark to the mark on the phone page.
+  static const double phoneMarkTop = 72;
+
+  /// Gap from the mark to the eyebrow on tablet and in the desktop hero.
+  static const double wideMarkGap = 30;
+
+  /// Gap between stacked provider pills.
+  static const double providerGap = 12;
+}
+
 /// Geometry of Explore, Bookmarks, Follow requests, Followers / Following,
 /// Blocked / Muted and Edit profile (dzeroth-mobile, tablet and desktop mocks;
 /// the tablet and desktop main columns are the same).
@@ -1617,6 +1619,19 @@ abstract final class AppExplorePeopleLayout {
   static const double trendRankGap = 14;
   static const double trendPaddingPhone = 20;
   static const double trendPaddingWide = 16;
+
+  /// Edit profile: the flat band behind the avatar (a phone's inset card, a
+  /// wide layout's full-width strip), how far the avatar hangs over its
+  /// bottom edge, the surface-coloured ring round it, and the form's side
+  /// padding on a phone and from 600 dp.
+  static const double editBandPhone = 120;
+  static const double editBandWide = 150;
+  static const double editAvatarOverlap = 48;
+  static const double editAvatarRing = 4;
+  static const double editAvatarInsetPhone = 18;
+  static const double editAvatarGap = 14;
+  static const double editPaddingPhone = 20;
+  static const double editPaddingWide = 16;
 }
 
 /// Settings geometry per screen size (dp): the phone mock's raised cards

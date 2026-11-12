@@ -2,14 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
-import '../../../shared/widgets/primitives/app_empty_view.dart';
+import '../../../shared/widgets/primitives/app_coming_soon_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
-import '../../../shared/widgets/primitives/app_status_pill.dart';
-import '../../../shared/widgets/primitives/settings_group.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
 
 /// Calls (`/calls`, a shell of plan W8): says calls are coming soon. No RPC,
-/// no repository, no permission and no calling package; the rows are static.
+/// no repository, no permission and no calling package; the one button is
+/// off.
 class CallsScreen extends StatelessWidget {
   const CallsScreen({super.key});
 
@@ -17,48 +18,35 @@ class CallsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
     return AppMainColumn(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           AppBackHeader(
             title: title,
+            subtitle: phone ? null : 'Voice · Video',
             onBack: () => context.canPop()
                 ? context.pop()
                 : context.go(AppRouter.homePath),
           ),
           Expanded(
-            child: SingleChildScrollView(
+            child: Padding(
               // The floating bar's inset (`ui_shell`); 0 under the docked bar.
               padding: EdgeInsets.only(
                 bottom: MediaQuery.paddingOf(context).bottom,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const AppEmptyView(
-                    icon: Icons.call_outlined,
-                    title: 'Calls are coming soon',
-                    subtitle:
-                        "Voice and video calls aren't available yet. You can "
-                        'still reach people by replying to or mentioning them.',
-                  ),
-                  SettingsGroup(
-                    title: 'Calls',
-                    rows: const [
-                      SettingsRow(
-                        icon: Icons.call_outlined,
-                        title: 'Voice calls',
-                        value: AppStatusPill(label: 'Coming soon'),
-                      ),
-                      SettingsRow(
-                        icon: Icons.videocam_outlined,
-                        title: 'Video calls',
-                        value: AppStatusPill(label: 'Coming soon'),
-                      ),
-                    ],
-                  ),
-                ],
+              child: const AppComingSoonView(
+                icon: Icons.call_outlined,
+                eyebrow: 'Coming soon',
+                headline: 'Calls are',
+                accent: 'coming',
+                body: "Voice and video calls with people you've met on a plan.",
+                action: AppPillButton(
+                  label: 'Not available yet',
+                  onPressed: null,
+                  size: AppButtonSize.large,
+                ),
               ),
             ),
           ),
