@@ -211,7 +211,10 @@ void main() {
       });
 
       test('modal barriers use the theme scrim', () {
-        expect(app.scrim, AppPalette.scrim);
+        expect(
+          app.scrim,
+          entry.key == 'dark' ? AppPalette.scrimDark : AppPalette.scrim,
+        );
         expect(theme.dialogTheme.barrierColor, app.scrim);
         expect(theme.bottomSheetTheme.modalBarrierColor, app.scrim);
         expect(theme.drawerTheme.scrimColor, app.scrim);
@@ -928,7 +931,10 @@ void _componentThemes() {
           dialog.shape,
           RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         );
-        expect(dialog.barrierColor, AppPalette.scrim);
+        expect(
+          dialog.barrierColor,
+          isDark ? AppPalette.scrimDark : AppPalette.scrim,
+        );
         expect(dialog.elevation, 0);
 
         final sheet = theme.bottomSheetTheme;

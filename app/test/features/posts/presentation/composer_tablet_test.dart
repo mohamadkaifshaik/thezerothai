@@ -167,6 +167,10 @@ void main() {
             final rect = tester.getRect(findReplyComposer());
             if (tablet) {
               expectRect(rect, expectedDialog(width, 900));
+            } else if (legacy && width >= 1200) {
+              // Desktop (the ReplyComposer mock): 600 wide, hung 64 under
+              // the top, at most 440 tall.
+              expectRect(rect, Rect.fromLTWH((width - 600) / 2, 64, 600, 440));
             } else if (legacy) {
               // Today's: 600 wide, 85 % of the height, centred on the window.
               expectRect(
@@ -327,7 +331,23 @@ void main() {
       });
     }
 
-    testWidgets('1200: a reply deep link keeps today\'s dialog (R-1)', (
+    testWidgets('a short desktop window: the dialog fits under the top', (
+      tester,
+    ) async {
+      final rig = ComposerTabletRig();
+      await rig.pump(tester, width: 1440, height: 400);
+      await rig.push(
+        tester,
+        AppRouter.composeReplyPath(rig.parent.post.postId),
+      );
+      expect(tester.takeException(), isNull);
+      expectRect(
+        tester.getRect(findReplyComposer()),
+        Rect.fromLTWH((1440 - 600) / 2, 64, 600, 400 - 64 - 24),
+      );
+    });
+
+    testWidgets('1200: a reply deep link is the desktop dialog', (
       tester,
     ) async {
       final rig = ComposerTabletRig();
@@ -339,6 +359,7 @@ void main() {
       );
       expect(dialogAround(findReplyComposer()), findsOneWidget);
       expect(tester.getSize(findReplyComposer()).width, 600);
+      expect(tester.getTopLeft(findReplyComposer()).dy, 64);
     });
   });
 
@@ -571,11 +592,45 @@ void main() {
       expect(findReplyComposer(), findsNothing);
     });
 
-    testWidgets('1200: the reply keeps today\'s dialog, Escape does nothing', (
+    testWidgets('1200: Escape closes the desktop reply dialog', (tester) async {
+      final rig = ComposerTabletRig();
+      await rig.pump(tester, width: 1200, height: 900);
+      await rig.push(
+        tester,
+        AppRouter.composeReplyPath(rig.parent.post.postId),
+      );
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(findReplyComposer(), findsNothing);
+    });
+
+    testWidgets('1440: Escape with text typed asks first', (tester) async {
+      final rig = ComposerTabletRig();
+      await rig.pump(tester, width: 1440, height: 900);
+      await rig.push(
+        tester,
+        AppRouter.composeReplyPath(rig.parent.post.postId),
+      );
+      await tester.enterText(find.byType(TextField), 'half a thought');
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.text('Discard reply?'), findsOneWidget);
+      await tester.tap(find.text('Keep editing'));
+      await tester.pumpAndSettle();
+      expect(find.text('half a thought'), findsOneWidget);
+    });
+
+    testWidgets('900 off the tablet layout: Escape still does nothing', (
       tester,
     ) async {
       final rig = ComposerTabletRig();
-      await rig.pump(tester, width: 1200, height: 900);
+      await rig.pump(
+        tester,
+        width: 900,
+        height: 900,
+        flags: kComposerFlagModes['neither']!,
+      );
       await rig.push(
         tester,
         AppRouter.composeReplyPath(rig.parent.post.postId),
