@@ -1168,6 +1168,15 @@ abstract final class AppGradients {
     colors: [AppPalette.navy2, AppPalette.navy, AppPalette.navyDeep],
     stops: [0, 0.55, 1],
   );
+
+  /// The dark splash wash (dzeroth-mobile Splash.html): radial-gradient(90%
+  /// 60% at 50% 45%, navy2, navy 55%, navyDeep).
+  static const RadialGradient splash = RadialGradient(
+    center: Alignment(0, -.1),
+    radius: .9,
+    colors: [AppPalette.navy2, AppPalette.navy, AppPalette.navyDeep],
+    stops: [0, .55, 1],
+  );
 }
 
 /// Redesign shadows (outer parts only; Flutter has no inset shadow).

@@ -111,7 +111,7 @@ class SplashScreen extends StatelessWidget {
       body: DecoratedBox(
         decoration: BoxDecoration(
           color: theme.colorScheme.surface,
-          gradient: dark ? _splashWash : null,
+          gradient: dark ? AppGradients.splash : null,
         ),
         child: Stack(
           children: [
@@ -137,15 +137,6 @@ class SplashScreen extends StatelessWidget {
     );
   }
 }
-
-/// Splash.html: radial-gradient(90% 60% at 50% 45%, navy2, navy 55%,
-/// navyDeep).
-const RadialGradient _splashWash = RadialGradient(
-  center: Alignment(0, -.1),
-  radius: .9,
-  colors: [AppPalette.navy2, AppPalette.navy, AppPalette.navyDeep],
-  stops: [0, .55, 1],
-);
 
 class _Logo extends StatelessWidget {
   const _Logo({required this.size, required this.radius, required this.rings});
