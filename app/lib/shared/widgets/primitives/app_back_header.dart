@@ -11,8 +11,9 @@ import 'app_main_column.dart';
 /// [titleContent] replaces the one-line title text with richer content (the
 /// conversation header's avatar, name and handle); [title] is then only the
 /// accessible name of the header. [subtitle] puts one muted line under the
-/// title (the viewer's @handle, "3 pending", the plan a People page is about). [actions] sit at the end (an
-/// overflow menu); all default to nothing, so existing callers are unchanged.
+/// title (the viewer's @handle, "3 pending", the plan a People page is
+/// about). [actions] sit at the end (an overflow menu); all default to
+/// nothing, so existing callers are unchanged.
 class AppBackHeader extends StatelessWidget {
   const AppBackHeader({
     super.key,
