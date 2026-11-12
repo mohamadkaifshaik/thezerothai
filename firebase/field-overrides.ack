@@ -3,4 +3,4 @@
 # single-field indexing, which is NOT additive. CI (scripts/promotion/check-field-overrides.sh) fails until this hash is updated
 # on purpose in the same reviewed PR. Update only after confirming the serving backend and the rollback target do not need the
 # index (expand/contract). Recompute: the failing check prints the new hash.
-sha256=f03c731839a7121ac367576d80a17403d24fa440b7ce40460d8e1c8491b1b126
+sha256=24608d210a7d18f26b71c725f03f693ecf84c129397c78e0570665cfa39f6e00
