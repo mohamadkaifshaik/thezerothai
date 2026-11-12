@@ -362,7 +362,7 @@ class AppColors extends ThemeExtension<AppColors> {
     disabledPillFill: AppPalette.darkContainerHighest,
     disabledPillLabel: AppPalette.mutedOnDark,
     selectedRow: AppPalette.darkContainerHigh,
-    scrim: AppPalette.scrim,
+    scrim: AppPalette.scrimDark,
     primaryFillGradient: AppGradients.primaryButton,
     primaryFillLabel: AppPalette.navy,
     dangerFill: AppPalette.danger,
@@ -1106,6 +1106,11 @@ abstract final class AppPalette {
   static const Color hairlineLight = Color(0x140D1528);
   static const Color hairlineDark = Color(0x1AF6F4EF);
   static const Color scrim = Color(0x7A08101F);
+
+  /// The dark theme's modal scrim: black at 64 %. The light scrim (navy-deep
+  /// at 48 %) barely darkens the navy page, so a dialog or sheet on dark
+  /// read as part of the page.
+  static const Color scrimDark = Color(0xA3000000);
 
   // Dark container ladder (D4).
   static const Color darkContainerLowest = navyDeep;
