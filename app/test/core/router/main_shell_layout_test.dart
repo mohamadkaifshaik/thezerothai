@@ -2161,7 +2161,7 @@ void main() {
     });
 
     forEachThemeAndWidth(
-      'the shell fits: no overflow, rail + panes = W, 48 dp targets',
+      'the shell fits: no overflow, rail + page = W, 48 dp targets',
       (tester, env) async {
         for (final height in {env.size.height, ...kTabletLandscapeHeights}) {
           await pump(
@@ -2178,16 +2178,9 @@ void main() {
           final header = tester.getRect(find.byType(AppTopBar));
           expect(rail.left, 0);
           expect(header.left, rail.right);
-          // Band B (T3): Home has a context pane after a 1 dp hairline.
-          final bandB = env.size.width >= AppBreakpoints.expanded;
-          expect(
-            find.byType(ContextPane),
-            bandB ? findsOneWidget : findsNothing,
-          );
-          final pane = bandB
-              ? 1 + tester.getRect(find.byType(ContextPane)).width
-              : 0.0;
-          expect(rail.width + header.width + pane, env.size.width);
+          // No context pane in either band: the page keeps the content.
+          expect(find.byType(ContextPane), findsNothing);
+          expect(rail.width + header.width, env.size.width);
           expectMinTarget(tester, inRail(find.byTooltip('New post')));
           expectMinTarget(tester, find.byType(AppAccountChip));
           // No rail label is clipped.

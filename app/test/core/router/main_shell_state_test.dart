@@ -186,15 +186,9 @@ void main() {
                 : findsNothing,
             reason: reason,
           );
-          // Band B adds the context pane beside the page (T3); the page
-          // still keeps its state.
-          expect(
-            find.byType(ContextPane),
-            tablet && tabletBand && width >= AppBreakpoints.expanded
-                ? findsOneWidget
-                : findsNothing,
-            reason: reason,
-          );
+          // Band B draws no context pane either: the page keeps its state
+          // across the band change.
+          expect(find.byType(ContextPane), findsNothing, reason: reason);
           expect(
             tester.state(find.byType(EditableText)),
             same(fieldState),

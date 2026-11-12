@@ -383,10 +383,10 @@ void main() {
       });
     }
 
-    // T8d: a cold or typed form link gets the form's context pane (the
-    // preview and the tips, then the footer) through the real router.
+    // A cold or typed form link draws no context pane (the tablet layout
+    // has none): the form keeps its own preview inline.
     for (final location in ['/plans/new', '/plans/$kBeaconIdA/edit']) {
-      testWidgets('$location (cold): the preview and tips pane', (
+      testWidgets('$location (cold): no context pane, the preview inline', (
         tester,
       ) async {
         final (path, _) = await openAt(
@@ -397,20 +397,8 @@ void main() {
           hoisted: true,
         );
         expect(path, location);
-        final pane = find.byType(ContextPane);
-        expect(pane, findsOneWidget);
-        expect(
-          [for (final s in tester.widget<ContextPane>(pane).sections) s.kind],
-          [
-            ContextSectionKind.planPreview,
-            ContextSectionKind.planTips,
-            ContextSectionKind.links,
-          ],
-        );
-        expect(
-          find.descendant(of: pane, matching: find.text('Preview')),
-          findsOneWidget,
-        );
+        expect(find.byType(ContextPane), findsNothing);
+        expect(find.text('Preview'), findsOneWidget);
       });
     }
 
