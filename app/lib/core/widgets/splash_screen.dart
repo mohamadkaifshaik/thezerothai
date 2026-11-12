@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../shared/widgets/primitives/app_brand_mark.dart';
 import '../../shared/widgets/primitives/app_rings.dart';
 import '../theme/app_theme.dart';
 
@@ -164,33 +165,10 @@ class _Logo extends StatelessWidget {
             centre: (box) => box.center(Offset.zero),
           ),
         ),
-        _mark(context),
+        AppBrandMark(size: size, radius: radius),
       ],
     );
   }
-
-  Widget _mark(BuildContext context) => ExcludeSemantics(
-    child: DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(radius),
-        boxShadow: [
-          BoxShadow(
-            color: context.appColors.accentText.withValues(alpha: .08),
-            spreadRadius: AppAuthLayout.splashLogoHalo,
-          ),
-          ...AppShadows.brand,
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(radius),
-        child: Image.asset(
-          'assets/branding/icon.png',
-          width: size,
-          height: size,
-        ),
-      ),
-    ),
-  );
 }
 
 /// The phone mock's three slanted teal pills, the bright one stepping along

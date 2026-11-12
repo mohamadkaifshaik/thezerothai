@@ -156,7 +156,7 @@ void main() {
     // The thread is open; sign out. The router leaves it for sign-in.
     await rig.signOut(tester);
 
-    expect(rig.path, AppRouter.signInPath);
+    expect(rig.path, AppRouter.welcomePath);
     expect(find.byType(ThreadScreen), findsNothing);
     final after = await tester.runAsync(rig.messagingRowCounts);
     expect(after!.conversations, 0);

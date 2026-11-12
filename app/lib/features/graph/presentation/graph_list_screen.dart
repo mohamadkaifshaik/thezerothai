@@ -24,11 +24,16 @@ class GraphListScreen extends StatefulWidget {
     required this.handle,
     this.userId,
     this.initialTab = GraphListTab.followers,
+    this.viewerUserId,
   });
 
   final String handle;
   final String? userId;
   final GraphListTab initialTab;
+
+  /// The signed-in user: on their own list everyone in Followers follows
+  /// them, so a person they do not follow back reads "Follow back".
+  final String? viewerUserId;
 
   @override
   State<GraphListScreen> createState() => _GraphListScreenState();
@@ -114,6 +119,7 @@ class _GraphListScreenState extends State<GraphListScreen> {
 
     final userId = _resolvedUserId!;
     final graphRepository = context.read<GraphRepository>();
+    final ownList = widget.viewerUserId == userId;
     return DefaultTabController(
       length: 2,
       initialIndex: widget.initialTab == GraphListTab.followers ? 0 : 1,
@@ -124,6 +130,7 @@ class _GraphListScreenState extends State<GraphListScreen> {
             _GraphTab(
               key: ValueKey('followers-$userId'),
               emptyMessage: 'No followers yet.',
+              followsViewer: ownList,
               protectedMessage:
                   'Only approved followers can see who follows @${widget.handle}.',
               fetchPage: ({required pageSize, required pageToken}) =>
@@ -192,9 +199,13 @@ class _GraphTab extends StatefulWidget {
     required this.fetchPage,
     required this.emptyMessage,
     required this.protectedMessage,
+    this.followsViewer = false,
   });
 
   final FetchGraphPage fetchPage;
+
+  /// Everyone here follows the viewer: their own Followers list.
+  final bool followsViewer;
   final String emptyMessage;
 
   /// Shown when the account is protected and the viewer is not approved
@@ -226,6 +237,7 @@ class _GraphTabState extends State<_GraphTab>
       cubit: _cubit,
       emptyMessage: widget.emptyMessage,
       protectedMessage: widget.protectedMessage,
+      followsViewer: widget.followsViewer,
     );
   }
 }

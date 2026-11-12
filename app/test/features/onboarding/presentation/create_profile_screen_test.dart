@@ -183,7 +183,9 @@ void main() {
     );
 
     await tester.pumpWidget(wrap());
-    await tester.tap(find.byIcon(Icons.logout));
+    final signOut = find.widgetWithText(TextButton, 'Sign out');
+    await tester.ensureVisible(signOut);
+    await tester.tap(signOut);
     await tester.pump();
 
     verify(() => authBloc.add(const AuthSignOutRequested())).called(1);

@@ -30,9 +30,6 @@ void main() {
     '/profile/alice/following': ContextFamily.people,
     '/profile/alice': ContextFamily.profile,
     '/u/u1': ContextFamily.profile,
-    // The plan forms (T8d): the preview and the tips, lent by the page.
-    AppRouter.planNewPath: ContextFamily.planCreate,
-    '/plans/b1/edit': ContextFamily.planEdit,
     // No pane: list-detail families (T4-T6) and the F rows of section 4.1.
     AppRouter.settingsPath: ContextFamily.none,
     AppRouter.blockedAccountsPath: ContextFamily.none,
@@ -46,6 +43,9 @@ void main() {
     AppRouter.plansPath: ContextFamily.none,
     '/plans/b1': ContextFamily.none,
     '/plans/b1/people': ContextFamily.none,
+    // The plan forms: the preview is a dialog and the tips are inline.
+    AppRouter.planNewPath: ContextFamily.none,
+    '/plans/b1/edit': ContextFamily.none,
     AppRouter.creatorStudioPath: ContextFamily.none,
     AppRouter.advertisePath: ContextFamily.none,
     AppRouter.callsPath: ContextFamily.none,
@@ -64,7 +64,7 @@ void main() {
   });
 
   test('"new" and "mine" are pages of their own, not a plan id', () {
-    expect(contextFamilyFor('/plans/new'), ContextFamily.planCreate);
+    expect(contextFamilyFor('/plans/new'), ContextFamily.none);
     expect(contextFamilyFor('/plans/mine'), ContextFamily.global);
     expect(contextFamilyFor('/plans/news'), ContextFamily.none);
   });
@@ -123,28 +123,20 @@ void main() {
     }
   });
 
-  group('plan forms (T8d)', () {
-    test('"new" is the create form; "edit" under a plan id the edit form', () {
-      expect(contextFamilyFor('/plans/new/'), ContextFamily.planCreate);
-      expect(contextFamilyFor('/plans/new?x=1'), ContextFamily.planCreate);
-      expect(contextFamilyFor('/plans/7/edit/'), ContextFamily.planEdit);
+  group('plan forms', () {
+    test('"new" and "edit" under a plan id have no pane of their own', () {
+      expect(contextFamilyFor('/plans/new/'), ContextFamily.none);
+      expect(contextFamilyFor('/plans/new?x=1'), ContextFamily.none);
+      expect(contextFamilyFor('/plans/7/edit/'), ContextFamily.none);
       expect(contextFamilyFor('/plans/7/edits'), ContextFamily.global);
-      expect(contextFamilyFor('/plans/new/edit'), ContextFamily.planEdit);
     });
 
-    // The forms are pushed (the list header, the placeholder's New plan,
-    // My plans, a plan's Edit), so when one is the shell navigator's top
-    // page it decides; everything else keeps its rule.
+    // A form pushed over a page keeps that page's base-route rule.
     const cases = <(String, String?), String>{
-      ('/plans', '/plans/new'): '/plans/new',
-      ('/plans/7', '/plans/7/edit'): '/plans/7/edit',
-      ('/plans/mine', '/plans/new'): '/plans/new',
-      ('/home', '/plans/new'): '/plans/new',
-      // A plan form as the base, with no top known: the base.
+      ('/plans', '/plans/new'): '/plans',
+      ('/plans/7', '/plans/7/edit'): '/plans/7',
+      ('/home', '/plans/new'): '/home',
       ('/plans/new', null): '/plans/new',
-      // Other Plans pages pushed over the list keep T5's base-route rule.
-      ('/plans', '/plans/mine'): '/plans',
-      ('/plans/7', '/plans/7/people'): '/plans/7',
     };
     for (final MapEntry(key: (base, top), value: expected) in cases.entries) {
       test('pane location: base $base, top $top -> $expected', () {

@@ -241,7 +241,7 @@ void main() {
             .value
             .uri
             .path;
-    expect(location, AppRouter.signInPath);
+    expect(location, AppRouter.welcomePath);
     // Nothing of the signed-out session asked for the list again.
     verifyNever(
       () => graphs.single.listFollowRequests(

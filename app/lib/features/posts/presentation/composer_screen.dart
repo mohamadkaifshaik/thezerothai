@@ -17,10 +17,11 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../shared/widgets/primitives/app_avatar.dart';
-import '../../../shared/widgets/primitives/app_form_header.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/character_counter.dart';
 import '../../../shared/widgets/post/embedded_post_card.dart';
+import '../../../shared/widgets/post/post_card.dart' show kPostAvatarGap;
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/widgets/verify_email_view.dart';
 import '../../communities/data/communities_repository.dart';
@@ -40,11 +41,13 @@ import '../data/drafts_repository.dart';
 import '../data/posts_repository.dart';
 import '../domain/composer_attachment_rules.dart';
 import '../domain/composer_draft.dart';
+import '../domain/post_text_rules.dart' show kMaxPostCodePoints;
 import '../domain/posts_feature_flag.dart';
 import '../domain/reply_audience.dart';
 import '../domain/viewer_author_snapshot.dart';
 import 'bloc/composer_cubit.dart';
 import 'bloc/pending_posts_cubit.dart';
+import 'composer_route.dart';
 import 'post_error_messages.dart';
 import 'quote_gate.dart';
 import 'widgets/audience_pill.dart';
@@ -670,6 +673,14 @@ class _ComposerViewState extends State<_ComposerView> {
     }
   }
 
+  /// The post text: 20 sp in either presentation (the Composer mocks).
+  TextStyle? _fieldStyle(BuildContext context) =>
+      Theme.of(context).textTheme.bodyLarge?.copyWith(
+        fontSize: AppTypeTokens.replyFieldSizeDialog,
+        height: AppTypeTokens.replyFieldLineHeightDialog,
+        fontWeight: AppTypeTokens.weightBody,
+      );
+
   /// The avatar and the post text. Fills the available height without a
   /// poll; with one it is the poll's question (two lines to start, growing),
   /// inside the scroll view that also holds the builder.
@@ -692,17 +703,15 @@ class _ComposerViewState extends State<_ComposerView> {
       keyboardType: TextInputType.multiline,
       textCapitalization: TextCapitalization.sentences,
       inputFormatters: [LengthLimitingTextInputFormatter(kComposerInputCap)],
-      style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontSize: 18),
+      style: _fieldStyle(context),
       decoration: InputDecoration(
         hintText: hasPoll
             ? kPollQuestionHint
             : isQuote
             ? 'Add a comment'
             : "What's happening?",
-        hintStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
-          fontSize: 18,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
+        hintStyle: _fieldStyle(context)
+            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
         filled: false,
         border: InputBorder.none,
         enabledBorder: InputBorder.none,
@@ -716,8 +725,14 @@ class _ComposerViewState extends State<_ComposerView> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ExcludeSemantics(child: AppAvatar(url: widget.avatarUrl)),
-          const SizedBox(width: AppSpacing.sm),
+          ExcludeSemantics(
+            child: AppAvatar.sized(
+              url: widget.avatarUrl,
+              size: AppAvatarSize.post,
+              name: '',
+            ),
+          ),
+          const SizedBox(width: kPostAvatarGap),
           Expanded(
             // The audience pill sits above the text, next to the
             // avatar, as on X; without it the field is laid out as before.
@@ -872,6 +887,19 @@ class _ComposerViewState extends State<_ComposerView> {
         // owns it so its own guards read the same answer.
         final rules = cubit.rules;
         final poll = state.poll;
+        // Composer mocks: full screen (phones, a cold start) puts Post in the
+        // header; the tablet and desktop dialogs put it in the footer, by the
+        // character ring.
+        final phone =
+            ComposerPresentationScope.of(context) ==
+            ComposerPresentation.fullScreen;
+        final post = AppPillButton(
+          label: scheduling ? 'Schedule' : 'Post',
+          compact: true,
+          busy: state.isSubmitting,
+          busySemanticsLabel: scheduling ? 'Scheduling post' : null,
+          onPressed: state.canSubmit ? cubit.submit : null,
+        );
         // Back (system gesture, browser) is blocked while the post is being
         // sent, and asks first when photos are attached. There is no cancel
         // for an upload in flight. Applies to the verify-email view too: it
@@ -904,15 +932,15 @@ class _ComposerViewState extends State<_ComposerView> {
               child: AppMainColumn(
                 child: Column(
                   children: [
-                    AppFormHeader(
+                    _ComposerHeader(
                       title: isQuote ? 'Quote' : 'New post',
-                      busy: state.isSubmitting,
-                      busySemanticsLabel: scheduling ? 'Scheduling post' : null,
-                      onCancel: () => _requestClose(context, state),
-                      secondaryLabel: cubit.draftsActive ? 'Drafts' : null,
-                      onSecondary: () => _openDrafts(context),
-                      actionLabel: scheduling ? 'Schedule' : 'Post',
-                      onAction: state.canSubmit ? cubit.submit : null,
+                      onClose: state.isSubmitting
+                          ? null
+                          : () => _requestClose(context, state),
+                      onDrafts: cubit.draftsActive
+                          ? () => _openDrafts(context)
+                          : null,
+                      post: phone ? post : null,
                     ),
                     // The header announces "Scheduling post"; this bar is
                     // only the picture of it.
@@ -988,45 +1016,67 @@ class _ComposerViewState extends State<_ComposerView> {
                       // Photos at the start, the counter at the end; the hint
                       // (when there is one) takes the space between.
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
+                          // Scrolls sideways when the ring and the count leave
+                          // it too little room (large text on a small phone).
+                          Expanded(
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (widget.mediaEnabled)
+                                    _AddPhotoButton(block: rules.photo),
+                                  if (rules.showGif)
+                                    ComposerGifButton(
+                                      block: rules.gif,
+                                      enabled:
+                                          !state.isSubmitting && !attachBusy,
+                                      onPressed: () => context
+                                          .read<AttachmentsCubit>()
+                                          .pickGif(),
+                                    ),
+                                  if (rules.showPoll)
+                                    ComposerPollButton(
+                                      block: rules.poll,
+                                      enabled: !state.isSubmitting,
+                                      selected: state.hasPoll,
+                                      // Open: it only takes you back to the
+                                      // question (Remove poll is in the builder).
+                                      onPressed: state.hasPoll
+                                          ? _questionFocus.requestFocus
+                                          : cubit.pollAdded,
+                                    ),
+                                  if (cubit.canSchedule)
+                                    ScheduleButton(
+                                      scheduled: scheduling,
+                                      enabled:
+                                          !state.isSubmitting &&
+                                          rules.schedule == ComposerBlock.none,
+                                      tooltip: rules.schedule.scheduleTooltip,
+                                      onPressed: () => _openSchedule(context),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          DraftProblemHint(problem: state.draft.problem),
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              if (widget.mediaEnabled)
-                                _AddPhotoButton(block: rules.photo),
-                              if (rules.showGif)
-                                ComposerGifButton(
-                                  block: rules.gif,
-                                  enabled: !state.isSubmitting && !attachBusy,
-                                  onPressed: () => context
-                                      .read<AttachmentsCubit>()
-                                      .pickGif(),
-                                ),
-                              if (rules.showPoll)
-                                ComposerPollButton(
-                                  block: rules.poll,
-                                  enabled: !state.isSubmitting,
-                                  selected: state.hasPoll,
-                                  // Open: it only takes you back to the
-                                  // question (Remove poll is in the builder).
-                                  onPressed: state.hasPoll
-                                      ? _questionFocus.requestFocus
-                                      : cubit.pollAdded,
-                                ),
-                              if (cubit.canSchedule)
-                                ScheduleButton(
-                                  scheduled: scheduling,
-                                  enabled:
-                                      !state.isSubmitting &&
-                                      rules.schedule == ComposerBlock.none,
-                                  tooltip: rules.schedule.scheduleTooltip,
-                                  onPressed: () => _openSchedule(context),
-                                ),
+                              CharacterCounter.ring(
+                                remaining: state.draft.remaining,
+                                ringOf: kMaxPostCodePoints,
+                                ringSize: phone
+                                    ? AppSize.counterRingPhone
+                                    : AppSize.counterRing,
+                              ),
+                              if (!phone) ...[
+                                const SizedBox(width: AppSpacing.smd),
+                                post,
+                              ],
                             ],
                           ),
-                          DraftProblemHint(problem: state.draft.problem),
-                          CharacterCounter(remaining: state.draft.remaining),
                         ],
                       ),
                     ),
@@ -1039,6 +1089,74 @@ class _ComposerViewState extends State<_ComposerView> {
       },
     );
   }
+}
+
+/// Close at the start; Drafts (when kept) and, full screen, the Post pill at
+/// the end. The dialogs carry Post in the footer. [title] is only the screen
+/// reader's heading: the designs draw none.
+class _ComposerHeader extends StatelessWidget {
+  const _ComposerHeader({
+    required this.title,
+    required this.onClose,
+    required this.onDrafts,
+    required this.post,
+  });
+
+  final String title;
+  final VoidCallback? onClose;
+  final VoidCallback? onDrafts;
+  final Widget? post;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsetsDirectional.fromSTEB(
+      AppSpacing.sm,
+      0,
+      AppSpacing.md,
+      0,
+    ),
+    // Grows with the pill at large text instead of clipping it.
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: AppSize.headerRow),
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: 'Close',
+            onPressed: onClose,
+            icon: const Icon(Icons.close),
+          ),
+          Semantics(header: true, label: title, child: const SizedBox.shrink()),
+          Expanded(
+            child: Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (onDrafts != null)
+                    Flexible(
+                      child: TextButton(
+                        style: TextButton.styleFrom(
+                          minimumSize: const Size.square(
+                            AppSpacing.minTapTarget,
+                          ),
+                        ),
+                        onPressed: onDrafts,
+                        child: const Text(
+                          'Drafts',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  if (post case final post?) Flexible(child: post),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 /// The L-9 note under the "Will send on" line, at most two tap targets high:

@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
-import '../../../../core/widgets/context_pane.dart';
 import '../../../../shared/widgets/primitives/app_surface.dart';
 
-/// The title of the plan form tips: band A's collapsible section and band
-/// B's pane card.
+/// The title of the plan form tips.
 const kPlanTipsTitle = 'Tips for a good plan';
 
 /// The tips of the create and edit forms (the approved designs'
@@ -19,20 +17,17 @@ const kPlanTips = <String>[
 
 /// The tips, one per line, each after a muted check mark (decorative).
 class PlanTipsList extends StatelessWidget {
-  const PlanTipsList({super.key, this.inset = AppSpacing.md});
-
-  /// The start and end padding of every line.
-  final double inset;
+  const PlanTipsList({super.key});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final muted = theme.colorScheme.onSurfaceVariant;
     return Padding(
-      padding: EdgeInsetsDirectional.fromSTEB(
-        inset,
+      padding: const EdgeInsetsDirectional.fromSTEB(
+        AppSpacing.md,
         AppSpacing.xs,
-        inset,
+        AppSpacing.md,
         AppSpacing.smd,
       ),
       child: Column(
@@ -63,17 +58,8 @@ class PlanTipsList extends StatelessWidget {
   }
 }
 
-/// Band B's "Tips for a good plan" card in the context pane.
-class PlanTipsCard extends StatelessWidget {
-  const PlanTipsCard({super.key});
-
-  @override
-  Widget build(BuildContext context) =>
-      const ContextPaneCard(title: kPlanTipsTitle, child: PlanTipsList());
-}
-
-/// Band A's "Tips for a good plan", inline at the top of the form (tablet
-/// plan section 4.1: "Tips inl collapsible at the top"): a 48 dp toggle row
+/// "Tips for a good plan", inline at the top of the form, collapsed: a 48 dp
+/// toggle row
 /// that reports its expanded state, and the tips under it when [expanded].
 /// The page owns [expanded], so it survives a resize.
 class PlanTipsSection extends StatelessWidget {

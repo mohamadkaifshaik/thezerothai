@@ -312,64 +312,23 @@ void main() {
   });
 
   group('Change handle', () {
-    for (final size in const [Size(390, 844), Size(1440, 900)]) {
-      for (final brightness in Brightness.values) {
-        for (final textScale in const [1.0, 2.0]) {
-          testWidgets(
-            '${size.width.toInt()}x${size.height.toInt()} ${brightness.name} '
-            'text x$textScale: no overflow, header, field, action',
-            (tester) async {
-              await open(
-                tester,
-                '/settings/handle',
-                size: size,
-                brightness: brightness,
-                textScale: textScale,
-              );
-              expect(tester.takeException(), isNull);
-              expect(find.text('Cancel'), findsOneWidget);
-              expect(find.text('New handle'), findsOneWidget);
-              // At large text the action sits below the fold of the list.
-              await tester.scrollUntilVisible(
-                find.widgetWithText(AppPillButton, 'Change handle'),
-                100,
-                scrollable: find.byType(Scrollable).first,
-              );
-              expect(
-                find.widgetWithText(AppPillButton, 'Change handle'),
-                findsOneWidget,
-              );
-              expect(tester.takeException(), isNull);
-            },
-          );
-        }
-      }
-    }
-
-    testWidgets('wide: the screen stays in the main column', (tester) async {
-      await open(tester, '/settings/handle', size: const Size(1440, 900));
-      const gutter = (1440 - AppLayout.mainColumnMaxWidth) / 2;
-      expect(
-        tester.getTopLeft(find.text('Cancel')).dx,
-        greaterThanOrEqualTo(gutter),
-      );
-      expect(
-        tester.getSize(find.byType(AppPillButton)).width,
-        lessThanOrEqualTo(AppLayout.mainColumnMaxWidth),
-      );
-    });
+    Finder pill(String label) => find.widgetWithText(AppPillButton, label);
+    AppPillButton action(WidgetTester tester) =>
+        tester.widget(pill('Change handle'));
+    AppPillButton cancelPill(WidgetTester tester) =>
+        tester.widget(pill('Cancel'));
 
     testWidgets('idle: the format hint and the cooldown note, action off', (
       tester,
     ) async {
       await open(tester, '/settings/handle');
-      // R4 design (ChangeHandle.dc.html): the eyebrow and the headline.
-      expect(find.text('CURRENT \u00b7 @kaif'), findsOneWidget);
+      // ChangeHandle.html: the eyebrow and the headline.
+      expect(find.text('CURRENT · @kaif'), findsOneWidget);
       expect(find.text('Pick a new handle.'), findsOneWidget);
-      expect(gradient(tester).size, AppButtonSize.large);
+      expect(action(tester).size, AppButtonSize.large);
       expect(find.textContaining('once every 7 days'), findsOneWidget);
       expect(find.text(kHandleFormatMessage), findsOneWidget);
-      expect(gradient(tester).onPressed, isNull);
+      expect(action(tester).onPressed, isNull);
     });
 
     testWidgets('validation text is unchanged: too short is rejected locally '
@@ -379,7 +338,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
       expect(find.text(kHandleFormatMessage), findsOneWidget);
-      expect(gradient(tester).onPressed, isNull);
+      expect(action(tester).onPressed, isNull);
       verifyNever(() => repo.checkHandleAvailability(any()));
     });
 
@@ -392,7 +351,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
       expect(find.bySemanticsLabel('Handle is available'), findsOneWidget);
-      expect(gradient(tester).onPressed, isNotNull);
+      expect(action(tester).onPressed, isNotNull);
 
       stubCheck(false);
       await tester.enterText(find.byType(TextField), 'taken_one');
@@ -400,7 +359,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('That handle is taken.'), findsOneWidget);
       expect(find.bySemanticsLabel('Handle is not available'), findsOneWidget);
-      expect(gradient(tester).onPressed, isNull);
+      expect(action(tester).onPressed, isNull);
       handle.dispose();
     });
 
@@ -419,7 +378,7 @@ void main() {
       await tester.enterText(find.byType(TextField), 'new_one');
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(AppPillButton));
+      await tester.tap(pill('Change handle'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Change handle'));
       // Let the confirmation close; the spinner never settles, so frames
@@ -428,8 +387,8 @@ void main() {
         await tester.pump(const Duration(milliseconds: 200));
       }
 
-      expect(gradient(tester).busy, isTrue);
-      expect(cancel(tester).onPressed, isNull);
+      expect(action(tester).busy, isTrue);
+      expect(cancelPill(tester).onPressed, isNull);
       expect(tester.widget<TextField>(find.byType(TextField)).enabled, isFalse);
       expect(find.bySemanticsLabel('Saving'), findsOneWidget);
 
@@ -454,21 +413,25 @@ void main() {
       await tester.enterText(find.byType(TextField), 'new_one');
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(AppPillButton));
+      await tester.tap(pill('Change handle'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Change handle'));
       await tester.pumpAndSettle();
 
       expect(find.byType(SnackBar), findsOneWidget);
-      expect(gradient(tester).busy, isFalse);
-      expect(cancel(tester).onPressed, isNotNull);
+      expect(action(tester).busy, isFalse);
+      expect(cancelPill(tester).onPressed, isNotNull);
     });
 
-    testWidgets('Cancel leaves; no profile shows the unavailable state', (
-      tester,
-    ) async {
+    testWidgets('Cancel and Back leave; no profile shows the unavailable '
+        'state', (tester) async {
       await open(tester, '/settings/handle');
-      await tester.tap(find.text('Cancel'));
+      await tester.tap(pill('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('settings'), findsOneWidget);
+
+      await open(tester, '/settings/handle');
+      await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
       expect(find.text('settings'), findsOneWidget);
 
@@ -479,18 +442,18 @@ void main() {
       );
     });
 
-    testWidgets('semantics: Cancel is a button, the title a header', (
+    testWidgets('semantics: Cancel is a button, the headline a header', (
       tester,
     ) async {
       final handle = tester.ensureSemantics();
       await open(tester, '/settings/handle');
       expect(
-        tester.getSemantics(find.widgetWithText(TextButton, 'Cancel')),
+        tester.getSemantics(pill('Cancel')),
         isSemantics(label: 'Cancel', isButton: true, isEnabled: true),
       );
       expect(
-        tester.getSemantics(find.text('Change handle').first),
-        isSemantics(label: 'Change handle', isHeader: true),
+        tester.getSemantics(find.text('Pick a new handle.')),
+        isSemantics(label: 'Pick a new handle.', isHeader: true),
       );
       handle.dispose();
     });

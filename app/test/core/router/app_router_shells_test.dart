@@ -268,7 +268,7 @@ void main() {
       location: AppRouter.callsPath,
       signedIn: false,
     );
-    expect(app.path, AppRouter.signInPath);
+    expect(app.path, AppRouter.welcomePath);
 
     app.signIn();
     await tester.pumpAndSettle();

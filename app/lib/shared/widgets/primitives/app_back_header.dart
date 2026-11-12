@@ -10,8 +10,10 @@ import 'app_main_column.dart';
 ///
 /// [titleContent] replaces the one-line title text with richer content (the
 /// conversation header's avatar, name and handle); [title] is then only the
-/// accessible name of the header. [actions] sit at the end (an overflow
-/// menu); both default to nothing, so existing callers are unchanged.
+/// accessible name of the header. [subtitle] puts one muted line under the
+/// title (the viewer's @handle, "3 pending", the plan a People page is
+/// about). [actions] sit at the end (an overflow menu); all default to
+/// nothing, so existing callers are unchanged.
 class AppBackHeader extends StatelessWidget {
   const AppBackHeader({
     super.key,
@@ -19,29 +21,26 @@ class AppBackHeader extends StatelessWidget {
     required this.onBack,
     this.backTooltip = 'Back',
     this.titleContent,
+    this.subtitle,
     this.actions = const [],
     this.leading,
-    this.subtitle,
   });
 
   final String title;
   final VoidCallback onBack;
   final String backTooltip;
   final Widget? titleContent;
+  final String? subtitle;
   final List<Widget> actions;
 
   /// Replaces the back button (a root destination leads with the account
   /// avatar instead: there is nothing to go back to).
   final Widget? leading;
 
-  /// A muted line under the title (the tablet and desktop Creator Studio and
-  /// Calls bars); ignored with a [titleContent]. Not announced: the page
-  /// body says the same.
-  final String? subtitle;
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final subtitle = this.subtitle;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -67,7 +66,25 @@ class AppBackHeader extends StatelessWidget {
                 Expanded(
                   child: Semantics(
                     header: true,
-                    child: titleContent ?? _title(theme),
+                    child:
+                        titleContent ??
+                        (subtitle == null
+                            ? _titleText(theme)
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _titleText(theme),
+                                  Text(
+                                    subtitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              )),
                   ),
                 ),
                 ...actions,
@@ -81,31 +98,10 @@ class AppBackHeader extends StatelessWidget {
     );
   }
 
-  Widget _title(ThemeData theme) {
-    final text = Text(
-      title,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: theme.textTheme.titleLarge,
-    );
-    final subtitle = this.subtitle;
-    if (subtitle == null) return text;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        text,
-        ExcludeSemantics(
-          child: Text(
-            subtitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+  Text _titleText(ThemeData theme) => Text(
+    title,
+    maxLines: 1,
+    overflow: TextOverflow.ellipsis,
+    style: theme.textTheme.titleLarge,
+  );
 }

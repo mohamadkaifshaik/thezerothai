@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../theme/app_theme.dart';
 import '../../features/account/domain/account_feature_flag.dart';
+import '../../features/account/presentation/account_deleted_screen.dart';
 import '../../features/account/presentation/data_export_screen.dart';
 import '../../features/account/presentation/delete_account_screen.dart';
 import '../../features/articles/presentation/articles_screen.dart';
@@ -10,6 +11,7 @@ import '../../features/auth/presentation/bloc/auth_bloc.dart';
 import '../../features/auth/presentation/bloc/auth_state.dart';
 import '../../features/auth/presentation/sign_in_screen.dart';
 import '../../features/auth/presentation/sign_up_screen.dart';
+import '../../features/auth/presentation/welcome_screen.dart';
 import '../../features/auth/presentation/widgets/auth_gate.dart';
 import '../../features/engagement/presentation/bookmarks_screen.dart';
 import '../../features/communities/domain/communities_feature_flag.dart';
@@ -125,6 +127,8 @@ class AppRouter {
   /// (a test) means the flag alone decides.
   final MessagingFeatureGate? _messagingGate;
 
+  /// Where a signed-out visitor lands: Google, Apple, or on to email.
+  static const welcomePath = '/welcome';
   static const signInPath = '/sign-in';
   static const signUpPath = '/sign-up';
   static const onboardingPath = '/onboarding';
@@ -325,6 +329,10 @@ class AppRouter {
           ),
         ),
       GoRoute(path: '/', builder: (context, state) => const SplashScreen()),
+      GoRoute(
+        path: welcomePath,
+        builder: (context, state) => const WelcomeScreen(),
+      ),
       GoRoute(
         path: signInPath,
         builder: (context, state) => const SignInScreen(),
@@ -617,6 +625,7 @@ class AppRouter {
                 handle: state.pathParameters['handle']!,
                 userId: state.extra as String?,
                 initialTab: GraphListTab.followers,
+                viewerUserId: _onboardingBloc.state.profile?.userId,
               ),
             ),
           ),
@@ -627,6 +636,7 @@ class AppRouter {
                 handle: state.pathParameters['handle']!,
                 userId: state.extra as String?,
                 initialTab: GraphListTab.following,
+                viewerUserId: _onboardingBloc.state.profile?.userId,
               ),
             ),
           ),
@@ -752,8 +762,8 @@ class AppRouter {
       );
 
   // The shared link a visitor cold-opened, kept in memory (never in a
-  // visible URL) while the redirects send them through the splash, sign-in and
-  // onboarding. Web sign-in is popup-only, so the page does not reload in
+  // visible URL) while the redirects send them through the splash, welcome,
+  // sign-in and onboarding. Web sign-in is popup-only, so the page does not reload in
   // between. Only ever a value [deepLinkTarget] returned.
   String? _pendingTarget;
 
@@ -818,6 +828,7 @@ class AppRouter {
   /// pending target survives them and is dropped on arrival anywhere else.
   static bool _isHopPath(String path) =>
       path == '/' ||
+      path == welcomePath ||
       path == signInPath ||
       path == signUpPath ||
       path == onboardingPath ||
@@ -856,14 +867,15 @@ class AppRouter {
   String? _resolve(GoRouterState state) {
     final authState = _authBloc.state;
     final loc = state.matchedLocation;
-    final isAuthRoute = loc == signInPath || loc == signUpPath;
+    final isAuthRoute =
+        loc == welcomePath || loc == signInPath || loc == signUpPath;
     if (loc == accountDeletedPath) return null;
 
     if (authState.status == AuthStatus.unknown) {
       return loc == '/' ? null : '/';
     }
     if (authState.status == AuthStatus.unauthenticated) {
-      return isAuthRoute ? null : signInPath;
+      return isAuthRoute ? null : welcomePath;
     }
 
     // Signed in (authenticated or needsEmailVerification).

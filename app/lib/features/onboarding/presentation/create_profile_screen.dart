@@ -7,7 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../account/presentation/widgets/delete_account_link.dart';
 import '../../auth/presentation/request_sign_out.dart';
-import '../../auth/presentation/widgets/auth_form_layout.dart';
+import '../../auth/presentation/widgets/auth_page_layout.dart' show AuthFrame;
 import '../../auth/presentation/widgets/verify_email_view.dart';
 import '../domain/handle_rules.dart' show HandleCheckStatus;
 import 'bloc/onboarding_bloc.dart';
@@ -57,96 +57,45 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
         ),
       );
     }
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Create your profile'),
-        actions: [
-          IconButton(
-            tooltip: 'Sign out',
-            icon: const Icon(Icons.logout),
-            onPressed: () => unawaited(requestSignOut(context)),
-          ),
-        ],
-      ),
-      body: BlocConsumer<OnboardingBloc, OnboardingState>(
-        // Excludes emailVerificationRequired: that error is already shown as
-        // VerifyEmailView's banner (see the early return above) rather than
-        // a redundant snackbar.
-        listenWhen: (previous, current) =>
-            current.error != null &&
-            previous.error != current.error &&
-            current.status != OnboardingStatus.emailVerificationRequired,
-        listener: (context, state) {
-          final error = state.error;
-          if (error == null) return;
-          ScaffoldMessenger.of(context)
-            ..hideCurrentSnackBar()
-            ..showSnackBar(SnackBar(content: Text(error.message)));
-        },
-        builder: (context, state) {
-          final colors = Theme.of(context).colorScheme;
-          return AuthFormLayout(
-            title: 'Welcome to Dzeroth',
+    return BlocConsumer<OnboardingBloc, OnboardingState>(
+      // Excludes emailVerificationRequired: that error is already shown as
+      // VerifyEmailView's banner (see the early return above) rather than
+      // a redundant snackbar.
+      listenWhen: (previous, current) =>
+          current.error != null &&
+          previous.error != current.error &&
+          current.status != OnboardingStatus.emailVerificationRequired,
+      listener: (context, state) {
+        final error = state.error;
+        if (error == null) return;
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(error.message)));
+      },
+      builder: (context, state) {
+        final colors = Theme.of(context).colorScheme;
+        final signOut = TextButton(
+          onPressed: () => unawaited(requestSignOut(context)),
+          child: const Text('Sign out'),
+        );
+        // CreateProfile.html: the display name, then the handle. The photo
+        // the mock offers has no upload step in onboarding (Edit profile has
+        // it), so it is not drawn here.
+        return AuthFrame(
+          eyebrow: 'Welcome to Dzeroth',
+          headline: 'Create your ',
+          accent: 'profile',
+          heroEyebrow: 'Good things start with a plan',
+          heroHeadline: 'Pick a handle.\nSay ',
+          heroAccent: 'hello',
+          phoneAction: signOut,
+
+          actions: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(
-                'Pick a handle and a name. You can change these later.',
-                style: Theme.of(context).textTheme.titleMedium,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              TextField(
-                controller: _handleController,
-                textInputAction: TextInputAction.next,
-                decoration: InputDecoration(
-                  labelText: 'Handle',
-                  prefixText: '@',
-                  helperText: state.handleCheckMessage.isEmpty
-                      ? '3-20 characters: lowercase letters, numbers, underscore.'
-                      : state.handleCheckMessage,
-                  helperMaxLines: 2,
-                  errorText:
-                      state.handleCheckStatus == HandleCheckStatus.unavailable
-                      ? (state.handleCheckMessage.isEmpty
-                            ? 'That handle is taken.'
-                            : null)
-                      : null,
-                  suffixIcon: switch (state.handleCheckStatus) {
-                    HandleCheckStatus.checking => const Padding(
-                      padding: EdgeInsets.all(AppSpacing.sm + AppSpacing.xs),
-                      child: SizedBox(
-                        width: AppIconSize.sm,
-                        height: AppIconSize.sm,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                    HandleCheckStatus.available => Icon(
-                      Icons.check_circle,
-                      color: colors.primary,
-                    ),
-                    HandleCheckStatus.unavailable => Icon(
-                      Icons.error,
-                      color: colors.error,
-                    ),
-                    HandleCheckStatus.unknown => const Icon(Icons.help_outline),
-                    HandleCheckStatus.idle => null,
-                  },
-                ),
-                onChanged: (value) => context.read<OnboardingBloc>().add(
-                  OnboardingHandleChanged(value),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              TextField(
-                controller: _displayNameController,
-                textInputAction: TextInputAction.done,
-                decoration: const InputDecoration(labelText: 'Display name'),
-                onChanged: (value) => context.read<OnboardingBloc>().add(
-                  OnboardingDisplayNameChanged(value),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
               AppPillButton(
                 label: 'Continue',
+                size: AppButtonSize.large,
                 busy: state.isSubmitting,
                 onPressed: state.canSubmit
                     ? () => context.read<OnboardingBloc>().add(
@@ -157,9 +106,64 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
               const SizedBox(height: AppSpacing.sm),
               const DeleteAccountLink(),
             ],
-          );
-        },
-      ),
+          ),
+          wideFooter: Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.sm),
+            child: Center(child: signOut),
+          ),
+          children: [
+            TextField(
+              controller: _displayNameController,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(labelText: 'Display name'),
+              onChanged: (value) => context.read<OnboardingBloc>().add(
+                OnboardingDisplayNameChanged(value),
+              ),
+            ),
+            TextField(
+              controller: _handleController,
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                labelText: 'Handle',
+                prefixText: '@',
+                helperText: state.handleCheckMessage.isEmpty
+                    ? '3-20 characters: lowercase letters, numbers, underscore.'
+                    : state.handleCheckMessage,
+                helperMaxLines: 2,
+                errorText:
+                    state.handleCheckStatus == HandleCheckStatus.unavailable
+                    ? (state.handleCheckMessage.isEmpty
+                          ? 'That handle is taken.'
+                          : null)
+                    : null,
+                suffixIcon: switch (state.handleCheckStatus) {
+                  HandleCheckStatus.checking => const Padding(
+                    padding: EdgeInsets.all(AppSpacing.sm + AppSpacing.xs),
+                    child: SizedBox(
+                      width: AppIconSize.sm,
+                      height: AppIconSize.sm,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                  HandleCheckStatus.available => Icon(
+                    Icons.check_circle,
+                    color: colors.primary,
+                  ),
+                  HandleCheckStatus.unavailable => Icon(
+                    Icons.error,
+                    color: colors.error,
+                  ),
+                  HandleCheckStatus.unknown => const Icon(Icons.help_outline),
+                  HandleCheckStatus.idle => null,
+                },
+              ),
+              onChanged: (value) => context.read<OnboardingBloc>().add(
+                OnboardingHandleChanged(value),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

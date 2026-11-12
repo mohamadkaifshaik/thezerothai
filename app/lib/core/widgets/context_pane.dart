@@ -5,7 +5,7 @@ import '../../shared/widgets/primitives/app_surface.dart';
 import '../theme/app_theme.dart';
 
 /// What a [ContextSection] shows. A page that also draws one of these
-/// inline (Explore's and Home's "Who to follow") asks [ContextPaneScope]
+/// inline (Home's "Who to follow") asks [ContextPaneScope]
 /// whether the pane already shows it, so one widget has one placement at a
 /// time (tablet plan section 5.1, "one widget, two placements").
 ///
@@ -31,11 +31,6 @@ enum ContextSectionKind {
   /// own Media tab feed (T8c). The Media tab keeps them at every width.
   profileMedia,
 
-  /// `/plans/new`, `/plans/:id/edit`: the live preview of the form (T8d).
-  planPreview,
-
-  /// `/plans/new`, `/plans/:id/edit`: "Tips for a good plan" (T8d).
-  planTips,
 
 }
 

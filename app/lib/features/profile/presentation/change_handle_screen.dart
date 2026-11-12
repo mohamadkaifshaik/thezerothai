@@ -7,9 +7,9 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../shared/format/coarse_wait.dart';
-import '../../../shared/widgets/primitives/app_form_header.dart';
-import '../../../shared/widgets/primitives/app_pill_button.dart';
-import '../../../shared/widgets/primitives/app_main_column.dart';
+import '../../../shared/widgets/primitives/app_form_page.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart'
+    show AppButtonVariant;
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/domain/handle_rules.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -139,91 +139,61 @@ class _ChangeHandleViewState extends State<_ChangeHandleView> {
           // A save in flight cannot be abandoned: leaving now would drop the
           // answer (and the profile update it carries) unseen.
           canPop: !state.isSaving,
-          child: Scaffold(
-            body: SafeArea(
-              child: AppMainColumn(
-                child: Column(
-                  children: [
-                    AppFormHeader(
-                      title: 'Change handle',
-                      busy: state.isSaving,
-                      onCancel: () => _leave(context),
-                    ),
-                    Expanded(
-                      child: ListView(
-                        padding: const EdgeInsets.all(AppSpacing.md),
-                        children: [
-                          // ChangeHandle.dc.html: the accent eyebrow (only
-                          // "Current" is upper-cased; a handle keeps its
-                          // case) and the display headline.
-                          Text(
-                            '${'Current'.toUpperCase()} · '
-                            '@${widget.currentHandle}',
-                            style: AppTextStyles.eyebrow(theme)
-                                .copyWith(color: context.appColors.accentText),
-                          ),
-                          const SizedBox(height: AppSpacing.sm),
-                          Semantics(
-                            header: true,
-                            child: Text(
-                              'Pick a new handle.',
-                              style: theme.textTheme.headlineMedium?.copyWith(
-                                fontWeight: AppTypeTokens.weightDisplay,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: AppSpacing.sm),
-                          Text(
-                            'You can change your handle once every 7 days. Your old '
-                            'handle becomes available to other people.',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: AppSpacing.lg),
-                          TextField(
-                            controller: _controller,
-                            enabled: !state.isSaving,
-                            autocorrect: false,
-                            enableSuggestions: false,
-                            textInputAction: TextInputAction.done,
-                            decoration: InputDecoration(
-                              labelText: 'New handle',
-                              prefixText: '@',
-                              helper: isProblem ? null : _FieldNote(text: note),
-                              helperMaxLines: 2,
-                              error: isProblem
-                                  ? _FieldNote(text: note, isError: true)
-                                  : null,
-                              errorMaxLines: 2,
-                              suffixIcon: _StatusIcon(
-                                status: state.checkStatus,
-                              ),
-                            ),
-                            onChanged: cubit.handleChanged,
-                            onSubmitted: (_) {
-                              if (state.canSave) {
-                                _confirmAndSave(context, state.handle);
-                              }
-                            },
-                          ),
-                          const SizedBox(height: AppSpacing.lg),
-                          AppPillButton(
-                            label: 'Change handle',
-                            size: AppButtonSize.large,
-                            busy: state.isSaving,
-                            busySemanticsLabel: 'Saving',
-                            onPressed: state.canSave
-                                ? () => _confirmAndSave(context, state.handle)
-                                : null,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+          child: AppFormPage(
+            title: 'Change handle',
+            leading: BackButton(
+              onPressed: state.isSaving ? null : () => _leave(context),
+            ),
+            // ChangeHandle.html: the accent eyebrow (only "Current" is
+            // upper-cased; a handle keeps its case) and the display headline.
+            eyebrow: '${'Current'.toUpperCase()} · @${widget.currentHandle}',
+            headlineLead: 'Pick a new ',
+            headlineAccent: 'handle',
+
+            primary: AppFormAction(
+              label: 'Change handle',
+              busy: state.isSaving,
+              busySemanticsLabel: 'Saving',
+              onPressed: state.canSave
+                  ? () => _confirmAndSave(context, state.handle)
+                  : null,
+            ),
+            secondary: AppFormAction(
+              label: 'Cancel',
+              variant: AppButtonVariant.outline,
+              onPressed: state.isSaving ? null : () => _leave(context),
+            ),
+            children: [
+              Text(
+                'You can change your handle once every 7 days. Your old '
+                'handle becomes available to other people.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
-            ),
+              TextField(
+                controller: _controller,
+                enabled: !state.isSaving,
+                autocorrect: false,
+                enableSuggestions: false,
+                textInputAction: TextInputAction.done,
+                decoration: InputDecoration(
+                  labelText: 'New handle',
+                  prefixText: '@',
+                  helper: isProblem ? null : _FieldNote(text: note),
+                  helperMaxLines: 2,
+                  error: isProblem
+                      ? _FieldNote(text: note, isError: true)
+                      : null,
+                  errorMaxLines: 2,
+                  suffixIcon: _StatusIcon(status: state.checkStatus),
+                ),
+                onChanged: cubit.handleChanged,
+                onSubmitted: (_) {
+                  if (state.canSave) _confirmAndSave(context, state.handle);
+                },
+              ),
+            ],
           ),
         );
       },

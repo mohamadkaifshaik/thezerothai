@@ -19,6 +19,8 @@ Future<String?> showJoinNoteSheet(
     isScrollControlled: true,
     showDragHandle: true,
     useSafeArea: true,
+    // Over the phone shell's floating bar, not under it.
+    useRootNavigator: true,
   ),
   tabletScrollable: true,
   builder: (context) => JoinNoteSheet(title: title),
