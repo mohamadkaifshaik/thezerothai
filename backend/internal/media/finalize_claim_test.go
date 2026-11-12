@@ -28,7 +28,7 @@ func (e *env) sibling(t *testing.T, repo Repo) Service {
 		Repo: repo, Signer: e.sign, Objects: e.obj, Moderator: e.mod,
 		Directory: fakeDirectory{created: testNow.Add(-30 * 24 * time.Hour)}, IDs: &seqIDs{},
 		PublicBaseURL: "https://cdn.test/media", NewAccountWindow: 24 * time.Hour,
-		Now: func() time.Time { return testNow },
+		Now: func() time.Time { return testNow }, ScreenThumb: e.screenThumb,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -186,20 +186,23 @@ func checkRaceOutcomes(t *testing.T, out []raceOutcome) (ready int) {
 	return ready
 }
 
-// Ten concurrent finalizes of one BANNER, spread over three instances that all loaded the PENDING document before
-// anyone claimed it, spend exactly the banner's 2 Vision units and publish once.
-func TestFinalize_ConcurrentBannerIsScreenedOnce(t *testing.T) {
-	e := newEnv(t, envOpts{})
-	tg := e.bannerUpload(t, uidA, "a")
+// twoUnits is what one photo costs with VISION_SCREEN_THUMB on: SafeSearch on the full image and the thumbnail.
+const twoUnits = 2
+
+// Ten concurrent finalizes of one photo screened full and thumb, spread over three instances that all loaded the
+// PENDING document before anyone claimed it, spend exactly the photo's 2 Vision units and publish once.
+func TestFinalize_ConcurrentTwoUnitImageIsScreenedOnce(t *testing.T) {
+	e := newEnv(t, envOpts{screenThumb: true})
+	tg := e.upload(t, uidA, PurposePost, "a")
 
 	out, st := raceFinalize(t, e, e.repo, uidA, tg.MediaID, 3, 10, true)
 	checkRaceOutcomes(t, out)
 
-	if got := len(e.mod.calls); got != BannerVisionUnits {
-		t.Errorf("SafeSearch calls = %d (%v), want %d: the full image and the thumbnail, once", got, e.mod.calls, BannerVisionUnits)
+	if got := len(e.mod.calls); got != twoUnits {
+		t.Errorf("SafeSearch calls = %d (%v), want %d: the full image and the thumbnail, once", got, e.mod.calls, twoUnits)
 	}
-	if got := e.repo.vision[monthKey(testNow)]; got != BannerVisionUnits {
-		t.Errorf("vision counter = %d, want %d", got, BannerVisionUnits)
+	if got := e.repo.vision[monthKey(testNow)]; got != twoUnits {
+		t.Errorf("vision counter = %d, want %d", got, twoUnits)
 	}
 	if st.attempts.Load() < 3 {
 		t.Errorf("claim attempts = %d, want one per instance leader at least (the race was not exercised)", st.attempts.Load())
@@ -216,13 +219,13 @@ func TestFinalize_ConcurrentBannerIsScreenedOnce(t *testing.T) {
 // The control run: the same scenario with the claim turned into a no-op reproduces the finding, so the scenario
 // above is a real regression test and not a schedule that happens to pass.
 func TestFinalize_WithoutTheClaimConcurrentInstancesEachScreen(t *testing.T) {
-	e := newEnv(t, envOpts{})
-	tg := e.bannerUpload(t, uidA, "a")
+	e := newEnv(t, envOpts{screenThumb: true})
+	tg := e.upload(t, uidA, PurposePost, "a")
 
 	_, _ = raceFinalize(t, e, e.repo, uidA, tg.MediaID, 3, 10, false)
 
-	if got := len(e.mod.calls); got <= BannerVisionUnits {
-		t.Fatalf("SafeSearch calls = %d, want more than %d without the claim (3 instances x 2): the scenario does not reproduce M-3", got, BannerVisionUnits)
+	if got := len(e.mod.calls); got <= twoUnits {
+		t.Fatalf("SafeSearch calls = %d, want more than %d without the claim (3 instances x 2): the scenario does not reproduce M-3", got, twoUnits)
 	}
 }
 

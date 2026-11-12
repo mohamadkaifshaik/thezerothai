@@ -79,7 +79,7 @@ type Doc struct {
 	// ReleaseScreening increments it in the release write it already makes. Retries = ScreenAttempts - ScreenAssessed.
 	ScreenAssessed int64 `firestore:"screenAssessed,omitempty"`
 	// RetiredAt is set by the profile_media_retired step once the document's replaced or removed
-	// AVATAR or BANNER objects have been tagged for deletion (customTime = RetiredAt; the bucket lifecycle rule deletes
+	// AVATAR objects have been tagged for deletion (customTime = RetiredAt; the bucket lifecycle rule deletes
 	// them a day later). The resolvers refuse a retired document, so a retired image can never be set again. ExpireAt is
 	// set with it (RetiredAt + RetiredDocTTL): until then the document keeps the image inside the account eraser and the
 	// export.

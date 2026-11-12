@@ -268,13 +268,12 @@ func TestIntegration_OrphanSweepAttachWins(t *testing.T) {
 	}
 }
 
-// TestIntegration_OrphanSweepMarkWins: once marked, the attaching transaction, the avatar and banner resolvers and the
+// TestIntegration_OrphanSweepMarkWins: once marked, the attaching transaction, the avatar resolver and the
 // article cover preview all refuse the image, so nothing new can attach it before the delete.
 func TestIntegration_OrphanSweepMarkWins(t *testing.T) {
 	e := newOrphanIntEnv(t, config.ProfileMediaRetireAll)
 	post := e.seed(t, uidA, PurposePost, sweepNow.Add(-time.Minute))
 	avatar := e.seed(t, uidA, PurposeAvatar, sweepNow.Add(-time.Minute))
-	banner := e.seed(t, uidA, PurposeBanner, sweepNow.Add(-time.Minute))
 	ctx := context.Background()
 	// Before the mark every one of them is usable.
 	if _, err := e.lib.ResolvePostCover(ctx, uidA, post.ID); err != nil {
@@ -283,8 +282,8 @@ func TestIntegration_OrphanSweepMarkWins(t *testing.T) {
 	if _, err := e.lib.ResolveAvatar(ctx, uidA, avatar.ID); err != nil {
 		t.Fatalf("avatar before the mark: %v", err)
 	}
-	if res := e.sweep(t, sweepNow, 10); res.Marked != 3 {
-		t.Fatalf("res = %+v, want 3 marked", res)
+	if res := e.sweep(t, sweepNow, 10); res.Marked != 2 {
+		t.Fatalf("res = %+v, want 2 marked", res)
 	}
 	if err := e.attachInTx(ctx, uidA, post.ID, "0000000000000000556"); !IsNotReady(err) {
 		t.Fatalf("attach after the mark = %v, want ErrNotReady", err)
@@ -294,9 +293,6 @@ func TestIntegration_OrphanSweepMarkWins(t *testing.T) {
 	}
 	if _, err := e.lib.ResolveAvatar(ctx, uidA, avatar.ID); !IsNotReady(err) {
 		t.Fatalf("avatar after the mark = %v", err)
-	}
-	if _, err := e.lib.ResolveBanner(ctx, uidA, banner.ID); !IsNotReady(err) {
-		t.Fatalf("banner after the mark = %v", err)
 	}
 	if got := e.get(t, post.ID); got.PostID != "" {
 		t.Fatal("the refused attach wrote")
@@ -395,7 +391,7 @@ func TestIntegration_BackfillOrphanChecks(t *testing.T) {
 	free := e.seed(t, uidA, PurposePost, time.Time{})
 	avatar := e.seed(t, uidA, PurposeAvatar, time.Time{})
 	attached := e.seed(t, uidA, PurposePost, time.Time{})
-	retired := e.seed(t, uidA, PurposeBanner, time.Time{})
+	retired := e.seed(t, uidA, PurposeAvatar, time.Time{})
 	rejected := e.seed(t, uidA, PurposePost, time.Time{})
 	already := e.seed(t, uidA, PurposePost, sweepNow)
 	for id, ups := range map[string][]firestore.Update{

@@ -42,20 +42,12 @@ func TestW625_PublishRefusesAReplacedObject(t *testing.T) {
 		{"thumbnail", PurposePost, true, 0},
 		{"avatar full", PurposeAvatar, false, 0},
 		{"avatar thumbnail", PurposeAvatar, true, 0},
-		{"banner full", PurposeBanner, false, 0},
-		{"banner thumbnail", PurposeBanner, true, 0},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newEnv(t, envOpts{})
 			ext := "jpg"
-			var tg UploadTarget
-			if tc.purpose == PurposeBanner {
-				ext = "webp"
-				tg = e.bannerUpload(t, uidA, "sw")
-			} else {
-				tg = e.upload(t, uidA, tc.purpose, "sw")
-			}
+			tg := e.upload(t, uidA, tc.purpose, "sw")
 			up := uploadObject(uidA, tg.MediaID, ext)
 			if tc.thumb {
 				up = uploadThumbObject(uidA, tg.MediaID, ext)

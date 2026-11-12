@@ -338,7 +338,7 @@ func TestExportJob(t *testing.T) {
 		h := newHarness(t)
 		p := h.seedActive("u1", "Alice")
 		p.Bio, p.FollowersCount, p.SnapshotVersion = "hello", 3, 9
-		p.BannerURL, p.BannerThumbURL, p.Location, p.Website, p.PinnedPostID = "https://m/b.webp", "https://m/b_t.webp", "Pune", "https://example.com", "0000000000000000301"
+		p.Location, p.Website, p.PinnedPostID = "Pune", "https://example.com", "0000000000000000301"
 		h.repo.seed(p)
 		h.auth.users["u1"] = &fbauth.UserRecord{
 			UserInfo: &fbauth.UserInfo{UID: "u1", Email: "alice@example.com"}, EmailVerified: true,
@@ -366,14 +366,16 @@ func TestExportJob(t *testing.T) {
 		if e.Profile["handle"] != "Alice" || e.Profile["bio"] != "hello" || e.Profile["followersCount"] != float64(3) {
 			t.Errorf("profile = %v", e.Profile)
 		}
-		// The profile extras are exported (the thumbnail is derived data and is not).
-		for k, want := range map[string]string{"bannerUrl": "https://m/b.webp", "location": "Pune", "website": "https://example.com", "pinnedPostId": "0000000000000000301"} {
+		// The profile extras are exported.
+		for k, want := range map[string]string{"location": "Pune", "website": "https://example.com", "pinnedPostId": "0000000000000000301"} {
 			if e.Profile[k] != want {
 				t.Errorf("profile[%q] = %v, want %q", k, e.Profile[k], want)
 			}
 		}
-		if _, has := e.Profile["bannerThumbUrl"]; has {
-			t.Error("profile section exports the banner thumbnail")
+		for _, removed := range []string{"bannerUrl", "bannerThumbUrl"} {
+			if _, has := e.Profile[removed]; has {
+				t.Errorf("profile section exports %s (the banner was removed)", removed)
+			}
 		}
 		for _, internal := range []string{"status", "snapshotVersion", "deletionJob", "deletionRequestedAt", "handleLower", "updatedAt"} {
 			if _, has := e.Profile[internal]; has {

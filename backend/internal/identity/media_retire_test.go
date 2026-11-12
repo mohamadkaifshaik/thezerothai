@@ -12,7 +12,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
-// UpdateProfile hands a replaced or removed avatar or banner to the media retire step after
+// UpdateProfile hands a replaced or removed avatar to the media retire step after
 // the commit, without re-reading the profile. The Firestore side is in media_retire_integration_test.go;
 // the step itself (the switch, the object names, the refusals) is the media module's.
 
@@ -63,23 +63,16 @@ func (e *retireEnv) setAvatar(id string) {
 	e.avatars.ref = AvatarRef{URL: "https://m/m/" + id + ".webp", ThumbURL: "https://m/m/" + id + "_t.webp"}
 }
 
-func (e *retireEnv) setBanner(id string) {
-	e.banners.ref = BannerRef{URL: "https://m/m/" + id + ".webp", ThumbURL: "https://m/m/" + id + "_t.webp"}
-}
-
 const (
 	avA = "0000000000000000201"
 	avB = "0000000000000000203"
-	bnA = "0000000000000000202"
-	bnB = "0000000000000000204"
 )
 
-// seedImages gives the profile avatar avA and banner bnA, then forgets the calls the seeding made.
+// seedImages gives the profile avatar avA, then forgets the calls the seeding made.
 func (e *retireEnv) seedImages(t *testing.T) {
 	t.Helper()
 	e.setAvatar(avA)
-	e.setBanner(bnA)
-	if _, err := e.update(context.Background(), UpdateProfileParams{AvatarMediaID: strp(avA), BannerMediaID: strp(bnA)}); err != nil {
+	if _, err := e.update(context.Background(), UpdateProfileParams{AvatarMediaID: strp(avA)}); err != nil {
 		t.Fatal(err)
 	}
 	e.retirer.calls = nil
@@ -88,7 +81,6 @@ func (e *retireEnv) seedImages(t *testing.T) {
 
 func TestUpdateProfile_RetiresReplacedAndRemovedImages(t *testing.T) {
 	avatarA := [2]string{"https://m/m/" + avA + ".webp", "https://m/m/" + avA + "_t.webp"}
-	bannerA := [2]string{"https://m/m/" + bnA + ".webp", "https://m/m/" + bnA + "_t.webp"}
 	tests := []struct {
 		name   string
 		seed   bool
@@ -107,39 +99,9 @@ func TestUpdateProfile_RetiresReplacedAndRemovedImages(t *testing.T) {
 			params: UpdateProfileParams{AvatarMediaID: strp("")},
 			want:   []retireCall{{image: ProfileImageAvatar, oldURL: avatarA[0], oldThumbURL: avatarA[1]}},
 		},
-		{
-			name: "banner replaced", seed: true,
-			params: UpdateProfileParams{BannerMediaID: strp(bnB)},
-			before: func(e *retireEnv) { e.setBanner(bnB) },
-			want:   []retireCall{{image: ProfileImageBanner, oldURL: bannerA[0], oldThumbURL: bannerA[1]}},
-		},
-		{
-			name: "banner removed", seed: true,
-			params: UpdateProfileParams{BannerMediaID: strp("")},
-			want:   []retireCall{{image: ProfileImageBanner, oldURL: bannerA[0], oldThumbURL: bannerA[1]}},
-		},
-		{
-			name: "both replaced in one request: avatar first, then banner", seed: true,
-			params: UpdateProfileParams{AvatarMediaID: strp(avB), BannerMediaID: strp(bnB)},
-			before: func(e *retireEnv) { e.setAvatar(avB); e.setBanner(bnB) },
-			want: []retireCall{
-				{image: ProfileImageAvatar, oldURL: avatarA[0], oldThumbURL: avatarA[1]},
-				{image: ProfileImageBanner, oldURL: bannerA[0], oldThumbURL: bannerA[1]},
-			},
-		},
-		{
-			name: "avatar replaced while the banner is removed", seed: true,
-			params: UpdateProfileParams{AvatarMediaID: strp(avB), BannerMediaID: strp("")},
-			before: func(e *retireEnv) { e.setAvatar(avB) },
-			want: []retireCall{
-				{image: ProfileImageAvatar, oldURL: avatarA[0], oldThumbURL: avatarA[1]},
-				{image: ProfileImageBanner, oldURL: bannerA[0], oldThumbURL: bannerA[1]},
-			},
-		},
-		{name: "first avatar and banner: nothing before, nothing to retire", params: UpdateProfileParams{AvatarMediaID: strp(avA), BannerMediaID: strp(bnA)}},
+		{name: "first avatar: nothing before, nothing to retire", params: UpdateProfileParams{AvatarMediaID: strp(avA)}},
 		{name: "removing an avatar that was never set", params: UpdateProfileParams{AvatarMediaID: strp("")}},
 		{name: "the same avatar again is a no-op", seed: true, params: UpdateProfileParams{AvatarMediaID: strp(avA)}},
-		{name: "the same banner again is a no-op", seed: true, params: UpdateProfileParams{BannerMediaID: strp(bnA)}},
 		{name: "an empty request", seed: true, params: UpdateProfileParams{}},
 		{name: "a bio edit leaves the images alone", seed: true, params: UpdateProfileParams{Bio: strp("new bio")}},
 		{name: "a display-name edit leaves the images alone", seed: true, params: UpdateProfileParams{DisplayName: strp("Alice B.")}},
@@ -182,26 +144,25 @@ func TestUpdateProfile_RetiresReplacedAndRemovedImages(t *testing.T) {
 }
 
 // TestUpdateProfile_RetireFailureNeverFailsTheRequest: the hand-over is best effort. The profile change is committed and
-// returned; the failure is an ERROR-severity log line without the raw uid; the other image is still attempted.
+// returned; the failure is an ERROR-severity log line without the raw uid.
 func TestUpdateProfile_RetireFailureNeverFailsTheRequest(t *testing.T) {
 	e := newRetireEnv(t, true)
 	e.seedImages(t)
 	e.setAvatar(avB)
-	e.setBanner(bnB)
 	e.retirer.failFor[ProfileImageAvatar] = errors.New("pubsub unavailable for " + extrasUID)
 
-	got, err := e.update(context.Background(), UpdateProfileParams{AvatarMediaID: strp(avB), BannerMediaID: strp(bnB)})
+	got, err := e.update(context.Background(), UpdateProfileParams{AvatarMediaID: strp(avB)})
 	if err != nil {
 		t.Fatalf("a failed hand-over failed the request: %v", err)
 	}
-	if !strings.Contains(got.AvatarURL, avB) || !strings.Contains(got.BannerURL, bnB) {
+	if !strings.Contains(got.AvatarURL, avB) {
 		t.Errorf("the response must carry the committed change: %+v", got)
 	}
 	if stored := e.repo.profiles[extrasUID]; !strings.Contains(stored.AvatarURL, avB) {
 		t.Errorf("the change was not committed: %+v", stored)
 	}
-	if len(e.retirer.calls) != 2 {
-		t.Errorf("calls = %d, want both images attempted even though the first failed", len(e.retirer.calls))
+	if len(e.retirer.calls) != 1 {
+		t.Errorf("calls = %d, want the one avatar hand-over", len(e.retirer.calls))
 	}
 	logs := e.logs.String()
 	if n := strings.Count(logs, "profile_media_retire_enqueue_failed:"); n != 1 {
@@ -212,8 +173,8 @@ func TestUpdateProfile_RetireFailureNeverFailsTheRequest(t *testing.T) {
 	if !strings.Contains(logs, `"level":"ERROR"`) || !strings.Contains(logs, "ReportedErrorEvent") {
 		t.Errorf("the failure must be an Error-Reporting-shaped ERROR entry:\n%s", logs)
 	}
-	if !strings.Contains(logs, `"image":"AVATAR"`) || strings.Contains(logs, `"image":"BANNER"`) {
-		t.Errorf("the entry must name the failed image only:\n%s", logs)
+	if !strings.Contains(logs, `"image":"AVATAR"`) {
+		t.Errorf("the entry must name the failed image:\n%s", logs)
 	}
 	if strings.Contains(logs, extrasUID) {
 		t.Errorf("the log line leaks the raw uid:\n%s", logs)
@@ -306,24 +267,21 @@ func TestUpdateProfile_WithoutARetirerNothingHappens(t *testing.T) {
 // TestRetiredImages is the pure comparison behind the hand-over.
 func TestRetiredImages(t *testing.T) {
 	t.Parallel()
-	mk := func(av, avT, bn, bnT string) Profile {
-		return Profile{AvatarURL: av, AvatarThumbURL: avT, BannerURL: bn, BannerThumbURL: bnT}
+	mk := func(av, avT string) Profile {
+		return Profile{AvatarURL: av, AvatarThumbURL: avT}
 	}
 	tests := []struct {
 		name          string
 		before, after Profile
 		want          []retiredImage
 	}{
-		{"nothing set", mk("", "", "", ""), mk("", "", "", ""), nil},
-		{"unchanged", mk("a", "at", "b", "bt"), mk("a", "at", "b", "bt"), nil},
-		{"first set", mk("", "", "", ""), mk("a", "at", "b", "bt"), nil},
-		{"avatar replaced", mk("a", "at", "", ""), mk("a2", "at2", "", ""), []retiredImage{{ProfileImageAvatar, "a", "at"}}},
-		{"avatar removed", mk("a", "at", "", ""), mk("", "", "", ""), []retiredImage{{ProfileImageAvatar, "a", "at"}}},
-		{"banner replaced", mk("", "", "b", "bt"), mk("", "", "b2", "bt2"), []retiredImage{{ProfileImageBanner, "b", "bt"}}},
-		{"banner removed", mk("", "", "b", "bt"), mk("", "", "", ""), []retiredImage{{ProfileImageBanner, "b", "bt"}}},
-		{"only the thumbnail differs", mk("a", "at", "", ""), mk("a", "at2", "", ""), []retiredImage{{ProfileImageAvatar, "a", "at"}}},
-		{"an old image with only a thumbnail", mk("", "at", "", ""), mk("", "", "", ""), []retiredImage{{ProfileImageAvatar, "", "at"}}},
-		{"both", mk("a", "at", "b", "bt"), mk("", "", "", ""), []retiredImage{{ProfileImageAvatar, "a", "at"}, {ProfileImageBanner, "b", "bt"}}},
+		{"nothing set", mk("", ""), mk("", ""), nil},
+		{"unchanged", mk("a", "at"), mk("a", "at"), nil},
+		{"first set", mk("", ""), mk("a", "at"), nil},
+		{"avatar replaced", mk("a", "at"), mk("a2", "at2"), []retiredImage{{ProfileImageAvatar, "a", "at"}}},
+		{"avatar removed", mk("a", "at"), mk("", ""), []retiredImage{{ProfileImageAvatar, "a", "at"}}},
+		{"only the thumbnail differs", mk("a", "at"), mk("a", "at2"), []retiredImage{{ProfileImageAvatar, "a", "at"}}},
+		{"an old image with only a thumbnail", mk("", "at"), mk("", ""), []retiredImage{{ProfileImageAvatar, "", "at"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

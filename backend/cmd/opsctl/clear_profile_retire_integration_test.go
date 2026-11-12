@@ -42,7 +42,7 @@ func TestClearProfileFields_Integration_RetiresClearedImages(t *testing.T) {
 	const uid = "uid-retire"
 	const (
 		avatarID = "0000000000000000111"
-		bannerID = "0000000000000000222"
+		bannerID = "0000000000000000222" // a legacy banner (the removed feature): never cleared or retired here
 		keepID   = "0000000000000000333"
 	)
 	base := "https://storage.googleapis.com/" + project + "-media/m/"
@@ -65,8 +65,8 @@ func TestClearProfileFields_Integration_RetiresClearedImages(t *testing.T) {
 		}
 	}
 	seedDoc(avatarID, media.PurposeAvatar)
-	seedDoc(bannerID, media.PurposeBanner)
-	seedDoc(keepID, media.PurposeBanner) // an image the profile never pointed at: untouched
+	seedDoc(bannerID, media.Purpose("BANNER"))
+	seedDoc(keepID, media.PurposeAvatar) // an image the profile never pointed at: untouched
 
 	tags := &tagLog{}
 	identityRepo := identity.NewFirestoreRepo(client, graph.NewFirestoreRepo(client))
@@ -109,43 +109,37 @@ func TestClearProfileFields_Integration_RetiresClearedImages(t *testing.T) {
 		t.Fatalf("off dry run: code=%d stdout=\n%s\nstderr=%q", code, stdout, stderr)
 	}
 
-	// Mode banner: the banner is retired, the avatar is not.
-	code, stdout, stderr = run(config.ProfileMediaRetireBanner, nil, args("banner,avatar")...)
+	// Mode off for real: the avatar is cleared, nothing is retired, the objects are printed for deleting by hand.
+	code, stdout, stderr = run(config.ProfileMediaRetireOff, nil, args("avatar")...)
 	if code != 0 {
-		t.Fatalf("banner mode: code=%d stderr=%q", code, stderr)
+		t.Fatalf("off: code=%d stderr=%q", code, stderr)
 	}
-	t.Logf("banner mode output:\n%s", stdout)
+	t.Logf("off output:\n%s", stdout)
 	for _, want := range []string{
-		"banner retire: done.",
-		"avatar retire: not run (PROFILE_MEDIA_RETIRE=banner in this shell does not cover it)",
-		"banner object (public until the lifecycle rule deletes it): m/" + bannerID + ".webp in bucket " + project + "-media",
+		"avatar retire: not run (PROFILE_MEDIA_RETIRE=off in this shell does not cover it)",
 		"avatar object (still public until deleted): m/" + avatarID + ".webp in bucket " + project + "-media",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("stdout missing %q", want)
 		}
 	}
-	if _, ok := retiredAt(bannerID); !ok {
-		t.Error("the cleared banner's document was not retired")
-	}
 	if _, ok := retiredAt(avatarID); ok {
-		t.Error("mode banner retired an avatar")
+		t.Error("mode off retired the avatar")
 	}
-	if got := strings.Join(tags.calls, ","); got != "m/"+bannerID+".webp,m/"+bannerID+"_t.webp" {
-		t.Errorf("tagged objects = %q, want the banner's two objects only", got)
+	if len(tags.calls) != 0 {
+		t.Errorf("mode off tagged objects: %v", tags.calls)
 	}
 
-	// The avatar was cleared above without a retire; the profile now holds nothing, so the operator can still retire it
-	// by hand through a message, and a rerun of the command clears nothing and retires nothing (0 writes).
-	code, stdout, stderr = run(config.ProfileMediaRetireAll, nil, args("banner,avatar")...)
+	// The profile now holds no avatar, so a rerun clears nothing and retires nothing (0 writes).
+	code, stdout, stderr = run(config.ProfileMediaRetireAll, nil, args("avatar")...)
 	if code != 0 || !strings.Contains(stdout, "nothing to clear: 0 writes") {
 		t.Fatalf("rerun: code=%d stdout=\n%s\nstderr=%q", code, stdout, stderr)
 	}
-	if len(tags.calls) != 2 {
+	if len(tags.calls) != 0 {
 		t.Errorf("a rerun tagged objects: %v", tags.calls)
 	}
 
-	// Mode all on a profile that holds images again: both are retired in process; a second delivery would be a duplicate.
+	// Mode all on a profile that holds the avatar again: it is retired in process; a second delivery would be a duplicate.
 	if _, err := client.Collection("users").Doc(uid).Update(ctx, []firestore.Update{
 		{Path: "avatarUrl", Value: base + avatarID + ".webp"}, {Path: "avatarThumbUrl", Value: base + avatarID + "_t.webp"},
 	}); err != nil {
@@ -161,20 +155,26 @@ func TestClearProfileFields_Integration_RetiresClearedImages(t *testing.T) {
 	if _, ok := retiredAt(keepID); ok {
 		t.Error("an image the profile never pointed at was retired")
 	}
-	if len(tags.calls) != 4 {
-		t.Errorf("tagged objects = %v, want 4 in total", tags.calls)
+	if _, ok := retiredAt(bannerID); ok {
+		t.Error("the legacy banner was retired")
+	}
+	if got := strings.Join(tags.calls, ","); got != "m/"+avatarID+".webp,m/"+avatarID+"_t.webp" {
+		t.Errorf("tagged objects = %q, want the avatar's two objects only", got)
+	}
+	if s, _ := client.Collection("users").Doc(uid).Get(ctx); s.Data()["bannerUrl"] != base+bannerID+".webp" {
+		t.Error("clear-profile-fields touched the legacy banner fields (purge-banners owns them)")
 	}
 
 	// An invalid switch is refused before anything is written, and says which variable.
-	if _, err := client.Collection("users").Doc(uid).Update(ctx, []firestore.Update{{Path: "bannerUrl", Value: base + keepID + ".webp"}, {Path: "bannerThumbUrl", Value: base + keepID + "_t.webp"}}); err != nil {
+	if _, err := client.Collection("users").Doc(uid).Update(ctx, []firestore.Update{{Path: "avatarUrl", Value: base + keepID + ".webp"}, {Path: "avatarThumbUrl", Value: base + keepID + "_t.webp"}}); err != nil {
 		t.Fatal(err)
 	}
-	code, _, stderr = run("", fmt.Errorf("config: invalid PROFILE_MEDIA_RETIRE %q (want off|banner|all)", "avatar"), args("banner")...)
+	code, _, stderr = run("", fmt.Errorf("config: invalid PROFILE_MEDIA_RETIRE %q (want off|all)", "bogus"), args("avatar")...)
 	if code != 2 || !strings.Contains(stderr, "PROFILE_MEDIA_RETIRE") {
 		t.Fatalf("invalid switch: code=%d stderr=%q", code, stderr)
 	}
 	s, _ := client.Collection("users").Doc(uid).Get(ctx)
-	if s.Data()["bannerUrl"] != base+keepID+".webp" {
+	if s.Data()["avatarUrl"] != base+keepID+".webp" {
 		t.Error("an invalid switch did not stop the clear")
 	}
 }

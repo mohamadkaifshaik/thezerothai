@@ -43,7 +43,7 @@ func TestUpdateProfile_ClearIsRefusedInReadonlyMode(t *testing.T) {
 	tests := map[string]*identityv1.UpdateProfileRequest{
 		"clear the website":        {IdempotencyKey: "readonly-clear-0000001", Website: &empty},
 		"clear the pin":            {IdempotencyKey: "readonly-clear-0000002", PinnedPostId: &empty},
-		"clear all four":           {IdempotencyKey: "readonly-clear-0000003", BannerMediaId: &empty, Location: &empty, Website: &empty, PinnedPostId: &empty},
+		"clear all three":          {IdempotencyKey: "readonly-clear-0000003", Location: &empty, Website: &empty, PinnedPostId: &empty},
 		"a bio edit (the control)": {IdempotencyKey: "readonly-clear-0000004", Bio: strPtr("hello")},
 	}
 	for name, req := range tests {

@@ -90,8 +90,9 @@ func deleteObjects(ctx context.Context, o Objects, d *Doc) error {
 }
 
 // PurgeUser deletes one page (<= opsPage) of uid's media: objects, then the documents in one batch. It deletes every
-// document the owner has, whatever its state, retired AVATAR and BANNER documents included: until its TTL a retired
-// document still names the image, so an account deleted during the grace loses the objects
+// document the owner has, whatever its state or purpose (retired AVATAR documents and legacy BANNER ones included, so
+// right-to-delete erases a legacy banner without a branch of its own): until its TTL a retired document still names
+// the image, so an account deleted during the grace loses the objects
 // at once. done is true when the page was short (the account is DELETING, so no new uploads arrive). GCS: free deletes, 2 public (deterministic names; 4 for a
 // suffixed document, both shapes) + up to 2 private per document.
 func (p *Purger) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {

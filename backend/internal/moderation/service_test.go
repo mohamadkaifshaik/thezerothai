@@ -392,8 +392,7 @@ func TestReport_AccountTarget(t *testing.T) {
 	t.Parallel()
 	f := newFixture()
 	f.accounts.prof = identity.Profile{UserID: author, Handle: "Mallory", DisplayName: "Mal", Bio: "bio text", Location: "Pune",
-		Website: "https://phish.example/login", AvatarURL: "https://m/m/1.webp", AvatarThumbURL: "https://m/m/1_t.webp",
-		BannerURL: "https://m/m/2.webp", BannerThumbURL: "https://m/m/2_t.webp"}
+		Website: "https://phish.example/login", AvatarURL: "https://m/m/1.webp", AvatarThumbURL: "https://m/m/1_t.webp"}
 	in := ReportInput{IdempotencyKey: okKey, TargetType: TargetAccount, TargetID: author, Reason: ReasonImpersonation}
 	if _, err := f.svc().Report(gctx(), reporter, in); err != nil {
 		t.Fatal(err)
@@ -405,7 +404,7 @@ func TestReport_AccountTarget(t *testing.T) {
 	// The profile the reporter saw is kept as evidence, from the profile the call already
 	// loaded (the profile read count below stays 1), and nothing else of it (no thumbnails, no uid).
 	want := &Evidence{AuthorHandle: "Mallory", DisplayName: "Mal", Bio: "bio text", Location: "Pune",
-		Website: "https://phish.example/login", AvatarURL: "https://m/m/1.webp", BannerURL: "https://m/m/2.webp"}
+		Website: "https://phish.example/login", AvatarURL: "https://m/m/1.webp"}
 	if !reflect.DeepEqual(r.Evidence, want) {
 		t.Errorf("evidence = %+v, want %+v", r.Evidence, want)
 	}

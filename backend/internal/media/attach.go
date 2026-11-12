@@ -1,5 +1,5 @@
 // attach.go is media's consumer-facing side for posts and identity: attaching READY images to a post inside the
-// CreatePost transaction, and resolving an avatar or a banner for UpdateProfile. All answer ErrNotReady for every
+// CreatePost transaction, and resolving an avatar for UpdateProfile. All answer ErrNotReady for every
 // failing case (missing, someone else's, wrong purpose, not READY, already attached): one answer, no oracle.
 package media
 
@@ -95,11 +95,6 @@ func (l *Library) LoadForPost(ctx context.Context, tx *firestore.Transaction, ui
 // ResolveAvatar implements Reader.
 func (l *Library) ResolveAvatar(ctx context.Context, uid, mediaID string) (Ref, error) {
 	return l.resolveOwned(ctx, uid, mediaID, PurposeAvatar)
-}
-
-// ResolveBanner implements Reader.
-func (l *Library) ResolveBanner(ctx context.Context, uid, mediaID string) (Ref, error) {
-	return l.resolveOwned(ctx, uid, mediaID, PurposeBanner)
 }
 
 // ResolvePostCover previews an owned, unclaimed still image. Publication must

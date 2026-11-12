@@ -76,7 +76,7 @@ type backends struct {
 	accounts   accountStatusSetter
 	// profiles serves clear-profile-fields: identity's field-level clear of users/{uid}.
 	profiles profileClearer
-	// retire is the A4 retire step clear-profile-fields runs in process for a cleared banner or avatar (media.Jobs); nil
+	// retire is the A4 retire step clear-profile-fields runs in process for a cleared avatar (media.Jobs); nil
 	// means it never runs. retireMode is PROFILE_MEDIA_RETIRE read from the operator's shell (unset = off), and retireErr
 	// is its parse error, which clear-profile-fields reports before writing anything when an image is among the fields.
 	retire     profileRetirer
@@ -214,13 +214,13 @@ const usage = `usage:
   opsctl export-posts --project P --uid U [--out FILE]
   opsctl check-t26    --project P   (read-only; prints aggregate counts only)
   opsctl backfill-has-media --project P [--dry-run] [--after POST_ID]   (one-off per project; <= 5,000 writes per run)
-  opsctl clear-profile-fields --project P --uid U --fields website,location,banner,avatar,bio [--report R] [--note N] [--dry-run]
+  opsctl clear-profile-fields --project P --uid U --fields website,location,avatar,bio [--report R] [--note N] [--dry-run]
                           (clears the named fields of one profile, skips empty ones;
-                          A cleared banner or avatar is scheduled for deletion in 24-48 h when PROFILE_MEDIA_RETIRE=banner|all
+                          A cleared avatar is scheduled for deletion in 24-48 h when PROFILE_MEDIA_RETIRE=all
                           is set in this shell to the project's value; unset = off, delete the printed objects by hand)
   opsctl backfill-media-orphans --project P [--dry-run] [--after MEDIA_ID]   (one-off per project; <= 5,000 writes per run:
                           published, unattached media predating the orphan sweep become candidates in 7 days)
-  opsctl media-orphan-sweep --project P --profile-retire off|banner|all [--dry-run]   (drains the daily orphan sweep's
+  opsctl media-orphan-sweep --project P --profile-retire off|all [--dry-run]   (drains the daily orphan sweep's
                           backlog in delete mode whatever MEDIA_ORPHAN_SWEEP says; --profile-retire has no default and the
                           shell's PROFILE_MEDIA_RETIRE is not read; --dry-run computes one page and writes nothing)
 ` + modUsage + trendsUsage + listsUsage + beaconUsage + communityUsage + communityHiddenUsage
@@ -240,7 +240,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
 	after := fs.String("after", "", "backfill-has-media, backfill-media-orphans: resume after this post or media id (the checkpoint a capped run printed)")
-	profileRetire := fs.String("profile-retire", "", "media-orphan-sweep (required, no default): off|banner|all, which unshown profile images the sweep may delete")
+	profileRetire := fs.String("profile-retire", "", "media-orphan-sweep (required, no default): off|all, which unshown profile images the sweep may delete (the legacy banner is read as off)")
 	var ma modArgs
 	fs.StringVar(&ma.id, "id", "", "reports show|resolve: report id")
 	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post: post id")
@@ -248,7 +248,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.StringVar(&ma.status, "status", "", "reports list: OPEN (default) or RESOLVED")
 	fs.StringVar(&ma.resolution, "resolution", "", "reports resolve: NO_ACTION or DISMISSED")
 	fs.StringVar(&ma.note, "note", "", "reports resolve, takedown-post, suspend-user, clear-profile-fields, messages takedown, lists hide, beacon hide, community suspend: resolution note")
-	fs.StringVar(&ma.fields, "fields", "", "clear-profile-fields: comma-separated list of website, location, banner, avatar, bio")
+	fs.StringVar(&ma.fields, "fields", "", "clear-profile-fields: comma-separated list of website, location, avatar, bio")
 	fs.IntVar(&ma.limit, "limit", 0, "reports list: at most N reports (default 20, max 50)")
 	fs.StringVar(&ma.since, "since", "", "community restore-hidden: restore only posts hidden at or after this RFC 3339 time")
 	fs.StringVar(&ma.pageToken, "page-token", "", "community hidden, restore-hidden: resume after the token a previous page printed")
@@ -341,7 +341,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	if cmd == "media-orphan-sweep" {
 		var err error
 		if sweepRetire, err = config.ParseProfileMediaRetire(*profileRetire); err != nil || *profileRetire == "" {
-			fmt.Fprintf(errOut, "media-orphan-sweep needs --profile-retire off|banner|all (no default)\n%s", usage)
+			fmt.Fprintf(errOut, "media-orphan-sweep needs --profile-retire off|all (no default)\n%s", usage)
 			return 2
 		}
 	} else if *profileRetire != "" {

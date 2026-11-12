@@ -74,11 +74,10 @@ func (r *FirestoreRepo) SetAccountStatus(ctx context.Context, uid string, from, 
 // suspend-user, and a bad pinned post is takedown-post.
 type ProfileField string
 
-// The five clearable fields. Banner and avatar each own two stored fields (the full image and its thumbnail).
+// The four clearable fields. The avatar owns two stored fields (the full image and its thumbnail).
 const (
 	ProfileFieldWebsite  ProfileField = "website"
 	ProfileFieldLocation ProfileField = "location"
-	ProfileFieldBanner   ProfileField = "banner"
 	ProfileFieldAvatar   ProfileField = "avatar"
 	ProfileFieldBio      ProfileField = "bio"
 )
@@ -90,8 +89,6 @@ func (f ProfileField) storedPaths() []string {
 		return []string{"website"}
 	case ProfileFieldLocation:
 		return []string{"location"}
-	case ProfileFieldBanner:
-		return []string{"bannerUrl", "bannerThumbUrl"}
 	case ProfileFieldAvatar:
 		return []string{"avatarUrl", "avatarThumbUrl"}
 	case ProfileFieldBio:
@@ -100,19 +97,18 @@ func (f ProfileField) storedPaths() []string {
 	return nil
 }
 
-// ParseProfileFields parses the comma-separated --fields list: one or more of website, location, banner, avatar and
-// bio. An empty list, an empty item, an unknown name or a repeated name is an error (a usage error for the caller).
+// ParseProfileFields parses the comma-separated --fields list: one or more of website, location, avatar and bio. An empty list, an empty item, an unknown name or a repeated name is an error (a usage error for the caller).
 // The order given is kept.
 func ParseProfileFields(list string) ([]ProfileField, error) {
 	if list == "" {
-		return nil, errors.New("--fields is required: one or more of website, location, banner, avatar, bio")
+		return nil, errors.New("--fields is required: one or more of website, location, avatar, bio")
 	}
 	var out []ProfileField
 	seen := map[ProfileField]bool{}
 	for _, name := range strings.Split(list, ",") {
 		f := ProfileField(name)
 		if len(f.storedPaths()) == 0 {
-			return nil, fmt.Errorf("--fields: unknown field %q (want website, location, banner, avatar, bio)", name)
+			return nil, fmt.Errorf("--fields: unknown field %q (want website, location, avatar, bio)", name)
 		}
 		if seen[f] {
 			return nil, fmt.Errorf("--fields: %q is repeated", name)
@@ -123,8 +119,8 @@ func ParseProfileFields(list string) ([]ProfileField, error) {
 	return out, nil
 }
 
-// ClearedField is one requested field that holds a value: Values are the stored values it clears (for banner and
-// avatar the full URL, then the thumbnail URL; either may be empty).
+// ClearedField is one requested field that holds a value: Values are the stored values it clears (for the avatar
+// the full URL, then the thumbnail URL; either may be empty).
 type ClearedField struct {
 	Field  ProfileField
 	Values []string
@@ -143,7 +139,7 @@ type ClearResult struct {
 // One transaction reads the STORED document (never the presented view): a missing one is
 // ErrNotFound and a DELETING one is ErrStatusConflict, because the deletion job's UpdateTime-preconditioned
 // checkpoints must not race an operator write. It then writes one field-level Update that sets each requested field
-// that holds a value to "" plus updatedAt (banner and avatar clear both their URLs; either one set counts as set).
+// that holds a value to "" plus updatedAt (the avatar clears both its URLs; either one set counts as set).
 // Fields that are already empty are skipped, so nothing to clear writes nothing and a rerun writes nothing. It never uses
 // Set, so it cannot recreate a purged document, and it does not touch snapshotVersion (none of these fields is part
 // of the author snapshot, as in UpdateProfile) or enqueue any job. dryRun reads and reports the same plan and writes
@@ -172,7 +168,6 @@ func (r *FirestoreRepo) ClearProfileFields(ctx context.Context, uid string, fiel
 		}
 		stored := map[string]string{
 			"website": d.Website, "location": d.Location, "bio": d.Bio,
-			"bannerUrl": d.BannerURL, "bannerThumbUrl": d.BannerThumbURL,
 			"avatarUrl": d.AvatarURL, "avatarThumbUrl": d.AvatarThumbURL,
 		}
 		var updates []firestore.Update
