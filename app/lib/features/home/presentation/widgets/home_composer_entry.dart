@@ -6,14 +6,15 @@ import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/post/post_card.dart';
 import '../../../../shared/widgets/primitives/app_avatar.dart';
+import '../../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 
-/// The entry row under the Home tab bar: the viewer's avatar and a "Write a
-/// post" prompt drawn as an outlined pill field (the Feed designs). It only
-/// navigates: the row opens the existing composer (`/compose`); nothing is
-/// typed here. There is no separate Post button: the rail's Post control
-/// (wide) and this row (narrow) are the entries. In line with the post cards
-/// below it: their gutter, a 42 dp avatar and the 12 dp gap.
+/// The entry row under the Home tab bar: the viewer's avatar and a "What's
+/// your plan?" prompt drawn as an outlined pill field (the Feed designs). It
+/// only navigates: the row opens the existing composer (`/compose`); nothing
+/// is typed here. The tablet and desktop layouts add a Post button at the
+/// end that opens the same composer. In line with the post cards below it:
+/// their gutter, a 42 dp avatar and the 12 dp gap.
 ///
 /// The pill is ink on the page's Material (an [Ink]), so the row's ripple
 /// and keyboard focus highlight paint over it; keyboard focus also draws the
@@ -25,7 +26,7 @@ import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 class HomeComposerEntry extends StatefulWidget {
   const HomeComposerEntry({super.key});
 
-  static const promptLabel = 'Write a post';
+  static const promptLabel = "What's your plan?";
 
   @override
   State<HomeComposerEntry> createState() => _HomeComposerEntryState();
@@ -48,6 +49,7 @@ class _HomeComposerEntryState extends State<HomeComposerEntry> {
       (OnboardingBloc bloc) => bloc.state.profile?.displayName ?? '',
     );
     final gutter = postCardGutterOf(context);
+    final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     return DecoratedBox(
       decoration: BoxDecoration(
         border: Border(
@@ -141,6 +143,14 @@ class _HomeComposerEntryState extends State<HomeComposerEntry> {
                 ),
               ),
             ),
+            if (wide) ...[
+              const SizedBox(width: AppSpacing.smd),
+              AppPillButton(
+                label: 'Post',
+                compact: true,
+                onPressed: () => _openComposer(context),
+              ),
+            ],
           ],
         ),
       ),
