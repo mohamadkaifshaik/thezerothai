@@ -1625,6 +1625,7 @@ abstract final class AppProfileLayout {
   static const Color onDarkStatsBorder = Color(0x1AF6F4EF);
   static const Color onDarkDivider = Color(0x24F6F4EF);
   static const Color onDarkOutline = Color(0x47F6F4EF);
+}
 
 /// Scheduled posts geometry per screen size (dp): the dzeroth-mobile,
 /// tablet and desktop Scheduled mocks' cards. The card itself is
