@@ -16,6 +16,7 @@ import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
+import 'package:dzeroth/features/account/presentation/account_deleted_screen.dart';
 import 'package:dzeroth/features/account/presentation/delete_account_screen.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
@@ -292,9 +293,9 @@ void main() {
           accounts.deleteAccount(idempotencyKey: any(named: 'idempotencyKey')),
     ).called(1);
     verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
-    expect(find.text('Your account is being deleted'), findsOneWidget);
+    expect(find.text('A fresh start.'), findsOneWidget);
 
-    await tester.tap(find.text('Done'));
+    await tester.tap(find.text('Back to log in'));
     await tester.pumpAndSettle();
     expect(find.text('sign in stub'), findsOneWidget);
   });
@@ -332,7 +333,7 @@ void main() {
 
     expect(optIn.forgotten, ['uid-1']);
     expect(optIn.records.keys, ['uid-2']);
-    expect(find.text('Your account is being deleted'), findsOneWidget);
+    expect(find.text('A fresh start.'), findsOneWidget);
   });
 
   testWidgets('success forgets the device telemetry of the deleted uid before '
@@ -377,7 +378,7 @@ void main() {
     expect(await database.readSetting('telemetry_consent:usage:uid-1'), isNull);
     expect(await database.readSetting('telemetry_consent:crash:uid-2'), 'on');
     expect(log.calls, containsAll(['crash.deleteUnsent', 'usage.reset']));
-    expect(find.text('Your account is being deleted'), findsOneWidget);
+    expect(find.text('A fresh start.'), findsOneWidget);
   });
 
   testWidgets('a failed delete leaves the device telemetry alone', (
@@ -452,7 +453,7 @@ void main() {
 
     expect(reported, hasLength(1));
     expect(optIn.forgotten, ['uid-1']);
-    expect(find.text('Your account is being deleted'), findsOneWidget);
+    expect(find.text('A fresh start.'), findsOneWidget);
     verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
   });
 
@@ -467,7 +468,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(reported, hasLength(1));
-    expect(find.text('Your account is being deleted'), findsOneWidget);
+    expect(find.text('A fresh start.'), findsOneWidget);
     verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
   });
 
@@ -503,7 +504,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(optIn.forgotten, ['uid-1']);
-    expect(find.text('Your account is being deleted'), findsOneWidget);
+    expect(find.text('A fresh start.'), findsOneWidget);
   });
 
   testWidgets('cancelled re-auth sends nothing and says so', (tester) async {
@@ -646,7 +647,12 @@ void main() {
       await tester.tap(button());
       // The in-button spinner never settles while the dialog is open.
       await tester.pump(const Duration(milliseconds: 400));
-      await tester.tap(find.text('Cancel'));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Cancel'),
+        ),
+      );
       await tester.pumpAndSettle();
 
       expect(passwordSeen, isNull);
@@ -688,32 +694,35 @@ void main() {
     });
   });
 
-  testWidgets('Done signs out again while still authenticated', (tester) async {
+  testWidgets('Back to log in signs out again while still authenticated', (
+    tester,
+  ) async {
     await pump(tester, initial: AppRouter.accountDeletedPath);
 
-    await tester.tap(find.text('Done'));
+    await tester.tap(find.text('Back to log in'));
     await tester.pumpAndSettle();
 
     verify(() => authBloc.add(const AuthSignOutRequested())).called(1);
     expect(find.text('sign in stub'), findsOneWidget);
   });
 
-  testWidgets('Done does not sign out again when already unauthenticated', (
-    tester,
-  ) async {
-    whenListen(
-      authBloc,
-      const Stream<AuthState>.empty(),
-      initialState: const AuthState(status: AuthStatus.unauthenticated),
-    );
-    await pump(tester, initial: AppRouter.accountDeletedPath);
+  testWidgets(
+    'Back to log in does not sign out again when already unauthenticated',
+    (tester) async {
+      whenListen(
+        authBloc,
+        const Stream<AuthState>.empty(),
+        initialState: const AuthState(status: AuthStatus.unauthenticated),
+      );
+      await pump(tester, initial: AppRouter.accountDeletedPath);
 
-    await tester.tap(find.text('Done'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Back to log in'));
+      await tester.pumpAndSettle();
 
-    verifyNever(() => authBloc.add(any()));
-    expect(find.text('sign in stub'), findsOneWidget);
-  });
+      verifyNever(() => authBloc.add(any()));
+      expect(find.text('sign in stub'), findsOneWidget);
+    },
+  );
 
   testWidgets('without a profile: confirm word, no export link, client delete '
       'after PROFILE_REQUIRED', (tester) async {
@@ -741,7 +750,7 @@ void main() {
     await tester.pumpAndSettle();
 
     verify(() => auth.deleteCurrentUser()).called(1);
-    expect(find.text('Your account is being deleted'), findsOneWidget);
+    expect(find.text('A fresh start.'), findsOneWidget);
   });
 
   test('confirmWordMatches ignores case and spaces', () {
@@ -801,15 +810,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(DeleteAccountScreen), findsOneWidget);
-    final list = tester.widget<ListView>(
+    final list = tester.widget<SingleChildScrollView>(
       find.descendant(
         of: find.byType(DeleteAccountScreen),
-        matching: find.byType(ListView),
+        matching: find.byType(SingleChildScrollView),
       ),
     );
-    // The page's own padding, exactly as before the floating bar: the
+    // The page's own padding, without the floating bar's inset: the
     // home-indicator inset is not added outside the shell.
-    expect(list.padding, const EdgeInsets.all(16));
+    expect(list.padding, const EdgeInsets.fromLTRB(24, 20, 24, 32));
   });
 
   group('under the shell bar (bottom inset)', () {
@@ -851,11 +860,14 @@ void main() {
       expect(find.byType(AppFloatingBottomBar), findsNothing);
       final barTop = tester.getRect(find.byType(AppBottomBar)).top;
       expect(barTop, height - 56);
-      // The list keeps its 16 dp padding: the docked bar takes the inset.
-      final list = tester.widget<ListView>(
-        find.ancestor(of: deleteButton(), matching: find.byType(ListView)),
+      // The page keeps its own padding: the docked bar takes the inset.
+      final list = tester.widget<SingleChildScrollView>(
+        find.ancestor(
+          of: deleteButton(),
+          matching: find.byType(SingleChildScrollView),
+        ),
       );
-      expect(list.padding, const EdgeInsets.all(16));
+      expect(list.padding, const EdgeInsets.fromLTRB(24, 20, 24, 32));
       expect(tester.getRect(deleteButton()).bottom, lessThanOrEqualTo(barTop));
       expect(
         tester.getRect(deleteButton()).bottom,
@@ -881,7 +893,7 @@ void main() {
         .getSize(
           find.descendant(
             of: find.byType(DeleteAccountScreen),
-            matching: find.byType(ListView),
+            matching: find.byType(SingleChildScrollView),
           ),
         )
         .width;
@@ -927,9 +939,9 @@ void main() {
   group('R4 design fidelity', () {
     testWidgets('DeleteAccount.dc.html: eyebrow, headline, data card, danger '
         'pill', (tester) async {
-      await pump(tester);
+      await pump(tester, size: const Size(390, 844));
       expect(find.text("THIS CAN'T BE UNDONE"), findsOneWidget);
-      expect(find.text('Delete your account?'), findsOneWidget);
+      expect(find.text('Leaving DZEROTH?'), findsOneWidget);
       expect(
         find.ancestor(
           of: find.text('Download my data first'),
@@ -943,24 +955,19 @@ void main() {
     });
 
     testWidgets(
-      'AccountDeleted.dc.html: header, eyebrow, headline, Done pill',
+      'AccountDeleted.dc.html: eyebrow, headline, Back to log in pill',
       (tester) async {
         await pump(tester);
         await typeHandle(tester, 'kaif');
         await tester.tap(button());
         await tester.pumpAndSettle();
-        expect(
-          find.descendant(
-            of: find.byType(AppBar),
-            matching: find.text('Account deleted'),
-          ),
-          findsOneWidget,
-        );
         expect(find.text('ACCOUNT STATUS'), findsOneWidget);
-        expect(find.text('Your account is being deleted'), findsOneWidget);
+        expect(find.text('A fresh start.'), findsOneWidget);
         expect(
           tester
-              .widget<AppPillButton>(find.widgetWithText(AppPillButton, 'Done'))
+              .widget<AppPillButton>(
+                find.widgetWithText(AppPillButton, 'Back to log in'),
+              )
               .variant,
           AppButtonVariant.primary,
         );

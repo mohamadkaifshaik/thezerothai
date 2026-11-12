@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/router/page_below.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/tablet_modal.dart';
+import '../../../shared/widgets/primitives/app_accent_headline.dart';
 import '../../../shared/widgets/primitives/app_status_pill.dart';
 import '../../../shared/widgets/primitives/app_surface.dart';
 import '../domain/premium_plans.dart';
@@ -112,15 +113,14 @@ class PremiumDialogPage extends Page<void> {
   }
 }
 
-/// The hero, the two static plan cards and the footer. Nothing here is
+/// The headline, the two static plan cards and the footer. Nothing here is
 /// tappable and no price comes from anywhere but [kPremiumPlans].
 class _PremiumBody extends StatelessWidget {
   const _PremiumBody();
 
-  static const heroTitle = 'Premium is coming soon';
   static const heroSubtitle =
-      'Optional paid plans to help cover running costs. Nothing is for sale '
-      'yet.';
+      'Paid plans are not available yet. Planned monthly prices are '
+      'inclusive of GST.';
   static const footer = 'No payment details are asked for anywhere in the app.';
 
   @override
@@ -136,29 +136,17 @@ class _PremiumBody extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SizedBox(height: AppSpacing.sm),
-          Center(
-            child: ExcludeSemantics(
-              child: Container(
-                width: AppSpacing.xxl + AppSpacing.md,
-                height: AppSpacing.xxl + AppSpacing.md,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: theme.colorScheme.surfaceContainerHigh,
-                ),
-                child: Icon(
-                  Icons.workspace_premium_outlined,
-                  size: AppSpacing.xl,
-                  color: theme.colorScheme.onSurface,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
+          // Premium.html: the accent eyebrow, the display headline, the line.
           Text(
-            heroTitle,
-            style: theme.textTheme.titleLarge,
-            textAlign: TextAlign.center,
+            'Coming soon'.toUpperCase(),
+            style: AppTextStyles.eyebrow(theme)
+                .copyWith(color: context.appColors.accentText),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          const AppAccentHeadline(
+            lead: 'A little ',
+            accent: 'extra',
+            size: AppAccountLayout.dialogHeadline,
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
@@ -166,7 +154,6 @@ class _PremiumBody extends StatelessWidget {
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
-            textAlign: TextAlign.center,
           ),
           const SizedBox(height: AppSpacing.lg),
           if (sideBySide)
@@ -191,7 +178,6 @@ class _PremiumBody extends StatelessWidget {
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
-            textAlign: TextAlign.center,
           ),
         ],
       ),

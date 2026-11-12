@@ -147,7 +147,7 @@ void main() {
     testWidgets('a deep link survives the error page', (tester) async {
       final target = '/post/${postId(7)}';
       setStates(signedOut, idle);
-      expect(await resolve(tester, target), AppRouter.signInPath);
+      expect(await resolve(tester, target), AppRouter.welcomePath);
 
       setStates(signedIn, failed);
       expect(
@@ -194,11 +194,11 @@ void main() {
       );
     });
 
-    testWidgets('signed out on the error page goes to sign-in', (tester) async {
+    testWidgets('signed out on the error page goes to welcome', (tester) async {
       setStates(signedOut, idle);
       expect(
         await resolve(tester, AppRouter.sessionErrorPath),
-        AppRouter.signInPath,
+        AppRouter.welcomePath,
       );
     });
   });

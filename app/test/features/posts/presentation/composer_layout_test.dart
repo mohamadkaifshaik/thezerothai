@@ -129,8 +129,12 @@ void main() {
   AppPillButton post(WidgetTester tester) =>
       tester.widget(find.widgetWithText(AppPillButton, 'Post'));
 
-  TextButton cancel(WidgetTester tester) =>
-      tester.widget(find.widgetWithText(TextButton, 'Cancel'));
+  IconButton cancel(WidgetTester tester) => tester.widget(
+    find.ancestor(
+      of: find.byTooltip('Close'),
+      matching: find.byType(IconButton),
+    ),
+  );
 
   group('layout', () {
     for (final size in const [Size(390, 844), Size(1440, 900)]) {
@@ -150,11 +154,10 @@ void main() {
               await tester.pump();
 
               expect(tester.takeException(), isNull);
-              expect(find.text('Cancel'), findsOneWidget);
+              expect(find.byTooltip('Close'), findsOneWidget);
               expect(find.text('Post'), findsOneWidget);
-              expect(find.text('New post'), findsOneWidget);
               final cancelSize = tester.getSize(
-                find.widgetWithText(TextButton, 'Cancel'),
+                find.byTooltip('Close'),
               );
               expect(cancelSize.height, greaterThanOrEqualTo(48));
               final postSize = tester.getSize(find.byType(AppPillButton));
@@ -180,7 +183,7 @@ void main() {
 
       const gutter = (1440 - AppLayout.mainColumnMaxWidth) / 2;
       expect(
-        tester.getTopLeft(find.text('Cancel')).dx,
+        tester.getTopLeft(find.byTooltip('Close')).dx,
         greaterThanOrEqualTo(gutter),
       );
       expect(
@@ -195,7 +198,7 @@ void main() {
 
     testWidgets('phones use the full width', (tester) async {
       await open(tester);
-      expect(tester.getTopLeft(find.text('Cancel')).dx, lessThan(32));
+      expect(tester.getTopLeft(find.byTooltip('Close')).dx, lessThan(32));
       expect(
         tester.getTopRight(find.byType(AppPillButton)).dx,
         greaterThan(390 - 32),
@@ -204,7 +207,7 @@ void main() {
   });
 
   group('empty and data', () {
-    testWidgets('empty: Post disabled, Cancel enabled, counter 280', (
+    testWidgets('empty: Post disabled, Close enabled, counter 280', (
       tester,
     ) async {
       await open(tester);
@@ -282,7 +285,7 @@ void main() {
   });
 
   group('posting and error states', () {
-    testWidgets('posting: Post is busy, Cancel and the field are off, then '
+    testWidgets('posting: Post is busy, Close and the field are off, then '
         'the screen closes', (tester) async {
       final done = Completer<dynamic>();
       stubCreate(() => done.future);
@@ -334,16 +337,16 @@ void main() {
       expect(cancel(tester).onPressed, isNotNull);
     });
 
-    testWidgets('Cancel leaves the screen', (tester) async {
+    testWidgets('Close leaves the screen', (tester) async {
       await open(tester);
-      await tester.tap(find.text('Cancel'));
+      await tester.tap(find.byTooltip('Close'));
       await tester.pumpAndSettle();
       expect(find.text('home page'), findsOneWidget);
     });
   });
 
   group('semantics', () {
-    testWidgets('Cancel and Post are buttons, the title is a header', (
+    testWidgets('Close and Post are buttons, the title is a header', (
       tester,
     ) async {
       final handle = tester.ensureSemantics();
@@ -352,8 +355,8 @@ void main() {
       await tester.pump();
 
       expect(
-        tester.getSemantics(find.widgetWithText(TextButton, 'Cancel')),
-        isSemantics(label: 'Cancel', isButton: true, isEnabled: true),
+        tester.getSemantics(find.byTooltip('Close')),
+        isSemantics(tooltip: 'Close', isButton: true, isEnabled: true),
       );
       expect(
         tester.getSemantics(find.byType(AppPillButton)),
@@ -361,7 +364,7 @@ void main() {
       );
       expect(find.bySemanticsLabel('Post'), findsOneWidget);
       expect(
-        tester.getSemantics(find.text('New post')),
+        tester.getSemantics(find.bySemanticsLabel('New post')),
         isSemantics(label: 'New post', isHeader: true),
       );
       handle.dispose();
