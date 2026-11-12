@@ -27,19 +27,6 @@ enum ContextSectionKind {
   /// The footer links (Privacy Policy, Community rules).
   links,
 
-  /// `/communities`: "Explore Communities", the page's own directory (T8a).
-  exploreCommunities,
-
-  /// `/communities/:id`: the community's rules, moderators and "View
-  /// moderation log" (T8a). The About tab keeps them at every width.
-  communityAbout,
-
-  /// `/communities/new`: the live preview of the form (T8a).
-  communityPreview,
-
-  /// `/communities/:id/moderation-log`: "About this log" (T8a).
-  moderationLogAbout,
-
   /// `/profile/:handle`, `/u/:id`: the profile's latest images from its
   /// own Media tab feed (T8c). The Media tab keeps them at every width.
   profileMedia,
@@ -64,10 +51,6 @@ enum ContextSectionKind {
   /// requests" (F16, R8). The inline Follow requests row hides while it
   /// shows.
   followRequests,
-
-  /// `/communities/:id/members`: the "Search members" field (F36, R10),
-  /// lent by the page; its results are the page's list.
-  memberSearch,
 }
 
 /// One section of band B's context pane: a self-gating widget (it draws

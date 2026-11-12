@@ -106,7 +106,11 @@ void main() {
       expect(find.text('Explore'), findsOneWidget);
       expect(find.text('Owner'), findsOneWidget);
       expect(find.text('1 member'), findsOneWidget);
-      expect(find.bySemanticsLabel('Mine, 1 member, Owner'), findsOneWidget);
+      // The inert "Joined" pill is part of the row's one spoken label.
+      expect(
+        find.bySemanticsLabel(RegExp(r'^Mine, 1 member, Owner\nJoined Mine$')),
+        findsOneWidget,
+      );
       await showExplore(tester);
       expectNoOverflow(tester);
       expect(find.text('Join'), findsOneWidget);
