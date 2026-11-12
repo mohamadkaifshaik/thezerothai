@@ -15,7 +15,6 @@ import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
-import '../../../shared/widgets/primitives/app_gradient_fab.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../notifications/presentation/bloc/push_cubit.dart';
@@ -32,6 +31,7 @@ import 'widgets/not_encrypted_note.dart';
 import '../../settings/presentation/widgets/message_settings_action.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/widgets/shell_geometry.dart';
+import '../../../core/widgets/shell_fab.dart';
 
 /// `/messages` and `/messages/requests`: the inbox.
 ///
@@ -279,97 +279,97 @@ class _ConversationsViewState extends State<ConversationsList>
       listenWhen: (a, b) => b.messagePushes > a.messagePushes,
       listener: (context, push) =>
           _onMessagePush(push.lastMessageConversationId),
-      child: Scaffold(
-        floatingActionButton:
-            _isInbox &&
-                widget.canCompose &&
-                MediaQuery.sizeOf(context).width < AppBreakpoints.mobile
-            ? AppGradientFab(
+      // The phone's floating button (the shell's) starts a new message.
+      child: ShellFab(
+        action: _isInbox && widget.canCompose && widget.onNewMessage != null
+            ? ShellFabAction(
                 tooltip: kNewMessageLabel,
                 icon: Icons.mail_outline,
-                onPressed: widget.onNewMessage,
+                onPressed: widget.onNewMessage!,
               )
             : null,
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            final inset = ShellGeometry.readableInset(
-              context,
-              constraints.maxWidth,
-            );
-            return BlocBuilder<ConversationsCubit, ConversationsState>(
-              builder: (context, state) {
-                return RefreshIndicator(
-                  onRefresh: cubit.refresh,
-                  child: CustomScrollView(
-                    key: widget.storage == null
-                        ? null
-                        : PageStorageKey<String>(
-                            'conversations-${widget.folder.value}',
-                          ),
-                    controller: _controller,
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    slivers: [
-                      if (_isInbox)
-                        AppTopBar.sliver(
-                          title: 'Messages',
-                          actions: [
-                            if (widget.canCompose &&
-                                MediaQuery.sizeOf(context).width >=
-                                    AppBreakpoints.mobile)
-                              AppTopBarAction(
-                                icon: Icons.mail_outline,
-                                tooltip: kNewMessageLabel,
-                                onPressed: widget.onNewMessage,
+        child: Scaffold(
+          body: LayoutBuilder(
+            builder: (context, constraints) {
+              final inset = ShellGeometry.readableInset(
+                context,
+                constraints.maxWidth,
+              );
+              return BlocBuilder<ConversationsCubit, ConversationsState>(
+                builder: (context, state) {
+                  return RefreshIndicator(
+                    onRefresh: cubit.refresh,
+                    child: CustomScrollView(
+                      key: widget.storage == null
+                          ? null
+                          : PageStorageKey<String>(
+                              'conversations-${widget.folder.value}',
+                            ),
+                      controller: _controller,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      slivers: [
+                        if (_isInbox)
+                          AppTopBar.sliver(
+                            title: 'Messages',
+                            actions: [
+                              if (widget.canCompose &&
+                                  MediaQuery.sizeOf(context).width >=
+                                      AppBreakpoints.mobile)
+                                AppTopBarAction(
+                                  icon: Icons.mail_outline,
+                                  tooltip: kNewMessageLabel,
+                                  onPressed: widget.onNewMessage,
+                                ),
+                              const MessageSettingsAction(),
+                            ],
+                          )
+                        else
+                          _inset(
+                            inset,
+                            SliverToBoxAdapter(
+                              child: AppBackHeader(
+                                title: 'Message requests',
+                                onBack: _back,
                               ),
-                            const MessageSettingsAction(),
-                          ],
-                        )
-                      else
-                        _inset(
-                          inset,
-                          SliverToBoxAdapter(
-                            child: AppBackHeader(
-                              title: 'Message requests',
-                              onBack: _back,
                             ),
                           ),
-                        ),
-                      if (state.notice != null)
-                        _inset(
-                          inset,
-                          SliverToBoxAdapter(
-                            child: AppNoticeBanner(
-                              message: conversationsNoticeMessage(
-                                state.notice!,
+                        if (state.notice != null)
+                          _inset(
+                            inset,
+                            SliverToBoxAdapter(
+                              child: AppNoticeBanner(
+                                message: conversationsNoticeMessage(
+                                  state.notice!,
+                                ),
+                                onRetry: noticeCanRetry(state.notice!)
+                                    ? cubit.refresh
+                                    : null,
                               ),
-                              onRetry: noticeCanRetry(state.notice!)
-                                  ? cubit.refresh
-                                  : null,
                             ),
                           ),
-                        ),
-                      if (_isInbox && (state.requestCount ?? 0) > 0)
-                        _inset(
-                          inset,
-                          SliverToBoxAdapter(
-                            child: _RequestsRow(
-                              count: state.requestCount!,
-                              onTap:
-                                  widget.onOpenRequests ??
-                                  () => context.push(
-                                    AppRouter.messageRequestsPath,
-                                  ),
+                        if (_isInbox && (state.requestCount ?? 0) > 0)
+                          _inset(
+                            inset,
+                            SliverToBoxAdapter(
+                              child: _RequestsRow(
+                                count: state.requestCount!,
+                                onTap:
+                                    widget.onOpenRequests ??
+                                    () => context.push(
+                                      AppRouter.messageRequestsPath,
+                                    ),
+                              ),
                             ),
                           ),
-                        ),
-                      ..._body(context, cubit, state, inset),
-                      const ShellBottomInsetSliver(),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
+                        ..._body(context, cubit, state, inset),
+                        const ShellBottomInsetSliver(),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
         ),
       ),
     );

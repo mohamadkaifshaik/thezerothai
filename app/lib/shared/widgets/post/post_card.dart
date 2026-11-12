@@ -691,9 +691,9 @@ class PostCard extends StatelessWidget {
         gutter,
         dense && contextLabel == null
             ? kPostListTop
-            // A tappable label's 48 dp target carries its own whitespace.
+            // A tappable label's 24 dp target carries a little whitespace.
             : contextLabel is PostContextLabel && contextLabel.onTap != null
-            ? AppSpacing.xs
+            ? AppSpacing.sm
             : AppSpacing.smd,
         gutter,
         dense && bar != null ? AppSpacing.sm : AppSpacing.smd,

@@ -28,7 +28,6 @@ const _alerts = AppNavDestination(
   icon: Icons.notifications_none,
   selectedIcon: Icons.notifications,
   label: 'Notifications',
-  barLabel: 'Alerts',
 );
 const _messages = AppNavDestination(
   icon: Icons.mail_outline,
@@ -39,7 +38,7 @@ const _messages = AppNavDestination(
 /// The five primaries of ADR-0034, in order.
 const _five = [_home, _explore, _plans, _alerts, _messages];
 
-/// Two cells: wide enough for a label in the test font at 1.0 and 1.3.
+/// Two cells.
 const _two = [_home, _alerts];
 
 final _pill = find.descendant(
@@ -266,78 +265,34 @@ void main() {
     });
   });
 
-  group('labels (D3)', () {
-    for (final scale in [1.0, 1.3]) {
-      testWidgets('x$scale: a 12sp label under each icon; Notifications '
-          'reads "Alerts" and is still spoken in full', (tester) async {
+  group('icon-only', () {
+    for (final scale in [1.0, 2.0]) {
+      testWidgets('x$scale: no visible labels; a tooltip and the full '
+          'semantics label per cell', (tester) async {
         final handle = tester.ensureSemantics();
         await _pump(tester, destinations: _two, textScale: scale, selected: 1);
 
-        expect(find.text('Home'), findsOneWidget);
-        expect(find.text('Alerts'), findsOneWidget);
+        expect(find.text('Home'), findsNothing);
         expect(find.text('Notifications'), findsNothing);
-        expect(find.byType(Tooltip), findsNothing);
-
-        final label = tester.widget<Text>(find.text('Home'));
-        expect(label.style!.fontSize, 12);
-        expect(label.style!.color, AppColors.light.navBarUnselected);
-        final selected = tester.widget<Text>(find.text('Alerts'));
-        expect(selected.style!.color, AppColors.light.navBarSelected);
-        expect(selected.style!.fontWeight, FontWeight.w700);
-
-        // The label is under the icon, inside the pill.
-        final pill = tester.getRect(_pill);
-        final icon = tester.getRect(find.byIcon(Icons.home_outlined));
-        final text = tester.getRect(find.text('Home'));
-        expect(text.top, greaterThanOrEqualTo(icon.bottom));
-        expect(text.bottom, lessThanOrEqualTo(pill.bottom));
-        expect(icon.top, greaterThanOrEqualTo(pill.top));
-
-        expect(find.bySemanticsLabel('Notifications'), findsOneWidget);
-        expect(find.bySemanticsLabel('Alerts'), findsNothing);
+        expect(find.byTooltip('Home'), findsOneWidget);
+        expect(find.byTooltip('Notifications'), findsOneWidget);
+        expect(
+          tester.getSemantics(find.bySemanticsLabel('Notifications')),
+          isSemantics(
+            label: 'Notifications',
+            isButton: true,
+            isSelected: true,
+            hasSelectedState: true,
+            isInMutuallyExclusiveGroup: true,
+            hasTapAction: true,
+          ),
+        );
+        // The pill keeps its height at every text scale.
+        expect(tester.getRect(_pill).height, 66);
         expectNoOverflow(tester);
         handle.dispose();
       });
     }
-
-    testWidgets('x2.0: icon-only, with a tooltip and the full semantics '
-        'label', (tester) async {
-      final handle = tester.ensureSemantics();
-      await _pump(tester, destinations: _two, textScale: 2, selected: 1);
-
-      expect(find.text('Home'), findsNothing);
-      expect(find.text('Alerts'), findsNothing);
-      expect(find.byTooltip('Home'), findsOneWidget);
-      expect(find.byTooltip('Notifications'), findsOneWidget);
-      expect(
-        tester.getSemantics(find.bySemanticsLabel('Notifications')),
-        isSemantics(
-          label: 'Notifications',
-          isButton: true,
-          isSelected: true,
-          hasSelectedState: true,
-          isInMutuallyExclusiveGroup: true,
-          hasTapAction: true,
-        ),
-      );
-      // The pill keeps its height: nothing scales but the labels.
-      expect(tester.getRect(_pill).height, 66);
-      expectNoOverflow(tester);
-      handle.dispose();
-    });
-
-    testWidgets('a label that does not fit its cell makes every cell '
-        'icon-only', (tester) async {
-      // The test font is 12dp per glyph: "Messages" needs 96dp, a cell of
-      // the five has 60.8dp.
-      await _pump(tester);
-
-      for (final d in _five) {
-        expect(find.text(d.barLabelText), findsNothing);
-        expect(find.byTooltip(d.label), findsOneWidget);
-      }
-      expectNoOverflow(tester);
-    });
 
     testWidgets('a custom tooltip wins over the label', (tester) async {
       await _pump(
@@ -362,8 +317,7 @@ void main() {
       icon: Icons.notifications_none,
       selectedIcon: Icons.notifications,
       label: 'Notifications',
-      barLabel: 'Alerts',
-      badgeLabel: '7',
+          badgeLabel: '7',
       badgeSemanticLabel: '7 unread',
     );
     const unreadMessages = AppNavDestination(
@@ -468,11 +422,11 @@ void main() {
 
   group('contrast on navy', () {
     for (final colors in [AppColors.light, AppColors.dark]) {
-      test('glyphs and labels in ${colors == AppColors.dark ? 'dark' : 'light'}'
+      test('glyphs in ${colors == AppColors.dark ? 'dark' : 'light'}'
           ' are AA', () {
         expect(colors.navBarSurface, AppPalette.navy);
         expect(colors.navBarUnselected, AppPalette.mutedOnDark);
-        // 7.15: the unselected glyph (>= 3) and its 12sp label (>= 4.5).
+        // 7.15: the unselected glyph (>= 3).
         expect(
           contrast(colors.navBarUnselected, colors.navBarSurface),
           closeTo(7.15, 0.05),
@@ -549,8 +503,7 @@ void main() {
               icon: Icons.notifications_none,
               selectedIcon: Icons.notifications,
               label: 'Notifications',
-              barLabel: 'Alerts',
-              badgeLabel: '7',
+                          badgeLabel: '7',
               badgeSemanticLabel: '7 unread',
             ),
             AppNavDestination(

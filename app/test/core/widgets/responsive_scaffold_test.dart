@@ -3,6 +3,8 @@ import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
 import 'package:dzeroth/core/widgets/app_shell_scope.dart';
 import 'package:dzeroth/core/widgets/responsive_scaffold.dart';
+import 'package:dzeroth/core/widgets/shell_fab.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_gradient_fab.dart';
 import 'package:dzeroth/core/widgets/shell_bottom_inset_sliver.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
@@ -33,6 +35,16 @@ const _destinations = [
 ];
 
 const _bodyKey = Key('body');
+
+/// The shell's Home button: New post while [onCompose] is set and shown.
+ShellFabAction? _fab(VoidCallback? onCompose, {bool showFab = true}) =>
+    onCompose == null || !showFab
+    ? null
+    : ShellFabAction(
+        tooltip: 'New post',
+        icon: Icons.edit_outlined,
+        onPressed: onCompose,
+      );
 const _sideKey = Key('side');
 
 Widget _scaffold({
@@ -51,7 +63,7 @@ Widget _scaffold({
   onDestinationSelected: onSelected ?? (_) {},
   destinations: destinations,
   onCompose: onCompose,
-  showFab: showFab,
+  fab: _fab(onCompose, showFab: showFab),
   redesignedRail: redesignedRail,
   drawer: drawer,
   sideColumn: side,
@@ -168,8 +180,7 @@ void main() {
       expect(find.text('3'), findsOneWidget);
     });
 
-    testWidgets('the compose button shows when onCompose is set and showFab '
-        'is true', (tester) async {
+    testWidgets('the floating button shows the fab action', (tester) async {
       var composed = 0;
       await _pump(tester, _scaffold(onCompose: () => composed++));
 
@@ -178,8 +189,7 @@ void main() {
       expect(composed, 1);
     });
 
-    testWidgets('no compose button when showFab is false or onCompose is '
-        'null', (tester) async {
+    testWidgets('no floating button without a fab action', (tester) async {
       await _pump(tester, _scaffold(onCompose: () {}, showFab: false));
       expect(find.byType(FloatingActionButton), findsNothing);
 
@@ -743,6 +753,7 @@ void main() {
             onDestinationSelected: onSelected ?? (_) {},
             destinations: _destinations,
             onCompose: onCompose,
+            fab: _fab(onCompose),
             floatingBar: floatingBar,
             body: body ?? const SizedBox.expand(key: _bodyKey),
           ),
@@ -982,6 +993,24 @@ void main() {
       );
       await tester.tapAt(shown.center);
       expect(picked, [1]);
+    });
+
+    testWidgets('the floating button drops into the corner while the bar is '
+        'scrolled away, and rises with it', (tester) async {
+      await pumpFloating(tester, onCompose: () {}, body: list());
+      final fab = find.byType(AppGradientFab);
+      final above = tester.getRect(fab);
+
+      await tester.drag(find.byType(ListView), const Offset(0, -300));
+      await tester.pumpAndSettle();
+      final corner = tester.getRect(fab);
+      expect(corner.top - above.top, AppFloatingBottomBar.reservedHeight);
+      // 16 dp from the bottom edge (the Scaffold's FAB margin).
+      expect(corner.bottom, 800 - 16);
+
+      await tester.drag(find.byType(ListView), const Offset(0, 100));
+      await tester.pumpAndSettle();
+      expect(tester.getRect(fab), above);
     });
 
     testWidgets('a hidden bar leaves the semantics tree', (tester) async {

@@ -10,6 +10,9 @@ import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 /// constructor here rather than a second row.
 ///
 /// Display only: 0 RPCs. [onTap] is non-null only for a tappable variant.
+/// The height of a tappable context label's target.
+const double kPostContextLabelTapHeight = AppSpacing.lg;
+
 class PostContextLabel extends StatelessWidget {
   const PostContextLabel({
     super.key,
@@ -75,13 +78,14 @@ class PostContextLabel extends StatelessWidget {
       button: tappable,
       label: semanticsLabel ?? text,
       excludeSemantics: true,
-      // A tappable label (the community) is a real 48 dp target.
+      // A tappable label (the community) is a compact 24 dp target (the
+      // WCAG 2.5.8 minimum), so the line stays as slim as the repost one.
       child: tappable
           ? InkWell(
               onTap: onTap,
               child: ConstrainedBox(
                 constraints: const BoxConstraints(
-                  minHeight: AppSpacing.minTapTarget,
+                  minHeight: kPostContextLabelTapHeight,
                 ),
                 child: Align(
                   alignment: AlignmentDirectional.centerStart,

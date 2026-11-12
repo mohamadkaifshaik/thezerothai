@@ -47,6 +47,9 @@ enum AppButtonSize {
 /// default is a [size] tall pill (forms). The label wraps
 /// and the button grows at large text scales; it is never ellipsised.
 class AppPillButton extends StatelessWidget {
+  /// The outline variant's boundary (dz.css `1.5px`).
+  static const double _borderWidth = 1.5;
+
   const AppPillButton({
     super.key,
     required this.label,
@@ -92,6 +95,7 @@ class AppPillButton extends StatelessWidget {
     final look = _resolve(theme, colors, enabled);
     final labelColor = look.label;
     final pillHeight = compact ? AppSize.pillCompact : size.height;
+    final borderInset = look.border == null ? 0.0 : 2 * _borderWidth;
     final textStyle = theme.textTheme.labelLarge?.copyWith(
       color: labelColor,
       fontSize: size == AppButtonSize.large && !compact ? 16 : null,
@@ -133,7 +137,7 @@ class AppPillButton extends StatelessWidget {
                 boxShadow: look.shadow,
                 border: look.border == null
                     ? null
-                    : Border.all(color: look.border!, width: 1.5),
+                    : Border.all(color: look.border!, width: _borderWidth),
               ),
               child: InkWell(
                 borderRadius: radius,
@@ -141,8 +145,10 @@ class AppPillButton extends StatelessWidget {
                 onTap: enabled ? onPressed : null,
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
-                    minHeight: pillHeight,
-                    minWidth: AppSpacing.minButtonWidth,
+                    // The Ink pads its child by the border, so a bordered
+                    // pill is as tall as a filled one.
+                    minHeight: pillHeight - borderInset,
+                    minWidth: AppSpacing.minButtonWidth - borderInset,
                   ),
                   child: Padding(
                     padding: EdgeInsets.symmetric(

@@ -40,6 +40,7 @@ import 'widgets/community_hero.dart';
 import 'widgets/community_unavailable_view.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
+import '../../../core/widgets/shell_fab.dart';
 
 /// `/communities/:id`: header, then Posts and About tabs.
 ///
@@ -191,6 +192,9 @@ class _CommunityScreenState extends State<CommunityScreen> {
         !(profile?.isPrivate ?? false);
   }
 
+  void _composeHere() =>
+      context.push(AppRouter.composeCommunityPath(widget.communityId));
+
   void _back() {
     if (context.canPop()) {
       context.pop();
@@ -271,205 +275,217 @@ class _CommunityScreenState extends State<CommunityScreen> {
       child: BlocListener<TimelineCubit, TimelineState>(
         listenWhen: (before, after) => after.unavailable && !before.unavailable,
         listener: (context, _) => _detail.markUnavailable(),
-        child: Scaffold(
-          // The cover band draws under the status bar, so the page does not
-          // pad the top itself; the plain states below do.
-          body: SafeArea(
-            top: false,
-            child: BlocBuilder<CommunityDetailCubit, CommunityDetailState>(
-              builder: (context, state) {
-                if (state.status == CommunityDetailStatus.unavailable) {
-                  return SafeArea(
-                    bottom: false,
-                    child: AppMainColumn(
-                      child: Column(
-                        children: [
-                          AppBackHeader(title: 'Community', onBack: _back),
-                          Expanded(
-                            child: Center(
-                              child: SingleChildScrollView(
-                                child: CommunityUnavailableView(
-                                  onUnpin: state.pinned ? _togglePin : null,
-                                  busy: state.pinBusy,
+        // The phone's floating button posts into this community.
+        child: BlocBuilder<CommunityDetailCubit, CommunityDetailState>(
+          builder: (context, state) => ShellFab(
+            action: _canCompose(context, state)
+                ? ShellFabAction(
+                    tooltip:
+                        'Post in ${state.community?.name ?? 'this Community'}',
+                    icon: Icons.edit_outlined,
+                    onPressed: _composeHere,
+                  )
+                : null,
+            child: Scaffold(
+              // The cover band draws under the status bar, so the page does not
+              // pad the top itself; the plain states below do.
+              body: SafeArea(
+                top: false,
+                child: BlocBuilder<CommunityDetailCubit, CommunityDetailState>(
+                  builder: (context, state) {
+                    if (state.status == CommunityDetailStatus.unavailable) {
+                      return SafeArea(
+                        bottom: false,
+                        child: AppMainColumn(
+                          child: Column(
+                            children: [
+                              AppBackHeader(title: 'Community', onBack: _back),
+                              Expanded(
+                                child: Center(
+                                  child: SingleChildScrollView(
+                                    child: CommunityUnavailableView(
+                                      onUnpin: state.pinned ? _togglePin : null,
+                                      busy: state.pinBusy,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-                if (state.status == CommunityDetailStatus.error &&
-                    state.community == null &&
-                    state.error != null) {
-                  return SafeArea(
-                    bottom: false,
-                    child: AppMainColumn(
-                      child: Column(
-                        children: [
-                          AppBackHeader(title: 'Community', onBack: _back),
-                          Expanded(
-                            child: Center(
-                              child: SingleChildScrollView(
-                                child: AppErrorView(
-                                  error: state.error!,
-                                  onRetry: () {
-                                    _detail.load();
-                                    _timeline.load();
-                                  },
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-                // Both flags, and a role from `viewer_role` that is not the
-                // owner (the server answers VALIDATION to the owner).
-                final showReport =
-                    isFeatureEnabled(context, kFeatureReports) &&
-                    isFeatureEnabled(context, kFeatureCommunities) &&
-                    state.community != null &&
-                    !state.community!.role.isOwner;
-                // The options menu: on the cover band's navy a pearl circle,
-                // on the tablet and desktop bar a plain icon.
-                Widget? options({required bool onBand}) => showReport
-                    ? PopupMenuButton<String>(
-                        tooltip: 'Community options',
-                        padding: EdgeInsets.zero,
-                        // As an icon button, so it keeps the button role.
-                        icon: onBand
-                            ? CommunityBandAction.circle(Icons.more_horiz)
-                            : const Icon(Icons.more_horiz),
-                        style: onBand
-                            ? IconButton.styleFrom(
-                                foregroundColor: AppPalette.pearl,
-                              )
-                            : null,
-                        onSelected: (_) => _report(),
-                        itemBuilder: (context) => const [
-                          PopupMenuItem(
-                            value: 'report',
-                            child: AppMenuItemRow(
-                              icon: Icons.flag_outlined,
-                              label: 'Report Community',
-                            ),
-                          ),
-                        ],
-                      )
-                    : null;
-                final headerSlivers = <Widget>[
-                  SliverToBoxAdapter(
-                    // Spans the pane on the tablet layout (as the bar's divider
-                    // did).
-                    child: wide
-                        ? CommunityTopBar(
-                            onBack: _back,
-                            action: options(onBand: false),
-                          )
-                        : AppFullBleed(
-                            child: CommunityCoverBand(
-                              onBack: _back,
-                              action: options(onBand: true),
-                            ),
-                          ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: CommunityHeader(
-                      state: state,
-                      wide: wide,
-                      onCompose: _canCompose(context, state)
-                          ? () => context.push(
-                              AppRouter.composeCommunityPath(
-                                widget.communityId,
-                              ),
-                            )
-                          : null,
-                      onModerationLog: state.community?.role.canModerate == true
-                          ? _openModerationLog
-                          : null,
-                      onMembers: () => context.push(
-                        AppRouter.communityMembersPath(widget.communityId),
-                      ),
-                      onJoin: _join,
-                      onLeave: _leave,
-                      onTogglePin: _togglePin,
-                      onRetry: _detail.load,
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: AppTabBar(
-                      tabs: const [
-                        AppTab(label: 'Posts'),
-                        AppTab(label: 'About'),
-                      ],
-                      selectedIndex: _tab,
-                      equalWidth: true,
-                      semanticLabel: 'Community sections',
-                      onChanged: (i) {
-                        _bandGone.value = false;
-                        setState(() => _tab = i);
-                      },
-                    ),
-                  ),
-                ];
-                final Widget page;
-                if (_tab == 1) {
-                  page = AppMainColumn(
-                    // On the tablet layout the scroll view spans the pane,
-                    // as on the Posts tab (`TimelineFeedView`): a drag, a
-                    // wheel or the scrollbar beside the column reach it,
-                    // and the header's divider and the tab hairline reach
-                    // the pane's edges. Its slivers keep to the column.
-                    // Elsewhere this is today's column.
-                    scrollsAcrossPane: true,
-                    child: Builder(
-                      builder: (context) {
-                        final inset = AppMainColumnBleed.of(context);
-                        Widget centred(Widget sliver) => SliverPadding(
-                          padding: EdgeInsets.symmetric(horizontal: inset),
-                          sliver: AppMainColumnBleed(
-                            bleed: inset,
-                            child: sliver,
-                          ),
-                        );
-                        return RefreshIndicator(
-                          onRefresh: _detail.load,
-                          child: CustomScrollView(
-                            slivers: [
-                              for (final sliver in [
-                                ...headerSlivers,
-                                ...communityAboutSlivers(context, state),
-                              ])
-                                centred(sliver),
-                              const ShellBottomInsetSliver(),
                             ],
                           ),
-                        );
-                      },
-                    ),
-                  );
-                } else {
-                  page = TimelineFeedView(
-                    viewerUserId: viewerUserId,
-                    emptyTitle: 'No posts yet',
-                    emptySubtitle:
-                        'Posts in this Community will show up here. Counts and '
-                        'posts update when you refresh.',
-                    fillViewport: true,
-                    showPending: false,
-                    newPostsPillTop:
-                        MediaQuery.paddingOf(context).top + AppSpacing.sm + 4,
-                    unavailableView: const CommunityUnavailableView(),
-                    headerSlivers: headerSlivers,
-                    moderationControl: _moderationControl(state),
-                  );
-                }
-                return _withStatusScrim(context, page);
-              },
+                        ),
+                      );
+                    }
+                    if (state.status == CommunityDetailStatus.error &&
+                        state.community == null &&
+                        state.error != null) {
+                      return SafeArea(
+                        bottom: false,
+                        child: AppMainColumn(
+                          child: Column(
+                            children: [
+                              AppBackHeader(title: 'Community', onBack: _back),
+                              Expanded(
+                                child: Center(
+                                  child: SingleChildScrollView(
+                                    child: AppErrorView(
+                                      error: state.error!,
+                                      onRetry: () {
+                                        _detail.load();
+                                        _timeline.load();
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                    // Both flags, and a role from `viewer_role` that is not the
+                    // owner (the server answers VALIDATION to the owner).
+                    final showReport =
+                        isFeatureEnabled(context, kFeatureReports) &&
+                        isFeatureEnabled(context, kFeatureCommunities) &&
+                        state.community != null &&
+                        !state.community!.role.isOwner;
+                    // The options menu: on the cover band's navy a pearl circle,
+                    // on the tablet and desktop bar a plain icon.
+                    Widget? options({required bool onBand}) => showReport
+                        ? PopupMenuButton<String>(
+                            tooltip: 'Community options',
+                            padding: EdgeInsets.zero,
+                            // As an icon button, so it keeps the button role.
+                            icon: onBand
+                                ? CommunityBandAction.circle(Icons.more_horiz)
+                                : const Icon(Icons.more_horiz),
+                            style: onBand
+                                ? IconButton.styleFrom(
+                                    foregroundColor: AppPalette.pearl,
+                                  )
+                                : null,
+                            onSelected: (_) => _report(),
+                            itemBuilder: (context) => const [
+                              PopupMenuItem(
+                                value: 'report',
+                                child: AppMenuItemRow(
+                                  icon: Icons.flag_outlined,
+                                  label: 'Report Community',
+                                ),
+                              ),
+                            ],
+                          )
+                        : null;
+                    final headerSlivers = <Widget>[
+                      SliverToBoxAdapter(
+                        // Spans the pane on the tablet layout (as the bar's divider
+                        // did).
+                        child: wide
+                            ? CommunityTopBar(
+                                onBack: _back,
+                                action: options(onBand: false),
+                              )
+                            : AppFullBleed(
+                                child: CommunityCoverBand(
+                                  onBack: _back,
+                                  action: options(onBand: true),
+                                ),
+                              ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: CommunityHeader(
+                          state: state,
+                          wide: wide,
+                          onCompose: _canCompose(context, state)
+                              ? _composeHere
+                              : null,
+                          onModerationLog:
+                              state.community?.role.canModerate == true
+                              ? _openModerationLog
+                              : null,
+                          onMembers: () => context.push(
+                            AppRouter.communityMembersPath(widget.communityId),
+                          ),
+                          onJoin: _join,
+                          onLeave: _leave,
+                          onTogglePin: _togglePin,
+                          onRetry: _detail.load,
+                        ),
+                      ),
+                      SliverToBoxAdapter(
+                        child: AppTabBar(
+                          tabs: const [
+                            AppTab(label: 'Posts'),
+                            AppTab(label: 'About'),
+                          ],
+                          selectedIndex: _tab,
+                          equalWidth: true,
+                          semanticLabel: 'Community sections',
+                          onChanged: (i) {
+                            _bandGone.value = false;
+                            setState(() => _tab = i);
+                          },
+                        ),
+                      ),
+                    ];
+                    final Widget page;
+                    if (_tab == 1) {
+                      page = AppMainColumn(
+                        // On the tablet layout the scroll view spans the pane,
+                        // as on the Posts tab (`TimelineFeedView`): a drag, a
+                        // wheel or the scrollbar beside the column reach it,
+                        // and the header's divider and the tab hairline reach
+                        // the pane's edges. Its slivers keep to the column.
+                        // Elsewhere this is today's column.
+                        scrollsAcrossPane: true,
+                        child: Builder(
+                          builder: (context) {
+                            final inset = AppMainColumnBleed.of(context);
+                            Widget centred(Widget sliver) => SliverPadding(
+                              padding: EdgeInsets.symmetric(horizontal: inset),
+                              sliver: AppMainColumnBleed(
+                                bleed: inset,
+                                child: sliver,
+                              ),
+                            );
+                            return RefreshIndicator(
+                              onRefresh: _detail.load,
+                              child: CustomScrollView(
+                                slivers: [
+                                  for (final sliver in [
+                                    ...headerSlivers,
+                                    ...communityAboutSlivers(context, state),
+                                  ])
+                                    centred(sliver),
+                                  const ShellBottomInsetSliver(),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    } else {
+                      page = TimelineFeedView(
+                        viewerUserId: viewerUserId,
+                        emptyTitle: 'No posts yet',
+                        emptySubtitle:
+                            'Posts in this Community will show up here. Counts and '
+                            'posts update when you refresh.',
+                        fillViewport: true,
+                        showPending: false,
+                        newPostsPillTop:
+                            MediaQuery.paddingOf(context).top +
+                            AppSpacing.sm +
+                            4,
+                        unavailableView: const CommunityUnavailableView(),
+                        headerSlivers: headerSlivers,
+                        moderationControl: _moderationControl(state),
+                      );
+                    }
+                    return _withStatusScrim(context, page);
+                  },
+                ),
+              ),
             ),
           ),
         ),

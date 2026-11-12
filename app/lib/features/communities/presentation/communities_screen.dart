@@ -22,6 +22,7 @@ import 'widgets/community_row.dart';
 import 'widgets/community_search_field.dart';
 import 'widgets/community_tabs.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
+import '../../../core/widgets/shell_fab.dart';
 
 /// The first tab (F23).
 const kMyCommunitiesTitle = 'My communities';
@@ -130,74 +131,88 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
           child: BlocBuilder<CommunitiesCubit, CommunitiesState>(
             bloc: _cubit,
             builder: (context, state) {
-              return Column(
-                children: [
-                  AppBackHeader(
-                    title: 'Communities',
-                    onBack: _back,
-                    // Tablet and desktop: the rail is the way out.
-                    leading: wide ? const SizedBox(width: AppSpacing.sm) : null,
-                    actions: [
-                      if (state.canCreate)
-                        Padding(
-                          padding: const EdgeInsetsDirectional.only(
-                            end: AppSpacing.sm,
+              return ShellFab(
+                // The phone's floating button creates a community.
+                action: state.canCreate
+                    ? ShellFabAction(
+                        tooltip: 'Create a community',
+                        icon: Icons.add,
+                        onPressed: () =>
+                            context.push(AppRouter.communityNewPath),
+                      )
+                    : null,
+                child: Column(
+                  children: [
+                    AppBackHeader(
+                      title: 'Communities',
+                      onBack: _back,
+                      // Tablet and desktop: the rail is the way out.
+                      leading: wide
+                          ? const SizedBox(width: AppSpacing.sm)
+                          : null,
+                      actions: [
+                        // A phone: the floating button creates instead.
+                        if (state.canCreate && !shellFabCovers(context))
+                          Padding(
+                            padding: const EdgeInsetsDirectional.only(
+                              end: AppSpacing.sm,
+                            ),
+                            child: AppIconButton(
+                              tooltip: 'Create a community',
+                              icon: Icons.add,
+                              raised: true,
+                              onPressed: () =>
+                                  context.push(AppRouter.communityNewPath),
+                            ),
                           ),
-                          child: AppIconButton(
-                            tooltip: 'Create a community',
-                            icon: Icons.add,
-                            raised: true,
-                            onPressed: () =>
-                                context.push(AppRouter.communityNewPath),
-                          ),
+                      ],
+                    ),
+                    Expanded(
+                      child: RefreshIndicator(
+                        onRefresh: _cubit.load,
+                        child: CustomScrollView(
+                          slivers: [
+                            SliverToBoxAdapter(
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  AppSpacing.md,
+                                  AppSpacing.smd,
+                                  AppSpacing.md,
+                                  AppSpacing.xs,
+                                ),
+                                child: CommunitySearchField(
+                                  hint: kSearchCommunitiesHint,
+                                  controller: _query,
+                                  margin: EdgeInsets.zero,
+                                ),
+                              ),
+                            ),
+                            SliverToBoxAdapter(
+                              child: CommunityTabBar(
+                                labels: const [kMyCommunitiesTitle, 'Explore'],
+                                selectedIndex: _tab.index,
+                                semanticLabel: 'Community lists',
+                                onChanged: (i) =>
+                                    setState(() => _tab = _Tab.values[i]),
+                              ),
+                            ),
+                            const SliverToBoxAdapter(
+                              child: SizedBox(height: AppSpacing.sm),
+                            ),
+                            if (_tab == _Tab.mine)
+                              ..._mine(context, state, wide: wide)
+                            else
+                              ..._directory(context, state, wide: wide),
+                            const SliverToBoxAdapter(
+                              child: SizedBox(height: AppSpacing.lg),
+                            ),
+                            const ShellBottomInsetSliver(),
+                          ],
                         ),
-                    ],
-                  ),
-                  Expanded(
-                    child: RefreshIndicator(
-                      onRefresh: _cubit.load,
-                      child: CustomScrollView(
-                        slivers: [
-                          SliverToBoxAdapter(
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(
-                                AppSpacing.md,
-                                AppSpacing.smd,
-                                AppSpacing.md,
-                                AppSpacing.xs,
-                              ),
-                              child: CommunitySearchField(
-                                hint: kSearchCommunitiesHint,
-                                controller: _query,
-                                margin: EdgeInsets.zero,
-                              ),
-                            ),
-                          ),
-                          SliverToBoxAdapter(
-                            child: CommunityTabBar(
-                              labels: const [kMyCommunitiesTitle, 'Explore'],
-                              selectedIndex: _tab.index,
-                              semanticLabel: 'Community lists',
-                              onChanged: (i) =>
-                                  setState(() => _tab = _Tab.values[i]),
-                            ),
-                          ),
-                          const SliverToBoxAdapter(
-                            child: SizedBox(height: AppSpacing.sm),
-                          ),
-                          if (_tab == _Tab.mine)
-                            ..._mine(context, state, wide: wide)
-                          else
-                            ..._directory(context, state, wide: wide),
-                          const SliverToBoxAdapter(
-                            child: SizedBox(height: AppSpacing.lg),
-                          ),
-                          const ShellBottomInsetSliver(),
-                        ],
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               );
             },
           ),

@@ -1730,10 +1730,14 @@ class _PublishDialogState extends State<_PublishDialog> {
               const Divider(),
             ],
             if (settingsHere && _showReplyAudience) ...[
+              // Room above and below the heading, so the section does not
+              // crowd the divider or its field.
+              const SizedBox(height: AppSpacing.md),
               Text(
                 'Who can reply?',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
+              const SizedBox(height: AppSpacing.smd),
               _ReplyAudienceField(
                 value: _policy,
                 labelText: 'Choose who can reply to this Article',

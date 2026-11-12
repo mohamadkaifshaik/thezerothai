@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import 'app_bottom_bar.dart';
 import 'app_nav_rail.dart';
 import 'app_shell_scope.dart';
+import 'shell_fab.dart';
 import 'shell_geometry.dart';
 import 'tablet_modal.dart';
 
@@ -17,8 +18,9 @@ export 'shell_geometry.dart' show ShellLayout;
 ///
 /// - `< 600dp` (phone): a [AppBottomBar] (icons only; with [floatingBar] the
 ///   [AppFloatingBottomBar] pill over the body), the avatar [drawer]
-///   (opened from the screen's top bar through an [AppShellScope]) and, when
-///   [onCompose] is set and [showFab] is true, a floating compose button.
+///   (opened from the screen's top bar through an [AppShellScope]) and the
+///   page's floating button ([fab]), which drops to the corner while the bar
+///   is scrolled away.
 /// - `600-1199dp` (tablet), [ShellLayout.legacy]: an icon-only
 ///   `NavigationRail` with a round compose button on top and the avatar at
 ///   the bottom; the content is capped at 600dp and the cluster is centred.
@@ -55,7 +57,7 @@ class ResponsiveScaffold extends StatefulWidget {
     required this.body,
     this.sideColumn,
     this.onCompose,
-    this.showFab = true,
+    this.fab,
     this.extendBodyUnderStatusBar = false,
     this.redesignedRail = false,
     this.drawer,
@@ -94,9 +96,10 @@ class ResponsiveScaffold extends StatefulWidget {
   /// Starts a new post; null hides every compose control.
   final VoidCallback? onCompose;
 
-  /// Whether the narrow layout shows the floating compose button (it is hidden
-  /// where the screen has its own composer entry).
-  final bool showFab;
+  /// The narrow layout's floating button: the current page's action (New
+  /// post, New plan, New message...); null shows none. Wide layouts keep the
+  /// rail's Post control ([onCompose]) instead.
+  final ShellFabAction? fab;
 
   /// The narrow layouts leave the top inset to the page: the body goes under
   /// the status bar (no top `SafeArea`), and the page pads itself. Only for
@@ -333,13 +336,13 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
           child: widget.body,
         ),
       ),
-      floatingActionButton: widget.onCompose != null && widget.showFab
-          ? FloatingActionButton(
-              tooltip: _composeTooltip,
-              onPressed: widget.onCompose,
-              child: const Icon(Icons.edit_outlined),
-            )
-          : null,
+      floatingActionButton: widget.fab == null
+          ? null
+          : FloatingActionButton(
+              tooltip: widget.fab!.tooltip,
+              onPressed: widget.fab!.onPressed,
+              child: Icon(widget.fab!.icon),
+            ),
       bottomNavigationBar: AnimatedSize(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
@@ -406,13 +409,26 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
           ),
         ),
       ),
-      floatingActionButton: widget.onCompose != null && widget.showFab
-          ? AppGradientFab(
-              tooltip: _composeTooltip,
-              icon: Icons.edit_outlined,
-              onPressed: widget.onCompose,
-            )
-          : null,
+      floatingActionButton: widget.fab == null
+          ? null
+          // While the bar is scrolled away the button drops by the bar's
+          // height into the corner, and rises with it again.
+          : AnimatedContainer(
+              duration: movement ? duration : Duration.zero,
+              curve: Curves.easeOutCubic,
+              transform: Matrix4.translationValues(
+                0,
+                hidden && !keyboardOpen
+                    ? AppFloatingBottomBar.reservedHeight
+                    : 0,
+                0,
+              ),
+              child: AppGradientFab(
+                tooltip: widget.fab!.tooltip,
+                icon: widget.fab!.icon,
+                onPressed: widget.fab!.onPressed,
+              ),
+            ),
       bottomNavigationBar: keyboardOpen
           ? null
           : IgnorePointer(

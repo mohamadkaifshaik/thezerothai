@@ -1,6 +1,5 @@
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
-import 'package:dzeroth/core/router/compose_gate.dart';
 import 'package:dzeroth/core/router/main_shell.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
@@ -290,7 +289,6 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('7'), findsOneWidget);
-      expect(find.text('Alerts'), findsNothing);
       expect(find.byType(AppUnreadDot), findsNothing);
       expectSize(
         tester,
@@ -466,8 +464,8 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('the bar is the floating pill; Notifications reads "Alerts" '
-        'and is spoken in full', (tester) async {
+    testWidgets('the bar is the floating pill, icon-only; Notifications is '
+        'spoken in full', (tester) async {
       final handle = tester.ensureSemantics();
       await pump(tester);
 
@@ -479,33 +477,24 @@ void main() {
         ),
       );
       expect(pill, const Rect.fromLTRB(20, 900 - 24 - 66, 340, 900 - 24));
-      // Two cells (Home, Notifications): the labels fit.
+      // Two cells (Home, Notifications), icons only.
       final bar = find.byType(AppBottomBar);
       expect(
         find.descendant(of: bar, matching: find.text('Home')),
-        findsOneWidget,
+        findsNothing,
       );
-      expect(
-        find.descendant(of: bar, matching: find.text('Alerts')),
-        findsOneWidget,
-      );
+      expect(find.byTooltip('Home'), findsOneWidget);
       expect(
         find.descendant(of: bar, matching: find.text('Notifications')),
         findsNothing,
       );
       expect(find.bySemanticsLabel('Notifications'), findsOneWidget);
-      expect(find.bySemanticsLabel('Alerts'), findsNothing);
       handle.dispose();
     });
 
     testWidgets('x2.0: the bar is icon-only with tooltips', (tester) async {
       await pump(tester, textScale: 2);
 
-      final bar = find.byType(AppBottomBar);
-      expect(
-        find.descendant(of: bar, matching: find.text('Alerts')),
-        findsNothing,
-      );
       expect(find.byTooltip('Notifications'), findsOneWidget);
       expect(find.byTooltip('Home'), findsOneWidget);
     });
@@ -515,7 +504,6 @@ void main() {
     ) async {
       await pump(tester, width: 1400);
 
-      expect(find.text('Alerts'), findsNothing);
       expect(
         find.descendant(
           of: find.byType(NavigationRail),
@@ -526,10 +514,13 @@ void main() {
     });
 
     group('compose button rule (D2)', () {
-      testWidgets('shown on Home too; the inline composer is an alternate '
-          'entry', (tester) async {
+      testWidgets('shown on Home, and opens the composer', (tester) async {
         await pump(tester, location: '/home');
         expect(find.byType(FloatingActionButton), findsOneWidget);
+
+        await tester.tap(find.byTooltip('New post'));
+        await tester.pumpAndSettle();
+        expect(find.text('compose page'), findsOneWidget);
       });
 
       testWidgets('hidden on Notifications and Settings', (tester) async {
@@ -539,17 +530,15 @@ void main() {
         expect(find.byType(FloatingActionButton), findsNothing);
       });
 
-      testWidgets('shown on a profile, and opens the composer', (tester) async {
+      testWidgets('none on a profile (pages offer their own)', (
+        tester,
+      ) async {
         await pump(tester, location: '/profile/alice');
-        expect(find.byType(FloatingActionButton), findsOneWidget);
-
-        await tester.tap(find.byTooltip('New post'));
-        await tester.pumpAndSettle();
-        expect(find.text('compose page'), findsOneWidget);
+        expect(find.byType(FloatingActionButton), findsNothing);
       });
 
-      testWidgets('hidden everywhere with the posts flag off', (tester) async {
-        await pump(tester, location: '/profile/alice', flags: {});
+      testWidgets('none on Home with the posts flag off', (tester) async {
+        await pump(tester, location: '/home', flags: {});
         expect(find.byType(FloatingActionButton), findsNothing);
       });
     });
@@ -1497,58 +1486,6 @@ void main() {
         'Settings',
         'More',
       ]);
-    });
-  });
-
-  testWidgets('showComposeFabAt hides only where the FAB conflicts', (
-    tester,
-  ) async {
-    final results = <String, bool>{};
-    whenListen(
-      onboarding,
-      const Stream<OnboardingState>.empty(),
-      initialState: const OnboardingState(enabledFeatures: {'posts'}),
-    );
-    await tester.pumpWidget(
-      BlocProvider<OnboardingBloc>.value(
-        value: onboarding,
-        child: Builder(
-          builder: (context) {
-            for (final path in [
-              '/home',
-              '/notifications',
-              '/bookmarks',
-              '/settings/blocked',
-              '/profile/ada',
-              '/post/1',
-              '/communities',
-              '/communities/77',
-              '/communities/77?x=1',
-              '/communities/77/members',
-              '/communities/new',
-            ]) {
-              results[path] = showComposeFabAt(context, path);
-            }
-            return const SizedBox.shrink();
-          },
-        ),
-      ),
-    );
-
-    expect(results, {
-      '/home': true,
-      '/notifications': false,
-      '/bookmarks': false,
-      '/settings/blocked': false,
-      '/profile/ada': true,
-      '/post/1': true,
-      '/communities': true,
-      // R10b: a community's page has its own Post entry (into the
-      // community); its sub-pages and the create page keep the shell's.
-      '/communities/77': false,
-      '/communities/77?x=1': false,
-      '/communities/77/members': true,
-      '/communities/new': true,
     });
   });
 
