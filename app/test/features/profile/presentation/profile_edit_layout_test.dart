@@ -123,9 +123,6 @@ void main() {
     ),
   );
 
-  TextButton cancel(WidgetTester tester) =>
-      tester.widget(find.widgetWithText(TextButton, 'Cancel'));
-
   void stubUpdate(Future<identity.Profile> Function() answer) {
     when(
       () => repo.updateProfile(
