@@ -62,6 +62,7 @@ class HistoryPostList extends StatefulWidget {
     this.noticeFromPaging = false,
     this.bookmarkEnabled,
     this.endNote,
+    this.header,
   });
 
   /// The rows to draw, newest first.
@@ -101,6 +102,10 @@ class HistoryPostList extends StatefulWidget {
 
   /// Under the last row when there is no next page; null: plain space.
   final Widget? endNote;
+
+  /// Above everything but the refresh notice, in every state (the search
+  /// results' people preview); null: nothing.
+  final Widget? header;
 
   /// Whether the card shows the bookmark icon: null follows the `bookmarks`
   /// flag, true always (the Bookmarks tab: a caller dropped from the allowlist
@@ -261,6 +266,8 @@ class _HistoryPostListState extends State<HistoryPostList> {
           if (notice != null &&
               (!widget.noticeFromPaging || widget.rows.isEmpty))
             SliverToBoxAdapter(child: _notice(notice)),
+          if (widget.header case final header?)
+            SliverToBoxAdapter(child: header),
           ..._body(viewerUserId, engagementEnabled, reportsEnabled),
           const ShellBottomInsetSliver(),
         ],

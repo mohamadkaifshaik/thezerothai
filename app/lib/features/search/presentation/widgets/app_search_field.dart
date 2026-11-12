@@ -62,6 +62,7 @@ class AppSearchField extends StatefulWidget {
     this.autofocus = false,
     this.initialText = '',
     this.debounce = kSuggestionsDebounce,
+    this.raised = false,
   });
 
   final SearchSubmitted? onSubmitted;
@@ -72,6 +73,11 @@ class AppSearchField extends StatefulWidget {
   /// Text to start with (the results screen shows the current query).
   final String initialText;
   final Duration debounce;
+
+  /// The phone results header's pill (dzeroth-mobile SearchResults): a
+  /// filled pill with a soft shadow. Elsewhere (side column, Explore,
+  /// tablet and desktop headers) the flat outlined pill.
+  final bool raised;
 
   @override
   State<AppSearchField> createState() => _AppSearchFieldState();
@@ -245,55 +251,59 @@ class _AppSearchFieldState extends State<AppSearchField> {
             onKeyEvent: _onKey,
             child: Semantics(
               label: kSearchFieldLabel,
-              child: TextField(
-                key: _fieldKey,
-                controller: _text,
-                focusNode: _focus,
-                autofocus: widget.autofocus,
-                textInputAction: TextInputAction.search,
-                onChanged: (t) {
-                  _active = -1;
-                  cubit.textChanged(t);
-                },
-                onSubmitted: _onSubmittedByKeyboard,
-                style: Theme.of(context).textTheme.bodyLarge,
-                decoration: InputDecoration(
-                  hintText: 'Search',
-                  isDense: true,
-                  filled: false,
-                  prefixIcon: Icon(
-                    Icons.search,
-                    size: AppIconSize.md,
-                    color: colors.secondaryOnRaised,
-                  ),
-                  prefixIconConstraints: const BoxConstraints(
-                    minWidth: AppSpacing.xxl,
-                    minHeight: AppSpacing.xxl,
-                  ),
-                  suffixIcon: ValueListenableBuilder<TextEditingValue>(
-                    valueListenable: _text,
-                    builder: (context, value, _) => value.text.isEmpty
-                        ? const SizedBox.shrink()
-                        : IconButton(
-                            tooltip: 'Clear search',
-                            icon: const Icon(Icons.cancel, size: 20),
-                            constraints: const BoxConstraints(
-                              minWidth: AppSpacing.minTapTarget,
-                              minHeight: AppSpacing.minTapTarget,
+              child: _raise(
+                context,
+                TextField(
+                  key: _fieldKey,
+                  controller: _text,
+                  focusNode: _focus,
+                  autofocus: widget.autofocus,
+                  textInputAction: TextInputAction.search,
+                  onChanged: (t) {
+                    _active = -1;
+                    cubit.textChanged(t);
+                  },
+                  onSubmitted: _onSubmittedByKeyboard,
+                  style: Theme.of(context).textTheme.bodyLarge,
+                  decoration: InputDecoration(
+                    hintText: 'Search',
+                    isDense: true,
+                    filled: widget.raised,
+                    fillColor: widget.raised ? _raisedFill(context) : null,
+                    prefixIcon: Icon(
+                      Icons.search,
+                      size: AppIconSize.md,
+                      color: colors.secondaryOnRaised,
+                    ),
+                    prefixIconConstraints: const BoxConstraints(
+                      minWidth: AppSpacing.xxl,
+                      minHeight: AppSpacing.xxl,
+                    ),
+                    suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                      valueListenable: _text,
+                      builder: (context, value, _) => value.text.isEmpty
+                          ? const SizedBox.shrink()
+                          : IconButton(
+                              tooltip: 'Clear search',
+                              icon: const Icon(Icons.cancel, size: 20),
+                              constraints: const BoxConstraints(
+                                minWidth: AppSpacing.minTapTarget,
+                                minHeight: AppSpacing.minTapTarget,
+                              ),
+                              onPressed: () {
+                                _text.clear();
+                                _active = -1;
+                                cubit.textChanged('');
+                                _focus.requestFocus();
+                              },
                             ),
-                            onPressed: () {
-                              _text.clear();
-                              _active = -1;
-                              cubit.textChanged('');
-                              _focus.requestFocus();
-                            },
-                          ),
-                  ),
-                  border: _pillBorder(scheme.outlineVariant),
-                  enabledBorder: _pillBorder(scheme.outlineVariant),
-                  focusedBorder: _pillBorder(scheme.primary),
-                  contentPadding: const EdgeInsets.symmetric(
-                    vertical: AppSpacing.smd,
+                    ),
+                    border: _pillBorder(scheme.outlineVariant),
+                    enabledBorder: _pillBorder(scheme.outlineVariant),
+                    focusedBorder: _pillBorder(scheme.primary),
+                    contentPadding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.smd,
+                    ),
                   ),
                 ),
               ),
@@ -303,6 +313,25 @@ class _AppSearchFieldState extends State<AppSearchField> {
       ),
     );
   }
+
+  /// White on light, the raised container on dark.
+  static Color _raisedFill(BuildContext context) {
+    final theme = Theme.of(context);
+    return theme.brightness == Brightness.dark
+        ? theme.colorScheme.surfaceContainerHigh
+        : AppPalette.white;
+  }
+
+  /// [field] with the raised pill's shadow when [AppSearchField.raised].
+  Widget _raise(BuildContext context, Widget field) => widget.raised
+      ? DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+            boxShadow: AppShadows.searchRaised,
+          ),
+          child: field,
+        )
+      : field;
 
   static OutlineInputBorder _pillBorder(Color color) => OutlineInputBorder(
     borderRadius: BorderRadius.circular(AppRadius.pill),
