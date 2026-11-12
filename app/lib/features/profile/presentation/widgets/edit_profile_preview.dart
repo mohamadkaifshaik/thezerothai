@@ -22,7 +22,7 @@ const kEditProfilePreviewUnsaved = "Includes changes you haven't saved yet.";
 
 /// The profile others would see if the form were saved now: [saved] with the
 /// form's name, bio, location and website (as the save would send them,
-/// trimmed and normalized) and without a removed banner. Counts, the join
+/// trimmed and normalized). Counts, the join
 /// date, the handle and the badges stay the saved ones.
 ///
 /// An empty name cannot be saved (Save is off), so others keep seeing the
@@ -35,11 +35,6 @@ identity.Profile editProfilePreviewProfile(
   final profile = saved.deepCopy()
     ..displayName = name.isEmpty ? saved.displayName : name
     ..bio = normalizeBio(state.bio);
-  if (state.bannerRemoved) {
-    profile
-      ..bannerUrl = ''
-      ..bannerThumbUrl = '';
-  }
   if (state.extrasEnabled) {
     profile
       ..location = normalizeProfileLocation(state.location)
@@ -78,7 +73,6 @@ Future<void> showEditProfilePreview(
           EditProfilePreview(
             profile: editProfilePreviewProfile(saved, state),
             avatarBytes: state.avatarPreview,
-            bannerBytes: state.bannerRemoved ? null : state.bannerPreview,
             showPostsCount: showPostsCount,
           ),
         ],
@@ -101,7 +95,7 @@ Future<void> showEditProfilePreview(
 
 /// The profile header as another person sees it, framed like a page: the
 /// same [ProfileHeader] the profile draws (the navy hero: avatar, name,
-/// handle, location, bio, meta row and stats, over the banner), with no
+/// handle, location, bio, meta row and stats), with no
 /// controls (no Edit profile, Follow or menu) and nothing to tap. The hero
 /// takes its phone or wide look from the width the preview is given.
 class EditProfilePreview extends StatelessWidget {
@@ -110,7 +104,6 @@ class EditProfilePreview extends StatelessWidget {
     required this.profile,
     required this.showPostsCount,
     this.avatarBytes,
-    this.bannerBytes,
   });
 
   final identity.Profile profile;
@@ -118,9 +111,6 @@ class EditProfilePreview extends StatelessWidget {
 
   /// An unsaved photo (the editor's on-device preview), over the saved one.
   final Uint8List? avatarBytes;
-
-  /// An unsaved banner, over the saved one.
-  final Uint8List? bannerBytes;
 
   @override
   Widget build(BuildContext context) {
@@ -146,7 +136,6 @@ class EditProfilePreview extends StatelessWidget {
             interactive: false,
             style: ProfileHeaderStyle.hero,
             avatarBytes: avatarBytes,
-            bannerBytes: bannerBytes,
           ),
         ),
       ),

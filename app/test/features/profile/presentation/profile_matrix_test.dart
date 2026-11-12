@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:connectrpc/connect.dart' as connect;
 import 'package:dzeroth/shared/widgets/primitives/app_dialog.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
@@ -11,7 +10,6 @@ import 'package:dzeroth/features/timeline/presentation/timeline_feed_view.dart';
 import 'package:dzeroth/shared/format/joined_date.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
-import 'package:dzeroth/features/profile/presentation/widgets/profile_cover_band.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -21,7 +19,7 @@ import '../../../support/posts_fixtures.dart';
 import '../../../support/theme_harness.dart';
 import '../../../support/profile_rig.dart';
 
-/// The whole W3 profile screen (banner, location, website, "Follows
+/// The whole W3 profile screen (location, website, "Follows
 /// you" and "Follow back", the four tabs, the Pinned row and its menu rows) at
 /// every cell of the responsive matrix: 360 / 600 / 1200 dp, light and dark,
 /// text scale 1.0 / 1.3 / 2.0. The per-widget files (`profile_header_data_test`,
@@ -40,15 +38,6 @@ void main() {
   setUp(() => rig = W3ProfileRig());
   tearDown(() => rig.dispose());
 
-  const full = 'https://m.test/banner-full.webp';
-  const thumb = 'https://m.test/banner-thumb.webp';
-
-  String? bannerUrl(WidgetTester tester) {
-    final images = find.byType(CachedNetworkImage);
-    if (images.evaluate().isEmpty) return null;
-    return tester.widget<CachedNetworkImage>(images.first).imageUrl;
-  }
-
   Finder tab(String label) =>
       find.descendant(of: find.byType(AppTabBar), matching: find.text(label));
 
@@ -56,10 +45,6 @@ void main() {
     for (final t in tester.widget<AppTabBar>(find.byType(AppTabBar)).tabs)
       t.label,
   ];
-
-  /// The size of the banner image (it fills the hero).
-  Size band(WidgetTester tester) =>
-      tester.getSize(find.byType(CachedNetworkImage).first);
 
   /// The display name inside the header (the app bar repeats it faded).
   Finder headerName() => find.descendant(
@@ -85,10 +70,7 @@ void main() {
   }
 
   group('another user, every W3 header field, four tabs', () {
-    forEachThemeAndWidth('header data, banner and targets fit', (
-      tester,
-      env,
-    ) async {
+    forEachThemeAndWidth('header data and targets fit', (tester, env) async {
       final semantics = tester.ensureSemantics();
       rig.arrange(features: w3Tabs, followedBy: true);
       await openCell(tester, env);
@@ -106,33 +88,6 @@ void main() {
         expect(find.text(text), findsOneWidget, reason: text);
         expectInsideHorizontally(tester, find.text(text), env.size.width);
       }
-      // The thumb only while its 600 px cover the hero's band (taller than
-      // 3:1, so the cover scales the image by height), else the full image.
-      final cover = band(tester);
-      final needed = ProfileCoverBand.decodeWidthFor(
-        cover.width,
-        cover.height,
-        tester.view.devicePixelRatio,
-      );
-      expect(
-        bannerUrl(tester),
-        needed <= ProfileCoverBand.thumbPx ? thumb : full,
-      );
-      // The banner fills the navy hero behind its text, whatever the text
-      // scale, and is no wider than the screen.
-      final image = band(tester);
-      expect(
-        image,
-        tester.getSize(
-          find
-              .ancestor(
-                of: find.byType(CachedNetworkImage).first,
-                matching: find.byType(ClipRRect),
-              )
-              .first,
-        ),
-      );
-      expect(image.width, lessThanOrEqualTo(env.size.width + 0.5));
       // Targets: Follow back, the website link, the profile menu.
       expectMinTarget(
         tester,
@@ -458,22 +413,15 @@ void main() {
   });
 
   group('a profile without the W3 fields', () {
-    forEachThemeAndWidth('flat band at the same 3:1 height, no meta row but '
+    forEachThemeAndWidth('no meta row but '
         'Joined, the tabs still pin', (tester, env) async {
       rig.arrange(
         features: w3Tabs,
-        profile: w3Profile(
-          W3ProfileRig.target,
-          banner: '',
-          bannerThumb: '',
-          location: '',
-          website: '',
-        ),
+        profile: w3Profile(W3ProfileRig.target, location: '', website: ''),
       );
       await openCell(tester, env);
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(CachedNetworkImage), findsNothing);
       expect(find.byIcon(Icons.location_on_outlined), findsNothing);
       expect(find.text('example.com'), findsNothing);
       expect(

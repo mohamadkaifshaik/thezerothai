@@ -166,29 +166,8 @@ void main() {
       );
     });
 
-    testWidgets('a removed banner is gone from the preview', (tester) async {
-      final rig = ProfileTabletRig();
-      await rig.pump(tester, width: 1024, location: AppRouter.editProfilePath);
-      await _openPreview(tester);
-      expect(
-        tester
-            .widget<ProfileCoverBand>(_inPreview(find.byType(ProfileCoverBand)))
-            .url,
-        isNotEmpty,
-      );
-      await tester.tap(find.widgetWithText(TextButton, 'Close'));
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.bySemanticsLabel('Remove banner photo'));
-      await tester.pumpAndSettle();
-      await _openPreview(tester);
-      // The hero draws a band only while there is a banner.
-      expect(_inPreview(find.byType(ProfileCoverBand)), findsNothing);
-      expect(find.text(kEditProfilePreviewUnsaved), findsOneWidget);
-    });
-
-    testWidgets('the real header: the navy hero with the name w800, the banner '
-        'filling it and the phone-size avatar', (tester) async {
+    testWidgets('the real header: the navy hero with the name w800 and '
+        'the phone-size avatar', (tester) async {
       final rig = ProfileTabletRig();
       await rig.pump(tester, width: 1024, location: AppRouter.editProfilePath);
       await _openPreview(tester);
@@ -207,17 +186,13 @@ void main() {
       expect(style.fontSize, AppProfileLayout.phoneNameSize);
       expect(style.fontFamily, theme.textTheme.titleLarge!.fontFamily);
 
-      final band = tester.getRect(_inPreview(find.byType(ProfileCoverBand)));
-      final frame = tester.getRect(find.byType(EditProfilePreview));
-      expect(band.width, frame.width);
-      expect(band.top, frame.top);
-
       final avatar = tester.getRect(_inPreview(find.byType(AppAvatar)));
       // Narrower than 600: the hero's 76 dp avatar.
       expect(avatar.width, AppProfileLayout.phoneAvatar);
-      // It sits inside the hero the banner fills.
-      expect(avatar.top, greaterThan(band.top));
-      expect(avatar.bottom, lessThan(band.bottom));
+      // It sits inside the preview's frame.
+      final frame = tester.getRect(find.byType(EditProfilePreview));
+      expect(avatar.top, greaterThan(frame.top));
+      expect(avatar.bottom, lessThan(frame.bottom));
     });
 
     testWidgets('inert: the counts and the website open nothing and are not '

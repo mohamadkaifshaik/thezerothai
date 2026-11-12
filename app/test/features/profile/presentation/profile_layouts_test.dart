@@ -19,7 +19,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/app_fonts.dart';
-import '../../../support/contrast.dart';
 import '../../../support/geometry.dart';
 import '../../../support/profile_hero_finders.dart';
 import '../../../support/profile_tablet_rig.dart';
@@ -659,25 +658,6 @@ void main() {
       expect(ink.splashColor, AppProfileLayout.onDarkInk);
       expect(ink.focusColor, AppProfileLayout.onDarkInk);
       expect(ink.hoverColor, AppProfileLayout.onDarkInk);
-    });
-
-    test('the banner wash keeps AA behind the hero text over the lightest '
-        'banner', () {
-      // Worst case: a white banner under the wash. The muted handle needs
-      // navy at 0.83 or more behind it, the teal chip 0.74 (measured here);
-      // the wash is .72 at the very top (the wordmark, pearl) and .86 or
-      // more from 22% of the hero down.
-      final colors = AppGradients.profileBannerScrim.colors;
-      Color overWhite(Color wash) => Color.alphaBlend(wash, AppPalette.white);
-      final top = overWhite(colors[0]);
-      final body = overWhite(colors[1]);
-      expect(contrast(AppPalette.pearl, top), greaterThanOrEqualTo(4.5));
-      expect(contrast(AppPalette.mutedOnDark, body), greaterThanOrEqualTo(4.5));
-      expect(
-        contrast(AppPalette.tealElectric, body),
-        greaterThanOrEqualTo(4.5),
-      );
-      expect(contrast(AppPalette.pearl, body), greaterThanOrEqualTo(4.5));
     });
 
     testWidgets('the pair of pills is one height, and the Follow spinner '

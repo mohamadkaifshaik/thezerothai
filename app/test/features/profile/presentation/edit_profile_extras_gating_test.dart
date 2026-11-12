@@ -1,8 +1,6 @@
-import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/media/domain/media_feature_flag.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/profile/domain/profile_edit_feature_flag.dart';
-import 'package:dzeroth/features/profile/presentation/widgets/banner_editor.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,7 +13,7 @@ import '../../../support/theme_harness.dart';
 
 /// Edit profile's `profile_extras` gating and layout: without the
 /// flag nothing can be set (a saved value is only removable, see
-/// `edit_profile_clear_only_test.dart`); with it the banner, location and
+/// `edit_profile_clear_only_test.dart`); with it the location and
 /// website show at 360/600/1200 dp, light and dark, without overflow.
 void main() {
   setUpAll(() {
@@ -23,16 +21,11 @@ void main() {
     registerFallbackValue(const OnboardingRefreshRequested());
   });
 
-  Finder inBanner(IconData icon) => find.descendant(
-    of: find.byType(BannerEditor),
-    matching: find.byIcon(icon),
-  );
-
   // With nothing saved there is nothing to set or remove. (With saved values
   // the screen shows them read-only with Remove: edit_profile_clear_only_test.)
   group('flag off, nothing saved', () {
     for (final width in kMatrixWidths) {
-      testWidgets('shows no banner, location or website at ${width.toInt()}dp, '
+      testWidgets('shows no location or website at ${width.toInt()}dp, '
           'and a name save sends none', (tester) async {
         final rig = EditProfileRig(profile: editableProfile());
         await openEditProfile(
@@ -42,7 +35,6 @@ void main() {
           size: Size(width, 900),
         );
 
-        expect(find.byType(BannerEditor), findsNothing);
         expect(find.text('Location'), findsNothing);
         expect(find.text('Website'), findsNothing);
         expect(find.text('Display name'), findsOneWidget);
@@ -63,9 +55,11 @@ void main() {
   });
 
   group('flag on', () {
-    forEachThemeAndWidth('shows the banner, location and website, no '
-        'overflow, 48dp banner buttons', (tester, env) async {
-      final rig = EditProfileRig(profile: editableProfile(banner: true));
+    forEachThemeAndWidth('shows the location and website, no overflow', (
+      tester,
+      env,
+    ) async {
+      final rig = EditProfileRig(profile: editableProfile());
       await openEditProfile(
         tester,
         rig,
@@ -76,16 +70,6 @@ void main() {
       );
 
       expect(tester.takeException(), isNull);
-      expect(find.byType(BannerEditor), findsOneWidget);
-      final band = tester.getSize(find.byType(BannerEditor));
-      expect(band.width / band.height, closeTo(3, 0.01));
-      for (final icon in [Icons.photo_camera_outlined, Icons.close]) {
-        final target = tester.getSize(
-          find.ancestor(of: inBanner(icon), matching: find.byType(InkResponse)),
-        );
-        expect(target.width, greaterThanOrEqualTo(AppSpacing.minTapTarget));
-        expect(target.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
-      }
       await reveal(tester, find.text('Location'));
       expect(find.text('Location'), findsOneWidget);
       await reveal(tester, find.text('Website'));
@@ -94,7 +78,7 @@ void main() {
     }, textScales: const [1.0, 2.0]);
 
     testWidgets('320dp at text scale 2.0 does not overflow', (tester) async {
-      final rig = EditProfileRig(profile: editableProfile(banner: true));
+      final rig = EditProfileRig(profile: editableProfile());
       await openEditProfile(
         tester,
         rig,
@@ -113,34 +97,12 @@ void main() {
   group('media off, profile_extras on', () {
     const noMedia = {kFeatureProfileSnapshot, kFeatureProfileExtras};
 
-    testWidgets('location and website show; with no saved banner the band is '
-        'left out', (tester) async {
+    testWidgets('location and website show', (tester) async {
       final rig = EditProfileRig(profile: editableProfile());
       await openEditProfile(tester, rig, flags: noMedia);
 
-      expect(find.byType(BannerEditor), findsNothing);
       expect(find.text('Location'), findsOneWidget);
       expect(find.text('Website'), findsOneWidget);
-    });
-
-    testWidgets('a saved banner shows Remove only (no Change: that needs '
-        'media)', (tester) async {
-      final rig = EditProfileRig(profile: editableProfile(banner: true));
-      await openEditProfile(tester, rig, flags: noMedia);
-
-      expect(find.byType(BannerEditor), findsOneWidget);
-      expect(inBanner(Icons.photo_camera_outlined), findsNothing);
-      expect(inBanner(Icons.close), findsOneWidget);
-
-      await tester.tap(inBanner(Icons.close));
-      await tester.pump();
-      await tester.tap(find.widgetWithText(AppPillButton, 'Save'));
-      await tester.pumpAndSettle();
-
-      final call = rig.repo.calls.single;
-      expect(call.bannerMediaId, '');
-      expect(call.location, isNull);
-      expect(call.website, isNull);
     });
 
     testWidgets('location and website can still be saved', (tester) async {
@@ -157,7 +119,6 @@ void main() {
 
       final call = rig.repo.calls.single;
       expect(call.location, 'Pune');
-      expect(call.bannerMediaId, isNull);
       expect(find.text('settings'), findsOneWidget);
     });
   });

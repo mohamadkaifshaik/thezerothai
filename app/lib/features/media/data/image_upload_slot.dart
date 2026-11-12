@@ -8,8 +8,8 @@ import 'media_uploader.dart';
 
 /// One single-image upload on a screen, for any purpose: the picked photo
 /// prepared on the device, the READY media id once it is uploaded, and the
-/// retry memory behind both. Edit profile keeps one per picture (avatar,
-/// banner); a later purpose adds a slot, never a second upload path.
+/// retry memory behind both. Edit profile keeps one for the avatar; a later
+/// purpose adds a slot, never a second upload path.
 ///
 /// - [choose] resizes and re-encodes the picked bytes for [imagePurpose]
 ///   (nothing is sent) and forgets anything remembered about the old pick.
@@ -17,8 +17,8 @@ import 'media_uploader.dart';
 ///   shared [MediaUploader] **once**: the media id is remembered, so a retry
 ///   of a later step (UpdateProfile) never uploads again, and a retry of a
 ///   failed upload replays under the uploader's own key (no quota burn).
-/// - One slot is one `upload()` call with one item, as AVATAR and BANNER
-///   require (never batch them).
+/// - One slot is one `upload()` call with one item, as AVATAR
+///   requires (never batch it).
 class ImageUploadSlot {
   ImageUploadSlot({
     required MediaUploader uploader,

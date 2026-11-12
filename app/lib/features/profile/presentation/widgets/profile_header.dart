@@ -39,7 +39,7 @@ import 'profile_cover_band.dart';
 
 part 'profile_hero.dart';
 
-/// How [ProfileHeader] draws itself. [classic] is the banner, the avatar
+/// How [ProfileHeader] draws itself. [classic] is the flat band, the avatar
 /// ring and the plain counts (the Edit profile preview keeps it); [hero] is
 /// the navy hero of the Profile mocks (the screen opts in).
 enum ProfileHeaderStyle { classic, hero }
@@ -69,7 +69,6 @@ class ProfileHeader extends StatelessWidget {
     this.listsEnabled = false,
     this.interactive = true,
     this.avatarBytes,
-    this.bannerBytes,
     this.style = ProfileHeaderStyle.classic,
     this.topInset = 0,
     this.onBack,
@@ -92,10 +91,9 @@ class ProfileHeader extends StatelessWidget {
   /// links, so nothing in it can be tapped or activated.
   final bool interactive;
 
-  /// An unsaved photo or banner (Edit profile's on-device preview), drawn
-  /// over the saved one. Null draws the saved images.
+  /// An unsaved photo (Edit profile's on-device preview), drawn over the
+  /// saved one. Null draws the saved image.
   final Uint8List? avatarBytes;
-  final Uint8List? bannerBytes;
 
   /// Adds "Add or remove from Lists" and "View Lists" to the overflow menu of
   /// another user's profile. Only given when `lists` is on.
@@ -157,7 +155,6 @@ class ProfileHeader extends StatelessWidget {
         listsEnabled: listsEnabled && !isOwnProfile,
         interactive: interactive,
         avatarBytes: avatarBytes,
-        bannerBytes: bannerBytes,
         style: style,
         isOwnProfile: isOwnProfile,
         topInset: topInset,
@@ -195,7 +192,6 @@ class ProfileHeader extends StatelessWidget {
           listsEnabled: listsEnabled,
           interactive: interactive,
           avatarBytes: avatarBytes,
-          bannerBytes: bannerBytes,
           style: style,
           isOwnProfile: isOwnProfile,
           topInset: topInset,
@@ -220,7 +216,6 @@ class _ProfileHeaderBody extends StatelessWidget {
     this.listsEnabled = false,
     this.interactive = true,
     this.avatarBytes,
-    this.bannerBytes,
     this.style = ProfileHeaderStyle.classic,
     this.isOwnProfile = false,
     this.topInset = 0,
@@ -234,7 +229,6 @@ class _ProfileHeaderBody extends StatelessWidget {
   final bool listsEnabled;
   final bool interactive;
   final Uint8List? avatarBytes;
-  final Uint8List? bannerBytes;
   final VoidCallback? onMessage;
   final Key? nameKey;
   final identity.Profile profile;
@@ -284,7 +278,6 @@ class _ProfileHeaderBody extends StatelessWidget {
         onMessage: onMessage,
         onOpenWebsite: onOpenWebsite,
         avatarBytes: avatarBytes,
-        bannerBytes: bannerBytes,
         website: website,
         joined: joined,
       );
@@ -320,14 +313,7 @@ class _ProfileHeaderBody extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SizedBox(
-                  height: bannerHeight,
-                  child: ProfileCoverBand(
-                    url: profile.bannerUrl,
-                    thumbUrl: profile.bannerThumbUrl,
-                    bytes: bannerBytes,
-                  ),
-                ),
+                SizedBox(height: bannerHeight, child: const ProfileCoverBand()),
                 ConstrainedBox(
                   constraints: BoxConstraints(minHeight: minStrip),
                   child: Padding(

@@ -26,8 +26,8 @@ import '../domain/profile_extras_rules.dart';
 import 'bloc/edit_profile_cubit.dart';
 import 'profile_edit_error_messages.dart';
 import 'widgets/avatar_editor.dart';
-import 'widgets/banner_editor.dart';
 import 'widgets/edit_profile_preview.dart';
+import 'widgets/profile_cover_band.dart';
 import 'widgets/profile_edit_unavailable.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
 
@@ -37,9 +37,8 @@ import '../../../shared/widgets/primitives/app_dialog.dart';
 /// and uploaded on Save). With media off the avatar is shown read-only (the
 /// server answers MEDIA_NOT_READY).
 ///
-/// With `profile_extras` on it also offers the banner (above
-/// the avatar; it also needs media), the location and the website. Without
-/// that flag nothing can be set: a saved banner, location or website is shown
+/// With `profile_extras` on it also offers the location and the website.
+/// Without that flag nothing can be set: a saved location or website is shown
 /// read-only with Remove, which sends an exact `""` (the server accepts a clear
 /// from any caller, Amendment 1 A2, and Remove needs no media either), and no
 /// non-empty value can reach a request. Saves only the changed fields and pops
@@ -78,26 +77,17 @@ class EditProfileScreen extends StatelessWidget {
       child: _EditProfileView(
         saved: profile,
         avatarUrl: profile.avatarThumbUrl,
-        bannerUrl: profile.bannerUrl,
-        bannerThumbUrl: profile.bannerThumbUrl,
       ),
     );
   }
 }
 
 class _EditProfileView extends StatefulWidget {
-  const _EditProfileView({
-    required this.saved,
-    required this.avatarUrl,
-    required this.bannerUrl,
-    required this.bannerThumbUrl,
-  });
+  const _EditProfileView({required this.saved, required this.avatarUrl});
 
   /// The profile as saved: what the preview starts from.
   final identity.Profile saved;
   final String avatarUrl;
-  final String bannerUrl;
-  final String bannerThumbUrl;
 
   @override
   State<_EditProfileView> createState() => _EditProfileViewState();
@@ -218,14 +208,6 @@ class _EditProfileViewState extends State<_EditProfileView> {
       listener: _onState,
       builder: (context, state) {
         final websiteHost = websiteHostPreview(state.website);
-        // The banner is edited with `profile_extras` and media on. Otherwise
-        // it is shown (only when the profile has one) with Remove alone: a
-        // removal is a clear, which needs neither flag.
-        final showBanner =
-            cubit.canChangeBanner ||
-            (!state.bannerRemoved &&
-                (widget.bannerUrl.isNotEmpty ||
-                    widget.bannerThumbUrl.isNotEmpty));
         return PopScope(
           canPop: !cubit.hasChanges || state.status == EditProfileStatus.saved,
           onPopInvokedWithResult: (didPop, _) async {
@@ -273,23 +255,14 @@ class _EditProfileViewState extends State<_EditProfileView> {
                             ),
                             const SizedBox(height: AppSpacing.md),
                           ],
-                          if (showBanner) ...[
-                            BannerEditor(
-                              url: widget.bannerUrl,
-                              thumbUrl: widget.bannerThumbUrl,
-                              previewBytes: state.bannerPreview,
-                              removed: state.bannerRemoved,
-                              busy: state.isPreparingBanner || state.isSaving,
-                              preparing: state.isPreparingBanner,
-                              onChange: cubit.canChangeBanner
-                                  ? cubit.pickBanner
-                                  : null,
-                              onRemove: state.removalRefused
-                                  ? null
-                                  : cubit.removeBanner,
+                          AspectRatio(
+                            aspectRatio: ProfileCoverBand.aspect,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(AppRadius.md),
+                              child: const ProfileCoverBand(),
                             ),
-                            const SizedBox(height: AppSpacing.md),
-                          ],
+                          ),
+                          const SizedBox(height: AppSpacing.md),
                           Align(
                             alignment: AlignmentDirectional.centerStart,
                             child: AvatarEditor(

@@ -1189,16 +1189,6 @@ abstract final class AppGradients {
     stops: [0, 0.55, 1],
   );
 
-  /// The navy wash over a profile banner behind the hero text. Dense enough
-  /// for AA over the lightest banner (white): the muted handle needs navy at
-  /// 0.83 or more behind it, the teal chip 0.74 (see profile_layouts_test).
-  static const LinearGradient profileBannerScrim = LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.bottomCenter,
-    colors: [Color(0xB80D1528), Color(0xDB0D1528), Color(0xEB0D1528)],
-    stops: [0, .22, 1],
-  );
-
   /// The dark splash wash (dzeroth-mobile Splash.html): radial-gradient(90%
   /// 60% at 50% 45%, navy2, navy 55%, navyDeep).
   static const RadialGradient splash = RadialGradient(

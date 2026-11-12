@@ -138,15 +138,13 @@ pb.PostView rigMediaPost(int n, String author, {int images = 1}) => pb.PostView(
   ),
 );
 
-/// A populated profile (banner, bio, location, website, counts).
+/// A populated profile (bio, location, website, counts).
 identity.Profile rigProfile(String uid, String handle, String name) =>
     identity.Profile(
       userId: uid,
       handle: handle,
       displayName: name,
       bio: 'Bio of $name.',
-      bannerUrl: 'https://m.test/$handle-banner-full.webp',
-      bannerThumbUrl: 'https://m.test/$handle-banner-thumb.webp',
       avatarUrl: 'https://m.test/$handle-avatar.webp',
       avatarThumbUrl: 'https://m.test/$handle-avatar-thumb.webp',
       location: 'Mumbai, India',

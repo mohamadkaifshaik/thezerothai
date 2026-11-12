@@ -54,15 +54,8 @@ String uploadErrorMessage(AppException error, {bool gif = false}) {
 }
 
 /// Friendly text for a failed avatar change (upload or UpdateProfile with
-/// `avatar_media_id`).
-String avatarErrorMessage(AppException error) =>
-    profileImageErrorMessage(error, noun: 'photo');
-
-/// The wording of a failed profile picture change (the avatar, the banner)
-/// for the picture called [noun]: the photo quota, degraded mode, rate limit,
-/// network and refusal answers are the same for every purpose, only the noun
-/// differs. Never the raw server text.
-String profileImageErrorMessage(AppException error, {required String noun}) {
+/// `avatar_media_id`). Never the raw server text.
+String avatarErrorMessage(AppException error) {
   return switch (error) {
     QuotaExceededException() =>
       "You've reached today's limit for photo uploads. Try again tomorrow.",
@@ -72,12 +65,12 @@ String profileImageErrorMessage(AppException error, {required String noun}) {
           'shortly.',
     FeatureDisabledException() => "Photos aren't available right now.",
     NetworkException() =>
-      'No connection. Your $noun was not saved; check your network and try '
+      'No connection. Your photo was not saved; check your network and try '
           'again.',
     ValidationException(field: 'media', :final message) => message,
-    MediaNotReadyException() => "The $noun didn't finish uploading. Try again.",
+    MediaNotReadyException() => "The photo didn't finish uploading. Try again.",
     UploadInterruptedException() => "The upload didn't finish. Try again.",
-    _ => "Couldn't update your $noun. Please try again.",
+    _ => "Couldn't update your photo. Please try again.",
   };
 }
 

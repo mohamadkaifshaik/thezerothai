@@ -9,7 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import '../../../../support/fake_transport.dart';
 
 /// M-1 (c): what Edit profile really puts on the wire when it removes a
-/// saved banner, location or website without `profile_extras`.
+/// saved location or website without `profile_extras`.
 /// The other Edit profile tests use a recording fake
 /// repository, which cannot tell a present empty field from an absent one; the
 /// server can (field presence is the signal), so this goes through the real
@@ -65,18 +65,16 @@ void main() {
 
   tearDown(() => db.close());
 
-  test('Remove banner, location and website: all three are present and '
-      'empty, and nothing else is', () async {
+  test('Remove location and website: both are present and empty, and '
+      'nothing else is, a saved banner included', () async {
     final c = cubit();
 
-    c.removeBanner();
     c.removeLocation();
     c.removeWebsite();
     await c.save();
 
     final request = sent.single;
-    expect(request.hasBannerMediaId(), isTrue);
-    expect(request.bannerMediaId, '');
+    expect(request.hasBannerMediaId(), isFalse);
     expect(request.hasLocation(), isTrue);
     expect(request.location, '');
     expect(request.hasWebsite(), isTrue);

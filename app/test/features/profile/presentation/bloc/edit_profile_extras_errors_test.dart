@@ -1,11 +1,10 @@
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/media/data/media_uploader.dart';
+import 'package:dzeroth/features/media/presentation/media_error_messages.dart';
 import 'package:dzeroth/features/profile/domain/profile_edit_feature_flag.dart';
 import 'package:dzeroth/features/profile/presentation/bloc/edit_profile_cubit.dart';
 import 'package:dzeroth/features/profile/presentation/profile_edit_error_messages.dart';
-import 'package:dzeroth/gen/dzeroth/media/v1/media.pb.dart' as pb;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mocktail/mocktail.dart';
 
 import '../../../../support/media_fixtures.dart';
 import '../../../../support/profile_edit_fixtures.dart';
@@ -75,33 +74,6 @@ void main() {
     });
 
     test(
-      'on CreateUpload(BANNER): the same, and nothing is left to send',
-      () async {
-        when(
-          () => media.createUpload(
-            idempotencyKey: any(named: 'idempotencyKey'),
-            purpose: any(named: 'purpose'),
-            images: any(named: 'images'),
-          ),
-        ).thenThrow(extrasOff);
-        picker.next = [imageBytes('a')];
-        final c = cubit();
-        await c.pickBanner();
-
-        await c.save();
-
-        expect(c.state.extrasEnabled, isFalse);
-        expect(c.state.bannerPreview, isNull);
-        expect(repo.calls, isEmpty);
-        expect(c.canSave, isFalse);
-        expect(
-          editProfileErrorMessage(c.state),
-          kProfileExtrasUnavailableMessage,
-        );
-      },
-    );
-
-    test(
       'a whole-service FEATURE_DISABLED does not switch the extras off',
       () async {
         final c = cubit();
@@ -157,133 +129,21 @@ void main() {
   });
 
   group('MEDIA_NOT_READY on UpdateProfile', () {
-    const gone = MediaNotReadyException('gone');
-
-    test('with only a banner sent, only the banner is dropped', () async {
-      picker.next = [imageBytes('b')];
-      final c = cubit();
-      await c.pickBanner();
-      repo.failures.add(gone);
-
-      await c.save();
-
-      expect(c.state.bannerDropped, isTrue);
-      expect(c.state.avatarDropped, isFalse);
-      expect(c.state.bannerPreview, isNull);
-      expect(editProfileErrorMessage(c.state), kBannerGoneMessage);
-      expect(c.canSave, isFalse);
-    });
-
-    test('with only a photo sent, only the photo is dropped', () async {
-      picker.nextAvatar = imageBytes('a');
-      final c = cubit();
-      await c.pickAvatar();
-      repo.failures.add(gone);
-
-      await c.save();
-
-      expect(c.state.avatarDropped, isTrue);
-      expect(c.state.bannerDropped, isFalse);
-      expect(c.state.avatarPreview, isNull);
-    });
-
     test(
-      'with both sent the answer cannot say which: both are dropped',
+      'the photo that was sent is dropped and must be chosen again',
       () async {
         picker.nextAvatar = imageBytes('a');
-        picker.next = [imageBytes('b')];
         final c = cubit();
         await c.pickAvatar();
-        await c.pickBanner();
-        repo.failures.add(gone);
+        repo.failures.add(const MediaNotReadyException('gone'));
 
         await c.save();
 
         expect(c.state.avatarDropped, isTrue);
-        expect(c.state.bannerDropped, isTrue);
         expect(c.state.avatarPreview, isNull);
-        expect(c.state.bannerPreview, isNull);
-        expect(editProfileErrorMessage(c.state), kImagesGoneMessage);
+        expect(editProfileErrorMessage(c.state), kAvatarGoneMessage);
+        expect(c.canSave, isFalse);
       },
     );
-
-    test('a re-picked banner uploads again under a new media id', () async {
-      picker.next = [imageBytes('b')];
-      final c = cubit();
-      await c.pickBanner();
-      repo.failures.add(gone);
-      await c.save();
-
-      picker.next = [imageBytes('b')];
-      await c.pickBanner();
-      await c.save();
-
-      expect(repo.calls.last.bannerMediaId, 'm2');
-      expect(c.state.status, EditProfileStatus.saved);
-    });
-  });
-
-  group('photo and banner together', () {
-    test(
-      'upload the photo then the banner, one single-item call each',
-      () async {
-        picker.nextAvatar = imageBytes('a');
-        picker.next = [imageBytes('b')];
-        final c = cubit();
-        await c.pickAvatar();
-        await c.pickBanner();
-
-        await c.save();
-
-        final captured = verify(
-          () => media.createUpload(
-            idempotencyKey: any(named: 'idempotencyKey'),
-            purpose: captureAny(named: 'purpose'),
-            images: captureAny(named: 'images'),
-          ),
-        ).captured;
-        expect(captured[0], pb.MediaPurpose.MEDIA_PURPOSE_AVATAR);
-        expect(captured[2], pb.MediaPurpose.MEDIA_PURPOSE_BANNER);
-        expect(captured[1], hasLength(1));
-        expect(captured[3], hasLength(1));
-        final call = repo.calls.single;
-        expect(call.avatarMediaId, 'm1');
-        expect(call.bannerMediaId, 'm2');
-      },
-    );
-
-    test('a banner upload that fails keeps the photo uploaded: the retry '
-        'uploads only the banner', () async {
-      picker.nextAvatar = imageBytes('a');
-      picker.next = [imageBytes('b')];
-      final c = cubit();
-      await c.pickAvatar();
-      await c.pickBanner();
-      var calls = 0;
-      when(
-        () => media.createUpload(
-          idempotencyKey: any(named: 'idempotencyKey'),
-          purpose: any(named: 'purpose'),
-          images: any(named: 'images'),
-        ),
-      ).thenAnswer((invocation) async {
-        calls++;
-        if (calls == 2) throw const NetworkException('offline');
-        return [uploadTarget('m$calls')];
-      });
-
-      await c.save();
-
-      expect(c.state.bannerFailed, isTrue);
-      expect(c.state.avatarFailed, isFalse);
-      expect(repo.calls, isEmpty);
-
-      await c.save();
-
-      expect(calls, 3);
-      final call = repo.calls.single;
-      expect(call.avatarMediaId, 'm1');
-      expect(call.bannerMediaId, 'm3');
-    });
   });
 }

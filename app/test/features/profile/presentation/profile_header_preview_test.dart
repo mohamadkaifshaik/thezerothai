@@ -1,5 +1,4 @@
 import 'package:dzeroth/core/theme/app_theme.dart';
-import 'package:dzeroth/features/profile/presentation/widgets/profile_cover_band.dart';
 import 'package:dzeroth/features/profile/presentation/widgets/profile_header.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
 import 'package:flutter/material.dart';
@@ -10,8 +9,8 @@ import '../../../support/failing_image_cache.dart';
 import '../../../support/media_fixtures.dart';
 import '../../../support/profile_tablet_rig.dart' show rigProfile;
 
-/// `ProfileHeader`'s preview parameters (T8c): `interactive`, `avatarBytes`
-/// and `bannerBytes`. Their defaults draw today's header.
+/// `ProfileHeader`'s preview parameters (T8c): `interactive` and
+/// `avatarBytes`. Their defaults draw today's header.
 Future<void> _pump(WidgetTester tester, ProfileHeader header) async {
   useFailingImageCache();
   tester.view.physicalSize = const Size(500, 900);
@@ -93,7 +92,7 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('unsaved photo and banner bytes are drawn over the saved ones', (
+  testWidgets('unsaved photo bytes are drawn over the saved one', (
     tester,
   ) async {
     final bytes = fakeProcessed().thumbBytes;
@@ -102,10 +101,6 @@ void main() {
       ProfileHeader(profile: profile, isOwnProfile: true, graphEnabled: false),
     );
     expect(tester.widget<AppAvatar>(find.byType(AppAvatar)).bytes, isNull);
-    expect(
-      tester.widget<ProfileCoverBand>(find.byType(ProfileCoverBand)).bytes,
-      isNull,
-    );
 
     await _pump(
       tester,
@@ -114,13 +109,8 @@ void main() {
         isOwnProfile: true,
         graphEnabled: false,
         avatarBytes: bytes,
-        bannerBytes: bytes,
       ),
     );
     expect(tester.widget<AppAvatar>(find.byType(AppAvatar)).bytes, bytes);
-    expect(
-      tester.widget<ProfileCoverBand>(find.byType(ProfileCoverBand)).bytes,
-      bytes,
-    );
   });
 }
