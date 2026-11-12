@@ -26,8 +26,6 @@ void main() {
     bio: 'hello',
     location: 'Pune',
     website: 'https://a.example',
-    bannerUrl: 'https://cdn.example/b.jpg',
-    bannerThumbUrl: 'https://cdn.example/b_t.jpg',
   );
 
   EditProfileCubit cubit({bool extras = false}) {
@@ -66,7 +64,7 @@ void main() {
   tearDown(() => db.close());
 
   test('Remove location and website: both are present and empty, and '
-      'nothing else is, a saved banner included', () async {
+      'nothing else is', () async {
     final c = cubit();
 
     c.removeLocation();
@@ -74,7 +72,6 @@ void main() {
     await c.save();
 
     final request = sent.single;
-    expect(request.hasBannerMediaId(), isFalse);
     expect(request.hasLocation(), isTrue);
     expect(request.location, '');
     expect(request.hasWebsite(), isTrue);
@@ -99,7 +96,6 @@ void main() {
     expect(request.hasLocation(), isTrue);
     expect(request.location, '');
     expect(request.hasWebsite(), isFalse);
-    expect(request.hasBannerMediaId(), isFalse);
   });
 
   test('a name change alone leaves every extra out', () async {
@@ -111,6 +107,5 @@ void main() {
     final request = sent.single;
     expect(request.hasLocation(), isFalse);
     expect(request.hasWebsite(), isFalse);
-    expect(request.hasBannerMediaId(), isFalse);
   });
 }

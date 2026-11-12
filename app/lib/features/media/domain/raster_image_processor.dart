@@ -155,7 +155,6 @@ class RasterImageProcessor implements ImageProcessor {
         spec.fullEdge,
         spec.maxFullBytes,
         PurposeSpec.fullQuality,
-        spec.threeToOne,
       );
       final thumb = await _encodeWithin(
         session,
@@ -166,7 +165,6 @@ class RasterImageProcessor implements ImageProcessor {
         spec.thumbEdge,
         spec.maxThumbBytes,
         PurposeSpec.thumbQuality,
-        spec.threeToOne,
       );
 
       final hashSize = blurhashSize(thumb.width, thumb.height);
@@ -217,14 +215,12 @@ class RasterImageProcessor implements ImageProcessor {
     int edge,
     int maxBytes,
     int quality,
-    bool threeToOne,
   ) async {
     for (final attempt in encodeAttempts(
       width,
       height,
       edge,
       quality: quality,
-      threeToOne: threeToOne,
     )) {
       final out = await _step(
         session,

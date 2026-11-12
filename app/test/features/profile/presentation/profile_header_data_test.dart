@@ -30,13 +30,8 @@ void main() {
     when(() => graphRepository.cached(any())).thenReturn(null);
   });
 
-  const full = 'https://m.test/banner-full.webp';
-  const thumb = 'https://m.test/banner-thumb.webp';
-
   identity.Profile profileOf({
     String handle = 'alice',
-    String banner = '',
-    String bannerThumb = '',
     String location = '',
     String website = '',
     bool joined = false,
@@ -45,8 +40,6 @@ void main() {
     handle: handle,
     displayName: 'Alice Archer',
     bio: 'Designer.',
-    bannerUrl: banner,
-    bannerThumbUrl: bannerThumb,
     location: location,
     website: website,
     // Mid-month noon UTC: the same month in every zone; only formatted.
@@ -109,18 +102,12 @@ void main() {
     return opened;
   }
 
-  testWidgets('a banner on the profile is not drawn: a flat 3:1 band, the '
-      'header the same height as without one', (tester) async {
+  testWidgets('the band is flat, 3:1 of the header width, and draws no image', (
+    tester,
+  ) async {
     await open(tester);
-    final without = tester.getSize(find.byType(ProfileHeader));
-
-    await open(
-      tester,
-      profile: profileOf(banner: full, bannerThumb: thumb),
-    );
 
     expect(find.byType(CachedNetworkImage), findsNothing);
-    expect(tester.getSize(find.byType(ProfileHeader)), without);
     final band = tester.getSize(find.byType(ProfileCoverBand));
     expect(band.width, 390);
     expect(band.height, closeTo(130, 0.01));

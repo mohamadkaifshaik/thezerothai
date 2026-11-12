@@ -600,9 +600,9 @@ void main() {
 
   // D-1 (fixed in the client PR):
   // at 360 dp and text scale 2.0 the header's action buttons grow taller than the 48 dp the
-  // strip under the banner reserves for them ("Follow back" wraps to two lines
+  // strip under the band reserves for them ("Follow back" wraps to two lines
   // and is 84 dp tall, "Edit profile" is 56 dp), so they are painted over the
-  // first line of the display name. The strip under the banner now grows with
+  // first line of the display name. The strip under the band now grows with
   // the actions, so the repro runs (`d1Fixed` stays as the switch for it).
   const d1Fixed = true;
   group('D-1: the header actions do not overlap the display name', () {

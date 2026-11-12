@@ -287,19 +287,19 @@ class _ProfileHeaderBody extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        // X's profile: a 3:1 banner, the avatar (133dp, 88dp on phones) in a
-        // surface-coloured ring hanging half over the banner's bottom edge,
-        // the actions on the right of the strip below the banner.
+        // X's profile: a 3:1 band, the avatar (133dp, 88dp on phones) in a
+        // surface-coloured ring hanging half over the band's bottom edge,
+        // the actions on the right of the strip below the band.
         final narrow = width < AppBreakpoints.mobile;
         final diameter = narrow
             ? AppSize.avatarProfileNarrow
             : AppSize.avatarProfileWide;
         final outer = diameter + 2 * AppSpacing.xs;
         final overlap = outer / 2;
-        final bannerHeight = width / 3;
-        // The strip between the banner and the name holds the avatar's lower
+        final bandHeight = width / 3;
+        // The strip between the band and the name holds the avatar's lower
         // half and the actions (36dp pill in a 48dp target, 12dp below the
-        // banner). It is at least tall enough for both, and it grows with the
+        // band). It is at least tall enough for both, and it grows with the
         // actions: at a large text scale a button wraps to two or three lines,
         // and a fixed 60dp strip let it paint over the name (D-1). The
         // actions are laid out in the strip, in the same pass as everything
@@ -314,7 +314,7 @@ class _ProfileHeaderBody extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SizedBox(height: bannerHeight, child: const ProfileCoverBand()),
+                SizedBox(height: bandHeight, child: const ProfileCoverBand()),
                 ConstrainedBox(
                   constraints: BoxConstraints(minHeight: minStrip),
                   child: Padding(
@@ -325,7 +325,7 @@ class _ProfileHeaderBody extends StatelessWidget {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Under the avatar (it hangs over the banner's edge).
+                        // Under the avatar (it hangs over the band's edge).
                         SizedBox(width: AppSpacing.md + outer + AppSpacing.sm),
                         Expanded(
                           child: Align(
@@ -472,7 +472,7 @@ class _ProfileHeaderBody extends StatelessWidget {
             ),
             PositionedDirectional(
               start: AppSpacing.md,
-              top: bannerHeight - overlap,
+              top: bandHeight - overlap,
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
@@ -494,7 +494,7 @@ class _ProfileHeaderBody extends StatelessWidget {
     );
   }
 
-  /// The controls on the right of the strip below the banner, or null.
+  /// The controls on the right of the strip below the band, or null.
   Widget? _actions(BuildContext context, {required bool isBlocking}) {
     if (showActions && !isBlocking) {
       return Row(

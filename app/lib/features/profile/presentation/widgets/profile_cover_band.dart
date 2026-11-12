@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// The band behind the avatar on the profile header and on Edit profile: a
-/// flat theme surface (profiles carry no banner picture). It is decoration,
+/// flat theme surface (profiles carry no picture there). It is decoration,
 /// hidden from assistive technology, and sized by its parent.
 class ProfileCoverBand extends StatelessWidget {
   const ProfileCoverBand({super.key});
