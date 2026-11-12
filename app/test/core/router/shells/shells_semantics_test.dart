@@ -1,5 +1,6 @@
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/router/shell_entries.dart';
+import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/advertise/presentation/advertise_screen.dart';
 import 'package:dzeroth/features/calls/presentation/calls_screen.dart';
 import 'package:dzeroth/features/creator_studio/presentation/creator_studio_screen.dart';
@@ -75,7 +76,14 @@ void main() {
 
       expect(
         r.headers,
-        containsAll(['Creator Studio', 'Insights', 'Programs']),
+        // From 600 dp the back header's subtitle is part of its label.
+        containsAll([
+          size.width >= AppBreakpoints.mobile
+              ? 'Creator Studio Your account'
+              : 'Creator Studio',
+          'Insights',
+          'Programs',
+        ]),
       );
       expect(r.buttons, ['Back']);
       expect(r.tappable, ['Back']);
@@ -127,7 +135,12 @@ void main() {
       await pumpShellsApp(tester, location: AppRouter.callsPath, size: size);
       final r = _read(tester, find.byType(CallsScreen));
 
-      expect(r.headers, containsAll(['Calls']));
+      expect(
+        r.headers,
+        containsAll([
+          size.width >= AppBreakpoints.mobile ? 'Calls Voice · Video' : 'Calls',
+        ]),
+      );
       expect(r.buttons, ['Back', 'Not available yet']);
       expect(r.tappable, ['Back']);
     });
