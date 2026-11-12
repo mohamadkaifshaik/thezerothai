@@ -6,7 +6,6 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/graph/presentation/bloc/suggestions_cubit.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
-import 'package:dzeroth/features/graph/presentation/widgets/who_to_follow_card.dart';
 import 'package:dzeroth/features/home/presentation/home_screen.dart';
 import 'package:dzeroth/features/home/presentation/widgets/home_composer_entry.dart';
 import 'package:dzeroth/features/notifications/data/notifications_repository.dart';

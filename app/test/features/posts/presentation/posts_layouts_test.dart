@@ -29,7 +29,6 @@ import '../../../support/composer_tablet_rig.dart';
 import '../../../support/fake_drafts_repository.dart';
 import '../../../support/posts_fixtures.dart';
 import '../../../support/scheduled_flags.dart';
-import '../../../support/theme_harness.dart';
 import '../../../support/thread_shell_rig.dart';
 
 // The post screens from the dzeroth-mobile, tablet and desktop mocks:

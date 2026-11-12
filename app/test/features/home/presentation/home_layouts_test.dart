@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_top_bar.dart';
 import 'package:dzeroth/features/home/presentation/home_screen.dart';
 import 'package:dzeroth/features/home/presentation/widgets/home_composer_entry.dart';
