@@ -2,7 +2,6 @@ import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/features/beacons/presentation/beacon_screen.dart';
-import 'package:dzeroth/shared/widgets/primitives/app_back_header.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_main_column.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,8 +12,8 @@ import '../../../support/geometry.dart';
 
 /// T8e: PlanDetail's reading column (tablet plan sections 3 and 4.1
 /// "PlanDetail": F in band A, the LD detail in band B). The plan is at most
-/// 680 and centred in its pane or detail, the header spanning it; a detail
-/// narrower than 680 is filled. Phones and desktop keep the 600 column.
+/// 680 and centred in its pane or detail; a detail narrower than 680 is
+/// filled. Phones and desktop keep the 600 column.
 void main() {
   Rect column(WidgetTester tester) => tester.getRect(
     find.descendant(
@@ -22,18 +21,6 @@ void main() {
       matching: find.byType(AppMainColumnBleed),
     ),
   );
-  Rect divider(WidgetTester tester) => tester.getRect(
-    find
-        .descendant(
-          of: find.descendant(
-            of: find.byType(BeaconScreen),
-            matching: find.byType(AppBackHeader),
-          ),
-          matching: find.byType(Divider),
-        )
-        .first,
-  );
-
   Future<void> done(WidgetTester tester) => tester.pumpWidget(const SizedBox());
 
   for (final (width, rtl) in [
@@ -69,8 +56,6 @@ void main() {
         ),
       );
       expect(col.center.dx, moreOrLessEquals(area.center.dx));
-      expect(divider(tester).left, moreOrLessEquals(area.left));
-      expect(divider(tester).right, moreOrLessEquals(area.right));
       expectNoOverflow(tester);
       await done(tester);
     });
@@ -99,7 +84,6 @@ void main() {
       );
       final col = column(tester);
       expect(col.width, lessThanOrEqualTo(AppLayout.mainColumnMaxWidth));
-      expect(divider(tester).width, col.width);
       await done(tester);
     });
   }

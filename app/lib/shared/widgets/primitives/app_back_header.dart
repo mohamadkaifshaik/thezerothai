@@ -12,6 +12,8 @@ import 'app_main_column.dart';
 /// conversation header's avatar, name and handle); [title] is then only the
 /// accessible name of the header. [actions] sit at the end (an overflow
 /// menu); both default to nothing, so existing callers are unchanged.
+/// [subtitle] adds a muted line under the title (the plan a People page is
+/// about).
 class AppBackHeader extends StatelessWidget {
   const AppBackHeader({
     super.key,
@@ -19,6 +21,7 @@ class AppBackHeader extends StatelessWidget {
     required this.onBack,
     this.backTooltip = 'Back',
     this.titleContent,
+    this.subtitle,
     this.actions = const [],
     this.leading,
   });
@@ -27,6 +30,7 @@ class AppBackHeader extends StatelessWidget {
   final VoidCallback onBack;
   final String backTooltip;
   final Widget? titleContent;
+  final String? subtitle;
   final List<Widget> actions;
 
   /// Replaces the back button (a root destination leads with the account
@@ -63,12 +67,32 @@ class AppBackHeader extends StatelessWidget {
                     header: true,
                     child:
                         titleContent ??
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleLarge,
-                        ),
+                        (subtitle == null
+                            ? Text(
+                                title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleLarge,
+                              )
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.titleLarge,
+                                  ),
+                                  Text(
+                                    subtitle!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                              )),
                   ),
                 ),
                 ...actions,

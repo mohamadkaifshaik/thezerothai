@@ -27,47 +27,11 @@ enum ContextSectionKind {
   /// The footer links (Privacy Policy, Community rules).
   links,
 
-  /// `/communities`: "Explore Communities", the page's own directory (T8a).
-  exploreCommunities,
-
-  /// `/communities/:id`: the community's rules, moderators and "View
-  /// moderation log" (T8a). The About tab keeps them at every width.
-  communityAbout,
-
-  /// `/communities/new`: the live preview of the form (T8a).
-  communityPreview,
-
-  /// `/communities/:id/moderation-log`: "About this log" (T8a).
-  moderationLogAbout,
-
   /// `/profile/:handle`, `/u/:id`: the profile's latest images from its
   /// own Media tab feed (T8c). The Media tab keeps them at every width.
   profileMedia,
 
-  /// `/lists/:id`: a preview of the List's members with "Manage members" /
-  /// "See all members" (T8b). The header keeps the count at every width.
-  listMembers,
 
-  /// `/home/pinned`: a preview of the Home tabs as they will show (T8b).
-  homeTabsPreview,
-
-  /// `/u/:id/lists`: the card of the Lists' owner (T8b).
-  listsOwner,
-
-  /// `/plans/new`, `/plans/:id/edit`: the live preview of the form (T8d).
-  planPreview,
-
-  /// `/plans/new`, `/plans/:id/edit`: "Tips for a good plan" (T8d).
-  planTips,
-
-  /// `/notifications`: the first follow requests with Accept and "See all
-  /// requests" (F16, R8). The inline Follow requests row hides while it
-  /// shows.
-  followRequests,
-
-  /// `/communities/:id/members`: the "Search members" field (F36, R10),
-  /// lent by the page; its results are the page's list.
-  memberSearch,
 }
 
 /// One section of band B's context pane: a self-gating widget (it draws

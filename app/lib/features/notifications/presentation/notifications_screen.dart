@@ -3,43 +3,35 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
-import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/app_top_bar.dart';
-import '../../../core/widgets/context_pane.dart';
-import '../../../core/widgets/context_pane_slots.dart';
 import '../../../core/widgets/scroll_constants.dart';
-import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import '../../../gen/dzeroth/notifications/v1/notifications.pbenum.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../shared/widgets/post/post_list_skeleton.dart';
 import '../../../shared/widgets/post/timeline_gap_row.dart';
+import '../../beacons/domain/beacon_text_rules.dart' show isBeaconId;
 import '../../beacons/domain/beacons_feature_flag.dart';
 import '../../graph/data/graph_repository.dart';
-import '../../graph/presentation/graph_error_messages.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
-import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
-import '../../onboarding/presentation/bloc/onboarding_event.dart';
 import '../data/notifications_repository.dart';
 import '../domain/notification_location.dart';
 import '../domain/notifications_feature_flag.dart';
 import 'bloc/follow_back_cubit.dart';
-import 'bloc/follow_requests_preview_cubit.dart';
 import 'bloc/notifications_cubit.dart';
 import 'bloc/push_cubit.dart';
 import 'bloc/unread_badge_cubit.dart';
 import 'notifications_error_messages.dart';
 import 'widgets/follow_back_button.dart';
-import 'widgets/follow_requests_card.dart';
 import 'widgets/follow_requests_row.dart';
 import 'widgets/notification_row.dart';
 import 'widgets/push_opt_in_card.dart';
@@ -122,14 +114,6 @@ class _NotificationsViewState extends State<_NotificationsView>
     graph: context.read<GraphRepository>(),
   );
 
-  /// F16: the follow-requests card beside the page (tablet band B's pane,
-  /// the desktop side column), made on first use and asked for only while it
-  /// shows.
-  FollowRequestsPreviewCubit? _requestsCubit;
-  FollowRequestsPreviewCubit get _requests => _requestsCubit ??=
-      FollowRequestsPreviewCubit(graph: context.read<GraphRepository>());
-  final _paneLease = ContextPaneLease();
-
   @override
   void initState() {
     super.initState();
@@ -138,90 +122,13 @@ class _NotificationsViewState extends State<_NotificationsView>
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // The card the pane or the side column draws, over this page's own
-    // cubit (no call of the pane's own).
-    _paneLease.attach(context, AppRouter.notificationsPath, {
-      ContextSectionKind.followRequests: (context) =>
-          BlocBuilder<FollowRequestsPreviewCubit, FollowRequestsPreviewState>(
-            bloc: _requests,
-            builder: (context, state) => FollowRequestsCard(
-              state: state,
-              onAccept: _accept,
-              onRetry: _requests.reload,
-            ),
-          ),
-    });
-  }
-
-  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _controller
       ..removeListener(_onScroll)
       ..dispose();
-    _paneLease.dispose();
-    _requestsCubit?.close();
     _followBackCubit?.close();
     super.dispose();
-  }
-
-  void _say(String text, {SnackBarAction? action}) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(text), action: action));
-  }
-
-  /// Accept from the card: as on the Follow requests page, the count goes
-  /// down once the server took it, and "Follow back" is offered when the
-  /// caller does not follow the requester yet.
-  Future<void> _accept(graph.UserListItem item) async {
-    final onboarding = context.read<OnboardingBloc>();
-    final graphRepository = context.read<GraphRepository>();
-    final result = await _requests.accept(item);
-    if (result == null) return;
-    final handle = item.user.handle;
-    switch (result) {
-      case FollowRequestAccepted(:final relationship):
-        onboarding.add(const OnboardingFollowRequestAnswered());
-        if (!mounted) return;
-        final followsAlready =
-            relationship.followState ==
-                graph.FollowState.FOLLOW_STATE_FOLLOWING ||
-            relationship.followState ==
-                graph.FollowState.FOLLOW_STATE_REQUESTED;
-        if (followsAlready) {
-          _say('Accepted @$handle.');
-        } else {
-          _say(
-            '@$handle can now see your posts.',
-            action: SnackBarAction(
-              label: 'Follow back',
-              onPressed: () =>
-                  _followBackFromSnack(graphRepository, item.user.userId),
-            ),
-          );
-        }
-      case FollowRequestAcceptFailed(:final error):
-        if (!mounted) return;
-        _say(followRequestErrorMessage(error, handle: handle));
-    }
-  }
-
-  Future<void> _followBackFromSnack(
-    GraphRepository graphRepository,
-    String userId,
-  ) async {
-    try {
-      await graphRepository.follow(
-        userId: userId,
-        idempotencyKey: const Uuid().v4(),
-      );
-    } on AppException catch (e) {
-      if (!mounted) return;
-      _say(relationshipErrorMessage(e));
-    }
   }
 
   /// Whether a page of rows has landed between [a] and [b] (the cache, a
@@ -260,9 +167,7 @@ class _NotificationsViewState extends State<_NotificationsView>
     final tabs = notificationsTabsFor(context);
     final tab = tabs.contains(_tab) ? _tab : NotificationsTab.all;
     final followBack = isGraphEnabled(context);
-    // F16: asked for only while the card shows beside the page, which needs
-    // pending requests (its rule); a later call does nothing.
-    if (followRequestsCardBeside(context)) unawaited(_requests.loadOnce());
+    final plans = isFeatureEnabled(context, kFeatureBeacons);
     // F14 turned on after a page landed (a GetMe refresh): ask for what is
     // already loaded, so no reserved line waits forever. Deduplicated, and
     // never again for a failed actor (only a new page retries those), so a
@@ -357,7 +262,15 @@ class _NotificationsViewState extends State<_NotificationsView>
                             ),
                           ),
                         ),
-                      ..._body(context, cubit, state, inset, tab, followBack),
+                      ..._body(
+                        context,
+                        cubit,
+                        state,
+                        inset,
+                        tab,
+                        followBack,
+                        plans,
+                      ),
                       const ShellBottomInsetSliver(),
                     ],
                   ),
@@ -408,6 +321,7 @@ class _NotificationsViewState extends State<_NotificationsView>
     double inset,
     NotificationsTab tab,
     bool followBack,
+    bool plans,
   ) {
     if (!state.hasNotifications) {
       final Widget child;
@@ -521,7 +435,12 @@ class _NotificationsViewState extends State<_NotificationsView>
                   onTap: () {
                     if (location != null) context.push(location);
                   },
-                  action: followBackActor == null
+                  action:
+                      plans &&
+                          n.type ==
+                              NotificationType.NOTIFICATION_TYPE_BEACON_REQUEST
+                      ? _ReviewRequest(beaconId: n.beaconId)
+                      : followBackActor == null
                       ? null
                       : FollowBackSlot(
                           // Keyed by the actor: each row owns the cubit of
@@ -563,5 +482,27 @@ class _NotificationsViewState extends State<_NotificationsView>
       );
     }
     return const SizedBox(height: AppSpacing.lg);
+  }
+}
+
+/// "Review" on a join request (the mock's primary pill): opens the plan's
+/// People page, where the request is answered. Nothing for a malformed id,
+/// as the row's own tap opens nothing then.
+class _ReviewRequest extends StatelessWidget {
+  const _ReviewRequest({required this.beaconId});
+
+  final String beaconId;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isBeaconId(beaconId)) return const SizedBox.shrink();
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: AppPillButton(
+        label: 'Review',
+        compact: true,
+        onPressed: () => context.push(AppRouter.planPeoplePath(beaconId)),
+      ),
+    );
   }
 }

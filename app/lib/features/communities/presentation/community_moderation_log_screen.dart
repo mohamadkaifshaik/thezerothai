@@ -6,9 +6,6 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
-import '../../../core/widgets/context_pane.dart';
-import '../../../core/widgets/context_pane_slots.dart';
-import '../../../core/widgets/shell_geometry.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
@@ -60,37 +57,6 @@ class _CommunityModerationLogScreenState
   /// answers (its one call; the line is kept so the page does not move).
   String _communityName = '';
 
-  /// Band B's context pane: "About this log" over this page's [_log], only
-  /// once it lists entries (the caller moderates), as band A's list; the
-  /// placeholder while it loads; nothing when it is locked, gone, failed or
-  /// empty (T8a polish).
-  final _paneLease = ContextPaneLease();
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _paneLease.attach(
-      context,
-      AppRouter.communityModerationLogPath(widget.communityId),
-      {
-        ContextSectionKind.moderationLogAbout: (context) =>
-            BlocBuilder<CommunityModerationLogCubit, ModerationLogState>(
-              bloc: _log,
-              buildWhen: (a, b) =>
-                  (a.status == ModerationLogStatus.loading) !=
-                      (b.status == ModerationLogStatus.loading) ||
-                  moderationLogListed(a) != moderationLogListed(b),
-              builder: (context, state) =>
-                  state.status == ModerationLogStatus.loading
-                  ? const ModerationLogAboutPlaceholder()
-                  : moderationLogListed(state)
-                  ? const ModerationLogAbout()
-                  : const SizedBox.shrink(),
-            ),
-      },
-    );
-  }
-
   @override
   void initState() {
     super.initState();
@@ -118,7 +84,6 @@ class _CommunityModerationLogScreenState
 
   @override
   void dispose() {
-    _paneLease.dispose();
     _scroll.dispose();
     _log.close();
     _moderation.close();
@@ -152,9 +117,9 @@ class _CommunityModerationLogScreenState
   Widget _centered(Widget child) =>
       Center(child: SingleChildScrollView(child: child));
 
-  /// The log for [state]. [aboutInline] (tablet band A) puts "About this
-  /// log" first in the list once there are entries, so it scrolls with
-  /// them; the loading, empty, locked and not-found states go without it.
+  /// The log for [state]. [aboutInline] (desktop) puts "About this log"
+  /// first in the list once there are entries, so it scrolls with them; the
+  /// loading, empty, locked and not-found states go without it.
   Widget _body(ModerationLogState state, {required bool aboutInline}) {
     final error = state.error;
     if (state.status == ModerationLogStatus.loading) {
@@ -258,13 +223,10 @@ class _CommunityModerationLogScreenState
 
   @override
   Widget build(BuildContext context) {
-    // "About this log" (tablet plan section 4.1, ModLog): the first item of
-    // the loaded log in band A, in the context pane in band B. Only on the
-    // tablet layout: phones and desktop keep today's page (ruling R-1).
-    final tablet = ShellGeometry.maybeOf(context)?.tablet ?? false;
+    // "About this log" is the desktop mock's side box; the desktop side
+    // column is the shell's, so it leads the log instead.
     final aboutInline =
-        tablet &&
-        !ContextPaneScope.shows(context, ContextSectionKind.moderationLogAbout);
+        MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet;
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(

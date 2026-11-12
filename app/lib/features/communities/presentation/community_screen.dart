@@ -6,8 +6,6 @@ import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_error_view.dart';
-import '../../../core/widgets/context_pane.dart';
-import '../../../core/widgets/context_pane_slots.dart';
 import '../../../shared/widgets/post/post_moderation_control.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_menu_item_row.dart';
@@ -38,6 +36,7 @@ import 'communities_error_messages.dart';
 import 'widgets/community_about.dart';
 import 'widgets/community_cover_band.dart';
 import 'widgets/community_header.dart';
+import 'widgets/community_hero.dart';
 import 'widgets/community_unavailable_view.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
@@ -172,30 +171,8 @@ class _CommunityScreenState extends State<CommunityScreen> {
     _timeline.load();
   }
 
-  /// Band B's context pane: the rules, moderators and "View moderation log"
-  /// card, over this page's [_detail] (no call of its own; T8a).
-  final _paneLease = ContextPaneLease();
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _paneLease.attach(context, AppRouter.communityPath(widget.communityId), {
-      ContextSectionKind.communityAbout: (context) =>
-          BlocBuilder<CommunityDetailCubit, CommunityDetailState>(
-            bloc: _detail,
-            builder: (context, state) => CommunityAboutPane(
-              state: state,
-              onModerationLog: state.community?.role.canModerate == true
-                  ? _openModerationLog
-                  : null,
-            ),
-          ),
-    });
-  }
-
   @override
   void dispose() {
-    _paneLease.dispose();
     _bandGone.dispose();
     _moderation.close();
     _timeline.close();
@@ -281,6 +258,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     final viewerUserId = context.select(
       (OnboardingBloc bloc) => bloc.state.profile?.userId,
     );
@@ -356,42 +334,53 @@ class _CommunityScreenState extends State<CommunityScreen> {
                     isFeatureEnabled(context, kFeatureCommunities) &&
                     state.community != null &&
                     !state.community!.role.isOwner;
+                // The options menu: on the cover band's navy a pearl circle,
+                // on the tablet and desktop bar a plain icon.
+                Widget? options({required bool onBand}) => showReport
+                    ? PopupMenuButton<String>(
+                        tooltip: 'Community options',
+                        padding: EdgeInsets.zero,
+                        // As an icon button, so it keeps the button role.
+                        icon: onBand
+                            ? CommunityBandAction.circle(Icons.more_horiz)
+                            : const Icon(Icons.more_horiz),
+                        style: onBand
+                            ? IconButton.styleFrom(
+                                foregroundColor: AppPalette.pearl,
+                              )
+                            : null,
+                        onSelected: (_) => _report(),
+                        itemBuilder: (context) => const [
+                          PopupMenuItem(
+                            value: 'report',
+                            child: AppMenuItemRow(
+                              icon: Icons.flag_outlined,
+                              label: 'Report Community',
+                            ),
+                          ),
+                        ],
+                      )
+                    : null;
                 final headerSlivers = <Widget>[
                   SliverToBoxAdapter(
                     // Spans the pane on the tablet layout (as the bar's divider
                     // did).
-                    child: AppFullBleed(
-                      child: CommunityCoverBand(
-                        onBack: _back,
-                        action: showReport
-                            ? PopupMenuButton<String>(
-                                tooltip: 'Community options',
-                                padding: EdgeInsets.zero,
-                                // As an icon button, so it keeps the button role.
-                                icon: CommunityBandAction.circle(
-                                  Icons.more_horiz,
-                                ),
-                                style: IconButton.styleFrom(
-                                  foregroundColor: AppPalette.pearl,
-                                ),
-                                onSelected: (_) => _report(),
-                                itemBuilder: (context) => const [
-                                  PopupMenuItem(
-                                    value: 'report',
-                                    child: AppMenuItemRow(
-                                      icon: Icons.flag_outlined,
-                                      label: 'Report Community',
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : null,
-                      ),
-                    ),
+                    child: wide
+                        ? CommunityTopBar(
+                            onBack: _back,
+                            action: options(onBand: false),
+                          )
+                        : AppFullBleed(
+                            child: CommunityCoverBand(
+                              onBack: _back,
+                              action: options(onBand: true),
+                            ),
+                          ),
                   ),
                   SliverToBoxAdapter(
                     child: CommunityHeader(
                       state: state,
+                      wide: wide,
                       onCompose: _canCompose(context, state)
                           ? () => context.push(
                               AppRouter.composeCommunityPath(

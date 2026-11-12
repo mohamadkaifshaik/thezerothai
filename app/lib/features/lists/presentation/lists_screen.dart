@@ -9,20 +9,29 @@ import '../../../core/widgets/app_error_view.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
-import '../../../shared/widgets/primitives/app_section_header.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../../gen/dzeroth/lists/v1/lists.pb.dart' as pb;
+import '../data/home_tabs_repository.dart';
 import '../data/lists_repository.dart';
+import '../domain/home_tab_entry.dart';
 import '../domain/lists_feature_flag.dart';
 import 'bloc/lists_cubit.dart';
 import 'bloc/lists_state.dart';
 import 'widgets/list_editor_sheet.dart';
 import 'widgets/list_row.dart';
+import 'widgets/lists_page_chrome.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 
-/// `/lists`: "Your Lists" with a Create button, one row per list and
-/// an Edit button per row.
+/// `/lists`: the Lists the viewer pinned to Home ("Pinned", with a Manage
+/// link to Manage pinned), then "Your Lists" with a Create button, one row
+/// per list and an Edit button per row. The same page at every width; the
+/// phone and the wide mocks differ in gutters, tiles and the chevron.
 ///
+/// - A List that is pinned shows under "Pinned" only (the Home tabs, live
+///   from [HomeTabsRepository]); one whose header this session has not seen
+///   is left out there (Manage pinned lists every tab).
+/// - The wide header carries the viewer's @handle (from the owner of the
+///   Lists); a phone has Back.
 /// - 1 `ListUserLists` per open; Create / Edit / Delete are one RPC each, in
 ///   the editor ([showListEditor]).
 /// - Create is disabled at 20 lists, with the reason as its tooltip.
@@ -40,6 +49,7 @@ class ListsScreen extends StatefulWidget {
 
 class _ListsScreenState extends State<ListsScreen> {
   late final ListsRepository _repository = context.read<ListsRepository>();
+  late final HomeTabsRepository _tabs = context.read<HomeTabsRepository>();
   late final ListsCubit _cubit = ListsCubit(repository: _repository)..load();
 
   @override
@@ -81,19 +91,34 @@ class _ListsScreenState extends State<ListsScreen> {
             builder: (context, state) {
               final atCap = state.atCap;
               final canCreate = state.status == ListsStatus.ready && !atCap;
+              final phone = isListsPhone(context);
+              // Every one of the viewer's own Lists carries the viewer as its
+              // owner, so the handle needs no profile of its own.
+              final handle = state.lists.firstOrNull?.owner.handle;
               return Column(
                 children: [
                   AppBackHeader(
                     title: 'Lists',
+                    titleContent: ListsHeaderTitle(
+                      title: 'Lists',
+                      subtitle: phone || handle == null || handle.isEmpty
+                          ? null
+                          : '@$handle',
+                    ),
                     onBack: _back,
+                    // A rail destination on the wide layouts: nothing to go
+                    // back to (the mocks have no Back there).
+                    leading: phone
+                        ? null
+                        : const SizedBox(width: AppSpacing.sm),
                     actions: [
                       if (state.status == ListsStatus.ready)
-                        IconButton(
+                        ListsRaisedIconButton(
                           tooltip: atCap
                               ? 'You have $kMaxListsPerUser Lists, the most '
                                     'allowed. Delete one to create another.'
                               : 'Create a new List',
-                          icon: const Icon(Icons.playlist_add),
+                          icon: Icons.playlist_add,
                           onPressed: canCreate ? () => _openEditor() : null,
                         ),
                     ],
@@ -135,38 +160,76 @@ class _ListsScreenState extends State<ListsScreen> {
         );
       case ListsStatus.ready:
         final lists = state.lists;
-        return RefreshIndicator(
-          onRefresh: _cubit.load,
-          child: CustomScrollView(
-            slivers: [
-              const SliverToBoxAdapter(
-                child: AppSectionHeader(title: 'Your Lists'),
+        final style = listsPageRowStyle(context);
+        return StreamBuilder<List<HomeTabEntry>>(
+          initialData: _tabs.tabs,
+          stream: _tabs.changes,
+          builder: (context, tabs) {
+            final pinned = _pinned(lists, tabs.data ?? const []);
+            final pinnedIds = {for (final l in pinned) l.listId};
+            final rest = [
+              for (final l in lists)
+                if (!pinnedIds.contains(l.listId)) l,
+            ];
+            Widget row(pb.ListInfo list) => ListRow(
+              key: ValueKey(list.listId),
+              list: list,
+              style: style,
+              pinned: pinnedIds.contains(list.listId),
+              onTap: () => context.push(AppRouter.listPath(list.listId)),
+              onEdit: lists.any((l) => l.listId == list.listId)
+                  ? () => _openEditor(list)
+                  : null,
+            );
+            return RefreshIndicator(
+              onRefresh: _cubit.load,
+              child: CustomScrollView(
+                slivers: [
+                  if (pinned.isNotEmpty) ...[
+                    SliverToBoxAdapter(
+                      child: ListsSectionHeader(
+                        title: 'Pinned',
+                        actionLabel: 'Manage',
+                        onAction: () => context.push(AppRouter.pinnedPath),
+                      ),
+                    ),
+                    SliverList.builder(
+                      itemCount: pinned.length,
+                      itemBuilder: (context, i) => row(pinned[i]),
+                    ),
+                  ],
+                  if (lists.isEmpty)
+                    const SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: _EmptyLists(),
+                    )
+                  else if (rest.isNotEmpty) ...[
+                    const SliverToBoxAdapter(
+                      child: ListsSectionHeader(title: 'Your Lists'),
+                    ),
+                    SliverList.builder(
+                      itemCount: rest.length,
+                      itemBuilder: (context, i) => row(rest[i]),
+                    ),
+                  ],
+                  const ShellBottomInsetSliver(),
+                ],
               ),
-              if (lists.isEmpty)
-                const SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: _EmptyLists(),
-                )
-              else
-                SliverList.builder(
-                  itemCount: lists.length,
-                  itemBuilder: (context, i) {
-                    final list = lists[i];
-                    return ListRow(
-                      key: ValueKey(list.listId),
-                      list: list,
-                      onTap: () =>
-                          context.push(AppRouter.listPath(list.listId)),
-                      onEdit: () => _openEditor(list),
-                    );
-                  },
-                ),
-              const ShellBottomInsetSliver(),
-            ],
-          ),
+            );
+          },
         );
     }
   }
+
+  /// The List tabs of Home, in their order, as the Lists this page knows:
+  /// the viewer's own, else a header seen this session. A tab with neither
+  /// is left out.
+  List<pb.ListInfo> _pinned(List<pb.ListInfo> own, List<HomeTabEntry> tabs) => [
+    for (final tab in tabs)
+      if (tab.kind == HomeTabKind.list)
+        ?(own.where((l) => l.listId == tab.id).firstOrNull ??
+            _repository.header(tab.id)),
+  ];
 }
 
 class _EmptyLists extends StatelessWidget {

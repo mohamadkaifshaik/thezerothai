@@ -1453,6 +1453,173 @@ abstract final class AppPostsLayout {
   static const double draftIconTint = 0.12;
 }
 
+/// Plans geometry (dzeroth-mobile, tablet and desktop Home, PlanDetail,
+/// PlanPeople, PlanCreate, PlanEdit and MyPlans). Colours come from the
+/// theme, shadows from [AppShadows].
+abstract final class AppPlansLayout {
+  // The plan page's hero: full width, rounded under, with the back and menu
+  // circles in it.
+  static const double heroRadius = 34;
+  static const double heroButton = 44;
+  static const double heroGutter = 24;
+
+  // The list cards: the phone's 20 dp page gutter, the wide layouts' 16 dp.
+  static const double phoneGutter = 20;
+  static const double wideGutter = 16;
+
+  // The compact rows of My plans (the tile, then eyebrow, title and time).
+  static const double tileSize = 52;
+
+  // A form lays Cost beside Open spots from this content width.
+  static const double formPairMin = 480;
+}
+
+/// Lists geometry per screen size (dp): the phone mocks' 20 dp page gutter
+/// and raised cards, and the tablet / desktop mocks' 16 dp flat `.row`s, hero
+/// and section labels (dz.css). Colours come from the theme, gradients from
+/// [AppGradients], shadows from [AppShadows].
+abstract final class AppListsLayout {
+  // Rows (Lists, a person's Lists, Manage pinned's "Add from your Lists").
+  static const double phoneGutter = 20;
+  static const double wideGutter = 16;
+  static const double tileSize = 52;
+  static const double tileRadius = 16;
+  static const double phoneRowGap = 14;
+  static const double wideRowGap = 12;
+  static const double phoneRowPaddingV = 12;
+  static const double wideRowPaddingV = 14;
+
+  // Section titles: the phone's display h2 and the wide `.sect` label.
+  static const double phoneSectionTop = 14;
+  static const double phoneSectionTitle = 20;
+  static const double wideSectionTop = 16;
+  static const double wideSectionTitle = 19;
+  static const double sectionBottom = 2;
+  static const double sectLabelBottom = 8;
+
+  // The page header's title and subtitle.
+  static const double phoneTitle = 19;
+  static const double wideTitle = 20;
+  static const double phoneSubtitle = 12;
+  static const double wideSubtitle = 13;
+
+  // The List page's hero.
+  static const double heroGutter = 24;
+  static const double heroWideTop = 22;
+  static const double heroWideBottom = 26;
+  static const double heroWideRadius = 28;
+  static const double heroPhoneBottom = 22;
+  static const double heroPhoneTitle = 34;
+  static const double heroWideTitle = 48;
+  static const double heroPhoneBody = 14;
+  static const double heroWideBody = 16;
+  static const double heroPhoneStat = 14;
+  static const double heroWideStat = 20;
+  static const double heroButtonHeight = 40;
+  static const double heroButtonGap = 10;
+  static const double heroRingSize = 360;
+  // The ring's centre: 120 dp past the right edge, 30 dp below the top.
+  static const double heroRingOffsetX = 60;
+  static const double heroRingOffsetY = 30;
+  static const double heroRingAlpha = 0.14;
+  static const double heroOutlineAlpha = 0.28;
+  static const double heroIconFillAlpha = 0.08;
+  static const double heroIconBorderAlpha = 0.14;
+
+  // Manage pinned: the phone's raised row cards.
+  static const double raisedPadding = 12;
+  static const double raisedGap = 10;
+  static const double pinnedTile = 40;
+}
+
+/// Messages geometry (dzeroth-mobile Conversations, DraftThread and Chat; the
+/// tablet and desktop mocks' dz.css `.row`, `.bub`, `.search`). Phone gutters
+/// are 20 dp, tablet and desktop 16 dp. Colours come from the theme, gradients
+/// from [AppGradients].
+abstract final class AppMessagesLayout {
+  // Inbox rows.
+  static const double phoneGutter = 20;
+  static const double wideGutter = 16;
+  static const double avatar = 50;
+  static const double rowGap = 12;
+  static const double rowPaddingV = 12;
+
+  // The "Message requests" card: phone / tablet and desktop.
+  static const double requestsRadiusPhone = 20;
+  static const double requestsRadiusWide = 18;
+  static const double requestsInsetPhone = 20;
+  static const double requestsInsetWide = 12;
+  static const double requestsTopPhone = 10;
+  static const double requestsTopWide = 8;
+  static const double requestsPaddingH = 14;
+  static const double requestsPaddingV = 12;
+
+  /// The card's teal tint (the mock's 10 %).
+  static const double requestsTint = 0.10;
+
+  // The desktop side column's "Select a conversation" card.
+  static const double sideCardPaddingH = 28;
+  static const double sideCardPaddingV = 32;
+
+  // The thread header's avatar.
+  static const double headerAvatar = 42;
+
+  // Bubbles and the composer pill.
+  static const double bubbleRadius = 22;
+  static const double bubbleTail = 6;
+  static const double bubblePaddingH = 16;
+  static const double bubblePaddingV = 12;
+
+  /// The caller's bubble glows (0 8 18 teal 28 %); the peer's lifts (0 8 18
+  /// navy 12 %).
+  static const List<BoxShadow> mineShadow = [
+    BoxShadow(color: Color(0x4719D3BE), offset: Offset(0, 8), blurRadius: 18),
+  ];
+  static const List<BoxShadow> theirsShadow = [
+    BoxShadow(color: Color(0x1F0D1528), offset: Offset(0, 8), blurRadius: 18),
+  ];
+  static const double composerPhone = 52;
+  static const double composerWide = 50;
+  static const double composerGap = 10;
+
+  // The first-message hero: the rings behind the dot.
+  static const double heroOrbit = 120;
+  static const double heroOrbitInner = 22;
+  static const double heroDot = 14;
+  static const double heroRingOuterAlpha = 0.25;
+  static const double heroRingInnerAlpha = 0.45;
+  static const double heroRingInnerWidth = 1.5;
+  static const double heroDotHaloAlpha = 0.35;
+  static const double heroDotHalo = 4;
+  static const double heroDotGlowAlpha = 0.45;
+  static const double heroDotGlowBlur = 22;
+  static const double heroDotGlowSpread = 6;
+}
+
+/// Communities geometry per screen size (dp), from the dzeroth-mobile, tablet
+/// and desktop Communities, Community, CommunityMembers, ModLog and
+/// CreateCommunity mocks (dz.css `.card.row`, `.hero`, `.bar`). Colours come
+/// from the theme, gradients from [AppGradients].
+abstract final class AppCommunitiesLayout {
+  // Directory card: the phone's 52 dp tile, the tablet / desktop's 64 dp.
+  static const double cardTilePhone = 52;
+  static const double cardTileWide = 64;
+  static const double cardPaddingPhone = 14;
+  static const double cardPaddingVWide = 16;
+  static const double cardPaddingHWide = 18;
+  static const double cardNameWide = 17;
+
+  // Community hero (tablet / desktop): a navy card under the bar.
+  static const double heroPaddingTop = 22;
+  static const double heroPaddingH = 24;
+  static const double heroPaddingBottom = 26;
+  static const double heroRadius = 28;
+  static const double heroRingDiameter = 360;
+  static const double heroRingEnd = -120;
+  static const double heroRingTop = -150;
+  static const double heroRingAlpha = 0.14;
+}
+
 /// Settings geometry per screen size (dp): the phone mock's raised cards
 /// (dzeroth-mobile Settings) and the tablet / desktop mocks' flat boxes and
 /// category list (dz.css `.box`, `.row`, `.sect`, `.search`). Colours come

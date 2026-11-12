@@ -25,9 +25,9 @@ void main() {
   ) async {
     await rig.pump(tester);
     expect(find.byType(ConversationsScreen), findsOneWidget);
-    expect(find.text('Message requests (1)'), findsOneWidget);
+    expect(find.text('1 person wants to say hello'), findsOneWidget);
 
-    await tester.tap(find.text('Message requests (1)'));
+    await tester.tap(find.text('Message requests'));
     await tester.pumpAndSettle();
     // The folder is a pushed page inside the shell: it has Back.
     expect(find.byTooltip('Back'), findsOneWidget);

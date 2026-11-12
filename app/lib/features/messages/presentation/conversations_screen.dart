@@ -15,6 +15,7 @@ import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
+import '../../../shared/widgets/primitives/app_gradient_fab.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../notifications/presentation/bloc/push_cubit.dart';
@@ -35,7 +36,7 @@ import '../../../core/widgets/shell_geometry.dart';
 /// `/messages` and `/messages/requests`: the inbox.
 ///
 /// One screen, two folders: [Folder.FOLDER_INBOX] (title "Messages", the
-/// "New message" action and the "Message requests (N)" row) and
+/// "New message" action and the "Message requests" card) and
 /// [Folder.FOLDER_REQUESTS] (a back header, the received requests).
 ///
 /// The cached list renders at once; one `since` refresh follows on open and
@@ -283,10 +284,10 @@ class _ConversationsViewState extends State<ConversationsList>
             _isInbox &&
                 widget.canCompose &&
                 MediaQuery.sizeOf(context).width < AppBreakpoints.mobile
-            ? FloatingActionButton(
-                tooltip: 'New message',
+            ? AppGradientFab(
+                tooltip: kNewMessageLabel,
+                icon: Icons.mail_outline,
                 onPressed: widget.onNewMessage,
-                child: const Icon(Icons.mail_outline),
               )
             : null,
         body: LayoutBuilder(
@@ -311,14 +312,13 @@ class _ConversationsViewState extends State<ConversationsList>
                       if (_isInbox)
                         AppTopBar.sliver(
                           title: 'Messages',
-                          centerTitle: true,
                           actions: [
                             if (widget.canCompose &&
                                 MediaQuery.sizeOf(context).width >=
                                     AppBreakpoints.mobile)
                               AppTopBarAction(
                                 icon: Icons.mail_outline,
-                                tooltip: 'New message',
+                                tooltip: kNewMessageLabel,
                                 onPressed: widget.onNewMessage,
                               ),
                             const MessageSettingsAction(),
@@ -492,8 +492,9 @@ class _ConversationsViewState extends State<ConversationsList>
   }
 }
 
-/// The "Message requests (N)" row above the inbox: an envelope, the label and
-/// a chevron in one 48dp+ tap target.
+/// The "Message requests" card above the inbox (dzeroth-mobile Conversations):
+/// a tinted rounded card with an envelope, the label, how many people want to
+/// say hello and a chevron, in one 48dp+ tap target.
 class _RequestsRow extends StatelessWidget {
   const _RequestsRow({required this.count, required this.onTap});
 
@@ -504,47 +505,83 @@ class _RequestsRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final label = 'Message requests ($count)';
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
+    final radius = BorderRadius.circular(
+      phone
+          ? AppMessagesLayout.requestsRadiusPhone
+          : AppMessagesLayout.requestsRadiusWide,
+    );
+    final inset = phone
+        ? AppMessagesLayout.requestsInsetPhone
+        : AppMessagesLayout.requestsInsetWide;
+    final who = count == 1
+        ? '1 person wants to say hello'
+        : '$count people want to say hello';
     return Semantics(
       button: true,
-      label: label,
+      label: 'Message requests ($count)',
       excludeSemantics: true,
       onTap: onTap,
-      child: InkWell(
-        onTap: onTap,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: AppSize.listRow),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
-              vertical: AppSpacing.smd,
-            ),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: AppSpacing.xxl,
-                  child: Icon(
-                    Icons.mark_email_unread_outlined,
-                    size: AppIconSize.lg,
-                    color: colors.onSurface,
-                  ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          inset,
+          phone
+              ? AppMessagesLayout.requestsTopPhone
+              : AppMessagesLayout.requestsTopWide,
+          inset,
+          AppSpacing.xs,
+        ),
+        child: Material(
+          color: AppPalette.tealElectric.withValues(
+            alpha: AppMessagesLayout.requestsTint,
+          ),
+          borderRadius: radius,
+          child: InkWell(
+            borderRadius: radius,
+            onTap: onTap,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minHeight: AppSpacing.minTapTarget,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppMessagesLayout.requestsPaddingH,
+                  vertical: AppMessagesLayout.requestsPaddingV,
                 ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Text(
-                    label,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.mark_email_unread_outlined,
+                      size: AppIconSize.lg,
+                      color: context.appColors.accentText,
                     ),
-                  ),
+                    const SizedBox(width: AppMessagesLayout.rowGap),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Message requests',
+                            style: theme.textTheme.titleSmall,
+                          ),
+                          Text(
+                            who,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: colors.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Directionality.of(context) == TextDirection.rtl
+                          ? Icons.chevron_left
+                          : Icons.chevron_right,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ],
                 ),
-                Icon(
-                  Directionality.of(context) == TextDirection.rtl
-                      ? Icons.chevron_left
-                      : Icons.chevron_right,
-                  color: colors.onSurfaceVariant,
-                ),
-              ],
+              ),
             ),
           ),
         ),

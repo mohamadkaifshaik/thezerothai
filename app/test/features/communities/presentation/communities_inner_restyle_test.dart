@@ -40,7 +40,8 @@ TextStyle _styleOf(WidgetTester tester, Finder f) =>
 
 void main() {
   group('Community: the cover band', () {
-    for (final w in _widths) {
+    // The phone look; from 600 dp the page has the bar and the hero card.
+    for (final w in <double>[360, 599]) {
       testWidgets('$w: band, then name, description, people row', (
         tester,
       ) async {
@@ -198,9 +199,8 @@ void main() {
 
     // A device with a 44 dp status bar. The community's page (and only it)
     // draws its cover under the status bar: the band reaches the top edge and
-    // is 150 dp (the design's) on a phone and on the tablet, with Back
-    // below the status bar.
-    for (final w in <double>[360, 599, 840, 1024]) {
+    // is 150 dp (the design's) on a phone, with Back below the status bar.
+    for (final w in <double>[360, 599]) {
       testWidgets('$w with a 44 dp status bar: the band is 150 dp from the '
           'top edge and Back clears the status bar', (tester) async {
         addTearDown(tester.view.reset);
@@ -259,21 +259,23 @@ void main() {
       expect(find.byKey(scrim), findsNothing);
     });
 
-    testWidgets('while it loads, the tabs are where they will be: the '
-        'placeholder is the loaded header block for block', (tester) async {
-      final rig = CommunitiesTabletRig();
-      rig.server.holdGet = Completer<void>();
-      await rig.pump(tester, location: _community, width: 600, settle: false);
-      await tester.pump(const Duration(milliseconds: 100));
-      final tab = find.descendant(
-        of: find.byType(AppTabBar),
-        matching: find.text('Posts'),
-      );
-      final loading = tester.getTopLeft(tab).dy;
-      rig.server.holdGet!.complete();
-      await tester.pumpAndSettle();
-      expect(tester.getTopLeft(tab).dy, closeTo(loading, 1));
-    });
+    for (final w in <double>[600, 1440]) {
+      testWidgets('$w: while it loads, the tabs are where they will be: the '
+          'placeholder is the loaded header block for block', (tester) async {
+        final rig = CommunitiesTabletRig();
+        rig.server.holdGet = Completer<void>();
+        await rig.pump(tester, location: _community, width: w, settle: false);
+        await tester.pump(const Duration(milliseconds: 100));
+        final tab = find.descendant(
+          of: find.byType(AppTabBar),
+          matching: find.text('Posts'),
+        );
+        final loading = tester.getTopLeft(tab).dy;
+        rig.server.holdGet!.complete();
+        await tester.pumpAndSettle();
+        expect(tester.getTopLeft(tab).dy, closeTo(loading, 1));
+      });
+    }
 
     testWidgets('the shell offers no second New post on a community page', (
       tester,
@@ -337,7 +339,7 @@ void main() {
         'are already there', (tester) async {
       final rig = CommunitiesTabletRig();
       rig.server.holdGet = Completer<void>();
-      await rig.pump(tester, location: _community, width: 600, settle: false);
+      await rig.pump(tester, location: _community, width: 360, settle: false);
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.byKey(_ringsKey), findsOneWidget);
       expect(find.byTooltip('Back'), findsOneWidget);
@@ -456,7 +458,7 @@ void main() {
   group('CreateCommunity', () {
     for (final w in _widths) {
       testWidgets('$w: labelled fields (label above), the "n / max" counter, '
-          'no rules yet, a full-width outline "Add a rule"', (tester) async {
+          'no rules yet, the outline "Add a rule"', (tester) async {
         final rig = CommunitiesTabletRig();
         await rig.pump(tester, location: AppRouter.communityNewPath, width: w);
         final fields = _inPage(find.byType(AppTextField));
@@ -474,9 +476,17 @@ void main() {
           tester.widget<AppPillButton>(add).variant,
           AppButtonVariant.outline,
         );
-        // Full width of the form (20 dp in on each side).
+        // Full width of the form (20 dp in on each side) on a phone; sized
+        // to its label, at the start, from 600 dp (the tablet and desktop
+        // mocks' `.btn.outline.sm`).
         final form = tester.getRect(fields.at(1));
-        expect(tester.getRect(add).width, closeTo(form.width, 1));
+        final pill = tester.getRect(add);
+        if (w < 600) {
+          expect(pill.width, closeTo(form.width, 1));
+        } else {
+          expect(pill.width, lessThan(form.width / 2));
+          expect(pill.left, closeTo(form.left, 1));
+        }
       });
     }
 

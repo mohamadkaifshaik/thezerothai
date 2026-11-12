@@ -8,7 +8,7 @@ class _Lender extends StatefulWidget {
   const _Lender({
     required this.location,
     required this.label,
-    this.kind = ContextSectionKind.communityAbout,
+    this.kind = ContextSectionKind.profileMedia,
   });
 
   final String location;
@@ -43,7 +43,7 @@ class _LenderState extends State<_Lender> {
 Widget _app({
   required List<Widget> pages,
   String slotLocation = '/communities/77',
-  ContextSectionKind kind = ContextSectionKind.communityAbout,
+  ContextSectionKind kind = ContextSectionKind.profileMedia,
   bool host = true,
 }) {
   final body = Column(
@@ -90,10 +90,10 @@ void main() {
             _Lender(
               location: '/communities/77',
               label: 'C',
-              kind: ContextSectionKind.exploreCommunities,
+              kind: ContextSectionKind.trends,
             ),
           ],
-          kind: ContextSectionKind.exploreCommunities,
+          kind: ContextSectionKind.trends,
         ),
       );
       await tester.pump();
@@ -167,7 +167,7 @@ void main() {
               children: [
                 ...pages,
                 const ContextPaneSlot(
-                  kind: ContextSectionKind.communityAbout,
+                  kind: ContextSectionKind.profileMedia,
                   location: '/communities/77',
                   placeholder: Text('placeholder'),
                 ),
@@ -214,28 +214,24 @@ void main() {
       final b = Object();
       Widget one(BuildContext _) => const Text('1');
       Widget two(BuildContext _) => const Text('2');
-      slots.put(a, '/communities', {
-        ContextSectionKind.exploreCommunities: one,
-      });
-      slots.put(b, '/communities', {
-        ContextSectionKind.exploreCommunities: two,
-      });
+      slots.put(a, '/communities', {ContextSectionKind.trends: one});
+      slots.put(b, '/communities', {ContextSectionKind.trends: two});
       expect(
-        slots.builderFor('/communities', ContextSectionKind.exploreCommunities),
+        slots.builderFor('/communities', ContextSectionKind.trends),
         same(two),
       );
       slots.remove(b);
       expect(
-        slots.builderFor('/communities', ContextSectionKind.exploreCommunities),
+        slots.builderFor('/communities', ContextSectionKind.trends),
         same(one),
       );
       expect(
-        slots.builderFor('/communities', ContextSectionKind.communityAbout),
+        slots.builderFor('/communities', ContextSectionKind.profileMedia),
         isNull,
       );
       slots.remove(a);
       expect(
-        slots.builderFor('/communities', ContextSectionKind.exploreCommunities),
+        slots.builderFor('/communities', ContextSectionKind.trends),
         isNull,
       );
     });
