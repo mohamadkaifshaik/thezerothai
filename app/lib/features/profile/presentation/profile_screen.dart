@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart' show SystemUiOverlayStyle;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -153,6 +155,9 @@ class _ProfileViewState extends State<_ProfileView> {
 
   bool _fadeScheduled = false;
 
+  /// Where the app bar ends, from the top of the screen (set by `build`).
+  double _barBottom = kToolbarHeight;
+
   /// The scroll position moves before the header is laid out again, so the
   /// name's place is read after the frame, once the geometry is current.
   void _onScroll() {
@@ -178,8 +183,10 @@ class _ProfileViewState extends State<_ProfileView> {
         name.hasSize &&
         body.hasSize) {
       final nameBottom = name.localToGlobal(Offset(0, name.size.height)).dy;
-      final bodyTop = body.localToGlobal(Offset.zero).dy;
-      return profileNameFade(distanceUnderBar: bodyTop - nameBottom);
+      // The body starts at the top of the screen, behind the app bar: the
+      // bar's bottom edge is the status bar plus the toolbar below it.
+      final barBottom = body.localToGlobal(Offset.zero).dy + _barBottom;
+      return profileNameFade(distanceUnderBar: barBottom - nameBottom);
     }
     // The name is not built (no header yet): fall back to the scroll extent.
     final position = _outer.position;
@@ -187,35 +194,34 @@ class _ProfileViewState extends State<_ProfileView> {
     return (position.pixels / position.maxScrollExtent).clamp(0.0, 1.0);
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        surfaceTintColor: Colors.transparent,
-        forceMaterialTransparency: true,
-        // The sticky header: the display name over the post count once the
-        // profile is loaded (X), the requested @handle until then. The name
-        // fades in only after the real one scrolls under the bar.
-        title: BlocBuilder<ProfileCubit, ProfileState>(
-          buildWhen: (a, b) =>
-              a.profile?.handle != b.profile?.handle ||
-              a.profile?.displayName != b.profile?.displayName ||
-              a.profile?.postsCount != b.profile?.postsCount,
-          builder: (context, state) {
-            final profile = state.profile;
-            if (profile == null || profile.displayName.isEmpty) {
-              final handle =
-                  profile?.handle ??
-                  context.read<ProfileCubit>().requestedHandle;
-              return Text(handle == null || handle.isEmpty ? '' : '@$handle');
-            }
-            final theme = Theme.of(context);
+  /// The app bar over the hero: the hero starts at the very top of the screen
+  /// (the mocks), so while the header's own name is on screen the bar is
+  /// clear with pearl icons over the navy; as the name slips under it the bar
+  /// fills with the page surface and the name fades in (one scroll-linked
+  /// value). A pushed profile has its Back in the hero's top row until then.
+  PreferredSizeWidget _appBar(BuildContext context) {
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(kToolbarHeight),
+      child: BlocBuilder<ProfileCubit, ProfileState>(
+        buildWhen: (a, b) =>
+            a.status != b.status ||
+            a.profile?.handle != b.profile?.handle ||
+            a.profile?.displayName != b.profile?.displayName ||
+            a.profile?.postsCount != b.profile?.postsCount,
+        builder: (context, state) {
+          final heroShown = state.status == ProfileStatus.ready;
+          final theme = Theme.of(context);
+          final scheme = theme.colorScheme;
+          final profile = state.profile;
+          final Widget title;
+          if (profile == null || profile.displayName.isEmpty) {
+            final handle =
+                profile?.handle ?? context.read<ProfileCubit>().requestedHandle;
+            title = Text(handle == null || handle.isEmpty ? '' : '@$handle');
+          } else {
             final showCount = isFeatureEnabled(context, kFeaturePosts);
             final count = profile.postsCount.toInt();
-            final title = Column(
+            title = Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -233,63 +239,133 @@ class _ProfileViewState extends State<_ProfileView> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                      color: scheme.onSurfaceVariant,
                     ),
                   ),
               ],
             );
-            return ValueListenableBuilder<double>(
-              valueListenable: _nameFade,
-              child: title,
-              builder: (context, fade, child) {
-                // Reduced motion: no fade, the name switches on at the
-                // halfway point.
-                final value = MediaQuery.disableAnimationsOf(context)
-                    ? (fade >= 0.5 ? 1.0 : 0.0)
-                    : fade;
-                // One widget whose semantics never change with the scroll: it
-                // stays the screen's title for assistive technology (the route
-                // name) at any opacity, and there is no second copy to read.
-                return Opacity(
-                  key: const ValueKey('profile-appbar-name'),
-                  opacity: value,
-                  alwaysIncludeSemantics: true,
+          }
+          return ValueListenableBuilder<double>(
+            valueListenable: _nameFade,
+            builder: (context, fade, _) {
+              // Reduced motion: no fade, the bar switches on at the halfway
+              // point.
+              final value = MediaQuery.disableAnimationsOf(context)
+                  ? (fade >= 0.5 ? 1.0 : 0.0)
+                  : fade;
+              // The name is the one widget whose semantics never change with
+              // the scroll: it stays the screen's title for assistive
+              // technology (the route name) at any opacity, and there is no
+              // second copy to read.
+              final named = profile == null || profile.displayName.isEmpty
+                  ? title
+                  : Opacity(
+                      key: const ValueKey('profile-appbar-name'),
+                      opacity: value,
+                      alwaysIncludeSemantics: true,
+                      child: title,
+                    );
+              final bar = AppBar(
+                backgroundColor: heroShown
+                    ? scheme.surface.withValues(alpha: value)
+                    : Colors.transparent,
+                foregroundColor: heroShown
+                    ? Color.lerp(AppPalette.pearl, scheme.onSurface, value)
+                    : scheme.onSurface,
+                elevation: 0,
+                scrolledUnderElevation: 0,
+                surfaceTintColor: Colors.transparent,
+                // Light status-bar icons over the navy hero.
+                systemOverlayStyle: heroShown && value < 0.5
+                    ? SystemUiOverlayStyle.light
+                    : null,
+                // Back lives in the hero's top row while the hero shows.
+                automaticallyImplyLeading: !heroShown || value > 0,
+                title: named,
+              );
+              // Over the hero the bar has nothing to tap: let the hero's own
+              // buttons take the touches.
+              return IgnorePointer(
+                ignoring: heroShown && value == 0,
+                child: bar,
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final topInset = MediaQuery.paddingOf(context).top;
+    _barBottom = topInset + kToolbarHeight;
+    return _ProfileChrome(
+      topInset: topInset,
+      barBottom: _barBottom,
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
+        appBar: _appBar(context),
+        body: SafeArea(
+          top: false,
+          child: SizedBox.expand(
+            key: _bodyKey,
+            child: BlocBuilder<ProfileCubit, ProfileState>(
+              builder: (context, state) {
+                // The states without a hero start under the app bar.
+                Widget belowBar(Widget child) => Padding(
+                  padding: EdgeInsets.only(top: _barBottom),
                   child: child,
                 );
+                return switch (state.status) {
+                  ProfileStatus.loading => belowBar(
+                    const Center(child: CircularProgressIndicator()),
+                  ),
+                  ProfileStatus.notFound => belowBar(
+                    const AppErrorView(
+                      error: NotFoundException("This account doesn't exist."),
+                    ),
+                  ),
+                  ProfileStatus.error => belowBar(
+                    AppErrorView(
+                      error: state.error!,
+                      onRetry: () => context.read<ProfileCubit>().load(),
+                    ),
+                  ),
+                  ProfileStatus.ready => _ReadyProfile(
+                    state: state,
+                    outer: _outer,
+                    nameKey: _nameKey,
+                    location: widget.location,
+                  ),
+                };
               },
-            );
-          },
-        ),
-      ),
-      body: SafeArea(
-        child: SizedBox.expand(
-          key: _bodyKey,
-          child: BlocBuilder<ProfileCubit, ProfileState>(
-            builder: (context, state) {
-              return switch (state.status) {
-                ProfileStatus.loading => const Center(
-                  child: CircularProgressIndicator(),
-                ),
-                ProfileStatus.notFound => const AppErrorView(
-                  error: NotFoundException("This account doesn't exist."),
-                ),
-                ProfileStatus.error => AppErrorView(
-                  error: state.error!,
-                  onRetry: () => context.read<ProfileCubit>().load(),
-                ),
-                ProfileStatus.ready => _ReadyProfile(
-                  state: state,
-                  outer: _outer,
-                  nameKey: _nameKey,
-                  location: widget.location,
-                ),
-              };
-            },
+            ),
           ),
         ),
       ),
     );
   }
+}
+
+/// What the profile's chrome gives the body: the status-bar inset the hero
+/// draws under and where the app bar ends (the pinned tabs stop there).
+class _ProfileChrome extends InheritedWidget {
+  const _ProfileChrome({
+    required this.topInset,
+    required this.barBottom,
+    required super.child,
+  });
+
+  final double topInset;
+  final double barBottom;
+
+  static _ProfileChrome of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_ProfileChrome>()!;
+
+  @override
+  bool updateShouldNotify(_ProfileChrome old) =>
+      topInset != old.topInset || barBottom != old.barBottom;
 }
 
 /// Distance (dp) over which the app-bar name fades in once the header's name
@@ -367,8 +443,12 @@ ProfileHeader _header(
     followedBy: state.followedBy,
     showPostsCount: showPostsCount,
     nameKey: nameKey,
-    // The navy hero of the Profile mocks, at every width.
+    // The navy hero of the Profile mocks, at every width, from the top of
+    // the screen (under the status bar and the clear app bar).
     style: ProfileHeaderStyle.hero,
+    topInset: _ProfileChrome.of(context).topInset,
+    // A pushed profile has Back in the hero's top row.
+    onBack: _backAction(context),
     reportsEnabled: isFeatureEnabled(context, kFeatureReports),
     // The Lists rows of the overflow menu.
     listsEnabled: isFeatureEnabled(context, kFeatureLists),
@@ -386,6 +466,15 @@ ProfileHeader _header(
         ? () => _editProfile(context)
         : null,
   );
+}
+
+/// Back for a pushed profile, or null at the root of a navigator (the shell's
+/// own page has nothing to go back to). Works without a router (a profile
+/// shown by itself in a test).
+VoidCallback? _backAction(BuildContext context) {
+  final router = GoRouter.maybeOf(context);
+  if (router != null) return router.canPop() ? router.pop : null;
+  return Navigator.canPop(context) ? () => Navigator.of(context).pop() : null;
 }
 
 /// The person a Message button on [profile] writes to.
@@ -1202,6 +1291,7 @@ class _ProfileScrollScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final background = Theme.of(context).scaffoldBackgroundColor;
+    final barBottom = _ProfileChrome.of(context).barBottom;
     return LayoutBuilder(
       builder: (context, constraints) {
         final inset = ShellGeometry.readableInset(
@@ -1217,7 +1307,14 @@ class _ProfileScrollScaffold extends StatelessWidget {
           physics: const AlwaysScrollableScrollPhysics(),
           headerSliverBuilder: (context, innerBoxIsScrolled) => [
             // The hero's rounded bottom is its own edge: no hairline under it.
-            centred(SliverToBoxAdapter(child: header)),
+            // With tabs, the bar's height of its bottom is laid out under the
+            // pinned strip below, so the tabs pin under the app bar and sit
+            // right under the hero at the top.
+            centred(
+              tabBar == null
+                  ? SliverToBoxAdapter(child: header)
+                  : _SliverUnderlap(underlap: barBottom, child: header),
+            ),
             if (tabBar != null)
               SliverOverlapAbsorber(
                 handle: NestedScrollView.sliverOverlapAbsorberHandleFor(
@@ -1227,9 +1324,20 @@ class _ProfileScrollScaffold extends StatelessWidget {
                   PinnedHeaderSliver(
                     // The tabs sit in the reading column; on the tablet
                     // layout their hairline spans the pane.
-                    child: ColoredBox(
-                      color: background,
-                      child: AppMainColumnBleed(bleed: inset, child: tabBar!),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Clear: the app bar's place (over the hero's
+                        // bottom edge until the hero has scrolled away).
+                        SizedBox(height: barBottom),
+                        ColoredBox(
+                          color: background,
+                          child: AppMainColumnBleed(
+                            bleed: inset,
+                            child: tabBar!,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -1297,5 +1405,65 @@ EngagementCubit? _engagementOrNull(BuildContext context) {
     return context.read<EngagementCubit>();
   } on ProviderNotFoundException {
     return null;
+  }
+}
+
+/// A box sliver whose last [underlap] dp are laid out under the next sliver:
+/// the next one starts [underlap] early, over the box's bottom. The hero uses
+/// it so the pinned tab bar's clear strip (the app bar's place) lies over the
+/// hero's bottom edge while the hero is on screen.
+class _SliverUnderlap extends SingleChildRenderObjectWidget {
+  const _SliverUnderlap({required this.underlap, super.child});
+
+  final double underlap;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderSliverUnderlap(underlap);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderSliverUnderlap renderObject,
+  ) => renderObject.underlap = underlap;
+}
+
+class _RenderSliverUnderlap extends RenderSliverToBoxAdapter {
+  _RenderSliverUnderlap(this._underlap);
+
+  double _underlap;
+
+  set underlap(double value) {
+    if (value == _underlap) return;
+    _underlap = value;
+    markNeedsLayout();
+  }
+
+  @override
+  void performLayout() {
+    final child = this.child;
+    if (child == null) {
+      geometry = SliverGeometry.zero;
+      return;
+    }
+    final constraints = this.constraints;
+    child.layout(constraints.asBoxConstraints(), parentUsesSize: true);
+    final extent = child.size.height;
+    final laidOut = math.max(0.0, extent - _underlap);
+    // Paint extent = layout extent, so the next sliver sees no overlap and
+    // starts at the laid-out end (a pinned header would otherwise be pushed
+    // below the overlapped part). The box still paints in full while its
+    // laid-out part is on screen, and takes touches over its whole height.
+    final painted = calculatePaintOffset(constraints, from: 0, to: laidOut);
+    geometry = SliverGeometry(
+      scrollExtent: laidOut,
+      paintExtent: painted,
+      layoutExtent: painted,
+      cacheExtent: calculateCacheOffset(constraints, from: 0, to: extent),
+      maxPaintExtent: extent,
+      hitTestExtent: calculatePaintOffset(constraints, from: 0, to: extent),
+      hasVisualOverflow: true,
+    );
+    setChildParentData(child, constraints, geometry!);
   }
 }

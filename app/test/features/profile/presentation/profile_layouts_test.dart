@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/share/native_share.dart';
 import 'package:dzeroth/core/share/share_links.dart';
@@ -8,9 +10,13 @@ import 'package:dzeroth/shared/widgets/primitives/app_avatar.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
 import 'package:dzeroth/shared/widgets/primitives/sheet_option_row.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/contrast.dart';
+import '../../../support/geometry.dart';
+import '../../../support/profile_hero_finders.dart';
 import '../../../support/profile_tablet_rig.dart';
 
 /// The three looks of Profile (the navy hero of the dzeroth-mobile, tablet and
@@ -524,6 +530,247 @@ void main() {
       );
 
       expect(find.byType(ProfileMediaStrip), findsNothing);
+    });
+  });
+
+  group('the hero starts at the top of the screen', () {
+    for (final MapEntry(key: look, value: width) in _looks.entries) {
+      testWidgets('$look: hero top is the body top, the tabs follow it, '
+          'then pin under the app bar', (tester) async {
+        final rig = ProfileTabletRig();
+        await rig.pump(tester, width: width, flags: _fullFlags);
+
+        expect(tester.getTopLeft(_hero).dy, 0);
+        expect(
+          tester.getTopLeft(find.byType(AppTabBar)).dy,
+          closeTo(tester.getBottomLeft(_hero).dy, 0.5),
+          reason: 'the tabs sit right under the hero',
+        );
+
+        await tester.drag(
+          find.byType(NestedScrollView),
+          const Offset(0, -2000),
+          warnIfMissed: false,
+        );
+        await tester.pumpAndSettle();
+        expect(
+          tester.getTopLeft(find.byType(AppTabBar)).dy,
+          closeTo(kToolbarHeight, 0.5),
+          reason: 'pinned under the app bar',
+        );
+      });
+    }
+
+    testWidgets('phone: the status bar inset is the hero\'s own padding', (
+      tester,
+    ) async {
+      final rig = ProfileTabletRig();
+      await rig.pump(tester, width: _phone, flags: _fullFlags);
+      final before = tester.getTopLeft(find.text('DZEROTH')).dy;
+
+      tester.view.padding = const FakeViewPadding(top: 40);
+      tester.view.viewPadding = const FakeViewPadding(top: 40);
+      addTearDown(tester.view.resetPadding);
+      addTearDown(tester.view.resetViewPadding);
+      await tester.pumpAndSettle();
+
+      expect(tester.getTopLeft(_hero).dy, 0);
+      expect(tester.getTopLeft(find.text('DZEROTH')).dy, before + 40);
+    });
+
+    testWidgets('a pushed profile has Back first in the hero\'s top row', (
+      tester,
+    ) async {
+      final rig = ProfileTabletRig();
+      await rig.pump(
+        tester,
+        location: '/home',
+        width: _phone,
+        flags: _fullFlags,
+      );
+      unawaited(rig.router.push('/profile/$kRigOtherHandle'));
+      await tester.pumpAndSettle();
+
+      final back = _inHero(
+        find.byType(BackButton).evaluate().isEmpty
+            ? find.byTooltip('Back')
+            : find.byType(BackButton),
+      );
+      expect(back, findsOneWidget);
+      expect(
+        tester.getTopLeft(back).dx,
+        lessThan(tester.getTopLeft(find.text('DZEROTH')).dx),
+      );
+      await tester.tap(back);
+      await tester.pumpAndSettle();
+      expect(rig.router.state.uri.path, '/home');
+    });
+
+    testWidgets('the profile at the root of the shell has no Back', (
+      tester,
+    ) async {
+      final rig = ProfileTabletRig();
+      await rig.pump(tester, width: _tablet, flags: _fullFlags);
+
+      expect(find.byTooltip('Back'), findsNothing);
+    });
+  });
+
+  group('ink and contrast in the hero', () {
+    testWidgets('the stats and the website link have a Material over the '
+        'gradient, with pearl ink', (tester) async {
+      final rig = ProfileTabletRig();
+      await rig.pump(tester, width: _phone, flags: _fullFlags);
+
+      final material = tester.widget<Material>(
+        find
+            .ancestor(
+              of: heroStat('followers'),
+              matching: find.byType(Material),
+            )
+            .first,
+      );
+      expect(material.type, MaterialType.transparency);
+      final ink = tester.widget<InkWell>(
+        find.descendant(
+          of: heroStat('followers'),
+          matching: find.byType(InkWell),
+        ),
+      );
+      expect(ink.splashColor, AppProfileLayout.onDarkInk);
+      expect(ink.focusColor, AppProfileLayout.onDarkInk);
+      expect(ink.hoverColor, AppProfileLayout.onDarkInk);
+    });
+
+    test('the banner wash keeps AA behind the hero text over the lightest '
+        'banner', () {
+      // Worst case: a white banner under the wash. The muted handle needs
+      // navy at 0.83 or more behind it, the teal chip 0.74 (measured here);
+      // the wash is .72 at the very top (the wordmark, pearl) and .86 or
+      // more from 22% of the hero down.
+      final colors = AppGradients.profileBannerScrim.colors;
+      Color overWhite(Color wash) => Color.alphaBlend(wash, AppPalette.white);
+      final top = overWhite(colors[0]);
+      final body = overWhite(colors[1]);
+      expect(contrast(AppPalette.pearl, top), greaterThanOrEqualTo(4.5));
+      expect(contrast(AppPalette.mutedOnDark, body), greaterThanOrEqualTo(4.5));
+      expect(
+        contrast(AppPalette.tealElectric, body),
+        greaterThanOrEqualTo(4.5),
+      );
+      expect(contrast(AppPalette.pearl, body), greaterThanOrEqualTo(4.5));
+    });
+
+    testWidgets('the pair of pills is one height, and the Follow spinner '
+        'is drawn in the pill\'s ink', (tester) async {
+      final rig = ProfileTabletRig();
+      await rig.pump(
+        tester,
+        width: _phone,
+        flags: _fullFlags,
+        shareLinks: ShareLinks(origin: 'https://dzeroth.com'),
+      );
+      expect(
+        tester
+            .getSize(find.widgetWithText(FilledButton, 'Edit profile'))
+            .height,
+        tester
+            .getSize(find.widgetWithText(OutlinedButton, 'Share profile'))
+            .height,
+      );
+
+      await rig.pump(
+        tester,
+        location: '/profile/$kRigOtherHandle',
+        width: _phone,
+        flags: _fullFlags,
+      );
+      ProgressIndicatorThemeData spinner(String label) => tester
+          .widget<ProgressIndicatorTheme>(
+            find
+                .ancestor(
+                  of: _inHero(find.text(label)),
+                  matching: find.byType(ProgressIndicatorTheme),
+                )
+                .first,
+          )
+          .data;
+      expect(spinner('Follow').color, AppPalette.navy);
+      expect(spinner('Message').color, AppPalette.pearl);
+    });
+  });
+
+  group('large text and big numbers', () {
+    for (final MapEntry(key: look, value: width) in _looks.entries) {
+      testWidgets('$look at 2.0: a 50-character name and 1,234,567 '
+          'followers fit and no label is cut', (tester) async {
+        final handle = tester.ensureSemantics();
+        final rig = ProfileTabletRig()
+          ..ownName = 'Bartholomew Montgomery-Featherstonehaugh III Esq'
+          ..ownFollowers = 1234567;
+        await rig.pump(
+          tester,
+          width: width,
+          height: 1600,
+          flags: _fullFlags,
+          textScale: 2,
+        );
+
+        expect(tester.takeException(), isNull);
+        for (final label in ['Posts', 'Followers', 'Following']) {
+          final text = find.descendant(of: _hero, matching: find.text(label));
+          expect(text, findsOneWidget, reason: label);
+          expect(
+            tester.renderObject<RenderParagraph>(text).didExceedMaxLines,
+            isFalse,
+            reason: '$label is not cut',
+          );
+          expectInsideHorizontally(tester, text, width);
+        }
+        expect(
+          find.descendant(of: _hero, matching: find.text('1.23M')),
+          findsOneWidget,
+        );
+        expect(find.bySemanticsLabel('1234567 Followers'), findsOneWidget);
+        expectInsideHorizontally(
+          tester,
+          find.descendant(
+            of: _hero,
+            matching: find.textContaining('Bartholomew'),
+          ),
+          width,
+        );
+        handle.dispose();
+      });
+    }
+
+    testWidgets('1.0: a 50-character name wraps beside the avatar, counts are '
+        'compact', (tester) async {
+      final rig = ProfileTabletRig()..ownFollowers = 1234567;
+      await rig.pump(tester, width: _phone, flags: _fullFlags);
+
+      expect(
+        find.descendant(of: _hero, matching: find.text('1.23M')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: _hero, matching: find.text('34')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the display name is a heading', (tester) async {
+      final handle = tester.ensureSemantics();
+      final rig = ProfileTabletRig();
+      await rig.pump(tester, width: _phone, flags: _fullFlags);
+
+      expect(
+        tester.getSemantics(
+          find.descendant(of: _hero, matching: find.text('Alice A')),
+        ),
+        matchesSemantics(label: 'Alice A', isHeader: true),
+      );
+      handle.dispose();
     });
   });
 

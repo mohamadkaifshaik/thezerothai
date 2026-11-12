@@ -1178,11 +1178,14 @@ abstract final class AppGradients {
     stops: [0, 0.55, 1],
   );
 
-  /// The navy wash over a profile banner behind the hero text.
+  /// The navy wash over a profile banner behind the hero text. Dense enough
+  /// for AA over the lightest banner (white): the muted handle needs navy at
+  /// 0.83 or more behind it, the teal chip 0.74 (see profile_layouts_test).
   static const LinearGradient profileBannerScrim = LinearGradient(
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
-    colors: [Color.fromRGBO(13, 21, 40, .55), Color.fromRGBO(13, 21, 40, .88)],
+    colors: [Color(0xB80D1528), Color(0xDB0D1528), Color(0xEB0D1528)],
+    stops: [0, .22, 1],
   );
 
   /// The dark splash wash (dzeroth-mobile Splash.html): radial-gradient(90%
@@ -1204,8 +1207,11 @@ abstract final class AppShadows {
     BoxShadow(color: Color(0x380D1528), offset: Offset(0, 11), blurRadius: 25),
   ];
   static const List<BoxShadow> primaryGlow = [
-    BoxShadow(color: Color(0x5919D3BE), offset: Offset(0, 10), blurRadius: 26),
+    BoxShadow(color: primaryGlowColor, offset: Offset(0, 10), blurRadius: 26),
   ];
+
+  /// The teal of [primaryGlow] (the profile hero's avatar and pill glows).
+  static const Color primaryGlowColor = Color(0x5919D3BE);
   static const List<BoxShadow> navBar = [
     BoxShadow(color: Color(0x590D1528), offset: Offset(0, 14), blurRadius: 30),
   ];
@@ -1559,6 +1565,7 @@ abstract final class AppProfileLayout {
   static const double phonePaddingTop = 8;
   static const double phonePaddingBottom = 18;
   static const double phoneGap = 14;
+  static const double phoneChipGap = 8;
   static const double phoneAvatar = 76;
   static const double phoneAvatarGap = 16;
   static const double phoneNameSize = 28;
@@ -1573,9 +1580,10 @@ abstract final class AppProfileLayout {
 
   // Tablet and desktop (>= 600).
   static const double widePaddingH = 24;
-  static const double widePaddingTop = 8;
+  static const double widePaddingTop = 20;
   static const double widePaddingBottom = 26;
   static const double wideGap = 16;
+  static const double wideChipGap = 10;
   static const double wideAvatar = 120;
   static const double wideAvatarRing = 4;
   static const double wideAvatarGap = 22;
@@ -1595,9 +1603,6 @@ abstract final class AppProfileLayout {
   /// A disabled action pill.
   static const double disabledOpacity = .5;
 
-  /// Height of the teal location chip.
-  static const double chipHeight = 26;
-
   /// Phone avatar: navy ring, teal ring, teal glow.
   static const double phoneAvatarInnerRing = 3;
   static const double phoneAvatarOuterRing = 5;
@@ -1614,16 +1619,24 @@ abstract final class AppProfileLayout {
   static const List<(double, double)> wideRings = [(280, .14), (480, .14)];
   static const Offset wideRingsFromTopEnd = Offset(80, 40);
 
-  /// Teal glows of the phone avatar ring and the location chip's dot.
-  static const Color avatarGlow = Color(0x5919D3BE);
-  static const Color chipDotGlow = Color(0x8C19D3BE);
+  /// The glow under the filled action pill (elevation, in dp).
+  static const double pillGlowElevation = 8;
+  static const Color pillGlow = AppShadows.primaryGlowColor;
+  static const Color avatarGlow = AppShadows.primaryGlowColor;
+
+  /// Letter spacing of the stat numbers (em).
+  static const double statValueTracking = -0.02;
+
+  /// Above this text scale the stats are rows and the avatar sits above the
+  /// name.
+  static const double largeTextScale = 1.3;
 
   // On-dark tokens (pearl and teal over the navy hero).
   static const Color onDarkFill = Color(0x14F6F4EF);
   static const Color onDarkBorder = Color(0x24F6F4EF);
-  static const Color onDarkStatsFill = Color(0x0FF6F4EF);
-  static const Color onDarkStatsBorder = Color(0x1AF6F4EF);
-  static const Color onDarkDivider = Color(0x24F6F4EF);
+
+  /// Focus, hover and pressed ink over the navy hero.
+  static const Color onDarkInk = Color(0x1FF6F4EF);
   static const Color onDarkOutline = Color(0x47F6F4EF);
 }
 

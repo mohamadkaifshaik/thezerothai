@@ -223,8 +223,17 @@ class ProfileTabletRig {
   /// The location of the top page (a pushed one too).
   Uri get uri => router.state.uri;
 
-  identity.Profile get ownProfile =>
-      rigProfile(kRigOwnId, kRigOwnHandle, 'Alice A');
+  /// The own profile's display name and follower count, when a test wants
+  /// extremes (a long name, seven digits).
+  String ownName = 'Alice A';
+  int? ownFollowers;
+
+  identity.Profile get ownProfile {
+    final profile = rigProfile(kRigOwnId, kRigOwnHandle, ownName);
+    final followers = ownFollowers;
+    if (followers != null) profile.followersCount = Int64(followers);
+    return profile;
+  }
 
   identity.Profile get otherProfile =>
       rigProfile(kRigOtherId, kRigOtherHandle, 'Kaif Shaik');

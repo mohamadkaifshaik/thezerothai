@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show OrdinalSortKey;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart' show NumberFormat;
 
 import '../../../../core/router/app_router.dart';
 import '../../../../core/telemetry/analytics_event.dart';
@@ -31,6 +32,7 @@ import '../../../moderation/presentation/report_sheet.dart';
 import '../../../../shared/widgets/user/protected_badge.dart';
 import '../../../../core/share/share_links.dart';
 import '../../../../shared/widgets/post/post_share_menu.dart';
+import '../../../../shared/widgets/primitives/app_chip.dart';
 import '../../../../shared/widgets/primitives/app_rings.dart';
 import 'block_confirmation_dialog.dart';
 import 'profile_cover_band.dart';
@@ -69,8 +71,16 @@ class ProfileHeader extends StatelessWidget {
     this.avatarBytes,
     this.bannerBytes,
     this.style = ProfileHeaderStyle.classic,
+    this.topInset = 0,
+    this.onBack,
   });
 
+  /// The hero starts at the top of the screen, behind the app bar: the
+  /// status-bar inset it draws under. Only the hero style reads it.
+  final double topInset;
+
+  /// Back, shown first in the hero's top row (a pushed profile). Null: none.
+  final VoidCallback? onBack;
   final identity.Profile profile;
   final bool isOwnProfile;
 
@@ -150,6 +160,8 @@ class ProfileHeader extends StatelessWidget {
         bannerBytes: bannerBytes,
         style: style,
         isOwnProfile: isOwnProfile,
+        topInset: topInset,
+        onBack: onBack,
       );
     }
     return BlocProvider(
@@ -186,6 +198,8 @@ class ProfileHeader extends StatelessWidget {
           bannerBytes: bannerBytes,
           style: style,
           isOwnProfile: isOwnProfile,
+          topInset: topInset,
+          onBack: onBack,
         ),
       ),
     );
@@ -209,8 +223,12 @@ class _ProfileHeaderBody extends StatelessWidget {
     this.bannerBytes,
     this.style = ProfileHeaderStyle.classic,
     this.isOwnProfile = false,
+    this.topInset = 0,
+    this.onBack,
   });
 
+  final double topInset;
+  final VoidCallback? onBack;
   final bool isOwnProfile;
   final ProfileHeaderStyle style;
   final bool listsEnabled;
@@ -259,6 +277,8 @@ class _ProfileHeaderBody extends StatelessWidget {
         followedBy: followedBy,
         interactive: interactive,
         isOwnProfile: isOwnProfile,
+        topInset: topInset,
+        onBack: onBack,
         nameKey: nameKey,
         onEditProfile: onEditProfile,
         onMessage: onMessage,
@@ -837,9 +857,9 @@ class _BlockedBanner extends StatelessWidget {
         if (!onDark) return AppSurface(child: row);
         return DecoratedBox(
           decoration: BoxDecoration(
-            color: AppProfileLayout.onDarkStatsFill,
+            color: AppPalette.fieldFillDark,
             borderRadius: BorderRadius.circular(AppProfileLayout.statsRadius),
-            border: Border.all(color: AppProfileLayout.onDarkStatsBorder),
+            border: Border.all(color: AppPalette.hairlineDark),
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(
@@ -1168,6 +1188,11 @@ class _MetaRow extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(AppRadius.sm),
           onTap: tap,
+          // Over the navy hero the ink is pearl, not the theme's.
+          focusColor: onDark ? AppProfileLayout.onDarkInk : null,
+          hoverColor: onDark ? AppProfileLayout.onDarkInk : null,
+          splashColor: onDark ? AppProfileLayout.onDarkInk : null,
+          highlightColor: onDark ? AppProfileLayout.onDarkInk : null,
           child: box,
         ),
       );

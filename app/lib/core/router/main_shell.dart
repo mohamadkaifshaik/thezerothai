@@ -528,9 +528,13 @@ class MainShell extends StatelessWidget {
             : selectedIndex,
         onCompose: canCompose ? openCompose : null,
         showFab: showFab,
-        // A community's page draws its cover under the status bar on a phone
+        // A community's page draws its cover, and a profile its hero, under the
+        // status bar on a phone
         // (while the account banner is up, the banner needs the inset).
-        extendBodyUnderStatusBar: isCommunityPageAt(location) && !refreshFailed,
+        extendBodyUnderStatusBar:
+            (isCommunityPageAt(location) ||
+                isProfilePageAt(_shellTopLocation(context) ?? location)) &&
+            !refreshFailed,
         drawer: newShell ? const AppDrawer() : null,
         floatingBar: newShell,
         accountChipBuilder: newShell
