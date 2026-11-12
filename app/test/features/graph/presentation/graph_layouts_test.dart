@@ -106,6 +106,7 @@ Widget _screen(String path) {
     screen = const GraphListScreen(
       handle: 'alice',
       userId: 'u-alice',
+      displayName: 'Alice Archer',
       viewerUserId: 'u-alice',
     );
   }
@@ -216,6 +217,18 @@ void main() {
         await tester.tap(find.text('Following').first);
         await tester.pumpAndSettle();
         expect(find.text('Follow back'), findsNothing);
+      });
+
+      testWidgets('Followers: the title is the display name, the handle the '
+          'subtitle', (tester) async {
+        await _open(tester, _pages['followers']!, size);
+        // The shell's rail and side column name the account too.
+        Finder onPage(String text) => find.descendant(
+          of: find.byType(GraphListScreen),
+          matching: find.text(text),
+        );
+        expect(onPage('Alice Archer'), findsOneWidget);
+        expect(onPage('@alice'), findsOneWidget);
       });
 
       testWidgets('Blocked | Muted: the tabs switch the list and the title', (

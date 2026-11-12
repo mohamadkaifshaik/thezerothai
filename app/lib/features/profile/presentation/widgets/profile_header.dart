@@ -23,6 +23,7 @@ import '../../../../shared/widgets/primitives/app_surface.dart';
 import '../../../../shared/widgets/user/follow_button.dart';
 import '../../../../shared/widgets/post/post_card.dart' show launchPostLink;
 import '../../../graph/data/graph_repository.dart';
+import '../../../graph/domain/graph_list_extra.dart';
 import '../../../graph/presentation/bloc/relationship_cubit.dart';
 import '../../../graph/presentation/bloc/relationship_state.dart';
 import '../../../graph/presentation/graph_error_messages.dart';
@@ -685,7 +686,10 @@ class _CountsRow extends StatelessWidget {
           onTap: interactive
               ? () => context.push(
                   AppRouter.followingPath(profile.handle),
-                  extra: profile.userId,
+                  extra: GraphListExtra(
+                    userId: profile.userId,
+                    displayName: profile.displayName,
+                  ),
                 )
               : null,
         ),
@@ -695,7 +699,10 @@ class _CountsRow extends StatelessWidget {
           onTap: interactive
               ? () => context.push(
                   AppRouter.followersPath(profile.handle),
-                  extra: profile.userId,
+                  extra: GraphListExtra(
+                    userId: profile.userId,
+                    displayName: profile.displayName,
+                  ),
                 )
               : null,
         ),

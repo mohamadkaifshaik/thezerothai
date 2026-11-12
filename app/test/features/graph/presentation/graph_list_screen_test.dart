@@ -59,6 +59,8 @@ void main() {
 
     expect(find.text('Followers'), findsOneWidget);
     expect(find.text('Following'), findsOneWidget);
+    // No display name from the caller (a deep link): the handle is the title.
+    expect(find.text('@kaif'), findsOneWidget);
     verifyNever(
       () => identityRepository.getProfile(handle: any(named: 'handle')),
     );

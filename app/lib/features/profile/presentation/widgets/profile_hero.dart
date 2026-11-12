@@ -673,7 +673,10 @@ class _HeroStats extends StatelessWidget {
         onTap: interactive
             ? () => context.push(
                 AppRouter.followersPath(profile.handle),
-                extra: profile.userId,
+                extra: GraphListExtra(
+                  userId: profile.userId,
+                  displayName: profile.displayName,
+                ),
               )
             : null,
       ),
@@ -686,7 +689,10 @@ class _HeroStats extends StatelessWidget {
         onTap: interactive
             ? () => context.push(
                 AppRouter.followingPath(profile.handle),
-                extra: profile.userId,
+                extra: GraphListExtra(
+                  userId: profile.userId,
+                  displayName: profile.displayName,
+                ),
               )
             : null,
       ),
