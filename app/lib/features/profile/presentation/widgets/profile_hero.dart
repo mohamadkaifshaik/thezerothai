@@ -186,8 +186,10 @@ class _ProfileHero extends StatelessWidget {
     final large =
         MediaQuery.textScalerOf(context).scale(1) >
         AppProfileLayout.largeTextScale;
-    final bannerUrl = _bannerUrlFor(profile, fullSize: !m.phone);
-    final hasBanner = bannerBytes != null || bannerUrl.isNotEmpty;
+    final hasBanner =
+        bannerBytes != null ||
+        profile.bannerUrl.isNotEmpty ||
+        profile.bannerThumbUrl.isNotEmpty;
     final location = profile.location.trim();
     final canShare = interactive && ShareLinksScope.maybeOf(context) != null;
     final look = _HeroButtonLook(m.iconButton);
@@ -458,7 +460,8 @@ class _ProfileHero extends StatelessWidget {
               if (hasBanner) ...[
                 Positioned.fill(
                   child: ProfileCoverBand(
-                    url: bannerUrl,
+                    url: profile.bannerUrl,
+                    thumbUrl: profile.bannerThumbUrl,
                     bytes: bannerBytes,
                     placeholder: Colors.transparent,
                   ),

@@ -26,6 +26,7 @@ class BannerEditor extends StatelessWidget {
   const BannerEditor({
     super.key,
     this.url = '',
+    this.thumbUrl = '',
     this.previewBytes,
     this.removed = false,
     this.onChange,
@@ -34,9 +35,10 @@ class BannerEditor extends StatelessWidget {
     this.preparing = false,
   });
 
-  /// The saved banner (the 600 px thumb is enough for the editor); empty if
-  /// none.
+  /// The saved banner: the full and the 600 px one (the band picks what its
+  /// width needs); empty if none.
   final String url;
+  final String thumbUrl;
 
   /// The new, unsaved banner, if any.
   final Uint8List? previewBytes;
@@ -49,7 +51,9 @@ class BannerEditor extends StatelessWidget {
 
   /// Whether the band currently shows a banner (a pick, or a saved one that is
   /// not being removed).
-  bool get hasBanner => previewBytes != null || (!removed && url.isNotEmpty);
+  bool get hasBanner =>
+      previewBytes != null ||
+      (!removed && (url.isNotEmpty || thumbUrl.isNotEmpty));
 
   @override
   Widget build(BuildContext context) {
@@ -65,6 +69,7 @@ class BannerEditor extends StatelessWidget {
               opacity: busy ? 0.5 : 1,
               child: ProfileCoverBand(
                 url: removed ? '' : url,
+                thumbUrl: removed ? '' : thumbUrl,
                 bytes: previewBytes,
               ),
             ),

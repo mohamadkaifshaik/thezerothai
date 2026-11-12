@@ -323,7 +323,8 @@ class _ProfileHeaderBody extends StatelessWidget {
                 SizedBox(
                   height: bannerHeight,
                   child: ProfileCoverBand(
-                    url: _bannerUrlFor(profile, fullSize: !narrow),
+                    url: profile.bannerUrl,
+                    thumbUrl: profile.bannerThumbUrl,
                     bytes: bannerBytes,
                   ),
                 ),
@@ -573,16 +574,6 @@ class _ProfileHeaderBody extends StatelessWidget {
     }
     return null;
   }
-}
-
-/// The banner URL for the header: the 600 px thumb below 600 dp, the 1500 px
-/// full image at 600 dp and above, whichever exists when only one
-/// does. Empty = no banner. Both sizes are 3:1, so neither changes the layout.
-String _bannerUrlFor(identity.Profile profile, {required bool fullSize}) {
-  final full = profile.bannerUrl;
-  final thumb = profile.bannerThumbUrl;
-  final wanted = fullSize ? full : thumb;
-  return wanted.isNotEmpty ? wanted : (fullSize ? thumb : full);
 }
 
 /// The round "Message" (envelope) button of another user's profile:
