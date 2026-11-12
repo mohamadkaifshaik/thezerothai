@@ -1528,6 +1528,23 @@ abstract final class AppCommunitiesLayout {
   static const double heroRingAlpha = 0.14;
 }
 
+/// Article editor geometry (dzeroth-mobile, tablet and desktop Article
+/// mocks): the dashed cover drop, the display title and the toolbar pill.
+/// Colours come from the theme, shadows from [AppShadows].
+abstract final class AppArticlesLayout {
+  static const double gutter = 20;
+  static const double phoneCoverHeight = 170;
+  static const double wideCoverHeight = 220;
+  static const double coverBorder = 1.5;
+  static const double coverDash = 7;
+  static const double coverDashGap = 5;
+  static const double coverFillAlpha = 0.06;
+  static const double phoneTitle = 34;
+  static const double wideTitle = 44;
+  static const double toolbarPadding = 4;
+  static const double toolbarGap = 2;
+}
+
 /// Account pages (Change handle, Download my data, Delete account) and the
 /// Premium and Reset password dialogs: the mocks' padded page with a display
 /// headline and its actions, pinned to the bottom on the phone and inline
