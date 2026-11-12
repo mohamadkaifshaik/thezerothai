@@ -224,6 +224,12 @@ abstract final class AppSize {
   /// section 4.1, Composer row).
   static const double composerDialogMaxHeight = 720;
 
+  /// The desktop reply dialog (desktop ReplyComposer mock, dz.css `.scrim`
+  /// and `.modal`): hung 64 dp under the top of the window, at most this
+  /// tall (the mock's card: the bar, the post, four lines and the footer).
+  static const double desktopModalTop = 64;
+  static const double replyDialogDesktopHeight = 440;
+
   /// The character ring of the reply composer (ReplyComposer mocks): 26 dp
   /// on a phone, 24 dp in the dialog.
   static const double counterRingPhone = 26;
