@@ -2,11 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/beacons/domain/beacons_feature_flag.dart';
-import '../../features/beacons/presentation/widgets/plan_preview.dart'
-    show PlanPreviewCard;
-import '../../features/beacons/presentation/widgets/plan_tips.dart'
-    show PlanTipsCard;
 import '../../features/graph/presentation/graph_feature_flags.dart';
 import '../../features/graph/presentation/widgets/who_to_follow_card.dart';
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -28,8 +23,7 @@ import 'app_router.dart';
 /// The route families of band B's context pane (tablet plan section 4.1).
 /// Each shell location maps to one; [contextSectionsFor] turns it into
 /// sections. Later phases add families or sections here: T5 the Plans
-/// list-detail, T8 the per-feature panes (community rules, list members,
-/// previews).
+/// list-detail, T8 the per-feature panes (community rules, list members).
 enum ContextFamily {
   /// No context pane: the primary pane keeps the whole content width. The
   /// list-detail families (Settings T4, Plans T5, Messages T6; plan section
@@ -59,13 +53,6 @@ enum ContextFamily {
   /// like.
   profile,
 
-  /// `/plans/new` (T8d): the live preview of the form and "Tips for a good
-  /// plan", lent by the page.
-  planCreate,
-
-  /// `/plans/:id/edit` (T8d): the live preview of the edit and the tips,
-  /// lent by the page once its plan is loaded.
-  planEdit,
 }
 
 /// Whether [location] is one of the Lists pages (T8b): `/lists` and
@@ -80,16 +67,6 @@ bool _isListsLocation(String location) {
     _ => false,
   };
 }
-
-/// Whether [location] is the plan create or edit form (`/plans/new`,
-/// `/plans/:id/edit`; T8d).
-bool _isPlanFormLocation(String location) => switch ([
-  for (final s in Uri.parse(location).pathSegments)
-    if (s.isNotEmpty) s,
-]) {
-  ['plans', 'new'] || ['plans', _, 'edit'] => true,
-  _ => false,
-};
 
 /// Whether [location] is a post page (`/post/:id` and its photo viewer).
 bool _isPostLocation(String location) {
@@ -119,8 +96,6 @@ bool _isProfileLocation(String location) {
 /// The Lists pages are pushed too (T8b: a List from Lists, Manage pinned or
 /// a person's Lists; Members from a List; Manage pinned from Home's "+"; a
 /// person's Lists from their profile), so they follow the same rule.
-/// The plan forms are pushed too (over the Plans list, a plan, My plans), so
-/// when the top page is one of them it decides (T8d).
 /// Everything else keeps T3's rule: the base route decides.
 String contextPaneLocationFor(String base, String? top) {
   if (top == null) return base;
@@ -138,11 +113,7 @@ String contextPaneLocationFor(String base, String? top) {
   // A post is pushed from every feed: a post over Home has no pane, and a
   // page pushed over a post gets its own family.
   if (_isPostLocation(top) || _isPostLocation(base)) return top;
-  return _isListsLocation(top) ||
-          _isListsLocation(base) ||
-          _isPlanFormLocation(top)
-      ? top
-      : base;
+  return _isListsLocation(top) || _isListsLocation(base) ? top : base;
 }
 
 /// The family of the matched shell [location] (a path; a query is ignored).
@@ -161,10 +132,12 @@ ContextFamily contextFamilyFor(String location) {
     // give the conversation the whole content width.
     ['post', ...] => ContextFamily.none,
     // `/plans/new` and `/plans/mine` are matched before `/plans/:id`.
-    ['plans', 'new'] => ContextFamily.planCreate,
     ['plans', 'mine'] => ContextFamily.global,
-    ['plans', _, 'edit'] => ContextFamily.planEdit,
-    ['plans'] || ['plans', _] || ['plans', _, 'people'] => ContextFamily.none,
+    ['plans'] ||
+    ['plans', 'new'] ||
+    ['plans', _] ||
+    ['plans', _, 'edit'] ||
+    ['plans', _, 'people'] => ContextFamily.none,
     ['explore'] => ContextFamily.explore,
     ['notifications'] => ContextFamily.notifications,
     ['search'] => ContextFamily.search,
@@ -187,15 +160,8 @@ ContextFamily contextFamilyFor(String location) {
 /// (`TrendsCubit`, `SuggestionsCubit`, the loaded profile): no new call.
 /// Every pane ends with the footer links.
 List<ContextSection> contextSectionsFor(String location, BuildContext context) {
-  var family = contextFamilyFor(location);
+  final family = contextFamilyFor(location);
   if (family == ContextFamily.none) return const [];
-  // The plan forms need `beacons` (the router sends them to `/plans`
-  // without it); should one show anyway, it gets the global set.
-  final planFormFamily =
-      family == ContextFamily.planCreate || family == ContextFamily.planEdit;
-  if (planFormFamily && !isFeatureEnabled(context, kFeatureBeacons)) {
-    family = ContextFamily.global;
-  }
   final search = isFeatureEnabled(context, kFeatureSearch);
   final trends = search && isFeatureEnabled(context, kFeatureTrends);
   final suggestions = isFollowSuggestionsEnabled(context);
@@ -241,17 +207,6 @@ List<ContextSection> contextSectionsFor(String location, BuildContext context) {
             const ProfileMediaStripPlaceholder(),
           ),
         if (suggestions) whoToFollow('You might like'),
-      ],
-      // Lent by the page, over its own state (no call of the pane's own).
-      // Lent by the form (T8d): the preview follows the typing, and the
-      // edit form shows nothing over its loading or failed plan.
-      ContextFamily.planCreate => [
-        lent(ContextSectionKind.planPreview, const PlanPreviewCard()),
-        lent(ContextSectionKind.planTips, const PlanTipsCard()),
-      ],
-      ContextFamily.planEdit => [
-        lent(ContextSectionKind.planPreview, const PlanPreviewCard()),
-        lent(ContextSectionKind.planTips, const SizedBox.shrink()),
       ],
       ContextFamily.none => const <ContextSection>[],
     },

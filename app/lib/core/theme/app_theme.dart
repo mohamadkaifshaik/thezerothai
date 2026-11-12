@@ -1436,6 +1436,27 @@ abstract final class AppPickerLayout {
   static const double rowGap = 12;
 }
 
+/// Plans geometry (dzeroth-mobile, tablet and desktop Home, PlanDetail,
+/// PlanPeople, PlanCreate, PlanEdit and MyPlans). Colours come from the
+/// theme, shadows from [AppShadows].
+abstract final class AppPlansLayout {
+  // The plan page's hero: full width, rounded under, with the back and menu
+  // circles in it.
+  static const double heroRadius = 34;
+  static const double heroButton = 44;
+  static const double heroGutter = 24;
+
+  // The list cards: the phone's 20 dp page gutter, the wide layouts' 16 dp.
+  static const double phoneGutter = 20;
+  static const double wideGutter = 16;
+
+  // The compact rows of My plans (the tile, then eyebrow, title and time).
+  static const double tileSize = 52;
+
+  // A form lays Cost beside Open spots from this content width.
+  static const double formPairMin = 480;
+}
+
 /// Lists geometry per screen size (dp): the phone mocks' 20 dp page gutter
 /// and raised cards, and the tablet / desktop mocks' 16 dp flat `.row`s, hero
 /// and section labels (dz.css). Colours come from the theme, gradients from

@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/feature_flags/feature_flags.dart';
+import '../../../core/feature_flags/ui_shell_feature_flag.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
@@ -16,8 +17,10 @@ import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_chip.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../communities/data/communities_repository.dart';
+import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/beacons_repository.dart';
 import '../domain/beacon_labels.dart';
 import '../domain/beacons_feature_flag.dart';
@@ -180,7 +183,7 @@ class _PlansRouteState extends State<_PlansRoute> {
     // One open, one load (a refresh never doubles one the list pane already
     // started); the rows of an earlier visit stay on screen meanwhile.
     unawaited(_session.list.refresh());
-    if (_onTabletLayout(context)) unawaited(_session.yourPlans.refresh());
+    if (_showsYourPlans(context)) unawaited(_session.yourPlans.refresh());
   }
 
   @override
@@ -204,7 +207,7 @@ class _PlansRouteState extends State<_PlansRoute> {
         child: AppMainColumn(
           child: PlansList(
             session: _session,
-            yourPlans: _onTabletLayout(context),
+            yourPlans: _showsYourPlans(context),
           ),
         ),
       ),
@@ -212,10 +215,17 @@ class _PlansRouteState extends State<_PlansRoute> {
   }
 }
 
-/// Whether [context] is inside the tablet shell's panes (`ui_shell` +
-/// `ui_tablet`, 600-1199dp).
-bool _onTabletLayout(BuildContext context) =>
-    ShellGeometry.maybeOf(context)?.tablet ?? false;
+/// Whether the list carries "Your plans" on top: on the tablet shell's panes
+/// (`ui_shell` + `ui_tablet`, 600-1199dp) and on the desktop of the new shell
+/// (`ui_shell`; the desktop design has them beside the list, and the shell's
+/// side column is not the page's to fill, so they sit inline).
+bool _showsYourPlans(BuildContext context) =>
+    (ShellGeometry.maybeOf(context)?.tablet ?? false) ||
+    ((context.read<OnboardingBloc?>()?.state.enabledFeatures.contains(
+              kFeatureUiShell,
+            ) ??
+            false) &&
+        MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet);
 
 /// The Plans list: the header (My plans, New plan), the audience chips and
 /// the rows, over [session]'s hoisted list. Two placements: the `/plans`
@@ -223,7 +233,10 @@ bool _onTabletLayout(BuildContext context) =>
 /// - [split]: no back arrow (the list sits beside the detail), a row
 ///   replaces the detail (`go`), and [selectedId] is highlighted.
 /// - Otherwise a row is pushed and the list reloads on return, as before.
-/// - [yourPlans]: the "Your plans" section on top (tablet layout only).
+/// - [yourPlans]: the "Your plans" section on top (tablet layout and desktop).
+/// - From 600dp the page ([split] false) has My plans and New plan as pills
+///   beside the headline (the tablet and desktop designs); the phone and the
+///   list pane keep them as header icons.
 class PlansList extends StatelessWidget {
   const PlansList({
     super.key,
@@ -265,6 +278,8 @@ class PlansList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final pills =
+        !split && MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     return ListenableBuilder(
       listenable: session.changes,
       builder: (context, _) {
@@ -285,18 +300,22 @@ class PlansList extends StatelessWidget {
               children: [
                 _PlansHeader(
                   split: split,
-                  actions: [
-                    IconButton(
-                      tooltip: 'My plans',
-                      icon: const Icon(Icons.event_available_outlined),
-                      onPressed: () => _push(context, AppRouter.plansMinePath),
-                    ),
-                    IconButton(
-                      tooltip: 'New plan',
-                      icon: const Icon(Icons.add_circle_outline),
-                      onPressed: () => _push(context, AppRouter.planNewPath),
-                    ),
-                  ],
+                  actions: pills
+                      ? const []
+                      : [
+                          IconButton(
+                            tooltip: 'My plans',
+                            icon: const Icon(Icons.event_available_outlined),
+                            onPressed: () =>
+                                _push(context, AppRouter.plansMinePath),
+                          ),
+                          IconButton(
+                            tooltip: 'New plan',
+                            icon: const Icon(Icons.add_circle_outline),
+                            onPressed: () =>
+                                _push(context, AppRouter.planNewPath),
+                          ),
+                        ],
                 ),
                 if (state.audiences.length > 1)
                   _AudienceChips(state: state, onSelect: cubit.select),
@@ -310,29 +329,48 @@ class PlansList extends StatelessWidget {
                       context,
                       cubit,
                       state,
-                      _top(context, split ? null : const PlansHeadline(), [
-                        // F29: after the headline, before the cards (the
-                        // designs' order), on every state but paused, so a
-                        // filter with no plans or a failed one is one tap
-                        // from another activity.
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: AppSpacing.xs,
+                      _top(
+                        context,
+                        split
+                            ? null
+                            : PlansHeadline(
+                                actions: pills
+                                    ? _HeadlineActions(
+                                        onMyPlans: () => _push(
+                                          context,
+                                          AppRouter.plansMinePath,
+                                        ),
+                                        onNewPlan: () => _push(
+                                          context,
+                                          AppRouter.planNewPath,
+                                        ),
+                                      )
+                                    : null,
+                              ),
+                        [
+                          // F29: after the headline, before the cards (the
+                          // designs' order), on every state but paused, so a
+                          // filter with no plans or a failed one is one tap
+                          // from another activity.
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: AppSpacing.xs,
+                            ),
+                            child: PlansActivityFilter(
+                              selected: state.activity,
+                              onSelected: cubit.selectActivity,
+                            ),
                           ),
-                          child: PlansActivityFilter(
-                            selected: state.activity,
-                            onSelected: cubit.selectActivity,
-                          ),
-                        ),
-                        if (yourPlans)
-                          YourPlansSection(
-                            session: session,
-                            selectedId: split ? selectedId : null,
-                            onOpenPlan: (id) => _openPlan(context, id),
-                            onSeeAll: () =>
-                                _push(context, AppRouter.plansMinePath),
-                          ),
-                      ]),
+                          if (yourPlans)
+                            YourPlansSection(
+                              session: session,
+                              selectedId: split ? selectedId : null,
+                              onOpenPlan: (id) => _openPlan(context, id),
+                              onSeeAll: () =>
+                                  _push(context, AppRouter.plansMinePath),
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -491,15 +529,31 @@ class _AudienceChips extends StatelessWidget {
 }
 
 /// The designs' headline over the Plans list: "What's your plan?", with
-/// "plan" in the accent colour. On the page only (not in band B's narrow
-/// list pane, whose header already says Plans); it scrolls with the rows.
+/// "plan" in the accent colour, and [actions] (My plans, New plan) at its
+/// end from 600dp. On the page only (not in band B's narrow list pane, whose
+/// header already says Plans); it scrolls with the rows.
 class PlansHeadline extends StatelessWidget {
-  const PlansHeadline({super.key});
+  const PlansHeadline({super.key, this.actions});
+
+  final Widget? actions;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final base = theme.textTheme.displaySmall;
+    final headline = Semantics(
+      header: true,
+      child: Text.rich(
+        TextSpan(
+          style: base,
+          children: [
+            const TextSpan(text: "What's your "),
+            TextSpan(text: 'plan', style: AppTextStyles.displayAccent(theme)),
+            const TextSpan(text: '?'),
+          ],
+        ),
+      ),
+    );
     return Padding(
       key: const ValueKey('plans-headline'),
       padding: const EdgeInsets.fromLTRB(
@@ -508,21 +562,48 @@ class PlansHeadline extends StatelessWidget {
         AppSpacing.md,
         AppSpacing.sm,
       ),
-      child: Semantics(
-        header: true,
-        child: Text.rich(
-          TextSpan(
-            style: base,
-            children: [
-              const TextSpan(text: "What's your "),
-              TextSpan(text: 'plan', style: AppTextStyles.displayAccent(theme)),
-              const TextSpan(text: '?'),
-            ],
-          ),
-        ),
-      ),
+      // The actions sit at the end of the headline's line when both fit,
+      // and drop under it (large text, a narrow column) rather than squeeze.
+      child: actions == null
+          ? headline
+          : Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.end,
+              spacing: AppSpacing.md,
+              runSpacing: AppSpacing.sm,
+              children: [headline, actions!],
+            ),
     );
   }
+}
+
+/// My plans (outline) and New plan (primary) beside the headline.
+class _HeadlineActions extends StatelessWidget {
+  const _HeadlineActions({required this.onMyPlans, required this.onNewPlan});
+
+  final VoidCallback onMyPlans;
+  final VoidCallback onNewPlan;
+
+  @override
+  Widget build(BuildContext context) => Wrap(
+    alignment: WrapAlignment.end,
+    crossAxisAlignment: WrapCrossAlignment.center,
+    spacing: AppSpacing.sm,
+    children: [
+      AppPillButton(
+        label: 'My plans',
+        variant: AppButtonVariant.outline,
+        compact: true,
+        onPressed: onMyPlans,
+      ),
+      AppPillButton(
+        label: 'New plan',
+        icon: Icons.add,
+        compact: true,
+        onPressed: onNewPlan,
+      ),
+    ],
+  );
 }
 
 class _LoadMore extends StatelessWidget {
