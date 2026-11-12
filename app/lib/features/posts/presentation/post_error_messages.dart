@@ -206,6 +206,42 @@ String cancelScheduledErrorMessage(AppException error, {bool dismiss = false}) {
   };
 }
 
+/// Snackbar text for a failed Post now of a scheduled post; the row has been
+/// put back. A lost response may still have posted it: never say it was not.
+String postNowScheduledErrorMessage(AppException error) {
+  return switch (error) {
+    final RateLimitedException e => rateLimitedMessage(e),
+    NetworkException() =>
+      "Couldn't confirm your post went out. Pull down to check.",
+    DegradedModeException() =>
+      'Dzeroth is in a limited mode right now. Please try again shortly.',
+    FeatureDisabledException() => '$kScheduledUnavailableTitle.',
+    LimitReachedException() || QuotaExceededException() =>
+      "You can't post more right now. It stays scheduled.",
+    _ => "Couldn't post that now. It stays scheduled.",
+  };
+}
+
+/// Text for a failed Edit of a scheduled post, shown in the edit sheet
+/// (nothing changed). The time and text refusals reuse the composer's words.
+String editScheduledErrorMessage(AppException error) {
+  return switch (error) {
+    ValidationException(field: 'publish_at') => kScheduleRejectedMessage,
+    ValidationException(field: 'text') => createPostErrorMessage(error),
+    LimitReachedException(quota: 'scheduled_window') =>
+      'Too many posts are scheduled around that time. Pick another time.',
+    final RateLimitedException e => rateLimitedMessage(e),
+    NetworkException() =>
+      "Couldn't confirm your change. Check Scheduled posts and try again.",
+    DegradedModeException() =>
+      'Dzeroth is in a limited mode right now. Please try again shortly.',
+    FeatureDisabledException() => '$kScheduledUnavailableTitle.',
+    ValidationException() =>
+      "This post can't be saved. Check the text and try again.",
+    _ => "Couldn't save your changes. Please try again.",
+  };
+}
+
 /// "Scheduled posts aren't available right now": the Scheduled list (or a
 /// Cancel) was refused with FEATURE_DISABLED, i.e. scheduling is switched off
 /// for everyone. A state of its own, not an error with Retry.

@@ -5,30 +5,45 @@ import '../../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ScheduledPostStatus;
 import '../../../../shared/format/scheduled_time.dart';
+import '../../../../shared/widgets/primitives/app_card.dart';
+import '../../../../shared/widgets/primitives/app_pill_button.dart';
 import '../post_error_messages.dart';
 
-/// One row of the Scheduled list. Laid out like X's: line 1 a small
-/// clock icon and the muted "Will send on <time>", line 2 the post text in
-/// the primary colour; no avatar. The row is ONE node for a screen reader
-/// ("Will send on `<time>` `<text>`"); the Cancel / Dismiss button stays its own
-/// 48dp button at the end.
+/// One card of the Scheduled list (the dzeroth-mobile, tablet and desktop
+/// Scheduled mocks): the raised card, the teal clock line "Will send on
+/// `<time>`", the post text, and the actions. The text part is ONE node for
+/// a screen reader ("Will send on `<time>`. `<text>`"); each action is its
+/// own button.
 ///
 /// - PENDING: the text (up to 3 lines), a photo count when photos are
-///   attached (nothing is fetched for them), and `Cancel`.
+///   attached (nothing is fetched for them), then Edit and Post now (when
+///   [onEdit] / [onPostNow] are given: the `scheduled_posts` flag) and a
+///   More menu with "Cancel scheduled post".
 /// - FAILED: the time it was due, a sentence for the failure reason, no text
-///   (the draft is cleared on failure) and `Dismiss`. A failed post is never
+///   (the draft is cleared on failure) and Dismiss. A failed post is never
 ///   rescheduled: the user dismisses it and writes it again.
 ///
-/// Purely presentational: [onRemove] is the Cancel or Dismiss tap.
+/// [wide] is the tablet and desktop look: more padding, a step up in type
+/// and a navy Post now pill (the phone's is a text button).
+///
+/// Purely presentational: the callbacks are the taps.
 class ScheduledPostRow extends StatelessWidget {
   const ScheduledPostRow({
     super.key,
     required this.item,
     required this.onRemove,
+    this.onEdit,
+    this.onPostNow,
+    this.wide = false,
   });
 
   final pb.ScheduledPost item;
+
+  /// Cancel (PENDING) or Dismiss (FAILED).
   final VoidCallback onRemove;
+  final VoidCallback? onEdit;
+  final VoidCallback? onPostNow;
+  final bool wide;
 
   bool get _failed =>
       item.status == ScheduledPostStatus.SCHEDULED_POST_STATUS_FAILED;
@@ -37,6 +52,7 @@ class ScheduledPostRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
+    final accent = context.appColors.accentText;
     final use24Hour = MediaQuery.alwaysUse24HourFormatOf(context);
     final due = item.hasPublishAt() ? item.publishAt.toDateTime() : null;
     final timeText = due == null
@@ -54,117 +70,178 @@ class ScheduledPostRow extends StatelessWidget {
         ? '1 photo'
         : '$photos photos';
     final spoken = [timeText, body, ?photosText].where((t) => t.isNotEmpty);
-    final removeLabel = _failed ? 'Dismiss' : 'Cancel';
+    final timeColor = _failed ? colors.error : accent;
 
     final content = Semantics(
       container: true,
       label: spoken.join('. '),
       excludeSemantics: true,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(top: AppSpacing.xs),
-                  child: Icon(
-                    Icons.schedule_outlined,
-                    size: AppIconSize.sm,
-                    color: colors.onSurfaceVariant,
-                  ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: AppScheduledLayout.iconTop),
+                child: Icon(
+                  _failed ? Icons.error_outline : Icons.schedule_outlined,
+                  size: AppIconSize.sm,
+                  color: timeColor,
                 ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Text(
-                    timeText,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colors.onSurfaceVariant,
-                    ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Text(
+                  timeText,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontSize: wide
+                        ? AppScheduledLayout.wideTimeSize
+                        : AppScheduledLayout.phoneTimeSize,
+                    fontWeight: AppTypeTokens.weightUi,
+                    color: timeColor,
                   ),
-                ),
-              ],
-            ),
-            if (body.isNotEmpty) ...[
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                body,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: _failed ? colors.error : colors.onSurface,
                 ),
               ),
             ],
-            if (photosText != null) ...[
-              const SizedBox(height: AppSpacing.sm),
-              _PhotoCountChip(label: photosText),
-            ],
-          ],
-        ),
-      ),
-    );
-    final action = Semantics(
-      button: true,
-      label: _failed ? 'Dismiss failed post' : 'Cancel scheduled post',
-      excludeSemantics: true,
-      onTap: onRemove,
-      child: TextButton(
-        style: TextButton.styleFrom(
-          minimumSize: const Size(
-            AppSpacing.minTapTarget,
-            AppSpacing.minTapTarget,
           ),
-        ),
-        onPressed: onRemove,
-        child: Text(removeLabel),
+          if (body.isNotEmpty) ...[
+            SizedBox(
+              height: wide
+                  ? AppScheduledLayout.wideTextGap
+                  : AppScheduledLayout.phoneTextGap,
+            ),
+            Text(
+              body,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontSize: wide
+                    ? AppScheduledLayout.wideTextSize
+                    : AppScheduledLayout.phoneTextSize,
+                color: _failed ? colors.error : colors.onSurface,
+              ),
+            ),
+          ],
+          if (photosText != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            _PhotoCountChip(label: photosText),
+          ],
+        ],
       ),
     );
 
-    // Beside the text on a normal phone; under it when the text is large or
-    // the screen narrow, where a trailing button would squeeze the text.
-    final stacked =
-        MediaQuery.textScalerOf(context).scale(_kRefFontSize) >
-            _kRefFontSize * _kStackAtScale ||
-        MediaQuery.sizeOf(context).width < _kStackBelowWidth;
-    return Padding(
-      padding: const EdgeInsetsDirectional.only(
-        start: AppSpacing.md,
-        end: AppSpacing.xs,
-        top: AppSpacing.sm,
-        bottom: AppSpacing.sm,
-      ),
-      child: stacked
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: const EdgeInsetsDirectional.only(end: AppSpacing.sm),
+    final onEdit = this.onEdit;
+    final onPostNow = this.onPostNow;
+    final actions = Wrap(
+      spacing: wide ? AppSpacing.smd : AppSpacing.sm,
+      runSpacing: AppSpacing.sm,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: _failed
+          ? [
+              _Spoken(
+                label: 'Dismiss failed post',
+                onTap: onRemove,
+                child: AppPillButton(
+                  label: 'Dismiss',
+                  compact: true,
+                  variant: AppButtonVariant.outline,
+                  onPressed: onRemove,
+                ),
+              ),
+            ]
+          : [
+              if (onEdit != null)
+                AppPillButton(
+                  label: 'Edit',
+                  compact: true,
+                  variant: AppButtonVariant.outline,
+                  onPressed: onEdit,
+                ),
+              if (onPostNow != null)
+                AppPillButton(
+                  label: 'Post now',
+                  compact: true,
+                  variant: wide ? AppButtonVariant.navy : AppButtonVariant.text,
+                  onPressed: onPostNow,
+                ),
+              // Without Edit and Post now (scheduling off for this caller),
+              // Cancel is the one action and stays in sight.
+              if (onEdit == null && onPostNow == null)
+                _Spoken(
+                  label: 'Cancel scheduled post',
+                  onTap: onRemove,
+                  child: AppPillButton(
+                    label: 'Cancel',
+                    compact: true,
+                    variant: AppButtonVariant.outline,
+                    onPressed: onRemove,
+                  ),
+                ),
+            ],
+    );
+    final more = !_failed && (onEdit != null || onPostNow != null)
+        ? PopupMenuButton<VoidCallback>(
+            tooltip: 'More options',
+            icon: const Icon(Icons.more_horiz, size: AppIconSize.md),
+            onSelected: (action) => action(),
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: onRemove,
+                child: const Text('Cancel scheduled post'),
+              ),
+            ],
+          )
+        : null;
+
+    return AppCard(
+      margin: wide
+          ? const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppScheduledLayout.wideCardGap / 2,
+            )
+          : EdgeInsets.zero,
+      padding: wide
+          ? const EdgeInsets.fromLTRB(
+              AppScheduledLayout.wideCardPaddingH,
+              AppScheduledLayout.wideCardPaddingV,
+              AppSpacing.sm,
+              AppScheduledLayout.wideCardPaddingV,
+            )
+          : const EdgeInsetsDirectional.fromSTEB(
+              AppSpacing.md,
+              AppSpacing.md,
+              AppSpacing.xs,
+              AppSpacing.md,
+            ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsetsDirectional.only(
+                    end: more == null ? AppSpacing.sm : 0,
+                  ),
                   child: content,
                 ),
-                Align(alignment: AlignmentDirectional.centerEnd, child: action),
-              ],
-            )
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: content),
-                const SizedBox(width: AppSpacing.xs),
-                action,
-              ],
-            ),
+              ),
+              ?more,
+            ],
+          ),
+          SizedBox(
+            height: wide
+                ? AppScheduledLayout.wideActionsGap
+                : AppScheduledLayout.phoneTextGap,
+          ),
+          Align(alignment: AlignmentDirectional.centerStart, child: actions),
+        ],
+      ),
     );
   }
 }
-
-/// A text scale above this stacks the action under the text.
-const double _kStackAtScale = 1.3;
-const double _kRefFontSize = 14;
-
-/// A screen narrower than this stacks the action under the text.
-const double _kStackBelowWidth = 360;
 
 /// "2 photos": a small outlined chip, so a photo-only post is not an empty
 /// row. Decorative to a screen reader (the row's label already says it).
@@ -210,4 +287,27 @@ class _PhotoCountChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Speaks [label] for a pill whose visible word is shorter ("Cancel" reads
+/// as "Cancel scheduled post"): one button node with the pill's tap.
+class _Spoken extends StatelessWidget {
+  const _Spoken({
+    required this.label,
+    required this.onTap,
+    required this.child,
+  });
+
+  final String label;
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    label: label,
+    onTap: onTap,
+    excludeSemantics: true,
+    child: child,
+  );
 }

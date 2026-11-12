@@ -14,6 +14,7 @@ import 'package:dzeroth/features/posts/presentation/drafts_screen.dart';
 import 'package:dzeroth/features/posts/presentation/widgets/draft_row.dart';
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/primitives/app_tab_bar.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,6 +23,7 @@ import 'package:mocktail/mocktail.dart';
 
 import '../../../support/fake_drafts_repository.dart';
 import '../../../support/theme_harness.dart';
+import '../../../support/scheduled_flags.dart';
 
 class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
     implements AuthBloc {}
@@ -129,13 +131,16 @@ void main() {
         ],
         child: BlocProvider<AuthBloc>.value(
           value: auth,
-          child: MaterialApp.router(
-            routerConfig: router,
-            theme: buildAppTheme(brightness: brightness),
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(context)
-                  .copyWith(textScaler: TextScaler.linear(textScale)),
-              child: child!,
+          child: BlocProvider<OnboardingBloc>.value(
+            value: onboardingWithFlags(kScheduledListOnly),
+            child: MaterialApp.router(
+              routerConfig: router,
+              theme: buildAppTheme(brightness: brightness),
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: TextScaler.linear(textScale)),
+                child: child!,
+              ),
             ),
           ),
         ),

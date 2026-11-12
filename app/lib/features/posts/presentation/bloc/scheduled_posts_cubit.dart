@@ -20,6 +20,36 @@ enum ScheduledRemovalOutcome {
 
   /// The call failed; the row was put back.
   failed,
+
+  /// Post now only: the item had been cancelled (or cleaned up) meanwhile,
+  /// so nothing was posted. The row is gone.
+  noLongerScheduled,
+}
+
+/// How an Edit ended.
+enum ScheduledEditOutcome {
+  /// Saved: the row shows the new text and time.
+  saved,
+
+  /// The post went out before the edit landed (not an error); the row is
+  /// gone.
+  tooLate,
+
+  /// The item had been cancelled or cleaned up meanwhile; the row is gone.
+  noLongerScheduled,
+
+  /// The call failed; nothing changed.
+  failed,
+}
+
+/// The result of [ScheduledPostsCubit.edit].
+class ScheduledEdit {
+  const ScheduledEdit(this.outcome, [this.error]);
+
+  final ScheduledEditOutcome outcome;
+
+  /// Set with [ScheduledEditOutcome.failed].
+  final AppException? error;
 }
 
 /// The result of [ScheduledPostsCubit.remove].
@@ -205,10 +235,22 @@ class ScheduledPostsCubit extends Cubit<ScheduledPostsState> {
 
   /// Cancels a PENDING [item], or dismisses a FAILED one. The row leaves at
   /// once; a failed call puts it back where it was.
-  Future<ScheduledRemoval> remove(pb.ScheduledPost item) {
+  Future<ScheduledRemoval> remove(pb.ScheduledPost item) =>
+      _take(item, postNow: false);
+
+  /// Publishes a PENDING [item] now (`PublishScheduledPostNow`). Like
+  /// [remove], the row leaves at once and a failed call puts it back; a
+  /// row being removed or posted shares the running call's answer.
+  Future<ScheduledRemoval> postNow(pb.ScheduledPost item) =>
+      _take(item, postNow: true);
+
+  Future<ScheduledRemoval> _take(
+    pb.ScheduledPost item, {
+    required bool postNow,
+  }) {
     final id = item.scheduledId;
     // A second tap while the first call runs gets that call's answer: never
-    // "cancelled" before the server said so.
+    // "cancelled" or "posted" before the server said so.
     final running = _removing[id];
     if (running != null) return running;
     final index = state.items.indexWhere((i) => i.scheduledId == id);
@@ -216,7 +258,7 @@ class ScheduledPostsCubit extends Cubit<ScheduledPostsState> {
       return Future.value(const ScheduledRemoval(ScheduledRemovalOutcome.done));
     }
     // The optimistic removal happens in the synchronous part of the call.
-    final call = _cancel(item, index).whenComplete(() {
+    final call = _send(item, index, postNow: postNow).whenComplete(() {
       // A block body: returning the removed future would make it wait on
       // itself.
       _removing.remove(id);
@@ -225,24 +267,44 @@ class ScheduledPostsCubit extends Cubit<ScheduledPostsState> {
     return call;
   }
 
-  Future<ScheduledRemoval> _cancel(pb.ScheduledPost item, int index) async {
+  Future<ScheduledRemoval> _send(
+    pb.ScheduledPost item,
+    int index, {
+    required bool postNow,
+  }) async {
     emit(state.copyWith(items: [...state.items]..removeAt(index)));
     try {
       // The server only format-checks the key: a fresh one per tap.
-      final current = await _repository.cancelScheduledPost(
-        scheduledId: item.scheduledId,
-        idempotencyKey: _uuid.v4(),
-      );
+      final current = postNow
+          ? await _repository.publishScheduledPostNow(
+              scheduledId: item.scheduledId,
+              idempotencyKey: _uuid.v4(),
+            )
+          : await _repository.cancelScheduledPost(
+              scheduledId: item.scheduledId,
+              idempotencyKey: _uuid.v4(),
+            );
       _refillIfEmptied();
+      final published =
+          current.status == ScheduledPostStatus.SCHEDULED_POST_STATUS_PUBLISHED;
       return ScheduledRemoval(
-        current.status == ScheduledPostStatus.SCHEDULED_POST_STATUS_PUBLISHED
-            ? ScheduledRemovalOutcome.tooLate
-            : ScheduledRemovalOutcome.done,
+        postNow
+            ? (published
+                  ? ScheduledRemovalOutcome.done
+                  : ScheduledRemovalOutcome.noLongerScheduled)
+            : (published
+                  ? ScheduledRemovalOutcome.tooLate
+                  : ScheduledRemovalOutcome.done),
       );
     } on NotFoundException {
-      // Gone already (cleaned up after 7 days): nothing left to cancel.
+      // Gone already (cleaned up after 7 days): nothing left to cancel, and
+      // nothing to post.
       _refillIfEmptied();
-      return const ScheduledRemoval(ScheduledRemovalOutcome.done);
+      return ScheduledRemoval(
+        postNow
+            ? ScheduledRemovalOutcome.noLongerScheduled
+            : ScheduledRemovalOutcome.done,
+      );
     } on FeatureDisabledException catch (e) {
       // Scheduling was switched off for everyone: the list is not usable.
       _unavailable(e);
@@ -255,6 +317,73 @@ class ScheduledPostsCubit extends Cubit<ScheduledPostsState> {
       _restore(item, index);
       return const ScheduledRemoval(
         ScheduledRemovalOutcome.failed,
+        UnknownApiException('Something went wrong.'),
+      );
+    }
+  }
+
+  /// Edits a PENDING [item]: [text] and [publishAt] are sent only when
+  /// given (unchanged fields stay out of the request). Not optimistic: the
+  /// row changes when the server answers, then takes its place in the
+  /// loaded rows by its new time.
+  Future<ScheduledEdit> edit(
+    pb.ScheduledPost item, {
+    String? text,
+    DateTime? publishAt,
+  }) async {
+    final id = item.scheduledId;
+    try {
+      final updated = await _repository.updateScheduledPost(
+        scheduledId: id,
+        idempotencyKey: _uuid.v4(),
+        text: text,
+        publishAt: publishAt,
+      );
+      if (isClosed) return const ScheduledEdit(ScheduledEditOutcome.saved);
+      final rest = [
+        for (final i in state.items)
+          if (i.scheduledId != id) i,
+      ];
+      switch (updated.status) {
+        case ScheduledPostStatus.SCHEDULED_POST_STATUS_PENDING:
+          final items = [...rest, updated]
+            ..sort(
+              (a, b) =>
+                  a.publishAt.toDateTime().compareTo(b.publishAt.toDateTime()),
+            );
+          emit(state.copyWith(items: items));
+          return const ScheduledEdit(ScheduledEditOutcome.saved);
+        case ScheduledPostStatus.SCHEDULED_POST_STATUS_PUBLISHED:
+          emit(state.copyWith(items: rest));
+          _refillIfEmptied();
+          return const ScheduledEdit(ScheduledEditOutcome.tooLate);
+        default:
+          emit(state.copyWith(items: rest));
+          _refillIfEmptied();
+          return const ScheduledEdit(ScheduledEditOutcome.noLongerScheduled);
+      }
+    } on NotFoundException {
+      if (!isClosed) {
+        emit(
+          state.copyWith(
+            items: [
+              for (final i in state.items)
+                if (i.scheduledId != id) i,
+            ],
+          ),
+        );
+        _refillIfEmptied();
+      }
+      return const ScheduledEdit(ScheduledEditOutcome.noLongerScheduled);
+    } on FeatureDisabledException catch (e) {
+      _unavailable(e);
+      return ScheduledEdit(ScheduledEditOutcome.failed, e);
+    } on AppException catch (e) {
+      return ScheduledEdit(ScheduledEditOutcome.failed, e);
+    } catch (error, stack) {
+      _onUnexpectedError?.call(error, stack);
+      return const ScheduledEdit(
+        ScheduledEditOutcome.failed,
         UnknownApiException('Something went wrong.'),
       );
     }
