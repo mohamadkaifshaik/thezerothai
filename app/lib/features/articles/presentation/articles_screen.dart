@@ -26,6 +26,8 @@ import '../domain/article.dart';
 import '../domain/articles_repository.dart';
 import 'article_text_controller.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
+import 'widgets/article_cover_placeholder.dart';
 
 /// Whether the article library shows beside the page in a window [width]
 /// wide: from 840dp on the tablet layout ([tablet]: both flags, 600-1199dp;
@@ -648,6 +650,7 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     final tablet = tabletLayoutAt(context);
     final sides = tablet ? MediaQuery.paddingOf(context) : EdgeInsets.zero;
     final rtl = Directionality.of(context) == TextDirection.rtl;
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
     return PopScope(
       canPop: !_dirty && !_saving,
       onPopInvokedWithResult: (didPop, _) async {
@@ -658,13 +661,7 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
           leading: BackButton(
             onPressed: _saving || _busy ? null : () => unawaited(_back()),
           ),
-          title: Text(
-            widget.reader
-                ? 'Article'
-                : widget.preview
-                ? 'Preview'
-                : 'Articles',
-          ),
+          title: _headerTitle(phone: phone, read: read),
           actions: [
             if (widget.reader && _record != null)
               IconButton(
@@ -682,49 +679,8 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
                 onPressed: _busy ? null : _create,
                 icon: const Icon(Icons.edit_note),
               ),
-            if (_record != null && !_record!.published) ...[
-              if (read && !_record!.publicationPending)
-                TextButton(
-                  onPressed: () =>
-                      _navigate('/compose/articles/edit/${_record!.draft.id}'),
-                  child: const Text('Edit'),
-                ),
-              if (!read)
-                TextButton(
-                  onPressed: _saving || _busy
-                      ? null
-                      : () => _navigate(
-                          '/compose/articles/edit/${_record!.draft.id}/preview',
-                        ),
-                  child: const Text('Preview'),
-                ),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(
-                    AppSpacing.minButtonWidth,
-                    AppSpacing.minTapTarget,
-                  ),
-                ),
-                onPressed: _saving || _busy || _draft.publishErrors.isNotEmpty
-                    ? null
-                    : _publish,
-                child: _busy
-                    ? const SizedBox.square(
-                        dimension: AppIconSize.sm,
-                        child: CircularProgressIndicator(),
-                      )
-                    : const Text('Publish'),
-              ),
-              IconButton(
-                tooltip: 'Focus mode',
-                onPressed: () => _navigate(
-                  '/compose/articles/edit/${_record!.draft.id}${widget.focus ? '' : '/focus'}',
-                ),
-                icon: Icon(
-                  widget.focus ? Icons.fullscreen_exit : Icons.fullscreen,
-                ),
-              ),
-            ],
+            if (_record != null && !_record!.published)
+              ..._draftActions(phone: phone, read: read),
           ],
         ),
         body: Column(
@@ -780,6 +736,102 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
         ),
       ),
     );
+  }
+
+  /// The header title. A draft in the editor shows its word count (the
+  /// phone mock: the count alone; tablet and desktop: "Article" over
+  /// "Draft · N words"); every other page keeps its plain title.
+  Widget _headerTitle({required bool phone, required bool read}) {
+    if (read || widget.reader || _record == null) {
+      return Text(
+        widget.reader
+            ? 'Article'
+            : widget.preview
+            ? 'Preview'
+            : 'Articles',
+      );
+    }
+    final theme = Theme.of(context);
+    final words = '${_draft.wordCount} words';
+    final muted = theme.textTheme.labelMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    if (phone) return Text(words, style: muted, maxLines: 1);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Article'),
+        Text('Draft · $words', style: muted),
+      ],
+    );
+  }
+
+  /// Preview or Edit, Publish and Focus mode. From 600dp they sit in the
+  /// header as pills and an icon; on a phone only Publish does, and the other
+  /// two go into a menu so the header fits at 320dp with large text.
+  List<Widget> _draftActions({required bool phone, required bool read}) {
+    final id = _record!.draft.id;
+    final preview = !read;
+    final modeLabel = preview
+        ? 'Preview'
+        : _record!.publicationPending
+        ? null
+        : 'Edit';
+    final modeEnabled = !preview || !(_saving || _busy);
+    void mode() => unawaited(
+      _navigate(
+        preview
+            ? '/compose/articles/edit/$id/preview'
+            : '/compose/articles/edit/$id',
+      ),
+    );
+    void focus() => unawaited(
+      _navigate('/compose/articles/edit/$id${widget.focus ? '' : '/focus'}'),
+    );
+    final publish = AppPillButton(
+      label: 'Publish',
+      compact: true,
+      busy: _busy,
+      busySemanticsLabel: 'Publishing',
+      onPressed: _saving || _busy || _draft.publishErrors.isNotEmpty
+          ? null
+          : _publish,
+    );
+    if (phone) {
+      return [
+        publish,
+        PopupMenuButton<VoidCallback>(
+          tooltip: 'More',
+          onSelected: (action) => action(),
+          itemBuilder: (_) => [
+            if (modeLabel != null)
+              PopupMenuItem(
+                value: mode,
+                enabled: modeEnabled,
+                child: Text(modeLabel),
+              ),
+            PopupMenuItem(value: focus, child: const Text('Focus mode')),
+          ],
+        ),
+      ];
+    }
+    return [
+      if (modeLabel != null)
+        AppPillButton(
+          label: modeLabel,
+          compact: true,
+          variant: AppButtonVariant.outline,
+          onPressed: modeEnabled ? mode : null,
+        ),
+      const SizedBox(width: AppSpacing.sm),
+      publish,
+      IconButton(
+        tooltip: 'Focus mode',
+        onPressed: focus,
+        icon: Icon(widget.focus ? Icons.fullscreen_exit : Icons.fullscreen),
+      ),
+      const SizedBox(width: AppSpacing.sm),
+    ];
   }
 
   /// [sides]: the window's safe-area insets on the tablet layout (zero
@@ -1068,227 +1120,262 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     }
   }
 
-  Widget _editor() => Column(
-    children: [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-        child: Row(
-          children: [
-            const Text('Draft'),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Text(
-                _saving
-                    ? 'Saving…'
-                    : _dirty
-                    ? 'Unsaved changes'
-                    : 'Saved',
+  Widget _editor() {
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
+    final theme = Theme.of(context);
+    final cover = _coverBytes != null
+        ? Image.memory(_coverBytes!, fit: BoxFit.cover)
+        : _record!.coverUrl.isNotEmpty && _coverMediaId != null
+        ? Image.network(
+            _record!.coverUrl,
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) =>
+                const Center(child: Icon(Icons.broken_image_outlined)),
+          )
+        : null;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppArticlesLayout.gutter,
+            AppSpacing.sm,
+            AppArticlesLayout.gutter,
+            0,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text(
+                  'Article · Draft'.toUpperCase(),
+                  style: AppTextStyles.eyebrow(theme)
+                      .copyWith(color: context.appColors.accentText),
+                ),
               ),
-            ),
-            Text('${_draft.wordCount} words'),
-          ],
+              const SizedBox(width: AppSpacing.sm),
+              Flexible(
+                child: Text(
+                  _saving
+                      ? 'Saving…'
+                      : _dirty
+                      ? 'Unsaved changes'
+                      : 'Saved',
+                  textAlign: TextAlign.end,
+                  style: theme.textTheme.labelMedium,
+                ),
+              ),
+            ],
+          ),
         ),
-      ),
-      _toolbar(),
-      const Divider(height: 1),
-      Expanded(
-        child: SingleChildScrollView(
-          child: Center(
-            child: ConstrainedBox(
-              // 680 on the tablet layout (the readable column), else 600.
-              constraints: BoxConstraints(
-                maxWidth: ShellGeometry.readableMaxWidth(context),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (_coverBytes != null)
-                    AspectRatio(
-                      aspectRatio: 5 / 2,
-                      child: Image.memory(_coverBytes!, fit: BoxFit.cover),
-                    )
-                  else if (_record!.coverUrl.isNotEmpty &&
-                      _coverMediaId != null)
-                    AspectRatio(
-                      aspectRatio: 5 / 2,
-                      child: Image.network(
-                        _record!.coverUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => const Center(
-                          child: Icon(Icons.broken_image_outlined),
-                        ),
-                      ),
-                    ),
-                  if (_coverMediaId == null)
-                    AspectRatio(
-                      aspectRatio: 5 / 2,
-                      child: ColoredBox(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerLow,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            IconButton(
-                              tooltip: 'Add cover image',
-                              onPressed: _busy ? null : () => _cover(),
-                              icon: const Icon(
-                                Icons.add_photo_alternate_outlined,
-                              ),
-                            ),
-                            const Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: AppSpacing.md,
-                              ),
-                              child: Text(
-                                'We recommend an image with a 5:2 aspect ratio for best results.',
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  Wrap(
+        if (!phone) _toolbar(phone: false),
+        Expanded(
+          child: SingleChildScrollView(
+            child: Center(
+              child: ConstrainedBox(
+                // 680 on the tablet layout (the readable column), else 600.
+                constraints: BoxConstraints(
+                  maxWidth: ShellGeometry.readableMaxWidth(context),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(AppArticlesLayout.gutter),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      TextButton(
-                        onPressed: _busy ? null : () => _cover(),
-                        child: Text(
-                          _coverMediaId == null
-                              ? 'Add cover image'
-                              : 'Replace cover image',
+                      if (cover != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(AppRadius.card),
+                          child: AspectRatio(aspectRatio: 5 / 2, child: cover),
+                        )
+                      else ...[
+                        ArticleCoverPlaceholder(
+                          height: phone
+                              ? AppArticlesLayout.phoneCoverHeight
+                              : AppArticlesLayout.wideCoverHeight,
+                          onTap: _busy ? null : () => _cover(),
                         ),
-                      ),
-                      if (_coverMediaId != null)
-                        TextButton(
-                          onPressed: _busy
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _coverMediaId = null;
-                                    _coverBytes = null;
-                                    _coverJob = null;
-                                  });
-                                  _changed();
-                                },
-                          child: const Text('Remove cover image'),
-                        ),
-                      if (_coverJob != null && _coverMediaId == null)
-                        TextButton(
-                          onPressed: _busy ? null : () => _cover(retry: true),
-                          child: const Text('Retry cover upload'),
-                        ),
-                    ],
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(AppSpacing.lg),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        TextField(
-                          key: const Key('article-title'),
-                          controller: _title,
-                          maxLength: articleMaxTitleCodePoints,
-                          maxLines: null,
-                          style: Theme.of(context).textTheme.displaySmall
-                              ?.copyWith(fontWeight: FontWeight.bold),
-                          decoration: const InputDecoration(
-                            hintText: 'Add a title',
-                            filled: false,
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
+                        Padding(
+                          padding: const EdgeInsets.only(top: AppSpacing.sm),
+                          child: Text(
+                            'We recommend an image with a 5:2 aspect ratio for best results.',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodySmall,
                           ),
                         ),
-                        for (var i = 0; i < _blocks.length; i++)
-                          _blockEditor(i),
-                        TextButton.icon(
-                          onPressed: () => _append(ArticleBlockKind.paragraph),
-                          icon: const Icon(Icons.add),
-                          label: const Text('Add paragraph'),
-                        ),
                       ],
-                    ),
+                      if (cover != null || _coverJob != null)
+                        Wrap(
+                          children: [
+                            if (cover != null)
+                              TextButton(
+                                onPressed: _busy ? null : () => _cover(),
+                                child: const Text('Replace cover image'),
+                              ),
+                            if (_coverMediaId != null)
+                              TextButton(
+                                onPressed: _busy
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          _coverMediaId = null;
+                                          _coverBytes = null;
+                                          _coverJob = null;
+                                        });
+                                        _changed();
+                                      },
+                                child: const Text('Remove cover image'),
+                              ),
+                            if (_coverJob != null && _coverMediaId == null)
+                              TextButton(
+                                onPressed: _busy
+                                    ? null
+                                    : () => _cover(retry: true),
+                                child: const Text('Retry cover upload'),
+                              ),
+                          ],
+                        ),
+                      const SizedBox(height: AppSpacing.md),
+                      TextField(
+                        key: const Key('article-title'),
+                        controller: _title,
+                        maxLength: articleMaxTitleCodePoints,
+                        maxLines: null,
+                        style: theme.textTheme.displaySmall?.copyWith(
+                          fontSize: phone
+                              ? AppArticlesLayout.phoneTitle
+                              : AppArticlesLayout.wideTitle,
+                        ),
+                        decoration: const InputDecoration(
+                          hintText: 'Add a title',
+                          filled: false,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                        ),
+                      ),
+                      for (var i = 0; i < _blocks.length; i++) _blockEditor(i),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: AppPillButton(
+                          label: 'Add paragraph',
+                          icon: Icons.add,
+                          compact: true,
+                          variant: AppButtonVariant.outline,
+                          onPressed: () => _append(ArticleBlockKind.paragraph),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
+          ),
+        ),
+        if (phone) _toolbar(phone: true),
+      ],
+    );
+  }
+
+  /// The formatting tools. From 600dp a white pill under the header (the
+  /// tablet and desktop mocks); on a phone a bar above the keyboard with a
+  /// hairline over it (the phone mock's chip row). It scrolls sideways.
+  Widget _toolbar({required bool phone}) {
+    final colors = context.appColors;
+    final tools = SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: _tools(),
+    );
+    if (phone) {
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: colors.hairline)),
+        ),
+        child: SafeArea(top: false, child: tools),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: Border.all(color: colors.hairline),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(AppArticlesLayout.toolbarPadding),
+          child: tools,
+        ),
+      ),
+    );
+  }
+
+  Widget _tools() => Row(
+    children: [
+      _tool('Bold', Icons.format_bold, () => _mark(ArticleMark.bold)),
+      _tool('Italic', Icons.format_italic, () => _mark(ArticleMark.italic)),
+      _tool(
+        'Strikethrough',
+        Icons.format_strikethrough,
+        () => _mark(ArticleMark.strikethrough),
+      ),
+      PopupMenuButton<ArticleBlockKind>(
+        tooltip: 'Text style',
+        onSelected: _kind,
+        itemBuilder: (_) => [
+          const PopupMenuItem(
+            value: ArticleBlockKind.heading1,
+            child: Text('Heading'),
+          ),
+          const PopupMenuItem(
+            value: ArticleBlockKind.heading2,
+            child: Text('Subheading'),
+          ),
+          const PopupMenuItem(
+            value: ArticleBlockKind.paragraph,
+            child: Text('Body'),
+          ),
+        ],
+        child: const Padding(
+          padding: EdgeInsets.all(AppSpacing.md),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [Text('Body'), Icon(Icons.arrow_drop_down)],
+          ),
+        ),
+      ),
+      _tool('Quote', Icons.format_quote, () => _kind(ArticleBlockKind.quote)),
+      _tool(
+        'Bulleted list',
+        Icons.format_list_bulleted,
+        () => _kind(ArticleBlockKind.bulletedListItem),
+      ),
+      _tool(
+        'Numbered list',
+        Icons.format_list_numbered,
+        () => _kind(ArticleBlockKind.numberedListItem),
+      ),
+      _tool('Link', Icons.link, _link),
+      PopupMenuButton<ArticleBlockKind>(
+        tooltip: 'Insert',
+        onSelected: _append,
+        itemBuilder: (_) => [
+          const PopupMenuItem(
+            value: ArticleBlockKind.divider,
+            child: Text('Divider'),
+          ),
+          const PopupMenuItem(
+            value: ArticleBlockKind.code,
+            child: Text('Code'),
+          ),
+        ],
+        child: const Padding(
+          padding: EdgeInsets.all(AppSpacing.md),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [Text('Insert'), Icon(Icons.arrow_drop_down)],
           ),
         ),
       ),
     ],
-  );
-  Widget _toolbar() => SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: Row(
-      children: [
-        _tool('Bold', Icons.format_bold, () => _mark(ArticleMark.bold)),
-        _tool('Italic', Icons.format_italic, () => _mark(ArticleMark.italic)),
-        _tool(
-          'Strikethrough',
-          Icons.format_strikethrough,
-          () => _mark(ArticleMark.strikethrough),
-        ),
-        PopupMenuButton<ArticleBlockKind>(
-          tooltip: 'Text style',
-          onSelected: _kind,
-          itemBuilder: (_) => [
-            const PopupMenuItem(
-              value: ArticleBlockKind.heading1,
-              child: Text('Heading'),
-            ),
-            const PopupMenuItem(
-              value: ArticleBlockKind.heading2,
-              child: Text('Subheading'),
-            ),
-            const PopupMenuItem(
-              value: ArticleBlockKind.paragraph,
-              child: Text('Body'),
-            ),
-          ],
-          child: const Padding(
-            padding: EdgeInsets.all(AppSpacing.md),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [Text('Body'), Icon(Icons.arrow_drop_down)],
-            ),
-          ),
-        ),
-        _tool('Quote', Icons.format_quote, () => _kind(ArticleBlockKind.quote)),
-        _tool(
-          'Bulleted list',
-          Icons.format_list_bulleted,
-          () => _kind(ArticleBlockKind.bulletedListItem),
-        ),
-        _tool(
-          'Numbered list',
-          Icons.format_list_numbered,
-          () => _kind(ArticleBlockKind.numberedListItem),
-        ),
-        _tool('Link', Icons.link, _link),
-        PopupMenuButton<ArticleBlockKind>(
-          tooltip: 'Insert',
-          onSelected: _append,
-          itemBuilder: (_) => [
-            const PopupMenuItem(
-              value: ArticleBlockKind.divider,
-              child: Text('Divider'),
-            ),
-            const PopupMenuItem(
-              value: ArticleBlockKind.code,
-              child: Text('Code'),
-            ),
-          ],
-          child: const Padding(
-            padding: EdgeInsets.all(AppSpacing.md),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [Text('Insert'), Icon(Icons.arrow_drop_down)],
-            ),
-          ),
-        ),
-      ],
-    ),
   );
   Widget _tool(String name, IconData icon, VoidCallback action) =>
       IconButton(tooltip: name, onPressed: action, icon: Icon(icon));
