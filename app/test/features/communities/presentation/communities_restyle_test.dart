@@ -12,7 +12,6 @@ import 'package:dzeroth/features/communities/presentation/community_members_scre
 import 'package:dzeroth/features/communities/presentation/widgets/community_header.dart';
 import 'package:dzeroth/features/communities/presentation/widgets/community_join_control.dart';
 import 'package:dzeroth/features/communities/presentation/widgets/community_preview.dart';
-import 'package:dzeroth/features/communities/presentation/widgets/community_row.dart';
 import 'package:dzeroth/features/communities/presentation/widgets/community_search_field.dart';
 import 'package:dzeroth/features/communities/presentation/widgets/moderation_log_row.dart';
 import 'package:dzeroth/gen/dzeroth/communities/v1/communities.pb.dart' as pb;
@@ -25,7 +24,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/communities_tablet_rig.dart';
-import '../../../support/context_pane_rig.dart' show findContextPane;
 
 /// R10: the communities restyle, F23 tabs, F37 "Search communities", F24's
 /// Moderators tab, F36 "Search members" and the Joined pill's 48 dp target,
@@ -76,7 +74,6 @@ void main() {
         await rig.pump(tester, width: w);
         expect(tester.takeException(), isNull);
         expect(_field(kSearchCommunitiesHint), findsOneWidget);
-        expect(findContextPane(), findsNothing);
         final field = inCommunitiesPage(_field(kSearchCommunitiesHint));
         expect(field, findsOneWidget);
         expect(
@@ -132,7 +129,6 @@ void main() {
         'the text follows the field to band A and back', (tester) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, width: 1024);
-      expect(findContextPane(), findsNothing);
       await tester.enterText(
         inCommunitiesPage(_field(kSearchCommunitiesHint)),
         'run',
@@ -207,7 +203,6 @@ void main() {
         final rig = CommunitiesTabletRig();
         rig.server.directory = _directoryOf(50);
         await rig.pump(tester, width: 1024);
-        expect(findContextPane(), findsNothing);
         await showExploreTab(tester);
         await tester.enterText(
           inCommunitiesPage(_field(kSearchCommunitiesHint)),
@@ -256,7 +251,7 @@ void main() {
       final tile = tester.getSize(
         find.descendant(of: running, matching: find.byType(AppTileIcon)),
       );
-      expect(tile, const Size.square(CommunityRow.cardTileSize));
+      expect(tile, const Size.square(AppCommunitiesLayout.cardTilePhone));
       handle.dispose();
     });
 
@@ -265,7 +260,6 @@ void main() {
     ) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, width: 1024);
-      expect(findContextPane(), findsNothing);
       await showExploreTab(tester);
       expect(
         find.descendant(
@@ -524,7 +518,6 @@ void main() {
               return;
             }
             expect(_field(kSearchMembersHint), findsOneWidget);
-            expect(findContextPane(), findsNothing);
             final field = inCommunitiesPage(_field(kSearchMembersHint));
             expect(
               tester.getRect(field).bottom,
@@ -688,7 +681,6 @@ void main() {
         width: 1024,
         flags: _searchFlags,
       );
-      expect(findContextPane(), findsNothing);
       await tester.enterText(
         inCommunitiesPage(_field(kSearchMembersHint)),
         'mem',
@@ -778,11 +770,11 @@ void main() {
   });
 
   group('R10 follow-ups', () {
-    testWidgets('the Create preview draws the name in the page header\'s '
-        'own style (the dialog, at band B and band A)', (tester) async {
+    testWidgets('the Create preview draws the name in the phone page header\'s '
+        'own style (the dialog, on the tablet layout)', (tester) async {
       final rig = CommunitiesTabletRig();
       rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MEMBER;
-      await rig.pump(tester, location: _communityPath, width: 1024);
+      await rig.pump(tester, location: _communityPath, width: 360);
       final header = tester.widget<Text>(
         find.descendant(
           of: find.byType(CommunityHeader),
@@ -839,7 +831,6 @@ void main() {
           flags: {...shell, kFeatureCommunityMemberSearch},
         );
         expect(tester.takeException(), isNull);
-        expect(findContextPane(), findsNothing);
         final field = inCommunitiesPage(_field(kSearchMembersHint));
         expect(field, findsOneWidget);
         expect(

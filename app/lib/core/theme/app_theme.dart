@@ -1423,6 +1423,30 @@ abstract final class AppPickerLayout {
   static const double rowGap = 12;
 }
 
+/// Communities geometry per screen size (dp), from the dzeroth-mobile, tablet
+/// and desktop Communities, Community, CommunityMembers, ModLog and
+/// CreateCommunity mocks (dz.css `.card.row`, `.hero`, `.bar`). Colours come
+/// from the theme, gradients from [AppGradients].
+abstract final class AppCommunitiesLayout {
+  // Directory card: the phone's 52 dp tile, the tablet / desktop's 64 dp.
+  static const double cardTilePhone = 52;
+  static const double cardTileWide = 64;
+  static const double cardPaddingPhone = 14;
+  static const double cardPaddingVWide = 16;
+  static const double cardPaddingHWide = 18;
+  static const double cardNameWide = 17;
+
+  // Community hero (tablet / desktop): a navy card under the bar.
+  static const double heroPaddingTop = 22;
+  static const double heroPaddingH = 24;
+  static const double heroPaddingBottom = 26;
+  static const double heroRadius = 28;
+  static const double heroRingDiameter = 360;
+  static const double heroRingEnd = -120;
+  static const double heroRingTop = -150;
+  static const double heroRingAlpha = 0.14;
+}
+
 /// Settings geometry per screen size (dp): the phone mock's raised cards
 /// (dzeroth-mobile Settings) and the tablet / desktop mocks' flat boxes and
 /// category list (dz.css `.box`, `.row`, `.sect`, `.search`). Colours come

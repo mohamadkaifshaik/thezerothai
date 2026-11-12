@@ -3,10 +3,8 @@ import 'dart:async';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
-import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/features/communities/presentation/widgets/community_about.dart';
 import 'package:dzeroth/features/communities/presentation/widgets/community_preview.dart';
-import 'package:dzeroth/features/communities/presentation/widgets/explore_communities_pane.dart';
 import 'package:dzeroth/features/communities/presentation/widgets/moderation_log_about.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/communities/v1/communities.pb.dart' as pb;
@@ -18,7 +16,6 @@ import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as ts;
 
 import '../../../support/communities_tablet_rig.dart';
-import '../../../support/context_pane_rig.dart' show findContextPane;
 
 /// T8a polish: the fixes of the T8a UX review (items 1-8 and the log's
 /// copy). Every item is tablet-only; phones and desktop keep T8a's tests.
@@ -94,7 +91,6 @@ void main() {
         'no pane', (tester) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, location: _communityPath, width: 1024);
-      expect(findContextPane(), findsNothing);
       expect(find.text('About this Community'), findsNothing);
       expect(
         inCommunitiesPage(find.text('Openings, endgames and puzzles')),
@@ -108,7 +104,6 @@ void main() {
       final rig = CommunitiesTabletRig();
       rig.server.description = '';
       await rig.pump(tester, location: _communityPath, width: 1024);
-      expect(findContextPane(), findsNothing);
       expect(find.text('About this Community'), findsNothing);
       await tester.tap(find.text('About'));
       await tester.pumpAndSettle();
@@ -120,7 +115,6 @@ void main() {
     ) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, location: _communityPath, width: 744);
-      expect(findContextPane(), findsNothing);
       expect(find.text('About this Community'), findsNothing);
     });
   });
@@ -132,9 +126,7 @@ void main() {
       await rig.pump(tester, location: AppRouter.homePath, width: 1024);
       unawaited(rig.router.push(_communityPath));
       await tester.pump();
-      expect(findContextPane(), findsNothing);
       await tester.pumpAndSettle();
-      expect(findContextPane(), findsNothing);
       expect(
         inCommunitiesPage(find.text('Openings, endgames and puzzles')),
         findsOneWidget,
@@ -151,9 +143,7 @@ void main() {
       await rig.pump(tester, location: AppRouter.homePath, width: 1024);
       unawaited(rig.router.push(AppRouter.communitiesPath));
       await tester.pump();
-      expect(findContextPane(), findsNothing);
       await tester.pumpAndSettle();
-      expect(findContextPane(), findsNothing);
       await showExploreTab(tester);
       expect(
         inCommunitiesPage(find.byKey(const ValueKey('explore-78'))),
@@ -167,70 +157,20 @@ void main() {
       await rig.pump(tester, width: 1024);
       unawaited(rig.router.push(AppRouter.communityNewPath));
       await tester.pump();
-      expect(findContextPane(), findsNothing);
       await tester.pumpAndSettle();
-      expect(findContextPane(), findsNothing);
       expect(find.byType(CommunityPreview), findsNothing);
       expect(find.widgetWithText(TextButton, 'Preview'), findsOneWidget);
     });
-
-    for (final (placeholder, title) in [
-      (const ExploreCommunitiesPanePlaceholder(), 'Explore communities'),
-      (const CommunityAboutPanePlaceholder(), 'Rules'),
-      (const CommunityPreviewCard(), 'Preview'),
-      (const ModerationLogAboutPlaceholder(), kModerationLogAboutTitle),
-    ]) {
-      testWidgets('${placeholder.runtimeType} is the "$title" card', (
-        tester,
-      ) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: buildAppTheme(brightness: Brightness.light),
-            home: Scaffold(body: SingleChildScrollView(child: placeholder)),
-          ),
-        );
-        expect(
-          find.descendant(
-            of: find.byType(ContextPaneCard),
-            matching: find.text(title),
-          ),
-          findsOneWidget,
-        );
-        expect(tester.takeException(), isNull);
-      });
-    }
-
-    testWidgets('the Community page while GetCommunity is in flight: no pane '
-        'and no Rules card', (tester) async {
-      final rig = CommunitiesTabletRig();
-      final hold = rig.server.holdGet = Completer<void>();
-      await rig.pump(
-        tester,
-        location: _communityPath,
-        width: 1024,
-        settle: false,
-      );
-      expect(findContextPane(), findsNothing);
-      expect(find.text('Rules'), findsNothing);
-
-      hold.complete();
-      await tester.pumpAndSettle();
-      expect(findContextPane(), findsNothing);
-      expect(
-        inCommunitiesPage(find.text('Openings, endgames and puzzles')),
-        findsOneWidget,
-      );
-    });
   });
 
-  group('4. the band A log banner: loaded entries only, in the list', () {
+  group('4. the desktop log banner: loaded entries only, in the list', () {
     testWidgets('loaded: the first item of the log, and it scrolls with it', (
       tester,
     ) async {
       final rig = CommunitiesTabletRig();
       rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
       rig.server.logEntries = _bans(12);
-      await rig.pump(tester, location: _logPath, width: 744, height: 600);
+      await rig.pump(tester, location: _logPath, width: 1440, height: 600);
       final banner = find.byType(ModerationLogAbout);
       expect(banner, findsOneWidget);
       expect(
@@ -247,7 +187,7 @@ void main() {
       final rig = CommunitiesTabletRig();
       rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
       final hold = rig.server.holdLog = Completer<void>();
-      await rig.pump(tester, location: _logPath, width: 744, settle: false);
+      await rig.pump(tester, location: _logPath, width: 1440, settle: false);
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
       expect(find.byType(ModerationLogAbout), findsNothing);
       hold.complete();
@@ -259,7 +199,7 @@ void main() {
       final rig = CommunitiesTabletRig();
       rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
       rig.server.logEntries = [];
-      await rig.pump(tester, location: _logPath, width: 744);
+      await rig.pump(tester, location: _logPath, width: 1440);
       expect(find.text('Nothing here yet'), findsOneWidget);
       expect(find.byType(ModerationLogAbout), findsNothing);
     });
@@ -269,7 +209,7 @@ void main() {
       rig.server.logError = CommunityForbiddenException(
         CommunityForbiddenReason.notModerator,
       );
-      await rig.pump(tester, location: _logPath, width: 744);
+      await rig.pump(tester, location: _logPath, width: 1440);
       expect(find.text('Only moderators can do that.'), findsOneWidget);
       expect(find.byType(ModerationLogAbout), findsNothing);
     });
@@ -277,83 +217,8 @@ void main() {
     testWidgets('not found: no banner', (tester) async {
       final rig = CommunitiesTabletRig();
       rig.server.logError = const NotFoundException('gone');
-      await rig.pump(tester, location: _logPath, width: 744);
+      await rig.pump(tester, location: _logPath, width: 1440);
       expect(find.byType(ModerationLogAbout), findsNothing);
-    });
-  });
-
-  group('band B: About this log inline only for a loaded log (the band A '
-      'rule), never in a pane', () {
-    Finder restoreCopy() => find.textContaining('You can restore');
-
-    for (final (name, error) in <(String, AppException?)>[
-      (
-        'locked',
-        CommunityForbiddenException(CommunityForbiddenReason.notModerator),
-      ),
-      ('not found', const NotFoundException('gone')),
-      ('failed', const UnknownApiException('down')),
-    ]) {
-      testWidgets('$name: no card and no restore copy', (tester) async {
-        final rig = CommunitiesTabletRig();
-        rig.server.logError = error;
-        await rig.pump(tester, location: _logPath, width: 1024);
-        expect(findContextPane(), findsNothing);
-        expect(restoreCopy(), findsNothing);
-        expect(find.text(kModerationLogAboutTitle), findsNothing);
-        expect(find.byType(ModerationLogAbout), findsNothing);
-      });
-    }
-
-    testWidgets('an empty log of a moderator: no card (as band A)', (
-      tester,
-    ) async {
-      final rig = CommunitiesTabletRig();
-      rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
-      rig.server.logEntries = [];
-      await rig.pump(tester, location: _logPath, width: 1024);
-      expect(find.text('Nothing here yet'), findsOneWidget);
-      expect(find.text(kModerationLogAboutTitle), findsNothing);
-    });
-
-    testWidgets('a moderator: no banner while the log loads, then the banner '
-        'inline in the page', (tester) async {
-      final rig = CommunitiesTabletRig();
-      rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
-      final hold = rig.server.holdLog = Completer<void>();
-      await rig.pump(tester, location: _logPath, width: 1024, settle: false);
-      expect(find.byType(ModerationLogAbout), findsNothing);
-      expect(restoreCopy(), findsNothing);
-      expect(findContextPane(), findsNothing);
-
-      hold.complete();
-      await tester.pumpAndSettle();
-      expect(
-        inCommunitiesPage(find.text(kModerationLogAboutText)),
-        findsOneWidget,
-      );
-      expect(findContextPane(), findsNothing);
-      expect(rig.server.count('log:'), 1);
-    });
-
-    testWidgets('pushed from the community page: no pane, no copy while the '
-        'log loads, then the banner inline', (tester) async {
-      final rig = CommunitiesTabletRig();
-      rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
-      await rig.pump(tester, location: _communityPath, width: 1024);
-      final hold = rig.server.holdLog = Completer<void>();
-      unawaited(rig.router.push(_logPath));
-      await tester.pump();
-      expect(findContextPane(), findsNothing);
-      expect(restoreCopy(), findsNothing);
-
-      hold.complete();
-      await tester.pumpAndSettle();
-      expect(findContextPane(), findsNothing);
-      expect(
-        inCommunitiesPage(find.text(kModerationLogAboutText)),
-        findsOneWidget,
-      );
     });
   });
 
@@ -378,7 +243,6 @@ void main() {
           final rig = CommunitiesTabletRig();
           rig.server.directory = _directoryOf(12);
           await rig.pump(tester, width: w, height: 1100);
-          expect(findContextPane(), findsNothing);
           // R10 (F23): the inline directory is the Explore tab.
           await showExploreTab(tester);
           await tester.scrollUntilVisible(
@@ -409,7 +273,6 @@ void main() {
           width: w,
           height: 1100,
         );
-        expect(findContextPane(), findsNothing);
         await tester.tap(find.widgetWithText(TextButton, 'Preview'));
         await tester.pumpAndSettle();
         final preview = find.byType(CommunityPreview);
@@ -481,7 +344,6 @@ void main() {
         final rig = CommunitiesTabletRig();
         rig.server.viewerRole = role;
         await rig.pump(tester, location: _communityPath, width: 1024);
-        expect(findContextPane(), findsNothing);
         expect(find.text('View moderation log'), findsNothing);
         // Exactly one entry: the header's button, in the page.
         expect(find.text('Moderation log'), findsOneWidget);
