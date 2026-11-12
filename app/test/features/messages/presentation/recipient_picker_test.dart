@@ -156,7 +156,16 @@ void main() {
             );
 
             expect(find.text('New message'), findsOneWidget);
-            expect(find.text('To:'), findsOneWidget);
+            // The dialog's pill leads with "To:"; the phone's raised pill
+            // only with the search glyph (the mocks).
+            expect(
+              find.text('To:'),
+              width < 600 ? findsNothing : findsOneWidget,
+            );
+            expect(
+              find.text(width < 600 ? 'Suggested' : 'SUGGESTED'),
+              findsOne,
+            );
             expect(find.text('User 1'), findsOneWidget);
             expect(find.byType(UserListRow), findsNWidgets(3));
             expect(find.byType(FollowButton), findsNothing);

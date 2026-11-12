@@ -13,16 +13,20 @@ import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ScheduledPostStatus;
+import '../../../core/feature_flags/feature_flags.dart';
 import '../../../shared/widgets/primitives/app_back_header.dart';
+import '../../../shared/widgets/primitives/app_alert_confirm.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_notice_banner.dart';
 import '../../../shared/widgets/primitives/headline_message.dart';
 import '../../../shared/widgets/post/post_list_skeleton.dart';
 import '../data/posts_repository.dart';
+import '../domain/posts_feature_flag.dart';
 import 'bloc/scheduled_posts_cubit.dart';
 import 'bloc/scheduled_posts_state.dart';
 import 'post_error_messages.dart';
 import 'widgets/cancel_scheduled_dialog.dart';
+import 'widgets/edit_scheduled_post.dart';
 import 'widgets/scheduled_post_row.dart';
 
 /// "Nothing scheduled" with its one line of guidance. Heading over a muted
@@ -35,6 +39,11 @@ const kScheduledEmptyBody = 'Schedule a post and it will show up here.';
 /// (scheduling is switched off for everyone): same layout as the empty state,
 /// no Retry (pull down to check again).
 const kScheduledUnavailableBody = 'Please check back later.';
+
+/// The Post now confirmation.
+const kPostNowTitle = 'Post this now?';
+const kPostNowMessage =
+    'It goes out right away instead of at its scheduled time.';
 
 /// `/scheduled`: the caller's PENDING and
 /// FAILED scheduled posts, oldest first. Cancel a pending one (after a
@@ -82,6 +91,7 @@ class _ScheduledPostsView extends StatelessWidget {
               AppBackHeader(
                 title: 'Scheduled posts',
                 onBack: () => _back(context),
+                titleContent: const _ScheduledTitle(),
               ),
               const Expanded(child: ScheduledPostsBody()),
             ],
@@ -149,6 +159,8 @@ class _ScheduledPostsBodyState extends State<ScheduledPostsBody> {
     if (!mounted) return;
     switch (result.outcome) {
       case ScheduledRemovalOutcome.done:
+      // Only Post now answers this; a cancel of a gone item is `done`.
+      case ScheduledRemovalOutcome.noLongerScheduled:
         if (!failed) _snack('Scheduled post cancelled.');
       case ScheduledRemovalOutcome.tooLate:
         _snack('That post was already sent.');
@@ -157,9 +169,59 @@ class _ScheduledPostsBodyState extends State<ScheduledPostsBody> {
     }
   }
 
+  /// Post now, after a confirmation: the post goes out at once instead of
+  /// at its time.
+  Future<void> _postNow(pb.ScheduledPost item) async {
+    final cubit = context.read<ScheduledPostsCubit>();
+    final confirmed = await showAppAlertConfirm(
+      context,
+      title: kPostNowTitle,
+      message: kPostNowMessage,
+      confirmLabel: 'Post now',
+    );
+    if (!confirmed || !mounted) return;
+    final result = await cubit.postNow(item);
+    if (!mounted) return;
+    switch (result.outcome) {
+      case ScheduledRemovalOutcome.done:
+      case ScheduledRemovalOutcome.tooLate:
+        _snack('Your post is out.');
+      case ScheduledRemovalOutcome.noLongerScheduled:
+        _snack('That post is no longer scheduled.');
+      case ScheduledRemovalOutcome.failed:
+        _snack(postNowScheduledErrorMessage(result.error!));
+    }
+  }
+
+  /// The editor; it closes itself once the save is answered.
+  Future<void> _edit(pb.ScheduledPost item) async {
+    final cubit = context.read<ScheduledPostsCubit>();
+    final outcome = await showEditScheduledPost(
+      context,
+      item: item,
+      onSave: ({text, publishAt}) =>
+          cubit.edit(item, text: text, publishAt: publishAt),
+    );
+    if (!mounted || outcome == null) return;
+    switch (outcome) {
+      case ScheduledEditOutcome.saved:
+        _snack('Scheduled post updated.');
+      case ScheduledEditOutcome.tooLate:
+        _snack('That post was already sent.');
+      case ScheduledEditOutcome.noLongerScheduled:
+        _snack('That post is no longer scheduled.');
+      case ScheduledEditOutcome.failed:
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cubit = context.read<ScheduledPostsCubit>();
+    // Edit and Post now need scheduling on for this caller; Cancel and
+    // Dismiss only need the list (the route's own rule).
+    final canAct = isFeatureEnabled(context, kFeatureScheduledPosts);
+    final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     return BlocBuilder<ScheduledPostsCubit, ScheduledPostsState>(
       builder: (context, state) => RefreshIndicator(
         onRefresh: cubit.refresh,
@@ -173,7 +235,7 @@ class _ScheduledPostsBodyState extends State<ScheduledPostsBody> {
             if (state.notice != null &&
                 (!cubit.noticeFromPaging || state.items.isEmpty))
               SliverToBoxAdapter(child: _notice(state, cubit)),
-            ..._body(state, cubit),
+            ..._body(state, cubit, canAct: canAct, wide: wide),
           ],
         ),
       ),
@@ -187,7 +249,12 @@ class _ScheduledPostsBodyState extends State<ScheduledPostsBody> {
     );
   }
 
-  List<Widget> _body(ScheduledPostsState state, ScheduledPostsCubit cubit) {
+  List<Widget> _body(
+    ScheduledPostsState state,
+    ScheduledPostsCubit cubit, {
+    required bool canAct,
+    required bool wide,
+  }) {
     switch (state.status) {
       case ScheduledPostsStatus.loading:
         return const [
@@ -229,26 +296,43 @@ class _ScheduledPostsBodyState extends State<ScheduledPostsBody> {
           ];
         }
         return [
-          SliverList.builder(
-            itemCount: state.items.length,
-            findChildIndexCallback: (key) {
-              if (key is! ValueKey<String>) return null;
-              final index = state.items.indexWhere(
-                (i) => 'scheduled-${i.scheduledId}' == key.value,
-              );
-              return index < 0 ? null : index;
-            },
-            itemBuilder: (context, index) {
-              final item = state.items[index];
-              return Column(
-                key: ValueKey('scheduled-${item.scheduledId}'),
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ScheduledPostRow(item: item, onRemove: () => _remove(item)),
-                  const Divider(height: 1),
-                ],
-              );
-            },
+          SliverPadding(
+            padding: wide
+                ? const EdgeInsets.symmetric(
+                    vertical: AppScheduledLayout.wideCardGap / 2,
+                  )
+                : const EdgeInsets.symmetric(
+                    horizontal: AppScheduledLayout.phoneListPaddingH,
+                    vertical: AppScheduledLayout.phoneListPaddingV,
+                  ),
+            sliver: SliverList.builder(
+              itemCount: state.items.length,
+              findChildIndexCallback: (key) {
+                if (key is! ValueKey<String>) return null;
+                final index = state.items.indexWhere(
+                  (i) => 'scheduled-${i.scheduledId}' == key.value,
+                );
+                return index < 0 ? null : index;
+              },
+              itemBuilder: (context, index) {
+                final item = state.items[index];
+                return Padding(
+                  key: ValueKey('scheduled-${item.scheduledId}'),
+                  padding: EdgeInsets.only(
+                    top: wide || index == 0
+                        ? 0
+                        : AppScheduledLayout.phoneCardGap,
+                  ),
+                  child: ScheduledPostRow(
+                    item: item,
+                    wide: wide,
+                    onRemove: () => _remove(item),
+                    onEdit: canAct ? () => _edit(item) : null,
+                    onPostNow: canAct ? () => _postNow(item) : null,
+                  ),
+                );
+              },
+            ),
           ),
           SliverToBoxAdapter(
             child: state.status == ScheduledPostsStatus.loadingMore
@@ -268,5 +352,45 @@ class _ScheduledPostsBodyState extends State<ScheduledPostsBody> {
           ),
         ];
     }
+  }
+}
+
+/// "Scheduled posts" over the count of what is loaded ("2 posts"; "20+
+/// posts" while more pages exist), as in the Scheduled mocks. The count
+/// shows only once the list is in.
+class _ScheduledTitle extends StatelessWidget {
+  const _ScheduledTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final state = context.watch<ScheduledPostsCubit>().state;
+    final ready =
+        state.status == ScheduledPostsStatus.ready ||
+        state.status == ScheduledPostsStatus.loadingMore;
+    final count = state.items.length;
+    final more = state.hasMore ? '+' : '';
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Semantics(
+          header: true,
+          child: Text(
+            'Scheduled posts',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleLarge,
+          ),
+        ),
+        if (ready && count > 0)
+          Text(
+            '$count$more ${count == 1 && more.isEmpty ? 'post' : 'posts'}',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+      ],
+    );
   }
 }

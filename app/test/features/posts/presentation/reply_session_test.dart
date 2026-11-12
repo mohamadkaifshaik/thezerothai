@@ -212,7 +212,7 @@ void main() {
       await openOverThePost(tester);
       await tester.enterText(find.byType(TextField).last, 'sent before');
       await tester.pump();
-      await tester.tap(find.widgetWithText(FilledButton, 'Reply'));
+      await tester.tap(find.widgetWithText(AppPillButton, 'Reply'));
       await tester.pump();
 
       // The session ends while the reply is on the wire; it lands after.
