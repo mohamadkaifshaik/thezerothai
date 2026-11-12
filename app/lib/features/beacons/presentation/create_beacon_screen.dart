@@ -7,16 +7,12 @@ import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/context_pane.dart';
-import '../../../core/widgets/context_pane_slots.dart';
-import '../../../core/widgets/shell_geometry.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../shared/widgets/primitives/app_form_header.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../shared/widgets/primitives/app_pickers.dart';
-import '../../../shared/widgets/primitives/character_counter.dart';
 import '../../communities/data/communities_repository.dart';
 import '../../lists/domain/list_text_rules.dart' show normalizeListText;
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
@@ -73,13 +69,11 @@ Future<TimeOfDay?> _platformPickTime(
 /// before sending; one CreateBeacon per submit. [now], [pickDate] and
 /// [pickTime] are seams for tests.
 ///
-/// On the tablet layout (T8d, tablet plan section 4.1 PlanCreate) the form
-/// has a live preview (the plan page's own `PlanSummary` of what it would
-/// create) and "Tips for a good plan": band B shows both in the context pane,
-/// lent by this page; band A has a Preview header action that opens the
-/// preview in a dialog, and the tips inline at the top of the form,
-/// collapsed. The date and time pickers are dialogs on the content area
-/// there. Phones and desktop keep today's form (ruling R-1).
+/// At every width the header has a Preview action that opens the plan page's
+/// own `PlanSummary` of what the form would create in a dialog, and the tips
+/// ("Tips for a good plan") sit inline at the top of the form, collapsed. Cost
+/// and Open spots share a row where the column has room for both. The date and
+/// time pickers are dialogs on the content area on the tablet layout.
 class CreateBeaconScreen extends StatefulWidget {
   const CreateBeaconScreen({
     super.key,
@@ -114,15 +108,11 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
   var _audiences = const [BeaconsAudience.public()];
   var _audience = const BeaconsAudience.public();
 
-  /// The plan as typed, for the preview (band B's pane, band A's dialog).
+  /// The plan as typed, for the Preview dialog.
   late final ValueNotifier<pb.Beacon> _draft;
-  final _paneLease = ContextPaneLease();
 
-  /// Band A's inline tips, open or closed; kept across resizes.
+  /// The inline tips, open or closed.
   var _tipsOpen = false;
-
-  /// Band A's open Preview dialog, if any.
-  ModalRoute<void>? _previewRoute;
 
   DateTime _now() => (widget.now ?? DateTime.now)();
 
@@ -138,24 +128,7 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _paneLease.attach(context, AppRouter.planNewPath, {
-      ContextSectionKind.planPreview: (context) =>
-          ValueListenableBuilder<pb.Beacon>(
-            valueListenable: _draft,
-            builder: (context, draft, _) => PlanPreviewCard(
-              beacon: draft,
-              showOrganiser: draft.hasOrganiser(),
-            ),
-          ),
-      ContextSectionKind.planTips: (context) => const PlanTipsCard(),
-    });
-  }
-
-  @override
   void dispose() {
-    _paneLease.dispose();
     _draft.dispose();
     _title.dispose();
     _details.dispose();
@@ -223,56 +196,27 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
     );
   }
 
-  /// Band A's Preview (tablet plan section 4.1: "header action that opens a
-  /// Preview dialog"): a D 560 dialog on the content area that follows the
-  /// form.
+  /// The Preview dialog: it follows the form while it is open.
   void _openPreview() => showAppDialog<void>(
     context: context,
     maxWidth: AppSize.dialogMax,
-    builder: (dialogContext) {
-      _previewRoute = ModalRoute.of(dialogContext);
-      return AppDialog(
-        title: kPlanPreviewTitle,
-        body: ValueListenableBuilder<pb.Beacon>(
-          valueListenable: _draft,
-          // The dialog pads its title and body already: the preview's lines
-          // start where the title does.
-          builder: (context, draft, _) => PlanPreview(
-            beacon: draft,
-            showOrganiser: draft.hasOrganiser(),
-            inset: 0,
-          ),
+    builder: (dialogContext) => AppDialog(
+      title: kPlanPreviewTitle,
+      body: ValueListenableBuilder<pb.Beacon>(
+        valueListenable: _draft,
+        // The dialog pads its title and body already: the preview's lines
+        // start where the title does.
+        builder: (context, draft, _) =>
+            PlanPreview(beacon: draft, showOrganiser: draft.hasOrganiser()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Close'),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Close'),
-          ),
-        ],
-      );
-    },
-  ).whenComplete(() => _previewRoute = null);
-
-  /// Band A's Preview dialog belongs to band A: past 840 the pane shows the
-  /// preview (it would show twice, once behind the scrim), and at 1200 or
-  /// under 600 there is no preview. When the header action goes away with
-  /// the dialog open, the dialog is popped after that frame.
-  void _closePreviewOffBandA(bool previewAction) {
-    final route = _previewRoute;
-    if (previewAction || route == null) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Once per dialog, however many builds asked.
-      if (!identical(_previewRoute, route) || !route.isActive) return;
-      _previewRoute = null;
-      final navigator = route.navigator;
-      if (navigator == null) return;
-      if (route.isCurrent) {
-        navigator.maybePop();
-      } else {
-        navigator.removeRoute(route);
-      }
-    });
-  }
+      ],
+    ),
+  );
 
   void _cancel() {
     if (context.canPop()) {
@@ -389,23 +333,11 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
     _cubit.create(request);
   }
 
-  Widget _counter(TextEditingController c, int max) =>
-      CharacterCounter(remaining: max - beaconTextLength(c.text));
+  int _left(TextEditingController c, int max) => max - beaconTextLength(c.text);
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    // Band A of the tablet layout: Preview in the header opens the dialog,
-    // and the tips sit inline at the top of the form. Band B shows both in
-    // the context pane instead; phones and desktop keep today's form
-    // (ruling R-1).
-    final tablet = ShellGeometry.maybeOf(context)?.tablet ?? false;
-    final previewAction =
-        tablet &&
-        !ContextPaneScope.shows(context, ContextSectionKind.planPreview);
-    final tipsInline =
-        tablet && !ContextPaneScope.shows(context, ContextSectionKind.planTips);
-    _closePreviewOffBandA(previewAction);
     return Scaffold(
       body: SafeArea(
         child: AppMainColumn(
@@ -432,8 +364,8 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                       busySemanticsLabel: 'Creating plan',
                       onCancel: _requestExit,
                       onAction: _canCreate && !busy ? _create : null,
-                      secondaryLabel: previewAction ? kPlanPreviewTitle : null,
-                      onSecondary: previewAction ? _openPreview : null,
+                      secondaryLabel: kPlanPreviewTitle,
+                      onSecondary: _openPreview,
                     ),
                     Expanded(
                       child: SingleChildScrollView(
@@ -441,16 +373,11 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            // Always one child here, so the fields keep their
-                            // place when the tips move to the pane at 840.
-                            if (tipsInline)
-                              PlanTipsSection(
-                                expanded: _tipsOpen,
-                                onToggle: () =>
-                                    setState(() => _tipsOpen = !_tipsOpen),
-                              )
-                            else
-                              const SizedBox.shrink(),
+                            PlanTipsSection(
+                              expanded: _tipsOpen,
+                              onToggle: () =>
+                                  setState(() => _tipsOpen = !_tipsOpen),
+                            ),
                             PlanFormSection(
                               title: 'What',
                               child: PlanChoiceChips<pb.BeaconActivity>(
@@ -469,38 +396,30 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                 onSelected: (a) => _update(() => _activity = a),
                               ),
                             ),
-                            TextField(
+                            PlanTextField(
+                              label: 'Title',
                               controller: _title,
                               enabled: !busy,
                               textInputAction: TextInputAction.next,
-                              decoration: InputDecoration(
-                                labelText: 'Title',
-                                errorText: beaconFieldError(
-                                  beaconTitleIssue(_title.text),
-                                  max: kBeaconTitleMaxLength,
-                                ),
-                                counter: _counter(
-                                  _title,
-                                  kBeaconTitleMaxLength,
-                                ),
+                              remaining: _left(_title, kBeaconTitleMaxLength),
+                              error: beaconFieldError(
+                                beaconTitleIssue(_title.text),
+                                max: kBeaconTitleMaxLength,
                               ),
                             ),
-                            const SizedBox(height: AppSpacing.md),
-                            TextField(
+                            PlanTextField(
+                              label: 'Details',
                               controller: _details,
                               enabled: !busy,
                               minLines: 2,
                               maxLines: 4,
-                              decoration: InputDecoration(
-                                labelText: 'Details',
-                                errorText: beaconFieldError(
-                                  beaconDetailsIssue(_details.text),
-                                  max: kBeaconDetailsMaxLength,
-                                ),
-                                counter: _counter(
-                                  _details,
-                                  kBeaconDetailsMaxLength,
-                                ),
+                              remaining: _left(
+                                _details,
+                                kBeaconDetailsMaxLength,
+                              ),
+                              error: beaconFieldError(
+                                beaconDetailsIssue(_details.text),
+                                max: kBeaconDetailsMaxLength,
                               ),
                             ),
                             PlanWhenFields(
@@ -523,32 +442,35 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                     _update(() => _durationMinutes = m),
                               ),
                             ),
-                            const SizedBox(height: AppSpacing.sm),
-                            TextField(
+                            PlanTextField(
+                              label: 'Meeting point',
                               controller: _venue,
                               enabled: !busy,
                               textInputAction: TextInputAction.done,
-                              decoration: InputDecoration(
-                                labelText: 'Meeting point',
-                                helperText: kMeetingPointNote,
-                                errorText: beaconFieldError(
-                                  beaconVenueIssue(_venue.text),
-                                  max: kBeaconVenueMaxLength,
-                                ),
-                                counter: _counter(
-                                  _venue,
-                                  kBeaconVenueMaxLength,
-                                ),
+                              remaining: _left(_venue, kBeaconVenueMaxLength),
+                              helper: kMeetingPointNote,
+                              error: beaconFieldError(
+                                beaconVenueIssue(_venue.text),
+                                max: kBeaconVenueMaxLength,
                               ),
                             ),
-                            PlanFormSection(
-                              title: 'Cost',
-                              child: PlanChoiceChips<pb.BeaconCost>(
-                                values: kPlanCosts,
-                                selected: _cost,
-                                label: costLabel,
+                            PlanPair(
+                              first: PlanFormSection(
+                                title: 'Cost',
+                                child: PlanChoiceChips<pb.BeaconCost>(
+                                  values: kPlanCosts,
+                                  selected: _cost,
+                                  label: costLabel,
+                                  enabled: !busy,
+                                  onSelected: (c) => _update(() => _cost = c),
+                                ),
+                              ),
+                              second: PlanSpotsStepper(
+                                value: _openSpots,
+                                min: kBeaconMinSpots,
+                                max: kBeaconMaxSpots,
                                 enabled: !busy,
-                                onSelected: (c) => _update(() => _cost = c),
+                                onChanged: (n) => _update(() => _openSpots = n),
                               ),
                             ),
                             PlanFormSection(
@@ -568,13 +490,6 @@ class _CreateBeaconScreenState extends State<CreateBeaconScreen> {
                                 enabled: !busy,
                                 onSelected: (c) => _update(() => _chat = c),
                               ),
-                            ),
-                            PlanSpotsStepper(
-                              value: _openSpots,
-                              min: kBeaconMinSpots,
-                              max: kBeaconMaxSpots,
-                              enabled: !busy,
-                              onChanged: (n) => _update(() => _openSpots = n),
                             ),
                             PlanFormSection(
                               title: 'Who can see it',

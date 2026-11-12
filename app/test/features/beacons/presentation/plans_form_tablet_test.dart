@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
-import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
@@ -31,11 +30,6 @@ import '../../../support/plans_tablet_rig.dart';
 import '../../../support/tablet_modal_harness.dart' show openDialogRect;
 import '../../../support/theme_harness.dart';
 
-const _widths = <double>[360, 599, 600, 839, 840, 1024, 1199, 1200];
-
-bool _tabletFlags(Set<String> flags) =>
-    flags.contains(kFeatureUiShell) && flags.contains(kFeatureUiTablet);
-
 bool _tabletWidth(double w) =>
     w >= AppBreakpoints.mobile && w < AppBreakpoints.tablet;
 
@@ -56,25 +50,16 @@ Finder _inDialogPreview(Finder f) => find.descendant(
 );
 
 final _previewAction = find.widgetWithText(TextButton, kPlanPreviewTitle);
+Finder _field(String label) => find.byKey(ValueKey('plan-field-$label'));
 const _tipsToggle = ValueKey('plan-tips-toggle');
 
 final String _editPath = AppRouter.planEditPath(kBeaconIdA);
-const _rigTitle = 'Coffee at noon';
 
 /// Fills the create form's text fields.
 Future<void> _fillCreate(WidgetTester tester) async {
-  await tester.enterText(
-    _inForm(find.widgetWithText(TextField, 'Title')),
-    ('  Board games '),
-  );
-  await tester.enterText(
-    _inForm(find.widgetWithText(TextField, 'Details')),
-    'Bring snacks',
-  );
-  await tester.enterText(
-    _inForm(find.widgetWithText(TextField, 'Meeting point')),
-    'Library hall',
-  );
+  await tester.enterText(_inForm(_field('Title')), ('  Board games '));
+  await tester.enterText(_inForm(_field('Details')), 'Bring snacks');
+  await tester.enterText(_inForm(_field('Meeting point')), 'Library hall');
   await tester.pumpAndSettle();
 }
 
@@ -113,125 +98,51 @@ Future<void> _peek(WidgetTester tester, Future<void> Function() check) async {
 }
 
 void main() {
-  group('PlanCreate (/plans/new): flag modes x widths', () {
-    for (final MapEntry(key: mode, value: flags) in kPlansFlagModes.entries) {
-      for (final w in _widths) {
-        final tablet = _tabletFlags(flags) && _tabletWidth(w);
-        testWidgets('$mode at ${w.toInt()}: '
-            '${tablet ? 'Preview action and inline tips' : 'today\'s form'}', (
-          tester,
-        ) async {
-          final rig = PlansTabletRig();
-          await rig.pump(
-            tester,
-            location: AppRouter.planNewPath,
-            width: w,
-            height: 1100,
-            flags: flags,
-            realForms: true,
-          );
-          expect(tester.takeException(), isNull);
+  group('the forms at every width', () {
+    testWidgets('PlanEdit: a plan that has not started takes a date, time, '
+        'duration and cost, with the notify helper (F28)', (tester) async {
+      final rig = PlansTabletRig();
+      await rig.pump(
+        tester,
+        location: _editPath,
+        height: 1100,
+        realForms: true,
+      );
+      expect(find.text('Edit plan'), findsOneWidget);
+      expect(_inForm(find.byTooltip('Pick a date')), findsOneWidget);
+      expect(_inForm(find.byTooltip('Pick a time')), findsOneWidget);
+      expect(_inForm(find.text(kPlanEditNotifyHelper)), findsOneWidget);
+      expect(
+        _inForm(find.widgetWithText(ChoiceChip, '60 min')),
+        findsOneWidget,
+      );
+      expect(_inForm(find.widgetWithText(ChoiceChip, 'Free')), findsOne);
+      expect(rig.server.calls, ['get']);
+    });
 
-          expect(find.text('New plan'), findsOneWidget);
-          expect(_previewAction, tablet ? findsOneWidget : findsNothing);
-          expect(
-            find.byKey(_tipsToggle),
-            tablet ? findsOneWidget : findsNothing,
-          );
-          // No list pane beside the form (plan section 3, "Not on"), and no
-          // side column on the tablet layout: the preview is the dialog.
-          expect(findPlansPane(), findsNothing);
-          expect(findContextPane(), findsNothing);
-          expect(find.byType(PlanPreview), findsNothing);
-          expect(find.text(kPlanTipsTitle), tablet ? findsOne : findsNothing);
-          // Tips are collapsed inline: no tip text until opened.
-          expect(find.text(kPlanTips.first), findsNothing);
-          // The form's own note on the meeting point is unchanged.
-          expect(_inForm(find.text(kMeetingPointNote)), findsOneWidget);
-          expect(rig.server.calls, isEmpty);
-        });
-      }
-    }
-  });
-
-  group('PlanEdit (/plans/:id/edit): flag modes x widths', () {
-    for (final MapEntry(key: mode, value: flags) in kPlansFlagModes.entries) {
-      for (final w in _widths) {
-        final tablet = _tabletFlags(flags) && _tabletWidth(w);
-        testWidgets('$mode at ${w.toInt()}: '
-            '${tablet ? 'Preview action and inline tips' : 'today\'s form'}', (
-          tester,
-        ) async {
-          final rig = PlansTabletRig();
-          await rig.pump(
-            tester,
-            location: _editPath,
-            width: w,
-            height: 1100,
-            flags: flags,
-            realForms: true,
-          );
-          expect(tester.takeException(), isNull);
-
-          expect(find.text('Edit plan'), findsOneWidget);
-          expect(
-            _inForm(find.widgetWithText(TextField, _rigTitle)),
-            findsOneWidget,
-          );
-          expect(_previewAction, tablet ? findsOneWidget : findsNothing);
-          expect(
-            find.byKey(_tipsToggle),
-            tablet ? findsOneWidget : findsNothing,
-          );
-          expect(findPlansPane(), findsNothing);
-          expect(findContextPane(), findsNothing);
-          expect(find.byType(PlanPreview), findsNothing);
-          // The meeting point's privacy note, at every width (ruling 3,
-          // owner 2026-11-11), as on the create form.
-          expect(_inForm(find.text(kMeetingPointNote)), findsOneWidget);
-          // F28 (R12): a plan that has not started takes a new date, time,
-          // duration and cost, with the designs' helper under Date and Time.
-          expect(_inForm(find.byTooltip('Pick a date')), findsOneWidget);
-          expect(_inForm(find.byTooltip('Pick a time')), findsOneWidget);
-          expect(_inForm(find.text(kPlanEditNotifyHelper)), findsOneWidget);
-          expect(
-            _inForm(find.widgetWithText(ChoiceChip, '60 min')),
-            findsOneWidget,
-          );
-          expect(_inForm(find.widgetWithText(ChoiceChip, 'Free')), findsOne);
-          expect(rig.server.calls, ['get']);
-        });
-      }
-    }
-  });
-
-  // Ruling 3 (owner, 2026-11-11): the Edit form's Meeting point carries
-  // the privacy note at every width, phones and desktop included.
-  group('PlanEdit: the meeting point note on a phone and on desktop', () {
+    // Ruling 3 (owner, 2026-11-11): both forms carry the meeting point's
+    // privacy note at every width.
     for (final (w, h) in const <(double, double)>[(360, 800), (1440, 900)]) {
-      for (final MapEntry(key: mode, value: flags) in kPlansFlagModes.entries) {
-        testWidgets('$mode at ${w.toInt()}: the note under the field', (
+      for (final location in [AppRouter.planNewPath, _editPath]) {
+        testWidgets('$location at ${w.toInt()}: the note under the field', (
           tester,
         ) async {
           final rig = PlansTabletRig();
           await rig.pump(
             tester,
-            location: _editPath,
+            location: location,
             width: w,
             height: h,
-            flags: flags,
             realForms: true,
           );
           expect(tester.takeException(), isNull);
-          final field = _inForm(
-            find.widgetWithText(TextField, 'Venue of $_rigTitle'),
-          );
           expect(
-            find.descendant(of: field, matching: find.text(kMeetingPointNote)),
+            find.descendant(
+              of: _inForm(_field('Meeting point')),
+              matching: find.text(kMeetingPointNote),
+            ),
             findsOneWidget,
           );
-          expect(find.byType(PlanPreview), findsNothing);
-          expect(_previewAction, findsNothing);
         });
       }
     }
@@ -460,14 +371,8 @@ void main() {
         expect(_inDialogPreview(find.text('Orla')), findsOneWidget);
       });
 
-      await tester.enterText(
-        _inForm(find.widgetWithText(TextField, _rigTitle)),
-        ' Tea at four ',
-      );
-      await tester.enterText(
-        _inForm(find.widgetWithText(TextField, 'Venue of $_rigTitle')),
-        'Library',
-      );
+      await tester.enterText(_inForm(_field('Title')), ' Tea at four ');
+      await tester.enterText(_inForm(_field('Meeting point')), 'Library');
       await tester.pumpAndSettle();
       await _peek(tester, () async {
         expect(_inDialogPreview(find.text('Tea at four')), findsOneWidget);
@@ -662,7 +567,7 @@ void main() {
     });
   });
 
-  group('the Preview dialog (both tablet bands)', () {
+  group('the Preview dialog', () {
     for (final w in <double>[600, 744, 839, 840, 1024, 1199]) {
       testWidgets('create at ${w.toInt()}: a D 560 on the content area with '
           'the form as typed', (tester) async {
@@ -728,10 +633,7 @@ void main() {
           height: 1100,
           realForms: true,
         );
-        await tester.enterText(
-          _inForm(find.widgetWithText(TextField, _rigTitle)),
-          'Tea at four',
-        );
+        await tester.enterText(_inForm(_field('Title')), 'Tea at four');
         await tester.pumpAndSettle();
         await tester.tap(_previewAction);
         await tester.pumpAndSettle();
@@ -771,87 +673,6 @@ void main() {
   // UX review of T8d: the Preview dialog must not outlive the tablet layout.
   // Across 840 it stays (the same layout, no pane to take over); at 1200 and
   // below 600 there is no preview at all.
-  group('the Preview dialog across the layout edges', () {
-    for (final (name, location) in [
-      ('create', AppRouter.planNewPath),
-      ('edit', AppRouter.planEditPath(kBeaconIdA)),
-    ]) {
-      testWidgets('$name: open at 834, then 1024 keeps it open, with no '
-          'pane', (tester) async {
-        final rig = PlansTabletRig();
-        await rig.pump(
-          tester,
-          location: location,
-          width: 834,
-          height: 1100,
-          realForms: true,
-        );
-        await tester.tap(_previewAction);
-        await tester.pumpAndSettle();
-        expect(find.byType(Dialog), findsOneWidget);
-
-        await rig.resize(tester, 1024);
-        expect(tester.takeException(), isNull);
-        expect(find.byType(Dialog), findsOneWidget);
-        expect(find.byType(PlanPreview), findsOneWidget);
-        expect(findContextPane(), findsNothing);
-        expect(_formPage(), findsOneWidget);
-        expect(rig.uri.path, location);
-      });
-
-      for (final w in <double>[1200, 599]) {
-        testWidgets('$name: open at 834, then ${w.toInt()} closes it', (
-          tester,
-        ) async {
-          final rig = PlansTabletRig();
-          await rig.pump(
-            tester,
-            location: location,
-            width: 834,
-            height: 1100,
-            realForms: true,
-          );
-          await tester.tap(_previewAction);
-          await tester.pumpAndSettle();
-          expect(find.byType(Dialog), findsOneWidget);
-
-          await rig.resize(tester, w);
-          expect(tester.takeException(), isNull);
-          expect(find.byType(Dialog), findsNothing);
-          expect(find.byType(PlanPreview), findsNothing);
-          expect(_formPage(), findsOneWidget);
-          expect(rig.uri.path, location);
-        });
-      }
-
-      testWidgets('$name: a resize inside the tablet layout keeps it open', (
-        tester,
-      ) async {
-        final rig = PlansTabletRig();
-        await rig.pump(
-          tester,
-          location: location,
-          width: 834,
-          height: 1100,
-          realForms: true,
-        );
-        await tester.tap(_previewAction);
-        await tester.pumpAndSettle();
-        await rig.resize(tester, 700);
-        expect(find.byType(Dialog), findsOneWidget);
-        await tester.tap(find.text('Close'));
-        await tester.pumpAndSettle();
-        expect(find.byType(Dialog), findsNothing);
-        // Closed by hand, then across 840: nothing else is popped, and the
-        // preview is still behind the action (no pane takes it).
-        await rig.resize(tester, 1024);
-        expect(_formPage(), findsOneWidget);
-        expect(find.byType(PlanPreview), findsNothing);
-        expect(_previewAction, findsOneWidget);
-      });
-    }
-  });
-
   group('Tips for a good plan, inline and collapsible', () {
     for (final location in [AppRouter.planNewPath, _editPath]) {
       for (final w in <double>[744, 1024]) {
@@ -904,92 +725,6 @@ void main() {
         });
       }
     }
-  });
-
-  group('state across resizes', () {
-    testWidgets('create: 839 -> 840 -> 1024 -> 1199 -> 1200 -> 599 -> 600 -> '
-        '839 keeps the form, the text and the open tips; the Preview action '
-        'follows the tablet layout', (tester) async {
-      final rig = PlansTabletRig();
-      await rig.pump(
-        tester,
-        location: AppRouter.planNewPath,
-        width: 839,
-        height: 1100,
-        realForms: true,
-      );
-      await _fillCreate(tester);
-      await tester.tap(find.byKey(_tipsToggle));
-      await tester.pumpAndSettle();
-      final state = tester.state(find.byType(CreateBeaconScreen));
-      EditableTextState field() => tester.state<EditableTextState>(
-        find.descendant(
-          of: _inForm(find.widgetWithText(TextField, 'Title')),
-          matching: find.byType(EditableText),
-        ),
-      );
-      final title = field();
-
-      for (final w in <double>[840, 1024, 1199, 1200, 599, 600, 839]) {
-        await rig.resize(tester, w);
-        expect(tester.takeException(), isNull, reason: '$w');
-        expect(
-          tester.state(find.byType(CreateBeaconScreen)),
-          same(state),
-          reason: '$w',
-        );
-        expect(field(), same(title), reason: '$w');
-        expect(title.textEditingValue.text, '  Board games ');
-        expect(findContextPane(), findsNothing, reason: '$w');
-        expect(
-          _previewAction,
-          _tabletWidth(w) ? findsOneWidget : findsNothing,
-          reason: '$w',
-        );
-        expect(
-          find.byKey(_tipsToggle),
-          _tabletWidth(w) ? findsOneWidget : findsNothing,
-          reason: '$w',
-        );
-      }
-      // Back in the tablet layout, the tips are still open.
-      expect(_inForm(find.text(kPlanTips.first)), findsOneWidget);
-      await tester.tap(_previewAction);
-      await tester.pumpAndSettle();
-      expect(_inDialogPreview(find.text('Board games')), findsOneWidget);
-      expect(rig.server.calls, isEmpty);
-    });
-
-    testWidgets('edit: 1024 -> 839 -> 840 -> 1200 -> 1024 keeps the form '
-        'and its edits with one GetBeacon', (tester) async {
-      final rig = PlansTabletRig();
-      await rig.pump(tester, location: _editPath, realForms: true);
-      await tester.enterText(
-        _inForm(find.widgetWithText(TextField, _rigTitle)),
-        'Tea at four',
-      );
-      await tester.pumpAndSettle();
-      final state = tester.state(find.byType(EditBeaconScreen));
-      for (final w in <double>[839, 840, 1200, 1024]) {
-        await rig.resize(tester, w);
-        expect(tester.takeException(), isNull, reason: '$w');
-        expect(tester.state(find.byType(EditBeaconScreen)), same(state));
-        expect(
-          _inForm(find.widgetWithText(TextField, 'Tea at four')),
-          findsOneWidget,
-        );
-        expect(findContextPane(), findsNothing, reason: '$w');
-        expect(
-          _previewAction,
-          _tabletWidth(w) ? findsOneWidget : findsNothing,
-          reason: '$w',
-        );
-      }
-      await tester.tap(_previewAction);
-      await tester.pumpAndSettle();
-      expect(_inDialogPreview(find.text('Tea at four')), findsOneWidget);
-      expect(rig.server.calls, ['get']);
-    });
   });
 
   group('date and time pickers (T2 deferred them here; plan section 5.4)', () {

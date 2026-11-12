@@ -17,7 +17,6 @@ import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../shared/widgets/user/user_list_skeleton.dart';
 import '../../graph/data/graph_repository.dart';
 import '../data/beacons_repository.dart';
-import '../domain/beacon_labels.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/beacon_people_cubit.dart';
 import 'bloc/beacon_people_state.dart';
@@ -28,11 +27,10 @@ import '../../../shared/widgets/primitives/app_dialog.dart';
 /// requests with their notes and the controls (Accept; Decline, Decline and
 /// block; Remove). One GetBeacon tells whether the viewer manages the plan.
 ///
-/// The plan's summary sits under the header at every width (tablet plan
-/// section 3, R-inline; no pane in band B): its title and time, how many are
-/// going, the organiser's requests, the open spots, and who may see the
-/// list. A completed accept, decline or remove reads the plan again so the
-/// counts follow.
+/// The header names the plan; under it, at every width, a summary says how
+/// many are going, the organiser's requests, the open spots, and who may see
+/// the list. A completed accept, decline or remove reads the plan again so
+/// the counts follow.
 class BeaconPeopleScreen extends StatefulWidget {
   const BeaconPeopleScreen({super.key, required this.beaconId});
 
@@ -236,7 +234,11 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
             ],
             child: Column(
               children: [
-                AppBackHeader(title: 'People', onBack: _back),
+                AppBackHeader(
+                  title: 'People',
+                  subtitle: _view?.beacon.title,
+                  onBack: _back,
+                ),
                 if (_view case final view?)
                   _PeopleSummary(
                     view: view,
@@ -246,19 +248,33 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
                     showNote: _mayList,
                   ),
                 if (manages && requests != null)
-                  AppTabBar(
-                    tabs: const [
-                      AppTab(label: 'Going'),
-                      AppTab(label: 'Requests'),
-                    ],
-                    selectedIndex: _tab,
-                    equalWidth: true,
-                    semanticLabel: 'People lists',
-                    onChanged: (i) {
-                      setState(() => _tab = i);
-                      // The other tab may have changed under an action here.
-                      (i == 0 ? _going : requests).load();
-                    },
+                  BlocBuilder<BeaconPeopleCubit, BeaconPeopleState>(
+                    bloc: requests,
+                    buildWhen: (a, b) =>
+                        a.status != b.status ||
+                        a.rows.length != b.rows.length ||
+                        a.hasMore != b.hasMore,
+                    builder: (context, state) => AppTabBar(
+                      // The counts of the designs' tabs: who is going, and the
+                      // requests loaded ("20+" while more pages exist).
+                      tabs: [
+                        AppTab(label: 'Going · ${_view!.beacon.acceptedCount}'),
+                        AppTab(
+                          label: state.status == PeopleLoad.ready
+                              ? 'Requests · ${state.rows.length}'
+                                    '${state.hasMore ? '+' : ''}'
+                              : 'Requests',
+                        ),
+                      ],
+                      selectedIndex: _tab,
+                      equalWidth: true,
+                      semanticLabel: 'People lists',
+                      onChanged: (i) {
+                        setState(() => _tab = i);
+                        // The other tab may have changed under an action here.
+                        (i == 0 ? _going : requests).load();
+                      },
+                    ),
                   )
                 else
                   const AppSectionHeader(title: 'Going'),
@@ -496,11 +512,10 @@ class _PendingBlockRow extends StatelessWidget {
   }
 }
 
-/// The plan's facts under the People header (tablet plan section 4.1,
-/// PlanPeople: "summary (going / requests / open spots + 'Only people who
-/// are going…') inl header", at every width). Requests are the organiser's
-/// only, counted from the loaded Requests list ("20+" while more pages
-/// exist); there is no count on the wire.
+/// The plan's counts under the People header (the desktop PlanPeople's side
+/// box, at every width: going, requests, open spots, and who may see the
+/// list). Requests are the organiser's only, counted from the loaded Requests
+/// list ("20+" while more pages exist); there is no count on the wire.
 class _PeopleSummary extends StatelessWidget {
   const _PeopleSummary({
     required this.view,
@@ -524,56 +539,48 @@ class _PeopleSummary extends StatelessWidget {
       open == 1 ? '1 open spot' : '$open open spots',
     ].join(' · ');
     final requests = this.requests;
-    return Padding(
-      key: const ValueKey('plan-people-summary'),
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.md,
-        AppSpacing.smd,
-        AppSpacing.md,
-        AppSpacing.sm,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            b.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleMedium,
-          ),
-          Text(
-            beaconWhenText(b),
-            style: theme.textTheme.bodySmall?.copyWith(color: muted),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          if (requests == null)
-            Text(counts(null), style: theme.textTheme.bodyMedium)
-          else
-            BlocBuilder<BeaconPeopleCubit, BeaconPeopleState>(
-              bloc: requests,
-              buildWhen: (a, c) =>
-                  a.status != c.status ||
-                  a.rows.length != c.rows.length ||
-                  a.hasMore != c.hasMore,
-              builder: (context, state) {
-                final requested = state.status != PeopleLoad.ready
-                    ? null
-                    : '${state.rows.length}${state.hasMore ? '+' : ''} '
-                          '${state.rows.length == 1 && !state.hasMore ? 'request' : 'requests'}';
-                return Text(
-                  counts(requested),
-                  style: theme.textTheme.bodyMedium,
-                );
-              },
-            ),
-          if (showNote) ...[
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              kPeopleListNote,
-              style: theme.textTheme.bodySmall?.copyWith(color: muted),
-            ),
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: Padding(
+        key: const ValueKey('plan-people-summary'),
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md,
+          AppSpacing.smd,
+          AppSpacing.md,
+          AppSpacing.sm,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (requests == null)
+              Text(counts(null), style: theme.textTheme.bodyMedium)
+            else
+              BlocBuilder<BeaconPeopleCubit, BeaconPeopleState>(
+                bloc: requests,
+                buildWhen: (a, c) =>
+                    a.status != c.status ||
+                    a.rows.length != c.rows.length ||
+                    a.hasMore != c.hasMore,
+                builder: (context, state) {
+                  final requested = state.status != PeopleLoad.ready
+                      ? null
+                      : '${state.rows.length}${state.hasMore ? '+' : ''} '
+                            '${state.rows.length == 1 && !state.hasMore ? 'request' : 'requests'}';
+                  return Text(
+                    counts(requested),
+                    style: theme.textTheme.bodyMedium,
+                  );
+                },
+              ),
+            if (showNote) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                kPeopleListNote,
+                style: theme.textTheme.bodySmall?.copyWith(color: muted),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

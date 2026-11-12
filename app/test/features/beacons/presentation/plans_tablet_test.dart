@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_nav_rail.dart';
@@ -48,8 +49,10 @@ Finder _back(Finder scope) =>
 void main() {
   // Off the tablet layout (`ui_shell` + `ui_tablet`, 600-1199) nothing new
   // appears and nothing new is sent: no list pane, no "Your plans", no
-  // ListMyBeacons. Band B shows the list pane with "Your plans" on top and
-  // the placeholder; band A the list with "Your plans" inline.
+  // ListMyBeacons. The one exception is the desktop of the new shell
+  // (`ui_shell`, 1200 and up), which carries "Your plans" inline. Band B shows
+  // the list pane with "Your plans" on top and the placeholder; band A the
+  // list with "Your plans" inline.
   group('flag modes x widths (/plans)', () {
     const widths = <double>[360, 599, 600, 839, 840, 1024, 1199, 1200];
     for (final MapEntry(key: mode, value: flags) in kPlansFlagModes.entries) {
@@ -63,11 +66,15 @@ void main() {
               width >= AppBreakpoints.mobile &&
               width < AppBreakpoints.tablet;
           final bandB = tablet && width >= AppBreakpoints.expanded;
+          final yours =
+              tablet ||
+              (flags.contains(kFeatureUiShell) &&
+                  width >= AppBreakpoints.tablet);
 
           expect(findPlansPane(), bandB ? findsOneWidget : findsNothing);
           expect(
             find.byType(YourPlansSection),
-            tablet ? findsOneWidget : findsNothing,
+            yours ? findsOneWidget : findsNothing,
           );
           expect(find.text(kPickAPlan), bandB ? findsOneWidget : findsNothing);
           // The plans are listed once, in the pane (B) or the page.
@@ -77,9 +84,9 @@ void main() {
             findsOneWidget,
           );
           // One ListBeacons whatever the layout; ListMyBeacons (limit 2)
-          // only on the tablet layout.
+          // only where "Your plans" shows.
           expect(rig.count('list:'), 1);
-          expect(rig.server.mineLimits, tablet ? [2] : isEmpty);
+          expect(rig.server.mineLimits, yours ? [2] : isEmpty);
           // No context pane beside a list-detail page.
           expect(find.byType(ContextPane), findsNothing);
           expectNoOverflow(tester);
@@ -654,10 +661,8 @@ void main() {
 
         final summary = find.byKey(const ValueKey('plan-people-summary'));
         expect(summary, findsOneWidget);
-        expect(
-          find.descendant(of: summary, matching: find.text(kRigPlans[0].$2)),
-          findsOneWidget,
-        );
+        // The header names the plan.
+        expect(find.text(kRigPlans[0].$2), findsOneWidget);
         expect(
           find.descendant(
             of: summary,
@@ -675,7 +680,7 @@ void main() {
     testWidgets('the counts follow an accept', (tester) async {
       final rig = await organiser(tester, 1024);
 
-      await tester.tap(find.text('Requests'));
+      await tester.tap(find.textContaining('Requests'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Accept'));
       await tester.pumpAndSettle();

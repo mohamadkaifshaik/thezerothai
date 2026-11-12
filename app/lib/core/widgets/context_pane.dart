@@ -54,12 +54,6 @@ enum ContextSectionKind {
   /// `/u/:id/lists`: the card of the Lists' owner (T8b).
   listsOwner,
 
-  /// `/plans/new`, `/plans/:id/edit`: the live preview of the form (T8d).
-  planPreview,
-
-  /// `/plans/new`, `/plans/:id/edit`: "Tips for a good plan" (T8d).
-  planTips,
-
   /// `/notifications`: the first follow requests with Accept and "See all
   /// requests" (F16, R8). The inline Follow requests row hides while it
   /// shows.
