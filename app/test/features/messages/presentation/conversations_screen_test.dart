@@ -301,15 +301,13 @@ void main() {
   });
 
   group('Message requests row', () {
-    testWidgets('shows "Message requests (2)" and opens the folder', (
-      tester,
-    ) async {
+    testWidgets('shows the requests card and opens the folder', (tester) async {
       stub(cached: [conv('a', snippet: 'one')], requestCount: 2);
 
       await open(tester);
 
-      expect(find.text('Message requests (2)'), findsOneWidget);
-      await tester.tap(find.text('Message requests (2)'));
+      expect(find.text('2 people want to say hello'), findsOneWidget);
+      await tester.tap(find.text('Message requests'));
       await tester.pumpAndSettle();
 
       expect(visited, ['/messages/requests']);
@@ -345,7 +343,7 @@ void main() {
 
       await open(tester);
 
-      expect(find.text('Message requests (4)'), findsOneWidget);
+      expect(find.text('4 people want to say hello'), findsOneWidget);
       expect(find.text('Welcome to your inbox'), findsOneWidget);
     });
   });
@@ -640,7 +638,7 @@ void main() {
         );
 
         expect(tester.takeException(), isNull);
-        expect(find.text('Message requests (2)'), findsOneWidget);
+        expect(find.text('2 people want to say hello'), findsOneWidget);
         expect(find.byType(ConversationRow), findsNWidgets(3));
         // The main column never grows past 600dp, also at 1200 (no
         // master-detail in v1).

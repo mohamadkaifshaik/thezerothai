@@ -306,7 +306,7 @@ void main() {
 
       verify(() => rig.identityRepo.getProfile(handle: 'zed_9')).called(1);
       expect(find.byType(DraftThreadScreen), findsOneWidget);
-      expect(find.text('New message to Zed'), findsOneWidget);
+      expect(find.text('Say hello.'), findsOneWidget);
       // The picker was replaced, not stacked.
       expect(find.byType(RecipientPicker), findsNothing);
     });

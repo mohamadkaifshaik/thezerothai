@@ -455,7 +455,7 @@ void main() {
         expect(back.left, moreOrLessEquals(80 + AppSpacing.xs));
         await tester.tapAt(back.center);
         await tester.pumpAndSettle();
-        expect(find.text('Message requests'), findsNothing);
+        expect(find.byType(AppBackHeader), findsNothing);
         await done(tester);
       });
     }

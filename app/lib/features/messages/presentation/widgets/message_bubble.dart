@@ -35,11 +35,67 @@ bool _isTombstone(pb.Message message) =>
     message.state == MessageState.MESSAGE_STATE_DELETED_ACCOUNT ||
     message.state == MessageState.MESSAGE_STATE_REMOVED;
 
+/// The corners of a bubble (dzeroth-mobile Chat): 22 dp, with the 6 dp "tail"
+/// corner at the bottom of the sender's side on the last bubble of a group.
+BorderRadiusGeometry messageBubbleShape({
+  required bool own,
+  required bool lastOfGroup,
+}) {
+  const radius = Radius.circular(AppMessagesLayout.bubbleRadius);
+  const tail = Radius.circular(AppMessagesLayout.bubbleTail);
+  return BorderRadiusDirectional.only(
+    topStart: radius,
+    topEnd: radius,
+    bottomStart: own || !lastOfGroup ? radius : tail,
+    bottomEnd: !own || !lastOfGroup ? radius : tail,
+  );
+}
+
+/// The fill of a bubble: the caller's own on the brand gradient with its glow,
+/// the peer's on the light bubble gradient (the raised surface on dark), a
+/// tombstone on the raised surface with a hairline.
+BoxDecoration messageBubbleDecoration(
+  BuildContext context, {
+  required bool own,
+  required bool tombstone,
+  required BorderRadiusGeometry shape,
+}) {
+  final colors = Theme.of(context).colorScheme;
+  if (tombstone) {
+    return BoxDecoration(
+      color: colors.surfaceContainerHigh,
+      borderRadius: shape,
+      border: Border.all(color: colors.outlineVariant),
+    );
+  }
+  if (own) {
+    return BoxDecoration(
+      gradient: context.appColors.primaryFillGradient,
+      borderRadius: shape,
+      boxShadow: AppMessagesLayout.mineShadow,
+    );
+  }
+  final light = Theme.of(context).brightness == Brightness.light;
+  return BoxDecoration(
+    color: light ? null : colors.surfaceContainerHigh,
+    gradient: light ? AppGradients.lightBubble : null,
+    borderRadius: shape,
+    boxShadow: light ? AppMessagesLayout.theirsShadow : null,
+  );
+}
+
+/// The text colour on a bubble made by [messageBubbleDecoration].
+Color messageBubbleForeground(BuildContext context, {required bool own}) => own
+    ? context.appColors.primaryFillLabel
+    : Theme.of(context).colorScheme.onSurface;
+
 /// One message of a conversation, presentational.
 ///
-/// - The caller's own messages sit at the end on the accent with white text;
-///   the peer's at the start on the raised surface. Tombstones are italic and
-///   muted on the raised surface with a 1dp border (never white on accent).
+/// - The caller's own messages sit at the end on the brand gradient with navy
+///   text; the peer's at the start on the light bubble (the raised surface on
+///   dark). Tombstones are italic and muted on the raised surface with a 1dp
+///   border. [seenAt] adds "Seen 8:02 PM" under the caller's newest message the
+///   peer has read.
 /// - [lastOfGroup] puts the time under the bubble and gives the bubble its
 ///   small "tail" corner; [firstOfGroup] adds the gap above the group.
 /// - Links come from [parsePostText] link spans only. Mentions and hashtags
@@ -64,6 +120,7 @@ class MessageBubble extends StatelessWidget {
     this.use24Hour = false,
     this.linksEnabled = true,
     this.onReport,
+    this.seenAt,
   });
 
   final pb.Message message;
@@ -85,6 +142,10 @@ class MessageBubble extends StatelessWidget {
 
   /// Opens the "Report message" menu at [anchor] (null = not reportable).
   final void Function(Rect anchor)? onReport;
+
+  /// When the peer read up to this message (the caller's newest read message,
+  /// with read receipts on both sides): "Seen 8:02 PM" under the bubble.
+  final DateTime? seenAt;
 
   /// Key of the time text under the last bubble of a group.
   static const timeKey = ValueKey('message-time');
@@ -109,19 +170,11 @@ class MessageBubble extends StatelessWidget {
           ].join(', ');
 
     final onAccent = own && !tombstone;
-    final background = onAccent ? colors.primary : colors.surfaceContainerHigh;
-    final foreground = onAccent ? colors.onPrimary : colors.onSurface;
-    final linkColor = onAccent
-        ? colors.onPrimary
-        : context.appColors.accentText;
-    const radius = Radius.circular(AppRadius.lg);
-    const tail = Radius.circular(AppSpacing.xs);
-    final shape = BorderRadiusDirectional.only(
-      topStart: radius,
-      topEnd: radius,
-      bottomStart: own || !lastOfGroup ? radius : tail,
-      bottomEnd: !own || !lastOfGroup ? radius : tail,
-    );
+    final foreground = onAccent
+        ? messageBubbleForeground(context, own: true)
+        : colors.onSurface;
+    final linkColor = onAccent ? foreground : context.appColors.accentText;
+    final shape = messageBubbleShape(own: own, lastOfGroup: lastOfGroup);
     final links = tombstone || !linksEnabled
         ? const <PostSpan>[]
         : [
@@ -131,15 +184,16 @@ class MessageBubble extends StatelessWidget {
 
     Widget bubble = DecoratedBox(
       key: ValueKey('bubble-${message.id}'),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: shape,
-        border: tombstone ? Border.all(color: colors.outlineVariant) : null,
+      decoration: messageBubbleDecoration(
+        context,
+        own: own,
+        tombstone: tombstone,
+        shape: shape,
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.smd,
-          vertical: AppSpacing.sm,
+          horizontal: AppMessagesLayout.bubblePaddingH,
+          vertical: AppMessagesLayout.bubblePaddingV,
         ),
         child: tombstone
             ? Text(
@@ -151,7 +205,10 @@ class MessageBubble extends StatelessWidget {
               )
             : MessageText(
                 text: text,
-                style: theme.textTheme.bodyLarge?.copyWith(color: foreground),
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: foreground,
+                  fontWeight: onAccent ? FontWeight.w600 : null,
+                ),
                 linkColor: linkColor,
                 linksEnabled: linksEnabled,
                 onOpenLink: onOpenLink,
@@ -205,14 +262,16 @@ class MessageBubble extends StatelessWidget {
                           },
                     child: bubble,
                   ),
-                  if (lastOfGroup && clock.isNotEmpty)
+                  if (seenAt != null || (lastOfGroup && clock.isNotEmpty))
                     Padding(
                       padding: const EdgeInsets.only(top: AppSpacing.xs),
                       // The peer's time is already in the bubble's label.
                       child: ExcludeSemantics(
                         excluding: !own,
                         child: Text(
-                          clock,
+                          seenAt == null
+                              ? clock
+                              : 'Seen ${formatScheduledClock(seenAt!, use24Hour: use24Hour)}',
                           key: timeKey,
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: colors.onSurfaceVariant,

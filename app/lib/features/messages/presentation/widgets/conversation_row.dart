@@ -5,6 +5,7 @@ import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../../../shared/format/relative_time.dart';
 import '../../../../shared/widgets/primitives/app_avatar.dart';
+import '../../../../shared/widgets/primitives/app_badge.dart' show AppUnreadDot;
 
 /// Text shown for a last message that has no text (tombstones).
 const kConversationDeletedSnippet = 'Message deleted';
@@ -28,17 +29,13 @@ String conversationSnippet(pb.Conversation conversation) {
   return last.fromSelf ? '$kConversationSelfPrefix$text' : text;
 }
 
-/// One conversation in the inbox, presentational: a 72dp pitch, no
-/// dividers, a 48dp avatar, the bold name, the muted handle and relative time
-/// on the first line and the snippet on the second.
+/// One conversation in the inbox, presentational (dzeroth-mobile
+/// Conversations, dz.css `.row`): a 50dp avatar, the bold name with the
+/// relative time at the end of its line, the snippet under it, and the glowing
+/// dot of an unread conversation at the far end.
 ///
-/// It follows the `UserListRow` layout (component row 17: avatar, name column,
-/// muted handle) on the same tokens. It does not wrap `UserListRow` itself:
-/// that widget takes a graph `UserListItem` and ends in a follow control, and
-/// this row needs the time and the snippet in the name column.
-///
-/// - Unread: a bold snippet, an accent dot and "unread" in the spoken label
-///   (never colour alone).
+/// - Unread: a bold snippet, the dot and "unread" in the spoken label (never
+///   colour alone).
 /// - [pb.Conversation.silent]: a muted-bell marker.
 /// - The row is one reader stop ("Name, @handle, snippet, 5 minutes ago,
 ///   unread, muted"). The inbox wraps it in a `listItem` semantics node
@@ -95,24 +92,30 @@ class ConversationRow extends StatelessWidget {
       if (unread) 'unread',
       if (silent) 'muted',
     ].join(', ');
-    final muted = theme.textTheme.bodyMedium?.copyWith(
+    final muted = theme.textTheme.bodySmall?.copyWith(
       color: colors.onSurfaceVariant,
     );
+    final gutter = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile
+        ? AppMessagesLayout.phoneGutter
+        : AppMessagesLayout.wideGutter;
 
     final row = InkWell(
       onTap: onTap,
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: AppSize.listRow),
         child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: AppSpacing.md,
-            vertical: AppSpacing.smd,
+          padding: EdgeInsets.symmetric(
+            horizontal: gutter,
+            vertical: AppMessagesLayout.rowPaddingV,
           ),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppAvatar(url: peer.avatarUrl, radius: AppSpacing.lg),
-              const SizedBox(width: AppSpacing.md),
+              AppAvatar(
+                url: peer.avatarUrl,
+                radius: AppMessagesLayout.avatar / 2,
+                name: name,
+              ),
+              const SizedBox(width: AppMessagesLayout.rowGap),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -120,36 +123,21 @@ class ConversationRow extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Flexible(
+                        Expanded(
                           child: Text(
                             name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
+                            style: theme.textTheme.titleSmall,
                           ),
                         ),
-                        if (peer.displayName.isNotEmpty) ...[
-                          const SizedBox(width: AppSpacing.xs),
-                          Flexible(
-                            child: Text(
-                              '@${peer.handle}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: muted,
-                            ),
-                          ),
-                        ],
                         if (shortTime.isNotEmpty) ...[
-                          const SizedBox(width: AppSpacing.xs),
-                          Text('·', style: muted),
-                          const SizedBox(width: AppSpacing.xs),
+                          const SizedBox(width: AppSpacing.sm),
                           Text(shortTime, maxLines: 1, style: muted),
                         ],
                       ],
                     ),
-                    if (snippet.isNotEmpty || unread || silent)
+                    if (snippet.isNotEmpty || silent)
                       Row(
                         children: [
                           Expanded(
@@ -161,9 +149,7 @@ class ConversationRow extends StatelessWidget {
                                 color: unread
                                     ? colors.onSurface
                                     : colors.onSurfaceVariant,
-                                fontWeight: unread
-                                    ? FontWeight.w700
-                                    : FontWeight.w400,
+                                fontWeight: unread ? FontWeight.w700 : null,
                               ),
                             ),
                           ),
@@ -176,25 +162,17 @@ class ConversationRow extends StatelessWidget {
                               color: colors.onSurfaceVariant,
                             ),
                           ],
-                          if (unread) ...[
-                            const SizedBox(width: AppSpacing.sm),
-                            // Not by colour alone: the bold snippet and the
-                            // spoken "unread" say it too.
-                            Container(
-                              key: unreadDotKey,
-                              width: AppSpacing.sm,
-                              height: AppSpacing.sm,
-                              decoration: BoxDecoration(
-                                color: colors.primary,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ],
                         ],
                       ),
                   ],
                 ),
               ),
+              if (unread) ...[
+                const SizedBox(width: AppSpacing.sm),
+                // Not by colour alone: the bold snippet and the spoken
+                // "unread" say it too.
+                const AppUnreadDot(key: unreadDotKey, semanticsLabel: 'Unread'),
+              ],
             ],
           ),
         ),

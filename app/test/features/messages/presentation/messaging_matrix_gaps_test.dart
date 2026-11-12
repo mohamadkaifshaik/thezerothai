@@ -148,7 +148,7 @@ void main() {
   Future<void> expectDraftFits(WidgetTester tester, MatrixEnv env) async {
     await openDraft(tester, env);
     expect(tester.takeException(), isNull);
-    expect(find.text('New message to Sam Rivera'), findsOneWidget);
+    expect(find.text('Say hello.'), findsOneWidget);
     expect(find.byKey(MessageComposer.fieldKey), findsOneWidget);
     final field = tester.getRect(find.byKey(MessageComposer.fieldKey));
     expect(field.left, greaterThanOrEqualTo(0));

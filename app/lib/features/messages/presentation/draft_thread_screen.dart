@@ -10,6 +10,7 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../shared/widgets/primitives/app_back_header.dart';
+import '../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../data/messaging_repository.dart';
@@ -118,13 +119,7 @@ class _DraftView extends StatelessWidget {
                 child: BlocBuilder<MessageComposerCubit, MessageComposerState>(
                   buildWhen: (a, b) => a.outgoing != b.outgoing,
                   builder: (context, state) => state.outgoing.isEmpty
-                      ? Center(
-                          child: AppEmptyView(
-                            icon: Icons.mail_outline,
-                            title: 'New message to $name',
-                            subtitle: 'Write your first message below.',
-                          ),
-                        )
+                      ? _FirstMessageHero(peer: peer)
                       : ListView.builder(
                           reverse: true,
                           padding: const EdgeInsets.symmetric(
@@ -154,6 +149,137 @@ class _DraftView extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The empty draft (dzeroth-mobile DraftThread): "Say hello." over the line
+/// that sends the caller to the composer. The phone draws the glowing orbit
+/// above it; the tablet and desktop draw the person's avatar (their DraftThread
+/// designs).
+class _FirstMessageHero extends StatelessWidget {
+  const _FirstMessageHero({required this.peer});
+
+  final common.AuthorSnapshot peer;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
+    final name = peer.displayName.isEmpty ? peer.handle : peer.displayName;
+    final accent = AppTextStyles.displayAccent(theme, size: phone ? 28 : 40);
+    // Centred while it fits; scrolls on a short window or at a large text
+    // scale instead of overflowing.
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ExcludeSemantics(
+                  child: phone
+                      ? const _Orbit()
+                      : AppAvatar.sized(
+                          url: peer.avatarUrl,
+                          size: AppAvatarSize.lg,
+                          name: name,
+                        ),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                Semantics(
+                  header: true,
+                  child: Text.rich(
+                    textAlign: TextAlign.center,
+                    TextSpan(
+                      style: accent.copyWith(
+                        color: theme.colorScheme.onSurface,
+                      ),
+                      children: [
+                        const TextSpan(text: 'Say '),
+                        TextSpan(text: 'hello', style: accent),
+                        const TextSpan(text: '.'),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  'Write your first message below.',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Two teal rings around a glowing dot.
+class _Orbit extends StatelessWidget {
+  const _Orbit();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget ring(double inset, double alpha, double width) => Positioned.fill(
+      left: inset,
+      top: inset,
+      right: inset,
+      bottom: inset,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: AppPalette.tealElectric.withValues(alpha: alpha),
+            width: width,
+          ),
+        ),
+      ),
+    );
+    return SizedBox.square(
+      dimension: AppMessagesLayout.heroOrbit,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          ring(0, AppMessagesLayout.heroRingOuterAlpha, 1),
+          ring(
+            AppMessagesLayout.heroOrbitInner,
+            AppMessagesLayout.heroRingInnerAlpha,
+            AppMessagesLayout.heroRingInnerWidth,
+          ),
+          Container(
+            width: AppMessagesLayout.heroDot,
+            height: AppMessagesLayout.heroDot,
+            decoration: BoxDecoration(
+              color: AppPalette.white,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: AppPalette.tealElectric.withValues(
+                    alpha: AppMessagesLayout.heroDotHaloAlpha,
+                  ),
+                  spreadRadius: AppMessagesLayout.heroDotHalo,
+                ),
+                BoxShadow(
+                  color: AppPalette.tealElectric.withValues(
+                    alpha: AppMessagesLayout.heroDotGlowAlpha,
+                  ),
+                  blurRadius: AppMessagesLayout.heroDotGlowBlur,
+                  spreadRadius: AppMessagesLayout.heroDotGlowSpread,
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
