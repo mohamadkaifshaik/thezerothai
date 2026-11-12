@@ -43,7 +43,7 @@ func TestClearProfileFields_Integration_CLI(t *testing.T) {
 		doc := map[string]any{
 			"handle": "mallory", "handleLower": "mallory", "displayName": "Mal", "bio": "click here", "status": status,
 			"location": "Pune", "website": "https://phish.example/login", "pinnedPostId": "0000000000000000301", "snapshotVersion": int64(3),
-			// A legacy banner (the removed feature): not clearable here, untouched (opsctl purge-banners erases it).
+			// A legacy banner (the removed feature): not clearable here, untouched (none should remain after the 2026-11-12 banner purge).
 			"bannerUrl": "https://storage.googleapis.com/" + project + "-media/m/222.webp", "bannerThumbUrl": "https://storage.googleapis.com/" + project + "-media/m/222_t.webp",
 			"avatarUrl": "https://storage.googleapis.com/" + project + "-media/m/111.webp", "avatarThumbUrl": "https://storage.googleapis.com/" + project + "-media/m/111_t.webp",
 			"createdAt": time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), "updatedAt": time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC),

@@ -219,8 +219,6 @@
     { "collectionGroup": "users", "fieldPath": "displayName", "indexes": [] },
     { "collectionGroup": "users", "fieldPath": "avatarUrl", "indexes": [] },
     { "collectionGroup": "users", "fieldPath": "avatarThumbUrl", "indexes": [] },
-    { "collectionGroup": "users", "fieldPath": "bannerUrl", "indexes": [] },
-    { "collectionGroup": "users", "fieldPath": "bannerThumbUrl", "indexes": [] },
     { "collectionGroup": "users", "fieldPath": "location", "indexes": [] },
     { "collectionGroup": "users", "fieldPath": "website", "indexes": [] },
     { "collectionGroup": "users", "fieldPath": "pinnedPostId", "indexes": [] },

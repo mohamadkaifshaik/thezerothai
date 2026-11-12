@@ -51,7 +51,7 @@ const RetiredDocTTL = 72 * time.Hour
 const maxImageURLLen = 512
 
 // RetireMessage is the payload of a profile_media_retired job. Purpose is the stored purpose name ("AVATAR"; a message
-// for the removed "BANNER" still in flight is dropped as invalid, and `opsctl purge-banners` erases that image). The
+// for the removed "BANNER" still in flight is dropped as invalid). The
 // URLs are the old users/{uid} values; the thumbnail may be empty. ChangedAt is the commit time of the profile change,
 // the start of the grace.
 type RetireMessage struct {

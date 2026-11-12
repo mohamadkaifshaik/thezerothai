@@ -61,8 +61,8 @@ type exportProfile struct {
 	DisplayName string `json:"displayName"`
 	Bio         string `json:"bio"`
 	AvatarURL   string `json:"avatarUrl,omitempty"`
-	// The profile extras, omitted when absent. A legacy banner (removed feature) is in the media section until
-	// `opsctl purge-banners` erases it.
+	// The profile extras, omitted when absent. A legacy banner (removed feature) is in the media section
+	// (none should remain after the 2026-11-12 banner purge).
 	Location     string `json:"location,omitempty"`
 	Website      string `json:"website,omitempty"`
 	PinnedPostID string `json:"pinnedPostId,omitempty"`
