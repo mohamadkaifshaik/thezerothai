@@ -121,24 +121,24 @@ type IdentityServiceClient interface {
 	// that accepts every pending follow request (in pages of 100),
 	// so the request path does none of that work; a failed publish is logged at ERROR. A toggle enqueues no
 	// author-snapshot job.
-	// Profile extras: setting banner_media_id, location, website or pinned_post_id
+	// Profile extras: setting location, website or pinned_post_id
 	// (any non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS (wire name "profile_extras") on for the
 	// caller; otherwise FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "profile_extras", writing nothing, checked
 	// before validation. A request from outside the cohort that mixes a clear with a set is refused whole. The exact
-	// string "" is a clear (banner removed, location or website emptied, pin removed) and is accepted from any
+	// string "" is a clear (location or website emptied, pin removed) and is accepted from any
 	// authenticated caller whatever the flag, globally off included, and is handled like a bio edit. While the flag
 	// is globally off the response omits website and pinned_post_id (Profile). DEGRADED_MODE=readonly still refuses the
-	// write. The display_name, bio and avatar path is unchanged. A banner, location, website or pin change does not enqueue the author-snapshot job
+	// write. The display_name, bio and avatar path is unchanged. A location, website or pin change does not enqueue the author-snapshot job
 	// (none of them is in AuthorSnapshot). Field rules are on the request fields.
 	// A request that changes nothing writes nothing. Per-uid daily call cap
 	// PROFILE_UPDATES_PER_DAY, 100 calls/uid/IST day per instance (300 with 3) => RATE_LIMITED,
 	// metadata["limit"] = "profile_update_daily", retry_after = time to IST midnight, before any lookup.
-	// Replaced and removed images: a commit that replaced or removed the avatar or the banner
+	// Replaced and removed images: a commit that replaced or removed the avatar
 	// hands the old image to a best-effort retire step after the commit (the old URLs come from the document the
-	// transaction read, and at most 2 Pub/Sub publishes go out, one per image); a failed hand-over is logged at ERROR and the image stays until account deletion.
+	// transaction read, and at most 1 Pub/Sub publish goes out); a failed hand-over is logged at ERROR and the image stays until account deletion.
 	// The async job (kind profile_media_retired on the jobs topic) runs once per
 	// image, and deletes the old public objects 24-48 h later through a bucket lifecycle rule, only while
-	// PROFILE_MEDIA_RETIRE allows it (off by default; banner, or all for avatars too). A retired image can never be set
+	// PROFILE_MEDIA_RETIRE allows it (off by default; all for avatars). A retired image can never be set
 	// again: it answers MEDIA_NOT_READY like any unusable id.
 	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
 	// Rename. Transaction: read users + handles/{new}; create handles/{new}, delete handles/{old}, update users.
@@ -363,24 +363,24 @@ type IdentityServiceHandler interface {
 	// that accepts every pending follow request (in pages of 100),
 	// so the request path does none of that work; a failed publish is logged at ERROR. A toggle enqueues no
 	// author-snapshot job.
-	// Profile extras: setting banner_media_id, location, website or pinned_post_id
+	// Profile extras: setting location, website or pinned_post_id
 	// (any non-empty value, whitespace-only included) needs FEATURE_PROFILE_EXTRAS (wire name "profile_extras") on for the
 	// caller; otherwise FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "profile_extras", writing nothing, checked
 	// before validation. A request from outside the cohort that mixes a clear with a set is refused whole. The exact
-	// string "" is a clear (banner removed, location or website emptied, pin removed) and is accepted from any
+	// string "" is a clear (location or website emptied, pin removed) and is accepted from any
 	// authenticated caller whatever the flag, globally off included, and is handled like a bio edit. While the flag
 	// is globally off the response omits website and pinned_post_id (Profile). DEGRADED_MODE=readonly still refuses the
-	// write. The display_name, bio and avatar path is unchanged. A banner, location, website or pin change does not enqueue the author-snapshot job
+	// write. The display_name, bio and avatar path is unchanged. A location, website or pin change does not enqueue the author-snapshot job
 	// (none of them is in AuthorSnapshot). Field rules are on the request fields.
 	// A request that changes nothing writes nothing. Per-uid daily call cap
 	// PROFILE_UPDATES_PER_DAY, 100 calls/uid/IST day per instance (300 with 3) => RATE_LIMITED,
 	// metadata["limit"] = "profile_update_daily", retry_after = time to IST midnight, before any lookup.
-	// Replaced and removed images: a commit that replaced or removed the avatar or the banner
+	// Replaced and removed images: a commit that replaced or removed the avatar
 	// hands the old image to a best-effort retire step after the commit (the old URLs come from the document the
-	// transaction read, and at most 2 Pub/Sub publishes go out, one per image); a failed hand-over is logged at ERROR and the image stays until account deletion.
+	// transaction read, and at most 1 Pub/Sub publish goes out); a failed hand-over is logged at ERROR and the image stays until account deletion.
 	// The async job (kind profile_media_retired on the jobs topic) runs once per
 	// image, and deletes the old public objects 24-48 h later through a bucket lifecycle rule, only while
-	// PROFILE_MEDIA_RETIRE allows it (off by default; banner, or all for avatars too). A retired image can never be set
+	// PROFILE_MEDIA_RETIRE allows it (off by default; all for avatars). A retired image can never be set
 	// again: it answers MEDIA_NOT_READY like any unusable id.
 	UpdateProfile(context.Context, *connect.Request[v1.UpdateProfileRequest]) (*connect.Response[v1.UpdateProfileResponse], error)
 	// Rename. Transaction: read users + handles/{new}; create handles/{new}, delete handles/{old}, update users.

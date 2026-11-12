@@ -49,19 +49,16 @@ const (
 // MediaServiceClient is a client for the dzeroth.media.v1.MediaService service.
 type MediaServiceClient interface {
 	// Reserve 1-4 media ids and get signed PUT URLs (full + thumb each), 10-minute TTL, bound to the exact object
-	// path, Content-Type, Content-MD5 and x-goog-content-length-range (full <= 2 MiB, thumb <= 256 KiB; BANNER:
-	// full <= 1 MiB, thumb <= 128 KiB).
-	// BANNER needs FEATURE_MEDIA and FEATURE_PROFILE_EXTRAS on for the caller, else FAILED_PRECONDITION +
-	// FEATURE_DISABLED, metadata["feature"] = "profile_extras", before any lookup. Its one item declares width <= 1500,
-	// height <= 500 and 3 * height * 0.98 <= width <= 3 * height * 1.02, else INVALID_ARGUMENT + VALIDATION,
-	// metadata["field"] = "width" (layout hints only: the server checks magic bytes, not pixels).
+	// path, Content-Type, Content-MD5 and x-goog-content-length-range (full <= 2 MiB, thumb <= 256 KiB).
+	// A purpose other than POST or AVATAR (UNSPECIFIED, or the removed value 3) => INVALID_ARGUMENT + VALIDATION,
+	// metadata["field"] = "purpose".
 	// No daily upload quota: only the per-minute bucket limits how often a user can call it. Rejected with
 	// DEGRADED_MODE when DEGRADED_MODE != off.
 	// Batch: Create idempotency doc + media docs (PENDING, expireAt = now + 2 d).
 	// GCS: 0 ops here (signing uses IAM signBlob, no GCS call). Client PUTs = 2 Class A per image.
 	// GIF (FEATURE_GIF, wire name "gif"): content_type "image/gif" while gif is not enabled for the caller
-	// => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "gif", before any lookup. POST purpose only (AVATAR and
-	// BANNER => VALIDATION field "content_type"); exactly one item in a request that carries a GIF (else VALIDATION field
+	// => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "gif", before any lookup. POST purpose only (AVATAR =>
+	// VALIDATION field "content_type"); exactly one item in a request that carries a GIF (else VALIDATION field
 	// "items"); full <= 2 MiB (the same signed range); declared width and height <= 1,280; thumb_content_type must be
 	// "image/jpeg" or "image/webp" (else VALIDATION field "thumb_content_type").
 	CreateUpload(context.Context, *connect.Request[v1.CreateUploadRequest]) (*connect.Response[v1.CreateUploadResponse], error)
@@ -69,8 +66,8 @@ type MediaServiceClient interface {
 	// (magic bytes) -> SafeSearch on every image, always (the full image, plus the thumbnail when VISION_SCREEN_THUMB
 	// is on, the default) -> copy full+thumb to the public bucket -> READY; or REJECTED (objects deleted). Nothing is
 	// published unscreened: when screening cannot be done (Vision quota or outage, timeout) the call answers the
-	// retryable UNAVAILABLE and the image stays PENDING, and it is REJECTED once its attempts are used up. AVATAR and
-	// BANNER use the stricter Racy rule.
+	// retryable UNAVAILABLE and the image stays PENDING, and it is REJECTED once its attempts are used up. AVATAR uses
+	// the stricter Racy rule.
 	// Naturally idempotent: items already READY, READY_UNSCREENED or REJECTED are returned as-is.
 	// GCS per image: 2 Class A (copies) + 4 Class B (attrs and a ranged read of the full image and of the
 	// thumbnail) + 1-2 Vision fetches; deletes are free.
@@ -138,19 +135,16 @@ func (c *mediaServiceClient) FinalizeUpload(ctx context.Context, req *connect.Re
 // MediaServiceHandler is an implementation of the dzeroth.media.v1.MediaService service.
 type MediaServiceHandler interface {
 	// Reserve 1-4 media ids and get signed PUT URLs (full + thumb each), 10-minute TTL, bound to the exact object
-	// path, Content-Type, Content-MD5 and x-goog-content-length-range (full <= 2 MiB, thumb <= 256 KiB; BANNER:
-	// full <= 1 MiB, thumb <= 128 KiB).
-	// BANNER needs FEATURE_MEDIA and FEATURE_PROFILE_EXTRAS on for the caller, else FAILED_PRECONDITION +
-	// FEATURE_DISABLED, metadata["feature"] = "profile_extras", before any lookup. Its one item declares width <= 1500,
-	// height <= 500 and 3 * height * 0.98 <= width <= 3 * height * 1.02, else INVALID_ARGUMENT + VALIDATION,
-	// metadata["field"] = "width" (layout hints only: the server checks magic bytes, not pixels).
+	// path, Content-Type, Content-MD5 and x-goog-content-length-range (full <= 2 MiB, thumb <= 256 KiB).
+	// A purpose other than POST or AVATAR (UNSPECIFIED, or the removed value 3) => INVALID_ARGUMENT + VALIDATION,
+	// metadata["field"] = "purpose".
 	// No daily upload quota: only the per-minute bucket limits how often a user can call it. Rejected with
 	// DEGRADED_MODE when DEGRADED_MODE != off.
 	// Batch: Create idempotency doc + media docs (PENDING, expireAt = now + 2 d).
 	// GCS: 0 ops here (signing uses IAM signBlob, no GCS call). Client PUTs = 2 Class A per image.
 	// GIF (FEATURE_GIF, wire name "gif"): content_type "image/gif" while gif is not enabled for the caller
-	// => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "gif", before any lookup. POST purpose only (AVATAR and
-	// BANNER => VALIDATION field "content_type"); exactly one item in a request that carries a GIF (else VALIDATION field
+	// => FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "gif", before any lookup. POST purpose only (AVATAR =>
+	// VALIDATION field "content_type"); exactly one item in a request that carries a GIF (else VALIDATION field
 	// "items"); full <= 2 MiB (the same signed range); declared width and height <= 1,280; thumb_content_type must be
 	// "image/jpeg" or "image/webp" (else VALIDATION field "thumb_content_type").
 	CreateUpload(context.Context, *connect.Request[v1.CreateUploadRequest]) (*connect.Response[v1.CreateUploadResponse], error)
@@ -158,8 +152,8 @@ type MediaServiceHandler interface {
 	// (magic bytes) -> SafeSearch on every image, always (the full image, plus the thumbnail when VISION_SCREEN_THUMB
 	// is on, the default) -> copy full+thumb to the public bucket -> READY; or REJECTED (objects deleted). Nothing is
 	// published unscreened: when screening cannot be done (Vision quota or outage, timeout) the call answers the
-	// retryable UNAVAILABLE and the image stays PENDING, and it is REJECTED once its attempts are used up. AVATAR and
-	// BANNER use the stricter Racy rule.
+	// retryable UNAVAILABLE and the image stays PENDING, and it is REJECTED once its attempts are used up. AVATAR uses
+	// the stricter Racy rule.
 	// Naturally idempotent: items already READY, READY_UNSCREENED or REJECTED are returned as-is.
 	// GCS per image: 2 Class A (copies) + 4 Class B (attrs and a ranged read of the full image and of the
 	// thumbnail) + 1-2 Vision fetches; deletes are free.
