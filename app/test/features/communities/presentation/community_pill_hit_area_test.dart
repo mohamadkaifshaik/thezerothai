@@ -12,8 +12,8 @@ import '../../../support/communities_tablet_rig.dart';
 /// 48 dp box (the shared `AppPillButton`), at a phone, a tablet and a desktop
 /// width, and each tap next to a neighbour still goes to the nearest control.
 ///
-/// - The Join pill of an Explore row: inline at 360 and 1440, under the name
-///   in band B's context pane at 1024.
+/// - The Join pill of an Explore row: inline in the Explore tab at every
+///   width (the tablet layout has no side pane, so 1024 draws what 744 does).
 /// - Pin to Home beside Join in the community header.
 
 const _widths = <double>[360, 1024, 1440];
@@ -51,8 +51,8 @@ void main() {
             'nothing', (tester) async {
           final rig = CommunitiesTabletRig();
           await rig.pump(tester, width: width, height: 1100);
-          // R10 (F23): inline, the directory is the Explore tab.
-          if (width != 1024) await showExploreTab(tester);
+          // R10 (F23): the directory is the Explore tab at every width.
+          await showExploreTab(tester);
           await _boxInView(tester, _joinPill());
           final pill = _pillOf(tester, _joinPill());
           await tester.tapAt(
@@ -72,8 +72,8 @@ void main() {
           'inside it joins', (tester) async {
         final rig = CommunitiesTabletRig();
         await rig.pump(tester, width: width, height: 1100);
-        // R10 (F23): inline, the directory is the Explore tab.
-        if (width != 1024) await showExploreTab(tester);
+        // R10 (F23): the directory is the Explore tab at every width.
+        await showExploreTab(tester);
         final box = await _boxInView(tester, _joinPill());
         final pill = _pillOf(tester, _joinPill());
         final row = tester.getRect(
@@ -84,9 +84,8 @@ void main() {
               )
               .first,
         );
-        // Under the row: in the pane (1024), or a card row whose name would
-        // get under 140 dp beside the pill (R10 review item 14; 360 in the
-        // test font).
+        // Under the row: a card row whose name would get under 140 dp beside
+        // the pill (R10 review item 14; 360 in the test font).
         final paneRow = box.top >= row.bottom - 0.5;
         if (paneRow) {
           // The pill sits under the row: its box starts where the row's ink
@@ -210,8 +209,8 @@ void main() {
       final handle = tester.ensureSemantics();
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, width: width, height: 1100);
-      // R10 (F23): inline, the directory is the Explore tab.
-      if (width != 1024) await showExploreTab(tester);
+      // R10 (F23): the directory is the Explore tab at every width.
+      await showExploreTab(tester);
       final box = await _boxInView(tester, _joinPill());
       expect(find.bySemanticsLabel('Join Book club'), findsOneWidget);
       final node = tester.getSemantics(find.bySemanticsLabel('Join Book club'));

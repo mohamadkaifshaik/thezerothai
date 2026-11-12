@@ -14,8 +14,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/communities_tablet_rig.dart';
-import '../../../support/context_pane_rig.dart'
-    show findContextPane, inContextPane;
+import '../../../support/context_pane_rig.dart' show findContextPane;
 
 /// The R10 UX review's items (Must-fix 1-3, Should-fix 4-11, Nice-to-have
 /// 12-14), each written before its fix.
@@ -59,7 +58,7 @@ void main() {
         final rig = CommunitiesTabletRig();
         rig.server.directory = _directoryOf(50);
         await rig.pump(tester, width: w);
-        if (w == 360) await showExploreTab(tester);
+        await showExploreTab(tester);
         await tester.enterText(_field(_communitiesHint), 'zzz');
         await tester.pumpAndSettle();
         expect(
@@ -317,7 +316,7 @@ void main() {
 
   group('11. the description in the Community header', () {
     for (final w in <double>[360, 744, 1024, 1440]) {
-      testWidgets('$w: in the header, 2 lines at most; not in the pane', (
+      testWidgets('$w: in the header, 2 lines at most; there is no pane', (
         tester,
       ) async {
         final rig = CommunitiesTabletRig();
@@ -331,10 +330,8 @@ void main() {
         expect(widget.maxLines, 2);
         expect(widget.overflow, TextOverflow.ellipsis);
         expect(find.text('About this Community'), findsNothing);
-        expect(
-          inContextPane(find.text('Openings, endgames and puzzles')),
-          findsNothing,
-        );
+        expect(findContextPane(), findsNothing);
+        expect(find.text('Openings, endgames and puzzles'), findsOneWidget);
       });
     }
 
@@ -383,7 +380,9 @@ void main() {
     });
 
     testWidgets('13. band B: when the server turns member search off, the '
-        'pane shows the global set, not a blank pane', (tester) async {
+        'inline field goes and the page stays whole, with no pane', (
+      tester,
+    ) async {
       final rig = CommunitiesTabletRig();
       rig.server.searchError = const FeatureDisabledException(
         'off',
@@ -395,12 +394,13 @@ void main() {
         width: 1024,
         flags: _searchFlags,
       );
-      await tester.enterText(inContextPane(_field(_membersHint)), 'mem');
+      expect(findContextPane(), findsNothing);
+      await tester.enterText(inCommunitiesPage(_field(_membersHint)), 'mem');
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
       expect(_field(_membersHint), findsNothing);
-      expect(findContextPane(), findsOneWidget);
-      expect(inContextPane(find.text('Who to follow')), findsOneWidget);
+      expect(findContextPane(), findsNothing);
+      expect(inCommunitiesPage(find.text('Member 1')), findsOneWidget);
     });
 
     testWidgets('14. at 320 x1.0 a row whose name would get under 140 dp '

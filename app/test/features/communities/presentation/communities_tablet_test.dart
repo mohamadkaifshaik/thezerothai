@@ -1,7 +1,6 @@
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
-import 'package:dzeroth/core/widgets/context_pane.dart';
 import 'package:dzeroth/core/widgets/shell_geometry.dart';
 import 'package:dzeroth/features/communities/presentation/communities_screen.dart';
 import 'package:dzeroth/features/communities/presentation/community_moderation_log_screen.dart';
@@ -27,26 +26,12 @@ const _widths = <double>[360, 599, 600, 839, 840, 1024, 1199, 1200];
 bool _tabletFlags(Set<String> flags) =>
     flags.contains(kFeatureUiShell) && flags.contains(kFeatureUiTablet);
 
-bool _bandA(double w) =>
-    w >= AppBreakpoints.mobile && w < AppBreakpoints.expanded;
-
-bool _bandB(double w) =>
-    w >= AppBreakpoints.expanded && w < AppBreakpoints.tablet;
-
-/// The kinds of the context pane's sections, top to bottom (empty: no pane).
-List<ContextSectionKind> _paneKinds(WidgetTester tester) {
-  final pane = findContextPane();
-  if (pane.evaluate().isEmpty) return const [];
-  return [for (final s in tester.widget<ContextPane>(pane).sections) s.kind];
-}
-
-const _global = [
-  ContextSectionKind.search,
-  ContextSectionKind.profile,
-  ContextSectionKind.trends,
-  ContextSectionKind.whoToFollow,
-  ContextSectionKind.links,
-];
+/// The tablet layout has no side context pane at any width (the owner's
+/// ruling: no tablet mock has one), so a page never lends a section into one:
+/// every communities page draws its own copy inline. Desktop's side column
+/// (>= 1200, R-1) is a different widget and is not covered here.
+Finder _tabletContextPane() =>
+    find.byKey(const ValueKey('tablet-context-pane'));
 
 /// A text field whose label or hint is [text] (F36 / F37 search fields).
 Finder _fieldNamed(String text) => find.byWidgetPredicate(
@@ -64,9 +49,8 @@ void main() {
     for (final MapEntry(key: mode, value: flags)
         in kCommunitiesFlagModes.entries) {
       for (final w in _widths) {
-        final pane = _tabletFlags(flags) && _bandB(w);
-        testWidgets('$mode at $w: Explore Communities '
-            '${pane ? 'in the pane' : 'inline'}', (tester) async {
+        testWidgets('$mode at $w: Explore Communities inline, no context '
+            'pane', (tester) async {
           final rig = CommunitiesTabletRig();
           await rig.pump(tester, width: w, flags: flags);
           expect(tester.takeException(), isNull);
@@ -75,57 +59,31 @@ void main() {
             inCommunitiesPage(find.text('My communities')),
             findsOneWidget,
           );
-          // R10 (F37): "Search communities" in exactly one place, beside
-          // Explore communities in band B, above the tabs elsewhere.
+          // R10 (F37): "Search communities" in exactly one place, above the
+          // tabs, at every width (band B draws what band A draws).
           expect(_fieldNamed('Search communities'), findsOneWidget);
           expect(
-            (pane ? inContextPane : inCommunitiesPage)(
-              _fieldNamed('Search communities'),
-            ),
+            inCommunitiesPage(_fieldNamed('Search communities')),
             findsOneWidget,
           );
-          if (pane) {
-            // Band B: no tabs (F23); the pane is Explore communities.
-            expect(find.byType(AppTabBar), findsNothing);
-            expect(find.text('Explore communities'), findsOneWidget);
-            expect(_paneKinds(tester), [
-              ContextSectionKind.exploreCommunities,
-              ContextSectionKind.links,
-            ]);
-            expect(
-              inContextPane(find.text('Explore communities')),
-              findsOneWidget,
-            );
-            for (final (id, _) in kRigDirectory) {
-              expect(
-                inContextPane(find.byKey(ValueKey('explore-$id'))),
-                findsOneWidget,
-              );
-            }
-            expect(
-              inCommunitiesPage(find.byKey(const ValueKey('explore-78'))),
-              findsNothing,
-            );
-          } else {
-            expect(findContextPane(), findsNothing);
-            // R10 (F23): Explore is the second tab of the page.
-            final tabs = tester.widget<AppTabBar>(find.byType(AppTabBar));
-            expect(
-              [for (final t in tabs.tabs) t.label],
-              ['My communities', 'Explore'],
-            );
-            expect(find.text('Explore communities'), findsNothing);
-            expect(
-              inCommunitiesPage(find.byKey(const ValueKey('explore-78'))),
-              findsNothing,
-            );
-            await showExploreTab(tester);
-            expect(
-              inCommunitiesPage(find.byKey(const ValueKey('explore-78'))),
-              findsOneWidget,
-            );
-          }
-          // The pane is the page's own state: no call of its own.
+          expect(findContextPane(), findsNothing);
+          expect(_tabletContextPane(), findsNothing);
+          // R10 (F23): Explore is the second tab of the page.
+          final tabs = tester.widget<AppTabBar>(find.byType(AppTabBar));
+          expect(
+            [for (final t in tabs.tabs) t.label],
+            ['My communities', 'Explore'],
+          );
+          expect(find.text('Explore communities'), findsNothing);
+          expect(
+            inCommunitiesPage(find.byKey(const ValueKey('explore-78'))),
+            findsNothing,
+          );
+          await showExploreTab(tester);
+          expect(
+            inCommunitiesPage(find.byKey(const ValueKey('explore-78'))),
+            findsOneWidget,
+          );
           expect(rig.server.count('mine'), 1);
           expect(rig.server.count('directory'), 1);
           // Desktop keeps its side column (R-1).
@@ -137,34 +95,38 @@ void main() {
       }
     }
 
-    testWidgets('band B: Join in the pane is the page\'s Join (one call, the '
-        'row and My Communities follow)', (tester) async {
+    testWidgets('band B: Join in the Explore tab is the page Join (one '
+        'call, the row and My Communities follow)', (tester) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, width: 1024);
-      await tester.tap(inContextPane(find.bySemanticsLabel('Join Book club')));
+      expect(findContextPane(), findsNothing);
+      await showExploreTab(tester);
+      await tester.tap(
+        inCommunitiesPage(find.bySemanticsLabel('Join Book club')),
+      );
       await tester.pumpAndSettle();
 
       expect(rig.server.count('join:78'), 1);
       expect(
         find.descendant(
-          of: inContextPane(find.byKey(const ValueKey('explore-78'))),
+          of: inCommunitiesPage(find.byKey(const ValueKey('explore-78'))),
           matching: find.text('Joined'),
         ),
         findsOneWidget,
       );
       // The page's own list took the joined community.
+      await tapCommunityTab(tester, 'My communities');
       expect(inCommunitiesPage(find.text('Book club')), findsOneWidget);
       expect(rig.server.count('mine'), 1);
       expect(rig.server.count('directory'), 1);
     });
 
     for (final w in <double>[839, 1024]) {
-      testWidgets('at $w the Join pill sits '
-          '${_bandB(w) ? 'under the name (the 320 dp pane)' : 'after the '
-                    'name (inline, as today)'}', (tester) async {
+      testWidgets('at $w the Join pill sits after the name (inline, the same '
+          'in both tablet bands)', (tester) async {
         final rig = CommunitiesTabletRig();
         await rig.pump(tester, width: w);
-        if (!_bandB(w)) await showExploreTab(tester);
+        await showExploreTab(tester);
         final row = find.byKey(const ValueKey('explore-78'));
         final name = tester.getRect(
           find.descendant(of: row, matching: find.text('Book club')),
@@ -172,55 +134,40 @@ void main() {
         final join = tester.getRect(
           find.descendant(of: row, matching: find.byType(CommunityJoinControl)),
         );
-        if (_bandB(w)) {
-          expect(join.top, greaterThan(name.bottom));
-          expect(join.left, closeTo(name.left, 1));
-        } else {
-          expect(join.left, greaterThan(name.right));
-        }
+        expect(join.left, greaterThan(name.right));
       });
     }
 
-    testWidgets('band B: a pane row opens the community (pushed), whose pane '
-        'shows its rules', (tester) async {
+    testWidgets('band B: an Explore row opens the community (pushed), with no '
+        'pane', (tester) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, width: 1024);
+      await showExploreTab(tester);
       await tester.tap(
-        inContextPane(find.bySemanticsLabel(RegExp('^Chess club'))),
+        inCommunitiesPage(find.bySemanticsLabel(RegExp('^Chess club'))),
       );
       await tester.pumpAndSettle();
 
       expect(rig.uri.path, _communityPath);
-      expect(_paneKinds(tester), [
-        ContextSectionKind.communityAbout,
-        ContextSectionKind.links,
-      ]);
-      expect(inContextPane(find.text('Be kind')), findsOneWidget);
+      expect(findContextPane(), findsNothing);
       expect(find.text('Explore communities'), findsNothing);
 
-      // Back: the directory's pane again, and the inline copy stays aside.
       rig.router.pop();
       await tester.pumpAndSettle();
-      expect(_paneKinds(tester), [
-        ContextSectionKind.exploreCommunities,
-        ContextSectionKind.links,
-      ]);
-      expect(find.text('Explore communities'), findsOneWidget);
-      expect(inContextPane(find.text('Explore communities')), findsOneWidget);
+      expect(rig.uri.path, AppRouter.communitiesPath);
+      expect(findContextPane(), findsNothing);
     });
 
-    testWidgets('band B: the pane follows the page\'s states (loading, '
-        'empty)', (tester) async {
+    testWidgets('band B: the Explore tab follows the directory states '
+        '(empty)', (tester) async {
       final rig = CommunitiesTabletRig();
       rig.server.directory = [];
       await rig.pump(tester, width: 1024);
-      expect(
-        inContextPane(find.text('No Communities to explore yet.')),
-        findsOneWidget,
-      );
+      expect(findContextPane(), findsNothing);
+      await showExploreTab(tester);
       expect(
         inCommunitiesPage(find.text('No Communities to explore yet.')),
-        findsNothing,
+        findsOneWidget,
       );
     });
 
@@ -229,7 +176,10 @@ void main() {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, width: 1024);
       final state = tester.state(find.byType(CommunitiesScreen));
-      await tester.tap(inContextPane(find.bySemanticsLabel('Join Book club')));
+      await showExploreTab(tester);
+      await tester.tap(
+        inCommunitiesPage(find.bySemanticsLabel('Join Book club')),
+      );
       await tester.pumpAndSettle();
 
       for (final w in <double>[839, 840, 1024, 1199, 1200, 599, 600, 1024]) {
@@ -241,34 +191,24 @@ void main() {
           reason: '$w',
         );
         final row = find.byKey(const ValueKey('explore-78'));
-        // R10 (F23): outside band B, Explore is a tab (kept once chosen).
-        if (!_bandB(w) && row.evaluate().isEmpty) {
-          await showExploreTab(tester);
-        }
+        // R10 (F23): Explore is a tab at every width (kept once chosen).
+        if (row.evaluate().isEmpty) await showExploreTab(tester);
         await tester.scrollUntilVisible(
           row,
           100,
-          // The pane's own scroll view (R10: its search field has one too).
-          scrollable: _bandB(w)
-              ? find
-                    .descendant(
-                      of: findContextPane(),
-                      matching: find.byType(Scrollable),
-                    )
-                    .first
-              : find
-                    .descendant(
-                      of: findCommunitiesPage(),
-                      matching: find.byType(Scrollable),
-                    )
-                    .first,
+          scrollable: find
+              .descendant(
+                of: findCommunitiesPage(),
+                matching: find.byType(Scrollable),
+              )
+              .first,
         );
         expect(
           find.descendant(of: row, matching: find.text('Joined')),
           findsOneWidget,
           reason: '$w',
         );
-        expect(findContextPane().evaluate().isNotEmpty, _bandB(w));
+        expect(findContextPane(), findsNothing, reason: '$w');
       }
       expect(rig.server.count('mine'), 1);
       expect(rig.server.count('directory'), 1);
@@ -280,11 +220,8 @@ void main() {
     for (final MapEntry(key: mode, value: flags)
         in kCommunitiesFlagModes.entries) {
       for (final w in _widths) {
-        final pane = _tabletFlags(flags) && _bandB(w);
-        testWidgets('$mode at $w: rules and moderators '
-            '${pane ? 'in the pane' : 'in the About tab only'}', (
-          tester,
-        ) async {
+        testWidgets('$mode at $w: rules and moderators in the About tab '
+            'only, no context pane', (tester) async {
           final rig = CommunitiesTabletRig();
           await rig.pump(
             tester,
@@ -297,20 +234,8 @@ void main() {
           // Posts / About at every width (R-inline).
           final tabs = tester.widget<AppTabBar>(find.byType(AppTabBar));
           expect([for (final t in tabs.tabs) t.label], ['Posts', 'About']);
-          if (pane) {
-            expect(_paneKinds(tester), [
-              ContextSectionKind.communityAbout,
-              ContextSectionKind.links,
-            ]);
-            expect(inContextPane(find.text('Rules')), findsOneWidget);
-            expect(inContextPane(find.text('Be kind')), findsOneWidget);
-            expect(inContextPane(find.text('Stay on topic')), findsOneWidget);
-            expect(inContextPane(find.text('Moderators')), findsOneWidget);
-            expect(inContextPane(find.text('Olivia')), findsOneWidget);
-            expect(inContextPane(find.text('Mo')), findsOneWidget);
-          } else {
-            expect(findContextPane(), findsNothing);
-          }
+          expect(findContextPane(), findsNothing);
+          expect(_tabletContextPane(), findsNothing);
           // A member does not moderate: no log entry anywhere.
           expect(find.text('Moderation log'), findsNothing);
           // The Posts tab is open: the rules are not in the page.
@@ -321,22 +246,33 @@ void main() {
       }
     }
 
-    testWidgets('band B: the About tab still shows the rules in the page '
-        '(the pane adds a second place)', (tester) async {
+    testWidgets('band B: the About tab shows the rules and moderators in the '
+        'page, and there is no pane', (tester) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, location: _communityPath, width: 1024);
+      expect(findContextPane(), findsNothing);
       await tester.tap(find.text('About'));
       await tester.pumpAndSettle();
+      expect(findContextPane(), findsNothing);
+      expect(inCommunitiesPage(find.text('Rules')), findsOneWidget);
       expect(inCommunitiesPage(find.text('Be kind')), findsOneWidget);
-      expect(inContextPane(find.text('Be kind')), findsOneWidget);
+      expect(inCommunitiesPage(find.text('Stay on topic')), findsOneWidget);
+      expect(inCommunitiesPage(find.text('Moderators')), findsOneWidget);
+      expect(inCommunitiesPage(find.text('Olivia')), findsOneWidget);
+      expect(inCommunitiesPage(find.text('Mo')), findsOneWidget);
     });
 
-    testWidgets('band B: no rules says so in the pane', (tester) async {
+    testWidgets('band B: no rules says so in the About tab', (tester) async {
       final rig = CommunitiesTabletRig();
       rig.server.rules = [];
       await rig.pump(tester, location: _communityPath, width: 1024);
+      await tester.tap(find.text('About'));
+      await tester.pumpAndSettle();
+      expect(findContextPane(), findsNothing);
       expect(
-        inContextPane(find.text("This Community hasn't set any rules yet.")),
+        inCommunitiesPage(
+          find.text("This Community hasn't set any rules yet."),
+        ),
         findsOneWidget,
       );
     });
@@ -345,12 +281,13 @@ void main() {
       pb.CommunityRole.COMMUNITY_ROLE_MODERATOR,
       pb.CommunityRole.COMMUNITY_ROLE_OWNER,
     ]) {
-      testWidgets('band B, ${role.name}: "Moderation log" in the pane '
-          'opens the log, whose pane is About this log', (tester) async {
+      testWidgets('band B, ${role.name}: the header "Moderation log" '
+          'opens the log, which has no pane', (tester) async {
         final rig = CommunitiesTabletRig();
         rig.server.viewerRole = role;
         await rig.pump(tester, location: _communityPath, width: 1024);
-        final link = inContextPane(find.text('Moderation log'));
+        expect(findContextPane(), findsNothing);
+        final link = inCommunitiesPage(find.text('Moderation log'));
         expect(link, findsOneWidget);
         expect(tester.getSize(link.hitTestable()).height, greaterThan(0));
         expect(
@@ -364,10 +301,7 @@ void main() {
         await tester.tap(link);
         await tester.pumpAndSettle();
         expect(rig.uri.path, _logPath);
-        expect(_paneKinds(tester), [
-          ContextSectionKind.moderationLogAbout,
-          ContextSectionKind.links,
-        ]);
+        expect(findContextPane(), findsNothing);
         expect(rig.server.count('log:'), 1);
       });
     }
@@ -382,39 +316,20 @@ void main() {
       expect(inCommunitiesPage(find.text('Moderation log')), findsOneWidget);
     });
 
-    testWidgets('pushed over Home (a post\'s community label): the pane is '
-        'the community\'s; back is Home\'s global set', (tester) async {
+    testWidgets('pushed over Home (a post community label): no pane at '
+        'band B, before or after', (tester) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, location: AppRouter.homePath, width: 1024);
-      expect(_paneKinds(tester), _global);
+      expect(findContextPane(), findsNothing);
 
       rig.router.push(_communityPath);
       await tester.pumpAndSettle();
-      expect(_paneKinds(tester), [
-        ContextSectionKind.communityAbout,
-        ContextSectionKind.links,
-      ]);
-      expect(inContextPane(find.text('Be kind')), findsOneWidget);
-
-      rig.router.pop();
-      await tester.pumpAndSettle();
-      expect(_paneKinds(tester), _global);
-      expect(find.text('Be kind'), findsNothing);
-    });
-
-    testWidgets('a page pushed over a community gets its own family, never '
-        'the community\'s rules', (tester) async {
-      final rig = CommunitiesTabletRig();
-      await rig.pump(tester, location: _communityPath, width: 1024);
-      rig.router.push(AppRouter.plansMinePath);
-      await tester.pumpAndSettle();
-      expect(_paneKinds(tester), _global);
+      expect(findContextPane(), findsNothing);
       expect(find.text('Be kind'), findsNothing);
 
       rig.router.pop();
       await tester.pumpAndSettle();
-      expect(inContextPane(find.text('Be kind')), findsOneWidget);
-      expect(rig.server.count('get:'), 1);
+      expect(findContextPane(), findsNothing);
     });
 
     testWidgets('state across 839, 840, 1199, 1200, 599 and back: the About '
@@ -434,18 +349,14 @@ void main() {
           findsOneWidget,
           reason: '$w: About is still the open tab',
         );
-        expect(
-          inContextPane(find.text('Be kind')),
-          _bandB(w) ? findsOneWidget : findsNothing,
-          reason: '$w',
-        );
+        expect(findContextPane(), findsNothing, reason: '$w');
       }
       expect(rig.server.count('get:'), 1);
       expect(rig.feedRefreshes, 1);
     });
 
-    testWidgets('band B in RTL: the pane on the left, the page beside the '
-        'rail on the right', (tester) async {
+    testWidgets('band B in RTL: no pane, the page takes the content beside '
+        'the rail on the right', (tester) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(
         tester,
@@ -454,13 +365,12 @@ void main() {
         textDirection: TextDirection.rtl,
       );
       expect(tester.takeException(), isNull);
-      final pane = tester.getRect(findContextPane());
+      expect(findContextPane(), findsNothing);
       final page = tester.getRect(findCommunitiesPage());
       final rail = tester.getRect(find.byKey(const ValueKey('tablet-rail')));
-      expect(pane.left, 0);
-      expect(page.left, pane.right + 1);
+      expect(page.left, 0);
+      expect(page.right, rail.left);
       expect(rail.right, 1024);
-      expect(inContextPane(find.text('Be kind')), findsOneWidget);
     });
 
     for (final w in <double>[834, 1024]) {
@@ -480,7 +390,7 @@ void main() {
         expect(item, findsOneWidget);
         expect(find.byType(Dialog), findsNothing);
         expect(find.byType(BottomSheet), findsNothing);
-        // Anchored at the button, inside the page (not the pane).
+        // Anchored at the button, inside the page.
         final itemRect = tester.getRect(item);
         final page = tester.getRect(findCommunitiesPage());
         expect(
@@ -518,9 +428,7 @@ void main() {
     for (final MapEntry(key: mode, value: flags)
         in kCommunitiesFlagModes.entries) {
       for (final w in _widths) {
-        final pane = _tabletFlags(flags) && _bandB(w);
-        testWidgets('$mode at $w: members '
-            '${pane ? 'beside the global set' : 'alone'}; no "Search '
+        testWidgets('$mode at $w: members alone, no pane; no "Search '
             'members" (its flag off), the Moderators tab', (tester) async {
           final rig = CommunitiesTabletRig();
           rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
@@ -532,7 +440,7 @@ void main() {
           );
           expect(tester.takeException(), isNull);
 
-          expect(_paneKinds(tester), pane ? _global : isEmpty);
+          expect(findContextPane(), findsNothing);
           expect(inCommunitiesPage(find.text('Member 1')), findsOneWidget);
           // F36 stays hidden with `community_member_search` off (these
           // modes); F24's Moderators tab shows to a moderator (R10).
@@ -553,23 +461,21 @@ void main() {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, location: _membersPath, width: 1024);
       expect(find.byType(AppTabBar), findsNothing);
-      expect(_paneKinds(tester), _global);
+      expect(findContextPane(), findsNothing);
     });
 
-    testWidgets('pushed from the community page\'s member count: the global '
-        'set; back: the community\'s pane', (tester) async {
+    testWidgets('pushed from the community member count: no pane, and none '
+        'after back', (tester) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, location: _communityPath, width: 1024);
       await tester.tap(find.bySemanticsLabel('5 members, see members'));
       await tester.pumpAndSettle();
       expect(rig.uri.path, _membersPath);
-      expect(_paneKinds(tester), _global);
+      expect(findContextPane(), findsNothing);
       rig.router.pop();
       await tester.pumpAndSettle();
-      expect(_paneKinds(tester), [
-        ContextSectionKind.communityAbout,
-        ContextSectionKind.links,
-      ]);
+      expect(rig.uri.path, _communityPath);
+      expect(findContextPane(), findsNothing);
     });
 
     for (final w in <double>[700, 1024]) {
@@ -601,14 +507,10 @@ void main() {
         in kCommunitiesFlagModes.entries) {
       for (final w in _widths) {
         final tablet = _tabletFlags(flags) && w >= 600 && w < 1200;
-        final inline = tablet && _bandA(w);
-        final pane = tablet && _bandB(w);
         testWidgets('$mode at $w: About this log '
-            '${inline
-                ? 'inline'
-                : pane
-                ? 'in the pane'
-                : 'not shown'}', (tester) async {
+            '${tablet ? 'inline' : 'not shown'}, no context pane', (
+          tester,
+        ) async {
           final rig = CommunitiesTabletRig();
           rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
           await rig.pump(tester, location: _logPath, width: w, flags: flags);
@@ -620,20 +522,9 @@ void main() {
           );
           expect(
             inCommunitiesPage(find.text(kModerationLogAboutText)),
-            inline ? findsOneWidget : findsNothing,
+            tablet ? findsOneWidget : findsNothing,
           );
-          if (pane) {
-            expect(_paneKinds(tester), [
-              ContextSectionKind.moderationLogAbout,
-              ContextSectionKind.links,
-            ]);
-            expect(
-              inContextPane(find.text(kModerationLogAboutText)),
-              findsOneWidget,
-            );
-          } else {
-            expect(findContextPane(), findsNothing);
-          }
+          expect(findContextPane(), findsNothing);
           // The log itself is unchanged: three entries, one call.
           expect(find.textContaining('@member1'), findsWidgets);
           expect(rig.server.count('log:'), 1);
@@ -641,18 +532,23 @@ void main() {
       }
     }
 
-    testWidgets('band A: the banner sits between the header and the log', (
-      tester,
-    ) async {
-      final rig = CommunitiesTabletRig();
-      rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
-      await rig.pump(tester, location: _logPath, width: 744);
-      final banner = tester.getRect(find.byType(ModerationLogAbout));
-      final header = tester.getRect(find.text('Moderation log'));
-      final firstEntry = tester.getRect(find.textContaining('@member1').first);
-      expect(banner.top, greaterThan(header.bottom));
-      expect(banner.bottom, lessThanOrEqualTo(firstEntry.top));
-    });
+    for (final w in <double>[744, 1024]) {
+      testWidgets('at $w the banner sits between the header and the log', (
+        tester,
+      ) async {
+        final rig = CommunitiesTabletRig();
+        rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
+        await rig.pump(tester, location: _logPath, width: w);
+        final banner = tester.getRect(find.byType(ModerationLogAbout));
+        final header = tester.getRect(find.text('Moderation log'));
+        final firstEntry = tester.getRect(
+          find.textContaining('@member1').first,
+        );
+        expect(banner.top, greaterThan(header.bottom));
+        expect(banner.bottom, lessThanOrEqualTo(firstEntry.top));
+        expect(findContextPane(), findsNothing);
+      });
+    }
 
     testWidgets('state across 839, 840 and back: the same log, one call', (
       tester,
@@ -679,14 +575,9 @@ void main() {
         in kCommunitiesFlagModes.entries) {
       for (final w in _widths) {
         final tablet = _tabletFlags(flags) && w >= 600 && w < 1200;
-        final action = tablet && _bandA(w);
-        final pane = tablet && _bandB(w);
         testWidgets('$mode at $w: preview '
-            '${action
-                ? 'behind the header action'
-                : pane
-                ? 'in the pane'
-                : 'not shown'}', (tester) async {
+            '${tablet ? 'behind the header action' : 'not shown'}, no context '
+            'pane', (tester) async {
           final rig = CommunitiesTabletRig();
           await rig.pump(
             tester,
@@ -698,22 +589,10 @@ void main() {
 
           expect(
             find.widgetWithText(TextButton, 'Preview'),
-            action ? findsOneWidget : findsNothing,
+            tablet ? findsOneWidget : findsNothing,
           );
-          if (pane) {
-            expect(_paneKinds(tester), [
-              ContextSectionKind.communityPreview,
-              ContextSectionKind.links,
-            ]);
-            expect(inContextPane(find.text('Preview')), findsOneWidget);
-            expect(
-              inContextPane(find.text(kCommunityPreviewUnnamed)),
-              findsOneWidget,
-            );
-          } else {
-            expect(findContextPane(), findsNothing);
-            expect(find.byType(CommunityPreview), findsNothing);
-          }
+          expect(findContextPane(), findsNothing);
+          expect(find.byType(CommunityPreview), findsNothing);
           // The form is the same everywhere.
           expect(find.text('Create a community'), findsOneWidget);
           expect(rig.server.calls, isEmpty);
@@ -734,8 +613,8 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    for (final w in <double>[600, 744, 839]) {
-      testWidgets('band A at $w: Preview opens a D 560 dialog on the content '
+    for (final w in <double>[600, 744, 839, 840, 1024, 1199]) {
+      testWidgets('tablet at $w: Preview opens a D 560 dialog on the content '
           'area with the form as typed', (tester) async {
         final rig = CommunitiesTabletRig();
         await rig.pump(
@@ -780,50 +659,9 @@ void main() {
       });
     }
 
-    for (final w in <double>[840, 1024, 1199]) {
-      testWidgets('band B at $w: the pane previews the form live', (
-        tester,
-      ) async {
-        final rig = CommunitiesTabletRig();
-        await rig.pump(
-          tester,
-          location: AppRouter.communityNewPath,
-          width: w,
-          height: 1100,
-        );
-        expect(
-          inContextPane(find.text("This Community hasn't set any rules yet.")),
-          findsOneWidget,
-        );
-        await fill(tester);
-        expect(inContextPane(find.text('Go club')), findsOneWidget);
-        expect(inContextPane(find.text('Weekly games')), findsOneWidget);
-        expect(inContextPane(find.text('No spam')), findsOneWidget);
-        expect(
-          inContextPane(find.text('Links only when asked.')),
-          findsOneWidget,
-        );
-        expect(
-          inContextPane(find.text(kCommunityPreviewUnnamed)),
-          findsNothing,
-        );
-
-        // Removing the rule leaves the preview with none.
-        await tester.tap(find.byTooltip('Remove rule 1'));
-        await tester.pumpAndSettle();
-        expect(inContextPane(find.text('No spam')), findsNothing);
-        expect(
-          inContextPane(find.text("This Community hasn't set any rules yet.")),
-          findsOneWidget,
-        );
-        expect(find.widgetWithText(TextButton, 'Preview'), findsNothing);
-        expect(rig.server.calls, isEmpty);
-      });
-    }
-
     testWidgets('state across 839, 840, 1024, 1199, 1200, 599 and back: the '
-        'typed form survives and the preview moves between the dialog and '
-        'the pane', (tester) async {
+        'typed form survives and the preview stays behind the header action '
+        '(no pane at any width)', (tester) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(
         tester,
@@ -859,18 +697,14 @@ void main() {
           reason: '$w',
         );
         expect(field.textEditingValue.text, '  Go club ');
-        expect(
-          inContextPane(find.text('Go club')),
-          _bandB(w) ? findsOneWidget : findsNothing,
-          reason: '$w',
-        );
+        expect(findContextPane(), findsNothing, reason: '$w');
         expect(
           find.widgetWithText(TextButton, 'Preview'),
-          _bandA(w) ? findsOneWidget : findsNothing,
+          w >= 600 && w < 1200 ? findsOneWidget : findsNothing,
           reason: '$w',
         );
       }
-      // Back in band A, the dialog shows what the pane showed.
+      // Back at 839, the dialog shows the typed form.
       await tester.tap(find.widgetWithText(TextButton, 'Preview'));
       await tester.pumpAndSettle();
       expect(
@@ -888,13 +722,13 @@ void main() {
       'show anyway)', () {
     final off = {...kCommunitiesTabletFlags}..remove('communities');
 
-    testWidgets('/communities at 1024: the global set, and Explore '
-        'Communities stays inline', (tester) async {
+    testWidgets('/communities at 1024: no pane, and Explore Communities '
+        'stays inline', (tester) async {
       final rig = CommunitiesTabletRig();
       await rig.pump(tester, width: 1024, flags: off);
       expect(tester.takeException(), isNull);
-      expect(_paneKinds(tester), _global);
-      // R10 (F23): inline, Explore is the page's second tab.
+      expect(findContextPane(), findsNothing);
+      // R10 (F23): inline, Explore is the second tab of the page.
       expect(find.byType(AppTabBar), findsOneWidget);
       await showExploreTab(tester);
       expect(
@@ -908,13 +742,14 @@ void main() {
       ('ModLog', _logPath),
       ('CreateCommunity', AppRouter.communityNewPath),
     ]) {
-      testWidgets('$name at 1024: the global set, none of the lent or '
-          'static communities sections', (tester) async {
+      testWidgets('$name at 1024: no pane, none of the communities '
+          'sections in it', (tester) async {
         final rig = CommunitiesTabletRig();
         rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
         await rig.pump(tester, location: location, width: 1024, flags: off);
         expect(tester.takeException(), isNull);
-        expect(_paneKinds(tester), _global);
+        expect(findContextPane(), findsNothing);
+        expect(_tabletContextPane(), findsNothing);
         expect(inContextPane(find.text('Be kind')), findsNothing);
         expect(
           inContextPane(find.text(kModerationLogAboutTitle)),
@@ -935,7 +770,7 @@ void main() {
     };
     for (final MapEntry(key: name, value: location) in screens.entries) {
       forEachThemeAndWidth(
-        '$name: no overflow, the rail pinned at 0, the panes of section 3',
+        '$name: no overflow, the rail pinned at 0, no pane',
         (tester, env) async {
           final rig = CommunitiesTabletRig();
           rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
@@ -952,20 +787,15 @@ void main() {
             tester.getRect(find.byKey(const ValueKey('tablet-rail'))).left,
             0,
           );
-          expectTabletPanes(tester, findCommunitiesPage(), env.size.width);
-          if (_bandB(env.size.width)) {
-            expect(_paneKinds(tester).last, ContextSectionKind.links);
-          }
-          // Every pane section sits inside the pane.
-          final pane = findContextPane();
-          if (pane.evaluate().isNotEmpty) {
-            final paneRect = tester.getRect(pane);
-            for (final kind in _paneKinds(tester)) {
-              final section = tester.getRect(find.byKey(ValueKey(kind)).first);
-              expect(section.left, greaterThanOrEqualTo(paneRect.left));
-              expect(section.right, lessThanOrEqualTo(paneRect.right));
-            }
-          }
+          // No side context pane at any tablet width: the page takes the
+          // whole content beside the rail.
+          expectTabletPanes(
+            tester,
+            findCommunitiesPage(),
+            env.size.width,
+            hasPane: false,
+          );
+          expect(findContextPane(), findsNothing);
           // The page geometry is the shell's.
           final geometry = ShellGeometry.maybeOf(
             tester.element(findCommunitiesPage()),
@@ -979,7 +809,7 @@ void main() {
     }
   });
 
-  group('text scale 2.0 in the 320 dp pane (840 x 1194)', () {
+  group('text scale 2.0 at 840 x 1194 (no pane: the page is inline)', () {
     for (final brightness in Brightness.values) {
       testWidgets('Communities, ${brightness.name}: the directory rows and '
           'Join fit; rows >= 48 dp', (tester) async {
@@ -992,16 +822,16 @@ void main() {
           brightness: brightness,
         );
         expect(tester.takeException(), isNull);
-        expect(tester.getSize(findContextPane()).width, 320);
+        expect(findContextPane(), findsNothing);
+        await showExploreTab(tester);
         for (final (id, _) in kRigDirectory) {
-          final row = inContextPane(find.byKey(ValueKey('explore-$id')));
+          final row = inCommunitiesPage(find.byKey(ValueKey('explore-$id')));
           await tester.scrollUntilVisible(
             row,
             100,
-            // The pane's own scroll view (R10: its search field has one too).
             scrollable: find
                 .descendant(
-                  of: findContextPane(),
+                  of: findCommunitiesPage(),
                   matching: find.byType(Scrollable),
                 )
                 .first,
@@ -1013,8 +843,8 @@ void main() {
         }
       });
 
-      testWidgets('Community (moderator), ${brightness.name}: rules, '
-          'moderators and the log link fit', (tester) async {
+      testWidgets('Community (moderator), ${brightness.name}: the header '
+          'and its log link fit', (tester) async {
         final rig = CommunitiesTabletRig();
         rig.server.viewerRole = pb.CommunityRole.COMMUNITY_ROLE_MODERATOR;
         await rig.pump(
@@ -1026,14 +856,17 @@ void main() {
           brightness: brightness,
         );
         expect(tester.takeException(), isNull);
-        final link = inContextPane(find.text('Moderation log'));
+        expect(findContextPane(), findsNothing);
+        final link = inCommunitiesPage(find.text('Moderation log'));
         await tester.scrollUntilVisible(
           link,
           100,
-          scrollable: find.descendant(
-            of: findContextPane(),
-            matching: find.byType(Scrollable),
-          ),
+          scrollable: find
+              .descendant(
+                of: findCommunitiesPage(),
+                matching: find.byType(Scrollable),
+              )
+              .first,
         );
         expect(tester.takeException(), isNull);
       });
