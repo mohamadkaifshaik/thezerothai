@@ -249,11 +249,14 @@ class CommunityHeader extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (compose != null || onModerationLog != null || !banned) ...[
-          const SizedBox(height: AppSpacing.xs),
+          // Clear air under the members / Joined row, and between wrapped
+          // rows, so the pills do not stack on each other.
+          const SizedBox(height: AppSpacing.smd),
           // One family of 36 dp pills (in 48 dp tap boxes): Post filled,
           // the rest outlined, so the row reads as one set of controls.
           Wrap(
-            spacing: AppSpacing.sm,
+            spacing: AppSpacing.smd,
+            runSpacing: AppSpacing.smd,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               if (compose != null)
@@ -416,7 +419,8 @@ class _HeaderPlaceholder extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(
                     AppCommunitiesLayout.heroPaddingH,
-                    AppSpacing.smd + AppSpacing.xs,
+                    // The loaded header's padding plus the gap above its pills.
+                    AppSpacing.smd + AppSpacing.smd,
                     AppCommunitiesLayout.heroPaddingH,
                     AppSpacing.smd,
                   ),
@@ -430,7 +434,7 @@ class _HeaderPlaceholder extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   identity,
-                  const SizedBox(height: AppSpacing.xs),
+                  const SizedBox(height: AppSpacing.smd),
                   actions,
                 ],
               ),
