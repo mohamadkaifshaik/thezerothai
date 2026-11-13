@@ -179,6 +179,16 @@ func TestSharesChain_SendCountAndReplay(t *testing.T) {
 	other := w.post(t, c, "another post")
 	_, err = w.sendPost(a, b, "share-key-first-0001", url, other)
 	wantReason(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "field", "idempotency_key")
+	// A message without a post keeps the pre-shares digest: it replays, and the same key with a post is a reused key.
+	plainFirst, err := w.send(a, b, "share-key-plain-0001", "no post here")
+	if err != nil {
+		t.Fatalf("plain send: %v", err)
+	}
+	if again, err := w.send(a, b, "share-key-plain-0001", "no post here"); err != nil || !proto.Equal(again.GetMessage(), plainFirst.GetMessage()) {
+		t.Fatalf("plain replay = %v, %v; want the first message", again.GetMessage(), err)
+	}
+	_, err = w.sendPost(a, b, "share-key-plain-0001", "no post here", p)
+	wantReason(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, "field", "idempotency_key")
 
 	// A second share by the same account, the author's own share, and an outside share by the recipient.
 	if _, err := w.sendPost(a, b, contractKey("sh-again"), url, p); err != nil {
@@ -349,6 +359,9 @@ func TestSharesChain_Refusals(t *testing.T) {
 	}
 	if _, err := cold.sendPost(prot, b, contractKey("sh-prot-own"), "x", pp); err != nil {
 		t.Fatalf("the protected author's own share: %v", err)
+	}
+	if got := w.storedCount(t, pp); got != 0 {
+		t.Fatalf("the author's own share counted: share_count = %d", got)
 	}
 	if got := cold.card(t, b, prot); !got.GetUnavailable() {
 		t.Fatalf("a non-follower's card of a protected post = %v, want unavailable", got)
