@@ -14,7 +14,8 @@ class _NoShare implements NativeShare {
   bool get isAvailable => true;
 
   @override
-  Future<void> shareUrl(String url, {Rect? anchor}) async {}
+  Future<NativeShareStatus> shareUrl(String url, {Rect? anchor}) async =>
+      NativeShareStatus.completed;
 }
 
 class _Host extends StatelessWidget {
