@@ -467,7 +467,9 @@ class MainShell extends StatelessWidget {
 
     // The desktop side column's route: the shell navigator's top page (a
     // profile pushed over Home decides), else the matched location.
-    final sidePaneLocation = _shellTopLocation(context) ?? location;
+    final sidePaneLocation = split
+        ? location
+        : _shellTopLocation(context) ?? location;
 
     void select(int index) {
       switch (tabs[index].tab) {
