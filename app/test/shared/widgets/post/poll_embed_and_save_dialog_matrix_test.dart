@@ -87,7 +87,9 @@ void main() {
             find
                 .ancestor(
                   of: find.text(label),
-                  matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+                  matching: find.byWidgetPredicate(
+                    (w) => w is ButtonStyleButton,
+                  ),
                 )
                 .first,
           );

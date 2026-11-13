@@ -5,7 +5,8 @@ import 'package:dzeroth/features/timeline/presentation/widgets/feed_post_row.dar
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/media/v1/media.pb.dart' as media_pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
-import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart' show ReplyPolicy;
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart'
+    show ReplyPolicy;
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/shared/widgets/post/gif_badge.dart';
 import 'package:dzeroth/shared/widgets/post/post_media.dart';

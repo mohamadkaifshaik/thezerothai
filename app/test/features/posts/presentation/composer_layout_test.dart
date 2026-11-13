@@ -156,9 +156,7 @@ void main() {
               expect(tester.takeException(), isNull);
               expect(find.byTooltip('Close'), findsOneWidget);
               expect(find.text('Post'), findsOneWidget);
-              final cancelSize = tester.getSize(
-                find.byTooltip('Close'),
-              );
+              final cancelSize = tester.getSize(find.byTooltip('Close'));
               expect(cancelSize.height, greaterThanOrEqualTo(48));
               final postSize = tester.getSize(find.byType(AppPillButton));
               expect(postSize.height, greaterThanOrEqualTo(48));

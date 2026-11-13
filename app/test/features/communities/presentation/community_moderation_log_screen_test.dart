@@ -276,20 +276,23 @@ void main() {
     expect(find.text('Restore'), findsOneWidget);
   });
 
-  test('the platform acted: no actor and not deleted reads as the platform', () {
-    final hide = pb.ModerationLogEntry(
-      seq: Int64(1),
-      action: ModerationLogAction.MODERATION_LOG_ACTION_RESTORE,
-    );
-    expect(moderationLogSentence(hide), 'The platform restored a post');
-    // An actor row with an empty handle is still a person.
-    final person = _entry(
-      2,
-      ModerationLogAction.MODERATION_LOG_ACTION_HIDE,
-      actor: '',
-    );
-    expect(moderationLogSentence(person), 'A moderator removed a post');
-  });
+  test(
+    'the platform acted: no actor and not deleted reads as the platform',
+    () {
+      final hide = pb.ModerationLogEntry(
+        seq: Int64(1),
+        action: ModerationLogAction.MODERATION_LOG_ACTION_RESTORE,
+      );
+      expect(moderationLogSentence(hide), 'The platform restored a post');
+      // An actor row with an empty handle is still a person.
+      final person = _entry(
+        2,
+        ModerationLogAction.MODERATION_LOG_ACTION_HIDE,
+        actor: '',
+      );
+      expect(moderationLogSentence(person), 'A moderator removed a post');
+    },
+  );
 
   testWidgets(
     "a reply's HIDE row restores by the reply's id; the platform's bulk "

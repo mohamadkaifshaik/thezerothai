@@ -530,9 +530,7 @@ void main() {
         expect(find.byType(FloatingActionButton), findsNothing);
       });
 
-      testWidgets('none on a profile (pages offer their own)', (
-        tester,
-      ) async {
+      testWidgets('none on a profile (pages offer their own)', (tester) async {
         await pump(tester, location: '/profile/alice');
         expect(find.byType(FloatingActionButton), findsNothing);
       });

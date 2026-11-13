@@ -111,9 +111,7 @@ void main() {
   }
 
   AppPillButton postButton(WidgetTester tester) =>
-      tester.widget<AppPillButton>(
-        find.widgetWithText(AppPillButton, 'Post'),
-      );
+      tester.widget<AppPillButton>(find.widgetWithText(AppPillButton, 'Post'));
 
   testWidgets('starts empty: Post disabled, counter 280', (tester) async {
     await open(tester);

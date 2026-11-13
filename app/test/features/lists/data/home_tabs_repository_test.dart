@@ -321,7 +321,10 @@ void main() {
 
       await repo.pin(HomeTabKind.community, '55');
 
-      expect(sent.single.tabs.single.kind, common.HomeTabKind.HOME_TAB_KIND_COMMUNITY);
+      expect(
+        sent.single.tabs.single.kind,
+        common.HomeTabKind.HOME_TAB_KIND_COMMUNITY,
+      );
       expect(sent.single.tabs.single.id, '55');
       expect(repo.isPinned(HomeTabKind.community, '55'), isTrue);
       expect(repo.tabs.single.title, 'Gardeners');
@@ -367,45 +370,47 @@ void main() {
       expect(bare.tabs.map((t) => t.key), ['list:1']);
     });
 
-    test('the server still refusing COMMUNITY tabs (until W5-27) rolls back '
-        'to "not available yet" and stops further writes until a GetMe',
-        () async {
-      answer = (_) async => serverError(
-        connect.Code.invalidArgument,
-        common.ErrorReason.ERROR_REASON_VALIDATION,
-        metadata: {'field': 'tabs'},
-      );
+    test(
+      'the server still refusing COMMUNITY tabs (until W5-27) rolls back '
+      'to "not available yet" and stops further writes until a GetMe',
+      () async {
+        answer = (_) async => serverError(
+          connect.Code.invalidArgument,
+          common.ErrorReason.ERROR_REASON_VALIDATION,
+          metadata: {'field': 'tabs'},
+        );
 
-      await expectLater(
-        repo.pin(HomeTabKind.community, '55'),
-        throwsA(
-          isA<FeatureDisabledException>().having(
-            (e) => e.feature,
-            'feature',
-            'communities',
+        await expectLater(
+          repo.pin(HomeTabKind.community, '55'),
+          throwsA(
+            isA<FeatureDisabledException>().having(
+              (e) => e.feature,
+              'feature',
+              'communities',
+            ),
           ),
-        ),
-      );
-      expect(ids(repo.tabs), ['1', '2']);
-      expect(repo.isPinned(HomeTabKind.community, '55'), isFalse);
-      expect(sent, hasLength(1));
-      expect(reported, 0);
+        );
+        expect(ids(repo.tabs), ['1', '2']);
+        expect(repo.isPinned(HomeTabKind.community, '55'), isFalse);
+        expect(sent, hasLength(1));
+        expect(reported, 0);
 
-      // The next attempt is not sent; a list write still goes through.
-      await expectLater(
-        repo.pin(HomeTabKind.community, '55'),
-        throwsA(isA<FeatureDisabledException>()),
-      );
-      expect(sent, hasLength(1));
-      answer = (r) async => tl.SetHomeTabsResponse(tabs: r.tabs);
-      await repo.pin(HomeTabKind.list, '3');
-      expect(sent, hasLength(2));
+        // The next attempt is not sent; a list write still goes through.
+        await expectLater(
+          repo.pin(HomeTabKind.community, '55'),
+          throwsA(isA<FeatureDisabledException>()),
+        );
+        expect(sent, hasLength(1));
+        answer = (r) async => tl.SetHomeTabsResponse(tabs: r.tabs);
+        await repo.pin(HomeTabKind.list, '3');
+        expect(sent, hasLength(2));
 
-      // A fresh GetMe lifts the stop.
-      repo.adoptFromMe([wire('1')], epoch: epoch.value);
-      await repo.pin(HomeTabKind.community, '55');
-      expect(sent, hasLength(3));
-    });
+        // A fresh GetMe lifts the stop.
+        repo.adoptFromMe([wire('1')], epoch: epoch.value);
+        await repo.pin(HomeTabKind.community, '55');
+        expect(sent, hasLength(3));
+      },
+    );
 
     test('a VALIDATION tabs refusal of a list-only write stays a '
         'ValidationException', () async {

@@ -268,10 +268,7 @@ void main() {
 
   group('the cold-start composer (full screen)', () {
     Rect cancel(WidgetTester tester) => tester.getRect(
-      find.descendant(
-        of: findComposer(),
-        matching: find.byTooltip('Close'),
-      ),
+      find.descendant(of: findComposer(), matching: find.byTooltip('Close')),
     );
     Rect post(WidgetTester tester) => tester.getRect(
       find.descendant(of: findComposer(), matching: find.byType(AppPillButton)),
@@ -298,10 +295,7 @@ void main() {
           final start = (width - column) / 2;
           final end = (width + column) / 2;
           if (rtl) {
-            expect(
-              cancel(tester).right,
-              moreOrLessEquals(end - AppSpacing.sm),
-            );
+            expect(cancel(tester).right, moreOrLessEquals(end - AppSpacing.sm));
             expect(post(tester).left, moreOrLessEquals(start + AppSpacing.md));
           } else {
             expect(

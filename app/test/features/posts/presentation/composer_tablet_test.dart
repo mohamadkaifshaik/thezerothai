@@ -49,6 +49,7 @@ void main() {
     const dialog = ComposerPresentation.tabletDialog;
     const full = ComposerPresentation.fullScreen;
     const legacy = ComposerPresentation.legacyDialog;
+    const desktop = ComposerPresentation.desktopDialog;
     final cases = <(double, bool, bool, bool, ComposerPresentation)>[
       // width, tablet flags, page below, reply -> presentation
       (390, true, true, false, full),
@@ -57,7 +58,10 @@ void main() {
       (839, true, true, false, dialog),
       (840, true, true, false, dialog),
       (1199, true, true, false, dialog),
-      (1200, true, true, false, full),
+      (1200, true, true, false, desktop),
+      (1440, true, true, false, desktop),
+      (1440, false, true, false, desktop),
+      (1440, true, false, false, full), // cold start (a deep link)
       (1024, true, false, false, full), // cold start
       (1024, false, true, false, full),
       (599, true, true, true, full),
@@ -103,8 +107,13 @@ void main() {
       ]) {
         final tablet =
             mode == 'ui_shell + ui_tablet' && width >= 600 && width < 1200;
+        final desktop = width >= 1200;
         testWidgets('$mode at ${width.toInt()}: '
-            '${tablet ? 'the dialog' : 'full screen'}', (tester) async {
+            '${tablet
+                ? 'the dialog'
+                : desktop
+                ? 'the desktop dialog'
+                : 'full screen'}', (tester) async {
           final rig = ComposerTabletRig();
           await rig.pump(tester, width: width, height: 900, flags: flags);
           await rig.push(tester, AppRouter.composePath);
@@ -118,6 +127,23 @@ void main() {
               expectedDialog(width, 900),
             );
             // The shell page stays painted behind the scrim.
+            expect(find.text('home body'), findsOneWidget);
+          } else if (desktop) {
+            // The desktop Composer mock: 600 wide, hung 64 under the top,
+            // the reply dialog's pattern; the page stays behind the scrim.
+            expect(dialogAround(findComposer()), findsOneWidget);
+            expectRect(
+              tester.getRect(findComposer()),
+              Rect.fromLTWH(
+                (width - 600) / 2,
+                AppSize.desktopModalTop,
+                600,
+                math.min(
+                  AppSize.composerDialogMaxHeight,
+                  900 - AppSize.desktopModalTop - AppSpacing.lg,
+                ),
+              ),
+            );
             expect(find.text('home body'), findsOneWidget);
           } else {
             expect(dialogAround(findComposer()), findsNothing);
@@ -376,7 +402,7 @@ void main() {
       final field = editorStateOf(tester);
 
       for (final (width, dialog) in [
-        (1200.0, false),
+        (1200.0, true),
         (1199.0, true),
         (599.0, false),
         (600.0, true),
@@ -552,7 +578,7 @@ void main() {
       expect(prompt.center.dx, moreOrLessEquals(80 + 944 / 2, epsilon: 1));
     });
 
-    for (final width in <double>[390.0, 599, 1200, 1440]) {
+    for (final width in <double>[390.0, 599]) {
       testWidgets('${width.toInt()}: Escape does nothing (full screen)', (
         tester,
       ) async {
@@ -591,6 +617,22 @@ void main() {
       await tester.pumpAndSettle();
       expect(findReplyComposer(), findsNothing);
     });
+
+    for (final width in <double>[1200.0, 1440]) {
+      testWidgets(
+        '${width.toInt()}: Escape closes the desktop compose dialog',
+        (tester) async {
+          final rig = ComposerTabletRig();
+          await rig.pump(tester, width: width, height: 900);
+          await rig.push(tester, AppRouter.composePath);
+          expect(findComposer(), findsOneWidget);
+          await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+          await tester.pumpAndSettle();
+          expect(findComposer(), findsNothing);
+          expect(rig.uri.path, isNot(AppRouter.composePath));
+        },
+      );
+    }
 
     testWidgets('1200: Escape closes the desktop reply dialog', (tester) async {
       final rig = ComposerTabletRig();
@@ -726,7 +768,7 @@ void main() {
       expect(find.text('home body'), findsNothing);
       for (final (width, shown) in [
         (1024.0, true),
-        (1200.0, false),
+        (1200.0, true),
         (834.0, true),
         (599.0, false),
       ]) {
@@ -853,7 +895,7 @@ void main() {
         expect(rig.uri.queryParameters['quote'], rig.parent.post.postId);
         expect(
           dialogAround(findComposer()),
-          width >= 600 && width < 1200 ? findsOneWidget : findsNothing,
+          width >= 600 ? findsOneWidget : findsNothing,
         );
         // The quoted post is previewed in the dialog too.
         expect(find.text('A conversation worth continuing.'), findsWidgets);
@@ -940,9 +982,10 @@ void main() {
         await rig.pump(tester, width: width, height: 900);
         await rig.push(tester, AppRouter.composePath);
         expect(tester.takeException(), isNull);
+        // The tablet dialog below 1200, the desktop dialog from it.
         expect(
           dialogAround(findComposer()),
-          width >= 600 && width < 1200 ? findsOneWidget : findsNothing,
+          width >= 600 ? findsOneWidget : findsNothing,
         );
       });
     }

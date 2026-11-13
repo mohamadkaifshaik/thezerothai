@@ -404,7 +404,6 @@ class ListsTabletRig {
   }
 }
 
-
 /// The route child (the primary pane on the tablet layout, the whole body
 /// elsewhere): the top Lists page.
 Finder findListsPage() => find.byWidgetPredicate(
