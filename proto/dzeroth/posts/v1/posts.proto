@@ -477,6 +477,14 @@ message Post {
   // Unset for a post with no plan, for a REPOST or QUOTE row (the card is on the original), and everywhere while
   // FEATURE_POST_BEACON_EMBED is globally off.
   BeaconPreview beacon = 24;
+  // How many distinct accounts shared this post (other than its author): sent it in a direct message
+  // (MessagingService.SendMessage shared_post_id) or reported a copy-link / share-sheet share
+  // (dzeroth.engagement.v1.EngagementService.RecordPostShare). Each account counts at most once per post, whatever the
+  // channel and however often. Never says who shared or where. Kept on posts/{id}.shareCount by FieldValue.Increment
+  // with the per-account marker; an account deletion decrements it, like like_count. 0 on a REPOST row (read the
+  // embed's original), on a withheld row, and on posts that predate the field. Clients show it only when
+  // GetMe.enabled_features lists "share_count".
+  int64 share_count = 25;
 }
 
 // Bounded summary only. The reader fetches the authorized body separately.
