@@ -42,6 +42,41 @@ void main() {
       handle.dispose();
     });
 
+    testWidgets('raised is the white disc in light mode only; in dark it '
+        'is the plain grey icon of an unraised button', (tester) async {
+      Color? fill(WidgetTester t) => t
+          .widget<IconButton>(find.byType(IconButton))
+          .style
+          ?.backgroundColor
+          ?.resolve(<WidgetState>{});
+      Color? ink(WidgetTester t) => t
+          .widget<IconButton>(find.byType(IconButton))
+          .style
+          ?.foregroundColor
+          ?.resolve(<WidgetState>{});
+      for (final brightness in Brightness.values) {
+        await tester.pumpWidget(
+          _host(
+            AppIconButton(
+              icon: Icons.add,
+              tooltip: 'Add',
+              raised: true,
+              onPressed: () {},
+            ),
+            brightness: brightness,
+          ),
+        );
+        await tester.pumpAndSettle(); // the theme change animates
+        if (brightness == Brightness.light) {
+          expect(fill(tester), AppPalette.white);
+          expect(ink(tester), AppPalette.navy);
+        } else {
+          expect(fill(tester), isNull, reason: 'no white disc in dark mode');
+          expect(ink(tester), isNull, reason: 'the theme grey, like Explore');
+        }
+      }
+    });
+
     testWidgets('raised is a flat white disc: no shadow', (tester) async {
       await tester.pumpWidget(
         _host(
