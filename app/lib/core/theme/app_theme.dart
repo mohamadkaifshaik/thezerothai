@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'app_page_transitions.dart';
+
 /// Design tokens shared by every screen. Never hard-code a `Color(0x...)` or
 /// a raw size outside this file.
 ///
@@ -636,6 +638,7 @@ ThemeData buildAppTheme({required Brightness brightness}) {
     visualDensity: VisualDensity.standard,
     materialTapTargetSize: MaterialTapTargetSize.padded,
     extensions: [appColors],
+    pageTransitionsTheme: appPageTransitionsTheme,
     // Elevation stays 0 everywhere; depth comes only from AppShadows, which
     // the phase 2 primitives paint.
     dividerTheme: DividerThemeData(
@@ -1137,6 +1140,13 @@ class AppMotion {
   static const Duration expoOutShort = Duration(milliseconds: 300);
   static const Duration expoOutLong = Duration(milliseconds: 450);
   static const Duration backOutDuration = Duration(milliseconds: 350);
+  /// A page push: a short fade and a slight slide, ease-out (see
+  /// `AppPageTransitionsBuilder`). Not used under reduced motion.
+  static const Duration pageTransition = Duration(milliseconds: 240);
+  static const Curve pageCurve = Curves.easeOutCubic;
+
+  /// How far a page slides in, as a fraction of its width.
+  static const double pageSlide = 0.04;
   static const Duration headlineStaggerMin = Duration(milliseconds: 80);
   static const Duration headlineStaggerMax = Duration(milliseconds: 200);
 
