@@ -313,6 +313,72 @@ func TestSharesChain_CardLeakMatrix(t *testing.T) {
 	}
 }
 
+// The send side of the leak matrix (owner decision on a block either way): a block in either direction between the sender
+// and the post's author, or a QUOTE's embedded author, refuses the send with the NOT_FOUND bytes of a post that does not
+// exist, before anything is written (no conversation, no count); the same send without the block goes through.
+func TestSharesChain_SendLeakMatrix(t *testing.T) {
+	ctx := context.Background()
+	w := newShareChain(t, flags.On)
+	type world struct{ a, b, c dmUser }
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, x world) string // returns the post a tries to send
+		refused bool
+	}{
+		{name: "sender blocked the author", refused: true, setup: func(t *testing.T, x world) string {
+			id := w.post(t, x.c, "blocked by the sender")
+			w.graphOp(t, "block", x.a, x.c)
+			return id
+		}},
+		{name: "author blocked the sender", refused: true, setup: func(t *testing.T, x world) string {
+			id := w.post(t, x.c, "the author blocked the sender")
+			w.graphOp(t, "block", x.c, x.a)
+			return id
+		}},
+		{name: "sender blocked a QUOTE's embedded author", refused: true, setup: func(t *testing.T, x world) string {
+			e := w.user(t)
+			orig := w.post(t, e, "quoted")
+			q, err := w.posts.CreatePost(ctx, authed(x.c.token, &postsv1.CreatePostRequest{IdempotencyKey: contractKey("sh-sq"), Text: "quote", QuoteOfPostId: orig}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.graphOp(t, "block", x.a, e)
+			return q.Msg.GetPost().GetPost().GetPostId()
+		}},
+		{name: "sender muted the author (sent)", setup: func(t *testing.T, x world) string {
+			id := w.post(t, x.c, "muted, not blocked")
+			w.graphOp(t, "mute", x.a, x.c)
+			return id
+		}},
+		{name: "no block (sent)", setup: func(t *testing.T, x world) string { return w.post(t, x.c, "no block") }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			x := world{a: w.user(t), b: w.user(t), c: w.user(t)}
+			id := tt.setup(t, x)
+			cold := newShareChain(t, flags.On)
+			_, err := cold.sendPost(x.a, x.b, contractKey("sh-sl"), "https://dzeroth.app/post/"+id, id)
+			if !tt.refused {
+				if err != nil {
+					t.Fatalf("send: %v", err)
+				}
+				return
+			}
+			_, missing := cold.sendPost(x.a, x.b, contractKey("sh-sl-missing"), "x", "0000000000000000001")
+			if err == nil || missing == nil || wireBytes(t, err) != wireBytes(t, missing) {
+				t.Fatalf("send = %v, a missing post = %v; want the same NOT_FOUND bytes", err, missing)
+			}
+			wantReason(t, err, connect.CodeNotFound, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "", "")
+			if _, found := w.convDoc(t, x.a, x.b); found {
+				t.Fatal("a refused share created the conversation")
+			}
+			if got := w.storedCount(t, id); got != 0 {
+				t.Fatalf("a refused share counted: share_count = %d", got)
+			}
+		})
+	}
+}
+
 // The refusals of a send with a post: the GetPost bytes for a post the caller may not see, PROTECTED_ACCOUNT for a protected
 // author's post sent by someone else (the author may send it, and a non-follower recipient sees it unavailable), the
 // CANNOT_MESSAGE bytes of a block unchanged by the post, FEATURE_DISABLED dm_post_share for a caller without the flag, and
