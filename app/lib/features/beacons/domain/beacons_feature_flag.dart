@@ -10,6 +10,16 @@ const kFeatureBeacons = 'beacons';
 /// drawn only while it is listed. Its Join needs [kFeatureBeacons] as well.
 const kFeaturePostBeaconEmbed = 'post_beacon_embed';
 
+/// Name of the one-tap join flag (`FEATURE_BEACON_QUICK_JOIN`) in
+/// `GetMeResponse.enabled_features`. With it on (and `beacons`), a plan the
+/// viewer may join in one tap (`ViewerState.quick_join_allowed`: the
+/// organiser follows them) shows "I'm in", and every other join needs a note.
+const kFeatureBeaconQuickJoin = 'beacon_quick_join';
+
+/// `metadata["reason"]` of the FAILED_PRECONDITION a RequestToJoin with an
+/// empty note gets when the organiser does not follow the caller.
+const kBeaconNoteRequiredReason = 'note_required';
+
 /// `metadata["limit"]` of LIMIT_REACHED (read as `LimitReachedException.quota`):
 /// 5 OPEN/FULL plans per organiser.
 const kBeaconsOpenLimit = 'beacons_open';
