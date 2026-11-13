@@ -772,7 +772,9 @@ class _RailStyle {
   factory _RailStyle.of(BuildContext context) {
     final theme = Theme.of(context);
     final colors = context.appColors;
-    final label = theme.textTheme.labelMedium;
+    final label = theme.textTheme.labelMedium?.copyWith(
+      fontSize: AppTypeTokens.railLabelSize,
+    );
     return _RailStyle(
       indicatorColor: colors.selectedIndicator,
       // The glyph sits on the pill: onPrimary is the pill's ink in both

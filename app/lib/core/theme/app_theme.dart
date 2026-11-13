@@ -1161,6 +1161,13 @@ abstract final class AppTypeTokens {
   static const double displayTracking = -0.035;
   static const double displayLineHeight = 1.02;
   static const double eyebrowSize = 12;
+
+  /// Tablet and desktop scale (dz.css, `--type-scale` 1): captions 12-13,
+  /// secondary 14, body and row titles 15, buttons and the Post pill 17, the
+  /// desktop rail labels 17 (one step with the Post pill under them), card
+  /// and section titles 19, bar titles 20.
+  static const double railLabelSize = 17;
+  static const double cardTitleSize = 19;
   static const FontWeight eyebrowWeight = FontWeight.w700;
   static const double eyebrowTracking = 0.24;
   static const double wordmarkSize = 15;
@@ -1274,6 +1281,24 @@ abstract final class AppTextStyles {
     height: 1.33,
     tracking: AppTypeTokens.eyebrowTracking,
   ).copyWith(color: theme.colorScheme.onSurfaceVariant);
+
+  /// The title of a side-column card ("What's happening", "You might like",
+  /// "Follow requests"; dz.css `.box h3`): Manrope 19 sp w800.
+  static TextStyle cardTitle(ThemeData theme) => _type(
+    AppFonts.display,
+    AppTypeTokens.cardTitleSize,
+    AppTypeTokens.weightDisplay,
+    height: 1.25,
+    tracking: -0.01,
+  ).copyWith(color: theme.colorScheme.onSurface);
+
+  /// [cardTitle] from 600 dp up; the phone keeps its 17 sp w700 title.
+  static TextStyle? cardTitleFor(BuildContext context) {
+    final theme = Theme.of(context);
+    return MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile
+        ? cardTitle(theme)
+        : theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700);
+  }
 
   /// The "DZEROTH" wordmark: Manrope 15 sp w700, +0.13 em.
   static TextStyle wordmark(ThemeData theme) => _type(
