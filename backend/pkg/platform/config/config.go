@@ -202,9 +202,9 @@ type Config struct {
 	FeatureChatSharedPlans flags.Spec
 	// FeatureBeaconQuickJoin is the flag (wire name `beacon_quick_join`) gating the follow-gated empty note of
 	// BeaconService.RequestToJoin: with it on for the caller, an empty note is accepted only when the organiser follows the
-	// caller (else FAILED_PRECONDITION "note_required"), and ViewerState.quick_join_allowed is computed by GetBeacon. On for
-	// the caller on top of FEATURE_BEACONS on for the caller. FEATURE_BEACON_QUICK_JOIN[_ALLOWLIST|_PERCENT], default off in
-	// every environment.
+	// caller (else FAILED_PRECONDITION "note_required"), and ViewerState.quick_join_allowed is computed by GetBeacon and the
+	// beacon lists. On for the caller on top of FEATURE_BEACONS on for the caller.
+	// FEATURE_BEACON_QUICK_JOIN[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureBeaconQuickJoin flags.Spec
 	// FeatureReadReceipts is the flag (wire name `read_receipts`) gating read receipts (F3): UpdateProfile.read_receipts=true,
 	// the receipt stamp of MarkConversationRead and Conversation.peer_read_at of ListMessages need it on for the caller (peer_read_at

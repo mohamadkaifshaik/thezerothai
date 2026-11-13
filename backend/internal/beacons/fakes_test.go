@@ -315,6 +315,33 @@ type fakeGraph struct {
 	errs  map[string]error
 	mu    sync.Mutex
 	calls map[string]int
+	// lookups records the candidates of each FollowersAmong call (graph.FollowLookup); lookupErr fails every call.
+	lookups   [][]string
+	lookupErr error
+}
+
+// FollowersAmong answers from the candidates' own snapshots (Following[viewer]: the candidate follows the viewer; a
+// Requested entry is not a follow) and records the call; it reads no snapshot (calls is untouched).
+func (g *fakeGraph) FollowersAmong(_ context.Context, viewer string, candidates []string) (map[string]bool, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.lookups = append(g.lookups, append([]string(nil), candidates...))
+	if g.lookupErr != nil {
+		return nil, g.lookupErr
+	}
+	out := map[string]bool{}
+	for _, c := range candidates {
+		if g.snaps[c].Following[viewer] {
+			out[c] = true
+		}
+	}
+	return out, nil
+}
+
+func (g *fakeGraph) lookupCount() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return len(g.lookups)
 }
 
 func (g *fakeGraph) Snapshot(_ context.Context, uid string) (graph.Snapshot, error) {
@@ -406,6 +433,7 @@ type env struct {
 	flags  fakeFlags
 	events *fakeEvents
 	now    time.Time
+	deps   Deps
 	svc    Service
 }
 
@@ -450,12 +478,20 @@ func newEnv() *env {
 		events: &fakeEvents{},
 		now:    testNow,
 	}
-	e.svc = New(Deps{
-		Repo: e.repo, Directory: e.dir, Graph: e.graph, Communities: e.comm, CommunityFlags: e.flags, Flags: e.flags, IDs: fakeIDs{},
+	e.deps = Deps{
+		Repo: e.repo, Directory: e.dir, Graph: e.graph, Communities: e.comm, CommunityFlags: e.flags, Flags: e.flags, Follows: e.graph, IDs: fakeIDs{},
 		CursorKey: []byte("0123456789abcdef0123456789abcdef"), Limits: Limits{MaxOpenPerUser: 5, MaxPendingRequests: 10, MaxOpenSpots: 20},
 		Events: e.events, Now: func() time.Time { return e.now },
-	})
+	}
+	e.svc = New(e.deps)
 	return e
+}
+
+// rebuild is a service over the same fakes with mod applied to the dependencies.
+func (e *env) rebuild(mod func(*Deps)) Service {
+	d := e.deps
+	mod(&d)
+	return New(d)
 }
 
 type fakeIDs struct{}

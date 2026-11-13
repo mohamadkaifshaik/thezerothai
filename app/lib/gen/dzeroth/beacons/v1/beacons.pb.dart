@@ -435,10 +435,14 @@ class ViewerState extends $pb.GeneratedMessage {
   void clearCanManage() => $_clearField(6);
 
   /// True when the caller may join with one tap, sending RequestToJoin with an empty note: FEATURE_BEACONS and
-  /// FEATURE_BEACON_QUICK_JOIN are on for the caller, can_request is true and the organiser follows the caller (a
-  /// pending follow request is not a follow). Computed by GetBeacon only (one cached read of the organiser's graph);
-  /// false in every list, in post embeds and in the responses of the participation RPCs, so the client opens the beacon
-  /// (GetBeacon) before offering the one-tap join. Advisory: RequestToJoin re-checks the follow when it writes.
+  /// FEATURE_BEACON_QUICK_JOIN are on for the caller, can_request is true and the organiser follows the caller (the
+  /// follow edge organiser -> caller; a pending follow request is not a follow). Computed by GetBeacon, ListBeacons,
+  /// ListMyBeacons and ListSharedBeacons. Cost: nothing while a flag is off or no row is requestable; otherwise one
+  /// batched follow lookup per response for the distinct organisers of its requestable rows (at most 50: at most 2
+  /// batched edge reads, answered from a 60 s cache first), never one read per row. A failed lookup leaves the field
+  /// false (the response still succeeds). Always false in the responses of the participation RPCs; post embeds
+  /// (dzeroth.posts.v1.BeaconPreview) carry no viewer state. Advisory and up to 60 s stale: RequestToJoin re-checks the
+  /// same edge when it writes, so a one-tap send can still answer FAILED_PRECONDITION "note_required" (show the note).
   @$pb.TagNumber(7)
   $core.bool get quickJoinAllowed => $_getBF(6);
   @$pb.TagNumber(7)

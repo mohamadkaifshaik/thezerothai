@@ -29,7 +29,8 @@ func quickJoinEnv(quick, follows bool) *env {
 
 // TestRequestToJoin_QuickJoinMatrix: flag on/off x organiser follows or not x empty, whitespace-only or real note. Only
 // flag on + not followed + empty (after trim) is refused, FAILED_PRECONDITION note_required, with nothing written; the
-// organiser's graph is read only for an empty note under the flag (one read), never with the flag off.
+// follow lookup runs only for an empty note under the flag (one call for the organiser), never with the flag off, and
+// the organiser's whole graph doc is never read.
 func TestRequestToJoin_QuickJoinMatrix(t *testing.T) {
 	notes := []struct {
 		name, note string
@@ -68,12 +69,18 @@ func TestRequestToJoin_QuickJoinMatrix(t *testing.T) {
 							t.Fatalf("note = %q, want empty", e.repo.requestedBy[0].Note)
 						}
 					}
-					wantReads := 0
+					wantLookups := 0
 					if quick && n.empty {
-						wantReads = 1
+						wantLookups = 1
 					}
-					if got := e.graph.readsOf(testOrganiser); got != wantReads {
-						t.Fatalf("organiser graph reads = %d, want %d", got, wantReads)
+					if got := e.graph.lookupCount(); got != wantLookups {
+						t.Fatalf("follow lookups = %d, want %d", got, wantLookups)
+					}
+					if wantLookups == 1 && (len(e.graph.lookups[0]) != 1 || e.graph.lookups[0][0] != testOrganiser) {
+						t.Fatalf("lookup candidates = %v, want the organiser", e.graph.lookups[0])
+					}
+					if got := e.graph.readsOf(testOrganiser); got != 0 {
+						t.Fatalf("organiser graph doc reads = %d, want 0", got)
 					}
 					if vs.QuickJoinAllowed {
 						t.Fatal("quick_join_allowed must stay false in the RequestToJoin answer")
@@ -84,7 +91,7 @@ func TestRequestToJoin_QuickJoinMatrix(t *testing.T) {
 	}
 }
 
-// TestRequestToJoin_QuickJoinEdges: a pending follow request is not a follow; a failed organiser graph read refuses the
+// TestRequestToJoin_QuickJoinEdges: a pending follow request is not a follow; a failed follow lookup refuses the
 // write (fail closed, not note_required); the repository's state verdicts keep their reasons over note_required; and a
 // same-key retry of a committed one-tap join replays after the organiser unfollowed, without the follow check.
 func TestRequestToJoin_QuickJoinEdges(t *testing.T) {
@@ -100,9 +107,9 @@ func TestRequestToJoin_QuickJoinEdges(t *testing.T) {
 		_, err := e.svc.RequestToJoin(context.Background(), testViewer, testKey, testBeaconID, "")
 		assertPrecondition(t, err, "note_required")
 	})
-	t.Run("graph read failure fails closed", func(t *testing.T) {
+	t.Run("lookup failure fails closed", func(t *testing.T) {
 		e := quickJoinEnv(true, true)
-		e.graph.errs = map[string]error{testOrganiser: errors.New("boom")}
+		e.graph.lookupErr = errors.New("boom")
 		_, err := e.svc.RequestToJoin(context.Background(), testViewer, testKey, testBeaconID, "")
 		var ae *apierr.Error
 		if err == nil || (errors.As(err, &ae) && ae.Metadata["reason"] == "note_required") {
@@ -146,23 +153,24 @@ func TestRequestToJoin_QuickJoinEdges(t *testing.T) {
 }
 
 // TestGetBeacon_QuickJoinAllowed: true only with FEATURE_BEACONS and FEATURE_BEACON_QUICK_JOIN on for the viewer, a
-// beacon the viewer may request and an organiser who follows the viewer; the organiser's graph is read only when the
-// rest holds, and a failed read is false, not an error.
+// beacon the viewer may request and an organiser who follows the viewer; the follow lookup runs only when the rest
+// holds (one call), and a failed lookup is false, not an error.
 func TestGetBeacon_QuickJoinAllowed(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		quick     bool
-		follows   bool
-		setup     func(e *env)
-		viewer    string
-		want      bool
-		wantReads int
+		name        string
+		quick       bool
+		follows     bool
+		setup       func(e *env)
+		viewer      string
+		want        bool
+		wantLookups int
 	}{
-		{name: "followed", quick: true, follows: true, want: true, wantReads: 1},
-		{name: "not followed", quick: true, wantReads: 1},
+		{name: "followed", quick: true, follows: true, want: true, wantLookups: 1},
+		{name: "not followed", quick: true, wantLookups: 1},
 		{name: "flag off", follows: true},
 		{name: "beacons off for the caller", quick: true, follows: true, setup: func(e *env) { e.flags.on[FlagName] = false }},
-		{name: "pending follow request", quick: true, wantReads: 1, setup: func(e *env) {
+		{name: "no lookup wired", quick: true, follows: true, setup: func(e *env) { e.svc = e.rebuild(func(d *Deps) { d.Follows = nil }) }},
+		{name: "pending follow request", quick: true, wantLookups: 1, setup: func(e *env) {
 			e.graph.snaps[testOrganiser] = graph.Snapshot{Requested: map[string]bool{testViewer: true}}
 		}},
 		{name: "full", quick: true, follows: true, setup: func(e *env) {
@@ -176,12 +184,12 @@ func TestGetBeacon_QuickJoinAllowed(t *testing.T) {
 		{name: "accepted", quick: true, follows: true, setup: func(e *env) {
 			e.repo.participants = map[string]Participant{e.repo.pkey(testBeaconID, testViewer): {State: PStateAccepted}}
 		}},
-		{name: "declined may request again", quick: true, follows: true, want: true, wantReads: 1, setup: func(e *env) {
+		{name: "declined may request again", quick: true, follows: true, want: true, wantLookups: 1, setup: func(e *env) {
 			e.repo.participants = map[string]Participant{e.repo.pkey(testBeaconID, testViewer): {State: PStateDeclined}}
 		}},
 		{name: "organiser", quick: true, viewer: testOrganiser},
-		{name: "graph failure is false", quick: true, follows: true, wantReads: 1, setup: func(e *env) {
-			e.graph.errs = map[string]error{testOrganiser: errors.New("boom")}
+		{name: "lookup failure is false", quick: true, follows: true, wantLookups: 1, setup: func(e *env) {
+			e.graph.lookupErr = errors.New("boom")
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -200,10 +208,8 @@ func TestGetBeacon_QuickJoinAllowed(t *testing.T) {
 			if v.Viewer.QuickJoinAllowed != tc.want {
 				t.Fatalf("quick_join_allowed = %v, want %v (viewer %+v)", v.Viewer.QuickJoinAllowed, tc.want, v.Viewer)
 			}
-			if viewer != testOrganiser {
-				if got := e.graph.readsOf(testOrganiser); got != tc.wantReads {
-					t.Fatalf("organiser graph reads = %d, want %d", got, tc.wantReads)
-				}
+			if got := e.graph.lookupCount(); got != tc.wantLookups {
+				t.Fatalf("follow lookups = %d, want %d", got, tc.wantLookups)
 			}
 			if pb := toViewerState(v.Viewer); pb.GetQuickJoinAllowed() != tc.want {
 				t.Fatalf("proto quick_join_allowed = %v", pb.GetQuickJoinAllowed())
@@ -212,21 +218,101 @@ func TestGetBeacon_QuickJoinAllowed(t *testing.T) {
 	}
 }
 
-// TestListBeacons_QuickJoinStaysFalse: list rows never compute the field (no per-row organiser graph read).
-func TestListBeacons_QuickJoinStaysFalse(t *testing.T) {
+// listPage seeds a ListBeacons page for testViewer over several organisers: org-1 follows the viewer (two plans, one
+// FULL), org-2 does not, org-3 follows the viewer but the viewer already requested its plan, and one plan is the
+// viewer's own. Every organiser is ACTIVE.
+func listPage(e *env) {
+	mk := func(id, org string, status Status) Beacon {
+		b := e.openBeacon()
+		b.ID, b.OrganiserID, b.Status = id, org, status
+		return b
+	}
+	for _, u := range []string{"org-2", "org-3"} {
+		e.dir.profiles[u] = activeProfile(u)
+	}
+	e.graph.snaps[testOrganiser] = graph.Snapshot{Following: map[string]bool{testViewer: true}}
+	e.graph.snaps["org-3"] = graph.Snapshot{Following: map[string]bool{testViewer: true}}
+	e.repo.rows = []Beacon{
+		mk("0000000000000000101", testOrganiser, StatusOpen),
+		mk("0000000000000000102", testOrganiser, StatusFull),
+		mk("0000000000000000103", "org-2", StatusOpen),
+		mk("0000000000000000104", "org-3", StatusOpen),
+		mk("0000000000000000105", testViewer, StatusOpen),
+	}
+	e.repo.participants = map[string]Participant{e.repo.pkey("0000000000000000104", testViewer): {State: PStateRequested}}
+}
+
+// TestListBeacons_QuickJoinBatched: one follow lookup per page, holding only the distinct organisers of the rows the
+// viewer may request (never the viewer, never a FULL-only or already-requested organiser); each row is marked from it.
+// Flag off, beacons off for the caller, or no lookup wired: zero lookups and every row false. A failed lookup: every row
+// false, the page still answers.
+func TestListBeacons_QuickJoinBatched(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		setup       func(e *env)
+		wantLookups int
+		wantTrue    map[string]bool
+	}{
+		{name: "mixed organisers", wantLookups: 1, wantTrue: map[string]bool{"0000000000000000101": true}},
+		{name: "flag off", setup: func(e *env) { e.flags.on[QuickJoinFlagName] = false }},
+		{name: "beacons off for the caller", setup: func(e *env) { e.flags.on[FlagName] = false }},
+		{name: "no lookup wired", setup: func(e *env) { e.svc = e.rebuild(func(d *Deps) { d.Follows = nil }) }},
+		{name: "lookup failure", wantLookups: 1, setup: func(e *env) { e.graph.lookupErr = errors.New("boom") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := quickJoinEnv(true, false)
+			listPage(e)
+			if tc.setup != nil {
+				tc.setup(e)
+			}
+			page, err := e.svc.ListBeacons(context.Background(), testViewer, ListInput{Public: true})
+			if err != nil {
+				t.Fatalf("ListBeacons: %v", err)
+			}
+			if len(page.Views) != 5 {
+				t.Fatalf("views = %d, want 5", len(page.Views))
+			}
+			for _, v := range page.Views {
+				if v.Viewer.QuickJoinAllowed != tc.wantTrue[v.Beacon.ID] {
+					t.Errorf("%s (organiser %s) quick_join_allowed = %v", v.Beacon.ID, v.Beacon.OrganiserID, v.Viewer.QuickJoinAllowed)
+				}
+			}
+			if got := e.graph.lookupCount(); got != tc.wantLookups {
+				t.Fatalf("follow lookups = %d, want %d", got, tc.wantLookups)
+			}
+			if tc.wantLookups == 1 {
+				got := e.graph.lookups[0]
+				if len(got) != 2 || got[0] != testOrganiser || got[1] != "org-2" {
+					t.Fatalf("lookup candidates = %v, want [org-1 org-2]", got)
+				}
+			}
+			for _, u := range []string{testOrganiser, "org-2", "org-3"} {
+				if e.graph.readsOf(u) != 0 {
+					t.Fatalf("graph doc of %s read", u)
+				}
+			}
+		})
+	}
+}
+
+// TestMarkQuickJoin_NoRequestableRow: rows the viewer cannot request (organised, accepted, requested: the shape of
+// ListMyBeacons and ListSharedBeacons pages) cost no lookup and stay false.
+func TestMarkQuickJoin_NoRequestableRow(t *testing.T) {
 	e := quickJoinEnv(true, true)
-	e.repo.rows = []Beacon{e.repo.docs[testBeaconID]}
-	page, err := e.svc.ListBeacons(context.Background(), testViewer, ListInput{Public: true})
-	if err != nil {
-		t.Fatalf("ListBeacons: %v", err)
+	s := e.svc.(*service)
+	b := e.openBeacon()
+	views := []View{
+		{Beacon: b, Viewer: ViewerState{Role: RoleParticipant, ParticipantState: PStateAccepted, CanLeave: true}},
+		{Beacon: b, Viewer: ViewerState{Role: RoleNone, ParticipantState: PStateRequested, CanWithdraw: true}},
+		{Beacon: Beacon{ID: "0000000000000000201", OrganiserID: testViewer}, Viewer: ViewerState{Role: RoleOrganiser, CanManage: true}},
 	}
-	if len(page.Views) != 1 {
-		t.Fatalf("views = %d", len(page.Views))
+	s.markQuickJoin(context.Background(), testViewer, views)
+	for _, v := range views {
+		if v.Viewer.QuickJoinAllowed {
+			t.Fatalf("row marked: %+v", v.Viewer)
+		}
 	}
-	if page.Views[0].Viewer.QuickJoinAllowed || !page.Views[0].Viewer.CanRequest {
-		t.Fatalf("viewer = %+v, want can_request without quick_join_allowed", page.Views[0].Viewer)
-	}
-	if got := e.graph.readsOf(testOrganiser); got != 0 {
-		t.Fatalf("organiser graph reads = %d, want 0", got)
+	if got := e.graph.lookupCount(); got != 0 {
+		t.Fatalf("follow lookups = %d, want 0", got)
 	}
 }

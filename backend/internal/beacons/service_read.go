@@ -125,9 +125,9 @@ func (s *service) GetBeacon(ctx context.Context, viewer, beaconID string) (View,
 	if err != nil {
 		return View{}, mapErr(ctx, "get", viewer, beaconID, err)
 	}
-	v := s.viewWith(a.beacon, a.organiser, viewer, pstate)
-	v.Viewer.QuickJoinAllowed = s.quickJoinAllowed(ctx, a, viewer, v.Viewer)
-	return v, nil
+	views := []View{s.viewWith(a.beacon, a.organiser, viewer, pstate)}
+	s.markQuickJoin(ctx, viewer, views)
+	return views[0], nil
 }
 
 // participantState is the viewer's participant row state on a resolved beacon ("" for the organiser or no row): one
@@ -311,5 +311,6 @@ func (s *service) ListBeacons(ctx context.Context, viewer string, in ListInput) 
 		out.Views = append(out.Views, s.viewWith(b, profs[b.OrganiserID], viewer, states[b.ID]))
 	}
 	logger.SetRequestField(ctx, fieldDroppedGone, droppedGone)
+	s.markQuickJoin(ctx, viewer, out.Views)
 	return out, nil
 }

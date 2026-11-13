@@ -883,10 +883,14 @@ type ViewerState struct {
 	CanLeave         bool             `protobuf:"varint,5,opt,name=can_leave,json=canLeave,proto3" json:"can_leave,omitempty"`
 	CanManage        bool             `protobuf:"varint,6,opt,name=can_manage,json=canManage,proto3" json:"can_manage,omitempty"`
 	// True when the caller may join with one tap, sending RequestToJoin with an empty note: FEATURE_BEACONS and
-	// FEATURE_BEACON_QUICK_JOIN are on for the caller, can_request is true and the organiser follows the caller (a
-	// pending follow request is not a follow). Computed by GetBeacon only (one cached read of the organiser's graph);
-	// false in every list, in post embeds and in the responses of the participation RPCs, so the client opens the beacon
-	// (GetBeacon) before offering the one-tap join. Advisory: RequestToJoin re-checks the follow when it writes.
+	// FEATURE_BEACON_QUICK_JOIN are on for the caller, can_request is true and the organiser follows the caller (the
+	// follow edge organiser -> caller; a pending follow request is not a follow). Computed by GetBeacon, ListBeacons,
+	// ListMyBeacons and ListSharedBeacons. Cost: nothing while a flag is off or no row is requestable; otherwise one
+	// batched follow lookup per response for the distinct organisers of its requestable rows (at most 50: at most 2
+	// batched edge reads, answered from a 60 s cache first), never one read per row. A failed lookup leaves the field
+	// false (the response still succeeds). Always false in the responses of the participation RPCs; post embeds
+	// (dzeroth.posts.v1.BeaconPreview) carry no viewer state. Advisory and up to 60 s stale: RequestToJoin re-checks the
+	// same edge when it writes, so a one-tap send can still answer FAILED_PRECONDITION "note_required" (show the note).
 	QuickJoinAllowed bool `protobuf:"varint,7,opt,name=quick_join_allowed,json=quickJoinAllowed,proto3" json:"quick_join_allowed,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache

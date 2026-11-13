@@ -224,7 +224,8 @@ type ViewerState struct {
 	CanLeave         bool
 	CanManage        bool
 	// QuickJoinAllowed: the caller may request with an empty note (FEATURE_BEACON_QUICK_JOIN, the organiser follows the
-	// caller). Set by GetBeacon only; false everywhere else.
+	// caller). Set by GetBeacon and the list reads (markQuickJoin, one batched lookup per page); false in the
+	// participation answers.
 	QuickJoinAllowed bool
 }
 
@@ -556,7 +557,11 @@ type Deps struct {
 	// Flags is the beacons sub-flag gate the service reads itself (FEATURE_BEACON_QUICK_JOIN, and FEATURE_BEACONS for
 	// ViewerState.quick_join_allowed); the same registry as CommunityFlags. Nil is off for everyone.
 	Flags FlagChecker
-	IDs   IDSource
+	// Follows answers "which of these organisers follow the viewer" (graph.FollowLookup: the follow edges, cache-first,
+	// batched) for the one-tap join (FEATURE_BEACON_QUICK_JOIN). Nil is "nobody follows": no read, quick_join_allowed
+	// false, and an empty note under the flag is note_required.
+	Follows graph.FollowLookup
+	IDs     IDSource
 	// CursorKey seals the page tokens of ListBeacons (cfg.CursorHMACKey).
 	CursorKey []byte
 	Limits    Limits

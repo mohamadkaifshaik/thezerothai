@@ -169,6 +169,7 @@ func (s *service) ListMyBeacons(ctx context.Context, uid string, in MyBeaconsInp
 		}
 		out.Views = append(out.Views, s.viewWith(c.b, p, uid, pstate))
 	}
+	s.markQuickJoin(ctx, uid, out.Views)
 	return out, nil
 }
 

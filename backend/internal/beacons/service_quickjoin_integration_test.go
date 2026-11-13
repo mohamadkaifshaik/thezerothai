@@ -32,6 +32,7 @@ func TestIntegrationRequestToJoin_QuickJoinFollowGated(t *testing.T) {
 		friend   = "it-qj-friend"
 		stranger = "it-qj-stranger"
 		other    = "it-qj-other"
+		org2     = "it-qj-org2"
 	)
 	graphRepo := graph.NewFirestoreRepo(e.client)
 	identityRepo := identity.NewFirestoreRepo(e.client, graphRepo)
@@ -40,6 +41,7 @@ func TestIntegrationRequestToJoin_QuickJoinFollowGated(t *testing.T) {
 	type graphSvc interface {
 		graph.Service
 		graph.Reader
+		graph.FollowLookup
 	}
 	cold := func() (graphSvc, identity.Directory) {
 		g := graph.New(graph.Deps{Repo: graphRepo, Cache: graph.NewCache(time.Minute), Flags: qjAllOn{}})
@@ -48,7 +50,7 @@ func TestIntegrationRequestToJoin_QuickJoinFollowGated(t *testing.T) {
 		return g, i.(identity.Directory)
 	}
 	idSvc := identity.New(identityRepo, identity.NewCache(time.Minute), 7*24*time.Hour)
-	for uid, h := range map[string]string{org: "qjorg", friend: "qjfriend", stranger: "qjstranger", other: "qjother"} {
+	for uid, h := range map[string]string{org: "qjorg", friend: "qjfriend", stranger: "qjstranger", other: "qjother", org2: "qjorgtwo"} {
 		if _, err := idSvc.CreateProfile(ctx, uid, "0123456789abcdef", h, "N"); err != nil {
 			t.Fatalf("CreateProfile %s: %v", uid, err)
 		}
@@ -62,12 +64,14 @@ func TestIntegrationRequestToJoin_QuickJoinFollowGated(t *testing.T) {
 		t.Fatalf("stranger follows organiser: %v", err)
 	}
 	b := e.create(t, org, itKeyA, e.beaconAt(org, "", e.now.Add(2*time.Hour))).Beacon
+	// A second organiser who does not follow anyone, on the same public page.
+	b2 := e.create(t, org2, itKeyB, e.beaconAt(org2, "", e.now.Add(3*time.Hour))).Beacon
 
 	svcWith := func(quick bool) Service {
 		gs, dir := cold()
 		fl := fakeFlags{on: map[string]bool{FlagName: true, QuickJoinFlagName: quick, communities.FlagName: true}, off: map[string]bool{}}
 		return New(Deps{
-			Repo: e.repo, Directory: dir, Graph: gs, Communities: &fakeCommunities{roles: map[string]communities.Role{}},
+			Repo: e.repo, Directory: dir, Graph: gs, Follows: gs, Communities: &fakeCommunities{roles: map[string]communities.Role{}},
 			CommunityFlags: fl, Flags: fl, CursorKey: []byte("0123456789abcdef0123456789abcdef"),
 			Limits: Limits{MaxOpenPerUser: 5, MaxPendingRequests: 10, MaxOpenSpots: 20},
 			Now:    func() time.Time { return e.now },
@@ -83,6 +87,22 @@ func TestIntegrationRequestToJoin_QuickJoinFollowGated(t *testing.T) {
 		if err != nil || v.Viewer.QuickJoinAllowed != tc.want || !v.Viewer.CanRequest {
 			t.Fatalf("GetBeacon(%s) = %+v, %v, want quick_join_allowed %v", tc.uid, v.Viewer, err, tc.want)
 		}
+	}
+
+	// The list card: one page with both organisers, marked from one batched lookup.
+	page, err := svcWith(true).ListBeacons(ctx, friend, ListInput{Public: true})
+	if err != nil {
+		t.Fatalf("ListBeacons: %v", err)
+	}
+	marks := map[string]bool{}
+	for _, v := range page.Views {
+		marks[v.Beacon.ID] = v.Viewer.QuickJoinAllowed
+	}
+	if len(marks) != 2 || !marks[b.ID] || marks[b2.ID] {
+		t.Fatalf("list quick_join_allowed = %v, want true for %s only", marks, b.ID)
+	}
+	if page, err := svcWith(false).ListBeacons(ctx, friend, ListInput{Public: true}); err != nil || page.Views[0].Viewer.QuickJoinAllowed || page.Views[1].Viewer.QuickJoinAllowed {
+		t.Fatalf("flag off list = %+v, %v", page.Views, err)
 	}
 
 	// The followed caller joins with an empty (whitespace) note.
