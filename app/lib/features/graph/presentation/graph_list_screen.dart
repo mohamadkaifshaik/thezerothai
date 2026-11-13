@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/user/user_list_skeleton.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -123,7 +124,7 @@ class _GraphListScreenState extends State<GraphListScreen> {
   @override
   Widget build(BuildContext context) {
     if (_resolving) {
-      return _frame(body: const Center(child: CircularProgressIndicator()));
+      return _frame(body: const UserListSkeleton());
     }
     final error = _resolveError;
     if (error != null) {

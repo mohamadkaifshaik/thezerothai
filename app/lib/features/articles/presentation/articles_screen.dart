@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../../shared/widgets/post/post_list_skeleton.dart';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -637,7 +638,10 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
         (_record?.published ?? false) ||
         (_record?.publicationPending ?? false);
     final body = _loading
-        ? const Center(child: CircularProgressIndicator())
+        ? const PostListSkeleton(
+            mediaEvery: 0,
+            semanticsLabel: 'Loading articles',
+          )
         : widget.articleId == null
         ? _library()
         : _record == null
@@ -890,7 +894,10 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
       });
     }
     final library = _sideLoading
-        ? const Center(child: CircularProgressIndicator())
+        ? const PostListSkeleton(
+            mediaEvery: 0,
+            semanticsLabel: 'Loading articles',
+          )
         : _library();
     return showLibrary
         ? Row(

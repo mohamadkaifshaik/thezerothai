@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../shared/widgets/user/user_list_skeleton.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
@@ -123,7 +124,7 @@ class _CommunityModerationLogScreenState
   Widget _body(ModerationLogState state, {required bool aboutInline}) {
     final error = state.error;
     if (state.status == ModerationLogStatus.loading) {
-      return const Center(child: CircularProgressIndicator());
+      return const UserListSkeleton(semanticsLabel: 'Loading log');
     }
     if (state.status == ModerationLogStatus.error && error != null) {
       if (error is NotFoundException) {
