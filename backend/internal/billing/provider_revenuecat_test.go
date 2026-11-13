@@ -109,3 +109,53 @@ func TestRevenueCatFailureDoesNotBecomeFree(t *testing.T) {
 		}
 	}
 }
+
+func TestGooglePlayReadbackMatchesBasePlanInsteadOfSubscriptionAlone(t *testing.T) {
+	b := testBinding()
+	b.Environment = Production
+	now := b.CreatedAt.Add(time.Hour)
+	end := now.Add(time.Hour)
+	no := false
+	for _, tc := range []struct {
+		name, plan, entitlementPlan string
+		sandbox, refunded           bool
+		want                        Tier
+	}{
+		{name: "reviewed monthly plan", plan: "monthly", want: TierPremium},
+		{name: "entitlement also supplies plan", plan: "monthly", entitlementPlan: "monthly", want: TierPremium},
+		{name: "unreviewed yearly plan", plan: "yearly", want: TierFree},
+		{name: "missing plan cannot fall back", want: TierFree},
+		{name: "different entitlement plan", plan: "monthly", entitlementPlan: "yearly", want: TierFree},
+		{name: "license-test receipt in production", plan: "monthly", sandbox: true, want: TierFree},
+		{name: "refunded monthly plan", plan: "monthly", refunded: true, want: TierFree},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := rcCustomer{OriginalID: b.CustomerID,
+				Entitlements:  map[string]rcEntitlement{ProEntitlement: {Product: "premium", Plan: tc.entitlementPlan, rcInterval: rcInterval{Expires: &end}}},
+				Subscriptions: map[string]rcSubscription{"premium": {Plan: tc.plan, Sandbox: &no, Store: "play_store", rcInterval: rcInterval{Expires: &end}}},
+			}
+			sub := c.Subscriptions["premium"]
+			if tc.sandbox {
+				yes := true
+				sub.Sandbox = &yes
+			}
+			if tc.refunded {
+				sub.Refunded = &now
+			}
+			c.Subscriptions["premium"] = sub
+			body, _ := json.Marshal(map[string]any{"subscriber": c})
+			provider, _ := NewRevenueCatProvider("fixture-secret", map[string]Product{"premium:monthly": {Store: "play_store", Entitlement: ProEntitlement}}, func() time.Time { return now })
+			provider.client.Transport = billingTransport(func(*http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(body)))}, nil
+			})
+			snapshot, err := provider.GetCustomer(context.Background(), b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tier, err := EffectiveTier(b, snapshot, now)
+			if err != nil || tier != tc.want {
+				t.Fatalf("tier=%s err=%v", tier, err)
+			}
+		})
+	}
+}

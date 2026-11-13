@@ -105,6 +105,27 @@ void main() {
   });
 
   test(
+    'status-only clients recover access without identifying a store user',
+    () async {
+      final statusOnly = ServerSubscriptionRepository(
+        source: source,
+        gateway: null,
+        sessionEpoch: epoch,
+        currentUid: () => currentUid,
+      );
+      source.identity = 'invalid-store-identity';
+      expect((await statusOnly.getAccess('a')).tier, SubscriptionTier.free);
+      expect(await statusOnly.getOfferings('a'), isEmpty);
+      expect(
+        (await statusOnly.restore('a')).disposition,
+        PurchaseDisposition.refreshed,
+      );
+      await expectLater(statusOnly.presentPaywall('a'), throwsStateError);
+      expect(gateway.calls, isEmpty);
+    },
+  );
+
+  test(
     'hosted checkout requires server sales and blocks repeat checkout',
     () async {
       source.sales = false;

@@ -132,13 +132,15 @@ jobs:
           API_BASE_URL: /api
           RECAPTCHA_SITE_KEY: ${{ vars.DEV_RECAPTCHA_SITE_KEY }}
           GOOGLE_WEB_CLIENT_ID: ${{ vars.DEV_GOOGLE_WEB_CLIENT_ID }}
+          BILLING_STATUS_ENABLED: ${{ vars.DEV_BILLING_CONFIG_ENABLED }}
         run: |
           flutter build web --release \
             --dart-define=USE_EMULATORS=false \
             --dart-define=FIREBASE_ENV=dev \
             --dart-define=API_BASE_URL="${API_BASE_URL}" \
             --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
-            --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
+            --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}" \
+            --dart-define=BILLING_STATUS_ENABLED="${BILLING_STATUS_ENABLED}"
 
       - name: Build + push image with ko
         id: build
@@ -216,6 +218,16 @@ jobs:
           # a dry run then skips it with a notice, promote mode fails closed.
           SMOKE_EMAIL: ${{ secrets.SMOKE_A_EMAIL }}
           SMOKE_PASSWORD: ${{ secrets.SMOKE_A_PASSWORD }}
+          # Optional candidate-only billing configuration. These are public
+          # catalog values and pinned Secret Manager references, never secrets.
+          BILLING_CONFIG_ENABLED: ${{ vars.DEV_BILLING_CONFIG_ENABLED }}
+          BILLING_PURCHASES_ENABLED: ${{ vars.DEV_BILLING_PURCHASES_ENABLED }}
+          REVENUECAT_PURCHASE_ENVIRONMENT: ${{ vars.DEV_REVENUECAT_PURCHASE_ENVIRONMENT }}
+          REVENUECAT_WEBHOOK_APP_IDS: ${{ vars.DEV_REVENUECAT_WEBHOOK_APP_IDS }}
+          REVENUECAT_PRODUCTS_JSON: ${{ vars.DEV_REVENUECAT_PRODUCTS_JSON }}
+          REVENUECAT_SECRET_API_KEY_REF: ${{ vars.DEV_REVENUECAT_SECRET_API_KEY_REF }}
+          REVENUECAT_WEBHOOK_AUTHORIZATION_REF: ${{ vars.DEV_REVENUECAT_WEBHOOK_AUTHORIZATION_REF }}
+          REVENUECAT_WEBHOOK_SIGNING_SECRET_REF: ${{ vars.DEV_REVENUECAT_WEBHOOK_SIGNING_SECRET_REF }}
         run: bash scripts/promotion/promote-dev.sh
 
       # Runs even after a cancel, a timeout or a failure. If the marker written just before traffic moved still exists, the promotion

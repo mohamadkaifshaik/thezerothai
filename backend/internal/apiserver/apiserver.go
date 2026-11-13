@@ -637,6 +637,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if e := registerBillingLifecycle(lifecycle, billingBindings); e != nil {
 		return nil, nil, e
 	}
+	billingServer := billing.NewServer(nil, nil, nil)
+	var articlePublishingAccess func(context.Context, string) error
+	if cfg.BillingWebhook.PurchasesEnabled && (!cfg.BillingWebhook.Enabled || cfg.Env != "dev" || cfg.AuthEmulator || cfg.BillingSandbox.Enabled) {
+		return nil, nil, fmt.Errorf("real purchase rollout requires dev, configured webhooks, and no emulators")
+	}
 	var billingWebhookRecovery trendsStep
 	if cfg.BillingWebhook.Enabled {
 		if (cfg.Env != "dev" && cfg.Env != "prod") || cfg.AuthEmulator || cfg.BillingSandbox.Enabled {
@@ -654,21 +659,36 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		if e != nil {
 			return nil, nil, fmt.Errorf("billing webhook reconciliation configuration invalid")
 		}
+		environment := billing.Production
+		if cfg.BillingWebhook.Environment == "SANDBOX" && cfg.Env == "dev" {
+			environment = billing.Sandbox
+		} else if cfg.BillingWebhook.Environment != "" && cfg.BillingWebhook.Environment != "PRODUCTION" {
+			return nil, nil, fmt.Errorf("billing receipt environment invalid")
+		}
+		identities, e := billing.NewIdentityService(billingBindings, environment, nil)
+		if e != nil {
+			return nil, nil, fmt.Errorf("production billing identity configuration invalid")
+		}
+		server := billing.NewServer(identities, billingBindings, reconciler)
+		if cfg.BillingWebhook.PurchasesEnabled {
+			server.EnableStorePurchases(products)
+		}
+		billingServer = server
+		access := verifiedBillingAccess{bindings: billingBindings, verifier: reconciler, now: time.Now, environment: environment}
+		subscriptionPostLimit = access.postTextLimit
+		articlePublishingAccess = access.publishArticle
 		processor, e := billing.NewWebhookProcessor(billingBindings, reconciler)
 		if e != nil {
 			return nil, nil, e
 		}
 		processor.ReadOnly = cfg.Degraded == config.DegradedReadonly
-		if e = routes.revenuecat(processor, cfg.BillingWebhook.Authorization, cfg.BillingWebhook.SigningSecret, cfg.BillingWebhook.AppIDs); e != nil {
+		if e = routes.revenuecat(processor, cfg.BillingWebhook.Authorization, cfg.BillingWebhook.SigningSecret, cfg.BillingWebhook.AppIDs, environment); e != nil {
 			return nil, nil, fmt.Errorf("billing webhook authentication configuration invalid")
 		}
 		billingWebhookRecovery = processor
 		routes.internal("/internal/cron/billing-webhooks", billingRecoveryHandler(processor, log, cfg.ProjectID))
 	}
-	billingServer := billing.NewServer(nil, nil, nil)
-	// A missing checker intentionally denies all new article publication in
-	// every environment; disabling sales must not bypass paid authorization.
-	var articlePublishingAccess func(context.Context, string) error
+	// Without configured billing, new article publication remains unavailable.
 	if cfg.BillingSandbox.Enabled {
 		if cfg.Env != "local" || cfg.ProjectID != "demo-dzeroth-local" || !cfg.AuthEmulator {
 			return nil, nil, fmt.Errorf("billing sandbox requires local demo project and Auth emulator")
@@ -688,47 +708,16 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 			return nil, nil, fmt.Errorf("billing reconciliation configuration invalid")
 		}
 		server := billing.NewServer(identities, bindings, reconciler)
-		subscriptionPostLimit = func(ctx context.Context, uid string) (int, error) {
-			b, err := bindings.LookupBinding(ctx, uid)
-			if errors.Is(err, billing.ErrNotFound) {
-				return 280, nil
-			}
-			if err != nil {
-				return 0, connect.NewError(connect.CodeUnavailable, errors.New("subscription verification unavailable"))
-			}
-			snapshot, err := reconciler.Refresh(ctx, uid)
-			if err != nil {
-				return 0, connect.NewError(connect.CodeUnavailable, errors.New("subscription verification unavailable"))
-			}
-			tier, err := billing.EffectiveTier(b, snapshot, time.Now())
-			if err != nil {
-				return 0, connect.NewError(connect.CodeUnavailable, errors.New("subscription verification unavailable"))
-			}
-			return billing.CapabilitiesFor(tier, billing.FeatureAvailability{LongPosts: true}).MaxPostRunes, nil
-		}
-		articlePublishingAccess = func(ctx context.Context, uid string) error {
-			b, err := bindings.LookupBinding(ctx, uid)
-			if errors.Is(err, billing.ErrNotFound) {
-				return connect.NewError(connect.CodePermissionDenied, errors.New("premium subscription required"))
-			}
-			if err != nil {
-				return connect.NewError(connect.CodeUnavailable, errors.New("subscription verification unavailable"))
-			}
-			snapshot, err := reconciler.Refresh(ctx, uid)
-			if err != nil {
-				return connect.NewError(connect.CodeUnavailable, errors.New("subscription verification unavailable"))
-			}
-			tier, err := billing.EffectiveTier(b, snapshot, time.Now())
-			if err != nil {
-				return connect.NewError(connect.CodeUnavailable, errors.New("subscription verification unavailable"))
-			}
-			if tier != billing.TierPremium {
-				return connect.NewError(connect.CodePermissionDenied, errors.New("premium subscription required"))
-			}
-			return nil
-		}
+		access := verifiedBillingAccess{bindings: bindings, verifier: reconciler, now: time.Now, environment: billing.Sandbox}
+		subscriptionPostLimit = access.postTextLimit
+		articlePublishingAccess = access.publishArticle
 		server.EnableSandboxPurchases()
 		billingServer = server
+	}
+	// Read-only operation must neither advertise checkout nor write verification
+	// metadata through a status read. Existing account reads remain protected.
+	if cfg.Degraded == config.DegradedReadonly {
+		billingServer = billing.NewServer(nil, billingBindings, nil)
 	}
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return billingv1connect.NewBillingServiceHandler(billingServer, o...)

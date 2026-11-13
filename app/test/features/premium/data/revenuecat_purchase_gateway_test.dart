@@ -8,13 +8,16 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const channel = MethodChannel('purchases_flutter');
   final calls = <MethodCall>[];
+  Map<String, Object?>? nativeOfferings;
 
   setUp(() {
     calls.clear();
+    nativeOfferings = null;
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           calls.add(call);
+          if (call.method == 'getOfferings') return nativeOfferings;
           return null;
         });
   });
@@ -33,6 +36,51 @@ void main() {
     await expectLater(gateway.restore(), throwsStateError);
     expect(calls, isEmpty);
   });
+
+  test(
+    'custom monthly packages use the configured Play base-plan mapping',
+    () async {
+      final packages = [
+        for (final product in ['premium:monthly', 'premium:yearly'])
+          {
+            'identifier': product,
+            'packageType': 'CUSTOM',
+            'presentedOfferingContext': {'offeringIdentifier': 'default'},
+            'product': {
+              'identifier': product,
+              'description': 'fixture description',
+              'title': 'fixture title',
+              'price': 1.0,
+              'priceString': 'fixture store price',
+              'currencyCode': 'USD',
+              'subscriptionPeriod': product.endsWith('monthly') ? 'P1M' : 'P1Y',
+            },
+          },
+      ];
+      final offering = {
+        'identifier': 'default',
+        'serverDescription': 'fixture offering',
+        'metadata': <String, Object>{},
+        'availablePackages': packages,
+      };
+      nativeOfferings = {
+        'all': {'default': offering},
+        'current': offering,
+      };
+      final gateway = RevenueCatPurchaseGateway(
+        publicApiKey: 'fixture-public-key',
+        monthlyProducts: const {
+          'premium:monthly': SubscriptionTier.premium,
+          'premium:yearly': SubscriptionTier.premium,
+        },
+      );
+      await gateway.identify('dzb_${'A' * 43}');
+      final offers = await gateway.getOfferings();
+      expect(offers.map((o) => o.productIdentifier), ['premium:monthly']);
+      expect(offers.single.localizedPrice, 'fixture store price');
+      expect(offers.single.tier, SubscriptionTier.premium);
+    },
+  );
 
   test(
     'configures with private identity and never creates anonymous customer',

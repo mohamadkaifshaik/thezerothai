@@ -2,6 +2,9 @@ package apiserver
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -10,9 +13,11 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/dzeroth/dzeroth/backend/internal/billing"
@@ -185,5 +190,37 @@ func TestRevenueCatRouteRequiresSignature(t *testing.T) {
 	}
 	if rt.records[0].class != routeBillingWebhook {
 		t.Fatal("wrong protection class")
+	}
+}
+
+func TestDevPlayWebhookEnforcesSelectedReceiptEnvironment(t *testing.T) {
+	rt := newRouteTable(rejectingInterceptor(), denyInternal)
+	inbox := &routeInbox{}
+	auth, secret := strings.Repeat("a", 32), strings.Repeat("b", 32)
+	if err := rt.revenuecat(inbox, auth, secret, []string{"app-play-fixture"}, billing.Sandbox); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		environment string
+		want        int
+	}{
+		{"SANDBOX", http.StatusOK},
+		{"PRODUCTION", http.StatusBadRequest},
+	} {
+		body := `{"event":{"id":"fixture-event","type":"TEST","app_id":"app-play-fixture","environment":"` + tc.environment + `"}}`
+		ts := strconv.FormatInt(time.Now().Unix(), 10)
+		mac := hmac.New(sha256.New, []byte(secret))
+		_, _ = mac.Write([]byte(ts + "." + body))
+		req := httptest.NewRequest(http.MethodPost, "/webhooks/revenuecat", strings.NewReader(body))
+		req.Header.Set("Authorization", auth)
+		req.Header.Set("X-RevenueCat-Webhook-Signature", "t="+ts+",v1="+hex.EncodeToString(mac.Sum(nil)))
+		w := httptest.NewRecorder()
+		rt.mux.ServeHTTP(w, req)
+		if w.Code != tc.want {
+			t.Fatalf("environment=%s status=%d", tc.environment, w.Code)
+		}
+	}
+	if inbox.calls != 1 {
+		t.Fatal("wrong-environment event reached storage")
 	}
 }

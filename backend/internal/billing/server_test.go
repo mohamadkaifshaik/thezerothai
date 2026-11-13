@@ -55,3 +55,52 @@ func TestMissingBindingAndUnavailableAreDistinct(t *testing.T) {
 		})
 	}
 }
+
+func TestStoreSalesRequireRealCatalogAndVerification(t *testing.T) {
+	ctx := authn.WithClaims(context.Background(), authn.Claims{UID: "owner"})
+	for _, tc := range []struct {
+		name            string
+		environment     Environment
+		products        map[string]Product
+		missingVerifier bool
+		want            bool
+	}{
+		{name: "production", environment: Production, products: map[string]Product{"premium:monthly": {Store: "play_store", Entitlement: ProEntitlement}}, want: true},
+		{name: "Play license tester", environment: Sandbox, products: map[string]Product{"premium:monthly": {Store: "play_store", Entitlement: ProEntitlement}}, want: true},
+		{name: "test store", environment: Production, products: map[string]Product{"monthly": {Store: "test_store", Entitlement: ProEntitlement}}},
+		{name: "empty catalog", environment: Production},
+		{name: "no verifier", environment: Production, products: map[string]Product{"premium:monthly": {Store: "play_store", Entitlement: ProEntitlement}}, missingVerifier: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ids, _ := NewIdentityService(bindingStoreFunc(func(_ context.Context, b Binding) (Binding, error) { return b, nil }), tc.environment, nil)
+			var reconciler *Reconciler
+			if !tc.missingVerifier {
+				reconciler = &Reconciler{}
+			}
+			s := NewServer(ids, bindingReaderFunc(func(context.Context, string) (Binding, error) { return Binding{}, ErrNotFound }), reconciler)
+			before, _ := s.GetMySubscription(ctx, connect.NewRequest(&billingv1.GetMySubscriptionRequest{}))
+			if before.Msg.PurchasesAvailable {
+				t.Fatal("sales enabled by default")
+			}
+			s.EnableStorePurchases(tc.products)
+			got, err := s.GetMySubscription(ctx, connect.NewRequest(&billingv1.GetMySubscriptionRequest{}))
+			if err != nil || got.Msg.PurchasesAvailable != tc.want {
+				t.Fatalf("sales=%t err=%v", got.Msg.PurchasesAvailable, err)
+			}
+			plans, err := s.GetAvailablePlans(ctx, connect.NewRequest(&billingv1.GetAvailablePlansRequest{}))
+			if err != nil || plans.Msg.Plans[1].Purchasable != tc.want || plans.Msg.Plans[0].Purchasable {
+				t.Fatal("catalog advertised an unconfigured tier")
+			}
+		})
+	}
+}
+
+func TestProductionStatusDoesNotAdoptSandboxBinding(t *testing.T) {
+	ids, _ := NewIdentityService(bindingStoreFunc(func(_ context.Context, b Binding) (Binding, error) { return b, nil }), Production, nil)
+	s := NewServer(ids, bindingReaderFunc(func(context.Context, string) (Binding, error) { return testBinding(), nil }), &Reconciler{})
+	ctx := authn.WithClaims(context.Background(), authn.Claims{UID: testBinding().UID})
+	got, err := s.GetMySubscription(ctx, connect.NewRequest(&billingv1.GetMySubscriptionRequest{}))
+	if err != nil || got.Msg.VerificationState != billingv1.VerificationState_VERIFICATION_STATE_UNAVAILABLE || got.Msg.PurchasesAvailable {
+		t.Fatal("production status adopted a sandbox binding")
+	}
+}
