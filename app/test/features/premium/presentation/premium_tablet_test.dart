@@ -150,15 +150,16 @@ void main() {
   });
 
   // D1: the desktop layout (both flags, >= 1200 dp) centres it on the
-  // shell's feed column, placed by the page under it: the side column
-  // (Creator Studio) or the Settings master pane.
+  // shell's feed column, placed by the page under it. Creator Studio is a
+  // Settings side page on desktop, so it sits beside the Settings master
+  // pane like Settings itself.
   group('desktop layout: centred on the feed column', () {
     /// The column, from the rendered rail (`desktop_column_test.dart` ties
     /// the formula to the rendered column).
     Rect column(
       WidgetTester tester,
       double width, {
-      bool master = false,
+      bool master = true,
       TextDirection textDirection = TextDirection.ltr,
     }) {
       final rail = tester.getRect(find.byType(NavigationRail));
@@ -180,7 +181,20 @@ void main() {
       return rect;
     }
 
-    for (final width in [1200.0, 1280.0, 1440.0, 1920.0]) {
+    // At 1200 the column beside the master pane is exactly 600 wide, so the
+    // 600 dp card cannot keep its edge insets and centre on it; it stays
+    // whole inside the window, past the master pane.
+    testWidgets('1200, over Creator Studio: 600 wide, inside the window '
+        'past the master pane', (tester) async {
+      await _open(tester, width: 1200);
+      final dialog = openDialogRect(tester);
+      final rail = tester.getRect(find.byType(NavigationRail));
+      expect(dialog.width, 600);
+      expect(dialog.left, greaterThanOrEqualTo(rail.right));
+      expect(dialog.right, lessThanOrEqualTo(1200));
+    });
+
+    for (final width in [1280.0, 1440.0, 1920.0]) {
       testWidgets('${width.toInt()}, over Creator Studio: 600 wide on the '
           'column', (tester) async {
         await _open(tester, width: width);

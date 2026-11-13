@@ -10,6 +10,9 @@ import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
+import 'package:dzeroth/features/advertise/presentation/advertise_screen.dart';
+import 'package:dzeroth/features/calls/presentation/calls_screen.dart';
+import 'package:dzeroth/features/creator_studio/presentation/creator_studio_screen.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/graph/presentation/managed_accounts_screen.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
@@ -256,6 +259,20 @@ class SettingsTabletRig {
               builder: (context, state) => SettingsScreen(
                 categoryId: state.uri.queryParameters[kSettingsCategoryParam],
               ),
+            ),
+            // The shells the desktop lists beside the categories (only
+            // reachable with `shells` on, as in the app).
+            GoRoute(
+              path: AppRouter.creatorStudioPath,
+              builder: (context, state) => const CreatorStudioScreen(),
+            ),
+            GoRoute(
+              path: AppRouter.callsPath,
+              builder: (context, state) => const CallsScreen(),
+            ),
+            GoRoute(
+              path: AppRouter.advertisePath,
+              builder: (context, state) => const AdvertiseScreen(),
             ),
             GoRoute(
               path: AppRouter.blockedAccountsPath,

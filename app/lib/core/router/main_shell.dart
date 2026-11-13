@@ -46,6 +46,7 @@ import '../widgets/context_pane_slots.dart';
 import '../widgets/responsive_scaffold.dart';
 import '../widgets/privacy_policy_link.dart';
 import '../widgets/shell_fab.dart';
+import '../widgets/shell_side_column.dart';
 import '../widgets/splash_screen.dart';
 import '../widgets/shell_geometry.dart';
 import 'app_router.dart';
@@ -417,8 +418,13 @@ class MainShell extends StatelessWidget {
     // never swapped out. The scaffold and `SettingsScreen` take the same
     // 840 / 1200 decisions from the same flags and width.
     final onSettings = isSettingsLocation(location);
+    // Creator Studio, Calls and Advertise sit in the same master-detail on
+    // the desktop, as rows of the categories list, with their own routes.
+    final onSidePage = isSettingsSidePage(location);
     final masterDetail =
-        newShell && onSettings && width >= AppBreakpoints.tablet;
+        newShell &&
+        (onSettings || onSidePage) &&
+        width >= AppBreakpoints.tablet;
     final settingsListDetail =
         tabletLayout && onSettings && ShellBand.of(width) == ShellBand.expanded;
     // Plans is list-detail in band B too (T5), on `/plans` and `/plans/:id`
@@ -498,6 +504,27 @@ class MainShell extends StatelessWidget {
     // The slots through which a page lends the context pane sections built
     // over its own state (T8a). Present at every width and in every mode, so
     // the tree around the shell navigator keeps its shape.
+    // The search pill: the new shell with `search` on, except on Explore and
+    // the search results, where the pill is in the centre header (desktop
+    // SearchResults has none in the side column).
+    final Widget? searchPill =
+        exploreEntry &&
+            !location.startsWith(AppRouter.explorePath) &&
+            location != AppRouter.searchRoute
+        ? const AppSearchField()
+        : null;
+    final sideLinks = [
+      AppSideLink(
+        icon: Icons.settings_outlined,
+        label: 'Settings',
+        onTap: () => context.go(AppRouter.settingsPath),
+      ),
+      AppSideLink(
+        icon: Icons.privacy_tip_outlined,
+        label: 'Privacy Policy',
+        onTap: () => launchPrivacyPolicy(context),
+      ),
+    ];
     return ContextPaneSlotsHost(
       child: ResponsiveScaffold(
         // The redesigned rail look (600dp and up) with the new shell only.
@@ -527,11 +554,14 @@ class MainShell extends StatelessWidget {
             // The desktop mock: the categories beside the open one (Your
             // account when none is chosen) or its leaf page.
             ? SettingsCategoriesPane(
-                selected:
-                    settingsCategoryForUri(uri ?? Uri.parse(location)) ??
-                    (location == AppRouter.settingsPath
-                        ? SettingsCategory.account
-                        : null),
+                selected: onSidePage
+                    ? null
+                    : settingsCategoryForUri(uri ?? Uri.parse(location)) ??
+                          (location == AppRouter.settingsPath
+                              ? SettingsCategory.account
+                              : null),
+                sidePages: shellEntries,
+                selectedSidePage: onSidePage ? location : null,
               )
             : settingsListDetail
             ? SettingsCategoriesPane(
@@ -565,83 +595,69 @@ class MainShell extends StatelessWidget {
         accountChipBuilder: newShell
             ? (extended) => AppAccountChip(extended: extended)
             : null,
-        sideColumn: AppSideColumn(
-          // The search pill: the new shell with `search` on, except on
-          // Explore and the search results, where the pill is in the centre
-          // header (desktop SearchResults has none in the side column).
-          header:
-              exploreEntry &&
-                  !location.startsWith(AppRouter.explorePath) &&
-                  location != AppRouter.searchRoute
-              ? const AppSearchField()
-              : null,
-          // "You might like": the new shell, `graph` and
-          // `follow_suggestions` all on. The card draws nothing until the shared
-          // list has rows, so the column is unchanged otherwise.
-          sections: [
-            // F16 (R8): on Notifications, the follow-requests card (its own
-            // `ListFollowRequests(3)`), above the trends. The page's inline
-            // row steps aside under the same rule (`followRequestsCardBeside`).
-            // A page pushed over Notifications (a profile) hides the card but
-            // keeps it mounted, so coming back asks nothing again.
-            if (location == AppRouter.notificationsPath &&
-                followRequestsCardAllowed(context))
-              Visibility(
-                visible:
-                    (_shellTopLocation(context) ?? location) ==
-                    AppRouter.notificationsPath,
-                maintainState: true,
-                child: const FollowRequestsSideCard(),
-              ),
-            // The inbox beside nothing: "Select a conversation" (desktop
-            // Conversations; the tablet draws its detail placeholder).
-            if (messagesShellMasterFolder(
-                  _shellTopLocation(context) ?? location,
-                ) !=
-                null)
-              const MessagesSideCard(),
-            // "What's happening": the top 5 trends; draws nothing unless
-            // `search` + `trends` are on and the shared list has rows.
-            if (exploreEntry) const WhatsHappeningCard(),
-            // The profile's latest images (the desktop Profile mock's Media
-            // grid): the page lends the strip over its own Media tab feed,
-            // through a slot. Only on a profile, with `posts` and
-            // `profile_tabs` on.
-            if (newShell &&
-                isFeatureEnabled(context, kFeaturePosts) &&
-                isFeatureEnabled(context, kFeatureProfileTabs) &&
-                _isProfileHomeLocation(sidePaneLocation))
-              ContextPaneSlot(
-                location: sidePaneLocation,
-                placeholder: const ProfileMediaStripPlaceholder(),
-              ),
-            if (newShell && isFollowSuggestionsEnabled(context))
-              const WhoToFollowCard(
-                title: 'You might like',
-                margin: EdgeInsets.only(bottom: AppSpacing.md),
-              ),
-          ],
-          // Only what is already loaded: no profile, no card (nothing is fetched).
-          profile: ownHandle == null || ownHandle.isEmpty
-              ? null
-              : AppSideProfile(
-                  displayName: ownProfile?.displayName ?? '',
-                  handle: ownHandle,
-                  avatarUrl: ownProfile?.avatarThumbUrl ?? '',
-                  onTap: () => context.go(AppRouter.profilePath(ownHandle)),
+        sideColumn: ShellSideColumnView(
+          location: sidePaneLocation,
+          links: sideLinks,
+          header: searchPill,
+          fallback: AppSideColumn(
+            header: searchPill,
+            // "You might like": the new shell, `graph` and
+            // `follow_suggestions` all on. The card draws nothing until the shared
+            // list has rows, so the column is unchanged otherwise.
+            sections: [
+              // F16 (R8): on Notifications, the follow-requests card (its own
+              // `ListFollowRequests(3)`), above the trends. The page's inline
+              // row steps aside under the same rule (`followRequestsCardBeside`).
+              // A page pushed over Notifications (a profile) hides the card but
+              // keeps it mounted, so coming back asks nothing again.
+              if (location == AppRouter.notificationsPath &&
+                  followRequestsCardAllowed(context))
+                Visibility(
+                  visible:
+                      (_shellTopLocation(context) ?? location) ==
+                      AppRouter.notificationsPath,
+                  maintainState: true,
+                  child: const FollowRequestsSideCard(),
                 ),
-          links: [
-            AppSideLink(
-              icon: Icons.settings_outlined,
-              label: 'Settings',
-              onTap: () => context.go(AppRouter.settingsPath),
-            ),
-            AppSideLink(
-              icon: Icons.privacy_tip_outlined,
-              label: 'Privacy Policy',
-              onTap: () => launchPrivacyPolicy(context),
-            ),
-          ],
+              // The inbox beside nothing: "Select a conversation" (desktop
+              // Conversations; the tablet draws its detail placeholder).
+              if (messagesShellMasterFolder(
+                    _shellTopLocation(context) ?? location,
+                  ) !=
+                  null)
+                const MessagesSideCard(),
+              // "What's happening": the top 5 trends; draws nothing unless
+              // `search` + `trends` are on and the shared list has rows.
+              if (exploreEntry) const WhatsHappeningCard(),
+              // The profile's latest images (the desktop Profile mock's Media
+              // grid): the page lends the strip over its own Media tab feed,
+              // through a slot. Only on a profile, with `posts` and
+              // `profile_tabs` on.
+              if (newShell &&
+                  isFeatureEnabled(context, kFeaturePosts) &&
+                  isFeatureEnabled(context, kFeatureProfileTabs) &&
+                  _isProfileHomeLocation(sidePaneLocation))
+                ContextPaneSlot(
+                  location: sidePaneLocation,
+                  placeholder: const ProfileMediaStripPlaceholder(),
+                ),
+              if (newShell && isFollowSuggestionsEnabled(context))
+                const WhoToFollowCard(
+                  title: 'You might like',
+                  margin: EdgeInsets.only(bottom: AppSpacing.md),
+                ),
+            ],
+            // Only what is already loaded: no profile, no card (nothing is fetched).
+            profile: ownHandle == null || ownHandle.isEmpty
+                ? null
+                : AppSideProfile(
+                    displayName: ownProfile?.displayName ?? '',
+                    handle: ownHandle,
+                    avatarUrl: ownProfile?.avatarThumbUrl ?? '',
+                    onTap: () => context.go(AppRouter.profilePath(ownHandle)),
+                  ),
+            links: sideLinks,
+          ),
         ),
         destinations: destinations,
         onDestinationSelected: select,
