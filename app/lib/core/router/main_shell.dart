@@ -280,6 +280,11 @@ class MainShell extends StatelessWidget {
     required bool canCompose,
     required VoidCallback openCompose,
   }) {
+    // The page on top decides: a page pushed over another one of the shell
+    // (a community over Communities, a profile over Home) has its own button
+    // or none, never the one underneath. The pages key their action by their
+    // own location, which is the top one's.
+    final location = _shellTopLocation(context) ?? this.location;
     if (location == AppRouter.homePath) {
       return canCompose
           ? ShellFabAction(
