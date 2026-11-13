@@ -134,7 +134,7 @@ func TestRepo_SharesLifecycle(t *testing.T) {
 	if _, err := e.client.Doc("posts/" + live).Delete(ctx); err != nil {
 		t.Fatal(err)
 	}
-	j := NewJobs(e.repo, e.posts, stubGone{}, nil)
+	j := NewJobs(e.repo, idleCleanup{}, stubGone{}, nil) // reposts and quotes are posts' steps, not under test here
 	msg, _ := json.Marshal(map[string]any{"kind": JobKindPostDelete, "uid": "author", "postId": live})
 	if outcome, err := j.Handle(ctx, msg); err != nil || outcome != "done" {
 		t.Fatalf("job: %q %v", outcome, err)
@@ -171,4 +171,14 @@ func TestRepo_ShareCountRepair(t *testing.T) {
 	if err != nil || got[pid] == nil || got[pid].ShareCount != 4 {
 		t.Fatalf("post = %v, %v; want ShareCount 4", got[pid], err)
 	}
+}
+
+// idleCleanup is a posts.Cleanup with nothing to clean: the post_delete job's reposts and quotes steps end at once.
+type idleCleanup struct{}
+
+func (idleCleanup) RemoveReposts(context.Context, string, bool, int) (int, bool, error) {
+	return 0, false, nil
+}
+func (idleCleanup) TombstoneQuotes(context.Context, string, int) (int, bool, error) {
+	return 0, false, nil
 }
