@@ -1170,6 +1170,11 @@ abstract final class AppTypeTokens {
   /// desktop rail labels 17 (one step with the Post pill under them), card
   /// and section titles 19, bar titles 20.
   static const double railLabelSize = 17;
+
+  /// Inter optical sizes: text 14, display 32 from 20 sp up.
+  static const double opszText = 14;
+  static const double opszDisplay = 32;
+  static const double displayOpszFrom = 20;
   static const double cardTitleSize = 19;
   static const FontWeight eyebrowWeight = FontWeight.w700;
   static const double eyebrowTracking = 0.24;
@@ -1193,16 +1198,19 @@ abstract final class AppTypeTokens {
   static const FontWeight weightBody = FontWeight.w500;
 }
 
-/// The two bundled families (`pubspec.yaml`; each is one variable TTF). The
-/// engine maps `fontWeight` onto their `wght` axis (outcome A of the redesign
-/// plan §1.2, `test/core/theme/typography_test.dart`), so styles set
-/// `fontWeight` only, never `fontVariations`.
+/// The bundled family (`pubspec.yaml`: `Inter.ttf`, one variable TTF with the
+/// `wght` 100-900 and `opsz` 14-32 axes, plus `Inter-Italic.ttf`). The mocks
+/// use Inter, and Inter Display for headings; [display] and [body] are the
+/// same family, and [_type] picks the optical size from the text size (14 for
+/// text, 32 from [AppTypeTokens.displayOpszFrom] sp up, which is Inter
+/// Display). Weight is `fontWeight` only (the engine maps it onto `wght`,
+/// `test/core/theme/typography_test.dart`); only `opsz` is a variation.
 abstract final class AppFonts {
   /// Display, headings, screen titles, wordmark and eyebrow.
-  static const String display = 'Manrope';
+  static const String display = 'Inter';
 
   /// Body, UI labels, buttons, inputs and post text.
-  static const String body = 'DM Sans';
+  static const String body = 'Inter';
 }
 
 TextStyle _type(
@@ -1215,6 +1223,15 @@ TextStyle _type(
   fontFamily: family,
   fontSize: size,
   fontWeight: weight,
+  fontVariations: [
+    // Inter Display (opsz 32) for headings, Inter (opsz 14) for text.
+    FontVariation(
+      'opsz',
+      size >= AppTypeTokens.displayOpszFrom
+          ? AppTypeTokens.opszDisplay
+          : AppTypeTokens.opszText,
+    ),
+  ],
   height: height,
   // Tracking is relative to size (em), never an absolute value.
   letterSpacing: tracking * size,
@@ -1274,7 +1291,7 @@ TextTheme buildAppTextTheme() {
 /// Redesign text styles outside the Material text theme. Each takes the
 /// active theme so it carries the scheme's colours.
 abstract final class AppTextStyles {
-  /// Small uppercase kicker above a heading: Manrope 12 sp w700, +0.24 em.
+  /// Small uppercase kicker above a heading: Inter 12 sp w700, +0.24 em.
   /// Uppercase the string at the call site (`toUpperCase()`); it is never the
   /// only carrier of information (ADR-0033 §4).
   static TextStyle eyebrow(ThemeData theme) => _type(
@@ -1286,7 +1303,7 @@ abstract final class AppTextStyles {
   ).copyWith(color: theme.colorScheme.onSurfaceVariant);
 
   /// The title of a side-column card ("What's happening", "You might like",
-  /// "Follow requests"; dz.css `.box h3`): Manrope 19 sp w800.
+  /// "Follow requests"; dz.css `.box h3`): Inter Display 19 sp w800.
   static TextStyle cardTitle(ThemeData theme) => _type(
     AppFonts.display,
     AppTypeTokens.cardTitleSize,
@@ -1303,7 +1320,7 @@ abstract final class AppTextStyles {
         : theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700);
   }
 
-  /// The "DZEROTH" wordmark: Manrope 15 sp w700, +0.13 em.
+  /// The "DZEROTH" wordmark: Inter 15 sp w700, +0.13 em.
   static TextStyle wordmark(ThemeData theme) => _type(
     AppFonts.display,
     AppTypeTokens.wordmarkSize,
@@ -1312,7 +1329,7 @@ abstract final class AppTextStyles {
     tracking: AppTypeTokens.wordmarkTracking,
   ).copyWith(color: theme.colorScheme.onSurface);
 
-  /// The opened post's text: DM Sans 17 sp on a 24 dp line.
+  /// The opened post's text: Inter 17 sp on a 24 dp line.
   static TextStyle focalPost(ThemeData theme) => _type(
     AppFonts.body,
     AppTypeTokens.focalPostSize,

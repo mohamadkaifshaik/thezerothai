@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_theme.dart';
 
 /// The heading of a section: an optional [eyebrow] kicker (uppercased, accent
-/// colour, never the only carrier of meaning), a [title] (Manrope, announced
+/// colour, never the only carrier of meaning), a [title] (Inter, announced
 /// as a header), an optional [subtitle] and an optional text action ([actionLabel] + [onAction], given
 /// together or not at all). Purely presentational.
 class AppSectionHeader extends StatelessWidget {
