@@ -118,8 +118,10 @@ type postDoc struct {
 	RepostCount      int64        `firestore:"repostCount"`
 	ReplyCount       int64        `firestore:"replyCount"`
 	QuoteCount       int64        `firestore:"quoteCount"`
-	Visibility       string       `firestore:"visibility"`
-	SnapshotVersion  int64        `firestore:"snapshotVersion"`
+	// ShareCount is written only by FieldValue.Increment (StageShareCount) and opsctl recount-shares; omitted until then.
+	ShareCount      int64  `firestore:"shareCount,omitempty"`
+	Visibility      string `firestore:"visibility"`
+	SnapshotVersion int64  `firestore:"snapshotVersion"`
 	// Moderation is absent for a visible post; ModeratedAt is when the state last changed.
 	Moderation  string     `firestore:"moderation,omitempty"`
 	ModeratedAt *time.Time `firestore:"moderatedAt,omitempty"`
@@ -272,7 +274,7 @@ func toDoc(p *Post) postDoc {
 		ReplyToID: p.ReplyToID, ReplyToHandle: p.ReplyToHandle, ConversationID: p.ConversationID,
 		QuoteOfID: p.QuoteOfID, RepostOfID: p.RepostOfID, EmbeddedAuthorID: p.EmbeddedAuthorID,
 		Hashtags:  p.Hashtags,
-		LikeCount: p.LikeCount, RepostCount: p.RepostCount, ReplyCount: p.ReplyCount, QuoteCount: p.QuoteCount,
+		LikeCount: p.LikeCount, RepostCount: p.RepostCount, ReplyCount: p.ReplyCount, QuoteCount: p.QuoteCount, ShareCount: p.ShareCount,
 		Visibility: string(p.Visibility), SnapshotVersion: p.SnapshotVersion, CreatedAt: p.CreatedAt,
 		Moderation:      string(p.Moderation),
 		PaidPartnership: p.PaidPartnership, MadeWithAI: p.MadeWithAI,
@@ -332,7 +334,7 @@ func (d postDoc) toPost(id string) *Post {
 		ReplyToID: d.ReplyToID, ReplyToHandle: d.ReplyToHandle, ConversationID: d.ConversationID,
 		QuoteOfID: d.QuoteOfID, RepostOfID: d.RepostOfID, EmbeddedAuthorID: d.EmbeddedAuthorID,
 		Hashtags:  d.Hashtags,
-		LikeCount: d.LikeCount, RepostCount: d.RepostCount, ReplyCount: d.ReplyCount, QuoteCount: d.QuoteCount,
+		LikeCount: d.LikeCount, RepostCount: d.RepostCount, ReplyCount: d.ReplyCount, QuoteCount: d.QuoteCount, ShareCount: max(d.ShareCount, 0),
 		Visibility: Visibility(d.Visibility), SnapshotVersion: d.SnapshotVersion, CreatedAt: d.CreatedAt.UTC(),
 		Moderation:      Moderation(d.Moderation),
 		PaidPartnership: d.PaidPartnership, MadeWithAI: d.MadeWithAI,

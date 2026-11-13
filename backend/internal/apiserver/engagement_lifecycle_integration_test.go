@@ -129,8 +129,8 @@ func TestEngagementLifecycle_DeleteAccountWithEngagement(t *testing.T) {
 	var whole, section map[string]json.RawMessage
 	_ = json.Unmarshal(raw, &whole)
 	_ = json.Unmarshal(whole["engagement"], &section)
-	if len(section) != 2 {
-		t.Errorf("engagement section = %s, want likes + reposts only", whole["engagement"])
+	if len(section) != 3 || string(section["shares"]) != "[]" {
+		t.Errorf("engagement section = %s, want likes + reposts + an empty shares only", whole["engagement"])
 	}
 
 	// --- delete the account and run every delivery to completion ---

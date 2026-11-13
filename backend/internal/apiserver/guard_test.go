@@ -36,6 +36,9 @@ func defaultRateLimitCfg() config.Config {
 	cfg.RateLimit.ProfileRelationshipPerUserPerMinute = 60
 	// Poll vote limits (the config.Load defaults).
 	cfg.RateLimit.PollVotePerUserPerMinute = 30
+	// Share limits (the config.Load defaults).
+	cfg.RateLimit.SharesPerUserPerMinute = 20
+	cfg.RateLimit.SharesRecordedPerDay = 300
 	// Search and trends limits (the config.Load defaults).
 	cfg.RateLimit.SearchPeoplePerUserPerMinute = 30
 	cfg.RateLimit.SearchPostsPerUserPerMinute = 20

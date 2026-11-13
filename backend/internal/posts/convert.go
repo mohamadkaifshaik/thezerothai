@@ -56,6 +56,10 @@ func toProtoAt(p *Post, vs ViewerSet, viewer string, now time.Time) *postsv1.Pos
 	out.Media = mediaRefsToProto(p.Media)
 	out.Poll = pollToProto(p, vs, viewer, now)
 	out.Beacon = beaconToProto(p, vs)
+	// share_count is the original's: a REPOST row carries 0 (read the embed's original), whatever its own doc says.
+	if p.Kind != KindRepost {
+		out.ShareCount = p.ShareCount
+	}
 	return out
 }
 
@@ -69,6 +73,12 @@ func mediaRefsToProto(refs []MediaRef) []*commonv1.MediaRef {
 		})
 	}
 	return out
+}
+
+// CardOf is the live EmbeddedPost of p, a post the reader may see (a direct-message post card, shares design D2): the
+// same one-level copy a quote embeds, built now from the current post, never stored. now closes a poll.
+func CardOf(p *Post, now time.Time) *postsv1.EmbeddedPost {
+	return embeddedToProto(snapshotOf(p), now)
 }
 
 func embeddedToProto(e *Embedded, now time.Time) *postsv1.EmbeddedPost {
