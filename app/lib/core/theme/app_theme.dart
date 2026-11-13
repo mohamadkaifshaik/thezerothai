@@ -1677,6 +1677,18 @@ abstract final class AppExplorePeopleLayout {
   static const double trendPaddingPhone = 20;
   static const double trendPaddingWide = 16;
 
+  /// Explore's Trending and Media sections (the Explore reference): the
+  /// section title's size, the gap above a section, the media row's target
+  /// tile width (columns = row width / this, 3 to [mediaMaxColumns]), the
+  /// tile's width : height and the See all page's grid gap.
+  static const double sectionTitleSize = 22;
+  static const double sectionGap = 20;
+  static const double mediaTileTarget = 150;
+  static const int mediaMinColumns = 3;
+  static const int mediaMaxColumns = 6;
+  static const double mediaTileAspect = 0.75;
+  static const double mediaGap = 6;
+
   /// Edit profile: the flat band behind the avatar (a phone's inset card, a
   /// wide layout's full-width strip), how far the avatar hangs over its
   /// bottom edge, the surface-coloured ring round it, and the form's side

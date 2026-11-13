@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/router/app_router.dart';
@@ -6,10 +7,13 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_shell_scope.dart';
 import '../../../core/widgets/app_top_bar.dart';
 import '../../../shared/widgets/primitives/app_icon_button.dart';
-import '../../../shared/widgets/primitives/app_tab_bar.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../graph/presentation/widgets/who_to_follow_card.dart';
 import '../domain/search_feature_flags.dart';
+import '../../media/domain/media_feature_flag.dart';
+import '../data/search_repository.dart';
+import 'bloc/explore_media_cubit.dart';
+import 'widgets/explore_media_section.dart';
 import 'widgets/explore_trends_section.dart';
 import 'widgets/app_search_field.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
@@ -29,37 +33,65 @@ double searchFieldHeightFor(TextScaler scaler) {
   return padded < AppSpacing.minTapTarget ? AppSpacing.minTapTarget : padded;
 }
 
-class ExploreScreen extends StatelessWidget {
+class ExploreScreen extends StatefulWidget {
   const ExploreScreen({super.key});
+
+  @override
+  State<ExploreScreen> createState() => _ExploreScreenState();
+}
+
+class _ExploreScreenState extends State<ExploreScreen> {
+  /// The Media section's photos, one fetch per open (null while a flag it
+  /// needs is off). Shared with the Media page by its route's `extra`.
+  ExploreMediaCubit? _media;
+
+  bool _mediaAllowed(BuildContext context) =>
+      isFeatureEnabled(context, kFeatureSearch) &&
+      isFeatureEnabled(context, kFeatureMedia) &&
+      isFeatureEnabled(context, kFeatureTrends);
+
+  @override
+  void dispose() {
+    _media?.close();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final scaler = MediaQuery.textScalerOf(context);
     final rowHeight = searchFieldHeightFor(scaler) + AppSpacing.sm;
-    return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverPersistentHeader(
-            pinned: true,
-            delegate: _ExploreHeader(
-              extent: rowHeight + AppTabBar.heightFor(context),
-              rowHeight: rowHeight,
-            ),
-          ),
-          if (isFeatureEnabled(context, kFeatureTrends))
-            const ExploreTrendsSection(),
-          // Inline below desktop; from 1200 dp the shell's side column carries
-          // the same suggestions ("You might like"), so one card, one place.
-          // The sliver itself stays, so the list keeps its shape across 1200.
-          SliverToBoxAdapter(
-            child: MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet
-                ? const SizedBox.shrink()
-                : const WhoToFollowCard(margin: EdgeInsets.all(AppSpacing.md)),
-          ),
-          const ShellBottomInsetSliver(),
-        ],
-      ),
+    final trends = isFeatureEnabled(context, kFeatureTrends);
+    final showMedia = _mediaAllowed(context);
+    // Made the first time the flags allow it and kept after that, so a flag
+    // flicker never asks again.
+    final media = showMedia
+        ? _media ??= ExploreMediaCubit(
+            repository: context.read<SearchRepository>(),
+          )
+        : null;
+    Widget scroll = CustomScrollView(
+      slivers: [
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: _ExploreHeader(extent: rowHeight, rowHeight: rowHeight),
+        ),
+        if (trends) const ExploreTrendsSection(),
+        if (media != null) ExploreMediaSection(cubit: media),
+        // Inline below desktop; from 1200 dp the shell's side column carries
+        // the same suggestions ("You might like"), so one card, one place.
+        // The sliver itself stays, so the list keeps its shape across 1200.
+        SliverToBoxAdapter(
+          child: MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet
+              ? const SizedBox.shrink()
+              : const WhoToFollowCard(margin: EdgeInsets.all(AppSpacing.md)),
+        ),
+        const ShellBottomInsetSliver(),
+      ],
     );
+    if (media != null) {
+      scroll = ExploreMediaStarter(cubit: media, child: scroll);
+    }
+    return Scaffold(body: scroll);
   }
 }
 
@@ -112,12 +144,6 @@ class _ExploreHeader extends SliverPersistentHeaderDelegate {
                 const SizedBox(width: AppSpacing.xs),
               ],
             ),
-          ),
-          AppTabBar(
-            semanticLabel: 'Explore sections',
-            selectedIndex: 0,
-            onChanged: (_) {},
-            tabs: const [AppTab(label: 'Trending')],
           ),
         ],
       ),

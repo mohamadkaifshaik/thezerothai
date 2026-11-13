@@ -9,20 +9,25 @@ import '../../data/search_repository.dart' show Trend;
 /// one button (>= 48dp) that calls [onTap] (it opens the tag's results). Grows
 /// with the text scale; the tag wraps to two lines before it is cut.
 ///
-/// [ranked] is Explore's look (the Explore mocks' `.trend`): the rank as a
-/// teal "01" column in front, "Trending" over the tag and a chevron at the
-/// end. The default is the compact side card's row.
+/// [ranked] is Explore's look (the Explore reference): the plain rank number
+/// in front, the bold tag over "1.8M posts", a hairline under the row (not
+/// drawn under the last one, [last]). The default is the compact side
+/// card's row.
 class TrendRow extends StatelessWidget {
   const TrendRow({
     super.key,
     required this.trend,
     required this.onTap,
     this.ranked = false,
+    this.last = false,
   });
 
   final Trend trend;
   final VoidCallback onTap;
   final bool ranked;
+
+  /// The last row of a ranked list: no hairline under it.
+  final bool last;
 
   /// "1.2K posts", "1 post".
   static String postsLabel(int count) =>
@@ -36,12 +41,13 @@ class TrendRow extends StatelessWidget {
     final texts = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          ranked ? 'Trending' : '${trend.rank} · Trending',
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodySmall?.copyWith(color: muted),
-        ),
+        if (!ranked)
+          Text(
+            '${trend.rank} · Trending',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(color: muted),
+          ),
         Text(
           '#${trend.tag}',
           maxLines: 2,
@@ -71,39 +77,48 @@ class TrendRow extends StatelessWidget {
         type: MaterialType.transparency,
         child: InkWell(
           onTap: onTap,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              minHeight: AppSpacing.minTapTarget,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: ranked && !last
+                  ? Border(
+                      bottom: BorderSide(
+                        color: theme.colorScheme.outlineVariant,
+                      ),
+                    )
+                  : null,
             ),
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: ranked ? side : AppSpacing.md,
-                vertical: AppSpacing.sm,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                minHeight: AppSpacing.minTapTarget,
               ),
-              child: ranked
-                  ? Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(
-                            minWidth: AppExplorePeopleLayout.trendRankWidth,
-                          ),
-                          child: Text(
-                            trend.rank.toString().padLeft(2, '0'),
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w800,
-                              color: context.appColors.accentText,
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: ranked ? side : AppSpacing.md,
+                  vertical: AppSpacing.sm,
+                ),
+                child: ranked
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(
+                              minWidth: AppExplorePeopleLayout.trendRankWidth,
+                            ),
+                            child: Text(
+                              trend.rank.toString(),
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(
-                          width: AppExplorePeopleLayout.trendRankGap,
-                        ),
-                        Expanded(child: texts),
-                        Icon(Icons.chevron_right, color: muted),
-                      ],
-                    )
-                  : texts,
+                          const SizedBox(
+                            width: AppExplorePeopleLayout.trendRankGap,
+                          ),
+                          Expanded(child: texts),
+                        ],
+                      )
+                    : texts,
+              ),
             ),
           ),
         ),
