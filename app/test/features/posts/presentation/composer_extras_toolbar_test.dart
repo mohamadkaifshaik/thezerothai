@@ -112,6 +112,10 @@ void main() {
         enabledFeatures: features,
       ),
     );
+    // A frozen clock: the dialog opens on (now + lead + up to a minute) and
+    // Confirm re-checks against the clock, so a moving clock fails the
+    // check whenever the test crosses a minute boundary (CI flake).
+    final scheduleNow = DateTime.now().add(const Duration(hours: 1));
     final router = GoRouter(
       routes: [
         GoRoute(
@@ -122,7 +126,7 @@ void main() {
           path: '/compose',
           builder: (context, state) => ComposerScreen(
             quoteOfPostId: quote,
-            scheduleClock: () => DateTime.now().add(const Duration(hours: 1)),
+            scheduleClock: () => scheduleNow,
           ),
         ),
       ],
