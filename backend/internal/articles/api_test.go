@@ -3,6 +3,7 @@ package articles
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -56,7 +57,7 @@ func TestReportEvidence(t *testing.T) {
 					t.Fatalf("err = %v, want %v", err, tc.wantErr)
 				}
 			default:
-				if err != nil || got != tc.want {
+				if err != nil || !reflect.DeepEqual(got, tc.want) {
 					t.Fatalf("got %#v, %v; want %#v", got, err, tc.want)
 				}
 			}

@@ -20,6 +20,8 @@ type ReportedArticle struct {
 	// Body is the article's plain text, bounded by the lookup (articles.MaxEvidenceBodyBytes); Truncated says it was cut.
 	Body      string
 	Truncated bool
+	// ImageMediaIDs are the article's inline image ids, kept in the report's evidence with the cover's.
+	ImageMediaIDs []string
 }
 
 // ErrArticleNotFound is an ArticleLookup's answer when no published article is rooted at the reported post (deleted or
@@ -51,5 +53,6 @@ func (s *service) articleEvidence(ctx context.Context, uid string, p *posts.Post
 		return logger.RedactErr(fmt.Errorf("moderation: load article evidence: %w", err), p.ID, uid)
 	}
 	ev.ArticleTitle, ev.ArticleRevision, ev.ArticleBody, ev.ArticleBodyTruncated = a.Title, a.Revision, a.Body, a.Truncated
+	ev.MediaIDs = append(ev.MediaIDs, a.ImageMediaIDs...)
 	return nil
 }

@@ -34,60 +34,98 @@ type block struct {
 	Runs    []textRun `json:"runs"`
 	MediaID string    `json:"mediaId,omitempty"`
 	AltText string    `json:"altText,omitempty"`
+	Caption string    `json:"caption,omitempty"`
 }
+
+// maxArticleImages caps the inline image blocks of one article body. The alt text limit matches a post's (CreatePost:
+// at most 1,000 characters); a caption is one line of at most 280 characters.
+const (
+	maxArticleImages     = 20
+	maxImageAltRunes     = 1000
+	maxImageCaptionRunes = 280
+)
 
 var controls = regexp.MustCompile(`[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x{202a}-\x{202e}\x{2066}-\x{2069}]`)
 var validID = regexp.MustCompile(`^[A-Za-z0-9_-]{16,64}$`)
 
+// contentInfo is what a valid body yields: its excerpt and the media ids of its inline image blocks, in body order.
+type contentInfo struct {
+	Excerpt  string
+	ImageIDs []string
+}
+
 func validateContent(title, body string, publishing bool) (string, error) {
+	info, err := inspectContent(title, body, publishing)
+	return info.Excerpt, err
+}
+
+func inspectContent(title, body string, publishing bool) (contentInfo, error) {
 	if !utf8.ValidString(title) || utf8.RuneCountInString(title) > 100 || strings.ContainsAny(title, "\r\n") || controls.MatchString(title) || (publishing && strings.TrimSpace(title) == "") {
-		return "", apierr.Validation("title", "title must be a single line of at most 100 characters")
+		return contentInfo{}, apierr.Validation("title", "title must be a single line of at most 100 characters")
 	}
 	if len(body) > maxBodyBytes || !utf8.ValidString(body) {
-		return "", apierr.Validation("body", "article body is too large")
+		return contentInfo{}, apierr.Validation("body", "article body is too large")
 	}
 	var blocks []block
 	dec := json.NewDecoder(strings.NewReader(body))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&blocks); err != nil || blocks == nil || len(blocks) > 1000 {
-		return "", apierr.Validation("body", "invalid structured article body")
+		return contentInfo{}, apierr.Validation("body", "invalid structured article body")
 	}
 	if dec.Decode(new(any)) != io.EOF {
-		return "", apierr.Validation("body", "invalid trailing article content")
+		return contentInfo{}, apierr.Validation("body", "invalid trailing article content")
 	}
 	var text strings.Builder
+	var imageIDs []string
+	seen := make(map[string]bool)
 	for _, b := range blocks {
 		switch b.Kind {
 		case "paragraph", "heading1", "heading2", "quote", "bulletedListItem", "numberedListItem", "code":
-			if b.MediaID != "" || b.AltText != "" {
-				return "", apierr.Validation("body", "media fields on a text block")
+			if b.MediaID != "" || b.AltText != "" || b.Caption != "" {
+				return contentInfo{}, apierr.Validation("body", "media fields on a text block")
 			}
 		case "image":
-			// Inline media needs a multi-image reservation lifecycle; reject it rather
-			// than persisting an unowned or unclaimed media reference.
-			return "", apierr.Validation("body", "inline images are not available yet; use a cover image")
+			// An image block names one media id the author owns and that is not yet attached (checked by the service
+			// and again inside the publication transaction). Only the reference and its alt text and caption are stored.
+			if len(b.Runs) != 0 || !validID.MatchString(b.MediaID) {
+				return contentInfo{}, apierr.Validation("body", "invalid image block")
+			}
+			if !utf8.ValidString(b.AltText) || utf8.RuneCountInString(b.AltText) > maxImageAltRunes || controls.MatchString(b.AltText) {
+				return contentInfo{}, apierr.Validation("body", "image alt text is too long or has invalid characters")
+			}
+			if !utf8.ValidString(b.Caption) || utf8.RuneCountInString(b.Caption) > maxImageCaptionRunes || controls.MatchString(b.Caption) {
+				return contentInfo{}, apierr.Validation("body", "image caption is too long or has invalid characters")
+			}
+			if seen[b.MediaID] {
+				return contentInfo{}, apierr.Validation("body", "an image appears more than once")
+			}
+			seen[b.MediaID] = true
+			imageIDs = append(imageIDs, b.MediaID)
+			if len(imageIDs) > maxArticleImages {
+				return contentInfo{}, apierr.Validation("body", "an article has at most 20 images")
+			}
 		case "divider":
-			if len(b.Runs) != 0 || b.MediaID != "" || b.AltText != "" {
-				return "", apierr.Validation("body", "invalid divider")
+			if len(b.Runs) != 0 || b.MediaID != "" || b.AltText != "" || b.Caption != "" {
+				return contentInfo{}, apierr.Validation("body", "invalid divider")
 			}
 		default:
-			return "", apierr.Validation("body", "unknown article block")
+			return contentInfo{}, apierr.Validation("body", "unknown article block")
 		}
 		for _, r := range b.Runs {
 			if controls.MatchString(r.Text) {
-				return "", apierr.Validation("body", "article contains invalid control characters")
+				return contentInfo{}, apierr.Validation("body", "article contains invalid control characters")
 			}
 			for _, mark := range r.Marks {
 				switch mark {
 				case "bold", "italic", "underline", "strikethrough", "code":
 				default:
-					return "", apierr.Validation("body", "unknown article mark")
+					return contentInfo{}, apierr.Validation("body", "unknown article mark")
 				}
 			}
 			if r.Link != "" {
 				u, e := url.Parse(r.Link)
 				if e != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" || u.User != nil {
-					return "", apierr.Validation("body", "article links must be HTTP(S)")
+					return contentInfo{}, apierr.Validation("body", "article links must be HTTP(S)")
 				}
 			}
 			text.WriteString(r.Text)
@@ -95,14 +133,31 @@ func validateContent(title, body string, publishing bool) (string, error) {
 		text.WriteByte('\n')
 	}
 	plain := strings.TrimSpace(text.String())
-	if utf8.RuneCountInString(plain) > 100000 || (publishing && plain == "") {
-		return "", apierr.Validation("body", "article needs a body of at most 100000 characters")
+	// An article of images alone may publish: its caption or title is the post text.
+	if utf8.RuneCountInString(plain) > 100000 || (publishing && plain == "" && len(imageIDs) == 0) {
+		return contentInfo{}, apierr.Validation("body", "article needs a body of at most 100000 characters")
 	}
 	excerpt := []rune(strings.Join(strings.Fields(plain), " "))
 	if len(excerpt) > maxPreviewExcerptRunes {
 		excerpt = excerpt[:maxPreviewExcerptRunes]
 	}
-	return string(excerpt), nil
+	return contentInfo{Excerpt: string(excerpt), ImageIDs: imageIDs}, nil
+}
+
+// imageIDsOf is the lenient reading of a stored body's image block ids, in body order (a row written under older rules
+// still reads; a body that does not decode has none).
+func imageIDsOf(body string) []string {
+	var blocks []block
+	if err := json.Unmarshal([]byte(body), &blocks); err != nil {
+		return nil
+	}
+	var ids []string
+	for _, b := range blocks {
+		if b.Kind == "image" && b.MediaID != "" {
+			ids = append(ids, b.MediaID)
+		}
+	}
+	return ids
 }
 
 // Two excerpt lengths on purpose: maxPreviewExcerptRunes bounds the excerpt frozen into the root post's

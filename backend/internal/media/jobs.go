@@ -68,8 +68,14 @@ func (j *Jobs) PostDeleted(ctx context.Context, uid, postID string, mediaIDs []s
 	return j.pub.Publish(ctx, data)
 }
 
-// Handle implements identity.JobHandler. It checks the post, then deletes the post's media documents (a post without
-// images is a "noop" and reads nothing); GCS: free deletes, up to 4 per image (2 public + 2 private upload).
+// attachedPerPostLimit bounds the post's attached-image query: a post's own images are at most MaxPerPost and an
+// article's inline images at most 20, so a full page cannot be a legitimate state and reads as the whole page.
+const attachedPerPostLimit = 100
+
+// Handle implements identity.JobHandler. It deletes the post's media documents and objects: the images the message
+// names and every image attached to the post (an article's inline images are attached to its root post but are not in
+// the post's media list). A post with no images is a "noop" after one indexed read. Public objects first, the document
+// last, so a redelivery converges. GCS: free deletes, up to 4 per image (2 public + 2 private upload).
 func (j *Jobs) Handle(ctx context.Context, data []byte) (string, error) {
 	var m PostDeleteMessage
 	if err := json.Unmarshal(data, &m); err != nil {
@@ -77,11 +83,6 @@ func (j *Jobs) Handle(ctx context.Context, data []byte) (string, error) {
 	}
 	if !ids.ValidUID(m.UID) || !ids.ValidPostID(m.PostID) {
 		return "dropped:invalid_message", nil
-	}
-	if len(m.MediaIDs) == 0 {
-		// Since every deleted post publishes this job; a post without images has nothing
-		// here. Acknowledged before any read, so media does no work for a post's likes/reposts clean-up.
-		return "noop", nil
 	}
 	if len(m.MediaIDs) > MaxPerPost {
 		return "dropped:invalid_message", nil
@@ -96,6 +97,21 @@ func (j *Jobs) Handle(ctx context.Context, data []byte) (string, error) {
 		}
 		seen[id] = struct{}{}
 	}
+	attached, err := j.repo.IDsByPost(ctx, m.PostID, attachedPerPostLimit)
+	if err != nil {
+		return "", logger.RedactErr(fmt.Errorf("media: post_delete: attached: %w", err), m.UID)
+	}
+	candidates := append([]string(nil), m.MediaIDs...)
+	for _, id := range attached {
+		if _, dup := seen[id]; !dup {
+			seen[id] = struct{}{}
+			candidates = append(candidates, id)
+		}
+	}
+	if len(candidates) == 0 {
+		// A post without images has nothing here: acknowledged after the one indexed read, before any other read.
+		return "noop", nil
+	}
 
 	gone, err := j.posts.PostGone(ctx, m.PostID)
 	if err != nil {
@@ -104,12 +120,12 @@ func (j *Jobs) Handle(ctx context.Context, data []byte) (string, error) {
 	if !gone {
 		return "refused", nil // the post still exists: a message never makes a live post's images deletable
 	}
-	docs, err := j.repo.GetMany(ctx, m.MediaIDs)
+	docs, err := j.repo.GetMany(ctx, candidates)
 	if err != nil {
 		return "", logger.RedactErr(fmt.Errorf("media: post_delete: load: %w", err), m.UID)
 	}
 	var toDelete []string
-	for _, id := range m.MediaIDs {
+	for _, id := range candidates {
 		d, ok := docs[id]
 		if !ok {
 			continue // already cleaned up: idempotent
