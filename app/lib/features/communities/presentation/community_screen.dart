@@ -1,3 +1,6 @@
+import 'widgets/community_side_boxes.dart';
+import '../../../core/widgets/shell_side_column.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -174,6 +177,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
 
   @override
   void dispose() {
+    _sideColumn.dispose();
     _bandGone.dispose();
     _moderation.close();
     _timeline.close();
@@ -260,8 +264,17 @@ class _CommunityScreenState extends State<CommunityScreen> {
     if (error != null && mounted) _say(communitiesErrorMessage(error));
   }
 
+  /// The desktop Community mock's Rules and Moderators boxes, in the shell's
+  /// side column.
+  final _sideColumn = ShellSideColumnLease();
+
   @override
   Widget build(BuildContext context) {
+    _sideColumn.set(
+      context,
+      active: true,
+      builder: (_) => CommunitySideBoxes(detail: _detail),
+    );
     final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     final viewerUserId = context.select(
       (OnboardingBloc bloc) => bloc.state.profile?.userId,

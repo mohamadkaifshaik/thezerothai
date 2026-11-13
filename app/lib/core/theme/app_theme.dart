@@ -1419,6 +1419,9 @@ abstract final class AppPlansLayout {
   static const double phoneGutter = 20;
   static const double wideGutter = 16;
 
+  // The list card's inner padding; "I'm in" lines up with the card's text.
+  static const double cardPad = 20;
+
   // The compact rows of My plans (the tile, then eyebrow, title and time).
   static const double tileSize = 52;
 

@@ -260,6 +260,27 @@ class BeaconsRepository {
     return r.view;
   }
 
+  /// The plans the caller and [peerUserId] share (the desktop chat's "Shared
+  /// plan" box; `chat_shared_plans`): each view carries the caller's own
+  /// viewer state. [limit] 0 is the server's 3, above 10 is 10. The server
+  /// may return fewer rows than [limit], or none, with a token set.
+  Future<BeaconsPage> listSharedBeacons({
+    required String peerUserId,
+    int limit = 0,
+    String pageToken = '',
+  }) async {
+    final r = await _call(
+      () => _apiClient.beacons.listSharedBeacons(
+        pb.ListSharedBeaconsRequest(
+          peerUserId: peerUserId,
+          limit: limit,
+          pageToken: pageToken,
+        ),
+      ),
+    );
+    return BeaconsPage(views: r.views.toList(), nextPageToken: r.nextPageToken);
+  }
+
   Future<T> _call<T>(Future<T> Function() call) async {
     final out = await _gate.run<_Out<T>>(() async {
       try {

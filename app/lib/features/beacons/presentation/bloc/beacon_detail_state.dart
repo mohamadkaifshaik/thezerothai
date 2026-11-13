@@ -18,6 +18,7 @@ class BeaconDetailState {
     this.error,
     this.busy,
     this.actionError,
+    this.noteRequired = false,
   });
 
   final BeaconDetailStatus status;
@@ -37,6 +38,10 @@ class BeaconDetailState {
   /// Friendly text of the last failed action, for a snackbar.
   final String? actionError;
 
+  /// The last request was refused with `note_required`: the screen opens the
+  /// note sheet (no [actionError] is set for it).
+  final bool noteRequired;
+
   BeaconDetailState copyWith({
     BeaconDetailStatus? status,
     pb.BeaconView? view,
@@ -46,11 +51,13 @@ class BeaconDetailState {
     bool clearBusy = false,
     String? actionError,
     bool clearActionError = false,
+    bool? noteRequired,
   }) => BeaconDetailState(
     status: status ?? this.status,
     view: view ?? this.view,
     error: clearError ? null : (error ?? this.error),
     busy: clearBusy ? null : (busy ?? this.busy),
     actionError: clearActionError ? null : (actionError ?? this.actionError),
+    noteRequired: noteRequired ?? this.noteRequired,
   );
 }
