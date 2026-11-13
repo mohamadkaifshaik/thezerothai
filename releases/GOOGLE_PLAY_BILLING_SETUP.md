@@ -50,6 +50,20 @@ same Android package. Complete the service-account setup in RevenueCat's current
 Google → RevenueCat RTDN and RevenueCat → Dzeroth webhooks are separate connections.
 Neither uses the application's ordinary messaging Pub/Sub subscription.
 
+Before checkout, review **Project settings → General → Restore behavior**. This
+rollout requires sign-in before purchasing and retains purchases with their
+original private billing identity; configure **Keep with original App User ID**
+consistently for production and any sandbox override. Cross-account restore must
+not reassign access. Provide an original-account recovery path and test deleted
+or recreated accounts before launch.
+
+Keep **Track new purchases from server-to-server notifications** disabled for
+this rollout. RTDN should update purchases first identified by the SDK; automatic
+discovery can associate a new transaction with an anonymous or different customer,
+which this verifier deliberately refuses to adopt. Review ownership handling and
+native tests before enabling that separate feature. See RevenueCat's
+[restore and notification identity guidance](https://www.revenuecat.com/docs/projects/restore-behavior).
+
 ## 3. Map the product
 
 Import the actual Play subscription/base plan into RevenueCat. Attach that product
