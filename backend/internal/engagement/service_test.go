@@ -124,6 +124,11 @@ func (f *fakePosts) Viewable(_ context.Context, _, id string) (*posts.Post, erro
 	return p, nil
 }
 
+// ViewableMany is never called by engagement.
+func (f *fakePosts) ViewableMany(context.Context, string, []string) (map[string]*posts.Post, error) {
+	return nil, nil
+}
+
 func (f *fakePosts) SharesChanged(id string, d int64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

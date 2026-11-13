@@ -44,8 +44,9 @@ abstract final class MessagingService {
   /// - shared_post_id: 19 digits (else VALIDATION "shared_post_id", before any lookup). A REPOST id shares its original;
   ///   the stored and returned id is the original's.
   /// - The post must be visible to the caller by the GetPost rules (missing, deleted, hidden, suspended or deleting
-  ///   author, an author who blocks the caller, a QUOTE or REPOST whose embedded author blocks the caller => NOT_FOUND
-  ///   "post not found", byte-identical to GetPost, writing nothing).
+  ///   author, an author who blocks the caller, a QUOTE or REPOST whose embedded author blocks the caller), and by the
+  ///   card's rule: no block in either direction, so a caller who blocked the author (or a QUOTE's embedded author) may
+  ///   not send it either. Every case => NOT_FOUND "post not found", byte-identical to GetPost, writing nothing.
   /// - Protected authors: a post by a protected account may be sent only by that account (the RepostPost rule); any
   ///   other caller who can see it => FAILED_PRECONDITION + PROTECTED_ACCOUNT, writing nothing.
   /// - The client sends a text even without a caption: the canonical post URL (so a client that predates the card shows a

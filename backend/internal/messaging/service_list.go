@@ -328,7 +328,7 @@ func previewOf(r EntryRow) *messagingv1.MessagePreview {
 	p := &messagingv1.MessagePreview{FromSelf: r.Last.FromSelf, CreatedAt: timestamppb.New(r.LastMessageAt)}
 	switch r.Last.State {
 	case msgVisible:
-		p.State, p.Snippet = messagingv1.MessageState_MESSAGE_STATE_VISIBLE, r.Last.Snippet
+		p.State, p.Snippet, p.SharedPost = messagingv1.MessageState_MESSAGE_STATE_VISIBLE, r.Last.Snippet, r.Last.SharedPost
 	case msgDeletedAccount:
 		p.State = messagingv1.MessageState_MESSAGE_STATE_DELETED_ACCOUNT
 	case msgRemoved:
