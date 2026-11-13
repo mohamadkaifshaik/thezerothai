@@ -158,6 +158,7 @@ class _ProfileCard extends StatelessWidget {
 /// One action of the sheet: the menu's row in a 48dp+ tap target.
 class ThreadInfoActionRow extends StatelessWidget {
   const ThreadInfoActionRow({
+    super.key,
     required this.icon,
     required this.label,
     required this.onTap,
