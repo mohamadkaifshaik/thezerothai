@@ -114,4 +114,3 @@ Official setup references:
 - [Create subscriptions and activate a base plan](https://support.google.com/googleplay/android-developer/answer/140504)
 - [RevenueCat Google Play connection](https://www.revenuecat.com/docs/service-credentials/creating-play-service-credentials)
 - [RevenueCat product/base-plan mapping](https://www.revenuecat.com/docs/getting-started/entitlements/android-products)
-

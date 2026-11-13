@@ -124,6 +124,13 @@ void main() {
     expect(gateway.calls, ['identify', 'manage']);
   });
 
+  test('closing management on a free account still permits checkout', () async {
+    await repository.presentCustomerCenter('a');
+    expect(await repository.getOfferings('a'), [_offer]);
+    await repository.presentPaywall('a');
+    expect(gateway.calls.where((call) => call == 'paywall'), hasLength(1));
+  });
+
   test('ambiguous hosted checkout failure retains purchase guard', () async {
     gateway.purchaseError = StateError('timeout');
     await expectLater(repository.presentPaywall('a'), throwsStateError);

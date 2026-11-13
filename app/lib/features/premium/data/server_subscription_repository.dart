@@ -172,7 +172,6 @@ class ServerSubscriptionRepository
       throw UnsupportedError('Subscription management unavailable');
     }
     await _identify(check);
-    _awaitingVerification = true;
     _offerings = const [];
     await (gateway as SubscriptionHostedUiGateway).presentCustomerCenter();
     check();

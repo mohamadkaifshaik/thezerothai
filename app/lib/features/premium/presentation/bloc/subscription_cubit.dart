@@ -156,7 +156,7 @@ class SubscriptionCubit extends Cubit<SubscriptionState> {
         uid,
       );
       return const SubscriptionPurchaseResult(PurchaseDisposition.verifying);
-    });
+    }, startsPurchase: false);
   }
 
   /// Restore remains available even when new sales are off or status refresh
@@ -174,8 +174,9 @@ class SubscriptionCubit extends Cubit<SubscriptionState> {
 
   Future<void> _transact(
     String uid,
-    Future<SubscriptionPurchaseResult> Function() action,
-  ) async {
+    Future<SubscriptionPurchaseResult> Function() action, {
+    bool startsPurchase = true,
+  }) async {
     final generation = ++_generation;
     final epoch = _sessionEpoch.value;
     emit(SubscriptionState(phase: SubscriptionPhase.purchasing, uid: uid));
@@ -191,7 +192,7 @@ class SubscriptionCubit extends Cubit<SubscriptionState> {
           _awaitingPurchase = SubscriptionPhase.pending;
           emit(SubscriptionState(phase: SubscriptionPhase.pending, uid: uid));
         case PurchaseDisposition.verifying:
-          _awaitingPurchase = SubscriptionPhase.verifying;
+          if (startsPurchase) _awaitingPurchase = SubscriptionPhase.verifying;
           emit(SubscriptionState(phase: SubscriptionPhase.verifying, uid: uid));
           await refresh();
       }

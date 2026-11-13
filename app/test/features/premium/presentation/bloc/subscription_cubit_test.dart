@@ -121,7 +121,29 @@ void main() {
     await cubit.setAccount('a');
     await cubit.manageSubscription();
     expect(repo.manages, 1);
-    expect(cubit.state.phase, SubscriptionPhase.verifying);
+    expect(cubit.state.phase, SubscriptionPhase.ready);
+  });
+
+  test('closing management without a purchase permits checkout', () async {
+    repo.access = (uid) async => _free(uid, sales: true);
+    await cubit.setAccount('a');
+    await cubit.manageSubscription();
+    expect(cubit.state.phase, SubscriptionPhase.ready);
+    expect(cubit.state.offerings, [_offering]);
+    await cubit.showPaywall();
+    expect(repo.paywalls, 1);
+  });
+
+  test('management does not clear a pending purchase', () async {
+    repo.access = (uid) async => _free(uid, sales: true);
+    repo.transaction = () async =>
+        const SubscriptionPurchaseResult(PurchaseDisposition.pending);
+    await cubit.setAccount('a');
+    await cubit.purchase(_offering);
+    await cubit.manageSubscription();
+    expect(cubit.state.phase, SubscriptionPhase.pending);
+    await cubit.showPaywall();
+    expect(repo.paywalls, 0);
   });
 
   test('wrong owner and unavailable access cannot enter ready state', () async {

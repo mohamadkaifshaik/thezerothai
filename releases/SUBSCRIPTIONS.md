@@ -499,4 +499,3 @@ production catalog and secret resource references are pending. No real store
 app/product or webhook was created. Final unit/vet reruns and the repeated
 Firestore webhook regression exit successfully. Local Go is 1.27.0; the pinned
 CI toolchain was not installed or changed. No coverage-threshold/full-CI claim.
-

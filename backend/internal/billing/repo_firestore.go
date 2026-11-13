@@ -59,7 +59,7 @@ func (r *FirestoreBindings) EnsureBinding(ctx context.Context, candidate Binding
 			if err := snap.DataTo(&d); err != nil {
 				return ErrOwnership
 			}
-			b := Binding{UID: d.UID, CustomerID: d.CustomerID, Environment: d.Environment, CreatedAt: d.CreatedAt}
+			b := Binding(d)
 			if !validBinding(b) || b.UID != candidate.UID || b.Environment != candidate.Environment {
 				return ErrOwnership
 			}
@@ -84,7 +84,7 @@ func (r *FirestoreBindings) EnsureBinding(ctx context.Context, candidate Binding
 			}
 			return ErrOwnership
 		}
-		d := bindingDocument{candidate.UID, candidate.CustomerID, candidate.Environment, candidate.CreatedAt}
+		d := bindingDocument(candidate)
 		if err := tx.Create(ref, d); err != nil {
 			return err
 		}
@@ -125,7 +125,7 @@ func (r *FirestoreBindings) Run(ctx context.Context, uid string, _ []byte) ([]by
 		if err := snap.DataTo(&d); err != nil {
 			return err
 		}
-		b := Binding{d.UID, d.CustomerID, d.Environment, d.CreatedAt}
+		b := Binding(d)
 		if !validBinding(b) || b.UID != uid {
 			return ErrOwnership
 		}

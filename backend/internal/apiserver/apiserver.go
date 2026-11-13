@@ -709,7 +709,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		articlePublishingAccess = func(ctx context.Context, uid string) error {
 			b, err := bindings.LookupBinding(ctx, uid)
 			if errors.Is(err, billing.ErrNotFound) {
-				return connect.NewError(connect.CodePermissionDenied, errors.New("Premium subscription required"))
+				return connect.NewError(connect.CodePermissionDenied, errors.New("premium subscription required"))
 			}
 			if err != nil {
 				return connect.NewError(connect.CodeUnavailable, errors.New("subscription verification unavailable"))
@@ -723,7 +723,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 				return connect.NewError(connect.CodeUnavailable, errors.New("subscription verification unavailable"))
 			}
 			if tier != billing.TierPremium {
-				return connect.NewError(connect.CodePermissionDenied, errors.New("Premium subscription required"))
+				return connect.NewError(connect.CodePermissionDenied, errors.New("premium subscription required"))
 			}
 			return nil
 		}

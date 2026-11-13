@@ -8,7 +8,6 @@ package apiserver
 // No emulator is needed, so this runs in `make ci`.
 
 import (
-	"github.com/dzeroth/dzeroth/backend/internal/billing"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -21,6 +20,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dzeroth/dzeroth/backend/internal/billing"
 
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
