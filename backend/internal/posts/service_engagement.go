@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -48,6 +49,7 @@ func (s *service) ViewableMany(ctx context.Context, callerUID string, postIDs []
 	if _, err := ResolveActiveAuthors(ctx, s.directory, "", rows); err != nil {
 		return nil, logger.RedactErr(fmt.Errorf("posts: viewable many: load authors: %w", err), callerUID)
 	}
+	var snap *graph.Snapshot
 	for _, id := range postIDs {
 		if _, ok := got[id]; !ok {
 			continue // missing: absent, no second read
@@ -61,6 +63,20 @@ func (s *service) ViewableMany(ctx context.Context, callerUID string, postIDs []
 		}
 		if p.Kind == KindRepost {
 			continue
+		}
+		// GetPost shows a post whose author the caller blocked; a card does not (a block either way, design D2). The
+		// snapshot is the one viewable just read (cached), loaded at most once per batch.
+		if p.AuthorID != callerUID {
+			if snap == nil {
+				got, err := s.graph.Snapshot(ctx, callerUID)
+				if err != nil {
+					return nil, logger.RedactErr(fmt.Errorf("posts: viewable many: load caller graph: %w", err), callerUID)
+				}
+				snap = &got
+			}
+			if snap.Blocked[p.AuthorID] {
+				continue
+			}
 		}
 		out[id] = p
 	}

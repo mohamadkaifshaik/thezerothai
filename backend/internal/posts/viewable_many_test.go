@@ -3,6 +3,8 @@ package posts
 import (
 	"context"
 	"testing"
+
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
 )
 
 // ViewableMany is Viewable over a batch (the direct-message post cards): one GetAll for the cold posts, and each id judged
@@ -65,4 +67,25 @@ func keysOf(m map[string]*Post) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// A card is unavailable for a block either way (design D2), so ViewableMany also drops a post whose author the caller
+// blocked, which GetPost shows; one graph snapshot serves the batch, and the caller's own post is never dropped.
+func TestViewableMany_CallerBlockedAuthor(t *testing.T) {
+	e := newDeleteEnv()
+	e.graph.snap = graph.Snapshot{Blocked: map[string]bool{otherUID: true}}
+	if _, err := e.svc.Viewable(context.Background(), testUID, pidOther); err != nil {
+		t.Fatalf("GetPost rules show it: %v", err)
+	}
+	got, err := e.svc.ViewableMany(context.Background(), testUID, []string{pidMine, pidOther})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[pidMine] == nil {
+		t.Fatalf("visible = %v, want only %s", keysOf(got), pidMine)
+	}
+	e.graph.errs = map[string]error{testUID: errBoom}
+	if _, err := e.svc.ViewableMany(context.Background(), testUID, []string{pidOther}); err == nil {
+		t.Fatal("an unknown block set must fail the batch, never show the card")
+	}
 }
