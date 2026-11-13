@@ -10,9 +10,11 @@ package apiserver
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"sync"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	"connectrpc.com/connect"
@@ -24,6 +26,7 @@ import (
 	graphv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1"
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
+	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1/messagingv1connect"
 	postsv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/posts/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
@@ -370,5 +373,124 @@ func TestSharesChain_Refusals(t *testing.T) {
 	wantReason(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, "feature", "dm_post_share")
 	if got := off.card(t, b, a); !proto.Equal(got, &postsv1.EmbeddedPost{PostId: q, Unavailable: true}) {
 		t.Fatalf("card while globally off = %v, want unavailable", got)
+	}
+}
+
+// Account erasure lowers Post.share_count (owner decision Q4): the deleted account's markers from a direct-message share
+// and from an outside share are exported, then removed with their counts, another account's share survives, and the
+// deleted account's message keeps no post id nor the inbox preview flag.
+func TestSharesChain_ErasureLowersCount(t *testing.T) {
+	ctx := context.Background()
+	e := newLifecycleEnvCfg(t, nil, sharesOn(flags.On))
+	msg := messagingv1connect.NewMessagingServiceClient(http.DefaultClient, e.url)
+	eng := engagementv1connect.NewEngagementServiceClient(http.DefaultClient, e.url)
+	a, b, c, d := e.newUser(t), e.newUser(t), e.newUser(t), e.newUser(t) // a is deleted, c is the author
+
+	mk := func(text string) string {
+		t.Helper()
+		r, err := e.posts.CreatePost(ctx, authed(c.token, &postsv1.CreatePostRequest{IdempotencyKey: contractKey("shl-post"), Text: text}))
+		if err != nil {
+			t.Fatalf("CreatePost: %v", err)
+		}
+		return r.Msg.GetPost().GetPost().GetPostId()
+	}
+	record := func(u testUser, postID string) {
+		t.Helper()
+		if _, err := eng.RecordPostShare(ctx, authed(u.token, &engagementv1.RecordPostShareRequest{
+			IdempotencyKey: contractKey("shl-rec"), PostId: postID, Channel: engagementv1.ShareChannel_SHARE_CHANNEL_SHARE_SHEET,
+		})); err != nil {
+			t.Fatalf("RecordPostShare: %v", err)
+		}
+	}
+	count := func(postID string) int64 { return fsInt(t, e.fs, "posts/"+postID, "shareCount") }
+	pDM, pOut := mk("sent in a message"), mk("shared outside")
+
+	sent, err := msg.SendMessage(ctx, authed(a.token, &messagingv1.SendMessageRequest{
+		IdempotencyKey: contractKey("shl-send"), Target: &messagingv1.SendMessageRequest_RecipientUserId{RecipientUserId: b.uid},
+		Text: "https://dzeroth.app/post/" + pDM, SharedPostId: pDM,
+	}))
+	if err != nil {
+		t.Fatalf("share in a message: %v", err)
+	}
+	record(a, pOut)
+	record(d, pDM)
+	if count(pDM) != 2 || count(pOut) != 1 {
+		t.Fatalf("counts before = %d, %d; want 2, 1", count(pDM), count(pOut))
+	}
+
+	_, raw := e.exportOf(t, a, contractKey("shl-export"))
+	var doc struct {
+		Engagement struct {
+			Shares []struct {
+				PostID string `json:"postId"`
+			} `json:"shares"`
+		} `json:"engagement"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	exported := map[string]bool{}
+	for _, s := range doc.Engagement.Shares {
+		exported[s.PostID] = true
+	}
+	if len(doc.Engagement.Shares) != 2 || !exported[pDM] || !exported[pOut] {
+		t.Fatalf("exported shares = %+v, want %s and %s", doc.Engagement.Shares, pDM, pOut)
+	}
+
+	e.pull(t)
+	if _, err := e.identity.DeleteAccount(ctx, authed(a.token, &identityv1.DeleteAccountRequest{IdempotencyKey: contractKey("shl-delete")})); err != nil {
+		t.Fatalf("DeleteAccount: %v", err)
+	}
+	if _, err := e.fs.Doc("users/"+a.uid).Update(ctx, []firestore.Update{{Path: "deletionRequestedAt", Value: time.Now().Add(-5 * time.Minute)}}); err != nil {
+		t.Fatal(err)
+	}
+	for round := 0; ; round++ {
+		msgs := e.pull(t)
+		if len(msgs) == 0 {
+			break
+		}
+		if round > 10 {
+			t.Fatal("the deletion job did not finish")
+		}
+		for _, m := range msgs {
+			if code := e.deliver(t, m); code != http.StatusNoContent && code != http.StatusTooManyRequests {
+				t.Fatalf("delivery = %d", code)
+			}
+		}
+	}
+
+	if fsDocExists(t, e.fs, "users/"+a.uid) {
+		t.Fatal("users doc survived")
+	}
+	for _, path := range []string{"postShares/" + pDM + "_" + a.uid, "postShares/" + pOut + "_" + a.uid} {
+		if fsDocExists(t, e.fs, path) {
+			t.Errorf("%s survived", path)
+		}
+	}
+	if !fsDocExists(t, e.fs, "postShares/"+pDM+"_"+d.uid) {
+		t.Error("another account's share marker was removed")
+	}
+	if count(pDM) != 1 || count(pOut) != 0 {
+		t.Errorf("counts after = %d, %d; want 1, 0", count(pDM), count(pOut))
+	}
+	convID := sent.Msg.GetMessage().GetConversationId()
+	docs, err := e.fs.Collection("conversations").Doc(convID).Collection("messages").Limit(10).Documents(ctx).GetAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range docs {
+		if _, err := m.DataAt("sharedPostId"); err == nil {
+			t.Errorf("message %s kept sharedPostId", m.Ref.ID[:8])
+		}
+	}
+	if s, err := e.fs.Doc("users/" + b.uid + "/dmRequests/" + convID).Get(ctx); err == nil && s.Exists() {
+		if v, _ := s.DataAt("last.sharedPost"); v == true {
+			t.Error("the peer's preview still flags a shared post")
+		}
+	}
+	if s, err := e.fs.Doc("users/" + b.uid + "/dmInbox/" + convID).Get(ctx); err == nil && s.Exists() {
+		if v, _ := s.DataAt("last.sharedPost"); v == true {
+			t.Error("the peer's preview still flags a shared post")
+		}
 	}
 }
