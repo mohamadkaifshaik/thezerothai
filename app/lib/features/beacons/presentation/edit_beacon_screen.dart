@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
@@ -328,6 +329,9 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
     final theme = Theme.of(context);
     return Scaffold(
       body: SafeArea(
+        // The floating bar overlays the page: the content scrolls behind it and
+        // ends with the bar's inset.
+        bottom: false,
         child: AppMainColumn(
           child: BlocConsumer<EditBeaconCubit, EditBeaconState>(
             bloc: _cubit,
@@ -399,7 +403,9 @@ class _EditBeaconScreenState extends State<EditBeaconScreen> {
                               ),
                             )
                           : SingleChildScrollView(
-                              padding: const EdgeInsets.all(AppSpacing.md),
+                              padding:
+                                  const EdgeInsets.all(AppSpacing.md) +
+                                  shellBottomInsets(context),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [

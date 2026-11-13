@@ -461,6 +461,33 @@ void main() {
       expectNoOverflow(tester);
     });
 
+    testWidgets('two AppTopBarActions keep an 8dp gap', (tester) async {
+      await pump(
+        tester,
+        uiShell: true,
+        bar: (context) => AppTopBar.of(
+          context,
+          title: 'Messages',
+          actions: [
+            AppTopBarAction(
+              icon: Icons.mail_outline,
+              tooltip: 'New message',
+              onPressed: () {},
+            ),
+            AppTopBarAction(
+              icon: Icons.settings_outlined,
+              tooltip: 'Settings',
+              onPressed: () {},
+            ),
+          ],
+        ),
+      );
+
+      final first = tester.getRect(find.byTooltip('New message'));
+      final second = tester.getRect(find.byTooltip('Settings'));
+      expect(second.left - first.right, greaterThanOrEqualTo(AppSpacing.sm));
+    });
+
     testWidgets('AppTopBarAction is a raised 48dp AppIconButton at the end', (
       tester,
     ) async {

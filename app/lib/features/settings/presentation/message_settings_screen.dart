@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
@@ -40,6 +41,9 @@ class MessageSettingsScreen extends StatelessWidget {
         title: const Text(kMessageSettingsTitle),
       ),
       body: SafeArea(
+        // The floating bar overlays the page: the content scrolls behind it and
+        // ends with the bar's inset.
+        bottom: false,
         child: Align(
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
@@ -82,7 +86,10 @@ class MessageSettingsScreen extends StatelessWidget {
             onboarding.refreshFailed ||
             onboarding.status == OnboardingStatus.error;
         return ListView(
-          padding: const EdgeInsets.only(top: AppSpacing.md),
+          padding: EdgeInsets.only(
+            top: AppSpacing.md,
+            bottom: MediaQuery.paddingOf(context).bottom,
+          ),
           children: [
             if (failed)
               AppErrorView(
@@ -102,7 +109,8 @@ class MessageSettingsScreen extends StatelessWidget {
         );
       }
       return ListView(
-        padding: const EdgeInsets.all(AppSpacing.md),
+        padding:
+            const EdgeInsets.all(AppSpacing.md) + shellBottomInsets(context),
         children: const [
           HeadlineMessage(
             title: kMessageSettingsUnavailableTitle,
