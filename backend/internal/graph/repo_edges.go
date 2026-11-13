@@ -95,6 +95,39 @@ func runEdgeQuery(ctx context.Context, query firestore.Query, what string) ([]Ed
 	return out, nil
 }
 
+// FollowEdgesExist implements Repo: one GetAll of follows/{follower}_{followeeUID} for the distinct followers, built
+// through followRef. A missing doc is false. The error text names no uid (the caller redacts the Firestore text).
+func (r *FirestoreRepo) FollowEdgesExist(ctx context.Context, followeeUID string, followerUIDs []string) (map[string]bool, error) {
+	out := make(map[string]bool, len(followerUIDs))
+	refs := make([]*firestore.DocumentRef, 0, len(followerUIDs))
+	byID := make(map[string]string, len(followerUIDs))
+	for _, f := range followerUIDs {
+		if _, dup := out[f]; dup {
+			continue
+		}
+		ref, err := r.followRef(f, followeeUID)
+		if err != nil {
+			return nil, err
+		}
+		out[f] = false
+		byID[ref.ID] = f
+		refs = append(refs, ref)
+	}
+	if len(refs) == 0 {
+		return out, nil
+	}
+	docs, err := r.client.GetAll(ctx, refs)
+	if err != nil {
+		return nil, fmt.Errorf("graph: batch read of %d follow edges: %w", len(refs), err)
+	}
+	for _, d := range docs {
+		if d.Exists() {
+			out[byID[d.Ref.ID]] = true
+		}
+	}
+	return out, nil
+}
+
 // FollowEdgeExists implements Repo: a point read of follows/{followerUID}_{followeeUID} through followRef (the one
 // place a follows doc id is built). The error text names
 // no uid of its own; the caller redacts the Firestore text, which embeds the path.

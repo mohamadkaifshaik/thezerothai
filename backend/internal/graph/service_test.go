@@ -79,6 +79,10 @@ type fakeRepo struct {
 	// edgeKey (so a flipped argument order reads the opposite edge); edgeExistsCalls counts the point reads.
 	followEdges     map[edgeKey]bool
 	edgeExistsCalls int
+	// edgeBatches records the followers of each FollowEdgesExist call (one call is one batched read); edgeBatchErr fails
+	// every call.
+	edgeBatches  [][]string
+	edgeBatchErr error
 	edgeExistsErr   error
 
 	respondOutcome RespondOutcome
