@@ -2,12 +2,15 @@ import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
+import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/domain/share_post_target.dart';
+import 'package:dzeroth/features/messages/presentation/recipient_picker_screen.dart'
+    show kRecipientFieldKey, kRecipientHandleRowKey;
 import 'package:dzeroth/features/messages/presentation/share_post_picker.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/share_post_bar.dart';
 import 'package:dzeroth/features/onboarding/data/identity_repository.dart';
@@ -44,6 +47,7 @@ class _Rig {
           source ?? FakePeopleSource(people: [person(1), person(2), person(3)]);
 
   final repo = FakeSendRepository();
+  final identityRepo = _MockIdentity();
   final onboarding = _MockOnboardingBloc();
   final FakePeopleSource source;
 
@@ -70,7 +74,7 @@ class _Rig {
       MultiRepositoryProvider(
         providers: [
           RepositoryProvider<MessagingRepository>.value(value: repo),
-          RepositoryProvider<IdentityRepository>.value(value: _MockIdentity()),
+          RepositoryProvider<IdentityRepository>.value(value: identityRepo),
           RepositoryProvider<GraphRepository>.value(value: _MockGraph()),
           RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
         ],
@@ -107,6 +111,10 @@ class _Rig {
   }
 }
 
+/// A person's name on a list row (the chosen-people chip has it too).
+Finder _person(String name) =>
+    find.descendant(of: find.byType(UserListRow), matching: find.text(name));
+
 Finder get _send => find.byKey(kShareSendButtonKey);
 
 void main() {
@@ -131,14 +139,14 @@ void main() {
     ) async {
       await _Rig().open(tester);
 
-      await tester.tap(find.text('User 1'));
+      await tester.tap(_person('User 1'));
       await tester.pump();
-      await tester.tap(find.text('User 3'));
+      await tester.tap(_person('User 3'));
       await tester.pump();
 
       expect(find.byIcon(Icons.check_circle), findsNWidgets(2));
       expect(find.text('Send (2)'), findsOneWidget);
-      await tester.tap(find.text('User 1'));
+      await tester.tap(_person('User 1'));
       await tester.pump();
       expect(find.text('Send (1)'), findsOneWidget);
     });
@@ -151,11 +159,11 @@ void main() {
           people: [for (var i = 1; i <= 6; i++) person(i)],
         ),
       );
-      await rig.open(tester);
+      // Tall, so the five chips and all six rows fit without scrolling.
+      await rig.open(tester, height: 1400);
 
       for (var i = 1; i <= 6; i++) {
-        await tester.ensureVisible(find.text('User $i'));
-        await tester.tap(find.text('User $i'));
+        await tester.tap(_person('User $i'));
         await tester.pump();
       }
 
@@ -169,8 +177,8 @@ void main() {
       final rig = _Rig();
       await rig.open(tester);
 
-      await tester.tap(find.text('User 1'));
-      await tester.tap(find.text('User 2'));
+      await tester.tap(_person('User 1'));
+      await tester.tap(_person('User 2'));
       await tester.pump();
       await tester.enterText(find.byKey(kShareCaptionFieldKey), 'look');
       await tester.tap(find.text('Send (2)'));
@@ -191,7 +199,7 @@ void main() {
     testWidgets('no caption: the post link is the text', (tester) async {
       final rig = _Rig();
       await rig.open(tester);
-      await tester.tap(find.text('User 1'));
+      await tester.tap(_person('User 1'));
       await tester.pump();
       await tester.tap(find.text('Send (1)'));
       await tester.pumpAndSettle();
@@ -204,8 +212,8 @@ void main() {
       rig.repo.failures.add(const CannotMessageException());
       await rig.open(tester);
 
-      await tester.tap(find.text('User 1'));
-      await tester.tap(find.text('User 2'));
+      await tester.tap(_person('User 1'));
+      await tester.tap(_person('User 2'));
       await tester.pump();
       await tester.tap(find.text('Send (2)'));
       await tester.pumpAndSettle();
@@ -228,8 +236,8 @@ void main() {
       rig.repo.failures.add(const ProtectedAccountException());
       await rig.open(tester);
 
-      await tester.tap(find.text('User 1'));
-      await tester.tap(find.text('User 2'));
+      await tester.tap(_person('User 1'));
+      await tester.tap(_person('User 2'));
       await tester.pump();
       await tester.tap(find.text('Send (2)'));
       await tester.pumpAndSettle();
@@ -240,6 +248,78 @@ void main() {
         find.textContaining('Only the author can send a protected'),
         findsOneWidget,
       );
+    });
+
+    testWidgets('chosen people show as chips that drop them', (tester) async {
+      await _Rig().open(tester);
+      await tester.tap(_person('User 1'));
+      await tester.tap(_person('User 2'));
+      await tester.pump();
+
+      expect(find.byKey(const ValueKey('share-chip-u1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('share-chip-u2')), findsOneWidget);
+      await tester.tap(find.byTooltip('Remove @user1'));
+      await tester.pump();
+      expect(find.byKey(const ValueKey('share-chip-u1')), findsNothing);
+      expect(find.text('Send (1)'), findsOneWidget);
+    });
+
+    testWidgets('a pick the typed text hides still gets its result row '
+        '(and Retry shows who failed)', (tester) async {
+      final rig = _Rig();
+      rig.repo.failures.add(const CannotMessageException());
+      await rig.open(tester);
+      await tester.tap(_person('User 1'));
+      await tester.pump();
+
+      // Nothing the caller follows matches "zzz": the list no longer shows
+      // User 1, who is still chosen.
+      await tester.enterText(find.byKey(kRecipientFieldKey), 'zzz');
+      await tester.pump();
+      expect(find.byType(UserListRow), findsNothing);
+      expect(find.text('Send (1)'), findsOneWidget);
+
+      await tester.tap(find.byKey(kShareSendButtonKey));
+      await tester.pumpAndSettle();
+
+      // The results list is the chosen people, found or not by the filter.
+      expect(find.byType(UserListRow), findsOneWidget);
+      expect(_person('User 1'), findsOneWidget);
+      expect(find.text("Can't send"), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+      expect(find.text('Sent'), findsOneWidget);
+      expect(find.text('Done'), findsOneWidget);
+    });
+
+    testWidgets('a person found through "Send to @handle" is chosen, sent '
+        'to, and shown', (tester) async {
+      final rig = _Rig();
+      when(() => rig.identityRepo.getProfile(handle: 'zed_9')).thenAnswer(
+        (_) async => identity.Profile(
+          userId: 'u-zed',
+          handle: 'zed_9',
+          displayName: 'Zed',
+        ),
+      );
+      await rig.open(tester);
+      await tester.enterText(find.byKey(kRecipientFieldKey), 'zed_9');
+      await tester.pump();
+
+      expect(find.text('Send to @zed_9'), findsOneWidget);
+      expect(find.text('Message @zed_9'), findsNothing);
+      await tester.tap(find.byKey(kRecipientHandleRowKey));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('share-chip-u-zed')), findsOneWidget);
+
+      await tester.tap(find.byKey(kShareSendButtonKey));
+      await tester.pumpAndSettle();
+
+      expect(rig.repo.sendRecipients, ['u-zed']);
+      expect(find.text('Zed'), findsOneWidget);
+      expect(find.text('Sent'), findsOneWidget);
     });
 
     testWidgets('"Recent" lists the cached inbox people first, once', (
@@ -304,7 +384,7 @@ void main() {
               textScale: scale,
               brightness: brightness,
             );
-            await tester.tap(find.text('User 1'));
+            await tester.tap(_person('User 1'));
             await tester.pump();
 
             expect(tester.takeException(), isNull);
@@ -323,6 +403,44 @@ void main() {
           });
         }
       }
+    }
+  });
+
+  group('on the tablet and desktop layout (ui_shell + ui_tablet on)', () {
+    const features = {
+      'messaging',
+      'graph',
+      'dm_post_share',
+      kFeatureUiShell,
+      kFeatureUiTablet,
+    };
+    for (final width in [1024.0, 1440.0]) {
+      testWidgets('placed by the modal host, inside the window, and sends '
+          '[${width.toInt()}dp]', (tester) async {
+        final rig = _Rig();
+        await rig.open(tester, features: features, width: width, height: 900);
+
+        expect(tester.takeException(), isNull);
+        final card = tester.getRect(find.byType(Dialog));
+        expect(
+          card.left >= 0 && card.right <= width,
+          isTrue,
+          reason: 'the card is inside the window: $card',
+        );
+        expect(card.top >= 0 && card.bottom <= 900, isTrue);
+        expect(find.text('Send in a message'), findsOneWidget);
+
+        await tester.tap(_person('User 1'));
+        await tester.pump();
+        await tester.tap(find.text('Send (1)'));
+        await tester.pumpAndSettle();
+        expect(rig.repo.sendRecipients, ['u1']);
+        expect(find.text('Sent'), findsOneWidget);
+
+        await tester.tap(find.text('Done'));
+        await tester.pumpAndSettle();
+        expect(find.text('Send in a message'), findsNothing);
+      });
     }
   });
 }
