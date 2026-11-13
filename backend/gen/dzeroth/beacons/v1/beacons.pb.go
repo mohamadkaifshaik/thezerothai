@@ -882,6 +882,12 @@ type ViewerState struct {
 	CanWithdraw      bool             `protobuf:"varint,4,opt,name=can_withdraw,json=canWithdraw,proto3" json:"can_withdraw,omitempty"`
 	CanLeave         bool             `protobuf:"varint,5,opt,name=can_leave,json=canLeave,proto3" json:"can_leave,omitempty"`
 	CanManage        bool             `protobuf:"varint,6,opt,name=can_manage,json=canManage,proto3" json:"can_manage,omitempty"`
+	// True when the caller may join with one tap, sending RequestToJoin with an empty note: FEATURE_BEACONS and
+	// FEATURE_BEACON_QUICK_JOIN are on for the caller, can_request is true and the organiser follows the caller (a
+	// pending follow request is not a follow). Computed by GetBeacon only (one cached read of the organiser's graph);
+	// false in every list, in post embeds and in the responses of the participation RPCs, so the client opens the beacon
+	// (GetBeacon) before offering the one-tap join. Advisory: RequestToJoin re-checks the follow when it writes.
+	QuickJoinAllowed bool `protobuf:"varint,7,opt,name=quick_join_allowed,json=quickJoinAllowed,proto3" json:"quick_join_allowed,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -954,6 +960,13 @@ func (x *ViewerState) GetCanLeave() bool {
 func (x *ViewerState) GetCanManage() bool {
 	if x != nil {
 		return x.CanManage
+	}
+	return false
+}
+
+func (x *ViewerState) GetQuickJoinAllowed() bool {
+	if x != nil {
+		return x.QuickJoinAllowed
 	}
 	return false
 }
@@ -2672,7 +2685,7 @@ const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x11 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\x12 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x94\x02\n" +
+	"updated_at\x18\x12 \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\xc2\x02\n" +
 	"\vViewerState\x122\n" +
 	"\x04role\x18\x01 \x01(\x0e2\x1e.dzeroth.beacons.v1.ViewerRoleR\x04role\x12Q\n" +
 	"\x11participant_state\x18\x02 \x01(\x0e2$.dzeroth.beacons.v1.ParticipantStateR\x10participantState\x12\x1f\n" +
@@ -2681,7 +2694,8 @@ const file_dzeroth_beacons_v1_beacons_proto_rawDesc = "" +
 	"\fcan_withdraw\x18\x04 \x01(\bR\vcanWithdraw\x12\x1b\n" +
 	"\tcan_leave\x18\x05 \x01(\bR\bcanLeave\x12\x1d\n" +
 	"\n" +
-	"can_manage\x18\x06 \x01(\bR\tcanManage\"y\n" +
+	"can_manage\x18\x06 \x01(\bR\tcanManage\x12,\n" +
+	"\x12quick_join_allowed\x18\a \x01(\bR\x10quickJoinAllowed\"y\n" +
 	"\n" +
 	"BeaconView\x122\n" +
 	"\x06beacon\x18\x01 \x01(\v2\x1a.dzeroth.beacons.v1.BeaconR\x06beacon\x127\n" +

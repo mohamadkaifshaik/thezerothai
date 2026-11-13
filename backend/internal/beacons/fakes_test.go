@@ -55,6 +55,8 @@ type fakeRepo struct {
 	pqueries      []ParticipantQuery
 	beaconBatches [][]string
 	respondDone   map[string]ParticipantResult // idempotency key + request hash -> committed Respond result
+	requestDone   map[string]ParticipantResult // idempotency key + request hash -> committed Request result
+	prechecks     int                          // Request prechecks run
 	// GetParticipants calls: the uid and the beacon ids of each batch.
 	participantBatches []participantBatch
 }
@@ -79,10 +81,37 @@ func (f *fakeRepo) GetParticipants(_ context.Context, uid string, beaconIDs []st
 
 func (f *fakeRepo) pkey(beaconID, uid string) string { return beaconID + "|" + uid }
 
-func (f *fakeRepo) Request(_ context.Context, p RequestParams) (ParticipantResult, error) {
+// Request emulates the repository's idempotency like Respond: a key in requestDone replays its stored result without
+// running p.Precheck; otherwise a canned perr refuses first (the beacon and row checks precede Precheck), then Precheck
+// runs (a refusal writes nothing and is not recorded) and a success is stored.
+func (f *fakeRepo) Request(ctx context.Context, p RequestParams) (ParticipantResult, error) {
+	f.mu.Lock()
+	if res, ok := f.requestDone[p.IdemKey+"|"+p.RequestHash]; ok {
+		f.mu.Unlock()
+		res.Outcome = Replayed
+		return res, nil
+	}
+	if f.perr != nil {
+		defer f.mu.Unlock()
+		f.requestedBy = append(f.requestedBy, p)
+		return f.presult, f.perr
+	}
+	f.mu.Unlock()
+	if p.Precheck != nil {
+		f.mu.Lock()
+		f.prechecks++
+		f.mu.Unlock()
+		if err := p.Precheck(ctx); err != nil {
+			return ParticipantResult{}, err
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.requestedBy = append(f.requestedBy, p)
+	if f.requestDone == nil {
+		f.requestDone = map[string]ParticipantResult{}
+	}
+	f.requestDone[p.IdemKey+"|"+p.RequestHash] = f.presult
 	return f.presult, f.perr
 }
 
@@ -422,7 +451,7 @@ func newEnv() *env {
 		now:    testNow,
 	}
 	e.svc = New(Deps{
-		Repo: e.repo, Directory: e.dir, Graph: e.graph, Communities: e.comm, CommunityFlags: e.flags, IDs: fakeIDs{},
+		Repo: e.repo, Directory: e.dir, Graph: e.graph, Communities: e.comm, CommunityFlags: e.flags, Flags: e.flags, IDs: fakeIDs{},
 		CursorKey: []byte("0123456789abcdef0123456789abcdef"), Limits: Limits{MaxOpenPerUser: 5, MaxPendingRequests: 10, MaxOpenSpots: 20},
 		Events: e.events, Now: func() time.Time { return e.now },
 	})

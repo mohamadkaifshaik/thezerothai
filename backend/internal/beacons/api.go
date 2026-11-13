@@ -31,6 +31,12 @@ const FlagName = "beacons"
 // string in GetMe.enabled_features: the "plans you share" strip of a chat (ListSharedBeacons).
 const SharedPlansFlagName = "chat_shared_plans"
 
+// QuickJoinFlagName is the wire name of FEATURE_BEACON_QUICK_JOIN and the string in GetMe.enabled_features: with it on
+// for the caller, RequestToJoin accepts an empty note only when the organiser follows the caller (else
+// FAILED_PRECONDITION "note_required"), and GetBeacon computes ViewerState.quick_join_allowed. Off for the caller, the
+// note stays optional and quick_join_allowed stays false.
+const QuickJoinFlagName = "beacon_quick_join"
+
 // FlagChecker is the seam to pkg/platform/flags.Registry (*flags.Registry satisfies it): Enabled answers "is the flag on
 // for this caller", GloballyOff "is it the kill switch" (off for everyone; a rollout the caller is outside of is not).
 type FlagChecker interface {

@@ -125,7 +125,9 @@ func (s *service) GetBeacon(ctx context.Context, viewer, beaconID string) (View,
 	if err != nil {
 		return View{}, mapErr(ctx, "get", viewer, beaconID, err)
 	}
-	return s.viewWith(a.beacon, a.organiser, viewer, pstate), nil
+	v := s.viewWith(a.beacon, a.organiser, viewer, pstate)
+	v.Viewer.QuickJoinAllowed = s.quickJoinAllowed(ctx, a, viewer, v.Viewer)
+	return v, nil
 }
 
 // participantState is the viewer's participant row state on a resolved beacon ("" for the organiser or no row): one
