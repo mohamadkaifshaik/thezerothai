@@ -94,6 +94,19 @@ as enabled.
 - Dart tests: `cd app && flutter test test/features/posts/`
 - Repo guards: `cd app && flutter test test/guards` and `bash scripts/promotion/test/run.sh`
 
+On slower Windows machines, a complete Go test package can exceed the default
+10-minute limit. Run the validation suites sequentially in Git Bash and, when
+needed, increase the package limit for the local invocation:
+
+```bash
+GOFLAGS="${GOFLAGS:+$GOFLAGS }-timeout=20m" make ci
+GOFLAGS="${GOFLAGS:+$GOFLAGS }-timeout=20m" make test-int
+```
+
+These overrides leave CI's existing limits and sharding unchanged. Prefer the
+whole `make test-int` target on native Windows: the repository-wide test-name
+filter used by integration shards can exceed Windows' command-line length limit.
+
 After changing a freezed, json_serializable or drift class run `cd app && dart run build_runner build -d`.
 
 ## Release flow
