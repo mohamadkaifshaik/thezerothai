@@ -1,16 +1,22 @@
 import 'dart:async';
+
 import '../../../shared/widgets/post/post_list_skeleton.dart';
+
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'
+    show TextInputFormatter, TextEditingValue;
 import 'package:crypto/crypto.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shell_geometry.dart';
@@ -28,7 +34,10 @@ import '../domain/articles_repository.dart';
 import 'article_text_controller.dart';
 import '../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
+import '../../media/domain/media_feature_flag.dart' show kMaxAltTextLength;
+import '../../../shared/widgets/primitives/character_counter.dart';
 import 'widgets/article_cover_placeholder.dart';
+import 'widgets/article_image_block.dart';
 
 /// Whether the article library shows beside the page in a window [width]
 /// wide: from 840dp on the tablet layout ([tablet]: both flags, 600-1199dp;
@@ -70,6 +79,7 @@ class ArticlesScreen extends StatefulWidget {
   final bool preview;
   final bool focus;
   final bool reader;
+
   @override
   State<ArticlesScreen> createState() => _ArticlesScreenState();
 }
@@ -92,6 +102,11 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
   Uint8List? _coverBytes;
   UploadJob? _coverJob;
   MediaUploader? _coverUploader;
+  MediaUploader? _imageUploader;
+
+  /// Thumbnails of images inserted this session, by media id (the server's
+  /// resolved copy is not in a save's answer).
+  final _imageThumbs = <String, Uint8List>{};
   int _loadGeneration = 0;
   bool _loadingMore = false;
   int _sideGeneration = 0;
@@ -324,7 +339,9 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
       );
       if (!mounted || loadGeneration != _loadGeneration) return false;
       setState(() {
-        _record = record;
+        _record = record.images.isEmpty && _record != null
+            ? record.withImages(_record!.images)
+            : record;
         if (_page != null) {
           _page = ArticlePage(
             _page!.articles
@@ -1373,6 +1390,11 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
             value: ArticleBlockKind.code,
             child: Text('Code'),
           ),
+          if (_imagesEnabled(listen: false))
+            const PopupMenuItem(
+              value: ArticleBlockKind.image,
+              child: Text('Image'),
+            ),
         ],
         child: const Padding(
           padding: EdgeInsets.all(AppSpacing.md),
@@ -1396,11 +1418,99 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
 
   void _kind(ArticleBlockKind kind) {
     if (_blocks.isEmpty) return;
+    // Restyling an image or an unknown block would drop its media or content.
+    final current = _blocks[_active].kind;
+    if (current == ArticleBlockKind.image ||
+        current == ArticleBlockKind.unknown) {
+      return;
+    }
     setState(() => _blocks[_active].kind = kind);
     _changed();
   }
 
+  /// Whether the author may insert images (`article_images`). Off, existing
+  /// image and unknown blocks still show and save unchanged.
+  bool _imagesEnabled({bool listen = true}) {
+    try {
+      return listen
+          ? isFeatureEnabled(context, kFeatureArticleImages)
+          : featureEnabledSnapshot(context, kFeatureArticleImages);
+    } on ProviderNotFoundException {
+      return false;
+    }
+  }
+
+  /// Picks one image, uploads it through the post upload path and inserts an
+  /// image block after the current block.
+  Future<void> _insertImage() async {
+    if (_busy || _record == null) return;
+    if (_blocks.where((b) => b.kind == ArticleBlockKind.image).length >=
+        articleMaxImages) {
+      setState(
+        () => _error =
+            'You can add up to $articleMaxImages images to an article.',
+      );
+      return;
+    }
+    final owner = _record!.draft.authorId;
+    final articleId = _record!.draft.id;
+    final picker = context.read<ImagePickerService>();
+    final processor = context.read<ImageProcessor>();
+    _imageUploader ??= MediaUploader(
+      repository: context.read<MediaRepository>(),
+    );
+    setState(() => _busy = true);
+    try {
+      final files = await picker.pickImages(limit: 1);
+      if (files.isEmpty || !mounted) return;
+      final image = await processor.process(files.single, ImagePurpose.post);
+      final job = UploadJob(id: const Uuid().v4(), image: image);
+      final outcomes = await _imageUploader!.upload(
+        purpose: MediaPurpose.MEDIA_PURPOSE_POST,
+        jobs: [job],
+      );
+      if (!mounted ||
+          _record?.draft.authorId != owner ||
+          _record?.draft.id != articleId) {
+        return;
+      }
+      final outcome = outcomes.single;
+      if (outcome.status != UploadOutcomeStatus.ready) {
+        setState(
+          () => _error = outcome.status == UploadOutcomeStatus.rejected
+              ? 'This image could not be used. Choose another image.'
+              : 'Image upload failed. Try inserting it again.',
+        );
+        return;
+      }
+      setState(() {
+        _imageThumbs[outcome.mediaId] = image.thumbBytes;
+        final at = _blocks.isEmpty ? 0 : _active + 1;
+        _blocks.insert(
+          at,
+          _EditableBlock(
+            ArticleBlock(
+              kind: ArticleBlockKind.image,
+              mediaId: outcome.mediaId,
+            ),
+            _changed,
+          ),
+        );
+        _active = at;
+      });
+      _changed();
+    } catch (error) {
+      if (mounted) setState(() => _error = _message(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   void _append(ArticleBlockKind kind) {
+    if (kind == ArticleBlockKind.image) {
+      unawaited(_insertImage());
+      return;
+    }
     setState(() {
       _blocks.add(_EditableBlock(ArticleBlock(kind: kind), _changed));
       _active = _blocks.length - 1;
@@ -1444,6 +1554,60 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     if (link != null && mounted) _blocks[_active].controller.format(link: link);
   }
 
+  /// An inserted image: its picture (thumbnail), alt text and caption.
+  Widget _imageEditor(int index, _EditableBlock block) {
+    final colors = Theme.of(context).colorScheme;
+    final ref = _record?.images[block.mediaId];
+    final bytes = _imageThumbs[block.mediaId];
+    final thumbUrl = ref == null
+        ? ''
+        : (ref.thumbUrl.isNotEmpty ? ref.thumbUrl : ref.url);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 96, maxHeight: 240),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(AppRadius.card),
+            child: ColoredBox(
+              color: colors.surfaceContainerHigh,
+              child: bytes != null
+                  ? Image.memory(bytes, fit: BoxFit.contain)
+                  : thumbUrl.isNotEmpty
+                  ? CachedNetworkImage(
+                      imageUrl: thumbUrl,
+                      fit: BoxFit.contain,
+                      errorWidget: (_, _, _) =>
+                          const Icon(Icons.broken_image_outlined),
+                    )
+                  : const Center(child: Icon(Icons.image_outlined)),
+            ),
+          ),
+        ),
+        TextField(
+          controller: block.alt,
+          onTap: () => _active = index,
+          inputFormatters: [_CodePointLimit(kMaxAltTextLength)],
+          decoration: InputDecoration(
+            labelText: 'Alt text (optional)',
+            helperText: 'Describe the image for people who cannot see it.',
+            helperMaxLines: 2,
+            counter: CharacterCounter(
+              remaining: kMaxAltTextLength - block.alt.text.runes.length,
+              limit: kMaxAltTextLength,
+            ),
+          ),
+        ),
+        TextField(
+          controller: block.caption,
+          onTap: () => _active = index,
+          inputFormatters: [_CodePointLimit(articleMaxImageCaptionCodePoints)],
+          decoration: const InputDecoration(labelText: 'Caption (optional)'),
+        ),
+      ],
+    );
+  }
+
   Widget _blockEditor(int index) {
     final block = _blocks[index];
     return Row(
@@ -1456,7 +1620,14 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
           child: block.kind == ArticleBlockKind.divider
               ? const Divider()
               : block.kind == ArticleBlockKind.image
-              ? Text('Image: ${block.mediaId}')
+              ? _imageEditor(index, block)
+              : block.kind == ArticleBlockKind.unknown
+              ? Text(
+                  'Content this app cannot edit. It is kept as it is.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                )
               : Focus(
                   onFocusChange: (focused) {
                     if (focused) _active = index;
@@ -1493,116 +1664,134 @@ class _ArticlesScreenState extends State<ArticlesScreen> {
     );
   }
 
-  Widget _reader() => SingleChildScrollView(
-    child: Center(
-      child: ConstrainedBox(
-        // 680 on the tablet layout (the readable column), else 600.
-        constraints: BoxConstraints(
-          maxWidth: ShellGeometry.readableMaxWidth(context),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (!_record!.published)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: AppSpacing.lg),
-                  child: Text('Only you can view this unpublished Article.'),
-                ),
-              if (_record!.coverUrl.isNotEmpty)
-                AspectRatio(
-                  aspectRatio: 5 / 2,
-                  child: Image.network(_record!.coverUrl, fit: BoxFit.cover),
-                ),
-              Text(
-                _record!.draft.title,
-                style: Theme.of(context).textTheme.headlineLarge
-                    ?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              if (_record!.authorName.isNotEmpty ||
-                  _record!.authorHandle.isNotEmpty)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: CircleAvatar(
-                    backgroundImage: _record!.authorAvatar.isEmpty
-                        ? null
-                        : NetworkImage(_record!.authorAvatar),
-                    child: _record!.authorAvatar.isEmpty
-                        ? const Icon(Icons.person_outline)
-                        : null,
+  Widget _reader() {
+    final imagesOn = _imagesEnabled();
+    return SingleChildScrollView(
+      child: Center(
+        child: ConstrainedBox(
+          // 680 on the tablet layout (the readable column), else 600.
+          constraints: BoxConstraints(
+            maxWidth: ShellGeometry.readableMaxWidth(context),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (!_record!.published)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: AppSpacing.lg),
+                    child: Text('Only you can view this unpublished Article.'),
                   ),
-                  title: Text(_record!.authorName),
-                  subtitle: Text('@${_record!.authorHandle}'),
-                ),
-              const SizedBox(height: AppSpacing.lg),
-              // The prose: at most [kArticleProseMax] a line, from the
-              // start edge under the title (the column may be wider).
-              LayoutBuilder(
-                builder: (context, constraints) => Padding(
-                  padding: EdgeInsetsDirectional.only(
-                    end: math.max(0, constraints.maxWidth - kArticleProseMax),
+                if (_record!.coverUrl.isNotEmpty)
+                  AspectRatio(
+                    aspectRatio: 5 / 2,
+                    child: Image.network(_record!.coverUrl, fit: BoxFit.cover),
                   ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (final block in _record!.draft.blocks)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                          child: block.kind == ArticleBlockKind.divider
-                              ? const Divider()
-                              : block.kind == ArticleBlockKind.image
-                              ? Text(block.altText)
-                              : Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    SelectableText.rich(
-                                      TextSpan(
-                                        style: _blockStyle(context, block.kind),
-                                        children: [
-                                          if (block.kind ==
-                                              ArticleBlockKind.bulletedListItem)
-                                            const TextSpan(text: '• '),
-                                          ...block.runs.map(
-                                            (r) => TextSpan(
-                                              text: r.text,
-                                              style: articleRunStyle(r),
-                                            ),
+                Text(
+                  _record!.draft.title,
+                  style: Theme.of(context).textTheme.headlineLarge
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                if (_record!.authorName.isNotEmpty ||
+                    _record!.authorHandle.isNotEmpty)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: CircleAvatar(
+                      backgroundImage: _record!.authorAvatar.isEmpty
+                          ? null
+                          : NetworkImage(_record!.authorAvatar),
+                      child: _record!.authorAvatar.isEmpty
+                          ? const Icon(Icons.person_outline)
+                          : null,
+                    ),
+                    title: Text(_record!.authorName),
+                    subtitle: Text('@${_record!.authorHandle}'),
+                  ),
+                const SizedBox(height: AppSpacing.lg),
+                // The prose: at most [kArticleProseMax] a line, from the
+                // start edge under the title (the column may be wider).
+                LayoutBuilder(
+                  builder: (context, constraints) => Padding(
+                    padding: EdgeInsetsDirectional.only(
+                      end: math.max(0, constraints.maxWidth - kArticleProseMax),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Unknown kinds (a newer server) are skipped, not shown.
+                        for (final block in _record!.draft.blocks.where(
+                          (b) => b.kind != ArticleBlockKind.unknown,
+                        ))
+                          Padding(
+                            padding: const EdgeInsets.only(
+                              bottom: AppSpacing.md,
+                            ),
+                            child: block.kind == ArticleBlockKind.divider
+                                ? const Divider()
+                                : block.kind == ArticleBlockKind.image
+                                ? ArticleImageBlock(
+                                    block: block,
+                                    media: _record!.images[block.mediaId],
+                                    enabled: imagesOn,
+                                  )
+                                : Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      SelectableText.rich(
+                                        TextSpan(
+                                          style: _blockStyle(
+                                            context,
+                                            block.kind,
                                           ),
-                                        ],
-                                      ),
-                                    ),
-                                    for (final link
-                                        in block.runs
-                                            .map((r) => r.link)
-                                            .whereType<String>()
-                                            .toSet())
-                                      TextButton(
-                                        onPressed: () => launchUrl(
-                                          Uri.parse(link),
-                                          mode: LaunchMode.externalApplication,
+                                          children: [
+                                            if (block.kind ==
+                                                ArticleBlockKind
+                                                    .bulletedListItem)
+                                              const TextSpan(text: '• '),
+                                            ...block.runs.map(
+                                              (r) => TextSpan(
+                                                text: r.text,
+                                                style: articleRunStyle(r),
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                        child: Text(link),
                                       ),
-                                  ],
-                                ),
-                        ),
-                    ],
+                                      for (final link
+                                          in block.runs
+                                              .map((r) => r.link)
+                                              .whereType<String>()
+                                              .toSet())
+                                        TextButton(
+                                          onPressed: () => launchUrl(
+                                            Uri.parse(link),
+                                            mode:
+                                                LaunchMode.externalApplication,
+                                          ),
+                                          child: Text(link),
+                                        ),
+                                    ],
+                                  ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              if (_record!.published && _record!.postId.isNotEmpty)
-                TextButton(
-                  onPressed: () => context.push('/post/${_record!.postId}'),
-                  child: const Text('View conversation'),
-                ),
-            ],
+                if (_record!.published && _record!.postId.isNotEmpty)
+                  TextButton(
+                    onPressed: () => context.push('/post/${_record!.postId}'),
+                    child: const Text('View conversation'),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 TextStyle? _blockStyle(BuildContext context, ArticleBlockKind kind) {
@@ -1626,23 +1815,40 @@ class _EditableBlock {
   _EditableBlock(ArticleBlock block, VoidCallback changed)
     : kind = block.kind,
       mediaId = block.mediaId,
-      altText = block.altText,
+      _opaque = block.kind == ArticleBlockKind.unknown ? block : null,
+      alt = TextEditingController(text: block.altText),
+      caption = TextEditingController(text: block.caption),
       controller = ArticleTextController(block.runs) {
     controller.addListener(changed);
+    alt.addListener(changed);
+    caption.addListener(changed);
   }
   ArticleBlockKind kind;
   final String? mediaId;
-  final String altText;
+  final ArticleBlock? _opaque;
+  final TextEditingController alt;
+  final TextEditingController caption;
   final ArticleTextController controller;
-  ArticleBlock get value => ArticleBlock(
-    kind: kind,
-    runs: kind == ArticleBlockKind.divider || kind == ArticleBlockKind.image
-        ? const []
-        : controller.runs,
-    mediaId: kind == ArticleBlockKind.image ? mediaId : null,
-    altText: kind == ArticleBlockKind.image ? altText : '',
-  );
-  void dispose() => controller.dispose();
+
+  /// The block as saved. An unknown block is returned untouched, and an
+  /// image keeps its media id whatever flags are on, so a save never drops
+  /// content the editor cannot create.
+  ArticleBlock get value =>
+      _opaque ??
+      ArticleBlock(
+        kind: kind,
+        runs: kind == ArticleBlockKind.divider || kind == ArticleBlockKind.image
+            ? const []
+            : controller.runs,
+        mediaId: kind == ArticleBlockKind.image ? mediaId : null,
+        altText: kind == ArticleBlockKind.image ? alt.text : '',
+        caption: kind == ArticleBlockKind.image ? caption.text : '',
+      );
+  void dispose() {
+    controller.dispose();
+    alt.dispose();
+    caption.dispose();
+  }
 }
 
 class _PublishOptions {
@@ -1903,4 +2109,15 @@ class _ReplyAudienceField extends StatelessWidget {
       onChanged: onChanged == null ? null : (value) => onChanged(value!),
     );
   }
+}
+
+/// Clips input to [max] code points (the unit the server counts).
+class _CodePointLimit extends TextInputFormatter {
+  _CodePointLimit(this.max);
+  final int max;
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) => newValue.text.runes.length <= max ? newValue : oldValue;
 }
