@@ -14,6 +14,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/tablet_modal.dart';
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../gen/dzeroth/graph/v1/graph.pb.dart' as graph;
+import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart' show Folder;
 import '../../../shared/widgets/primitives/app_back_header.dart';
 import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_pill_button.dart';
@@ -27,12 +28,17 @@ import '../../graph/presentation/widgets/user_list_row.dart';
 import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/following_people_source.dart';
+import '../data/messaging_repository.dart';
 import '../domain/messaging_feature_flag.dart';
 import '../domain/people_source.dart';
+import '../domain/share_post_target.dart';
 import 'bloc/recipient_picker_cubit.dart';
+import 'bloc/share_post_cubit.dart';
 import 'messaging_error_messages.dart';
 import 'open_conversation.dart';
+import 'share_post_error_messages.dart' show sharePostRowReason;
 import 'widgets/not_encrypted_note.dart';
+import 'widgets/share_post_bar.dart';
 
 /// The "To:" field's key.
 const kRecipientFieldKey = ValueKey('recipient-field');
@@ -82,9 +88,14 @@ class RecipientPickerDialog extends StatelessWidget {
     this.source,
     this.onPicked,
     this.host,
+    this.share,
   });
 
   final PeopleSource? source;
+
+  /// Share mode: choose up to five people and send this post to them
+  /// ([RecipientPicker.share]).
+  final SharePostTarget? share;
 
   /// The tablet presentation (`dialogPageHost`); null: today's.
   final TabletModalHost? host;
@@ -97,6 +108,7 @@ class RecipientPickerDialog extends StatelessWidget {
     final picker = RecipientPicker(
       source: source,
       onPicked: onPicked,
+      share: share,
       dialog: size.width >= AppBreakpoints.mobile,
     );
     if (size.width < AppBreakpoints.mobile) {
@@ -143,13 +155,24 @@ class RecipientPickerDialog extends StatelessWidget {
 /// - Picking a person calls [onPicked]; the default replaces this page with
 ///   the existing conversation or a draft ([openConversationWith]).
 /// - Needs `messaging`; without it, a short "not available" line.
+///
+/// With [share] set it is the "Send in a message" picker, the same list and
+/// search with these additions: a row toggles a check (up to
+/// [kSharePostMaxRecipients] people), "Recent" shows the people of the cached
+/// inbox first, and a foot with an optional caption and Send sends the post to
+/// each person in turn with a result per row ([SharePostCubit]). It needs
+/// `messaging` and `dm_post_share` for the caller.
 class RecipientPicker extends StatelessWidget {
   const RecipientPicker({
     super.key,
     this.source,
     this.onPicked,
     this.dialog = false,
+    this.share,
   });
+
+  /// The post to send; null is the new-message picker.
+  final SharePostTarget? share;
 
   /// The tablet and desktop card (the flat "To:" pill, the uppercase
   /// section label, divided rows); false: the phone's full screen (the
@@ -166,13 +189,15 @@ class RecipientPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!isFeatureEnabled(context, kFeatureMessaging)) {
+    final title = share == null ? 'New message' : 'Send in a message';
+    if (!isFeatureEnabled(context, kFeatureMessaging) ||
+        (share != null && !isFeatureEnabled(context, kFeatureDmPostShare))) {
       return Column(
         children: [
           AppBackHeader(
-            title: 'New message',
+            title: title,
             backTooltip: 'Close',
-            onBack: () => _close(context),
+            onBack: () => _close(context, dialogRoute: share != null),
           ),
           const Expanded(
             child: Center(
@@ -191,12 +216,18 @@ class RecipientPicker extends StatelessWidget {
       graphEnabled: isFeatureEnabled(context, kFeatureGraph),
       onPicked: onPicked,
       dialog: dialog,
+      share: share,
     );
   }
 }
 
-void _close(BuildContext context) {
-  if (context.canPop()) {
+/// Closes the picker. The share picker is a plain dialog route, not a page of
+/// the router, so it pops itself: `context.pop` would act on the router's
+/// pages under it.
+void _close(BuildContext context, {bool dialogRoute = false}) {
+  if (dialogRoute) {
+    Navigator.of(context).pop();
+  } else if (context.canPop()) {
     context.pop();
   } else {
     context.go(AppRouter.messagesPath);
@@ -210,9 +241,11 @@ class _PickerView extends StatefulWidget {
     required this.graphEnabled,
     required this.onPicked,
     required this.dialog,
+    required this.share,
   });
 
   final PeopleSource? source;
+  final SharePostTarget? share;
   final bool dialog;
   final bool searchEnabled;
   final bool graphEnabled;
@@ -227,11 +260,30 @@ class _PickerViewState extends State<_PickerView> {
   late final PeopleSource _source;
   late final UserListCubit _following;
   late final RecipientPickerCubit _picker;
+  SharePostCubit? _share;
+  String? _ownUserId;
+
+  /// Share mode: the people of the cached inbox, newest first (no request).
+  List<graph.UserListItem> _recents = const [];
 
   @override
   void initState() {
     super.initState();
     final ownUserId = context.read<OnboardingBloc>().state.profile?.userId;
+    _ownUserId = ownUserId;
+    final target = widget.share;
+    if (target != null) {
+      final repository = context.read<MessagingRepository>();
+      _share = SharePostCubit(
+        repository: repository,
+        postId: target.postId,
+        url: target.url,
+        ownUserId: ownUserId,
+        isEnabled: () => repository.enabled,
+        onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+      );
+      unawaited(_loadRecents(repository));
+    }
     _source =
         widget.source ??
         FollowingPeopleSource(
@@ -262,10 +314,38 @@ class _PickerViewState extends State<_PickerView> {
     _controller.dispose();
     unawaited(_following.close());
     unawaited(_picker.close());
+    unawaited(_share?.close());
     super.dispose();
   }
 
+  /// The first few people of the cached inbox: local only, so opening the
+  /// picker costs no request. A broken disk just means no "Recent".
+  Future<void> _loadRecents(MessagingRepository repository) async {
+    try {
+      final snapshot = await repository.cachedConversations(
+        Folder.FOLDER_INBOX,
+      );
+      if (!mounted) return;
+      final seen = <String>{};
+      final rows = <graph.UserListItem>[];
+      for (final c in snapshot.conversations) {
+        final id = c.peer.userId;
+        if (id.isEmpty || id == _ownUserId || !seen.add(id)) continue;
+        rows.add(graph.UserListItem(user: c.peer));
+        if (rows.length == kSharePostRecentMax) break;
+      }
+      setState(() => _recents = rows);
+    } on Object {
+      // No "Recent" section.
+    }
+  }
+
   void _pick(common.AuthorSnapshot peer) {
+    final share = _share;
+    if (share != null) {
+      share.toggle(peer);
+      return;
+    }
     final handler = widget.onPicked;
     if (handler != null) {
       handler(context, peer);
@@ -285,13 +365,14 @@ class _PickerViewState extends State<_PickerView> {
       providers: [
         BlocProvider<UserListCubit>.value(value: _following),
         BlocProvider<RecipientPickerCubit>.value(value: _picker),
+        if (_share != null) BlocProvider<SharePostCubit>.value(value: _share!),
       ],
       child: Column(
         children: [
           AppBackHeader(
-            title: 'New message',
+            title: _share == null ? 'New message' : 'Send in a message',
             backTooltip: 'Close',
-            onBack: () => _close(context),
+            onBack: () => _close(context, dialogRoute: _share != null),
           ),
           Padding(
             // On the pill's gutter.
@@ -324,9 +405,55 @@ class _PickerViewState extends State<_PickerView> {
               builder: (context, state) => _body(state),
             ),
           ),
+          if (_share != null)
+            SharePostBar(
+              dialog: widget.dialog,
+              onDone: () => _close(context, dialogRoute: true),
+            ),
         ],
       ),
     );
+  }
+
+  /// "Suggested", or in share mode "Recent" (the inbox's people, hidden while
+  /// typing: the filter below works on the Following rows) above it.
+  Widget _header(RecipientPickerState state, {bool suggested = true}) {
+    final recents = _share == null || state.hasQuery
+        ? const <graph.UserListItem>[]
+        : _recents;
+    if (recents.isEmpty) return _SuggestedHeader(dialog: widget.dialog);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SuggestedHeader(dialog: widget.dialog, title: 'Recent'),
+        for (final item in recents)
+          _PickerRow(
+            key: ValueKey('recent-${item.user.userId}'),
+            item: item,
+            dialog: widget.dialog,
+            share: true,
+            onTap: () => _pick(item.user),
+          ),
+        if (suggested) _SuggestedHeader(dialog: widget.dialog),
+      ],
+    );
+  }
+
+  /// Whether the Following row [item] shows: it matches the typed text, is
+  /// not the caller, and (share mode) is not already listed under "Recent".
+  bool _showFollowing(
+    graph.UserListItem item,
+    RecipientPickerState state,
+    String query,
+  ) {
+    final id = item.user.userId;
+    if (_share != null && id == _ownUserId) return false;
+    if (_share != null &&
+        !state.hasQuery &&
+        _recents.any((r) => r.user.userId == id)) {
+      return false;
+    }
+    return !state.hasQuery || _matches(item.user, query);
   }
 
   Widget _body(RecipientPickerState state) {
@@ -367,18 +494,23 @@ class _PickerViewState extends State<_PickerView> {
                       ? kRecipientNoMatchText
                       : "You're not following anyone yet. Type a handle to "
                             'message someone.',
-                  itemFilter: state.hasQuery
-                      ? (item) => _matches(item.user, query)
-                      : null,
-                  header: _SuggestedHeader(dialog: widget.dialog),
+                  itemFilter: _share == null && !state.hasQuery
+                      ? null
+                      : (item) => _showFollowing(item, state, query),
+                  header: _header(state),
                   rowBuilder: (context, item) => _PickerRow(
                     key: ValueKey(item.user.userId),
                     item: item,
                     dialog: widget.dialog,
+                    share: _share != null,
                     onTap: () => _pick(item.user),
                   ),
                 )
-              : (candidate != null
+              // Without `graph` there is no Following list; share mode still
+              // offers the people of the cached inbox.
+              : (_share != null && !state.hasQuery && _recents.isNotEmpty
+                    ? ListView(children: [_header(state, suggested: false)])
+                    : candidate != null
                     ? const SizedBox.shrink()
                     : const Center(
                         child: AppEmptyView(
@@ -392,7 +524,13 @@ class _PickerViewState extends State<_PickerView> {
     );
   }
 
-  Widget _remoteResults(List<graph.UserListItem> rows) {
+  Widget _remoteResults(List<graph.UserListItem> all) {
+    final rows = _share == null
+        ? all
+        : [
+            for (final r in all)
+              if (r.user.userId != _ownUserId) r,
+          ];
     if (rows.isEmpty) {
       return const Center(
         child: AppEmptyView(icon: Icons.search_off, title: 'No people found'),
@@ -407,6 +545,7 @@ class _PickerViewState extends State<_PickerView> {
           key: ValueKey(item.user.userId),
           item: item,
           dialog: widget.dialog,
+          share: _share != null,
           onTap: () => _pick(item.user),
         );
       },
@@ -533,9 +672,10 @@ class _ToField extends StatelessWidget {
 /// "Suggested" over the people: the phone's display title (w800), the
 /// dialog's uppercase muted label (dz.css `.sect`). Announced as a header.
 class _SuggestedHeader extends StatelessWidget {
-  const _SuggestedHeader({required this.dialog});
+  const _SuggestedHeader({required this.dialog, this.title = 'Suggested'});
 
   final bool dialog;
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -557,7 +697,7 @@ class _SuggestedHeader extends StatelessWidget {
                 AppPickerLayout.phoneSectionBottom,
               ),
         child: Text(
-          dialog ? 'SUGGESTED' : 'Suggested',
+          dialog ? title.toUpperCase() : title,
           style: dialog
               ? AppTextStyles.eyebrow(theme)
               : theme.textTheme.titleLarge?.copyWith(
@@ -625,30 +765,56 @@ class _PickerRow extends StatelessWidget {
     required this.item,
     required this.dialog,
     required this.onTap,
+    this.share = false,
   });
 
   final graph.UserListItem item;
   final bool dialog;
   final VoidCallback onTap;
 
+  /// Share mode: the trailing slot is the check and the result of the send
+  /// ([SharePostRowTrailing]) instead of the "Message" pill.
+  final bool share;
+
   @override
   Widget build(BuildContext context) {
+    if (!share) return _build(context, null);
+    return BlocSelector<SharePostCubit, SharePostState, ShareRecipient?>(
+      selector: (state) {
+        for (final r in state.recipients) {
+          if (r.peer.userId == item.user.userId) return r;
+        }
+        return null;
+      },
+      builder: _build,
+    );
+  }
+
+  Widget _build(BuildContext context, ShareRecipient? chosen) {
     final user = item.user;
     final name = user.displayName.isEmpty
         ? '@${user.handle}'
         : user.displayName;
+    final who = user.displayName.isEmpty ? name : '$name, @${user.handle}';
+    final Widget trailing = share
+        ? SharePostRowTrailing(recipient: chosen)
+        : AppPillButton(
+            label: 'Message',
+            compact: true,
+            variant: AppButtonVariant.outline,
+            onPressed: onTap,
+          );
     return Semantics(
       button: true,
-      label: user.displayName.isEmpty
-          ? 'Message $name'
-          : 'Message $name, @${user.handle}',
+      selected: share ? chosen != null : null,
+      label: share ? _shareLabel(who, chosen) : 'Message $who',
       excludeSemantics: true,
       onTap: onTap,
       child: InkWell(
         onTap: onTap,
         // The mocks' row: a 44 dp avatar, a 12 dp gap and the outlined
-        // Message pill; divided in the dialog (dz.css `.row`), open on a
-        // phone.
+        // Message pill (share mode: the check circle); divided in the dialog
+        // (dz.css `.row`), open on a phone.
         child: UserListRow(
           item: item,
           avatarRadius: AppSize.avatarRow / 2,
@@ -663,15 +829,23 @@ class _PickerRow extends StatelessWidget {
                 : AppPickerLayout.phoneHandleSize,
           ),
           showDivider: dialog,
-          trailing: AppPillButton(
-            label: 'Message',
-            compact: true,
-            variant: AppButtonVariant.outline,
-            onPressed: onTap,
-          ),
+          trailing: trailing,
         ),
       ),
     );
+  }
+
+  /// "Send to Name, @handle", then where this person stands.
+  static String _shareLabel(String who, ShareRecipient? chosen) {
+    final state = switch (chosen?.status) {
+      null => '',
+      ShareRowStatus.idle => ', selected',
+      ShareRowStatus.sending => ', sending',
+      ShareRowStatus.sent => ', sent',
+      ShareRowStatus.failed => ', ${sharePostRowReason(chosen!.error!)}',
+      ShareRowStatus.skipped => ', not sent',
+    };
+    return 'Send to $who$state';
   }
 }
 

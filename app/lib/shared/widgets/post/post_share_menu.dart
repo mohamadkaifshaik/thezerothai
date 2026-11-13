@@ -7,7 +7,10 @@ import '../primitives/app_menu_item_row.dart';
 import '../primitives/sheet_option_row.dart';
 
 /// What the user picked in the share menu.
-enum PostShareChoice { copyLink, shareVia }
+enum PostShareChoice { sendInMessage, copyLink, shareVia }
+
+/// The label of the share menu's row that opens the message picker.
+const kSendInMessageLabel = 'Send in a message';
 
 /// The 48dp square at the trailing edge of the render box of [context]: where
 /// the Share button sits at the end of the post action row. It places the
@@ -23,6 +26,11 @@ Rect targetRectOf(BuildContext context) {
 /// "Share via...". Under [AppBreakpoints.mobile] it is a bottom sheet with a
 /// title; from 600dp up it is a menu anchored at [anchor] (the Share button).
 ///
+/// With [onSendInMessage] the menu leads with "Send in a message" (the caller
+/// decides whether it exists: `messaging` + `dm_post_share`, and a protected
+/// post only for its author); picking it closes the menu and calls it, so
+/// `shared/` knows nothing of the Messages feature. Null: no such row.
+///
 /// Everything is local: no RPC, no stream. The only thing that leaves the
 /// device is [url], by the user's choice. "Copy link" writes exactly [url]
 /// to the clipboard and answers with the toast "Copied to clipboard"; if the
@@ -34,22 +42,32 @@ Future<void> showPostShareMenu(
   required NativeShare nativeShare,
   required Rect anchor,
   String title = 'Share post',
+  VoidCallback? onSendInMessage,
 }) async {
   // Everything the context is needed for is read before the first await: the
   // card under it may be gone by the time the user picks a row.
   final messenger = ScaffoldMessenger.of(context);
   final canShareVia = nativeShare.isAvailable;
+  final canSend = onSendInMessage != null;
   final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
   final choice = wide
       ? await _showAnchoredMenu(
           context,
           anchor,
           canShareVia: canShareVia,
+          canSend: canSend,
           title: title,
         )
-      : await _showSheet(context, canShareVia: canShareVia, title: title);
+      : await _showSheet(
+          context,
+          canShareVia: canShareVia,
+          canSend: canSend,
+          title: title,
+        );
   if (choice == null) return;
   switch (choice) {
+    case PostShareChoice.sendInMessage:
+      onSendInMessage?.call();
     case PostShareChoice.copyLink:
       try {
         await Clipboard.setData(ClipboardData(text: url));
@@ -74,6 +92,7 @@ void _toast(ScaffoldMessengerState messenger, String text) => messenger
 Future<PostShareChoice?> _showSheet(
   BuildContext context, {
   required bool canShareVia,
+  required bool canSend,
   required String title,
 }) {
   return showModalBottomSheet<PostShareChoice>(
@@ -95,12 +114,16 @@ Future<PostShareChoice?> _showSheet(
             ),
             child: Semantics(
               header: true,
-              child: Text(
-                title,
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
+              child: Text(title, style: Theme.of(context).textTheme.titleLarge),
             ),
           ),
+          if (canSend)
+            SheetOptionRow(
+              icon: Icons.mail_outline,
+              label: kSendInMessageLabel,
+              onTap: () =>
+                  Navigator.of(context).pop(PostShareChoice.sendInMessage),
+            ),
           SheetOptionRow(
             icon: Icons.link,
             label: 'Copy link',
@@ -123,6 +146,7 @@ Future<PostShareChoice?> _showAnchoredMenu(
   BuildContext context,
   Rect anchor, {
   required bool canShareVia,
+  required bool canSend,
   required String title,
 }) {
   final overlay = Overlay.of(context).context.findRenderObject()! as RenderBox;
@@ -131,6 +155,14 @@ Future<PostShareChoice?> _showAnchoredMenu(
     position: RelativeRect.fromRect(anchor, Offset.zero & overlay.size),
     semanticLabel: title,
     items: [
+      if (canSend)
+        const PopupMenuItem(
+          value: PostShareChoice.sendInMessage,
+          child: AppMenuItemRow(
+            icon: Icons.mail_outline,
+            label: kSendInMessageLabel,
+          ),
+        ),
       const PopupMenuItem(
         value: PostShareChoice.copyLink,
         child: AppMenuItemRow(icon: Icons.link, label: 'Copy link'),
