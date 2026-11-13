@@ -444,11 +444,18 @@ class MessagingRepository {
   /// retry (a retry returns the stored message). Per caller: with the flag
   /// off for the caller no RPC is sent. The message and conversation are
   /// cached on success.
+  ///
+  /// [sharedPostId] (a post id; the server resolves a REPOST to its original)
+  /// shares that post in the message; [text] is then the caption, or the post
+  /// link when there is none (a client that predates the card still shows a
+  /// link). The server needs `dm_post_share` for the caller; its
+  /// FEATURE_DISABLED for that flag does not turn off plain sends here.
   Future<pb.SendMessageResponse> sendMessage({
     required String idempotencyKey,
     required String text,
     String? conversationId,
     String? recipientUserId,
+    String? sharedPostId,
   }) async {
     assert(
       (conversationId == null) != (recipientUserId == null),
@@ -461,6 +468,7 @@ class MessagingRepository {
     );
     if (conversationId != null) request.conversationId = conversationId;
     if (recipientUserId != null) request.recipientUserId = recipientUserId;
+    if (sharedPostId != null) request.sharedPostId = sharedPostId;
     final response = await _gate.run(
       () => _apiClient.messaging.sendMessage(request),
     );

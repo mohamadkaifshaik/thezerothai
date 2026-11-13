@@ -1,6 +1,7 @@
 import '../../../core/feature_flags/service_feature_gate.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/app_exception.dart';
+import 'messaging_feature_flag.dart';
 
 /// `metadata["limit"]` of a LIMIT_REACHED answer to SendMessage,
 /// as carried by `LimitReachedException.quota`: three messages sent to a
@@ -116,6 +117,16 @@ class MessagingFeatureGate extends ServiceFeatureGate {
     if (_probeOk == value) return;
     _probeOk = value;
     notifyListeners();
+  }
+
+  /// A FEATURE_DISABLED for `dm_post_share` (a share send) is that one
+  /// sub-feature, not the messaging service: remembering it would stop every
+  /// plain send until the next `GetMe`. It is rethrown to the caller by
+  /// [run] all the same.
+  @override
+  void recordDisabled(FeatureDisabledException exception) {
+    if (exception.feature == kFeatureDmPostShare) return;
+    super.recordDisabled(exception);
   }
 
   /// Whether this caller may send and accept (the per-caller flag).

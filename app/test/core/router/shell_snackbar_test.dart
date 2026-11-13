@@ -19,7 +19,8 @@ class _NoShare implements NativeShare {
   bool get isAvailable => false;
 
   @override
-  Future<void> shareUrl(String url, {Rect? anchor}) async {}
+  Future<NativeShareStatus> shareUrl(String url, {Rect? anchor}) async =>
+      NativeShareStatus.completed;
 }
 
 const _phone = 390.0;
