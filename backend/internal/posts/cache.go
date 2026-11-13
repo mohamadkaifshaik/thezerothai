@@ -83,6 +83,20 @@ func (c *Cache) AdjustCounts(id string, likeDelta, repostDelta, quoteDelta int64
 	c.posts.Set(id, &cp)
 }
 
+// AdjustShares replaces the cached copy of id with one whose shareCount moved by delta (copy on write, clamped at 0). A
+// post that is not cached is left alone (the next read brings the fresh counter).
+func (c *Cache) AdjustShares(id string, delta int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	p, ok := c.posts.Get(id)
+	if !ok {
+		return
+	}
+	cp := *p
+	cp.ShareCount = max(cp.ShareCount+delta, 0)
+	c.posts.Set(id, &cp)
+}
+
 // AdjustPoll replaces the cached copy of id with Post.Voted(choice) (copy on write, a new Poll with fresh counts) and returns it, so a
 // committed vote is visible to this instance at once. The read-modify-write is under the cache lock, so concurrent
 // votes on one instance compose. A post that is not cached is left alone and nil is returned (the next read brings the fresh counts).

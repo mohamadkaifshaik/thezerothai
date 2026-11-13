@@ -107,6 +107,7 @@ type fakePosts struct {
 	// cached models the instance post cache for polls: PollVoted stores a copy-on-write post here and Viewable serves it.
 	cached    map[string]*posts.Post
 	pollVotes []string // "<postId>:<choice>", in call order
+	shares    []string // SharesChanged calls, "<postId>:<delta>"
 }
 
 func (f *fakePosts) Viewable(_ context.Context, _, id string) (*posts.Post, error) {
@@ -121,6 +122,17 @@ func (f *fakePosts) Viewable(_ context.Context, _, id string) (*posts.Post, erro
 		return nil, posts.ErrNotFound
 	}
 	return p, nil
+}
+
+// ViewableMany is never called by engagement.
+func (f *fakePosts) ViewableMany(context.Context, string, []string) (map[string]*posts.Post, error) {
+	return nil, nil
+}
+
+func (f *fakePosts) SharesChanged(id string, d int64) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.shares = append(f.shares, fmt.Sprintf("%s:%d", id, d))
 }
 
 func (f *fakePosts) CountsChanged(id string, l, r int64) {

@@ -115,6 +115,14 @@ type RateLimitConfig struct {
 	// instance (90 per minute with 3).
 	PollVotePerUserPerMinute int
 
+	// SharesPerUserPerMinute is the RecordPostShare bucket, env RATE_LIMIT_SHARES_PER_MIN, default 20, per instance (60 per
+	// minute with 3). SharesRecordedPerDay is its in-memory daily call cap (one counter per uid per instance,
+	// ratelimit.DailyCap), env SHARES_RECORDED_PER_DAY, default 300, logged as limit_name "shares_daily"; it counts every
+	// call, a repeat share included. The once-per-account marker already bounds counter writes per account to the number of
+	// distinct posts it can see (shares design §4.7).
+	SharesPerUserPerMinute int
+	SharesRecordedPerDay   int64
+
 	// CommunityModActionsPerDay is the in-memory daily cap per actor over HideCommunityPost and SetMemberRole (bans go through
 	// it), env COMMUNITY_MOD_ACTIONS_PER_DAY, default 200, logged as limit_name "community_mod_actions_daily". RestoreCommunityPost
 	// is not capped. CommunityPostsPerCommunityPerDay is the cap on CreatePost into one community per uid and community (key

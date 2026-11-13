@@ -35,7 +35,8 @@
   },
   "engagement": {
     "likes": [],
-    "reposts": []
+    "reposts": [],
+    "shares": []
   },
   "exportVersion": 1,
   "follow_requests": {

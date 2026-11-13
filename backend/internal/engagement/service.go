@@ -81,6 +81,10 @@ type Deps struct {
 	// PollVoteChangesMax is POLL_VOTE_CHANGES_MAX: the most vote changes one voter may make in one poll. 0 = votes final.
 	PollVoteChangesMax int
 
+	// ShareRepo is the storage of RecordPostShare and Shares.Record (FirestoreRepo); nil answers RecordPostShare with an
+	// internal error and makes Record a no-op.
+	ShareRepo ShareRepo
+
 	CacheTTL     time.Duration
 	CacheEntries int
 	// AllowAnonymous is config.AuthEmulator only.
@@ -441,7 +445,7 @@ type likeOutcome struct {
 
 // result builds the response from the post as read plus this call's own delta, and the cached viewer flags.
 func (s *service) result(ctx context.Context, uid string, p *posts.Post, likeDelta, repostDelta int64) Result {
-	r := Result{PostID: p.ID, LikeCount: max(p.LikeCount+likeDelta, 0), RepostCount: max(p.RepostCount+repostDelta, 0)}
+	r := Result{PostID: p.ID, LikeCount: max(p.LikeCount+likeDelta, 0), RepostCount: max(p.RepostCount+repostDelta, 0), ShareCount: p.ShareCount}
 	if st, ok := s.cache.get(uid); ok {
 		r.LikedByViewer, r.RepostedByViewer = st.set.Flags(p)
 	}

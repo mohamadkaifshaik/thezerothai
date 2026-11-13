@@ -125,8 +125,11 @@ type Post struct {
 	RepostCount      int64
 	ReplyCount       int64
 	QuoteCount       int64
-	Visibility       Visibility
-	SnapshotVersion  int64
+	// ShareCount is posts/{id}.shareCount: the distinct accounts (other than the author) that shared the post, written by
+	// engagement through EngagementWriter.StageShareCount with the postShares marker; absent on older docs (0).
+	ShareCount      int64
+	Visibility      Visibility
+	SnapshotVersion int64
 	// Moderation is the moderation state. Readers return hidden posts WITH this field set: every
 	// consumer must drop them (Visible), exactly like it drops blocked authors.
 	Moderation Moderation
@@ -740,6 +743,13 @@ type Engagement interface {
 	// or non-ACTIVE author are the single ErrNotFound). It reads like GetPost (the post, its
 	// author and the caller's graph) and sets no request-log fields.
 	Viewable(ctx context.Context, callerUID, postID string) (*Post, error)
+	// ViewableMany is Viewable over a batch (the direct-message post cards, shares design §4.2): the posts the caller may
+	// see by the GetPost rules, keyed by id; an id the caller may not see (missing, hidden, an inactive author, a block
+	// either way with the author or a QUOTE's embedded author, a protected author the caller does not follow) is absent.
+	// The direct-message send applies the same rule to the post it shares.
+	// A REPOST id is absent too (cards name originals). The posts come from one cache-first GetMany and their authors from
+	// one cache-first Directory batch; the caller's graph snapshot is cached 60 s. At most MaxGetMany ids.
+	ViewableMany(ctx context.Context, callerUID string, postIDs []string) (map[string]*Post, error)
 	// RefuseShare is the write rule, called by RepostPost on the post Viewable returned (CreatePost applies
 	// it to a quote target itself): a protected author's post can be reposted or quoted only by that author; any other
 	// caller who passed Viewable gets FAILED_PRECONDITION PROTECTED_ACCOUNT, with no read or write. UNAVAILABLE when the
@@ -747,6 +757,9 @@ type Engagement interface {
 	RefuseShare(ctx context.Context, callerUID string, p *Post) error
 	// CountsChanged applies deltas to the instance copy of a post (copy on write), after a commit.
 	CountsChanged(postID string, likeDelta, repostDelta int64)
+	// SharesChanged applies a shareCount delta to the instance copy of a post (copy on write), after a commit of a
+	// postShares marker. A post that is not cached is left alone.
+	SharesChanged(postID string, delta int64)
 	// PollVoted applies one committed vote for choice (0-based) to the instance copy of the poll post (copy on write, a new Poll
 	// with fresh counts) and returns the updated post, or nil when the post is not cached.
 	PollVoted(postID string, choice int) *Post

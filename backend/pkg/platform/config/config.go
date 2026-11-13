@@ -546,6 +546,8 @@ func Load() (Config, error) {
 		{"RATE_LIMIT_SEARCH_PEOPLE_PER_MIN", 30, &rl.SearchPeoplePerUserPerMinute},
 		// VotePoll 30/min per instance (90 with 3).
 		{"RATE_LIMIT_POLL_VOTE_PER_MIN", 30, &rl.PollVotePerUserPerMinute},
+		// RecordPostShare 20/min per instance (60 with 3).
+		{"RATE_LIMIT_SHARES_PER_MIN", 20, &rl.SharesPerUserPerMinute},
 		{"RATE_LIMIT_SEARCH_POSTS_PER_MIN", 20, &rl.SearchPostsPerUserPerMinute},
 		{"RATE_LIMIT_SUGGESTIONS_PER_MIN", 10, &rl.SuggestionsPerUserPerMinute},
 		{"RATE_LIMIT_LIKES_LIST_PER_MIN", 10, &rl.LikesListPerUserPerMinute},
@@ -619,6 +621,16 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: MESSAGES_SENDS_PER_DAY must be > 0 (got %d)", messagesSendsPerDay)
 	}
 	rl.MessagesSendsPerDay = int64(messagesSendsPerDay)
+	// RecordPostShare daily call cap (limit_name "shares_daily"); see RateLimitConfig.SharesRecordedPerDay. A cap of 0
+	// would lock every user out of the RPC.
+	sharesRecordedPerDay, err := getInt("SHARES_RECORDED_PER_DAY", 300)
+	if err != nil {
+		return Config{}, err
+	}
+	if sharesRecordedPerDay <= 0 {
+		return Config{}, fmt.Errorf("config: SHARES_RECORDED_PER_DAY must be > 0 (got %d)", sharesRecordedPerDay)
+	}
+	rl.SharesRecordedPerDay = int64(sharesRecordedPerDay)
 	// Security review M-1: MarkConversationRead's own daily cap (limit_name "messages_mark_read_daily") and ONE
 	// cap shared by AcceptMessageRequest + DeleteConversation (limit_name "messages_mutation_daily"); see
 	// RateLimitConfig.MessagesMarkReadPerDay / MessagesMutationsPerDay for the defaults' math. A cap of 0 would lock every

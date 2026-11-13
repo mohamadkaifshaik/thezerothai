@@ -44,8 +44,10 @@ type Result struct {
 	// PostID is the post the action applied to: the original when the request named a REPOST.
 	PostID                 string
 	LikeCount, RepostCount int64
-	LikedByViewer          bool
-	RepostedByViewer       bool
+	// ShareCount is the post's shareCount from the same read (plus RecordPostShare's own change).
+	ShareCount       int64
+	LikedByViewer    bool
+	RepostedByViewer bool
 	// RepostPostID is the REPOST post doc a RepostPost created or found (empty for the other RPCs).
 	RepostPostID string
 }
@@ -391,4 +393,59 @@ type PollRepo interface {
 	ChangeVote(ctx context.Context, p ChangeParams) (ChangeOutcome, error)
 	// TrimPollVotes removes entries from userLikes.pollVotes (field-level, best effort, no read).
 	TrimPollVotes(ctx context.Context, uid string, drop []string) error
+}
+
+// ShareFlagName is the wire name of FEATURE_SHARE_COUNT: RecordPostShare needs it on for the caller, and a direct-message
+// share (Shares.Record) is recorded while it is not globally off.
+const ShareFlagName = "share_count"
+
+// ShareResult is RecordPostShare's answer: the post's engagement as the caller now sees it, and whether this call created
+// the caller's postShares marker.
+type ShareResult struct {
+	Result
+	Counted bool
+}
+
+// PostShares is the RecordPostShare seam of the module: the Connect handler depends on it (NewServer detects it on the
+// Service, like Polls). It reads posts only through posts.Engagement and writes posts/{id}.shareCount only through
+// posts.EngagementWriter.StageShareCount.
+type PostShares interface {
+	// RecordShare records that uid shared postID (a REPOST id: its original) outside the app, once per (uid, post), merged
+	// with direct-message shares. channel is a request-log value only (never stored). The rules and the order of the
+	// checks are the RPC's (engagement.proto): shape, then the GetPost visibility check, then a protected author's post or
+	// the caller's own post answer success with nothing written, then one marker read and, on a first share, one batch
+	// (marker Create + shareCount Increment).
+	RecordShare(ctx context.Context, uid, idempotencyKey, postID, channel string) (ShareResult, error)
+}
+
+// Shares is the seam messaging's post share records through (adapted in apiserver; messaging does not import
+// engagement). Record is best effort for the caller: it is called after a direct message that shares postID committed.
+type Shares interface {
+	// Record counts uid's share of postID (the ORIGINAL post id, already visible to uid and never a protected author's
+	// post unless uid is its author) once per (uid, post). It writes nothing when FEATURE_SHARE_COUNT is globally off,
+	// when uid is the post's author, or when the marker exists: one cache-first post read and one marker read, plus on a
+	// first share one batch (marker Create + shareCount Increment). counted is true only when this call created the marker.
+	Record(ctx context.Context, uid, postID string) (counted bool, err error)
+}
+
+// ShareOutcome says what ShareRepo.Create did.
+type ShareOutcome int
+
+const (
+	// ShareCreated means the batch committed: the marker and shareCount +1.
+	ShareCreated ShareOutcome = iota
+	// ShareExists means the marker already existed (a concurrent first share won): nothing was written.
+	ShareExists
+	// SharePostGone means the post was deleted before the commit (the counter Update found no document): nothing was written.
+	SharePostGone
+)
+
+// ShareRepo is the storage seam of the shares paths; repo_shares.go implements it, tests use a fake.
+type ShareRepo interface {
+	// HasShare reads postShares/{postId}_{uid}: one read.
+	HasShare(ctx context.Context, uid, postID string) (bool, error)
+	// CreateShare commits one batch: Create postShares/{postId}_{uid} {postId, uid, createdAt} and Increment
+	// posts/{postId}.shareCount (Exists precondition), retried on contention; exhausted contention is an error wrapping
+	// store.ErrContended.
+	CreateShare(ctx context.Context, uid, postID string) (ShareOutcome, error)
 }
