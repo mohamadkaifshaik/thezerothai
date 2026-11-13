@@ -153,6 +153,23 @@ type BlockLookup interface {
 	BlockersAmong(ctx context.Context, viewerUID string, candidateUIDs []string) (map[string]bool, error)
 }
 
+// MaxFollowLookup is the most candidates one FollowLookup.FollowersAmong call accepts (two 50-row pages' worth).
+const MaxFollowLookup = 100
+
+// FollowLookup is the batched "who among these follows the viewer" read, for a page that must decide per row whether
+// the row's owner follows the viewer (the one-tap join of a beacon list, ViewerState.quick_join_allowed). It answers from
+// the follow edges (follows/{candidate}_{viewer}), the source of GetProfileRelationship.followed_by, never from a
+// whole graph doc.
+type FollowLookup interface {
+	// FollowersAmong returns the candidates that follow viewerUID. The distinct candidates (empty ids and the viewer
+	// dropped) are answered from the instance's edge cache (true and false alike, the followed_by cache) first; the
+	// misses are read in batched reads of up to 25 edge docs each (each answer cached as it lands), at most
+	// MaxFollowLookup/25 (4) batched reads and never one read per candidate. More than MaxFollowLookup distinct
+	// candidates is an error and nothing is read. An error means the answer is unknown for every candidate not already
+	// in out; the caller decides how to degrade.
+	FollowersAmong(ctx context.Context, viewerUID string, candidateUIDs []string) (map[string]bool, error)
+}
+
 // TxReader lets another module read graph/{uid} INSIDE its own transaction, uncached, so a concurrent write of that
 // document (a Block, Mute, Follow or Unfollow of the owner, or anyone's Block of the owner, which writes blockedBy)
 // conflicts with the transaction instead of being missed. It is the read-side companion of Reader for the one path

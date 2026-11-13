@@ -8,6 +8,7 @@ import '../../../../shared/widgets/primitives/app_tile_icon.dart';
 import '../../domain/beacon_labels.dart';
 import '../beacon_icons.dart';
 import 'beacon_status_pill.dart';
+import 'quick_join.dart';
 
 /// The viewer's part in a plan, as a list card says it: "Organising",
 /// "Requested" or "You're going" (the designs' Plans list); null when none.
@@ -69,13 +70,24 @@ class BeaconRow extends StatelessWidget {
       ?status,
       ?badge,
     ].join(', ');
-    return Semantics(
+    Widget spokenAs(Widget child) => Semantics(
       button: onTap != null,
       selected: selected ? true : null,
       label: spoken,
       excludeSemantics: true,
       onTap: onTap,
-      child: dense ? _dense(context, badge, when) : _card(context, badge, when),
+      child: child,
+    );
+    if (dense) return spokenAs(_dense(context, badge, when));
+    // "I'm in" (`beacon_quick_join` on, the server allows it) sits under the
+    // card's text, outside its one spoken label so it stays its own button.
+    final quickJoin = !compact && showsQuickJoin(context, view.viewer);
+    return _card(
+      context,
+      badge,
+      when,
+      spokenAs: spokenAs,
+      quickJoin: quickJoin,
     );
   }
 
@@ -128,7 +140,13 @@ class BeaconRow extends StatelessWidget {
         : row;
   }
 
-  Widget _card(BuildContext context, String? badge, String when) {
+  Widget _card(
+    BuildContext context,
+    String? badge,
+    String when, {
+    required Widget Function(Widget child) spokenAs,
+    required bool quickJoin,
+  }) {
     final radius = BorderRadius.circular(AppRadius.card);
     final gutter = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile
         ? AppPlansLayout.phoneGutter
@@ -145,18 +163,42 @@ class BeaconRow extends StatelessWidget {
         ),
         child: AppCard(
           padding: EdgeInsets.zero,
-          child: Material(
-            type: MaterialType.transparency,
-            child: InkWell(
-              onTap: onTap,
-              borderRadius: radius,
-              child: Padding(
-                padding: EdgeInsets.all(compact ? AppSpacing.md : 20),
-                child: compact
-                    ? _compactBody(context, badge, when)
-                    : _cardBody(context, badge, when),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              spokenAs(
+                Material(
+                  type: MaterialType.transparency,
+                  child: InkWell(
+                    onTap: onTap,
+                    borderRadius: radius,
+                    child: Padding(
+                      padding: EdgeInsets.all(compact ? AppSpacing.md : 20),
+                      child: compact
+                          ? _compactBody(context, badge, when)
+                          : _cardBody(context, badge, when),
+                    ),
+                  ),
+                ),
               ),
-            ),
+              if (quickJoin)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppPlansLayout.cardPad,
+                    0,
+                    AppPlansLayout.cardPad,
+                    AppSpacing.smd,
+                  ),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: PlanQuickJoinPill(
+                      key: ValueKey('quick-join-${view.beacon.beaconId}'),
+                      view: view,
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
       ),
