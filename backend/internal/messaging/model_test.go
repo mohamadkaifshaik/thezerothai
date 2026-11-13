@@ -81,12 +81,30 @@ func TestSnippetOf(t *testing.T) {
 }
 
 func TestRequestHash_BindsConversationAndText(t *testing.T) {
-	base := requestHash("c1", "hi")
-	if base != requestHash("c1", "hi") {
+	base := requestHash("c1", "hi", "")
+	if base != requestHash("c1", "hi", "") {
 		t.Error("the digest must be deterministic")
 	}
-	if base == requestHash("c2", "hi") || base == requestHash("c1", "hi!") {
+	if base == requestHash("c2", "hi", "") || base == requestHash("c1", "hi!", "") {
 		t.Error("the digest must change with the conversation and the text")
+	}
+}
+
+// The post binding (shares design §2): without a post the digest is byte-identical to the pre-shares construction, so a
+// stored message still replays; with one it binds the post, so the same key with another post is a reused key.
+func TestRequestHash_BindsSharedPost(t *testing.T) {
+	const pre = "send|c1|hi"
+	if requestHash("c1", "hi", "") != digest32(pre) {
+		t.Fatal("the digest without a post changed: stored messages would no longer replay")
+	}
+	withPost := requestHash("c1", "hi", "0000000000000000001")
+	if withPost != digest32(pre+"|p|0000000000000000001") {
+		t.Fatalf("with a post = %s, want the documented construction", withPost)
+	}
+	for _, other := range []string{requestHash("c1", "hi", ""), requestHash("c1", "hi", "0000000000000000002")} {
+		if other == withPost {
+			t.Fatal("the digest must change with the shared post")
+		}
 	}
 }
 

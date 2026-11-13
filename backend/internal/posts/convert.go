@@ -75,6 +75,12 @@ func mediaRefsToProto(refs []MediaRef) []*commonv1.MediaRef {
 	return out
 }
 
+// CardOf is the live EmbeddedPost of p, a post the reader may see (a direct-message post card, shares design D2): the
+// same one-level copy a quote embeds, built now from the current post, never stored. now closes a poll.
+func CardOf(p *Post, now time.Time) *postsv1.EmbeddedPost {
+	return embeddedToProto(snapshotOf(p), now)
+}
+
 func embeddedToProto(e *Embedded, now time.Time) *postsv1.EmbeddedPost {
 	out := &postsv1.EmbeddedPost{PostId: e.PostID, Unavailable: e.Unavailable}
 	if e.Unavailable {
