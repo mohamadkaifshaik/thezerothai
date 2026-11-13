@@ -791,6 +791,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		},
 		CursorKey: cfg.CursorHMACKey,
 		Log:       log,
+		// A post sent in a message (shares design): the GetPost rules for the sender, the per-reader cards, and the
+		// best-effort share record into engagement's postShares.
+		PostShare: postShareCheck{posts: postsSvc.(posts.Engagement)},
+		Cards:     postCards{posts: postsSvc.(posts.Engagement)},
+		Shares:    engagementMod,
 	})
 	reporter, ok := messagingSvc.(messaging.MessageReporter)
 	if !ok {

@@ -5,6 +5,7 @@ package posts
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -23,6 +24,47 @@ func (s *service) SetRepostLinks(l RepostLinks) { s.links = l }
 // Viewable implements Engagement.
 func (s *service) Viewable(ctx context.Context, callerUID, postID string) (*Post, error) {
 	return s.viewable(ctx, callerUID, postID)
+}
+
+// ViewableMany implements Engagement: the batch is warmed first (one GetMany for the posts not cached, one Directory
+// batch for their authors and embedded authors), then each id goes through the one viewable predicate, which now finds
+// everything in the instance caches. A refusal of one id never fails the batch; any other error does.
+func (s *service) ViewableMany(ctx context.Context, callerUID string, postIDs []string) (map[string]*Post, error) {
+	out := make(map[string]*Post, len(postIDs))
+	if len(postIDs) == 0 {
+		return out, nil
+	}
+	if len(postIDs) > MaxGetMany {
+		return nil, fmt.Errorf("posts: viewable many: %d ids, at most %d", len(postIDs), MaxGetMany)
+	}
+	got, err := s.GetMany(ctx, postIDs)
+	if err != nil {
+		return nil, logger.RedactErr(fmt.Errorf("posts: viewable many: load posts: %w", err), callerUID)
+	}
+	rows := make([]*Post, 0, len(got))
+	for _, p := range got {
+		rows = append(rows, p)
+	}
+	if _, err := ResolveActiveAuthors(ctx, s.directory, "", rows); err != nil {
+		return nil, logger.RedactErr(fmt.Errorf("posts: viewable many: load authors: %w", err), callerUID)
+	}
+	for _, id := range postIDs {
+		if _, ok := got[id]; !ok {
+			continue // missing: absent, no second read
+		}
+		p, err := s.viewable(ctx, callerUID, id)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if p.Kind == KindRepost {
+			continue
+		}
+		out[id] = p
+	}
+	return out, nil
 }
 
 // CountsChanged implements Engagement.

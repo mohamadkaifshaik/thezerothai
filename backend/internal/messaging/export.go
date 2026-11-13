@@ -47,6 +47,8 @@ type exportItem struct {
 	At        time.Time `json:"at"`
 	State     string    `json:"state,omitempty"`
 	Text      *string   `json:"text,omitempty"`
+	// SharedPostID is the post a sent message shares (the id only, as stored); never on a received message.
+	SharedPostID string `json:"sharedPostId,omitempty"`
 }
 
 type exporter struct {
@@ -119,7 +121,7 @@ func (x *exporter) writeConversation(ctx context.Context, uid string, enc *json.
 			row := exportItem{Direction: "received", At: m.CreatedAt}
 			if m.FromSelf {
 				text := m.Text
-				row = exportItem{Direction: "sent", At: m.CreatedAt, State: m.State, Text: &text}
+				row = exportItem{Direction: "sent", At: m.CreatedAt, State: m.State, Text: &text, SharedPostID: m.SharedPostID}
 			}
 			item.Messages = append(item.Messages, row)
 		}
