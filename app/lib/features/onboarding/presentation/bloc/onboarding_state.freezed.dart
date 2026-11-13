@@ -15,7 +15,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$OnboardingState {
 
- OnboardingStatus get status; identity.Profile? get profile; String get handle; String get displayName; HandleCheckStatus get handleCheckStatus; String get handleCheckMessage; List<String> get handleSuggestions; bool get isSubmitting; AppException? get error; Set<String> get enabledFeatures; int get unreadNotificationCount; int get unreadConversationCount; int get pendingFollowRequestCount; bool get accountRestricted; bool get refreshFailed; bool get flagsPending;
+ OnboardingStatus get status; identity.Profile? get profile; String get handle; String get displayName; HandleCheckStatus get handleCheckStatus; String get handleCheckMessage; List<String> get handleSuggestions; bool get isSubmitting; AppException? get error; Set<String> get enabledFeatures; int get unreadNotificationCount; int get unreadConversationCount; int get pendingFollowRequestCount; bool get accountRestricted; bool get refreshFailed; bool get flagsPending; bool get photoStepPending;
 /// Create a copy of OnboardingState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,20 +27,20 @@ $OnboardingStateCopyWith<OnboardingState> get copyWith => _$OnboardingStateCopyW
 @override
 bool operator ==(Object other) {
   final _this = this as OnboardingState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is OnboardingState&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.profile, _this.profile) || other.profile == _this.profile)&&(identical(other.handle, _this.handle) || other.handle == _this.handle)&&(identical(other.displayName, _this.displayName) || other.displayName == _this.displayName)&&(identical(other.handleCheckStatus, _this.handleCheckStatus) || other.handleCheckStatus == _this.handleCheckStatus)&&(identical(other.handleCheckMessage, _this.handleCheckMessage) || other.handleCheckMessage == _this.handleCheckMessage)&&const DeepCollectionEquality().equals(other.handleSuggestions, _this.handleSuggestions)&&(identical(other.isSubmitting, _this.isSubmitting) || other.isSubmitting == _this.isSubmitting)&&(identical(other.error, _this.error) || other.error == _this.error)&&const DeepCollectionEquality().equals(other.enabledFeatures, _this.enabledFeatures)&&(identical(other.unreadNotificationCount, _this.unreadNotificationCount) || other.unreadNotificationCount == _this.unreadNotificationCount)&&(identical(other.unreadConversationCount, _this.unreadConversationCount) || other.unreadConversationCount == _this.unreadConversationCount)&&(identical(other.pendingFollowRequestCount, _this.pendingFollowRequestCount) || other.pendingFollowRequestCount == _this.pendingFollowRequestCount)&&(identical(other.accountRestricted, _this.accountRestricted) || other.accountRestricted == _this.accountRestricted)&&(identical(other.refreshFailed, _this.refreshFailed) || other.refreshFailed == _this.refreshFailed)&&(identical(other.flagsPending, _this.flagsPending) || other.flagsPending == _this.flagsPending));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is OnboardingState&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.profile, _this.profile) || other.profile == _this.profile)&&(identical(other.handle, _this.handle) || other.handle == _this.handle)&&(identical(other.displayName, _this.displayName) || other.displayName == _this.displayName)&&(identical(other.handleCheckStatus, _this.handleCheckStatus) || other.handleCheckStatus == _this.handleCheckStatus)&&(identical(other.handleCheckMessage, _this.handleCheckMessage) || other.handleCheckMessage == _this.handleCheckMessage)&&const DeepCollectionEquality().equals(other.handleSuggestions, _this.handleSuggestions)&&(identical(other.isSubmitting, _this.isSubmitting) || other.isSubmitting == _this.isSubmitting)&&(identical(other.error, _this.error) || other.error == _this.error)&&const DeepCollectionEquality().equals(other.enabledFeatures, _this.enabledFeatures)&&(identical(other.unreadNotificationCount, _this.unreadNotificationCount) || other.unreadNotificationCount == _this.unreadNotificationCount)&&(identical(other.unreadConversationCount, _this.unreadConversationCount) || other.unreadConversationCount == _this.unreadConversationCount)&&(identical(other.pendingFollowRequestCount, _this.pendingFollowRequestCount) || other.pendingFollowRequestCount == _this.pendingFollowRequestCount)&&(identical(other.accountRestricted, _this.accountRestricted) || other.accountRestricted == _this.accountRestricted)&&(identical(other.refreshFailed, _this.refreshFailed) || other.refreshFailed == _this.refreshFailed)&&(identical(other.flagsPending, _this.flagsPending) || other.flagsPending == _this.flagsPending)&&(identical(other.photoStepPending, _this.photoStepPending) || other.photoStepPending == _this.photoStepPending));
 }
 
 
 @override
 int get hashCode {
   final _this = this as OnboardingState;
-  return Object.hash(runtimeType,_this.status,_this.profile,_this.handle,_this.displayName,_this.handleCheckStatus,_this.handleCheckMessage,const DeepCollectionEquality().hash(_this.handleSuggestions),_this.isSubmitting,_this.error,const DeepCollectionEquality().hash(_this.enabledFeatures),_this.unreadNotificationCount,_this.unreadConversationCount,_this.pendingFollowRequestCount,_this.accountRestricted,_this.refreshFailed,_this.flagsPending);
+  return Object.hash(runtimeType,_this.status,_this.profile,_this.handle,_this.displayName,_this.handleCheckStatus,_this.handleCheckMessage,const DeepCollectionEquality().hash(_this.handleSuggestions),_this.isSubmitting,_this.error,const DeepCollectionEquality().hash(_this.enabledFeatures),_this.unreadNotificationCount,_this.unreadConversationCount,_this.pendingFollowRequestCount,_this.accountRestricted,_this.refreshFailed,_this.flagsPending,_this.photoStepPending);
 }
 
 @override
 String toString() {
   final _this = this as OnboardingState;
-  return 'OnboardingState(status: ${_this.status}, profile: ${_this.profile}, handle: ${_this.handle}, displayName: ${_this.displayName}, handleCheckStatus: ${_this.handleCheckStatus}, handleCheckMessage: ${_this.handleCheckMessage}, handleSuggestions: ${_this.handleSuggestions}, isSubmitting: ${_this.isSubmitting}, error: ${_this.error}, enabledFeatures: ${_this.enabledFeatures}, unreadNotificationCount: ${_this.unreadNotificationCount}, unreadConversationCount: ${_this.unreadConversationCount}, pendingFollowRequestCount: ${_this.pendingFollowRequestCount}, accountRestricted: ${_this.accountRestricted}, refreshFailed: ${_this.refreshFailed}, flagsPending: ${_this.flagsPending})';
+  return 'OnboardingState(status: ${_this.status}, profile: ${_this.profile}, handle: ${_this.handle}, displayName: ${_this.displayName}, handleCheckStatus: ${_this.handleCheckStatus}, handleCheckMessage: ${_this.handleCheckMessage}, handleSuggestions: ${_this.handleSuggestions}, isSubmitting: ${_this.isSubmitting}, error: ${_this.error}, enabledFeatures: ${_this.enabledFeatures}, unreadNotificationCount: ${_this.unreadNotificationCount}, unreadConversationCount: ${_this.unreadConversationCount}, pendingFollowRequestCount: ${_this.pendingFollowRequestCount}, accountRestricted: ${_this.accountRestricted}, refreshFailed: ${_this.refreshFailed}, flagsPending: ${_this.flagsPending}, photoStepPending: ${_this.photoStepPending})';
 }
 
 
@@ -51,7 +51,7 @@ abstract mixin class $OnboardingStateCopyWith<$Res>  {
   factory $OnboardingStateCopyWith(OnboardingState value, $Res Function(OnboardingState) _then) = _$OnboardingStateCopyWithImpl;
 @useResult
 $Res call({
- OnboardingStatus status, identity.Profile? profile, String handle, String displayName, HandleCheckStatus handleCheckStatus, String handleCheckMessage, List<String> handleSuggestions, bool isSubmitting, AppException? error, Set<String> enabledFeatures, int unreadNotificationCount, int unreadConversationCount, int pendingFollowRequestCount, bool accountRestricted, bool refreshFailed, bool flagsPending
+ OnboardingStatus status, identity.Profile? profile, String handle, String displayName, HandleCheckStatus handleCheckStatus, String handleCheckMessage, List<String> handleSuggestions, bool isSubmitting, AppException? error, Set<String> enabledFeatures, int unreadNotificationCount, int unreadConversationCount, int pendingFollowRequestCount, bool accountRestricted, bool refreshFailed, bool flagsPending, bool photoStepPending
 });
 
 
@@ -68,7 +68,7 @@ class _$OnboardingStateCopyWithImpl<$Res>
 
 /// Create a copy of OnboardingState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? profile = freezed,Object? handle = null,Object? displayName = null,Object? handleCheckStatus = null,Object? handleCheckMessage = null,Object? handleSuggestions = null,Object? isSubmitting = null,Object? error = freezed,Object? enabledFeatures = null,Object? unreadNotificationCount = null,Object? unreadConversationCount = null,Object? pendingFollowRequestCount = null,Object? accountRestricted = null,Object? refreshFailed = null,Object? flagsPending = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? profile = freezed,Object? handle = null,Object? displayName = null,Object? handleCheckStatus = null,Object? handleCheckMessage = null,Object? handleSuggestions = null,Object? isSubmitting = null,Object? error = freezed,Object? enabledFeatures = null,Object? unreadNotificationCount = null,Object? unreadConversationCount = null,Object? pendingFollowRequestCount = null,Object? accountRestricted = null,Object? refreshFailed = null,Object? flagsPending = null,Object? photoStepPending = null,}) {
   return _then(OnboardingState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as OnboardingStatus,profile: freezed == profile ? _self.profile : profile // ignore: cast_nullable_to_non_nullable
@@ -86,6 +86,7 @@ as int,pendingFollowRequestCount: null == pendingFollowRequestCount ? _self.pend
 as int,accountRestricted: null == accountRestricted ? _self.accountRestricted : accountRestricted // ignore: cast_nullable_to_non_nullable
 as bool,refreshFailed: null == refreshFailed ? _self.refreshFailed : refreshFailed // ignore: cast_nullable_to_non_nullable
 as bool,flagsPending: null == flagsPending ? _self.flagsPending : flagsPending // ignore: cast_nullable_to_non_nullable
+as bool,photoStepPending: null == photoStepPending ? _self.photoStepPending : photoStepPending // ignore: cast_nullable_to_non_nullable
 as bool,
   ));
 }
@@ -171,10 +172,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( OnboardingStatus status,  identity.Profile? profile,  String handle,  String displayName,  HandleCheckStatus handleCheckStatus,  String handleCheckMessage,  List<String> handleSuggestions,  bool isSubmitting,  AppException? error,  Set<String> enabledFeatures,  int unreadNotificationCount,  int unreadConversationCount,  int pendingFollowRequestCount,  bool accountRestricted,  bool refreshFailed,  bool flagsPending)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( OnboardingStatus status,  identity.Profile? profile,  String handle,  String displayName,  HandleCheckStatus handleCheckStatus,  String handleCheckMessage,  List<String> handleSuggestions,  bool isSubmitting,  AppException? error,  Set<String> enabledFeatures,  int unreadNotificationCount,  int unreadConversationCount,  int pendingFollowRequestCount,  bool accountRestricted,  bool refreshFailed,  bool flagsPending,  bool photoStepPending)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _OnboardingState() when $default != null:
-return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.handleCheckStatus,_that.handleCheckMessage,_that.handleSuggestions,_that.isSubmitting,_that.error,_that.enabledFeatures,_that.unreadNotificationCount,_that.unreadConversationCount,_that.pendingFollowRequestCount,_that.accountRestricted,_that.refreshFailed,_that.flagsPending);case _:
+return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.handleCheckStatus,_that.handleCheckMessage,_that.handleSuggestions,_that.isSubmitting,_that.error,_that.enabledFeatures,_that.unreadNotificationCount,_that.unreadConversationCount,_that.pendingFollowRequestCount,_that.accountRestricted,_that.refreshFailed,_that.flagsPending,_that.photoStepPending);case _:
   return orElse();
 
 }
@@ -192,10 +193,10 @@ return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( OnboardingStatus status,  identity.Profile? profile,  String handle,  String displayName,  HandleCheckStatus handleCheckStatus,  String handleCheckMessage,  List<String> handleSuggestions,  bool isSubmitting,  AppException? error,  Set<String> enabledFeatures,  int unreadNotificationCount,  int unreadConversationCount,  int pendingFollowRequestCount,  bool accountRestricted,  bool refreshFailed,  bool flagsPending)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( OnboardingStatus status,  identity.Profile? profile,  String handle,  String displayName,  HandleCheckStatus handleCheckStatus,  String handleCheckMessage,  List<String> handleSuggestions,  bool isSubmitting,  AppException? error,  Set<String> enabledFeatures,  int unreadNotificationCount,  int unreadConversationCount,  int pendingFollowRequestCount,  bool accountRestricted,  bool refreshFailed,  bool flagsPending,  bool photoStepPending)  $default,) {final _that = this;
 switch (_that) {
 case _OnboardingState():
-return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.handleCheckStatus,_that.handleCheckMessage,_that.handleSuggestions,_that.isSubmitting,_that.error,_that.enabledFeatures,_that.unreadNotificationCount,_that.unreadConversationCount,_that.pendingFollowRequestCount,_that.accountRestricted,_that.refreshFailed,_that.flagsPending);case _:
+return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.handleCheckStatus,_that.handleCheckMessage,_that.handleSuggestions,_that.isSubmitting,_that.error,_that.enabledFeatures,_that.unreadNotificationCount,_that.unreadConversationCount,_that.pendingFollowRequestCount,_that.accountRestricted,_that.refreshFailed,_that.flagsPending,_that.photoStepPending);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -212,10 +213,10 @@ return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( OnboardingStatus status,  identity.Profile? profile,  String handle,  String displayName,  HandleCheckStatus handleCheckStatus,  String handleCheckMessage,  List<String> handleSuggestions,  bool isSubmitting,  AppException? error,  Set<String> enabledFeatures,  int unreadNotificationCount,  int unreadConversationCount,  int pendingFollowRequestCount,  bool accountRestricted,  bool refreshFailed,  bool flagsPending)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( OnboardingStatus status,  identity.Profile? profile,  String handle,  String displayName,  HandleCheckStatus handleCheckStatus,  String handleCheckMessage,  List<String> handleSuggestions,  bool isSubmitting,  AppException? error,  Set<String> enabledFeatures,  int unreadNotificationCount,  int unreadConversationCount,  int pendingFollowRequestCount,  bool accountRestricted,  bool refreshFailed,  bool flagsPending,  bool photoStepPending)?  $default,) {final _that = this;
 switch (_that) {
 case _OnboardingState() when $default != null:
-return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.handleCheckStatus,_that.handleCheckMessage,_that.handleSuggestions,_that.isSubmitting,_that.error,_that.enabledFeatures,_that.unreadNotificationCount,_that.unreadConversationCount,_that.pendingFollowRequestCount,_that.accountRestricted,_that.refreshFailed,_that.flagsPending);case _:
+return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.handleCheckStatus,_that.handleCheckMessage,_that.handleSuggestions,_that.isSubmitting,_that.error,_that.enabledFeatures,_that.unreadNotificationCount,_that.unreadConversationCount,_that.pendingFollowRequestCount,_that.accountRestricted,_that.refreshFailed,_that.flagsPending,_that.photoStepPending);case _:
   return null;
 
 }
@@ -227,7 +228,7 @@ return $default(_that.status,_that.profile,_that.handle,_that.displayName,_that.
 
 
 class _OnboardingState extends OnboardingState {
-  const _OnboardingState({this.status = OnboardingStatus.unknown, this.profile, this.handle = '', this.displayName = '', this.handleCheckStatus = HandleCheckStatus.idle, this.handleCheckMessage = '',  List<String> handleSuggestions = const <String>[], this.isSubmitting = false, this.error,  Set<String> enabledFeatures = const <String>{}, this.unreadNotificationCount = 0, this.unreadConversationCount = 0, this.pendingFollowRequestCount = 0, this.accountRestricted = false, this.refreshFailed = false, this.flagsPending = false}): _handleSuggestions = handleSuggestions,_enabledFeatures = enabledFeatures,super._();
+  const _OnboardingState({this.status = OnboardingStatus.unknown, this.profile, this.handle = '', this.displayName = '', this.handleCheckStatus = HandleCheckStatus.idle, this.handleCheckMessage = '',  List<String> handleSuggestions = const <String>[], this.isSubmitting = false, this.error,  Set<String> enabledFeatures = const <String>{}, this.unreadNotificationCount = 0, this.unreadConversationCount = 0, this.pendingFollowRequestCount = 0, this.accountRestricted = false, this.refreshFailed = false, this.flagsPending = false, this.photoStepPending = false}): _handleSuggestions = handleSuggestions,_enabledFeatures = enabledFeatures,super._();
   
 
 @override@JsonKey() final  OnboardingStatus status;
@@ -258,6 +259,7 @@ class _OnboardingState extends OnboardingState {
 @override@JsonKey() final  bool accountRestricted;
 @override@JsonKey() final  bool refreshFailed;
 @override@JsonKey() final  bool flagsPending;
+@override@JsonKey() final  bool photoStepPending;
 
 /// Create a copy of OnboardingState
 /// with the given fields replaced by the non-null parameter values.
@@ -269,18 +271,18 @@ _$OnboardingStateCopyWith<_OnboardingState> get copyWith => __$OnboardingStateCo
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _OnboardingState&&(identical(other.status, status) || other.status == status)&&(identical(other.profile, profile) || other.profile == profile)&&(identical(other.handle, handle) || other.handle == handle)&&(identical(other.displayName, displayName) || other.displayName == displayName)&&(identical(other.handleCheckStatus, handleCheckStatus) || other.handleCheckStatus == handleCheckStatus)&&(identical(other.handleCheckMessage, handleCheckMessage) || other.handleCheckMessage == handleCheckMessage)&&const DeepCollectionEquality().equals(other.handleSuggestions, _handleSuggestions)&&(identical(other.isSubmitting, isSubmitting) || other.isSubmitting == isSubmitting)&&(identical(other.error, error) || other.error == error)&&const DeepCollectionEquality().equals(other.enabledFeatures, _enabledFeatures)&&(identical(other.unreadNotificationCount, unreadNotificationCount) || other.unreadNotificationCount == unreadNotificationCount)&&(identical(other.unreadConversationCount, unreadConversationCount) || other.unreadConversationCount == unreadConversationCount)&&(identical(other.pendingFollowRequestCount, pendingFollowRequestCount) || other.pendingFollowRequestCount == pendingFollowRequestCount)&&(identical(other.accountRestricted, accountRestricted) || other.accountRestricted == accountRestricted)&&(identical(other.refreshFailed, refreshFailed) || other.refreshFailed == refreshFailed)&&(identical(other.flagsPending, flagsPending) || other.flagsPending == flagsPending));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _OnboardingState&&(identical(other.status, status) || other.status == status)&&(identical(other.profile, profile) || other.profile == profile)&&(identical(other.handle, handle) || other.handle == handle)&&(identical(other.displayName, displayName) || other.displayName == displayName)&&(identical(other.handleCheckStatus, handleCheckStatus) || other.handleCheckStatus == handleCheckStatus)&&(identical(other.handleCheckMessage, handleCheckMessage) || other.handleCheckMessage == handleCheckMessage)&&const DeepCollectionEquality().equals(other.handleSuggestions, _handleSuggestions)&&(identical(other.isSubmitting, isSubmitting) || other.isSubmitting == isSubmitting)&&(identical(other.error, error) || other.error == error)&&const DeepCollectionEquality().equals(other.enabledFeatures, _enabledFeatures)&&(identical(other.unreadNotificationCount, unreadNotificationCount) || other.unreadNotificationCount == unreadNotificationCount)&&(identical(other.unreadConversationCount, unreadConversationCount) || other.unreadConversationCount == unreadConversationCount)&&(identical(other.pendingFollowRequestCount, pendingFollowRequestCount) || other.pendingFollowRequestCount == pendingFollowRequestCount)&&(identical(other.accountRestricted, accountRestricted) || other.accountRestricted == accountRestricted)&&(identical(other.refreshFailed, refreshFailed) || other.refreshFailed == refreshFailed)&&(identical(other.flagsPending, flagsPending) || other.flagsPending == flagsPending)&&(identical(other.photoStepPending, photoStepPending) || other.photoStepPending == photoStepPending));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,status,profile,handle,displayName,handleCheckStatus,handleCheckMessage,const DeepCollectionEquality().hash(_handleSuggestions),isSubmitting,error,const DeepCollectionEquality().hash(_enabledFeatures),unreadNotificationCount,unreadConversationCount,pendingFollowRequestCount,accountRestricted,refreshFailed,flagsPending);
+    return Object.hash(runtimeType,status,profile,handle,displayName,handleCheckStatus,handleCheckMessage,const DeepCollectionEquality().hash(_handleSuggestions),isSubmitting,error,const DeepCollectionEquality().hash(_enabledFeatures),unreadNotificationCount,unreadConversationCount,pendingFollowRequestCount,accountRestricted,refreshFailed,flagsPending,photoStepPending);
 }
 
 @override
 String toString() {
-    return 'OnboardingState(status: $status, profile: $profile, handle: $handle, displayName: $displayName, handleCheckStatus: $handleCheckStatus, handleCheckMessage: $handleCheckMessage, handleSuggestions: $handleSuggestions, isSubmitting: $isSubmitting, error: $error, enabledFeatures: $enabledFeatures, unreadNotificationCount: $unreadNotificationCount, unreadConversationCount: $unreadConversationCount, pendingFollowRequestCount: $pendingFollowRequestCount, accountRestricted: $accountRestricted, refreshFailed: $refreshFailed, flagsPending: $flagsPending)';
+    return 'OnboardingState(status: $status, profile: $profile, handle: $handle, displayName: $displayName, handleCheckStatus: $handleCheckStatus, handleCheckMessage: $handleCheckMessage, handleSuggestions: $handleSuggestions, isSubmitting: $isSubmitting, error: $error, enabledFeatures: $enabledFeatures, unreadNotificationCount: $unreadNotificationCount, unreadConversationCount: $unreadConversationCount, pendingFollowRequestCount: $pendingFollowRequestCount, accountRestricted: $accountRestricted, refreshFailed: $refreshFailed, flagsPending: $flagsPending, photoStepPending: $photoStepPending)';
 }
 
 
@@ -291,7 +293,7 @@ abstract mixin class _$OnboardingStateCopyWith<$Res> implements $OnboardingState
   factory _$OnboardingStateCopyWith(_OnboardingState value, $Res Function(_OnboardingState) _then) = __$OnboardingStateCopyWithImpl;
 @override @useResult
 $Res call({
- OnboardingStatus status, identity.Profile? profile, String handle, String displayName, HandleCheckStatus handleCheckStatus, String handleCheckMessage, List<String> handleSuggestions, bool isSubmitting, AppException? error, Set<String> enabledFeatures, int unreadNotificationCount, int unreadConversationCount, int pendingFollowRequestCount, bool accountRestricted, bool refreshFailed, bool flagsPending
+ OnboardingStatus status, identity.Profile? profile, String handle, String displayName, HandleCheckStatus handleCheckStatus, String handleCheckMessage, List<String> handleSuggestions, bool isSubmitting, AppException? error, Set<String> enabledFeatures, int unreadNotificationCount, int unreadConversationCount, int pendingFollowRequestCount, bool accountRestricted, bool refreshFailed, bool flagsPending, bool photoStepPending
 });
 
 
@@ -308,7 +310,7 @@ class __$OnboardingStateCopyWithImpl<$Res>
 
 /// Create a copy of OnboardingState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? profile = freezed,Object? handle = null,Object? displayName = null,Object? handleCheckStatus = null,Object? handleCheckMessage = null,Object? handleSuggestions = null,Object? isSubmitting = null,Object? error = freezed,Object? enabledFeatures = null,Object? unreadNotificationCount = null,Object? unreadConversationCount = null,Object? pendingFollowRequestCount = null,Object? accountRestricted = null,Object? refreshFailed = null,Object? flagsPending = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? profile = freezed,Object? handle = null,Object? displayName = null,Object? handleCheckStatus = null,Object? handleCheckMessage = null,Object? handleSuggestions = null,Object? isSubmitting = null,Object? error = freezed,Object? enabledFeatures = null,Object? unreadNotificationCount = null,Object? unreadConversationCount = null,Object? pendingFollowRequestCount = null,Object? accountRestricted = null,Object? refreshFailed = null,Object? flagsPending = null,Object? photoStepPending = null,}) {
   return _then(_OnboardingState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as OnboardingStatus,profile: freezed == profile ? _self.profile : profile // ignore: cast_nullable_to_non_nullable
@@ -326,6 +328,7 @@ as int,pendingFollowRequestCount: null == pendingFollowRequestCount ? _self.pend
 as int,accountRestricted: null == accountRestricted ? _self.accountRestricted : accountRestricted // ignore: cast_nullable_to_non_nullable
 as bool,refreshFailed: null == refreshFailed ? _self.refreshFailed : refreshFailed // ignore: cast_nullable_to_non_nullable
 as bool,flagsPending: null == flagsPending ? _self.flagsPending : flagsPending // ignore: cast_nullable_to_non_nullable
+as bool,photoStepPending: null == photoStepPending ? _self.photoStepPending : photoStepPending // ignore: cast_nullable_to_non_nullable
 as bool,
   ));
 }

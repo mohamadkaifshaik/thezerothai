@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import '../../data/identity_repository.dart';
+import '../../../media/domain/media_feature_flag.dart' show kFeatureMedia;
 import '../../domain/handle_rules.dart';
 import 'onboarding_event.dart';
 import 'onboarding_state.dart';
@@ -36,6 +37,9 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
       emit(state.copyWith(displayName: event.displayName));
     });
     on<OnboardingProfileSubmitted>(_onProfileSubmitted);
+    on<OnboardingPhotoStepFinished>((event, emit) {
+      if (state.photoStepPending) emit(state.copyWith(photoStepPending: false));
+    });
     // Edit profile / change handle: the server's updated profile replaces
     // the one in state so every screen that reads it sees the new name.
     on<OnboardingProfileUpdated>((event, emit) {
@@ -180,10 +184,16 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     identity.GetMeResponse response, {
     bool? isSubmitting,
   }) {
+    // The first GetMe after this session's CreateProfile (the create flow or
+    // the Retry after it): the optional photo step, when media is on.
+    final afterCreate = _profileCreated && !_flagsLoaded;
     _flagsLoaded = true;
     emit(
       state.copyWith(
         status: OnboardingStatus.ready,
+        photoStepPending:
+            state.photoStepPending ||
+            (afterCreate && response.enabledFeatures.contains(kFeatureMedia)),
         profile: response.profile,
         enabledFeatures: response.enabledFeatures.toSet(),
         unreadNotificationCount: response.unreadNotificationCount.toInt(),
