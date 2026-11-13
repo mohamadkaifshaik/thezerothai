@@ -229,6 +229,9 @@ class _CommunityModerationLogScreenState
         MediaQuery.sizeOf(context).width >= AppBreakpoints.tablet;
     return Scaffold(
       body: SafeArea(
+        // The floating bar overlays the page: the scroll view runs behind
+        // it and ends with the bar's inset.
+        bottom: false,
         child: AppMainColumn(
           child: Column(
             children: [

@@ -86,6 +86,9 @@ class _ListsScreenState extends State<ListsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
+        // The floating bar overlays the page: the scroll view runs behind it
+        // and ends with the bar's inset (ShellBottomInsetSliver).
+        bottom: false,
         child: AppMainColumn(
           child: BlocBuilder<ListsCubit, ListsState>(
             bloc: _cubit,
