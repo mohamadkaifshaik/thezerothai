@@ -200,6 +200,14 @@ type Config struct {
 	// you share" strip of a chat. On for the caller on top of FEATURE_BEACONS not globally off.
 	// FEATURE_CHAT_SHARED_PLANS[_ALLOWLIST|_PERCENT], default off in every environment.
 	FeatureChatSharedPlans flags.Spec
+	// FeatureDMPostShare is the flag (wire name `dm_post_share`) gating SendMessageRequest.shared_post_id (a post sent in a
+	// direct message): on for the caller, on top of FEATURE_MESSAGING. While it is globally off every Message.shared_post
+	// card is the unavailable form. FEATURE_DM_POST_SHARE[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureDMPostShare flags.Spec
+	// FeatureShareCount is the flag (wire name `share_count`) gating EngagementService.RecordPostShare (on for the caller);
+	// a direct-message share is recorded for Post.share_count while it is not globally off. Clients show the count only
+	// when it is on for the viewer. FEATURE_SHARE_COUNT[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureShareCount flags.Spec
 	// FeatureReadReceipts is the flag (wire name `read_receipts`) gating read receipts (F3): UpdateProfile.read_receipts=true,
 	// the receipt stamp of MarkConversationRead and Conversation.peer_read_at of ListMessages need it on for the caller (peer_read_at
 	// also for the peer); Profile.read_receipts is shown unless it is globally off. Needs `messaging` for any effect.
@@ -901,6 +909,14 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureDMPostShare, err := flags.LoadSpec("DM_POST_SHARE", "dm_post_share", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
+	featureShareCount, err := flags.LoadSpec("SHARE_COUNT", "share_count", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featureReadReceipts, err := flags.LoadSpec("READ_RECEIPTS", "read_receipts", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1075,6 +1091,8 @@ func Load() (Config, error) {
 		FeatureBeacons:               featureBeacons,
 		FeaturePostBeaconEmbed:       featurePostBeaconEmbed,
 		FeatureChatSharedPlans:       featureChatSharedPlans,
+		FeatureDMPostShare:           featureDMPostShare,
+		FeatureShareCount:            featureShareCount,
 		FeatureReadReceipts:          featureReadReceipts,
 		FeatureProfileExtras:         featureProfileExtras,
 		FeatureProfileTabs:           featureProfileTabs,

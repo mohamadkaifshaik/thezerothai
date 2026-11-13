@@ -19,6 +19,7 @@ import 'package:protobuf/well_known_types/google/protobuf/timestamp.pbjson.dart'
     as $1;
 
 import '../../common/v1/common.pbjson.dart' as $0;
+import '../../posts/v1/posts.pbjson.dart' as $2;
 
 @$core.Deprecated('Use conversationKindDescriptor instead')
 const ConversationKind$json = {
@@ -184,6 +185,7 @@ const MessagePreview$json = {
       '6': '.google.protobuf.Timestamp',
       '10': 'createdAt'
     },
+    {'1': 'shared_post', '3': 5, '4': 1, '5': 8, '10': 'sharedPost'},
   ],
 };
 
@@ -192,7 +194,7 @@ final $typed_data.Uint8List messagePreviewDescriptor = $convert.base64Decode(
     'Cg5NZXNzYWdlUHJldmlldxIYCgdzbmlwcGV0GAEgASgJUgdzbmlwcGV0EhsKCWZyb21fc2VsZh'
     'gCIAEoCFIIZnJvbVNlbGYSOAoFc3RhdGUYAyABKA4yIi5kemVyb3RoLm1lc3NhZ2luZy52MS5N'
     'ZXNzYWdlU3RhdGVSBXN0YXRlEjkKCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idW'
-    'YuVGltZXN0YW1wUgljcmVhdGVkQXQ=');
+    'YuVGltZXN0YW1wUgljcmVhdGVkQXQSHwoLc2hhcmVkX3Bvc3QYBSABKAhSCnNoYXJlZFBvc3Q=');
 
 @$core.Deprecated('Use messageDescriptor instead')
 const Message$json = {
@@ -218,6 +220,14 @@ const Message$json = {
       '6': '.google.protobuf.Timestamp',
       '10': 'createdAt'
     },
+    {
+      '1': 'shared_post',
+      '3': 8,
+      '4': 1,
+      '5': 11,
+      '6': '.dzeroth.posts.v1.EmbeddedPost',
+      '10': 'sharedPost'
+    },
   ],
   '9': [
     {'1': 7, '2': 8},
@@ -230,7 +240,8 @@ final $typed_data.Uint8List messageDescriptor = $convert.base64Decode(
     'ZlcnNhdGlvbklkEhsKCWZyb21fc2VsZhgDIAEoCFIIZnJvbVNlbGYSEgoEdGV4dBgEIAEoCVIE'
     'dGV4dBI4CgVzdGF0ZRgFIAEoDjIiLmR6ZXJvdGgubWVzc2FnaW5nLnYxLk1lc3NhZ2VTdGF0ZV'
     'IFc3RhdGUSOQoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBS'
-    'CWNyZWF0ZWRBdEoECAcQCA==');
+    'CWNyZWF0ZWRBdBI/CgtzaGFyZWRfcG9zdBgIIAEoCzIeLmR6ZXJvdGgucG9zdHMudjEuRW1iZW'
+    'RkZWRQb3N0UgpzaGFyZWRQb3N0SgQIBxAI');
 
 @$core.Deprecated('Use sendMessageRequestDescriptor instead')
 const SendMessageRequest$json = {
@@ -254,6 +265,7 @@ const SendMessageRequest$json = {
       '10': 'recipientUserId'
     },
     {'1': 'text', '3': 4, '4': 1, '5': 9, '10': 'text'},
+    {'1': 'shared_post_id', '3': 5, '4': 1, '5': 9, '10': 'sharedPostId'},
   ],
   '8': [
     {'1': 'target'},
@@ -265,7 +277,7 @@ final $typed_data.Uint8List sendMessageRequestDescriptor = $convert.base64Decode
     'ChJTZW5kTWVzc2FnZVJlcXVlc3QSJwoPaWRlbXBvdGVuY3lfa2V5GAEgASgJUg5pZGVtcG90ZW'
     '5jeUtleRIpCg9jb252ZXJzYXRpb25faWQYAiABKAlIAFIOY29udmVyc2F0aW9uSWQSLAoRcmVj'
     'aXBpZW50X3VzZXJfaWQYAyABKAlIAFIPcmVjaXBpZW50VXNlcklkEhIKBHRleHQYBCABKAlSBH'
-    'RleHRCCAoGdGFyZ2V0');
+    'RleHQSJAoOc2hhcmVkX3Bvc3RfaWQYBSABKAlSDHNoYXJlZFBvc3RJZEIICgZ0YXJnZXQ=');
 
 @$core.Deprecated('Use sendMessageResponseDescriptor instead')
 const SendMessageResponse$json = {
@@ -513,8 +525,13 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.messaging.v1.SendMessageResponse': SendMessageResponse$json,
   '.dzeroth.messaging.v1.Message': Message$json,
   '.google.protobuf.Timestamp': $1.Timestamp$json,
-  '.dzeroth.messaging.v1.Conversation': Conversation$json,
+  '.dzeroth.posts.v1.EmbeddedPost': $2.EmbeddedPost$json,
   '.dzeroth.common.v1.AuthorSnapshot': $0.AuthorSnapshot$json,
+  '.dzeroth.common.v1.MediaRef': $0.MediaRef$json,
+  '.dzeroth.posts.v1.Poll': $2.Poll$json,
+  '.dzeroth.posts.v1.PollChoice': $2.PollChoice$json,
+  '.dzeroth.posts.v1.ArticlePreview': $2.ArticlePreview$json,
+  '.dzeroth.messaging.v1.Conversation': Conversation$json,
   '.dzeroth.messaging.v1.MessagePreview': MessagePreview$json,
   '.dzeroth.messaging.v1.ListConversationsRequest':
       ListConversationsRequest$json,

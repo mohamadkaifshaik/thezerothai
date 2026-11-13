@@ -19,6 +19,7 @@ import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as $1;
 
 import '../../common/v1/common.pb.dart' as $0;
+import '../../posts/v1/posts.pb.dart' as $2;
 import 'messaging.pbenum.dart';
 
 export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
@@ -247,12 +248,14 @@ class MessagePreview extends $pb.GeneratedMessage {
     $core.bool? fromSelf,
     MessageState? state,
     $1.Timestamp? createdAt,
+    $core.bool? sharedPost,
   }) {
     final result = MessagePreview._();
     if (snippet != null) result.snippet = snippet;
     if (fromSelf != null) result.fromSelf = fromSelf;
     if (state != null) result.state = state;
     if (createdAt != null) result.createdAt = createdAt;
+    if (sharedPost != null) result.sharedPost = sharedPost;
     return result;
   }
 
@@ -276,6 +279,7 @@ class MessagePreview extends $pb.GeneratedMessage {
         enumValues: MessageState.values)
     ..aOM<$1.Timestamp>(4, _omitFieldNames ? '' : 'createdAt',
         subBuilder: $1.Timestamp.$_createMessage)
+    ..aOB(5, _omitFieldNames ? '' : 'sharedPost')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -339,6 +343,18 @@ class MessagePreview extends $pb.GeneratedMessage {
   void clearCreatedAt() => $_clearField(4);
   @$pb.TagNumber(4)
   $1.Timestamp ensureCreatedAt() => $_ensure(3);
+
+  /// True when the message shares a post. The snippet is then the sender's text (the caption or the post URL), never
+  /// the post's own text: the preview is frozen on the entry and must not outlive a delete, a takedown or a protect.
+  /// Render "Shared a post" when the snippet is the post URL.
+  @$pb.TagNumber(5)
+  $core.bool get sharedPost => $_getBF(4);
+  @$pb.TagNumber(5)
+  set sharedPost($core.bool value) => $_setBool(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasSharedPost() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearSharedPost() => $_clearField(5);
 }
 
 class Message extends $pb.GeneratedMessage {
@@ -349,6 +365,7 @@ class Message extends $pb.GeneratedMessage {
     $core.String? text,
     MessageState? state,
     $1.Timestamp? createdAt,
+    $2.EmbeddedPost? sharedPost,
   }) {
     final result = Message._();
     if (id != null) result.id = id;
@@ -357,6 +374,7 @@ class Message extends $pb.GeneratedMessage {
     if (text != null) result.text = text;
     if (state != null) result.state = state;
     if (createdAt != null) result.createdAt = createdAt;
+    if (sharedPost != null) result.sharedPost = sharedPost;
     return result;
   }
 
@@ -382,6 +400,8 @@ class Message extends $pb.GeneratedMessage {
         enumValues: MessageState.values)
     ..aOM<$1.Timestamp>(6, _omitFieldNames ? '' : 'createdAt',
         subBuilder: $1.Timestamp.$_createMessage)
+    ..aOM<$2.EmbeddedPost>(8, _omitFieldNames ? '' : 'sharedPost',
+        subBuilder: $2.EmbeddedPost.$_createMessage)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -463,6 +483,25 @@ class Message extends $pb.GeneratedMessage {
   void clearCreatedAt() => $_clearField(6);
   @$pb.TagNumber(6)
   $1.Timestamp ensureCreatedAt() => $_ensure(5);
+
+  /// The post this message shares (SendMessageRequest.shared_post_id), decided for the reader of THIS response, live
+  /// (never a copy frozen at send time). When the reader may see the post by the GetPost rules every field is its
+  /// current value; otherwise only post_id and unavailable = true are set ("Post unavailable"), one form for every
+  /// cause: deleted, hidden by a moderator, author suspended or deleting, a block in either direction between the
+  /// reader and the author (or a QUOTE's embedded author), a protected author the reader does not follow. A mute is not
+  /// a block: the card is shown. Unset when the message shares no post and on a tombstone (state DELETED_ACCOUNT or
+  /// REMOVED). EmbeddedPost.author is a frozen-copy AuthorSnapshot (is_private false). A tap opens /post/:id
+  /// (PostService.GetPost decides again).
+  @$pb.TagNumber(8)
+  $2.EmbeddedPost get sharedPost => $_getN(6);
+  @$pb.TagNumber(8)
+  set sharedPost($2.EmbeddedPost value) => $_setField(8, value);
+  @$pb.TagNumber(8)
+  $core.bool hasSharedPost() => $_has(6);
+  @$pb.TagNumber(8)
+  void clearSharedPost() => $_clearField(8);
+  @$pb.TagNumber(8)
+  $2.EmbeddedPost ensureSharedPost() => $_ensure(6);
 }
 
 enum SendMessageRequest_Target { conversationId, recipientUserId, notSet }
@@ -473,12 +512,14 @@ class SendMessageRequest extends $pb.GeneratedMessage {
     $core.String? conversationId,
     $core.String? recipientUserId,
     $core.String? text,
+    $core.String? sharedPostId,
   }) {
     final result = SendMessageRequest._();
     if (idempotencyKey != null) result.idempotencyKey = idempotencyKey;
     if (conversationId != null) result.conversationId = conversationId;
     if (recipientUserId != null) result.recipientUserId = recipientUserId;
     if (text != null) result.text = text;
+    if (sharedPostId != null) result.sharedPostId = sharedPostId;
     return result;
   }
 
@@ -507,6 +548,7 @@ class SendMessageRequest extends $pb.GeneratedMessage {
     ..aOS(2, _omitFieldNames ? '' : 'conversationId')
     ..aOS(3, _omitFieldNames ? '' : 'recipientUserId')
     ..aOS(4, _omitFieldNames ? '' : 'text')
+    ..aOS(5, _omitFieldNames ? '' : 'sharedPostId')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -568,7 +610,8 @@ class SendMessageRequest extends $pb.GeneratedMessage {
   @$pb.TagNumber(3)
   void clearRecipientUserId() => $_clearField(3);
 
-  /// NFC, <= 280 code points, <= 10 lines (the post grammar).
+  /// NFC, <= 280 code points, <= 10 lines (the post grammar). Required, also when shared_post_id is set: the caption,
+  /// or the canonical post URL when the user typed none.
   @$pb.TagNumber(4)
   $core.String get text => $_getSZ(3);
   @$pb.TagNumber(4)
@@ -577,6 +620,17 @@ class SendMessageRequest extends $pb.GeneratedMessage {
   $core.bool hasText() => $_has(3);
   @$pb.TagNumber(4)
   void clearText() => $_clearField(4);
+
+  /// Optional: share this post in the message (FEATURE_DM_POST_SHARE). 19-digit post id; a REPOST id shares its
+  /// original. Rules in the SendMessage comment.
+  @$pb.TagNumber(5)
+  $core.String get sharedPostId => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set sharedPostId($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasSharedPostId() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearSharedPostId() => $_clearField(5);
 }
 
 class SendMessageResponse extends $pb.GeneratedMessage {
@@ -1460,6 +1514,29 @@ class MessagingServiceApi {
   /// this path), only when the recipient's side is accepted and not silent; a request never pushes. The push is
   /// generic ("New message") and carries only the conversation id (NOTIFICATION_TYPE_MESSAGE).
   /// A refused send writes nothing.
+  /// Sharing a post (shared_post_id set): every rule above applies unchanged (blocks, DM policy, requests, caps, push).
+  /// In addition, before the send transaction and after the recipient checks:
+  /// - Flag FEATURE_DM_POST_SHARE (wire name "dm_post_share"): on for the caller (else FAILED_PRECONDITION +
+  ///   FEATURE_DISABLED, metadata["feature"] = "dm_post_share", before any lookup); FEATURE_POSTS must be on.
+  /// - shared_post_id: 19 digits (else VALIDATION "shared_post_id", before any lookup). A REPOST id shares its original;
+  ///   the stored and returned id is the original's.
+  /// - The post must be visible to the caller by the GetPost rules (missing, deleted, hidden, suspended or deleting
+  ///   author, an author who blocks the caller, a QUOTE or REPOST whose embedded author blocks the caller => NOT_FOUND
+  ///   "post not found", byte-identical to GetPost, writing nothing).
+  /// - Protected authors: a post by a protected account may be sent only by that account (the RepostPost rule); any
+  ///   other caller who can see it => FAILED_PRECONDITION + PROTECTED_ACCOUNT, writing nothing.
+  /// - The client sends a text even without a caption: the canonical post URL (so a client that predates the card shows a
+  ///   link that opens through GetPost). A client that renders shared_post hides a text equal to that URL.
+  /// - Idempotency: shared_post_id is part of the request body, so the same key with a different post => VALIDATION
+  ///   "idempotency_key", like a different text.
+  /// - The message document stores the post id only, never a copy of the post: Message.shared_post is decided for each
+  ///   reader at read time (ListMessages). The inbox preview never carries post text (MessagePreview.shared_post).
+  /// - After the commit (never for a replay or a refusal, and never inside the send transaction, so a hot post cannot
+  ///   abort a DM) the share is recorded once per (caller, post) for Post.share_count when FEATURE_SHARE_COUNT is not
+  ///   globally off and the caller is not the post's author: best effort, a failure is logged and never fails the send.
+  /// Worst case added by a share: the post visibility check (cache-first: the post, its author's status, the caller's
+  /// graph already read, the protected set; 0-3 reads), then on a first share by this caller of this post 1 read
+  /// (postShares marker) + 2 writes (marker Create, posts.shareCount Increment); 1 read and 0 writes otherwise.
   $async.Future<SendMessageResponse> sendMessage(
           $pb.ClientContext? ctx, SendMessageRequest request) =>
       _client.invoke<SendMessageResponse>(ctx, 'MessagingService',
@@ -1496,6 +1573,14 @@ class MessagingServiceApi {
   /// RATE_LIMITED answer pauses polling.
   /// Flag: not globally off. Rate limit: RATE_LIMIT_MESSAGES_READ_PER_MIN 30/min/uid per instance (90/min at 3),
   /// shared with ListConversations.
+  /// Shared posts: every returned VISIBLE message that carries a post gets Message.shared_post, decided for the CALLER
+  /// (the reader, sender or recipient alike) by the GetPost rules at read time, on every page kind including a since
+  /// poll. Only the page's shared post ids are hydrated, in one batched cache-first read (posts.GetMany: at most one
+  /// read per distinct post not in the instance cache, plus its author's status through the identity directory, 60 s);
+  /// the caller's graph snapshot (60 s) is read only when the page carries a shared post; a caller past the blockedBy
+  /// cap also consults each card author's graph (60 s, at most one per distinct author), as GetPost does. A since poll with no new
+  /// shared post therefore still reads no post, profile or graph. While FEATURE_DM_POST_SHARE is globally off every
+  /// card is the unavailable form.
   $async.Future<ListMessagesResponse> listMessages(
           $pb.ClientContext? ctx, ListMessagesRequest request) =>
       _client.invoke<ListMessagesResponse>(ctx, 'MessagingService',

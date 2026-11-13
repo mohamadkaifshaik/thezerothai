@@ -2,10 +2,12 @@
 //
 // Source: dzeroth/engagement/v1/engagement.proto
 
-// Engagement: likes and reposts (Phase 1), bookmarks and poll votes. Owner
+// Engagement: likes and reposts (Phase 1), bookmarks, poll votes and share markers. Owner
 // module: backend/internal/engagement.
 // Collections owned: likes/{postId}_{uid}, reposts/{postId}_{uid}, userLikes/{uid}, and bookmarks at
-// users/{uid}/bookmarks/{postId}, and pollVotes/{postId}_{uid}. The counters (likeCount,
+// users/{uid}/bookmarks/{postId}, pollVotes/{postId}_{uid}, and postShares/{postId}_{uid} (one marker per account that
+// shared a post, behind Post.share_count; written by RecordPostShare and by messaging's post share through an
+// engagement seam). The counters (likeCount,
 // repostCount) live on the parent posts/{postId} doc and are changed with FieldValue.Increment in the same atomic
 // unit as the like/repost doc. A repost is also a posts/{id} doc with kind REPOST so pull timelines include it with
 // no extra query; a quote is CreatePost(quote_of_post_id) in dzeroth.posts.v1, not an RPC here.
@@ -80,6 +82,9 @@ const (
 	// EngagementServiceVotePollProcedure is the fully-qualified name of the EngagementService's
 	// VotePoll RPC.
 	EngagementServiceVotePollProcedure = "/dzeroth.engagement.v1.EngagementService/VotePoll"
+	// EngagementServiceRecordPostShareProcedure is the fully-qualified name of the EngagementService's
+	// RecordPostShare RPC.
+	EngagementServiceRecordPostShareProcedure = "/dzeroth.engagement.v1.EngagementService/RecordPostShare"
 )
 
 // EngagementServiceClient is a client for the dzeroth.engagement.v1.EngagementService service.
@@ -227,6 +232,34 @@ type EngagementServiceClient interface {
 	// but not stored; pollVotes/{postId}_{uid} is the record.
 	// All lookups but the interceptor's are cached 60 s. A replay, ALREADY_VOTED and a refusal at step 5 write nothing.
 	VotePoll(context.Context, *connect.Request[v1.VotePollRequest]) (*connect.Response[v1.VotePollResponse], error)
+	// Report that the caller shared a post outside the app: "Copy link" succeeded, or the native share sheet reported a
+	// completed share (not a dismissal; where the platform cannot tell, the client does not call). Feeds Post.share_count.
+	// Client-reported and therefore unverifiable: it counts at most ONCE per (caller, post), merged with direct-message
+	// shares (MessagingService.SendMessage shared_post_id) into one marker, so one account can move a post's count by at
+	// most 1 however it shares and however often it calls. The author's own shares are never counted.
+	// Order (each refusal writes nothing):
+	//  1. Interceptors: per-uid bucket RATE_LIMIT_SHARES_PER_MIN (20/min per instance, at most 60/min with 3 instances)
+	//     and the in-memory daily cap SHARES_RECORDED_PER_DAY (300 per uid per instance, counting every call) =>
+	//     RESOURCE_EXHAUSTED + RATE_LIMITED, metadata["limit"] = "shares_daily" for the cap. DEGRADED_MODE=readonly =>
+	//     UNAVAILABLE + DEGRADED_MODE.
+	//  2. Flags, before any lookup: FEATURE_SHARE_COUNT (wire name "share_count") on for the caller, else
+	//     FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "share_count". FEATURE_POSTS must be on.
+	//  3. Shape, before any lookup: idempotency_key format, post_id 19 digits, channel not UNSPECIFIED, verified email or
+	//     Google/Apple provider; else VALIDATION (field "idempotency_key" | "post_id" | "channel") or EMAIL_NOT_VERIFIED.
+	//  4. The post must be visible to the caller by the GetPost rules (else NOT_FOUND "post not found", byte-identical); a
+	//     REPOST id records a share of its original. A protected author's post may be copied by a follower who can see it
+	//     (the link opens only for followers), but it is not counted: success, nothing written.
+	//  5. The caller is the author => success, nothing written.
+	//  6. One read of postShares/{postId}_{uid}; present => success, nothing written (the replay and the repeat). Absent
+	//     => one batch: Create postShares/{postId}_{uid} {postId, uid, createdAt} and Increment posts/{id}.shareCount
+	//     (Exists precondition). A concurrent first share loses the Create and commits nothing, so the count moves once.
+	//
+	// Idempotency (the like rule): state-setting and keyed by (post_id, caller); the key is validated but not stored.
+	// channel is logged as a request field for aggregate metrics and is NOT stored.
+	// Worst case: the visibility check (cache-first, 0-3 reads) + 1 read + 2 writes on a first share; 1 read otherwise.
+	// A hot post's counter contention after the bounded retry => UNAVAILABLE with retry_after: the client drops it (the
+	// share itself already happened; never retry in a loop).
+	RecordPostShare(context.Context, *connect.Request[v1.RecordPostShareRequest]) (*connect.Response[v1.RecordPostShareResponse], error)
 }
 
 // NewEngagementServiceClient constructs a client for the dzeroth.engagement.v1.EngagementService
@@ -296,20 +329,27 @@ func NewEngagementServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(engagementServiceMethods.ByName("VotePoll")),
 			connect.WithClientOptions(opts...),
 		),
+		recordPostShare: connect.NewClient[v1.RecordPostShareRequest, v1.RecordPostShareResponse](
+			httpClient,
+			baseURL+EngagementServiceRecordPostShareProcedure,
+			connect.WithSchema(engagementServiceMethods.ByName("RecordPostShare")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // engagementServiceClient implements EngagementServiceClient.
 type engagementServiceClient struct {
-	likePost       *connect.Client[v1.LikePostRequest, v1.LikePostResponse]
-	unlikePost     *connect.Client[v1.UnlikePostRequest, v1.UnlikePostResponse]
-	repostPost     *connect.Client[v1.RepostPostRequest, v1.RepostPostResponse]
-	undoRepost     *connect.Client[v1.UndoRepostRequest, v1.UndoRepostResponse]
-	addBookmark    *connect.Client[v1.AddBookmarkRequest, v1.AddBookmarkResponse]
-	removeBookmark *connect.Client[v1.RemoveBookmarkRequest, v1.RemoveBookmarkResponse]
-	listBookmarks  *connect.Client[v1.ListBookmarksRequest, v1.ListBookmarksResponse]
-	listLikedPosts *connect.Client[v1.ListLikedPostsRequest, v1.ListLikedPostsResponse]
-	votePoll       *connect.Client[v1.VotePollRequest, v1.VotePollResponse]
+	likePost        *connect.Client[v1.LikePostRequest, v1.LikePostResponse]
+	unlikePost      *connect.Client[v1.UnlikePostRequest, v1.UnlikePostResponse]
+	repostPost      *connect.Client[v1.RepostPostRequest, v1.RepostPostResponse]
+	undoRepost      *connect.Client[v1.UndoRepostRequest, v1.UndoRepostResponse]
+	addBookmark     *connect.Client[v1.AddBookmarkRequest, v1.AddBookmarkResponse]
+	removeBookmark  *connect.Client[v1.RemoveBookmarkRequest, v1.RemoveBookmarkResponse]
+	listBookmarks   *connect.Client[v1.ListBookmarksRequest, v1.ListBookmarksResponse]
+	listLikedPosts  *connect.Client[v1.ListLikedPostsRequest, v1.ListLikedPostsResponse]
+	votePoll        *connect.Client[v1.VotePollRequest, v1.VotePollResponse]
+	recordPostShare *connect.Client[v1.RecordPostShareRequest, v1.RecordPostShareResponse]
 }
 
 // LikePost calls dzeroth.engagement.v1.EngagementService.LikePost.
@@ -355,6 +395,11 @@ func (c *engagementServiceClient) ListLikedPosts(ctx context.Context, req *conne
 // VotePoll calls dzeroth.engagement.v1.EngagementService.VotePoll.
 func (c *engagementServiceClient) VotePoll(ctx context.Context, req *connect.Request[v1.VotePollRequest]) (*connect.Response[v1.VotePollResponse], error) {
 	return c.votePoll.CallUnary(ctx, req)
+}
+
+// RecordPostShare calls dzeroth.engagement.v1.EngagementService.RecordPostShare.
+func (c *engagementServiceClient) RecordPostShare(ctx context.Context, req *connect.Request[v1.RecordPostShareRequest]) (*connect.Response[v1.RecordPostShareResponse], error) {
+	return c.recordPostShare.CallUnary(ctx, req)
 }
 
 // EngagementServiceHandler is an implementation of the dzeroth.engagement.v1.EngagementService
@@ -503,6 +548,34 @@ type EngagementServiceHandler interface {
 	// but not stored; pollVotes/{postId}_{uid} is the record.
 	// All lookups but the interceptor's are cached 60 s. A replay, ALREADY_VOTED and a refusal at step 5 write nothing.
 	VotePoll(context.Context, *connect.Request[v1.VotePollRequest]) (*connect.Response[v1.VotePollResponse], error)
+	// Report that the caller shared a post outside the app: "Copy link" succeeded, or the native share sheet reported a
+	// completed share (not a dismissal; where the platform cannot tell, the client does not call). Feeds Post.share_count.
+	// Client-reported and therefore unverifiable: it counts at most ONCE per (caller, post), merged with direct-message
+	// shares (MessagingService.SendMessage shared_post_id) into one marker, so one account can move a post's count by at
+	// most 1 however it shares and however often it calls. The author's own shares are never counted.
+	// Order (each refusal writes nothing):
+	//  1. Interceptors: per-uid bucket RATE_LIMIT_SHARES_PER_MIN (20/min per instance, at most 60/min with 3 instances)
+	//     and the in-memory daily cap SHARES_RECORDED_PER_DAY (300 per uid per instance, counting every call) =>
+	//     RESOURCE_EXHAUSTED + RATE_LIMITED, metadata["limit"] = "shares_daily" for the cap. DEGRADED_MODE=readonly =>
+	//     UNAVAILABLE + DEGRADED_MODE.
+	//  2. Flags, before any lookup: FEATURE_SHARE_COUNT (wire name "share_count") on for the caller, else
+	//     FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "share_count". FEATURE_POSTS must be on.
+	//  3. Shape, before any lookup: idempotency_key format, post_id 19 digits, channel not UNSPECIFIED, verified email or
+	//     Google/Apple provider; else VALIDATION (field "idempotency_key" | "post_id" | "channel") or EMAIL_NOT_VERIFIED.
+	//  4. The post must be visible to the caller by the GetPost rules (else NOT_FOUND "post not found", byte-identical); a
+	//     REPOST id records a share of its original. A protected author's post may be copied by a follower who can see it
+	//     (the link opens only for followers), but it is not counted: success, nothing written.
+	//  5. The caller is the author => success, nothing written.
+	//  6. One read of postShares/{postId}_{uid}; present => success, nothing written (the replay and the repeat). Absent
+	//     => one batch: Create postShares/{postId}_{uid} {postId, uid, createdAt} and Increment posts/{id}.shareCount
+	//     (Exists precondition). A concurrent first share loses the Create and commits nothing, so the count moves once.
+	//
+	// Idempotency (the like rule): state-setting and keyed by (post_id, caller); the key is validated but not stored.
+	// channel is logged as a request field for aggregate metrics and is NOT stored.
+	// Worst case: the visibility check (cache-first, 0-3 reads) + 1 read + 2 writes on a first share; 1 read otherwise.
+	// A hot post's counter contention after the bounded retry => UNAVAILABLE with retry_after: the client drops it (the
+	// share itself already happened; never retry in a loop).
+	RecordPostShare(context.Context, *connect.Request[v1.RecordPostShareRequest]) (*connect.Response[v1.RecordPostShareResponse], error)
 }
 
 // NewEngagementServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -568,6 +641,12 @@ func NewEngagementServiceHandler(svc EngagementServiceHandler, opts ...connect.H
 		connect.WithSchema(engagementServiceMethods.ByName("VotePoll")),
 		connect.WithHandlerOptions(opts...),
 	)
+	engagementServiceRecordPostShareHandler := connect.NewUnaryHandler(
+		EngagementServiceRecordPostShareProcedure,
+		svc.RecordPostShare,
+		connect.WithSchema(engagementServiceMethods.ByName("RecordPostShare")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.engagement.v1.EngagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EngagementServiceLikePostProcedure:
@@ -588,6 +667,8 @@ func NewEngagementServiceHandler(svc EngagementServiceHandler, opts ...connect.H
 			engagementServiceListLikedPostsHandler.ServeHTTP(w, r)
 		case EngagementServiceVotePollProcedure:
 			engagementServiceVotePollHandler.ServeHTTP(w, r)
+		case EngagementServiceRecordPostShareProcedure:
+			engagementServiceRecordPostShareHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -631,4 +712,8 @@ func (UnimplementedEngagementServiceHandler) ListLikedPosts(context.Context, *co
 
 func (UnimplementedEngagementServiceHandler) VotePoll(context.Context, *connect.Request[v1.VotePollRequest]) (*connect.Response[v1.VotePollResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.engagement.v1.EngagementService.VotePoll is not implemented"))
+}
+
+func (UnimplementedEngagementServiceHandler) RecordPostShare(context.Context, *connect.Request[v1.RecordPostShareRequest]) (*connect.Response[v1.RecordPostShareResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.engagement.v1.EngagementService.RecordPostShare is not implemented"))
 }

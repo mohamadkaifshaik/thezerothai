@@ -133,3 +133,46 @@ func TestFeatureRegistry_IncludesUITablet(t *testing.T) {
 		})
 	}
 }
+
+// TestFeatureRegistry_IncludesShareFlags (shares design §4.6): every mode of FEATURE_DM_POST_SHARE and
+// FEATURE_SHARE_COUNT reaches the registry Build wires, and unset is off for everyone.
+func TestFeatureRegistry_IncludesShareFlags(t *testing.T) {
+	for _, flag := range []struct{ env, wire string }{
+		{"FEATURE_DM_POST_SHARE", "dm_post_share"},
+		{"FEATURE_SHARE_COUNT", "share_count"},
+	} {
+		for _, tc := range []struct {
+			name        string
+			mode, list  string
+			percent     string
+			inA, inZ    bool
+			globallyOff bool
+		}{
+			{"unset is off", "", "", "", false, false, true},
+			{"off", "off", "", "", false, false, true},
+			{"allowlist", "allowlist", "uid-a", "", true, false, false},
+			{"percent 100", "percent", "", "100", true, true, false},
+			{"on", "on", "", "", true, true, false},
+		} {
+			t.Run(flag.wire+"/"+tc.name, func(t *testing.T) {
+				t.Setenv(flag.env, tc.mode)
+				t.Setenv(flag.env+"_ALLOWLIST", tc.list)
+				t.Setenv(flag.env+"_PERCENT", tc.percent)
+				cfg, err := config.Load()
+				if err != nil {
+					t.Fatalf("config.Load: %v", err)
+				}
+				reg := featureRegistry(cfg)
+				if got := reg.Enabled("uid-a", flag.wire); got != tc.inA {
+					t.Errorf("uid-a enabled = %v, want %v", got, tc.inA)
+				}
+				if got := reg.Enabled("uid-z", flag.wire); got != tc.inZ {
+					t.Errorf("uid-z enabled = %v, want %v", got, tc.inZ)
+				}
+				if got := reg.GloballyOff(flag.wire); got != tc.globallyOff {
+					t.Errorf("globally off = %v, want %v", got, tc.globallyOff)
+				}
+			})
+		}
+	}
+}
